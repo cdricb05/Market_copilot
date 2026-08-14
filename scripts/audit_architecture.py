@@ -3186,6 +3186,270 @@ def check_operator_ux_consolidation_ownership(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Stage 21 — outcome intelligence / execution lineage / durable close /
+# environment isolation ownership.
+# --------------------------------------------------------------------------- #
+S21_OUTCOME_KERNEL = "engine/reassessment_outcomes.py"
+S21_OUTCOME_OWNER = "api/reassessment_outcomes.py"
+S21_LINEAGE_KERNEL = "engine/execution_lineage.py"
+S21_LINEAGE_OWNER = "api/execution_lineage.py"
+S21_ENV_OWNER = "api/environment_isolation.py"
+S21_CLOSE_OWNER = "api/daily_close.py"
+S21_REBALANCE_OWNER = "api/rebalance_execution.py"
+S21_STATE_OWNER = "api/portfolio_state.py"
+
+S21_ROUTES = ("/v1/research/reassessment-outcomes",
+              "/v1/research/reassessment-outcomes/history",
+              "/v1/operations/rebalance/execution-lineage")
+
+#: A GET-only Stage-21 surface. Any of these would make it an action.
+S21_FORBIDDEN_ROUTE_SUBSTR = ("reassessment-outcomes/refresh",
+                              "reassessment-outcomes/capture",
+                              "reassessment-outcomes/apply",
+                              "reassessment-outcomes/promote",
+                              "execution-lineage/repair")
+
+#: Nothing in a Stage-21 module may execute, approve, promote or recalibrate.
+S21_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "create_order(",
+                       "run_fill_cycle(", "confirm_rebalance_order_plan(",
+                       "run_daily_close(", "promote_model(", "promote_challenger(",
+                       "recalibrate(", "approve_proposal(")
+
+#: The kernels must stay PURE — no io, no clock, no environment.
+S21_KERNEL_IMPURITY = ("import requests", "urllib", "sqlalchemy", "os.environ",
+                       "open(", "Path(", "datetime.now", "date.today")
+
+#: Stage 21 must REUSE the canonical owners, never fork them.
+S21_MUST_DELEGATE = ("forward_prediction_skill", "execution_lineage",
+                     "portfolio_reassessment")
+
+#: A second price-history / horizon / NAV / transaction-cost owner is a blocking defect.
+S21_SECOND_OWNER_DEFS = ("def read_price_store(", "def eligible_calendar(",
+                         "def book_nav(", "def load_performance(",
+                         "COST_RATE_PER_SIDE =", "HORIZONS = ")
+
+
+def check_stage21_outcome_intelligence(files: list[Path]) -> dict:
+    """Stage 21 ownership guard.
+
+    (1)  ONE outcome calculation owner + ONE outcome persistence/composition owner;
+    (2)  ONE execution-lineage owner; execution identity is read from the immutable
+         ledger, never recomputed from the current target;
+    (3)  the kernels stay pure (no io / clock / environment / network);
+    (4)  NO second forward-evidence, price-history, horizon, NAV or transaction-cost
+         owner is introduced;
+    (5)  every Stage-21 route is GET; no refresh/capture/apply/promote action exists;
+    (6)  maturation happens in the ONE canonical place (the Daily Close evidence
+         capture) — there is no operator button and no second trigger;
+    (7)  the durable Daily Close run contract exists in the EXISTING close owner (no
+         second Daily Close), with an explicit outcome vocabulary and retry contract;
+    (8)  Stage-19 lineage stays immutable and the plan cohorts stay separated;
+    (9)  production startup fails closed on acceptance/temp store roots;
+    (10) no automatic policy write, model promotion or recalibration anywhere.
+    """
+    ok_src = _read(S21_OUTCOME_KERNEL)
+    oo_src = _read(S21_OUTCOME_OWNER)
+    lk_src = _read(S21_LINEAGE_KERNEL)
+    lo_src = _read(S21_LINEAGE_OWNER)
+    env_src = _read(S21_ENV_OWNER)
+    close_src = _read(S21_CLOSE_OWNER)
+    reb_src = _read(S21_REBALANCE_OWNER)
+    state_src = _read(S21_STATE_OWNER)
+    app_src = _read(APP_MODULE)
+    routes = check_routes()["routes"]
+
+    kernels_present = bool(ok_src) and bool(lk_src)
+    owners_present = bool(oo_src) and bool(lo_src)
+    env_owner_present = bool(env_src)
+
+    # (1)/(2) exactly ONE declared owner of each kind across the tree. The legitimate
+    # owner of each token is excluded by name, as is this audit script (which
+    # necessarily contains every token it searches for).
+    _AUDIT_SELF = "scripts/audit_architecture.py"
+
+    def _declaring(token: str, *, allow: tuple = ()) -> list[str]:
+        skip = set(allow) | {S21_OUTCOME_KERNEL, S21_OUTCOME_OWNER, S21_LINEAGE_KERNEL,
+                             S21_LINEAGE_OWNER, _AUDIT_SELF}
+        return sorted(_rel(fp) for fp in files
+                      if _rel(fp) not in skip and token in _read(_rel(fp)))
+
+    second_calculation_owner_modules = _declaring(
+        'CALCULATION_OWNER = "engine.reassessment_outcomes"')
+    second_composition_owner_modules = _declaring('OWNER = "api.reassessment_outcomes"')
+    second_lineage_owner_modules = _declaring(
+        'CALCULATION_OWNER = "engine.execution_lineage"')
+
+    # (3) kernel purity.
+    kernel_impurity = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((S21_OUTCOME_KERNEL, ok_src), (S21_LINEAGE_KERNEL, lk_src))
+        for t in S21_KERNEL_IMPURITY if t in src)
+
+    # (4) no second canonical owner forked into a Stage-21 module.
+    second_owner_defs = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((S21_OUTCOME_KERNEL, ok_src), (S21_OUTCOME_OWNER, oo_src),
+                         (S21_LINEAGE_KERNEL, lk_src), (S21_LINEAGE_OWNER, lo_src))
+        for t in S21_SECOND_OWNER_DEFS if t in src)
+    missing_delegation = sorted(t for t in S21_MUST_DELEGATE if t not in oo_src)
+
+    # (5) GET-only surface.
+    s21_routes = [r for r in routes
+                  if r["path"] in S21_ROUTES
+                  or r["path"].startswith("/v1/research/reassessment-outcomes")]
+    route_methods = sorted({r["method"] for r in s21_routes})
+    missing_routes = sorted(p for p in S21_ROUTES
+                            if not any(r["path"] == p for r in s21_routes))
+    forbidden_routes_present = sorted(
+        s for s in S21_FORBIDDEN_ROUTE_SUBSTR
+        if any(s in r["path"] for r in routes))
+
+    # (6) exactly ONE maturation trigger, inside the close.
+    maturation_in_close = ("_run_outcome_capture" in close_src
+                           and "capture_for_daily_close" in close_src)
+    # No SECOND Stage-21 outcome capture anywhere. (api.forward_prediction_skill has
+    # its own `capture_for_daily_close` for FORWARD-MODEL evidence — a different
+    # concern with a different owner — so the token searched here is Stage-21 specific.)
+    outcome_capture_defs = _declaring("def capture_matured_outcomes(")
+    no_operator_refresh_button = not any(
+        t in _read(UI_FILE) for t in ("refreshOutcomeEvidence", "Refresh Outcome Evidence"))
+
+    # (7) the durable close run contract lives in the EXISTING close owner.
+    close_run_tokens = ("RUN_NOT_STARTED", "RUN_RUNNING", "RUN_COMPLETED",
+                        "RUN_FAILED_RECOVERABLE", "RUN_FAILED_TERMINAL",
+                        "safe_retry_allowed", "idempotency_key", "writes_occurred",
+                        "client_timeout_is_not_an_outcome")
+    missing_close_run_tokens = sorted(t for t in close_run_tokens
+                                      if t not in close_src)
+    # api/daily_close.py is the ONE legitimate Daily Close owner; anything else
+    # defining run_daily_close would be a second close.
+    second_close_owner_defs = _declaring("def run_daily_close(",
+                                         allow=(S21_CLOSE_OWNER,))
+    close_single_flight = "_CLOSE_LOCK" in close_src
+
+    # (8) lineage immutability + chronological plan selection.
+    lineage_immutable = all(t in lk_src for t in (
+        "recovered_from_immutable_ledger", "derived_from_current_target",
+        "STATE_SUPERSEDED_CANCELLED"))
+    rebalance_composes_lineage = "latest_completed_rebalance" in reb_src
+    # The hash-ordered plan selection that ranked the DEFECTIVE plan first must be gone.
+    lexicographic_plan_selection = ("plan_ids[-1]" in reb_src
+                                    or "live_plan_ids[-1]" in reb_src)
+
+    # (9) production startup fails closed on acceptance/temp roots.
+    startup_preflight = ("assert_production_store_roots" in app_src
+                         and "_STORE_ROOT_PREFLIGHT" in app_src)
+    env_fail_closed = "raise RuntimeError" in env_src
+    acceptance_optin = "PAPER_TRADER_ACCEPTANCE_MODE" in env_src
+    acceptance_server_scoped = (
+        'os.environ["PAPER_TRADER_ACCEPTANCE_MODE"] = "1"' in _read(ACCEPT_SERVER)
+        and "setx" not in _read(ACCEPT_SERVER)
+        and "SetEnvironmentVariable" not in _read(ACCEPT_SERVER))
+
+    # (10) nothing executes, approves, promotes or recalibrates.
+    forbidden_calls = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((S21_OUTCOME_KERNEL, ok_src), (S21_OUTCOME_OWNER, oo_src),
+                         (S21_LINEAGE_KERNEL, lk_src), (S21_LINEAGE_OWNER, lo_src),
+                         (S21_ENV_OWNER, env_src))
+        for t in S21_FORBIDDEN_CALLS if t in src)
+    declares_no_policy_write = all(t in oo_src for t in (
+        '"changed_policy": False', '"promoted_model": False',
+        '"recalibrated_model": False'))
+    kernel_declares_no_tuning = all(t in ok_src for t in (
+        '"changes_policy": False', "recommends_manual_review_only"))
+
+    # Workstream 0E — ONE economic fingerprint, and no self-referential comparison.
+    economic_owner_present = ("def economic_state_hash(" in state_src
+                              and "ECONOMIC_IDENTITY_VERSION" in state_src)
+    # api/portfolio_state.py is the ONE economic-fingerprint owner.
+    second_economic_owner_modules = _declaring("def economic_state_hash(",
+                                               allow=(S21_STATE_OWNER,))
+    reassessment_binds_economic = (
+        'ic.get("economic_state_hash")' in _read("engine/portfolio_reassessment.py")
+        and 'ic.get("hoc_economic_state_hash")'
+        in _read("engine/portfolio_reassessment.py"))
+    self_referential_comparison = (
+        'ic["portfolio_state_hash"] != ic["hoc_portfolio_state_hash"]'
+        in _read("engine/portfolio_reassessment.py"))
+    hoc_records_fingerprints = all(
+        t in _read("engine/holding_opportunity_cost.py")
+        for t in ("economic_state_hash", "corporate_actions_hash"))
+
+    return {
+        "kernels_present": kernels_present,
+        "owners_present": owners_present,
+        "env_owner_present": env_owner_present,
+        "second_calculation_owner_modules": second_calculation_owner_modules,
+        "second_composition_owner_modules": second_composition_owner_modules,
+        "second_lineage_owner_modules": second_lineage_owner_modules,
+        "kernel_impurity": kernel_impurity,
+        "second_owner_defs": second_owner_defs,
+        "missing_delegation": missing_delegation,
+        "route_methods": route_methods,
+        "missing_routes": missing_routes,
+        "forbidden_routes_present": forbidden_routes_present,
+        "maturation_in_close": maturation_in_close,
+        "outcome_capture_defs": outcome_capture_defs,
+        "no_operator_refresh_button": no_operator_refresh_button,
+        "missing_close_run_tokens": missing_close_run_tokens,
+        "second_close_owner_defs": second_close_owner_defs,
+        "close_single_flight": close_single_flight,
+        "lineage_immutable": lineage_immutable,
+        "rebalance_composes_lineage": rebalance_composes_lineage,
+        "lexicographic_plan_selection": lexicographic_plan_selection,
+        "startup_preflight": startup_preflight,
+        "env_fail_closed": env_fail_closed,
+        "acceptance_optin": acceptance_optin,
+        "acceptance_server_scoped": acceptance_server_scoped,
+        "forbidden_calls": forbidden_calls,
+        "declares_no_policy_write": declares_no_policy_write,
+        "kernel_declares_no_tuning": kernel_declares_no_tuning,
+        "economic_owner_present": economic_owner_present,
+        "second_economic_owner_modules": second_economic_owner_modules,
+        "reassessment_binds_economic": reassessment_binds_economic,
+        "self_referential_comparison": self_referential_comparison,
+        "hoc_records_fingerprints": hoc_records_fingerprints,
+        **_stage21_hermetic_clock(),
+    }
+
+
+#: Workstream 0F. The hermetic acceptance harness must own its clock completely. Three
+#: canonical read models were still resolved from the LIVE world, so the acceptance
+#: scenarios decayed a little further with every day that passed and eventually reported a
+#: state inconsistency the product did not have. These tokens pin the seams shut.
+S21_FIXTURE_MODULE = "scripts/stage20_ui_fixtures.py"
+S21_OPBOOK_MODULE = "api/operational_book.py"
+_S21_FIXTURE_INJECTIONS = (
+    "current=_engine_current(spec)",            # daily_action_gate -> owned model current
+    "target_readiness=readiness",               # operational_book  -> alpha_target
+    "daily_close_status=_close_progress(spec)",  # data_freshness   -> daily_close
+)
+#: The Stage-21 cockpit loaders must call the view's canonical authenticated GET helper.
+#: `apiGet` is not defined in that scope; because the Portfolio Manager fires its loaders
+#: fire-and-forget inside try/except, calling it left the card stuck on "Loading..."
+#: forever with an EMPTY console. Only a real browser could see it.
+_S21_UI_LOADER_CALLS = (
+    "_mhzGet('/v1/research/reassessment-outcomes')",
+    "_mhzGet('/v1/operations/rebalance/execution-lineage')",
+)
+
+
+def _stage21_hermetic_clock() -> dict:
+    fx = _read(S21_FIXTURE_MODULE)
+    ob = _read(S21_OPBOOK_MODULE)
+    ui = _read(UI_FILE)
+    return {
+        "hermetic_clock_injections_missing":
+            [t for t in _S21_FIXTURE_INJECTIONS if t not in fx],
+        "hermetic_clock_seam_present": "target_readiness" in ob,
+        "stage21_ui_loader_calls_missing":
+            [t for t in _S21_UI_LOADER_CALLS if t not in ui],
+        "stage21_ui_uses_undefined_getter": "apiGet(" in ui,
+    }
+
+
 def check_acceptance_scenario_ownership(files: list[Path]) -> dict:
     """Stage 20.1 HERMETIC ACCEPTANCE ENVIRONMENT ownership guard.
 
@@ -3352,6 +3616,7 @@ def run_audit() -> dict:
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
+        "stage21_outcome_intelligence": check_stage21_outcome_intelligence(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
         "failclosed_rebalance_execution": check_failclosed_rebalance_execution(files),
@@ -3829,6 +4094,51 @@ BLOCKING = ("duplicate_declarations", "research_execution_terms")
 #: entry here means a current economic read can silently miss a registered corporate
 #: action, or that split arithmetic was duplicated outside its one owner.
 BLOCKING_INVARIANTS = (
+    # --- Stage 21: outcome intelligence, execution lineage, durable close, env ----
+    # ONE outcome calculation owner + ONE persistence owner; ONE execution-lineage
+    # owner; pure kernels; no second price/horizon/NAV/cost owner; GET-only surface;
+    # ONE maturation trigger inside the close; no second Daily Close; immutable
+    # Stage-19 lineage with chronological (never hash-ordered) plan selection;
+    # production startup fails closed on acceptance roots; no automatic policy write,
+    # model promotion or recalibration; and ONE economic fingerprint that a downstream
+    # consumer can never use to invalidate its own input.
+    ("stage21_outcome_intelligence", "kernels_present", True),
+    ("stage21_outcome_intelligence", "owners_present", True),
+    ("stage21_outcome_intelligence", "env_owner_present", True),
+    ("stage21_outcome_intelligence", "second_calculation_owner_modules", []),
+    ("stage21_outcome_intelligence", "second_composition_owner_modules", []),
+    ("stage21_outcome_intelligence", "second_lineage_owner_modules", []),
+    ("stage21_outcome_intelligence", "kernel_impurity", []),
+    ("stage21_outcome_intelligence", "second_owner_defs", []),
+    ("stage21_outcome_intelligence", "missing_delegation", []),
+    ("stage21_outcome_intelligence", "route_methods", ["GET"]),
+    ("stage21_outcome_intelligence", "missing_routes", []),
+    ("stage21_outcome_intelligence", "forbidden_routes_present", []),
+    ("stage21_outcome_intelligence", "maturation_in_close", True),
+    ("stage21_outcome_intelligence", "outcome_capture_defs", []),
+    ("stage21_outcome_intelligence", "no_operator_refresh_button", True),
+    ("stage21_outcome_intelligence", "missing_close_run_tokens", []),
+    ("stage21_outcome_intelligence", "second_close_owner_defs", []),
+    ("stage21_outcome_intelligence", "close_single_flight", True),
+    ("stage21_outcome_intelligence", "lineage_immutable", True),
+    ("stage21_outcome_intelligence", "rebalance_composes_lineage", True),
+    ("stage21_outcome_intelligence", "lexicographic_plan_selection", False),
+    ("stage21_outcome_intelligence", "startup_preflight", True),
+    ("stage21_outcome_intelligence", "env_fail_closed", True),
+    ("stage21_outcome_intelligence", "acceptance_optin", True),
+    ("stage21_outcome_intelligence", "acceptance_server_scoped", True),
+    ("stage21_outcome_intelligence", "forbidden_calls", []),
+    ("stage21_outcome_intelligence", "declares_no_policy_write", True),
+    ("stage21_outcome_intelligence", "kernel_declares_no_tuning", True),
+    ("stage21_outcome_intelligence", "economic_owner_present", True),
+    ("stage21_outcome_intelligence", "second_economic_owner_modules", []),
+    ("stage21_outcome_intelligence", "reassessment_binds_economic", True),
+    ("stage21_outcome_intelligence", "self_referential_comparison", False),
+    ("stage21_outcome_intelligence", "hoc_records_fingerprints", True),
+    ("stage21_outcome_intelligence", "hermetic_clock_injections_missing", []),
+    ("stage21_outcome_intelligence", "hermetic_clock_seam_present", True),
+    ("stage21_outcome_intelligence", "stage21_ui_loader_calls_missing", []),
+    ("stage21_outcome_intelligence", "stage21_ui_uses_undefined_getter", False),
     ("corporate_action_propagation", "single_split_math_owner", True),
     ("corporate_action_propagation", "duplicate_split_math", []),
     ("corporate_action_propagation", "desk_current_reads_default_to_registry", True),

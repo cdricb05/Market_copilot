@@ -952,6 +952,15 @@ def _provenance(ic: dict) -> dict:
         "construction_policy_source": "api.multi_horizon_engine (entry/exit/sector/name/liquidity)",
         "eligible_market_date": ic.get("eligible_market_date"),
         "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        # Stage 21 (Workstream 0E) — the two fingerprints a downstream consumer must
+        # bind to when it asks whether this assessment still describes the portfolio.
+        # Recording them here is what makes that question answerable at all: before
+        # Stage 21 the provenance carried NO corporate-action fingerprint, so every
+        # consumer resolved `None` -> "bound to the EMPTY registry" -> permanently
+        # STALE for as long as any corporate action stayed registered.
+        "economic_state_hash": ic.get("economic_state_hash"),
+        "economic_identity_version": ic.get("economic_identity_version"),
+        "corporate_actions_hash": ic.get("corporate_actions_hash"),
         "universe_scoring_hash": ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
         "decision_policy_version": DECISION_POLICY_VERSION,

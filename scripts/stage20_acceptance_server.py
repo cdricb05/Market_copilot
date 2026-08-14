@@ -55,11 +55,25 @@ _STORE_ENV_VARS = (
     "PAPER_TRADER_MHZ_LEDGER_DIR", "PAPER_TRADER_MHZ_ARTIFACT_DIR",
     "PAPER_TRADER_ALPHA_FACTORY_DIR", "PAPER_TRADER_PRICE_ALPHA_FACTORY_DIR",
     "PAPER_TRADER_MONTHLY_EMITTER_WORK_DIR",
+    # Stage 21 — the Stage-21 outcome-evidence root must be redirected too, or an
+    # acceptance run would read (and its capture would write) the production store.
+    "PAPER_TRADER_REASSESSMENT_OUTCOME_DIR",
 )
 
 
 def redirect_stores(root: Path) -> dict:
-    """Point every persistent store at the throwaway acceptance root."""
+    """Point every persistent store at the throwaway acceptance root.
+
+    Stage 21 (Workstream 0D): every assignment here happens in THIS CHILD PROCESS only,
+    before the app is imported. Nothing is written to the machine/user environment and
+    nothing escapes into the operator's shell — the Stage-20.1 contamination came from
+    the parent session, never from this function.
+
+    The acceptance opt-in is set alongside them so ``api.environment_isolation`` permits
+    these fixture roots for this process (and ONLY this process) instead of failing
+    closed the way it now does for any production start.
+    """
+    os.environ["PAPER_TRADER_ACCEPTANCE_MODE"] = "1"
     out = {}
     for i, var in enumerate(_STORE_ENV_VARS):
         path = root / ("store_%02d" % i)

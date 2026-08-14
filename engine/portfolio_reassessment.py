@@ -818,13 +818,29 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
                                          "session does not exist yet."}])
 
     # --- BLOCKED_EVIDENCE: bound evidence no longer describes the portfolio --- #
+    #
+    # Stage 21 (Workstream 0E). This gate is only meaningful if it compares LIKE WITH
+    # LIKE. It previously compared ``portfolio_state_hash`` — a fingerprint of the
+    # WHOLE portfolio-state document, which embeds the Slice-6 assessment's own output
+    # hash via api.daily_action_gate. Writing the assessment therefore changed the
+    # fingerprint the assessment was about to be judged against, so a FRESH assessment
+    # blocked itself on every Daily Research Cycle with zero economic change (verified
+    # on the live 2026-08-13 book: capital and positions byte-identical either side).
+    #
+    # The comparison now binds to the ECONOMIC fingerprint owned by api.portfolio_state
+    # (holdings / cash / NAV / order + fill counts / corporate-action registry). A real
+    # holdings, cash or corporate-action change still invalidates immediately; a
+    # downstream research write can no longer invalidate its own input.
     ev_blockers: list[dict] = []
     if ic.get("corporate_action_stale"):
         ev_blockers.append({"code": "STALE_CORPORATE_ACTION_EVIDENCE",
                             "detail": ic.get("corporate_action_stale_reason")})
-    if ic.get("portfolio_state_hash") and ic.get("hoc_portfolio_state_hash") \
-            and ic["portfolio_state_hash"] != ic["hoc_portfolio_state_hash"]:
-        ev_blockers.append({"code": "PORTFOLIO_STATE_CHANGED_SINCE_ASSESSMENT"})
+    if ic.get("economic_state_hash") and ic.get("hoc_economic_state_hash") \
+            and ic["economic_state_hash"] != ic["hoc_economic_state_hash"]:
+        ev_blockers.append({
+            "code": "PORTFOLIO_STATE_CHANGED_SINCE_ASSESSMENT",
+            "detail": ("The economic portfolio (holdings / cash / NAV / corporate "
+                       "actions) changed after this assessment was produced.")})
     if ic.get("hoc_eligible_market_date") and ic["hoc_eligible_market_date"] != eligible:
         ev_blockers.append({"code": "ASSESSMENT_ELIGIBLE_DATE_MISMATCH",
                             "detail": "assessment=%s reassessment=%s"

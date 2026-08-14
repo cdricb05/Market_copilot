@@ -576,6 +576,16 @@
       "prefix": "/v1/operations/portfolio-reassessment",
       "owner": "api/portfolio_reassessment.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/research/reassessment-outcomes",
+      "owner": "api/reassessment_outcomes.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/rebalance/execution-lineage",
+      "owner": "api/execution_lineage.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -2627,6 +2637,129 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Stage 19. Two independent manual gates (Stage-18 approval + this second confirmation); the backend token is the security boundary (UI is presentation-only). REJECT/HOLD, an un-approved or stale proposal, a desk that moved since review, and a wrong token all create nothing. Order plan is deterministic and read-only; the ONLY writer is confirm_rebalance_order_plan and it writes into the EXISTING desk lifecycle (no second execution engine / ledger / NAV owner). Paper-only, NEXT_CLOSE no-hindsight, manual review mandatory, cadence disabled, no broker, no live order, no automation, no model change. Guarded by tests/test_stage19_controlled_rebalance.py."
+    },
+    {
+      "path": "engine/reassessment_outcomes.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 21 CANONICAL reassessment-OUTCOME calculation kernel (PURE: no network, no provider, no prediction, no file I/O, no database, no clock ownership). Links every past Stage-20 recommendation to what actually happened once its forward horizon MATURED against the owned eligible-session calendar: incumbent forward return, preferred-replacement forward return, realized spread, portfolio impact, outcome direction per recommendation type (HOLD / REDUCE / EXIT / REPLACE / ADD), the governance state established from immutable execution lineage (RECOMMENDED_NOT_PROPOSED / PROPOSED_NOT_APPROVED / APPROVED_NOT_EXECUTED / EXECUTED / NO_CHANGE / BLOCKED), the maturity state (NOT_YET_MATURE / MATURE / DATA_BLOCKED / POINT_IN_TIME_GAP / UNMEASURABLE), the deterministic observation identity, the evidence-sufficiency gates, the per-reason-code policy intelligence and the decision outcome scorecard. EVERY metric is labelled OBSERVED or COUNTERFACTUAL_ESTIMATE and the two are never mixed or summed. Invents no horizon taxonomy, no price source, no NAV and no transaction-cost model; changes no policy, threshold, model, champion or portfolio.",
+      "classification": "KEEP",
+      "target_owner": "engine/reassessment_outcomes.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "nothing - every input is supplied by api/reassessment_outcomes.py"
+      ],
+      "direct_writes": [
+        "nothing - pure calculation"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_stage21_outcome_intelligence.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Purity is enforced statically by check_stage21_outcome_intelligence (kernel_impurity must be empty). Thresholds live in a versioned default_policy (reassessment_outcome_policy.v1); the evidence gates deliberately reuse the SAME boundaries as api/forward_prediction_skill.EVIDENCE_GATES so Stage 21 adds no hidden sample thresholds. Crossing a threshold may RECOMMEND a manual policy review; it can never perform one."
+    },
+    {
+      "path": "api/reassessment_outcomes.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 21 CANONICAL reassessment-outcome COMPOSITION and PERSISTENCE owner. Sources the immutable Stage-20 recommendation history, the canonical forward price store / eligible calendar / horizons and the immutable execution lineage, runs the pure engine.reassessment_outcomes kernel, appends immutable outcome observations (idempotent by deterministic observation identity; a matured horizon appends, recorded evidence is NEVER rewritten) under a dedicated evidence root (PAPER_TRADER_REASSESSMENT_OUTCOME_DIR), and serves the GET-only summary / history / detail reads. Observation maturation is triggered in exactly ONE place - the Daily Close forward-evidence capture - so there is no operator refresh button and no second trigger.",
+      "classification": "KEEP",
+      "target_owner": "api/reassessment_outcomes.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_reassessment.load_history (immutable, append-only Stage-20 recommendation history)",
+        "forward_prediction_skill.read_price_store / eligible_calendar / HORIZONS (THE price, calendar and horizon owner - Stage 21 introduces no second one)",
+        "execution_lineage.load_execution_lineage (immutable EXECUTED lineage; governance never infers execution from a current target)"
+      ],
+      "direct_writes": [
+        "append-only immutable outcome observations under PAPER_TRADER_REASSESSMENT_OUTCOME_DIR (an evidence root, atomic; NOT an operational ledger root). No order / fill / holding / cash / NAV / model / policy write."
+      ],
+      "endpoints": [
+        "/v1/research/reassessment-outcomes",
+        "/v1/research/reassessment-outcomes/history",
+        "/v1/research/reassessment-outcomes/{observation_id}"
+      ],
+      "ui_consumers": [
+        "loadReassessmentOutcomes"
+      ],
+      "tests": [
+        "tests/test_stage21_outcome_intelligence.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "GET-only. No manual evidence-refresh POST exists and none may be added (guarded by forbidden_routes_present). History before Stage 20 is a DOCUMENTED GAP and is never reconstructed - a hindsight backfill would be fabricated evidence. Guarded by check_stage21_outcome_intelligence; inventory drift zero."
+    },
+    {
+      "path": "engine/execution_lineage.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 21 CANONICAL post-execution rebalance-lineage calculation kernel (PURE). Folds the immutable Paper Desk order + fill ledgers into one lineage record per order plan (proposal / decision / order-plan identity and hash, order and fill ids, submitted / filled / cancelled / buy / sell counts, approval and settlement dates) and resolves the LATEST COMPLETED rebalance. Plans are ordered CHRONOLOGICALLY by their recorded created_at - never by id or hash. A plan whose orders were all cancelled is SUPERSEDED_CANCELLED and can never be presented as current or executed; the book's historical initial implementation stays a separate cohort.",
+      "classification": "KEEP",
+      "target_owner": "engine/execution_lineage.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "nothing - inputs are supplied by api/execution_lineage.py"
+      ],
+      "direct_writes": [
+        "nothing - pure calculation"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_stage21_outcome_intelligence.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Exists because the canonical rebalance read model re-derived execution identity from the CURRENT reallocation proposal: once the eligible session advanced past 2026-08-12 the completed 29-order rebalance became undiscoverable and the read collapsed to REBALANCE_NO_PROPOSAL. A second, latent defect selected the current plan with sorted(plan_ids)[-1], which ranks the DEFECTIVE 5bf9... plan above the EXECUTED 1a198... plan on hexadecimal ordering alone."
+    },
+    {
+      "path": "api/execution_lineage.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 21 execution-lineage COMPOSITION owner. Reads the immutable Paper Desk order + fill ledgers, delegates the fold to engine.execution_lineage, reports the resulting portfolio through the canonical api.portfolio_state composition (introducing NO second NAV / cash / holdings owner) and serves the read-only lineage contract. Never writes.",
+      "classification": "KEEP",
+      "target_owner": "api/execution_lineage.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "paper_trading_desk._orders_state / _fills (the immutable order + fill ledgers)",
+        "portfolio_state.load_portfolio_state (resulting holdings / cash / NAV - canonical, corporate-action projected)"
+      ],
+      "direct_writes": [
+        "nothing - read-only"
+      ],
+      "endpoints": [
+        "/v1/operations/rebalance/execution-lineage"
+      ],
+      "ui_consumers": [
+        "loadRebalanceExecutionLineage"
+      ],
+      "tests": [
+        "tests/test_stage21_outcome_intelligence.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Composed into api/rebalance_execution.load_rebalance_state as latest_completed_rebalance, so a completed controlled rebalance stays discoverable after settlement regardless of whether a current proposal exists. Guarded by check_stage21_outcome_intelligence."
+    },
+    {
+      "path": "api/environment_isolation.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 21 CANONICAL production / hermetic environment-isolation guard (PURE, read-only). Audits every canonical operational and research store environment variable for temp / acceptance fixture roots and FAILS CLOSED at application startup unless the process has explicitly declared itself hermetic via PAPER_TRADER_ACCEPTANCE_MODE=1. Changes no environment variable and touches no disk.",
+      "classification": "KEEP",
+      "target_owner": "api/environment_isolation.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "os.environ (or an injected mapping) - variable NAMES and VALUES only"
+      ],
+      "direct_writes": [
+        "nothing - read-only"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_stage21_outcome_intelligence.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Exists because a Stage-20.1 acceptance run left hermetic fixture roots in the operator's parent PowerShell session and a later manual restart INHERITED them: the real backend served an empty, fabricated portfolio that nothing on the page distinguished from the real one. The real ledgers were never damaged. The check runs at import time on EVERY start, so the protection does not depend on using a particular launch script."
     }
   ]
 }

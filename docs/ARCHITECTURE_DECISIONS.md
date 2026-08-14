@@ -1119,3 +1119,132 @@ rationale, versioned by `portfolio_reassessment_policy.v1` /
 one produces a NEW assessment rather than silently re-labelling an old one), exercised at
 their boundaries by the test suite, and overridable through
 `PAPER_TRADER_REASSESSMENT_POLICY` without a code change. No hidden magic numbers.
+
+---
+
+## Stage 21 decisions
+
+### CONFIRMED - a currency check binds to an ECONOMIC fingerprint, never to a document hash
+
+**Evidence.** On the live 2026-08-13 book, `state_hash` differed either side of the HOC
+write (`02d9b7b8...` -> `636a16a6...`) while capital and positions were byte-identical. The
+difference was `assessment.opportunity_cost_assessment_hash` - the assessment's own output,
+composed into the state through `api.daily_action_gate`. Every fresh reassessment therefore
+blocked itself.
+
+**Decision.** `api.portfolio_state.economic_state_hash` is the ONE fingerprint any
+"is this evidence still current?" question binds to. It is an explicit allowlist of economic
+subtrees; research outputs and research cadence dates are structurally excluded. It is
+stripped from `state_hash`, so adopting it invalidated nothing.
+
+**Consequence.** A downstream consumer can never again invalidate its own input. A real
+holdings / cash / NAV / corporate-action change still invalidates immediately.
+
+### CONFIRMED - a missing fingerprint is UNVERIFIABLE, never STALE
+
+**Evidence.** The HOC kernel recorded no corporate-action fingerprint, so every consumer
+resolved `None`; `staleness_vs_registry` treats `None` as the EMPTY registry, which with the
+MNST split registered made every reassessment permanently stale.
+
+**Decision.** One canonical resolver (`hoc_corporate_actions_hash`), and an artifact that
+recorded nothing is reported `UNVERIFIABLE` with an explicit reason. Claiming staleness from
+missing evidence is fabrication: it blocked fresh assessments while telling the operator a
+corporate action had been registered "since" an assessment that in fact post-dated it.
+
+### CONFIRMED - execution identity is READ from the immutable ledger, never re-derived
+
+**Evidence.** After settlement the rebalance read model reported `REBALANCE_NO_PROPOSAL`
+with `filled_count = 0` while the ledger immutably recorded 29/29 filled on plan
+`...1a198f560cca`. The read derived identity from the CURRENT proposal, which no longer
+existed once the eligible session advanced.
+
+**Decision.** `engine/execution_lineage.py` folds the immutable order + fill ledgers.
+`latest_completed_rebalance` does not depend on a current proposal existing.
+
+### CONFIRMED - order plans are ordered chronologically, never by id or hash
+
+**Evidence.** `sorted(plan_ids)[-1]` ranks `...5bf9c6c20f8a` (22 cancelled, 0 filled) above
+`...1a198f560cca` (29 filled) because "5" sorts after "1". A plan id ends in a hash, so id
+ordering carries no temporal meaning at all.
+
+**Decision.** Selection is by the lineage's recorded `created_at`, and a fully cancelled plan
+is `SUPERSEDED_CANCELLED` and can never surface as current or executed.
+
+### CONFIRMED - a client timeout is not an outcome
+
+**Evidence.** The Aug-13 close succeeded while the POST outran a 300-second client timeout.
+
+**Decision.** The close's progress document becomes a durable run record with an explicit
+outcome, `writes_occurred`, and an explicit `safe_retry_allowed` + `retry_guidance`. The
+status GET is the authority on reconnect. No second Daily Close and no new endpoint family.
+
+### CONFIRMED - production fails closed on acceptance store roots
+
+**Evidence.** Stage-20.1 fixture roots leaked into the operator's parent shell and a manual
+restart served a fabricated empty portfolio indistinguishable from the real one.
+
+**Decision.** A runtime guard at application import, not a script-only check, with an
+explicit per-process hermetic opt-in (`PAPER_TRADER_ACCEPTANCE_MODE=1`). Protection must not
+depend on remembering to use a particular launch script.
+
+### CONFIRMED - OBSERVED and COUNTERFACTUAL_ESTIMATE are never mixed
+
+**Decision.** A ticker's forward return between two owned closes is a market fact and is
+always `OBSERVED`. A portfolio consequence is `OBSERVED` only when the recommendation
+actually executed; otherwise it is an explicit `COUNTERFACTUAL_ESTIMATE`. The scorecard
+reports the two totals in separate blocks and never sums them.
+
+### CONFIRMED - Stage 21 recommends reviews, it never performs them
+
+**Decision.** Policy intelligence may return `POLICY_REVIEW_CANDIDATE`. No threshold, model,
+champion, cadence or portfolio can be changed by Stage 21, and `INSUFFICIENT_EVIDENCE`
+changes nothing by construction. Enforced statically by
+`check_stage21_outcome_intelligence`.
+
+### UNRESOLVED - how much outcome evidence is enough to act on
+
+Stage 21 reuses the existing forward-evidence gate boundaries (5 / 20 / 63 matured
+observations) rather than inventing decision-quality-specific ones. Whether those boundaries
+are the right ones for POLICY decisions - as opposed to model decisions - is genuinely
+unresolved and needs its own evidence before anyone tunes it. Recorded here so the reuse is
+a deliberate, revisitable choice rather than an implicit assumption.
+
+
+### CONFIRMED — a hermetic harness owns its clock completely (Stage 21, Workstream 0F)
+
+**Decision.** An acceptance harness that freezes a session must inject *every* read model
+whose value derives from a date. A partially-injected harness is worse than no harness: it
+reports a state inconsistency the product does not have, and it decays a little further with
+every day the calendar advances, so the failure looks like drift rather than a defect.
+
+**Evidence.** Stage 20.1 froze the eligible session at `2026-08-12` and injected the
+operational book, desk marks, artifacts, freshness inputs and forward status — but not the
+owned-model `current`, not alpha-target readiness, and not Daily Close progress. Those three
+resolved from the live world. Six cross-panel tests were failing and had been carried as
+known-bad on the (correct) reasoning that no operator-facing surface was wrong. That
+reasoning was right about the product and wrong about the cost: the gate stayed unusable.
+
+**Consequence.** `api.operational_book.load_operational_book` gains an additive
+`target_readiness=` parameter, defaulting to `None`, matching the injection seam every other
+read model in this codebase already offers. No market-session semantics changed; point-in-time
+behaviour is unchanged; production behaviour with the parameter omitted is byte-identical.
+Four blocking architecture invariants pin the three injections and the seam.
+
+**Rejected alternative.** Overriding the dates after composition (`date_overrides`) would
+have made the freshness rows agree while leaving the Operational Book panel itself carrying a
+live target date — the two panels would have disagreed in the browser while the tests passed.
+Binding the read seam, not the rendered value, is the Stage-20.1 principle and it still holds.
+
+### CONFIRMED — the browser gate is not redundant with the contract gate (Stage 21)
+
+**Decision.** UI changes are not releasable on HTTP contract verification alone. The mandatory
+gate drives a real browser across every canonical scenario at 1920x1080 and 1440x900, and its
+receipt is checked by both `validate.ps1` and `commit.ps1`.
+
+**Evidence.** Both Stage-21 cockpit loaders called `apiGet`, which is not defined in that
+scope. The Portfolio Manager fires its loaders fire-and-forget inside `try/catch`, so the
+`ReferenceError` was swallowed: the console stayed empty, every route returned a correct
+payload, every contract test passed — and the decision-evidence card sat on
+*"Loading decision outcome evidence…"* indefinitely. Nothing short of rendering the page
+could observe it. The loaders now call `_mhzGet` and the audit fails on any reintroduction
+of `apiGet(`.

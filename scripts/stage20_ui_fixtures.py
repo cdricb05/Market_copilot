@@ -46,6 +46,7 @@ from pathlib import Path
 from paper_trader.api import alpha_book as ab
 from paper_trader.api import daily_action_gate as dag
 from paper_trader.api import daily_close as dc
+from paper_trader.api import data_freshness as df
 from paper_trader.api import holding_opportunity_cost as hoc
 from paper_trader.api import multi_horizon_ledger as mhz_ledger
 from paper_trader.api import multi_horizon_registry as mreg
@@ -562,6 +563,85 @@ def seed_ledger(spec: dict, root: Path) -> Path:
     return ldir
 
 
+#: The combined-sleeve model and its Top-25 book id, used to shape the frozen owned-model
+#: payload below exactly as ``api.multi_horizon_engine`` shapes the real one.
+_COMBINED_MODEL_ID = "fundamental_momentum_50_50_v1"
+_COMBINED_BOOK_ID = "fundamental_momentum_50_50_top25"
+
+
+def _engine_current(spec: dict) -> dict:
+    """The frozen owned-model ``current`` payload the Daily Action Gate scores against.
+
+    Stage 21 (Workstream 0F) — hermetic clock ownership. This was one of three live-world
+    reads the Stage-20.1 harness still performed. ``daily_action_gate`` falls back to the
+    REAL owned-model loader when ``current`` is not injected, so the gate resolved
+    ``market_as_of_date`` from the live panel: 2026-08-13 today, 2026-08-14 tomorrow, while
+    every seeded panel stayed frozen on the scenario's eligible session 2026-08-12. The
+    workflow owner then correctly reported ASSESSMENT_AHEAD_OF_ELIGIBLE_SESSION and
+    collapsed scenarios 4, 5 and 5b to INSPECT_STATE_INCONSISTENCY. The product was right;
+    the harness was reading two different worlds.
+
+    The payload is the scenario's own: the 25 HELD names rank 1..25 (so the recomputed
+    Top-25 target IS the book and the gate's own diff invents no churn), the 8 BUY_ADDS
+    rank 26..33, and every date is the scenario's.
+    """
+    eligible = spec["eligible_market_date"]
+    ranked = list(HELD) + [t for t in BUY_ADDS if t not in HELD]
+    combined = {}
+    for i, tk in enumerate(ranked):
+        pct = round(1.0 - (i / 100.0), 4)
+        combined[tk] = {
+            "combined_score": round(2.0 - (i / 100.0), 4),
+            "sector": _SECTORS[i % len(_SECTORS)],
+            "fund_percentile": pct, "mom_percentile": pct,
+            "fund_rank": i + 1, "mom_rank": i + 1,
+            "adv_dollar": 5.0e7,
+        }
+    constituents = [{"ticker": tk, "rank": i + 1, "weight": 0.04,
+                     "score": combined[tk]["combined_score"],
+                     "sector": combined[tk]["sector"], "adv_dollar": 5.0e7}
+                    for i, tk in enumerate(HELD)]
+    risk = {tk: {"realized_vol_63d": 0.20, "max_drawdown_252d": -0.12,
+                 "adv_dollar_20d": 5.0e7, "sector": combined[tk]["sector"]}
+            for tk in ranked}
+    return {
+        "status": dag.eng.STATUS_READY,
+        "market_as_of_date": eligible,
+        "momentum_month": DATE[:7],
+        "fundamental_month": "2026-05",
+        "fundamental_as_of_date": "2026-05-22",
+        "scores": {},
+        "combined": {"combined": combined},
+        "books": {"primary_book_id": _COMBINED_BOOK_ID,
+                  "books": {_COMBINED_BOOK_ID: {
+                      "constituents": constituents, "equal_weight": 0.04,
+                      "size_actual": len(constituents)}}},
+        "inputs": {"available": True, "market_as_of_date": eligible,
+                   "momentum_month": DATE[:7], "fundamental_month": "2026-05",
+                   "fundamental_as_of_date": "2026-05-22",
+                   "risk": risk, "validations": {"risk_available": True},
+                   "warnings": []},
+        "warnings": [],
+    }
+
+
+def _target_readiness(spec: dict) -> dict:
+    """The frozen alpha-target readiness contract, in ``api.alpha_target`` shape.
+
+    Second live-world read (Stage 21, Workstream 0F): ``operational_book`` resolved this
+    from the owned model panel, so the Operational Book panel carried the REAL
+    ``alpha_market_date`` while every seeded panel carried the scenario's — surfacing as
+    TARGET_READINESS_MISMATCH the moment the two dates diverged.
+    """
+    eligible = spec["eligible_market_date"]
+    return {"state": "TARGET_CONFIRMED",
+            "dates": {"alpha_market_date": eligible,
+                      "latest_completed_market_date": eligible},
+            "alpha_market_aligned": True,
+            "snapshot_confirmation_allowed": False,
+            "confirmation_blockers": [], "required_next_action": None}
+
+
 def _research_inputs(spec: dict) -> dict:
     """The owned model-input dates the freshness contract classifies. Scenario 4 declares
     a genuinely ABSENT price-score refresh rather than a hand-written 'MISSING' row."""
@@ -693,13 +773,31 @@ def _decision_record(spec: dict) -> dict:
 
 
 def _close_progress(spec: dict) -> dict:
-    """The probe-free daily-close progress the workflow owner reads."""
-    if spec["close"] == "DUE":
-        # The eligible session is NOT closed: the newest recorded close is the prior one.
-        return {"status": dc.CLOSE_COMPLETE_HOLD, "final_close_status": dc.CLOSE_COMPLETE_HOLD,
-                "running": False, "done": True, "market_date": spec["prior_market_date"]}
-    return {"status": dc.CLOSE_COMPLETE_HOLD, "final_close_status": dc.CLOSE_COMPLETE_HOLD,
-            "running": False, "done": True, "market_date": spec["eligible_market_date"]}
+    """The probe-free daily-close progress the workflow owner reads.
+
+    Stage 21 (Workstream 0B): the payload carries the DURABLE RUN CONTRACT, so the
+    hermetic world is faithful to what `api.daily_close.load_close_progress` actually
+    returns. Without it the acceptance backend answered the progress route with a stub
+    that had no run identity and no retry contract - the exact ambiguity Workstream 0B
+    exists to remove, reproduced inside the harness meant to prove it was removed.
+    """
+    closed = (spec["prior_market_date"] if spec["close"] == "DUE"
+              else spec["eligible_market_date"])
+    return {
+        "status": dc.CLOSE_COMPLETE_HOLD, "final_close_status": dc.CLOSE_COMPLETE_HOLD,
+        "running": False, "done": True, "market_date": closed,
+        "schema_version": dc.CLOSE_RUN_SCHEMA_VERSION,
+        "outcome": dc.RUN_COMPLETED,
+        "run_state_vocabulary": list(dc.RUN_STATE_VOCAB),
+        "run_id": "dcr_%s_%s_fixture" % (closed, BOOK),
+        "idempotency_key": "%s|%s" % (BOOK, closed),
+        "book_id": BOOK,
+        "writes_occurred": True,
+        "safe_retry_allowed": False,
+        "retry_guidance": ("The close for %s is already recorded as COMPLETED. Re-running "
+                           "it would be a no-op; nothing needs to be retried." % closed),
+        "client_timeout_is_not_an_outcome": True,
+    }
 
 
 def compose(scenario_key: str, *, root=None) -> dict:
@@ -718,7 +816,9 @@ def compose(scenario_key: str, *, root=None) -> dict:
     #    panel below is derived from THAT, so no two panels can describe different books.
     #    `ledger_dir` MUST be the seeded snapshot root: without it the book resolves its
     #    confirmed target from the real research ledger — a foreign world.
-    opbook_payload = ob.load_operational_book(desk_dir=sdir, ledger_dir=ldir, today=NEXT)
+    readiness = _target_readiness(spec)
+    opbook_payload = ob.load_operational_book(desk_dir=sdir, ledger_dir=ldir, today=NEXT,
+                                              target_readiness=readiness)
     opbook = opbook_payload.get("operational_book") or {}
     pstate = _portfolio_state(spec, opbook)
 
@@ -751,7 +851,7 @@ def compose(scenario_key: str, *, root=None) -> dict:
     #    the HOC and reallocation states. Fed the SAME artifacts, so HOC / reallocation /
     #    reassessment provenance can never disagree across panels.
     gate = dag.load_daily_action_gate(
-        today=NEXT, operational=opbook_payload,
+        today=NEXT, operational=opbook_payload, current=_engine_current(spec),
         opportunity_cost=hoc.load_assessment_summary(
             active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
             artifact=({"assessment": assessment,
@@ -766,20 +866,33 @@ def compose(scenario_key: str, *, root=None) -> dict:
     # 6. The operator workflow state — ONE primary action, Stage-19 precedence applied.
     #    Every raw read model is injected from the SAME world, so the freshness contract
     #    and the market session it derives are the scenario's own — never the live one.
+    # Stage 21 (Workstream 0D): the freshness contract must be the SCENARIO's, never the
+    # live one. It was previously the only read model left uninjected, so the workflow
+    # owner resolved the REAL market session while every other panel used the frozen
+    # scenario date. The moment the wall clock advanced past the scenario's eligible
+    # session that produced TARGET_READINESS_MISMATCH / ASSESSMENT_AHEAD_OF_ELIGIBLE_SESSION
+    # and collapsed scenarios 4, 5 and 5b to INSPECT_STATE_INCONSISTENCY — a harness that
+    # decays with the calendar rather than a real defect in the product.
+    # Third live-world read (Stage 21, Workstream 0F): with `daily_close_status` omitted the
+    # freshness owner loaded the REAL close progress, so `latest_daily_close` reported the
+    # operator's actual last close and went FUTURE_DATED against the frozen session. The
+    # scenario already owns its close journal — inject the same one it seeded.
+    scenario_freshness = df.load_data_freshness(
+        reference_today=NEXT, operational=opbook_payload,
+        inputs=_research_inputs(spec),
+        daily_status={"latest_valid_mark_date": spec["eligible_market_date"]},
+        desk_marks=desk.read_marks(sdir),
+        daily_close_status=_close_progress(spec),
+        forward_status={"latest_snapshot_date": spec["eligible_market_date"]})
     workflow = wfs.load_workflow_state(
         reference_today=NEXT, operational=opbook_payload, gate=gate,
         close_progress=_close_progress(spec),
+        freshness=scenario_freshness,
         inputs=_research_inputs(spec),
         daily_status={"latest_valid_mark_date": spec["eligible_market_date"]},
         desk_marks=desk.read_marks(sdir),
         forward_status={"latest_snapshot_date": spec["eligible_market_date"]},
-        target_readiness={"state": "TARGET_CONFIRMED",
-                          "dates": {"alpha_market_date": spec["eligible_market_date"],
-                                    "latest_completed_market_date":
-                                        spec["eligible_market_date"]},
-                          "alpha_market_aligned": True,
-                          "snapshot_confirmation_allowed": False,
-                          "confirmation_blockers": [], "required_next_action": None},
+        target_readiness=readiness,
         research_cycle={"state": "COMPLETE", "blockers": []})
 
     return {
@@ -991,7 +1104,8 @@ def seed(*, reassessment_dir, scenario: str, book_id: str = BOOK, eligible=DATE)
     sdir = seed_desk(spec, accept_root)
     ldir = seed_ledger(spec, accept_root)
 
-    opbook_payload = ob.load_operational_book(desk_dir=sdir, ledger_dir=ldir, today=NEXT)
+    opbook_payload = ob.load_operational_book(desk_dir=sdir, ledger_dir=ldir, today=NEXT,
+                                              target_readiness=_target_readiness(spec))
     opbook = opbook_payload.get("operational_book") or {}
     assessment, prs_art = _reassessment_artifact(spec)
     realloc_art = _reallocation_artifact(spec, opbook.get("nav") or NAV)

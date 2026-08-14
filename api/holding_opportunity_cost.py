@@ -372,6 +372,14 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict,
         "active_book_label": active_book.get("book_label"),
         "valuation_date": (ps.get("dates") or {}).get("valuation_date"),
         "portfolio_state_hash": ps.get("state_hash"),
+        # Stage 21 (Workstream 0E): the ECONOMIC fingerprint of the portfolio this
+        # assessment was computed against — holdings / cash / NAV / corporate actions
+        # only. This is what a downstream consumer binds to when it asks "does this
+        # assessment still describe the portfolio?". ``portfolio_state_hash`` above is
+        # kept for continuity but must NEVER be used for that question: it embeds this
+        # assessment's own output, so it drifts the moment the artifact is written.
+        "economic_state_hash": ps.get("economic_state_hash"),
+        "economic_identity_version": ps.get("economic_identity_version"),
         # Stage 19.1: the corporate-action registry state the CURRENT holdings / NAV
         # below were projected through (owned by api.corporate_actions, surfaced by
         # api.portfolio_state). Bound into the assessment identity.

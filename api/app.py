@@ -249,6 +249,23 @@ _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
 _SERVICE_NAME = "paper_trader"
 _SERVICE_VERSION = "1.0.0"
 
+# ---------------------------------------------------------------------------
+# Stage 21 (Workstream 0D) — FAIL CLOSED on a contaminated production environment.
+#
+# A Stage-20.1 acceptance run left hermetic fixture roots in the operator's shell; a
+# later manual restart inherited them and the REAL backend served an empty, fabricated
+# portfolio. The ledgers were never damaged, but nothing on the page distinguished that
+# fabricated world from the real one.
+#
+# This import-time check refuses to construct the application while a canonical
+# operational store points at a temp/acceptance fixture root, UNLESS the process has
+# explicitly declared itself hermetic (PAPER_TRADER_ACCEPTANCE_MODE=1). It runs on every
+# start, so the protection does not depend on using a particular launch script.
+# ---------------------------------------------------------------------------
+from paper_trader.api import environment_isolation as _env_iso  # noqa: E402
+
+_STORE_ROOT_PREFLIGHT = _env_iso.assert_production_store_roots()
+
 app = FastAPI(title=_SERVICE_NAME, version=_SERVICE_VERSION)
 
 
@@ -6589,6 +6606,85 @@ def operations_portfolio_reassessment_attribution() -> dict:
     """
     from paper_trader.api import price_panel as _pp
     return _reassess.build_attribution(price_panel=_pp.load_price_panel())
+
+
+def _stage21_active_book_id() -> Optional[str]:
+    """The operational book Stage-21 evidence is scoped to. Read from the canonical
+    desk owner; ``None`` (unscoped) rather than raising if it is unavailable."""
+    try:
+        from paper_trader.api import paper_trading_desk as _desk
+        return (_desk.open_book(_desk._desk_dir(None)) or {}).get("book_id")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@app.get(
+    "/v1/research/reassessment-outcomes",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_reassessment_outcomes() -> dict:
+    """Stage 21 DECISION OUTCOME EVIDENCE & POLICY INTELLIGENCE (read-only).
+
+    Did the Stage-20 portfolio decisions turn out well? For every past recommendation
+    with MATURED, truthful forward evidence this links what was recommended to what
+    actually happened — to the incumbent, to the preferred replacement, to the portfolio
+    — and to whether it was proposed, approved, executed or never acted on.
+
+    Every metric is labelled OBSERVED (a market fact, or an actually-executed portfolio
+    effect) or COUNTERFACTUAL_ESTIMATE (what a decision not taken would have produced).
+    The two are never mixed or summed. Nothing is measured before its horizon has
+    matured against the OWNED eligible-session calendar, and history before Stage 20
+    is a documented gap that is never reconstructed.
+
+    EVIDENCE ONLY. It changes no policy, threshold, model, champion or portfolio, and it
+    creates no proposal, order or fill. Crossing an evidence threshold may RECOMMEND a
+    manual policy review; it never performs one.
+    """
+    from paper_trader.api import reassessment_outcomes as _ro
+    return _ro.load_reassessment_outcomes(active_book_id=_stage21_active_book_id())
+
+
+@app.get(
+    "/v1/research/reassessment-outcomes/history",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_reassessment_outcomes_history(limit: int = 500) -> dict:
+    """Stage 21 append-only outcome observation history (read-only audit surface)."""
+    from paper_trader.api import reassessment_outcomes as _ro
+    return _ro.load_outcome_history(active_book_id=_stage21_active_book_id(),
+                                    limit=max(1, min(int(limit or 500), 2000)))
+
+
+@app.get(
+    "/v1/research/reassessment-outcomes/{observation_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_reassessment_outcome_detail(observation_id: str) -> dict:
+    """ONE immutable Stage-21 outcome observation with its point-in-time binding."""
+    from paper_trader.api import reassessment_outcomes as _ro
+    return _ro.load_outcome_observation(observation_id)
+
+
+@app.get(
+    "/v1/operations/rebalance/execution-lineage",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_rebalance_execution_lineage() -> dict:
+    """Stage 21 (Workstream 0A) POST-EXECUTION REBALANCE LINEAGE (read-only).
+
+    The completed controlled rebalance — proposal, decision, order plan, order ids, fill
+    ids, settlement date and the resulting portfolio — recovered from the IMMUTABLE desk
+    ledger, never recomputed from the current target. A plan whose orders were all
+    cancelled is reported separately as SUPERSEDED_CANCELLED and can never be presented
+    as current or executed; the book's historical initial implementation stays separate
+    from every rebalance cohort.
+    """
+    from paper_trader.api import execution_lineage as _el
+    return _el.load_execution_lineage()
 
 
 @app.get(

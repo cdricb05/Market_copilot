@@ -126,7 +126,97 @@ SAFETY_BADGES = ["READ ONLY", "NO PROVIDER CALL", "NO PREDICTION CALL",
 # other transient timestamp/derived field.
 _VOLATILE_KEYS = frozenset({
     "generated_at", "evaluated_at", "loaded_at", "updated_at", "built_at",
-    "recorded_at", "started_at", "state_hash", "source_hashes", "warnings"})
+    "recorded_at", "started_at", "state_hash", "source_hashes", "warnings",
+    # Stage 21 (Workstream 0E): the ECONOMIC fingerprint is a projection OF this
+    # state, so it is stripped before hashing. This keeps ``state_hash`` byte-identical
+    # to the pre-Stage-21 contract — introducing the economic fingerprint must never
+    # itself invalidate an artifact bound to a previously recorded ``state_hash``.
+    "economic_state_hash", "economic_identity_version"})
+
+# --------------------------------------------------------------------------- #
+# Stage 21 (Workstream 0E) — the CANONICAL ECONOMIC PORTFOLIO FINGERPRINT.
+#
+# ROOT CAUSE this exists to fix. ``state_hash`` covers the WHOLE portfolio-state
+# document, and that document embeds ``assessment.opportunity_cost_assessment_hash``
+# — the Holding Opportunity-Cost assessment's OWN output, composed in through
+# api.daily_action_gate. So the sequence inside one Daily Research Cycle was:
+#
+#   1. HOC reads portfolio state  -> records provenance.portfolio_state_hash = H0
+#   2. HOC artifact is persisted
+#   3. portfolio state now embeds the new assessment hash -> state_hash = H1 != H0
+#   4. the reassessment reads portfolio state -> H1, compares against H0, and raises
+#      PORTFOLIO_STATE_CHANGED_SINCE_ASSESSMENT
+#
+# The fingerprint an assessment is validated against contained the assessment's own
+# result, so a FRESH assessment invalidated itself deterministically, on every run,
+# with ZERO economic change (verified on the live 2026-08-13 book: capital and
+# positions byte-identical, H0=02d9b7b8..., H1=636a16a6...).
+#
+# The economic fingerprint answers the only question staleness actually asks — "do
+# the holdings / cash / NAV / corporate actions this evidence was computed against
+# still describe the portfolio?" — over an EXPLICIT ALLOWLIST of economic subtrees.
+# Research outputs (``assessment``, ``target``, ``evidence``) are deliberately absent,
+# so no downstream consumer can ever invalidate its own input again.
+#
+# The corporate-action registry IS economic and stays inside the fingerprint, so the
+# Stage 19.1 guarantee is preserved exactly: registering a split still invalidates
+# every artifact bound to the previous economic state.
+# --------------------------------------------------------------------------- #
+ECONOMIC_IDENTITY_VERSION = "portfolio_economic_identity.v1"
+
+#: Date fields that describe the ECONOMIC as-of position. ``target_calculation_date``
+#: and ``portfolio_assessment_date`` are deliberately EXCLUDED: they are research
+#: cadence dates owned by api.alpha_target / api.daily_action_gate and they move when
+#: research runs, not when the portfolio changes.
+_ECONOMIC_DATE_KEYS = ("eligible_market_date", "valuation_date", "desk_mark_date",
+                       "benchmark_date", "latest_daily_close_date")
+
+#: Economic capital fields (mark-to-market position of the book).
+_ECONOMIC_CAPITAL_KEYS = ("nav", "cash", "invested_value", "cost_basis",
+                          "unrealized_pnl", "initial_capital", "currency")
+
+
+def economic_identity(state: Optional[dict]) -> dict:
+    """The ECONOMIC identity of a portfolio state — holdings, cash, NAV, order/fill
+    counts, the corporate-action registry and the economic as-of dates.
+
+    PURE projection: it reads the supplied state and computes nothing. Research
+    outputs are structurally excluded, which is the whole point — see the block
+    comment above.
+    """
+    st = state or {}
+    dates = st.get("dates") or {}
+    capital = st.get("capital") or {}
+    book = st.get("active_book") or {}
+    orders = st.get("orders") or {}
+    fills = st.get("fills") or {}
+    ca = st.get("corporate_actions") or {}
+    positions = [
+        {"ticker": p.get("ticker"), "quantity": p.get("quantity"),
+         "cost_basis": p.get("cost_basis"), "sector": p.get("sector")}
+        for p in sorted((st.get("positions") or []),
+                        key=lambda r: str((r or {}).get("ticker") or ""))
+        if isinstance(p, dict)]
+    return {
+        "economic_identity_version": ECONOMIC_IDENTITY_VERSION,
+        "active_book_id": book.get("book_id"),
+        "dates": {k: dates.get(k) for k in _ECONOMIC_DATE_KEYS},
+        "capital": {k: capital.get(k) for k in _ECONOMIC_CAPITAL_KEYS},
+        "positions": positions,
+        "position_count": len(positions),
+        "orders": {k: orders.get(k) for k in
+                   ("submitted", "proposed", "pending_count", "filled",
+                    "cancelled", "expired", "total_orders")},
+        "fills": {"count": fills.get("count"), "rows_count": fills.get("rows_count")},
+        "corporate_actions": {"registry_fingerprint": ca.get("registry_fingerprint"),
+                              "n_registered": ca.get("n_registered")},
+    }
+
+
+def economic_state_hash(state: Optional[dict]) -> str:
+    """The deterministic hash of :func:`economic_identity`. ONE owner, ONE definition —
+    every consumer that asks "is this evidence still current?" binds to this value."""
+    return _stable_hash(economic_identity(state))
 
 # Deterministic clock seam (tests / explicit callers).
 NOW_ENV = "PAPER_TRADER_PORTFOLIO_STATE_NOW"
@@ -1011,11 +1101,16 @@ def _compose(*, operational: dict, freshness: Optional[dict],
                                "count": fills_block["count"]}),
     }
     result["state_hash"] = _stable_hash(result)
+    # Stage 21 (Workstream 0E): the ECONOMIC fingerprint every staleness check binds to.
+    # Stripped from `state_hash` by `_VOLATILE_KEYS`, so the line above is unchanged.
+    result["economic_identity_version"] = ECONOMIC_IDENTITY_VERSION
+    result["economic_state_hash"] = economic_state_hash(result)
     return result
 
 
 __all__ = [
-    "PHASE", "SCHEMA_VERSION",
+    "PHASE", "SCHEMA_VERSION", "ECONOMIC_IDENTITY_VERSION",
+    "economic_identity", "economic_state_hash",
     "STATE_READY", "STATE_READY_WITH_PENDING_CLOSE", "STATE_DEGRADED",
     "STATE_INCONSISTENT", "STATE_NO_ACTIVE_BOOK", "STATE_UNAVAILABLE", "PORTFOLIO_STATES",
     "CONSISTENT", "DEGRADED", "INCONSISTENT", "UNAVAILABLE", "CONSISTENCY_VOCAB",

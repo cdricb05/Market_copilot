@@ -102,7 +102,7 @@ def _review(ticker, **kw):
 
 def _hoc(reviews=None, *, state="READY", gaps=None, candidates=None,
          eligible=DATE, nav=100000.0, cash=0.0, assessment_hash="hoc_hash_1",
-         ps_hash="ps_hash_1", ca_hash=None):
+         ps_hash="ps_hash_1", ca_hash=None, econ_hash="econ_hash_1"):
     reviews = reviews if reviews is not None else [
         _review("T%02d" % i, current_weight=0.04, current_rank=i + 1) for i in range(25)]
     cands = candidates if candidates is not None else [
@@ -137,6 +137,10 @@ def _hoc(reviews=None, *, state="READY", gaps=None, candidates=None,
         "diagnostics": {"eligible_universe_size": 503},
         "data_quality": {"data_gaps": list(gaps or [])},
         "provenance": {"portfolio_state_hash": ps_hash,
+                       # Stage 21 (Workstream 0E): the ECONOMIC fingerprint is what a
+                       # currency check binds to. `portfolio_state_hash` above embeds
+                       # this assessment's own output and must never be used for it.
+                       "economic_state_hash": econ_hash,
                        "corporate_actions_hash": ca_hash,
                        "universe_scoring_hash": "us_hash_1",
                        "hoc_assessment_hash": assessment_hash},
@@ -144,13 +148,14 @@ def _hoc(reviews=None, *, state="READY", gaps=None, candidates=None,
 
 
 def _portfolio_state(*, ps_hash="ps_hash_1", nav=100000.0, cash=0.0, ca_fp=None,
-                     eligible=DATE):
+                     eligible=DATE, econ_hash="econ_hash_1"):
     return {
         "dates": {"eligible_market_date": eligible, "valuation_date": eligible},
         "active_book": {"book_id": BOOK, "book_label": "Alpha Paper Book #1",
                         "status": "ACTIVE", "initialized": True, "holdings_count": 25},
         "capital": {"nav": nav, "cash": cash},
         "state_hash": ps_hash,
+        "economic_state_hash": econ_hash,
         "corporate_actions": ({"registry_fingerprint": ca_fp, "actions": []}
                               if ca_fp is not None else {}),
     }
@@ -859,10 +864,16 @@ def test_35b_evidence_bound_to_a_changed_portfolio_blocks():
     assert stale["reassessment_state"] == K.STATE_BLOCKED_EVIDENCE
     assert any(b["code"] == "STALE_CORPORATE_ACTION_EVIDENCE"
                for b in stale["blockers"])
-    mismatch = _res(ps=_portfolio_state(ps_hash="ps_hash_MOVED"))
+    # Stage 21 (Workstream 0E): a REAL economic change (holdings / cash / NAV /
+    # corporate actions) still blocks, bound to the ECONOMIC fingerprint.
+    mismatch = _res(ps=_portfolio_state(econ_hash="econ_hash_MOVED"))
     assert mismatch["reassessment_state"] == K.STATE_BLOCKED_EVIDENCE
     assert any(b["code"] == "PORTFOLIO_STATE_CHANGED_SINCE_ASSESSMENT"
                for b in mismatch["blockers"])
+    # ...while document-wide `state_hash` drift alone does NOT block. That hash embeds
+    # the assessment's own output, so a fresh assessment invalidated itself on every run.
+    doc_drift_only = _res(ps=_portfolio_state(ps_hash="ps_hash_MOVED"))
+    assert doc_drift_only["reassessment_state"] != K.STATE_BLOCKED_EVIDENCE
     wrong_date = _res(hoc=_hoc(eligible="2026-08-11"))
     assert wrong_date["reassessment_state"] == K.STATE_BLOCKED_EVIDENCE
 

@@ -842,13 +842,33 @@ def build_execution_summary(sdir, *, bound: Optional[dict], state: str) -> dict:
     """Lineage-scoped execution counts + the four-stage lifecycle position."""
     bound = bound or {}
     cohort = _rebalance_orders_for_proposal(sdir, bound.get("proposal_hash"))
-    plan_ids = sorted({(o.get("rebalance_lineage") or {}).get("order_plan_id")
-                       for o in cohort} - {None})
+    # Stage 21 (Workstream 0A) — CHRONOLOGICAL plan selection.
+    #
+    # This previously used ``sorted(plan_ids)[-1]``. A plan id ends in a HASH, so that
+    # ordering is arbitrary: on the live book it ranks the DEFECTIVE, fully cancelled
+    # plan ``..._5bf9c6c20f8a`` above the EXECUTED plan ``..._1a198f560cca`` purely
+    # because "5" sorts after "1". Whenever the live cohort was empty the read model
+    # therefore presented the defective plan as the current rebalance and described the
+    # 29-order executed plan as superseded.
+    #
+    # Selection is now: among the plans that are NOT fully cancelled (i.e. at least one
+    # order filled or is still live), the newest wins. Only when every plan is dead does
+    # the newest dead plan surface. "Newest" is the lineage's own recorded ``created_at``
+    # — never an id, never a hash.
+    def _created_at(pid: str) -> str:
+        for o in cohort:
+            lin = o.get("rebalance_lineage") or {}
+            if lin.get("order_plan_id") == pid:
+                return str(lin.get("created_at") or "")
+        return ""
+
+    def _newest(orders_subset) -> Optional[str]:
+        ids = {(o.get("rebalance_lineage") or {}).get("order_plan_id")
+               for o in orders_subset} - {None}
+        return max(ids, key=lambda p: (_created_at(p), p)) if ids else None
+
     live = [o for o in cohort if o["status"] not in (desk.ST_CANCELLED, desk.ST_EXPIRED)]
-    live_plan_ids = sorted({(o.get("rebalance_lineage") or {}).get("order_plan_id")
-                            for o in live} - {None})
-    current_plan_id = live_plan_ids[-1] if live_plan_ids else (
-        plan_ids[-1] if plan_ids else None)
+    current_plan_id = _newest(live) or _newest(cohort)
     current = [o for o in cohort
                if (o.get("rebalance_lineage") or {}).get("order_plan_id") == current_plan_id]
 
@@ -907,6 +927,17 @@ def build_execution_summary(sdir, *, bound: Optional[dict], state: str) -> dict:
     }
 
 
+def _latest_completed_rebalance(*, desk_dir=None) -> Optional[dict]:
+    """Delegate to the ONE Stage-21 execution-lineage owner. Degrade-safe: a lineage
+    failure must never break the rebalance read (it is evidence, not a gate)."""
+    try:
+        from paper_trader.api import execution_lineage as el
+        return el.load_execution_lineage(desk_dir=desk_dir).get(
+            "latest_completed_rebalance")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=None,
                          actions_dir=None, plan_dir=None, active_book_id=None,
                          eligible_market_date=None, portfolio_state=None,
@@ -930,6 +961,7 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
                 "order_plan_buildable": False, "confirmation_available": False,
                 "blocked_tickers": [], "blocked_count": 0, "blocked_reasons": [],
                 "missing_marks": [], "order_plan": None,
+                "latest_completed_rebalance": _latest_completed_rebalance(desk_dir=desk_dir),
                 "confirm_required_token": CONFIRM_TOKEN,
                 "target_mark_refresh_token": HYDRATE_CONFIRM_TOKEN,
                 "provider_called": False, "performed_write": False, "created_orders": False,
@@ -984,6 +1016,14 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         # mixes the historical initial-implementation fills or a superseded/cancelled
         # plan into a current-state count. --------------------------------------- #
         "execution_summary": build_execution_summary(sdir, bound=bound, state=state),
+        # --- Stage 21 (Workstream 0A): the COMPLETED rebalance, recovered from the
+        # immutable desk ledger by the ONE execution-lineage owner. The block above is
+        # scoped to the CURRENT proposal and therefore vanishes once the eligible
+        # session advances past it — which is exactly how a fully executed 29-order
+        # rebalance became undiscoverable while the read model reported
+        # REBALANCE_NO_PROPOSAL. This block does not depend on the current proposal at
+        # all, so settlement can never erase the evidence of what was executed. ------ #
+        "latest_completed_rebalance": _latest_completed_rebalance(desk_dir=desk_dir),
         # Stage 19.1 — why a proposal is stale, and the explicit executability contract.
         "stale_reason": base.get("stale_reason"),
         "corporate_action_staleness": base.get("corporate_action_staleness"),

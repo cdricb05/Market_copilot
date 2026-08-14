@@ -466,9 +466,18 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "cash": (ps.get("capital") or {}).get("cash"),
         # --- bound identities ------------------------------------------------ #
         "portfolio_state_hash": ps.get("state_hash"),
+        # Stage 21 (Workstream 0E): the ECONOMIC fingerprints the currency check binds
+        # to. ``portfolio_state_hash`` is retained for continuity/audit only — it embeds
+        # the HOC assessment's own output (via api.daily_action_gate), so comparing it
+        # against the HOC's recorded value invalidated every FRESH assessment.
+        "economic_state_hash": ps.get("economic_state_hash"),
+        "economic_identity_version": ps.get("economic_identity_version"),
+        "hoc_economic_state_hash": ((hoc.get("provenance") or {})
+                                    .get("economic_state_hash")),
         "corporate_actions_hash": _corporate_actions_hash(ps),
         "corporate_action_stale": bool(stale.get("stale")),
         "corporate_action_stale_reason": stale.get("reason"),
+        "corporate_action_staleness_verifiable": bool(stale.get("verifiable", True)),
         "universe_scoring_hash": sc.get("output_hash"),
         "universe_input_contract_hash": sc.get("input_contract_hash"),
         "model_identity": _model_identity(sc),
@@ -534,23 +543,74 @@ def _default_hoc_assessment_loader(*, active_book_id, eligible_market_date,
     return (art or {}).get("assessment") or {}
 
 
+def hoc_corporate_actions_hash(hoc_assessment: Optional[dict]) -> Optional[str]:
+    """The ONE canonical way to resolve the corporate-action registry fingerprint a
+    Slice-6 assessment was computed against (Stage 21, Workstream 0E).
+
+    Before Stage 21 the kernel's ``provenance`` block recorded no corporate-action
+    fingerprint at all, so every consumer resolved ``None``. ``staleness_vs_registry``
+    then treats ``None`` as "bound to the EMPTY registry", which — with the MNST split
+    registered — made EVERY reassessment permanently STALE_CORPORATE_ACTION_EVIDENCE,
+    no matter how fresh. That is a structural false positive, not a staleness signal.
+
+    Resolution order (first hit wins), so a legacy artifact still resolves whatever it
+    genuinely recorded rather than silently defaulting to the empty registry:
+      1. ``provenance.corporate_actions_hash``  (Stage 21 kernel)
+      2. ``identity.corporate_actions_hash``    (artifact identity, Stage 19.1)
+      3. ``input_contract.corporate_actions_hash``
+    Returns ``None`` only when the assessment genuinely recorded nothing.
+    """
+    a = hoc_assessment or {}
+    for block in ("provenance", "identity", "input_contract"):
+        val = (a.get(block) or {}).get("corporate_actions_hash")
+        if val:
+            return val
+    return None
+
+
 def _default_corporate_action_staleness(*, hoc_assessment: dict, portfolio_state: dict,
                                         active_book_id) -> dict:
     """Pure delegation to ``api.corporate_actions`` — this module owns no split
-    arithmetic and no registry logic."""
+    arithmetic and no registry logic.
+
+    Stage 21 (Workstream 0E): when the assessment recorded NO fingerprint the answer is
+    UNVERIFIABLE, never STALE. Claiming staleness from missing evidence is fabrication:
+    it blocked fresh assessments permanently while telling the operator a corporate
+    action had been registered "since" an assessment that in fact post-dated it.
+    """
     try:
         from paper_trader.api import corporate_actions as ca
-        bound = (hoc_assessment.get("provenance") or {}).get("corporate_actions_hash")
+        bound = hoc_corporate_actions_hash(hoc_assessment)
         cur = ((portfolio_state or {}).get("corporate_actions") or {})
         current_fp = cur.get("registry_fingerprint")
         if current_fp is not None:
             actions = cur.get("actions") or []
-            return ca.staleness_vs_registry(
-                bound, current={"fingerprint": current_fp, "n_registered": len(actions),
-                                "actions": actions})
-        return ca.staleness_vs_registry(bound, book_id=active_book_id)
+            current = {"fingerprint": current_fp, "n_registered": len(actions),
+                       "actions": actions}
+        else:
+            current = None
+        if not bound:
+            # No recorded binding -> we cannot prove staleness OR currency. Report it
+            # honestly and let the ECONOMIC fingerprint (which contains the registry
+            # fingerprint) carry the currency decision.
+            fp = current or ca.registry_fingerprint(book_id=active_book_id)
+            return {"stale": False, "verifiable": False,
+                    "reason": None,
+                    "bound_corporate_actions_hash": None,
+                    "current_corporate_actions_hash": fp.get("fingerprint"),
+                    "n_registered_now": fp.get("n_registered"),
+                    "unverifiable_reason": "ASSESSMENT_RECORDED_NO_CORPORATE_ACTION_FINGERPRINT",
+                    "owner": ca.OWNER,
+                    "message": ("This assessment recorded no corporate-action registry "
+                                "fingerprint, so corporate-action staleness cannot be "
+                                "proven either way. Currency is decided by the economic "
+                                "portfolio fingerprint, which contains the registry "
+                                "state. Nothing is inferred from the missing value.")}
+        out = (ca.staleness_vs_registry(bound, current=current) if current is not None
+               else ca.staleness_vs_registry(bound, book_id=active_book_id))
+        return {**out, "verifiable": True}
     except Exception:  # noqa: BLE001 - never crash a read
-        return {"stale": False, "reason": None}
+        return {"stale": False, "verifiable": False, "reason": None}
 
 
 # --------------------------------------------------------------------------- #
@@ -620,6 +680,9 @@ def artifact_identity(*, input_contract: dict, result: dict) -> dict:
         "universe_scoring_hash": input_contract.get("universe_scoring_hash"),
         "universe_input_contract_hash": input_contract.get("universe_input_contract_hash"),
         "portfolio_state_hash": input_contract.get("portfolio_state_hash"),
+        # Stage 21 (Workstream 0E) — the ECONOMIC identity this reassessment describes.
+        # Stage 21 outcome evidence binds to THIS, never to the document-wide hash.
+        "economic_state_hash": input_contract.get("economic_state_hash"),
         "corporate_actions_hash": input_contract.get("corporate_actions_hash"),
         "holdings_snapshot_hash": input_contract.get("holdings_snapshot_hash"),
         "hoc_assessment_hash": input_contract.get("hoc_assessment_hash"),
@@ -653,6 +716,17 @@ def _compact_input_contract(ic: dict) -> dict:
         "nav": ic.get("nav"),
         "cash": ic.get("cash"),
         "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        # Stage 21 (Workstream 0E) — persist BOTH sides of the currency comparison so a
+        # later audit can prove exactly why an assessment was (or was not) blocked.
+        "economic_state_hash": ic.get("economic_state_hash"),
+        "economic_identity_version": ic.get("economic_identity_version"),
+        "hoc_economic_state_hash": ic.get("hoc_economic_state_hash"),
+        "hoc_portfolio_state_hash": ic.get("hoc_portfolio_state_hash"),
+        "hoc_eligible_market_date": ic.get("hoc_eligible_market_date"),
+        "corporate_action_stale": ic.get("corporate_action_stale"),
+        "corporate_action_stale_reason": ic.get("corporate_action_stale_reason"),
+        "corporate_action_staleness_verifiable":
+            ic.get("corporate_action_staleness_verifiable"),
         "corporate_actions_hash": ic.get("corporate_actions_hash"),
         "universe_scoring_hash": ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
@@ -696,17 +770,35 @@ def persist_reassessment(*, result: dict, input_contract: dict, reassessment_dir
         index = {}
     existing = index.get(key)
 
-    if existing:
+    # Stage 21 (Workstream 0E, requirement 4). Two DIFFERENT situations were previously
+    # collapsed into one CONFLICT_REJECTED, which left the index pointing forever at the
+    # first artifact of the session:
+    #
+    #   (a) SAME economic state, different research inputs -> the prior artifact still
+    #       describes the portfolio. Immutability wins: reject, never overwrite. This is
+    #       the protection Stage 20 shipped and it is preserved exactly.
+    #   (b) The economic state itself CHANGED (holdings / cash / NAV / corporate actions)
+    #       -> the prior artifact provably no longer describes the portfolio. Rejecting
+    #       here strands the operator on stale evidence for the rest of the session with
+    #       no way to reach the current-state assessment. A NEW VERSION is appended; the
+    #       prior artifact file is still never rewritten, so nothing is lost.
+    new_econ = identity.get("economic_state_hash")
+    prior_econ = existing.get("economic_state_hash") if existing else None
+    economic_state_changed = bool(existing and new_econ and prior_econ
+                                  and new_econ != prior_econ)
+
+    if existing and not economic_state_changed:
         if existing.get("reassessment_hash") == identity["reassessment_hash"]:
             return {"status": "REUSED_EXISTING",
                     "artifact_id": existing.get("artifact_id"),
                     "path": existing.get("path"), "persisted": True, "reused": True,
-                    "conflict": False, "history_appended": False, "identity": identity}
+                    "conflict": False, "history_appended": False,
+                    "economic_state_changed": False, "identity": identity}
         return {"status": "CONFLICT_REJECTED", "artifact_id": aid,
                 "existing_artifact_id": existing.get("artifact_id"),
                 "existing_reassessment_hash": existing.get("reassessment_hash"),
                 "persisted": False, "reused": False, "conflict": True,
-                "history_appended": False,
+                "history_appended": False, "economic_state_changed": False,
                 "reason": "An immutable reassessment artifact already exists for this "
                           "book + eligible date with a different bound state; it was not "
                           "overwritten.",
@@ -724,41 +816,75 @@ def persist_reassessment(*, result: dict, input_contract: dict, reassessment_dir
     }
     path = _artifacts_dir(reassessment_dir) / ("%s.json" % aid)
     _atomic_write_json(path, payload)
-    # Index AFTER the artifact write (interrupted-write recoverable).
-    index[key] = {"artifact_id": aid, "path": str(path),
-                  "reassessment_hash": identity["reassessment_hash"],
-                  "portfolio_state_hash": identity["portfolio_state_hash"],
-                  "universe_scoring_hash": identity["universe_scoring_hash"],
-                  "holdings_snapshot_hash": identity["holdings_snapshot_hash"],
-                  "hoc_assessment_hash": identity["hoc_assessment_hash"],
-                  "reassessment_policy_version": identity["reassessment_policy_version"],
-                  "decision": result.get("reassessment_state"),
-                  "eligible_market_date": identity["eligible_market_date"],
-                  "active_book_id": identity["active_book_id"],
-                  "generated_at": payload["generated_at"]}
+    entry = {"artifact_id": aid, "path": str(path),
+             "reassessment_hash": identity["reassessment_hash"],
+             "portfolio_state_hash": identity["portfolio_state_hash"],
+             "economic_state_hash": identity.get("economic_state_hash"),
+             "universe_scoring_hash": identity["universe_scoring_hash"],
+             "holdings_snapshot_hash": identity["holdings_snapshot_hash"],
+             "hoc_assessment_hash": identity["hoc_assessment_hash"],
+             "reassessment_policy_version": identity["reassessment_policy_version"],
+             "decision": result.get("reassessment_state"),
+             "eligible_market_date": identity["eligible_market_date"],
+             "active_book_id": identity["active_book_id"],
+             "generated_at": payload["generated_at"]}
+    # Index AFTER the artifact write (interrupted-write recoverable). The newest version
+    # sits at the top level (backward compatible for every existing reader) and the full
+    # append-only version chain is preserved under ``versions`` so the superseded
+    # artifact stays discoverable and is never rewritten.
+    prior_versions = list((existing or {}).get("versions") or [])
+    if existing and not prior_versions:
+        prior_versions = [{k: v for k, v in existing.items() if k != "versions"}]
+    index[key] = {**entry, "versions": prior_versions + [entry]}
     _atomic_write_json(_index_path(reassessment_dir), index)
     appended = _append_history(_history_row(artifact=payload),
                                reassessment_dir=reassessment_dir)
-    return {"status": "CREATED", "artifact_id": aid, "path": str(path),
+    return {"status": ("CREATED_NEW_VERSION" if economic_state_changed else "CREATED"),
+            "artifact_id": aid, "path": str(path),
             "persisted": True, "reused": False, "conflict": False,
+            "economic_state_changed": economic_state_changed,
+            "superseded_artifact_id": ((existing or {}).get("artifact_id")
+                                       if economic_state_changed else None),
             "history_appended": bool(appended), "identity": identity}
+
+
+def _read_indexed_artifact(entry: Optional[dict], reassessment_dir=None) -> Optional[dict]:
+    if not entry:
+        return None
+    art = _load_json(Path(entry.get("path"))) if entry.get("path") else None
+    if art is None and entry.get("artifact_id"):
+        art = _load_json(_artifacts_dir(reassessment_dir)
+                         / ("%s.json" % entry.get("artifact_id")))
+    return art if isinstance(art, dict) else None
 
 
 def load_latest_artifact(*, active_book_id: Optional[str],
                          eligible_market_date: Optional[str],
-                         reassessment_dir=None) -> Optional[dict]:
-    """Load the persisted artifact for an exact (active book, eligible date), or None."""
+                         reassessment_dir=None,
+                         economic_state_hash: Optional[str] = None) -> Optional[dict]:
+    """Load the persisted artifact for an exact (active book, eligible date), or None.
+
+    Stage 21 (Workstream 0E, requirement 4): when ``economic_state_hash`` is supplied
+    the lookup resolves the NEWEST version bound to exactly that economic state, so a
+    session that produced more than one version (because the portfolio genuinely changed
+    mid-session — e.g. the Aug-13 settlement) resolves the CURRENT-state assessment
+    rather than the first one written that day. With no hint, the newest version wins.
+    Superseded versions stay on disk and stay readable; nothing is rewritten.
+    """
     index = _load_json(_index_path(reassessment_dir)) or {}
     if not isinstance(index, dict):
         return None
     entry = index.get(_index_key(active_book_id, eligible_market_date))
     if not entry:
         return None
-    art = _load_json(Path(entry.get("path"))) if entry.get("path") else None
-    if art is None:
-        art = _load_json(_artifacts_dir(reassessment_dir)
-                         / ("%s.json" % entry.get("artifact_id")))
-    return art if isinstance(art, dict) else None
+    if economic_state_hash:
+        versions = list(entry.get("versions") or [entry])
+        for v in reversed(versions):
+            if v.get("economic_state_hash") == economic_state_hash:
+                art = _read_indexed_artifact(v, reassessment_dir)
+                if art is not None:
+                    return art
+    return _read_indexed_artifact(entry, reassessment_dir)
 
 
 def run_and_persist(*, portfolio_state: Optional[dict] = None,
@@ -1041,6 +1167,83 @@ _OPERATOR_PRESENTATION = {
 }
 
 
+#: Stage 21 (Workstream 0C) — the reconciliation the operator was previously left to
+#: infer. On 2026-08-13 the Holding Review said "13 HOLDINGS NEED ATTENTION" while the
+#: global operator state said "DAILY CYCLE COMPLETE / MONITOR THE PORTFOLIO / NO ACTION
+#: REQUIRED". Both were correct — they answer DIFFERENT questions — but nothing on the
+#: page said so, which reads as a contradiction and invites the operator to go looking
+#: for an action that does not exist.
+#:
+#: PER-HOLDING ATTENTION is a review signal about ONE name.
+#: PORTFOLIO-LEVEL DECISION is an economic verdict about the WHOLE book, net of
+#: switching costs, turnover, risk, concentration and churn controls.
+#:
+#: A name can be worth replacing on its own merits while replacing it is not worth
+#: paying for. HOC never becomes an execution action; it stays REVIEW ONLY.
+_DECISION_SCOPE_EXPLANATION = {
+    STATE_NO_CHANGE: (
+        "%(n)d holding(s) have individual concerns, but the portfolio-level economic "
+        "gate does not justify another rebalance after switching costs, turnover, risk, "
+        "concentration and churn controls. Monitor only — these are review signals, not "
+        "approved portfolio changes."),
+    STATE_CHANGE_CANDIDATE: (
+        "%(n)d holding(s) have individual concerns and the portfolio is deteriorating, "
+        "but the expected improvement does not yet clear the portfolio-level hurdle net "
+        "of switching costs and turnover. No change is proposed — these remain review "
+        "signals, not approved portfolio changes."),
+    STATE_PROPOSAL_READY: (
+        "%(n)d holding(s) have individual concerns AND the portfolio-level hurdle "
+        "cleared: the expected improvement exceeds the switching cost, turnover and "
+        "churn controls, so a reviewable proposal exists. Nothing is approved until you "
+        "review it."),
+    STATE_MANUAL_REVIEW: (
+        "%(n)d holding(s) have individual concerns and at least one breaches a hard "
+        "portfolio constraint that a human must adjudicate. The per-holding signals are "
+        "review only; the constraint breach is what requires your decision."),
+    STATE_BLOCKED_DATA: (
+        "%(n)d holding(s) have individual concerns, but a required point-in-time input "
+        "is missing or incomplete, so NO portfolio-level verdict was reached. The "
+        "per-holding signals are review only and no change is proposed."),
+    STATE_BLOCKED_EVIDENCE: (
+        "%(n)d holding(s) have individual concerns, but the bound evidence no longer "
+        "describes the current portfolio, so NO portfolio-level verdict was reached. "
+        "The per-holding signals are review only and no change is proposed."),
+}
+
+
+def build_decision_scope(*, state: str, reassessment: Optional[dict]) -> dict:
+    """Stage 21 (Workstream 0C) — reconcile PER-HOLDING attention with the
+    PORTFOLIO-LEVEL decision, explicitly, in the backend that owns the verdict.
+
+    This is presentation-grade text derived from the numbers the kernel already
+    computed. It creates no action, no CTA and no new state: it exists so the operator
+    never has to infer why 13 flagged holdings can coexist with "no action required".
+    """
+    res = reassessment or {}
+    dec = res.get("decision") or {}
+    n = (res.get("attention") or {}).get("count", 0) or 0
+    template = _DECISION_SCOPE_EXPLANATION.get(state)
+    return {
+        "per_holding_attention_count": n,
+        "per_holding_scope": "INDIVIDUAL_HOLDING_REVIEW_SIGNAL",
+        "portfolio_decision_state": state,
+        "portfolio_decision_scope": "WHOLE_PORTFOLIO_ECONOMIC_VERDICT",
+        "scopes_are_different_questions": True,
+        "explanation": (template % {"n": n}) if template else None,
+        "portfolio_gate_reason_codes": dec.get("reason_codes") or [],
+        "portfolio_gate_blockers": dec.get("blockers") or [],
+        "expected_net_improvement": dec.get("expected_net_improvement"),
+        "expected_transaction_cost_usd": dec.get("expected_transaction_cost_usd"),
+        "expected_one_way_turnover": dec.get("expected_one_way_turnover"),
+        # The invariants the UI must honour, asserted by the backend that owns them.
+        "holding_recommendations_are_review_only": True,
+        "holding_recommendations_are_approved_changes": False,
+        "holding_review_offers_execution_action": False,
+        "holding_review_label": "REVIEW ONLY — NOT AN APPROVED PORTFOLIO CHANGE",
+        "safety_badges": ["REVIEW ONLY", "NO ORDERS", "MANUAL REVIEW", "AUTOMATION OFF"],
+    }
+
+
 def build_presentation(*, state: str, reassessment: Optional[dict],
                        execution: Optional[dict] = None) -> dict:
     """The ONE operator presentation for a reassessment state.
@@ -1072,6 +1275,9 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
         "improvement_basis": kernel.IMPROVEMENT_BASIS,
         "strongest_opportunity": dec.get("strongest_evidence"),
         "blockers": dec.get("blockers") or [],
+        # Stage 21 (Workstream 0C) — why per-holding attention and the portfolio-level
+        # decision can disagree without either being wrong.
+        "decision_scope": build_decision_scope(state=state, reassessment=res),
         "safety_badges": ["PREVIEW ONLY", "MANUAL REVIEW", "NO LIVE ORDERS",
                           "AUTOMATION OFF"],
     })
@@ -1184,9 +1390,13 @@ def load_portfolio_reassessment(*, portfolio_state: Optional[dict] = None,
                              policy=resolve_policy(), reassessment=None,
                              input_contract=None, execution=execution)
 
+    # Stage 21 (Workstream 0E, requirement 4): resolve the version bound to the CURRENT
+    # economic state when one exists, so a session with more than one version never
+    # strands the operator on a superseded pre-settlement assessment.
     art = artifact if artifact is not None else load_latest_artifact(
         active_book_id=book_id, eligible_market_date=eligible,
-        reassessment_dir=reassessment_dir)
+        reassessment_dir=reassessment_dir,
+        economic_state_hash=ps.get("economic_state_hash"))
     if not art:
         return _read_payload(
             state=STATE_NOT_RUN, generated_at=generated_at, eligible=eligible,
@@ -1200,6 +1410,8 @@ def load_portfolio_reassessment(*, portfolio_state: Optional[dict] = None,
     res = art.get("reassessment") or {}
     staleness = _corporate_action_staleness(artifact=art, portfolio_state=ps,
                                             active_book_id=book_id)
+    currency = economic_currency(artifact=art, portfolio_state=ps)
+    staleness = {**staleness, "economic_currency": currency}
     if staleness.get("stale"):
         return _read_payload(
             state=STATE_STALE, generated_at=generated_at, eligible=eligible,
@@ -1207,6 +1419,16 @@ def load_portfolio_reassessment(*, portfolio_state: Optional[dict] = None,
             message=("This reassessment was produced BEFORE a corporate action was "
                      "registered, so it evaluated holdings that no longer describe the "
                      "current portfolio. Run the Daily Research Cycle to reassess."),
+            policy=res.get("policy") or resolve_policy(), reassessment=res,
+            input_contract=art.get("input_contract"), staleness=staleness,
+            execution=execution)
+    # Stage 21 (Workstream 0E, requirement 5): a PROVEN economic change still fails
+    # closed. Only a proven change does — an unverifiable binding never blocks.
+    if currency.get("state") == "SUPERSEDED":
+        return _read_payload(
+            state=STATE_STALE, generated_at=generated_at, eligible=eligible,
+            active_book=active_book, artifact=art,
+            message=currency.get("message"),
             policy=res.get("policy") or resolve_policy(), reassessment=res,
             input_contract=art.get("input_contract"), staleness=staleness,
             execution=execution)
@@ -1220,25 +1442,76 @@ def load_portfolio_reassessment(*, portfolio_state: Optional[dict] = None,
         execution=execution)
 
 
+def economic_currency(*, artifact: Optional[dict],
+                      portfolio_state: Optional[dict]) -> dict:
+    """Does a persisted reassessment still describe the CURRENT economic portfolio?
+
+    Stage 21 (Workstream 0E). Binds to the ONE canonical economic fingerprint owned by
+    ``api.portfolio_state`` — holdings, cash, NAV, order/fill counts and the
+    corporate-action registry. Research outputs are structurally excluded, so a
+    downstream write can never invalidate its own input.
+
+    Returns ``CURRENT`` / ``SUPERSEDED`` / ``UNVERIFIABLE``. UNVERIFIABLE is NOT
+    staleness: an artifact written before this contract existed simply recorded no
+    economic fingerprint, and inferring "stale" from a missing value is fabrication.
+    """
+    art = artifact or {}
+    bound = ((art.get("identity") or {}).get("economic_state_hash")
+             or (art.get("input_contract") or {}).get("economic_state_hash"))
+    current = (portfolio_state or {}).get("economic_state_hash")
+    if not bound or not current:
+        return {"state": "UNVERIFIABLE", "current": None,
+                "bound_economic_state_hash": bound,
+                "current_economic_state_hash": current,
+                "reason": "ARTIFACT_RECORDED_NO_ECONOMIC_STATE_HASH" if not bound
+                          else "PORTFOLIO_STATE_RECORDED_NO_ECONOMIC_STATE_HASH",
+                "message": ("This assessment predates the economic-identity contract, so "
+                            "whether it still describes the portfolio cannot be proven "
+                            "either way. Nothing is inferred from the missing value.")}
+    same = bound == current
+    return {"state": "CURRENT" if same else "SUPERSEDED", "current": same,
+            "bound_economic_state_hash": bound,
+            "current_economic_state_hash": current,
+            "reason": None if same else "ECONOMIC_PORTFOLIO_CHANGED_SINCE_ASSESSMENT",
+            "message": None if same else
+            ("The economic portfolio (holdings / cash / NAV / corporate actions) changed "
+             "after this assessment was produced, so it no longer describes the current "
+             "portfolio. Run the Daily Research Cycle to reassess.")}
+
+
 def _corporate_action_staleness(*, artifact: Optional[dict], portfolio_state: Optional[dict],
                                 active_book_id: Optional[str]) -> dict:
     """Stage 19.1 semantics — is a persisted reassessment still valid against the
-    CURRENT corporate-action registry? Pure delegation to ``api.corporate_actions``."""
+    CURRENT corporate-action registry? Pure delegation to ``api.corporate_actions``.
+
+    Stage 21 (Workstream 0E): the bound fingerprint is resolved through the ONE
+    canonical resolver (:func:`hoc_corporate_actions_hash`), and an artifact that
+    recorded nothing is UNVERIFIABLE rather than silently "bound to the empty
+    registry" — the substitution that made every fresh assessment permanently stale.
+    """
     try:
         from paper_trader.api import corporate_actions as ca
         art = artifact or {}
-        bound = ((art.get("identity") or {}).get("corporate_actions_hash")
-                 or (art.get("input_contract") or {}).get("corporate_actions_hash"))
+        bound = hoc_corporate_actions_hash(art)
         cur = ((portfolio_state or {}).get("corporate_actions") or {})
         current_fp = cur.get("registry_fingerprint")
-        if current_fp is not None:
-            actions = cur.get("actions") or []
-            return ca.staleness_vs_registry(
-                bound, current={"fingerprint": current_fp, "n_registered": len(actions),
-                                "actions": actions})
-        return ca.staleness_vs_registry(bound, book_id=active_book_id)
+        current = ({"fingerprint": current_fp, "n_registered": len(cur.get("actions") or []),
+                    "actions": cur.get("actions") or []}
+                   if current_fp is not None else None)
+        if not bound:
+            fp = current or ca.registry_fingerprint(book_id=active_book_id)
+            return {"stale": False, "verifiable": False, "reason": None,
+                    "bound_corporate_actions_hash": None,
+                    "current_corporate_actions_hash": fp.get("fingerprint"),
+                    "n_registered_now": fp.get("n_registered"),
+                    "unverifiable_reason":
+                        "ARTIFACT_RECORDED_NO_CORPORATE_ACTION_FINGERPRINT",
+                    "owner": ca.OWNER, "message": None}
+        out = (ca.staleness_vs_registry(bound, current=current) if current is not None
+               else ca.staleness_vs_registry(bound, book_id=active_book_id))
+        return {**out, "verifiable": True}
     except Exception:  # noqa: BLE001
-        return {"stale": False, "reason": None}
+        return {"stale": False, "verifiable": False, "reason": None}
 
 
 # --------------------------------------------------------------------------- #
@@ -1470,5 +1743,6 @@ __all__ = [
     "run_and_persist", "should_build_proposal", "proposal_binding", "proposal_is_current_for",
     "execution_precedence", "build_presentation", "load_portfolio_reassessment",
     "load_reassessment_summary", "load_reassessment_history", "load_history",
-    "recent_change_rows", "build_attribution",
+    "recent_change_rows", "build_attribution", "build_decision_scope",
+    "economic_currency", "hoc_corporate_actions_hash",
 ]

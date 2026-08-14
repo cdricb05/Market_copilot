@@ -876,3 +876,31 @@ versioned, persisted portfolio-level decision that exists whether or not a chang
 **Next slice (unchanged).** Slice 10 — intraday / near-real-time operation. Stage 20 is
 deliberately session-keyed; moving to intraday requires the market-session owner, the
 freshness contract and the desk mark owner to support intraday marks first.
+
+---
+
+## Stage 21 - outcome intelligence (LANDED)
+
+Bounded slice, behind tests, no big-bang rewrite.
+
+1. **0E fresh-reassessment false invalidation** - canonical economic fingerprint in
+   `api/portfolio_state.py`; HOC records both fingerprints; one corporate-action resolver;
+   versioned reassessment artifacts with current-state lookup. **LANDED.**
+2. **0A execution lineage** - `engine/` + `api/execution_lineage.py`; chronological plan
+   selection; `latest_completed_rebalance` composed into the rebalance read. **LANDED.**
+3. **0B durable daily-close run status** - run identity, outcome vocabulary, retry contract
+   inside the EXISTING close owner. **LANDED.**
+4. **0C HOC vs portfolio-decision clarity** - `build_decision_scope` in the owner of the
+   verdict; UI renders it verbatim. **LANDED.**
+5. **0D environment isolation** - `api/environment_isolation.py`, fail-closed at app import,
+   child-scoped acceptance opt-in. **LANDED.**
+6. **Outcome evidence + policy intelligence** - `engine/` + `api/reassessment_outcomes.py`,
+   GET-only routes, maturation inside the Daily Close. **LANDED.**
+
+Deferred, deliberately:
+
+* Nothing in Stage 21 tunes a Stage-20 threshold. When outcome evidence eventually reaches
+  `POLICY_REVIEW_CANDIDATE` with a horizon-aligned sample, the review is a separate,
+  human-gated slice.
+* Outcome evidence for sessions before Stage 20 first ran is a permanent, documented gap.
+  Reconstructing it would be fabricated evidence and is explicitly out of scope forever.

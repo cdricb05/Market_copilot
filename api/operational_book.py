@@ -854,8 +854,18 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
 # --------------------------------------------------------------------------- #
 
 def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str] = None,
-                          panel_path=None, inputs_dir=None) -> dict:
-    """ONE payload describing Alpha Paper Book #1 for every operational page."""
+                          panel_path=None, inputs_dir=None,
+                          target_readiness: Optional[dict] = None) -> dict:
+    """ONE payload describing Alpha Paper Book #1 for every operational page.
+
+    ``target_readiness`` is the standard injection seam every other read model in this
+    codebase already offers (``operational=``, ``current=``, ``freshness=``, ``artifact=``).
+    Supplied, it REPLACES the ``api.alpha_target`` readiness read; omitted, behaviour is
+    unchanged. Without it a hermetic harness cannot freeze the target-calculation date:
+    ``alpha_target.load_readiness`` resolves it from the owned model panel, which is a
+    live-world read that advances with the real calendar while every seeded panel stays
+    on the scenario's frozen eligible session (Stage 21, Workstream 0F).
+    """
     warnings: list[str] = []
 
     # 1. Alpha-book workflow status + ledger-replayed valuation (the ONE producer).
@@ -882,8 +892,9 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     # 3. Current target readiness (six-date contract from Phase 27A.2).
     target: Optional[dict] = None
     try:
-        r = at.load_readiness(panel_path=panel_path, inputs_dir=inputs_dir,
-                              ledger_dir=ledger_dir)
+        r = (target_readiness if target_readiness is not None
+             else at.load_readiness(panel_path=panel_path, inputs_dir=inputs_dir,
+                                    ledger_dir=ledger_dir))
         dates = r.get("dates") or {}
         target = {
             "state": r.get("state"),

@@ -150,6 +150,40 @@ _CLOSE_LOCK = threading.Lock()
 #: leftover and is reported as not running.
 _PROGRESS_STALE_MINUTES = 45
 
+# --------------------------------------------------------------------------- #
+# Stage 21 (Workstream 0B) — DURABLE CLOSE-RUN STATUS.
+#
+# The real 2026-08-13 close SUCCEEDED — Aug-13 processed, marks advanced, 29 fills
+# created, pending orders 0, performance and evidence captured — but the HTTP POST ran
+# longer than the operator's 300-second client timeout, so the client reported only
+# "The operation has timed out". A transport timeout is NOT an outcome, and an operator
+# staring at that message has every reason to retry a WRITING endpoint.
+#
+# The close is single-flight and idempotent on (book, market_date), so a retry was in
+# fact safe — but the operator could not know that, and "probably safe" is not an
+# acceptable contract for the only endpoint that creates fills.
+#
+# The progress document (introduced in 28B.2 for the UI's stage display) is therefore
+# promoted into the DURABLE RUN RECORD the close already needed: one run identity, an
+# explicit outcome, whether writes occurred, and whether a retry is safe. It remains
+# display/status only — never a gate, never evidence, never operational state. The
+# authority on what happened is still the append-only journal; this record points at it.
+# --------------------------------------------------------------------------- #
+#: Durable run outcomes. ONE vocabulary the UI and the operator read verbatim.
+RUN_NOT_STARTED = "NOT_STARTED"
+RUN_RUNNING = "RUNNING"
+RUN_COMPLETED = "COMPLETED"
+#: The run ended without completing, but the close is idempotent on (book, date) and no
+#: partial write can be duplicated -> retrying is explicitly SAFE.
+RUN_FAILED_RECOVERABLE = "FAILED_RECOVERABLE"
+#: The run's own state could not be established (e.g. the record was lost). A retry is
+#: not endorsed until an operator has read the journal.
+RUN_FAILED_TERMINAL = "FAILED_TERMINAL"
+RUN_STATE_VOCAB = (RUN_NOT_STARTED, RUN_RUNNING, RUN_COMPLETED,
+                   RUN_FAILED_RECOVERABLE, RUN_FAILED_TERMINAL)
+
+CLOSE_RUN_SCHEMA_VERSION = "daily_close_run.v1"
+
 CLOSE_STAGES = (
     ("VALIDATE_EOD_DATA", "Validate provider EOD data readiness"),
     ("VALUE_HOLDINGS", "Refresh owned marks and value the holdings"),
@@ -481,26 +515,60 @@ class _CloseProgress:
     is wrapped: a progress failure can never affect the close itself."""
 
     def __init__(self, desk_dir, *, market_date: Optional[str],
-                 evaluation_date: Optional[str]):
+                 evaluation_date: Optional[str], book_id: Optional[str] = None,
+                 requested_by: Optional[str] = None):
         self._path = Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE
         self._started = _now_iso()
+        # Stage 21 (Workstream 0B): the run identity. It is derived from the SAME
+        # idempotency key the close itself uses — (book, market_date) — plus the start
+        # instant, so a reconnecting GET can prove which attempt it is looking at while
+        # the idempotency key proves a retry cannot duplicate anything.
+        idem = "%s|%s" % (book_id or "?", market_date or "?")
         self._doc = {
             "phase": "28B.2",
+            "schema_version": CLOSE_RUN_SCHEMA_VERSION,
+            "run_id": "dcr_%s_%s_%s" % (market_date or "nodate", book_id or "book",
+                                        self._started.replace(":", "").replace("-", "")[:15]),
+            "idempotency_key": idem,
+            "book_id": book_id,
+            "requested_by": requested_by,
+            "outcome": RUN_RUNNING,
             "running": True,
             "done": False,
             "market_date": market_date,
             "evaluation_date": evaluation_date,
             "started_at": self._started,
             "updated_at": self._started,
+            "completed_at": None,
             "stage": None,
             "stage_label": None,
             "stages": [{"key": k, "label": lbl, "status": "pending"}
                        for k, lbl in CLOSE_STAGES],
-            "warning": ("The daily close is still running — do not refresh the page "
-                        "and do not click Run Daily Close again."),
+            "completed_steps": [],
+            # Whether this run has reached the point where the close writes. Until the
+            # journal row lands, the run has produced no durable operational effect.
+            "writes_occurred": False,
+            "blocker": None,
+            "failure": None,
+            "settlement": None,
+            "journal_row_id": None,
+            "warning": ("The daily close is still running. It is safe to close or "
+                        "reload this page: the run continues on the server and this "
+                        "status is authoritative when you return."),
             "final_close_status": None,
             "final_evidence_status": None,
         }
+        self._write()
+
+    @property
+    def run_id(self) -> Optional[str]:
+        return self._doc.get("run_id")
+
+    def mark_write(self, *, journal_row_id: Optional[str] = None) -> None:
+        """Record that this run has performed its durable operational write."""
+        self._doc["writes_occurred"] = True
+        if journal_row_id:
+            self._doc["journal_row_id"] = journal_row_id
         self._write()
 
     def _write(self) -> None:
@@ -524,6 +592,8 @@ class _CloseProgress:
                 s["status"] = "done"
             elif reached and s["status"] != "pending":
                 s["status"] = "pending"
+        self._doc["completed_steps"] = [s["key"] for s in self._doc["stages"]
+                                        if s["status"] == "done"]
         self._write()
 
 
@@ -538,17 +608,33 @@ def _progress_finalize(desk_dir, result: Optional[dict]) -> None:
         doc["running"] = False
         doc["done"] = True
         doc["updated_at"] = _now_iso()
+        doc["completed_at"] = _now_iso()
         for s in doc.get("stages") or []:
             if s.get("status") == "current":
                 s["status"] = "done"
+        doc["completed_steps"] = [s.get("key") for s in (doc.get("stages") or [])
+                                  if s.get("status") == "done"]
         if result is None:
+            # Stage 21 (Workstream 0B): an errored run is RECOVERABLE, not ambiguous.
+            # The close is idempotent on (book, market_date): an already-processed date
+            # creates no duplicate mark, performance row, journal row or fill, so a
+            # retry is explicitly safe and the operator is told so.
+            doc["outcome"] = RUN_FAILED_RECOVERABLE
             doc["final_close_status"] = "EXECUTION_ERROR"
             doc["final_evidence_status"] = None
-            doc["warning"] = ("The close request ended with an error — reload the "
-                              "Daily Close status before acting.")
+            doc["failure"] = doc.get("failure") or "The close run ended with an error."
+            doc["warning"] = ("The close run ended with an error. It is idempotent on "
+                              "(book, market date), so retrying cannot duplicate a "
+                              "fill, a performance row or a journal row. Read this "
+                              "status before acting.")
         else:
+            doc["outcome"] = RUN_COMPLETED
             doc["final_close_status"] = result.get("close_status") or result.get("status")
             doc["final_evidence_status"] = result.get("forward_evidence_status")
+            doc["writes_occurred"] = bool(doc.get("writes_occurred")
+                                          or result.get("performed_write"))
+            doc["settlement"] = result.get("settlement") or doc.get("settlement")
+            doc["blocker"] = result.get("blocker")
             doc["warning"] = None
         desk._atomic_write_json(path, doc)
     except Exception:  # noqa: BLE001 — display only
@@ -564,6 +650,11 @@ def load_close_progress(desk_dir=None) -> dict:
         doc = None
     if not isinstance(doc, dict) or not doc.get("started_at"):
         return {"status": "NO_CLOSE_PROGRESS", "running": False, "done": False,
+                "outcome": RUN_NOT_STARTED, "run_state_vocabulary": list(RUN_STATE_VOCAB),
+                "run_id": None, "writes_occurred": False,
+                "safe_retry_allowed": True,
+                "retry_guidance": ("No daily close run has been recorded. Running one "
+                                   "is safe."),
                 "stages": [{"key": k, "label": lbl, "status": "pending"}
                            for k, lbl in CLOSE_STAGES],
                 **_safety(False)}
@@ -576,14 +667,58 @@ def load_close_progress(desk_dir=None) -> dict:
             stale = age_min > _PROGRESS_STALE_MINUTES
         except (TypeError, ValueError):
             stale = True
+    # Stage 21 (Workstream 0B) — the AUTHORITATIVE outcome on reconnect.
+    #
+    # A client-side HTTP timeout tells the operator nothing about the server-side run,
+    # and on 2026-08-13 that ambiguity sat on top of a close that had in fact SUCCEEDED.
+    # This GET is what the operator (and the UI) consults instead of retrying blind.
+    # A run whose record is `running` but has gone silent past the staleness cutoff is
+    # reported as FAILED_RECOVERABLE — the process is gone, and because the close is
+    # idempotent on (book, market date) a retry cannot duplicate anything.
+    if running and not stale:
+        outcome = RUN_RUNNING
+    elif running and stale:
+        outcome = RUN_FAILED_RECOVERABLE
+    else:
+        outcome = doc.get("outcome") or (
+            RUN_COMPLETED if doc.get("done") else RUN_FAILED_TERMINAL)
+    # Retrying is safe unless a run is actively in flight (the single-flight lock would
+    # reject it anyway, writing nothing). Idempotency is on (book, market_date), so an
+    # already-processed date creates no duplicate fill / performance / journal row.
+    safe_retry = outcome != RUN_RUNNING
+    guidance = {
+        RUN_RUNNING: ("A daily close is running on the server. Do NOT submit another "
+                      "one — this status is authoritative and updates as it progresses. "
+                      "Closing or reloading the page does not stop or affect the run."),
+        RUN_COMPLETED: ("The daily close run completed. Its outcome is recorded here "
+                        "and in the append-only close journal."),
+        RUN_FAILED_RECOVERABLE: (
+            "The run did not report completion. The close is idempotent on (book, "
+            "market date): an already-processed date creates no duplicate fill, "
+            "performance row or journal row, so running it again is safe."),
+        RUN_FAILED_TERMINAL: ("The run state could not be established. Read the close "
+                              "journal before running another close."),
+        RUN_NOT_STARTED: "No daily close run has been recorded.",
+    }.get(outcome)
     return {"status": ("CLOSE_RUNNING" if running and not stale else
                        "CLOSE_PROGRESS_STALE" if running and stale else
                        "CLOSE_FINISHED"),
             "running": running and not stale,
             "stale": stale,
+            # --- durable run contract ---------------------------------------- #
+            "outcome": outcome,
+            "run_state_vocabulary": list(RUN_STATE_VOCAB),
+            "safe_retry_allowed": safe_retry,
+            "retry_guidance": guidance,
+            "client_timeout_is_not_an_outcome": True,
+            "idempotency_scope": "operational_book_id + market_date",
+            "duplicate_write_possible": False,
             **{k: doc.get(k) for k in (
-                "phase", "done", "market_date", "evaluation_date", "started_at",
-                "updated_at", "stage", "stage_label", "stages", "warning",
+                "phase", "schema_version", "run_id", "idempotency_key", "book_id",
+                "requested_by", "done", "market_date", "evaluation_date", "started_at",
+                "updated_at", "completed_at", "stage", "stage_label", "stages",
+                "completed_steps", "writes_occurred", "blocker", "failure",
+                "settlement", "journal_row_id", "warning",
                 "final_close_status", "final_evidence_status")},
             **_safety(False)}
 
@@ -1403,6 +1538,22 @@ def _run_alpha_refresh(*, completed_through: Optional[str], downloader,
                 "performed_write": False}
 
 
+def _run_outcome_capture(*, desk_dir, book_id: Optional[str],
+                         warnings: list) -> dict:
+    """Stage 21 (Workstream N) — mature Stage-21 decision-outcome observations.
+
+    Delegates to the ONE Stage-21 persistence owner. Evidence only: it never gates the
+    close, never writes an operational store and never changes a policy or a model.
+    """
+    try:
+        from paper_trader.api import reassessment_outcomes as ro
+        return ro.capture_for_daily_close(desk_dir=desk_dir, active_book_id=book_id)
+    except Exception as exc:  # noqa: BLE001 — evidence must never break a close
+        warnings.append("Stage-21 outcome capture unavailable: %s" % str(exc)[:160])
+        return {"status": "OUTCOME_CAPTURE_UNAVAILABLE",
+                "observations_newly_matured": 0, "performed_write": False}
+
+
 def _read_prediction_capture_status(*, market_date: Optional[str], desk_dir,
                                     warnings: list) -> Optional[dict]:
     """READ-ONLY Phase 28B presence summary (no engine build, no fetch, no write)."""
@@ -2174,6 +2325,9 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "paper_order_settlement": ctx.get("paper_order_settlement"),
         # -- Phase 28B evidence-capture summary (TRUE_FORWARD snapshots) ------ #
         "forward_prediction_capture": ctx.get("forward_prediction_capture"),
+        # -- Stage 21 (Workstream N): decision-outcome observations matured by this
+        #    close. NEVER conflated with the operational close result.
+        "reassessment_outcome_capture": ctx.get("reassessment_outcome_capture"),
         # -- Phase 28B.2: the forward-evidence state, ALWAYS separate from the
         #    operational close status (a valid close may be evidence-incomplete).
         "forward_evidence_status": ctx.get("forward_evidence_status"),
@@ -2465,12 +2619,18 @@ def run_daily_close(
                             % EXECUTE_CONFIRMATION),
                 **_safety(False)}
     if not _CLOSE_LOCK.acquire(blocking=False):
+        live = load_close_progress(desk_dir=desk_dir)
         return {"status": CLOSE_IN_PROGRESS, "phase": PHASE, "close_status": None,
                 "performed_write": False,
-                "progress": load_close_progress(desk_dir=desk_dir),
+                "progress": live,
+                # Stage 21 (Workstream 0B): a duplicate submission is answered with the
+                # RUNNING run's identity, not just a refusal, so the client can attach
+                # to the authoritative status instead of retrying.
+                "run_id": live.get("run_id"),
+                "run_status_path": "GET /v1/operations/daily-close/progress",
                 "message": ("A daily close is already running — duplicate execution "
-                            "is prevented; nothing was written. Watch the progress "
-                            "display and do not click Run Daily Close again."),
+                            "is prevented; nothing was written. Watch the run status "
+                            "and do not submit another close."),
                 **_safety(False)}
     result: Optional[dict] = None
     try:
@@ -2485,6 +2645,16 @@ def run_daily_close(
     finally:
         _progress_finalize(desk_dir, result)
         _CLOSE_LOCK.release()
+        if isinstance(result, dict):
+            # Attach the durable run identity so a client that DOES receive the
+            # response can correlate it with the status GET it may have been polling.
+            try:
+                result.setdefault("run_id",
+                                  load_close_progress(desk_dir=desk_dir).get("run_id"))
+                result.setdefault("run_status_path",
+                                  "GET /v1/operations/daily-close/progress")
+            except Exception:  # noqa: BLE001 — cosmetic only
+                pass
 
 
 def _run_daily_close_locked(
@@ -2647,9 +2817,13 @@ def _run_daily_close_locked(
     last_processed = _last_processed_date(sdir, book_id)
     baseline_required = last_processed is None
 
-    # Phase 28B.2 — the display-only progress document (finalized by the wrapper).
+    # Phase 28B.2 — the progress document (finalized by the wrapper). Stage 21
+    # (Workstream 0B) promotes it into the DURABLE RUN RECORD: it now carries the run
+    # identity and the (book, market_date) idempotency key, so a client that times out
+    # or disconnects can reconnect to an authoritative outcome instead of guessing.
     prog = _CloseProgress(desk_dir, market_date=latest_eligible,
-                          evaluation_date=evaluation_date)
+                          evaluation_date=evaluation_date, book_id=book_id,
+                          requested_by=requested_by)
     prog.stage("VALIDATE_EOD_DATA")
 
     # 3. SERVER-SIDE readiness revalidation (never trust a stale GET). The expected
@@ -2836,6 +3010,10 @@ def _run_daily_close_locked(
     }
     try:
         desk._append_ledger(sdir, DAILY_CLOSE_JOURNAL_FILE, [journal_row])
+        # Stage 21 (Workstream 0B): the durable operational write has landed. From here
+        # a reconnecting operator can see that this run DID take effect, and the journal
+        # row it points at is the authority — the run record never replaces it.
+        prog.mark_write(journal_row_id="%s|%s" % (book_id, closed_date))
     except Exception as exc:  # noqa: BLE001 — never lose the completed marks/fills
         warnings.append("Daily-close journal append failed: %s" % str(exc)[:160])
 
@@ -2857,6 +3035,15 @@ def _run_daily_close_locked(
         seams_injected=seams_injected, warnings=warnings, progress=prog.stage)
     evidence_status = _forward_evidence_status(prediction_capture,
                                                close_processed=True)
+    # 8b. Stage 21 (Workstream N) — the ONE Stage-21 outcome-maturation trigger.
+    #     It runs here, immediately after the canonical forward-evidence capture,
+    #     because that is the exact moment new OWNED forward closes become knowable.
+    #     There is deliberately no "Refresh Outcome Evidence" button and no second
+    #     operator action: Stage 21 adds nothing to the operator's day. Append-only,
+    #     idempotent and evidence-only — a failure here can never invalidate the close,
+    #     touch holdings/cash/orders, promote a model or change a policy.
+    outcome_capture = _run_outcome_capture(desk_dir=desk_dir, book_id=book_id,
+                                           warnings=warnings)
     prog.stage("FINALIZE")
     context = {"clock": clock, "provider_readiness": None,
                "market_data_scope": None, "baseline": baseline,
@@ -2869,6 +3056,10 @@ def _run_daily_close_locked(
                    decision_history=_decision_history(sdir, book_id)),
                "forward_prediction_capture": prediction_capture,
                "forward_evidence_status": evidence_status,
+               # Stage 21 (Workstream N) — decision-outcome observations matured by
+               # THIS close. Evidence only; reported separately from every operational
+               # result so it can never be read as a portfolio or model change.
+               "reassessment_outcome_capture": outcome_capture,
                # Stage 19.3 — what this close settled through the Paper Desk owner.
                "paper_order_settlement": build_settlement_context(
                    pending_before=pending_at_start, pending_after=pending_after,
@@ -2980,6 +3171,8 @@ __all__ = [
     "resolve_daily_close_status", "load_daily_close", "run_daily_close",
     "load_forward_evidence_readiness",
     "CLOSE_PROGRESS_FILE", "CLOSE_IN_PROGRESS", "CLOSE_STAGES",
+    "CLOSE_RUN_SCHEMA_VERSION", "RUN_STATE_VOCAB", "RUN_NOT_STARTED", "RUN_RUNNING",
+    "RUN_COMPLETED", "RUN_FAILED_RECOVERABLE", "RUN_FAILED_TERMINAL",
     "EVIDENCE_IN_PROGRESS", "EVIDENCE_PENDING_CLOSE", "EVIDENCE_INACTIVE_OFFLINE",
     # Phase 28C — coordinated-close contract (Workstreams C/D/I).
     "EVIDENCE_RECOVERY_AVAILABLE", "EVIDENCE_LATE_NOT_TRUE_FORWARD",

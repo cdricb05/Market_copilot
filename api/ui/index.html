@@ -3269,13 +3269,57 @@
             <div id="reassess-kpis" class="va-kpi-grid" style="margin:10px 0 0;"></div>
             <div id="reassess-action" style="margin-top:10px;"></div>
             <div id="reassess-blockers" style="display:none;margin-top:8px;font-size:11px;"></div>
+            <!-- Stage 21 (Workstream 0C): why per-holding attention and the
+                 portfolio-level decision can disagree without either being wrong.
+                 Backend-owned text (api.portfolio_reassessment.build_decision_scope);
+                 this element never derives it. -->
+            <div id="reassess-scope" style="display:none;margin-top:10px;padding:9px 11px;border-left:3px solid var(--accent,#3b82f6);background:rgba(59,130,246,.07);font-size:11px;line-height:1.55;max-width:1180px;"></div>
           </div>
 
           <!-- HOLDINGS REQUIRING ATTENTION — rendered ONLY for material recommendations. -->
           <div class="card" id="reassess-attention-card" style="display:none;margin:0 0 12px;border:1px solid var(--warning,#f59e0b);">
             <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Holdings Requiring Attention
-              <span class="cc-badge manual" id="reassess-attention-count">&mdash;</span></div>
+              <span class="cc-badge manual" id="reassess-attention-count">&mdash;</span>
+              <span class="cc-badge" id="reassess-attention-scope" title="A per-holding review signal about ONE name. The portfolio-level economic verdict is a different question and is shown above.">REVIEW ONLY &mdash; NOT AN APPROVED PORTFOLIO CHANGE</span></div>
+            <div id="reassess-attention-note" class="cc-na-note" style="font-size:10px;margin:0 0 6px;line-height:1.5;">&mdash;</div>
             <div id="reassess-attention" class="compact-scroll-region" style="max-height:300px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- ===================================================================
+               STAGE 21 — PORTFOLIO DECISION EVIDENCE (read-only).
+               Progressive disclosure: summary, then what worked / what did not /
+               churn + cost controls / policy review candidates, then the full
+               audit history collapsed. Never a trading CTA.
+               =================================================================== -->
+          <div class="card" id="rout-card" style="margin:0 0 12px;">
+            <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Portfolio Decision Evidence
+              <span class="cc-badge" id="rout-evidence-badge" title="Evidence sufficiency over MATURED forward outcomes.">&mdash;</span>
+              <span class="cc-badge" id="rout-policy-badge" title="Policy intelligence state. Evidence only — it never tunes a threshold, promotes a model or changes a portfolio.">&mdash;</span>
+              <span class="cc-badge">EVIDENCE ONLY</span>
+              <span class="cc-badge">NO MODEL PROMOTION</span>
+              <button class="btn-sm" id="rout-refresh" onclick="loadReassessmentOutcomes()" title="Reload the read-only decision outcome evidence. This reads only — outcome observations mature during the Daily Close, never here.">&#8635; Refresh</button>
+            </div>
+            <div id="rout-headline" style="font-size:13px;font-weight:700;margin:4px 0 4px;">Loading decision outcome evidence&hellip;</div>
+            <div id="rout-message" class="cc-na-note" style="font-size:11px;max-width:1180px;line-height:1.5;">&mdash;</div>
+            <div id="rout-kpis" class="va-kpi-grid" style="margin:10px 0 0;"></div>
+            <div id="rout-panels" style="display:none;margin-top:10px;"></div>
+            <details id="rout-audit" style="margin-top:10px;">
+              <summary style="cursor:pointer;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Full Outcome History / Audit</summary>
+              <div id="rout-history" class="compact-scroll-region" style="max-height:300px;overflow:auto;font-size:11px;margin-top:8px;">&mdash;</div>
+            </details>
+          </div>
+
+          <!-- STAGE 21 (Workstream 0A) — the COMPLETED controlled rebalance. Recovered
+               from the immutable desk ledger, so it stays discoverable after settlement. -->
+          <div class="card" id="rlin-card" style="display:none;margin:0 0 12px;">
+            <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Completed Controlled Rebalance
+              <span class="cc-badge" id="rlin-state">&mdash;</span>
+              <span class="cc-badge">IMMUTABLE LINEAGE</span></div>
+            <div id="rlin-summary" style="font-size:11px;line-height:1.6;">&mdash;</div>
+            <details id="rlin-audit" style="margin-top:8px;">
+              <summary style="cursor:pointer;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Lineage / Superseded Plans</summary>
+              <div id="rlin-detail" class="mono" style="font-size:10px;margin-top:8px;line-height:1.7;">&mdash;</div>
+            </details>
           </div>
 
           <!-- STRONGEST ALTERNATIVES — report-only; no capital is assigned here. -->
@@ -24593,6 +24637,8 @@ async function loadPortfolioManager() {
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
   try { loadRebalanceLifecycle(); } catch (e) {}   // Stage 19 controlled rebalance lifecycle + CA integrity
+  try { loadReassessmentOutcomes(); } catch (e) {}  // Stage 21 decision outcome evidence (read-only)
+  try { loadRebalanceExecutionLineage(); } catch (e) {}  // Stage 21 completed-rebalance lineage
   var res = await Promise.all([
     _mhzGet('/v1/portfolio-manager/summary'),
     _mhzGet('/v1/portfolio-manager/actions'),
@@ -26372,6 +26418,30 @@ function renderPortfolioReassessment(d) {
       _setHtml('reassess-attention', '');
     }
   }
+  // --- Stage 21 (Workstream 0C): reconcile PER-HOLDING attention with the
+  // PORTFOLIO-LEVEL decision. Both can be right — they answer different questions —
+  // and the operator must never be left to infer that. The sentence is composed by the
+  // backend that OWNS the verdict and is rendered verbatim; nothing is derived here.
+  var scope = pres.decision_scope || {};
+  var scopeEl = document.getElementById('reassess-scope');
+  if (scopeEl) {
+    if (scope.explanation) {
+      scopeEl.style.display = '';
+      _setHtml('reassess-scope',
+        '<strong>Per-holding attention vs portfolio-level decision.</strong> '
+        + escapeHtml(scope.explanation)
+        + '<div class="cc-na-note" style="margin-top:5px;font-size:10px;">'
+        + escapeHtml(String(scope.per_holding_attention_count || 0))
+        + ' per-holding review signal(s) &middot; portfolio verdict '
+        + escapeHtml(scope.portfolio_decision_state || '—')
+        + ' &middot; EXIT / REPLACE / REDUCE recommendations are review only and are '
+        + 'never approved portfolio changes.</div>');
+    } else {
+      scopeEl.style.display = 'none';
+      _setHtml('reassess-scope', '');
+    }
+  }
+  _setHtml('reassess-attention-note', scope.explanation ? escapeHtml(scope.explanation) : '');
   // STRONGEST ALTERNATIVES is promoted to a top-level card only when something actually
   // needs attention, or when a candidate is genuinely competing for an incumbent's slot.
   // In a quiet portfolio it stays inside the collapsed audit detail, so the normal state
@@ -26407,6 +26477,229 @@ function renderPortfolioReassessment(d) {
     : '<span class="cc-na-note">No holdings were evaluated for this session.</span>');
 }
 window.renderPortfolioReassessment = renderPortfolioReassessment;
+
+/* =====================================================================
+   STAGE 21 — PORTFOLIO DECISION EVIDENCE + COMPLETED REBALANCE LINEAGE.
+
+   READ-ONLY. Both loaders GET a canonical backend contract and render it
+   verbatim: no return, spread, hit rate, opportunity cost, evidence state or
+   policy verdict is derived here. Stage 21 is evidence, never a trading CTA —
+   these panels render no action, no confirmation and no order control.
+   ===================================================================== */
+function loadReassessmentOutcomes() {
+  // _mhzGet is the canonical authenticated GET helper for this view. It must be called
+  // rather than a bare fetch wrapper: the Portfolio Manager fires its loaders
+  // fire-and-forget inside try/catch, so a ReferenceError here is swallowed silently and
+  // the card stays on "Loading..." forever with an empty console.
+  return _mhzGet('/v1/research/reassessment-outcomes').then(function (d) {
+    renderReassessmentOutcomes(d);
+    return _mhzGet('/v1/research/reassessment-outcomes/history?limit=200')
+      .then(function (h) { renderOutcomeHistory(h); return d; })
+      .catch(function () { renderOutcomeHistory(null); return d; });
+  }).catch(function () { renderReassessmentOutcomes(null); return null; });
+}
+window.loadReassessmentOutcomes = loadReassessmentOutcomes;
+
+function _routPct(x) {
+  return (x === null || x === undefined) ? '—' : (Number(x) * 100).toFixed(2) + '%';
+}
+
+function _routKpi(label, value, note) {
+  return '<div class="va-kpi"><div class="va-kpi-label">' + escapeHtml(label)
+    + '</div><div class="va-kpi-value">' + escapeHtml(String(value))
+    + '</div><div class="va-kpi-note">' + escapeHtml(note || '') + '</div></div>';
+}
+
+function renderReassessmentOutcomes(d) {
+  var head = document.getElementById('rout-headline');
+  if (!head) return;
+  var evb = document.getElementById('rout-evidence-badge');
+  var pob = document.getElementById('rout-policy-badge');
+  var panels = document.getElementById('rout-panels');
+  if (!d || d.status !== 'OK') {
+    if (evb) { evb.textContent = 'UNAVAILABLE'; evb.className = 'cc-badge danger'; }
+    if (pob) { pob.textContent = '—'; pob.className = 'cc-badge'; }
+    head.textContent = 'Decision outcome evidence unavailable';
+    _setHtml('rout-message', 'Could not reach the read-only outcome-evidence endpoint. '
+      + 'Use Refresh to retry. Nothing was changed.');
+    _setHtml('rout-kpis', '');
+    if (panels) { panels.style.display = 'none'; _setHtml('rout-panels', ''); }
+    return;
+  }
+  var sc = d.scorecard || {};
+  var pi = d.policy_intelligence || {};
+  var ev = sc.evidence || {};
+  var rep = sc.replacement_outcomes || {};
+  var hold = sc.hold_outcomes || {};
+  var ex = sc.exit_outcomes || {};
+  var obs = sc.observed_portfolio_impact || {};
+  var cf = sc.counterfactual_opportunity_cost || {};
+
+  if (evb) {
+    evb.textContent = ev.state || '—';
+    evb.className = 'cc-badge ' + (d.evidence_sufficient ? 'safe' : 'manual');
+  }
+  if (pob) {
+    pob.textContent = pi.policy_state || '—';
+    pob.className = 'cc-badge ' + (pi.policy_state === 'POLICY_REVIEW_CANDIDATE'
+      ? 'manual' : (pi.policy_state === 'POLICY_STABLE' ? 'safe' : ''));
+  }
+  head.textContent = d.evidence_sufficient
+    ? 'Decision outcome evidence'
+    : 'Insufficient outcome evidence';
+  _setHtml('rout-message', escapeHtml(d.message || '')
+    + '<div class="cc-na-note" style="margin-top:5px;font-size:10px;">'
+    + escapeHtml(d.historical_gap_note || '') + '</div>');
+
+  _setHtml('rout-kpis',
+    _routKpi('Reassessments observed', sc.reassessments_evaluated,
+             'Sessions with a measurable recommendation')
+    + _routKpi('Recommendations matured', sc.observations_matured,
+               'At the ' + (sc.primary_horizon || '—') + '-session horizon')
+    + _routKpi('Still maturing', sc.observations_pending, 'Horizon not yet elapsed')
+    + _routKpi('Replacement hit rate', _routPct(rep.hit_rate),
+               (rep.measured_spreads || 0) + ' measured spread(s)')
+    + _routKpi('Observed portfolio impact', _routPct(obs.total),
+               'Executed only — an actual effect')
+    + _routKpi('Counterfactual opportunity cost', _routPct(cf.total),
+               'Not executed — an estimate, never summed with the above'));
+
+  // Progressive disclosure: what worked / what did not / controls / review candidates.
+  var worked = '<li>Replacements that outperformed their incumbent: <strong>'
+    + escapeHtml(String(rep.wins || 0)) + '</strong> of '
+    + escapeHtml(String(rep.measured_spreads || 0)) + '</li>'
+    + '<li>HOLD decisions where the incumbent beat the best-known alternative: <strong>'
+    + escapeHtml(String(hold.losses || 0)) + '</strong></li>'
+    + '<li>EXIT decisions that avoided a loss: <strong>'
+    + escapeHtml(String(ex.avoided_loss_count || 0)) + '</strong></li>';
+  var didnot = '<li>Replacements that underperformed their incumbent: <strong>'
+    + escapeHtml(String(rep.losses || 0)) + '</strong></li>'
+    + '<li>HOLD decisions the best-known alternative would have beaten: <strong>'
+    + escapeHtml(String(hold.wins || 0)) + '</strong></li>'
+    + '<li>EXIT decisions that missed upside: <strong>'
+    + escapeHtml(String(ex.missed_upside_count || 0)) + '</strong></li>';
+  var ctlRows = (pi.controls || []).map(function (c) {
+    return '<tr><td class="mono">' + escapeHtml(c.reason_code || '?') + '</td>'
+      + '<td>' + escapeHtml(String(c.observations || 0)) + '</td>'
+      + '<td>' + escapeHtml(String(c.control_helped_count || 0)) + '</td>'
+      + '<td>' + escapeHtml(String(c.control_cost_count || 0)) + '</td>'
+      + '<td><span class="cc-badge ' + (c.verdict === 'CONTROL_BENEFIT' ? 'safe'
+        : (c.verdict === 'CONTROL_REGRET' ? 'manual' : '')) + '">'
+      + escapeHtml(c.verdict || '—') + '</span></td></tr>';
+  }).join('');
+  var ctl = ctlRows
+    ? '<table class="pt-table" style="font-size:10px;width:100%;"><thead><tr>'
+      + '<th>Control</th><th>Obs</th><th>Helped</th><th>Cost</th><th>Verdict</th>'
+      + '</tr></thead><tbody>' + ctlRows + '</tbody></table>'
+      + '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Every control '
+      + 'figure is a COUNTERFACTUAL_ESTIMATE: the withheld action was not taken, so no '
+      + 'portfolio effect was observed.</div>'
+    : '<span class="cc-na-note">No withheld-action evidence has matured yet.</span>';
+  var findings = (pi.findings || []).length
+    ? '<ul style="margin:4px 0 0 16px;">' + (pi.findings || []).map(function (f) {
+        return '<li>' + escapeHtml(f) + '</li>'; }).join('') + '</ul>'
+    : '<span class="cc-na-note">No policy review is recommended from the evidence '
+      + 'available. Insufficient evidence never changes policy.</span>';
+
+  if (panels) {
+    panels.style.display = '';
+    _setHtml('rout-panels',
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">'
+      + '<div><div class="card-title" style="font-size:10px;">What Worked</div>'
+      + '<ul style="margin:4px 0 0 16px;font-size:11px;line-height:1.6;">' + worked + '</ul></div>'
+      + '<div><div class="card-title" style="font-size:10px;">What Did Not</div>'
+      + '<ul style="margin:4px 0 0 16px;font-size:11px;line-height:1.6;">' + didnot + '</ul></div>'
+      + '<div><div class="card-title" style="font-size:10px;">Churn / Cost Controls</div>'
+      + ctl + '</div>'
+      + '<div><div class="card-title" style="font-size:10px;">Policy Review Candidates</div>'
+      + '<div style="font-size:11px;line-height:1.6;">' + findings + '</div></div>'
+      + '</div>');
+  }
+}
+window.renderReassessmentOutcomes = renderReassessmentOutcomes;
+
+function renderOutcomeHistory(h) {
+  if (!h || !(h.rows || []).length) {
+    _setHtml('rout-history', '<span class="cc-na-note">No matured outcome observation '
+      + 'has been recorded yet. Observations mature during the Daily Close, when new '
+      + 'owned forward closes become knowable — there is no manual refresh.</span>');
+    return;
+  }
+  var rows = (h.rows || []).map(function (r) {
+    return '<tr><td class="mono">' + escapeHtml(r.eligible_market_date || '?') + '</td>'
+      + '<td class="mono">' + escapeHtml(r.ticker || '?') + '</td>'
+      + '<td>' + escapeHtml(r.recommendation || '?') + '</td>'
+      + '<td class="mono">' + escapeHtml(r.replacement_ticker || '—') + '</td>'
+      + '<td>' + escapeHtml(String(r.horizon_eligible_closes || '?')) + '</td>'
+      + '<td>' + _routPct(r.incumbent_forward_return) + '</td>'
+      + '<td>' + _routPct(r.replacement_forward_return) + '</td>'
+      + '<td>' + _routPct(r.realized_spread) + '</td>'
+      + '<td><span class="cc-badge">' + escapeHtml(r.governance_state || '—') + '</span></td>'
+      + '<td><span class="cc-badge">' + escapeHtml(r.portfolio_impact_basis || '—')
+      + '</span></td></tr>';
+  }).join('');
+  _setHtml('rout-history',
+    '<table class="pt-table" style="font-size:10px;width:100%;"><thead><tr>'
+    + '<th>Session</th><th>Holding</th><th>Recommendation</th><th>Replacement</th>'
+    + '<th>Horizon</th><th>Incumbent</th><th>Replacement</th><th>Spread</th>'
+    + '<th>Governance</th><th>Impact basis</th></tr></thead><tbody>' + rows
+    + '</tbody></table>');
+}
+window.renderOutcomeHistory = renderOutcomeHistory;
+
+function loadRebalanceExecutionLineage() {
+  return _mhzGet('/v1/operations/rebalance/execution-lineage').then(function (d) {
+    renderRebalanceExecutionLineage(d); return d;
+  }).catch(function () { renderRebalanceExecutionLineage(null); return null; });
+}
+window.loadRebalanceExecutionLineage = loadRebalanceExecutionLineage;
+
+function renderRebalanceExecutionLineage(d) {
+  var card = document.getElementById('rlin-card');
+  if (!card) return;
+  var lat = (d || {}).latest_completed_rebalance;
+  if (!d || d.status !== 'OK' || !lat) {
+    card.style.display = 'none';
+    _setHtml('rlin-summary', ''); _setHtml('rlin-detail', '');
+    return;
+  }
+  card.style.display = '';
+  var st = document.getElementById('rlin-state');
+  if (st) {
+    st.textContent = lat.state || '—';
+    st.className = 'cc-badge ' + (lat.fully_reconciled ? 'safe' : 'manual');
+  }
+  _setHtml('rlin-summary', escapeHtml(d.message || '')
+    + '<div class="mono" style="margin-top:6px;font-size:10px;line-height:1.7;">'
+    + 'Order plan ' + escapeHtml(lat.order_plan_id_short || '—')
+    + ' &middot; ' + escapeHtml(String(lat.filled_count || 0)) + '/'
+    + escapeHtml(String(lat.order_count || 0)) + ' filled'
+    + ' &middot; ' + escapeHtml(String(lat.buy_count || 0)) + ' BUY / '
+    + escapeHtml(String(lat.sell_count || 0)) + ' SELL'
+    + ' &middot; settled ' + escapeHtml(lat.settlement_market_date || '—')
+    + ' &middot; resulting holdings ' + escapeHtml(String(lat.resulting_holdings_count || '—'))
+    + '</div>');
+  var sup = (d.superseded_plans || []).map(function (s) {
+    return 'SUPERSEDED ' + escapeHtml(s.order_plan_id || '?') + ' — '
+      + escapeHtml(s.state || '?') + ' (' + escapeHtml(String(s.order_count || 0))
+      + ' order(s), ' + escapeHtml(String(s.cancelled_count || 0)) + ' cancelled, '
+      + escapeHtml(String(s.filled_count || 0)) + ' filled — never executed)';
+  }).join('<br>');
+  _setHtml('rlin-detail',
+    'proposal_id&nbsp;&nbsp;&nbsp;' + escapeHtml(lat.proposal_id || '—') + '<br>'
+    + 'proposal_hash&nbsp;' + escapeHtml(lat.proposal_hash || '—') + '<br>'
+    + 'decision_id&nbsp;&nbsp;&nbsp;' + escapeHtml(lat.decision_id || '—') + '<br>'
+    + 'order_plan_id&nbsp;' + escapeHtml(lat.order_plan_id || '—') + '<br>'
+    + 'plan_hash&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;' + escapeHtml(lat.order_plan_hash || '—') + '<br>'
+    + 'approval_date&nbsp;' + escapeHtml(lat.approval_date || '—') + '<br>'
+    + 'fills&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;' + escapeHtml(String((lat.fill_ids || []).length))
+    + ' (' + escapeHtml(lat.first_fill_date || '—') + ' → '
+    + escapeHtml(lat.final_fill_date || '—') + ')<br>'
+    + 'historical&nbsp;&nbsp;&nbsp;&nbsp;' + escapeHtml(String(d.historical_implementation_fill_count || 0))
+    + ' initial-implementation fill(s) — a SEPARATE cohort<br>'
+    + (sup || 'No superseded plan.'));
+}
+window.renderRebalanceExecutionLineage = renderRebalanceExecutionLineage;
 
 function _rsHoldingTable(rows, withExplanation) {
   var head = '<table class="compact-table"><thead><tr>'

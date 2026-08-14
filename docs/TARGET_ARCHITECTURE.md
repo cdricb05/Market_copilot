@@ -532,3 +532,34 @@ the second one real and keeps the third out of it:
 * Automatic policy tuning from attribution. The attribution read is evidence for a later
   human-gated recalibration review; nothing adjusts a threshold automatically.
 * Broker execution of any kind.
+
+---
+
+## Stage 21 target boundaries
+
+Stage 21 adds four owner pairs and one guard, all of which are already at their target
+shape - none of them is a transitional module.
+
+| Concern | Calculation owner | Composition / persistence owner |
+| --- | --- | --- |
+| Reassessment outcome evidence | `engine/reassessment_outcomes.py` | `api/reassessment_outcomes.py` |
+| Post-execution rebalance lineage | `engine/execution_lineage.py` | `api/execution_lineage.py` |
+| Production / hermetic environment isolation | `api/environment_isolation.py` (pure) | consumed at `api/app.py` import |
+| Economic portfolio fingerprint | `api/portfolio_state.py` (`economic_identity`) | same owner |
+| Durable daily-close run status | `api/daily_close.py` (unchanged owner) | same owner |
+
+Target invariants Stage 21 must keep satisfying:
+
+* ONE forward-evidence owner, ONE price-history owner, ONE horizon taxonomy - all
+  `api.forward_prediction_skill`. Stage 21 reuses them and defines none of its own.
+* ONE NAV / cash / holdings composition - `api.portfolio_state`. The lineage owner reports
+  the resulting portfolio from it and values nothing itself.
+* ONE transaction-cost model - the desk's, consumed through the recorded
+  `expected_net_improvement`. Stage 21 re-derives no cost.
+* ONE execution-lineage owner, and execution identity is READ from the immutable ledger,
+  never recomputed from current research state.
+* ONE Daily Close, ONE durable run record, ONE maturation trigger.
+* ONE economic fingerprint, which by construction cannot contain any downstream consumer's
+  own output.
+* Evidence surfaces stay GET-only and stay out of the operator's action path. The maximum
+  action Stage 21 can ever produce is a recommendation that a human review a policy.
