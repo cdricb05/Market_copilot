@@ -1632,3 +1632,46 @@ scope. The Portfolio Manager fires its loaders fire-and-forget inside `try/catch
 and the decision-evidence card sat on *"Loading decision outcome evidence…"* forever. The
 loaders now call `_mhzGet`, the view's canonical authenticated GET helper, and the
 architecture audit pins both call sites and fails on any reintroduction of `apiGet(`.
+
+## Canonical backend restart / smoke workflow
+
+**Owner:** `scripts/restart_paper_trader_backend.ps1` (repository-owned, Windows PowerShell).
+
+Restarting and smoke-testing the backend used to be re-written by every stage inside its own
+throwaway handoff directory, and every rewrite reintroduced the same defect: polling
+`/health`, which this application has never served. It now has one owner.
+
+| Responsibility | Where it lives |
+| --- | --- |
+| process stop / start | the owner |
+| port handling, exactly-one-listener assertion | the owner |
+| health + readiness polling (`/v1/health`, `/v1/ready`) | the owner |
+| authentication for the live read (`X-API-Key`) | the owner, key from the shell or `paper_trader.config` |
+| stdout / stderr diagnostics on failure | the owner |
+| production store-root validation | delegated to `api/environment_isolation.py` |
+| stage-specific GET assertions | the handoff, via `-SmokePath` |
+| protected-store fingerprinting | the handoff |
+
+Usage:
+
+```powershell
+.\scripts\restart_paper_trader_backend.ps1              # validate only, start nothing
+.\scripts\restart_paper_trader_backend.ps1 -Force       # restart 8001 and live-smoke it
+```
+
+Terminal tokens: `RESTART_PREFLIGHT_OK` (no restart requested), `LIVE_SMOKE_OK` (every live
+check passed - emitted by this script alone, exactly once), `RESTART_SMOKE_FAILED - <reason>`
+followed by nonzero.
+
+**Canonical readiness routes are permanent.** `GET /v1/health` (no auth, liveness) and
+`GET /v1/ready` (no auth, database reachability, 503 with an exact reason when not ready).
+A 404 from either is treated as the wrong path and fails immediately by name rather than
+retrying silently.
+
+**Guards.** `scripts/audit_architecture.py::check_backend_restart_ownership` is a blocking
+invariant set: no noncanonical health probe in any PowerShell workflow, no second launcher,
+no mutating HTTP verb, no probed `/v1` path the application does not declare as GET, and one
+`LIVE_SMOKE_OK` emitter. The release gate runs it with `--handoff-dir` so handoff scripts are
+covered too. `tests/test_canonical_backend_restart.py` proves the contract statically against
+the parsed route table and by executing the workflow for real against a hermetic stub backend
+on a throwaway port - never port 8001, never the live application, never a live store.

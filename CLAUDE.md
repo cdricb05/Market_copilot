@@ -171,3 +171,29 @@ Paper-only, preview-first, manual-review, and no-automation safety boundaries
 remain in force.
 
 <!-- END CANONICAL PROJECT OBJECTIVE (Phase 29A) -->
+
+<!-- CANONICAL BACKEND RESTART / SMOKE OWNER -->
+
+# Canonical backend restart / smoke owner
+
+Restarting and smoke-testing the backend is owned by exactly ONE script:
+
+    scripts\restart_paper_trader_backend.ps1
+
+Do not write a stage-specific `restart_smoke.ps1` that starts the backend. Nine
+stages did, and nine stages reintroduced the same defect: polling
+`http://127.0.0.1:8001/health`, which this application has never served.
+
+- The canonical readiness routes are permanently `GET /v1/health` and
+  `GET /v1/ready`.
+- A stage handoff DELEGATES to the canonical script. It may add stage-specific
+  authenticated GET assertions with `-SmokePath`. It may not reimplement process
+  stop/start, port handling, health/readiness polling, authentication setup,
+  stdout/stderr diagnostics, or production store-root validation.
+- `LIVE_SMOKE_OK` is printed by that script alone, exactly once, and only after
+  every live check has passed.
+- `scripts\audit_architecture.py` (`check_backend_restart_ownership`) fails the
+  build on any violation, including a probed `/v1` path the application does not
+  declare as GET. `tests\test_canonical_backend_restart.py` is the regression.
+
+<!-- END CANONICAL BACKEND RESTART / SMOKE OWNER -->

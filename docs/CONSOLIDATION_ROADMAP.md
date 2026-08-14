@@ -904,3 +904,30 @@ Deferred, deliberately:
   human-gated slice.
 * Outcome evidence for sessions before Stage 20 first ran is a permanent, documented gap.
   Reconstructing it would be fabricated evidence and is explicitly out of scope forever.
+
+---
+
+## Operator workflow - ONE backend restart / smoke owner (LANDED)
+
+Bounded slice, behind tests. Three repository files and two docs.
+
+1. **`scripts/restart_paper_trader_backend.ps1`** - the single owner of process stop/start,
+   port handling, canonical `/v1/health` + `/v1/ready` polling, authentication for the live
+   read, startup diagnostics, and production store-root validation (delegated to
+   `api/environment_isolation.py`, not copied). **LANDED.**
+2. **`scripts/audit_architecture.py::check_backend_restart_ownership`** - eleven blocking
+   invariants; the load-bearing one checks every probed `/v1` path against the parsed route
+   table. Runs over repository AND `--handoff-dir` PowerShell. **LANDED.**
+3. **`tests/test_canonical_backend_restart.py`** - static contract plus three real
+   executions against a hermetic stub backend on a throwaway port. **LANDED.**
+
+Deferred, deliberately:
+
+* The hermetic acceptance harness (`ui_acceptance.ps1`) keeps its own process/port handling.
+  It launches the acceptance server, not the application, on a port that explicitly refuses
+  to be 8001, and it is governed by its own `acceptance_scenario_ownership` invariants.
+  Folding it into the restart owner would couple two workflows that fail for different
+  reasons.
+* The handoff `_common.ps1` keeps `Assert-ProductionStoreRoots`. It answers "is the
+  operator's shell clean?", which is a different question from "may this process serve
+  production?" - see the decision record.

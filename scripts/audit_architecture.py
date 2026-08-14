@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import tempfile
@@ -3534,6 +3535,216 @@ def check_acceptance_scenario_ownership(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# CANONICAL BACKEND RESTART / SMOKE OWNERSHIP
+#
+# Stage after stage regenerated a stage-specific ``restart_smoke.ps1`` in a throwaway
+# handoff directory, and stage after stage reintroduced the SAME defect: polling
+# ``http://127.0.0.1:8001/health`` when the canonical readiness routes are ``/v1/health``
+# and ``/v1/ready``. Stage 12 shipped it; Stage 21 shipped it again; the operator's own
+# stdout log holds 39 consecutive 404s. Duplicated operator workflow is how a fixed defect
+# returns, so restart/smoke now has exactly ONE owner and the duplication is a build
+# failure rather than something a reviewer has to remember.
+# --------------------------------------------------------------------------- #
+RESTART_OWNER = "scripts/restart_paper_trader_backend.ps1"
+RESTART_OWNER_DECLARATION = "CANONICAL_RESTART_SMOKE_OWNER = " + RESTART_OWNER
+
+#: The ONLY health / readiness paths a Paper Trader restart or smoke workflow may probe.
+#: This is permanent. ``/health``, ``/healthz``, ``/ready`` and ``/readyz`` are not served
+#: by this application and never were.
+CANONICAL_READINESS_ROUTES = ("/v1/health", "/v1/ready")
+
+#: A quoted path literal that looks like a health / readiness probe.
+_PS_HEALTH_LITERAL = re.compile(
+    r"""["'](?P<host>https?://[^"'\s/]+)?(?P<path>/[A-Za-z0-9_.\-/]*"""
+    r"""(?:health|healthz|ready|readyz|livez|liveness|readiness)"""
+    r"""[A-Za-z0-9_.\-/]*)["']""",
+    re.IGNORECASE)
+
+#: Launching the ASGI application. Only the owner may do this.
+_PS_APP_LAUNCH = re.compile(r"""(?:\buvicorn\b|\bhypercorn\b|["'][A-Za-z0-9_.]+:app["'])""")
+
+#: Managing the LIVE backend port directly - binding it, listing its listeners, or passing
+#: it to a server. A handoff delegates with ``-Port 8001``; it never touches the port
+#: itself. (The hermetic acceptance harness is a different owner on a different port and
+#: explicitly refuses to bind 8001, so it is not caught by this.)
+_PS_LIVE_PORT_MGMT = re.compile(r"""-LocalPort\s+8001\b|--port["',\s]+8001\b""")
+
+#: HTTP verbs a restart / smoke workflow may never use. It restarts a process and reads.
+_PS_MUTATING_VERB = re.compile(r"""-Method\s+["']?(?:Post|Put|Patch|Delete)\b""",
+                               re.IGNORECASE)
+
+#: A ``/v1`` path literal in a PowerShell workflow. Every one of them must be a route the
+#: application actually declares as GET - that is what makes "poll the right path"
+#: verifiable instead of a convention.
+_PS_V1_LITERAL = re.compile(
+    r"""["'](?P<host>https?://[^"'\s/]+)?(?P<path>/v1/[A-Za-z0-9_.\-/]*)["']""")
+
+#: Hosts that mean "this backend". A ``/v1`` path aimed at somebody ELSE's API (the Gmail
+#: send endpoint is also /v1/...) is not a Paper Trader route and must not be judged
+#: against Paper Trader's route table.
+_PS_LOCAL_HOST = re.compile(r"^https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$",
+                            re.IGNORECASE)
+
+#: Emitting the success token. Exactly one script may do it, and only after live checks.
+_PS_EMITS = re.compile(r"(?:Write-Host|Write-Output|\becho\b)")
+
+#: The failure report the owner must print before returning nonzero.
+_RESTART_DIAGNOSTIC_TOKENS = (
+    "launched pid",         # which process was started
+    "pid still alive",      # is it still running
+    "process exit code",    # why it died, when available
+    "listener",             # port-listener state
+    "STDERR",               # last stderr lines
+    "STDOUT",               # last stdout lines
+)
+
+#: The responsibilities the owner must actually implement (so "delegate to the owner"
+#: means something). Each token is the load-bearing symbol of one responsibility.
+_RESTART_CONTRACT_TOKENS = (
+    "Stop-Process",                     # process stop
+    "Start-Process",                    # process start
+    "Get-BackendListeners",             # port handling
+    "Show-StartupDiagnostics",          # stdout/stderr diagnostics
+    "X-API-Key",                        # authentication setup
+    "environment_isolation",            # production-root validation (delegated to Python)
+    "exactly one backend must own it",  # single-listener assertion
+)
+
+
+def _walk_ps1(base: Path):
+    for root, dirs, files in os.walk(str(base)):
+        dirs[:] = [d for d in dirs
+                   if d not in EXCLUDE_PARTS and not d.endswith(".egg-info")]
+        for name in sorted(files):
+            if name.lower().endswith(".ps1"):
+                yield Path(root) / name
+
+
+def _iter_powershell_files(extra_dirs=()) -> list[tuple[str, Path]]:
+    """Every PowerShell workflow in scope: the repository, plus any handoff directory
+    passed with ``--handoff-dir``. Handoff scripts live outside the repository by design,
+    so the guard has to be pointed at them; the release gate does exactly that."""
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    bases = [REPO_ROOT] + [Path(d) for d in extra_dirs]
+    for base in bases:
+        try:
+            if not base.exists():
+                continue
+        except OSError:
+            continue
+        for fp in _walk_ps1(base):
+            try:
+                key = str(fp.resolve()).lower()
+            except OSError:
+                key = str(fp).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                label = _rel(fp)
+            except ValueError:
+                label = str(fp).replace("\\", "/")
+            out.append((label, fp))
+    return sorted(out, key=lambda t: t[0])
+
+
+def _ps_url_path(literal: str) -> str:
+    s = literal.strip()
+    m = re.match(r"^https?://[^/]+(/.*)$", s, re.IGNORECASE)
+    if m:
+        s = m.group(1)
+    s = s.split("?")[0]
+    return s.rstrip("/") or "/"
+
+
+def check_backend_restart_ownership(extra_dirs=()) -> dict:
+    """ONE repository-owned restart / smoke workflow.
+
+      (1) the canonical owner exists and declares itself;
+      (2) it probes the canonical readiness routes and nothing else;
+      (3) NO other PowerShell script probes a health / readiness route or launches the
+          application - stage handoffs delegate and may only add GET assertions;
+      (4) every ``/v1`` path any of these workflows probes is a route the application
+          actually declares as GET (a wrong path is a build failure, not a 404 at 3am);
+      (5) the owner implements every responsibility it claims (stop, start, port, health,
+          readiness, auth, diagnostics, production-root validation);
+      (6) the owner prints the full startup diagnostic set before returning nonzero;
+      (7) no restart / smoke workflow uses a mutating HTTP verb;
+      (8) ``LIVE_SMOKE_OK`` is emitted by exactly one script, exactly once.
+    """
+    owner_src = _read(RESTART_OWNER)
+    owner_present = (REPO_ROOT / RESTART_OWNER).exists()
+    declared_get = {r["path"] for r in check_routes()["routes"] if r["method"] == "GET"}
+
+    noncanonical: list[str] = []
+    probed_not_declared: list[str] = []
+    reimplementing: list[str] = []
+    mutating: list[str] = []
+    emitter_scripts: set[str] = set()
+    owner_emissions = 0
+    scanned: list[str] = []
+
+    for label, fp in _iter_powershell_files(extra_dirs):
+        try:
+            text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        scanned.append(label)
+        is_owner = (label == RESTART_OWNER)
+        for i, line in enumerate(text.splitlines(), start=1):
+            for m in _PS_HEALTH_LITERAL.finditer(line):
+                host = m.group("host")
+                if host and not _PS_LOCAL_HOST.match(host):
+                    continue  # somebody else's API, not this backend's readiness probe
+                lit = (host or "") + m.group("path")
+                path = _ps_url_path(lit)
+                if path not in CANONICAL_READINESS_ROUTES:
+                    noncanonical.append("%s:%d: %s (NONCANONICAL health/ready route)"
+                                        % (label, i, lit))
+                elif not is_owner:
+                    noncanonical.append(
+                        "%s:%d: %s (only %s may probe a readiness route)"
+                        % (label, i, lit, RESTART_OWNER))
+            if _PS_MUTATING_VERB.search(line):
+                mutating.append("%s:%d: %s" % (label, i, line.strip()))
+            if not is_owner and (_PS_APP_LAUNCH.search(line)
+                                 or _PS_LIVE_PORT_MGMT.search(line)):
+                reimplementing.append("%s:%d: %s" % (label, i, line.strip()))
+            if "LIVE_SMOKE_OK" in line and _PS_EMITS.search(line):
+                emitter_scripts.add(label)
+                if is_owner:
+                    owner_emissions += 1
+        for m in _PS_V1_LITERAL.finditer(text):
+            host = m.group("host")
+            if host and not _PS_LOCAL_HOST.match(host):
+                continue
+            p = m.group("path").rstrip("/")
+            if p and p not in declared_get:
+                probed_not_declared.append("%s: %s" % (label, p))
+
+    return {
+        "owner": RESTART_OWNER,
+        "owner_present": owner_present,
+        "owner_declares_ownership": RESTART_OWNER_DECLARATION in owner_src,
+        "canonical_readiness_routes": list(CANONICAL_READINESS_ROUTES),
+        "owner_missing_canonical_routes": [r for r in CANONICAL_READINESS_ROUTES
+                                           if ('"%s"' % r) not in owner_src],
+        "owner_missing_contract": [t for t in _RESTART_CONTRACT_TOKENS
+                                   if t not in owner_src],
+        "owner_missing_diagnostics": [t for t in _RESTART_DIAGNOSTIC_TOKENS
+                                      if t not in owner_src],
+        "noncanonical_health_probes": sorted(set(noncanonical)),
+        "probed_routes_not_declared": sorted(set(probed_not_declared)),
+        "reimplementing_scripts": sorted(set(reimplementing)),
+        "mutating_http_calls": sorted(set(mutating)),
+        "live_smoke_emitting_scripts": sorted(emitter_scripts),
+        "owner_live_smoke_emissions": owner_emissions,
+        "scanned_powershell_files": sorted(scanned),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -3585,7 +3796,13 @@ def check_docs_present() -> dict:
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
-def run_audit() -> dict:
+def run_audit(extra_ps1_dirs=()) -> dict:
+    """Build the audit report.
+
+    ``extra_ps1_dirs`` extends ONLY the PowerShell restart/smoke scan (handoff scripts
+    live outside the repository by design). The default run stays repository-scoped and
+    byte-deterministic.
+    """
     files = _iter_source_files()
     routes = check_routes()
     report = {
@@ -3616,6 +3833,7 @@ def run_audit() -> dict:
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
+        "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
         "stage21_outcome_intelligence": check_stage21_outcome_intelligence(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
@@ -4072,6 +4290,30 @@ def _print_console(rep: dict) -> None:
     print(f"forbidden new purchase/order/promotion routes (must be empty): {ux['forbidden_new_routes_present']}  "
           f"cadence enabled (must be False): {ux['cadence_enabled']}")
 
+    hdr("CANONICAL BACKEND RESTART / SMOKE OWNERSHIP")
+    br = rep["backend_restart_ownership"]
+    print(f"owner: {br['owner']}  present: {br['owner_present']}  "
+          f"declares ownership: {br['owner_declares_ownership']}")
+    print(f"canonical readiness routes: {', '.join(br['canonical_readiness_routes'])}  "
+          f"missing from owner (must be empty): {br['owner_missing_canonical_routes']}")
+    print(f"noncanonical health probes (must be empty): "
+          f"{len(br['noncanonical_health_probes'])}")
+    for x in br["noncanonical_health_probes"][:20]:
+        print(f"  !{x}")
+    print(f"scripts reimplementing the launch (must be empty): "
+          f"{len(br['reimplementing_scripts'])}")
+    for x in br["reimplementing_scripts"][:20]:
+        print(f"  !{x}")
+    print(f"probed routes the app does not declare as GET (must be empty): "
+          f"{br['probed_routes_not_declared']}")
+    print(f"mutating HTTP calls (must be empty): {br['mutating_http_calls']}")
+    print(f"owner missing contract (must be empty): {br['owner_missing_contract']}  "
+          f"owner missing diagnostics (must be empty): {br['owner_missing_diagnostics']}")
+    print(f"LIVE_SMOKE_OK emitters (must be exactly the owner): "
+          f"{br['live_smoke_emitting_scripts']}  "
+          f"emissions in owner (must be 1): {br['owner_live_smoke_emissions']}")
+    print(f"powershell workflows scanned: {len(br['scanned_powershell_files'])}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -4243,6 +4485,24 @@ BLOCKING_INVARIANTS = (
     ("acceptance_scenario_ownership", "acceptance_refuses_live_backend_port", True),
     ("acceptance_scenario_ownership", "acceptance_redirects_every_store", True),
     ("acceptance_scenario_ownership", "acceptance_refuses_inconsistent_scenario", True),
+    # CANONICAL BACKEND RESTART / SMOKE. ONE repository-owned operator workflow. The
+    # readiness routes are permanently /v1/health and /v1/ready; a stage handoff may add
+    # GET assertions but may never reimplement the launch, the port handling, the
+    # readiness polling, the authentication, the diagnostics or the store-root
+    # validation - and every path any of them probes must be a route the application
+    # actually declares.
+    ("backend_restart_ownership", "owner_present", True),
+    ("backend_restart_ownership", "owner_declares_ownership", True),
+    ("backend_restart_ownership", "owner_missing_canonical_routes", []),
+    ("backend_restart_ownership", "owner_missing_contract", []),
+    ("backend_restart_ownership", "owner_missing_diagnostics", []),
+    ("backend_restart_ownership", "noncanonical_health_probes", []),
+    ("backend_restart_ownership", "probed_routes_not_declared", []),
+    ("backend_restart_ownership", "reimplementing_scripts", []),
+    ("backend_restart_ownership", "mutating_http_calls", []),
+    ("backend_restart_ownership", "live_smoke_emitting_scripts",
+     ["scripts/restart_paper_trader_backend.ps1"]),
+    ("backend_restart_ownership", "owner_live_smoke_emissions", 1),
 )
 
 
@@ -4263,9 +4523,14 @@ def main(argv=None) -> int:
                     help="Print only the JSON report to stdout.")
     ap.add_argument("--strict", action="store_true",
                     help="Exit nonzero if a blocking category is non-empty.")
+    ap.add_argument("--handoff-dir", action="append", default=[], metavar="DIR",
+                    help=("Additionally scan this directory's PowerShell workflows for "
+                          "restart/smoke duplication. Stage handoff scripts live outside "
+                          "the repository, so the release gate points the guard at them. "
+                          "Repeatable."))
     args = ap.parse_args(argv)
 
-    rep = run_audit()
+    rep = run_audit(tuple(args.handoff_dir or ()))
     payload = json.dumps(rep, indent=2, sort_keys=True, ensure_ascii=False)
 
     if args.json_only:

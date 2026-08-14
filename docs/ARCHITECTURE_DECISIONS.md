@@ -1248,3 +1248,63 @@ payload, every contract test passed — and the decision-evidence card sat on
 *"Loading decision outcome evidence…"* indefinitely. Nothing short of rendering the page
 could observe it. The loaders now call `_mhzGet` and the audit fails on any reintroduction
 of `apiGet(`.
+
+## Operator-workflow decisions
+
+### CONFIRMED - ONE repository-owned backend restart / smoke workflow
+
+**Decision.** Stopping, starting and live-smoking the Paper Trader backend is owned by
+exactly one script in the repository:
+
+    scripts/restart_paper_trader_backend.ps1
+
+A stage handoff MUST delegate to it. A handoff `restart_smoke.ps1` may add stage-specific
+authenticated **GET** assertions via `-SmokePath` and may fingerprint its own protected
+stores; it may not reimplement process stop/start, port handling, health or readiness
+polling, authentication setup, stdout/stderr diagnostics, or production store-root
+validation.
+
+**Evidence.** The project regenerated a stage-local `restart_smoke.ps1` for stage after
+stage, and reintroduced the SAME defect each time: polling `http://127.0.0.1:8001/health`
+when this application has only ever served `/v1/health` and `/v1/ready`. Stage 12 shipped
+it. Stage 21 shipped it again. `paper_trader_8001.stdout.log` records the cost verbatim -
+39 consecutive `GET /health HTTP/1.1 404 Not Found` lines, retried silently, before a human
+probed the right path by hand. A defect that returns after being fixed is not a mistake
+about health routes; it is a missing owner.
+
+**Consequence.**
+
+* The canonical readiness routes are permanent: `GET /v1/health` and `GET /v1/ready`.
+* `scripts/audit_architecture.py::check_backend_restart_ownership` fails the build when any
+  PowerShell workflow probes a noncanonical health/readiness path, launches the application
+  outside the owner, uses a mutating HTTP verb, or probes a `/v1` path the application does
+  not declare as GET. The release gate passes `--handoff-dir` so handoff scripts - which
+  live outside the repository by design - are judged by the same guard.
+* `LIVE_SMOKE_OK` is emitted by exactly one script, exactly once, and only after every live
+  check has passed.
+* On any startup failure the owner prints the launched PID, whether it is still alive, its
+  exit code when available, the port-listener state and the tail of both logs BEFORE
+  returning nonzero.
+* `tests/test_canonical_backend_restart.py` proves the contract two ways: statically
+  against the parsed route table, and by really executing the workflow against a hermetic
+  stub backend on a throwaway port (contaminated roots, startup failure, success).
+
+**Rejected alternative.** Keeping the workflow in the handoff kit and "remembering" the
+right path. That is what was tried for nine stages. A handoff directory is a throwaway; the
+operator workflow is not, so it belongs in the repository.
+
+**Two findings that only a real execution could produce.** The first version of the owner
+asserted that the listening PID equalled the PID it launched. That is false for uvicorn on
+Windows, which supervises a CHILD that owns the socket - the assertion would have failed
+every real restart. The check now walks the parent chain and accepts the launched process
+or any descendant. The regression test itself hung until its output was redirected to files
+rather than pipes: a successful restart deliberately leaves the backend running, and the
+surviving grandchild holds the inherited pipe open long after the script has exited
+cleanly. Both are recorded here because both are invisible to static analysis.
+
+**Known second implementation, deliberately retained.** The handoff `_common.ps1` keeps its
+own `Assert-ProductionStoreRoots`. It answers a DIFFERENT question - "is the operator's
+parent shell clean?" - whereas `api/environment_isolation.py` answers "may THIS process
+serve production?", including the hermetic-acceptance opt-in that the shell check must never
+honour. The restart workflow no longer uses the PowerShell copy: it delegates to the Python
+owner.
