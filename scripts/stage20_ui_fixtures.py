@@ -151,6 +151,35 @@ def _quiet_book():
     return [_filler(i) for i in range(25)]
 
 
+#: Stage 22.1 — the EXACT live 2026-08-14 names whose owned trailing analytics were
+#: absent, so the acceptance world is the real one rather than a plausible-looking one.
+LIVE_INCOMPLETE_HOLDINGS = ("AIZ", "DVA", "DVN", "DXCM", "EXPE", "FANG", "HST", "LH",
+                            "LYV", "XYZ")
+
+
+def _incomplete(ticker, i):
+    """A holding whose REQUIRED point-in-time analytics genuinely do not exist.
+
+    This is the live gap shape verbatim: the name is ranked and scored (it IS in the
+    owned universe), but it has no trailing price history in the panel, so return_20d /
+    volatility_60d / median dollar volume are absent and ``required_data_complete`` is
+    False. Nothing is zeroed and no current snapshot stands in for history.
+    """
+    return _review(ticker, sector=_SECTORS[i % len(_SECTORS)], current_rank=i + 1,
+                   return_5d=None, return_20d=None, return_60d=None,
+                   volatility_20d=None, volatility_60d=None, drawdown_60d=None,
+                   median_dollar_volume_20d=None, estimated_days_to_liquidate=None,
+                   liquidity_state="UNAVAILABLE", recommendation_confidence="LOW",
+                   required_data_complete=False)
+
+
+def _coverage_blocked_book():
+    """25 holdings, 15 complete and 10 genuinely incomplete — the live 0.60 fraction,
+    below the 0.80 ``min_holdings_data_complete_fraction`` floor."""
+    incomplete = [_incomplete(tk, i) for i, tk in enumerate(LIVE_INCOMPLETE_HOLDINGS)]
+    return incomplete + [_filler(i) for i in range(10, 25)]
+
+
 #: The four strongly-deteriorating names shared by scenarios 3, 5, 5b and 6.
 def _strong():
     return [_replace("MRNA", gross=1.20, net=1.15, rank=58, prev=14),
@@ -192,7 +221,18 @@ def _hoc_assessment(reviews, *, state="READY", gaps=None, eligible=DATE):
             {"ticker": "LIN", "rank": 17, "score": 0.91, "combined_score": 0.91,
              "sector": "Materials", "recommendation": "ADD"}],
         "diagnostics": {"eligible_universe_size": 503},
-        "data_quality": {"data_gaps": list(gaps or [])},
+        # Stage 22.1 — the completeness counts are part of the assessment's own data
+        # quality, and the Stage-20 reassessment gate reads them. Omitting them made a
+        # data-incomplete world unrepresentable in the harness.
+        "data_quality": {
+            "data_gaps": list(gaps or []),
+            "holdings_evaluated": len(reviews),
+            "holdings_data_complete": sum(1 for r in reviews
+                                          if r.get("required_data_complete")),
+            "previous_ranking_state": "AVAILABLE",
+            "risk_contribution_state": "AVAILABLE",
+            "liquidity_names_unavailable": sum(
+                1 for r in reviews if r.get("liquidity_state") == "UNAVAILABLE")},
         "provenance": {"portfolio_state_hash": "ps_fixture",
                        "corporate_actions_hash": None,
                        "universe_scoring_hash": "us_fixture"},
@@ -371,7 +411,19 @@ def scenarios() -> dict:
             # page-level action is to run the Daily Research Cycle. What must NOT appear
             # is a proposal-review CTA: the reassessment itself is data-blocked.
             expect_primary_action="RUN_DAILY_RESEARCH_CYCLE",
-            expect_attention=0),
+            expect_attention=0,
+            # Stage 22.1 — this scenario's historical contract (a NAMED data blocker and
+            # a path back to the Daily Research Cycle) is now pinned in Stage-22
+            # normal-cycle vocabulary rather than left unchecked. It is the SAME family
+            # as scenario 10 with an EARLIER-ranked cause: here a required research INPUT
+            # is missing, so the cycle has not yet reached the reassessment and the DRC is
+            # still runnable; in scenario 10 the cycle already ran and the reassessment
+            # itself reached no verdict, so the cycle is suspended. One interpretation,
+            # two positions in the same sequence.
+            expect_workflow_state="RESEARCH_CYCLE_REQUIRED",
+            expect_cycle_stage="DAILY_RESEARCH_CYCLE",
+            expect_evidence_class="SYSTEM_BLOCKER",
+            expect_mutation_count=1),
         "scenario_5_execution_pending": world(
             scenario_id="scenario_5_execution_pending",
             title="Stage-19 execution pending — it keeps operator precedence",
@@ -450,6 +502,41 @@ def scenarios() -> dict:
             expect_cycle_stage="DAILY_RESEARCH_CYCLE",
             expect_evidence_class="CURRENT_EVIDENCE",
             expect_mutation_count=1),
+        # =================================================================== #
+        # STAGE 22.1 — the live 2026-08-14 BLOCKED PORTFOLIO DECISION.
+        #
+        # Everything upstream genuinely succeeded: the Daily Close is recorded for
+        # the eligible session, every required signal input is CURRENT, the Daily
+        # Research Cycle completed and produced a DEGRADED opportunity-cost
+        # assessment over all 25 holdings. Only 15 of those holdings have complete
+        # required analytics (0.60 < the 0.80 floor), so the canonical reassessment
+        # correctly refuses with INSUFFICIENT_HOLDING_DATA_COMPLETENESS and reaches
+        # NO portfolio-level verdict.
+        #
+        # Before Stage 22.1 this exact combination rendered as DAILY_CYCLE_COMPLETE
+        # / MONITOR_PORTFOLIO / "No portfolio change requires review" — a blocked
+        # session presented as a cleared economic gate. The expectations below are
+        # what makes that unrepresentable.
+        # =================================================================== #
+        "scenario_10_reassessment_data_blocked": world(
+            scenario_id="scenario_10_reassessment_data_blocked",
+            title=("Post-cycle: the reassessment reached no verdict — a named data "
+                   "blocker, never 'no change'"),
+            hoc_reviews=_coverage_blocked_book(), hoc_state="DEGRADED",
+            hoc_gaps=["HOLDING_ANALYTICS_UNAVAILABLE"],
+            # The live shape: no rebalance orders are working and NO reallocation
+            # proposal exists (proposal_hash null) — a blocked reassessment produces
+            # none, and none may be manufactured from blocked evidence.
+            execution="NONE", close="PROCESSED",
+            expect_state=kernel.STATE_BLOCKED_DATA,
+            # NO page-level mutation: the cycle is suspended until the operator
+            # repairs the named cause, and the path back is the Daily Research
+            # Cycle — never a proposal review built from blocked evidence.
+            expect_primary_action=None, expect_attention=0,
+            expect_workflow_state="RESEARCH_CYCLE_BLOCKED",
+            expect_cycle_stage="RECOVERY",
+            expect_evidence_class="SYSTEM_BLOCKER",
+            expect_mutation_count=0),
     }
 
 

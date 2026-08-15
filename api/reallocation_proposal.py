@@ -372,8 +372,11 @@ def _default_scoring_loader() -> dict:
 
 
 def _default_price_panel_loader() -> Optional[dict]:
+    # Stage 22.1 — the OPERATIONAL panel, the same composition the Slice-6 assessment
+    # reads, so the proposal's covariance lookback covers every real holding rather than
+    # only the names the frozen research artifact happened to include.
     from paper_trader.api import price_panel as pp
-    return pp.load_price_panel()
+    return pp.load_operational_price_panel()
 
 
 def _default_hoc_assessment_loader(*, active_book_id, eligible_market_date,

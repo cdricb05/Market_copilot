@@ -423,8 +423,12 @@ def _default_scoring_loader() -> dict:
 
 
 def _default_price_panel_loader() -> Optional[dict]:
+    # Stage 22.1 — the OPERATIONAL panel (owned current window composed over the frozen
+    # research artifact). Reading the research artifact alone left every holding it never
+    # covered with no return_20d / volatility_60d / dollar volume, which is what made
+    # required_data_complete False for 10 of 25 real holdings on 2026-08-14.
     from paper_trader.api import price_panel as pp
-    return pp.load_price_panel()
+    return pp.load_operational_price_panel()
 
 
 def _prior_ranking_from_artifact(*, active_book_id, eligible_market_date, hoc_dir=None):

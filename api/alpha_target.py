@@ -135,6 +135,55 @@ _MOM_FIELDS = ["ticker", "mom_6_1", "is_member", "adv_dollar", "realized_vol_63d
 
 REFRESH_LOG_FILE = "alpha_target_refresh_log.json"
 
+# --------------------------------------------------------------------------- #
+# Stage 22.1 — OWNED TRAILING DAILY PANEL (the historical-coverage repair).
+#
+# WHY THIS EXISTS
+# ---------------
+# This refresh already fetches ~380 trading days of owned daily OHLCV for EVERY
+# current-universe name (``_FETCH_CALENDAR_DAYS``) — including every name the
+# operational book holds — and then threw the bars away, keeping only the four
+# scalar diagnostics (vol / adv / beta / drawdown) the momentum + risk CSVs carry.
+#
+# The point-in-time holding analytics (``engine.holding_opportunity_cost``:
+# return_20d / volatility_60d / median_dollar_volume_20d) are read through
+# ``api.price_panel``, whose only source was the FROZEN Phase-7I research CSV — a
+# 301-name yfinance artifact that ends 2026-06-22. Ten of the twenty-five real
+# holdings are simply not in those 301 names, so their required analytics were
+# absent, ``required_data_complete`` was False for 10/25, and the canonical
+# portfolio reassessment correctly refused with
+# INSUFFICIENT_HOLDING_DATA_COMPLETENESS. The data was never missing — it was
+# fetched daily by this function and discarded.
+#
+# So this owner now PERSISTS the bounded trailing window it already downloaded.
+# It is NOT a second price-history store: it is one more owned input file in the
+# store this module already owns and manifests (beside current_momentum_scores.csv
+# and current_risk_stats.csv), and it has exactly ONE reader —
+# ``api.price_panel``, which remains the single trailing-price panel owner.
+#
+# CONTRACT
+#   * point-in-time: only COMPLETED bars on/before the resolved market date are
+#     written (``_normalize_ohlcv`` already enforces this), so a bar can never
+#     describe a session that had not finished.
+#   * provider cache, not a ledger: the window is REPLACED whole on each refresh,
+#     exactly like the desk mark store. It restates no recorded evidence — every
+#     ledger, fill and immutable artifact continues to embed the prices it used.
+#   * idempotent: identical fetched bars produce a byte-identical file.
+#   * fails closed by NAME: a ticker whose owned window falls short of
+#     ``_OWNED_PANEL_MIN_BARS`` is reported in ``short_history_tickers`` and the
+#     downstream analytics stay honestly unavailable for it. Nothing is padded,
+#     interpolated, forward-filled or substituted from a current snapshot.
+# --------------------------------------------------------------------------- #
+OWNED_PANEL_FILE = "current_trailing_prices.csv"
+OWNED_PANEL_FIELDS = ["ticker", "date", "adjusted_close", "dollar_volume"]
+#: Bars retained per ticker. ``api.holding_opportunity_cost`` slices the most recent
+#: 140 bars, and its widest window is 60 closes, so 140 covers every consumer window
+#: with margin while keeping the file bounded.
+_OWNED_PANEL_BARS = 140
+#: Below this a name cannot support the 60-close volatility / covariance windows, so
+#: it is named as short rather than silently written as if it were complete.
+_OWNED_PANEL_MIN_BARS = 61
+
 SAFETY_BADGES = ["LOCAL ALPHA DATA", "NO PREDICTION TUNNEL REQUIRED", "PREVIEW ONLY",
                  "NO ORDERS", "ORDERS DISABLED", "AUTOMATION OFF", "MANUAL REVIEW"]
 
@@ -696,6 +745,36 @@ def _returns(bars: list[tuple]) -> list[tuple[str, float]]:
     return out
 
 
+def owned_panel_path(inputs_dir=None) -> Path:
+    """The ONE path of the owned trailing daily panel (Stage 22.1)."""
+    return eng._resolve(inputs_dir, eng.INPUTS_ENV, eng.DEFAULT_INPUTS) / OWNED_PANEL_FILE
+
+
+def build_owned_panel_rows(series: dict[str, list[tuple]],
+                           *, bars: int = _OWNED_PANEL_BARS) -> tuple[list[dict], list[str]]:
+    """Project the fetched owned bars onto the persisted trailing-panel rows.
+
+    PURE: no IO. Returns ``(rows, short_history_tickers)``. ``rows`` are ordered
+    (ticker asc, date asc) so an identical fetch produces a byte-identical file.
+    Dollar volume is the owned ``close * volume`` (falling back to the adjusted
+    close when the raw close is absent) and is ``""`` — never 0 and never a guess —
+    when the provider supplied no volume for that bar.
+    """
+    rows: list[dict] = []
+    short: list[str] = []
+    for tk in sorted(series):
+        window = (series.get(tk) or [])[-int(bars):]
+        if len(window) < _OWNED_PANEL_MIN_BARS:
+            short.append(tk)
+        for d, adj, close, vol in window:
+            px = close if close else adj
+            dv = (px * vol) if (vol is not None and px) else None
+            rows.append({"ticker": tk, "date": d,
+                         "adjusted_close": repr(float(adj)),
+                         "dollar_volume": ("" if dv is None else repr(float(dv)))})
+    return rows, short
+
+
 def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloader] = None,
                 panel_path=None, inputs_dir=None, ledger_dir=None,
                 completed_through: Optional[str] = None) -> dict:
@@ -909,6 +988,15 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
             n_risk_updated += 1
         _atomic_write_csv(risk_path, risk_fields or [], risk_rows)
 
+    # -- Stage 22.1: persist the trailing daily window this fetch already produced --
+    #    (see the OWNED TRAILING DAILY PANEL contract above). Without this the owned
+    #    bars were discarded and the point-in-time holding analytics could only be
+    #    read from the frozen 301-name research CSV, leaving 10 of 25 real holdings
+    #    with no return_20d / volatility_60d / dollar volume at all.
+    panel_path_out = owned_panel_path(inputs_dir)
+    panel_rows, short_history = build_owned_panel_rows(series)
+    _atomic_write_csv(panel_path_out, OWNED_PANEL_FIELDS, panel_rows)
+
     # -- manifest market date + append-only refresh log ----------------------------
     manifest_path = idir / "inputs_manifest.json"
     try:
@@ -927,6 +1015,12 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
         "tickers_refreshed": len(series),
         "tickers_failed": len(failed),
         "momentum_scores_changed": False,
+        # Stage 22.1 — owned trailing-panel coverage, reported by NAME.
+        "trailing_panel_tickers": len(series),
+        "trailing_panel_rows": len(panel_rows),
+        "trailing_panel_bars_per_ticker": _OWNED_PANEL_BARS,
+        "trailing_panel_short_history_tickers": sorted(short_history)[:50],
+        "trailing_panel_short_history_count": len(short_history),
         "note": "Intramonth owned-data refresh: mom_6_1 / membership / sectors / "
                 "month label unchanged per the frozen monthly contract.",
     }
@@ -960,11 +1054,18 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
         "source": source,
         "counts": {"tickers_total": len(tickers), "tickers_refreshed": len(series),
                    "tickers_failed": len(failed), "momentum_rows_updated": n_updated,
-                   "risk_rows_updated": n_risk_updated},
+                   "risk_rows_updated": n_risk_updated,
+                   "trailing_panel_tickers": len(series),
+                   "trailing_panel_rows": len(panel_rows)},
         "failed_tickers": failed[:50],
+        # Stage 22.1 — names whose OWNED trailing window is too short to support the
+        # 60-close analytics windows. Their analytics stay honestly unavailable; no
+        # value is padded, forward-filled or substituted.
+        "trailing_panel_short_history_tickers": sorted(short_history)[:50],
+        "trailing_panel_short_history_count": len(short_history),
         "coverage_fraction": round(coverage, 4),
         "artifacts_written": [str(mom_path)] + ([str(risk_path)] if risk_rows else [])
-                             + [str(log_path)],
+                             + [str(panel_path_out), str(log_path)],
         "historical_evidence_modified": False,
         "readiness_after": readiness_after,
         "message": ("Refreshed the owned alpha inputs %s -> %s (latest completed %s). "
@@ -986,6 +1087,8 @@ __all__ = [
     "ACT_REFRESH", "ACT_PREVIEW_CONFIRM", "ACT_PROCEED_BOOK", "ACT_RESOLVE",
     "R_CONFIRM_REQUIRED", "R_ALREADY_FRESH", "R_REFRESHED", "R_MONTH_BOUNDARY",
     "R_PROVIDER_BLOCKED", "R_INPUTS_UNAVAILABLE", "R_INSUFFICIENT",
+    "OWNED_PANEL_FILE", "OWNED_PANEL_FIELDS",
     "latest_completed", "ledger_integrity", "compute_readiness", "load_readiness",
     "load_review", "confirmation_gate", "run_refresh",
+    "owned_panel_path", "build_owned_panel_rows",
 ]

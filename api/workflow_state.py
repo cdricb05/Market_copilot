@@ -826,6 +826,39 @@ _SUPERSEDABLE_BLOCKER_CODES = frozenset({
 })
 
 
+def blocker_codes_of(blockers: Any) -> list[str]:
+    """The sorted blocker codes of a reassessment blocker list (dicts or bare codes)."""
+    return sorted({(b.get("code") if isinstance(b, dict) else str(b))
+                   for b in (blockers or []) if b})
+
+
+def _blocked_kind(reassessment_state: Any, blockers: Any) -> tuple[bool, bool, bool]:
+    """``(is_evidence_blocked, is_data_blocked, all_causes_supersedable)`` — the ONE
+    rule that decides both the evidence classification and whether the blocked
+    reassessment suspends the normal cycle. Factored so those two can never disagree."""
+    state = str(reassessment_state or "")
+    codes = blocker_codes_of(blockers)
+    return (state in _BLOCKED_EVIDENCE_STATES,
+            state in _BLOCKED_DATA_STATES,
+            bool(codes) and all(c in _SUPERSEDABLE_BLOCKER_CODES for c in codes))
+
+
+def reassessment_blocks_cycle(*, reassessment_state: Any, blockers: Any = None) -> bool:
+    """Stage 22.1 — does this reassessment leave the cycle WITHOUT a portfolio verdict?
+
+    True when the reassessment failed closed on a missing/unusable INPUT (BLOCKED_DATA),
+    or on evidence whose cause is NOT resolved simply by running the next canonical
+    cycle. Both mean no portfolio-level economic verdict exists for the eligible
+    session, so "no change / monitor" would be a fabricated conclusion.
+
+    False for an EXPECTED stale assessment (every named cause is superseded by the next
+    Daily Research Cycle) — nothing is broken there and nothing is required, which is
+    exactly the Stage-22 Workstream-B distinction this reuses rather than re-deriving.
+    """
+    is_evidence, is_data, all_supersedable = _blocked_kind(reassessment_state, blockers)
+    return bool(is_data or (is_evidence and not all_supersedable))
+
+
 def build_evidence_classification(*, reassessment_state: Any, overall: str,
                                   blockers: Any = None,
                                   eligible_date: Any = None,
@@ -836,10 +869,8 @@ def build_evidence_classification(*, reassessment_state: Any, overall: str,
     blocked/stale state regardless of classification. Only the presentation rank moves.
     """
     state = str(reassessment_state or "")
-    codes = sorted({(b.get("code") if isinstance(b, dict) else str(b))
-                    for b in (blockers or []) if b})
-    is_evidence_blocked = state in _BLOCKED_EVIDENCE_STATES
-    is_data_blocked = state in _BLOCKED_DATA_STATES
+    codes = blocker_codes_of(blockers)
+    is_evidence_blocked, is_data_blocked, all_supersedable = _blocked_kind(state, blockers)
     blocked = bool(is_evidence_blocked or is_data_blocked)
 
     if not blocked:
@@ -866,7 +897,6 @@ def build_evidence_classification(*, reassessment_state: Any, overall: str,
     # while the authoritative workflow reports a passive or normal-cycle state, is
     # EXPECTED. A data block, an unknown cause, or a workflow already in recovery is a
     # SYSTEM BLOCKER the operator must act on.
-    all_supersedable = bool(codes) and all(c in _SUPERSEDABLE_BLOCKER_CODES for c in codes)
     workflow_healthy = overall not in (INCONSISTENT_STATE, RESEARCH_CYCLE_BLOCKED)
     expected = bool(is_evidence_blocked and all_supersedable and workflow_healthy)
 
@@ -1403,7 +1433,8 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     evidence_gap: bool, cycle_running: bool = False,
                     cycle_blocked: bool = False, cycle_inconsistent: bool = False,
                     cycle_complete: bool = False, hoc_current: bool = False,
-                    research_cycle_due_after_close: bool = False) -> str:
+                    research_cycle_due_after_close: bool = False,
+                    reassessment_blocked: bool = False) -> str:
     # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
     #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
     #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
@@ -1486,6 +1517,30 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     # (The former P6 "close is not complete" gate now runs as P3.7 above, so that an
     #  unclosed eligible session can never be overtaken by a research/reassessment
     #  action. Reaching this point always means the close IS complete.)
+
+    # P6 — STAGE 22.1 BLOCKED PORTFOLIO DECISION. The Daily Close and the Daily Research
+    #      Cycle both completed for the eligible session and an opportunity-cost
+    #      assessment exists, yet the canonical portfolio reassessment reached NO
+    #      portfolio-level economic verdict: it failed closed on a missing/unusable input
+    #      (BLOCKED_DATA) or on evidence whose named cause the next cycle will not clear.
+    #
+    #      Before Stage 22.1 nothing here consulted the reassessment STATE — only
+    #      ``proposal_required``, which a blocked reassessment deliberately leaves False.
+    #      The blocked session therefore fell straight through to DAILY_CYCLE_COMPLETE /
+    #      MONITOR_PORTFOLIO, and the operator was shown "no portfolio change requires
+    #      review" while the SAME payload reported SYSTEM_BLOCKER / BLOCKED_DATA. That is
+    #      the difference between "the economic gate cleared and nothing should change"
+    #      and "no verdict could be reached" — presenting the second as the first is a
+    #      fabricated conclusion, so it is now stated as the named blocker it is.
+    #
+    #      This sits BELOW every input/ordering gate above (an unconfirmed session, an
+    #      in-flight or input-blocked cycle, an unclosed session and a due research cycle
+    #      all name an earlier fix) and ABOVE the terminal region, so no completion state
+    #      can outrank it. It opens NO mutation gate: RESEARCH_CYCLE_BLOCKED maps to the
+    #      RECOVERY stage, where the normal cycle offers nothing to execute and the
+    #      controlled rebalance stays unavailable.
+    if reassessment_blocked:
+        return RESEARCH_CYCLE_BLOCKED
 
     # Terminal region — the eligible session is fully processed. Refinement order
     # (documented precedence 7/8/9): a material-risk / manual-review gate is
@@ -1605,6 +1660,27 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "headline": "Daily Research Cycle is running."}
 
     if overall == RESEARCH_CYCLE_BLOCKED:
+        # Stage 22.1 — the SAME blocked-cycle state has two named causes, and the
+        # operator is told which one applies rather than a generic "a required input".
+        prs_codes = list(ctx.get("reassessment_blocker_codes") or [])
+        if ctx.get("reassessment_blocked"):
+            named = ", ".join(prs_codes) if prs_codes else "cause not reported"
+            return {"action_code": ACTION_RESOLVE_RESEARCH_BLOCKER,
+                    "label": "Resolve the blocked portfolio reassessment",
+                    "explanation": (
+                        "The Daily Close and the Daily Research Cycle completed for %s, "
+                        "but the portfolio reassessment reached NO portfolio-level "
+                        "verdict: %s. There is no proposal and no 'no change' "
+                        "conclusion — neither may be inferred from blocked evidence. "
+                        "Repair the named cause, then run the Daily Research Cycle "
+                        "again to reassess the portfolio against complete evidence."
+                        % (elig or "the eligible session", named)),
+                    "severity": SEV_BLOCKED, "destination": DEST_DAILY_WORKFLOW,
+                    "safe_to_execute": True, "execution_available": False,
+                    "manual_confirmation_required": False, "slice3_pending": False,
+                    "current_task": "Resolve the named portfolio-reassessment blocker.",
+                    "headline": ("Portfolio reassessment blocked for %s — no portfolio "
+                                 "verdict was reached." % (elig or "the eligible session"))}
         return {"action_code": ACTION_RESOLVE_RESEARCH_BLOCKER,
                 "label": "Resolve the Daily Research Cycle blocker",
                 "explanation": "The Daily Research Cycle is blocked (a required research "
@@ -2095,6 +2171,17 @@ def load_workflow_state(
     reassessment_manual_review = bool(reassessment_proposal_required
                                       and not reassessment_execution.get("execution_active"))
     manual_review_required = bool(manual_review_required or reassessment_manual_review)
+    # Stage 22.1 — did the reassessment reach a portfolio-level verdict at all? A blocked
+    # reassessment leaves ``proposal_required`` False by design, which is indistinguishable
+    # from "no change is justified" unless the STATE itself is consulted. It is consulted
+    # here, through the ONE factored rule the evidence classifier also uses, so the two can
+    # never disagree. NOT suppressed by an in-flight execution: Stage-19 precedence exists
+    # to stop a competing PROPOSAL from outranking a commitment, and this is not a proposal
+    # — it is a named blocker the operator has to repair either way.
+    reassessment_blockers = list(reassessment_summary.get("blockers") or [])
+    reassessment_blocker_codes = blocker_codes_of(reassessment_blockers)
+    reassessment_blocked = reassessment_blocks_cycle(
+        reassessment_state=reassessment_state, blockers=reassessment_blockers)
 
     # --- Holding Opportunity-Cost summary (Phase 29G.2 — the canonical primary
     #     portfolio decision). The gate is the ONE owner that delegates to the HOC
@@ -2153,11 +2240,14 @@ def load_workflow_state(
         cycle_running=cycle_running, cycle_blocked=cycle_blocked,
         cycle_inconsistent=cycle_inconsistent, cycle_complete=cycle_complete,
         hoc_current=hoc_available,
-        research_cycle_due_after_close=research_cycle_due_after_close)
+        research_cycle_due_after_close=research_cycle_due_after_close,
+        reassessment_blocked=reassessment_blocked)
 
     primary = assert_primary_action_contract(_primary_action(overall, {
         "eligible_date": eligible_date,
         "research_cycle_due_after_close": research_cycle_due_after_close,
+        "reassessment_blocked": reassessment_blocked,
+        "reassessment_blocker_codes": reassessment_blocker_codes,
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
     # Stage 19.3 — when the promoted action is the Daily Close and paper orders are
@@ -2220,6 +2310,25 @@ def load_workflow_state(
                              "surface": "daily_research_cycle", "recovery_required": True,
                              "detail": "The Daily Research Cycle status is INCONSISTENT; a "
                                        "safe idempotent recovery is required."})
+    if reassessment_blocked:
+        # Stage 22.1 — the named cause of the missing portfolio verdict, carried verbatim
+        # from the ONE reassessment owner. Reported whenever the reassessment is blocked,
+        # not only when it won the priority policy, so an earlier-ranked action (e.g. an
+        # unconfirmed session) never hides why the portfolio decision is unavailable.
+        for b in reassessment_blockers:
+            row = dict(b) if isinstance(b, dict) else {"code": str(b)}
+            blockers.append({**row, "surface": "portfolio_reassessment",
+                             "reassessment_state": reassessment_state,
+                             "blocks_portfolio_decision": True,
+                             "recovery_required": True})
+        if not reassessment_blockers:
+            blockers.append({"code": "PORTFOLIO_REASSESSMENT_%s" % reassessment_state,
+                             "surface": "portfolio_reassessment",
+                             "reassessment_state": reassessment_state,
+                             "blocks_portfolio_decision": True,
+                             "recovery_required": True,
+                             "detail": "The portfolio reassessment reached no "
+                                       "portfolio-level verdict and named no cause."})
     if overall == WAITING_FOR_OWNED_DATA:
         blockers.append({"code": "OWNED_DATA_NOT_CONFIRMED",
                          "detail": session.get("reason") or "Owned market data is "
@@ -2436,7 +2545,16 @@ def load_workflow_state(
         eligible_market_date=eligible_date,
         latest_completed_close_date=latest_close_date,
         execution_active=bool(reassessment_execution.get("execution_active")),
-        blockers=[b.get("code") for b in blockers if isinstance(b, dict)])
+        blockers=[b.get("code") for b in blockers if isinstance(b, dict)],
+        # Stage 22.1 — the stages this owner has authoritatively observed COMPLETE for
+        # the eligible session. Wording/status only: it opens no gate and changes no
+        # mutation count. It exists so a suspended cycle still reports the valid work it
+        # recorded (the Daily Close that ran, the signal refresh that completed) instead
+        # of blanking every stage into "unavailable".
+        completed_stages=(
+            ([ncycle.STAGE_DAILY_CLOSE] if eligible_session_closed else [])
+            + ([ncycle.STAGE_DAILY_RESEARCH_CYCLE]
+               if (cycle_complete and hoc_available) else [])))
 
     # --- Stage 22 (Workstream B): is the blocked/stale assessment a SYSTEM BLOCKER the
     #     operator must fix now, or EXPECTED stale evidence the next canonical cycle

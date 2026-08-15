@@ -225,9 +225,28 @@ _REVIEW_REQUIRED_STATES = {
 #: Passive wording per (stage, current stage relationship). Deterministic, never a
 #: disabled-looking execute control.
 def _gate_passive_text(stage: str, *, current: str, overall: str,
-                       eligible: Optional[str], closed: Optional[str]) -> str:
+                       eligible: Optional[str], closed: Optional[str],
+                       completed: frozenset = frozenset()) -> str:
     cur_ord, my_ord = stage_ordinal(current), stage_ordinal(stage)
     if current == STAGE_RECOVERY:
+        # Stage 22.1 — RECOVERY suspends the cycle; it does not erase what genuinely
+        # completed. A stage the caller reported as COMPLETED still says so, because
+        # telling the operator that a finished Daily Close is merely "unavailable"
+        # would misrepresent valid recorded work as part of the failure.
+        if stage in completed:
+            if stage == STAGE_DAILY_CLOSE:
+                return ("Daily Close complete for %s. The cycle is suspended until the "
+                        "named blocker is resolved."
+                        % (closed or eligible or "the eligible session"))
+            if stage == STAGE_DAILY_RESEARCH_CYCLE:
+                return ("Daily Research Cycle complete for %s. Run it again after the "
+                        "named blocker is resolved to reassess the portfolio against "
+                        "complete evidence." % (eligible or "the eligible session"))
+            return "Complete. The cycle is suspended until the named blocker is resolved."
+        if stage == STAGE_PORTFOLIO_DECISION:
+            return ("No portfolio decision is available: the reassessment reached no "
+                    "verdict. Resolve the named blocker and run the Daily Research "
+                    "Cycle again — no change is inferred from blocked evidence.")
         return ("Unavailable — resolve the named blocker or state inconsistency "
                 "first.")
     if stage == STAGE_DAILY_CLOSE and my_ord < cur_ord:
@@ -262,7 +281,8 @@ def _gate_passive_text(stage: str, *, current: str, overall: str,
 def build_stage_gates(*, overall: Any, current_stage: Any,
                       eligible_market_date: Optional[str] = None,
                       latest_completed_close_date: Optional[str] = None,
-                      execution_active: bool = False) -> dict[str, dict]:
+                      execution_active: bool = False,
+                      completed_stages: Any = None) -> dict[str, dict]:
     """The per-stage verdict every surface obeys verbatim.
 
     ``execution_allowed`` is True for AT MOST ONE stage — the current stage, and only
@@ -270,9 +290,15 @@ def build_stage_gates(*, overall: Any, current_stage: Any,
     read-only portfolio-decision review, which is never a mutation and so never counts
     toward that limit. Every stage that offers neither carries a passive status string
     and no execute affordance. An unknown/recovery state opens NOTHING (fail closed).
+
+    ``completed_stages`` (Stage 22.1) names the stages the caller has authoritatively
+    observed to be COMPLETE for the eligible session. It affects WORDING only — never a
+    gate, never the current stage, never the mutation count — so that a suspended cycle
+    still reports the valid work it already recorded instead of blanking it.
     """
     ov = str(overall)
     cur = str(current_stage)
+    done = frozenset(str(s) for s in (completed_stages or ()))
     gates: dict[str, dict] = {}
     for stage in STAGE_SEQUENCE:
         open_states = _GATE_OPEN_STATES.get(stage) or frozenset()
@@ -291,10 +317,12 @@ def build_stage_gates(*, overall: Any, current_stage: Any,
             "review_required": review,
             "creates_orders": False,
             "is_current_stage": stage == cur,
+            "stage_completed": stage in done,
             "owner": (STAGE_CONTRACT.get(stage) or {}).get("owner"),
             "passive_status": (None if (allowed or review) else _gate_passive_text(
                 stage, current=cur, overall=ov,
-                eligible=eligible_market_date, closed=latest_completed_close_date)),
+                eligible=eligible_market_date, closed=latest_completed_close_date,
+                completed=done)),
         }
     return gates
 
@@ -339,7 +367,8 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
                      eligible_market_date: Optional[str] = None,
                      latest_completed_close_date: Optional[str] = None,
                      execution_active: bool = False,
-                     blockers: Any = None) -> dict[str, Any]:
+                     blockers: Any = None,
+                     completed_stages: Any = None) -> dict[str, Any]:
     """Project the ONE decided workflow state onto the canonical normal cycle.
 
     Returns the four operator answers (now / do / why / after), the ordered stage
@@ -347,6 +376,7 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
     overall state and the primary action were already resolved by the workflow owner.
     """
     ov = str(overall)
+    done = frozenset(str(s) for s in (completed_stages or ()))
     current = stage_for_overall_state(ov)
     # A confirmed order plan still awaiting NEXT_CLOSE settlement places the operator
     # in the controlled-rebalance stage of the cycle even though the operational lane
@@ -360,8 +390,12 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
     stages = []
     for s in STAGE_SEQUENCE:
         o = stage_ordinal(s)
+        # Stage 22.1 — in RECOVERY the cycle has no current position, but a stage the
+        # caller authoritatively observed as COMPLETE is still DONE. Suspending the cycle
+        # must not retroactively un-record a finished Daily Close or research cycle.
         status = (ST_CURRENT if s == current
-                  else (ST_DONE if (not recovery and o < cur_ord) else ST_UPCOMING))
+                  else (ST_DONE if ((not recovery and o < cur_ord) or (recovery and s in done))
+                        else ST_UPCOMING))
         c = STAGE_CONTRACT[s]
         stages.append({
             "stage": s, "ordinal": o, "label": c["label"], "happens": c["happens"],
@@ -372,7 +406,7 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
     gates = build_stage_gates(
         overall=ov, current_stage=current, eligible_market_date=eligible_market_date,
         latest_completed_close_date=latest_completed_close_date,
-        execution_active=execution_active)
+        execution_active=execution_active, completed_stages=done)
     allowed = assert_single_primary_mutation(list(gates.values()))
 
     nxt = next_stage(current)
@@ -406,9 +440,15 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
         "after_text": _AFTER_TEXT[current],
         "current_task": (str(current_task) if current_task else None),
         # --- hard invariants -------------------------------------------------- #
-        "action_required": bool(action_available),
-        "no_action_required": not bool(action_available),
+        # Stage 22.1 — RECOVERY requires something of the operator (resolving the named
+        # blocker) even though it offers no normal-path MUTATION. Reporting
+        # ``no_action_required`` there let a surface truthfully read the gate count as
+        # zero and render "nothing to do" over a suspended cycle. ``executable_stages``
+        # remains the mutation contract; this pair is the operator-attention contract.
+        "action_required": bool(action_available) or recovery,
+        "no_action_required": not (bool(action_available) or recovery),
         "in_recovery": recovery,
+        "completed_stages": sorted(done),
         "executable_stages": allowed,
         "executable_stage_count": len(allowed),
         "single_primary_mutation_enforced": True,

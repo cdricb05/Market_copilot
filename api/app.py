@@ -6605,7 +6605,11 @@ def operations_portfolio_reassessment_attribution() -> dict:
     changes no model, no threshold, no champion and no portfolio, and it creates no order.
     """
     from paper_trader.api import price_panel as _pp
-    return _reassess.build_attribution(price_panel=_pp.load_price_panel())
+    # Stage 22.1 — the OPERATIONAL panel. Forward outcomes for a recommendation can only
+    # be measured from owned closes that actually exist after it; the frozen research
+    # artifact ends before the sessions being attributed, so on its own it left genuine
+    # outcomes PENDING forever for every holding it never covered.
+    return _reassess.build_attribution(price_panel=_pp.load_operational_price_panel())
 
 
 def _stage21_active_book_id() -> Optional[str]:
