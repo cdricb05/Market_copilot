@@ -173,6 +173,16 @@ SCHEMAS: Dict[str, List[Tuple[str, str, bool]]] = {
         ("source_availability_timestamp", _TS, True),
         ("ingestion_timestamp", _TS, True),
         ("raw_source_reference", _STR, False),
+        # -- Stage 23 additions (optional, so existing records still validate) -- #
+        # Explicit fiscal identity: derivable from fiscal_period_end, but a vendor
+        # whose fiscal year differs from the calendar year must state it rather
+        # than let a consumer infer it.
+        ("fiscal_year", _INT, False),
+        ("fiscal_quarter", _INT, False),
+        # Which share count a per-share (EPS) value is quoted in. Without this an
+        # intervening split fabricates a surprise. See
+        # CORPORATE_ACTION_BASIS_VALUES and PIT_CORPORATE_ACTION_BASIS_UNDECLARED.
+        ("corporate_action_basis", _STR, False),
     ],
     "CONSENSUS_SNAPSHOT": [
         ("record_id", _STR, False),
@@ -498,13 +508,48 @@ PIT_TICKER_DUPLICATE_ISSUER = "HISTORICAL_TICKER_CHANGE_CREATED_DUPLICATE_ISSUER
 PIT_FISCAL_AS_AVAILABILITY = "FISCAL_PERIOD_DATE_USED_AS_AVAILABILITY"
 PIT_RECONSTRUCTED_SNAPSHOT = "RECONSTRUCTED_DAILY_SNAPSHOT_FROM_CURRENT_VALUES"
 PIT_RESTATEMENT_UNVERSIONED = "PROVIDER_RESTATEMENT_NOT_SEPARATELY_VERSIONED"
+# -- Stage 23 additions ----------------------------------------------------- #
+# Two gaps found when the Stage-23 readiness review checked this contract against
+# the full historical-vendor field list. Both are DETECTION-ONLY, like every
+# invariant above: a violation is classified, never silently repaired.
+#: The SAME logical revision delivered twice. A bulk historical extract that
+#: paginates or re-delivers overlapping windows inflates revision BREADTH — the
+#: primary analyst signal — without adding information.
+PIT_DUPLICATE_REVISION = "DUPLICATE_REVISION_EVENT_FOR_SAME_KEY_AND_TIMESTAMP"
+#: Per-share estimates (EPS) are quoted in the share count of their vintage. If a
+#: split occurs between the estimate vintage and the actual, comparing them
+#: without a split-adjustment identity produces a fabricated surprise. Paper
+#: Trader already owns corporate actions (api.corporate_actions, Stage 19); a
+#: historical analyst feed must declare which basis its per-share values use.
+PIT_CORPORATE_ACTION_BASIS_UNDECLARED = "PER_SHARE_VALUE_WITHOUT_CORPORATE_ACTION_BASIS"
 
 PIT_INVARIANTS = (
     PIT_MISSING_SOURCE_AVAILABILITY, PIT_OBS_AFTER_INGESTION, PIT_REVISION_OVERWRITE,
     PIT_CONSENSUS_BACKFILL, PIT_ACTUAL_BEFORE_ANNOUNCE, PIT_AMENDMENT_REWRITE,
     PIT_INACTIVE_IDENTITY_LOST, PIT_TICKER_DUPLICATE_ISSUER, PIT_FISCAL_AS_AVAILABILITY,
     PIT_RECONSTRUCTED_SNAPSHOT, PIT_RESTATEMENT_UNVERSIONED,
+    PIT_DUPLICATE_REVISION, PIT_CORPORATE_ACTION_BASIS_UNDECLARED,
 )
+
+#: Accepted declarations for the share-count basis of a per-share estimate.
+CORPORATE_ACTION_BASIS_VALUES = ("AS_REPORTED_VINTAGE", "SPLIT_ADJUSTED_TO_CURRENT",
+                                 "SPLIT_ADJUSTED_TO_VINTAGE")
+#: Estimate types whose values are PER SHARE and therefore split-sensitive.
+PER_SHARE_ESTIMATE_TYPES = ("EPS",)
+
+
+def duplicate_revision_key(rec: Mapping[str, Any]) -> tuple:
+    """The logical identity of a revision, independent of the provider's row id.
+
+    Two records sharing this key are the SAME economic event; a second delivery
+    is a duplicate, not a new revision.
+    """
+    return (str(rec.get("security_id") or ""),
+            str(rec.get("estimate_type") or ""),
+            str(rec.get("fiscal_period_type") or ""),
+            _ts(rec.get("fiscal_period_end")) or "",
+            _ts(rec.get("observation_timestamp")) or "",
+            str(rec.get("analyst_or_broker_id") or ""))
 
 
 def _ts(x) -> Optional[str]:
@@ -512,11 +557,23 @@ def _ts(x) -> Optional[str]:
 
 
 def pit_validate_event(rec: Mapping[str, Any], *,
-                       prior_by_key: Optional[Mapping[Any, Mapping[str, Any]]] = None
-                       ) -> List[str]:
+                       prior_by_key: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+                       seen_logical_keys: Optional[set] = None,
+                       require_corporate_action_basis: bool = False) -> List[str]:
     """Deterministic PIT checks for one ESTIMATE_REVISION_EVENT. ``prior_by_key`` is
     an optional map from a de-dup key to a previously-observed record; a revision
-    that reuses the SAME record_id but changes the value is an overwrite."""
+    that reuses the SAME record_id but changes the value is an overwrite.
+
+    Stage 23 adds two optional checks, both off by default so no existing caller
+    changes behaviour:
+
+    * ``seen_logical_keys`` — a mutable set of :func:`duplicate_revision_key`
+      values. A repeated key is a DUPLICATE delivery of one economic event, which
+      would otherwise inflate revision breadth.
+    * ``require_corporate_action_basis`` — for per-share estimate types, require
+      the record to declare which share-count basis its value uses, so an
+      intervening split cannot fabricate a surprise.
+    """
     v: List[str] = []
     sat = _ts(rec.get("source_availability_timestamp"))
     obs = _ts(rec.get("observation_timestamp"))
@@ -535,6 +592,17 @@ def pit_validate_event(rec: Mapping[str, Any], *,
         prev = prior_by_key.get(rid)
         if prev is not None and prev.get("revised_estimate") != rec.get("revised_estimate"):
             v.append(PIT_REVISION_OVERWRITE)
+    if seen_logical_keys is not None:
+        key = duplicate_revision_key(rec)
+        if key in seen_logical_keys:
+            v.append(PIT_DUPLICATE_REVISION)
+        else:
+            seen_logical_keys.add(key)
+    if require_corporate_action_basis and \
+            str(rec.get("estimate_type") or "").upper() in PER_SHARE_ESTIMATE_TYPES:
+        basis = str(rec.get("corporate_action_basis") or "").upper()
+        if basis not in CORPORATE_ACTION_BASIS_VALUES:
+            v.append(PIT_CORPORATE_ACTION_BASIS_UNDECLARED)
     return v
 
 
@@ -597,13 +665,26 @@ def pit_scan(*, events: Sequence[Mapping[str, Any]] = (),
              actuals: Sequence[Mapping[str, Any]] = (),
              consensus: Sequence[Mapping[str, Any]] = (),
              identities: Sequence[Mapping[str, Any]] = (),
-             require_inactive_retained: bool = True) -> Dict[str, Any]:
+             require_inactive_retained: bool = True,
+             detect_duplicate_revisions: bool = True,
+             require_corporate_action_basis: bool = False) -> Dict[str, Any]:
     """Aggregate PIT scan over a normalized dataset. Returns violation COUNTS by
-    code + a boolean ``clean``. Nothing is repaired; every violation is classified."""
+    code + a boolean ``clean``. Nothing is repaired; every violation is classified.
+
+    ``detect_duplicate_revisions`` (Stage 23) flags a second delivery of the same
+    logical revision — a bulk historical extract that paginates or re-delivers
+    overlapping windows would otherwise inflate revision breadth.
+    ``require_corporate_action_basis`` (Stage 23) additionally requires per-share
+    estimates to declare their share-count basis; it is OFF by default because
+    the prospective Stage-13B ledger predates the field.
+    """
     counts: Dict[str, int] = {c: 0 for c in PIT_INVARIANTS}
     prior: Dict[str, dict] = {}
+    seen_keys: set = set() if detect_duplicate_revisions else None
     for e in events:
-        for code in pit_validate_event(e, prior_by_key=prior):
+        for code in pit_validate_event(
+                e, prior_by_key=prior, seen_logical_keys=seen_keys,
+                require_corporate_action_basis=require_corporate_action_basis):
             counts[code] += 1
         rid = e.get("record_id") or compute_record_id(e)
         prior.setdefault(rid, dict(e))
