@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from paper_trader.engine import data_gap_taxonomy as gaptax
 from paper_trader.engine import holding_opportunity_cost as kernel
 
 # Re-export the frozen vocabularies / versions so callers use one source.
@@ -622,7 +623,8 @@ def _active_book_block(ps: dict) -> dict:
 
 def _corporate_action_staleness(*, artifact: Optional[dict],
                                 book_id: Optional[str],
-                                portfolio_state: Optional[dict] = None) -> dict:
+                                portfolio_state: Optional[dict] = None,
+                                actions_dir=None) -> dict:
     """Stage 19.1 — is a persisted assessment still valid against the CURRENT
     corporate-action registry? Pure delegation to ``api.corporate_actions``; this module
     owns no split arithmetic and no registry logic."""
@@ -639,9 +641,38 @@ def _corporate_action_staleness(*, artifact: Optional[dict],
             return ca.staleness_vs_registry(
                 bound, current={"fingerprint": current, "n_registered": len(actions),
                                 "actions": actions})
-        return ca.staleness_vs_registry(bound, book_id=book_id)
+        # Stage 22: ``actions_dir`` is an explicit seam so a HERMETIC caller resolves the
+        # registry from ITS OWN root. Without it this read reached the operator's real
+        # corporate-action registry from inside a synthetic scenario, which silently made
+        # every fixture assessment "stale" against live evidence.
+        return ca.staleness_vs_registry(bound, book_id=book_id, actions_dir=actions_dir)
     except Exception:  # noqa: BLE001 - a read contract must never crash
         return {"stale": False, "reason": None}
+
+
+# --------------------------------------------------------------------------- #
+# Stage 22 (Workstream C) — MACHINE-READABLE data-gap classification.
+#
+# This module owns the assessment ARTIFACT; the taxonomy itself lives in the pure
+# kernel ``engine.data_gap_taxonomy`` (one classifier, no fork). Classification is a
+# READ-layer description of what the immutable artifact already recorded: it runs no
+# engine, changes no recommendation, writes nothing and — critically — leaves the
+# artifact's ``assessment_hash`` untouched, so adding this contract can never turn an
+# existing production artifact into a conflicting one.
+# --------------------------------------------------------------------------- #
+def classify_data_gaps(*, assessment: Optional[dict],
+                       artifact: Optional[dict] = None) -> dict:
+    """Classify every data gap in one assessment (delegates to the pure taxonomy)."""
+    a = assessment or {}
+    ic = (artifact or {}).get("input_contract") or {}
+    try:
+        return gaptax.classify_assessment_gaps(
+            assessment=a,
+            eligible_market_date=a.get("eligible_market_date")
+            or ic.get("eligible_market_date"),
+            previous_eligible_market_date=ic.get("previous_ranking_source_date"))
+    except Exception:  # noqa: BLE001 — a read contract must never crash
+        return gaptax.summarize([], eligible_market_date=a.get("eligible_market_date"))
 
 
 def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
@@ -678,6 +709,10 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
         "addition_candidates": a.get("addition_candidates") or [],
         "diagnostics": a.get("diagnostics") or {},
         "data_quality": a.get("data_quality") or {},
+        # Stage 22 (Workstream C): every gap as a machine-readable record with its
+        # ticker, metric, expected/available as-of dates, owner, blocking severity,
+        # effect on the recommendation and safe fallback (or an explicit None).
+        "data_gap_taxonomy": classify_data_gaps(assessment=a, artifact=artifact),
         "artifact": art_meta,
         "safety": a.get("safety") or kernel._safety(),
         "provenance": a.get("provenance")
@@ -755,7 +790,8 @@ def load_holding_opportunity_cost(*, portfolio_state: Optional[dict] = None,
 # --------------------------------------------------------------------------- #
 def load_assessment_summary(*, active_book_id: Optional[str] = None,
                             eligible_market_date: Optional[str] = None,
-                            artifact: Optional[dict] = None, hoc_dir=None) -> dict:
+                            artifact: Optional[dict] = None, hoc_dir=None,
+                            actions_dir=None) -> dict:
     """A compact, read-only opportunity-cost summary the Daily Action Gate delegates to.
 
     Slice 6 (Phase 29G) performance repair — this loader is a PURE ARTIFACT READER.
@@ -790,12 +826,21 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
                 "opportunity_cost_add_count": 0, "opportunity_cost_data_gaps": [],
                 "opportunity_cost_state": STATE_NOT_RUN}
     a = art.get("assessment") or {}
+    ident = art.get("identity") or {}
+    ic = art.get("input_contract") or {}
     counts = a.get("recommendation_counts") or zero
     gaps = (a.get("data_quality") or {}).get("data_gaps") or []
+    # Stage 22 (Workstream C): the MACHINE-READABLE gap taxonomy, classified at the
+    # READ layer by the pure kernel. The immutable artifact and its assessment_hash are
+    # untouched — classification is a description of already-recorded evidence, never a
+    # recomputation of it — so an existing artifact can never be invalidated by adding
+    # this contract. Consumers read ``blocking`` instead of parsing a string code.
+    gap_summary = classify_data_gaps(assessment=a, artifact=art)
     # Stage 19.1: resolved from the corporate-action registry file alone by the ONE owner,
     # so this stays a PURE artifact reader (no engine run, no provider call, and no edge
     # back into the canonical state composer — the acyclic read contract is preserved).
-    _stale = _corporate_action_staleness(artifact=art, book_id=active_book_id)
+    _stale = _corporate_action_staleness(artifact=art, book_id=active_book_id,
+                                         actions_dir=actions_dir)
     return {
         "opportunity_cost_available": True,
         "opportunity_cost_stale": bool(_stale.get("stale")),
@@ -809,6 +854,27 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
         "opportunity_cost_hold_count": counts.get("HOLD", 0),
         "opportunity_cost_add_count": counts.get("ADD", 0),
         "opportunity_cost_data_gaps": list(gaps),
+        # Stage 22 (Workstream C) — severity is a PROPERTY of the gap, never inferred
+        # from its string code by a downstream consumer.
+        "opportunity_cost_data_gap_taxonomy": gap_summary,
+        "opportunity_cost_blocking_gap_count": gap_summary["blocking_gap_count"],
+        "opportunity_cost_non_blocking_gap_count": gap_summary["non_blocking_gap_count"],
+        "opportunity_cost_gap_conclusion": gap_summary["conclusion"],
+        # Stage 22 (Workstream E) — what this assessment is BOUND to, so a consumer can
+        # prove it still describes the portfolio and session it claims to describe.
+        "opportunity_cost_bound_eligible_market_date": (
+            ident.get("eligible_market_date") or ic.get("eligible_market_date")
+            or a.get("eligible_market_date")),
+        "opportunity_cost_bound_active_book_id": (ident.get("active_book_id")
+                                                  or ic.get("active_book_id")),
+        "opportunity_cost_bound_economic_state_hash": ic.get("economic_state_hash"),
+        "opportunity_cost_bound_corporate_actions_hash": (
+            ident.get("corporate_actions_hash") or ic.get("corporate_actions_hash")),
+        # NOTE (Stage 21, Workstream 0E): the whole-document state fingerprint is
+        # deliberately NOT exposed as a binding field. It embeds this assessment's own
+        # output, so it drifts the moment the artifact is written and would make every
+        # fresh assessment look superseded. The ECONOMIC fingerprint above is the one
+        # honest answer to "does this still describe the portfolio?".
         "opportunity_cost_artifact_id": art.get("artifact_id"),
         "opportunity_cost_holding_count": len(a.get("holding_reviews") or []),
     }

@@ -1363,6 +1363,17 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
     result["opportunity_cost_hold_count"] = int(oc.get("opportunity_cost_hold_count") or 0)
     result["opportunity_cost_add_count"] = int(oc.get("opportunity_cost_add_count") or 0)
     result["opportunity_cost_data_gaps"] = list(oc.get("opportunity_cost_data_gaps") or [])
+    # Stage 22 — the machine-readable gap taxonomy (Workstream C) and the assessment
+    # BINDING (Workstream E) travel the SAME single shared path as every other
+    # opportunity-cost field. The gate copies them verbatim and interprets neither.
+    for _k in ("opportunity_cost_data_gap_taxonomy", "opportunity_cost_blocking_gap_count",
+               "opportunity_cost_non_blocking_gap_count", "opportunity_cost_gap_conclusion",
+               "opportunity_cost_bound_eligible_market_date",
+               "opportunity_cost_bound_active_book_id",
+               "opportunity_cost_bound_economic_state_hash",
+               "opportunity_cost_bound_corporate_actions_hash",
+               "opportunity_cost_stale", "opportunity_cost_stale_reason"):
+        result[_k] = oc.get(_k)
     # --- Slice 7 (Phase 29H) Reallocation Proposal compatibility summary --------- #
     # The gate ALSO delegates to the canonical reallocation-proposal summary (never
     # computes it) — a PURE artifact read for the same (active_book_id, eligible_date)
@@ -1392,6 +1403,13 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
         rp.get("reallocation_estimated_transaction_cost"))
     result["reallocation_proposed_holding_count"] = rp.get("reallocation_proposed_holding_count")
     result["reallocation_data_gaps"] = list(rp.get("reallocation_data_gaps") or [])
+    # Stage 22 (Workstream E): what the proposal is BOUND to, carried verbatim so the
+    # workflow owner can prove the proposal describes the CURRENT fresh assessment.
+    for _k in ("reallocation_bound_hoc_assessment_hash",
+               "reallocation_bound_eligible_market_date",
+               "reallocation_bound_active_book_id",
+               "reallocation_proposal_stale", "reallocation_proposal_stale_reason"):
+        result[_k] = rp.get(_k)
     # Slice 7 (Phase 29H) is LANDED: the reallocation proposal exists and remains
     # REVIEW ONLY — it is a research proposal that confirms no target and creates no
     # order. It never becomes execution authority (Daily Close stays independent).

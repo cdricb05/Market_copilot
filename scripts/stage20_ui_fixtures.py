@@ -41,6 +41,7 @@ import argparse
 import json
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from paper_trader.api import alpha_book as ab
@@ -251,8 +252,12 @@ def _freshness(rows=None, eligible=DATE):
 # =========================================================================== #
 def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=None,
           history=None, execution="NONE", close="PROCESSED",
+          session="CLOSED", research="CURRENT", hoc_artifact="PRESENT",
+          reassessment_evidence=None, hoc_gaps=None,
           expect_state=None, expect_primary_action=None, expect_attention=0,
-          expect_execution_precedence=False) -> dict:
+          expect_execution_precedence=False, expect_workflow_state=None,
+          expect_cycle_stage=None, expect_evidence_class=None,
+          expect_mutation_count=None) -> dict:
     """Declare ONE coherent synthetic world.
 
     ``execution`` — the Stage-19 lifecycle cohort present on the desk:
@@ -265,6 +270,21 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
         ``"PROCESSED"`` the eligible session has already been closed (no new close is
                         due — the operator is passively monitoring the execution);
         ``"DUE"``       a newly eligible completed session exists and has NOT been closed.
+
+    Stage 22 adds the knobs the canonical NORMAL CYCLE needs end to end:
+
+    ``session``  — ``"CLOSED"`` (the offline injected-date rule: the eligible session is
+                   complete) or ``"OPEN"`` (a live weekday clock BEFORE the 17:30 ET
+                   cutoff, so today's session is still forming). Only ``"OPEN"`` can
+                   produce the genuine pre-close WAITING_FOR_SESSION_CLOSE state.
+    ``research`` — ``"CURRENT"`` or ``"STALE"`` (the owned model inputs lag the eligible
+                   session, so the required signal refresh is genuinely due).
+    ``hoc_artifact`` — ``"PRESENT"`` or ``"ABSENT"``. ABSENT is the POST-CLOSE state the
+                   live system reaches every day: the close is complete for the session
+                   and no opportunity-cost assessment exists for it yet.
+    ``reassessment_evidence`` — ``None``, or ``"STALE_CORPORATE_ACTION"`` to reproduce
+                   the real BLOCKED_EVIDENCE assessment the operator sees when a
+                   corporate action was registered after the assessment was produced.
     """
     return {
         "scenario_id": scenario_id,
@@ -287,8 +307,11 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
         "historical_implementation_fills": HISTORICAL_FILLS,
         # --- daily close ------------------------------------------------------- #
         "close": close,
+        # --- Stage 22 normal-cycle position ------------------------------------ #
+        "session": session, "research": research, "hoc_artifact": hoc_artifact,
+        "reassessment_evidence": reassessment_evidence,
         # --- research evidence -------------------------------------------------- #
-        "hoc_reviews": hoc_reviews, "hoc_state": hoc_state,
+        "hoc_reviews": hoc_reviews, "hoc_state": hoc_state, "hoc_gaps": hoc_gaps or [],
         "freshness_rows": freshness_rows, "recent_change_history": history or [],
         # --- acceptance expectations ------------------------------------------- #
         "expect": {
@@ -296,6 +319,10 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
             "primary_action": expect_primary_action,
             "attention": expect_attention,
             "execution_precedence": expect_execution_precedence,
+            "workflow_state": expect_workflow_state,
+            "cycle_stage": expect_cycle_stage,
+            "evidence_class": expect_evidence_class,
+            "mutation_count": expect_mutation_count,
             "book_initialized": True,
             "current_submitted": LIVE_SUBMITTED if execution == "PENDING" else 0,
             "current_filled": LIVE_SUBMITTED if execution == "EXECUTED" else 0,
@@ -367,6 +394,62 @@ def scenarios() -> dict:
             history=churn_history, execution="EXECUTED", close="PROCESSED",
             expect_state=kernel.STATE_NO_CHANGE, expect_primary_action=None,
             expect_attention=0),
+        # =================================================================== #
+        # STAGE 22 — the canonical NORMAL CYCLE, end to end. Scenarios 7 -> 8 -> 9
+        # are the three transitions the live system makes every day, and 1 / 3 are
+        # its two legitimate endings (monitor, or manual proposal review).
+        # =================================================================== #
+        "scenario_7_pre_close_expected_stale_evidence": world(
+            scenario_id="scenario_7_pre_close_expected_stale_evidence",
+            title=("Pre-close: nothing to do, and the superseded assessment is demoted "
+                   "to evidence"),
+            # The live 25-holding book with the eligible session already fully processed,
+            # a still-open market session, and a prior assessment that is correctly
+            # BLOCKED_EVIDENCE. Nothing is required of the operator, so that blocked card
+            # must NOT compete with "no action required" or read as an incident.
+            # DEGRADED with two documented gaps — the real shape of the live surface
+            # that reported only "1 data gap(s) documented". One is portfolio-level
+            # (no prior-session artifact) and one is per-holding (no owned volume), so
+            # the machine-readable taxonomy is genuinely exercised end to end.
+            hoc_reviews=([_review("H00", liquidity_state="UNAVAILABLE",
+                                  median_dollar_volume_20d=None,
+                                  estimated_days_to_liquidate=None)]
+                         + [_filler(i) for i in range(1, 25)]),
+            hoc_state="DEGRADED", hoc_gaps=["PRIOR_RANK_UNAVAILABLE"],
+            execution="EXECUTED", close="PROCESSED",
+            session="OPEN", reassessment_evidence="STALE_CORPORATE_ACTION",
+            expect_state="BLOCKED_EVIDENCE", expect_primary_action=None,
+            expect_attention=0,
+            expect_workflow_state="WAITING_FOR_SESSION_CLOSE",
+            expect_cycle_stage="WAIT_FOR_SESSION_CLOSE",
+            expect_evidence_class="EXPECTED_STALE_EVIDENCE",
+            expect_mutation_count=0),
+        "scenario_8_session_complete_close_due": world(
+            scenario_id="scenario_8_session_complete_close_due",
+            title="Session complete: the Daily Close is the ONE action",
+            hoc_reviews=quiet, execution="NONE", close="DUE",
+            expect_state=kernel.STATE_NO_CHANGE,
+            expect_primary_action="RUN_DAILY_CLOSE", expect_attention=0,
+            expect_workflow_state="READY_FOR_DAILY_CLOSE",
+            expect_cycle_stage="DAILY_CLOSE",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=1),
+        "scenario_9_post_close_research_due": world(
+            scenario_id="scenario_9_post_close_research_due",
+            title="Daily Close complete: the Daily Research Cycle is the ONE action",
+            # The exact post-close handoff. The close is recorded for the eligible
+            # session and every required signal input is CURRENT — yet no opportunity-cost
+            # assessment exists for the session that was just closed, so the research
+            # cycle is due. Before Stage 22 this state rendered as "monitor / no action
+            # required" and the reassessment silently never happened.
+            hoc_reviews=quiet, execution="EXECUTED", close="PROCESSED",
+            hoc_artifact="ABSENT",
+            expect_state=kernel.STATE_NOT_READY,
+            expect_primary_action="RUN_DAILY_RESEARCH_CYCLE", expect_attention=0,
+            expect_workflow_state="RESEARCH_CYCLE_REQUIRED",
+            expect_cycle_stage="DAILY_RESEARCH_CYCLE",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=1),
     }
 
 
@@ -644,12 +727,38 @@ def _target_readiness(spec: dict) -> dict:
 
 def _research_inputs(spec: dict) -> dict:
     """The owned model-input dates the freshness contract classifies. Scenario 4 declares
-    a genuinely ABSENT price-score refresh rather than a hand-written 'MISSING' row."""
+    a genuinely ABSENT price-score refresh rather than a hand-written 'MISSING' row.
+
+    Stage 22: ``research="STALE"`` declares inputs that genuinely LAG the eligible
+    session (present, just older) — a different, weaker condition than ABSENT, and the
+    one the normal cycle meets when a signal refresh is due.
+    """
     blocked = spec["freshness_rows"] is not None
+    if blocked:
+        as_of = None
+    elif spec.get("research") == "STALE":
+        as_of = spec["prior_market_date"]
+    else:
+        as_of = spec["eligible_market_date"]
     return {"available": not blocked,
-            "market_as_of_date": None if blocked else spec["eligible_market_date"],
+            "market_as_of_date": as_of,
             "momentum_month": DATE[:7],
             "fundamental_as_of_date": "2026-05-22"}
+
+
+#: Stage 22 — the LIVE clock a pre-close world needs. ``reference_today`` always resolves
+#: an already-completed session, so BEFORE_SESSION_CLOSE is unreachable through it; a
+#: weekday datetime before the 17:30 ET cutoff is what makes today's session "still
+#: forming" through the REAL market-session owner rather than a hand-written status.
+_PRE_CLOSE_NOW = datetime(int(NEXT[:4]), int(NEXT[5:7]), int(NEXT[8:10]), 10, 30,
+                          tzinfo=timezone(timedelta(hours=-4)))
+
+
+def _clock(spec: dict) -> dict:
+    """The ONE clock every panel of a scenario resolves its session from."""
+    if spec.get("session") == "OPEN":
+        return {"now": _PRE_CLOSE_NOW}
+    return {"reference_today": NEXT}
 
 
 def _write_artifact_store(root: Path, sub: str, artifact_id: str, artifact: dict,
@@ -699,10 +808,30 @@ def _portfolio_state(spec: dict, opbook: dict) -> dict:
     }
 
 
+#: Stage 22 — the corporate-action staleness block the reassessment kernel consumes to
+#: reach BLOCKED_EVIDENCE. Shaped exactly like api.corporate_actions.staleness_vs_registry
+#: so the fixture declares a real condition instead of forcing a state.
+_CA_STALE = {
+    "stale": True, "verifiable": True,
+    "reason": "CORPORATE_ACTION_REGISTERED_AFTER_ASSESSMENT",
+    "message": ("A corporate action was registered after this assessment was produced, "
+                "so it evaluated holdings that no longer describe the portfolio."),
+}
+
+
 def _reassessment_artifact(spec: dict) -> dict:
     """Run the REAL Stage-20 owner over the world's evidence and package the artifact."""
     assessment = _hoc_assessment(spec["hoc_reviews"], state=spec["hoc_state"],
+                                 gaps=spec.get("hoc_gaps"),
                                  eligible=spec["eligible_market_date"])
+    if spec.get("hoc_artifact") == "ABSENT":
+        # No opportunity-cost assessment exists for this session, so the reassessment
+        # honestly reports NOT_READY (HOLDING_OPPORTUNITY_COST_NOT_RUN) — it is never
+        # fabricated from an assessment that was not produced.
+        assessment = dict(assessment, assessment_hash=None, assessment_state="NOT_RUN")
+    ca_stale = (dict(_CA_STALE)
+                if spec.get("reassessment_evidence") == "STALE_CORPORATE_ACTION"
+                else None)
     run = prs.run_reassessment(input_contract=prs.build_input_contract(
         portfolio_state={"dates": {"eligible_market_date": spec["eligible_market_date"]},
                          "active_book": {"book_id": BOOK, "book_label": BOOK_LABEL,
@@ -713,7 +842,7 @@ def _reassessment_artifact(spec: dict) -> dict:
         scoring=_scoring(), hoc_assessment=assessment,
         freshness=_freshness(spec["freshness_rows"], spec["eligible_market_date"]),
         recent_change_history=spec["recent_change_history"],
-        corporate_action_stale=None, policy=prs.resolve_policy()))
+        corporate_action_stale=ca_stale, policy=prs.resolve_policy()))
     return assessment, {
         "reassessment_id": "prs_%s_%s_%s" % (DATE, BOOK, spec["scenario_id"][:12]),
         "schema_version": prs.SCHEMA_VERSION,
@@ -810,6 +939,22 @@ def compose(scenario_key: str, *, root=None) -> dict:
     tmp = Path(root) if root else Path(tempfile.mkdtemp(prefix="stage20_1_"))
     sdir = seed_desk(spec, tmp)
     ldir = seed_ledger(spec, tmp)
+    # Stage 22 HARD ISOLATION. Every canonical artifact reader falls back to its
+    # PRODUCTION root when no artifact is injected (``artifact=None`` means "not
+    # supplied", not "none exists"). A scenario that legitimately has no opportunity-cost
+    # or reallocation artifact therefore used to read the operator's REAL store — so the
+    # composed "synthetic" world could silently contain live evidence, and an absent
+    # artifact was unrepresentable. Every such reader is now pointed at this scenario's
+    # OWN empty root, so "no artifact" is a fact of the world rather than an accident.
+    art_root = tmp / "artifact_stores"
+    hoc_store = art_root / "hoc"
+    realloc_store = art_root / "realloc"
+    # The scenario's OWN (empty) corporate-action registry. Without it the staleness
+    # readers resolved the operator's real registry, so every synthetic assessment was
+    # reported stale against a live corporate action that this world never declared.
+    ca_store = art_root / "corporate_actions"
+    for _p in (hoc_store, realloc_store, ca_store):
+        _p.mkdir(parents=True, exist_ok=True)
 
     # 1. Operational book — the REAL lineage-aware fold over the seeded ledgers. The
     #    canonical operational facts live under the `operational_book` block; every other
@@ -834,16 +979,26 @@ def compose(scenario_key: str, *, root=None) -> dict:
         portfolio_state=pstate, artifact=realloc_art, decision_record=decision)
 
     # 4. The three research read contracts — REAL owners, artifacts injected.
+    #    Stage 22: an ABSENT opportunity-cost artifact is the POST-CLOSE world, and it is
+    #    modelled by genuinely withholding the artifact — never by hand-writing a state.
+    hoc_artifact = ({"assessment": assessment,
+                     "identity": {"active_book_id": BOOK,
+                                  "eligible_market_date": spec["eligible_market_date"],
+                                  "assessment_hash": assessment["assessment_hash"]},
+                     "input_contract": {
+                         "eligible_market_date": spec["eligible_market_date"],
+                         "active_book_id": BOOK},
+                     "assessment_id": "hoc_%s_%s" % (DATE, BOOK)}
+                    # READY and DEGRADED are BOTH persistable production states (the
+                    # owner writes an artifact for either); only a blocked / absent
+                    # assessment leaves no artifact behind.
+                    if (spec["hoc_state"] in ("READY", "DEGRADED")
+                        and spec.get("hoc_artifact") != "ABSENT") else None)
     hoc_payload = hoc.load_holding_opportunity_cost(
-        portfolio_state=pstate,
-        artifact=({"assessment": assessment,
-                   "identity": {"active_book_id": BOOK,
-                                "eligible_market_date": spec["eligible_market_date"],
-                                "assessment_hash": assessment["assessment_hash"]},
-                   "assessment_id": "hoc_%s_%s" % (DATE, BOOK)}
-                  if spec["hoc_state"] == "READY" else None))
+        portfolio_state=pstate, artifact=hoc_artifact, hoc_dir=hoc_store)
     realloc_payload = ralloc.load_reallocation_proposal(
-        portfolio_state=pstate, artifact=realloc_art)
+        portfolio_state=pstate, artifact=realloc_art,
+        reallocation_dir=realloc_store)
     reassessment = prs.load_portfolio_reassessment(
         portfolio_state=pstate, artifact=prs_art, rebalance_state=rebalance)
 
@@ -854,14 +1009,11 @@ def compose(scenario_key: str, *, root=None) -> dict:
         today=NEXT, operational=opbook_payload, current=_engine_current(spec),
         opportunity_cost=hoc.load_assessment_summary(
             active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
-            artifact=({"assessment": assessment,
-                       "identity": {"active_book_id": BOOK,
-                                    "eligible_market_date": spec["eligible_market_date"],
-                                    "assessment_hash": assessment["assessment_hash"]}}
-                      if spec["hoc_state"] == "READY" else None)),
+            artifact=hoc_artifact, hoc_dir=hoc_store, actions_dir=ca_store),
         reallocation=ralloc.load_proposal_summary(
             active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
-            artifact=realloc_art))
+            artifact=realloc_art, reallocation_dir=realloc_store,
+            actions_dir=ca_store))
 
     # 6. The operator workflow state — ONE primary action, Stage-19 precedence applied.
     #    Every raw read model is injected from the SAME world, so the freshness contract
@@ -877,15 +1029,21 @@ def compose(scenario_key: str, *, root=None) -> dict:
     # freshness owner loaded the REAL close progress, so `latest_daily_close` reported the
     # operator's actual last close and went FUTURE_DATED against the frozen session. The
     # scenario already owns its close journal — inject the same one it seeded.
+    # Stage 22: ONE clock per scenario. A pre-close world needs a LIVE weekday datetime
+    # before the 17:30 ET cutoff — the offline `reference_today` rule always resolves an
+    # already-completed session, so BEFORE_SESSION_CLOSE is unreachable through it and a
+    # "waiting for the close" scenario could only ever have been faked.
+    clock = _clock(spec)
     scenario_freshness = df.load_data_freshness(
-        reference_today=NEXT, operational=opbook_payload,
+        operational=opbook_payload,
         inputs=_research_inputs(spec),
         daily_status={"latest_valid_mark_date": spec["eligible_market_date"]},
         desk_marks=desk.read_marks(sdir),
         daily_close_status=_close_progress(spec),
-        forward_status={"latest_snapshot_date": spec["eligible_market_date"]})
+        forward_status={"latest_snapshot_date": spec["eligible_market_date"]},
+        **clock)
     workflow = wfs.load_workflow_state(
-        reference_today=NEXT, operational=opbook_payload, gate=gate,
+        operational=opbook_payload, gate=gate,
         close_progress=_close_progress(spec),
         freshness=scenario_freshness,
         inputs=_research_inputs(spec),
@@ -893,7 +1051,16 @@ def compose(scenario_key: str, *, root=None) -> dict:
         desk_marks=desk.read_marks(sdir),
         forward_status={"latest_snapshot_date": spec["eligible_market_date"]},
         target_readiness=readiness,
-        research_cycle={"state": "COMPLETE", "blockers": []})
+        research_cycle={"state": ("COMPLETE" if spec.get("hoc_artifact") != "ABSENT"
+                                  else "NOT_STARTED"), "blockers": []},
+        # Stage 22: bind the LAST two seams too. Before this the workflow owner read the
+        # reassessment summary and the recorded portfolio decision from the operator's
+        # REAL artifact stores while every other panel used the scenario's world.
+        reassessment_summary=prs.load_reassessment_summary(
+            active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
+            artifact=prs_art),
+        decision_record=decision,
+        **clock)
 
     return {
         "scenario": scenario_key, "title": spec["title"], "owner": SCENARIO_OWNER,
@@ -1047,9 +1214,74 @@ def cross_panel_consistency(panels: dict, spec: dict) -> dict:
         violations.append("EXPECTED_PRIMARY_ACTION_MISSING: %s (offered %s)"
                           % (expected_primary, offered))
 
+    # 6. STAGE 22 — the canonical NORMAL CYCLE. The workflow state, the cycle stage, the
+    #    per-stage gates and the stale-evidence hierarchy must all agree, and AT MOST ONE
+    #    stage gate may be open. This is what makes "no alternate path" checkable rather
+    #    than a claim in a comment.
+    wf = panels.get("workflow_state") or {}
+    cyc = wf.get("normal_cycle") or {}
+    gates = cyc.get("stage_gates") or {}
+    ec = wf.get("evidence_classification") or {}
+    if exp.get("workflow_state") and wf.get("overall_state") != exp["workflow_state"]:
+        violations.append("WORKFLOW_STATE_MISMATCH: %s != %s"
+                          % (wf.get("overall_state"), exp["workflow_state"]))
+    if exp.get("cycle_stage") and cyc.get("current_stage") != exp["cycle_stage"]:
+        violations.append("CYCLE_STAGE_MISMATCH: %s != %s"
+                          % (cyc.get("current_stage"), exp["cycle_stage"]))
+    if exp.get("evidence_class") and ec.get("classification") != exp["evidence_class"]:
+        violations.append("EVIDENCE_CLASSIFICATION_MISMATCH: %s != %s"
+                          % (ec.get("classification"), exp["evidence_class"]))
+    open_gates = sorted(k for k, v in gates.items() if v.get("execution_allowed"))
+    if len(open_gates) > 1:
+        violations.append("MULTIPLE_OPEN_STAGE_GATES: %s" % open_gates)
+    if open_gates and open_gates[0] != cyc.get("current_stage"):
+        violations.append("OPEN_GATE_IS_NOT_THE_CURRENT_STAGE: %s vs %s"
+                          % (open_gates, cyc.get("current_stage")))
+    if exp.get("mutation_count") is not None and len(mutations) != exp["mutation_count"]:
+        violations.append("MUTATION_COUNT_MISMATCH: %d != %d"
+                          % (len(mutations), exp["mutation_count"]))
+    # A demoted (expected-stale) assessment must never compete with the primary action,
+    # and it must still fail closed against a portfolio change.
+    if ec.get("classification") == "EXPECTED_STALE_EVIDENCE":
+        if ec.get("competes_with_primary_action"):
+            violations.append("DEMOTED_EVIDENCE_STILL_COMPETES")
+        if not ec.get("blocks_portfolio_action"):
+            violations.append("DEMOTED_EVIDENCE_STOPPED_FAILING_CLOSED")
+        if ec.get("is_operational_incident"):
+            violations.append("EXPECTED_STALE_EVIDENCE_RENDERED_AS_INCIDENT")
+
+    # 7. STAGE 22 — ONE CLOCK PER SCENARIO, structurally. The operational panel states the
+    #    latest completed session twice: the alpha-target readiness contract states it, and
+    #    the desk-mark readiness states it again as the session the marks are required for.
+    #    In production both are the same clock call, so they cannot disagree. A hermetic
+    #    world that froze only the first left the second reading the REAL calendar, and the
+    #    whole panel quietly degraded to DESK_MARK_BEHIND / REFRESH_DESK_MARKS the day the
+    #    wall clock passed the frozen session — a harness that decays with the calendar,
+    #    which is precisely what Stage 21 Workstream 0F set out to make impossible. Checked
+    #    here, in the scenario owner, so no future panel can reintroduce a second clock.
+    eligible = spec["eligible_market_date"]
+    required_dates = {
+        "current_target.latest_completed_market_date":
+            (opb.get("current_target") or {}).get("latest_completed_market_date"),
+        "desk_mark_required_date": opb.get("desk_mark_required_date"),
+    }
+    for field, value in required_dates.items():
+        if value is not None and value != eligible:
+            violations.append("REQUIRED_SESSION_NOT_FROZEN: %s = %s != %s"
+                              % (field, value, eligible))
+
     return {"consistent": not violations, "violations": violations,
+            "workflow_state": wf.get("overall_state"),
+            "cycle_stage": cyc.get("current_stage"),
+            "cycle_next_stage": cyc.get("next_stage"),
+            "open_stage_gates": open_gates,
+            "evidence_classification": ec.get("classification"),
+            "evidence_presentation_class": ec.get("presentation_class"),
+            "assessment_binding_state": (wf.get("assessment_binding") or {}).get("state"),
             "mutation_actions": mutations,
             "mutation_action_count": len(mutations),
+            "required_session_dates": required_dates,
+            "desk_mark_status": opb.get("desk_mark_status"),
             "current_rebalance": {
                 "order_plan_id": lineage.get("order_plan_id"),
                 "submitted_count": lineage.get("submitted_count"),
@@ -1124,7 +1356,7 @@ def seed(*, reassessment_dir, scenario: str, book_id: str = BOOK, eligible=DATE)
                                  prs_art["identity"]["reassessment_hash"],
                                  "generated_at": prs_art["generated_at"]})
 
-    if spec["hoc_state"] == "READY":
+    if spec["hoc_state"] in ("READY", "DEGRADED"):
         hoc_art = {"assessment_id": "hoc_%s_%s" % (eligible, book_id),
                    "assessment": assessment,
                    "identity": {"active_book_id": book_id,

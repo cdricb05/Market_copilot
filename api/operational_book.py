@@ -865,6 +865,10 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     ``alpha_target.load_readiness`` resolves it from the owned model panel, which is a
     live-world read that advances with the real calendar while every seeded panel stays
     on the scenario's frozen eligible session (Stage 21, Workstream 0F).
+
+    Supplying it also freezes the desk-mark readiness clock (Stage 22): the required
+    session both reads publish is one and the same value in production, so a caller that
+    declares it once must not be given a second, live one. See step 3b.
     """
     warnings: list[str] = []
 
@@ -909,9 +913,23 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         warnings.append(f"Alpha target readiness unavailable: {str(exc)[:160]}")
 
     # 3b. Desk-mark / sizing readiness (Phase 27B.1) - can the target be sized?
+    #
+    # Stage 22 (the last clock seam). This payload publishes the latest completed
+    # market session TWICE: once as `current_target.latest_completed_market_date`
+    # (step 3) and once as `desk_mark_required_date` (from this readiness). In
+    # production they are the SAME clock call — `alpha_target.latest_completed()` —
+    # so the two can never disagree. Freezing only the first through
+    # `target_readiness` left this one reading the real calendar, so ONE hermetic
+    # panel published two different sessions and silently degraded to
+    # DESK_MARK_BEHIND / REFRESH_DESK_MARKS the moment the wall clock moved past the
+    # frozen session. Injecting the readiness contract therefore freezes BOTH reads.
+    # Production injects nothing, resolves nothing here, and is unchanged.
+    required_session = ((target or {}).get("latest_completed_market_date")
+                        if target_readiness is not None else None)
     readiness: Optional[dict] = None
     try:
-        readiness = ab.load_desk_mark_readiness(desk_dir=desk_dir, ledger_dir=ledger_dir)
+        readiness = ab.load_desk_mark_readiness(desk_dir=desk_dir, ledger_dir=ledger_dir,
+                                                latest_completed=required_session)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"Desk mark readiness unavailable: {str(exc)[:160]}")
 

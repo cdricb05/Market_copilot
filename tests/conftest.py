@@ -53,6 +53,28 @@ from paper_trader.engine.portfolio import append_cash_entry
 # Settings cache management
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(scope="session", autouse=True)
+def _declare_pytest_process_hermetic() -> None:
+    """Stage 22 — the pytest process IS a hermetic fixture world; say so explicitly.
+
+    ``api.app`` runs ``environment_isolation.assert_production_store_roots()`` at import
+    time and refuses to serve when a canonical store points at a temp root. The autouse
+    fixture below deliberately redirects the corporate-action registry into a pytest temp
+    root, so importing the app inside a test body raised RuntimeError — while the SAME
+    import succeeded when some earlier module imported the app at collection time, before
+    any fixture ran. The suite therefore passed as a whole and failed file-by-file, which
+    is the worst possible failure mode for "run the affected tests yourself".
+
+    This is the same explicit per-process opt-in the hermetic acceptance backend uses
+    (``scripts/stage20_acceptance_server.py``). It is set only inside the pytest process,
+    never in the operator's shell, and the production guard is untouched: a real backend
+    start with fixture roots still fails closed, and the restart regression explicitly
+    strips this flag from its child environment before exercising that path.
+    """
+    os.environ.setdefault("PAPER_TRADER_ACCEPTANCE_MODE", "1")
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_corporate_action_registry(tmp_path_factory, monkeypatch) -> None:
     """Stage 19.1 — never let the LIVE corporate-action registry leak into a test.

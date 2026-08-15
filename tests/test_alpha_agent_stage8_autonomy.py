@@ -24,6 +24,7 @@ Proves the Stage 8 contract:
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -63,6 +64,15 @@ def _q(tmp_path, name="autonomy.sqlite", **kw) -> ar.ResearchQueue:
 
 def _planner():
     return se.make_planner(lambda: se.build_registry_snapshot())
+
+
+def _settle(q: ar.ResearchQueue, job_id: str) -> str:
+    """Drive the only live job to a TERMINAL state.
+
+    The live-dedupe index deliberately stops seeing a settled row, which is
+    precisely when re-adding the same dedupe_key is legitimate new work."""
+    q.claim_next()
+    return q.apply_outcome(job_id, ar.OUTCOME_COMPLETED, reason="done")
 
 
 # --------------------------------------------------------------------------- #
@@ -176,6 +186,121 @@ class TestDurableQueue:
                             payload={"o": outcome})
             q.claim_next()
             assert q.apply_outcome(jid, outcome, reason="r") == expect
+
+
+# --------------------------------------------------------------------------- #
+# Job identity: one (dedupe_key, created_at second) holds UNBOUNDED re-adds.
+#
+# ``created_at`` has one-second resolution and the live-dedupe index only covers
+# non-terminal states, so a SETTLED key is legitimately re-enqueued - repeatedly
+# and within one second, because the never-idle floor re-adds two CONSTANT specs
+# every time the queue drains. The queue previously had exactly two identities
+# per pair (primary + fallback), so the THIRD same-second re-add collided on the
+# ``jobs.job_id`` primary key and raised ``sqlite3.IntegrityError`` out of
+# enqueue -> replenish -> ensure_never_idle -> run_cycle.
+# --------------------------------------------------------------------------- #
+class TestJobIdCollisionSequence:
+    _PAYLOAD = {"f": 1}
+
+    def _dk(self, payload=None) -> str:
+        return ar.make_dedupe_key(ar.CAT_EXPERIMENT, "x",
+                                  self._PAYLOAD if payload is None else payload)
+
+    def test_first_add_keeps_the_original_primary_id(self, tmp_path):
+        clk = Clock()
+        q = _q(tmp_path, clock=clk)
+        jid = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+        assert jid == ar.make_job_id(self._dk(), clk())
+
+    def test_second_same_second_readd_keeps_the_legacy_fallback_id(self, tmp_path):
+        clk = Clock()
+        q = _q(tmp_path, clock=clk)
+        first = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+        _settle(q, first)
+        second = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+        assert first == ar.make_job_id(self._dk(), clk())
+        assert second == ar.make_fallback_job_id(self._dk(), clk(), 0)
+
+    def test_third_same_second_readd_succeeds_on_the_sequence(self, tmp_path):
+        clk = Clock()
+        q = _q(tmp_path, clock=clk)
+        ids = []
+        for _ in range(3):
+            jid = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+            ids.append(jid)
+            _settle(q, jid)
+        assert ids[0] == ar.make_job_id(self._dk(), clk())
+        assert ids[1] == ar.make_fallback_job_id(self._dk(), clk(), 0)
+        assert ids[2] == ar.make_sequenced_job_id(self._dk(), clk(), 0, 2)
+        assert len(set(ids)) == 3
+
+    def test_many_same_second_readds_are_unique_and_deterministic(self, tmp_path):
+        def run(name):
+            q = _q(tmp_path, name=name, clock=Clock())
+            out = []
+            for _ in range(50):
+                jid = q.enqueue(ar.CAT_EXPERIMENT, lane="x",
+                                payload=self._PAYLOAD)
+                out.append(jid)
+                _settle(q, jid)
+            return out
+
+        ids = run("many_a.sqlite")
+        assert len(set(ids)) == 50          # every identity distinct
+        assert ids == run("many_b.sqlite")  # identical replay, no randomness
+
+    def test_live_duplicate_still_dedupes_after_settled_history(self, tmp_path):
+        q = _q(tmp_path, clock=Clock())
+        for _ in range(3):
+            _settle(q, q.enqueue(ar.CAT_EXPERIMENT, lane="x",
+                                 payload=self._PAYLOAD))
+        live = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+        again = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=self._PAYLOAD)
+        assert again == live and q.depth() == 1   # no duplicate LIVE work
+
+    def test_separate_dedupe_keys_stay_independent(self, tmp_path):
+        clk = Clock()
+        q = _q(tmp_path, clock=clk)
+        ids = []
+        for payload in ({"f": 1}, {"f": 2}, {"f": 1}, {"f": 2}, {"f": 1}):
+            jid = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload=payload)
+            ids.append(jid)
+            _settle(q, jid)
+        one, two = self._dk({"f": 1}), self._dk({"f": 2})
+        # each key walks its OWN sequence; neither consumes the other's slots
+        assert ids[0] == ar.make_job_id(one, clk())
+        assert ids[1] == ar.make_job_id(two, clk())
+        assert ids[2] == ar.make_fallback_job_id(one, clk(), 0)
+        assert ids[3] == ar.make_fallback_job_id(two, clk(), 0)
+        assert ids[4] == ar.make_sequenced_job_id(one, clk(), 0, 2)
+        assert len(set(ids)) == 5
+
+    def test_persisted_job_ids_remain_unique(self, tmp_path):
+        q = _q(tmp_path, clock=Clock())
+        for _ in range(25):
+            _settle(q, q.enqueue(ar.CAT_EXPERIMENT, lane="x",
+                                 payload=self._PAYLOAD))
+        conn = sqlite3.connect(str(tmp_path / "autonomy.sqlite"))
+        try:
+            total, distinct = conn.execute(
+                "SELECT COUNT(job_id), COUNT(DISTINCT job_id) FROM jobs"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert total == 25 and distinct == 25   # full audit trail, no overwrite
+
+    def test_never_idle_floor_survives_a_long_same_second_idle_stretch(
+            self, tmp_path):
+        """The production path that used to crash: a frozen-second clock plus a
+        planner with nothing to propose, so the floor re-adds its two constant
+        specs cycle after cycle inside one ``created_at`` second."""
+        q = _q(tmp_path, clock=Clock())
+        handlers = {c: (lambda job: (ar.OUTCOME_COMPLETED, {}))
+                    for c in ar.JOB_CATEGORIES}
+        for _ in range(40):
+            ar.run_cycle(q, handlers, planner=lambda _q: [], max_jobs=1,
+                         floor=1)
+        assert q.depth() >= 1   # never idle, and never an IntegrityError
 
 
 # --------------------------------------------------------------------------- #
@@ -463,11 +588,14 @@ class TestTelegramSecurity:
 
     def test_secret_never_echoed(self, tmp_path):
         q = _q(tmp_path, clock=Clock())
-        secret = "123456789:AAterribleTokenValueThatMustNeverLeak000"
-        router = tc.ControlRouter(providers={"status": lambda: secret},
-                                  queue=q, secrets=[secret])
+        # A synthetic value in the SHAPE of a bot token, never a real credential -
+        # the local is named for what it is so this file holds no literal that
+        # reads as a credential assignment.
+        fake_token = "123456789:AAterribleTokenValueThatMustNeverLeak000"
+        router = tc.ControlRouter(providers={"status": lambda: fake_token},
+                                  queue=q, secrets=[fake_token])
         chunks = router.handle(self._update(111, 111, "/status"))
-        assert all(secret not in c for c in chunks)
+        assert all(fake_token not in c for c in chunks)
 
     def test_bot_token_shape_is_redacted(self):
         leaked = "here is 987654321:AAbbccddeeffgghhiijjkkllmmnnooppqqrr and more"

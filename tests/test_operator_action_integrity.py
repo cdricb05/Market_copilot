@@ -129,8 +129,15 @@ def st_waiting_owned():
 
 
 def st_research_required():
-    return _load(operational=copy.deepcopy(_OP_FRESH),
+    # STAGE 22 — the canonical POST-CLOSE research state: the eligible session (08-05)
+    # is confirmed by owned data AND its Daily Close is complete, and the research
+    # inputs are still stale. Before Stage 22 this fixture left the close undone, which
+    # under the canonical normal cycle is the Daily Close's stage, not research's —
+    # the close is what advances owned marks and settles NEXT_CLOSE paper orders, so
+    # research run ahead of it describes a portfolio that is about to change.
+    return _load(operational=copy.deepcopy(_OP_CLOSED),
                  desk_marks=copy.deepcopy(_DESK_FRESH),
+                 close_progress=dict(_CLOSE_TODAY),
                  research_cycle={"state": "NOT_STARTED", "executable": True})
 
 
@@ -245,7 +252,11 @@ class TestBackendExecutionContract:
         g = st_research_required()["daily_close_gate"]
         assert g["execution_allowed"] is False
         assert "Daily Research Cycle" in g["passive_status"]
-        assert g["passive_badge"] == "WAITING"
+        # STAGE 22: this state is only reachable once the eligible session's close is
+        # COMPLETE (an unclosed session is READY_FOR_DAILY_CLOSE). The gate says so —
+        # the previous "waiting for the Daily Research Cycle" inverted the dependency.
+        assert g["passive_badge"] == "COMPLETE"
+        assert "complete" in g["passive_status"].lower()
 
     def test_ready_for_daily_close_primary_executes_the_canonical_close(self):
         r = st_ready_for_close()

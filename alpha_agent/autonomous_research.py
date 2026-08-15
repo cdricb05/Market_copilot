@@ -175,6 +175,37 @@ def make_job_id(dedupe_key: str, created_at: str) -> str:
     return "job_" + _digest(dedupe_key, created_at)[:20]
 
 
+# One ``created_at`` second can legitimately hold MANY jobs for the same
+# dedupe_key: the live-dedupe index below only covers non-terminal states, so a
+# SETTLED key is re-enqueueable, and the never-idle floor re-adds its constant
+# specs every time the queue drains. Identity therefore needs a deterministic
+# collision sequence; 0 is the primary id and 1 is the legacy fallback id, both
+# left byte-identical so existing stores reproduce exactly.
+_JOB_ID_SEQUENCE_START = 2
+# A ceiling on CONSECUTIVE probes, not on re-adds: the search is seeded from the
+# rows already stored for the (dedupe_key, second), so it normally succeeds on
+# the first probe however many times that key has already been re-added.
+_MAX_JOB_ID_PROBES = 10_000
+
+
+def make_fallback_job_id(dedupe_key: str, created_at: str,
+                         priority: int) -> str:
+    """Second identity for one ``(dedupe_key, created_at)`` pair - unchanged
+    since the queue shipped, so historical rows stay reproducible."""
+    return "job_" + _digest(dedupe_key, created_at, str(priority))[:20]
+
+
+def make_sequenced_job_id(dedupe_key: str, created_at: str, priority: int,
+                          sequence: int) -> str:
+    """Third and later identity for one ``(dedupe_key, created_at)`` pair.
+
+    Deterministic by construction: no randomness, no UUID, no clock sleep. The
+    same database state always yields the same id, so the audit trail stays
+    reproducible."""
+    return "job_" + _digest(dedupe_key, created_at, str(priority),
+                            "seq=%d" % int(sequence))[:20]
+
+
 @dataclass
 class Job:
     job_id: str
@@ -274,6 +305,56 @@ class ResearchQueue:
             (self._clock(), kind, job_id,
              canonical_json(detail) if detail is not None else None))
 
+    # -- job identity allocation -------------------------------------------- #
+    @staticmethod
+    def _job_id_taken(conn: sqlite3.Connection, job_id: str) -> bool:
+        return conn.execute("SELECT 1 FROM jobs WHERE job_id=?",
+                            (job_id,)).fetchone() is not None
+
+    def _allocate_job_id(self, conn: sqlite3.Connection, dedupe_key: str,
+                         created_at: str, priority: int) -> str:
+        """Return an unused ``jobs.job_id`` for one same-second (re-)add.
+
+        Ordered so historical identities never move:
+
+          1. ``make_job_id(dk, now)``            - the original primary id;
+          2. ``make_fallback_job_id(...)``       - the original fallback id;
+          3. ``make_sequenced_job_id(..., seq)`` - deterministic extension.
+
+        Steps 1-2 are byte-identical to what this queue has always written.
+        Step 3 exists because ``created_at`` has one-second resolution while the
+        live-dedupe index deliberately permits a SETTLED dedupe_key to be
+        re-enqueued: with only two identities the THIRD same-second re-add hit
+        the ``jobs.job_id`` primary key and raised ``sqlite3.IntegrityError``
+        out of enqueue -> replenish -> ensure_never_idle -> run_cycle, crashing
+        the autonomy cycle. The collision is prevented, never swallowed.
+
+        Runs on the caller's connection inside the caller's ``self._lock``, so
+        it opens no connection, starts no transaction and takes no extra lock.
+        """
+        job_id = make_job_id(dedupe_key, created_at)
+        if not self._job_id_taken(conn, job_id):
+            return job_id
+        job_id = make_fallback_job_id(dedupe_key, created_at, priority)
+        if not self._job_id_taken(conn, job_id):
+            return job_id
+        # Seed the sequence from the rows already stored for this
+        # (dedupe_key, second) so the search is O(1) in practice, then still
+        # probe: the two identities above can have been consumed under
+        # different ``priority`` values, which leaves gaps in the sequence.
+        used = conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE dedupe_key=? AND created_at=?",
+            (dedupe_key, created_at)).fetchone()["n"]
+        seq = max(_JOB_ID_SEQUENCE_START, int(used))
+        for _ in range(_MAX_JOB_ID_PROBES):
+            job_id = make_sequenced_job_id(dedupe_key, created_at, priority, seq)
+            if not self._job_id_taken(conn, job_id):
+                return job_id
+            seq += 1
+        raise RuntimeError(
+            "exhausted job_id collision probes for dedupe_key=%s at %s"
+            % (dedupe_key, created_at))
+
     # -- enqueue (idempotent) ---------------------------------------------- #
     def enqueue(self, category: str, *, lane: str, payload: Optional[dict] = None,
                 priority: int = 0, max_attempts: Optional[int] = None,
@@ -298,11 +379,9 @@ class ResearchQueue:
                     " LIMIT 1", (dk,)).fetchone()
                 if existing:
                     return existing["job_id"]
-                job_id = make_job_id(dk, now)
-                # Guard against a job_id collision from a same-instant re-add.
-                if conn.execute("SELECT 1 FROM jobs WHERE job_id=?",
-                                (job_id,)).fetchone():
-                    job_id = "job_" + _digest(dk, now, str(priority))[:20]
+                # Not live: this is legitimate new work for a SETTLED key, so
+                # allocate an identity that cannot collide on the primary key.
+                job_id = self._allocate_job_id(conn, dk, now, int(priority))
                 conn.execute(
                     "INSERT INTO jobs(job_id,dedupe_key,category,lane,state,"
                     "priority,payload_json,origin,attempts,max_attempts,"

@@ -498,8 +498,22 @@ def test_c31_confirmed_session_plus_safe_owners_becomes_executable(tmp_path):
 
 
 def test_c32_one_click_runs_planned_steps_in_order(tmp_path):
+    # The contract is ORDER, not "every step always runs". Stage 20 put the target
+    # engine behind the reassessment's economic gate, so a run whose reassessment
+    # cannot be produced (this sandboxed world supplies no canonical scoring) legitimately
+    # SKIPS REASSESS_PORTFOLIO and, consequently, BUILD_REALLOCATION_PROPOSAL — that is
+    # the gate working, not a failure. Asserting equality with the full sequence asserted
+    # something the product deliberately stopped doing.
     r = _full_cycle(tmp_path)
-    assert r["completed_steps"] == list(drc.STEP_SEQUENCE)
+    completed = r["completed_steps"]
+    seq = list(drc.STEP_SEQUENCE)
+    assert set(completed) <= set(seq)
+    # every completed step appears in canonical order (an ordered subsequence)
+    assert [s for s in seq if s in set(completed)] == completed
+    # the two Stage-20-gated steps are the ONLY ones absent, and the cycle still completes
+    assert set(seq) - set(completed) == {drc.STEP_REASSESS_PORTFOLIO,
+                                         drc.STEP_BUILD_REALLOCATION}
+    assert r["state"] in (drc.COMPLETE, drc.COMPLETE_WITH_EVIDENCE_GAP)
 
 
 def test_c33_idempotent_rerun_reuses_artifacts(tmp_path):

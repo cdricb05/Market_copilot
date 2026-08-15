@@ -1064,20 +1064,32 @@ DESK_MARK_READY = "DESK_MARK_READY"
 DESK_MARK_STATUSES = (DESK_MARK_MISSING, DESK_MARK_BEHIND, DESK_MARK_READY)
 
 
-def load_desk_mark_readiness(desk_dir=None, ledger_dir=None) -> dict:
+def load_desk_mark_readiness(desk_dir=None, ledger_dir=None,
+                             latest_completed: Optional[str] = None) -> dict:
     """Read-only: can the confirmed target be SIZED from the desk mark store?
 
     Backs the operational header, Daily Workflow stage 1 and the order-plan gate.
     Compares the persisted desk mark date against the SAME clock-resolved latest
     completed market date the alpha-target readiness uses, and reconciles per-name
-    coverage over the confirmed constituents. Writes nothing; no provider call."""
-    from paper_trader.api import alpha_target as at  # lazy: at imports desk
+    coverage over the confirmed constituents. Writes nothing; no provider call.
+
+    ``latest_completed`` is the standard additive injection seam (Stage 21,
+    Workstream 0F; completed in Stage 22). Omitted — the production path — the
+    required session is resolved from the live clock through ``alpha_target``,
+    exactly as before. Supplied, it REPLACES that one wall-clock read so a hermetic
+    caller can freeze the session this readiness is judged against. Without it the
+    only live-world read left inside the operational book resolved the REAL latest
+    completed session while every seeded panel stayed on the scenario's frozen one,
+    so a frozen world degraded to DESK_MARK_BEHIND the day the calendar moved on."""
     target = _confirmed_target(ledger_dir)
     cons = list(target["constituents"]) if target else []
     marks = desk.read_marks(desk_dir)
     series = marks.get("series") or {}
     latest = desk.marks_latest_date(marks)
-    required = at.latest_completed()
+    if latest_completed is None:
+        from paper_trader.api import alpha_target as at  # lazy: at imports desk
+        latest_completed = at.latest_completed()
+    required = latest_completed
     missing = [tk for tk in cons if latest is None or
                desk._series_price_at_or_before(series.get(tk) or [], latest) is None]
     priced = len(cons) - len(missing)

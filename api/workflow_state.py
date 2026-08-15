@@ -50,9 +50,16 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from paper_trader.api import data_freshness as df
+from paper_trader.engine import data_gap_taxonomy as gaptax
 from paper_trader.engine import market_session as msession
+from paper_trader.engine import normal_cycle as ncycle
 
 PHASE = "29C-Slice2"
+#: Stage 22 — the canonical NORMAL DAILY PORTFOLIO CYCLE contract this owner projects
+#: the decided state onto. The sequence itself lives in the pure kernel
+#: ``engine.normal_cycle``; nothing here re-derives it.
+NORMAL_CYCLE_OWNER = "engine.normal_cycle"
+DATA_GAP_TAXONOMY_OWNER = "engine.data_gap_taxonomy"
 
 # --------------------------------------------------------------------------- #
 # Frozen overall workflow-state vocabulary (part of the tested contract,
@@ -770,6 +777,285 @@ def build_evidence_presentation(*, operational_close_valid: bool, latest_close_d
 
 
 # --------------------------------------------------------------------------- #
+# Stage 22 (Workstream B) — STALE-EVIDENCE PRESENTATION.
+#
+# BLOCKED_EVIDENCE keeps its meaning exactly: stale evidence MUST NOT drive a
+# portfolio change, and it never will. What Stage 22 changes is the INFORMATION
+# HIERARCHY, not the truth. Two very different situations were rendered identically
+# as a large red card:
+#
+#   SYSTEM BLOCKER          the operator has to fix something NOW; the cycle cannot
+#                           continue until they do.
+#   EXPECTED STALE EVIDENCE the existing assessment is intentionally non-actionable
+#                           because a newer portfolio or session exists and the NEXT
+#                           canonical cycle will supersede it. Nothing is broken and
+#                           nothing is required.
+#
+# Before the session closes — when the authoritative workflow says
+# WAITING_FOR_SESSION_CLOSE and there is genuinely nothing to do — an expected stale
+# assessment is DEMOTED to evidence/history: still fully visible for audit, never
+# competing with the "no action required" state, never dressed as an incident.
+# Nothing is hidden, no history is rewritten and no validity rule changes.
+# --------------------------------------------------------------------------- #
+EVIDENCE_SYSTEM_BLOCKER = "SYSTEM_BLOCKER"
+EVIDENCE_EXPECTED_STALE = "EXPECTED_STALE_EVIDENCE"
+EVIDENCE_CURRENT = "CURRENT_EVIDENCE"
+EVIDENCE_CLASSES = (EVIDENCE_SYSTEM_BLOCKER, EVIDENCE_EXPECTED_STALE, EVIDENCE_CURRENT)
+
+#: Presentation rank. PRIMARY competes for the operator's attention; EVIDENCE and
+#: HISTORY never do.
+PRESENT_PRIMARY = "PRIMARY"
+PRESENT_EVIDENCE = "EVIDENCE"
+PRESENT_HISTORY = "HISTORY"
+PRESENTATION_CLASSES = (PRESENT_PRIMARY, PRESENT_EVIDENCE, PRESENT_HISTORY)
+
+#: Reassessment / assessment states that fail closed on evidence.
+_BLOCKED_EVIDENCE_STATES = frozenset({
+    "BLOCKED_EVIDENCE", "STALE_CORPORATE_ACTION_REVIEW_REQUIRED"})
+#: Reassessment states that fail closed on a missing/unusable INPUT — the operator has
+#: to restore the named source, so these are never "expected".
+_BLOCKED_DATA_STATES = frozenset({"BLOCKED_DATA"})
+
+#: Blocker codes whose ONLY resolution is the next canonical cycle. Their presence
+#: means the evidence is superseded by design, not that the system is broken.
+_SUPERSEDABLE_BLOCKER_CODES = frozenset({
+    "STALE_CORPORATE_ACTION_EVIDENCE",
+    "PORTFOLIO_STATE_CHANGED_SINCE_ASSESSMENT",
+    "ASSESSMENT_ELIGIBLE_DATE_MISMATCH",
+    "HOLDING_OPPORTUNITY_COST_NOT_RUN",
+})
+
+
+def build_evidence_classification(*, reassessment_state: Any, overall: str,
+                                  blockers: Any = None,
+                                  eligible_date: Any = None,
+                                  next_cycle_action: Any = None) -> dict[str, Any]:
+    """Classify a blocked/stale assessment as a SYSTEM BLOCKER or EXPECTED STALE.
+
+    Fail-closed semantics are untouched: ``blocks_portfolio_action`` is True for every
+    blocked/stale state regardless of classification. Only the presentation rank moves.
+    """
+    state = str(reassessment_state or "")
+    codes = sorted({(b.get("code") if isinstance(b, dict) else str(b))
+                    for b in (blockers or []) if b})
+    is_evidence_blocked = state in _BLOCKED_EVIDENCE_STATES
+    is_data_blocked = state in _BLOCKED_DATA_STATES
+    blocked = bool(is_evidence_blocked or is_data_blocked)
+
+    if not blocked:
+        return {
+            "classification": EVIDENCE_CURRENT,
+            "presentation_class": PRESENT_PRIMARY,
+            "demoted": False,
+            "competes_with_primary_action": True,
+            "is_operational_incident": False,
+            "requires_operator_fix": False,
+            "blocks_portfolio_action": False,
+            "severity": SEV_INFO,
+            "state": state or None,
+            "blocker_codes": codes,
+            "headline": None,
+            "explanation": None,
+            "superseded_by": None,
+            "audit_visible": True,
+            "history_rewritten": False,
+            "validity_rules_changed": False,
+        }
+
+    # An evidence block whose every named cause is resolved by the next canonical cycle,
+    # while the authoritative workflow reports a passive or normal-cycle state, is
+    # EXPECTED. A data block, an unknown cause, or a workflow already in recovery is a
+    # SYSTEM BLOCKER the operator must act on.
+    all_supersedable = bool(codes) and all(c in _SUPERSEDABLE_BLOCKER_CODES for c in codes)
+    workflow_healthy = overall not in (INCONSISTENT_STATE, RESEARCH_CYCLE_BLOCKED)
+    expected = bool(is_evidence_blocked and all_supersedable and workflow_healthy)
+
+    if expected:
+        passive = overall in _PASSIVE_STATES
+        return {
+            "classification": EVIDENCE_EXPECTED_STALE,
+            "presentation_class": (PRESENT_HISTORY if passive else PRESENT_EVIDENCE),
+            "demoted": True,
+            "competes_with_primary_action": False,
+            "is_operational_incident": False,
+            "requires_operator_fix": False,
+            "blocks_portfolio_action": True,
+            "severity": SEV_INFO,
+            "state": state,
+            "blocker_codes": codes,
+            "headline": ("Superseded assessment — kept as evidence, not an incident."),
+            "explanation": (
+                "This assessment is intentionally non-actionable: the portfolio or the "
+                "session moved on after it was produced, so it correctly cannot drive a "
+                "portfolio change. Nothing is broken and nothing is required of you — "
+                "%s will replace it. The record is preserved unchanged for audit."
+                % (str(next_cycle_action) if next_cycle_action
+                   else "the next Daily Research Cycle")),
+            "superseded_by": (str(next_cycle_action) if next_cycle_action
+                              else "the next Daily Research Cycle"),
+            "audit_visible": True,
+            "history_rewritten": False,
+            "validity_rules_changed": False,
+        }
+
+    return {
+        "classification": EVIDENCE_SYSTEM_BLOCKER,
+        "presentation_class": PRESENT_PRIMARY,
+        "demoted": False,
+        "competes_with_primary_action": True,
+        "is_operational_incident": True,
+        "requires_operator_fix": True,
+        "blocks_portfolio_action": True,
+        "severity": SEV_BLOCKED,
+        "state": state,
+        "blocker_codes": codes,
+        "headline": "Assessment blocked — the named cause must be resolved.",
+        "explanation": (
+            "The portfolio assessment for %s cannot be produced until the named "
+            "blocker is resolved: %s. No portfolio change may be driven from blocked "
+            "evidence."
+            % (eligible_date or "the eligible session",
+               ", ".join(codes) if codes else "cause not reported")),
+        "superseded_by": None,
+        "audit_visible": True,
+        "history_rewritten": False,
+        "validity_rules_changed": False,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Stage 22 (Workstream E) — FRESH ASSESSMENT / PROPOSAL BINDING.
+#
+# After the Daily Research Cycle completes, a fresh assessment must be provably bound
+# to the session and the portfolio it describes, and a proposal must be bound to that
+# exact assessment. Every check below fails CLOSED — but EXACTLY ONCE: the verdict is
+# computed here and every surface reads it, so a single broken binding is stated one
+# time rather than restated as four separate red cards.
+#
+# UNVERIFIABLE is never treated as broken. An artifact that recorded no fingerprint
+# cannot prove currency either way, and inferring staleness from a missing value is
+# fabrication (the same rule api.portfolio_reassessment.economic_currency applies).
+# --------------------------------------------------------------------------- #
+BINDING_CURRENT = "BOUND_AND_CURRENT"
+BINDING_STALE = "BINDING_BROKEN"
+BINDING_UNVERIFIABLE = "BINDING_UNVERIFIABLE"
+BINDING_ABSENT = "NO_ASSESSMENT"
+BINDING_STATES = (BINDING_CURRENT, BINDING_STALE, BINDING_UNVERIFIABLE, BINDING_ABSENT)
+
+
+def build_assessment_binding(*, eligible_date: Any, active_book_id: Any,
+                             hoc_available: bool, hoc_bound_date: Any,
+                             hoc_bound_book: Any, hoc_assessment_hash: Any,
+                             hoc_stale: bool = False, hoc_stale_reason: Any = None,
+                             proposal_available: bool = False,
+                             proposal_bound_assessment_hash: Any = None,
+                             proposal_bound_date: Any = None,
+                             proposal_hash: Any = None) -> dict[str, Any]:
+    """One fail-closed verdict on assessment currency and proposal binding."""
+    elig = _iso(_coerce_date(eligible_date)) or (
+        str(eligible_date) if eligible_date else None)
+    checks: list[dict[str, Any]] = []
+
+    def check(name, *, ok: Optional[bool], expected, actual, detail):
+        checks.append({"check": name, "passed": ok, "verifiable": ok is not None,
+                       "expected": expected, "actual": actual, "detail": detail})
+
+    if not hoc_available:
+        return {
+            "state": BINDING_ABSENT,
+            "bound_and_current": False,
+            "fails_closed": True,
+            "checks": checks,
+            "failed_checks": [],
+            "unverifiable_checks": [],
+            "reason": "NO_ASSESSMENT_FOR_ELIGIBLE_SESSION",
+            "explanation": ("No Holding Opportunity-Cost assessment exists for the "
+                            "eligible session %s, so there is nothing to bind. The "
+                            "Daily Research Cycle produces one." % (elig or "n/a")),
+            "eligible_market_date": elig,
+            "assessment_hash": None,
+            "proposal_hash": None,
+            "proposal_bound_to_current_assessment": False,
+            "stated_once": True,
+        }
+
+    bound_date = _iso(_coerce_date(hoc_bound_date)) or (
+        str(hoc_bound_date) if hoc_bound_date else None)
+    check("assessment_market_date_equals_eligible_session",
+          ok=(None if (bound_date is None or elig is None) else bound_date == elig),
+          expected=elig, actual=bound_date,
+          detail="The assessment must cover the latest eligible completed session.")
+    check("assessment_bound_to_active_book",
+          ok=(None if (not hoc_bound_book or not active_book_id)
+              else str(hoc_bound_book) == str(active_book_id)),
+          expected=active_book_id, actual=hoc_bound_book,
+          detail="The assessment must describe the CURRENT active operational book.")
+    check("corporate_action_registry_unchanged",
+          ok=(not bool(hoc_stale)),
+          expected="registry fingerprint unchanged since the assessment",
+          actual=(hoc_stale_reason or "unchanged"),
+          detail="A corporate action registered afterwards invalidates the evidence.")
+
+    if proposal_available:
+        check("proposal_binds_to_current_assessment",
+              ok=(None if (not proposal_bound_assessment_hash or not hoc_assessment_hash)
+                  else str(proposal_bound_assessment_hash) == str(hoc_assessment_hash)),
+              expected=hoc_assessment_hash, actual=proposal_bound_assessment_hash,
+              detail="A proposal may only be reviewed against the assessment it was "
+                     "derived from.")
+        p_date = _iso(_coerce_date(proposal_bound_date)) or (
+            str(proposal_bound_date) if proposal_bound_date else None)
+        check("proposal_covers_eligible_session",
+              ok=(None if (p_date is None or elig is None) else p_date == elig),
+              expected=elig, actual=p_date,
+              detail="The proposal must cover the same eligible completed session.")
+
+    failed = [c["check"] for c in checks if c["passed"] is False]
+    unverifiable = [c["check"] for c in checks if c["passed"] is None]
+    if failed:
+        state, ok = BINDING_STALE, False
+        explanation = (
+            "The current assessment no longer describes what it claims to: %s. It "
+            "remains readable as immutable evidence, but it may not drive a portfolio "
+            "change. The next Daily Research Cycle reassesses against the current "
+            "state." % ", ".join(failed))
+    elif unverifiable:
+        state, ok = BINDING_UNVERIFIABLE, False
+        explanation = (
+            "The assessment predates part of the binding contract (%s), so whether it "
+            "still describes the current portfolio cannot be proven either way. "
+            "Nothing is inferred from the missing value." % ", ".join(unverifiable))
+    else:
+        state, ok = BINDING_CURRENT, True
+        explanation = ("The assessment covers the eligible session %s, describes the "
+                       "current active book and the current corporate-action registry"
+                       "%s." % (elig or "n/a",
+                                ", and the proposal binds to it"
+                                if proposal_available else ""))
+    prop_bound = bool(
+        proposal_available and not failed
+        and proposal_bound_assessment_hash and hoc_assessment_hash
+        and str(proposal_bound_assessment_hash) == str(hoc_assessment_hash))
+    return {
+        "state": state,
+        "bound_and_current": ok,
+        "fails_closed": True,
+        "checks": checks,
+        "failed_checks": failed,
+        "unverifiable_checks": unverifiable,
+        "reason": (failed[0] if failed else (unverifiable[0] if unverifiable else None)),
+        "explanation": explanation,
+        "eligible_market_date": elig,
+        "assessment_hash": hoc_assessment_hash,
+        "proposal_hash": proposal_hash,
+        "proposal_bound_to_current_assessment": prop_bound,
+        # The verdict is computed ONCE here; surfaces render it and never re-derive it,
+        # so a single broken binding is reported exactly once.
+        "stated_once": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Stage 19.3 — OPERATOR COMMAND (Workstream F). The ONE compact answer to
 # "WHAT DO I DO NOW?", generated by the backend so every surface renders the SAME
 # five fields instead of re-interpreting raw state. It is a projection of the
@@ -777,7 +1063,10 @@ def build_evidence_presentation(*, operational_close_valid: bool, latest_close_d
 # re-derives nothing and writes nothing. Every operator page (Today, Portfolio,
 # Portfolio Manager, Daily Workflow, the right action rail) MIRRORS this block.
 # --------------------------------------------------------------------------- #
-NO_ACTION_TEXT = "No action required right now"
+#: Stage 22 — ONE vocabulary. This is a complete sentence because every surface renders
+#: it as prose (the command bar's no-action line and the right rail's next-action line).
+#: The UI holds no literal of its own; it renders this value verbatim.
+NO_ACTION_TEXT = "No action required right now."
 
 #: Overall states in which NO normal-path workflow mutation may be offered. The
 #: operator is waiting or reviewing; any execute-looking control here is a defect.
@@ -790,7 +1079,8 @@ _PASSIVE_STATES = frozenset({
 def build_operator_command(*, overall: str, primary: dict,
                            pending_orders: int = 0,
                            eligible_date: Any = None,
-                           latest_close_date: Any = None) -> dict[str, Any]:
+                           latest_close_date: Any = None,
+                           cycle: Optional[dict] = None) -> dict[str, Any]:
     """Project the canonical state + primary action into the ONE operator command bar.
 
     ``primary_action_available`` is the single authority for whether a normal-path
@@ -830,6 +1120,11 @@ def build_operator_command(*, overall: str, primary: dict,
                       "completed close — monitoring only, no action required."
                       % int(pending_orders))
 
+    # Stage 22 (Workstream G): the operator must be able to read the whole state in
+    # about five seconds — WHAT IS HAPPENING NOW / WHAT DO I NEED TO DO / WHY / WHAT
+    # HAPPENS AFTER THAT. The first three already existed; the fourth is supplied by
+    # the canonical cycle contract so no surface writes its own "and then…" copy.
+    cyc = cycle or {}
     return {
         # -- the five operator fields -------------------------------------- #
         "state": overall,
@@ -838,6 +1133,15 @@ def build_operator_command(*, overall: str, primary: dict,
         "why": primary.get("explanation"),
         "next_text": next_text,
         "supporting_text": supporting,
+        # -- the canonical cycle position (Workstream A / G) ----------------- #
+        "now_text": cyc.get("now_text"),
+        "after_text": cyc.get("after_text"),
+        "cycle_stage": cyc.get("current_stage"),
+        "cycle_stage_label": cyc.get("current_stage_label"),
+        "cycle_stage_ordinal": cyc.get("current_stage_ordinal"),
+        "cycle_next_stage": cyc.get("next_stage"),
+        "cycle_next_stage_label": cyc.get("next_stage_label"),
+        "cycle_stage_count": len(ncycle.STAGE_SEQUENCE),
         # -- the ONE primary action (or none) ------------------------------- #
         "primary_action_available": executable,
         "primary_action_label": primary.get("label") if executable else None,
@@ -888,9 +1192,20 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
     elif overall == WAITING_FOR_SESSION_CLOSE:
         passive = "Daily Close waiting for the next market session to close."
         badge = "WAITING"
-    elif overall in (RESEARCH_CYCLE_REQUIRED, RESEARCH_CYCLE_RUNNING,
-                     PORTFOLIO_REASSESSMENT_REQUIRED):
-        passive = "Daily Close waiting for the Daily Research Cycle."
+    elif overall in (RESEARCH_CYCLE_REQUIRED, PORTFOLIO_REASSESSMENT_REQUIRED):
+        # Stage 22: under the canonical cycle these states are only reachable AFTER the
+        # eligible session's close is complete (an unclosed session is READY_FOR_DAILY_
+        # CLOSE by P3.7). The old wording — "Daily Close waiting for the Daily Research
+        # Cycle" — inverted the actual dependency and contradicted the cycle contract
+        # every surface now reads.
+        passive = ("Daily Close complete for %s; the Daily Research Cycle is next."
+                   % (closed or elig or "the eligible session"))
+        badge = "COMPLETE"
+    elif overall == RESEARCH_CYCLE_RUNNING:
+        # A run is in flight. This state IS reachable with the close still pending, so
+        # the honest statement is about precedence, not about completion.
+        passive = ("Daily Close is not the current action — a Daily Research Cycle run "
+                   "is in progress.")
         badge = "WAITING"
     elif overall == RESEARCH_CYCLE_BLOCKED:
         passive = "Daily Close unavailable — resolve the named research blocker first."
@@ -1087,7 +1402,8 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     assessment_status: str, manual_review_required: bool,
                     evidence_gap: bool, cycle_running: bool = False,
                     cycle_blocked: bool = False, cycle_inconsistent: bool = False,
-                    cycle_complete: bool = False, hoc_current: bool = False) -> str:
+                    cycle_complete: bool = False, hoc_current: bool = False,
+                    research_cycle_due_after_close: bool = False) -> str:
     # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
     #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
     #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
@@ -1124,8 +1440,35 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     if cycle_blocked:
         return RESEARCH_CYCLE_BLOCKED
 
+    # P3.7 — STAGE 22 CLOSE PRECEDENCE. A confirmed eligible completed session whose
+    #        operational Daily Close is NOT complete has exactly ONE canonical next
+    #        action: the Daily Close. Before Stage 22 a stale research input could
+    #        promote the Daily Research Cycle ahead of an unclosed session, so the same
+    #        session had two legal orderings (close-then-research in the live flow,
+    #        research-then-close whenever owned marks had advanced without a close).
+    #        Two legal orderings is exactly the "alternate path" the canonical normal
+    #        cycle forbids: the close is what advances owned marks, settles NEXT_CLOSE
+    #        paper orders and records NAV, so research produced ahead of it describes a
+    #        portfolio that is about to change. A run already IN FLIGHT (P3.5) or BLOCKED
+    #        (P3.6) still outranks this — an in-progress cycle is never interrupted and a
+    #        blocked one names a fix the operator must make first.
+    if not eligible_session_closed:
+        return READY_FOR_DAILY_CLOSE
+
     # P4 — required research inputs are stale or missing → run the research cycle.
     if not research_current:
+        return RESEARCH_CYCLE_REQUIRED
+
+    # P4.5 — STAGE 22 POST-CLOSE RESEARCH REQUIREMENT (Workstream D). The Daily Close
+    #        composes the owned-mark refresh and the model-input refresh, so a completed
+    #        close can leave every REQUIRED signal input current while no Holding
+    #        Opportunity-Cost assessment exists for the session it just closed. The
+    #        operator was then told "monitor / no action required" for a session that had
+    #        never been reassessed. A completed close therefore makes the Daily Research
+    #        Cycle DUE until an assessment bound to that same eligible session exists.
+    #        The caller passes this only when the HOC contract is actually observable —
+    #        an absent contract is UNVERIFIABLE and never inferred as "not run".
+    if research_cycle_due_after_close:
         return RESEARCH_CYCLE_REQUIRED
 
     # P5 — research current but the portfolio assessment is missing/due/overdue/
@@ -1140,10 +1483,9 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     if assessment_status in _ASSESS_NEEDS_ACTION and not reassessment_satisfied:
         return PORTFOLIO_REASSESSMENT_REQUIRED
 
-    # P6 — research and assessment current but the eligible session's close is
-    #      not yet complete → run the Daily Close.
-    if not eligible_session_closed:
-        return READY_FOR_DAILY_CLOSE
+    # (The former P6 "close is not complete" gate now runs as P3.7 above, so that an
+    #  unclosed eligible session can never be overtaken by a research/reassessment
+    #  action. Reaching this point always means the close IS complete.)
 
     # Terminal region — the eligible session is fully processed. Refinement order
     # (documented precedence 7/8/9): a material-risk / manual-review gate is
@@ -1220,13 +1562,28 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "headline": "Process the latest completed market close."}
 
     if overall == RESEARCH_CYCLE_REQUIRED:
+        # Stage 22 — the SAME canonical action, stated for the reason that actually
+        # raised it. The post-close requirement is not "inputs are stale": every input
+        # can be current while the session that was just closed has never been
+        # reassessed, and telling the operator otherwise sends them looking for a stale
+        # input that does not exist.
+        if ctx.get("research_cycle_due_after_close"):
+            explanation = (
+                "The Daily Close for %s is complete, but no Holding Opportunity-Cost "
+                "assessment has been produced for that session yet. The Daily Research "
+                "Cycle is the sole path that refreshes the signals, assesses every "
+                "holding's opportunity cost, reassesses the portfolio and produces a "
+                "reallocation proposal when one is justified. Nothing is approved or "
+                "executed by running it." % (elig or "the eligible session"))
+        else:
+            explanation = ("Required research inputs are stale or missing for the "
+                           "latest eligible session. The canonical Persistent Daily "
+                           "Research Cycle (Slice 3) refreshes every required input "
+                           "through its authoritative owner, scores the universe, "
+                           "prepares the target and captures immutable evidence.")
         return {"action_code": ACTION_RUN_RESEARCH_CYCLE,
                 "label": "Run the Daily Research Cycle",
-                "explanation": "Required research inputs are stale or missing for the "
-                               "latest eligible session. The canonical Persistent Daily "
-                               "Research Cycle (Slice 3) refreshes every required input "
-                               "through its authoritative owner, scores the universe, "
-                               "prepares the target and captures immutable evidence.",
+                "explanation": explanation,
                 "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": False, "execution_available": True,
                 "manual_confirmation_required": True, "slice3_pending": False,
@@ -1561,6 +1918,8 @@ def load_workflow_state(
     forward_status: Optional[dict] = None,
     target_readiness: Optional[dict] = None,
     research_cycle: Optional[dict] = None,
+    reassessment_summary: Optional[dict] = None,
+    decision_record: Optional[dict] = None,
     date_overrides: Optional[dict] = None,
     active_book_override: Any = None,
 ) -> dict[str, Any]:
@@ -1578,6 +1937,14 @@ def load_workflow_state(
       * ``target_readiness`` → ``alpha_target.load_readiness``
       * ``inputs``/``daily_status``/``desk_marks`` → the model-input / research
         loaders (shared with ``data_freshness`` so nothing is loaded twice)
+      * ``reassessment_summary`` → ``portfolio_reassessment.load_reassessment_summary``
+      * ``decision_record`` → ``portfolio_decision.load_decision_record``
+
+    Stage 22: the last two are injectable for the same reason as every other read model
+    above — a hermetic scenario must be able to bind EVERY seam. Without them the
+    hermetic acceptance harness composed a synthetic world whose reassessment lane was
+    silently read from the operator's REAL artifact store, so a scenario could "pass"
+    while describing state that came from live evidence.
     """
     warnings: list[str] = []
 
@@ -1706,10 +2073,11 @@ def load_workflow_state(
     #     improvement, the turnover, the blockers and the operator wording all come from
     #     the ONE canonical owner. Degrade-safe: a read failure leaves the lane NOT_RUN.
     prs_book_id = (freshness.get("active_book") or {}).get("active_book_id")
-    reassessment_summary = _safe(
-        lambda: _import_reassessment().load_reassessment_summary(
-            active_book_id=prs_book_id, eligible_market_date=eligible_date),
-        warnings, "Portfolio reassessment summary") or {}
+    if reassessment_summary is None:
+        reassessment_summary = _safe(
+            lambda: _import_reassessment().load_reassessment_summary(
+                active_book_id=prs_book_id, eligible_market_date=eligible_date),
+            warnings, "Portfolio reassessment summary") or {}
     reassessment_state = (reassessment_summary.get("reassessment_state")
                           or PRS_NOT_RUN)
     reassessment_proposal_required = bool(reassessment_summary.get("proposal_required"))
@@ -1764,6 +2132,17 @@ def load_workflow_state(
     fresh_consistency = freshness.get("consistency_status")
     inconsistent_inputs = (fresh_consistency == INCONSISTENT)
     reassessment_satisfied = bool(cycle_complete and hoc_available)
+    # Stage 22 (Workstream D) — the POST-CLOSE RESEARCH REQUIREMENT. A completed Daily
+    # Close for the eligible session makes the Daily Research Cycle DUE until a Holding
+    # Opportunity-Cost assessment exists for that same session. The requirement applies
+    # ONLY when the HOC contract is actually observable on the gate: an absent contract
+    # is UNVERIFIABLE, and inferring "not run" from a missing key would fabricate a
+    # requirement (the rule api.portfolio_reassessment.economic_currency already uses).
+    hoc_contract_observable = bool(
+        gate is not None
+        and ("opportunity_cost_available" in gate or "opportunity_cost_state" in gate))
+    research_cycle_due_after_close = bool(
+        eligible_session_closed and hoc_contract_observable and not hoc_available)
     overall = _decide_overall(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
@@ -1773,10 +2152,12 @@ def load_workflow_state(
         manual_review_required=manual_review_required, evidence_gap=evidence_gap,
         cycle_running=cycle_running, cycle_blocked=cycle_blocked,
         cycle_inconsistent=cycle_inconsistent, cycle_complete=cycle_complete,
-        hoc_current=hoc_available)
+        hoc_current=hoc_available,
+        research_cycle_due_after_close=research_cycle_due_after_close)
 
     primary = assert_primary_action_contract(_primary_action(overall, {
         "eligible_date": eligible_date,
+        "research_cycle_due_after_close": research_cycle_due_after_close,
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
     # Stage 19.3 — when the promoted action is the Daily Close and paper orders are
@@ -2025,10 +2406,11 @@ def load_workflow_state(
         "reallocation_data_gaps": rp_gaps,
     }
     active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
-    decision_record = _safe(
-        lambda: _import_portfolio_decision().load_decision_record(
-            active_book_id=active_book_id, eligible_market_date=eligible_date),
-        warnings, "Portfolio decision record")
+    if decision_record is None:
+        decision_record = _safe(
+            lambda: _import_portfolio_decision().load_decision_record(
+                active_book_id=active_book_id, eligible_market_date=eligible_date),
+            warnings, "Portfolio decision record")
     portfolio_decision_lane = _safe(
         lambda: _import_portfolio_decision().derive_decision_state(
             has_active_book=bool(active_book_id), proposal_summary=rp_summary,
@@ -2036,6 +2418,59 @@ def load_workflow_state(
         warnings, "Portfolio decision lane") or {
             "portfolio_decision_state": "PORTFOLIO_DECISION_UNAVAILABLE",
             "requires_manual_review": False, "material": False}
+
+    # --- Stage 22 (Workstream A / G): the canonical NORMAL CYCLE. The workflow owner
+    #     PROJECTS its already-decided state onto the pure cycle kernel; the kernel owns
+    #     the sequence, the per-stage gates and the four operator answers. The kernel
+    #     also enforces the single-primary-mutation invariant, so a composition that
+    #     somehow opened two gates raises here instead of reaching a browser. ------- #
+    normal_cycle = ncycle.build_cycle_view(
+        overall=overall,
+        current_task=primary.get("current_task"),
+        why=primary.get("explanation"),
+        action_available=bool(primary.get("execution_available")
+                              and primary.get("execution_kind")
+                              in NORMAL_PATH_EXECUTION_KINDS),
+        action_label=primary.get("label"),
+        no_action_text=NO_ACTION_TEXT,
+        eligible_market_date=eligible_date,
+        latest_completed_close_date=latest_close_date,
+        execution_active=bool(reassessment_execution.get("execution_active")),
+        blockers=[b.get("code") for b in blockers if isinstance(b, dict)])
+
+    # --- Stage 22 (Workstream B): is the blocked/stale assessment a SYSTEM BLOCKER the
+    #     operator must fix now, or EXPECTED stale evidence the next canonical cycle
+    #     supersedes? Fail-closed semantics are unchanged either way. ------------- #
+    evidence_classification = build_evidence_classification(
+        reassessment_state=reassessment_state, overall=overall,
+        blockers=(reassessment_summary.get("blockers") or []),
+        eligible_date=eligible_date,
+        # The assessment is ALWAYS replaced by the Daily Research Cycle — that is the
+        # sole path that produces one. Naming the next cycle STAGE here would tell the
+        # operator the Daily Close replaces the assessment, which it does not.
+        next_cycle_action="the next Daily Research Cycle")
+
+    # --- Stage 22 (Workstream E): ONE fail-closed binding verdict over the fresh
+    #     assessment and the proposal derived from it. ---------------------------- #
+    assessment_binding = build_assessment_binding(
+        eligible_date=eligible_date, active_book_id=active_book_id,
+        hoc_available=hoc_available,
+        hoc_bound_date=(gate or {}).get("opportunity_cost_bound_eligible_market_date"),
+        hoc_bound_book=(gate or {}).get("opportunity_cost_bound_active_book_id"),
+        hoc_assessment_hash=hoc_hash,
+        hoc_stale=bool((gate or {}).get("opportunity_cost_stale")),
+        hoc_stale_reason=(gate or {}).get("opportunity_cost_stale_reason"),
+        proposal_available=rp_available,
+        proposal_bound_assessment_hash=(gate or {}).get(
+            "reallocation_bound_hoc_assessment_hash"),
+        proposal_bound_date=(gate or {}).get("reallocation_bound_eligible_market_date"),
+        proposal_hash=rp_hash)
+
+    # --- Stage 22 (Workstream C): the machine-readable gap taxonomy, read verbatim
+    #     from the HOC owner through the SAME shared gate path. The workflow owner
+    #     consumes the ``blocking`` classification and never parses a gap string. --- #
+    gap_taxonomy = ((gate or {}).get("opportunity_cost_data_gap_taxonomy")
+                    or gaptax.summarize([], eligible_market_date=eligible_date))
 
     today_hero = _build_today_hero(
         overall=overall, primary=primary, eligible_date=eligible_date,
@@ -2084,9 +2519,31 @@ def load_workflow_state(
                 dict(EXECUTION_CONTRACTS[primary["execution_kind"]])
                 if primary.get("execution_kind") in EXECUTION_CONTRACTS else None)},
         # Stage 19.3 (Workstream F): the ONE operator command every page mirrors.
+        # Stage 22 (Workstream G): it also carries the canonical cycle position and the
+        # "what happens after that" answer, so no surface writes its own.
         "operator_command": build_operator_command(
             overall=overall, primary=primary, pending_orders=pending_orders,
-            eligible_date=eligible_date, latest_close_date=latest_close_date),
+            eligible_date=eligible_date, latest_close_date=latest_close_date,
+            cycle=normal_cycle),
+        # Stage 22 (Workstream A): the canonical NORMAL DAILY PORTFOLIO CYCLE — the
+        # ordered stages, where the operator is in them, what happens next, and the ONE
+        # per-stage gate every surface obeys. There is no alternate path.
+        "normal_cycle": normal_cycle,
+        "normal_cycle_owner": NORMAL_CYCLE_OWNER,
+        "normal_cycle_stage": normal_cycle["current_stage"],
+        "normal_cycle_stage_gates": normal_cycle["stage_gates"],
+        # Stage 22 (Workstream B): SYSTEM BLOCKER vs EXPECTED STALE EVIDENCE. The
+        # fail-closed rule is unchanged; only the information hierarchy moves.
+        "evidence_classification": evidence_classification,
+        "evidence_class_vocabulary": list(EVIDENCE_CLASSES),
+        "presentation_class_vocabulary": list(PRESENTATION_CLASSES),
+        # Stage 22 (Workstream E): ONE fail-closed assessment / proposal binding verdict.
+        "assessment_binding": assessment_binding,
+        "assessment_binding_state_vocabulary": list(BINDING_STATES),
+        # Stage 22 (Workstream C): the machine-readable data-gap taxonomy.
+        "data_gap_taxonomy": gap_taxonomy,
+        "data_gap_taxonomy_owner": DATA_GAP_TAXONOMY_OWNER,
+        "blocking_data_gap_count": gap_taxonomy.get("blocking_gap_count", 0),
         # Operator Action Integrity (Defect 3): the canonical Daily-Close
         # availability verdict every secondary close surface obeys verbatim.
         "daily_close_gate": build_daily_close_gate(
@@ -2332,6 +2789,13 @@ __all__ = [
     "classify_assessment", "build_assessment_presentation",
     "build_holding_opportunity_cost_presentation",
     "build_evidence_presentation", "load_workflow_state",
+    # Stage 22 — canonical normal cycle, stale-evidence hierarchy, binding verdict.
+    "NORMAL_CYCLE_OWNER", "DATA_GAP_TAXONOMY_OWNER", "NO_ACTION_TEXT",
+    "EVIDENCE_SYSTEM_BLOCKER", "EVIDENCE_EXPECTED_STALE", "EVIDENCE_CURRENT",
+    "EVIDENCE_CLASSES", "PRESENT_PRIMARY", "PRESENT_EVIDENCE", "PRESENT_HISTORY",
+    "PRESENTATION_CLASSES", "build_evidence_classification",
+    "BINDING_CURRENT", "BINDING_STALE", "BINDING_UNVERIFIABLE", "BINDING_ABSENT",
+    "BINDING_STATES", "build_assessment_binding",
     "HOC_CANONICAL_OWNER", "HOC_PRIMARY_TITLE", "LEGACY_COMPARISON_TITLE",
     "COS_NOT_RUN", "COS_AVAILABLE", "COS_DEGRADED", "COS_BLOCKED",
     "COS_NO_ACTIVE_BOOK", "COS_UNAVAILABLE", "CANONICAL_OPERATOR_STATES",

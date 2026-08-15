@@ -310,6 +310,52 @@
     @media (max-width: 1100px) {
       .op-command .opc-side { text-align: left; }
     }
+    /* --- STAGE 22: the canonical NORMAL CYCLE strip -------------------------------
+       A compact, single-row answer to "what happens after that" inside the EXISTING
+       command bar. It is not a new dashboard, not a new route and not a new card: it
+       renders `operator_command` + `normal_cycle` from the SAME canonical payload, so
+       the operator can read the whole cycle position without scrolling at 1920x1080. */
+    .op-command .opc-after {
+      font-size: 10px; color: var(--text-secondary); line-height: 1.5;
+      max-width: 900px; margin-top: 3px; overflow-wrap: anywhere;
+    }
+    .op-command .opc-lab {
+      display: inline-block; min-width: 34px; font-size: 8px; font-weight: 800;
+      letter-spacing: .1em; text-transform: uppercase; color: var(--label);
+      margin-right: 6px; vertical-align: baseline;
+    }
+    .op-command .opc-cycle {
+      flex: 1 1 100%; display: flex; align-items: center; flex-wrap: wrap;
+      gap: 4px; margin-top: 8px; padding-top: 7px;
+      border-top: 1px dashed var(--border, #2a3550);
+    }
+    .op-command .opc-cycle-lab {
+      font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--label); margin-right: 6px;
+    }
+    .op-command .opc-stage {
+      font-size: 9px; font-weight: 700; letter-spacing: .03em;
+      border: 1px solid var(--border, #2a3550); border-radius: 4px;
+      padding: 2px 8px; color: var(--text-secondary); white-space: nowrap;
+    }
+    .op-command .opc-stage .n { opacity: .55; margin-right: 4px; font-weight: 800; }
+    .op-command .opc-stage.is-done { opacity: .5; }
+    .op-command .opc-stage.is-current {
+      font-weight: 900; color: var(--text-primary);
+      border-color: var(--info, #38bdf8); background: rgba(56, 189, 248, .14);
+    }
+    .op-command.sev-attention .opc-stage.is-current {
+      border-color: var(--warning, #f59e0b); background: rgba(245, 158, 11, .16);
+    }
+    .op-command.sev-blocked .opc-stage.is-current,
+    .op-command.sev-error .opc-stage.is-current {
+      border-color: var(--danger, #ef4444); background: rgba(239, 68, 68, .16);
+    }
+    .op-command .opc-arrow { font-size: 9px; color: var(--label); }
+    .op-command .opc-recovery {
+      font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--danger, #ef4444);
+    }
 
     .tab-content {
       display: none;
@@ -3258,13 +3304,21 @@
               <span style="display:flex;gap:6px;align-items:center;">
                 <span class="cc-badge">PREVIEW ONLY</span>
                 <span class="cc-badge manual">MANUAL REVIEW</span>
-                <span class="cc-badge">NO LIVE ORDERS</span>
+                <span class="cc-badge">NO LIVE BROKER ORDERS</span>
                 <span class="cc-badge">AUTOMATION OFF</span>
                 <button class="btn-sm" id="reassess-refresh" onclick="loadPortfolioReassessment()" title="Reload the read-only active portfolio assessment.">&#8635; Refresh</button>
               </span>
             </div>
             <div id="reassess-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Loading the active portfolio assessment&hellip;</div>
             <div id="reassess-explanation" class="cc-na-note" style="font-size:11px;max-width:1180px;line-height:1.5;">&mdash;</div>
+            <!-- Stage 22 (Workstream B): SYSTEM BLOCKER vs EXPECTED STALE EVIDENCE.
+                 Backend-owned text (api.workflow_state.build_evidence_classification),
+                 placed directly under the headline so the FIRST thing read about a
+                 blocked card is whether it is an incident. A superseded assessment
+                 stays fully visible for audit but is demoted to evidence, so it never
+                 competes with an authoritative "no action required" state. The
+                 fail-closed rule is unchanged: blocked evidence drives no change. -->
+            <div id="reassess-evidence-class" style="display:none;margin:8px 0 0;padding:8px 11px;border-left:3px solid var(--label,#7b8aa8);background:rgba(123,138,168,.08);font-size:10px;line-height:1.55;max-width:1180px;"></div>
             <div id="reassess-meta" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:6px;color:var(--label);"></div>
             <div id="reassess-kpis" class="va-kpi-grid" style="margin:10px 0 0;"></div>
             <div id="reassess-action" style="margin-top:10px;"></div>
@@ -3866,6 +3920,14 @@
               <div id="hoc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">HOLDING OPPORTUNITY-COST REVIEW &mdash; REVIEW ONLY &middot; FEEDS THE REALLOCATION PROPOSAL (BELOW)</div>
               <div id="hoc-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only Holding Opportunity-Cost review&hellip;</div>
               <div id="hoc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <!-- Stage 22 (Workstream C): the machine-readable DATA-GAP TAXONOMY.
+                   "1 data gap(s) documented" told the operator nothing. Every gap is now
+                   named with its ticker, metric, expected/available as-of date, owning
+                   source, blocking severity, effect on the recommendation and safe
+                   fallback (or an explicit "none"). Values are read VERBATIM from
+                   GET /v1/operations/holding-opportunity-cost.data_gap_taxonomy;
+                   the browser classifies nothing. -->
+              <div id="hoc-gaps" style="display:none;margin:0 0 8px;font-size:10px;line-height:1.55;"></div>
               <div id="hoc-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;"></div>
               <div id="hoc-table" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
               <div class="card-title" style="margin-top:12px;font-size:12px;">Addition Candidates
@@ -25661,6 +25723,48 @@ function renderHoldingOpportunityCost(d) {
       + chip('Hash', (d.assessment_hash || '—').slice(0, 12));
   }
 
+  // --- Stage 22 (Workstream C): the data-gap taxonomy, rendered verbatim ------ //
+  // Severity is a PROPERTY the backend supplied (`blocking`), never inferred here from
+  // a code string, and a gap with no genuine point-in-time substitute says so instead
+  // of silently becoming zero or today's value.
+  var gapEl = document.getElementById('hoc-gaps');
+  if (gapEl) {
+    var tax = d.data_gap_taxonomy || null;
+    var glist = (tax && tax.gaps) || [];
+    if (!tax || !glist.length) {
+      gapEl.style.display = 'none';
+      gapEl.innerHTML = '';
+    } else {
+      var grows = glist.map(function (g) {
+        var cls = g.blocking ? 'danger' : 'manual';
+        return '<div style="padding:5px 0;border-top:1px solid var(--border,#2a3550);">'
+          + '<span class="cc-badge ' + cls + '">' + escapeHtml(g.severity || '') + '</span> '
+          + '<b>' + escapeHtml(g.code || '') + '</b>'
+          + (g.ticker ? ' &middot; <b>' + escapeHtml(g.ticker) + '</b>' : '')
+          + (g.metric ? ' &middot; metric <code>' + escapeHtml(g.metric) + '</code>' : '')
+          + ' &middot; expected as of ' + escapeHtml(g.expected_as_of_date || '—')
+          + ' &middot; available ' + escapeHtml(g.available_as_of_date || 'none')
+          + ' &middot; source ' + escapeHtml(g.source_owner || '—')
+          + '<div style="color:var(--muted,#8b98b0);margin-top:2px;">'
+          + escapeHtml(g.reason || '') + '</div>'
+          + '<div style="margin-top:2px;"><b>Effect:</b> '
+          + escapeHtml(g.effect_on_recommendation || '—') + '</div>'
+          + '<div style="margin-top:2px;"><b>Safe fallback:</b> '
+          + escapeHtml(g.safe_fallback || 'none') + ' &mdash; '
+          + escapeHtml(g.fallback_note || '') + '</div>'
+          + '</div>';
+      }).join('');
+      gapEl.style.display = '';
+      gapEl.setAttribute('data-gap-conclusion', tax.conclusion || '');
+      gapEl.setAttribute('data-blocking-gap-count', String(tax.blocking_gap_count || 0));
+      gapEl.innerHTML = '<div style="font-weight:800;text-transform:uppercase;'
+        + 'letter-spacing:.06em;font-size:9px;color:var(--label);">Data gaps &mdash; '
+        + escapeHtml(tax.conclusion || '') + '</div>'
+        + '<div style="margin-top:2px;">' + escapeHtml(tax.headline || '') + '</div>'
+        + grows;
+    }
+  }
+
   // --- filter chips ---------------------------------------------------------- //
   if (filtEl) {
     var filters = ['ALL', 'HOLD', 'REDUCE', 'EXIT', 'REPLACE'];
@@ -26296,6 +26400,49 @@ function loadPortfolioReassessment() {
 }
 window.loadPortfolioReassessment = loadPortfolioReassessment;
 
+// ---- STAGE 22 (Workstream B): STALE-EVIDENCE INFORMATION HIERARCHY -----------
+// The classification is decided ONCE by api.workflow_state
+// (build_evidence_classification) and rendered VERBATIM here. The browser decides
+// nothing: it does not know which blocker codes are supersedable, it does not judge
+// whether the cycle will replace the evidence, and it never changes a validity rule.
+// A demoted card keeps every value it had — nothing is hidden and no history is
+// rewritten; only its visual weight and its severity chip move, so a superseded
+// assessment stops looking like an incident next to "No action required".
+function _wsApplyEvidenceHierarchy(d) {
+  var card = document.getElementById('reassess-card');
+  var note = document.getElementById('reassess-evidence-class');
+  if (!card) return;
+  var ec = d && d.evidence_classification;
+  if (!ec) return;
+  card.setAttribute('data-evidence-class', ec.classification || '');
+  card.setAttribute('data-presentation-class', ec.presentation_class || '');
+  card.setAttribute('data-demoted', ec.demoted ? '1' : '0');
+  card.setAttribute('data-blocks-portfolio-action', ec.blocks_portfolio_action ? '1' : '0');
+  var head = document.getElementById('reassess-headline');
+  if (ec.demoted) {
+    card.classList.add('evidence-demoted');
+    card.style.borderColor = 'var(--border,#2a3550)';
+    card.style.borderLeft = '3px solid var(--label,#7b8aa8)';
+    card.style.opacity = '.82';
+    if (head) head.style.fontSize = '15px';
+    // The severity chip drops to a neutral tone: this is history, not an alarm.
+    var b = document.getElementById('reassess-badge');
+    if (b) b.className = 'cc-badge muted';
+    if (note) {
+      note.style.display = '';
+      note.innerHTML = '<b>' + escapeHtml(ec.headline || '') + '</b> '
+        + escapeHtml(ec.explanation || '');
+    }
+  } else {
+    card.classList.remove('evidence-demoted');
+    card.style.opacity = '';
+    card.style.borderLeft = '';
+    if (head) head.style.fontSize = '';
+    if (note) { note.style.display = 'none'; note.innerHTML = ''; }
+  }
+}
+window._wsApplyEvidenceHierarchy = _wsApplyEvidenceHierarchy;
+
 function renderPortfolioReassessment(d) {
   var badge = document.getElementById('reassess-badge');
   var head = document.getElementById('reassess-headline');
@@ -26475,6 +26622,10 @@ function renderPortfolioReassessment(d) {
     + '<br>Data gaps: ' + escapeHtml((d.data_gaps || []).join(', ') || 'none'));
   _setHtml('reassess-all', rows.length ? _rsHoldingTable(rows, false)
     : '<span class="cc-na-note">No holdings were evaluated for this session.</span>');
+  // Stage 22 (Workstream B): apply the canonical evidence hierarchy LAST, so a blocked
+  // card that the backend classified as expected/superseded is demoted whichever of the
+  // two loaders finishes first (renderWorkflowState re-applies it as well).
+  try { _wsApplyEvidenceHierarchy(window._wsData); } catch (e) {}
 }
 window.renderPortfolioReassessment = renderPortfolioReassessment;
 
@@ -28448,19 +28599,50 @@ function renderOperatorCommand(d) {
       + _wsEsc(c.primary_action_label || '') + '</button>'
     : '<div class="opc-noaction" id="opc-no-action">' + _wsEsc(c.next_text || '') + '</div>';
 
+  // STAGE 22 — the canonical NORMAL CYCLE strip. Rendered VERBATIM from
+  // `d.normal_cycle` (owned by engine.normal_cycle via api.workflow_state): the ordered
+  // stages, which one the operator is in, and what happens after it. The browser derives
+  // no stage, no order and no next step, and the strip carries NO control of any kind —
+  // it is orientation, not a second place to act.
+  var cyc = (d && d.normal_cycle) || null;
+  var cycleHtml = '';
+  if (cyc && cyc.stages && cyc.stages.length) {
+    var chips = cyc.stages.map(function (s, i) {
+      var cls = 'opc-stage' + (s.status === 'CURRENT' ? ' is-current'
+        : (s.status === 'DONE' ? ' is-done' : ''));
+      return (i ? '<span class="opc-arrow">&rarr;</span>' : '')
+        + '<span class="' + cls + '" data-stage="' + _wsEsc(s.stage) + '"'
+        + ' data-stage-status="' + _wsEsc(s.status) + '"'
+        + ' title="' + _wsEsc(s.happens || '') + '">'
+        + '<span class="n">' + (i + 1) + '</span>' + _wsEsc(s.label) + '</span>';
+    }).join('');
+    cycleHtml = '<div class="opc-cycle" id="opc-cycle" data-cycle-stage="'
+      + _wsEsc(cyc.current_stage || '') + '">'
+      + '<span class="opc-cycle-lab">Daily cycle</span>' + chips
+      + (cyc.in_recovery
+        ? '<span class="opc-recovery" id="opc-recovery">Cycle suspended &mdash; recovery</span>'
+        : '')
+      + '</div>';
+  }
+
   host.innerHTML = ''
     + '<div class="opc-main">'
     +   '<div class="opc-eyebrow">Operator command</div>'
     +   '<div class="opc-task"><span class="opc-state">' + _wsEsc(c.state_label || c.state || '') + '</span>'
     +     _wsEsc(c.task || '') + '</div>'
-    +   '<div class="opc-why">' + _wsEsc(c.why || '') + '</div>'
+    +   '<div class="opc-why"><span class="opc-lab">Why</span>' + _wsEsc(c.why || '') + '</div>'
+    +   (c.after_text
+          ? '<div class="opc-after" id="opc-after"><span class="opc-lab">Then</span>'
+            + _wsEsc(c.after_text) + '</div>'
+          : '')
     +   (c.supporting_text
           ? '<div class="opc-why" id="opc-supporting" style="margin-top:3px;font-weight:700;">'
             + _wsEsc(c.supporting_text) + '</div>'
           : '')
     +   (meta.length ? '<div class="opc-meta">' + meta.join(' &middot; ') + '</div>' : '')
     + '</div>'
-    + '<div class="opc-side">' + side + '</div>';
+    + '<div class="opc-side">' + side + '</div>'
+    + cycleHtml;
   host.style.display = 'flex';
 }
 window.renderOperatorCommand = renderOperatorCommand;
@@ -28501,6 +28683,10 @@ function renderWorkflowState(d) {
   // Operator Decision Flow: the Today hero is the ONE current-state answer, rendered from
   // this SAME canonical payload (single owner). Defined outside this region; call only.
   try { _wsRenderTodayHero(d); } catch (e) {}
+  // Stage 22 (Workstream B): the stale-evidence information hierarchy is decided by THIS
+  // payload, so re-apply it now that the authoritative classification is present — the
+  // final visible weight depends on OWNERSHIP, not on which loader finished first.
+  try { _wsApplyEvidenceHierarchy(d); } catch (e) {}
   // Operator Action Integrity (Defect 3): the Daily-Close panels obey the canonical
   // daily_close_gate — re-apply their rendering now that the authoritative verdict
   // is present, so their final state depends on OWNERSHIP, not load order.
@@ -28537,13 +28723,40 @@ function _wsApplyRightPanel(d) {
   var noAction = cmd ? (cmd.primary_action_available !== true)
     : ((pa.execution_available !== true)
        && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE'));
+  // Stage 22 — ONE vocabulary: the no-action sentence is owned by the backend
+  // (api.workflow_state.NO_ACTION_TEXT) and rendered verbatim. The literal below is a
+  // last-resort fallback for a payload with no operator_command at all; it must stay
+  // byte-identical to the canonical sentence so the rail and the command bar can never
+  // show two different wordings of "nothing to do".
   _wsOwnSet('right-next-action',
     noAction ? ((cmd && cmd.next_text) || 'No action required right now.')
              : ((cmd && cmd.primary_action_label) || pa.label));
-  var btn = _wsOwnSet('right-primary-action-btn', pa.label);
+  // STAGE 22 — ONE EXECUTION SURFACE, everywhere. The rail used to render its own
+  // enabled execute button, so a single canonical action appeared as TWO live
+  // execution controls (command bar + rail) on the same 1920x1080 screen. The Today
+  // hero already defers to the command bar through this exact helper; the rail now
+  // does too: when the command bar owns the execution the rail becomes purely
+  // NAVIGATIONAL, with wording that cannot be mistaken for running anything.
+  var railOwnsExecution = (typeof _wsCommandOwnsExecution === 'function')
+    && _wsCommandOwnsExecution();
+  var railNav = railOwnsExecution && pa.destination;
+  var btn = _wsOwnSet('right-primary-action-btn',
+    railNav ? ((window._WS_VIEW_LABEL && window._WS_VIEW_LABEL[pa.destination])
+               || ('Open ' + pa.destination))
+            : pa.label);
   if (btn) {
-    if (noAction) {
+    if (noAction || (railOwnsExecution && !pa.destination)) {
       btn.style.display = 'none';
+    } else if (railNav) {
+      btn.style.display = '';
+      btn.title = 'Navigation only — opens the page. The one action lives in the '
+        + 'operator command bar above.';
+      btn.onclick = function (ev) {
+        if (ev) ev.stopPropagation();
+        var r = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination)
+          || pa.destination;
+        navigateToRoute(r);
+      };
     } else {
       btn.style.display = '';
       // Operator Action Integrity: the right-rail primary button uses the SAME

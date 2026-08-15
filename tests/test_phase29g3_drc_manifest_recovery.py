@@ -275,7 +275,7 @@ def test_26_get_status_is_terminal_after_recovery(tmp_path):
 
 
 def _wf(*, drc_state="COMPLETE", pending=0, assessment_date="2026-08-03",
-        hoc_available=True, hoc_state="DEGRADED", drc_blockers=None):
+        hoc_available=True, hoc_state="DEGRADED", drc_blockers=None, close=None):
     """Known-good CONSISTENT workflow scenario at eligible 2026-08-04 (owned data all
     2026-08-04, close not yet run for the eligible session), with a STALE legacy gate
     assessment so the reassessment currency is exercised."""
@@ -300,7 +300,8 @@ def _wf(*, drc_state="COMPLETE", pending=0, assessment_date="2026-08-03",
         reference_today="2026-08-05", operational=op,
         inputs=_inputs(price="2026-08-04", month="2026-08"),
         desk_marks=dict(_DESK), daily_status=dict(_DAILY), forward_status=dict(_FWD),
-        close_progress={"market_date": "2026-08-04", "done": False, "status": "X"},
+        close_progress=(close or {"market_date": "2026-08-04", "done": False,
+                                  "status": "X"}),
         gate=gate, target_readiness={"dates": {"alpha_market_date": "2026-08-04"}},
         research_cycle=rc)
 
@@ -320,10 +321,27 @@ def test_27_workflow_ready_for_daily_close_after_completed_cycle_with_stale_gate
 
 
 def test_27a_stale_gate_without_completed_cycle_still_requires_reassessment(tmp_path):
-    # Guard: the reassessment is satisfied ONLY by a completed cycle + current HOC — a
-    # stale gate with NO completed cycle / no HOC still requests the reassessment.
+    # Guard: the reassessment is satisfied ONLY by a completed cycle + current HOC.
+    #
+    # STAGE 22 (close precedence): this world also has an UNCLOSED eligible session
+    # (close_progress done=False), and the canonical normal cycle runs the Daily Close
+    # BEFORE the research cycle for a session — the close is what advances owned marks,
+    # settles NEXT_CLOSE paper orders and records NAV, so research produced ahead of it
+    # describes a portfolio that is about to change. The overall state is therefore the
+    # close; the reassessment requirement is still recorded and still unsatisfied, and
+    # it becomes the operator's action as soon as the close completes.
     r = _wf(drc_state="NOT_STARTED", hoc_available=False)
-    assert r["overall_state"] == ws.PORTFOLIO_REASSESSMENT_REQUIRED
+    assert r["overall_state"] == ws.READY_FOR_DAILY_CLOSE
+    assert r["portfolio_assessment_state"]["assessment_status"] == ws.ASSESS_STALE
+    assert r["normal_cycle"]["current_stage"] == "DAILY_CLOSE"
+    assert r["normal_cycle"]["next_stage"] == "DAILY_RESEARCH_CYCLE"
+    # ...and with the close COMPLETE for that session, the missing assessment is what
+    # the operator is asked for — exactly one action, never two.
+    r2 = _wf(drc_state="NOT_STARTED", hoc_available=False,
+             close={"market_date": "2026-08-04", "done": True,
+                    "final_close_status": "DAILY_CLOSE_COMPLETE_HOLD"})
+    assert r2["overall_state"] == ws.RESEARCH_CYCLE_REQUIRED
+    assert r2["normal_cycle"]["current_stage"] == "DAILY_RESEARCH_CYCLE"
 
 
 def test_27b_missing_manifest_recovery_surfaces_inconsistent_not_not_run(tmp_path):

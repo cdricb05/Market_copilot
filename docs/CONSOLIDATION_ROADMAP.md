@@ -931,3 +931,46 @@ Deferred, deliberately:
 * The handoff `_common.ps1` keeps `Assert-ProductionStoreRoots`. It answers "is the
   operator's shell clean?", which is a different question from "may this process serve
   production?" - see the decision record.
+
+## Stage 22 — Normal-cycle reliability & decision readiness (LANDED)
+
+Bounded slice, behind tests. Two new pure kernels, four touched owners, one UI surface,
+one guard, one regression suite.
+
+1. **`engine/normal_cycle.py`** — the PURE canonical cycle: five ordered stages, the
+   per-stage gate every surface obeys, the enforced single-mutation invariant, and the four
+   operator answers (now / do / why / after). No IO, no clock, no `api.*` import. **LANDED.**
+2. **`engine/data_gap_taxonomy.py`** — the PURE gap taxonomy: severity is a property of the
+   gap; an unknown code is BLOCKING; no missing value is ever substituted. **LANDED.**
+3. **`api/workflow_state.py`** — projects the decided state onto the cycle; adds the close-
+   precedence rule (P3.7), the post-close research requirement (P4.5), the stale-evidence
+   classification and the one fail-closed binding verdict. Still the ONE combined-
+   interpretation owner; no second state engine. **LANDED.**
+4. **`api/holding_opportunity_cost.py` / `api/reallocation_proposal.py` /
+   `api/daily_action_gate.py`** — carry the taxonomy and the binding fields through the ONE
+   shared gate path, and take explicit store seams so a hermetic caller can never reach a
+   production root. **LANDED.**
+5. **`api/ui/index.html`** — the existing operator command bar answers all four questions and
+   renders the cycle strip verbatim; the reassessment card obeys the backend evidence
+   hierarchy; the opportunity-cost surface renders every gap field; the right rail defers to
+   the one execution surface. No new dashboard, no new route. **LANDED.**
+6. **`scripts/stage20_ui_fixtures.py`** — three normal-cycle scenarios (7 pre-close, 8 close
+   due, 9 post-close research due) from the SAME single scenario owner, plus the cross-panel
+   verdict over cycle stage, open gates, evidence class and mutation count. **LANDED.**
+7. **`scripts/audit_architecture.py::check_normal_cycle_ownership`** — 21 blocking
+   invariants. **LANDED.**
+8. **`tests/test_stage22_normal_cycle.py`** — the regression. **LANDED.**
+
+Deferred, deliberately:
+
+* **The legacy DB review workflow's order-ticket controls** (`/v1/review/create-orders` and
+  its panel) are untouched. They predate the operational book and are not part of the normal
+  cycle; folding them in would mean changing a workflow this stage never exercised.
+* **Merging the Daily Close and the Daily Research Cycle** into one button. They remain two
+  distinct operations with two distinct owners and two confirmation tokens — Stage 22 makes
+  the TRANSITION between them explicit and deterministic, which is what was missing. Merging
+  them would hide a write behind another write.
+* **The `PM_INPUTS_UNAVAILABLE` panel in the hermetic harness.** The portfolio-manager
+  endpoint is not one of the bound canonical panels, so it renders its own empty world in an
+  acceptance run. It is pre-existing, visible only under the harness, and belongs to the
+  acceptance-panel list rather than to the cycle contract.

@@ -563,3 +563,34 @@ Target invariants Stage 21 must keep satisfying:
   own output.
 * Evidence surfaces stay GET-only and stay out of the operator's action path. The maximum
   action Stage 21 can ever produce is a recommendation that a human review a policy.
+
+## Stage 22 — Normal-cycle ownership boundaries
+
+| Concern | Target owner | Today |
+| --- | --- | --- |
+| The canonical daily stage sequence | `engine/normal_cycle.py` (pure) | same owner |
+| Per-stage gate ("may this surface offer its action?") | `engine/normal_cycle.py` | same owner |
+| Which stage the operator is in | `api/workflow_state.py` (projection only) | same owner |
+| Data-gap severity / effect / safe fallback | `engine/data_gap_taxonomy.py` (pure) | same owner |
+| Gap classification over an immutable artifact | `api/holding_opportunity_cost.py` (read layer) | same owner |
+| Stale-evidence classification + presentation rank | `api/workflow_state.py` | same owner |
+| Assessment / proposal binding verdict | `api/workflow_state.py` | same owner |
+
+Target invariants Stage 22 must keep satisfying:
+
+* ONE normal-cycle state owner. The kernel decides nothing about the world; the workflow
+  owner decides nothing about the sequence. Neither may be duplicated.
+* AT MOST ONE normal-path mutation is ever offered, and it is always the current stage's.
+  A review is not a mutation, and the invariant is ENFORCED at composition time.
+* The Daily Close precedes the Daily Research Cycle for a session, and a completed close
+  makes the research cycle DUE. No hidden desk / target / evidence / mark refresh stands
+  between them.
+* Stale evidence never drives a portfolio change, in either classification. Demotion moves
+  presentation rank only.
+* Severity is a property of a data gap, never inferred from its code by a consumer. An
+  unknown code is BLOCKING; nothing missing is ever substituted with zero or current data.
+* A binding failure is stated exactly once; UNVERIFIABLE is never treated as broken.
+* Classification and projection are READ-layer concerns: they never perturb an immutable
+  artifact's hash, never re-run an engine, and never write.
+* A hermetic scenario can bind EVERY canonical read seam, so no acceptance run can read a
+  production store.

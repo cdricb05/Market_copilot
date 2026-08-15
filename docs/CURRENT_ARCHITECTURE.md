@@ -1675,3 +1675,148 @@ no mutating HTTP verb, no probed `/v1` path the application does not declare as 
 covered too. `tests/test_canonical_backend_restart.py` proves the contract statically against
 the parsed route table and by executing the workflow for real against a hermetic stub backend
 on a throwaway port - never port 8001, never the live application, never a live store.
+
+## Stage 22 — The canonical NORMAL DAILY PORTFOLIO CYCLE
+
+### What was actually wrong
+
+Nothing in the system was lying. The Daily Close panel, the Daily Research Cycle panel,
+the Holding Opportunity-Cost card, the Reallocation Proposal card, the Active Portfolio
+Assessment card and the Stage-19 rebalance lifecycle were each individually correct — and
+each was free to imply an action. Stage 19.3 reduced the *promoted* action to one; Stage 22
+removes the remaining ambiguity by making the SEQUENCE itself canonical and giving every
+surface one verdict to obey.
+
+Three concrete defects fell out of that ambiguity:
+
+1. **Two legal orderings for one session.** A stale research input could promote the Daily
+   Research Cycle ahead of an eligible session whose Daily Close had not run. The close is
+   what advances owned marks, settles NEXT_CLOSE paper orders and records NAV, so research
+   produced ahead of it describes a portfolio that is about to change.
+2. **The post-close handoff was not guaranteed.** The Daily Close composes the owned-mark
+   refresh AND the model-input refresh, so a completed close could leave every REQUIRED
+   signal input current while no opportunity-cost assessment existed for the session it had
+   just closed. The operator was then told "monitor / no action required" for a session
+   that had never been reassessed.
+3. **Correct fail-closed evidence read as an incident.** A superseded assessment
+   (`BLOCKED_EVIDENCE`) rendered as a large red card beside an authoritative "no action
+   required" state, so the operator went looking for work that did not exist.
+
+### The canonical cycle
+
+    1. WAIT_FOR_SESSION_CLOSE   the session is still open — nothing to do
+    2. DAILY_CLOSE              marks / NAV / NEXT_CLOSE settlement / forward evidence
+    3. DAILY_RESEARCH_CYCLE     signal refresh -> HOC -> reassessment -> proposal
+    4. PORTFOLIO_DECISION       monitor, or manual proposal review
+    5. CONTROLLED_REBALANCE     gate 1 -> order plan -> gate 2 -> desk -> reconcile
+
+There is exactly one path through those stages. `engine/normal_cycle.py` is the PURE owner
+of the sequence, the per-stage gate and the four operator answers (now / do / why / after).
+It decides nothing about the world: `api/workflow_state.py` resolves the overall state from
+the authoritative domain owners and the kernel only PROJECTS that one decision onto the
+sequence.
+
+| Concern | Owner |
+| --- | --- |
+| The stage sequence, per-stage gates, the four operator answers | `engine/normal_cycle.py` (pure) |
+| Which stage the operator is in | `api/workflow_state.py` (projects the decided state) |
+| Data-gap taxonomy (severity, effect, safe fallback) | `engine/data_gap_taxonomy.py` (pure) |
+| Gap classification over an immutable artifact | `api/holding_opportunity_cost.py` (read layer) |
+| Stale-evidence classification + presentation rank | `api/workflow_state.py` |
+| Assessment / proposal binding verdict | `api/workflow_state.py` |
+
+### Priority policy (the repaired ordering)
+
+`_decide_overall` gained one rule and one flag:
+
+* **P3.7 close precedence.** A confirmed eligible completed session whose Daily Close is
+  NOT complete has exactly one canonical next action: the Daily Close. A run already IN
+  FLIGHT (P3.5) or BLOCKED (P3.6) still outranks it — an in-progress cycle is never
+  interrupted and a blocked one names a fix the operator must make first.
+* **P4.5 post-close research requirement.** A completed close makes the Daily Research
+  Cycle DUE until a Holding Opportunity-Cost assessment bound to that same eligible session
+  exists. It applies ONLY when the HOC contract is observable on the gate: an absent
+  contract is UNVERIFIABLE, and inferring "not run" from a missing key would fabricate work.
+
+The former P6 ("close is not complete") is now P3.7, so an unclosed session can never be
+overtaken by a research or reassessment action.
+
+### Stage gates — one verdict every surface obeys
+
+`normal_cycle.stage_gates` carries, per stage, `execution_allowed` / `review_required` /
+`passive_status`. Only DAILY_CLOSE and DAILY_RESEARCH_CYCLE can ever open a mutation gate;
+the portfolio decision is a REVIEW (it records a human decision through its own owner and
+creates no order) and the controlled rebalance runs behind its own two manual gates.
+`assert_single_primary_mutation` raises inside the composition if two mutation gates ever
+open at once, so the invariant fails before it can reach a browser.
+
+### Stale-evidence hierarchy (fail-closed semantics unchanged)
+
+`build_evidence_classification` separates:
+
+* **SYSTEM_BLOCKER** — the operator must fix something now (a data block, an unclassified
+  cause, or a workflow already in recovery). Presentation rank PRIMARY, severity BLOCKED.
+* **EXPECTED_STALE_EVIDENCE** — every named cause is resolved by the next canonical cycle.
+  Demoted to EVIDENCE, or to HISTORY while the workflow is passive. Severity INFO,
+  `competes_with_primary_action=False`, `is_operational_incident=False`.
+
+In both cases `blocks_portfolio_action` is True. Nothing is hidden, no history is rewritten
+and no validity rule changed — only the information hierarchy moved.
+
+### Data-gap taxonomy
+
+Every gap is a machine-readable record: `ticker`, `metric`, `expected_as_of_date`,
+`available_as_of_date`, `source_owner`, `reason`, `blocking`, `effect_on_recommendation`,
+`safe_fallback`. Classification runs at the READ layer over an already-persisted immutable
+assessment, so it changes no recommendation and — critically — never perturbs the artifact's
+`assessment_hash`. An unknown code is BLOCKING by construction, and no missing value is ever
+replaced by zero or by a current-date substitute (the one named fallback,
+`gross_score_improvement` for an unavailable risk contribution, is one the calculation owner
+already implements).
+
+### Assessment / proposal binding
+
+`build_assessment_binding` produces ONE fail-closed verdict over: the assessment covers the
+eligible session, describes the current active book, the corporate-action registry is
+unchanged, and any proposal binds to that exact assessment hash and session. A broken
+binding is stated exactly once (`stated_once`) rather than restated as four red cards.
+UNVERIFIABLE is never treated as broken — an artifact that recorded no fingerprint cannot
+prove currency either way, and inferring staleness from a missing value is fabrication.
+
+### Operator cockpit
+
+The existing `#operator-command` bar (no new dashboard, no new route) now answers all four
+questions and carries a compact five-chip cycle strip rendered VERBATIM from
+`normal_cycle`: NOW (state + task), WHY, THEN (`after_text`), and the single action or an
+explicit "No action required right now." The right Action/Safety rail was still rendering a
+SECOND enabled execute button for the same canonical action; like the Today hero it now
+defers to the command bar and becomes purely navigational, so one canonical action is never
+two live controls.
+
+### Hermetic acceptance
+
+`scripts/stage20_ui_fixtures.py` (still the ONE scenario owner) gained the knobs the cycle
+needs end to end — `session` (a live pre-cutoff clock, the only way to reach a genuine
+BEFORE_SESSION_CLOSE), `research`, `hoc_artifact`, `hoc_gaps`, `reassessment_evidence` —
+and three scenarios: 7 (pre-close, expected stale evidence, nothing to do), 8 (session
+complete, the close is the one action), 9 (close complete, the research cycle is the one
+action). The cross-panel verdict now also judges the workflow state, the cycle stage, the
+open stage gates, the evidence classification and the mutation count.
+
+**A live-store leak was closed in the process.** `artifact=None` means "not supplied", not
+"none exists", so every canonical artifact reader fell back to its PRODUCTION root — the
+composed "synthetic" world could silently contain the operator's real opportunity-cost,
+reallocation and corporate-action state, and an ABSENT artifact was unrepresentable.
+Readers now take explicit `hoc_dir` / `reallocation_dir` / `actions_dir` seams, and
+`load_workflow_state` accepts `reassessment_summary` and `decision_record` so every seam of
+a scenario can be bound.
+
+### Guards
+
+`scripts/audit_architecture.py::check_normal_cycle_ownership` is a blocking invariant set:
+pure kernels, the sequence declared IN ORDER, no second cycle-state or gap-taxonomy owner,
+the single-mutation invariant enforced (not merely documented), the post-close requirement
+present, close-before-research, no standalone desk refresh required between them, stale
+evidence classified AND still fail-closed, the binding verdict present, an unknown gap code
+BLOCKING, no silent substitution, and a UI that mirrors the contract instead of re-deriving
+a workflow priority. `tests/test_stage22_normal_cycle.py` is the regression.

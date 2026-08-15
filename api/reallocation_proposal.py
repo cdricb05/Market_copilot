@@ -147,7 +147,8 @@ def _bound_corporate_actions_hash(artifact: Optional[dict]) -> Optional[str]:
 
 def corporate_action_staleness(*, artifact: Optional[dict],
                                portfolio_state: Optional[dict] = None,
-                               active_book_id: Optional[str] = None) -> dict:
+                               active_book_id: Optional[str] = None,
+                               actions_dir=None) -> dict:
     """Is a persisted proposal still valid against the CURRENT corporate-action registry?
     Pure delegation to ``api.corporate_actions.staleness_vs_registry``; this module
     recreates no split math and no registry logic."""
@@ -161,7 +162,10 @@ def corporate_action_staleness(*, artifact: Optional[dict],
                "actions": ((portfolio_state or {}).get("corporate_actions")
                            or {}).get("actions") or []}
         return ca.staleness_vs_registry(bound, current=cur)
-    return ca.staleness_vs_registry(bound, book_id=active_book_id)
+    # Stage 22: explicit seam so a HERMETIC caller resolves the registry from ITS OWN
+    # root instead of reaching the operator's real one from a synthetic scenario.
+    return ca.staleness_vs_registry(bound, book_id=active_book_id,
+                                    actions_dir=actions_dir)
 
 
 # --------------------------------------------------------------------------- #
@@ -724,7 +728,8 @@ def load_reallocation_proposal(*, portfolio_state: Optional[dict] = None,
 # --------------------------------------------------------------------------- #
 def load_proposal_summary(*, active_book_id: Optional[str] = None,
                           eligible_market_date: Optional[str] = None,
-                          artifact: Optional[dict] = None, reallocation_dir=None) -> dict:
+                          artifact: Optional[dict] = None, reallocation_dir=None,
+                          actions_dir=None) -> dict:
     """A compact, read-only reallocation-proposal summary. PURE ARTIFACT READER — it
     reads ONLY the immutable proposal index/artifact for the exact
     ``(active_book_id, eligible_market_date)`` the caller supplies; it never loads
@@ -763,7 +768,8 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
     # owner from the registry file alone — this stays a pure artifact reader (no portfolio
     # state load, no engine run, no provider call).
     try:
-        stale_blk = corporate_action_staleness(artifact=art, active_book_id=active_book_id)
+        stale_blk = corporate_action_staleness(artifact=art, active_book_id=active_book_id,
+                                               actions_dir=actions_dir)
     except Exception:  # noqa: BLE001 — never crash a compact summary read
         stale_blk = {"stale": False, "reason": None,
                      "current_corporate_actions_hash": None}
@@ -786,4 +792,15 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
             "proposed_holding_count"),
         "reallocation_data_gaps": [g.get("code") for g in (p.get("data_gaps") or [])
                                    if not g.get("by_design")],
+        # Stage 22 (Workstream E) — the EXACT assessment / session / portfolio this
+        # proposal is bound to. A consumer proves the binding instead of assuming it:
+        # a proposal that does not bind to the CURRENT fresh assessment must never be
+        # presented as reviewable.
+        "reallocation_bound_hoc_assessment_hash": (
+            (art.get("identity") or {}).get("hoc_assessment_hash")),
+        "reallocation_bound_eligible_market_date": (
+            (art.get("identity") or {}).get("eligible_market_date")
+            or p.get("eligible_market_date")),
+        "reallocation_bound_active_book_id": (
+            (art.get("identity") or {}).get("active_book_id")),
     }

@@ -1308,3 +1308,142 @@ parent shell clean?" - whereas `api/environment_isolation.py` answers "may THIS 
 serve production?", including the hermetic-acceptance opt-in that the shell check must never
 honour. The restart workflow no longer uses the PowerShell copy: it delegates to the Python
 owner.
+
+## Stage 22 decisions
+
+### D-S22-1 — The normal daily cycle is a canonical, ordered contract with ONE owner (CONFIRMED)
+
+**Decision.** The five stages (wait -> daily close -> daily research cycle -> portfolio
+decision -> controlled rebalance) are a frozen, ordered contract owned by the PURE kernel
+`engine/normal_cycle.py`. `api/workflow_state.py` resolves the overall state from the
+authoritative domain owners and PROJECTS it onto that sequence; no other module may.
+
+**Why.** Every operator surface was individually correct and collectively ambiguous. Making
+the promoted action unique (Stage 19.3) did not answer "and what comes after that?", so each
+surface still implied its own next step. A sequence with one owner is what makes the answer
+identical everywhere.
+
+**Evidence.** `stage_for_overall_state` is total over `ws.OVERALL_STATES` and fails CLOSED
+into RECOVERY for anything else; `check_normal_cycle_ownership` blocks a second owner and a
+reordered sequence.
+
+### D-S22-2 — The Daily Close outranks the Daily Research Cycle for an unclosed session (CONFIRMED)
+
+**Decision.** A confirmed eligible completed session whose close is not complete has exactly
+one canonical next action: the Daily Close (priority P3.7). A research run already in flight
+or blocked still outranks it.
+
+**Why.** Two legal orderings existed for the same session. The close is what advances owned
+marks, settles NEXT_CLOSE paper orders and records NAV — research produced ahead of it
+describes a portfolio that is about to change, and the operator had no way to know which
+order was intended.
+
+**Cost accepted.** Phase 29G.3's `test_27a` encoded the other ordering for the
+confirmed-but-unclosed case. It was updated, with the reassessment requirement still
+recorded and still unsatisfied — it simply becomes the operator's action once the close
+completes.
+
+### D-S22-3 — A completed Daily Close makes the Daily Research Cycle DUE (CONFIRMED)
+
+**Decision.** A completed close for the eligible session makes the research cycle the one
+required action until a Holding Opportunity-Cost assessment bound to that same session
+exists (priority P4.5).
+
+**Why.** The close composes both the owned-mark refresh and the model-input refresh, so it
+can leave every REQUIRED signal input current while the session it just closed has never
+been reassessed. The operator was then shown "monitor / no action required" and the daily
+reassessment silently never happened — precisely the failure the canonical objective exists
+to prevent.
+
+**Boundary.** The requirement applies ONLY when the HOC contract is observable on the gate.
+An absent contract is UNVERIFIABLE; inferring "not run" from a missing key would fabricate
+work for the operator, which is the same class of error as inferring staleness from a
+missing fingerprint (D-S21).
+
+### D-S22-4 — Stale evidence is DEMOTED, never reinterpreted (CONFIRMED)
+
+**Decision.** A blocked/stale assessment is classified SYSTEM_BLOCKER (fix it now) or
+EXPECTED_STALE_EVIDENCE (the next canonical cycle supersedes it). The expected case is
+demoted to EVIDENCE, or to HISTORY while the workflow is passive. `blocks_portfolio_action`
+stays True in BOTH cases.
+
+**Why.** The operator could not distinguish "you must act" from "this is correctly
+non-actionable", so a correct fail-closed state read as an outage. This is an information-
+hierarchy repair, not a validity change: nothing is hidden, no history is rewritten and no
+rule about what may drive a portfolio change was touched.
+
+**Fail-closed default.** An unrecognised blocker code, no blocker codes at all, a data block,
+or a workflow already in recovery all classify as SYSTEM_BLOCKER. "Expected" is never
+assumed.
+
+### D-S22-5 — Gap severity is a PROPERTY of the gap, never inferred from its code (CONFIRMED)
+
+**Decision.** `engine/data_gap_taxonomy.py` maps every gap code to a machine-readable record
+(ticker, metric, expected + available as-of date, source owner, reason, BLOCKING vs
+NON_BLOCKING, effect on the recommendation, safe fallback). Consumers read `blocking`.
+
+**Why.** "1 data gap(s) documented" told the operator nothing, and a downstream consumer had
+to parse a string to guess severity — which is how "documented" quietly becomes "ignored".
+
+**Two hard rules.** An unknown code is BLOCKING by construction. Missing data is NEVER
+converted to zero or to current data; a gap with no genuine point-in-time substitute reports
+`safe_fallback = None` and says so.
+
+**Placement.** Classification runs at the READ layer over an already-persisted immutable
+assessment. Emitting it from the kernel would have changed `assessment_hash` and made every
+existing production artifact conflict with its own re-run.
+
+### D-S22-6 — A broken binding fails closed EXACTLY ONCE (CONFIRMED)
+
+**Decision.** `build_assessment_binding` produces one verdict over assessment currency
+(session, book, corporate-action registry) and proposal binding (assessment hash, session).
+Every surface renders that verdict; none re-derives it.
+
+**Why.** Four surfaces independently discovering the same broken binding produced four red
+cards for one fact. UNVERIFIABLE is a distinct state from BROKEN and never blocks: an
+artifact that recorded no fingerprint cannot prove currency either way.
+
+### D-S22-7 — The portfolio decision is a REVIEW, so it can never open a mutation gate (CONFIRMED)
+
+**Decision.** Only DAILY_CLOSE and DAILY_RESEARCH_CYCLE may open a stage mutation gate. The
+portfolio decision carries `review_required`; the controlled rebalance keeps its own two
+manual gates.
+
+**Why.** "At most one primary mutation" must be a statement about WRITES, not about buttons.
+Counting a read-only review as a mutation would have made the invariant meaningless in the
+one state where it matters most.
+
+**Enforcement.** `assert_single_primary_mutation` raises inside the composition, so the
+invariant fails before it can reach a browser rather than being asserted only in a test.
+
+### D-S22-8 — A hermetic scenario must be able to bind EVERY seam (CONFIRMED)
+
+**Decision.** `artifact=None` means "not supplied", not "none exists". Canonical artifact
+readers take explicit `hoc_dir` / `reallocation_dir` / `actions_dir` seams, and
+`load_workflow_state` accepts `reassessment_summary` and `decision_record`.
+
+**Why.** Without them the acceptance harness composed a "synthetic" world whose
+opportunity-cost, reallocation, reassessment, decision and corporate-action state were read
+from the operator's REAL stores — so a scenario could pass while describing live evidence,
+and an ABSENT artifact was unrepresentable. This is the same defect class Stage 20.1 fixed
+for the freshness contract and Stage 21 fixed for the close journal, found in the remaining
+readers.
+
+### D-S22-9 — A payload that states a session twice must freeze it ONCE (CONFIRMED)
+
+**Decision.** `api.alpha_book.load_desk_mark_readiness` takes an additive
+`latest_completed` seam (omitted — the production path — it resolves the live clock through
+`alpha_target`, unchanged). `api.operational_book.load_operational_book` gains **no** new
+parameter: it forwards the session the caller already declared through `target_readiness`.
+One injection therefore freezes both reads, and `scripts/stage20_ui_fixtures.py` fails any
+scenario whose two published sessions differ (`REQUIRED_SESSION_NOT_FROZEN`).
+
+**Why.** The operational payload states the latest completed market session twice —
+`current_target.latest_completed_market_date` and `desk_mark_required_date`. In production
+both are the same call, so they cannot disagree; making only the first injectable broke that
+invariant inside hermetic worlds. Every frozen scenario published a real-calendar date and
+degraded to `DESK_MARK_BEHIND` / `REFRESH_DESK_MARKS` with a
+`DESK_MARK_DATE_BEHIND_REQUIRED` blocker the day the wall clock passed the frozen session —
+the Stage-21 Workstream 0F decay signature, in the last unbound read. A second explicit
+parameter was rejected: it would let a caller declare two different sessions and
+reintroduce exactly the disagreement the seam exists to prevent.

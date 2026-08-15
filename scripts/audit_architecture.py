@@ -3659,6 +3659,167 @@ def _ps_url_path(literal: str) -> str:
     return s.rstrip("/") or "/"
 
 
+# --------------------------------------------------------------------------- #
+# STAGE 22 — NORMAL-CYCLE OWNERSHIP
+#
+# The normal daily cycle had no owner. Every surface was individually correct and
+# collectively ambiguous: the Daily Close panel, the Daily Research panel, the
+# opportunity-cost card, the reallocation card, the reassessment card and the
+# rebalance lifecycle could each imply an action, and nothing said which came first.
+# This guard pins the repaired shape so it cannot silently come apart again.
+# --------------------------------------------------------------------------- #
+NC_KERNEL = "engine/normal_cycle.py"
+GAP_KERNEL = "engine/data_gap_taxonomy.py"
+NC_OWNER = "api/workflow_state.py"
+
+#: The canonical stage sequence, in order. A reordering here is a contract change.
+NC_STAGE_SEQUENCE = ("WAIT_FOR_SESSION_CLOSE", "DAILY_CLOSE", "DAILY_RESEARCH_CYCLE",
+                     "PORTFOLIO_DECISION", "CONTROLLED_REBALANCE")
+#: The kernel must stay PURE: no IO, no clock, no store, no provider, no api.* import.
+NC_KERNEL_FORBIDDEN = ("import os", "open(", "requests.", "httpx.", "datetime.now(",
+                       "from paper_trader.api", "Path(", "json.load", "json.dump")
+#: What the workflow owner must actually do with the kernel.
+NC_OWNER_TOKENS = ('"normal_cycle": normal_cycle', "ncycle.build_cycle_view(",
+                   '"stage_gates"', "research_cycle_due_after_close")
+#: The single-primary-mutation invariant must be ENFORCED, not merely documented.
+NC_SINGLE_MUTATION_TOKENS = ("def assert_single_primary_mutation(",
+                             "MultiplePrimaryMutationError",
+                             "assert_single_primary_mutation(list(gates.values()))")
+#: Stale-evidence hierarchy (Workstream B) — classified, demoted, still fail-closed.
+NC_EVIDENCE_TOKENS = ("def build_evidence_classification(", "EVIDENCE_SYSTEM_BLOCKER",
+                      "EVIDENCE_EXPECTED_STALE", '"blocks_portfolio_action": True',
+                      '"evidence_classification": evidence_classification')
+#: Assessment / proposal binding (Workstream E) — one fail-closed verdict, stated once.
+NC_BINDING_TOKENS = ("def build_assessment_binding(", "BINDING_CURRENT", "BINDING_STALE",
+                     "BINDING_UNVERIFIABLE", '"stated_once": True',
+                     '"assessment_binding": assessment_binding')
+#: Data-gap taxonomy (Workstream C) — severity is a property, never inferred downstream.
+GAP_TAXONOMY_TOKENS = ("BLOCKING", "NON_BLOCKING", '"blocking"',
+                       '"effect_on_recommendation"', '"safe_fallback"',
+                       '"expected_as_of_date"', '"available_as_of_date"',
+                       '"source_owner"', '"ticker"')
+#: An unknown gap code must fail CLOSED (BLOCKING), never be assumed harmless.
+GAP_UNKNOWN_FAILS_CLOSED = ('UNKNOWN_GAP = {', '"severity": BLOCKING')
+#: Missing data must never be silently converted to zero / current data.
+GAP_NO_SILENT_SUBSTITUTION = ('"missing_data_converted_to_zero": False',
+                              '"missing_data_converted_to_current": False',
+                              '"silently_substituted": False')
+#: The UI mirrors the cycle; it must not own a stage list or a next-step rule.
+NC_UI_TOKENS = ('id="opc-cycle"', "d.normal_cycle", "_wsApplyEvidenceHierarchy(",
+                'id="hoc-gaps"', "data_gap_taxonomy",
+                # The right rail DEFERS to the one command bar instead of rendering a
+                # second enabled execute button for the same canonical action.
+                "var railOwnsExecution", "railNav ?")
+#: Client-side re-derivation of the cycle that would recreate a second priority engine.
+NC_UI_FORBIDDEN = ("function normalCycleStage", "function nextCycleStage",
+                   "STAGE_SEQUENCE =", "function decideCycleStage")
+#: A standalone desk refresh must never be a REQUIRED step between the close and the
+#: research cycle (Workstream D). The close composes the desk owner, the workflow owner
+#: says so in the operator's own words, and the operational-book presentation contract
+#: carries the machine-readable flag every surface obeys.
+NC_NO_STANDALONE_REFRESH_WS = "no separate desk refresh is required"
+NC_NO_STANDALONE_REFRESH_OB = "requires_separate_desk_refresh"
+NC_OPERATIONAL_BOOK = "api/operational_book.py"
+
+
+def check_normal_cycle_ownership(files: list[Path]) -> dict:
+    """Stage 22 strict guard over the canonical NORMAL DAILY PORTFOLIO CYCLE.
+
+      (1)  the pure cycle kernel and the pure gap-taxonomy kernel exist and stay pure;
+      (2)  the canonical stage sequence is declared, in order, exactly once;
+      (3)  ``api.workflow_state`` is the ONLY module that projects state onto the cycle
+           (no competing normal-cycle state owner);
+      (4)  the single-primary-mutation invariant is ENFORCED at runtime;
+      (5)  the post-close research requirement exists (no hidden manual step between the
+           Daily Close and the Daily Research Cycle);
+      (6)  a standalone desk refresh is never required between them;
+      (7)  stale evidence is CLASSIFIED (system blocker vs expected) and still fails
+           closed;
+      (8)  the assessment/proposal binding verdict exists, fails closed and is stated once;
+      (9)  every data gap carries its full machine-readable taxonomy, an unknown code
+           fails CLOSED, and nothing is silently substituted;
+      (10) the UI mirrors the contract and re-derives no stage, order or next step.
+    """
+    nc_src = _read(NC_KERNEL)
+    gap_src = _read(GAP_KERNEL)
+    ws_src = _read(NC_OWNER)
+    ui = _read(UI_FILE)
+
+    # (1) purity — the kernels take no dependency on the world.
+    kernel_impurity = sorted(t for t in NC_KERNEL_FORBIDDEN if t in nc_src)
+    gap_impurity = sorted(t for t in NC_KERNEL_FORBIDDEN if t in gap_src)
+
+    # (2) the sequence is declared in order.
+    seq_positions = [nc_src.find('"%s"' % s) for s in NC_STAGE_SEQUENCE]
+    sequence_declared = all(p != -1 for p in seq_positions)
+    sequence_ordered = sequence_declared and seq_positions == sorted(seq_positions)
+
+    # (3) no second normal-cycle state owner.
+    second_cycle_owner_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (NC_KERNEL, NC_OWNER, "scripts/audit_architecture.py")
+        and "def build_cycle_view(" in fp.read_text(encoding="utf-8", errors="replace"))
+    second_gap_owner_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (GAP_KERNEL, "scripts/audit_architecture.py")
+        and "def classify_assessment_gaps(" in fp.read_text(encoding="utf-8",
+                                                            errors="replace"))
+
+    # (4)/(5)/(6) enforcement + the post-close handoff.
+    missing_owner_tokens = sorted(t for t in NC_OWNER_TOKENS if t not in ws_src)
+    single_mutation_enforced = all(
+        t in (nc_src + ws_src) for t in NC_SINGLE_MUTATION_TOKENS)
+    post_close_research_required = (
+        "research_cycle_due_after_close" in ws_src
+        and "if research_cycle_due_after_close:" in ws_src)
+    close_outranks_research = "P3.7" in ws_src
+    no_standalone_refresh = (NC_NO_STANDALONE_REFRESH_WS in ws_src
+                             and NC_NO_STANDALONE_REFRESH_OB
+                             in _read(NC_OPERATIONAL_BOOK))
+
+    # (7)/(8) evidence hierarchy + binding.
+    missing_evidence_tokens = sorted(t for t in NC_EVIDENCE_TOKENS if t not in ws_src)
+    missing_binding_tokens = sorted(t for t in NC_BINDING_TOKENS if t not in ws_src)
+    evidence_still_fails_closed = '"blocks_portfolio_action": True' in ws_src
+
+    # (9) the gap taxonomy.
+    missing_gap_tokens = sorted(t for t in GAP_TAXONOMY_TOKENS if t not in gap_src)
+    unknown_gap_fails_closed = all(t in gap_src for t in GAP_UNKNOWN_FAILS_CLOSED)
+    no_silent_substitution = all(t in gap_src for t in GAP_NO_SILENT_SUBSTITUTION)
+    gap_severity_consumed = ("blocking_gap_count" in ws_src
+                             and "opportunity_cost_data_gap_taxonomy" in ws_src)
+
+    # (10) the UI mirrors, never derives.
+    missing_ui_tokens = sorted(t for t in NC_UI_TOKENS if t not in ui)
+    ui_cycle_derivation = sorted(t for t in NC_UI_FORBIDDEN if t in ui)
+
+    return {
+        "kernels_present": bool((REPO_ROOT / NC_KERNEL).exists()
+                                and (REPO_ROOT / GAP_KERNEL).exists()),
+        "kernel_impurity": kernel_impurity,
+        "gap_kernel_impurity": gap_impurity,
+        "stage_sequence": list(NC_STAGE_SEQUENCE),
+        "sequence_declared": bool(sequence_declared),
+        "sequence_ordered": bool(sequence_ordered),
+        "second_cycle_owner_modules": second_cycle_owner_modules,
+        "second_gap_owner_modules": second_gap_owner_modules,
+        "missing_owner_tokens": missing_owner_tokens,
+        "single_mutation_enforced": bool(single_mutation_enforced),
+        "post_close_research_required": bool(post_close_research_required),
+        "close_outranks_research": bool(close_outranks_research),
+        "no_standalone_desk_refresh_required": bool(no_standalone_refresh),
+        "missing_evidence_tokens": missing_evidence_tokens,
+        "evidence_still_fails_closed": bool(evidence_still_fails_closed),
+        "missing_binding_tokens": missing_binding_tokens,
+        "missing_gap_tokens": missing_gap_tokens,
+        "unknown_gap_fails_closed": bool(unknown_gap_fails_closed),
+        "no_silent_substitution": bool(no_silent_substitution),
+        "gap_severity_consumed_not_inferred": bool(gap_severity_consumed),
+        "missing_ui_tokens": missing_ui_tokens,
+        "ui_cycle_derivation": ui_cycle_derivation,
+    }
+
+
 def check_backend_restart_ownership(extra_dirs=()) -> dict:
     """ONE repository-owned restart / smoke workflow.
 
@@ -3833,6 +3994,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
+        "normal_cycle_ownership": check_normal_cycle_ownership(files),
         "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
         "stage21_outcome_intelligence": check_stage21_outcome_intelligence(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
@@ -4290,6 +4452,34 @@ def _print_console(rep: dict) -> None:
     print(f"forbidden new purchase/order/promotion routes (must be empty): {ux['forbidden_new_routes_present']}  "
           f"cadence enabled (must be False): {ux['cadence_enabled']}")
 
+    hdr("NORMAL DAILY PORTFOLIO CYCLE OWNERSHIP (Stage 22)")
+    nc = rep["normal_cycle_ownership"]
+    print(f"kernels present: {nc['kernels_present']}  "
+          f"cycle-kernel impurity (must be empty): {nc['kernel_impurity']}  "
+          f"gap-kernel impurity (must be empty): {nc['gap_kernel_impurity']}")
+    print(f"stage sequence: {' -> '.join(nc['stage_sequence'])}")
+    print(f"declared: {nc['sequence_declared']}  in order: {nc['sequence_ordered']}")
+    print(f"second cycle-state owners (must be empty): {nc['second_cycle_owner_modules']}  "
+          f"second gap-taxonomy owners (must be empty): {nc['second_gap_owner_modules']}")
+    print(f"workflow owner missing tokens (must be empty): {nc['missing_owner_tokens']}")
+    print(f"single primary mutation ENFORCED: {nc['single_mutation_enforced']}  "
+          f"close outranks research: {nc['close_outranks_research']}")
+    print(f"post-close research requirement: {nc['post_close_research_required']}  "
+          f"no standalone desk refresh required: "
+          f"{nc['no_standalone_desk_refresh_required']}")
+    print(f"stale-evidence classification missing (must be empty): "
+          f"{nc['missing_evidence_tokens']}  still fails closed: "
+          f"{nc['evidence_still_fails_closed']}")
+    print(f"assessment/proposal binding missing (must be empty): "
+          f"{nc['missing_binding_tokens']}")
+    print(f"data-gap taxonomy missing (must be empty): {nc['missing_gap_tokens']}  "
+          f"unknown code fails CLOSED: {nc['unknown_gap_fails_closed']}  "
+          f"no silent substitution: {nc['no_silent_substitution']}")
+    print(f"gap severity consumed (not inferred): "
+          f"{nc['gap_severity_consumed_not_inferred']}")
+    print(f"UI missing cycle tokens (must be empty): {nc['missing_ui_tokens']}  "
+          f"UI cycle derivation (must be empty): {nc['ui_cycle_derivation']}")
+
     hdr("CANONICAL BACKEND RESTART / SMOKE OWNERSHIP")
     br = rep["backend_restart_ownership"]
     print(f"owner: {br['owner']}  present: {br['owner_present']}  "
@@ -4491,6 +4681,34 @@ BLOCKING_INVARIANTS = (
     # readiness polling, the authentication, the diagnostics or the store-root
     # validation - and every path any of them probes must be a route the application
     # actually declares.
+    # Stage 22 — the canonical NORMAL DAILY PORTFOLIO CYCLE. ONE state owner projecting
+    # onto ONE ordered stage sequence; at most one normal-path mutation, enforced at
+    # runtime; no hidden desk/target/evidence/mark refresh between the Daily Close and
+    # the Daily Research Cycle; stale evidence classified but STILL fail-closed; the
+    # assessment/proposal binding verdict fails closed and is stated exactly once; every
+    # data gap classified, an unknown code BLOCKING, nothing silently substituted; and a
+    # UI that mirrors the contract instead of re-deriving a workflow priority.
+    ("normal_cycle_ownership", "kernels_present", True),
+    ("normal_cycle_ownership", "kernel_impurity", []),
+    ("normal_cycle_ownership", "gap_kernel_impurity", []),
+    ("normal_cycle_ownership", "sequence_declared", True),
+    ("normal_cycle_ownership", "sequence_ordered", True),
+    ("normal_cycle_ownership", "second_cycle_owner_modules", []),
+    ("normal_cycle_ownership", "second_gap_owner_modules", []),
+    ("normal_cycle_ownership", "missing_owner_tokens", []),
+    ("normal_cycle_ownership", "single_mutation_enforced", True),
+    ("normal_cycle_ownership", "post_close_research_required", True),
+    ("normal_cycle_ownership", "close_outranks_research", True),
+    ("normal_cycle_ownership", "no_standalone_desk_refresh_required", True),
+    ("normal_cycle_ownership", "missing_evidence_tokens", []),
+    ("normal_cycle_ownership", "evidence_still_fails_closed", True),
+    ("normal_cycle_ownership", "missing_binding_tokens", []),
+    ("normal_cycle_ownership", "missing_gap_tokens", []),
+    ("normal_cycle_ownership", "unknown_gap_fails_closed", True),
+    ("normal_cycle_ownership", "no_silent_substitution", True),
+    ("normal_cycle_ownership", "gap_severity_consumed_not_inferred", True),
+    ("normal_cycle_ownership", "missing_ui_tokens", []),
+    ("normal_cycle_ownership", "ui_cycle_derivation", []),
     ("backend_restart_ownership", "owner_present", True),
     ("backend_restart_ownership", "owner_declares_ownership", True),
     ("backend_restart_ownership", "owner_missing_canonical_routes", []),

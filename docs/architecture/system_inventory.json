@@ -2337,6 +2337,52 @@
       "notes": "The ONE authoritative owner of current-session calendar/cutoff arithmetic (Consolidation Roadmap Slice 1). daily_operating_run and daily_close now delegate to it; the 17:30-vs-16:00 close policy is an explicit close_cutoff_et parameter. Does NOT own historical evidence calendars (forward_prediction_skill.eligible_calendar)."
     },
     {
+      "path": "engine/normal_cycle.py",
+      "system": "operator_workflow",
+      "responsibility": "Stage 22 CANONICAL normal daily portfolio cycle: the ordered stage sequence (wait -> daily close -> daily research cycle -> portfolio decision -> controlled rebalance), the per-stage gate every surface obeys, the single-primary-mutation invariant, and the four operator answers (now / do / why / after). Pure kernel: no IO, no clock, no store, no api.* import.",
+      "classification": "KEEP",
+      "target_owner": "engine/normal_cycle.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [
+        "/v1/operations/workflow-state (via api/workflow_state.py)"
+      ],
+      "ui_consumers": [
+        "renderOperatorCommand",
+        "renderNormalCycle"
+      ],
+      "tests": [
+        "tests/test_stage22_normal_cycle.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Decides NOTHING about the world: api/workflow_state.py resolves the overall state from the authoritative domain owners and this kernel only projects that one decision onto the canonical sequence. It is what makes it impossible for the Daily Close, the Daily Research Cycle, the opportunity-cost / reallocation surfaces and the rebalance lifecycle to disagree about the operator's next action."
+    },
+    {
+      "path": "engine/data_gap_taxonomy.py",
+      "system": "operator_workflow",
+      "responsibility": "Stage 22 CANONICAL data-gap taxonomy: turns a raw gap code into a machine-readable record (ticker, metric, expected/available as-of date, source owner, reason, BLOCKING vs NON_BLOCKING, effect on the recommendation, safe fallback) so severity is a property of the gap and never inferred from a string. Pure kernel: no IO, no api.* import.",
+      "classification": "KEEP",
+      "target_owner": "engine/data_gap_taxonomy.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [
+        "/v1/operations/holding-opportunity-cost (via api/holding_opportunity_cost.py)",
+        "/v1/operations/workflow-state (via api/workflow_state.py)"
+      ],
+      "ui_consumers": [
+        "renderHoldingOpportunityCost"
+      ],
+      "tests": [
+        "tests/test_stage22_normal_cycle.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Classification runs at the READ layer over an already-persisted immutable assessment, so it never changes a recommendation and never perturbs an artifact's assessment_hash. An unknown code is BLOCKING by construction, and no missing value is ever replaced by zero or by a current-date substitute."
+    },
+    {
       "path": "engine/market_screener.py",
       "system": "legacy_db_engine",
       "responsibility": "Legacy DB-snapshot universe ranker; owned-panel analogue of the factories",
