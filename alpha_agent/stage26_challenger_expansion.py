@@ -39,7 +39,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 from . import pit_market_equity as _pme
 from . import pit_sector as _ps
@@ -558,7 +558,8 @@ def build_panel(universe: "_s24.HistoricalUniverse",
                 equity: "_pme.PitMarketEquity", history: "PitSicHistory", *,
                 factors: Sequence = ALL_STAGE26_FACTORS,
                 first_month: str = FIRST_MONTH,
-                every_n: int = FORMATION_EVERY_N_MONTHS) -> "_s25.Stage25Panel":
+                every_n: int = FORMATION_EVERY_N_MONTHS,
+                enrich: Optional["Callable"] = None) -> "_s25.Stage25Panel":
     """The Stage-25 panel widened by point-in-time market equity and Tier-C sector.
 
     Every Stage-25 factor is computed on the SAME rows as every Stage-26
@@ -566,6 +567,15 @@ def build_panel(universe: "_s24.HistoricalUniverse",
     differently-built panels. Market equity is injected into the annual record
     before factor evaluation, which is what lets a valuation ratio be an ordinary
     pre-registered ``FactorSpec`` rather than a special case.
+
+    ``enrich`` is the same mechanism opened to a later stage: an optional
+    ``enrich(rec, symbol=, cik=, formation_date=, as_of=)`` hook invoked on each
+    surviving row immediately before factor evaluation, so a new information
+    family can inject its own point-in-time observables and register ordinary
+    ``FactorSpec`` hypotheses against them. The default is ``None`` and the
+    default path is byte-identical to the released one — the reason a Release-27
+    family may be compared to a Stage-25 baseline at all is that both are scored
+    on THESE rows, not on a second panel built beside this one.
     """
     panel = _s25.Stage25Panel()
     all_months = universe.months()
@@ -626,6 +636,13 @@ def build_panel(universe: "_s24.HistoricalUniverse",
                 # valuation factor for that row is None. It is never zero-filled
                 # and never carried from another date.
                 rec["cur"]["market_equity"] = me["market_equity"]
+
+            # --- opt-in enrichment for a later information family ------------ #
+            # Same discipline as the market-equity injection above: PRIMITIVE
+            # point-in-time observables only, attached before factor evaluation,
+            # never a computed hypothesis. Absent by default.
+            if enrich is not None:
+                enrich(rec, symbol=sym, cik=cik, formation_date=d, as_of=as_of)
 
             vals = {f.name: f.value(rec) for f in factors if f is not None}
             if all(v is None for v in vals.values()):

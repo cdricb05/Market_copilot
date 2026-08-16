@@ -245,6 +245,10 @@ class RemoteZipMemberFetcher:
                 "bytes_fetched": self.bytes_fetched, "requests": self.requests}
         return payload, meta
 
+    def list_members(self) -> "list[dict]":
+        """Central-directory listing, without transferring any member payload."""
+        return list(self._iter_central_entries(self._central_directory()))
+
 
 def _zip64_extra(extra: bytes, usize: int, csize: int,
                  local_off: int) -> "tuple[int, int, int]":
@@ -593,8 +597,256 @@ def observation_summary(observations: "list[dict]") -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Generic quarterly SEC structured-data acquisition
+#
+# The SEC publishes several quarterly structured-data archives under the same
+# contract: one zip per calendar quarter, tab-separated members inside, free,
+# first-party, no key and no quota. Release 27 needs a SECOND one of them (the
+# Insider Transactions Data Sets), and the release rule is one canonical SEC
+# acquisition owner rather than a parser per family — so the machinery is
+# generalised HERE, in the module that already owns it.
+#
+# `FinancialStatementDataSetsAcquirer` above is deliberately left byte-identical:
+# it is released, it is what the Stage-26 `sub.txt` cache and its manifests were
+# written by, and re-pointing it at a generalisation would invalidate a cache
+# this campaign depends on for its three mandatory families.
+# --------------------------------------------------------------------------- #
+#: Registered quarterly data sets. A data set is (path template, first published
+#: quarter, the members worth transferring). Naming the members matters: these
+#: archives carry members an order of magnitude larger than the ones a given
+#: family reads, and the whole point of the range reader is not to move them.
+QUARTERLY_DATASETS = {
+    "financial_statement_data_sets": {
+        "path_template": SOURCE_PATH_TEMPLATE,
+        "first": (2009, 2),
+        "members": ("sub.txt",),
+        "description": "SEC Financial Statement Data Sets (DERA)",
+    },
+    "insider_transactions_data_sets": {
+        "path_template": "/files/structureddata/data/"
+                         "insider-transactions-data-sets/%dq%d_form345.zip",
+        "first": (2006, 1),
+        "members": ("SUBMISSION.tsv", "REPORTINGOWNER.tsv", "NONDERIV_TRANS.tsv"),
+        "description": "SEC Insider Transactions Data Sets, Forms 3/4/5 (DERA)",
+    },
+    "edgar_full_index": {
+        "path_template": "/Archives/edgar/full-index/%d/QTR%d/master.zip",
+        "first": (2009, 1),
+        "members": ("master.idx",),
+        "description": "SEC EDGAR quarterly full index — every filing of every "
+                       "form type, by CIK and filing date",
+    },
+}
+
+
+class QuarterlyDataSetAcquirer:
+    """Acquire named members of any registered quarterly SEC data set.
+
+    Same discipline as the released ``sub.txt`` acquirer: an identifying
+    User-Agent carrying a contact address, an inter-request delay, a
+    content-hashed cache that short-circuits the network on a re-run, and an
+    atomic write so a partial transfer never becomes a cached member.
+    """
+
+    def __init__(self, dataset: str, *, cache_root: "str | Path",
+                 user_agent: str, members: "Optional[tuple[str, ...]]" = None,
+                 transport: Optional[Callable] = None, timeout: float = 60.0,
+                 request_delay_seconds: float = 0.35,
+                 sleep: Optional[Callable] = None,
+                 clock: Optional[Callable] = None):
+        if dataset not in QUARTERLY_DATASETS:
+            raise ValueError("unregistered quarterly data set: %s" % dataset)
+        if not user_agent or "@" not in user_agent:
+            raise ValueError(
+                "SEC fair access requires an identifying User-Agent carrying a "
+                "contact address; refusing to fetch without one")
+        self.dataset = dataset
+        self.spec = QUARTERLY_DATASETS[dataset]
+        self.members = tuple(members or self.spec["members"])
+        self.cache_root = Path(cache_root)
+        self.user_agent = user_agent
+        self.transport = transport
+        self.timeout = float(timeout)
+        self.request_delay_seconds = float(request_delay_seconds)
+        self._sleep = sleep or time.sleep
+        self._clock = clock or _utc_now_iso
+
+    # -- identity / paths ---------------------------------------------------- #
+    def url(self, year: int, quarter: int) -> str:
+        return "https://%s%s" % (SOURCE_HOST,
+                                 self.spec["path_template"] % (year, quarter))
+
+    def source_identifier(self, year: int, quarter: int) -> str:
+        return "%s%s" % (SOURCE_HOST,
+                         self.spec["path_template"] % (year, quarter))
+
+    def quarter_dir(self, year: int, quarter: int) -> Path:
+        return self.cache_root / ("%dq%d" % (int(year), int(quarter)))
+
+    def member_path(self, year: int, quarter: int, member: str) -> Path:
+        return self.quarter_dir(year, quarter) / member
+
+    def manifest_path(self, year: int, quarter: int) -> Path:
+        return self.quarter_dir(year, quarter) / "manifest.json"
+
+    def quarters(self, through_year: int, through_quarter: int) -> "list[tuple[int, int]]":
+        y, q = self.spec["first"]
+        return quarters_through(through_year, through_quarter,
+                                start_year=y, start_quarter=q)
+
+    # -- one quarter --------------------------------------------------------- #
+    def cached(self, year: int, quarter: int) -> Optional[dict]:
+        mp = self.manifest_path(year, quarter)
+        if not mp.exists():
+            return None
+        try:
+            man = json.loads(mp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        digests = man.get("member_sha256") or {}
+        for member in self.members:
+            fp = self.member_path(year, quarter, member)
+            if not fp.exists() or sha256_hex(fp.read_bytes()) != digests.get(member):
+                return None
+        return {**man, "disposition": D_CACHED}
+
+    def acquire_quarter(self, year: int, quarter: int, *,
+                        force: bool = False) -> dict:
+        if not force:
+            hit = self.cached(year, quarter)
+            if hit is not None:
+                return hit
+        base = {"dataset": self.dataset, "year": int(year), "quarter": int(quarter),
+                "source": self.source_identifier(year, quarter)}
+        fetcher = RemoteZipMemberFetcher(
+            self.url(year, quarter),
+            headers={"User-Agent": self.user_agent,
+                     "Accept-Encoding": "identity"},
+            transport=self.transport, timeout=self.timeout)
+        head = fetcher.head()
+        if head.get("status") == 404:
+            return {**base, "disposition": D_NOT_PUBLISHED}
+        if head.get("total_bytes") is None:
+            return {**base, "disposition": D_TRANSPORT_ERROR,
+                    "reason": "no Content-Length", "status": head.get("status")}
+        if str(head.get("accept_ranges") or "").lower() != "bytes":
+            return {**base, "disposition": D_RANGE_UNSUPPORTED,
+                    "reason": "server did not advertise byte ranges"}
+
+        payloads: "dict[str, bytes]" = {}
+        for member in self.members:
+            self._sleep(self.request_delay_seconds)
+            try:
+                payload, meta = fetcher.fetch_member(member)
+            except MemberNotFound:
+                return {**base, "disposition": D_MEMBER_MISSING, "member": member}
+            except (TransportFailure, MalformedArchive, zlib.error) as exc:
+                return {**base, "disposition": D_TRANSPORT_ERROR,
+                        "member": member,
+                        "reason": "%s: %s" % (type(exc).__name__, exc)}
+            payloads[member] = payload
+
+        d = self.quarter_dir(year, quarter)
+        d.mkdir(parents=True, exist_ok=True)
+        digests, sizes = {}, {}
+        for member, payload in payloads.items():
+            target = self.member_path(year, quarter, member)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_bytes(payload)
+            os.replace(tmp, target)
+            digests[member] = sha256_hex(payload)
+            sizes[member] = len(payload)
+        manifest = {
+            "contract_version": CONTRACT_VERSION, **base,
+            "description": self.spec["description"],
+            "members": list(self.members),
+            "member_sha256": digests, "member_bytes": sizes,
+            "archive_total_bytes": meta.get("archive_total_bytes"),
+            "archive_last_modified": meta.get("last_modified"),
+            "archive_etag": meta.get("etag"),
+            "bytes_fetched_over_network": fetcher.bytes_fetched,
+            "http_requests": fetcher.requests,
+            "retrieved_at_utc": self._clock(),
+            "license_note": "US federal government work; SEC EDGAR public data, "
+                            "free for research use under SEC fair-access rules",
+        }
+        mtmp = self.manifest_path(year, quarter).with_suffix(".json.tmp")
+        mtmp.write_text(json.dumps(manifest, indent=1, sort_keys=True),
+                        encoding="utf-8")
+        os.replace(mtmp, self.manifest_path(year, quarter))
+        return {**manifest, "disposition": D_COMPLETE}
+
+    def acquire(self, quarters: "Iterable[tuple[int, int]]", *,
+                force: bool = False, stop_after_not_published: int = 2,
+                on_quarter: Optional[Callable] = None) -> dict:
+        results: "list[dict]" = []
+        misses = 0
+        for (y, q) in quarters:
+            res = self.acquire_quarter(y, q, force=force)
+            results.append(res)
+            if on_quarter is not None:
+                on_quarter(res)
+            if res.get("disposition") == D_NOT_PUBLISHED:
+                misses += 1
+                if misses >= int(stop_after_not_published):
+                    break
+            else:
+                misses = 0
+        ok = [r for r in results
+              if r.get("disposition") in (D_COMPLETE, D_CACHED)]
+        return {
+            "contract_version": CONTRACT_VERSION, "dataset": self.dataset,
+            "members": list(self.members),
+            "quarters_requested": len(results), "quarters_acquired": len(ok),
+            "quarters_downloaded": len([r for r in results
+                                        if r.get("disposition") == D_COMPLETE]),
+            "quarters_from_cache": len([r for r in results
+                                        if r.get("disposition") == D_CACHED]),
+            "total_member_bytes": sum(
+                sum((r.get("member_bytes") or {}).values()) for r in ok),
+            "total_network_bytes": sum(
+                int(r.get("bytes_fetched_over_network") or 0) for r in results),
+            "results": results,
+            "failures": [r for r in results
+                         if r.get("disposition") not in
+                         (D_COMPLETE, D_CACHED, D_NOT_PUBLISHED)],
+        }
+
+
+def parse_tsv(payload: "bytes | str", *,
+              required: "tuple[str, ...]" = ()) -> "list[dict]":
+    """Parse a tab-separated SEC data-set member into per-row dicts.
+
+    Same contract as :func:`parse_sub_txt` — header row, tab separated, a missing
+    required column raises rather than being guessed at — generalised to the
+    members of any registered quarterly data set.
+    """
+    text = payload.decode("utf-8", "replace") if isinstance(payload, bytes) \
+        else payload
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not lines or not lines[0].strip():
+        return []
+    header = [h.strip().upper() for h in lines[0].split("\t")]
+    missing = [c for c in required if c.upper() not in header]
+    if missing:
+        raise SchemaChanged("member is missing required column(s): %s"
+                            % ", ".join(missing))
+    idx = {c: i for i, c in enumerate(header)}
+    out: "list[dict]" = []
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < len(header):
+            parts = parts + [""] * (len(header) - len(parts))
+        out.append({c: parts[i].strip() for c, i in idx.items()})
+    return out
+
+
 __all__ = [
     "CONTRACT_VERSION", "STAGE", "SOURCE_HOST", "MEMBER_NAME", "REQUIRED_COLUMNS",
+    "QUARTERLY_DATASETS", "QuarterlyDataSetAcquirer", "parse_tsv",
     "D_COMPLETE", "D_CACHED", "D_NOT_PUBLISHED", "D_MEMBER_MISSING",
     "D_TRANSPORT_ERROR", "D_RANGE_UNSUPPORTED",
     "quarter_url", "source_identifier", "quarters_through", "sha256_hex",
