@@ -66,6 +66,18 @@ _MONETARY_UNITS = {"USD"}
 # The taxonomies whose facts are indexed (us-gaap carries every candidate concept).
 _TAXONOMIES = ("us-gaap",)
 
+# Non-monetary units a caller may OPT IN to. Market equity needs a share COUNT,
+# which is not a monetary fact and is therefore dropped by the default filter
+# above — this is one of the two gaps Stage 25 identified as blocking point-in-
+# time market cap. Opting in is explicit per call; every existing caller keeps
+# byte-identical behaviour because both extension arguments default to None.
+SHARE_UNITS = frozenset({"shares"})
+
+# The cover-page taxonomy. ``dei:EntityCommonStockSharesOutstanding`` is the
+# share count as of a date close to the FILING date rather than the fiscal
+# period end, which is the better-timed input for market equity.
+DEI_TAXONOMY = "dei"
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -100,21 +112,33 @@ def default_target_tags() -> frozenset:
 # concept, unit, value, start, end, filed, accession, form, fy, fp, frame).
 # --------------------------------------------------------------------------- #
 def parse_companyfacts_facts(doc: dict, *, cik: Optional[str] = None,
-                             target_tags: Optional[Iterable[str]] = None
+                             target_tags: Optional[Iterable[str]] = None,
+                             extra_units: Optional[Iterable[str]] = None,
+                             extra_taxonomies: Optional[Iterable[str]] = None
                              ) -> list[dict]:
     """Parse an SEC companyfacts document into normalised fact rows for the target
     us-gaap tags. Accession-level dedup within the document ``(accn, tag, unit,
     end, fy, fp)``; a fact missing a ``filed`` date / ``val`` / ``accn`` is
     dropped (no availability boundary). Only monetary-USD facts are emitted as
-    values. Deterministic, sorted."""
+    values. Deterministic, sorted.
+
+    ``extra_units`` and ``extra_taxonomies`` widen the unit / taxonomy filters
+    for a caller that genuinely needs a non-monetary fact — a share COUNT for
+    market equity, for instance. Both default to ``None``, which reproduces the
+    released monetary-USD / us-gaap-only behaviour exactly; a regression asserts
+    the equivalence.
+    """
     tags = set(target_tags) if target_tags is not None else set(
         default_target_tags())
+    allowed_units = set(_MONETARY_UNITS) | {str(u) for u in (extra_units or ())}
+    taxonomies = tuple(_TAXONOMIES) + tuple(
+        t for t in (extra_taxonomies or ()) if t not in _TAXONOMIES)
     facts = ((doc or {}).get("facts") or {})
     doc_cik = cik or doc.get("cik")
     c = norm_cik(doc_cik) if doc_cik is not None else None
     out: list[dict] = []
     seen: set = set()
-    for taxonomy in _TAXONOMIES:
+    for taxonomy in taxonomies:
         tax = facts.get(taxonomy) or {}
         for tag, node in tax.items():
             if tag not in tags:
@@ -124,7 +148,7 @@ def parse_companyfacts_facts(doc: dict, *, cik: Optional[str] = None,
             units = (node or {}).get("units") or {}
             for unit, arr in units.items():
                 u = str(unit or "").strip() or "UNKNOWN"
-                if u not in _MONETARY_UNITS:
+                if u not in allowed_units:
                     continue
                 for f in (arr or []):
                     accn = f.get("accn")
@@ -257,7 +281,10 @@ class SecCompanyFactsIndex:
                                    archive_name: str = "companyfacts",
                                    member_step: int = 5000,
                                    time_budget_seconds: float = 1500.0,
-                                   max_members: Optional[int] = None) -> dict:
+                                   max_members: Optional[int] = None,
+                                   extra_units: Optional[Iterable[str]] = None,
+                                   extra_taxonomies: Optional[Iterable[str]] = None
+                                   ) -> dict:
         """Stream the SEC companyfacts bulk archive and (a) CATALOGUE every valid
         primary member (a lightweight per-CIK row — the complete, not-sampled
         archive), and (b) MATERIALISE the full target-concept facts for every CIK
@@ -274,7 +301,14 @@ class SecCompanyFactsIndex:
             return {"ok": False, "reason": "archive not present: %s" % zip_path,
                     "complete": False}
         allow = {norm_cik(c) for c in (allowlist_ciks or []) if norm_cik(c)}
-        allow_hash = content_hash(sorted(allow)) if allow else "none"
+        # The unit / taxonomy scope is part of WHAT gets materialised, so it
+        # belongs in the cursor's revision key: widening it must re-stream the
+        # archive rather than silently resume past members whose extra-unit facts
+        # were never read. With both extensions absent the key is unchanged.
+        scope = sorted(str(u) for u in (extra_units or ())) + \
+            sorted(str(t) for t in (extra_taxonomies or ()))
+        allow_hash = content_hash(sorted(allow) + scope) if (allow or scope) \
+            else "none"
         tags = frozenset(target_tags) if target_tags is not None else \
             default_target_tags()
         started = time.monotonic()
@@ -336,7 +370,9 @@ class SecCompanyFactsIndex:
                                     doc = json.loads(fh.read().decode(
                                         "utf-8", "replace"))
                                 frows = parse_companyfacts_facts(
-                                    doc, cik=cik, target_tags=tags)
+                                    doc, cik=cik, target_tags=tags,
+                                    extra_units=extra_units,
+                                    extra_taxonomies=extra_taxonomies)
                             except Exception:  # noqa: BLE001 - isolate bad member
                                 malformed += 1
                                 conn.execute(

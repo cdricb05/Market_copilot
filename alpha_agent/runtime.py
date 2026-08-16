@@ -5709,17 +5709,70 @@ def _collect_completed_tournament_jobs(queue, *, limit: int = 200) -> list:
     return out
 
 
+def _owned_close_provider():
+    """``(symbols, date) -> {symbol: completed close}`` from the owned local
+    Norgate installation, TOTAL-RETURN adjusted because a book earns dividends.
+
+    Every failure - package absent, service down, symbol unknown, no bar for the
+    date - degrades to an omitted symbol, which the NAV kernel turns into a
+    coverage shortfall and then into an honest missing mark. It never invents a
+    price."""
+    def _closes(symbols, date: str) -> dict:
+        try:
+            import norgatedata as nd
+        except ImportError:
+            return {}
+        try:
+            if not nd.status():
+                return {}
+        except Exception:  # noqa: BLE001
+            return {}
+        out: dict = {}
+        for sym in symbols or ():
+            try:
+                ts = nd.price_timeseries(
+                    sym,
+                    stock_price_adjustment_setting=(
+                        nd.StockPriceAdjustmentType.TOTALRETURN),
+                    padding_setting=nd.PaddingType.NONE,
+                    start_date=str(date)[:10], end_date=str(date)[:10],
+                    timeseriesformat="numpy-recarray")
+            except Exception:  # noqa: BLE001 - one bad symbol never stops a mark
+                continue
+            if ts is None or len(ts) == 0:
+                continue
+            try:
+                out[sym] = float(ts["Close"][-1])
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+    return _closes
+
+
 def _tournament_mark_provider(cfg: dict, cfg9: dict):
     """Immutable completed-close mark provider for shadow-book advancement.
 
-    Returns ``None`` for every (candidate, date): the real owned completed-close
-    portfolio replay is wired only once a candidate is actually retained and a
-    shadow book exists. Until then there are zero active books, so this is never
-    invoked - a missing mark can only ever yield an honest coverage diagnostic,
-    never a fabricated observation."""
-    def _provider(_candidate_id: str, _date: str):
-        return None
-    return _provider
+    Stage 26 wires the replay this function was always a placeholder for: it was
+    a stub because no candidate had ever been retained, and Stage 25 retained
+    one. The NAV kernel and the book reader are owned by
+    ``alpha_agent.stage26_challenger_expansion``; the price adapter is owned
+    here because the owned local price service is a runtime concern.
+
+    Every failure path still returns ``None``, which ``advance_shadow_books``
+    turns into an explicit ``SHADOW_MARK_COVERAGE_MISSING`` diagnostic - a
+    missing mark can only ever yield an honest coverage gap, never a fabricated
+    observation."""
+    sb = (cfg9 or {}).get("shadow_books") or {}
+    root = sb.get("shadow_book_root") or (cfg9 or {}).get("shadow_book_root")
+    if not root:
+        def _none(_candidate_id: str, _date: str):
+            return None
+        return _none
+    from . import stage26_challenger_expansion as _s26
+    return _s26.make_shadow_mark_provider(
+        root, close_provider=_owned_close_provider(),
+        benchmark=sb.get("benchmark", "SPY"),
+        cost_bps=float(sb.get("cost_bps_round_trip") or 50.0))
 
 
 def run_tournament_tick(cfg: dict, *, queue=None, registry=None,

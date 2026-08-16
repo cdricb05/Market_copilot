@@ -134,6 +134,8 @@
   },
   "shadow_books": {
     "note": "Read-only research shadow books for the strongest KEEP_FOR_RESEARCH candidates, built on the forward-prediction immutable first-write-wins snapshot store. Never mutate the operating portfolio; never backfill forward history before the shadow book's inception date.",
+    "require_forward_eligibility_allowlist": true,
+    "allowlist_note": "Stage 26: shadow activation is FAIL-CLOSED. The combined score is a weighted aggregate and can clear the floor while the candidate's own falsification battery returned a damning verdict - s24_rnd_intensity scores 0.674 and is CONCENTRATION_FRAGILE. A candidate is enrolled only when the caller names it forward-eligible on stated evidence, so a shadow book that begins accumulating irreversible forward history is never started by accident.",
     "min_combined_score_for_shadow": 0.55,
     "max_active_shadow_books": 3,
     "cost_bps_round_trip": 50,

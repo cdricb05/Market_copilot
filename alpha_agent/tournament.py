@@ -1582,15 +1582,39 @@ class ShadowBook:
         }
 
 
+#: Config key for fail-closed shadow activation. A combined score is a WEIGHTED
+#: AGGREGATE; it can clear the floor while the candidate's own falsification
+#: battery returned a damning verdict, because the two are different questions.
+#: With this set, a candidate is enrolled only when the caller names it as
+#: forward-eligible on stated evidence - so activation is a deliberate act, not a
+#: score-threshold accident.
+SHADOW_ALLOWLIST_REQUIRED_KEY = "require_forward_eligibility_allowlist"
+
+
 def maybe_activate_shadow_books(registry: "CandidateRegistry", cfg: dict, *,
                                 inception_provider: Optional[Callable] = None,
-                                evidence_date: Optional[str] = None) -> list[dict]:
+                                evidence_date: Optional[str] = None,
+                                eligible_candidate_ids: Optional[Iterable] = None
+                                ) -> list[dict]:
     """Activate a read-only shadow book for the strongest KEEP_FOR_RESEARCH
-    candidates that pass the shadow-score floor and do not already have one."""
+    candidates that pass the shadow-score floor and do not already have one.
+
+    ``eligible_candidate_ids`` narrows enrolment to candidates the caller has
+    established are forward-eligible. When the config sets
+    ``shadow_books.require_forward_eligibility_allowlist`` the allowlist is
+    MANDATORY and its absence activates nothing: a research book that begins
+    accumulating irreversible forward history is not something to start by
+    accident, and the score floor alone cannot tell a robust candidate from a
+    fragile one that happens to score well.
+    """
     sb = cfg.get("shadow_books", {})
     root = sb.get("shadow_book_root") or cfg.get("shadow_book_root")
     if not root:
         return []
+    allow = (None if eligible_candidate_ids is None
+             else {str(c) for c in eligible_candidate_ids})
+    if bool(sb.get(SHADOW_ALLOWLIST_REQUIRED_KEY)) and allow is None:
+        return []                       # fail closed
     floor = _f(sb.get("min_combined_score_for_shadow")) or 0.55
     max_active = int(_f(sb.get("max_active_shadow_books")) or 3)
     active = [s for s in registry.list_shadow_books() if s["status"] == "ACTIVE"]
@@ -1602,6 +1626,8 @@ def maybe_activate_shadow_books(registry: "CandidateRegistry", cfg: dict, *,
     for cand in keeps:
         if len(active) + len(out) >= max_active:
             break
+        if allow is not None and str(cand["candidate_id"]) not in allow:
+            continue
         if (_f(cand.get("combined_score")) or 0.0) < floor:
             continue
         if cand.get("active_shadow_book_id"):
@@ -2174,7 +2200,9 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
                          seed: bool = True, activate_shadows: bool = True,
                          inception_provider: Optional[Callable] = None,
                          completed_experiments: Optional[Iterable[dict]] = None,
-                         mark_provider: Optional[Callable] = None) -> dict:
+                         mark_provider: Optional[Callable] = None,
+                         eligible_candidate_ids: Optional[Iterable] = None
+                         ) -> dict:
     """One bounded, resumable tournament tick.
 
     (1) seed the family catalogue (idempotent); (2) idempotently ingest any
@@ -2246,7 +2274,9 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
         fund_followups = {"generated": [], "count": 0, "enabled": False}
     shadows = (maybe_activate_shadow_books(
         registry, cfg, inception_provider=inception_provider,
-        evidence_date=evidence_date) if activate_shadows else [])
+        evidence_date=evidence_date,
+        eligible_candidate_ids=eligible_candidate_ids)
+        if activate_shadows else [])
     # WS5: advance every ACTIVE shadow book by one immutable daily mark. With no
     # retained candidate there are zero active books and this is a no-op.
     shadow_advances = (advance_shadow_books(

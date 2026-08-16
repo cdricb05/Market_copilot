@@ -363,17 +363,40 @@ def test_15_failure_does_not_stop(tmp_path, monkeypatch):
 # 16. Shadow books cannot mutate the operational portfolio.
 # --------------------------------------------------------------------------- #
 def test_16_shadow_no_operational_mutation(tmp_path):
+    """Shadow activation is FAIL-CLOSED, and when it does fire it writes only
+    under the shadow root.
+
+    Stage 26 made the released config require an explicit forward-eligibility
+    allowlist, because a combined score is a weighted aggregate that can clear
+    the floor while the candidate's own falsification battery condemns it. So a
+    cycle with no allowlist must open nothing, and a cycle with one must open a
+    book for exactly the named candidate - in both cases leaving the operational
+    ledger byte-identical.
+    """
     cfg = _cfg(tmp_path)
+    assert cfg["shadow_books"][T.SHADOW_ALLOWLIST_REQUIRED_KEY] is True
     opsroot = tmp_path / "operational_ledger"
     opsroot.mkdir()
     (opsroot / "paper_books.json").write_text('{"immutable": true}',
                                               encoding="utf-8")
     before = _fingerprint(opsroot)
     reg = _reg(tmp_path)
+
+    # No allowlist -> nothing activates, however strong the evidence.
     out = T.run_tournament_cycle(reg, cfg, campaign_result=_campaign(
         _row("residual_momentum", ic_t=4.0)), evidence_date="2026-07-31",
         max_candidates=50)
-    assert out["shadow_books_activated"]  # at least one shadow book opened
+    assert out["shadow_books_activated"] == []
+    assert _fingerprint(opsroot) == before
+
+    # Named as forward-eligible -> exactly that candidate is enrolled.
+    keeps = reg.list(state=T.KEEP_FOR_RESEARCH)
+    assert keeps, "the cycle should still have retained a candidate"
+    target = keeps[0]["candidate_id"]
+    opened = T.maybe_activate_shadow_books(
+        reg, cfg, evidence_date="2026-07-31",
+        eligible_candidate_ids=[target])
+    assert [o["candidate_id"] for o in opened] == [target]
     assert _fingerprint(opsroot) == before  # operational ledger untouched
     # the shadow book wrote ONLY under the shadow root.
     sbroot = Path(cfg["shadow_book_root"])
