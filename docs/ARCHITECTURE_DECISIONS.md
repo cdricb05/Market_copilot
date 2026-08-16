@@ -1447,3 +1447,90 @@ degraded to `DESK_MARK_BEHIND` / `REFRESH_DESK_MARKS` with a
 the Stage-21 Workstream 0F decay signature, in the last unbound read. A second explicit
 parameter was rejected: it would let a caller declare two different sessions and
 reintroduce exactly the disagreement the seam exists to prevent.
+
+### D-R28-1 — Decision authority is a property of the SOURCE FAMILY, decided once (CONFIRMED)
+
+**Decision.** `engine/event_fabric.py` holds ONE table mapping every event family to a
+decision authority (`OPERATIONAL_ALPHA` / `RESEARCH_ALPHA` / `OPERATIONAL_RISK` /
+`EVENT_TRIGGER_ONLY` / `OBSERVABILITY_ONLY` / `BLOCKED`) together with the reason it has
+that authority. Nothing downstream may grant an event more authority than the table
+gives it, and classification fails closed: an unknown record type gets
+`OBSERVABILITY_ONLY` and is counted by the terminal audit, which must report
+`UNCLASSIFIED_SIGNAL_AUTHORITY = 0` to release.
+
+**Why.** "News should make us look again" and "news should not move a score" are both
+true, and every call site that has to re-derive that distinction is a place it can be
+lost. Making it one table makes the unsafe case unreachable rather than merely
+discouraged: `authority_may_change_alpha` returns True for exactly one authority, and
+the reallocation, reassessment and scoring owners are only ever reached through the
+dependency graph that authority feeds.
+
+### D-R28-2 — The event lane refreshes calculations it does not own (CONFIRMED)
+
+**Decision.** `api/event_signal_refresh.py` calls
+`api.holding_opportunity_cost.run_and_persist`,
+`api.portfolio_reassessment.run_and_persist` and
+`api.reallocation_proposal.run_and_persist` — the exact entry points
+`api.daily_research_cycle` uses — and defines no scoring, allocation, target or order
+function of its own. The shared list is declared in `CANONICAL_CALCULATION_DELEGATES`.
+
+**Why.** The alternative — an "event-mode" reassessment tuned for incremental input —
+is how a system ends up with two portfolio brains that disagree at the moment it matters
+most. Daily mode is the FULL refresh of the dependency graph; event mode is the
+INCREMENTAL refresh of the same graph. That framing makes convergence a structural
+property rather than a promise, and it is asserted by test.
+
+### D-R28-3 — Supersession is keyed on the DATE, not the native id alone (CONFIRMED)
+
+**Decision.** A re-issued record supersedes an earlier one only when
+`(source_id, source_event_id, effective_at)` match. A record whose canonical document
+URL was already ingested is `SYNDICATED`, checked *before* the supersession rule.
+
+**Why.** Measured against the real corpus, the naive rule was badly wrong in two ways.
+Several collectors reuse a native id across days — `nasdaqlisted|ABNB` appears every
+session, a daily bar repeats its ticker — so 25 genuinely distinct daily observations
+were classified as 24 "corrections" of the first. Separately, one wire article is
+fetched once per symbol it mentions and one SEC accession is seen by two collector
+lanes, so identical documents differing only in collection metadata looked like
+material updates. Together those produced 4,065 spurious `MATERIAL_UPDATE` events in a
+single 30-day window, every one of which would have carried new information into the
+trigger path.
+
+### D-R28-4 — Anti-churn is a fingerprint over CONCLUSIONS, not over events (CONFIRMED)
+
+**Decision.** `engine/event_materiality.py` collapses triggers by
+`(code, entity, family, event_date)` and computes the anti-churn fingerprint from those
+collapsed keys — never from individual event ids.
+
+**Why.** Keying on event ids meant that re-collecting the same filing produced a
+different fingerprint and therefore a second full assessment, which is exactly the churn
+the gate exists to prevent. Keying on the conclusion makes twenty re-collected copies
+one reason (carrying `occurrences: 20`), while including the event DATE keeps
+tomorrow's genuinely new 8-K on the same name a genuinely new trigger.
+
+### D-R28-5 — BLS and BEA are REDUNDANT, not "not yet integrated" (CONFIRMED)
+
+**Decision.** `bls` and `bea` carry the terminal state
+`REDUNDANT_WITH_EXISTING_SOURCE`; `prediction_service` carries
+`NOT_ECONOMICALLY_USEFUL` for the event fabric. There is no
+`AVAILABLE_BUT_NOT_INTEGRATED` state in the vocabulary.
+
+**Why.** CPI and unemployment are already collected from FRED **with ALFRED vintages**;
+BLS v2 supplies the same numbers without vintages, so integrating it would add a second
+copy with worse point-in-time quality. BEA's quarterly national accounts restate without
+vintages and arrive far slower than any reassessment cadence. The prediction service
+emits model output whose inputs are data the fabric already carries, so admitting it
+would double-count. Each is a measured judgement recorded with its evidence rather than
+a deferral, which is what makes `READY_UNINTEGRATED_USEFUL_SOURCES = 0` meaningful.
+
+### D-R28-6 — The near-real-time lane is RISK-ONLY (CONFIRMED)
+
+**Decision.** The delayed-quote adapter (`engine.market_data`, ~15 minutes behind the
+tape — the fastest cadence available under current entitlements) emits `MARKET_QUOTE`
+events with `OPERATIONAL_RISK` authority. GDELT emits `EVENT_TRIGGER_ONLY` news
+metadata. Neither can move an expected-return score.
+
+**Why.** No released signal contract is formed at intraday frequency. An intraday
+feature is not alpha merely because it exists, and the honest thing a faster feed buys
+today is a better answer to "is the amount of capital still appropriate?" — not a
+faster opinion about value.

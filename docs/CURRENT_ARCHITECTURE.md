@@ -1820,3 +1820,65 @@ present, close-before-research, no standalone desk refresh required between them
 evidence classified AND still fail-closed, the binding verdict present, an unknown gap code
 BLOCKING, no silent substitution, and a UI that mirrors the contract instead of re-deriving
 a workflow priority. `tests/test_stage22_normal_cycle.py` is the regression.
+
+---
+
+## Release 28 — Event-driven active portfolio manager & live signal fabric (LANDED)
+
+Full detail: [EVENT_DRIVEN_ACTIVE_PORTFOLIO_MANAGER.md](EVENT_DRIVEN_ACTIVE_PORTFOLIO_MANAGER.md).
+
+### What ownership actually changed
+
+Nothing was taken away from an existing owner. Release 28 added an INFORMATION lane in
+front of the decision path that already existed, and connected it to that path through
+the same entry points the Daily Research Cycle uses.
+
+| New owner | Owns |
+|---|---|
+| `engine/event_fabric.py` (pure) | The ONE normalized-event contract, the signal-speed and decision-authority tables, the novelty/dedup rules, and the event → concept → signal → calculation dependency graph |
+| `engine/event_materiality.py` (pure) | The versioned materiality / anti-churn gate: `DATA_CHANGED` → `SIGNAL_CHANGED` → `MATERIAL_SIGNAL_CHANGED`, trigger collapsing, and the deterministic trigger fingerprint |
+| `api/source_capability.py` | The ONE live-source capability matrix and the terminal source audit |
+| `api/event_fabric.py` | The append-only immutable event store, the two ingestion lanes (research corpus + near-real-time live adapters), deterministic entity resolution, per-source watermarks and the per-source freshness state |
+| `api/event_signal_refresh.py` | THE event-driven orchestration path and its measured latency observability |
+| `api/event_replay.py` | The hermetic replay acceptance harness |
+
+### What was deliberately NOT forked
+
+* **Freshness.** The status vocabulary and the cadence-aware classifier stay with
+  `api.data_freshness.classify_source`; the event fabric adds watermarks and delegates
+  the verdict.
+* **Every portfolio calculation.** The event lane calls
+  `api.holding_opportunity_cost.run_and_persist`,
+  `api.portfolio_reassessment.run_and_persist` and
+  `api.reallocation_proposal.run_and_persist` — the SAME entry points
+  `api.daily_research_cycle` uses. The shared owner list is declared in
+  `CANONICAL_CALCULATION_DELEGATES` and asserted by test; the module is checked by test
+  to define no scoring, allocation, target or order function.
+* **Market/risk primitives.** Trailing return, realized volatility, drawdown, beta and
+  median dollar volume are computed by `api.price_panel`; the event lane adds only the
+  short-vs-long volatility ratio, which is a division of two of that owner's outputs.
+* **The operator's single primary action.** The new UI card is read-only and offers no
+  run control, so `engine.normal_cycle.assert_single_primary_mutation` is untouched.
+
+### Daily vs event mode
+
+`api.daily_research_cycle` is the FULL dependency refresh. `api.event_signal_refresh` is
+the INCREMENTAL refresh of the same graph through the same owners, for the subset of
+calculations the arriving information invalidated. Both terminate in manual review, and
+neither creates an order.
+
+### Routes and stores
+
+`GET /v1/operations/event-signal-refresh` (read-only) and
+`POST /v1/operations/event-signal-refresh/run` (token
+`CONFIRM_EVENT_SIGNAL_REFRESH`). The store root is `PAPER_TRADER_EVENT_FABRIC_DIR`,
+registered in `api.environment_isolation.CANONICAL_STORE_ENV_VARS` and redirected by the
+hermetic acceptance server so an acceptance run can never read the operator's real
+arriving information.
+
+### Guards
+
+`tests/test_release28_event_driven_manager.py` (76 tests) is the regression: authority
+containment, point-in-time discipline, idempotency and novelty, materiality and
+anti-churn, the dependency graph, the terminal source audit, cadence-aware freshness,
+shared-owner delegation, challenger continuity and deterministic replay.

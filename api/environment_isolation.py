@@ -69,6 +69,9 @@ CANONICAL_STORE_ENV_VARS = (
     "PAPER_TRADER_PRICE_ALPHA_FACTORY_DIR",
     "PAPER_TRADER_MONTHLY_EMITTER_WORK_DIR",
     "PAPER_TRADER_BOOK_DIR",
+    # Release 28 — the immutable event-fabric store. A production process pointed at a
+    # fixture event log would show the operator a fabricated "nothing arrived" world.
+    "PAPER_TRADER_EVENT_FABRIC_DIR",
 )
 
 #: Path fragments that mark a value as a TEMP / FIXTURE root rather than a real store.

@@ -58,6 +58,12 @@ _STORE_ENV_VARS = (
     # Stage 21 — the Stage-21 outcome-evidence root must be redirected too, or an
     # acceptance run would read (and its capture would write) the production store.
     "PAPER_TRADER_REASSESSMENT_OUTCOME_DIR",
+    # Release 28 — the immutable event-fabric store and the two corpus roots the event
+    # lane reads. Without these an acceptance run would render the operator's REAL
+    # arriving information inside a synthetic portfolio world.
+    "PAPER_TRADER_EVENT_FABRIC_DIR",
+    "PAPER_TRADER_ALPHA_INGESTION_ROOT",
+    "PAPER_TRADER_ALPHA_NEWS_ROOT",
 )
 
 
@@ -120,6 +126,14 @@ def bind_scenario(scenario: str, root: Path) -> dict:
     _dag.load_daily_action_gate = _const(panels["daily_action_gate"])
     _dclose.load_close_progress = _const(fx._close_progress(   # noqa: SLF001
         fx.scenarios()[scenario]))
+
+    # Release 28 — the event lane reads the portfolio through its OWN loader, so the
+    # composed portfolio is bound there too. Its corpus roots are already redirected
+    # into the throwaway acceptance root, so the event store it reads is empty rather
+    # than the operator's real arriving information.
+    from paper_trader.api import event_signal_refresh as _esr
+    _esr._default_portfolio_state_loader = _const(  # noqa: SLF001
+        panels["portfolio_state"])
     return composed
 
 

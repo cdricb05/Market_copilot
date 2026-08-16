@@ -586,6 +586,11 @@
       "prefix": "/v1/operations/rebalance/execution-lineage",
       "owner": "api/execution_lineage.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/event-signal-refresh",
+      "owner": "api/event_signal_refresh.py",
+      "system": "operations"
     }
   ],
   "classification_legend": {
@@ -2806,6 +2811,161 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Exists because a Stage-20.1 acceptance run left hermetic fixture roots in the operator's parent PowerShell session and a later manual restart INHERITED them: the real backend served an empty, fabricated portfolio that nothing on the page distinguished from the real one. The real ledgers were never damaged. The check runs at import time on EVERY start, so the protection does not depend on using a particular launch script."
+    },
+    {
+      "path": "engine/event_fabric.py",
+      "system": "engine",
+      "responsibility": "Release 28 PURE kernel: the ONE normalized-event contract (deterministic identity + idempotency key + point-in-time status), the frozen signal-speed and DECISION-AUTHORITY tables (OPERATIONAL_ALPHA / RESEARCH_ALPHA / OPERATIONAL_RISK / EVENT_TRIGGER_ONLY / OBSERVABILITY_ONLY / BLOCKED), the novelty / deduplication rules, and the event -> concept -> signal -> calculation dependency graph. No IO, no clock, no api.* import.",
+      "classification": "KEEP",
+      "target_owner": "engine/event_fabric.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [],
+      "ui_consumers": [
+        "api/ui/index.html (#evt-card renders family / decision authority / novelty verbatim)"
+      ],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "Fails closed: an unclassified record type receives OBSERVABILITY_ONLY and is counted by the terminal audit, so a new feed can never acquire decision power by default."
+    },
+    {
+      "path": "engine/event_materiality.py",
+      "system": "engine",
+      "responsibility": "Release 28 PURE materiality / anti-churn gate: separates DATA_CHANGED from SIGNAL_CHANGED from MATERIAL_SIGNAL_CHANGED, collapses re-collected observations of the same information into one reason, and produces a deterministic trigger fingerprint so identical facts against an identical portfolio state are never assessed twice. Versioned separately from every alpha-model calibration.",
+      "classification": "KEEP",
+      "target_owner": "engine/event_materiality.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [],
+      "ui_consumers": [
+        "api/ui/index.html (#evt-card renders the materiality reason verbatim)"
+      ],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "It decides whether to ASK the portfolio question, never the answer: the cost hurdle stays with api.portfolio_reassessment / api.reallocation_proposal."
+    },
+    {
+      "path": "api/source_capability.py",
+      "system": "operations",
+      "responsibility": "Release 28 CANONICAL live-source capability owner: one machine-readable matrix of every information source (family, connection status, entitlement, cost, timestamp and point-in-time quality, coverage, latency, frequency, canonical owner, decision authority, can-ingest / can-score / can-trigger, blocker) plus the TERMINAL source audit. There is no AVAILABLE_BUT_NOT_INTEGRATED state.",
+      "classification": "KEEP",
+      "target_owner": "api/source_capability.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "configs/alpha_agent/stage2_ingestion.json (read-only source configuration)",
+        "alpha_agent ingestion state sqlite (read-only entitlements + checkpoints)",
+        "configs/alpha_agent/news_rss_feeds.json (read-only feed registry)"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "GET /v1/operations/event-signal-refresh (capability_matrix + terminal_audit blocks)"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#evt-audit renders the terminal-audit counts)"
+      ],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "Reads credential PRESENCE only, never a value. Purchases nothing, upgrades no plan and makes no paid historical call."
+    },
+    {
+      "path": "api/event_fabric.py",
+      "system": "operations",
+      "responsibility": "Release 28 CANONICAL event-fabric owner: the append-only immutable event store (date-partitioned JSONL + idempotency / shingle / link / native-id index), the two ingestion lanes (Stage-2 and Stage-3.5 research corpus; near-real-time delayed-quote and GDELT live adapters), deterministic entity resolution from owned identity records, per-source watermarks, and the per-source freshness state.",
+      "classification": "KEEP",
+      "target_owner": "api/event_fabric.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "engine.event_fabric (event contract / authority / novelty)",
+        "api.source_capability (source registry + capability matrix)",
+        "api.data_freshness.classify_source (THE cadence-aware freshness classifier)",
+        "engine.market_data.fetch_latest_prices (delegated delayed-quote fetch)"
+      ],
+      "direct_writes": [
+        "PAPER_TRADER_EVENT_FABRIC_DIR/events/YYYY/MM/DD/*.jsonl (append-only immutable event log)",
+        "PAPER_TRADER_EVENT_FABRIC_DIR/state/event_index.json (dedup index)",
+        "PAPER_TRADER_EVENT_FABRIC_DIR/state/watermarks.json (per-source watermarks)"
+      ],
+      "endpoints": [
+        "GET /v1/operations/event-signal-refresh (via api/event_signal_refresh.py)"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#evt-events, #evt-sources)"
+      ],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "MEDIUM",
+      "notes": "Freshness is DELEGATED to api.data_freshness.classify_source, never forked. Events are appended and never rewritten; a correction is a new event that supersedes the earlier one."
+    },
+    {
+      "path": "api/event_signal_refresh.py",
+      "system": "operations",
+      "responsibility": "Release 28 THE ONE event-driven signal-refresh orchestration path: sources due -> fetch since watermark -> normalize -> deduplicate -> persist immutable evidence -> affected securities -> refresh only the dependent calculations -> advance freshness -> measure score/rank/risk deltas -> materiality gate -> reassess when warranted -> complete target portfolio for MANUAL REVIEW. Also owns the measured latency observability.",
+      "classification": "KEEP",
+      "target_owner": "api/event_signal_refresh.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api.event_fabric (ingest / dedup / persist / watermarks / freshness)",
+        "api.portfolio_state (holdings / NAV / eligible date / economic state hash)",
+        "api.universe_scoring (ranking snapshot)",
+        "api.price_panel (owned trailing risk primitives)",
+        "api.holding_opportunity_cost.run_and_persist (the SAME owner the DRC calls)",
+        "api.portfolio_reassessment.run_and_persist (the SAME owner the DRC calls)",
+        "api.reallocation_proposal.run_and_persist (the SAME owner the DRC calls)"
+      ],
+      "direct_writes": [
+        "PAPER_TRADER_EVENT_FABRIC_DIR/runs/<run_id>/event_signal_refresh_status.json",
+        "PAPER_TRADER_EVENT_FABRIC_DIR/state/last_trigger.json (anti-churn fingerprint)",
+        "delegated: the canonical HOC / reassessment / proposal artifact roots, written by their OWN owners"
+      ],
+      "endpoints": [
+        "GET /v1/operations/event-signal-refresh",
+        "POST /v1/operations/event-signal-refresh/run (token-gated)"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (loadEventSignalRefresh -> #evt-card; read-only, no run control)"
+      ],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "MEDIUM",
+      "notes": "The INCREMENTAL dependency refresh; api.daily_research_cycle is the FULL refresh of the same graph through the same owners. Hosts no second calculation. Token-gated; creates no order, confirms no target, approves no proposal, promotes no model and arms no scheduler."
+    },
+    {
+      "path": "api/event_replay.py",
+      "system": "operations",
+      "responsibility": "Release 28 HERMETIC event-replay acceptance harness: composes a synthetic world and drives the REAL orchestration path and the REAL canonical opportunity-cost / reassessment / proposal owners over it, covering the ten required scenarios (nothing changed, material market move, 8-K, 10-Q, news, syndication, macro, stale source, research challenger, alternative improvement).",
+      "classification": "KEEP",
+      "target_owner": "api/event_replay.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api.event_signal_refresh (the real orchestrator under test)",
+        "api.event_fabric (record normalization + store)"
+      ],
+      "direct_writes": [
+        "caller-supplied temporary directories only"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release28_event_driven_manager.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "Every persistent root is a caller-supplied temporary directory; it opens no production store, calls no provider and creates no order."
     }
   ]
 }

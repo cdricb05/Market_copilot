@@ -211,6 +211,7 @@ from paper_trader.api import corporate_actions as _corporate_actions
 from paper_trader.api import research_agent as _research_agent
 from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
+from paper_trader.api import event_signal_refresh as _event_refresh
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6530,6 +6531,44 @@ def operations_reallocation_proposal() -> dict:
 
 
 @app.get(
+    "/v1/operations/event-signal-refresh",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_event_signal_refresh_status(limit: int = 60) -> dict:
+    """Release 28 canonical EVENT-DRIVEN SIGNAL STATE (read-only).
+
+    The ONE authoritative answer to "what new information arrived, what does it
+    affect, and did anything change because of it?". Assembled by
+    ``api.event_signal_refresh`` over the immutable event store
+    (``api.event_fabric``), the live-source capability matrix
+    (``api.source_capability``), the pure event contract / authority table /
+    dependency graph (``engine.event_fabric``) and the materiality policy
+    (``engine.event_materiality``).
+
+    It returns: the normalized-event contract and dependency graph; the terminal
+    source audit (every source integrated, blocked, redundant or not economically
+    useful — there is no "available but not integrated" state); per-source freshness
+    judged under EACH SOURCE'S OWN cadence, with watermarks, errors and processing
+    lag; the recent immutable events with their family, signal speed and decision
+    authority; which of them are material and which name a current holding; and the
+    last event cycle's state with the reason it did or did not reassess.
+
+    DECISION AUTHORITY IS VISIBLE AND ENFORCED: an unvalidated news, 8-K, earnings or
+    insider event is ``EVENT_TRIGGER_ONLY`` — it can put a holding on the review list
+    and can NEVER contribute expected return; a research-challenger event is
+    ``RESEARCH_ALPHA`` and can never reach the operational target.
+
+    STRICTLY READ-ONLY: it runs no cycle, calls no provider, opens no prediction
+    service, writes nothing, creates no order and mutates no operational state. It
+    returns NOT_RUN before the first cycle and remains readable (HTTP 200) when a
+    source is degraded.
+    """
+    return _event_refresh.load_event_signal_refresh_status(
+        limit=max(1, min(int(limit or 60), 500)))
+
+
+@app.get(
     "/v1/operations/portfolio-reassessment",
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(_verify_api_key)],
@@ -7139,6 +7178,63 @@ def operations_daily_research_cycle_run(body: DailyResearchCycleRunRequest) -> d
         )
     return _drc.run_daily_research_cycle(confirm=body.confirmation,
                                          requested_by=body.requested_by)
+
+
+class EventSignalRefreshRunRequest(BaseModel):
+    """Release 28 explicit event-cycle confirmation body."""
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+    #: Opt-in to the near-real-time adapters. Both are OFF by default because each
+    #: makes a bounded outbound provider request; neither is ever called by a GET.
+    include_market_quotes: bool = False
+    include_gdelt: bool = False
+
+
+@app.post(
+    "/v1/operations/event-signal-refresh/run",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_event_signal_refresh_run(body: EventSignalRefreshRunRequest) -> dict:
+    """Execute ONE explicit, manual event-driven signal refresh (Release 28). Requires
+    ``{"confirmation": "CONFIRM_EVENT_SIGNAL_REFRESH"}``; any other value returns 400.
+
+    This is the INCREMENTAL dependency refresh, and it is one path for every source:
+    it resolves which sources are due, reads only what arrived since each watermark,
+    normalizes it onto the canonical event contract, deduplicates it (an identical
+    payload is a no-op; one story from five outlets is ONE information event),
+    persists immutable point-in-time evidence, resolves the affected securities and
+    the business concepts they invalidate, refreshes ONLY the dependent calculations,
+    advances the freshness watermarks, measures the score / rank / risk deltas, and
+    applies the versioned materiality gate.
+
+    Only if that gate finds a MATERIAL change does it ask the portfolio question — and
+    it asks it through exactly the owners the Daily Research Cycle uses:
+    ``api.holding_opportunity_cost`` -> ``api.portfolio_reassessment`` ->
+    ``api.reallocation_proposal``. Daily mode is the FULL refresh of the same
+    dependency graph through the same owners; there is no second calculation anywhere
+    in this path.
+
+    IDEMPOTENT AND ANTI-CHURN: unchanged inputs admit no event and reassess nothing;
+    an identical set of triggering facts against an identical portfolio state is
+    suppressed by fingerprint rather than assessed twice.
+
+    IT CREATES NO ORDER, confirms no target, approves no proposal, promotes no model,
+    changes no holding / cash / NAV and arms no scheduler. When a change is justified
+    it produces ONE complete paper target portfolio for MANUAL REVIEW.
+    """
+    if body.confirmation != _event_refresh.EXECUTE_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_event_refresh.EXECUTE_CONFIRM_TOKEN}'}} to "
+                    f"run the event-driven signal refresh."),
+        )
+    return _event_refresh.run_event_signal_refresh(
+        confirm=body.confirmation, requested_by=body.requested_by,
+        include_market_quotes=bool(body.include_market_quotes),
+        include_gdelt=bool(body.include_gdelt))
 
 
 class DailyOperatingRunExecuteRequest(BaseModel):
