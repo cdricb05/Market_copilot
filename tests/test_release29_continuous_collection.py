@@ -1,0 +1,665 @@
+"""Release 29 — continuous governed information collection.
+
+WHAT THESE TESTS PROTECT
+------------------------
+Release 28 could react to an event. It could not keep events arriving, and the
+health it reported was measured against a denominator that made a *monthly*
+series and a market feed *on a Sunday* both read "degraded". Release 29 runs the
+sources at their own cadence and reports health against the sources that should
+actually be current now. Each test below is one way that could quietly become
+wrong again:
+
+* a 15-minute lane re-collected every wake, or a monthly lane probed hourly;
+* a market feed on a weekend reported STALE instead of NOT_DUE;
+* a provider 429 answered with an immediate retry;
+* one failing source stopping the others;
+* a second worker started by hand, running provider calls concurrently;
+* a wake-from-sleep turning into a request storm;
+* a delayed quote counted as a "material company event" every 15 minutes;
+* a same-session collapse waiting for tomorrow's bar to reach the review list;
+* a read surface counting "material events" by a definition the gate does not use;
+* collection automation drifting into execution automation.
+
+HERMETIC
+--------
+Every test runs against ``tmp_path`` roots and an injected clock. Nothing here
+opens a production store, calls a provider, starts a worker, touches the Windows
+Scheduled Task, creates an order or mutates operational state.
+"""
+from __future__ import annotations
+
+import os
+import signal
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from paper_trader.api import collection_replay as creplay
+from paper_trader.api import event_fabric as fabric
+from paper_trader.api import event_replay as replay
+from paper_trader.api import event_signal_refresh as esr
+from paper_trader.api import information_collection as ic
+from paper_trader.engine import collection_cadence as cad
+from paper_trader.engine import event_fabric as ek
+from paper_trader.engine import event_materiality as emat
+from paper_trader.engine import market_hours as mh
+
+REPO = __import__("pathlib").Path(__file__).resolve().parents[1]
+
+# A Monday inside the regular session, and the Sunday before it.
+OPEN_UTC = datetime(2026, 8, 17, 14, 0, tzinfo=timezone.utc)     # 10:00 ET Mon
+WEEKEND_UTC = datetime(2026, 8, 16, 16, 0, tzinfo=timezone.utc)  # 12:00 ET Sun
+EVENING_UTC = datetime(2026, 8, 17, 23, 0, tzinfo=timezone.utc)  # 19:00 ET Mon
+
+
+@pytest.fixture()
+def root(tmp_path):
+    out = tmp_path / "collection"
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def _policy(source_id):
+    return cad.CADENCE_POLICY_BY_ID[source_id]
+
+
+# --------------------------------------------------------------------------- #
+# 1. Cadence policy — every interval is declared and justified
+# --------------------------------------------------------------------------- #
+class TestCadencePolicy:
+
+    def test_every_source_declares_a_kind_a_session_and_a_reason(self):
+        for sid, policy in cad.CADENCE_POLICY_BY_ID.items():
+            assert policy["cadence_kind"] in cad.CADENCE_KINDS, sid
+            assert policy["market_session_requirement"] in cad.SESSION_REQUIREMENTS, sid
+            # A cadence without a stated reason is a number someone liked.
+            assert str(policy.get("why") or "").strip(), sid
+
+    def test_a_collected_source_declares_an_interval_and_a_budget(self):
+        for sid, policy in cad.CADENCE_POLICY_BY_ID.items():
+            if not policy["collection_enabled"]:
+                continue
+            assert policy["normal_interval_seconds"] > 0, sid
+            budget = policy["request_budget"]
+            assert budget["max_calls_per_iteration"] >= 1, sid
+            assert budget["timeout_seconds"] > 0, sid
+            assert budget["max_retries"] >= 0, sid
+
+    def test_blocked_and_redundant_sources_are_not_collected(self):
+        for sid in ("analyst_revision_vendor", "options_iv", "bls", "bea",
+                    "prediction_service"):
+            assert cad.CADENCE_POLICY_BY_ID[sid]["collection_enabled"] is False, sid
+
+    def test_the_policy_contract_is_serialisable_evidence(self):
+        contract = cad.policy_contract()
+        assert contract["contract_id"] == cad.CADENCE_CONTRACT_ID
+        assert contract["policy_version"] == cad.CADENCE_POLICY_VERSION
+        assert set(contract["runtime_states"]) == set(cad.RUNTIME_STATES)
+
+
+# --------------------------------------------------------------------------- #
+# 2. The fixed freshness denominator
+# --------------------------------------------------------------------------- #
+class TestFreshnessDenominator:
+
+    def test_a_market_feed_is_not_due_on_a_weekend_not_stale(self):
+        row = cad.resolve_source_runtime(
+            policy=_policy("yahoo_delayed_quote"), state={}, now=WEEKEND_UTC)
+        assert row["runtime_state"] == cad.RS_NOT_DUE
+        assert row["due_window_active"] is False
+        assert row["session_phase"] == mh.PHASE_WEEKEND
+        assert row["collect_now"] is False
+
+    def test_the_same_market_feed_is_due_once_the_session_opens(self):
+        row = cad.resolve_source_runtime(
+            policy=_policy("yahoo_delayed_quote"), state={}, now=OPEN_UTC)
+        assert row["due_window_active"] is True
+        assert row["collect_now"] is True
+
+    def test_a_publisher_driven_lane_is_due_on_a_sunday(self):
+        row = cad.resolve_source_runtime(policy=_policy("news_rss"), state={},
+                                         now=WEEKEND_UTC)
+        assert row["due_window_active"] is True
+
+    def test_a_daily_lane_is_not_due_before_its_publication_window(self):
+        morning = cad.resolve_source_runtime(policy=_policy("finra"), state={},
+                                             now=OPEN_UTC)
+        evening = cad.resolve_source_runtime(policy=_policy("finra"), state={},
+                                             now=EVENING_UTC)
+        assert morning["runtime_state"] == cad.RS_NOT_DUE
+        assert evening["due_window_active"] is True
+
+    def test_the_denominator_is_the_sources_that_should_be_current_now(self):
+        rows = [cad.resolve_source_runtime(policy=p, state={}, now=WEEKEND_UTC)
+                for p in cad.CADENCE_POLICY_BY_ID.values()]
+        summary = cad.summarize_runtime(rows)
+        assert summary["due_now"] == summary["healthy_due"]
+        assert summary["due_now"] < summary["total_sources"]
+        assert "should be current now" in summary["headline"]
+        # Nothing blocked or disabled may enter the operator's denominator.
+        assert summary["blocked"] >= 1 and summary["disabled"] >= 1
+
+    def test_a_collected_source_is_fresh_not_due_and_never_stale_mid_interval(self):
+        state = {"last_attempt_at": OPEN_UTC.isoformat(),
+                 "last_success_at": OPEN_UTC.isoformat()}
+        row = cad.resolve_source_runtime(policy=_policy("sec_edgar"), state=state,
+                                         now=OPEN_UTC + timedelta(minutes=5))
+        assert row["collect_now"] is False
+        assert row["runtime_state"] in cad.HEALTHY_STATES
+
+    def test_the_next_wake_is_bounded_at_both_ends(self):
+        rows = [cad.resolve_source_runtime(policy=p, state={}, now=WEEKEND_UTC)
+                for p in cad.CADENCE_POLICY_BY_ID.values()]
+        wake = cad.next_wake_seconds(rows, now=WEEKEND_UTC)
+        assert cad.MIN_ITERATION_INTERVAL_SECONDS <= wake <= cad.MAX_WAKE_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# 3. Backoff and the circuit breaker — a 429 means STOP ASKING
+# --------------------------------------------------------------------------- #
+class TestBackoffAndCircuit:
+
+    def test_http_status_maps_to_an_explicit_error_category(self):
+        assert cad.classify_http_error(status=429) == cad.ERR_RATE_LIMIT
+        assert cad.classify_http_error(status=503) == cad.ERR_SERVER
+        assert cad.classify_http_error(status=403) == cad.ERR_AUTH
+        assert cad.classify_http_error(status=404) == cad.ERR_CLIENT
+        assert cad.classify_http_error(detail="timed out") == cad.ERR_TIMEOUT
+
+    def test_a_rate_limit_opens_a_long_backoff_never_an_immediate_retry(self):
+        first = cad.backoff_seconds(category=cad.ERR_RATE_LIMIT,
+                                    consecutive_failures=1)
+        assert first >= 900.0
+
+    def test_backoff_doubles_and_is_clamped_at_the_ceiling(self):
+        seq = [cad.backoff_seconds(category=cad.ERR_SERVER, consecutive_failures=n)
+               for n in range(1, 12)]
+        assert seq[1] > seq[0]
+        assert max(seq) <= cad.BACKOFF_CEILING_SECONDS[cad.ERR_SERVER]
+
+    def test_an_entitlement_failure_backs_off_for_hours_not_minutes(self):
+        assert cad.backoff_seconds(category=cad.ERR_AUTH,
+                                   consecutive_failures=1) >= 6 * 3600.0
+
+    def test_the_circuit_opens_after_the_threshold_and_probes_once(self):
+        now = OPEN_UTC
+        assert cad.circuit_state_for(consecutive_failures=1, backoff_until=None,
+                                     now=now) == cad.CIRCUIT_CLOSED
+        assert cad.circuit_state_for(
+            consecutive_failures=cad.CIRCUIT_OPEN_THRESHOLD,
+            backoff_until=now + timedelta(minutes=5), now=now) == cad.CIRCUIT_OPEN
+        assert cad.circuit_state_for(
+            consecutive_failures=cad.CIRCUIT_OPEN_THRESHOLD,
+            backoff_until=now - timedelta(minutes=5), now=now) == cad.CIRCUIT_HALF_OPEN
+
+    def test_a_source_in_backoff_is_not_called(self):
+        state = {"last_attempt_at": OPEN_UTC.isoformat(),
+                 "consecutive_failures": 3,
+                 "backoff_until": (OPEN_UTC + timedelta(hours=1)).isoformat()}
+        row = cad.resolve_source_runtime(policy=_policy("gdelt"), state=state,
+                                         now=OPEN_UTC + timedelta(minutes=30))
+        assert row["runtime_state"] == cad.RS_BACKOFF
+        assert row["collect_now"] is False
+        # The operator is told WHEN it will be retried, while the service still runs.
+        assert row["backoff_until"]
+
+
+# --------------------------------------------------------------------------- #
+# 4. Provider budgets
+# --------------------------------------------------------------------------- #
+class TestProviderBudget:
+
+    def test_a_source_over_its_daily_budget_is_skipped_with_a_reason(self):
+        policy = _policy("gdelt")
+        cap = policy["request_budget"]["max_calls_per_day"]
+        if cap is None:
+            pytest.skip("gdelt declares no daily cap")
+        verdict = ic.budget_verdict(policy=policy,
+                                    row={"request_count_today": cap}, now=OPEN_UTC)
+        assert verdict["allowed"] is False
+        assert "budget" in verdict["reason"].lower()
+
+    def test_an_hourly_budget_counts_only_the_last_hour(self):
+        policy = _policy("gdelt")
+        cap = policy["request_budget"]["max_calls_per_hour"]
+        if cap is None:
+            pytest.skip("gdelt declares no hourly cap")
+        stale = [(OPEN_UTC - timedelta(hours=3)).isoformat()] * (cap + 2)
+        assert ic.budget_verdict(policy=policy,
+                                 row={"recent_call_times": stale},
+                                 now=OPEN_UTC)["allowed"] is True
+        fresh = [(OPEN_UTC - timedelta(minutes=5)).isoformat()] * cap
+        assert ic.budget_verdict(policy=policy,
+                                 row={"recent_call_times": fresh},
+                                 now=OPEN_UTC)["allowed"] is False
+
+    def test_daily_counters_roll_on_the_market_day_not_the_utc_day(self):
+        row = {"counter_et_date": "2026-08-14", "request_count_today": 40}
+        rolled = ic._reset_daily_counters(row, OPEN_UTC)
+        assert rolled["request_count_today"] == 0
+        assert rolled["counter_et_date"] == mh.session_state(OPEN_UTC)["et_date"]
+
+
+# --------------------------------------------------------------------------- #
+# 5. Singleton, heartbeat and restart
+# --------------------------------------------------------------------------- #
+class TestSingletonAndLifecycle:
+
+    def test_a_second_worker_is_refused_while_the_first_is_alive(self, root):
+        first = ic.acquire_service_lock(root=root, instance_id="w1")
+        second = ic.acquire_service_lock(root=root, instance_id="w2", pid=1)
+        assert first["acquired"] is True
+        assert second["acquired"] is False
+        assert second["reason"] == "SINGLE_FLIGHT_LOCK_HELD"
+
+    def test_an_abandoned_lock_is_reclaimed_only_after_silence_and_a_dead_pid(
+            self, root):
+        now = OPEN_UTC
+        ic.acquire_service_lock(root=root, instance_id="dead", pid=999_999_999,
+                                now=now)
+        # Still inside the takeover window: refused even though the pid is gone.
+        soon = ic.acquire_service_lock(
+            root=root, instance_id="new", pid=4242,
+            now=now + timedelta(seconds=ic.LOCK_TAKEOVER_SECONDS / 2))
+        assert soon["acquired"] is False
+        later = ic.acquire_service_lock(
+            root=root, instance_id="new", pid=4242,
+            now=now + timedelta(seconds=ic.LOCK_TAKEOVER_SECONDS + 60))
+        assert later["acquired"] is True
+        assert later["reclaimed"]["prior_instance_id"] == "dead"
+
+    def test_lifecycle_never_started_running_degraded_stopped(self, root):
+        now = OPEN_UTC
+        blank = ic.load_service_state(root=root)
+        assert ic.resolve_service_lifecycle(blank, None, now)["service_state"] == \
+            ic.SVC_NEVER_STARTED
+
+        # A RUNNING verdict means a live worker, so the pid has to be a live
+        # one. A made-up pid only ever read as "running" because the liveness
+        # probe could not answer on Windows.
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=now)
+        ic.heartbeat(root=root, instance_id="w1", now=now)
+        state = ic.load_service_state(root=root)
+        lock = {"pid": os.getpid()}
+        assert ic.resolve_service_lifecycle(state, lock, now)["service_state"] == \
+            ic.SVC_RUNNING
+
+        stale = now + timedelta(seconds=ic.HEARTBEAT_STALE_SECONDS + 60)
+        assert ic.resolve_service_lifecycle(state, lock, stale)["service_state"] == \
+            ic.SVC_DEGRADED
+
+        ic.release_service_lock(root=root, instance_id="w1")
+        assert ic.resolve_service_lifecycle(
+            ic.load_service_state(root=root), None, now)["service_state"] == \
+            ic.SVC_STOPPED
+
+    def test_a_restart_counts_itself_without_losing_prior_evidence(self, root):
+        ic.register_worker_start(root=root, instance_id="w1", pid=1, now=OPEN_UTC)
+        ic.register_worker_start(root=root, instance_id="w2", pid=2,
+                                 now=OPEN_UTC + timedelta(minutes=5))
+        state = ic.load_service_state(root=root)
+        assert state["restart_count"] == 1
+        assert state["instance_id"] == "w2"
+
+
+# --------------------------------------------------------------------------- #
+# 5a. The liveness probe is a QUESTION, never a SIGNAL
+# --------------------------------------------------------------------------- #
+class TestLivenessProbeIsNeverASignal:
+    """Regression for an interrupt that killed three complete test runs.
+
+    On Windows, CPython's ``os.kill`` dispatches on the SIGNAL value, and
+    signal 0 IS ``CTRL_C_EVENT``. ``os.kill(pid, 0)`` therefore probes nothing:
+    it calls ``GenerateConsoleCtrlEvent`` and delivers a REAL console Ctrl+C to
+    the process group named by ``pid``. ``acquire_service_lock`` records
+    ``os.getpid()``, so the next liveness check interrupted its own console.
+
+    The interrupt is asynchronous - measured at ~11 ms - so the resulting
+    ``KeyboardInterrupt`` surfaced in the test AFTER the one that caused it.
+    Three full-suite runs died at this file, at 73%, with an interrupt nobody
+    typed. These tests fail if that probe is ever expressed as a signal again.
+    """
+
+    def test_the_probe_never_routes_through_os_kill_on_windows(self, monkeypatch):
+        if sys.platform != "win32":
+            pytest.skip("signal 0 is a genuine liveness probe on POSIX")
+        calls = []
+
+        def spy(pid, sig, *args, **kwargs):
+            calls.append((pid, sig))
+            raise AssertionError(
+                "the liveness probe called os.kill(%r, %r); on Windows signal 0 "
+                "is CTRL_C_EVENT and that delivers a console interrupt" % (pid, sig))
+
+        monkeypatch.setattr(os, "kill", spy)
+        assert ic._pid_alive(os.getpid()) is True
+        assert calls == []
+
+    def test_probing_this_very_process_delivers_no_interrupt(self):
+        received = []
+        previous = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, lambda signum, frame: received.append(signum))
+        try:
+            for _ in range(5):
+                assert ic._pid_alive(os.getpid()) is True
+            # The console control event was delivered by an injected thread
+            # ~11 ms after the call returned, so settle before concluding.
+            time.sleep(0.35)
+        finally:
+            signal.signal(signal.SIGINT, previous)
+        assert received == [], (
+            "the liveness probe delivered SIGINT to its own process: it is "
+            "generating a console control event instead of asking a question")
+
+    def test_the_probe_answers_accurately_and_never_raises(self):
+        assert ic._pid_alive(os.getpid()) is True
+        assert ic._pid_alive(999_999_999) is False
+        assert ic._pid_alive(0) is False
+        assert ic._pid_alive(-1) is False
+        assert ic._pid_alive("not-a-pid") is None
+        assert ic._pid_alive(None) is None
+
+    def test_a_live_holder_keeps_the_slot_even_when_its_heartbeat_is_stale(self, root):
+        """Reclaim needs silence AND a dead pid - never silence alone."""
+        first = ic.acquire_service_lock(root=root, instance_id="live",
+                                        pid=os.getpid(), now=OPEN_UTC)
+        assert first["acquired"] is True
+        intruder = ic.acquire_service_lock(
+            root=root, instance_id="intruder", pid=os.getpid() + 1,
+            now=OPEN_UTC + timedelta(seconds=ic.LOCK_TAKEOVER_SECONDS * 4))
+        assert intruder["acquired"] is False
+        assert intruder["reason"] == "SINGLE_FLIGHT_LOCK_HELD"
+
+
+# --------------------------------------------------------------------------- #
+# 6. Governance — collection automation is NOT execution automation
+# --------------------------------------------------------------------------- #
+class TestGovernance:
+
+    def test_enabling_collection_requires_the_explicit_confirm_token(self, root):
+        refused = ic.set_collection_automation(enabled=True, root=root)
+        assert refused["ok"] is False
+        assert refused["confirm_required"] == ic.ENABLE_CONFIRM_TOKEN
+        assert ic.load_service_state(
+            root=root)["collection_automation_enabled"] is False
+
+        armed = ic.set_collection_automation(
+            enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN, root=root)
+        assert armed["collection_automation_enabled"] is True
+        assert armed["execution_automation_enabled"] is False
+
+    def test_an_unauthorised_iteration_calls_nothing(self, root):
+        called = []
+        receipt = ic.run_collection_iteration(
+            root=root, instance_id="w1", now=OPEN_UTC,
+            attention_universe={"tiers": {}, "holdings": [], "candidates": []},
+            stage2_fn=lambda **kw: called.append("stage2"),
+            news_fn=lambda **kw: called.append("news"),
+            event_cycle_fn=lambda **kw: called.append("cycle"))
+        assert receipt["ran"] is False
+        assert receipt["state"] == "COLLECTION_AUTOMATION_DISABLED"
+        assert called == []
+
+    def test_the_safety_contract_forbids_every_execution_verb(self):
+        safety = ic.collection_safety_contract()
+        for flag in ("execution_automation_enabled", "broker_execution_enabled",
+                     "creates_orders", "confirms_orders", "fills_orders",
+                     "cancels_orders", "approves_proposals", "confirms_targets",
+                     "runs_controlled_rebalance", "runs_daily_close",
+                     "runs_daily_research_cycle", "promotes_models",
+                     "mutates_model_weights"):
+            assert safety[flag] is False, flag
+        assert safety["manual_portfolio_review"] == "REQUIRED"
+
+    def test_credentials_are_reported_by_presence_never_by_value(self):
+        creds = ic.credential_availability(env={"EODHD_API_KEY": "super-secret"})
+        blob = repr(creds)
+        assert "super-secret" not in blob
+
+
+# --------------------------------------------------------------------------- #
+# 7. Attention universe — read from the owners, never hardcoded
+# --------------------------------------------------------------------------- #
+class TestAttentionUniverse:
+
+    def test_tiers_are_derived_from_the_authoritative_owners(self):
+        universe = ic.build_attention_universe(
+            portfolio_state={"positions": [{"ticker": "AAA"}, {"ticker": "BBB"}]},
+            scoring={"rankings": [{"ticker": "BBB"}, {"ticker": "CCC"},
+                                  {"ticker": "DDD"}]})
+        assert universe["holdings"] == ["AAA", "BBB"]
+        # A held name is never offered back as its own replacement candidate.
+        assert "BBB" not in universe["candidates"]
+        assert universe["candidates"][:2] == ["CCC", "DDD"]
+        assert universe["authoritative_sources"] == ["api.portfolio_state",
+                                                     "api.universe_scoring"]
+
+    def test_a_missing_owner_degrades_honestly_and_does_not_crash(self):
+        def boom():
+            raise RuntimeError("portfolio store unavailable")
+        universe = ic.build_attention_universe(portfolio_state_loader=boom,
+                                               scoring={"rankings": []})
+        assert universe["holdings"] == []
+        assert any("portfolio state unavailable" in w
+                   for w in universe["warnings"])
+
+
+# --------------------------------------------------------------------------- #
+# 8. Release-28 integration — the quote lane speaks through RISK, not by arriving
+# --------------------------------------------------------------------------- #
+class TestQuoteLaneIntegration:
+
+    def test_a_quote_identifies_the_days_mark_so_a_repeat_read_is_a_no_op(self):
+        first = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 100.0}], []),
+            now_iso="2026-08-17T14:00:00+00:00")
+        later = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 100.0}], []),
+            now_iso="2026-08-17T14:45:00+00:00")
+        assert first["events"][0]["source_event_id"] == \
+            later["events"][0]["source_event_id"]
+        # Same identity AND same payload -> the same idempotency key -> a duplicate.
+        assert first["events"][0]["idempotency_key"] == \
+            later["events"][0]["idempotency_key"]
+
+    def test_a_changed_price_supersedes_the_days_mark_instead_of_duplicating_it(self):
+        moved = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 111.0}], []),
+            now_iso="2026-08-17T14:45:00+00:00")
+        flat = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 100.0}], []),
+            now_iso="2026-08-17T14:00:00+00:00")
+        assert moved["events"][0]["idempotency_key"] != \
+            flat["events"][0]["idempotency_key"]
+
+    def test_event_identity_comes_from_the_callers_clock(self):
+        events = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 100.0}], []),
+            now_iso="2026-08-17T14:00:00+00:00")["events"]
+        assert events[0]["source_event_id"].endswith("2026-08-17")
+        assert events[0]["effective_at"] == "2026-08-17"
+
+    def test_a_market_observation_is_not_material_merely_by_arriving(self):
+        quote = fabric.capture_market_quotes(
+            ["AAA"], fetcher=lambda t: ([{"ticker": "AAA", "price": 100.0}], []),
+            now_iso="2026-08-17T14:00:00+00:00")["events"][0]
+        verdict = emat.assess_materiality(events=[quote], holdings=["AAA"])
+        assert verdict["material_signal_changed"] is False
+        assert verdict["reassessment_required"] is False
+        codes = {s["code"] for s in verdict["suppressed"]}
+        assert emat.S_OBSERVATION_ON_ARRIVAL in codes
+
+    def test_an_intraday_move_beyond_the_threshold_is_material(self):
+        threshold = emat.DEFAULT_POLICY["abs_return_1d"]
+        risk = {"AAA": {"ret_intraday": -(threshold + 0.05)},
+                "BBB": {"ret_intraday": 0.001}}
+        verdict = emat.assess_materiality(risk_state=risk, holdings=["AAA", "BBB"])
+        assert verdict["reassessment_required"] is True
+        assert verdict["affected_entities"] == ["AAA"]
+        assert emat.T_HOLDING_PRICE_SHOCK in verdict["trigger_codes"]
+
+    def test_the_risk_owner_measures_the_quote_against_the_owned_close(self):
+        world = replay.build_world()
+        panel = world["price_panel"]
+        ticker = sorted(panel["series"].keys())[0]
+        close = float(panel["series"][ticker]["adj"][-1])
+        state = esr.build_market_risk_state(
+            price_panel=panel, tickers=[ticker], eligible=world["eligible"],
+            latest_quotes={ticker: close * 0.90})
+        row = state["rows"][ticker]
+        assert row["intraday_reference_close"] == pytest.approx(close)
+        assert row["ret_intraday"] == pytest.approx(-0.10, abs=1e-6)
+        assert state["intraday_quoted"] == 1
+
+    def test_a_holding_without_a_quote_reports_no_intraday_move(self):
+        world = replay.build_world()
+        state = esr.build_market_risk_state(
+            price_panel=world["price_panel"],
+            tickers=sorted(world["price_panel"]["series"].keys())[:2],
+            eligible=world["eligible"], latest_quotes={})
+        assert state["intraday_quoted"] == 0
+        assert all(r["ret_intraday"] is None for r in state["rows"].values())
+
+    def test_the_read_surface_counts_material_by_the_gates_own_rule(self):
+        # The status view must not call a price observation a material event.
+        assert ek.F_MARKET_QUOTE in emat.MARKET_OBSERVATION_FAMILIES
+        assert ek.F_MARKET_BAR in emat.MARKET_OBSERVATION_FAMILIES
+
+    def test_the_event_orchestrator_accepts_the_service_clock(self, tmp_path):
+        roots = {n: tmp_path / n for n in ("fabric", "hoc", "reassess", "realloc")}
+        for p in roots.values():
+            p.mkdir(parents=True, exist_ok=True)
+        world = replay.build_world()
+        cycle = replay.run_cycle(
+            world=world, records=[], roots=roots, include_market_quotes=True,
+            quote_fetcher=creplay.world_quote_fetcher(world),
+            entity_index=creplay._entity_index(world),
+            now_iso="2026-08-17T14:00:00+00:00")
+        assert cycle["events_admitted"] >= 1
+        # An ordinary session poll of an unmoved book decides nothing.
+        assert cycle["materiality"]["material_signal_changed"] is False
+
+
+# --------------------------------------------------------------------------- #
+# 9. The read contract — GET /v1/operations/information-collection
+# --------------------------------------------------------------------------- #
+class TestReadContract:
+
+    def test_the_payload_is_readable_before_the_service_has_ever_run(self, root):
+        payload = ic.load_information_collection(root=root, now=WEEKEND_UTC)
+        assert payload["service"]["service_state"] == ic.SVC_NEVER_STARTED
+        assert payload["headline"]["title"] == "COLLECTION NOT INSTALLED"
+        assert payload["automation"]["execution_automation_enabled"] is False
+        assert payload["service"]["single_flight_lock"]["held"] is False
+
+    def test_the_headline_answers_is_it_running_before_any_counter(self, root):
+        ic.set_collection_automation(enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN,
+                                     root=root)
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid())
+        ic.heartbeat(root=root, instance_id="w1")
+        payload = ic.load_information_collection(root=root)
+        assert payload["headline"]["title"] in ("COLLECTION RUNNING",
+                                                "MATERIAL INFORMATION RECEIVED")
+        assert payload["headline"]["detail"]
+
+    def test_the_kpi_row_is_a_due_denominator_not_a_registry_count(self, root):
+        payload = ic.load_information_collection(root=root, now=WEEKEND_UTC)
+        summary = payload["source_health_summary"]
+        for key in ("due_now", "healthy_due", "not_due", "backoff", "blocked",
+                    "disabled"):
+            assert key in summary, key
+        assert summary["due_now"] <= summary["total_sources"]
+
+    def test_every_rendered_value_is_computed_by_the_backend(self, root):
+        payload = ic.load_information_collection(root=root, now=WEEKEND_UTC)
+        # The browser must never classify health or do date arithmetic: the row
+        # arrives already resolved, with the reason that produced it.
+        row = payload["source_health"]["sources"][0]
+        for key in ("runtime_state", "health_reason", "due_window_reason",
+                    "due_window_active", "collect_now", "next_due_at",
+                    "session_phase", "cadence_kind", "why_this_cadence",
+                    "circuit_state", "backoff_until"):
+            assert key in row, key
+        # Every state carries the sentence that produced it.
+        assert str(row["health_reason"]).strip()
+
+    def test_the_read_contract_writes_nothing(self, root):
+        before = sorted(p.name for p in root.iterdir())
+        ic.load_information_collection(root=root, now=WEEKEND_UTC)
+        assert sorted(p.name for p in root.iterdir()) == before
+
+
+# --------------------------------------------------------------------------- #
+# 10. Ownership — exactly one worker, one orchestrator, one manager script
+# --------------------------------------------------------------------------- #
+class TestOwnership:
+
+    def test_there_is_exactly_one_long_lived_worker_script(self):
+        assert (REPO / "scripts" / "run_information_collection_service.py").exists()
+        strays = [p.name for p in (REPO / "scripts").glob("*.py")
+                  if "collection" in p.name.lower()
+                  and p.name not in ("run_information_collection_service.py",
+                                     "collection_service_control.py")]
+        assert strays == []
+
+    def test_the_service_is_managed_by_exactly_one_powershell_script(self):
+        manage = REPO / "scripts" / "manage_information_collection.ps1"
+        assert manage.exists()
+        text = manage.read_text(encoding="utf-8", errors="replace")
+        # Read-only Status must not require -Execute; every mutation must.
+        assert "-Execute" in text
+        assert "Install" in text and "Uninstall" in text and "Status" in text
+
+    def test_the_operator_sees_collection_state_without_scrolling(self):
+        ui = (REPO / "api" / "ui" / "index.html").read_text(encoding="utf-8",
+                                                            errors="replace")
+        # The card is a screen below the fold; the header chip is not.
+        assert 'id="ic-header-badge"' in ui
+        assert "_icSetHeaderBadge(" in ui
+        # ONE loader still owns it — the chip is not a second status source.
+        assert ui.count("function loadInformationCollection(") == 1
+        assert ui.count("_mhzGet('/v1/operations/information-collection')") == 1
+
+    def test_the_architecture_audit_guards_this_release(self):
+        audit = (REPO / "scripts" / "audit_architecture.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "def check_information_collection_ownership(" in audit
+        # Wired into the report AND into the strict gate — a guard nobody runs is
+        # documentation, not enforcement.
+        assert '"information_collection_ownership": check_information_collection_ownership(' \
+            in audit
+        assert 'icx = rep["information_collection_ownership"]' in audit
+        assert 'icx["kernel_impurity"]' in audit
+
+    def test_collection_composes_the_release28_orchestrator_and_does_not_fork_it(self):
+        payload = ic.collection_safety_contract()
+        assert payload["runs_daily_research_cycle"] is False
+        assert esr.COMPOSITION_OWNER == "api.event_signal_refresh"
+        source = (REPO / "api" / "information_collection.py").read_text(
+            encoding="utf-8", errors="replace")
+        # No second opportunity cost, reassessment or proposal builder may appear here.
+        for forbidden in ("def assess_holding_opportunity_cost",
+                          "def run_portfolio_reassessment",
+                          "def build_reallocation_proposal"):
+            assert forbidden not in source, forbidden
+
+
+# --------------------------------------------------------------------------- #
+# 11. The hermetic acceptance suite itself
+# --------------------------------------------------------------------------- #
+class TestHermeticAcceptance:
+
+    def test_the_scenario_registry_covers_every_release29_claim(self):
+        assert len(creplay.SCENARIOS) >= 21
+        for key in ("S1", "S4", "S6", "S12", "S15", "S18", "S19", "S20", "S21"):
+            assert key in creplay.SCENARIOS, key
+
+    @pytest.mark.parametrize("scenario", ["S12", "S21"])
+    def test_a_representative_scenario_passes_hermetically(self, scenario, tmp_path):
+        result = creplay.run_simulation(base_dir=tmp_path, scenarios=[scenario],
+                                        timeout_seconds=120)
+        assert result["blocked_connection_attempts"] == []
+        assert result["passed"] is True, result["scenarios"]

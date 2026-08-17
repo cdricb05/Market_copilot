@@ -231,8 +231,14 @@ downstream calculation never runs before its inputs.
 
 ## 9. Materiality and anti-churn
 
-Owner: `engine/event_materiality.py`, policy version `event_materiality.v1`, versioned
+Owner: `engine/event_materiality.py`, policy version `event_materiality.v2`, versioned
 **separately** from every alpha-model calibration.
+
+> **v2 (Release 29).** A market OBSERVATION — a bar or a delayed quote — is no longer
+> material merely by arriving; it is judged by the move it measures against the existing
+> risk thresholds, and `ret_intraday` was added so the 15-minute quote lane can still put
+> a same-session collapse on the review list. No threshold NUMBER changed. See
+> [CONTINUOUS_INFORMATION_COLLECTION.md](CONTINUOUS_INFORMATION_COLLECTION.md) §5A.
 
 It separates four statements and owns the first three:
 

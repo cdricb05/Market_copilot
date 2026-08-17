@@ -64,6 +64,11 @@ _STORE_ENV_VARS = (
     "PAPER_TRADER_EVENT_FABRIC_DIR",
     "PAPER_TRADER_ALPHA_INGESTION_ROOT",
     "PAPER_TRADER_ALPHA_NEWS_ROOT",
+    # Release 29 — the continuous-collection service state. Without this an acceptance
+    # run would render the REAL worker's heartbeat, watermarks and iteration receipts
+    # beside a synthetic portfolio, and the operator would be reading a live service
+    # state that has nothing to do with the scenario on screen.
+    "PAPER_TRADER_COLLECTION_DIR",
 )
 
 

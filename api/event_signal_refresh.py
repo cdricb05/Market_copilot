@@ -284,8 +284,28 @@ def _default_proposal_gate(reassessment):
 # --------------------------------------------------------------------------- #
 # Market / risk state — computed by the CANONICAL price-panel owner
 # --------------------------------------------------------------------------- #
-def build_market_risk_state(*, price_panel: Optional[dict], tickers, eligible: Any
-                            ) -> dict:
+def latest_quote_prices(events: Optional[list]) -> dict:
+    """The most recent DELAYED_QUOTE price per ticker out of this cycle's events.
+
+    The quote lane's only decision value is the move it measures against the owned
+    close. Reading it here — from the events the fabric already admitted — keeps that
+    measurement in the risk owner and adds no second market-data client. The price is
+    read from ``materiality_inputs``, which is where the event contract carries the
+    values the gate is allowed to judge; an event never carries its raw payload.
+    """
+    out: dict[str, float] = {}
+    for e in (events or []):
+        if str((e or {}).get("family")) != ek.F_MARKET_QUOTE:
+            continue
+        tk = str((e.get("primary_ticker") or "")).upper()
+        price = _f(((e.get("materiality_inputs") or {}).get("price")))
+        if tk and price is not None and price > 0:
+            out[tk] = price
+    return out
+
+
+def build_market_risk_state(*, price_panel: Optional[dict], tickers, eligible: Any,
+                            latest_quotes: Optional[dict] = None) -> dict:
     """Per-holding risk state from the canonical owned panel.
 
     Every primitive (trailing return, realized volatility, max drawdown, median dollar
@@ -293,12 +313,20 @@ def build_market_risk_state(*, price_panel: Optional[dict], tickers, eligible: A
     engine. ``volatility_ratio`` is the ratio of the owner's own 63-day realized
     volatility to its 126-day realized volatility: short-window risk relative to the
     name's own longer-run level.
+
+    ``latest_quotes`` overlays the fastest legitimately available price on top of the
+    owned close as ``ret_intraday``. It is a RISK measurement only: it never becomes
+    a mark, never enters the panel and never touches a score. Without it the 15-minute
+    quote lane could not put a same-session collapse on the review list before the
+    next end-of-day bar exists.
     """
     from paper_trader.api import price_panel as pp
     series = (price_panel or {}).get("series") or {}
     eligible_s = str(eligible or "")[:10]
+    quotes = {str(k).upper(): _f(v) for k, v in (latest_quotes or {}).items()}
     out: dict[str, dict] = {}
     missing: list[str] = []
+    quoted = 0
     for tk in sorted({str(t).upper() for t in (tickers or [])}):
         s = series.get(tk)
         if not s or not s.get("dates"):
@@ -311,8 +339,17 @@ def build_market_risk_state(*, price_panel: Optional[dict], tickers, eligible: A
             continue
         feats = pp.compute_features(s, j)
         rv63, rv126 = _f(feats.get("rvol_63")), _f(feats.get("rvol_126"))
+        close = _f((s.get("adj") or [None] * (j + 1))[j]) if (s.get("adj")) else None
+        quote = quotes.get(tk)
+        ret_intraday = ((quote / close - 1.0)
+                        if (quote is not None and close) else None)
+        if ret_intraday is not None:
+            quoted += 1
         out[tk] = {
             "as_of": s["dates"][j],
+            "intraday_quote": quote,
+            "intraday_reference_close": close,
+            "ret_intraday": ret_intraday,
             "ret_1": feats.get("ret_1"),
             "ret_5": feats.get("ret_5"),
             "ret_21": feats.get("ret_21"),
@@ -328,6 +365,12 @@ def build_market_risk_state(*, price_panel: Optional[dict], tickers, eligible: A
         }
     return {"calculation_owner": "api.price_panel", "eligible_market_date": eligible_s,
             "rows": out, "covered": len(out), "missing": missing,
+            "intraday_quoted": quoted,
+            "intraday_note": ("ret_intraday compares the delayed quote to the owned "
+                              "close for the eligible market date. It is a risk "
+                              "measurement only: it is never written to the panel, "
+                              "never becomes the portfolio mark and never moves a "
+                              "score."),
             "coverage_ratio": (len(out) / (len(out) + len(missing))
                                if (out or missing) else None)}
 
@@ -472,14 +515,23 @@ def run_event_signal_refresh(
         policy_overrides: Optional[dict] = None,
         lookback_days: int = fabric.DEFAULT_LOOKBACK_DAYS,
         candidate_depth: int = 100,
+        now_iso: Optional[str] = None,
         regime_before: Any = None, regime_after: Any = None) -> dict:
     """Run ONE event cycle. Idempotent: unchanged inputs produce no new decision.
 
     Returns the authoritative status of the cycle: what arrived, what it invalidated,
     whether it was material, what was recomputed, why a reassessment did or did not
     run, and what the operator must review.
+
+    ``now_iso`` is the CALLER'S clock and becomes the identity stamp of every event
+    the live adapters build in this cycle. The continuous collection service passes
+    its own iteration clock, so there is ONE clock per cycle: an adapter never reads
+    an ambient time the cycle does not know about.
     """
     started_iso = _now_iso()
+    # ONE clock for this cycle. Live-adapter event identity is derived from it, never
+    # from a second ambient read taken inside an adapter.
+    cycle_now_iso = str(now_iso) if now_iso else started_iso
     steps: list[dict] = []
     warnings: list[str] = []
     blockers: list[dict] = []
@@ -551,7 +603,8 @@ def run_event_signal_refresh(
                 "per_source": corpus["per_source"],
                 "bounded_by": corpus["bounded_by"]}
         if include_market_quotes:
-            quotes = fabric.capture_market_quotes(held, fetcher=quote_fetcher)
+            quotes = fabric.capture_market_quotes(held, fetcher=quote_fetcher,
+                                                  now_iso=cycle_now_iso)
             raw_events.extend(quotes["events"])
             adapter_results["market_quotes"] = {
                 k: v for k, v in quotes.items() if k != "events"}
@@ -560,7 +613,8 @@ def run_event_signal_refresh(
                                 % quotes.get("detail"))
         if include_gdelt:
             gd = fabric.capture_gdelt_news(held, entity_index=entity_index,
-                                           fetcher=gdelt_fetcher)
+                                           fetcher=gdelt_fetcher,
+                                           now_iso=cycle_now_iso)
             raw_events.extend(gd["events"])
             adapter_results["gdelt"] = {k: v for k, v in gd.items() if k != "events"}
             if not gd.get("ok"):
@@ -622,8 +676,12 @@ def run_event_signal_refresh(
 
     # ---- 9. measure deltas ------------------------------------------------ #
     with _Step(steps, "MEASURE_DELTAS", "api.price_panel + api.universe_scoring") as rec:
-        risk_state = build_market_risk_state(price_panel=panel, tickers=held,
-                                             eligible=eligible) if panel else {
+        # The quote lane speaks through the RISK owner and its thresholds, never by
+        # merely existing: a delayed quote is an observation, and an observation is
+        # material only when the move it measures crosses a stated level.
+        risk_state = build_market_risk_state(
+            price_panel=panel, tickers=held, eligible=eligible,
+            latest_quotes=latest_quote_prices(informative)) if panel else {
             "rows": {}, "covered": 0, "missing": list(held),
             "calculation_owner": "api.price_panel",
             "coverage_ratio": 0.0 if held else None}
@@ -734,6 +792,9 @@ def run_event_signal_refresh(
         "concepts_invalidated": concepts,
         "signals_invalidated": ek.affected_signals(concepts),
         "calculations_refreshed": calculations,
+        # REFRESH SCOPE, not the attention list: which holdings had an input
+        # invalidated (a quote invalidates risk for its name). The holdings a MATERIAL
+        # event named are ``materiality.affected_entities``.
         "affected_entities": affected_entities,
         "affected_holdings": affected_holdings,
         "market_risk_state": risk_state,
@@ -820,9 +881,15 @@ def load_event_signal_refresh_status(*, fabric_dir=None, ingestion_root=None,
                                     ingestion_root=ingestion_root, news_root=news_root)
     latest = fabric.read_latest_run(fabric_dir=fabric_dir)
     events = view["events"]
+    # The READ surface is bound to the GATE's rule, not to a second definition of
+    # "material". A bar or a delayed quote may carry new information and may bear a
+    # trigger-capable authority, yet the gate does not treat its arrival as material —
+    # so counting it here would report "42 material events" on a day when nothing
+    # happened except that the market was open.
     material = [e for e in events
                 if ek.authority_may_trigger_reassessment(e.get("decision_authority"))
-                and ek.carries_new_information(e)]
+                and ek.carries_new_information(e)
+                and e.get("family") not in emat.MARKET_OBSERVATION_FAMILIES]
     affecting_holdings = [e for e in material
                           if set(e.get("entities") or []) & set(held)]
     return {

@@ -41,7 +41,13 @@ from . import event_fabric as ef
 
 PHASE = "RELEASE28"
 CALCULATION_OWNER = "engine.event_materiality"
-MATERIALITY_POLICY_VERSION = "event_materiality.v1"
+#: v2 (Release 29) — a market OBSERVATION (bar / delayed quote) is no longer material
+#: merely by arriving; it is judged by the move it measures against the existing risk
+#: thresholds, and ``ret_intraday`` was added so the 15-minute quote lane can still put
+#: a same-session collapse on the review list. No threshold NUMBER changed. The version
+#: is part of the trigger fingerprint, so the first cycle after this change re-asks the
+#: portfolio question once instead of inheriting a verdict reached under the old rule.
+MATERIALITY_POLICY_VERSION = "event_materiality.v2"
 
 # --------------------------------------------------------------------------- #
 # Change levels (the frozen vocabulary)
@@ -85,9 +91,19 @@ S_UNRELATED_ENTITY = "ENTITY_NOT_HELD_AND_NOT_A_CANDIDATE"
 S_BELOW_THRESHOLD = "BELOW_MATERIALITY_THRESHOLD"
 S_DUPLICATE_TRIGGER = "DUPLICATE_TRIGGER_FINGERPRINT"
 S_UNMAPPED_ENTITY = "EVENT_NOT_MAPPED_TO_A_SECURITY"
+S_OBSERVATION_ON_ARRIVAL = "MARKET_OBSERVATION_NOT_MATERIAL_ON_ARRIVAL"
 SUPPRESSION_CODES = (S_NO_NEW_INFORMATION, S_DUPLICATE_STORY, S_NON_TRIGGER_AUTHORITY,
                      S_UNRELATED_ENTITY, S_BELOW_THRESHOLD, S_DUPLICATE_TRIGGER,
-                     S_UNMAPPED_ENTITY)
+                     S_UNMAPPED_ENTITY, S_OBSERVATION_ON_ARRIVAL)
+
+#: Families that REPORT a price rather than assert a fact about a company. A bar or a
+#: quote is an OBSERVATION: it is material only when the move it measures crosses a
+#: stated risk threshold, which the risk lane below owns. This mirrors the rule
+#: already applied to macro releases — a new OBSERVATION is never material on its own;
+#: a measured TRANSITION is. Without it, a service that polls the quote lane every 15
+#: minutes would declare every holding a "material company event" every 15 minutes and
+#: re-run opportunity cost and reassessment on nothing but the passage of time.
+MARKET_OBSERVATION_FAMILIES = (ef.F_MARKET_BAR, ef.F_MARKET_QUOTE)
 
 # --------------------------------------------------------------------------- #
 # Policy. Every threshold states WHAT it means and WHY it is where it is. None of
@@ -242,6 +258,17 @@ def _event_triggers(*, events: Iterable[dict], held: set[str], candidates: set[s
                      % (auth, e.get("why_authority") or ""))))
             continue
 
+        if fam in MARKET_OBSERVATION_FAMILIES:
+            suppressed.append(_suppressed(
+                S_OBSERVATION_ON_ARRIVAL, entity=entity, family=fam, authority=auth,
+                event_id=eid,
+                why=("A %s is a price OBSERVATION, not an assertion about the "
+                     "business. Its arrival is never material on its own; the risk "
+                     "lane decides, from the move it measures against a stated "
+                     "threshold, whether the capital allocated must be reassessed."
+                     % fam)))
+            continue
+
         relevant = ents & (held | candidates)
         if not ents:
             # A market-wide event (regime, macro) has no entity; it is judged by the
@@ -308,6 +335,23 @@ def _risk_triggers(*, risk_state: dict, held: set[str], policy: dict
     for tkr in sorted(held):
         row = (risk_state or {}).get(tkr) or {}
         hit = False
+        # The intraday lane, judged at the SAME level as a one-session move: a move
+        # that is material once the bar prints is material while it is happening. It
+        # collapses onto the same HOLDING_PRICE_SHOCK trigger for this security, so a
+        # shock seen intraday and confirmed at the close is ONE reason to reassess,
+        # not two.
+        rin = _f(row.get("ret_intraday"))
+        if rin is not None and abs(rin) >= float(policy["abs_return_1d"]):
+            hit = True
+            triggers.append(_trigger(
+                T_HOLDING_PRICE_SHOCK, entity=tkr, observed=rin,
+                threshold=policy["abs_return_1d"], speed=ef.SPEED_MARKET_RISK,
+                authority=ef.AUTH_OPERATIONAL_RISK,
+                why=("%s is %.2f%% away from its last owned close on the delayed "
+                     "quote, beyond the %.1f%% materiality level. The amount of "
+                     "capital allocated is reassessed on a RISK basis; no score and "
+                     "no mark is changed by a quote."
+                     % (tkr, rin * 100.0, float(policy["abs_return_1d"]) * 100.0))))
         r1 = _f(row.get("ret_1"))
         if r1 is not None and abs(r1) >= float(policy["abs_return_1d"]):
             hit = True

@@ -72,6 +72,11 @@ CANONICAL_STORE_ENV_VARS = (
     # Release 28 — the immutable event-fabric store. A production process pointed at a
     # fixture event log would show the operator a fabricated "nothing arrived" world.
     "PAPER_TRADER_EVENT_FABRIC_DIR",
+    # Release 29 — the continuous-collection service state (heartbeat, watermarks,
+    # single-flight lock, iteration receipts). A production process pointed at a
+    # fixture root would report COLLECTION NOT INSTALLED while the real worker was
+    # running, and a second worker could take a lock nobody else can see.
+    "PAPER_TRADER_COLLECTION_DIR",
 )
 
 #: Path fragments that mark a value as a TEMP / FIXTURE root rather than a real store.

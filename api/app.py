@@ -212,6 +212,7 @@ from paper_trader.api import research_agent as _research_agent
 from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
 from paper_trader.api import event_signal_refresh as _event_refresh
+from paper_trader.api import information_collection as _info_collection
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6566,6 +6567,49 @@ def operations_event_signal_refresh_status(limit: int = 60) -> dict:
     """
     return _event_refresh.load_event_signal_refresh_status(
         limit=max(1, min(int(limit or 60), 500)))
+
+
+@app.get(
+    "/v1/operations/information-collection",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_information_collection(limit: int = 12) -> dict:
+    """Release 29 canonical CONTINUOUS INFORMATION-COLLECTION STATE (read-only).
+
+    The ONE authoritative answer to "is information still flowing into the active
+    manager, and does anything need my attention?". Assembled by
+    ``api.information_collection`` from the durable collection-service state, the
+    cadence policy (``engine.collection_cadence``), the market clock
+    (``engine.market_hours``), the live attention universe (``api.portfolio_state``
+    + ``api.universe_scoring``) and the Release-28 event state
+    (``api.event_signal_refresh``).
+
+    It returns, in the order an active manager asks them: whether collection is
+    RUNNING / STOPPED / DEGRADED / NEVER_STARTED with heartbeat age, worker PID
+    and single-flight lock; whether anything important arrived and when; which
+    current holdings a material event named; whether the portfolio was reassessed
+    and whether the recommendation or target changed; per-source runtime health
+    with the cadence that governs it; and the provider budget, backoff and circuit
+    state behind any degraded source.
+
+    THE FRESHNESS DENOMINATOR IS THE SET OF SOURCES THAT SHOULD BE CURRENT NOW.
+    A market feed on a Sunday and a monthly release between publications are
+    ``NOT_DUE`` — never ``STALE``. The headline count answers "of the sources whose
+    own publication window is open right now, how many are healthy?".
+
+    COLLECTION AUTOMATION IS NOT EXECUTION AUTOMATION: this payload reports
+    information-collection automation separately from execution automation, which
+    remains OFF, unreachable and architecture-tested. Nothing on this surface
+    approves a proposal, confirms a target, creates/confirms/fills/cancels an
+    order, runs Daily Close or the full Daily Research Cycle, or promotes a model.
+
+    STRICTLY READ-ONLY: it starts no worker, calls no provider, runs no cycle and
+    writes nothing. It remains readable (HTTP 200) when the service has never been
+    started or a provider is in backoff.
+    """
+    return _info_collection.load_information_collection(
+        limit=max(1, min(int(limit or 12), 100)))
 
 
 @app.get(

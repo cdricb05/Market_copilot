@@ -297,6 +297,8 @@ def run_cycle(*, world: dict, records: Optional[list] = None,
               regime_before: Any = None, regime_after: Any = None,
               include_market_quotes: bool = False, quote_fetcher: Optional[Callable] = None,
               include_gdelt: bool = False, gdelt_fetcher: Optional[Callable] = None,
+              entity_index: Optional[dict] = None,
+              now_iso: Optional[str] = None,
               price_panel: Any = "__world__") -> dict:
     """Drive the REAL orchestrator over the synthetic world."""
     evs = list(events or [])
@@ -318,6 +320,7 @@ def run_cycle(*, world: dict, records: Optional[list] = None,
         prior_ranking=world.get("prior_ranking"),
         include_market_quotes=include_market_quotes, quote_fetcher=quote_fetcher,
         include_gdelt=include_gdelt, gdelt_fetcher=gdelt_fetcher,
+        entity_index=entity_index, now_iso=now_iso,
         policy_overrides=policy_overrides, regime_before=regime_before,
         regime_after=regime_after, **seams)
 

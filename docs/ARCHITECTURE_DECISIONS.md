@@ -1534,3 +1534,100 @@ metadata. Neither can move an expected-return score.
 feature is not alpha merely because it exists, and the honest thing a faster feed buys
 today is a better answer to "is the amount of capital still appropriate?" — not a
 faster opinion about value.
+
+## Release 29 decisions
+
+### D-R29-1 — Freshness has TWO questions, and the KPI answers only the first (CONFIRMED)
+
+**Decision.** `engine/collection_cadence.py` separates `due_window_active` ("should this
+source be current right now?") from `collect_now` ("should this iteration call it?").
+The operator KPI denominator is the first question, restricted to OPERATIONAL lanes;
+research and observability lanes are reported under `RESEARCH_ONLY`, and BLOCKED /
+DISABLED rows never enter the denominator.
+
+**Why.** Release 28 judged all 17 registry rows against a single anchor date, so a
+monthly Treasury series, a quarterly BEA lane, a terminally blocked options feed and a
+delayed quote on a Sunday all read STALE and were counted as "degraded". The number was
+not wrong by accident — it was answering a question nobody asked. Restricting the
+denominator to the sources whose own publication window is open makes "2 of 2 healthy"
+on a Sunday a true statement instead of "1 of 17 fresh", which was a true statement
+about nothing.
+
+### D-R29-2 — `next_due_at` is ABSENT while the publication window is closed (CONFIRMED)
+
+**Decision.** A source whose window is closed reports no `next_due_at`; the runtime
+reason carries the explanation instead.
+
+**Why.** The row previously read "Not a weekday (WEEKEND); this source does not publish.
+Next due 00:13" — two contradictory statements, the second of which was false. There is
+no authoritative exchange-holiday calendar in this repo, so a computed "window reopens
+at" would be a fabricated fact. Saying nothing and naming the reason is the honest
+option; it is the same discipline as refusing to invent a `HOLIDAY` session phase.
+
+### D-R29-3 — A delayed quote identifies the DAY, not the minute (CONFIRMED)
+
+**Decision.** `capture_market_quotes` keys `source_event_id` on `(ticker, market date)`.
+An unchanged re-read is an exact duplicate; a changed price is one immutable
+`MATERIAL_UPDATE` superseding the prior mark for that day.
+
+**Why.** With a minute-keyed identity, every poll of a still market created a new event
+for every holding — 25 fabricated events an hour, ~650 a session, none of which carried
+a new fact. It also made the hermetic acceptance verdict depend on whether two
+iterations straddled a real-world minute boundary. This is D-R28-3 (supersession is
+date-keyed) applied to the fastest lane.
+
+### D-R29-4 — A market OBSERVATION is never material on its own (CONFIRMED)
+
+**Decision.** `market_bar` and `market_quote` are suppressed at the event-trigger stage
+with `MARKET_OBSERVATION_NOT_MATERIAL_ON_ARRIVAL`. Materiality for those families is
+decided by the risk lane from the MOVE it measures against a stated threshold. To keep
+the quote lane useful, `ret_intraday` (delayed quote vs the owned close) was added and
+raises `HOLDING_PRICE_SHOCK` at the SAME 7% level as a one-session move. Policy version
+is now `event_materiality.v2`; no threshold number changed.
+
+**Why.** A routine quote was being reported as "a material company event (market_quote /
+DELAYED_QUOTE) named NVDA". Manually, that fired rarely. Continuously, it would have
+re-run opportunity cost and reassessment every 15 minutes and listed every holding as
+affected — the exact churn the materiality gate exists to prevent. This is the rule
+already applied to macro releases: a new observation is never material on its own; a
+measured transition is. Suppressing the arrival WITHOUT adding the measurement was
+rejected: it would have made the Tier-0 quote lane pure cost, unable ever to influence
+a decision, while the charter asks for a manager that reacts close to real time.
+
+### D-R29-5 — ONE clock per event cycle, supplied by the caller (CONFIRMED)
+
+**Decision.** `run_event_signal_refresh` accepts `now_iso` and threads it into every
+live adapter; the collection iteration passes its own clock. An adapter takes no
+ambient time reading of its own.
+
+**Why.** The adapters called `datetime.now()` internally, so a replay driven by a
+simulated clock stamped its events with the real one. The result was not a wrong answer
+but an UNREPEATABLE one: the same code passed or failed depending on the real-world
+minute. This is the Stage-21 Workstream 0F rule ("a hermetic harness owns its clock
+completely") extended to the adapter layer, where it had leaked.
+
+### D-R29-6 — The READ surface is bound to the GATE rule, never to a second definition (CONFIRMED)
+
+**Decision.** `load_event_signal_refresh_status` filters its `material` list with the
+materiality owner's own `MARKET_OBSERVATION_FAMILIES` constant.
+
+**Why.** The gate and the surface that reports on the gate had drifted apart before
+(Stage 20.1: bind the READ seam, not the stores). Left unbound, the operator would read
+"42 material events" on a day when nothing happened except that the market was open,
+while the decision path correctly did nothing — the worst combination, because the
+number invites a manual override of a correct decision.
+
+### D-R29-7 — Collection automation is a DIFFERENT switch from execution automation (CONFIRMED)
+
+**Decision.** The operator arms collection once with
+`CONFIRM_ENABLE_INFORMATION_COLLECTION`. There is no HTTP route that starts a worker,
+runs an iteration or enables collection; the service is installed and started only
+through `scripts/manage_information_collection.ps1`, whose `Status` is read-only and
+whose every mutation requires `-Execute`. Execution automation stays off, unreachable
+and architecture-tested.
+
+**Why.** "Automation off" was a single badge covering two unrelated things. Making
+information flow continuously is a governance decision about DATA; creating an order is
+a governance decision about MONEY. Collapsing them would have forced a choice between a
+stale decision surface and a weakened execution boundary. Keeping the start path out of
+HTTP entirely means no browser, script or misrouted request can begin calling providers.

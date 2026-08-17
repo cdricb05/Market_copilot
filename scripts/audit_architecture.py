@@ -3820,6 +3820,218 @@ def check_normal_cycle_ownership(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# RELEASE 29 — CONTINUOUS GOVERNED INFORMATION COLLECTION
+#
+# Release 28 could react to an event but could not keep events arriving, and it
+# judged 17 sources of wildly different cadence against ONE anchor date, so a
+# monthly series and a market feed on a Sunday both read "degraded". Release 29
+# runs the sources at their own cadence and reports health against the sources
+# that should actually be current now. This guard pins the shape that makes that
+# true: ONE cadence policy, ONE collection orchestrator, ONE worker, ONE manager
+# script, no second copy of a neighbouring owner's calculation, no execution path,
+# and a browser that renders the verdict instead of computing it.
+# --------------------------------------------------------------------------- #
+IC_KERNEL = "engine/collection_cadence.py"
+IC_OWNER = "api/information_collection.py"
+IC_REPLAY = "api/collection_replay.py"
+IC_WORKER = "scripts/run_information_collection_service.py"
+IC_MANAGE = "scripts/manage_information_collection.ps1"
+IC_EVENT_OWNER = "api/event_signal_refresh.py"
+IC_MATERIALITY = "engine/event_materiality.py"
+IC_ROUTE = "/v1/operations/information-collection"
+
+#: The cadence policy is PURE arithmetic over an INJECTED clock. A kernel that
+#: reads the wall clock cannot be replayed, and a cadence that cannot be replayed
+#: cannot be proven.
+IC_KERNEL_FORBIDDEN = ("import os", "open(", "requests.", "httpx.", "urllib",
+                       "datetime.now(", "utcnow(", "time.time(",
+                       "from paper_trader.api")
+#: The orchestrator COMPOSES the existing owners. Any of these appearing inside it
+#: is a second copy of a calculation that already has an owner.
+IC_OWNER_FORBIDDEN = ("def assess_holding_opportunity_cost(",
+                      "def run_portfolio_reassessment(",
+                      "def build_reallocation_proposal(",
+                      "def score_universe(", "def rank_universe(",
+                      "def session_phase(", "def is_market_open(",
+                      "def fetch_latest_prices(", "requests.get(",
+                      "urllib.request", "def assess_materiality(")
+#: What the orchestrator must DELEGATE rather than reimplement.
+IC_OWNER_DELEGATION = ("mh.session_state(", "esr.run_event_signal_refresh",
+                       "scap.ingestion_root(", "scap.news_root(",
+                       "cad.resolve_source_runtime(", "cad.summarize_runtime(",
+                       "cad.next_wake_seconds(")
+#: Collection automation and EXECUTION automation are different switches, and the
+#: second one must stay off, unreachable and stated.
+IC_SAFETY_TOKENS = ("CONFIRM_ENABLE_INFORMATION_COLLECTION",
+                    '"execution_automation_enabled": False',
+                    '"creates_orders": False', '"confirms_targets": False',
+                    '"approves_proposals": False', '"runs_daily_close": False',
+                    '"runs_daily_research_cycle": False',
+                    '"promotes_models": False')
+#: Routes this release may never add. Collection is started by the operator through
+#: the Windows Scheduled Task, never by an HTTP call that runs providers on demand.
+IC_FORBIDDEN_ROUTE_SUFFIXES = ("/start", "/stop", "/run", "/collect", "/enable",
+                               "/disable", "/iterate")
+IC_UI_TOKENS = (IC_ROUTE, "ic-headline", "ic-service-line", "ic-sources",
+                "ic-collection-badge", "ic-exec-badge", "EXECUTION AUTOMATION: ",
+                # The always-visible header chip: a decision surface that has quietly
+                # stopped being fed must be visible without scrolling, from any view.
+                "ic-header-badge", "_icSetHeaderBadge(")
+#: The browser renders the backend verdict. Each of these would mean it is deciding:
+#: an ASSIGNMENT to a backend-owned verdict (``x = ...``, never a comparison
+#: ``x === ...``), or client-side date arithmetic standing in for the service clock.
+IC_UI_FORBIDDEN_PATTERNS = (
+    r"\b(healthy_due|due_now|runtime_state|reassessment_required|material_events)"
+    r"\s*=(?!=)",
+    r"new\s+Date\s*\(",
+    r"Date\.now\s*\(\)\s*-",
+)
+
+
+def check_information_collection_ownership(files: list[Path],
+                                           routes: list[dict]) -> dict:
+    """Release 29 strict guard over continuous governed information collection.
+
+      (1)  the cadence kernel, orchestrator, replay harness, worker and manager
+           script all exist, and the kernel stays PURE;
+      (2)  there is exactly ONE cadence resolver and ONE collection iteration —
+           no second scheduler grows anywhere else in the tree;
+      (3)  the orchestrator delegates the market clock, the store roots and the
+           Release-28 event cycle instead of reimplementing them, and hosts no
+           second opportunity cost, reassessment, proposal builder, scoring engine
+           or provider client;
+      (4)  the read surface is GET-only and no route can start a worker, run an
+           iteration or enable collection over HTTP;
+      (5)  the governance vocabulary is present: collection automation is
+           token-gated and execution automation stays off and unreachable;
+      (6)  a market OBSERVATION is not material on arrival, and the READ surface
+           is bound to that same rule rather than counting by its own definition;
+      (7)  ONE clock per event cycle reaches the live adapters, so event identity
+           is reproducible instead of depending on the wall-clock minute;
+      (8)  the UI has exactly one loader and classifies nothing itself;
+      (9)  the worker delegates to the orchestrator and owns no cadence of its own;
+      (10) exactly ONE PowerShell script manages the service, its read-only Status
+           needs no ``-Execute`` and every mutating action does.
+    """
+    kernel = _read(IC_KERNEL)
+    owner = _read(IC_OWNER)
+    worker = _read(IC_WORKER)
+    manage = _read(IC_MANAGE)
+    event_owner = _read(IC_EVENT_OWNER)
+    materiality = _read(IC_MATERIALITY)
+    ui = _read(UI_FILE)
+
+    # (1) presence + kernel purity.
+    present = {name: bool((REPO_ROOT / name).exists())
+               for name in (IC_KERNEL, IC_OWNER, IC_REPLAY, IC_WORKER, IC_MANAGE)}
+    kernel_impurity = sorted(t for t in IC_KERNEL_FORBIDDEN if t in kernel)
+
+    # (2) exactly one cadence resolver and one collection iteration.
+    def _second_owners(marker: str, allowed: tuple) -> list:
+        out = []
+        for fp in files:
+            rel = _rel(fp)
+            if rel in allowed or rel == "scripts/audit_architecture.py":
+                continue
+            if marker in fp.read_text(encoding="utf-8", errors="replace"):
+                out.append(rel)
+        return sorted(out)
+
+    second_cadence_owners = _second_owners("def resolve_source_runtime(",
+                                           (IC_KERNEL,))
+    second_collection_owners = _second_owners("def run_collection_iteration(",
+                                              (IC_OWNER,))
+    second_worker_scripts = sorted(
+        _rel(fp) for fp in (REPO_ROOT / "scripts").glob("*.py")
+        if "collection" in fp.name.lower()
+        and _rel(fp) not in (IC_WORKER, "scripts/collection_service_control.py"))
+
+    # (3) composition, not duplication.
+    owner_forbidden_calls = sorted(t for t in IC_OWNER_FORBIDDEN if t in owner)
+    missing_delegation = sorted(t for t in IC_OWNER_DELEGATION if t not in owner)
+
+    # (4) the read surface is GET-only and starts nothing.
+    ic_routes = [r for r in routes if str(r.get("path")) == IC_ROUTE]
+    route_methods = sorted({str(r.get("method")) for r in ic_routes})
+    forbidden_routes_present = sorted(
+        str(r.get("path")) for r in routes
+        if str(r.get("path")).startswith(IC_ROUTE)
+        and any(str(r.get("path")).endswith(s) for s in IC_FORBIDDEN_ROUTE_SUFFIXES))
+
+    # (5) governance vocabulary.
+    missing_safety_tokens = sorted(t for t in IC_SAFETY_TOKENS if t not in owner)
+
+    # (6) a market observation is not material on arrival — and the read surface
+    # is bound to the GATE's rule, not to a second definition of "material".
+    observation_rule_present = (
+        "MARKET_OBSERVATION_FAMILIES" in materiality
+        and "S_OBSERVATION_ON_ARRIVAL" in materiality
+        and "ret_intraday" in materiality)
+    read_surface_bound = "emat.MARKET_OBSERVATION_FAMILIES" in event_owner
+
+    # (7) ONE clock per cycle reaches the live adapters.
+    single_cycle_clock = ("cycle_now_iso" in event_owner
+                          and "now_iso=cycle_now_iso" in event_owner
+                          and "now_iso=started_iso" in owner)
+
+    # (8) the UI renders; it does not decide.
+    ui_loader_count = ui.count("function loadInformationCollection(")
+    missing_ui_tokens = sorted(t for t in IC_UI_TOKENS if t not in ui)
+    ic_region = ui[ui.find("function renderInformationCollection("):] if \
+        "function renderInformationCollection(" in ui else ""
+    ic_region = ic_region[:ic_region.find("window.renderInformationCollection")] \
+        if "window.renderInformationCollection" in ic_region else ic_region
+    ui_health_derivation = sorted(
+        m.group(0).strip() for pat in IC_UI_FORBIDDEN_PATTERNS
+        for m in re.finditer(pat, ic_region))
+
+    # (9) the worker delegates and owns no cadence.
+    worker_delegates = all(t in worker for t in
+                           ("ic.run_collection_iteration(", "ic.acquire_service_lock(",
+                            "ic.heartbeat(", "ic.release_service_lock("))
+    worker_reimplements_cadence = sorted(
+        t for t in ("CADENCE_POLICY_BY_ID", "def resolve_window(",
+                    "normal_interval_seconds =") if t in worker)
+
+    # (10) exactly one manager script, read-only by default.
+    manage_scripts = sorted(
+        _rel(fp) for fp in (REPO_ROOT / "scripts").glob("*.ps1")
+        if "information_collection" in fp.name.lower()
+        or "collection_service" in fp.name.lower())
+    manage_requires_execute = ("function Require-Execute(" in manage
+                               and manage.count("Require-Execute \"") >= 4)
+    status_is_read_only = ("Require-Execute \"Status\"" not in manage)
+    uninstall_preserves_evidence = ("never" in manage.lower()
+                                    and "evidence" in manage.lower())
+
+    return {
+        "modules_present": present,
+        "kernel_impurity": kernel_impurity,
+        "second_cadence_owner_modules": second_cadence_owners,
+        "second_collection_owner_modules": second_collection_owners,
+        "second_worker_scripts": second_worker_scripts,
+        "owner_forbidden_calls": owner_forbidden_calls,
+        "missing_delegation": missing_delegation,
+        "route_get_count": len(ic_routes),
+        "route_methods": route_methods,
+        "forbidden_routes_present": forbidden_routes_present,
+        "missing_safety_tokens": missing_safety_tokens,
+        "observation_rule_present": bool(observation_rule_present),
+        "read_surface_bound_to_gate": bool(read_surface_bound),
+        "single_cycle_clock": bool(single_cycle_clock),
+        "ui_loader_count": ui_loader_count,
+        "missing_ui_tokens": missing_ui_tokens,
+        "ui_health_derivation": ui_health_derivation,
+        "worker_delegates": bool(worker_delegates),
+        "worker_reimplements_cadence": worker_reimplements_cadence,
+        "manage_scripts": manage_scripts,
+        "manage_requires_execute": bool(manage_requires_execute),
+        "status_is_read_only": bool(status_is_read_only),
+        "uninstall_preserves_evidence": bool(uninstall_preserves_evidence),
+    }
+
+
 def check_backend_restart_ownership(extra_dirs=()) -> dict:
     """ONE repository-owned restart / smoke workflow.
 
@@ -4004,6 +4216,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "research_agent_ownership": check_research_agent_ownership(files),
         "data_expansion_ownership": check_data_expansion_ownership(files),
         "operator_ux_consolidation_ownership": check_operator_ux_consolidation_ownership(files),
+        "information_collection_ownership": check_information_collection_ownership(
+            files, routes["routes"]),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -4480,6 +4694,37 @@ def _print_console(rep: dict) -> None:
     print(f"UI missing cycle tokens (must be empty): {nc['missing_ui_tokens']}  "
           f"UI cycle derivation (must be empty): {nc['ui_cycle_derivation']}")
 
+    hdr("CONTINUOUS INFORMATION-COLLECTION OWNERSHIP (Release 29)")
+    icx = rep["information_collection_ownership"]
+    print(f"modules present: {icx['modules_present']}")
+    print(f"cadence-kernel impurity (must be empty): {icx['kernel_impurity']}")
+    print(f"second cadence owners (must be empty): "
+          f"{icx['second_cadence_owner_modules']}  "
+          f"second collection owners (must be empty): "
+          f"{icx['second_collection_owner_modules']}  "
+          f"second worker scripts (must be empty): {icx['second_worker_scripts']}")
+    print(f"orchestrator forbidden calls (must be empty): "
+          f"{icx['owner_forbidden_calls']}  "
+          f"missing delegation (must be empty): {icx['missing_delegation']}")
+    print(f"read route GET count (must be 1): {icx['route_get_count']}  "
+          f"methods: {icx['route_methods']}  "
+          f"forbidden collection routes (must be empty): "
+          f"{icx['forbidden_routes_present']}")
+    print(f"missing safety tokens (must be empty): {icx['missing_safety_tokens']}")
+    print(f"observation-not-material rule present: {icx['observation_rule_present']}  "
+          f"read surface bound to the gate: {icx['read_surface_bound_to_gate']}  "
+          f"one clock per cycle: {icx['single_cycle_clock']}")
+    print(f"UI loader count (must be 1): {icx['ui_loader_count']}  "
+          f"UI missing tokens (must be empty): {icx['missing_ui_tokens']}  "
+          f"UI health derivation (must be empty): {icx['ui_health_derivation']}")
+    print(f"worker delegates: {icx['worker_delegates']}  "
+          f"worker reimplements cadence (must be empty): "
+          f"{icx['worker_reimplements_cadence']}")
+    print(f"manager scripts (must be exactly one): {icx['manage_scripts']}  "
+          f"mutations require -Execute: {icx['manage_requires_execute']}  "
+          f"Status is read-only: {icx['status_is_read_only']}  "
+          f"uninstall preserves evidence: {icx['uninstall_preserves_evidence']}")
+
     hdr("CANONICAL BACKEND RESTART / SMOKE OWNERSHIP")
     br = rep["backend_restart_ownership"]
     print(f"owner: {br['owner']}  present: {br['owner_present']}  "
@@ -4787,6 +5032,7 @@ def main(argv=None) -> int:
         ra = rep["research_agent_ownership"]
         de = rep["data_expansion_ownership"]
         ux = rep["operator_ux_consolidation_ownership"]
+        icx = rep["information_collection_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rc6["forbidden_primary_ui"])
                          + len(rc6["forbidden_primary_ws"])
@@ -5024,6 +5270,31 @@ def main(argv=None) -> int:
                          + (0 if ux["workflow_next_action_renderer_count"] == 1 else 1)
                          + len(ux["missing_safety_tokens"])
                          + len(ux["forbidden_new_routes_present"])
+                         # --- Release 29 continuous information collection ------------ #
+                         + sum(0 if v else 1
+                               for v in icx["modules_present"].values())
+                         + len(icx["kernel_impurity"])
+                         + len(icx["second_cadence_owner_modules"])
+                         + len(icx["second_collection_owner_modules"])
+                         + len(icx["second_worker_scripts"])
+                         + len(icx["owner_forbidden_calls"])
+                         + len(icx["missing_delegation"])
+                         + (0 if icx["route_get_count"] == 1 else 1)
+                         + (0 if icx["route_methods"] == ["GET"] else 1)
+                         + len(icx["forbidden_routes_present"])
+                         + len(icx["missing_safety_tokens"])
+                         + (0 if icx["observation_rule_present"] else 1)
+                         + (0 if icx["read_surface_bound_to_gate"] else 1)
+                         + (0 if icx["single_cycle_clock"] else 1)
+                         + (0 if icx["ui_loader_count"] == 1 else 1)
+                         + len(icx["missing_ui_tokens"])
+                         + len(icx["ui_health_derivation"])
+                         + (0 if icx["worker_delegates"] else 1)
+                         + len(icx["worker_reimplements_cadence"])
+                         + (0 if len(icx["manage_scripts"]) == 1 else 1)
+                         + (0 if icx["manage_requires_execute"] else 1)
+                         + (0 if icx["status_is_read_only"] else 1)
+                         + (0 if icx["uninstall_preserves_evidence"] else 1)
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         # Stage 19.1 — corporate-action propagation invariants block strict mode too.

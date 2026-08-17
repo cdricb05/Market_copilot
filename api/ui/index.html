@@ -2132,6 +2132,13 @@
   <span id="prediction-mode-badge" data-prediction-location="remote" aria-label="Prediction inference runs remotely on GCP through a local tunnel; it is never run locally." style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--info); background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.3); border-radius: 2px;" title="Prediction inference is REMOTE (GCP, via the local tunnel on port 9000). No prediction model runs locally.">PREDICTION: REMOTE (GCP)</span>
   <span id="alpha-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--ok); background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); border-radius: 2px;" title="The operational alpha workflow (target refresh, snapshot review, alpha book, paper desk) runs entirely on owned local data. The GCP prediction tunnel is a separate legacy path and is never required.">LOCAL ALPHA DATA &middot; NO PREDICTION TUNNEL REQUIRED</span>
   <span id="market-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether the portfolio mark, portfolio snapshot and current-alpha marks share one completed market date. Does not check prediction availability.">MARKET DATA: NOT CHECKED</span>
+  <!-- Release 29: whether INFORMATION is still arriving, answerable without scrolling
+       and from any view. A decision surface that has quietly stopped being fed is the
+       exact failure this release exists to end, so its state belongs in the always-
+       visible status bar and not only in a card two screens down. Rendered verbatim by
+       the ONE collection loader; the browser classifies nothing. This is COLLECTION
+       automation, which is a different switch from the EXECUTION automation badge. -->
+  <span id="ic-header-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether continuous information collection is running. This is COLLECTION automation, not execution automation - execution stays OFF.">COLLECTION: NOT CHECKED</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
@@ -2620,50 +2627,63 @@
             <div id="df-note" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
           </div>
 
-          <!-- ===================== Release 28 NEW INFORMATION & REASSESSMENT =====================
-               "What actually arrived, and did anything change because of it?" — the ONE
-               operator answer, rendered by the single loadEventSignalRefresh() loader from
-               GET /v1/operations/event-signal-refresh. Every value (family, decision
-               authority, novelty, freshness, affected holdings, materiality reason,
-               latency) is computed by the backend event owners; this region derives NONE
-               of them and performs no date, rank or materiality arithmetic.
+          <!-- ===================== Release 29 CONTINUOUS COLLECTION =====================
+               Rendered by the single loadInformationCollection() loader from
+               GET /v1/operations/information-collection. The card answers, IN ORDER:
+               (1) is collection running, (2) did anything important arrive, (3) which
+               holdings are affected, (4) was the portfolio reassessed, (5) did the
+               recommendation change, (6) what must the operator review. Infrastructure
+               counters live in the collapsed Audit / Advanced region at the bottom.
 
-               READ-ONLY BY DESIGN: there is no run control here. The event cycle is a
-               callable, token-gated backend owner; the operator's single primary action
-               remains the canonical daily-cycle action decided by workflow-state. News
-               and other unvalidated events are labelled TRIGGER ONLY so they can never
-               read as validated alpha. -->
+               Every value — service state, heartbeat age, due/healthy counts, runtime
+               state, backoff, cadence, affected holdings, decision — is computed by the
+               backend owners. This region performs NO date arithmetic, NO health
+               classification and NO counting.
+
+               COLLECTION automation and EXECUTION automation are DIFFERENT switches and
+               are badged separately. The execution safety badges are never removed. -->
           <div class="card" style="margin-bottom:12px;" id="evt-card">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-              <span>New Information &amp; Reassessment
-                <span class="cc-badge" id="evt-state-badge" title="The last event-cycle outcome, decided by api.event_signal_refresh.">&mdash;</span>
+              <span>Information Collection &amp; Portfolio Reassessment
+                <span class="cc-badge" id="ic-service-badge" title="Whether the continuous collection service is running, decided by api.information_collection.">&mdash;</span>
               </span>
               <span style="display:flex;gap:6px;flex-wrap:wrap;">
-                <span class="cc-badge muted" title="Nothing on this surface creates an order.">NO LIVE ORDERS</span>
-                <span class="cc-badge muted" title="No scheduler is armed by this release; the event cycle is called explicitly.">AUTOMATION OFF</span>
+                <span class="cc-badge" id="ic-collection-badge" title="Information-collection automation. This is NOT execution automation.">COLLECTION: &mdash;</span>
+                <span class="cc-badge muted" title="Paper book only. No real money and no broker account are involved.">PAPER MODE</span>
                 <span class="cc-badge muted" title="A justified change becomes a proposal for manual review, never an execution.">MANUAL REVIEW</span>
+                <span class="cc-badge danger" id="ic-exec-badge" title="Order execution automation. Permanently off and unreachable from the collection service.">EXECUTION AUTOMATION: OFF</span>
+                <span class="cc-badge muted" title="Nothing on this surface creates, confirms, fills or cancels an order.">NO BROKER EXECUTION</span>
+                <span class="cc-badge muted" title="Live brokerage orders are structurally disabled. Paper orders are real and exist only in the operational book; this collection surface creates none.">NO LIVE BROKER ORDERS</span>
               </span>
             </div>
-            <div id="evt-why" style="font-size:12px;line-height:1.5;margin:2px 0 8px;">&mdash;</div>
+            <div id="ic-headline" style="font-size:13px;font-weight:600;line-height:1.4;margin:2px 0 2px;">&mdash;</div>
+            <div id="evt-why" style="font-size:12px;line-height:1.5;margin:0 0 8px;">&mdash;</div>
+            <div id="ic-service-line" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;"></div>
             <div id="evt-kpis" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;"></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div>
                 <div class="card-title" style="font-size:12px;">Latest material events
                   <span class="cc-badge muted" title="An event may direct attention. Only OPERATIONAL_ALPHA events can change a score.">DECISION AUTHORITY SHOWN</span>
                 </div>
-                <div id="evt-events" class="compact-scroll-region" style="max-height:230px;overflow:auto;font-size:11px;">&mdash;</div>
+                <div id="evt-events" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;">&mdash;</div>
               </div>
               <div>
-                <div class="card-title" style="font-size:12px;">Source freshness
-                  <span class="cc-badge muted" title="Each source is judged under its OWN cadence; a quarterly lane is not stale for publishing nothing today.">CADENCE AWARE</span>
+                <div class="card-title" style="font-size:12px;">Affected holdings
+                  <span class="cc-badge muted" title="Current holdings named by a material event in this window.">CURRENT HOLDINGS</span>
                 </div>
-                <div id="evt-sources" class="compact-scroll-region" style="max-height:230px;overflow:auto;font-size:11px;">&mdash;</div>
+                <div id="evt-affected" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;">&mdash;</div>
               </div>
             </div>
-            <div class="card-title" style="margin-top:10px;font-size:12px;">Affected holdings</div>
-            <div id="evt-affected" style="font-size:11px;">&mdash;</div>
-            <div id="evt-audit" style="font-size:10px;margin-top:8px;"></div>
-            <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only. An unvalidated news, 8-K, earnings or insider event is TRIGGER ONLY — it can put a holding on the review list and can never contribute expected return. A research-challenger event can never reach the operational target. Nothing here confirms a target, approves a proposal, promotes a model or creates an order.</div>
+            <div class="card-title" style="margin-top:10px;font-size:12px;">Portfolio decision
+              <span class="cc-badge muted" title="Produced by the canonical reassessment owner, for manual review only.">REVIEW ONLY</span>
+            </div>
+            <div id="ic-decision" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            <details id="ic-source-details" style="margin-top:10px;">
+              <summary style="cursor:pointer;font-size:12px;font-weight:600;">Audit / Advanced &mdash; source health &amp; cadence diagnostics</summary>
+              <div id="ic-sources" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;">&mdash;</div>
+              <div id="evt-audit" style="font-size:10px;margin-top:8px;"></div>
+            </details>
+            <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only. Information collection may run continuously; execution automation stays OFF. An unvalidated news, 8-K, earnings or insider event is TRIGGER ONLY — it can put a holding on the review list and can never contribute expected return. A research-challenger event can never reach the operational target. Nothing here confirms a target, approves a proposal, promotes a model or creates an order.</div>
           </div>
 
           <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
@@ -25509,7 +25529,7 @@ function loadOperationalBook() {
     try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
     try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
     try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
-    try { loadEventSignalRefresh(); } catch (e) {} // Release 28: the ONE arriving-information state
+    try { loadInformationCollection(); } catch (e) {} // Release 29: the ONE collection + arriving-information state
     try { loadWorkflowState(); } catch (e) {}      // Slice 2: the ONE workflow/operator state
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
@@ -25521,7 +25541,7 @@ function loadOperationalBook() {
     try { loadDailyActionGate(); } catch (e) {}
     try { loadDailyClose(); } catch (e) {}
     try { loadDataFreshness(); } catch (e) {}
-    try { loadEventSignalRefresh(); } catch (e) {}
+    try { loadInformationCollection(); } catch (e) {}
     try { loadWorkflowState(); } catch (e) {}
     try { loadDailyResearchCycle(); } catch (e) {}
     try { loadUniverseScoring(); } catch (e) {}
@@ -28100,26 +28120,30 @@ function loadDataFreshness() {
 }
 window.loadDataFreshness = loadDataFreshness;
 
-// ---- Release 28: canonical ARRIVING-INFORMATION state -------------------------
-// EXACTLY ONE loader (loadEventSignalRefresh) reading EXACTLY ONE endpoint
-// (GET /v1/operations/event-signal-refresh). There is deliberately NO execution
-// function here: the event cycle is a token-gated backend owner, and the operator's
-// single primary action stays the canonical daily-cycle action owned by
-// workflow-state. This region renders backend fields verbatim and derives nothing —
-// no date arithmetic, no freshness verdict, no materiality decision, no authority
-// judgement, no ranking.
+// ---- Release 29: canonical CONTINUOUS-COLLECTION + arriving-information state --
+// EXACTLY ONE loader (loadInformationCollection) reading EXACTLY ONE endpoint
+// (GET /v1/operations/information-collection). There is deliberately NO execution
+// function here: the collection service is started by the operator through
+// scripts/manage_information_collection.ps1, and the operator's single primary
+// in-app action stays the canonical daily-cycle action owned by workflow-state.
+//
+// This region renders backend fields verbatim and derives NOTHING — no date
+// arithmetic, no freshness verdict, no due/healthy counting, no materiality
+// decision, no authority judgement, no ranking. The backend answers "of the
+// sources that SHOULD be current now, how many are healthy?"; the browser only
+// prints that answer.
 window._evtData = null; window._evtInFlight = null;
-function loadEventSignalRefresh() {
+function loadInformationCollection() {
   if (window._evtInFlight) return window._evtInFlight;   // coalesce concurrent page loads
-  var p = _mhzGet('/v1/operations/event-signal-refresh').then(function (d) {
-    window._evtInFlight = null; window._evtData = d; renderEventSignalRefresh(d); return d;
+  var p = _mhzGet('/v1/operations/information-collection').then(function (d) {
+    window._evtInFlight = null; window._evtData = d; renderInformationCollection(d); return d;
   }).catch(function () {
-    window._evtInFlight = null; renderEventSignalRefresh(null); return null;
+    window._evtInFlight = null; renderInformationCollection(null); return null;
   });
   window._evtInFlight = p;
   return p;
 }
-window.loadEventSignalRefresh = loadEventSignalRefresh;
+window.loadInformationCollection = loadInformationCollection;
 
 var _EVT_AUTHORITY_BADGE = {
   OPERATIONAL_ALPHA: { cls: 'safe', label: 'MAY CHANGE SCORE' },
@@ -28134,106 +28158,228 @@ function _evtAuthorityBadge(a) {
   return '<span class="cc-badge ' + m.cls + '" title="' + escapeHtml(a || '') + '">'
        + escapeHtml(m.label) + '</span>';
 }
+// Colour follows the backend's runtime-state partition. NOT_DUE is deliberately
+// NEUTRAL, not a warning: a market feed on a Sunday is behaving correctly.
+var _IC_STATE_COLOR = {
+  FRESH: 'var(--ok, #22c55e)', DUE: 'var(--info, #3b82f6)',
+  RUNNING: 'var(--info, #3b82f6)', RESEARCH_ONLY: 'var(--label, #94a3b8)',
+  NOT_DUE: 'var(--label, #94a3b8)', DISABLED: 'var(--label, #94a3b8)',
+  BLOCKED: 'var(--label, #94a3b8)', BACKOFF: 'var(--warning, #f59e0b)',
+  DEGRADED: 'var(--warning, #f59e0b)',
+  DEGRADED_CREDENTIAL: 'var(--warning, #f59e0b)',
+  FAILED: 'var(--danger, #ef4444)'
+};
 function _evtFreshColor(status) {
-  if (status === 'FRESH') return 'var(--ok, #22c55e)';
-  if (status === 'NOT_DUE' || status === 'NOT_APPLICABLE') return 'var(--label, #94a3b8)';
-  if (status === 'STALE') return 'var(--warning, #f59e0b)';
-  return 'var(--danger, #ef4444)';
+  return _IC_STATE_COLOR[status] || 'var(--label, #94a3b8)';
 }
+var _IC_SERVICE_BADGE = {
+  RUNNING: { cls: 'safe', label: 'COLLECTION RUNNING' },
+  STOPPED: { cls: 'manual', label: 'COLLECTION STOPPED' },
+  DEGRADED: { cls: 'danger', label: 'COLLECTION DEGRADED' },
+  NEVER_STARTED: { cls: 'muted', label: 'COLLECTION NOT INSTALLED' }
+};
 function _evtKpi(label, value, title) {
   return '<span title="' + escapeHtml(title || '') + '"><span style="color:var(--label);">'
        + escapeHtml(label) + '</span> <strong>' + escapeHtml(String(value)) + '</strong></span>';
 }
-function renderEventSignalRefresh(d) {
+function _icSetBadge(id, text, cls, title) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'cc-badge ' + (cls || 'muted');
+  if (title) el.setAttribute('title', title);
+}
+// The always-visible header chip. It lives outside the card, so it keeps the header's
+// own inline style and only takes its colour from the backend's service verdict.
+var _IC_HEADER_TONE = {
+  safe: ['var(--ok)', 'rgba(34,197,94,.06)', 'rgba(34,197,94,.3)'],
+  manual: ['var(--warning)', 'rgba(245,158,11,.06)', 'rgba(245,158,11,.3)'],
+  danger: ['var(--danger)', 'rgba(239,68,68,.06)', 'rgba(239,68,68,.3)'],
+  muted: ['var(--label)', 'rgba(255,255,255,.04)', 'rgba(255,255,255,.12)']
+};
+function _icSetHeaderBadge(text, cls, title) {
+  var el = document.getElementById('ic-header-badge');
+  if (!el) return;
+  var tone = _IC_HEADER_TONE[cls] || _IC_HEADER_TONE.muted;
+  el.textContent = text;
+  el.style.color = tone[0];
+  el.style.background = tone[1];
+  el.style.border = '1px solid ' + tone[2];
+  if (title) el.setAttribute('title', title);
+}
+function renderInformationCollection(d) {
   if (!d) {
-    _setHtml('evt-why', 'Arriving-information state is unavailable right now.');
-    _setHtml('evt-events', '&mdash;'); _setHtml('evt-sources', '&mdash;');
-    _setHtml('evt-affected', '&mdash;'); _setHtml('evt-kpis', ''); _setHtml('evt-audit', '');
-    var b0 = document.getElementById('evt-state-badge');
-    if (b0) { b0.textContent = 'UNAVAILABLE'; b0.className = 'cc-badge muted'; }
+    _setHtml('ic-headline', 'Collection state is unavailable right now.');
+    _setHtml('evt-why', 'The collection status endpoint could not be read.');
+    _setHtml('evt-events', '&mdash;'); _setHtml('ic-sources', '&mdash;');
+    _setHtml('evt-affected', '&mdash;'); _setHtml('evt-kpis', '');
+    _setHtml('ic-service-line', ''); _setHtml('ic-decision', '&mdash;');
+    _setHtml('evt-audit', '');
+    _icSetBadge('ic-service-badge', 'UNAVAILABLE', 'muted');
+    _icSetBadge('ic-collection-badge', 'COLLECTION: UNKNOWN', 'muted');
+    _icSetHeaderBadge('COLLECTION: UNAVAILABLE', 'muted',
+      'The collection status endpoint could not be read.');
     return;
   }
-  var last = d.last_run || {};
-  var state = d.state || 'NOT_RUN';
-  var badge = document.getElementById('evt-state-badge');
-  if (badge) {
-    badge.textContent = state;
-    badge.className = 'cc-badge ' + (state === 'PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW'
-      ? 'manual' : (state === 'BLOCKED' ? 'danger' : 'muted'));
-  }
+  var svc = d.service || {};
+  var auto = d.automation || {};
+  var act = d.activity || {};
+  var head = d.headline || {};
+  var sum = d.source_health_summary || {};
+  var sources = (d.source_health || {}).sources || [];
 
-  var fresh = d.source_freshness || {};
-  var audit = d.terminal_audit || {};
-  var counts = audit.counts || {};
-  _setHtml('evt-kpis', [
-    _evtKpi('Events recorded', d.recent_event_count === undefined ? '—' : d.recent_event_count,
-            'Immutable normalized events in the recent window.'),
-    _evtKpi('Material', d.material_event_count === undefined ? '—' : d.material_event_count,
-            'Events whose decision authority permits them to request a reassessment.'),
-    _evtKpi('Naming a holding', (d.events_affecting_holdings || []).length,
-            'Material events that name a security currently held.'),
-    _evtKpi('Sources fresh', (fresh.fresh_count === undefined ? '—' : fresh.fresh_count)
-            + ' / ' + ((fresh.sources || []).length),
-            'Judged under each source own cadence.'),
-    _evtKpi('Degraded sources', fresh.degraded_count === undefined ? '—' : fresh.degraded_count,
-            'Reported degraded rather than back-filled with a fabricated value.'),
-    _evtKpi('Last cycle', last.generated_at ? String(last.generated_at).slice(0, 19) : 'never',
-            'When the event cycle last ran.')
+  // (1) IS COLLECTION RUNNING? — backend verdict, rendered verbatim.
+  var sb = _IC_SERVICE_BADGE[svc.service_state] || { cls: 'muted', label: svc.service_state || '—' };
+  _icSetBadge('ic-service-badge', sb.label, sb.cls, svc.reason || '');
+  _icSetBadge('ic-collection-badge',
+    'COLLECTION: ' + (auto.information_collection_enabled ? 'ON' : 'OFF'),
+    auto.information_collection_enabled ? 'safe' : 'muted',
+    'Information-collection automation. This is NOT execution automation.');
+  _icSetBadge('ic-exec-badge',
+    'EXECUTION AUTOMATION: ' + (auto.execution_automation_enabled ? 'ON' : 'OFF'),
+    'danger',
+    'Order-execution automation is permanently off and unreachable from the collection service.');
+  _icSetHeaderBadge(sb.label, sb.cls, svc.reason || '');
+
+  var toneClass = head.tone === 'ok' ? 'var(--ok, #22c55e)'
+    : (head.tone === 'attention' ? 'var(--info, #3b82f6)'
+      : (head.tone === 'warn' ? 'var(--warning, #f59e0b)' : 'var(--label, #94a3b8)'));
+  _setHtml('ic-headline', '<span style="color:' + toneClass + ';">'
+    + escapeHtml(String(head.title || '—')) + '</span>');
+
+  // (2) DID ANYTHING IMPORTANT ARRIVE? — never a blank em-dash.
+  _setHtml('evt-why', escapeHtml(String(head.detail || '')));
+
+  _setHtml('ic-service-line', [
+    _evtKpi('Heartbeat', svc.heartbeat_age_seconds === null || svc.heartbeat_age_seconds === undefined
+      ? 'never' : (Math.round(svc.heartbeat_age_seconds) + 's ago'),
+      'Age of the worker heartbeat, measured by the backend.'),
+    _evtKpi('Last collection', act.last_collection_success_at
+      ? String(act.last_collection_success_at).slice(11, 19) : 'never',
+      'When a source last returned successfully.'),
+    _evtKpi('Next check', svc.next_wake_at ? String(svc.next_wake_at).slice(11, 19) : '—',
+      'When the service next checks which sources are due.'),
+    _evtKpi('Iterations', svc.loop_count === undefined || svc.loop_count === null ? '—' : svc.loop_count,
+      'Collection iterations completed by this service.'),
+    _evtKpi('Restarts', svc.restart_count === undefined || svc.restart_count === null ? '—' : svc.restart_count,
+      'Worker restarts survived without losing watermarks.'),
+    _evtKpi('Worker PID', svc.worker_pid === null || svc.worker_pid === undefined ? '—' : svc.worker_pid,
+      'The single production collection worker.')
   ].join(''));
 
-  var why = last.state
-    ? ('Last event cycle: <strong>' + escapeHtml(String(last.state)) + '</strong>.')
-    : 'The event cycle has not run yet, so no reassessment has been triggered by arriving information.';
-  _setHtml('evt-why', why);
+  // THE FIXED FRESHNESS DENOMINATOR — "of the sources that SHOULD be current now,
+  // how many are healthy?". Every number below is computed by the backend.
+  _setHtml('evt-kpis', [
+    _evtKpi('Sources due',
+      (sum.healthy_due === undefined ? '—' : sum.healthy_due) + ' / '
+      + (sum.due_now === undefined ? '—' : sum.due_now) + ' healthy',
+      'Sources whose OWN publication window is open right now, and how many of them are healthy.'),
+    _evtKpi('Not due', sum.not_due === undefined ? '—' : sum.not_due,
+      'Outside their own publication window (market closed, between monthly releases). Not a fault.'),
+    _evtKpi('Backoff', (sum.backoff === undefined ? '—' : sum.backoff)
+      + (sum.failed ? (' · failed ' + sum.failed) : ''),
+      'In adaptive backoff after a rate limit or outage; a retry is scheduled, not looped.'),
+    _evtKpi('Degraded', (sum.degraded === undefined ? '—' : sum.degraded)
+      + (sum.degraded_credential ? (' · credential ' + sum.degraded_credential) : ''),
+      'Inside its window but older than its own staleness tolerance.'),
+    _evtKpi('Blocked', (sum.blocked === undefined ? '—' : sum.blocked)
+      + ' · disabled ' + (sum.disabled === undefined ? '—' : sum.disabled),
+      'Terminally blocked on entitlement, or deliberately not scheduled (redundant / not a data source).'),
+    _evtKpi('Research lanes', sum.research_only === undefined ? '—' : sum.research_only,
+      'Collected as research or observability evidence; can never reach the operational target.'),
+    _evtKpi('Market session', (d.market_session || {}).phase || '—',
+      'Resolved by the canonical engine.market_hours owner.')
+  ].join(''));
 
-  var evs = d.events_affecting_holdings && d.events_affecting_holdings.length
-    ? d.events_affecting_holdings : (d.material_events || []);
+  // Latest material events.
+  var evs = d.affected_holdings || [];
   if (!evs.length) {
-    _setHtml('evt-events', '<div class="cc-na-note">No material event has been recorded in the current window.</div>');
+    // Slice a TIMESTAMP to minute precision; never slice the fallback sentence —
+    // that is how "since the service was installed" became "since the service was ins".
+    var icSince = act.last_material_information_at || act.last_collection_success_at
+      || svc.started_at || null;
+    _setHtml('evt-events', '<div class="cc-na-note">No material new information '
+      + (icSince ? ('since ' + escapeHtml(String(icSince).slice(0, 19)))
+        : 'has been recorded yet')
+      + '.</div>');
   } else {
-    var rows = evs.slice(0, 40).map(function (e) {
+    _setHtml('evt-events', evs.slice(0, 40).map(function (e) {
       return '<div style="padding:4px 0;border-bottom:1px solid var(--border);">'
         + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
-        + '<strong>' + escapeHtml(e.primary_ticker || '—') + '</strong>'
-        + _evtAuthorityBadge(e.decision_authority)
-        + '<span class="cc-badge muted">' + escapeHtml(e.family || '—') + '</span>'
+        + '<strong>' + escapeHtml(e.ticker || '—') + '</strong>'
+        + _evtAuthorityBadge(e.authority)
+        + '<span class="cc-badge muted">' + escapeHtml(e.event || '—') + '</span>'
         + '<span class="cc-badge muted">' + escapeHtml(e.novelty || '—') + '</span>'
         + '</div>'
-        + '<div style="color:var(--label);">'
-        + escapeHtml(String((e.materiality_inputs || {}).title || e.event_type || ''))
-        + '</div>'
+        + '<div style="color:var(--label);">' + escapeHtml(String(e.title || e.event_type || '')) + '</div>'
         + '<div style="color:var(--label);font-size:10px;">'
         + escapeHtml(e.source_id || '') + ' · '
-        + escapeHtml(String(e.published_at || e.effective_at || 'no publication time stated'))
+        + escapeHtml(String(e.event_time || 'no publication time stated'))
         + '</div></div>';
-    }).join('');
-    _setHtml('evt-events', rows);
+    }).join(''));
   }
 
-  var srows = (fresh.sources || []).map(function (s) {
-    return '<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--border);">'
-      + '<span title="' + escapeHtml(s.expected_cadence_text || '') + '">'
-      + escapeHtml(s.source_id) + '</span>'
-      + '<span style="color:' + _evtFreshColor(s.status) + ';" title="'
-      + escapeHtml(s.reason || '') + '">' + escapeHtml(s.status)
-      + (s.source_watermark ? (' · ' + escapeHtml(s.source_watermark)) : '') + '</span></div>';
-  }).join('');
-  _setHtml('evt-sources', srows || '&mdash;');
-
-  var aff = d.affected_holdings || [];
-  _setHtml('evt-affected', aff.length
-    ? aff.map(function (t) { return '<span class="cc-badge muted">' + escapeHtml(t) + '</span>'; }).join(' ')
+  // (3) WHICH HOLDINGS ARE AFFECTED?
+  var held = evs.filter(function (e) { return e.is_current_holding; });
+  _setHtml('evt-affected', held.length
+    ? held.map(function (e) {
+      return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:3px 0;border-bottom:1px solid var(--border);">'
+        + '<strong>' + escapeHtml(e.ticker) + '</strong>' + _evtAuthorityBadge(e.authority)
+        + '<span style="color:var(--label);">' + escapeHtml(String(e.event || '')) + '</span>'
+        + '<span style="color:var(--label);font-size:10px;">' + escapeHtml(String(e.event_time || '')) + '</span>'
+        + '</div>';
+    }).join('')
     : '<span class="cc-na-note">No current holding is named by a material event in this window.</span>');
 
+  // (4)(5)(6) WAS IT REASSESSED, DID THE TARGET CHANGE, WHAT MUST BE REVIEWED?
+  var dec = d.portfolio_decision || {};
+  var ra = dec.portfolio_reassessment || {};
+  var tp = dec.target_portfolio || {};
+  var decRows = [
+    '<div>Event cycle: <strong>' + escapeHtml(String(dec.event_cycle_state || 'NOT_RUN')) + '</strong>'
+    + ' &middot; Reassessment: <strong>' + escapeHtml(String(dec.reassessment_ran === true ? 'COMPLETE'
+      : (dec.reassessment_ran === false ? 'NOT REQUIRED' : '—'))) + '</strong></div>'
+  ];
+  if (dec.reassessment_reason) {
+    decRows.push('<div style="color:var(--label);">Reason: ' + escapeHtml(String(dec.reassessment_reason)) + '</div>');
+  }
+  if (ra.reassessment_state) {
+    decRows.push('<div>Recommendation: <strong>' + escapeHtml(String(ra.reassessment_state)) + '</strong></div>');
+  }
+  if (dec.proposal_built) {
+    decRows.push('<div><span class="cc-badge manual">TARGET CHANGE FOR MANUAL REVIEW</span> '
+      + escapeHtml(String(tp.headline || tp.state || 'A complete target portfolio is available for review.'))
+      + '</div>');
+    decRows.push('<div><a href="#realloc-card" style="font-size:11px;">Review target portfolio</a>'
+      + ' <span class="cc-na-note">(review only &mdash; no order is created)</span></div>');
+  } else {
+    decRows.push('<div class="cc-na-note">No target change is proposed. Manual review remains required for any change.</div>');
+  }
+  _setHtml('ic-decision', decRows.join(''));
+
+  // Audit / Advanced: the per-source diagnostic table.
+  _setHtml('ic-sources', sources.length ? sources.map(function (s) {
+    return '<div style="display:grid;grid-template-columns:150px 130px 1fr;gap:6px;padding:3px 0;border-bottom:1px solid var(--border);">'
+      + '<span title="' + escapeHtml(s.expected_cadence_text || '') + '">' + escapeHtml(s.source_id) + '</span>'
+      + '<span style="color:' + _evtFreshColor(s.runtime_state) + ';">' + escapeHtml(s.runtime_state)
+      + (s.circuit_state && s.circuit_state !== 'CLOSED' ? (' · ' + escapeHtml(s.circuit_state)) : '') + '</span>'
+      + '<span style="color:var(--label);">' + escapeHtml(String(s.health_reason || ''))
+      + (s.backoff_until ? (' Next retry ' + escapeHtml(String(s.backoff_until).slice(11, 19))) : '')
+      + (s.next_due_at && !s.backoff_until ? (' Next due ' + escapeHtml(String(s.next_due_at).slice(11, 19))) : '')
+      + '</span></div>';
+  }).join('') : '&mdash;');
+
+  var ec = d.event_counts || {};
+  var r28 = d.release28_integration || {};
   _setHtml('evt-audit',
-    '<span style="color:var(--label);">Source terminal audit — unintegrated useful sources: <strong>'
-    + escapeHtml(String(counts.READY_UNINTEGRATED_USEFUL_SOURCES))
-    + '</strong>; unclassified signal authority: <strong>'
-    + escapeHtml(String(counts.UNCLASSIFIED_SIGNAL_AUTHORITY))
-    + '</strong>. Scheduler armed: <strong>'
-    + escapeHtml(String(((d.scheduler || {}).armed) === true)) + '</strong>.</span>');
+    '<span style="color:var(--label);">Events recorded <strong>' + escapeHtml(String(ec.recent_events))
+    + '</strong> &middot; material <strong>' + escapeHtml(String(ec.material_events))
+    + '</strong> &middot; naming a holding <strong>' + escapeHtml(String(ec.events_naming_a_holding))
+    + '</strong>. Event orchestrator: <strong>' + escapeHtml(String(r28.event_orchestrator || '—'))
+    + '</strong> (forked: <strong>' + escapeHtml(String(r28.forked === true)) + '</strong>). '
+    + 'Store: ' + escapeHtml(String(d.store_root || '')) + '</span>');
 }
-window.renderEventSignalRefresh = renderEventSignalRefresh;
+window.renderInformationCollection = renderInformationCollection;
 
 // ---- Slice 2 (Phase 29C): canonical workflow / operator state loader ----------
 // ONE single-flight loader for the ONE authoritative combined operator

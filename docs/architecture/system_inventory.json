@@ -591,6 +591,11 @@
       "prefix": "/v1/operations/event-signal-refresh",
       "owner": "api/event_signal_refresh.py",
       "system": "operations"
+    },
+    {
+      "prefix": "/v1/operations/information-collection",
+      "owner": "api/information_collection.py",
+      "system": "operations"
     }
   ],
   "classification_legend": {
@@ -2966,6 +2971,88 @@
       "migration_priority": 0,
       "risk": "LOW",
       "notes": "Every persistent root is a caller-supplied temporary directory; it opens no production store, calls no provider and creates no order."
+    },
+    {
+      "path": "engine/collection_cadence.py",
+      "system": "operations",
+      "responsibility": "Release 29 CANONICAL collection-cadence policy and runtime resolver (pure): one authoritative cadence row per source (kind, market-session requirement, ET publication window, normal interval, minimum call interval, maximum staleness, attention tier, request budget) with the publication behaviour that justifies it; the separation of due_window_active (should this source be current NOW — the freshness denominator) from collect_now (may this iteration call it); ONE runtime state per source; adaptive backoff and the circuit breaker; and the bounded next-wake interval.",
+      "classification": "KEEP",
+      "target_owner": "engine/collection_cadence.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "engine.market_hours.session_state (THE market clock; no second weekday/cutoff arithmetic)"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "GET /v1/operations/information-collection (via api/information_collection.py)"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#ic-sources, #ic-service-line)"
+      ],
+      "tests": [
+        "tests/test_release29_continuous_collection.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "PURE: no I/O, no ambient clock — every function takes `now`. The operational freshness denominator deliberately excludes research and observability lanes and every BLOCKED / DISABLED row, so a monthly release between publications and a market feed on a Sunday read NOT_DUE rather than STALE. A 429 opens a long backoff: the service must never turn a provider outage into an attack on the provider."
+    },
+    {
+      "path": "api/information_collection.py",
+      "system": "operations",
+      "responsibility": "Release 29 CANONICAL continuous-collection orchestrator and read contract: the durable service state, single-flight worker lock, heartbeat and restart accounting; the live attention universe read from api.portfolio_state and api.universe_scoring; per-source request budgets and bounded catch-up; ONE consolidated collection iteration that hands whatever arrived to the EXISTING Release-28 event orchestrator; and the one read-only payload behind GET /v1/operations/information-collection.",
+      "classification": "KEEP",
+      "target_owner": "api/information_collection.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "engine.collection_cadence (cadence / due / budget / backoff policy)",
+        "engine.market_hours.session_state (THE market clock)",
+        "api.source_capability (source registry, store roots, terminal states)",
+        "api.portfolio_state + api.universe_scoring (attention tiers)",
+        "api.event_signal_refresh (THE Release-28 event orchestrator)",
+        "alpha_agent.ingestion / alpha_agent.feed_registry (existing collectors)"
+      ],
+      "direct_writes": [
+        "PAPER_TRADER_COLLECTION_DIR/collection_service_state.json",
+        "PAPER_TRADER_COLLECTION_DIR/source_runtime_health.json",
+        "PAPER_TRADER_COLLECTION_DIR/collection_iteration_history.json (bounded to 500)",
+        "PAPER_TRADER_COLLECTION_DIR/collection_service.lock"
+      ],
+      "endpoints": [
+        "GET /v1/operations/information-collection"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#ic-headline, #ic-service-line, #ic-decision, #ic-sources)"
+      ],
+      "tests": [
+        "tests/test_release29_continuous_collection.py"
+      ],
+      "migration_priority": 0,
+      "risk": "MEDIUM",
+      "notes": "Contains NO second provider client, scoring engine, opportunity cost, reassessment, proposal builder or market-session resolver — it composes the existing owners. COLLECTION automation and EXECUTION automation are different switches: enabling collection is token-gated (CONFIRM_ENABLE_INFORMATION_COLLECTION) and never approves a proposal, confirms a target, creates/confirms/fills/cancels an order, runs Daily Close or the full Daily Research Cycle, or promotes a model."
+    },
+    {
+      "path": "api/collection_replay.py",
+      "system": "operations",
+      "responsibility": "Release 29 hermetic acceptance harness for the continuous collection service: 21 scenarios over a simulated clock, a synthetic portfolio/price world and controllable provider stand-ins, driving the REAL cadence, collection, event, materiality, opportunity-cost, reassessment and proposal owners — cadence, market-session awareness, rate-limit backoff, failure isolation, the decision gate, restart recovery, single-flight refusal, bounded catch-up and the quote lane.",
+      "classification": "KEEP",
+      "target_owner": "api/collection_replay.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api.information_collection (the orchestrator under test)",
+        "api.event_replay (the Release-28 synthetic world and cycle driver)",
+        "engine.collection_cadence"
+      ],
+      "direct_writes": [
+        "temporary per-scenario roots only (never a production store)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release29_continuous_collection.py"
+      ],
+      "migration_priority": 0,
+      "risk": "LOW",
+      "notes": "Hermetic by construction: the socket layer is sealed for the duration of a run and any outbound connection attempt is reported as a failing scenario, never silently allowed. Each scenario runs under a hard wall-clock bound, so a stalled call is a REPORTED TEST_TIMEOUT rather than a hung acceptance run. Faked: the clock, provider responses, the portfolio/price world and the state root — nothing else."
     }
   ]
 }

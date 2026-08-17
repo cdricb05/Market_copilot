@@ -95,6 +95,18 @@ def resolve_root(root_env: str, default: Path, override=None) -> Path:
 _resolve = resolve_root
 
 
+def ingestion_root(override=None) -> Path:
+    """The Stage-2 ingestion store root. Public so the continuous collection
+    service resolves the SAME root as the fabric without a second copy of the
+    policy or a private-attribute reach-in."""
+    return resolve_root(INGESTION_ROOT_ENV, _DEFAULT_INGESTION_ROOT, override)
+
+
+def news_root(override=None) -> Path:
+    """The Stage-3.5 news/RSS store root. Public for the same reason."""
+    return resolve_root(NEWS_ROOT_ENV, _DEFAULT_NEWS_ROOT, override)
+
+
 def _credential_present(names: Any) -> bool:
     for n in (names or []):
         if str(os.environ.get(str(n)) or "").strip():
@@ -709,6 +721,7 @@ __all__ = [
     "CONN_LIVE", "CONN_LOCAL_LICENSED", "CONN_CONFIGURED_NOT_RUN",
     "CONN_CREDENTIAL_MISSING", "CONN_PROVIDER_BLOCKED", "CONN_NOT_A_DATA_SOURCE",
     "SOURCE_ID_ALIASES", "canonical_source_id", "resolve_root",
+    "ingestion_root", "news_root", "INGESTION_ROOT_ENV", "NEWS_ROOT_ENV",
     "read_stage2_state", "build_capability_matrix", "terminal_audit",
     "load_source_capability",
 ]

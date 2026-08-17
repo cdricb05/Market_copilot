@@ -672,6 +672,19 @@ def capture_market_quotes(tickers: Iterable[str], *, fetcher: Optional[Callable]
     Delegates the fetch to ``engine.market_data`` — the canonical market-data owner —
     and converts its result into events. RISK AUTHORITY ONLY: no released signal
     contract is formed intraday, so these events may never move a score.
+
+    IDENTITY IS THE DAY'S MARK, NOT THE MINUTE'S READ. ``source_event_id`` is keyed
+    on (ticker, market date), so re-reading an UNCHANGED quote is an exact duplicate
+    and a no-op, while a CHANGED price is one immutable MATERIAL_UPDATE that
+    supersedes the prior mark for that day. Keying on the minute instead would make
+    every poll of a still market manufacture a "new" event for every holding — the
+    continuous collection service polls this lane every 15 minutes, which is the
+    difference between an idempotent lane and 25 fabricated events an hour.
+
+    ``now_iso`` is the CALLER'S clock. The adapter keeps no ambient time of its own:
+    event identity must come from the cycle that asked for the quote, or a replay
+    driven by a simulated clock is stamped with the real one and its verdict depends
+    on which real-world minute the run happened to straddle.
     """
     tk = [str(t).strip().upper() for t in (tickers or []) if str(t or "").strip()]
     if not tk:
@@ -700,7 +713,7 @@ def capture_market_quotes(tickers: Iterable[str], *, fetcher: Optional[Callable]
                                   "quote timestamp, so publication time is left null")}
         events.append(ek.build_event(
             source_id="yahoo_delayed_quote", record_type="MARKET_QUOTE",
-            source_event_id="quote|%s|%s" % (ticker, stamp[:16]),
+            source_event_id="quote|%s|%s" % (ticker, stamp[:10]),
             payload=payload, event_type="DELAYED_QUOTE",
             source_family=scap.LANE_LIVE_ADAPTER,
             effective_at=stamp[:10], first_observed_at=stamp, ingested_at=stamp,

@@ -1882,3 +1882,76 @@ arriving information.
 containment, point-in-time discipline, idempotency and novelty, materiality and
 anti-churn, the dependency graph, the terminal source audit, cadence-aware freshness,
 shared-owner delegation, challenger continuity and deterministic replay.
+
+---
+
+## Release 29 — Continuous governed information collection (LANDED)
+
+Full detail: [CONTINUOUS_INFORMATION_COLLECTION.md](CONTINUOUS_INFORMATION_COLLECTION.md).
+
+### What ownership actually changed
+
+Release 28 could react to an event but could not keep events arriving: every collector
+stayed operator-initiated, so the live surface read `Sources fresh 1 / 17` with
+watermarks days old. Release 29 adds a governed COLLECTION lane in front of the
+Release-28 information lane. It takes nothing away from an existing owner and
+introduces no second provider client, scoring engine, opportunity cost, reassessment,
+proposal builder or market-session resolver.
+
+| New owner | Owns |
+|---|---|
+| `engine/collection_cadence.py` (pure) | The ONE cadence policy per source (kind, market-session requirement, ET window, intervals, staleness tolerance, attention tier, request budget) with the publication behaviour that justifies it; the separation of `due_window_active` from `collect_now`; ONE runtime state per source; adaptive backoff and the circuit breaker; the bounded next-wake interval |
+| `api/information_collection.py` | The ONE collection orchestrator: durable service state, single-flight lock, heartbeat, restart accounting, the live attention universe, provider budgets, bounded catch-up, ONE consolidated iteration, and the read contract behind `GET /v1/operations/information-collection` |
+| `api/collection_replay.py` | The hermetic 21-scenario acceptance harness (network-sealed, per-scenario wall-clock bound) |
+| `scripts/run_information_collection_service.py` | The ONE long-lived worker |
+| `scripts/manage_information_collection.ps1` | The ONE service manager (`Install/Start/Stop/Restart/Status/Uninstall`); `Status` is read-only, every mutation requires `-Execute` |
+
+### The fixed freshness denominator
+
+The KPI is `of the sources whose OWN publication window is open right now, how many
+are healthy?` — not `how many of every registry row say FRESH`. A market feed on a
+Sunday and a monthly release between publications read `NOT_DUE`, never STALE, and
+BLOCKED / DISABLED rows never enter the denominator. `next_due_at` is absent while a
+window is closed rather than fabricated.
+
+### What Release 28 had to change to survive being continuous
+
+Polling the quote lane every 15 minutes exposed two defects that were invisible while
+collection was manual:
+
+* **Quote identity is the DAY'S MARK, not the minute's read.** Keyed on the minute, every
+  poll of a still market manufactured a new event per holding. Keyed on `(ticker,
+  market date)`, an unchanged re-read is a duplicate and a changed price is one
+  `MATERIAL_UPDATE` superseding the prior mark.
+* **A market OBSERVATION is never material on its own.** `market_bar` and `market_quote`
+  are suppressed at the event-trigger stage; the risk lane decides from the move it
+  measures. `ret_intraday` (the delayed quote against the owned close) was added so the
+  lane still raises `HOLDING_PRICE_SHOCK` at the existing 7% level — a same-session
+  collapse reaches the review list without waiting for tomorrow's bar. Materiality
+  policy is now `event_materiality.v2`; no threshold number changed.
+* **One clock per cycle.** `now_iso` is threaded from the collection iteration into the
+  live adapters, so event identity no longer depends on an ambient wall-clock read.
+* **The read surface is bound to the gate's rule**, so a price observation is never
+  counted as a material event.
+
+### Collection automation is not execution automation
+
+The operator enables collection once (`CONFIRM_ENABLE_INFORMATION_COLLECTION`). After
+that the service may collect, persist events, refresh signals and risk, run opportunity
+cost, run reassessment and build review-only proposals. It may never approve, confirm,
+order, fill, cancel, rebalance, close the day, run the full DRC or promote a model.
+There is no HTTP route that starts a worker or runs an iteration.
+
+### Routes and stores
+
+`GET /v1/operations/information-collection` (read-only; there is deliberately no POST).
+The store root is `PAPER_TRADER_COLLECTION_DIR`, registered in
+`api.environment_isolation.CANONICAL_STORE_ENV_VARS` and redirected by the hermetic
+acceptance server.
+
+### Guards
+
+`tests/test_release29_continuous_collection.py` (52 tests) is the regression, and
+`scripts/audit_architecture.py` → `check_information_collection_ownership` is the
+strict-blocking architecture guard. The hermetic suite result of record is 21
+scenarios / 117 checks / 3 consecutive clean runs / 0 network leaks.
