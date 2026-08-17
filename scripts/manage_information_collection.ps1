@@ -161,6 +161,9 @@ function Show-StartupDiagnostics([string]$Reason) {
     } else {
         Info "task              : NOT INSTALLED"
     }
+    foreach ($p in (Get-WorkerProcesses)) {
+        Info "process           : pid=$($p.ProcessId) parent=$($p.ParentProcessId) image=$($p.ExecutablePath)"
+    }
     $st = Get-ServiceStatus
     if ($null -ne $st) {
         Info "service state     : $($st.service_state)"
@@ -180,6 +183,13 @@ function Show-StartupDiagnostics([string]$Reason) {
     }
 }
 
+# PHYSICAL processes whose command line names the canonical worker. This is a
+# SNAPSHOT, never a count of workers: `.venv-win\Scripts\python.exe` is the venv
+# REDIRECTOR (its version resource reads OriginalFilename "py.exe"), and it
+# CreateProcess-es the base interpreter from pyvenv.cfg with a byte-identical
+# command line, then waits on it. Every clean Start therefore yields two rows
+# here for ONE worker. How many LOGICAL workers those rows are is decided by
+# ic.resolve_worker_topology, not by this function.
 function Get-WorkerProcesses() {
     $procs = @()
     try {
@@ -191,6 +201,59 @@ function Get-WorkerProcesses() {
         }
     } catch { }
     return $procs
+}
+
+# The ONE logical-worker verdict. PowerShell enumerates; Python decides.
+function Get-WorkerTopology() {
+    $rows = @()
+    foreach ($p in (Get-WorkerProcesses)) {
+        $created = $null
+        if ($p.CreationDate) {
+            try { $created = $p.CreationDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ") } catch { }
+        }
+        $rows += [pscustomobject]@{
+            pid             = $p.ProcessId
+            parent_pid      = $p.ParentProcessId
+            command_line    = $p.CommandLine
+            executable_path = $p.ExecutablePath
+            created_at      = $created
+        }
+    }
+    $json = ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+    $out = $json | & $PythonExe $StatePy --action worker-topology 2>&1
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try { return ($out -join "`n") | ConvertFrom-Json } catch { return $null }
+}
+
+function Show-Topology($Topology) {
+    if ($null -eq $Topology) {
+        Info "worker topology: UNREADABLE (control helper returned no JSON)"
+        return
+    }
+    Info "worker topology : $($Topology.verdict)"
+    Info "  $($Topology.reason)"
+    Info "  logical workers : $($Topology.logical_worker_count)   physical processes: $($Topology.physical_process_count)"
+    Info "  executing pid   : $(Fmt $Topology.executing_pid)"
+    foreach ($lin in @($Topology.lineages)) {
+        Info ("  lineage root {0}: pids {1} -> executing {2} (owns lock: {3})" -f `
+              $lin.root_pid, ((@($lin.pids)) -join ", "), (Fmt $lin.executing_pid), $lin.owns_lock)
+        foreach ($exe in @($lin.executable_paths)) { Info "      image: $(Fmt $exe)" }
+    }
+    Info "  lock owner      : $(Fmt $Topology.lock_pid)  correlated: $($Topology.lock_correlated)"
+    Info "  $($Topology.lock_correlation_reason)"
+}
+
+# A healthy start is ONE lineage whose executing process owns the singleton lock.
+# The snapshot is re-read a bounded number of times because a redirector that has
+# not yet spawned its child is a transient, not a verdict.
+function Wait-ForOneLogicalWorker([int]$Attempts = 5) {
+    $last = $null
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        $last = Get-WorkerTopology
+        if ($null -ne $last -and $last.healthy) { return $last }
+        Start-Sleep -Seconds 2
+    }
+    return $last
 }
 
 function Wait-ForHeartbeat([int]$TimeoutSec) {
@@ -242,8 +305,16 @@ function Stop-Worker() {
         Info "No collection worker process is running."
         return $true
     }
-    foreach ($p in $procs) {
-        Info "Stopping worker pid $($p.ProcessId) ..."
+    # Kill the LEAVES first. The venv redirector is a parent that WAITS on the
+    # base interpreter, so killing the parent first orphans the child that owns
+    # the singleton lock - the whole lineage has to go, deepest member first.
+    $pids = @($procs | ForEach-Object { $_.ProcessId })
+    $parentPids = @($procs | ForEach-Object { $_.ParentProcessId } |
+                    Where-Object { $pids -contains $_ })
+    $ordered = @($procs | Where-Object { $parentPids -notcontains $_.ProcessId }) + `
+               @($procs | Where-Object { $parentPids -contains $_.ProcessId })
+    foreach ($p in $ordered) {
+        Info "Stopping worker pid $($p.ProcessId) ($(Fmt $p.ExecutablePath)) ..."
         try { Stop-Process -Id $p.ProcessId -ErrorAction Stop } catch { }
     }
     $deadline = (Get-Date).AddSeconds(45)
@@ -261,6 +332,8 @@ switch ($Action) {
 
     "Status" {
         $st = Show-Status "COLLECTION SERVICE STATUS (read-only)"
+        Write-Section "PROCESS TOPOLOGY (read-only)"
+        Show-Topology (Get-WorkerTopology)
         Write-Section "SAFETY"
         Info "Information collection automation : $(if ($st) { $st.collection_automation_enabled } else { 'unknown' })"
         Info "Execution automation              : OFF (permanently, architecture-tested)"
@@ -306,9 +379,15 @@ switch ($Action) {
         if ($null -eq (Get-CollectionTask)) {
             Fail "the scheduled task is not installed. Run -Action Install -Execute first."
         }
-        $running = Get-WorkerProcesses
-        if ($running.Count -gt 0) {
-            Info "A worker is already running (pid $($running[0].ProcessId)). Singleton respected."
+        $existing = Get-WorkerTopology
+        if ($null -ne $existing -and $existing.verdict -ne "NO_LOGICAL_WORKER") {
+            if ($existing.verdict -ne "SINGLE_LOGICAL_WORKER") {
+                Show-Topology $existing
+                Show-StartupDiagnostics $existing.reason
+                Fail "$($existing.verdict): $($existing.reason)"
+            }
+            Info "A worker is already running (executing pid $($existing.executing_pid)). Singleton respected."
+            Show-Topology $existing
             $st = Show-Status "COLLECTION SERVICE STATUS"
             if ($null -ne $st -and $st.service_state -eq "RUNNING") {
                 Write-Host ""; Write-Host $OK_TOKEN; exit 0
@@ -323,15 +402,22 @@ switch ($Action) {
             Show-StartupDiagnostics "no RUNNING heartbeat within $StartTimeoutSec seconds"
             Fail "collection service did not become live"
         }
-        $procs = Get-WorkerProcesses
-        if ($procs.Count -gt 1) {
-            Show-StartupDiagnostics "more than one worker process is running"
-            Fail "singleton violated: $($procs.Count) worker processes"
+        $topology = Wait-ForOneLogicalWorker
+        if ($null -eq $topology) {
+            Show-StartupDiagnostics "the worker topology could not be read"
+            Fail "worker topology unreadable"
+        }
+        if (-not $topology.healthy) {
+            Show-Topology $topology
+            Show-StartupDiagnostics $topology.reason
+            Fail "$($topology.verdict): $($topology.reason) $($topology.lock_correlation_reason)"
         }
         Show-Status "COLLECTION SERVICE STATUS" | Out-Null
+        Show-Topology $topology
         Write-Section "VERIFIED"
         Info "worker pid       : $($st.worker_pid)"
-        Info "singleton lock   : held=$($st.lock_held)"
+        Info "logical workers  : $($topology.logical_worker_count) (physical processes: $($topology.physical_process_count))"
+        Info "singleton lock   : held=$($st.lock_held)  owned by the executing process: $($topology.lock_correlated)"
         Info "heartbeat age    : $($st.heartbeat_age_seconds) s"
         Info "execution autom. : OFF"
         Write-Host ""
@@ -347,7 +433,14 @@ switch ($Action) {
         $clean = Stop-Worker
         if (-not $clean) { Fail "a collection worker process did not exit" }
         Invoke-Control @("--action", "mark-stopped") | Out-Null
+        # The whole LINEAGE must be gone, not just the process that owned the lock.
+        $after = Get-WorkerTopology
+        if ($null -ne $after -and $after.verdict -ne "NO_LOGICAL_WORKER") {
+            Show-Topology $after
+            Fail "a member of the worker launch lineage survived Stop: $($after.reason)"
+        }
         Show-Status "POST-STOP STATE" | Out-Null
+        Show-Topology $after
         Write-Host ""
         Write-Host $STOPPED_TOKEN
         exit 0
@@ -371,13 +464,17 @@ switch ($Action) {
             Show-StartupDiagnostics "no RUNNING heartbeat after restart"
             Fail "collection service did not come back"
         }
-        if ((Get-WorkerProcesses).Count -gt 1) {
-            Show-StartupDiagnostics "more than one worker process after restart"
-            Fail "singleton violated after restart"
+        $topology = Wait-ForOneLogicalWorker
+        if ($null -eq $topology -or -not $topology.healthy) {
+            Show-Topology $topology
+            Show-StartupDiagnostics "the restarted service is not exactly one logical worker"
+            Fail "singleton violated after restart: $(if ($topology) { $topology.reason } else { 'topology unreadable' })"
         }
+        Show-Topology $topology
         Write-Section "RESTART VERIFIED"
         if ($null -ne $before) { Info "prior instance : $($before.instance_id)" }
         Info "new instance   : $($after.instance_id)"
+        Info "logical workers: $($topology.logical_worker_count)"
         Info "restart count  : $($after.restart_count)"
         Info "watermarks     : preserved (source runtime state is durable)"
         Write-Host ""

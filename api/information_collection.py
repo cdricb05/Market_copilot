@@ -521,6 +521,245 @@ def resolve_service_lifecycle(state: dict, lock: Optional[dict],
 
 
 # --------------------------------------------------------------------------- #
+# Windows launch lineage — what ONE LOGICAL WORKER actually is
+# --------------------------------------------------------------------------- #
+# A clean canonical Start reproducibly produced TWO physical python.exe
+# processes with a BYTE-IDENTICAL command line, and the manager called that a
+# singleton violation. It is not one. Measured on this machine:
+#
+#   pid   940  ExecutablePath C:\...\.venv-win\Scripts\python.exe  parent 9760
+#   pid 29108  ExecutablePath C:\Python313\python.exe              parent  940
+#   both CommandLine: "C:\...\.venv-win\Scripts\python.exe" <script>
+#
+# ``.venv-win\Scripts\python.exe`` is NOT CPython. Its version resource reads
+# InternalName "Python Launcher", OriginalFilename "py.exe": it is the venv
+# REDIRECTOR that CPython's ``venv`` copies into Scripts. It CreateProcess-es the
+# base interpreter named by pyvenv.cfg (``executable = C:\Python313\python.exe``)
+# passing its own command line verbatim, then waits on it. The duplicate command
+# line is therefore structural and permanent, and has nothing to do with Task
+# Scheduler - a bare Start-Process reproduces the same pair exactly. Inside
+# Python, ``sys.executable`` reports the VENV path in BOTH processes, so no
+# in-process check can tell them apart; only ExecutablePath and the parent edge
+# can. The CHILD runs main(), so the CHILD is what calls os.getpid() and owns the
+# singleton lock.
+#
+# ONE LOGICAL WORKER is therefore ONE LAUNCH LINEAGE: the matched processes
+# joined by parent->child edges *within the matched set*. A lineage LEAF - a
+# matched process with no matched child - is the process that actually executes
+# the application. Counting LEAVES keeps the guarantee intact in both
+# directions: redirector+worker is ONE, while two independent lineages (or one
+# launcher that somehow spawned two workers) is a violation. Nothing here is
+# allowed to soften that: an unreadable pid, a cycle, or a lineage that does not
+# own the lock fails CLOSED.
+
+#: The command-line token that makes a process a candidate collection worker.
+CANONICAL_WORKER_SCRIPT = "run_information_collection_service.py"
+
+WORKER_TOPOLOGY_NONE = "NO_LOGICAL_WORKER"
+WORKER_TOPOLOGY_SINGLE = "SINGLE_LOGICAL_WORKER"
+WORKER_TOPOLOGY_VIOLATED = "SINGLETON_VIOLATED"
+WORKER_TOPOLOGY_AMBIGUOUS = "AMBIGUOUS_WORKER_TOPOLOGY"
+WORKER_TOPOLOGY_VERDICTS = (WORKER_TOPOLOGY_NONE, WORKER_TOPOLOGY_SINGLE,
+                            WORKER_TOPOLOGY_VIOLATED, WORKER_TOPOLOGY_AMBIGUOUS)
+
+#: Bound on the ancestor walk. A lineage is a redirector plus a worker; anything
+#: deeper than this is a malformed snapshot, not a launch chain.
+_MAX_LINEAGE_DEPTH = 16
+
+
+def _as_pid(value: Any) -> Optional[int]:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _process_row(raw: Any) -> dict:
+    """Normalise ONE process snapshot row. Win32 or snake_case keys both work."""
+    raw = raw if isinstance(raw, dict) else {}
+
+    def pick(*names):
+        for name in names:
+            if name in raw and raw[name] not in (None, ""):
+                return raw[name]
+        return None
+
+    return {
+        "pid": _as_pid(pick("pid", "ProcessId")),
+        "parent_pid": _as_pid(pick("parent_pid", "ParentProcessId")),
+        "command_line": str(pick("command_line", "CommandLine") or ""),
+        "executable_path": (str(pick("executable_path", "ExecutablePath"))
+                            if pick("executable_path", "ExecutablePath") else None),
+        "created_at": pick("created_at", "CreationDate"),
+    }
+
+
+def _created_before(parent: dict, child: dict) -> bool:
+    """Is ``parent`` old enough to really be ``child``'s parent?
+
+    Windows recycles process ids. A recorded parent id that names a process
+    created AFTER its supposed child is a RECYCLED id, not an ancestor. Refusing
+    that edge fails safe: it produces MORE lineage roots, never fewer.
+    """
+    p_at, c_at = _parse(parent.get("created_at")), _parse(child.get("created_at"))
+    if p_at is None or c_at is None:
+        return True  # unknown creation times cannot disprove the edge
+    try:
+        return p_at <= c_at
+    except TypeError:  # naive vs aware — undecidable, so do not disprove it
+        return True
+
+
+def resolve_worker_topology(processes: Any, *, lock: Optional[dict] = None,
+                            worker_script: str = CANONICAL_WORKER_SCRIPT) -> dict:
+    """ONE authoritative logical-worker verdict over a process snapshot.
+
+    ``processes`` is a snapshot of candidate processes (Win32_Process rows or the
+    snake_case equivalent). Membership is the command line naming the canonical
+    worker script — the same test the manager has always used — but the COUNT is
+    of launch lineages, not of physical processes.
+    """
+    rows = [_process_row(r) for r in (processes or [])]
+    token = str(worker_script or "").lower()
+    candidates = [r for r in rows if token and token in r["command_line"].lower()]
+    unreadable = [r for r in candidates if r["pid"] is None]
+
+    by_pid: dict = {}
+    for row in candidates:
+        if row["pid"] is not None:
+            by_pid.setdefault(row["pid"], row)
+
+    # Effective parent = the recorded parent, but only when it is itself a
+    # matched process and old enough to be an ancestor.
+    parent_of: dict = {}
+    for pid, row in by_pid.items():
+        ppid = row["parent_pid"]
+        parent = by_pid.get(ppid) if ppid is not None and ppid != pid else None
+        parent_of[pid] = ppid if (parent is not None
+                                  and _created_before(parent, row)) else None
+
+    children_of: dict = {pid: [] for pid in by_pid}
+    for pid, ppid in parent_of.items():
+        if ppid is not None:
+            children_of[ppid].append(pid)
+
+    # A parent chain that revisits a pid is a malformed snapshot, not a lineage.
+    cyclic: set = set()
+    for pid in by_pid:
+        seen, cursor, steps = {pid}, parent_of[pid], 0
+        while cursor is not None and steps < _MAX_LINEAGE_DEPTH:
+            if cursor in seen:
+                cyclic.add(pid)
+                break
+            seen.add(cursor)
+            cursor, steps = parent_of[cursor], steps + 1
+        else:
+            if cursor is not None:
+                cyclic.add(pid)
+
+    roots = sorted(pid for pid, ppid in parent_of.items()
+                   if ppid is None and pid not in cyclic)
+    lock_pid = _as_pid((lock or {}).get("pid"))
+
+    lineages: list = []
+    reached: set = set()
+    for root in roots:
+        members, queue, guard = [], [root], 0
+        while queue and guard <= len(by_pid):
+            pid = queue.pop(0)
+            if pid in reached:
+                continue
+            reached.add(pid)
+            members.append(pid)
+            queue.extend(sorted(children_of.get(pid, ())))
+            guard += 1
+        leaves = sorted(p for p in members if not children_of.get(p))
+        executing = leaves[0] if len(leaves) == 1 else None
+        # ``members`` is in BFS order from the root, so the list reads as the
+        # launch chain itself. Sorting it here would print "8660 -> 18204" for a
+        # lineage whose parent is 18204 - an operator sentence that states the
+        # topology backwards is worse than no sentence.
+        lineages.append({
+            "root_pid": root,
+            "pids": list(members),
+            "leaf_pids": leaves,
+            "executing_pid": executing,
+            "owns_lock": bool(lock_pid is not None and lock_pid in members),
+            "executable_paths": [by_pid[p]["executable_path"] for p in members],
+        })
+
+    orphaned = sorted(set(by_pid) - reached)
+    leaf_total = sum(len(l["leaf_pids"]) for l in lineages)
+
+    if not candidates:
+        verdict = WORKER_TOPOLOGY_NONE
+        reason = "No process on this machine is running the collection worker."
+    elif unreadable or cyclic or orphaned:
+        verdict = WORKER_TOPOLOGY_AMBIGUOUS
+        reason = ("The process snapshot cannot be resolved into launch lineages "
+                  "(unreadable pids: %d; cyclic: %d; unreachable: %d). Failing "
+                  "closed rather than guessing how many workers are running."
+                  % (len(unreadable), len(cyclic), len(orphaned)))
+    elif len(lineages) == 1 and leaf_total == 1:
+        verdict = WORKER_TOPOLOGY_SINGLE
+        reason = ("One launch lineage: %s. The venv redirector and the base "
+                  "interpreter it launched are ONE logical worker."
+                  % " -> ".join(str(p) for p in lineages[0]["pids"]))
+    elif len(lineages) > 1 or leaf_total > 1:
+        verdict = WORKER_TOPOLOGY_VIOLATED
+        reason = ("%d independent launch lineage(s) and %d executing process(es) "
+                  "are running the collection worker. Overlapping provider "
+                  "iterations are refused by design."
+                  % (len(lineages), leaf_total))
+    else:
+        verdict = WORKER_TOPOLOGY_AMBIGUOUS
+        reason = ("A worker process exists but no launch lineage could be "
+                  "resolved from it.")
+
+    single = lineages[0] if verdict == WORKER_TOPOLOGY_SINGLE else None
+    executing_pid = single["executing_pid"] if single else None
+    if verdict != WORKER_TOPOLOGY_SINGLE:
+        lock_correlated, lock_reason = False, "No single logical worker to correlate."
+    elif lock_pid is None:
+        lock_correlated, lock_reason = False, (
+            "One logical worker is running but no singleton lock names its pid.")
+    elif lock_pid == executing_pid:
+        lock_correlated, lock_reason = True, (
+            "The singleton lock is held by pid %s, the executing process of the "
+            "one launch lineage." % lock_pid)
+    elif lock_pid in single["pids"]:
+        lock_correlated, lock_reason = False, (
+            "The singleton lock names pid %s, which belongs to the lineage but is "
+            "not its executing process (%s)." % (lock_pid, executing_pid))
+    else:
+        lock_correlated, lock_reason = False, (
+            "The singleton lock names pid %s, which is not part of the running "
+            "launch lineage." % lock_pid)
+
+    return {
+        "verdict": verdict,
+        "reason": reason,
+        "logical_worker_count": len(lineages),
+        "physical_process_count": len(candidates),
+        "executing_process_count": leaf_total,
+        "executing_pid": executing_pid,
+        "lineages": lineages,
+        "matched_pids": sorted(by_pid),
+        "unreadable_rows": len(unreadable),
+        "cyclic_pids": sorted(cyclic),
+        "unreachable_pids": orphaned,
+        "lock_pid": lock_pid,
+        "lock_instance_id": (lock or {}).get("instance_id"),
+        "lock_correlated": bool(lock_correlated),
+        "lock_correlation_reason": lock_reason,
+        "singleton_ok": verdict == WORKER_TOPOLOGY_SINGLE,
+        "healthy": bool(verdict == WORKER_TOPOLOGY_SINGLE and lock_correlated),
+        "worker_script": worker_script,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Credentials — PRESENCE only, never a value
 # --------------------------------------------------------------------------- #
 def credential_availability(*, env: Optional[dict] = None) -> dict:
@@ -1531,6 +1770,10 @@ __all__ = [
     "load_source_runtime_state", "save_source_runtime_state",
     "acquire_service_lock", "release_service_lock", "read_service_lock",
     "heartbeat", "register_worker_start", "resolve_service_lifecycle",
+    "CANONICAL_WORKER_SCRIPT", "WORKER_TOPOLOGY_VERDICTS",
+    "WORKER_TOPOLOGY_NONE", "WORKER_TOPOLOGY_SINGLE",
+    "WORKER_TOPOLOGY_VIOLATED", "WORKER_TOPOLOGY_AMBIGUOUS",
+    "resolve_worker_topology",
     "credential_availability", "build_attention_universe", "tickers_for_tier",
     "budget_verdict", "collect_stage2", "collect_news_rss",
     "collection_safety_contract", "build_source_runtime_health",

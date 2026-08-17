@@ -3869,6 +3869,19 @@ IC_SAFETY_TOKENS = ("CONFIRM_ENABLE_INFORMATION_COLLECTION",
                     '"approves_proposals": False', '"runs_daily_close": False',
                     '"runs_daily_research_cycle": False',
                     '"promotes_models": False')
+#: The manager may ENUMERATE processes; it may not DECIDE how many workers they
+#: are. ``.venv-win\Scripts\python.exe`` is the venv REDIRECTOR, and it launches
+#: the base interpreter from pyvenv.cfg with a BYTE-IDENTICAL command line, so
+#: every clean start is two physical processes for one worker. A raw process
+#: count is therefore not a singleton verdict — one launch lineage is.
+IC_MANAGE_TOPOLOGY_TOKENS = ("--action worker-topology",
+                             "function Get-WorkerTopology(",
+                             "SINGLE_LOGICAL_WORKER", "NO_LOGICAL_WORKER")
+IC_MANAGE_RAW_PROCESS_COUNT = (
+    'singleton violated: $($procs.Count) worker processes',
+    '$procs.Count -gt 1',
+    '(Get-WorkerProcesses).Count -gt 1',
+)
 #: Routes this release may never add. Collection is started by the operator through
 #: the Windows Scheduled Task, never by an HTTP call that runs providers on demand.
 IC_FORBIDDEN_ROUTE_SUFFIXES = ("/start", "/stop", "/run", "/collect", "/enable",
@@ -4005,6 +4018,20 @@ def check_information_collection_ownership(files: list[Path],
     uninstall_preserves_evidence = ("never" in manage.lower()
                                     and "evidence" in manage.lower())
 
+    # (11) ONE definition of "one logical worker", owned by the orchestrator and
+    # delegated to by the manager. A raw physical-process count may never be the
+    # singleton verdict again.
+    missing_topology_tokens = sorted(t for t in IC_MANAGE_TOPOLOGY_TOKENS
+                                     if t not in manage)
+    manage_counts_raw_processes = sorted(t for t in IC_MANAGE_RAW_PROCESS_COUNT
+                                         if t in manage)
+    second_topology_owners = _second_owners("def resolve_worker_topology(",
+                                            (IC_OWNER,))
+    topology_owner_present = "def resolve_worker_topology(" in owner
+    control_delegates_topology = all(
+        t in _read("scripts/collection_service_control.py")
+        for t in ("ic.resolve_worker_topology(", '"worker-topology"'))
+
     return {
         "modules_present": present,
         "kernel_impurity": kernel_impurity,
@@ -4029,6 +4056,11 @@ def check_information_collection_ownership(files: list[Path],
         "manage_requires_execute": bool(manage_requires_execute),
         "status_is_read_only": bool(status_is_read_only),
         "uninstall_preserves_evidence": bool(uninstall_preserves_evidence),
+        "topology_owner_present": bool(topology_owner_present),
+        "second_topology_owner_modules": second_topology_owners,
+        "manage_missing_topology_tokens": missing_topology_tokens,
+        "manage_counts_raw_processes": manage_counts_raw_processes,
+        "control_delegates_topology": bool(control_delegates_topology),
     }
 
 
@@ -4724,6 +4756,14 @@ def _print_console(rep: dict) -> None:
           f"mutations require -Execute: {icx['manage_requires_execute']}  "
           f"Status is read-only: {icx['status_is_read_only']}  "
           f"uninstall preserves evidence: {icx['uninstall_preserves_evidence']}")
+    print(f"logical-worker owner present: {icx['topology_owner_present']}  "
+          f"second topology owners (must be empty): "
+          f"{icx['second_topology_owner_modules']}  "
+          f"control helper delegates: {icx['control_delegates_topology']}")
+    print(f"manager missing topology tokens (must be empty): "
+          f"{icx['manage_missing_topology_tokens']}  "
+          f"manager counts raw processes (must be empty): "
+          f"{icx['manage_counts_raw_processes']}")
 
     hdr("CANONICAL BACKEND RESTART / SMOKE OWNERSHIP")
     br = rep["backend_restart_ownership"]
@@ -5295,6 +5335,11 @@ def main(argv=None) -> int:
                          + (0 if icx["manage_requires_execute"] else 1)
                          + (0 if icx["status_is_read_only"] else 1)
                          + (0 if icx["uninstall_preserves_evidence"] else 1)
+                         + (0 if icx["topology_owner_present"] else 1)
+                         + len(icx["second_topology_owner_modules"])
+                         + len(icx["manage_missing_topology_tokens"])
+                         + len(icx["manage_counts_raw_processes"])
+                         + (0 if icx["control_delegates_topology"] else 1)
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         # Stage 19.1 — corporate-action propagation invariants block strict mode too.

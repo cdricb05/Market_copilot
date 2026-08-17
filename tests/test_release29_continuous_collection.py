@@ -306,6 +306,235 @@ class TestSingletonAndLifecycle:
 
 
 # --------------------------------------------------------------------------- #
+# 5b. ONE LOGICAL WORKER is one LAUNCH LINEAGE, not one physical process
+# --------------------------------------------------------------------------- #
+class TestWindowsLaunchLineageIdentity:
+    """Regression for a production Start that could never succeed on Windows.
+
+    ``.venv-win\\Scripts\\python.exe`` is not CPython. It is the venv REDIRECTOR
+    (version resource: OriginalFilename ``py.exe``) that CreateProcess-es the
+    base interpreter from ``pyvenv.cfg`` with a BYTE-IDENTICAL command line and
+    waits on it. Every clean Start therefore produces two physical processes for
+    one worker, and the manager - which counted command-line matches - called
+    that ``singleton violated: 2 worker processes`` every single time. Measured
+    on this machine with a bare ``Start-Process``, so it is the launcher, not
+    Task Scheduler.
+
+    The fix must not soften the guarantee: two independent lineages, a lineage
+    with two executing processes, or an unreadable snapshot must still fail.
+    """
+
+    VENV = r"C:\Users\binis\paper_trader\.venv-win\Scripts\python.exe"
+    BASE = r"C:\Python313\python.exe"
+    CMD = ('"%s" C:\\Users\\binis\\paper_trader\\scripts\\'
+           'run_information_collection_service.py --interval-seconds 60' % VENV)
+
+    def _row(self, pid, parent_pid, *, image, created="2026-08-17T14:00:00Z",
+             command=None):
+        return {"pid": pid, "parent_pid": parent_pid,
+                "command_line": command if command is not None else self.CMD,
+                "executable_path": image, "created_at": created}
+
+    def _lineage(self, launcher_pid, worker_pid, *, base_offset_seconds=1):
+        created = "2026-08-17T14:00:0%dZ" % base_offset_seconds
+        return [self._row(launcher_pid, 9760, image=self.VENV,
+                          created="2026-08-17T14:00:00Z"),
+                self._row(worker_pid, launcher_pid, image=self.BASE,
+                          created=created)]
+
+    def test_the_venv_redirector_and_its_worker_are_one_logical_worker(self):
+        # The exact observed topology: 31080 -> 33008, identical command lines.
+        topology = ic.resolve_worker_topology(self._lineage(31080, 33008))
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_SINGLE
+        assert topology["logical_worker_count"] == 1
+        assert topology["physical_process_count"] == 2
+        assert topology["executing_process_count"] == 1
+        # The CHILD runs main(), so the child is the executing process.
+        assert topology["executing_pid"] == 33008
+        assert topology["lineages"][0]["root_pid"] == 31080
+        # Root-first, so the printed chain reads in the direction it launched.
+        assert topology["lineages"][0]["pids"] == [31080, 33008]
+        assert topology["lineages"][0]["executable_paths"] == [self.VENV, self.BASE]
+
+    def test_the_lineage_reads_in_launch_order_even_when_the_child_pid_is_lower(self):
+        # Observed live: redirector pid 18204 launched worker pid 8660. Sorting
+        # the members would print "8660 -> 18204" and state the topology
+        # backwards to the operator.
+        rows = [self._row(18204, 9760, image=self.VENV,
+                          created="2026-08-17T12:05:20.000Z"),
+                self._row(8660, 18204, image=self.BASE,
+                          created="2026-08-17T12:05:21.000Z")]
+        topology = ic.resolve_worker_topology(rows, lock={"pid": 8660})
+        assert topology["lineages"][0]["pids"] == [18204, 8660]
+        assert topology["lineages"][0]["root_pid"] == 18204
+        assert topology["executing_pid"] == 8660
+        assert "18204 -> 8660" in topology["reason"]
+        assert topology["healthy"] is True
+
+    def test_two_independent_lineages_are_still_a_singleton_violation(self):
+        rows = self._lineage(31080, 33008) + self._lineage(41000, 42000)
+        topology = ic.resolve_worker_topology(rows)
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_VIOLATED
+        assert topology["logical_worker_count"] == 2
+        assert topology["singleton_ok"] is False
+        assert topology["healthy"] is False
+
+    def test_one_launcher_that_spawned_two_workers_is_a_violation(self):
+        # One root, but TWO processes actually executing the application.
+        rows = [self._row(31080, 9760, image=self.VENV),
+                self._row(33008, 31080, image=self.BASE),
+                self._row(33009, 31080, image=self.BASE)]
+        topology = ic.resolve_worker_topology(rows)
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_VIOLATED
+        assert topology["executing_process_count"] == 2
+
+    def test_a_lone_worker_without_a_redirector_is_one_logical_worker(self):
+        topology = ic.resolve_worker_topology(
+            [self._row(4242, 9760, image=self.BASE)])
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_SINGLE
+        assert topology["executing_pid"] == 4242
+
+    def test_no_worker_is_not_a_violation(self):
+        empty = ic.resolve_worker_topology([])
+        assert empty["verdict"] == ic.WORKER_TOPOLOGY_NONE
+        assert empty["logical_worker_count"] == 0
+        # A process that is not the collection worker is never counted.
+        other = ic.resolve_worker_topology(
+            [self._row(11, 1, image=self.BASE, command='"python.exe" -m http.server')])
+        assert other["verdict"] == ic.WORKER_TOPOLOGY_NONE
+
+    def test_the_lock_owner_must_be_the_executing_process_of_the_lineage(self):
+        rows = self._lineage(31080, 33008)
+        held = ic.resolve_worker_topology(rows, lock={"pid": 33008,
+                                                      "instance_id": "w1"})
+        assert held["lock_correlated"] is True
+        assert held["healthy"] is True
+        assert held["lineages"][0]["owns_lock"] is True
+
+        # The redirector never calls os.getpid(); a lock naming IT is wrong.
+        wrong = ic.resolve_worker_topology(rows, lock={"pid": 31080})
+        assert wrong["verdict"] == ic.WORKER_TOPOLOGY_SINGLE
+        assert wrong["lock_correlated"] is False
+        assert wrong["healthy"] is False
+
+        # A lock left behind by a worker that is not in this lineage fails too.
+        stale = ic.resolve_worker_topology(rows, lock={"pid": 999_999})
+        assert stale["lock_correlated"] is False
+        assert stale["healthy"] is False
+
+        # One logical worker with NO lock at all is not healthy either.
+        unlocked = ic.resolve_worker_topology(rows, lock=None)
+        assert unlocked["singleton_ok"] is True
+        assert unlocked["healthy"] is False
+
+    def test_an_unreadable_or_ambiguous_snapshot_fails_closed(self):
+        # A row whose pid cannot be read.
+        blind = ic.resolve_worker_topology(
+            [{"pid": None, "parent_pid": 1, "command_line": self.CMD}])
+        assert blind["verdict"] == ic.WORKER_TOPOLOGY_AMBIGUOUS
+        assert blind["healthy"] is False
+
+        # A parent cycle is a malformed snapshot, never a lineage.
+        cycle = ic.resolve_worker_topology(
+            [self._row(100, 200, image=self.VENV),
+             self._row(200, 100, image=self.BASE)])
+        assert cycle["verdict"] == ic.WORKER_TOPOLOGY_AMBIGUOUS
+        assert cycle["healthy"] is False
+
+    def test_a_recycled_parent_id_cannot_adopt_an_older_child(self):
+        # Windows reuses pids. A "parent" created AFTER its supposed child is a
+        # recycled id: the child must stay its own root, which fails SAFE by
+        # producing more lineages, never fewer.
+        rows = [self._row(500, 9760, image=self.VENV,
+                          created="2026-08-17T15:00:00Z"),
+                self._row(600, 500, image=self.BASE,
+                          created="2026-08-17T14:00:00Z")]
+        topology = ic.resolve_worker_topology(rows)
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_VIOLATED
+        assert topology["logical_worker_count"] == 2
+
+    def test_win32_key_names_are_accepted_verbatim(self):
+        # PowerShell hands over Win32_Process rows; no renaming layer may sit in
+        # between and silently drop the parent edge.
+        rows = [{"ProcessId": 31080, "ParentProcessId": 9760,
+                 "CommandLine": self.CMD, "ExecutablePath": self.VENV},
+                {"ProcessId": 33008, "ParentProcessId": 31080,
+                 "CommandLine": self.CMD, "ExecutablePath": self.BASE}]
+        topology = ic.resolve_worker_topology(rows)
+        assert topology["verdict"] == ic.WORKER_TOPOLOGY_SINGLE
+        assert topology["executing_pid"] == 33008
+
+    def test_the_manager_delegates_the_count_and_never_counts_processes(self):
+        manage = (REPO / "scripts" / "manage_information_collection.ps1").read_text(
+            encoding="utf-8", errors="replace")
+        # The physical-process count may never be the singleton verdict again.
+        assert "singleton violated: $($procs.Count) worker processes" not in manage
+        assert "--action worker-topology" in manage
+        assert "function Get-WorkerTopology(" in manage
+        assert "SINGLE_LOGICAL_WORKER" in manage
+        # Stop must still remove the WHOLE lineage, deepest member first.
+        assert "$parentPids" in manage
+        assert "NO_LOGICAL_WORKER" in manage
+
+    def test_the_control_helper_exposes_the_one_definition(self):
+        control = (REPO / "scripts" / "collection_service_control.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "def action_worker_topology(" in control
+        assert "ic.resolve_worker_topology(" in control
+        assert '"worker-topology": action_worker_topology' in control
+        # There is exactly ONE implementation of the definition in the tree.
+        owner = (REPO / "api" / "information_collection.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert owner.count("def resolve_worker_topology(") == 1
+        assert control.count("def resolve_worker_topology(") == 0
+        # And the strict architecture audit fails the build if that drifts back.
+        audit = (REPO / "scripts" / "audit_architecture.py").read_text(
+            encoding="utf-8", errors="replace")
+        assert "IC_MANAGE_RAW_PROCESS_COUNT" in audit
+        assert 'icx["manage_counts_raw_processes"]' in audit
+        assert 'icx["second_topology_owner_modules"]' in audit
+
+    @pytest.mark.parametrize("bom,shape,expected_physical", [
+        # PowerShell 5.1 writes a UTF-8 BOM ahead of anything it pipes into a
+        # native command; a BOM must never read as "ambiguous".
+        (True, "array", 1),
+        (False, "array", 1),
+        # ... and it unwraps a single-element array into a bare object.
+        (False, "object", 1),
+        (True, "empty", 0),
+        (False, "empty", 0),
+    ])
+    def test_the_control_helper_survives_how_powershell_serialises(
+            self, tmp_path, bom, shape, expected_physical):
+        import json as _json
+        import subprocess
+        row = {"pid": 4242, "parent_pid": 9760, "command_line": self.CMD,
+               "executable_path": self.BASE}
+        body = {"array": [row], "object": row, "empty": []}[shape]
+        stdin = (b"\xef\xbb\xbf" if bom else b"") + _json.dumps(body).encode("utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(REPO / "scripts" / "collection_service_control.py"),
+             "--action", "worker-topology", "--root", str(tmp_path)],
+            input=stdin, capture_output=True, timeout=180)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        out = _json.loads(proc.stdout.decode("utf-8"))
+        assert out["physical_process_count"] == expected_physical
+        assert out["verdict"] == (ic.WORKER_TOPOLOGY_SINGLE if expected_physical
+                                  else ic.WORKER_TOPOLOGY_NONE)
+        # The read contract must never write into the state root it was given.
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_lineage_verdict_never_authorises_execution(self):
+        topology = ic.resolve_worker_topology(
+            self._lineage(31080, 33008), lock={"pid": 33008})
+        assert topology["healthy"] is True
+        safety = ic.collection_safety_contract()
+        assert safety["execution_automation_enabled"] is False
+        assert safety["broker_execution_enabled"] is False
+        assert safety["creates_orders"] is False
+
+
+# --------------------------------------------------------------------------- #
 # 5a. The liveness probe is a QUESTION, never a SIGNAL
 # --------------------------------------------------------------------------- #
 class TestLivenessProbeIsNeverASignal:

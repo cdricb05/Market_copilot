@@ -13,6 +13,14 @@ Actions
     enable      arm INFORMATION COLLECTION automation (execution stays OFF)
     disable     disarm information collection automation
     mark-stopped record a clean shutdown after the manager stopped the worker
+    worker-topology
+                read a process snapshot as JSON on STDIN and emit the ONE
+                logical-worker verdict, correlated with the live singleton lock
+
+PowerShell enumerates processes because Win32_Process is its native surface; it
+does not get to DECIDE how many workers those processes are. That definition has
+exactly one owner — ``ic.resolve_worker_topology`` — so the manager script, the
+regression suite and any future caller all count the same way.
 
 Never prints a credential value. Never creates an order. Never starts a worker.
 """
@@ -206,12 +214,62 @@ def action_mark_stopped(root=None) -> int:
     return 0
 
 
+def action_worker_topology(root=None) -> int:
+    """Resolve a STDIN process snapshot into logical workers. Fails closed.
+
+    The snapshot is a JSON list of Win32_Process rows (or an object with a
+    ``processes`` key). Empty input means "no candidate process", which is a
+    legitimate answer, not an error.
+    """
+    # Read BYTES and decode them here. Windows PowerShell 5.1 writes a UTF-8 BOM
+    # ahead of anything it pipes into a native command, and json.loads rejects a
+    # BOM outright \u2014 a BOM must never read as "the topology is ambiguous", which
+    # would fail closed for a reason that has nothing to do with how many workers
+    # are running. Decoding as utf-8-sig strips it. Doing this on the byte stream
+    # also makes the contract independent of the locale (and of a PYTHONIOENCODING
+    # that happens to be set in one operator's shell but not in the Scheduled
+    # Task's environment).
+    raw = b""
+    try:
+        stream = getattr(sys.stdin, "buffer", None) if sys.stdin is not None else None
+        if stream is not None and not sys.stdin.isatty():
+            raw = stream.read() or b""
+        elif sys.stdin is not None and not sys.stdin.isatty():
+            raw = (sys.stdin.read() or "").encode("utf-8", "replace")
+    except (OSError, ValueError, AttributeError):
+        raw = b""
+    text = raw.decode("utf-8-sig", errors="replace").strip()
+    if not text:
+        rows = []
+    else:
+        try:
+            parsed = json.loads(text)
+        except ValueError as exc:
+            print(json.dumps({
+                "verdict": ic.WORKER_TOPOLOGY_AMBIGUOUS,
+                "reason": "process snapshot was not valid JSON: %s" % str(exc)[:200],
+                "healthy": False, "singleton_ok": False,
+                "logical_worker_count": None}, indent=1))
+            return 1
+        # PowerShell 5.1 unwraps a single-element array, so ONE candidate process
+        # arrives as a bare object rather than a list. Reading that as "no
+        # processes" would have hidden a running worker from the singleton gate.
+        if isinstance(parsed, dict) and "processes" in parsed:
+            parsed = parsed.get("processes")
+        rows = parsed if isinstance(parsed, list) else ([parsed] if parsed else [])
+    lock = ic.read_service_lock(root=root)
+    print(json.dumps(ic.resolve_worker_topology(rows, lock=lock),
+                     indent=1, default=str))
+    return 0
+
+
 _ACTIONS = {
     "status": action_status,
     "preflight": action_preflight,
     "enable": action_enable,
     "disable": action_disable,
     "mark-stopped": action_mark_stopped,
+    "worker-topology": action_worker_topology,
 }
 
 
