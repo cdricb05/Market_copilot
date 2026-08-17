@@ -3882,6 +3882,16 @@ IC_MANAGE_RAW_PROCESS_COUNT = (
     '$procs.Count -gt 1',
     '(Get-WorkerProcesses).Count -gt 1',
 )
+#: Release 29.2. Worker health has to tell a BUSY worker apart from a STALLED one,
+#: and the evidence for BUSY must be progress the collection path really made.
+#: These tokens pin that vocabulary in the orchestrator.
+IC_PROGRESS_TOKENS = ("def record_progress(", "class ProgressReporter",
+                      "PROGRESS_STALL_SECONDS", '"iteration_in_flight"',
+                      '"progress_seq"', "ACT_BUSY", "ACT_STALLED", "ACT_DEAD")
+#: A timer that fires regardless of what the worker is doing would report a hung
+#: process as healthy. The worker may own NO second heartbeat authority.
+IC_WORKER_FORBIDDEN_TIMERS = ("threading.Thread", "threading.Timer", "Timer(",
+                              "asyncio.", "sched.scheduler")
 #: Routes this release may never add. Collection is started by the operator through
 #: the Windows Scheduled Task, never by an HTTP call that runs providers on demand.
 IC_FORBIDDEN_ROUTE_SUFFIXES = ("/start", "/stop", "/run", "/collect", "/enable",
@@ -4032,6 +4042,29 @@ def check_information_collection_ownership(files: list[Path],
         t in _read("scripts/collection_service_control.py")
         for t in ("ic.resolve_worker_topology(", '"worker-topology"'))
 
+    # (12) ONE heartbeat/progress authority, and a stall budget that was never
+    # quietly widened. Release 29.1 reported a healthy 5.5-minute pass as
+    # DEGRADED because health measured the wrong thing; the cheap "fix" would
+    # have been a bigger number, which is exactly what this guard forbids.
+    missing_progress_tokens = sorted(t for t in IC_PROGRESS_TOKENS
+                                     if t not in owner)
+    second_progress_owners = _second_owners("def record_progress(", (IC_OWNER,))
+    worker_timer_authorities = sorted(t for t in IC_WORKER_FORBIDDEN_TIMERS
+                                      if t in worker)
+    worker_reports_progress = ("ic.ProgressReporter(" in worker
+                               and "progress_fn=progress" in worker)
+
+    def _seconds(name: str):
+        m = re.search(r"^%s\s*=\s*([0-9]+(?:\.[0-9]+)?)" % re.escape(name),
+                      owner, re.M)
+        return float(m.group(1)) if m else None
+
+    stale_budget, stall_budget = (_seconds("HEARTBEAT_STALE_SECONDS"),
+                                  _seconds("PROGRESS_STALL_SECONDS"))
+    stall_budget_not_widened = bool(
+        stale_budget is not None and stall_budget is not None
+        and stall_budget <= stale_budget)
+
     return {
         "modules_present": present,
         "kernel_impurity": kernel_impurity,
@@ -4061,6 +4094,13 @@ def check_information_collection_ownership(files: list[Path],
         "manage_missing_topology_tokens": missing_topology_tokens,
         "manage_counts_raw_processes": manage_counts_raw_processes,
         "control_delegates_topology": bool(control_delegates_topology),
+        "missing_progress_tokens": missing_progress_tokens,
+        "second_progress_owner_modules": second_progress_owners,
+        "worker_timer_authorities": worker_timer_authorities,
+        "worker_reports_progress": bool(worker_reports_progress),
+        "heartbeat_stale_seconds": stale_budget,
+        "progress_stall_seconds": stall_budget,
+        "stall_budget_not_widened": bool(stall_budget_not_widened),
     }
 
 
@@ -4764,6 +4804,16 @@ def _print_console(rep: dict) -> None:
           f"{icx['manage_missing_topology_tokens']}  "
           f"manager counts raw processes (must be empty): "
           f"{icx['manage_counts_raw_processes']}")
+    print(f"missing progress vocabulary (must be empty): "
+          f"{icx['missing_progress_tokens']}  "
+          f"second progress writers (must be empty): "
+          f"{icx['second_progress_owner_modules']}  "
+          f"worker reports progress: {icx['worker_reports_progress']}")
+    print(f"worker timer authorities (must be empty): "
+          f"{icx['worker_timer_authorities']}  "
+          f"heartbeat budget {icx['heartbeat_stale_seconds']}s / stall budget "
+          f"{icx['progress_stall_seconds']}s  not widened: "
+          f"{icx['stall_budget_not_widened']}")
 
     hdr("CANONICAL BACKEND RESTART / SMOKE OWNERSHIP")
     br = rep["backend_restart_ownership"]
@@ -5340,6 +5390,11 @@ def main(argv=None) -> int:
                          + len(icx["manage_missing_topology_tokens"])
                          + len(icx["manage_counts_raw_processes"])
                          + (0 if icx["control_delegates_topology"] else 1)
+                         + len(icx["missing_progress_tokens"])
+                         + len(icx["second_progress_owner_modules"])
+                         + len(icx["worker_timer_authorities"])
+                         + (0 if icx["worker_reports_progress"] else 1)
+                         + (0 if icx["stall_budget_not_widened"] else 1)
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         # Stage 19.1 — corporate-action propagation invariants block strict mode too.

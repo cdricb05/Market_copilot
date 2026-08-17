@@ -306,6 +306,457 @@ class TestSingletonAndLifecycle:
 
 
 # --------------------------------------------------------------------------- #
+# 5a. Release 29.2 — HEALTHY/BUSY is not the same thing as STALLED
+# --------------------------------------------------------------------------- #
+class TestBusyWorkerIsNotAStalledWorker:
+    """Regression for a healthy worker reported DEGRADED while it was working.
+
+    Measured in the Release-29.1 acceptance run: one collection iteration took
+    341.85 seconds (245.41s of it inside a single ``INGEST_SINCE_WATERMARK``
+    step), the heartbeat was stamped ONCE before the iteration began, and health
+    read DEGRADED at a heartbeat age of ~309 seconds while the worker was alive
+    and legitimately busy.
+
+    The repair is not a wider tolerance — ``PROGRESS_STALL_SECONDS`` is
+    deliberately equal to ``HEARTBEAT_STALE_SECONDS``. What changed is what the
+    clock measures: an OPEN iteration is judged on progress evidence that has to
+    keep advancing, and anything unprovable still fails closed.
+    """
+
+    def _running_worker(self, root, now):
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=now)
+        ic.heartbeat(root=root, instance_id="w1", now=now)
+        return {"pid": os.getpid()}
+
+    def test_the_stall_budget_was_not_widened(self):
+        assert ic.PROGRESS_STALL_SECONDS == ic.HEARTBEAT_STALE_SECONDS
+
+    def test_a_long_iteration_that_keeps_advancing_stays_healthy_and_busy(self, root):
+        now = OPEN_UTC
+        lock = self._running_worker(root, now)
+        ic.record_progress(root=root, step="ITERATION_BEGIN", detail="it1",
+                           iteration_id="it1", instance_id="w1",
+                           in_flight=True, now=now)
+        # 341.85s of real work, reporting progress as it goes.
+        ic.record_progress(root=root, step="EVENT_CYCLE",
+                           detail="INGEST_SINCE_WATERMARK file 214",
+                           iteration_id="it1", instance_id="w1",
+                           now=now + timedelta(seconds=300))
+        state = ic.load_service_state(root=root)
+        # The EXACT moment Release 29.1 reported DEGRADED.
+        verdict = ic.resolve_service_lifecycle(state, lock,
+                                               now + timedelta(seconds=309))
+        assert verdict["heartbeat_age_seconds"] > ic.HEARTBEAT_STALE_SECONDS
+        assert verdict["service_state"] == ic.SVC_RUNNING
+        assert verdict["worker_activity"] == ic.ACT_BUSY
+        assert verdict["iteration_in_flight"] is True
+
+    def test_progress_evidence_actually_advances(self, root):
+        now = OPEN_UTC
+        self._running_worker(root, now)
+        seqs, stamps = [], []
+        for n in range(4):
+            ic.record_progress(root=root, step="COLLECT_STAGE2",
+                               detail="source %d" % n, iteration_id="it1",
+                               now=now + timedelta(seconds=30 * n))
+            state = ic.load_service_state(root=root)
+            seqs.append(state["progress_seq"])
+            stamps.append(state["progress_at"])
+        assert seqs == sorted(seqs) and len(set(seqs)) == 4
+        assert stamps == sorted(stamps) and len(set(stamps)) == 4
+
+    def test_the_sequence_never_steps_backwards_across_iterations(self, root,
+                                                                  tmp_path):
+        """Two counters write this field; only one of them may decide it.
+
+        The worker's reporter is long-lived, so its count is a LIFETIME total,
+        while the orchestrator increments the document once when it opens an
+        iteration and once when it closes one. Letting the reporter's number win
+        outright made the sequence step BACKWARDS by one at every iteration
+        boundary — falsifying the single property the sequence exists to prove.
+        """
+        ic.set_collection_automation(enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN,
+                                     root=root)
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=OPEN_UTC)
+        trail: list = []
+
+        def tracing_writer(**kw):
+            ic.record_progress(**kw)
+            trail.append(ic.load_service_state(root=root)["progress_seq"])
+
+        reporter = ic.ProgressReporter(root=root, instance_id="w1",
+                                       min_write_seconds=0.0,
+                                       writer=tracing_writer)
+        for n in range(3):
+            ic.run_collection_iteration(
+                root=root, instance_id="w1",
+                now=OPEN_UTC + timedelta(minutes=20 * n), progress_fn=reporter,
+                attention_universe={"tiers": {}, "holdings": [], "candidates": [],
+                                    "warnings": []},
+                stage2_fn=lambda **kw: {"status": "OK", "counts": {},
+                                        "source_states": {}},
+                news_fn=lambda **kw: {"status": "OK", "counts": {}},
+                event_cycle_fn=lambda **kw: {"state": "NO_NEW_INFORMATION"},
+                ingestion_root=tmp_path / "ing", news_root=tmp_path / "news")
+            trail.append(ic.load_service_state(root=root)["progress_seq"])
+        assert len(trail) >= 9, trail
+        assert all(b > a for a, b in zip(trail, trail[1:])), trail
+
+    def test_an_ordinary_checkpoint_never_closes_an_open_iteration(self, root):
+        """Regression for a defect the first draft of this release shipped.
+
+        ``record_progress`` defaulted ``in_flight`` to the caller's flag, so every
+        checkpoint re-answered a question it does not own: the orchestrator
+        opened the iteration and the very next HTTP checkpoint closed it again.
+        The live worker then read RUNNING/IDLE for the whole of a real
+        316-second pass — the BUSY verdict existed but could never be reached.
+        Whether an iteration is open is the ORCHESTRATOR'S fact.
+        """
+        now = OPEN_UTC
+        self._running_worker(root, now)
+        ic.record_progress(root=root, step="ITERATION_BEGIN", detail="it1",
+                           iteration_id="it1", in_flight=True, now=now)
+        for step in ("COLLECT_STAGE2", "EVENT_CYCLE", "CORPUS_SCAN"):
+            ic.record_progress(root=root, step=step, detail="unit of work",
+                               now=now + timedelta(seconds=1))
+            state = ic.load_service_state(root=root)
+            assert state["iteration_in_flight"] is True, step
+            assert state["current_iteration_id"] == "it1", step
+        ic.record_progress(root=root, step="ITERATION_END", detail="it1",
+                           in_flight=False, now=now + timedelta(seconds=2))
+        closed = ic.load_service_state(root=root)
+        assert closed["iteration_in_flight"] is False
+        assert closed["current_iteration_id"] is None
+
+    def test_work_that_stops_progressing_becomes_degraded_and_stalled(self, root):
+        now = OPEN_UTC
+        lock = self._running_worker(root, now)
+        ic.record_progress(root=root, step="COLLECT_STAGE2", detail="sec_edgar",
+                           iteration_id="it1", in_flight=True, now=now)
+        state = ic.load_service_state(root=root)
+        late = now + timedelta(seconds=ic.PROGRESS_STALL_SECONDS + 1)
+        verdict = ic.resolve_service_lifecycle(state, lock, late)
+        assert verdict["service_state"] == ic.SVC_DEGRADED
+        assert verdict["worker_activity"] == ic.ACT_STALLED
+        assert "COLLECT_STAGE2" in verdict["reason"]
+
+    def test_an_open_iteration_with_no_progress_evidence_fails_closed(self, root):
+        now = OPEN_UTC
+        lock = self._running_worker(root, now)
+        state = ic.load_service_state(root=root)
+        state["iteration_in_flight"] = True
+        state["progress_at"] = None
+        verdict = ic.resolve_service_lifecycle(state, lock, now)
+        assert verdict["service_state"] == ic.SVC_DEGRADED
+        assert verdict["worker_activity"] == ic.ACT_UNKNOWN
+
+    def test_a_dead_worker_is_still_detected_while_an_iteration_is_open(self, root):
+        now = OPEN_UTC
+        self._running_worker(root, now)
+        ic.record_progress(root=root, step="EVENT_CYCLE", detail="mid-cycle",
+                           iteration_id="it1", in_flight=True, now=now)
+        state = ic.load_service_state(root=root)
+        # Fresh progress, but the process is gone: DEAD outranks BUSY.
+        verdict = ic.resolve_service_lifecycle(state, {"pid": 999_999_999}, now)
+        assert verdict["service_state"] == ic.SVC_DEGRADED
+        assert verdict["worker_activity"] == ic.ACT_DEAD
+
+    def test_a_completed_iteration_returns_to_healthy_and_idle(self, root):
+        now = OPEN_UTC
+        lock = self._running_worker(root, now)
+        ic.record_progress(root=root, step="COLLECT_STAGE2", detail="sec_edgar",
+                           iteration_id="it1", in_flight=True, now=now)
+        done = now + timedelta(seconds=120)
+        ic.record_progress(root=root, step="ITERATION_END", detail="it1",
+                           iteration_id="it1", in_flight=False, now=done)
+        ic.heartbeat(root=root, instance_id="w1", now=done)
+        state = ic.load_service_state(root=root)
+        verdict = ic.resolve_service_lifecycle(state, lock,
+                                               done + timedelta(seconds=5))
+        assert verdict["service_state"] == ic.SVC_RUNNING
+        assert verdict["worker_activity"] == ic.ACT_IDLE
+        assert verdict["iteration_in_flight"] is False
+
+    def test_a_worker_between_iterations_that_stops_waking_is_still_caught(
+            self, root):
+        now = OPEN_UTC
+        lock = self._running_worker(root, now)
+        state = ic.load_service_state(root=root)
+        stale = now + timedelta(seconds=ic.HEARTBEAT_STALE_SECONDS + 1)
+        verdict = ic.resolve_service_lifecycle(state, lock, stale)
+        assert verdict["service_state"] == ic.SVC_DEGRADED
+        assert verdict["worker_activity"] == ic.ACT_STALLED
+
+    def test_a_restart_never_inherits_the_dead_workers_open_iteration(self, root):
+        now = OPEN_UTC
+        self._running_worker(root, now)
+        ic.record_progress(root=root, step="EVENT_CYCLE", detail="mid-cycle",
+                           iteration_id="it1", in_flight=True, now=now)
+        assert ic.load_service_state(root=root)["iteration_in_flight"] is True
+        ic.register_worker_start(root=root, instance_id="w2", pid=os.getpid(),
+                                 now=now + timedelta(minutes=1))
+        fresh = ic.load_service_state(root=root)
+        assert fresh["iteration_in_flight"] is False
+        assert fresh["progress_at"] is None and fresh["progress_seq"] == 0
+        assert fresh["restart_count"] == 1
+
+    def test_a_graceful_stop_closes_the_iteration(self, root):
+        now = OPEN_UTC
+        ic.acquire_service_lock(root=root, instance_id="w1", now=now)
+        self._running_worker(root, now)
+        ic.record_progress(root=root, step="EVENT_CYCLE", iteration_id="it1",
+                           in_flight=True, now=now)
+        ic.release_service_lock(root=root, instance_id="w1")
+        state = ic.load_service_state(root=root)
+        assert state["iteration_in_flight"] is False
+        assert ic.resolve_service_lifecycle(state, None, now)["service_state"] == \
+            ic.SVC_STOPPED
+
+    def test_the_reporter_advances_every_checkpoint_and_throttles_the_write(self):
+        writes: list = []
+        ticks = iter([0.0, 0.0, 1.0, 2.0, 99.0])
+        rep = ic.ProgressReporter(root=None, instance_id="w1",
+                                  min_write_seconds=10.0,
+                                  clock=lambda: next(ticks),
+                                  writer=lambda **kw: writes.append(kw))
+        rep("CORPUS_SCAN", detail="file 1")   # first write
+        rep("CORPUS_SCAN", detail="file 2")   # throttled
+        rep("CORPUS_SCAN", detail="file 3")   # throttled
+        rep("EVENT_CYCLE", detail="step")     # step CHANGED -> written
+        rep("EVENT_CYCLE", detail="step 2")   # 96s later -> written
+        assert rep.seq == 5, "every checkpoint advances the sequence"
+        assert [w["step"] for w in writes] == ["CORPUS_SCAN", "EVENT_CYCLE",
+                                               "EVENT_CYCLE"]
+        assert [w["seq"] for w in writes] == [1, 4, 5]
+
+    def test_a_raising_progress_callback_never_breaks_collection(self):
+        def boom(step, detail=None):
+            raise RuntimeError("observer exploded")
+        safe = ic._safe_progress(boom)
+        safe("COLLECT_STAGE2", detail="sec_edgar")   # must not raise
+        fabric.emit_progress(boom, "CORPUS_SCAN", "file 1")
+
+    def test_the_canonical_path_reports_progress_from_inside_the_iteration(
+            self, root, tmp_path):
+        """The callback is called by the ORCHESTRATOR, not by a timer."""
+        seen: list = []
+        rep = ic.ProgressReporter(root=root, instance_id="w1",
+                                  min_write_seconds=0.0,
+                                  writer=lambda **kw: seen.append(kw))
+        ic.set_collection_automation(enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN,
+                                     root=root)
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=OPEN_UTC)
+        rep.begin("it1")
+        receipt = ic.run_collection_iteration(
+            root=root, instance_id="w1", now=OPEN_UTC, progress_fn=rep,
+            attention_universe={"tiers": {}, "holdings": [], "candidates": [],
+                                "warnings": []},
+            stage2_fn=lambda **kw: {"status": "OK", "counts": {},
+                                    "source_states": {}},
+            news_fn=lambda **kw: {"status": "OK", "counts": {}},
+            event_cycle_fn=lambda **kw: {"state": "NO_NEW_INFORMATION"},
+            ingestion_root=tmp_path / "ing", news_root=tmp_path / "news")
+        assert receipt["ran"] is True
+        assert receipt["progress_checkpoints"] >= 3
+        assert receipt["progress_stall_after_seconds"] == ic.PROGRESS_STALL_SECONDS
+        steps = [row["step"] for row in seen]
+        assert "DUE_PLAN" in steps and "PERSIST_ITERATION" in steps
+        # The iteration CLOSED itself, and the final state write ADVANCED the
+        # evidence instead of rolling it back to the copy loaded at the top of
+        # the pass. (The recording writer above never persists, so the durable
+        # sequence here is the orchestrator's own open/close pair.)
+        state = ic.load_service_state(root=root)
+        assert state["iteration_in_flight"] is False
+        assert state["current_iteration_id"] is None
+        assert state["progress_step"] == "ITERATION_END"
+        assert state["progress_seq"] >= 2
+
+    def test_health_reads_busy_from_INSIDE_a_running_iteration(self, root, tmp_path):
+        """Sample the live health surface from the middle of a real iteration.
+
+        This is the end-to-end version of the Release-29.1 failure: the health a
+        DIFFERENT process would read, taken while the orchestrator is still
+        working, at a moment when the heartbeat is already older than its budget.
+        """
+        ic.set_collection_automation(enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN,
+                                     root=root)
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=OPEN_UTC)
+        ic.heartbeat(root=root, instance_id="w1", now=OPEN_UTC)
+        reporter = ic.ProgressReporter(root=root, instance_id="w1",
+                                       min_write_seconds=0.0)
+        seen: list = []
+
+        def slow_cycle(**kwargs):
+            # Three units of real work, sampled from outside as they complete.
+            for n in range(3):
+                reporter("EVENT_CYCLE", detail="INGEST_SINCE_WATERMARK file %d" % n)
+                state = ic.load_service_state(root=root)
+                # Two full stale budgets after the iteration started.
+                late = OPEN_UTC + timedelta(
+                    seconds=ic.HEARTBEAT_STALE_SECONDS * 2 + n)
+                seen.append(ic.resolve_service_lifecycle(
+                    state, {"pid": os.getpid()}, late))
+            return {"state": "NO_NEW_INFORMATION"}
+
+        ic.run_collection_iteration(
+            root=root, instance_id="w1", now=OPEN_UTC, progress_fn=reporter,
+            force_event_cycle=True,
+            attention_universe={"tiers": {}, "holdings": [], "candidates": [],
+                                "warnings": []},
+            stage2_fn=lambda **kw: {"status": "OK", "counts": {},
+                                    "source_states": {}},
+            news_fn=lambda **kw: {"status": "OK", "counts": {}},
+            event_cycle_fn=slow_cycle,
+            ingestion_root=tmp_path / "ing", news_root=tmp_path / "news")
+
+        assert len(seen) == 3
+        for verdict in seen:
+            assert verdict["iteration_in_flight"] is True
+            assert verdict["heartbeat_age_seconds"] > ic.HEARTBEAT_STALE_SECONDS
+            assert verdict["service_state"] == ic.SVC_RUNNING
+            assert verdict["worker_activity"] == ic.ACT_BUSY
+        assert [v["progress_seq"] for v in seen] == sorted(
+            v["progress_seq"] for v in seen)
+        # And the moment it finishes, it is idle again.
+        after = ic.resolve_service_lifecycle(
+            ic.load_service_state(root=root), {"pid": os.getpid()}, OPEN_UTC)
+        assert after["worker_activity"] == ic.ACT_IDLE
+
+    def test_the_event_orchestrator_reports_every_step(self, tmp_path):
+        seen: list = []
+        esr.run_event_signal_refresh(
+            confirm=esr.EXECUTE_CONFIRM_TOKEN,
+            fabric_dir=tmp_path / "fab", hoc_dir=tmp_path / "hoc",
+            reassessment_dir=tmp_path / "rea", reallocation_dir=tmp_path / "rel",
+            ingestion_root=tmp_path / "ing", news_root=tmp_path / "news",
+            portfolio_state={"positions": [], "dates": {}, "active_book": {}},
+            scoring={"rankings": []}, price_panel=None, corpus_events=[],
+            progress_fn=lambda step, detail=None: seen.append((step, detail)))
+        assert seen, "the cycle emitted no progress at all"
+        assert {s for s, _ in seen} == {"EVENT_CYCLE"}
+        named = " ".join(str(d) for _, d in seen)
+        for step_id in ("LOAD_PORTFOLIO_CONTEXT", "INGEST_SINCE_WATERMARK",
+                        "DEDUPLICATE_AND_PERSIST", "MATERIALITY_GATE"):
+            assert step_id in named, step_id
+
+    def test_the_corpus_scan_reports_per_file_not_only_per_lane(self, tmp_path):
+        """The 245-second step must not be one opaque unit of progress."""
+        tree = (tmp_path / "ing" / "normalized" / "FILING_EVENT"
+                / "2026" / "08" / "17")
+        tree.mkdir(parents=True, exist_ok=True)
+        for n in range(3):
+            (tree / ("part-%d.jsonl" % n)).write_text("\n", encoding="utf-8")
+        seen: list = []
+        fabric.ingest_corpus_lane(
+            tickers=["AAA"], ingestion_root=tmp_path / "ing",
+            news_root=tmp_path / "news",
+            progress_fn=lambda step, detail=None: seen.append((step, detail)))
+        files = [d for s, d in seen if s == "CORPUS_SCAN" and "file " in str(d)]
+        assert len(files) == 3, seen
+
+    def test_the_read_contract_publishes_the_activity_verdict(self, root):
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=OPEN_UTC)
+        ic.record_progress(root=root, step="EVENT_CYCLE", detail="mid-cycle",
+                           iteration_id="it1", in_flight=True, now=OPEN_UTC)
+        payload = ic.load_information_collection(root=root, now=OPEN_UTC)
+        svc = payload["service"]
+        # Every value the browser shows is decided here, not in the browser.
+        for key in ("worker_activity", "worker_activity_reason",
+                    "progress_at", "progress_age_seconds", "progress_seq",
+                    "progress_step", "iteration_in_flight",
+                    "progress_stall_after_seconds"):
+            assert key in svc, key
+        assert svc["worker_activity"] == ic.ACT_BUSY
+        assert svc["worker_activity_vocabulary"] == list(ic.WORKER_ACTIVITY_STATES)
+        assert payload["headline"]["title"] == "COLLECTION RUNNING"
+        assert payload["safety"]["execution_automation_enabled"] is False
+
+    def test_the_worker_hands_the_orchestrator_its_progress_callback(self):
+        worker = (REPO / "scripts" / "run_information_collection_service.py"
+                  ).read_text(encoding="utf-8", errors="replace")
+        assert "ic.ProgressReporter(" in worker
+        assert "progress_fn=progress" in worker
+        # No second heartbeat authority: nothing here may spawn a timer thread.
+        for forbidden in ("threading.Thread", "threading.Timer", "Thread(",
+                          "asyncio."):
+            assert forbidden not in worker, forbidden
+
+    def test_progress_evidence_manufactures_no_duplicate_artifacts(
+            self, root, tmp_path):
+        """Adding checkpoints must not add a single artifact.
+
+        The checkpoints write to ONE mutable state document; nothing about them
+        touches the immutable event log, the iteration receipts or a decision
+        artifact. Three real iterations, all reporting progress, must still
+        produce three distinct iteration ids and no duplicate event id.
+        """
+        ic.set_collection_automation(enabled=True, confirm=ic.ENABLE_CONFIRM_TOKEN,
+                                     root=root)
+        ic.register_worker_start(root=root, instance_id="w1", pid=os.getpid(),
+                                 now=OPEN_UTC)
+        reporter = ic.ProgressReporter(root=root, instance_id="w1",
+                                       min_write_seconds=0.0)
+        for n in range(3):
+            ic.run_collection_iteration(
+                root=root, instance_id="w1",
+                now=OPEN_UTC + timedelta(minutes=20 * n), progress_fn=reporter,
+                attention_universe={"tiers": {}, "holdings": [], "candidates": [],
+                                    "warnings": []},
+                stage2_fn=lambda **kw: {"status": "OK", "counts": {},
+                                        "source_states": {}},
+                news_fn=lambda **kw: {"status": "OK", "counts": {}},
+                event_cycle_fn=lambda **kw: {"state": "NO_NEW_INFORMATION"},
+                ingestion_root=tmp_path / "ing", news_root=tmp_path / "news")
+        history = ic.read_iteration_history(root=root, limit=50)
+        ids = [r["iteration_id"] for r in history]
+        assert len(ids) == 3
+        assert len(set(ids)) == 3, "duplicate iteration id"
+        assert reporter.seq > 3, "the pass emitted no progress at all"
+        state = ic.load_service_state(root=root)
+        assert state["loop_count"] == 3
+        assert state["iteration_in_flight"] is False
+
+    def test_progress_reporting_reaches_no_execution_path(self, root):
+        """The new evidence is evidence. It authorises nothing."""
+        ic.record_progress(root=root, step="COLLECT_STAGE2", detail="sec_edgar",
+                           in_flight=True, now=OPEN_UTC)
+        contract = ic.collection_safety_contract()
+        assert contract["execution_automation_enabled"] is False
+        assert contract["broker_execution_enabled"] is False
+        for verb in ("creates_orders", "confirms_orders", "fills_orders",
+                     "cancels_orders", "approves_proposals", "confirms_targets",
+                     "runs_controlled_rebalance", "runs_daily_close",
+                     "promotes_models"):
+            assert contract[verb] is False, verb
+        assert contract["manual_portfolio_review"] == "REQUIRED"
+        # Nothing in the progress vocabulary is an execution verb.
+        source = (REPO / "api" / "information_collection.py").read_text(
+            encoding="utf-8", errors="replace")
+        window = source[source.find("def record_progress("):
+                        source.find("def release_service_lock(")]
+        for forbidden in ("order", "broker", "confirm_target", "approve"):
+            assert forbidden not in window.lower(), forbidden
+
+    def test_progress_has_exactly_one_writer(self):
+        strays = []
+        for path in list((REPO / "api").glob("*.py")) + \
+                list((REPO / "scripts").glob("*.py")) + \
+                list((REPO / "engine").glob("*.py")):
+            if path.name in ("information_collection.py",
+                             "audit_architecture.py"):
+                continue
+            if "def record_progress(" in path.read_text(encoding="utf-8",
+                                                        errors="replace"):
+                strays.append(path.name)
+        assert strays == []
+
+
+# --------------------------------------------------------------------------- #
 # 5b. ONE LOGICAL WORKER is one LAUNCH LINEAGE, not one physical process
 # --------------------------------------------------------------------------- #
 class TestWindowsLaunchLineageIdentity:
@@ -842,6 +1293,31 @@ class TestOwnership:
         assert "-Execute" in text
         assert "Install" in text and "Uninstall" in text and "Status" in text
 
+    def test_every_action_that_kills_the_worker_records_the_stop(self):
+        """A terminated worker cannot release its own singleton lock.
+
+        Stop-Worker uses Stop-Process, so the worker's graceful release never
+        runs and the lock is left naming a dead pid. Every action that calls it
+        must record the clean-shutdown marker, or the NEXT Start is refused by
+        the single-flight gate for the whole 15-minute takeover window against a
+        holder that no longer exists. Measured: Uninstall -> Install -> Start
+        failed exactly that way.
+        """
+        text = (REPO / "scripts" / "manage_information_collection.ps1").read_text(
+            encoding="utf-8", errors="replace")
+        for action in ('"Stop" {', '"Restart" {', '"Uninstall" {'):
+            start = text.find(action)
+            assert start > 0, action
+            # Bound the search to this action's own switch arm.
+            nxt = min([p for p in
+                       (text.find('"Stop" {', start + 1),
+                        text.find('"Restart" {', start + 1),
+                        text.find('"Uninstall" {', start + 1),
+                        len(text)) if p > start])
+            arm = text[start:nxt]
+            assert "Stop-Worker" in arm, action
+            assert 'Invoke-Control @("--action", "mark-stopped")' in arm, action
+
     def test_the_operator_sees_collection_state_without_scrolling(self):
         ui = (REPO / "api" / "ui" / "index.html").read_text(encoding="utf-8",
                                                             errors="replace")
@@ -862,6 +1338,12 @@ class TestOwnership:
             in audit
         assert 'icx = rep["information_collection_ownership"]' in audit
         assert 'icx["kernel_impurity"]' in audit
+        # Release 29.2: one progress writer, no timer authority in the worker,
+        # and a stall budget nobody can quietly widen back out of the problem.
+        for token in ('icx["second_progress_owner_modules"]',
+                      'icx["worker_timer_authorities"]',
+                      'icx["stall_budget_not_widened"]'):
+            assert token in audit, token
 
     def test_collection_composes_the_release28_orchestrator_and_does_not_fork_it(self):
         payload = ic.collection_safety_contract()
@@ -882,11 +1364,12 @@ class TestOwnership:
 class TestHermeticAcceptance:
 
     def test_the_scenario_registry_covers_every_release29_claim(self):
-        assert len(creplay.SCENARIOS) >= 21
-        for key in ("S1", "S4", "S6", "S12", "S15", "S18", "S19", "S20", "S21"):
+        assert len(creplay.SCENARIOS) >= 22
+        for key in ("S1", "S4", "S6", "S12", "S15", "S18", "S19", "S20", "S21",
+                    "S22"):
             assert key in creplay.SCENARIOS, key
 
-    @pytest.mark.parametrize("scenario", ["S12", "S21"])
+    @pytest.mark.parametrize("scenario", ["S12", "S21", "S22"])
     def test_a_representative_scenario_passes_hermetically(self, scenario, tmp_path):
         result = creplay.run_simulation(base_dir=tmp_path, scenarios=[scenario],
                                         timeout_seconds=120)

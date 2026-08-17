@@ -193,12 +193,20 @@ def _safety(performed_write: bool) -> dict:
 
 
 class _Step:
-    """One measured orchestration step."""
+    """One measured orchestration step.
 
-    def __init__(self, steps: list, step_id: str, owner: str) -> None:
+    Each step is also a PROGRESS CHECKPOINT. The continuous collection worker
+    passes its progress callback in, and entering/leaving a step is proof that a
+    bounded unit of work happened — which is how a multi-minute cycle stays
+    provably healthy instead of ageing out of a start-of-iteration heartbeat.
+    """
+
+    def __init__(self, steps: list, step_id: str, owner: str,
+                 progress: Optional[Callable] = None) -> None:
         self.steps = steps
         self.step_id = step_id
         self.owner = owner
+        self.progress = progress
         self.started = 0.0
         self.record: dict = {}
 
@@ -207,6 +215,8 @@ class _Step:
         self.record = {"step": self.step_id, "owner": self.owner,
                        "started_at": _now_iso(), "status": "RUNNING", "detail": None}
         self.steps.append(self.record)
+        fabric.emit_progress(self.progress, "EVENT_CYCLE",
+                             "%s started (%s)" % (self.step_id, self.owner))
         return self.record
 
     def __exit__(self, exc_type, exc, tb):
@@ -215,9 +225,14 @@ class _Step:
         if exc is not None:
             self.record["status"] = "FAILED"
             self.record["detail"] = str(exc)[:300]
+            fabric.emit_progress(self.progress, "EVENT_CYCLE",
+                                 "%s FAILED" % self.step_id)
             return False
         if self.record["status"] == "RUNNING":
             self.record["status"] = "OK"
+        fabric.emit_progress(self.progress, "EVENT_CYCLE",
+                             "%s done in %.1fs"
+                             % (self.step_id, self.record["duration_seconds"]))
         return False
 
 
@@ -516,6 +531,7 @@ def run_event_signal_refresh(
         lookback_days: int = fabric.DEFAULT_LOOKBACK_DAYS,
         candidate_depth: int = 100,
         now_iso: Optional[str] = None,
+        progress_fn: Optional[Callable] = None,
         regime_before: Any = None, regime_after: Any = None) -> dict:
     """Run ONE event cycle. Idempotent: unchanged inputs produce no new decision.
 
@@ -535,6 +551,10 @@ def run_event_signal_refresh(
     steps: list[dict] = []
     warnings: list[str] = []
     blockers: list[dict] = []
+
+    def _step(step_id: str, owner: str) -> "_Step":
+        """One measured step, bound to this run's progress observer."""
+        return _Step(steps, step_id, owner, progress=progress_fn)
 
     if str(confirm or "") != EXECUTE_CONFIRM_TOKEN:
         return {
@@ -557,7 +577,7 @@ def run_event_signal_refresh(
     prior_fn = prior_ranking_fn or _default_prior_ranking
 
     # ---- 1. portfolio context (what we are reacting FOR) ------------------- #
-    with _Step(steps, "LOAD_PORTFOLIO_CONTEXT", "api.portfolio_state") as rec:
+    with _step("LOAD_PORTFOLIO_CONTEXT", "api.portfolio_state") as rec:
         ps = portfolio_state if portfolio_state is not None else ps_load()
         held = sorted({str(p.get("ticker")).upper()
                        for p in ((ps or {}).get("positions") or [])
@@ -569,7 +589,7 @@ def run_event_signal_refresh(
             len(held), active_book, eligible)
 
     # ---- 2. which sources are due --------------------------------------- #
-    with _Step(steps, "RESOLVE_SOURCES_DUE", COMPOSITION_OWNER) as rec:
+    with _step("RESOLVE_SOURCES_DUE", COMPOSITION_OWNER) as rec:
         capability = scap.build_capability_matrix(ingestion_root=ingestion_root,
                                                   news_root=news_root)
         watermarks = fabric.load_watermarks(fabric_dir=fabric_dir)
@@ -583,7 +603,7 @@ def run_event_signal_refresh(
     # ---- 3-4. fetch since watermark + normalize --------------------------- #
     raw_events: list[dict] = []
     adapter_results: dict[str, dict] = {}
-    with _Step(steps, "INGEST_SINCE_WATERMARK", "api.event_fabric") as rec:
+    with _step("INGEST_SINCE_WATERMARK", "api.event_fabric") as rec:
         if corpus_events is not None:
             raw_events.extend(corpus_events)
             adapter_results["corpus"] = {"injected": True,
@@ -595,7 +615,8 @@ def run_event_signal_refresh(
             entity_index = idx
             corpus = fabric.ingest_corpus_lane(
                 tickers=held, lookback_days=lookback_days,
-                ingestion_root=ingestion_root, news_root=news_root, entity_index=idx)
+                ingestion_root=ingestion_root, news_root=news_root,
+                entity_index=idx, progress_fn=progress_fn)
             raw_events.extend(corpus["events"])
             adapter_results["corpus"] = {
                 "event_count": corpus["event_count"],
@@ -604,7 +625,8 @@ def run_event_signal_refresh(
                 "bounded_by": corpus["bounded_by"]}
         if include_market_quotes:
             quotes = fabric.capture_market_quotes(held, fetcher=quote_fetcher,
-                                                  now_iso=cycle_now_iso)
+                                                  now_iso=cycle_now_iso,
+                                                  progress_fn=progress_fn)
             raw_events.extend(quotes["events"])
             adapter_results["market_quotes"] = {
                 k: v for k, v in quotes.items() if k != "events"}
@@ -614,7 +636,8 @@ def run_event_signal_refresh(
         if include_gdelt:
             gd = fabric.capture_gdelt_news(held, entity_index=entity_index,
                                            fetcher=gdelt_fetcher,
-                                           now_iso=cycle_now_iso)
+                                           now_iso=cycle_now_iso,
+                                           progress_fn=progress_fn)
             raw_events.extend(gd["events"])
             adapter_results["gdelt"] = {k: v for k, v in gd.items() if k != "events"}
             if not gd.get("ok"):
@@ -622,7 +645,7 @@ def run_event_signal_refresh(
         rec["detail"] = "%d normalized event(s) built" % len(raw_events)
 
     # ---- 5. deduplicate + persist immutable evidence ---------------------- #
-    with _Step(steps, "DEDUPLICATE_AND_PERSIST", "api.event_fabric") as rec:
+    with _step("DEDUPLICATE_AND_PERSIST", "api.event_fabric") as rec:
         appended = fabric.append_events(raw_events, fabric_dir=fabric_dir)
         admitted = appended["admitted"]
         rec["detail"] = ("%d admitted, %d duplicate(s) suppressed"
@@ -636,7 +659,7 @@ def run_event_signal_refresh(
                                     "authority." % unclassified)})
 
     # ---- 6. affected securities + concepts + calculations ----------------- #
-    with _Step(steps, "RESOLVE_DEPENDENCIES", "engine.event_fabric") as rec:
+    with _step("RESOLVE_DEPENDENCIES", "engine.event_fabric") as rec:
         informative = [e for e in admitted if ek.carries_new_information(e)]
         concepts = ek.concepts_for_events(informative)
         calculations = ek.affected_calculations(concepts)
@@ -647,7 +670,7 @@ def run_event_signal_refresh(
                          % (len(concepts), len(calculations), len(affected_holdings)))
 
     # ---- 7. refresh only the affected inputs ------------------------------ #
-    with _Step(steps, "REFRESH_AFFECTED_INPUTS", "api.universe_scoring") as rec:
+    with _step("REFRESH_AFFECTED_INPUTS", "api.universe_scoring") as rec:
         sc = scoring
         needs_scoring = ek.CALC_UNIVERSE_SCORING in calculations
         if sc is None and (needs_scoring or ek.CALC_HOLDING_OPPORTUNITY_COST
@@ -663,7 +686,7 @@ def run_event_signal_refresh(
         rec["refreshed_calculations"] = list(calculations)
 
     # ---- 8. update freshness / watermarks --------------------------------- #
-    with _Step(steps, "ADVANCE_WATERMARKS", "api.event_fabric") as rec:
+    with _step("ADVANCE_WATERMARKS", "api.event_fabric") as rec:
         watermarks = fabric.advance_watermarks(
             watermarks=watermarks,
             per_source=(adapter_results.get("corpus") or {}).get("per_source") or {},
@@ -675,7 +698,7 @@ def run_event_signal_refresh(
         rec["detail"] = "%d degraded source(s)" % freshness_after["degraded_count"]
 
     # ---- 9. measure deltas ------------------------------------------------ #
-    with _Step(steps, "MEASURE_DELTAS", "api.price_panel + api.universe_scoring") as rec:
+    with _step("MEASURE_DELTAS", "api.price_panel + api.universe_scoring") as rec:
         # The quote lane speaks through the RISK owner and its thresholds, never by
         # merely existing: a delayed quote is an observation, and an observation is
         # material only when the move it measures crosses a stated level.
@@ -703,7 +726,7 @@ def run_event_signal_refresh(
                             "available" if rank_deltas["prior_available"] else "absent"))
 
     # ---- 10. materiality gate --------------------------------------------- #
-    with _Step(steps, "MATERIALITY_GATE", "engine.event_materiality") as rec:
+    with _step("MATERIALITY_GATE", "engine.event_materiality") as rec:
         prior_fp = _read_last_fingerprint(fabric_dir=fabric_dir)
         materiality = emat.assess_materiality(
             events=admitted, risk_state=risk_state.get("rows") or {},
@@ -733,11 +756,11 @@ def run_event_signal_refresh(
         state = (ST_INFORMATION_NOT_MATERIAL if materiality["data_changed"]
                  else ST_NO_NEW_INFORMATION)
     else:
-        with _Step(steps, "HOLDING_OPPORTUNITY_COST",
+        with _step("HOLDING_OPPORTUNITY_COST",
                    CANONICAL_CALCULATION_DELEGATES[ek.CALC_HOLDING_OPPORTUNITY_COST]) as rec:
             hoc_result = hoc_call(scoring=sc, hoc_dir=hoc_dir)
             rec["detail"] = "assessment built by the canonical owner"
-        with _Step(steps, "PORTFOLIO_REASSESSMENT",
+        with _step("PORTFOLIO_REASSESSMENT",
                    CANONICAL_CALCULATION_DELEGATES[ek.CALC_PORTFOLIO_REASSESSMENT]) as rec:
             reassessment = reassess_call(
                 scoring=sc, hoc_assessment=(hoc_result or {}).get("assessment"),
@@ -752,7 +775,7 @@ def run_event_signal_refresh(
         except Exception as exc:  # noqa: BLE001 - the gate must not crash the cycle
             warnings.append("proposal gate unavailable: %s" % str(exc)[:160])
         if gate.get("build_proposal"):
-            with _Step(steps, "REALLOCATION_PROPOSAL",
+            with _step("REALLOCATION_PROPOSAL",
                        CANONICAL_CALCULATION_DELEGATES[ek.CALC_REALLOCATION_PROPOSAL]) as rec:
                 proposal = proposal_call(
                     scoring=sc, hoc_assessment=(hoc_result or {}).get("assessment"),

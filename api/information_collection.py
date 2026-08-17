@@ -92,8 +92,39 @@ SERVICE_STATES = (SVC_RUNNING, SVC_STOPPED, SVC_DEGRADED, SVC_NEVER_STARTED)
 #: A heartbeat older than this means the worker is not alive even if a lock file
 #: is still on disk (a hard kill leaves the lock behind).
 HEARTBEAT_STALE_SECONDS = 300.0
+#: PROGRESS evidence older than this means WORK has stopped advancing.
+#:
+#: Release 29.1 measured health from a heartbeat stamped ONCE, before the
+#: iteration began, so a real 5.5-minute collection pass reported DEGRADED at
+#: ~309 seconds while the worker was alive and legitimately busy. The repair is
+#: NOT a wider tolerance — this budget is deliberately IDENTICAL to
+#: ``HEARTBEAT_STALE_SECONDS``. What changed is WHAT the clock measures: no
+#: longer "seconds since the iteration started" but "seconds since the canonical
+#: collection path last finished a bounded unit of work". A hung worker still
+#: trips at the same 300 seconds, now counted from its last proven progress,
+#: which is never later than the old iteration-start stamp. Detection is
+#: therefore at least as strong, and no longer fires on healthy work.
+PROGRESS_STALL_SECONDS = 300.0
+#: A progress checkpoint costs one counter increment; PERSISTING it costs a file
+#: write. Checkpoints fire per scanned file and per HTTP attempt, so the stamp is
+#: written at most this often. ``progress_seq`` still advances on every single
+#: checkpoint — the throttle bounds I/O, never the evidence.
+PROGRESS_WRITE_MIN_SECONDS = 5.0
 #: An abandoned lock older than this may be reclaimed by a new worker.
 LOCK_TAKEOVER_SECONDS = 900.0
+
+# What the worker is DOING, as distinct from whether the service is running.
+# RUNNING/IDLE and RUNNING/BUSY are both healthy; STALLED and DEAD are not.
+ACT_IDLE = "IDLE"
+ACT_BUSY = "BUSY"
+ACT_STALLED = "STALLED"
+ACT_DEAD = "DEAD"
+ACT_UNKNOWN = "UNKNOWN"
+ACT_NOT_RUNNING = "NOT_RUNNING"
+WORKER_ACTIVITY_STATES = (ACT_IDLE, ACT_BUSY, ACT_STALLED, ACT_DEAD,
+                          ACT_UNKNOWN, ACT_NOT_RUNNING)
+#: Activity verdicts that mean the worker is healthy.
+HEALTHY_ACTIVITY_STATES = (ACT_IDLE, ACT_BUSY)
 
 #: Bounded catch-up: however long the machine slept, ONE iteration collects at
 #: most this many sources so a wake-from-sleep is a pass, never a request storm.
@@ -229,6 +260,17 @@ def _blank_service_state() -> dict:
         "last_iteration_finished_at": None,
         "last_iteration_id": None,
         "current_source": None,
+        # PROGRESS EVIDENCE — the proof that a BUSY worker is a healthy one.
+        # ``iteration_in_flight`` says an iteration is open; the progress stamp
+        # and the monotonic sequence say the canonical path is still finishing
+        # bounded units of work inside it.
+        "iteration_in_flight": False,
+        "current_iteration_id": None,
+        "progress_at": None,
+        "progress_seq": 0,
+        "progress_step": None,
+        "progress_detail": None,
+        "progress_iteration_id": None,
         "next_wake_at": None,
         "last_collection_success_at": None,
         "last_new_information_at": None,
@@ -445,6 +487,186 @@ def heartbeat(*, root=None, instance_id: str, now: Optional[datetime] = None,
     return {"heartbeat_at": state["heartbeat_at"], "instance_id": instance_id}
 
 
+def record_progress(*, root=None, step: str, detail: Any = None,
+                    iteration_id: Optional[str] = None,
+                    instance_id: Optional[str] = None,
+                    seq: Optional[int] = None,
+                    in_flight: Optional[bool] = None,
+                    now: Optional[datetime] = None) -> dict:
+    """Stamp PROOF THAT WORK ADVANCED. The ONE writer of progress evidence.
+
+    This is not a second heartbeat and not a timer: it is only ever called by the
+    canonical collection path when a bounded unit of work — an HTTP attempt, a
+    source, a scanned partition file, one orchestration step — has actually
+    happened. ``progress_seq`` is monotonic, so a reader can prove the evidence
+    is ADVANCING rather than merely being rewritten.
+
+    ``in_flight`` defaults to None meaning LEAVE IT ALONE. Whether an iteration
+    is open is the ORCHESTRATOR'S fact, not a checkpoint's: the first version of
+    this function defaulted it, and every checkpoint then quietly re-answered a
+    question it does not own — the flag was cleared microseconds after the
+    iteration opened it, and a busy worker read IDLE all the way through a real
+    316-second pass.
+    """
+    now = now or _now()
+    state = load_service_state(root=root)
+    state["progress_at"] = _iso(now)
+    state["progress_step"] = (str(step)[:120] if step is not None else None)
+    state["progress_detail"] = (str(detail)[:300] if detail is not None else None)
+    # THE DOCUMENT owns the sequence, and it only ever goes up. Two counters
+    # write this field — the orchestrator's open/close pair and the worker's
+    # long-lived reporter, whose count is a LIFETIME total — so a caller-supplied
+    # value is a floor, never an assignment. Letting the reporter's number win
+    # outright made the sequence step BACKWARDS by one at every iteration
+    # boundary, which would falsify the one thing it exists to prove.
+    current = int(state.get("progress_seq") or 0)
+    proposed = int(seq) if seq is not None else current + 1
+    state["progress_seq"] = proposed if proposed > current else current + 1
+    if in_flight is not None:
+        state["iteration_in_flight"] = bool(in_flight)
+        if not in_flight:
+            state["current_iteration_id"] = None
+    if iteration_id is not None:
+        state["progress_iteration_id"] = iteration_id
+        if state.get("iteration_in_flight"):
+            state["current_iteration_id"] = iteration_id
+    if instance_id is not None:
+        state["instance_id"] = instance_id
+    save_service_state(state, root=root)
+    return {"progress_at": state["progress_at"], "progress_seq":
+            state["progress_seq"], "progress_step": state["progress_step"],
+            "iteration_in_flight": state["iteration_in_flight"]}
+
+
+class ProgressReporter:
+    """The progress callback the worker hands to ``run_collection_iteration``.
+
+    NOT a thread. Nothing here wakes up on its own, so it can never report a
+    hung process as healthy: every stamp is the trailing edge of work the
+    canonical path really performed. The sequence advances on EVERY checkpoint;
+    the disk write is throttled to ``min_write_seconds`` for repeats of the same
+    named step, and always forced when the step changes, so a per-file
+    checkpoint is free while a lane transition is immediately visible.
+    """
+
+    def __init__(self, *, root=None, instance_id: Optional[str] = None,
+                 min_write_seconds: float = PROGRESS_WRITE_MIN_SECONDS,
+                 clock: Optional[Callable[[], float]] = None,
+                 writer: Optional[Callable] = None) -> None:
+        self.root = root
+        self.instance_id = instance_id
+        self.min_write_seconds = float(min_write_seconds)
+        self._clock = clock or time.monotonic
+        self._writer = writer or record_progress
+        self.seq = 0
+        self.writes = 0
+        self.iteration_id: Optional[str] = None
+        #: None means "an ordinary checkpoint does not answer this question".
+        #: Only begin()/finish() ever assert it, and the orchestrator asserts it
+        #: directly — a checkpoint reports progress, never lifecycle.
+        self.in_flight: Optional[bool] = None
+        self._last_write = None
+        self._last_step = None
+
+    # -- lifecycle ---------------------------------------------------------- #
+    def begin(self, iteration_id: str) -> None:
+        """Open an iteration. The in-flight flag is what makes BUSY provable."""
+        self.iteration_id = iteration_id
+        self.in_flight = True
+        self("ITERATION_BEGIN", detail=iteration_id, force=True)
+        self.in_flight = None
+
+    def finish(self, detail: Any = None) -> None:
+        """Close the iteration. A closed iteration is IDLE, never BUSY."""
+        self.in_flight = False
+        self("ITERATION_END", detail=detail, force=True)
+        self.in_flight = None
+        self.iteration_id = None
+
+    # -- the callback ------------------------------------------------------- #
+    def __call__(self, step: str, detail: Any = None, force: bool = False) -> None:
+        self.seq += 1
+        now = self._clock()
+        changed = (step != self._last_step)
+        due = (self._last_write is None
+               or (now - self._last_write) >= self.min_write_seconds)
+        self._last_step = step
+        if not (force or changed or due):
+            return
+        try:
+            self._writer(root=self.root, step=step, detail=detail,
+                         iteration_id=self.iteration_id,
+                         instance_id=self.instance_id, seq=self.seq,
+                         in_flight=self.in_flight)
+        except Exception:  # noqa: BLE001 - evidence must never break collection
+            return
+        self._last_write = now
+        self.writes += 1
+
+
+def _safe_progress(progress_fn: Optional[Callable]) -> Callable:
+    """Adapt any caller-supplied callback into one that can never raise."""
+    if progress_fn is None:
+        return lambda step, detail=None: None
+
+    def _emit(step: str, detail: Any = None) -> None:
+        try:
+            progress_fn(step, detail=detail)
+        except Exception:  # noqa: BLE001 - progress is evidence, not control flow
+            pass
+    return _emit
+
+
+def _progress_transport(inner: Callable, progress: Callable, *, lane: str
+                        ) -> Callable:
+    """Wrap an HTTP transport so every ATTEMPT is a progress checkpoint.
+
+    ``run_ingestion`` and ``run_news_rss`` already take an injectable transport,
+    so the finest-grained blocking unit in the collection lanes reports progress
+    without either collector owner learning what a heartbeat is. One attempt is
+    bounded by its own socket timeout, so this is what keeps a multi-minute lane
+    provably alive between sources.
+    """
+    def _transport(request, timeout):
+        url = str((request or {}).get("url") or "")
+        progress(lane, detail="request %s" % url[:200])
+        try:
+            return inner(request, timeout)
+        finally:
+            progress(lane, detail="completed %s" % url[:200])
+    return _transport
+
+
+def _mark_iteration_in_flight(*, root=None, iteration_id: str,
+                              instance_id: Optional[str],
+                              started_at: Optional[str],
+                              now: Optional[datetime] = None) -> None:
+    state = load_service_state(root=root)
+    state["iteration_in_flight"] = True
+    state["current_iteration_id"] = iteration_id
+    state["last_iteration_started_at"] = started_at
+    state["progress_at"] = _iso(now or _now())
+    state["progress_step"] = "ITERATION_BEGIN"
+    state["progress_detail"] = iteration_id
+    state["progress_iteration_id"] = iteration_id
+    state["progress_seq"] = int(state.get("progress_seq") or 0) + 1
+    if instance_id:
+        state["instance_id"] = instance_id
+    save_service_state(state, root=root)
+
+
+def clear_iteration_in_flight(*, root=None) -> None:
+    """Close the iteration even when it FAILED. A crash must read IDLE-with-an-
+    error, never BUSY forever."""
+    try:
+        state = load_service_state(root=root)
+        state["iteration_in_flight"] = False
+        state["current_iteration_id"] = None
+        save_service_state(state, root=root)
+    except OSError:
+        pass
+
+
 def release_service_lock(*, root=None, instance_id: str,
                          graceful: bool = True) -> dict:
     """Release the worker slot and record a clean shutdown."""
@@ -461,6 +683,8 @@ def release_service_lock(*, root=None, instance_id: str,
     state["stopped_at"] = _iso(_now())
     state["graceful_shutdown"] = bool(graceful)
     state["current_source"] = None
+    state["iteration_in_flight"] = False
+    state["current_iteration_id"] = None
     save_service_state(state, root=root)
     return {"released": released, "graceful": bool(graceful)}
 
@@ -475,49 +699,121 @@ def register_worker_start(*, root=None, instance_id: str, pid: int,
     state.update({"instance_id": instance_id, "pid": int(pid),
                   "host": socket.gethostname(), "started_at": _iso(now),
                   "heartbeat_at": _iso(now), "stopped_at": None,
-                  "graceful_shutdown": None, "current_source": None})
+                  "graceful_shutdown": None, "current_source": None,
+                  # A NEW worker has proven no work yet. Inheriting the dead
+                  # worker's in-flight flag would report the fresh process as
+                  # BUSY (or, once its stamp aged out, STALLED) before it had
+                  # done anything at all.
+                  "iteration_in_flight": False, "current_iteration_id": None,
+                  "progress_at": None, "progress_seq": 0,
+                  "progress_step": None, "progress_detail": None,
+                  "progress_iteration_id": None})
     save_service_state(state, root=root)
     return state
 
 
 def resolve_service_lifecycle(state: dict, lock: Optional[dict],
                               now: datetime) -> dict:
-    """ONE authoritative RUNNING / STOPPED / DEGRADED / NEVER_STARTED verdict."""
+    """ONE authoritative RUNNING / STOPPED / DEGRADED / NEVER_STARTED verdict,
+    and ONE authoritative IDLE / BUSY / STALLED / DEAD activity verdict.
+
+    A worker is healthy in two different ways and unhealthy in two others, and
+    Release 29.1 could not tell them apart:
+
+        RUNNING + IDLE     between iterations, heartbeat fresh
+        RUNNING + BUSY     inside a long iteration that is STILL ADVANCING
+        DEGRADED + STALLED the process exists but work stopped advancing
+        DEGRADED + DEAD    the process is gone
+
+    The distinction is evidence, not tolerance. BUSY requires an OPEN iteration
+    whose progress stamp advanced within ``PROGRESS_STALL_SECONDS`` — the same
+    budget the heartbeat has always had. Anything that cannot be proven (no
+    heartbeat, an open iteration with no progress stamp) fails CLOSED to
+    DEGRADED.
+    """
     if not state.get("started_at"):
         return {"service_state": SVC_NEVER_STARTED,
+                "worker_activity": ACT_NOT_RUNNING,
+                "activity_reason": "No worker has ever run on this machine.",
                 "reason": ("The collection service has never been started on this "
                            "machine. Install and start it to begin continuous "
                            "collection."),
-                "heartbeat_age_seconds": None, "worker_pid": None,
-                "worker_alive": None}
+                "heartbeat_age_seconds": None, "progress_age_seconds": None,
+                "progress_seq": None, "progress_step": None,
+                "iteration_in_flight": False,
+                "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
+                "worker_pid": None, "worker_alive": None}
     hb_age = _age(state.get("heartbeat_at"), now)
+    pg_age = _age(state.get("progress_at"), now)
+    in_flight = bool(state.get("iteration_in_flight"))
     pid = (lock or {}).get("pid") or state.get("pid")
     alive = _pid_alive(pid)
-    if state.get("stopped_at") and not lock:
-        return {"service_state": SVC_STOPPED,
-                "reason": ("Stopped %s. Collection is not running; execution "
-                           "safety is unchanged."
-                           % ("cleanly" if state.get("graceful_shutdown")
-                              else "without a clean shutdown marker")),
+
+    def _verdict(service_state: str, activity: str, reason: str,
+                 activity_reason: str) -> dict:
+        return {"service_state": service_state, "worker_activity": activity,
+                "reason": reason, "activity_reason": activity_reason,
                 "heartbeat_age_seconds": (None if hb_age is None
                                           else round(hb_age, 1)),
+                "progress_age_seconds": (None if pg_age is None
+                                         else round(pg_age, 1)),
+                "progress_seq": state.get("progress_seq"),
+                "progress_step": state.get("progress_step"),
+                "iteration_in_flight": in_flight,
+                "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
                 "worker_pid": pid, "worker_alive": alive}
+
+    if state.get("stopped_at") and not lock:
+        return _verdict(SVC_STOPPED, ACT_NOT_RUNNING,
+                        ("Stopped %s. Collection is not running; execution "
+                         "safety is unchanged."
+                         % ("cleanly" if state.get("graceful_shutdown")
+                            else "without a clean shutdown marker")),
+                        "The worker is stopped.")
+    if alive is False:
+        return _verdict(SVC_DEGRADED, ACT_DEAD,
+                        ("The worker process (pid %s) is gone. Collection has "
+                         "stopped; execution safety is unchanged." % pid),
+                        "The recorded worker process no longer exists.")
     if hb_age is None:
-        return {"service_state": SVC_DEGRADED,
-                "reason": "No heartbeat has ever been recorded by this worker.",
-                "heartbeat_age_seconds": None, "worker_pid": pid,
-                "worker_alive": alive}
-    if hb_age > HEARTBEAT_STALE_SECONDS or alive is False:
-        return {"service_state": SVC_DEGRADED,
-                "reason": ("The worker heartbeat is %.0f seconds old (stale beyond "
-                           "%.0f) — the process is not iterating."
-                           % (hb_age, HEARTBEAT_STALE_SECONDS)),
-                "heartbeat_age_seconds": round(hb_age, 1), "worker_pid": pid,
-                "worker_alive": alive}
-    return {"service_state": SVC_RUNNING,
-            "reason": "Heartbeat is %.0f seconds old." % hb_age,
-            "heartbeat_age_seconds": round(hb_age, 1), "worker_pid": pid,
-            "worker_alive": alive}
+        return _verdict(SVC_DEGRADED, ACT_UNKNOWN,
+                        "No heartbeat has ever been recorded by this worker.",
+                        "Nothing this worker has done can be proven.")
+    if in_flight:
+        # An OPEN iteration is judged on PROGRESS, never on the wake stamp the
+        # heartbeat records. This is the whole Release 29.2 repair: a 5.5-minute
+        # collection pass that is still finishing bounded units of work is BUSY,
+        # not degraded.
+        if pg_age is None:
+            return _verdict(SVC_DEGRADED, ACT_UNKNOWN,
+                            ("A collection iteration is open but has emitted no "
+                             "progress evidence. Health fails closed when work "
+                             "cannot be proven."),
+                            "An open iteration with no progress stamp.")
+        if pg_age <= PROGRESS_STALL_SECONDS:
+            return _verdict(SVC_RUNNING, ACT_BUSY,
+                            ("Collecting: %s. Progress advanced %.0f seconds ago "
+                             "(step %s of iteration %s)."
+                             % (state.get("progress_step") or "work in flight",
+                                pg_age, state.get("progress_seq"),
+                                state.get("current_iteration_id") or "?")),
+                            ("The worker is busy and still advancing through the "
+                             "collection path."))
+        return _verdict(SVC_DEGRADED, ACT_STALLED,
+                        ("A collection iteration has been open with NO progress "
+                         "for %.0f seconds (stalled beyond %.0f) at step %r."
+                         % (pg_age, PROGRESS_STALL_SECONDS,
+                            state.get("progress_step"))),
+                        "The worker is alive but its work stopped advancing.")
+    if hb_age > HEARTBEAT_STALE_SECONDS:
+        return _verdict(SVC_DEGRADED, ACT_STALLED,
+                        ("The worker heartbeat is %.0f seconds old (stale beyond "
+                         "%.0f) and no iteration is open — the process is not "
+                         "iterating." % (hb_age, HEARTBEAT_STALE_SECONDS)),
+                        "The worker is between iterations and stopped waking up.")
+    return _verdict(SVC_RUNNING, ACT_IDLE,
+                    "Heartbeat is %.0f seconds old." % hb_age,
+                    "The worker is idle between iterations.")
 
 
 # --------------------------------------------------------------------------- #
@@ -1001,7 +1297,8 @@ def _stage2_config_for(source_ids: Iterable[str]) -> Optional[dict]:
 
 
 def collect_stage2(*, source_ids: list[str], ingestion_root: Any,
-                   run_fn: Optional[Callable] = None) -> dict:
+                   run_fn: Optional[Callable] = None,
+                   progress_fn: Optional[Callable] = None) -> dict:
     """Run the canonical Stage-2 collectors for the due sources only."""
     if not source_ids:
         return {"ran": False, "reason": "no Stage-2 source due"}
@@ -1013,10 +1310,24 @@ def collect_stage2(*, source_ids: list[str], ingestion_root: Any,
     if fn is None:
         from ..alpha_agent import ingestion as ing
         fn = ing.run_ingestion
+    progress = _safe_progress(progress_fn)
+    extra: dict = {}
+    if progress_fn is not None and run_fn is None:
+        # Only the REAL collector owner is instrumented — its signature is the
+        # one this module knows. An injected run_fn (replay, tests) keeps its own
+        # hermetic wiring and reports progress at the lane boundary instead. The
+        # transport seam is what matters here: ONE HTTP attempt is the finest
+        # blocking unit in this lane, so wrapping it proves a multi-minute lane
+        # is advancing without either collector learning what a heartbeat is.
+        from ..alpha_agent.collectors import default_transport
+        extra["transport"] = _progress_transport(default_transport, progress,
+                                                 lane="COLLECT_STAGE2")
+        extra["progress_fn"] = lambda source_id: progress(
+            "COLLECT_STAGE2", detail="source %s" % source_id)
     try:
         result = fn(config=cfg, output_root=str(ingestion_root), mode="incremental",
                     as_of="latest", contact_email=_git_contact_email(),
-                    config_path=str(_STAGE2_CONFIG))
+                    config_path=str(_STAGE2_CONFIG), **extra)
     except Exception as exc:  # noqa: BLE001 - one lane must never kill the iteration
         return {"ran": True, "ok": False, "reason": "%s: %s"
                 % (type(exc).__name__, str(exc)[:200]), "per_source": {}}
@@ -1034,7 +1345,8 @@ def collect_stage2(*, source_ids: list[str], ingestion_root: Any,
             "per_source": per_source, "reason": result.get("reason")}
 
 
-def collect_news_rss(*, news_root: Any, run_fn: Optional[Callable] = None) -> dict:
+def collect_news_rss(*, news_root: Any, run_fn: Optional[Callable] = None,
+                     progress_fn: Optional[Callable] = None) -> dict:
     """Run the canonical Stage-3.5 official RSS/Atom collector."""
     fn = run_fn
     if fn is None:
@@ -1046,10 +1358,15 @@ def collect_news_rss(*, news_root: Any, run_fn: Optional[Callable] = None) -> di
     except (OSError, ValueError) as exc:
         return {"ran": False, "ok": False,
                 "reason": "news configuration unreadable: %s" % str(exc)[:160]}
+    extra: dict = {}
+    if progress_fn is not None and run_fn is None:
+        from ..alpha_agent.collectors import default_transport
+        extra["transport"] = _progress_transport(
+            default_transport, _safe_progress(progress_fn), lane="COLLECT_NEWS_RSS")
     try:
         result = fn(config=cfg, feeds_config=feeds, output_root=str(news_root),
                     mode="incremental", as_of="latest",
-                    contact_email=_git_contact_email())
+                    contact_email=_git_contact_email(), **extra)
     except Exception as exc:  # noqa: BLE001
         return {"ran": True, "ok": False,
                 "reason": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
@@ -1204,6 +1521,7 @@ def run_collection_iteration(
         ingestion_root=None, news_root=None, fabric_dir=None, hoc_dir=None,
         reassessment_dir=None, reallocation_dir=None,
         capability: Optional[dict] = None,
+        progress_fn: Optional[Callable] = None,
         force_event_cycle: bool = False) -> dict:
     """ONE canonical collection iteration. Bounded, restart-safe, idempotent.
 
@@ -1211,8 +1529,18 @@ def run_collection_iteration(
     circuits, then hands whatever arrived to the Release-28 event orchestrator in
     ONE consolidated pass. When nothing new arrived it advances health state and
     stops — no opportunity cost, no reassessment, no proposal.
+
+    ``progress_fn(step, detail=None)`` is the worker's progress callback. This
+    function marks the iteration IN FLIGHT for its whole duration and calls the
+    callback at every bounded unit of work — including inside the collector
+    lanes and inside the Release-28 cycle — so a legitimately long pass proves
+    it is still advancing instead of ageing out of a start-of-iteration stamp.
     """
     now = now or _now()
+    progress = _safe_progress(progress_fn)
+    # The worker's reporter lives as long as the worker, so its sequence is a
+    # LIFETIME counter. Take a baseline to report this pass's own checkpoints.
+    checkpoints_at_start = int(getattr(progress_fn, "seq", 0) or 0)
     started_iso = _iso(now)
     iteration_id = "collect_%s_%s" % (now.strftime("%Y%m%dT%H%M%S"),
                                       uuid.uuid4().hex[:8])
@@ -1229,10 +1557,19 @@ def run_collection_iteration(
                 "confirm_required": ENABLE_CONFIRM_TOKEN,
                 "safety": collection_safety_contract()}
 
+    # From here the iteration is OPEN. Health now judges this worker on PROGRESS
+    # rather than on the wake stamp, and the flag is cleared on the way out —
+    # normally by the final state write below, and by the worker's own error
+    # branch when the iteration raises.
+    _mark_iteration_in_flight(root=root, iteration_id=iteration_id,
+                              instance_id=instance_id, started_at=started_iso,
+                              now=now)
+
     ing_root = scap.ingestion_root(ingestion_root)
     nws_root = scap.news_root(news_root)
 
     # ---- 1. attention universe (authoritative owners) ---------------------- #
+    progress("ATTENTION_UNIVERSE", detail="reading holdings and candidates")
     universe = attention_universe
     if universe is None:
         universe = build_attention_universe(
@@ -1242,6 +1579,7 @@ def run_collection_iteration(
     warnings.extend(universe.get("warnings") or [])
 
     # ---- 2. market session + due plan -------------------------------------- #
+    progress("DUE_PLAN", detail="resolving which sources are due now")
     creds = credential_availability(env=env)
     terms = _terminal_states(ingestion_root=ing_root, news_root=nws_root,
                              capability=capability)
@@ -1287,9 +1625,11 @@ def run_collection_iteration(
 
     if stage2_due:
         t0 = time.time()
+        progress("COLLECT_STAGE2", detail="due: %s" % ", ".join(stage2_due))
         res = collect_stage2(source_ids=stage2_due, ingestion_root=ing_root,
-                             run_fn=stage2_fn)
+                             run_fn=stage2_fn, progress_fn=progress_fn)
         elapsed = round(time.time() - t0, 2)
+        progress("COLLECT_STAGE2", detail="lane finished in %.1fs" % elapsed)
         per_source = res.get("per_source") or {}
         lane_ok = bool(res.get("ok"))
         lane_new = int(res.get("records_new") or 0)
@@ -1321,8 +1661,11 @@ def run_collection_iteration(
 
     if news_due:
         t0 = time.time()
-        res = collect_news_rss(news_root=nws_root, run_fn=news_fn)
+        progress("COLLECT_NEWS_RSS", detail="official RSS/Atom feeds")
+        res = collect_news_rss(news_root=nws_root, run_fn=news_fn,
+                               progress_fn=progress_fn)
         elapsed = round(time.time() - t0, 2)
+        progress("COLLECT_NEWS_RSS", detail="lane finished in %.1fs" % elapsed)
         sid = "news_rss"
         ok = bool(res.get("ok"))
         lane_new = int(res.get("records_new") or 0)
@@ -1365,6 +1708,7 @@ def run_collection_iteration(
         should_run_cycle = False
     else:
         fn = event_cycle_fn or esr.run_event_signal_refresh
+        progress("EVENT_CYCLE", detail="Release-28 incremental dependency refresh")
         try:
             cycle = fn(confirm=esr.EXECUTE_CONFIRM_TOKEN,
                        requested_by="%s:%s" % (SERVICE_ID, instance_id or "adhoc"),
@@ -1374,6 +1718,11 @@ def run_collection_iteration(
                        ingestion_root=ing_root, news_root=nws_root,
                        include_market_quotes=quotes_due, include_gdelt=gdelt_due,
                        quote_fetcher=quote_fetcher, gdelt_fetcher=gdelt_fetcher,
+                       # The event orchestrator is the LONGEST single leg of an
+                       # iteration (measured: 269s of a 342s pass, 245s of it in
+                       # ONE step). It reports its own step and per-file progress
+                       # through this same callback, so BUSY stays provable there.
+                       progress_fn=progress_fn,
                        # ONE clock: the iteration's own. The live adapters stamp
                        # event identity with it instead of taking a second ambient
                        # reading, so an iteration is reproducible at any moment.
@@ -1426,6 +1775,7 @@ def run_collection_iteration(
                               "detail": (None if ok else gd.get("detail"))})
 
     # ---- 5. persist state, receipt and next wake --------------------------- #
+    progress("PERSIST_ITERATION", detail="writing runtime state and receipt")
     save_source_runtime_state(rt_state, root=root)
     finished = _now()
     health_after = build_source_runtime_health(
@@ -1440,12 +1790,26 @@ def run_collection_iteration(
     reassessed = bool((cycle or {}).get("reassessment_ran"))
     proposal = bool((cycle or {}).get("proposal_built"))
 
+    # Re-read before the final write. The progress callback has been writing to
+    # this same document throughout the iteration, so saving the copy loaded at
+    # the top would silently roll the progress evidence back to the start stamp —
+    # exactly the bug this release exists to remove.
+    service = load_service_state(root=root)
     service.update({
         "loop_count": int(service.get("loop_count") or 0) + 1,
         "last_iteration_started_at": started_iso,
         "last_iteration_finished_at": _iso(finished),
         "last_iteration_id": iteration_id,
         "current_source": None,
+        # The iteration is CLOSED: the worker returns to healthy/idle and health
+        # goes back to judging it on the heartbeat.
+        "iteration_in_flight": False,
+        "current_iteration_id": None,
+        "progress_at": _iso(finished),
+        "progress_step": "ITERATION_END",
+        "progress_detail": iteration_id,
+        "progress_seq": int(service.get("progress_seq") or 0) + 1,
+        "progress_iteration_id": iteration_id,
         "next_wake_at": next_wake_at,
         "heartbeat_at": _iso(finished),
     })
@@ -1514,6 +1878,11 @@ def run_collection_iteration(
         "source_health_summary": health_after["summary"],
         "next_wake_seconds": round(wake_seconds, 1),
         "next_wake_at": next_wake_at,
+        # How much progress evidence THIS pass emitted. A long iteration with a
+        # high checkpoint count is the positive proof that BUSY was earned.
+        "progress_checkpoints": max(
+            0, int(getattr(progress_fn, "seq", 0) or 0) - checkpoints_at_start),
+        "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
         "warnings": warnings,
         "safety": collection_safety_contract(),
     }
@@ -1575,6 +1944,13 @@ def _headline(*, lifecycle: dict, service: dict, summary: dict,
                 "detail": ("New information arrived that was material enough to "
                            "re-ask the portfolio question."),
                 "operator_action": "REVIEW_PORTFOLIO_DECISION"}
+    if lifecycle.get("worker_activity") == ACT_BUSY:
+        # A worker in the middle of a long, advancing pass is healthy. Saying so
+        # explicitly is what stops an operator restarting a working service.
+        return {"title": "COLLECTION RUNNING", "tone": "ok",
+                "detail": ("Collecting now — %s. %s."
+                           % (lifecycle["reason"], summary.get("headline") or "")),
+                "operator_action": "NONE_REQUIRED"}
     return {"title": "COLLECTION RUNNING", "tone": "ok",
             "detail": ("No material new information since %s. %s."
                        % (str(service.get("last_material_information_at")
@@ -1655,6 +2031,18 @@ def load_information_collection(*, root=None, limit: int = 12,
             "service_state": lifecycle["service_state"],
             "service_state_vocabulary": list(SERVICE_STATES),
             "reason": lifecycle["reason"],
+            # IS IT WORKING, or merely running? Computed here, rendered verbatim.
+            "worker_activity": lifecycle["worker_activity"],
+            "worker_activity_vocabulary": list(WORKER_ACTIVITY_STATES),
+            "worker_activity_reason": lifecycle["activity_reason"],
+            "iteration_in_flight": lifecycle["iteration_in_flight"],
+            "current_iteration_id": service.get("current_iteration_id"),
+            "progress_at": service.get("progress_at"),
+            "progress_age_seconds": lifecycle["progress_age_seconds"],
+            "progress_seq": service.get("progress_seq"),
+            "progress_step": service.get("progress_step"),
+            "progress_detail": service.get("progress_detail"),
+            "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
             "instance_id": service.get("instance_id"),
             "worker_pid": lifecycle["worker_pid"],
             "worker_alive": lifecycle["worker_alive"],
@@ -1763,13 +2151,19 @@ __all__ = [
     "COLLECTION_DIR_ENV", "NOW_ENV", "SERVICE_STATES",
     "SVC_RUNNING", "SVC_STOPPED", "SVC_DEGRADED", "SVC_NEVER_STARTED",
     "HEARTBEAT_STALE_SECONDS", "LOCK_TAKEOVER_SECONDS",
+    "PROGRESS_STALL_SECONDS", "PROGRESS_WRITE_MIN_SECONDS",
+    "WORKER_ACTIVITY_STATES", "HEALTHY_ACTIVITY_STATES",
+    "ACT_IDLE", "ACT_BUSY", "ACT_STALLED", "ACT_DEAD", "ACT_UNKNOWN",
+    "ACT_NOT_RUNNING",
     "MAX_SOURCES_PER_ITERATION", "MAX_ITERATION_RECEIPTS",
     "COLLECTOR_LANE", "LANE_STAGE2", "LANE_NEWS_RSS", "LANE_LIVE_ADAPTER",
     "collection_root", "logs_root", "now_utc", "utc_iso",
     "load_service_state", "save_service_state", "set_collection_automation",
     "load_source_runtime_state", "save_source_runtime_state",
     "acquire_service_lock", "release_service_lock", "read_service_lock",
-    "heartbeat", "register_worker_start", "resolve_service_lifecycle",
+    "heartbeat", "record_progress", "ProgressReporter",
+    "clear_iteration_in_flight",
+    "register_worker_start", "resolve_service_lifecycle",
     "CANONICAL_WORKER_SCRIPT", "WORKER_TOPOLOGY_VERDICTS",
     "WORKER_TOPOLOGY_NONE", "WORKER_TOPOLOGY_SINGLE",
     "WORKER_TOPOLOGY_VIOLATED", "WORKER_TOPOLOGY_AMBIGUOUS",

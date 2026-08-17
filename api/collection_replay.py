@@ -277,6 +277,7 @@ def iterate(*, world: dict, roots: dict, now: datetime,
             providers: FakeProviders, records: Optional[list] = None,
             instance_id: str = "replay-worker-1", cycle_fn: Optional[Callable] = None,
             max_sources: int = ic.MAX_SOURCES_PER_ITERATION,
+            progress_fn: Optional[Callable] = None,
             **cycle_overrides) -> dict:
     """One REAL collection iteration at a simulated moment."""
     return ic.run_collection_iteration(
@@ -285,6 +286,7 @@ def iterate(*, world: dict, roots: dict, now: datetime,
         stage2_fn=providers.stage2, news_fn=providers.news,
         event_cycle_fn=(cycle_fn or _cycle_over_world(world, roots, records,
                                                       **cycle_overrides)),
+        progress_fn=progress_fn,
         max_sources=max_sources)
 
 
@@ -960,6 +962,109 @@ def s21_quote_arrival_alone_is_not_material(base: Path) -> dict:
     ], {"state": cyc.get("state"), "admitted": cyc.get("events_admitted")})
 
 
+# --------------------------------------------------------------------------- #
+# S22 — a long iteration that is STILL ADVANCING is healthy, not degraded
+# --------------------------------------------------------------------------- #
+def s22_long_iteration_is_busy_not_degraded(base: Path) -> dict:
+    """Release 29.2. A real pass took 341.85s and health read DEGRADED at ~309s.
+
+    Health was measured from a heartbeat stamped ONCE, before the iteration
+    began, so any legitimate pass longer than the stale budget reported a
+    healthy worker as broken. This scenario pins the corrected semantics end to
+    end: the canonical path emits ADVANCING progress evidence, a pass longer
+    than the budget reads RUNNING/BUSY, work that stops advancing still reads
+    DEGRADED/STALLED, a dead process still reads DEGRADED/DEAD, and completion
+    returns to RUNNING/IDLE.
+    """
+    roots = _roots(base)
+    _arm(roots["service"])
+    world = replay.build_world()
+    prov = FakeProviders()
+    t0 = MARKET_OPEN_UTC
+    svc_root = roots["service"]
+    ic.register_worker_start(root=svc_root, instance_id="worker-slow",
+                             pid=os.getpid(), now=t0)
+    ic.heartbeat(root=svc_root, instance_id="worker-slow", now=t0)
+    lock = {"pid": os.getpid()}
+
+    # (a) the REAL canonical path emits progress, and the sequence ADVANCES.
+    seen: list = []
+    reporter = ic.ProgressReporter(
+        root=svc_root, instance_id="worker-slow", min_write_seconds=0.0,
+        writer=lambda **kw: seen.append(kw))
+    reporter.begin("it-observed")
+    receipt = iterate(world=world, roots=roots, now=t0, providers=prov,
+                      instance_id="worker-slow", progress_fn=reporter)
+    steps = [row["step"] for row in seen]
+    seqs = [row["seq"] for row in seen]
+
+    # (b) the OBSERVED failure, replayed on the service clock: an iteration that
+    # is open and advancing, sampled 309 seconds after it started.
+    open_at = t0 + timedelta(minutes=30)
+    ic.record_progress(root=svc_root, step="ITERATION_BEGIN", detail="it-slow",
+                       iteration_id="it-slow", instance_id="worker-slow",
+                       in_flight=True, now=open_at)
+    ic.heartbeat(root=svc_root, instance_id="worker-slow", now=open_at)
+    advanced_at = open_at + timedelta(seconds=300)
+    ic.record_progress(root=svc_root, step="EVENT_CYCLE",
+                       detail="INGEST_SINCE_WATERMARK file 214",
+                       iteration_id="it-slow", instance_id="worker-slow",
+                       now=advanced_at)
+    state = ic.load_service_state(root=svc_root)
+    busy = ic.resolve_service_lifecycle(state, lock, open_at + timedelta(seconds=309))
+
+    # (c) the same worker, no longer advancing.
+    stalled = ic.resolve_service_lifecycle(
+        state, lock,
+        advanced_at + timedelta(seconds=ic.PROGRESS_STALL_SECONDS + 30))
+
+    # (d) a DEAD worker is still detected while an iteration is open.
+    dead = ic.resolve_service_lifecycle(state, {"pid": 999_999_999},
+                                        open_at + timedelta(seconds=309))
+
+    # (e) completion returns to healthy/idle.
+    done_at = advanced_at + timedelta(seconds=42)
+    finished = dict(state, iteration_in_flight=False, current_iteration_id=None,
+                    heartbeat_at=ic.utc_iso(done_at),
+                    progress_at=ic.utc_iso(done_at),
+                    progress_step="ITERATION_END")
+    ic.save_service_state(finished, root=svc_root)
+    idle = ic.resolve_service_lifecycle(finished, lock,
+                                        done_at + timedelta(seconds=10))
+
+    return _result("S22", "A long iteration that keeps advancing is BUSY, not DEGRADED", [
+        _check_true("the canonical path emitted progress checkpoints",
+                    len(seen) >= 3),
+        _check_true("the progress sequence strictly advanced",
+                    seqs == sorted(seqs) and len(set(seqs)) == len(seqs)),
+        _check_true("the checkpoints name real collection work",
+                    any(s in ("COLLECT_STAGE2", "COLLECT_NEWS_RSS", "EVENT_CYCLE",
+                              "DUE_PLAN", "ATTENTION_UNIVERSE") for s in steps)),
+        _check("the iteration still produced its receipt", True, receipt["ran"]),
+        _check("a pass 309s old but still advancing is RUNNING", ic.SVC_RUNNING,
+               busy["service_state"]),
+        _check("and it is reported BUSY", ic.ACT_BUSY, busy["worker_activity"]),
+        _check_true("the heartbeat alone WOULD have condemned it",
+                    busy["heartbeat_age_seconds"] > ic.HEARTBEAT_STALE_SECONDS),
+        _check("work that stops advancing is DEGRADED", ic.SVC_DEGRADED,
+               stalled["service_state"]),
+        _check("and it is reported STALLED", ic.ACT_STALLED,
+               stalled["worker_activity"]),
+        _check("a dead worker is still DEGRADED", ic.SVC_DEGRADED,
+               dead["service_state"]),
+        _check("and it is reported DEAD", ic.ACT_DEAD, dead["worker_activity"]),
+        _check("completion returns to RUNNING", ic.SVC_RUNNING,
+               idle["service_state"]),
+        _check("and to IDLE", ic.ACT_IDLE, idle["worker_activity"]),
+        _check("the stall budget was NOT widened", ic.HEARTBEAT_STALE_SECONDS,
+               ic.PROGRESS_STALL_SECONDS),
+        _check("no execution automation was reached", False,
+               ic.collection_safety_contract()["execution_automation_enabled"]),
+    ], {"checkpoints": len(seen), "steps": sorted(set(steps)),
+        "busy_heartbeat_age": busy["heartbeat_age_seconds"],
+        "busy_progress_age": busy["progress_age_seconds"]})
+
+
 SCENARIOS: dict[str, Callable] = {
     "S1": s1_continuous_cadence,
     "S2": s2_daily_cadence,
@@ -982,6 +1087,7 @@ SCENARIOS: dict[str, Callable] = {
     "S19": s19_bounded_catch_up,
     "S20": s20_intraday_shock_reaches_the_review_list,
     "S21": s21_quote_arrival_alone_is_not_material,
+    "S22": s22_long_iteration_is_busy_not_degraded,
 }
 
 

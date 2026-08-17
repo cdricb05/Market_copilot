@@ -140,6 +140,13 @@ function Show-Status([string]$Title) {
     $hb = if ($null -eq $st.heartbeat_age_seconds) { "never" }
           else { "$($st.heartbeat_age_seconds) s" }
     Info "  heartbeat age : $hb"
+    # RUNNING answers "is the service up". ACTIVITY answers "is it working" - a
+    # long collection pass that keeps advancing is BUSY, not degraded.
+    $pg = if ($null -eq $st.progress_age_seconds) { "never" }
+          else { "$($st.progress_age_seconds) s" }
+    Info "  activity      : $(Fmt $st.worker_activity 'unknown')   ($(Fmt $st.worker_activity_reason ''))"
+    Info "  progress age  : $pg   seq $(Fmt $st.progress_seq '0')   step $(Fmt $st.progress_step 'none')"
+    Info "  iteration open: $(Fmt $st.iteration_in_flight 'false')   id $(Fmt $st.current_iteration_id 'none')"
     Info "  iterations    : $($st.loop_count)   restarts: $($st.restart_count)"
     Info "  last iteration: $(Fmt $st.last_iteration_finished_at 'never')"
     Info "  next wake     : $(Fmt $st.next_wake_at 'not scheduled')"
@@ -166,8 +173,9 @@ function Show-StartupDiagnostics([string]$Reason) {
     }
     $st = Get-ServiceStatus
     if ($null -ne $st) {
-        Info "service state     : $($st.service_state)"
+        Info "service state     : $($st.service_state)  activity $($st.worker_activity)"
         Info "heartbeat         : $($st.heartbeat_at)  (age $($st.heartbeat_age_seconds) s)"
+        Info "progress          : $($st.progress_at)  (age $($st.progress_age_seconds) s, seq $($st.progress_seq), step $($st.progress_step))"
         Info "lock owner        : pid=$($st.lock_pid) instance=$($st.lock_instance_id)"
         Info "store root        : $($st.store_root)"
         Info "config path       : $($st.cadence_policy_id)"
@@ -488,6 +496,13 @@ switch ($Action) {
         Info "Removing the collection task ONLY. Event evidence is never deleted."
         try { Stop-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue } catch { }
         Stop-Worker | Out-Null
+        # Stop-Worker TERMINATES the process, so the worker's own graceful
+        # release never runs and its singleton lock is left on disk naming a pid
+        # that no longer exists. -Action Stop records that; Uninstall did not, so
+        # an Uninstall -> Install -> Start inside the 15-minute takeover window
+        # was refused by the single-flight gate against a dead holder. Whoever
+        # stopped the worker owes the state the same clean-shutdown marker.
+        Invoke-Control @("--action", "mark-stopped") | Out-Null
         if ($null -ne (Get-CollectionTask)) {
             Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false
             Info "Task removed: $TASK_NAME"

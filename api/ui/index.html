@@ -28251,6 +28251,13 @@ function renderInformationCollection(d) {
   _setHtml('evt-why', escapeHtml(String(head.detail || '')));
 
   _setHtml('ic-service-line', [
+    // IDLE / BUSY are healthy; STALLED / DEAD are not. The verdict and its
+    // sentence are both computed by the backend and rendered verbatim.
+    _evtKpi('Activity', svc.worker_activity ? String(svc.worker_activity) : '—',
+      String(svc.worker_activity_reason || 'What the worker is doing right now.')),
+    _evtKpi('Progress', svc.progress_age_seconds === null || svc.progress_age_seconds === undefined
+      ? 'never' : (Math.round(svc.progress_age_seconds) + 's ago'),
+      'When the collection path last finished a bounded unit of work. A long pass that keeps advancing is healthy.'),
     _evtKpi('Heartbeat', svc.heartbeat_age_seconds === null || svc.heartbeat_age_seconds === undefined
       ? 'never' : (Math.round(svc.heartbeat_age_seconds) + 's ago'),
       'Age of the worker heartbeat, measured by the backend.'),

@@ -176,6 +176,23 @@ def state_root(fabric_dir=None) -> Path:
     return _fabric_dir(fabric_dir) / "state"
 
 
+def emit_progress(progress_fn: Optional[Callable], step: str,
+                  detail: Any = None) -> None:
+    """Report that a bounded unit of work finished, if anyone is listening.
+
+    The continuous collection worker passes a callback down this path so that a
+    long lane can PROVE it is still advancing. Progress is evidence, never
+    control flow: a callback that misbehaves is swallowed here rather than
+    allowed to abort a collection pass.
+    """
+    if progress_fn is None:
+        return
+    try:
+        progress_fn(step, detail=detail)
+    except Exception:  # noqa: BLE001 - evidence must never break collection
+        pass
+
+
 def _read_json(path: Path) -> Optional[dict]:
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -560,9 +577,16 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
                        since: Optional[str] = None, ingestion_root=None,
                        news_root=None, entity_index: Optional[dict] = None,
                        record_types: Optional[Iterable[str]] = None,
-                       max_events_per_type: int = MAX_EVENTS_PER_RECORD_TYPE
+                       max_events_per_type: int = MAX_EVENTS_PER_RECORD_TYPE,
+                       progress_fn: Optional[Callable] = None
                        ) -> dict:
-    """Read the bounded recent window of every corpus tree and build canonical events."""
+    """Read the bounded recent window of every corpus tree and build canonical events.
+
+    This is the LONGEST single step of an event cycle (measured: 245s of a 342s
+    collection iteration), so it reports progress per record type and per scanned
+    partition file. Without that, a healthy scan would be indistinguishable from
+    a hung one.
+    """
     scope = {str(t).strip().upper() for t in (tickers or []) if str(t or "").strip()}
     wanted_types = ({str(t).upper() for t in record_types} if record_types else None)
     now_iso = _now_iso()
@@ -590,9 +614,13 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
                 files.extend(sorted(
                     (tree / d[:4] / d[5:7] / d[8:10]).glob("*.jsonl")))
             files = files[-MAX_PARTITION_FILES:]
+            emit_progress(progress_fn, "CORPUS_SCAN",
+                          "%s/%s: %d partition file(s)" % (lane, rt, len(files)))
             produced = 0
             for f in files:
                 scanned_files += 1
+                emit_progress(progress_fn, "CORPUS_SCAN",
+                              "%s/%s file %d" % (lane, rt, scanned_files))
                 try:
                     text = f.read_text(encoding="utf-8-sig")
                 except OSError:
@@ -666,7 +694,8 @@ def _http_get_json(url: str, *, timeout: int = HTTP_TIMEOUT_SECONDS) -> dict:
 
 
 def capture_market_quotes(tickers: Iterable[str], *, fetcher: Optional[Callable] = None,
-                          now_iso: Optional[str] = None) -> dict:
+                          now_iso: Optional[str] = None,
+                          progress_fn: Optional[Callable] = None) -> dict:
     """MARKET_QUOTE events at the fastest cadence currently available.
 
     Delegates the fetch to ``engine.market_data`` — the canonical market-data owner —
@@ -696,6 +725,7 @@ def capture_market_quotes(tickers: Iterable[str], *, fetcher: Optional[Callable]
         fetch = md.fetch_latest_prices
     stamp = now_iso or _now_iso()
     started = time.time()
+    emit_progress(progress_fn, "QUOTE_LANE", "fetching %d delayed quote(s)" % len(tk))
     try:
         prices, failures = fetch(tk)
     except Exception as exc:  # noqa: BLE001 - an adapter must not crash the cycle
@@ -734,7 +764,8 @@ GDELT_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
 def capture_gdelt_news(tickers: Iterable[str], *, entity_index: Optional[dict] = None,
                        fetcher: Optional[Callable] = None, max_tickers: int = 8,
                        max_articles: int = GDELT_MAX_ARTICLES,
-                       timespan: str = "2d", now_iso: Optional[str] = None) -> dict:
+                       timespan: str = "2d", now_iso: Optional[str] = None,
+                       progress_fn: Optional[Callable] = None) -> dict:
     """Bounded, METADATA-ONLY GDELT discovery events (trigger-only authority).
 
     Stores headline, publisher, canonical URL, timestamps and a bounded snippet. It
@@ -763,12 +794,20 @@ def capture_gdelt_news(tickers: Iterable[str], *, entity_index: Optional[dict] =
         if not first and fetcher is None:
             time.sleep(GDELT_MIN_INTERVAL_SECONDS)
         first = False
+        # Per TICKER, because this lane paces itself: eight probes with polite
+        # sleeps measured ~94 seconds in production. One checkpoint per probe is
+        # what keeps that from looking like a stall.
+        emit_progress(progress_fn, "GDELT_LANE", "probing %s" % ticker)
         res = fetch(url) or {}
         # The free endpoint throttles bursts. One polite retry — never a tight loop.
         if (res or {}).get("status") == 429 and fetcher is None:
+            emit_progress(progress_fn, "GDELT_LANE",
+                          "%s rate limited; one polite retry" % ticker)
             time.sleep(GDELT_RETRY_BACKOFF_SECONDS)
             res = fetch(url) or {}
             res["retried_after_rate_limit"] = True
+        emit_progress(progress_fn, "GDELT_LANE",
+                      "%s probe complete (status %s)" % (ticker, res.get("status")))
         probes.append({"ticker": ticker, "ok": bool(res.get("ok")),
                        "status": res.get("status"), "detail": res.get("detail"),
                        "retried_after_rate_limit": res.get("retried_after_rate_limit",

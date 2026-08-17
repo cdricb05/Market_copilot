@@ -560,9 +560,27 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
                   sleep_fn: Optional[Callable[[float], None]] = None,
                   clock_fn: Optional[Callable[[], float]] = None,
                   contact_email: Optional[str] = None,
-                  config_path: Optional[str] = None) -> dict:
+                  config_path: Optional[str] = None,
+                  progress_fn: Optional[Callable[[str], None]] = None) -> dict:
+    """Collect the enabled Stage-2 sources.
+
+    ``progress_fn(source_id)`` is an optional observer called as each source
+    starts and finishes. The continuous collection service uses it to prove a
+    multi-minute run is still advancing; a purely local collector makes no HTTP
+    call, so the source boundary is the only place its progress can be seen.
+    Progress is evidence, never control flow — a raising observer is ignored.
+    """
     if mode not in _MODES:
         return {"status": BLOCKED, "reason": "unknown mode %r" % mode}
+
+    def _note(source_id: str) -> None:
+        if progress_fn is None:
+            return
+        try:
+            progress_fn(source_id)
+        except Exception:  # noqa: BLE001 - an observer must never break a run
+            pass
+
     out_root = Path(output_root)
     if mode == "verify":
         return verify_run(config=config, output_root=output_root)
@@ -704,6 +722,7 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
             secrets=sensitive_values, user_agent=ua_product,
             checkpoint=checkpoint, env=env_map, identity=identity)
         collector = collector_cls(ctx)
+        _note(source_id)
         try:
             result = (collector.audit() if mode == "audit"
                       else collector.collect(resolved_as_of))
@@ -714,6 +733,7 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
         source_results[source_id] = result
         per_source[source_id] = _persist_source(
             conn, source_id, scfg, result, run_tag, now_iso(), known_record_ids)
+        _note(source_id)
 
     # Freshness downgrade (HEALTHY but stale -> DEGRADED).
     for source_id, result in source_results.items():

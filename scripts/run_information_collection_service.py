@@ -10,10 +10,21 @@ belongs to the collector that already owned it.
 WHAT THIS PROCESS DOES
     acquire the SINGLE production worker slot (fail closed)
     loop:
-        heartbeat
-        run ONE bounded collection iteration
-        sleep until the next MEANINGFUL due check
+        heartbeat                       (I am awake)
+        run ONE bounded collection iteration, reporting PROGRESS throughout
+                                        (I am still advancing)
+        sleep until the next MEANINGFUL due check, heartbeating in slices
     on SIGINT/SIGTERM: finish the current iteration, release the lock, exit 0
+
+TWO DIFFERENT PROOFS, ON PURPOSE
+    The heartbeat says the LOOP is awake and is stamped between iterations. It
+    cannot be stamped during one, because a timer that fires regardless of what
+    the worker is doing would report a hung process as healthy. So a long
+    iteration is judged instead on PROGRESS: the callback below is handed to the
+    canonical collection path, which calls it whenever a bounded unit of work —
+    an HTTP attempt, a source, a scanned partition file, one orchestration step
+    — has actually completed. Health reads that evidence and reports BUSY.
+    Neither proof is a second scheduler: nothing here wakes up on its own.
 
 It wakes frequently and cheaply. Provider calls happen only when a source is
 ACTUALLY due, so a quiet Sunday night costs one due-check every few minutes
@@ -131,6 +142,7 @@ def _iteration_log_fields(receipt: dict) -> dict:
         "proposal_built": cycle.get("proposal_built"),
         "healthy_due": "%s/%s" % (summary.get("healthy_due"),
                                   summary.get("due_now")),
+        "progress_checkpoints": receipt.get("progress_checkpoints"),
         "next_wake_seconds": receipt.get("next_wake_seconds"),
     }
 
@@ -182,6 +194,11 @@ def main(argv=None) -> int:
               reclaimed=lock.get("reclaimed"))
     _install_signal_handlers()
 
+    # THE progress callback for this worker's whole life. Owned by the same
+    # module that owns the heartbeat, so there is still exactly one authority
+    # for "is this worker healthy".
+    progress = ic.ProgressReporter(root=root, instance_id=instance_id)
+
     iterations = 0
     exit_code = 0
     try:
@@ -195,6 +212,7 @@ def main(argv=None) -> int:
                 receipt = ic.run_collection_iteration(
                     root=root, instance_id=instance_id,
                     require_enabled=not args.allow_disabled,
+                    progress_fn=progress,
                     max_sources=int(args.max_sources_per_iteration))
             except Exception as exc:  # noqa: BLE001 - the loop must survive anything
                 log.write("iteration_failed", error="%s: %s"
@@ -203,6 +221,10 @@ def main(argv=None) -> int:
                 svc = ic.load_service_state(root=root)
                 svc["last_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:300])
                 ic.save_service_state(svc, root=root)
+                # A FAILED iteration is closed, not in flight. Leaving the flag
+                # set would report the next quiet minute as a stall instead of
+                # as the error it actually was.
+                ic.clear_iteration_in_flight(root=root)
             else:
                 log.write("iteration", **_iteration_log_fields(receipt))
             iterations += 1
