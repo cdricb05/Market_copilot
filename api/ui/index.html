@@ -2104,6 +2104,519 @@
     @media (max-width:1200px){ .hr-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));} }
     @media (max-width:1040px){ .today-hero{padding:20px;} .th-state,.th-mark{font-size:24px;} .opx-title{font-size:22px;} .th-meta{gap:22px;} }
   </style>
+
+  <!-- ===================================================================== -->
+  <!-- RELEASE 29 — OPERATOR COCKPIT CONSOLIDATION (presentation only)        -->
+  <!--                                                                       -->
+  <!-- This sheet is a PRESENTATION layer. It changes no endpoint, no loader, -->
+  <!-- no calculation and no safety semantics. It does three things:          -->
+  <!--                                                                       -->
+  <!--   1. ORDER. #cc-root and the Portfolio-Manager card become ordered     -->
+  <!--      grids so the operator reads them in the question order            -->
+  <!--      (what must I do now -> what is the manager doing -> did anything  -->
+  <!--      change -> what is the decision -> how is the portfolio doing ->   -->
+  <!--      which holdings have opportunity-cost issues -> detail). Ordering  -->
+  <!--      is done with CSS `order` so NO DOM node moves: every element id,  -->
+  <!--      deep link, loader target and test selector is untouched.          -->
+  <!--   2. DENSITY. Safety badges are consolidated into ONE visible line per -->
+  <!--      surface plus a disclosure holding the full canonical badge set.   -->
+  <!--      Every badge keeps its id and its text, so no safety meaning is    -->
+  <!--      weakened and the architecture audit's token check still passes.   -->
+  <!--   3. SEMANTICS OF COLOUR. green = healthy/complete/positive, amber =   -->
+  <!--      review required, red = blocked/failed/unsafe, blue/neutral =      -->
+  <!--      informational. Colour stops decorating and starts meaning.        -->
+  <!-- ===================================================================== -->
+  <style id="r29ux-styles">
+    /* ---------- shared primitives ---------------------------------------- */
+    /* A metric grid: the replacement for run-on prose statistics and for
+       walls of tiny key/value pairs. Label above, value below, tabular. */
+    .r29-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 1px;
+      background: var(--cc-border-soft, rgba(122,143,176,.16));
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-2, 5px);
+      overflow: hidden;
+      margin: 10px 0 0;
+    }
+    .r29-metrics.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .r29-metrics.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .r29-metric {
+      background: var(--cc-panel, #101a34);
+      padding: 9px 12px;
+      min-width: 0;
+    }
+    .r29-metric .k {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--label, #7a8fb0);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .r29-metric .v {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.25;
+      margin-top: 3px;
+      color: var(--text-primary, #e0e0ff);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .r29-metric .v.sm { font-size: 13px; font-weight: 600; }
+    /* Text-valued metrics (a state sentence rather than a number) wrap instead of
+       truncating: "No portfolio change re…" is not an answer. */
+    .r29-metric .v.txt {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+    .r29-metric .s {
+      font-size: 10px;
+      color: var(--cc-text-dim, #6a7fa0);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* Colour carries meaning, and only where it does. */
+    .r29-metric .v.tone-ok      { color: var(--ok, #22c55e); }
+    .r29-metric .v.tone-warn    { color: var(--warning, #f59e0b); }
+    .r29-metric .v.tone-bad     { color: var(--danger, #ef4444); }
+    .r29-metric .v.tone-info    { color: var(--info, #3b82f6); }
+    .r29-metric .v.tone-neutral { color: var(--text-primary, #e0e0ff); }
+    .r29-metric .v.tone-quiet   { color: var(--label, #7a8fb0); }
+    /* A count of zero is not news: it recedes rather than shouting a colour. */
+    .r29-metric .v.is-zero { color: var(--cc-text-dim, #6a7fa0); }
+
+    /* Section headers for the Portfolio-Manager hierarchy. */
+    .r29-section {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin: 18px 0 -2px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+    }
+    .r29-section .n {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--cc-text-dim, #6a7fa0);
+      font-variant-numeric: tabular-nums;
+    }
+    .r29-section .t {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      color: var(--text-primary, #e0e0ff);
+    }
+    .r29-section .d {
+      font-size: 10px;
+      color: var(--label, #7a8fb0);
+      font-weight: 400;
+    }
+    .r29-section:first-of-type { margin-top: 4px; }
+
+    /* Quiet, collapsed disclosure used for legacy / compatibility / audit
+       material. Nothing is deleted; it simply stops competing. */
+    .r29-quiet-details { margin-top: 10px; }
+    .r29-quiet-details > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      color: var(--cc-text-dim, #6a7fa0);
+      padding: 4px 0;
+      user-select: none;
+    }
+    .r29-quiet-details > summary::-webkit-details-marker { display: none; }
+    .r29-quiet-details > summary::before { content: '\25B8\00a0'; opacity: .7; }
+    .r29-quiet-details[open] > summary::before { content: '\25BE\00a0'; }
+    .r29-quiet-details > summary:hover { color: var(--text-accent, #a8b8d8); }
+
+    /* ---------- global chrome: one safety line, one disclosure ------------ */
+    /* The seven multi-line header chips became one quiet line plus a
+       disclosure. Every chip keeps its id and text inside the disclosure. */
+    #hdr-modes { position: relative; margin: 0 4px 0 0; }
+    #hdr-modes > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 10px;
+      color: var(--label, #7a8fb0);
+      white-space: nowrap;
+      user-select: none;
+      padding: 3px 8px;
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-1, 3px);
+    }
+    #hdr-modes > summary::-webkit-details-marker { display: none; }
+    #hdr-modes > summary b { color: var(--text-accent, #a8b8d8); font-weight: 600; }
+    #hdr-modes > summary:hover { border-color: var(--cc-border-strong, #2c4a78); }
+    #hdr-modes-body {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 40;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      width: 460px;
+      max-width: 70vw;
+      padding: 10px 12px;
+      background: var(--cc-elevated, #16223f);
+      border: 1px solid var(--cc-border, #243b63);
+      border-radius: var(--r-2, 5px);
+      box-shadow: 0 10px 28px rgba(0,0,0,.45);
+    }
+    #hdr-modes-body .r29-modes-note {
+      flex: 1 1 100%;
+      font-size: 10px;
+      line-height: 1.45;
+      color: var(--label, #7a8fb0);
+      margin-top: 2px;
+    }
+    /* The header keeps ONE always-visible state chip: whether information is
+       still arriving. A decision surface that quietly stopped being fed is the
+       exact failure Release 29 exists to end, so it never hides. */
+    #ic-header-badge { white-space: nowrap; }
+    header .status-debug { display: none; }
+    header #ui-refresh-stamp { display: inline; }
+
+    /* ---------- TODAY: read in the operator's question order -------------- */
+    /* #cc-root is a two-column grid so the portfolio result and the
+       opportunity-cost summary sit side by side, as one row, above the fold. */
+    #cc-root {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      /* stretch, so the paired result/decision cards share one baseline instead
+         of leaving a ragged block of empty space beside the taller one */
+      align-items: stretch;
+      gap: var(--sp-3, 12px);
+    }
+    #cc-root > * { grid-column: 1 / -1; }
+    #cc-root > #cc-statusbar-host { order: 1; }
+    #cc-root > .cc-statusbar { order: 1; }
+    #cc-root > #cc-error      { order: 2; }
+    #cc-root > #wf-cc         { order: 3; }
+    /* 2. WHAT IS THE ACTIVE MANAGER DOING?  3. DID ANYTHING CHANGE? */
+    #cc-root > #evt-card      { order: 10; margin-bottom: 0 !important; }
+    /* 4./5. THE PORTFOLIO RESULT AND THE PORTFOLIO DECISION, side by side. */
+    #cc-root > #cc-dc-card    { order: 20; grid-column: span 1; }
+    #cc-root > #cc-dag-card   { order: 21; grid-column: span 1; }
+    #cc-root > #cc-realloc-card { order: 22; }
+    /* 6. THE BOOK ITSELF. */
+    #cc-root > #cc-ob-panel   { order: 30; }
+    /* 7. REFERENCE CONTEXT AND DIAGNOSTICS — present, never first. */
+    #cc-root > #cc-market-context { order: 40; }
+    #cc-root > #cc-market-visuals { order: 41; }
+    #cc-root > #cc-freshness      { order: 42; }
+    #cc-root > #cc-research-strip { order: 43; }
+    #cc-root > #cc-updated        { order: 90; }
+    @media (max-width: 1500px) {
+      #cc-root { grid-template-columns: minmax(0, 1fr); }
+      #cc-root > #cc-dc-card, #cc-root > #cc-dag-card { grid-column: 1 / -1; }
+    }
+
+    /* The Today status bar is a page action bar, not a second status readout:
+       the service and connection state already live in the sticky header. */
+    #cc-root > .cc-statusbar { padding: 6px 12px; }
+    .cc-statusbar #cc-status-ready-pill,
+    .cc-statusbar #cc-status-conn-pill { display: none; }
+    .cc-statusbar .safety-line { font-size: 10px; color: var(--label, #7a8fb0); }
+    .cc-statusbar .safety-line b { color: var(--text-accent, #a8b8d8); font-weight: 600; }
+
+    /* Reference context is reference: quieter type, and collapsed by default. */
+    #cc-market-context.r29-demoted > .ov-market-groups { margin-top: 8px; }
+    .r29-demoted-hd {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .r29-demoted-hd::-webkit-details-marker { display: none; }
+
+    /* ---------- ACTIVE MANAGER (was: Information Collection) -------------- */
+    #evt-card .r29-am-hd {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    #evt-card .r29-am-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      color: var(--text-primary, #e0e0ff);
+      text-transform: none;
+    }
+    #ic-headline {
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0 !important;
+      text-transform: none;
+    }
+    #evt-why { color: var(--text-accent, #a8b8d8); }
+    /* The worker counters (pid, restarts, iteration count, heartbeat age) are
+       infrastructure, not operator information: their markup now lives inside the
+       Audit / Advanced disclosure of the Active Manager card. */
+    #evt-card .r29-am-lists {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 12px;
+    }
+    #evt-card .r29-am-list-hd {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--label, #7a8fb0);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    /* Release 30 seam: a reserved region for a LIVE AGENT ACTIVITY stream.
+       It renders nothing and fabricates nothing until a real payload exists. */
+    #am-activity-slot { display: none; }
+    #am-activity-slot[data-has-activity="1"] { display: block; }
+
+    /* ---------- badge density -------------------------------------------- */
+    /* Per-card safety repetition folds into a disclosure. The badges keep
+       their ids and text; only their default visibility changes. */
+    .r29-safety-fold { display: inline-flex; align-items: center; }
+    .r29-safety-fold > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--cc-text-dim, #6a7fa0);
+      padding: 2px 7px;
+      border: 1px dashed var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-1, 3px);
+      user-select: none;
+    }
+    .r29-safety-fold > summary::-webkit-details-marker { display: none; }
+    .r29-safety-fold > summary:hover { color: var(--text-accent, #a8b8d8); }
+    .r29-safety-fold .r29-safety-body {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-left: 6px;
+    }
+    /* "AUTOMATION OFF" is the SAFE state. Painting it red trains the operator
+       to ignore red. It keeps its exact text and id, and becomes neutral. */
+    #ic-exec-badge.cc-badge.danger {
+      color: var(--label, #7a8fb0);
+      background: rgba(255,255,255,.03);
+      border-color: var(--cc-border-soft, rgba(122,143,176,.16));
+    }
+
+    /* ---------- Daily Close: the result first, compatibility material last - */
+    #cc-dc-card .r29-dc-state {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    #cc-dc-kpis { display: none !important; }   /* replaced by the metric grid */
+
+    /* ---------- Holding Opportunity Cost: counts, not prose --------------- */
+    /* The 22px orange sentence becomes a compact structured summary. The
+       counts themselves are the backend's recommendation_counts, unchanged. */
+    #cc-dag-card #cc-dag-headline {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0 !important;
+      color: var(--text-accent, #a8b8d8) !important;
+    }
+    #pm-dag-card #pm-dag-headline {
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0 !important;
+    }
+    .r29-hoc-counts {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--cc-border-soft, rgba(122,143,176,.16));
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-2, 5px);
+      overflow: hidden;
+      margin: 10px 0 0;
+    }
+    .r29-hoc-counts .c {
+      background: var(--cc-panel, #101a34);
+      padding: 8px 10px;
+      text-align: left;
+      min-width: 0;
+    }
+    .r29-hoc-counts .c .k {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--label, #7a8fb0);
+    }
+    .r29-hoc-counts .c .v {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+    }
+    .r29-hoc-counts .c.k-hold    .v { color: var(--ok, #22c55e); }
+    .r29-hoc-counts .c.k-reduce  .v { color: var(--warning, #f59e0b); }
+    .r29-hoc-counts .c.k-replace .v { color: var(--warning, #f59e0b); }
+    .r29-hoc-counts .c.k-exit    .v { color: var(--danger, #ef4444); }
+    .r29-hoc-counts .c.k-add     .v { color: var(--info, #3b82f6); }
+    .r29-hoc-counts .c.k-gaps    .v { color: var(--warning, #f59e0b); }
+    .r29-hoc-counts .c.is-zero .v { color: var(--cc-text-dim, #6a7fa0); }
+    @media (max-width: 1500px) { .r29-hoc-counts { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+
+    /* ---------- PORTFOLIO MANAGER: a coherent hierarchy ------------------- */
+    /* Same technique as Today — ordered grid, no DOM node moved. The order is
+       the operator's question order: what IS the portfolio -> is a change
+       recommended -> what evidence -> how is it performing -> what can I do ->
+       what is historical. */
+    #tab-portfolio-manager > .card {
+      display: flex;
+      flex-direction: column;
+    }
+    #tab-portfolio-manager > .card > .card-title      { order: 1; }
+    #tab-portfolio-manager > .card > .ra-safety-strip { order: 2; }
+    #tab-portfolio-manager > .card > #pm-load-note    { order: 3; }
+    /* 1 CURRENT PORTFOLIO */
+    #tab-portfolio-manager > .card > #pm-sec-current  { order: 4; }
+    #tab-portfolio-manager > .card > #pa-hero         { order: 5; }
+    #tab-portfolio-manager > .card > #pm-current-strip{ order: 6; }
+    #tab-portfolio-manager > .card > #pa-decision     { order: 7; }
+    /* 2 PORTFOLIO DECISION / ACTIVE ASSESSMENT */
+    #tab-portfolio-manager > .card > #pm-sec-decision { order: 10; }
+    #tab-portfolio-manager > .card > #reassess-card   { order: 11; }
+    #tab-portfolio-manager > .card > #pm-dag-card     { order: 12; }
+    #tab-portfolio-manager > .card > #reassess-attention-card { order: 13; }
+    #tab-portfolio-manager > .card > #reassess-alternatives-card { order: 14; }
+    /* 3 EVIDENCE */
+    #tab-portfolio-manager > .card > #pm-sec-evidence { order: 20; }
+    #tab-portfolio-manager > .card > #rout-card       { order: 21; }
+    #tab-portfolio-manager > .card > #pm-checks-card  { order: 22; }
+    /* 4 PERFORMANCE & RISK */
+    #tab-portfolio-manager > .card > #pm-sec-perf     { order: 30; }
+    #tab-portfolio-manager > .card > #pdash-perf-charts { order: 31; }
+    /* 5 ACTIONS */
+    #tab-portfolio-manager > .card > #pm-sec-actions  { order: 40; }
+    #tab-portfolio-manager > .card > #pm-dc-card      { order: 41; }
+    #tab-portfolio-manager > .card > #pm-decision-card{ order: 42; }
+    #tab-portfolio-manager > .card > #pm-date-warnings{ order: 43; }
+    /* 6 HISTORY & AUDIT */
+    #tab-portfolio-manager > .card > #pm-sec-audit    { order: 50; }
+    #tab-portfolio-manager > .card > #rlin-card       { order: 51; }
+    #tab-portfolio-manager > .card > #reassess-audit  { order: 52; }
+
+    #pm-current-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 6px 18px;
+      margin: 10px 0 0;
+      padding: 10px 12px;
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-2, 5px);
+      background: rgba(255,255,255,.015);
+    }
+    #pm-current-strip .kv .k {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--label, #7a8fb0);
+    }
+    #pm-current-strip .kv .v {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary, #e0e0ff);
+      font-variant-numeric: tabular-nums;
+      /* State values such as "MODEL REVIEW DUE · 2026-08-14 · 25 names" are
+         sentences: they wrap rather than truncating to "MODEL REVIEW DUE · …". */
+      white-space: normal;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+    #pm-current-strip .kv .v.tone-ok   { color: var(--ok, #22c55e); }
+    #pm-current-strip .kv .v.tone-warn { color: var(--warning, #f59e0b); }
+    #pm-current-strip .kv .v.tone-bad  { color: var(--danger, #ef4444); }
+
+    /* The PM page title stops shouting; the portfolio itself is the headline. */
+    #tab-portfolio-manager > .card > .card-title .r29-pm-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      text-transform: none;
+    }
+    /* Checks are 13 equal chips today. Keep them, but as a quiet strip. */
+    #pm-checks-body .cc-badge, #cc-dc-checks .cc-badge { font-size: 9px; }
+
+    /* A key/value pair reads as a pair. Across a 1400px full-width card the
+       space-between layout stretched "Cash" and "$4,482.71" ~350px apart. */
+    #cc-ob-panel .dor-grid { column-gap: 28px; }
+    #cc-ob-panel .dor-grid .cc-kv { max-width: 340px; }
+
+    /* ---------- typography / rhythm --------------------------------------- */
+    .cc-panel { padding: 13px 15px; gap: 7px; }
+    /* In the two-column decision row a card header is ~700px wide: title, state
+       badges and the as-of date must wrap onto their own lines rather than being
+       squeezed into unreadable two-word columns. */
+    .cc-panel .cc-preview-hd { flex-wrap: wrap; row-gap: 6px; }
+    .cc-panel .cc-preview-hd .cc-kv { white-space: nowrap; }
+    .cc-panel-title { font-size: 10px; letter-spacing: .08em; }
+    #tab-overview .card { padding: 14px 16px; }
+    /* Headlines are sentences, not shouts. */
+    #cc-ob-headline, #cc-realloc-headline {
+      letter-spacing: 0 !important;
+      font-weight: 700 !important;
+    }
+    #cc-ob-headline { font-size: 15px !important; }
+
+    /* ---------- header fits its width -------------------------------------- */
+    /* The sticky header packs the title, service + workflow readiness, the mode
+       disclosure, the collection chip and the connection controls onto one row.
+       Below ~1600px the fixed-width controls overflowed and the Refresh button
+       was clipped off the right edge. The status block is allowed to shrink and
+       the least load-bearing text (the refresh timestamp) yields first — the
+       CONTROLS never do, because a clipped control is an unusable one. */
+    header { flex-wrap: nowrap; }
+    header .header-status { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+    header .header-status .status-text { white-space: nowrap; }
+    @media (max-width: 1620px) {
+      header { gap: 10px; }
+      header #ui-refresh-stamp { display: none; }
+      header input { width: 118px; min-width: 0; }
+      header .header-status { padding-right: 10px; margin-right: 10px; }
+    }
+    @media (max-width: 1360px) {
+      header h1 { font-size: 13px; }
+      header .header-status #wf-readiness-text { display: none; }
+    }
+
+    /* ---------- 1440x900 ------------------------------------------------- */
+    @media (max-width: 1460px) {
+      .r29-metrics.cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .r29-metrics.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #evt-card .r29-am-lists { grid-template-columns: 1fr; }
+      #hdr-modes-body { width: 380px; }
+    }
+  </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
        window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
   <script src="/ui/pt_charts.js?cb=29j3"></script>
@@ -2126,12 +2639,29 @@
     <span class="status-text" title="WORKFLOW readiness — can the current daily workflow action execute now?"><span style="opacity:.7;">Workflow:</span> <span id="wf-readiness-text">&mdash;</span></span>
     <span class="status-debug" id="ui-refresh-stamp" aria-live="polite"></span>
   </div>
-  <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
-  <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
-  <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
-  <span id="prediction-mode-badge" data-prediction-location="remote" aria-label="Prediction inference runs remotely on GCP through a local tunnel; it is never run locally." style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--info); background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.3); border-radius: 2px;" title="Prediction inference is REMOTE (GCP, via the local tunnel on port 9000). No prediction model runs locally.">PREDICTION: REMOTE (GCP)</span>
-  <span id="alpha-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--ok); background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); border-radius: 2px;" title="The operational alpha workflow (target refresh, snapshot review, alpha book, paper desk) runs entirely on owned local data. The GCP prediction tunnel is a separate legacy path and is never required.">LOCAL ALPHA DATA &middot; NO PREDICTION TUNNEL REQUIRED</span>
-  <span id="market-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether the portfolio mark, portfolio snapshot and current-alpha marks share one completed market date. Does not check prediction availability.">MARKET DATA: NOT CHECKED</span>
+  <!-- RELEASE 29 UI CONSOLIDATION — the header carried SEVEN multi-line all-caps chips
+       across ~700px, so no single one of them read as important. They are consolidated
+       into ONE quiet always-visible safety line plus a disclosure holding the FULL
+       canonical badge set. Every badge keeps its exact id, text, title and aria-label,
+       so no safety statement is removed or weakened and every existing selector still
+       resolves — only the default visual weight changes.
+       The ONE exception that stays permanently visible is the collection state: a
+       decision surface that has quietly stopped being fed is the exact failure
+       Release 29 exists to end, so it must be answerable without a click. -->
+  <details id="hdr-modes">
+    <summary title="Operating mode and the full safety badge set. Paper only, manual review, execution automation off, no broker execution, no model promotion.">Mode <b>Paper</b> &middot; <b>Manual review</b> &middot; <b>Automation off</b> &nbsp;&#9662;</summary>
+    <div id="hdr-modes-body">
+      <span class="badge warning" style="font-size: 9px; padding: 2px 7px;">MANUAL REVIEW</span>
+      <span class="badge ok" style="font-size: 9px; padding: 2px 7px;">PAPER ORDERS ONLY</span>
+      <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
+      <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">NO BROKER EXECUTION</span>
+      <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">NO MODEL PROMOTION</span>
+      <span id="prediction-mode-badge" data-prediction-location="remote" aria-label="Prediction inference runs remotely on GCP through a local tunnel; it is never run locally." style="font-size: 9px; padding: 2px 7px; color: var(--info); background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.3); border-radius: 2px;" title="Prediction inference is REMOTE (GCP, via the local tunnel on port 9000). No prediction model runs locally.">PREDICTION: REMOTE (GCP)</span>
+      <span id="alpha-data-badge" style="font-size: 9px; padding: 2px 7px; color: var(--ok); background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); border-radius: 2px;" title="The operational alpha workflow (target refresh, snapshot review, alpha book, paper desk) runs entirely on owned local data. The GCP prediction tunnel is a separate legacy path and is never required.">LOCAL ALPHA DATA &middot; NO PREDICTION TUNNEL REQUIRED</span>
+      <span id="market-data-badge" style="font-size: 9px; padding: 2px 7px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether the portfolio mark, portfolio snapshot and current-alpha marks share one completed market date. Does not check prediction availability.">MARKET DATA: NOT CHECKED</span>
+      <span class="r29-modes-note">Paper book only &mdash; no real money and no broker account. Execution automation is permanently off; every portfolio change is a proposal for manual review. Collection automation is a different switch and is shown separately, always visible.</span>
+    </div>
+  </details>
   <!-- Release 29: whether INFORMATION is still arriving, answerable without scrolling
        and from any view. A decision surface that has quietly stopped being fed is the
        exact failure this release exists to end, so its state belongs in the always-
@@ -2479,8 +3009,13 @@
 
           <!-- TOP STATUS BAR -->
           <div class="cc-statusbar">
-            <span class="cc-status-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
-            <span class="cc-status-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
+            <!-- RELEASE 29 UI CONSOLIDATION: service readiness and connection state are
+                 already stated in the sticky header. These two pills restate the SAME
+                 facts a second time on the page, so they are kept in the DOM (their ids
+                 stay the canonical write targets and every existing reader still
+                 resolves) and hidden from view. No state is lost. -->
+            <span class="cc-status-pill" id="cc-status-ready-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
+            <span class="cc-status-pill" id="cc-status-conn-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
             <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Operational desk valuation date of Alpha Paper Book #1 (the current operating mark). Research dates live only in Research & Audit.">Operational mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
             <span class="cc-spacer"></span>
             <!-- Phase OPX: consolidated operator safety chrome. ONE persistent line is the
@@ -2601,6 +3136,12 @@
               <span class="cc-badge" id="df-consistency" title="Cross-surface consistency of the freshness contract vs the authoritative read models.">&mdash;</span>
               <span class="cc-badge safe">READ ONLY</span>
             </div>
+            <!-- RELEASE 29 UI CONSOLIDATION: the twelve individual input dates are
+                 diagnostics. They stay complete and reachable, one click away, so they
+                 never compete with the operator's decision. The gate sentence and the
+                 note stay visible below, because those are the operator-facing verdict. -->
+            <details id="df-dates" class="r29-quiet-details">
+              <summary>Input dates &mdash; operational and research (12 sources)</summary>
             <!-- OPERATIONAL dates — owned by the ACTIVE operational book / desk / close.
                  A dormant legacy/current-alpha research book never supplies these. -->
             <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Operational (active book)</div>
@@ -2623,6 +3164,7 @@
               <span class="cc-kv" title="Latest immutable TRUE_FORWARD snapshot date (evidence output)."><span class="k">TRUE_FORWARD Snapshot</span><span class="v" id="df-trueforward">&mdash;</span></span>
               <span class="cc-kv" title="Slower-cadence (monthly / quarterly) inputs that are due under their OWN cadence."><span class="k">Slower Inputs Due</span><span class="v" id="df-slower">&mdash;</span></span>
             </div>
+            </details>
             <div id="df-gate" style="font-size:12px;color:var(--label);margin-top:6px;line-height:1.45;"></div>
             <div id="df-note" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
           </div>
@@ -2642,44 +3184,65 @@
 
                COLLECTION automation and EXECUTION automation are DIFFERENT switches and
                are badged separately. The execution safety badges are never removed. -->
+          <!-- RELEASE 29 UI CONSOLIDATION — "ACTIVE MANAGER".
+               The card used to open with SIX safety badges, an all-caps headline and
+               fifteen micro key/values including the worker PID and the restart count.
+               It now opens with the two facts an operator needs (is it running, what is
+               it doing) and a six-cell metric grid; the worker counters and the per-source
+               cadence table are unchanged but live in the existing Audit / Advanced
+               disclosure. The execution-safety badges keep their ids and text and fold
+               into a disclosure — no safety statement is removed or weakened.
+               Every value is still rendered VERBATIM from the backend owners. -->
           <div class="card" style="margin-bottom:12px;" id="evt-card">
-            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-              <span>Information Collection &amp; Portfolio Reassessment
-                <span class="cc-badge" id="ic-service-badge" title="Whether the continuous collection service is running, decided by api.information_collection.">&mdash;</span>
-              </span>
-              <span style="display:flex;gap:6px;flex-wrap:wrap;">
-                <span class="cc-badge" id="ic-collection-badge" title="Information-collection automation. This is NOT execution automation.">COLLECTION: &mdash;</span>
-                <span class="cc-badge muted" title="Paper book only. No real money and no broker account are involved.">PAPER MODE</span>
-                <span class="cc-badge muted" title="A justified change becomes a proposal for manual review, never an execution.">MANUAL REVIEW</span>
-                <span class="cc-badge danger" id="ic-exec-badge" title="Order execution automation. Permanently off and unreachable from the collection service.">EXECUTION AUTOMATION: OFF</span>
-                <span class="cc-badge muted" title="Nothing on this surface creates, confirms, fills or cancels an order.">NO BROKER EXECUTION</span>
-                <span class="cc-badge muted" title="Live brokerage orders are structurally disabled. Paper orders are real and exist only in the operational book; this collection surface creates none.">NO LIVE BROKER ORDERS</span>
-              </span>
+            <div class="card-title r29-am-hd" style="text-transform:none;">
+              <span class="r29-am-title">Active Manager</span>
+              <span class="cc-badge" id="ic-service-badge" title="Whether the continuous collection service is running, decided by api.information_collection.">&mdash;</span>
+              <span class="cc-badge" id="ic-activity-badge" title="What the worker is doing right now, decided by the backend.">&mdash;</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <details class="r29-safety-fold" id="ic-safety-fold">
+                <summary title="Full safety state for this surface. Collection automation and execution automation are different switches.">Safety &amp; automation</summary>
+                <span class="r29-safety-body">
+                  <span class="cc-badge" id="ic-collection-badge" title="Information-collection automation. This is NOT execution automation.">COLLECTION: &mdash;</span>
+                  <span class="cc-badge muted" title="Paper book only. No real money and no broker account are involved.">PAPER MODE</span>
+                  <span class="cc-badge muted" title="A justified change becomes a proposal for manual review, never an execution.">MANUAL REVIEW</span>
+                  <span class="cc-badge danger" id="ic-exec-badge" title="Order execution automation. Permanently off and unreachable from the collection service.">EXECUTION AUTOMATION: OFF</span>
+                  <span class="cc-badge muted" title="Nothing on this surface creates, confirms, fills or cancels an order.">NO BROKER EXECUTION</span>
+                  <span class="cc-badge muted" title="Live brokerage orders are structurally disabled. Paper orders are real and exist only in the operational book; this collection surface creates none.">NO LIVE BROKER ORDERS</span>
+                </span>
+              </details>
             </div>
-            <div id="ic-headline" style="font-size:13px;font-weight:600;line-height:1.4;margin:2px 0 2px;">&mdash;</div>
-            <div id="evt-why" style="font-size:12px;line-height:1.5;margin:0 0 8px;">&mdash;</div>
-            <div id="ic-service-line" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;"></div>
-            <div id="evt-kpis" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;"></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div id="ic-headline" style="font-size:14px;font-weight:600;line-height:1.4;margin:2px 0 2px;">&mdash;</div>
+            <div id="evt-why" style="font-size:12px;line-height:1.5;margin:0 0 2px;">&mdash;</div>
+            <!-- The six facts that describe an always-on manager, from the SAME payload
+                 that fed the fifteen micro key/values. No client-side arithmetic. -->
+            <div id="am-metrics" class="r29-metrics cols-6"></div>
+            <!-- RELEASE 30 SEAM. A reserved region for a compact LIVE AGENT ACTIVITY
+                 stream. It is empty, hidden, and renders nothing: no activity is
+                 fabricated. It exists so Release 30 can add the stream without another
+                 structural redesign of this card. -->
+            <div id="am-activity-slot" aria-hidden="true"></div>
+            <div class="r29-am-lists">
               <div>
-                <div class="card-title" style="font-size:12px;">Latest material events
+                <div class="r29-am-list-hd">Latest material events
                   <span class="cc-badge muted" title="An event may direct attention. Only OPERATIONAL_ALPHA events can change a score.">DECISION AUTHORITY SHOWN</span>
                 </div>
-                <div id="evt-events" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;">&mdash;</div>
+                <div id="evt-events" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
               </div>
               <div>
-                <div class="card-title" style="font-size:12px;">Affected holdings
+                <div class="r29-am-list-hd">Affected holdings
                   <span class="cc-badge muted" title="Current holdings named by a material event in this window.">CURRENT HOLDINGS</span>
                 </div>
-                <div id="evt-affected" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;">&mdash;</div>
+                <div id="evt-affected" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
               </div>
             </div>
-            <div class="card-title" style="margin-top:10px;font-size:12px;">Portfolio decision
+            <div class="r29-am-list-hd" style="margin-top:12px;">Portfolio decision
               <span class="cc-badge muted" title="Produced by the canonical reassessment owner, for manual review only.">REVIEW ONLY</span>
             </div>
             <div id="ic-decision" style="font-size:11px;line-height:1.5;">&mdash;</div>
-            <details id="ic-source-details" style="margin-top:10px;">
-              <summary style="cursor:pointer;font-size:12px;font-weight:600;">Audit / Advanced &mdash; source health &amp; cadence diagnostics</summary>
+            <details id="ic-source-details" class="r29-quiet-details">
+              <summary>Audit / Advanced &mdash; worker diagnostics, source health &amp; cadence</summary>
+              <div id="ic-service-line" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin:6px 0;"></div>
+              <div id="evt-kpis" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;"></div>
               <div id="ic-sources" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;">&mdash;</div>
               <div id="evt-audit" style="font-size:10px;margin-top:8px;"></div>
             </details>
@@ -2693,23 +3256,31 @@
                Rebalance Proposal, Monitor Pending Paper Orders, Review Data Blocker
                or Await Next Completed Close. "Monitor Holdings" is never the only
                action before today's close has been recorded. Paper only, manual. -->
+          <!-- RELEASE 29 UI CONSOLIDATION — the operational result comes first.
+               This card previously gave its badge slot, its headline slot AND a
+               primary-coloured button to legacy membership-comparison material, while
+               NAV, P&L and drawdown were a 10px run-on line beneath. The order is
+               inverted: the operational state and the money are the card, and the
+               compatibility-only material is a quiet collapsed disclosure at the
+               bottom that still carries its full text. No number changes. -->
           <div id="cc-dc-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title">Today&rsquo;s Daily Close &mdash; Alpha Paper Book #1</span>
+              <span class="cc-panel-title">Portfolio result &mdash; Alpha Paper Book #1</span>
               <span class="cc-badge" id="cc-dc-badge" title="The canonical daily-close status for Alpha Paper Book #1.">&mdash;</span>
-              <span class="cc-badge safe">MANUAL REVIEW</span>
-              <span class="cc-badge safe">PAPER ONLY</span>
               <span class="cc-spacer" style="flex:1;"></span>
-              <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest eligible completed market date to process."><span class="k">Latest Eligible</span><span class="v" id="cc-dc-latest">&mdash;</span></span>
-              <span class="cc-kv" style="font-size:var(--fs-0);" title="Last completed daily-close market date."><span class="k">Last Processed</span><span class="v" id="cc-dc-processed">&mdash;</span></span>
-              <span class="cc-kv" style="font-size:var(--fs-0);" title="Current operational valuation date."><span class="k">Valuation</span><span class="v" id="cc-dc-valdate">&mdash;</span></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Last completed daily-close market date."><span class="k">As of</span><span class="v" id="cc-dc-processed">&mdash;</span></span>
             </div>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
-              <div id="cc-dc-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Resolving today&rsquo;s daily close&hellip;</div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px;">
+              <div id="cc-dc-headline" class="r29-dc-state" style="font-size:16px;font-weight:700;">Resolving today&rsquo;s daily close&hellip;</div>
               <button id="cc-dc-btn" class="cc-btn primary" style="display:none;" onclick="dailyClosePrimaryAction(this)" title="The one required daily action.">Run Daily Close</button>
             </div>
-            <div id="cc-dc-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <div id="cc-dc-explanation" style="font-size:12px;color:var(--label);margin-top:2px;line-height:1.45;"></div>
+            <!-- The money, as a metric grid. Same canonical values as before. -->
+            <div id="cc-dc-metrics" class="r29-metrics cols-4"></div>
             <div id="cc-dc-readiness" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Market-clock, provider and data-scope readiness for today's close."></div>
+            <!-- Retained so the canonical daily-close writer keeps its existing write
+                 targets and every existing reader/test still resolves; the visible
+                 presentation is the metric grid above. -->
             <div id="cc-dc-kpis" style="display:none;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:11px;">
               <span class="cc-kv" title="Net asset value (cash + marked holdings)."><span class="k">NAV</span><span class="v" id="cc-dc-nav">&mdash;</span></span>
               <span class="cc-kv" title="Daily P&amp;L vs the prior completed operational NAV."><span class="k">Daily P&amp;L</span><span class="v" id="cc-dc-dpnl">&mdash;</span></span>
@@ -2719,7 +3290,20 @@
               <span class="cc-kv" title="Current drawdown."><span class="k">Drawdown</span><span class="v" id="cc-dc-dd">&mdash;</span></span>
               <span class="cc-kv" title="Proposed portfolio changes from today's close."><span class="k">Proposed Changes</span><span class="v" id="cc-dc-changes">&mdash;</span></span>
             </div>
-            <div id="cc-dc-checks" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
+            <details id="cc-dc-detail" class="r29-quiet-details">
+              <summary>Daily Close details &mdash; dates, risk checks, safety and compatibility view</summary>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:6px;">
+                <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest eligible completed market date to process."><span class="k">Latest Eligible</span><span class="v" id="cc-dc-latest">&mdash;</span></span>
+                <span class="cc-kv" style="font-size:var(--fs-0);" title="Current operational valuation date."><span class="k">Valuation</span><span class="v" id="cc-dc-valdate">&mdash;</span></span>
+              </div>
+              <div id="cc-dc-checks" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
+              <div id="cc-dc-legacy-slot" style="margin-top:6px;"></div>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">
+                <span class="cc-badge safe">MANUAL REVIEW</span>
+                <span class="cc-badge safe">PAPER ONLY</span>
+                <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+              </div>
+            </details>
           </div>
 
           <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
@@ -2731,27 +3315,48 @@
                holdings. Phase 29G.2: this card presents the canonical HOLDING
                OPPORTUNITY-COST REVIEW (the ONE primary portfolio decision); the legacy
                rank-membership comparison is a collapsed compatibility-only view. -->
+          <!-- RELEASE 29 UI CONSOLIDATION — the opportunity-cost verdict is a set of
+               COUNTS, so it is presented as counts. It used to be a single 22px orange
+               sentence ("12 HOLD / 7 REDUCE / 2 EXIT / 4 REPLACE / 6 ADD ...") in the
+               highest-alarm colour on the page, for a REVIEW-ONLY state. The counts now
+               render as discrete cells whose colour means something (green hold, amber
+               review, red exit, blue add). The counts are the backend's
+               recommendation_counts, unchanged: no HOC calculation is touched. -->
           <div id="cc-dag-card" class="cc-panel" style="border-left:3px solid var(--ok);display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
               <span class="cc-panel-title" id="cc-dag-title">Holding Opportunity-Cost Review</span>
-              <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.2: the Holding Opportunity-Cost Review is the ONE primary portfolio decision. The legacy membership comparison is a read-only compatibility view only.">PRIMARY PORTFOLIO DECISION</span>
               <span class="cc-badge" id="cc-dag-badge" title="Canonical Holding Opportunity-Cost state for Alpha Paper Book #1.">&mdash;</span>
-              <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
-              <span class="cc-badge safe">REVIEW ONLY</span>
-              <span class="cc-badge safe">NO ORDERS</span>
+              <!-- The primary-decision marker is a real statement of authority and stays
+                   on all three surfaces. Release 29 only stops it being a filled blue
+                   block that outshouts the state next to it. -->
+              <span class="cc-badge" title="Phase 29G.2: the Holding Opportunity-Cost Review is the ONE primary portfolio decision. The legacy membership comparison is a read-only compatibility view only.">PRIMARY PORTFOLIO DECISION</span>
+              <span class="cc-badge safe" title="Review only: this creates no target weight, no proposal approval and no order.">REVIEW ONLY</span>
               <span class="cc-spacer" style="flex:1;"></span>
               <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date the model evaluated (owned data)."><span class="k">Market Date</span><span class="v" id="cc-dag-market">&mdash;</span></span>
-              <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review. A material event can still propose action before this date."><span class="k">Next Full Review</span><span class="v" id="cc-dag-review">&mdash;</span></span>
             </div>
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
-              <div id="cc-dag-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Loading the Holding Opportunity-Cost review&hellip;</div>
-              <button id="cc-dag-btn" class="cc-btn" style="display:none;" onclick="dagViewLegacy('cc')" title="Open the read-only legacy membership-comparison (compatibility only).">View Legacy Membership Comparison</button>
+            <!-- The structured summary. Filled from holding_opportunity_cost_presentation
+                 .recommendation_counts and .data_gaps — no counting happens here. -->
+            <div id="cc-dag-counts" class="r29-hoc-counts" style="display:none;"></div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+              <div id="cc-dag-headline" style="font-size:13px;font-weight:600;">Loading the Holding Opportunity-Cost review&hellip;</div>
             </div>
             <div id="cc-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
-            <div id="cc-dag-checks" class="mono" style="display:none;font-size:11px;margin-top:5px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
-            <details id="cc-dag-legacy" style="display:none;margin-top:6px;">
-              <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
-              <div id="cc-dag-changes" class="mono" style="font-size:11px;margin-top:6px;line-height:1.5;"></div>
+            <details id="cc-dag-detail" class="r29-quiet-details">
+              <summary>Review detail &mdash; scope, risk checks and the legacy compatibility view</summary>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:6px;">
+                <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review. A material event can still propose action before this date."><span class="k">Next Full Review</span><span class="v" id="cc-dag-review">&mdash;</span></span>
+              </div>
+              <div id="cc-dag-checks" class="mono" style="display:none;font-size:11px;margin-top:5px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
+              <details id="cc-dag-legacy" style="display:none;margin-top:6px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:600;color:var(--cc-text-dim,#6a7fa0);letter-spacing:.02em;">Legacy membership-comparison summary &mdash; compatibility only</summary>
+                <div id="cc-dag-changes" class="mono" style="font-size:11px;margin-top:6px;line-height:1.5;"></div>
+              </details>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
+                <span class="cc-badge safe">NO ORDERS</span>
+                <span class="cc-badge manual">MANUAL REVIEW</span>
+                <button id="cc-dag-btn" class="cc-btn ghost" style="display:none;font-size:10px;padding:2px 8px;" onclick="dagViewLegacy('cc')" title="Open the read-only legacy membership-comparison (compatibility only).">View Legacy Membership Comparison</button>
+              </div>
             </details>
           </div>
 
@@ -2759,11 +3364,20 @@
           <div id="cc-realloc-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
               <span class="cc-panel-title" id="cc-realloc-title">Reallocation Proposal</span>
-              <span class="cc-badge muted" title="Milestone 3 — paper-only proposed target portfolio.">MILESTONE 3</span>
               <span class="cc-badge" id="cc-realloc-badge" title="Reallocation proposal state for Alpha Paper Book #1.">&mdash;</span>
-              <span class="cc-badge manual">MANUAL REVIEW</span>
               <span class="cc-badge safe">REVIEW ONLY</span>
-              <span class="cc-badge safe">NO ORDERS</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <!-- RELEASE 29 UI CONSOLIDATION: the remaining canonical badges keep their
+                   exact text and fold into a disclosure rather than repeating the same
+                   four safety statements a fifth time on one screen. -->
+              <details class="r29-safety-fold">
+                <summary title="Full safety state for the reallocation proposal.">Safety</summary>
+                <span class="r29-safety-body">
+                  <span class="cc-badge muted" title="Milestone 3 — paper-only proposed target portfolio.">MILESTONE 3</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                  <span class="cc-badge safe">NO ORDERS</span>
+                </span>
+              </details>
             </div>
             <div id="cc-realloc-headline" style="font-size:13px;font-weight:800;margin-top:6px;">&mdash;</div>
             <div id="cc-realloc-explanation" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
@@ -3317,21 +3931,62 @@
         <div id="wf-pm" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
         <div class="card" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">PORTFOLIO MANAGER
+            <span class="r29-pm-title">Portfolio Manager
               <span class="cc-badge" id="pm-status" title="Read-only decision-intelligence status.">&mdash;</span></span>
             <span style="display:flex;gap:6px;align-items:center;">
               <button class="btn-sm" id="pm-open-alpha" onclick="navigateToRoute('multi-horizon')" title="Open the Alpha Portfolio page — model books and sleeve evidence behind this decision.">Model Evidence &rarr;</button>
               <button class="btn-sm" id="pm-refresh" onclick="loadPortfolioManager()" title="Reload the read-only portfolio-manager decision view.">&#8635; Refresh</button>
             </span>
           </div>
-          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">
-            <span class="cc-badge">PAPER ONLY</span>
-            <span class="cc-badge" title="Live brokerage orders are structurally disabled (ORDERS DISABLED at the platform level). The desk creates paper orders only — 27B.6 wording: paper orders are real, live orders are not.">NO LIVE BROKER ORDERS</span>
-            <span class="cc-badge">AUTOMATION OFF</span>
-            <span class="cc-badge manual">MANUAL REVIEW</span>
-            <span class="cc-badge">NO LIVE PROMOTION</span>
+          <!-- RELEASE 29 UI CONSOLIDATION: ONE visible safety line for the route plus a
+               disclosure carrying the full canonical badge set. Every badge keeps its
+               exact text, so nothing is removed or weakened — the same five statements
+               simply stop being repeated a fifth time on one screen. -->
+          <div class="ra-safety-strip" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;">
+            <span class="safety-line" style="font-size:10px;color:var(--label);" title="Paper-only, manual-review, automation-off operating mode."><b style="color:var(--text-accent);font-weight:600;">Paper only</b> &middot; <b style="color:var(--text-accent);font-weight:600;">Manual review</b> &middot; <b style="color:var(--text-accent);font-weight:600;">Automation off</b> &middot; <b style="color:var(--text-accent);font-weight:600;">No live broker orders</b></span>
+            <details class="r29-safety-fold">
+              <summary title="Full safety badge set for the Portfolio Manager route.">Safety details</summary>
+              <span class="r29-safety-body">
+                <span class="cc-badge">PAPER ONLY</span>
+                <span class="cc-badge" title="Live brokerage orders are structurally disabled (ORDERS DISABLED at the platform level). The desk creates paper orders only — 27B.6 wording: paper orders are real, live orders are not.">NO LIVE BROKER ORDERS</span>
+                <span class="cc-badge">AUTOMATION OFF</span>
+                <span class="cc-badge manual">MANUAL REVIEW</span>
+                <span class="cc-badge">NO LIVE PROMOTION</span>
+              </span>
+            </details>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+
+          <!-- =================================================================
+               RELEASE 29 UI CONSOLIDATION — PORTFOLIO-MANAGER HIERARCHY.
+
+               The route previously opened on the Active Portfolio Assessment, so
+               the first thing an operator read about their portfolio was a
+               technical evidence state ("REASSESSMENT BLOCKED — DATA"), while the
+               portfolio itself — NAV, holdings, cash, target, review state — sat
+               at DOM position 8. The six section headers below re-establish the
+               operator's question order:
+
+                 1 What IS the portfolio right now?
+                 2 Is a portfolio change currently recommended?
+                 3 What evidence supports that decision?
+                 4 How is it performing, and what is the risk?
+                 5 What actions are available?
+                 6 What is historical / audit / legacy detail?
+
+               The sections are ordered with CSS `order` (see #r29ux-styles), so
+               NOT ONE existing element moves in the DOM: every id, deep link,
+               loader write target, scroll anchor and test selector is unchanged.
+               ================================================================= -->
+          <div class="r29-section" id="pm-sec-current">
+            <span class="n">1</span><span class="t">Current portfolio</span>
+            <span class="d">Alpha Paper Book #1 &mdash; paper only, marked from owned data</span>
+          </div>
+          <!-- Book state, capacity and review dates. Filled by renderPmCurrentPortfolio()
+               which MIRRORS the canonical nodes written by the portfolio-state and
+               operational-book owners: it performs no valuation, no counting and no
+               date arithmetic, so it can never disagree with the rest of the app. -->
+          <div id="pm-current-strip"></div>
 
           <!-- ===================== STAGE 20 ACTIVE PORTFOLIO ASSESSMENT =====================
                WIREFRAME (1920x1080, first screen, no heavy scrolling) — the TOP section of
@@ -3363,15 +4018,28 @@
                the single CTA) so there is never a duplicate proposal / execution control.
                Every value is read VERBATIM from GET /v1/operations/portfolio-reassessment —
                the browser performs NO assessment, ranking, cost, risk or NAV computation. -->
+          <div class="r29-section" id="pm-sec-decision">
+            <span class="n">2</span><span class="t">Portfolio decision</span>
+            <span class="d">Is a change recommended right now? Review only &mdash; nothing here creates an order</span>
+          </div>
           <div class="card" id="reassess-card" style="margin:0 0 12px;border:1px solid var(--border,#2a3550);">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
               <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Active Portfolio Assessment
                 <span class="cc-badge" id="reassess-badge" title="Canonical portfolio-reassessment decision (api.portfolio_reassessment).">&mdash;</span></span>
               <span style="display:flex;gap:6px;align-items:center;">
-                <span class="cc-badge">PREVIEW ONLY</span>
-                <span class="cc-badge manual">MANUAL REVIEW</span>
-                <span class="cc-badge">NO LIVE BROKER ORDERS</span>
-                <span class="cc-badge">AUTOMATION OFF</span>
+                <!-- RELEASE 29 UI CONSOLIDATION: the same four safety statements already
+                     appear in the route's safety strip directly above. They keep their
+                     exact text and fold, so the card header carries its state, not a
+                     fourth copy of the operating mode. -->
+                <details class="r29-safety-fold">
+                  <summary title="Full safety state for the active portfolio assessment.">Safety</summary>
+                  <span class="r29-safety-body">
+                    <span class="cc-badge">PREVIEW ONLY</span>
+                    <span class="cc-badge manual">MANUAL REVIEW</span>
+                    <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+                    <span class="cc-badge">AUTOMATION OFF</span>
+                  </span>
+                </details>
                 <button class="btn-sm" id="reassess-refresh" onclick="loadPortfolioReassessment()" title="Reload the read-only active portfolio assessment.">&#8635; Refresh</button>
               </span>
             </div>
@@ -3411,6 +4079,10 @@
                churn + cost controls / policy review candidates, then the full
                audit history collapsed. Never a trading CTA.
                =================================================================== -->
+          <div class="r29-section" id="pm-sec-evidence">
+            <span class="n">3</span><span class="t">Evidence</span>
+            <span class="d">What supports the decision &mdash; matured outcomes and today&rsquo;s risk / control checks</span>
+          </div>
           <div class="card" id="rout-card" style="margin:0 0 12px;">
             <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Portfolio Decision Evidence
               <span class="cc-badge" id="rout-evidence-badge" title="Evidence sufficiency over MATURED forward outcomes.">&mdash;</span>
@@ -3431,6 +4103,10 @@
 
           <!-- STAGE 21 (Workstream 0A) — the COMPLETED controlled rebalance. Recovered
                from the immutable desk ledger, so it stays discoverable after settlement. -->
+          <div class="r29-section" id="pm-sec-audit">
+            <span class="n">6</span><span class="t">History &amp; audit</span>
+            <span class="d">Completed rebalance lineage, superseded plans and the full per-holding detail</span>
+          </div>
           <div class="card" id="rlin-card" style="display:none;margin:0 0 12px;">
             <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Completed Controlled Rebalance
               <span class="cc-badge" id="rlin-state">&mdash;</span>
@@ -3472,6 +4148,10 @@
             <div class="kpi"><div class="k">Cum return</div><div class="v" id="pa-hero-cum">&mdash;</div><div class="s" id="pa-hero-cum-sub">since baseline</div></div>
             <div class="kpi"><div class="k">Vs SPY</div><div class="v" id="pa-hero-excess">&mdash;</div><div class="s" id="pa-hero-excess-sub">cumulative excess</div></div>
             <div class="kpi"><div class="k">Drawdown</div><div class="v" id="pa-hero-dd">&mdash;</div><div class="s" id="pa-hero-dd-sub">from peak</div></div>
+          </div>
+          <div class="r29-section" id="pm-sec-perf">
+            <span class="n">4</span><span class="t">Performance &amp; risk</span>
+            <span class="d">Read-only analytics of the executed paper book &mdash; hover for exact values</span>
           </div>
           <div class="pt-panel" id="pdash-perf-charts" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:10px;display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
@@ -3546,20 +4226,18 @@
                daily-close status. Documented HOLD -> the recorded review + P&L, no
                target / snapshot / order confirmation controls. Proposal -> the
                affected names + one manual review flow. Paper only; read only. -->
+          <div class="r29-section" id="pm-sec-actions">
+            <span class="n">5</span><span class="t">Actions</span>
+            <span class="d">The daily close, the paper-order lifecycle and the one available next step</span>
+          </div>
           <div id="pm-dc-card" style="border:1px solid var(--info,#3b82f6);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
               <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today&rsquo;s Daily Close &mdash; Alpha Paper Book #1</span>
               <span class="cc-badge" id="pm-dc-badge" title="Canonical daily-close status.">&mdash;</span>
             </div>
-            <div id="pm-dc-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Resolving today&rsquo;s daily close&hellip;</div>
+            <div id="pm-dc-headline" style="font-size:16px;font-weight:700;margin:6px 0 4px;">Resolving today&rsquo;s daily close&hellip;</div>
             <div id="pm-dc-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
-            <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
-              <span title="Latest eligible completed market date.">Latest eligible <b id="pm-dc-latest">&mdash;</b></span>
-              <span title="Last completed daily-close market date.">Last processed <b id="pm-dc-processed">&mdash;</b></span>
-              <span title="Current operational valuation date.">Valuation <b id="pm-dc-valdate">&mdash;</b></span>
-              <span title="Next scheduled full portfolio review.">Next full review <b id="pm-dc-review">&mdash;</b></span>
-            </div>
-            <div id="pm-dc-pnl" class="mono" style="display:none;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:6px;">
+            <div id="pm-dc-pnl" class="mono" style="display:none;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:8px;">
               <span title="Net asset value.">NAV <b id="pm-dc-nav">&mdash;</b></span>
               <span title="Daily P&amp;L vs prior completed operational NAV.">Daily P&amp;L <b id="pm-dc-dpnl">&mdash;</b></span>
               <span title="Cumulative P&amp;L vs starting capital.">Cumulative P&amp;L <b id="pm-dc-cpnl">&mdash;</b></span>
@@ -3569,6 +4247,18 @@
             <div id="pm-dc-firstnote" class="cc-na-note" style="display:none;font-size:10px;margin-top:6px;color:var(--label);"></div>
             <div id="pm-dc-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
             <button id="pm-dc-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dailyClosePrimaryAction(this)">Run Daily Close</button>
+            <!-- RELEASE 29 UI CONSOLIDATION: dates and the compatibility-only legacy
+                 view are detail, not the headline of today's close. Full text kept. -->
+            <details id="pm-dc-detail" class="r29-quiet-details">
+              <summary>Daily Close details &mdash; dates and the legacy compatibility view</summary>
+              <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
+                <span title="Latest eligible completed market date.">Latest eligible <b id="pm-dc-latest">&mdash;</b></span>
+                <span title="Last completed daily-close market date.">Last processed <b id="pm-dc-processed">&mdash;</b></span>
+                <span title="Current operational valuation date.">Valuation <b id="pm-dc-valdate">&mdash;</b></span>
+                <span title="Next scheduled full portfolio review.">Next full review <b id="pm-dc-review">&mdash;</b></span>
+              </div>
+              <div id="pm-dc-legacy-slot" style="margin-top:8px;"></div>
+            </details>
           </div>
           <!-- Phase 29G.2: the Portfolio Manager presents the canonical HOLDING
                OPPORTUNITY-COST REVIEW (single source of the primary portfolio decision).
@@ -3577,30 +4267,38 @@
                portfolio change and creates no orders. -->
           <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
-              <span id="pm-dag-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Holding Opportunity-Cost Review</span>
+              <span id="pm-dag-title" style="font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text-primary);">Holding Opportunity-Cost Review</span>
               <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.2: the ONE primary portfolio decision.">PRIMARY PORTFOLIO DECISION</span>
-                <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
                 <span class="cc-badge" id="pm-dag-badge" title="Canonical Holding Opportunity-Cost state.">&mdash;</span>
-                <span class="cc-badge safe">REVIEW ONLY</span>
-                <span class="cc-badge safe">NO ORDERS</span>
+                <span class="cc-badge" title="Phase 29G.2: the ONE primary portfolio decision.">PRIMARY PORTFOLIO DECISION</span>
+                <span class="cc-badge safe" title="Review only: this creates no target weight, no proposal approval and no order.">REVIEW ONLY</span>
               </span>
             </div>
-            <div id="pm-dag-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Loading the Holding Opportunity-Cost review&hellip;</div>
+            <!-- RELEASE 29 UI CONSOLIDATION: the verdict is a set of counts, rendered as
+                 counts. Same recommendation_counts, no calculation touched. -->
+            <div id="pm-dag-counts" class="r29-hoc-counts" style="display:none;"></div>
+            <div id="pm-dag-headline" style="font-size:14px;font-weight:600;margin:8px 0 4px;">Loading the Holding Opportunity-Cost review&hellip;</div>
             <div id="pm-dag-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
-            <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
-              <span title="Gate evaluation date.">Evaluated <b id="pm-dag-eval">&mdash;</b></span>
-              <span title="Latest completed market date evaluated (owned data).">Market date <b id="pm-dag-market">&mdash;</b></span>
-              <span title="Next scheduled full portfolio review. A material event can still propose action before this date.">Next full review <b id="pm-dag-review">&mdash;</b></span>
-              <span title="Whether the actual holdings match the ranked names (legacy comparison).">Holdings vs ranked <b id="pm-dag-match">&mdash;</b></span>
-              <span title="Estimated one-way turnover of the legacy comparison (compatibility only).">Est. turnover <b id="pm-dag-turnover">&mdash;</b></span>
-              <span title="Modeled execution cost at 12.5 bps per side (compatibility only).">Est. cost <b id="pm-dag-cost">&mdash;</b></span>
-            </div>
-            <details id="pm-dag-legacy" style="display:none;margin-top:8px;">
-              <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
-              <div id="pm-dag-changes" style="margin-top:8px;font-size:11px;"></div>
+            <details id="pm-dag-detail" class="r29-quiet-details">
+              <summary>Review detail &mdash; dates, legacy turnover / cost estimates and the compatibility view</summary>
+              <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
+                <span title="Gate evaluation date.">Evaluated <b id="pm-dag-eval">&mdash;</b></span>
+                <span title="Latest completed market date evaluated (owned data).">Market date <b id="pm-dag-market">&mdash;</b></span>
+                <span title="Next scheduled full portfolio review. A material event can still propose action before this date.">Next full review <b id="pm-dag-review">&mdash;</b></span>
+                <span title="Whether the actual holdings match the ranked names (legacy comparison).">Holdings vs ranked <b id="pm-dag-match">&mdash;</b></span>
+                <span title="Estimated one-way turnover of the legacy comparison (compatibility only).">Est. turnover <b id="pm-dag-turnover">&mdash;</b></span>
+                <span title="Modeled execution cost at 12.5 bps per side (compatibility only).">Est. cost <b id="pm-dag-cost">&mdash;</b></span>
+              </div>
+              <details id="pm-dag-legacy" style="display:none;margin-top:8px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:600;color:var(--cc-text-dim,#6a7fa0);letter-spacing:.02em;">Legacy membership-comparison summary &mdash; compatibility only</summary>
+                <div id="pm-dag-changes" style="margin-top:8px;font-size:11px;"></div>
+              </details>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
+                <span class="cc-badge safe">NO ORDERS</span>
+                <button id="pm-dag-btn" class="btn-sm" style="display:none;font-weight:600;border:1px solid var(--label,#94a3b8);" onclick="dagViewLegacy('pm')">View Legacy Membership Comparison</button>
+              </div>
             </details>
-            <button id="pm-dag-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--label,#94a3b8);" onclick="dagViewLegacy('pm')">View Legacy Membership Comparison</button>
           </div>
           <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical 13 daily risk / control
                checks with a compact summary + chips + collapsed detail. Read-only;
@@ -6809,12 +7507,19 @@
     <div id="wf-right" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 10px; margin-bottom:10px;"></div>
     <div class="panel-section" style="border-color: var(--info); padding-bottom: 10px; margin-bottom: 10px;">
       <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Action / Safety Panel</div>
-      <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
-        <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">MANUAL REVIEW</span>
-        <span class="badge ok" style="font-size: 9px; padding: 2px 6px;">PAPER ORDERS ONLY</span>
-        <span class="badge neutral" style="font-size: 9px; padding: 2px 6px;">AUTOMATION OFF</span>
-        <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">NO BROKER EXECUTION</span>
-      </div>
+      <!-- RELEASE 29 UI CONSOLIDATION: this was the THIRD copy of the same four
+           badges on one screen (header, page status bar, here). One quiet line
+           states the mode; the badges keep their exact text one click away, and
+           the compact safety line further down this panel is unchanged. -->
+      <details id="right-safety-badges">
+        <summary style="cursor:pointer; list-style:none; font-size:10px; color:var(--label); user-select:none; margin-bottom:6px;" title="Full safety badge set. The compact safety line and the lifecycle safety statement below state the same mode in words.">Safety badges &nbsp;&#9662;</summary>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+          <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">MANUAL REVIEW</span>
+          <span class="badge ok" style="font-size: 9px; padding: 2px 6px;">PAPER ORDERS ONLY</span>
+          <span class="badge neutral" style="font-size: 9px; padding: 2px 6px;">AUTOMATION OFF</span>
+          <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">NO BROKER EXECUTION</span>
+        </div>
+      </details>
     </div>
     <div class="panel-section" style="border-color: var(--info); cursor: pointer;" onclick="openDailyPlanFocused()" title="Go to the current action in Daily Plan">
       <div class="panel-section-title" style="color: var(--info);">Workflow</div>
@@ -24309,8 +25014,31 @@ window.loadResearchChampionSummary = loadResearchChampionSummary;
 // ============================ PHASE 25 — MULTI-HORIZON ALPHA PORTFOLIO ======================== //
 // Read-only paper platform view. GETs only, except the explicit two-step Preview -> Confirm
 // snapshot flow (styled in-page confirmation; never a native browser dialog).
+/* RELEASE 29 UI CONSOLIDATION — bounded read-only GET.
+
+   Every read-only operator panel resolves through this helper, and `call()`
+   carries no timeout: a GET that never settles left panels such as the Active
+   Portfolio Assessment on "Loading the active portfolio assessment…" forever,
+   with no terminal state and no way for the operator to tell a slow read from a
+   dead one. The renderers ALREADY have a terminal `null` branch ("… unavailable
+   … Use Refresh to retry. Nothing was changed."); they were simply never
+   reached. The abort converts an indefinite hang into that existing terminal
+   state. The ceiling is deliberately generous — far beyond any healthy read —
+   so it can only ever fire on a genuinely stuck request.
+
+   This is a presentation/robustness fix: it is GET-only, it changes no payload,
+   no calculation and no safety semantics, and it never retries a write. */
+var _R29_READ_TIMEOUT_MS = 45000;
 function _mhzGet(path) {
-  return call('GET', path).then(function (r) { return r.json(); }).catch(function () { return null; });
+  var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  var timer = ctl ? setTimeout(function () { ctl.abort(); }, _R29_READ_TIMEOUT_MS) : null;
+  return fetch(path, {
+    method: 'GET',
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+    signal: ctl ? ctl.signal : undefined
+  }).then(function (r) { return r.json(); })
+    .catch(function () { return null; })
+    .then(function (v) { if (timer) clearTimeout(timer); return v; });
 }
 function _mhzRecBadge(rec) {
   var cls = { BUY_CANDIDATE: 'safe', HOLD: 'muted', REDUCE_CANDIDATE: 'manual',
@@ -28094,8 +28822,93 @@ function renderPortfolioState(d) {
     } else { lbl.style.display = 'none'; lbl.textContent = ''; }
     lbl.setAttribute('data-ps-owned', '1');
   }
+  // Release 29 UI consolidation: refresh the Portfolio-Manager CURRENT PORTFOLIO
+  // mirror now that the canonical valuation nodes carry their final values.
+  try { if (typeof renderPmCurrentPortfolio === 'function') renderPmCurrentPortfolio(); } catch (e) {}
 }
 window.renderPortfolioState = renderPortfolioState;
+
+/* =====================================================================
+   RELEASE 29 UI CONSOLIDATION — presentation helpers.
+
+   These helpers translate BACKEND-OWNED values into operator-facing
+   presentation. They classify nothing, count nothing, compute no date and
+   invent no state: every input is a value the authoritative payload already
+   returned, and the raw value stays reachable (tooltip + Audit / Advanced).
+   ===================================================================== */
+
+/* Render one metric cell for a .r29-metrics grid. */
+function _r29Metric(label, value, sub, tone, title) {
+  return '<div class="r29-metric" title="' + escapeHtml(String(title || '')) + '">'
+    + '<div class="k">' + escapeHtml(String(label)) + '</div>'
+    + '<div class="v' + (tone ? (' ' + tone) : '') + '">' + escapeHtml(
+        (value === null || value === undefined || value === '') ? '—' : String(value)) + '</div>'
+    + (sub ? ('<div class="s">' + escapeHtml(String(sub)) + '</div>') : '')
+    + '</div>';
+}
+
+/* An ISO instant -> local wall-clock time, for "last cycle" / "next check".
+   Pure formatting of a backend-supplied timestamp; no age or due-ness is
+   derived here — the backend already decided whether the worker is healthy. */
+function _r29Clock(iso) {
+  if (!iso) return null;
+  try {
+    var t = new Date(iso);
+    if (isNaN(t.getTime())) return String(iso).slice(11, 19) || null;
+    return t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch (e) { return String(iso).slice(11, 19) || null; }
+}
+
+/* Humanise an internal enum for the PRIMARY operator statement. The raw code
+   is never lost: it stays in the element's title and in Audit / Advanced.
+   An unknown code falls back to a readable form of the code itself, so a new
+   backend state can never render as a blank. */
+var _R29_EVENT_CYCLE_TEXT = {
+  REASSESSED_NO_CHANGE: 'No portfolio change recommended',
+  REASSESSED_TARGET_CHANGED: 'Portfolio change proposed for review',
+  REASSESSED_BLOCKED: 'Reassessment blocked',
+  REASSESSMENT_SKIPPED: 'Reassessment not required',
+  NO_MATERIAL_INFORMATION: 'No material information',
+  NOT_RUN: 'Not run yet'
+};
+var _R29_ACTIVITY_TEXT = {
+  IDLE: 'Idle between cycles',
+  BUSY: 'Collecting now',
+  STALLED: 'Stalled',
+  DEAD: 'Not responding',
+  UNKNOWN: 'Unknown',
+  NOT_RUNNING: 'Not running'
+};
+var _R29_ACTIVITY_TONE = {
+  IDLE: 'tone-ok', BUSY: 'tone-info', STALLED: 'tone-warn',
+  DEAD: 'tone-bad', UNKNOWN: 'tone-quiet', NOT_RUNNING: 'tone-bad'
+};
+var _R29_PROGRESS_STEP_TEXT = {
+  ITERATION_START: 'Starting a cycle',
+  ITERATION_END: 'Cycle complete',
+  SOURCE_START: 'Reading a source',
+  SOURCE_END: 'Source complete',
+  EVALUATING: 'Evaluating materiality',
+  REASSESSING: 'Reassessing the portfolio'
+};
+function _r29Humanise(code, map) {
+  if (code === null || code === undefined || code === '') return null;
+  var key = String(code);
+  if (map && map[key]) return map[key];
+  /* Readable fallback: SOME_INTERNAL_CODE -> "Some internal code". */
+  return key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, ' ');
+}
+/* Sentence case for a backend headline that arrives SHOUTING. Letter case only
+   — the words, and therefore the meaning, are the backend's verbatim. */
+function _r29SentenceCase(s) {
+  var t = String(s || '').trim();
+  if (!t) return '';
+  var letters = t.replace(/[^A-Za-z]/g, '');
+  if (!letters || letters !== letters.toUpperCase()) return t;   // not all-caps: leave alone
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+window._r29SentenceCase = _r29SentenceCase;
+window._r29Humanise = _r29Humanise;
 
 /* ===================== Slice 1 (Phase 29B) — CANONICAL DATA FRESHNESS =====================
    ONE single-flight read-only loader fetches /v1/operations/data-freshness once and
@@ -28207,6 +29020,7 @@ function _icSetHeaderBadge(text, cls, title) {
   el.style.border = '1px solid ' + tone[2];
   if (title) el.setAttribute('title', title);
 }
+
 function renderInformationCollection(d) {
   if (!d) {
     _setHtml('ic-headline', 'Collection state is unavailable right now.');
@@ -28215,6 +29029,8 @@ function renderInformationCollection(d) {
     _setHtml('evt-affected', '&mdash;'); _setHtml('evt-kpis', '');
     _setHtml('ic-service-line', ''); _setHtml('ic-decision', '&mdash;');
     _setHtml('evt-audit', '');
+    _setHtml('am-metrics', '');
+    _icSetBadge('ic-activity-badge', 'UNAVAILABLE', 'muted');
     _icSetBadge('ic-service-badge', 'UNAVAILABLE', 'muted');
     _icSetBadge('ic-collection-badge', 'COLLECTION: UNKNOWN', 'muted');
     _icSetHeaderBadge('COLLECTION: UNAVAILABLE', 'muted',
@@ -28241,14 +29057,65 @@ function renderInformationCollection(d) {
     'Order-execution automation is permanently off and unreachable from the collection service.');
   _icSetHeaderBadge(sb.label, sb.cls, svc.reason || '');
 
+  // RELEASE 29 UI CONSOLIDATION — WHAT IS THE MANAGER DOING RIGHT NOW? The
+  // backend's own worker_activity verdict, promoted from a micro key/value to a
+  // card badge and humanised. IDLE/BUSY are healthy; STALLED/DEAD are not — the
+  // classification is the backend's, this only chooses words and a colour.
+  var actState = svc.worker_activity ? String(svc.worker_activity) : null;
+  _icSetBadge('ic-activity-badge',
+    _r29Humanise(actState, _R29_ACTIVITY_TEXT) || '—',
+    (actState === 'STALLED' ? 'manual'
+      : (actState === 'DEAD' || actState === 'NOT_RUNNING') ? 'danger'
+        : (actState === 'BUSY' ? 'safe' : 'muted')),
+    String(svc.worker_activity_reason || 'What the worker is doing right now.')
+    + (actState ? ('  [' + actState + ']') : ''));
+
   var toneClass = head.tone === 'ok' ? 'var(--ok, #22c55e)'
     : (head.tone === 'attention' ? 'var(--info, #3b82f6)'
       : (head.tone === 'warn' ? 'var(--warning, #f59e0b)' : 'var(--label, #94a3b8)'));
-  _setHtml('ic-headline', '<span style="color:' + toneClass + ';">'
-    + escapeHtml(String(head.title || '—')) + '</span>');
+  // The backend decides WHICH state is headlined (including "no new material
+  // information"); this only stops the sentence from SHOUTING. The verbatim
+  // backend string stays available as the element's title.
+  _setHtml('ic-headline', '<span style="color:' + toneClass + ';" title="'
+    + escapeHtml(String(head.title || '')) + '">'
+    + escapeHtml(_r29SentenceCase(head.title) || '—') + '</span>');
 
   // (2) DID ANYTHING IMPORTANT ARRIVE? — never a blank em-dash.
   _setHtml('evt-why', escapeHtml(String(head.detail || '')));
+
+  // RELEASE 29 UI CONSOLIDATION — the six facts that describe an always-on
+  // manager, replacing fifteen micro key/values. Every value is read verbatim
+  // from the payload; the worker counters remain in Audit / Advanced below.
+  var _amCycleState = (d.activity || {}).last_event_cycle_state;
+  var _amStep = svc.iteration_in_flight
+    ? (_r29Humanise(svc.progress_step, _R29_PROGRESS_STEP_TEXT) || 'Working')
+    : (_r29Humanise(svc.progress_step, _R29_PROGRESS_STEP_TEXT) || '—');
+  _setHtml('am-metrics', [
+    _r29Metric('Last cycle', _r29Clock(svc.last_iteration_finished_at
+      || act.last_collection_success_at) || 'never', null, 'tone-neutral',
+      'When the collection worker last finished a bounded unit of work.'),
+    _r29Metric('Next check', _r29Clock(svc.next_wake_at) || '—', null, 'tone-neutral',
+      'When the service next checks which sources are due, decided by the backend cadence owner.'),
+    _r29Metric('Sources healthy',
+      (sum.healthy_due === undefined ? '—' : sum.healthy_due) + ' / '
+      + (sum.due_now === undefined ? '—' : sum.due_now),
+      'due right now',
+      (sum.due_now && sum.healthy_due === sum.due_now) ? 'tone-ok'
+        : (sum.due_now ? 'tone-warn' : 'tone-quiet'),
+      String(sum.headline || '') + ' ' + String(sum.note || '')),
+    _r29Metric('Current step', _amStep, svc.iteration_in_flight ? 'in flight' : 'between cycles',
+      'txt ' + (svc.iteration_in_flight ? 'tone-info' : 'tone-quiet'),
+      'Backend-reported progress step. Raw: ' + String(svc.progress_step || '—')),
+    _r29Metric('Latest event', _r29SentenceCase(head.title) || '—', null,
+      'txt ' + (head.tone === 'ok' ? 'tone-ok' : (head.tone === 'warn' ? 'tone-warn' : 'tone-info')),
+      String(head.detail || '')),
+    _r29Metric('Portfolio result',
+      _r29Humanise(_amCycleState, _R29_EVENT_CYCLE_TEXT) || 'Not run yet', null,
+      'txt ' + ((_amCycleState === 'REASSESSED_TARGET_CHANGED') ? 'tone-warn'
+        : (_amCycleState === 'REASSESSED_BLOCKED' ? 'tone-bad' : 'tone-ok')),
+      'Outcome of the last portfolio reassessment, produced by the canonical reassessment '
+      + 'owner. Review only. Raw: ' + String(_amCycleState || 'NOT_RUN'))
+  ].join(''));
 
   _setHtml('ic-service-line', [
     // IDLE / BUSY are healthy; STALLED / DEAD are not. The verdict and its
@@ -28342,10 +29209,15 @@ function renderInformationCollection(d) {
   var dec = d.portfolio_decision || {};
   var ra = dec.portfolio_reassessment || {};
   var tp = dec.target_portfolio || {};
+  // RELEASE 29 UI CONSOLIDATION: the operator statement is a sentence, not an
+  // enum. The raw code stays on the element's title attribute and in the
+  // Audit / Advanced disclosure, so nothing becomes unreachable.
+  var _decCode = String(dec.event_cycle_state || 'NOT_RUN');
   var decRows = [
-    '<div>Event cycle: <strong>' + escapeHtml(String(dec.event_cycle_state || 'NOT_RUN')) + '</strong>'
-    + ' &middot; Reassessment: <strong>' + escapeHtml(String(dec.reassessment_ran === true ? 'COMPLETE'
-      : (dec.reassessment_ran === false ? 'NOT REQUIRED' : '—'))) + '</strong></div>'
+    '<div title="Raw event-cycle state: ' + escapeHtml(_decCode) + '"><strong>'
+    + escapeHtml(_r29Humanise(_decCode, _R29_EVENT_CYCLE_TEXT) || _decCode) + '</strong>'
+    + ' &middot; reassessment ' + escapeHtml(String(dec.reassessment_ran === true ? 'complete'
+      : (dec.reassessment_ran === false ? 'not required' : 'not reported'))) + '</div>'
   ];
   if (dec.reassessment_reason) {
     decRows.push('<div style="color:var(--label);">Reason: ' + escapeHtml(String(dec.reassessment_reason)) + '</div>');
@@ -29036,6 +29908,9 @@ function renderWorkflowState(d) {
   // Defect 4: the operational lifecycle strips (Today + Daily Workflow) re-frame
   // any NEEDS_ACTION stage as optional review context in a canonical no-op state.
   try { if (typeof _obReframeStageStatuses === 'function') _obReframeStageStatuses(); } catch (e) {}
+  // Release 29 UI consolidation: the CURRENT PORTFOLIO strip mirrors the canonical
+  // change verdict, so it re-renders once the workflow-state owner has landed.
+  try { if (typeof renderPmCurrentPortfolio === 'function') renderPmCurrentPortfolio(); } catch (e) {}
 }
 window.renderWorkflowState = renderWorkflowState;
 
@@ -29136,7 +30011,62 @@ function _wsApplyAssessmentFraming(d) {
     _wsOwnSet(p + '-dag-headline', ap.headline, col);
     _wsOwnSet(p + '-dag-explanation', ap.explanation);
   });
+  // Presentation-only summary. Guarded so the canonical ownership path can never
+  // be broken by a presentation helper being absent (e.g. in the render harness).
+  if (typeof _r29RenderHocCounts === 'function') _r29RenderHocCounts(ap);
 }
+
+/* RELEASE 29 UI CONSOLIDATION — the opportunity-cost verdict as COUNTS.
+   The counts are `assessment_presentation.recommendation_counts` exactly as the
+   backend computed them, and the data-gap count is the length of its own
+   `data_gaps` list. Nothing is counted, classified or re-derived here: the only
+   change is that a metric row is drawn as a metric row instead of being flattened
+   into one alarm-coloured sentence. Colour follows meaning — HOLD is a healthy
+   state, REDUCE/REPLACE ask for review, EXIT is the severe one, ADD is
+   informational, and a zero recedes instead of shouting. */
+function _r29RenderHocCounts(ap) {
+  var cells = [
+    { key: 'HOLD', label: 'Hold', cls: 'k-hold', title: 'Holdings the review keeps as they are.' },
+    { key: 'REDUCE', label: 'Reduce', cls: 'k-reduce', title: 'Holdings the review would size down. Review only.' },
+    { key: 'EXIT', label: 'Exit', cls: 'k-exit', title: 'Holdings the review would leave entirely. Review only.' },
+    { key: 'REPLACE', label: 'Replace', cls: 'k-replace', title: 'Holdings the review would swap for a stronger alternative. Review only.' },
+    { key: 'ADD', label: 'Add', cls: 'k-add', title: 'Candidate names the review would add. Review only.' }
+  ];
+  var counts = (ap && ap.recommendation_counts) || null;
+  var gaps = (ap && ap.data_gaps) || [];
+  ['cc', 'pm'].forEach(function (p) {
+    var el = document.getElementById(p + '-dag-counts');
+    var hl = document.getElementById(p + '-dag-headline');
+    if (!el) return;
+    if (!counts || !Object.keys(counts).length) {
+      el.style.display = 'none'; el.innerHTML = '';
+      if (hl) hl.style.display = '';           // no counts -> the sentence IS the summary
+      return;
+    }
+    // The count cells ARE the summary, so the backend sentence that spells the same
+    // counts out in prose would be the same information twice. The canonical text is
+    // NOT discarded: it remains the element's value (every existing reader still
+    // sees it) and is surfaced verbatim on the summary's own tooltip.
+    if (hl) {
+      hl.style.display = 'none';
+      el.setAttribute('title', String(hl.textContent || '').trim());
+    }
+    var html = cells.map(function (c) {
+      var n = counts[c.key];
+      var zero = (n === 0 || n === null || n === undefined);
+      return '<div class="c ' + c.cls + (zero ? ' is-zero' : '') + '" title="'
+        + escapeHtml(c.title) + '"><div class="k">' + escapeHtml(c.label) + '</div>'
+        + '<div class="v">' + escapeHtml(String(n === null || n === undefined ? 0 : n)) + '</div></div>';
+    }).join('');
+    html += '<div class="c k-gaps' + (gaps.length ? '' : ' is-zero') + '" title="'
+      + escapeHtml('Documented data gaps in this assessment'
+        + (gaps.length ? (': ' + gaps.join(', ')) : '. None.'))
+      + '"><div class="k">Data gaps</div><div class="v">' + gaps.length + '</div></div>';
+    el.innerHTML = html;
+    el.style.display = '';
+  });
+}
+window._r29RenderHocCounts = _r29RenderHocCounts;
 
 // Canonical evidence presentation on the Portfolio: the still-open CURRENT session
 // and the LATEST COMPLETED close are stated SEPARATELY; a documented gap is
@@ -29939,16 +30869,43 @@ function _dcApplyHeadline(prefix, d, color) {
     return;
   }
   if (_dcIsLegacyCompat(d)) {
-    if (hl) {
-      hl.style.color = 'var(--label, #94a3b8)';
-      hl.innerHTML = '<details class="dc-legacy-compat">'
-        + '<summary style="cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.02em;color:var(--label,#94a3b8);">'
-        + 'Legacy membership comparison &mdash; compatibility only</summary>'
-        + '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--label,#94a3b8);">' + escapeHtml(d.headline || '') + '</div>'
-        + '<div style="margin-top:4px;font-size:11px;font-weight:400;color:var(--label,#94a3b8);">' + escapeHtml(d.explanation || '') + '</div>'
-        + '</details>';
+    // RELEASE 29 UI CONSOLIDATION — the legacy compatibility text used to BE the
+    // headline of the Daily Close card, so the operator's first read of "today's
+    // close" was a superseded rank-membership comparison while NAV and P&L sat
+    // underneath in 10px mono. The compatibility material keeps every word and
+    // stays a closed <details>, but it moves OUT of the headline slot into the
+    // card's detail region, and the headline states the canonical OPERATIONAL
+    // close state that the same payload already reports (operational_close).
+    var _oc = d.operational_close || {};
+    var _legacy = '<details class="dc-legacy-compat">'
+      + '<summary style="cursor:pointer;font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--cc-text-dim,#6a7fa0);">'
+      + 'Legacy membership comparison &mdash; compatibility only</summary>'
+      + '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--label,#94a3b8);">' + escapeHtml(d.headline || '') + '</div>'
+      + '<div style="margin-top:4px;font-size:11px;font-weight:400;color:var(--label,#94a3b8);">' + escapeHtml(d.explanation || '') + '</div>'
+      + '</details>';
+    var slot = document.getElementById(prefix + '-dc-legacy-slot');
+    if (slot) {
+      slot.innerHTML = _legacy;
+      if (hl) {
+        // The canonical operational verdict, from the payload's own fields — no
+        // date arithmetic and no completeness judgement is made in the browser.
+        hl.style.color = _oc.complete ? 'var(--ok, #22c55e)' : 'var(--label, #94a3b8)';
+        hl.textContent = (_oc.complete === true)
+          ? ('Close complete · ' + String(_oc.market_date || d.last_processed_market_date || '—'))
+          : ('Close not yet complete · ' + String(d.last_processed_market_date || '—'));
+        hl.setAttribute('title', String(d.close_status_label || d.close_status || ''));
+      }
+      if (ex) {
+        ex.textContent = 'Operational close for Alpha Paper Book #1. The legacy '
+          + 'membership comparison is compatibility-only detail and is not a portfolio '
+          + 'proposal; the canonical decision is the Holding Opportunity-Cost Review.';
+        ex.style.display = '';
+      }
+    } else {
+      // Surfaces without a detail slot keep the previous behaviour exactly.
+      if (hl) { hl.style.color = 'var(--label, #94a3b8)'; hl.innerHTML = _legacy; }
+      if (ex) { ex.textContent = ''; ex.style.display = 'none'; }
     }
-    if (ex) { ex.textContent = ''; ex.style.display = 'none'; }
   } else {
     _dcSet(prefix + '-dc-headline', d.headline);
     if (hl) hl.style.color = color;
@@ -29975,14 +30932,26 @@ function renderDailyClose(d) {
   var gate = _wsDailyCloseGate();
   var closeForbidden = !!pa.runs_daily_close && !gate.execution_allowed;
 
+  // RELEASE 29 UI CONSOLIDATION: on a surface with a detail region, the currency
+  // BADGE states the operational close state; the long legacy compatibility label
+  // is not a status chip and moves into that detail region with its full text.
+  var _dcLegacy = _dcIsLegacyCompat(d);
+  var _dcOc = d.operational_close || {};
+
   // ---- Command Center + Daily Workflow ----
   ['cc', 'dw'].forEach(function (p) {
+    var _hasSlot = !!document.getElementById(p + '-dc-legacy-slot');
     _dcSet(p + '-dc-badge', closeForbidden
-      ? (gate.passive_badge || 'WAITING') : d.close_status_label);
+      ? (gate.passive_badge || 'WAITING')
+      : ((_dcLegacy && _hasSlot)
+        ? (_dcOc.complete === true ? 'CLOSE COMPLETE' : 'CLOSE PENDING')
+        : d.close_status_label));
     var badge = document.getElementById(p + '-dc-badge');
     if (badge) {
-      var bCol = closeForbidden ? 'var(--label, #94a3b8)' : color;
+      var bCol = closeForbidden ? 'var(--label, #94a3b8)'
+        : ((_dcLegacy && _hasSlot && _dcOc.complete === true) ? 'var(--ok, #22c55e)' : color);
       badge.style.borderColor = bCol; badge.style.color = bCol;
+      badge.setAttribute('title', String(d.close_status_label || d.close_status || ''));
     }
     _dcApplyHeadline(p, d, color);
     _dcSet(p + '-dc-latest', d.latest_eligible_market_date);
@@ -29994,8 +30963,21 @@ function renderDailyClose(d) {
       // this panel button would be a DUPLICATE of the same write action — hide it and
       // let the panel show status only. Non-executing affordances (View/Await) stay.
       var dupExec = !!pa.runs_daily_close && _wsCommandOwnsExecution();
-      if (closeForbidden || dupExec) { btn.style.display = 'none'; }
-      else { btn.textContent = pa.label || 'View'; btn.style.display = pa.enabled === false ? 'none' : ''; }
+      // RELEASE 29 UI CONSOLIDATION: when the surface has a detail region, the
+      // legacy compatibility view is already reachable there (collapsed, full
+      // text). Repeating it as a button beside the operational headline is the
+      // inversion this pass removes — the affordance is not deleted, it lives in
+      // the disclosure. A close-EXECUTING action is never hidden by this.
+      var legacyNav = _dcLegacy && !pa.runs_daily_close
+        && !!document.getElementById(p + '-dc-legacy-slot');
+      if (closeForbidden || dupExec || legacyNav) { btn.style.display = 'none'; }
+      else {
+        btn.textContent = pa.label || 'View';
+        btn.style.display = pa.enabled === false ? 'none' : '';
+        // Only a close-EXECUTING action earns the primary (green) treatment; a
+        // navigation affordance is secondary. Label and behaviour are unchanged.
+        btn.className = 'cc-btn' + (pa.runs_daily_close ? ' primary' : ' ghost');
+      }
     }
   });
   _dcSet('cc-dc-valdate', d.current_valuation_date);
@@ -30015,6 +30997,47 @@ function renderDailyClose(d) {
   var ccChecks = document.getElementById('cc-dc-checks');
   var checkLine = (d.checks_summary && d.checks_summary.line) || '';
   if (ccChecks) { ccChecks.textContent = checkLine; ccChecks.style.display = checkLine ? '' : 'none'; }
+
+  /* RELEASE 29 UI CONSOLIDATION — the money as a metric grid. Every value below
+     is the SAME canonical value already written to the cc-dc-* nodes above; this
+     is a re-layout, not a second computation. Sign colouring follows the
+     backend's own numbers (positive green / negative red) and nothing else. */
+  var ccM = document.getElementById('cc-dc-metrics');
+  if (ccM) {
+    if (hasPnl) {
+      var _sign = function (x) {
+        if (x === null || x === undefined || isNaN(Number(x))) return 'tone-quiet';
+        return Number(x) > 0 ? 'tone-ok' : (Number(x) < 0 ? 'tone-bad' : 'tone-neutral');
+      };
+      var _chg = (d.proposed_change_count == null ? 0 : d.proposed_change_count);
+      ccM.innerHTML = [
+        _r29Metric('NAV', _dcMoney(pnl.nav), 'cash + marked holdings', 'tone-neutral',
+          'Net asset value of Alpha Paper Book #1 (paper only).'),
+        _r29Metric('Today', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl)
+          : (pnl.daily_pnl_display || 'Unavailable'),
+          pnl.daily_pnl_available ? _dcPct(pnl.daily_return_pct) : 'first mark',
+          pnl.daily_pnl_available ? _sign(pnl.daily_pnl) : 'tone-quiet',
+          'Daily P&L vs the prior completed operational NAV.'),
+        _r29Metric('Cumulative', _dcMoney(pnl.cumulative_pnl), _dcPct(pnl.cumulative_return_pct),
+          _sign(pnl.cumulative_pnl), 'Cumulative P&L vs the starting virtual capital.'),
+        _r29Metric('Vs SPY', _fePp(pnl.excess_return_pct), 'cumulative excess',
+          _sign(pnl.excess_return_pct),
+          'Cumulative excess return vs SPY since the baseline, in percentage points.'),
+        _r29Metric('Drawdown', _dcPct(pnl.drawdown_pct), 'from peak',
+          (pnl.drawdown_pct === null || pnl.drawdown_pct === undefined) ? 'tone-quiet'
+            : (Number(pnl.drawdown_pct) < 0 ? 'tone-warn' : 'tone-neutral'),
+          'Current drawdown of the operational book.'),
+        _r29Metric('Holdings', d.holdings_count, 'paper positions', 'tone-neutral',
+          'Positions currently held by Alpha Paper Book #1.'),
+        _r29Metric('Cash', _dcMoney(pnl.cash), 'uninvested', 'tone-neutral',
+          'Uninvested paper cash.'),
+        _r29Metric('Proposed changes', _chg, 'for manual review',
+          _chg ? 'tone-warn' : 'tone-ok',
+          'Portfolio changes proposed by this close. Review only — nothing is executed.')
+      ].join('');
+      ccM.style.display = '';
+    } else { ccM.innerHTML = ''; ccM.style.display = 'none'; }
+  }
 
   // ---- Readiness line (clock / provider / data scope) on CC + DW ----
   var readyLine = _dcReadinessText(d);
@@ -30058,12 +31081,22 @@ function renderDailyClosePm(d, color) {
   var _pmPa = d.primary_action || {};
   var _pmGate = _wsDailyCloseGate();
   var _pmForbidden = !!_pmPa.runs_daily_close && !_pmGate.execution_allowed;
+  // RELEASE 29 UI CONSOLIDATION: same demotion as the Command Center — the
+  // currency badge states the OPERATIONAL close state; the long legacy
+  // compatibility label is not a status chip and keeps its full text inside the
+  // card's collapsed detail region (written by _dcApplyHeadline below).
+  var _pmLegacy = _dcIsLegacyCompat(d) && !!document.getElementById('pm-dc-legacy-slot');
+  var _pmOc = d.operational_close || {};
   _dcSet('pm-dc-badge', _pmForbidden
-    ? (_pmGate.passive_badge || 'WAITING') : d.close_status_label);
+    ? (_pmGate.passive_badge || 'WAITING')
+    : (_pmLegacy ? (_pmOc.complete === true ? 'CLOSE COMPLETE' : 'CLOSE PENDING')
+      : d.close_status_label));
   var badge = document.getElementById('pm-dc-badge');
   if (badge) {
-    var _pmCol = _pmForbidden ? 'var(--label, #94a3b8)' : color;
+    var _pmCol = _pmForbidden ? 'var(--label, #94a3b8)'
+      : ((_pmLegacy && _pmOc.complete === true) ? 'var(--ok, #22c55e)' : color);
     badge.style.borderColor = _pmCol; badge.style.color = _pmCol;
+    badge.setAttribute('title', String(d.close_status_label || d.close_status || ''));
   }
   _dcApplyHeadline('pm', d, color);
   _dcSet('pm-dc-latest', d.latest_eligible_market_date);
@@ -30100,7 +31133,12 @@ function renderDailyClosePm(d, color) {
     // executable close, this button would duplicate the same write action.
     if (pa.enabled === false
         || (pa.runs_daily_close && !_wsDailyCloseGate().execution_allowed)
-        || (pa.runs_daily_close && _wsCommandOwnsExecution())) btn.style.display = 'none';
+        || (pa.runs_daily_close && _wsCommandOwnsExecution())
+        // RELEASE 29 UI CONSOLIDATION: the legacy compatibility view is already
+        // reachable in the card's collapsed detail region with its full text;
+        // a second primary-styled button beside the operational result is the
+        // inversion this pass removes. A close-EXECUTING action is unaffected.
+        || (_pmLegacy && !pa.runs_daily_close)) btn.style.display = 'none';
     else { btn.textContent = pa.label; btn.style.display = ''; }
   }
 }
@@ -31302,8 +32340,74 @@ function renderOperationalBook(d) {
 
   // Phase 27B.5: the Portfolio Manager lifecycle status card (same view model).
   try { renderPmLifecycle(view, primaryLabel); } catch (e) {}
+  // Release 29 UI consolidation: the Portfolio Manager's CURRENT PORTFOLIO strip.
+  try { renderPmCurrentPortfolio(); } catch (e) {}
 }
 window.renderOperationalBook = renderOperationalBook;
+
+/* =====================================================================
+   RELEASE 29 UI CONSOLIDATION — PORTFOLIO MANAGER: "CURRENT PORTFOLIO".
+
+   The Portfolio Manager route opened on a technical evidence state while the
+   portfolio itself was eight sections down. This strip answers question 1 of
+   the route ("what IS my portfolio right now?") at the top.
+
+   It is a MIRROR, not a second interpretation. Every value is read back from
+   the canonical nodes that the portfolio-state and operational-book owners
+   already wrote (cc-ob-*, cc-status-mark). It performs NO valuation, NO
+   counting, NO date arithmetic and NO book selection, so it is incapable of
+   disagreeing with the Command Center, the right rail or the holdings page —
+   the read seam is bound, not the store.
+   ===================================================================== */
+function _r29Mirror(id) {
+  var el = document.getElementById(id);
+  var t = el ? String(el.textContent || '').trim() : '';
+  return (!t || t === '—' || t === '-') ? null : t;
+}
+function renderPmCurrentPortfolio() {
+  var strip = document.getElementById('pm-current-strip');
+  if (!strip) return;
+  var ob = (window._obData && window._obData.operational_book) || {};
+  var rows = [
+    { k: 'Book', v: _r29Mirror('cc-ob-state'), t: 'Workflow status of the single operational book.' },
+    { k: 'Holdings', v: _r29Mirror('cc-ob-holdings'), t: 'Positions currently held by Alpha Paper Book #1.' },
+    { k: 'Cash', v: _r29Mirror('cc-ob-cash'), t: 'Uninvested paper cash.' },
+    { k: 'Pending orders', v: _r29Mirror('cc-ob-pending'), t: 'Paper orders submitted and awaiting the next eligible close.' },
+    { k: 'Current target', v: _r29Mirror('cc-ob-target'), t: 'The confirmed target the book is implementing.' },
+    { k: 'Implementation', v: _r29Mirror('cc-ob-impl'), t: 'Target names the book ACTUALLY holds. A confirmed target weight is not an executed position.' },
+    { k: 'Operational mark', v: _r29Mirror('cc-status-mark'), t: 'Operational desk valuation date of Alpha Paper Book #1.' },
+    { k: 'Next review', v: _r29Mirror('cc-ob-review'), t: 'Next scheduled combined-model review. A material event can still propose action before this date.' }
+  ];
+  var html = rows.map(function (r) {
+    return '<div class="kv" title="' + escapeHtml(r.t) + '">'
+      + '<div class="k">' + escapeHtml(r.k) + '</div>'
+      + '<div class="v">' + escapeHtml(r.v || '—') + '</div></div>';
+  }).join('');
+  // Whether a portfolio change is currently recommended — the canonical
+  // Holding-Opportunity-Cost / reallocation verdict, mirrored verbatim from the
+  // workflow-state owner. No verdict is derived here.
+  var ws = window._wsData || null;
+  var ap = (ws && ws.assessment_presentation) || null;
+  var rp = (ws && ws.reallocation_proposal_presentation) || null;
+  var changeText = null, changeTone = '';
+  if (rp && rp.headline) {
+    changeText = String(rp.headline);
+    changeTone = (ws.reallocation_operator_state === 'REALLOCATION_PROPOSAL_READY') ? 'tone-warn' : 'tone-ok';
+  } else if (ap && ap.badge) {
+    changeText = String(ap.badge);
+    changeTone = '';
+  }
+  if (changeText) {
+    html += '<div class="kv" style="grid-column:1/-1;" title="'
+      + escapeHtml('Canonical portfolio-change verdict, rendered verbatim from the reallocation / '
+        + 'opportunity-cost owners. Review only — no order is created.')
+      + '"><div class="k">Change currently recommended</div>'
+      + '<div class="v ' + changeTone + '" style="white-space:normal;">' + escapeHtml(changeText) + '</div></div>';
+  }
+  strip.innerHTML = html;
+  strip.setAttribute('data-book', String(ob.book_label || 'Alpha Paper Book #1'));
+}
+window.renderPmCurrentPortfolio = renderPmCurrentPortfolio;
 
 // ===================== Phase 27B.5 — ORDER LIFECYCLE CARD =====================
 // The Portfolio Manager's dominant card once paper orders exist. Everything is
@@ -32657,12 +33761,21 @@ function _paTxt(id, txt, cls) {
   el.textContent = (txt == null || txt === '') ? '—' : txt;
   if (cls !== undefined) el.className = 'v' + (cls ? (' ' + cls) : '');
 }
-function _paSigned(v, fmt) {
+function _paSigned(v, fmt, fmtAlreadySigns) {
   // Signed formatter with pos/neg class — the browser does NO math, only formats a
   // value the backend already computed. Returns { txt, cls }.
+  //
+  // RELEASE 29 UI CONSOLIDATION: PTC.pct ALREADY emits its own leading "+", so
+  // wrapping it here rendered "++0.88%" and "++0.41%". Formatters that sign
+  // themselves now declare it, and the sign is added exactly once. This is a
+  // formatting repair only — the value is the backend's, unchanged.
   if (v == null || isNaN(v)) return { txt: '—', cls: '' };
   var n = Number(v);
-  return { txt: (n > 0 ? '+' : '') + fmt(n), cls: (n > 0 ? 'pa-pos' : (n < 0 ? 'pa-neg' : '')) };
+  var body = fmt(n);
+  return {
+    txt: (fmtAlreadySigns || n <= 0) ? body : ('+' + body),
+    cls: (n > 0 ? 'pa-pos' : (n < 0 ? 'pa-neg' : ''))
+  };
 }
 /* Phase 29J.3A: the primary-route KPI hero. Reads the SAME chart-analytics payload the
    six charts use — nav / today P&L / cum return / vs-SPY excess / drawdown — and only
@@ -32676,10 +33789,13 @@ function _paHero(d) {
   _paTxt('pa-hero-nav', (alloc.nav != null ? money(alloc.nav) : '—'), '');
   var today = _paSigned(nl ? nl.daily_pnl : null, function (x) { return money(x); });
   _paTxt('pa-hero-today', today.txt, today.cls);
-  _paSet('pa-hero-today-sub', (nl && nl.daily_return_pct != null) ? _paSigned(nl.daily_return_pct, function (x) { return pctf(x, 2); }).txt : 'daily P&L');
-  var cum = _paSigned(pl ? pl.cum_return_pct : null, function (x) { return pctf(x, 2); });
+  _paSet('pa-hero-today-sub', (nl && nl.daily_return_pct != null) ? _paSigned(nl.daily_return_pct, function (x) { return pctf(x, 2); }, true).txt : 'daily P&L');
+  var cum = _paSigned(pl ? pl.cum_return_pct : null, function (x) { return pctf(x, 2); }, true);
   _paTxt('pa-hero-cum', cum.txt, cum.cls);
-  var exc = _paSigned(pl ? pl.excess_pp : null, function (x) { return pctf(x, 2) + ' pp'; });
+  // Percentage POINTS, not percent: the excess is a difference of two returns, so
+  // it carries the "pp" unit and must not also carry a "%" sign.
+  var exc = _paSigned(pl ? pl.excess_pp : null,
+    function (x) { return (x >= 0 ? '+' : '') + Number(x).toFixed(2) + ' pp'; }, true);
   _paTxt('pa-hero-excess', exc.txt, exc.cls);
   var dd = (pl && pl.drawdown_pct != null) ? { txt: pctf(pl.drawdown_pct, 2), cls: (pl.drawdown_pct < 0 ? 'pa-neg' : '') } : { txt: '—', cls: '' };
   _paTxt('pa-hero-dd', dd.txt, dd.cls);

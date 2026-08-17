@@ -59,6 +59,10 @@ const FUNCS = [
   'renderWorkflowState', '_wsApplyRightPanel', '_wsApplyAssessmentFraming', '_wsApplyEvidence',
   'renderDailyActionGate', '_dagApplySafeFraming',
   '_dagSet', '_dcSet', '_obSet', '_dagSevColor', '_dagPct', '_dagChangesHtml', '_dagTstate',
+  // Release 29 UI consolidation: the opportunity-cost COUNT summary is rendered from
+  // the same assessment_presentation the canonical framing owns, so it runs here too
+  // and the ownership assertions cover it.
+  '_r29RenderHocCounts',
 ];
 // _wsEsc / escapeHtml contain a regex char-class with a quote (/[&<>"]/g) that the
 // lightweight extractor cannot brace-match; they only escape HTML, so the harness
