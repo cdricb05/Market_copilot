@@ -348,23 +348,66 @@ def _child_env(**extra) -> dict:
     return env
 
 
+# Release 29 UX2: the runtime tests exercise the workflow exactly the way an operator now
+# runs it - a DIRECT, in-process `& <owner> -Force -Port <n> -SmokePath $paths` call, with
+# every argument splatted so a String[] stays a String[]. The historical defect was a
+# String[] forwarded across `powershell.exe -File`, whose far side has no PowerShell parser
+# and flattened the array; nothing in this repository may reproduce that shape, including
+# its own tests. Only the throwaway wrapper below runs in the child process, and it exists
+# solely because pytest cannot host a PowerShell runspace.
+DIRECT_INVOKE_WRAPPER = '''\
+param([Parameter(Mandatory=$true)][string]$Owner,
+      [Parameter(Mandatory=$true)][string]$ArgFile)
+$ErrorActionPreference = "Stop"
+$spec = Get-Content -LiteralPath $ArgFile -Raw | ConvertFrom-Json
+$splat = @{}
+foreach ($p in $spec.PSObject.Properties) {
+    $v = $p.Value
+    if ($v -is [System.Array]) { $v = [string[]]@($v) }
+    $splat[$p.Name] = $v
+}
+# DIRECT invocation. No child shell. No -File. The array stays one String[].
+& $Owner @splat
+$rc = $LASTEXITCODE
+Write-Host ("WRAPPER_LASTEXITCODE=" + $rc)
+Write-Host ("WRAPPER_RESULT_TOKEN=" + $global:PaperTraderRestartResult)
+Write-Host "WRAPPER_CALLER_SURVIVED"
+exit $rc
+'''
+
+
 def _run_owner(args, env, tmp_path, timeout=180):
-    """Run the canonical workflow and return ``(returncode, combined_output)``.
+    """Run the canonical workflow DIRECTLY and return ``(exitcode, combined_output)``.
+
+    ``args`` is a mapping of parameter name -> value (``{"Force": True, "Port": 8098,
+    "SmokePath": ["/v1/...", "/v1/..."]}``). The canonical owner no longer contains any
+    process-terminating statement - that is what makes it safe for an operator to call in
+    their own shell - so the exit code reported here is the ``$LASTEXITCODE`` the owner
+    published, surfaced by the throwaway wrapper.
 
     Output goes to FILES, never to pipes. A successful restart deliberately leaves the
     backend running, and that surviving grandchild inherits the parent's handles: with
     ``capture_output=True`` the pipe never closes and the test hangs until its timeout
-    even though the script exited cleanly seconds earlier.
+    even though the script finished cleanly seconds earlier.
     """
-    out_file = Path(tmp_path) / "owner_stdout.txt"
-    err_file = Path(tmp_path) / "owner_stderr.txt"
+    tmp_path = Path(tmp_path)
+    wrapper = tmp_path / "direct_invoke.ps1"
+    wrapper.write_text(DIRECT_INVOKE_WRAPPER, encoding="utf-8")
+    arg_file = tmp_path / "owner_args.json"
+    arg_file.write_text(json.dumps(
+        {k: (str(v) if isinstance(v, Path) else v) for k, v in args.items()}),
+        encoding="utf-8")
+    out_file = tmp_path / "owner_stdout.txt"
+    err_file = tmp_path / "owner_stderr.txt"
     cmd = [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-           "-File", str(OWNER)] + [str(a) for a in args]
+           "-File", str(wrapper), "-Owner", str(OWNER), "-ArgFile", str(arg_file)]
     with open(out_file, "wb") as so, open(err_file, "wb") as se:
         proc = subprocess.run(cmd, stdout=so, stderr=se, stdin=subprocess.DEVNULL,
                               timeout=timeout, env=env, cwd=str(REPO))
     text = (out_file.read_text(encoding="utf-8", errors="replace")
             + err_file.read_text(encoding="utf-8", errors="replace"))
+    assert "WRAPPER_CALLER_SURVIVED" in text, (
+        "the direct caller must survive every outcome:\n" + text[-4000:])
     return proc.returncode, text
 
 
@@ -377,10 +420,11 @@ def _kill_launched(output: str) -> None:
 @requires_powershell
 def test_30_it_refuses_to_launch_when_a_store_root_is_contaminated(tmp_path):
     env = _child_env(PAPER_TRADER_DESK_DIR=r"D:\Temp\stage20_ui_acceptance\desk")
-    code, out = _run_owner(["-Force", "-Port", _free_port(), "-LogDir", tmp_path],
+    code, out = _run_owner({"Force": True, "Port": _free_port(), "LogDir": tmp_path},
                            env, tmp_path, timeout=90)
     _kill_launched(out)
     assert code != 0, out
+    assert "RESTART_SMOKE_FAILED" in out, out
     assert "PRODUCTION_STORE_ROOTS_CONTAMINATED" in out
     assert "PAPER_TRADER_DESK_DIR" in out
     assert "LIVE_SMOKE_OK" not in out
@@ -390,11 +434,12 @@ def test_30_it_refuses_to_launch_when_a_store_root_is_contaminated(tmp_path):
 @requires_powershell
 def test_31_a_startup_failure_prints_full_diagnostics_and_returns_nonzero(tmp_path):
     env = _child_env(RESTART_STUB_JOURNAL=str(tmp_path / "journal.jsonl"))
-    code, out = _run_owner(["-Force", "-Port", _free_port(), "-LogDir", tmp_path,
-                            "-AppDir", tmp_path, "-AppModule", "no_such_stub_module:app",
-                            "-ReadyTimeoutSec", 30], env, tmp_path, timeout=180)
+    code, out = _run_owner({"Force": True, "Port": _free_port(), "LogDir": tmp_path,
+                            "AppDir": tmp_path, "AppModule": "no_such_stub_module:app",
+                            "ReadyTimeoutSec": 30}, env, tmp_path, timeout=180)
     _kill_launched(out)
     assert code != 0, out
+    assert "RESTART_SMOKE_FAILED" in out, out
     assert "BACKEND STARTUP DIAGNOSTICS" in out
     for token in ("launched pid", "pid still alive", "process exit code",
                   "listener", "STDERR", "STDOUT"):
@@ -409,16 +454,30 @@ def test_32_a_successful_restart_probes_only_canonical_routes_and_smokes_live(tm
     (tmp_path / "restart_stub_backend.py").write_text(STUB_BACKEND, encoding="utf-8")
     env = _child_env(RESTART_STUB_JOURNAL=str(journal))
     port = _free_port()
-    code, out = _run_owner(["-Force", "-Port", port, "-LogDir", tmp_path,
-                            "-AppDir", tmp_path, "-AppModule", "restart_stub_backend:app",
-                            "-SmokePath", "/v1/operations/daily-close/progress",
-                            "-ReadyTimeoutSec", 60], env, tmp_path, timeout=180)
+    # Release 29 UX2: TWO caller-supplied smoke paths, forwarded as ONE String[]. This is
+    # the runtime half of the array-flattening proof - the historical defect turned a
+    # multi-element String[] into one path plus stray positional tokens.
+    extra_paths = ["/v1/operations/daily-close/progress",
+                   "/v1/operations/portfolio-state"]
+    code, out = _run_owner({"Force": True, "Port": port, "LogDir": tmp_path,
+                            "AppDir": tmp_path, "AppModule": "restart_stub_backend:app",
+                            "SmokePath": extra_paths,
+                            "ReadyTimeoutSec": 60}, env, tmp_path, timeout=180)
     try:
         assert code == 0, out
 
-        # (7) LIVE_SMOKE_OK exactly once, and only at the end.
-        assert out.count("LIVE_SMOKE_OK") == 1, out
-        assert out.rstrip().endswith("LIVE_SMOKE_OK"), out
+        # the bound contract is stated before anything is stopped or started
+        assert "INVOCATION CONTRACT (bound parameters)" in out, out
+        assert "[System.String[]] 2 element(s)" in out, out
+
+        # (7) LIVE_SMOKE_OK exactly once in the OWNER's own output, and only after the
+        # authenticated live read. (The wrapper echoes the published result token after
+        # the owner has finished; that echo is the harness, not the workflow.)
+        owner_out = out.split("WRAPPER_LASTEXITCODE=", 1)[0]
+        assert owner_out.count("LIVE_SMOKE_OK") == 1, out
+        assert owner_out.rstrip().endswith("LIVE_SMOKE_OK"), out
+        assert owner_out.index("AUTHENTICATED LIVE READ") < owner_out.index("LIVE_SMOKE_OK")
+        assert "WRAPPER_RESULT_TOKEN=LIVE_SMOKE_OK" in out, out
 
         # process start + port listener + exactly one listener
         assert re.search(r"launched pid \d+", out), out
@@ -442,8 +501,11 @@ def test_32_a_successful_restart_probes_only_canonical_routes_and_smokes_live(tm
         assert authed, paths
         assert all(row["api_key"] == STUB_KEY for row in authed), authed
 
-        # stage-specific GET assertions are additive, not a replacement
-        assert "/v1/operations/daily-close/progress" in paths, paths
+        # stage-specific GET assertions are additive, not a replacement - and EVERY
+        # element of the String[] was really probed, in order, unflattened.
+        for extra in extra_paths:
+            assert extra in paths, (extra, paths)
+        assert "authenticated GETs checked: 3" in out, out
     finally:
         _kill_launched(out)
 
@@ -461,12 +523,13 @@ def test_33b_a_health_route_that_404s_fails_fast_and_by_name(tmp_path):
     (tmp_path / "restart_stub_backend.py").write_text(STUB_BACKEND, encoding="utf-8")
     env = _child_env(RESTART_STUB_JOURNAL=str(journal), RESTART_STUB_404_ALL="1")
     started = time.monotonic()
-    code, out = _run_owner(["-Force", "-Port", _free_port(), "-LogDir", tmp_path,
-                            "-AppDir", tmp_path, "-AppModule", "restart_stub_backend:app",
-                            "-ReadyTimeoutSec", 120], env, tmp_path, timeout=200)
+    code, out = _run_owner({"Force": True, "Port": _free_port(), "LogDir": tmp_path,
+                            "AppDir": tmp_path, "AppModule": "restart_stub_backend:app",
+                            "ReadyTimeoutSec": 120}, env, tmp_path, timeout=200)
     elapsed = time.monotonic() - started
     try:
         assert code != 0, out
+        assert "RESTART_SMOKE_FAILED" in out, out
         assert "NONCANONICAL HEALTH ROUTE" in out, out
         assert CANONICAL_HEALTH in out and CANONICAL_READY in out, out
         assert "BACKEND STARTUP DIAGNOSTICS" in out, out
@@ -484,11 +547,12 @@ def test_33b_a_health_route_that_404s_fails_fast_and_by_name(tmp_path):
 @requires_powershell
 def test_33_without_force_it_validates_and_starts_nothing(tmp_path):
     env = _child_env()
-    code, out = _run_owner(["-Port", _free_port(), "-LogDir", tmp_path],
+    code, out = _run_owner({"Port": _free_port(), "LogDir": tmp_path},
                            env, tmp_path, timeout=90)
     _kill_launched(out)
     assert code == 0, out
     assert "PRODUCTION_STORE_ROOTS_OK" in out
     assert "RESTART_PREFLIGHT_OK" in out
+    assert "WRAPPER_RESULT_TOKEN=RESTART_PREFLIGHT_OK" in out
     assert "LIVE_SMOKE_OK" not in out
     assert "launched pid" not in out

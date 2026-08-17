@@ -2315,11 +2315,11 @@
     #cc-root > #cc-realloc-card { order: 22; }
     /* 6. THE BOOK ITSELF. */
     #cc-root > #cc-ob-panel   { order: 30; }
-    /* 7. REFERENCE CONTEXT AND DIAGNOSTICS — present, never first. */
-    #cc-root > #cc-market-context { order: 40; }
-    #cc-root > #cc-market-visuals { order: 41; }
-    #cc-root > #cc-freshness      { order: 42; }
-    #cc-root > #cc-research-strip { order: 43; }
+    /* 7. REFERENCE CONTEXT — Release 29 UX2: the market dashboard, the data-freshness
+       strip and the research-status strip are no longer on Today at all. The market
+       dashboard moved to MARKETS; freshness, collection source health and research status
+       moved to SYSTEM · AUDIT. Today keeps ONE compact four-instrument market line. */
+    #cc-root > #today-market-strip { order: 45; }
     #cc-root > #cc-updated        { order: 90; }
     @media (max-width: 1500px) {
       #cc-root { grid-template-columns: minmax(0, 1fr); }
@@ -2612,9 +2612,226 @@
     /* ---------- 1440x900 ------------------------------------------------- */
     @media (max-width: 1460px) {
       .r29-metrics.cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .r29-metrics.cols-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .r29-metrics.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       #evt-card .r29-am-lists { grid-template-columns: 1fr; }
       #hdr-modes-body { width: 380px; }
+    }
+  </style>
+
+  <!-- =====================================================================
+       RELEASE 29 UX2 — RADICAL OPERATOR SIMPLIFICATION.
+
+       The previous pass improved HIERARCHY. Acceptance still failed, because
+       hierarchy does not help when the screen carries information the operator
+       cannot act on. The standing product rule for this stylesheet is:
+
+         IF THE OPERATOR CANNOT ACT ON IT, AND DOES NOT NEED IT TO MAKE A
+         PORTFOLIO DECISION, IT DOES NOT BELONG ON TODAY OR PORTFOLIO.
+
+       So this pass REMOVES content from the two operating screens rather than
+       reordering or collapsing it:
+
+         * the whole market dashboard MOVED to the new MARKETS area;
+         * data freshness, the source-by-source collection table, the worker
+           counters, the material-event / affected-holding lists, the
+           portfolio-decision line and research status MOVED to SYSTEM · AUDIT;
+         * the persistent right diagnostic rail is REMOVED from Today,
+           Portfolio, Markets and the two full-screen reviews;
+         * lifecycle boxes, legacy/compatibility disclosures, badge walls,
+           duplicated headlines and developer paragraphs are removed from view.
+
+       Nothing is deleted from the DOM. Every id below is still a live write
+       target for its canonical loader, so no owner is forked and no test
+       selector, deep link or scroll anchor stops resolving.
+       ===================================================================== -->
+  <style id="r29ux2-styles">
+    /* ---------- global chrome: ONE place states the operating mode --------- */
+    /* The persistent right rail is a diagnostics panel. It has no place on an
+       operating screen; the header already states paper / manual / automation-off
+       and the collection state. It remains, unchanged, on the routes that are
+       ABOUT diagnostics. */
+    body[data-route="command-center"] .right-panel,
+    body[data-route="today"] .right-panel,
+    body[data-route="portfolio-manager"] .right-panel,
+    body[data-route="markets"] .right-panel,
+    body[data-route="holding-review"] .right-panel,
+    body[data-route="proposed-portfolio"] .right-panel { display: none !important; }
+
+    /* ---------- TODAY ----------------------------------------------------- */
+    /* One command bar answers "what do I do now". The hero and the workflow
+       banner restated the same canonical workflow-state payload twice more. */
+    #today-hero,
+    #cc-root > #wf-cc,
+    /* A review-only reallocation lifecycle box is a Portfolio question. */
+    #cc-root > #cc-realloc-card,
+    #cc-root > #cc-updated { display: none !important; }
+
+    /* Safety is stated once, in the header. Today stops restating it. */
+    #tab-overview .cc-statusbar details,
+    #tab-overview #cc-open-pm-btn,
+    #evt-card #ic-safety-fold { display: none !important; }
+
+    /* The portfolio result leads with the money; the compatibility material and
+       the date / risk-check detail are System · Audit questions. */
+    #cc-dc-card #cc-dc-detail,
+    #cc-dag-card #cc-dag-detail { display: none !important; }
+
+    /* Badge walls: each card keeps its ONE state badge. */
+    #cc-dag-card .cc-preview-hd > .cc-badge:not(#cc-dag-badge),
+    #cc-ob-panel .cc-preview-hd > .cc-badge:not(#cc-ob-state),
+    #cc-ob-panel .cc-preview-hd > .cc-btn { display: none !important; }
+
+    /* The operational book on Today answers ONE question: is the book active, and
+       is anything pending? NAV / daily P&L / cumulative / drawdown / cash /
+       holdings are the Portfolio Result card immediately above it, and the
+       five-stage lifecycle strip, the raw order-lifecycle line and the target /
+       desk-mark / implementation / status / next-review facts are Portfolio
+       questions, rendered in Portfolio section 1 by renderPmCurrentPortfolio(),
+       which MIRRORS these exact nodes. Every node stays a live write target. */
+    #cc-ob-panel .dor-grid > .r29ux2-off,
+    #cc-ob-panel #cc-ob-workflow,
+    #cc-ob-panel #cc-ob-lifeline,
+    #cc-ob-panel #cc-ob-primary-btn,
+    #cc-ob-panel > .cc-na-note,
+    /* Provider / universe readiness counters are System · Audit facts. */
+    #cc-dc-card #cc-dc-readiness,
+    /* The opportunity-cost summary on Today is COUNTS plus a link. The paragraph
+       explaining what the engine is belongs with the review itself. */
+    #cc-dag-card #cc-dag-explanation { display: none !important; }
+
+    /* A key/value pair reads as a pair, not as a label stranded from its value
+       across 400px of empty row. */
+    #cc-ob-panel .dor-grid { column-gap: 24px; }
+    #cc-ob-panel .dor-grid .cc-kv { max-width: 260px; }
+
+    /* Paired cards size to their own content: a short decision summary must not
+       be stretched into a half-empty panel beside a taller one. */
+    #cc-root { align-items: start; }
+
+    /* ---------- TODAY: the one compact market strip ----------------------- */
+    #today-market-strip {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding: 7px 13px;
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: var(--r-2, 5px);
+      background: rgba(255,255,255,.012);
+    }
+    #today-market-strip .lab {
+      font-size: 9px; font-weight: 600; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--label, #7a8fb0);
+    }
+    #today-market-strip .cell { display: inline-flex; align-items: baseline; gap: 6px; }
+    #today-market-strip .cell .k {
+      font-size: 10px; color: var(--label, #7a8fb0); white-space: nowrap;
+    }
+    #today-market-strip .cell .v {
+      font-size: 13px; font-weight: 700; color: var(--text-primary, #e0e0ff);
+      font-variant-numeric: tabular-nums;
+    }
+    #today-market-strip .cell .v.na { font-size: 11px; font-weight: 600; color: var(--label, #7a8fb0); }
+    #today-market-strip .cell .c { font-size: 11px; font-variant-numeric: tabular-nums; }
+    #today-market-strip .cell .c.pos { color: var(--ok, #22c55e); }
+    #today-market-strip .cell .c.neg { color: var(--danger, #ef4444); }
+    #today-market-strip .cell .c.neutral { color: var(--label, #7a8fb0); }
+    #today-market-strip .sp { flex: 1 1 auto; }
+
+    /* ---------- MARKETS --------------------------------------------------- */
+    .mkt-page-hd {
+      display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+    }
+    .mkt-page-title {
+      font-size: 16px; font-weight: 700; letter-spacing: .01em;
+      color: var(--text-primary, #e0e0ff);
+    }
+    .mkt-page-sub { font-size: 10px; color: var(--label, #7a8fb0); }
+    #tab-markets #cc-market-context { margin: 0 !important; }
+    #tab-markets .va-section { display: block; }
+    /* The rates row spans the full width, so its three tiles would otherwise stretch
+       to 600px each while the equity tiles sit at ~190px. Same tile, same size,
+       left-aligned — the leftover width is whitespace, not a stretched card. */
+    #tab-markets .ov-mkt-group.rates-group .ov-mkt-group-cards {
+      grid-template-columns: repeat(auto-fill, minmax(160px, 200px));
+      justify-content: start;
+    }
+
+    /* ---------- PORTFOLIO ------------------------------------------------- */
+    /* Section 3 (mature-evidence statistics, what worked / what did not, churn
+       and policy-review diagnostics, the thirteen check badges and their raw
+       check names) and section 6 (completed-rebalance lineage, superseded plans,
+       the full per-holding audit dump) are EVIDENCE. They stay reachable through
+       System · Audit and through the intentional drill-downs at the bottom of
+       this route; they are not part of a portfolio decision. */
+    #tab-portfolio-manager > .card > #pm-sec-evidence,
+    #tab-portfolio-manager > .card > #rout-card,
+    #tab-portfolio-manager > .card > #pm-checks-card,
+    #tab-portfolio-manager > .card > #pm-sec-audit,
+    #tab-portfolio-manager > .card > #rlin-card,
+    #tab-portfolio-manager > .card > #reassess-audit,
+    /* A non-allocated alternatives table is research, not a decision. */
+    #tab-portfolio-manager > .card > #reassess-alternatives-card,
+    /* The Daily Close is Today's card. One copy, on the screen that owns it. */
+    #tab-portfolio-manager > .card > #pm-dc-card,
+    #tab-portfolio-manager > .card > #pm-date-warnings,
+    #tab-portfolio-manager > .card > #pm-load-note { display: none !important; }
+
+    /* The decision card states the verdict and, if blocked, ONE reason — the
+       explanation line. Artifact ids, policy versions, the scope essay and the
+       second copy of the blocking code are lineage internals. */
+    #reassess-card #reassess-meta,
+    #reassess-card #reassess-scope,
+    #reassess-card #reassess-blockers,
+    #reassess-card .r29-safety-fold,
+    /* The workflow banner is a third copy of the ONE operator command bar. */
+    #tab-portfolio-manager > #wf-pm,
+    #tab-portfolio-manager > .card > .ra-safety-strip .r29-safety-fold { display: none !important; }
+
+    /* The HOC card on Portfolio contributes its COUNTS. The sentence is already
+       the decision headline above it, and the legacy turnover/cost estimates are
+       a compatibility view. */
+    #pm-dag-card #pm-dag-detail,
+    #pm-dag-card #pm-dag-headline,
+    #pm-dag-card #pm-dag-explanation,
+    #pm-dag-card .cc-badge:not(#pm-dag-badge) { display: none !important; }
+
+    /* Actions: the ONE next step. Raw order/fill history, execution lineage,
+       model-state strings and the plan line are audit material. */
+    #pm-decision-card #pm-lc-strip,
+    #pm-decision-card #pm-impl-strip,
+    #pm-decision-card #pm-plan-line,
+    #pm-decision-card > div:first-child > .mono,
+    #pm-decision-card #pm-headline-reason,
+    /* the decision bar's HOC group is a second copy of #pm-dag-counts */
+    #pa-decision > .grp.r29ux2-off { display: none !important; }
+    /* ... and the action card stops competing with the decision headline. */
+    #pm-decision-card #pm-headline {
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      letter-spacing: 0 !important;
+      margin: 2px 0 0 !important;
+    }
+    #reassess-card #reassess-headline {
+      font-size: 20px !important;
+      font-weight: 800 !important;
+      letter-spacing: 0 !important;
+    }
+
+    /* ---------- whitespace over borders ----------------------------------- */
+    #tab-overview .cc-panel, #tab-overview .card { border-color: var(--cc-border-soft, rgba(122,143,176,.16)); }
+    #cc-root { gap: 14px; }
+    #tab-markets.tab-content.active { gap: 14px; }
+
+    /* ---------- 1440x900 -------------------------------------------------- */
+    @media (max-width: 1460px) {
+      /* Five metrics in a three-column grid leaves a bordered EMPTY cell. Let the
+         row size itself to the number of cells the backend actually gave us. */
+      .r29-metrics.cols-5 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+      #today-market-strip { gap: 14px; }
     }
   </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
@@ -2936,15 +3153,25 @@
          instead of six architecture-centric views. Legacy/detail surfaces are kept
          reachable but DEMOTED under "Advanced views" so they never compete with the
          daily operating workflow. Every old route still resolves (aliases below). -->
+    <!-- RELEASE 29 UX2 OPERATOR SIMPLIFICATION: the primary navigation is now the three
+         real operator questions — OPERATE (what do I do / what do I own / what is the
+         market doing), RESEARCH, SYSTEM. Markets is a NEW read-only reference area that
+         takes the whole market dashboard OFF Today; it owns no data and calls no
+         provider, it renders the SAME authoritative payloads. Every old route still
+         resolves (aliases below). -->
     <div class="sidebar-section">
       <div class="sidebar-label">Operate</div>
-      <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');" title="Today — market context, portfolio performance, system status, what changed, and the one next action. The default operator screen.">Today</a>
-      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio — the active Alpha Paper Book #1 holdings, the Holding Opportunity-Cost review and the review-only Reallocation Proposal. Paper only; read only; no orders.">Portfolio</a>
+      <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');" title="Today — what must I do now, what is the manager doing, what is the portfolio worth, and what is the opportunity cost of holding it. The default operator screen.">Today</a>
+      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio — the active Alpha Paper Book #1 holdings, today's portfolio decision and the performance/risk analytics. Paper only; read only; no orders.">Portfolio</a>
+      <a class="sidebar-link" id="nav-markets" data-route="markets" onclick="navigateToRoute('markets');" title="Markets — reference market context: equities, cross-asset, rates and the dollar, 30-day trends and a descriptive regime summary. Reference context, never a portfolio signal.">Markets</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Research</div>
       <a class="sidebar-link" id="nav-research" data-route="research" onclick="navigateToRoute('research');" title="Research — the Persistent Alpha Research Agent, champion/challenger health, evidence sufficiency, research opportunities and Data Expansion. Research governance only; no auto promotion.">Research</a>
-      <a class="sidebar-link" id="nav-system-audit" data-route="system-audit" onclick="navigateToRoute('system-audit');" title="System · Audit — diagnostics, data-freshness detail, provenance, decision-gate evidence and advanced technical state.">System &middot; Audit</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">System</div>
+      <a class="sidebar-link" id="nav-system-audit" data-route="system-audit" onclick="navigateToRoute('system-audit');" title="System · Audit — diagnostics, data freshness, collection source health and worker counters, research status, provenance and advanced technical state.">System &middot; Audit</a>
     </div>
     <div class="sidebar-section">
       <details id="sidebar-advanced-views">
@@ -3040,135 +3267,6 @@
 
           <div id="cc-error" class="cc-error" style="display:none;"></div>
 
-          <!-- ===================== Phase 29J.1 MARKET CONTEXT (restored) =====================
-               Reference context only — NEVER an alpha signal and NEVER a BUY/SELL. Filled by the
-               single loadMarketDashboard() loader from the ONE authoritative backend owner
-               GET /v1/market/indicators (remote free providers: Yahoo Finance for equities/FX/
-               commodities, FRED for rates). The UI performs NO market math and calls NO provider
-               directly; each tile shows the backend value, an as-of / last-close label and an
-               explicit STALE / UNAVAILABLE state. The US-dollar tile is the Federal Reserve
-               Nominal Broad U.S. Dollar Index (FRED DTWEXBGS) — the SAME owned FRED owner as
-               US 10Y / US 2Y, not a new provider and never a direct-from-JS call. Series with
-               no owned/available source (US rates and USD Broad are UNAVAILABLE when the FRED
-               key is absent) render an explicit UNAVAILABLE tile — never a fabricated number. -->
-          <div id="cc-market-context" class="ov-market-section" style="margin:0 0 12px;">
-            <div class="ov-market-section-hdr">
-              <span class="ov-mkt-section-title">Market Context</span>
-              <span style="font-size:9px;color:var(--label);letter-spacing:.02em;">Reference only &mdash; not a signal, not a recommendation. As-of per tile.</span>
-              <span class="cc-spacer" style="flex:1;"></span>
-              <span class="ov-mkt-load-status" id="mkt-load-status">&mdash;</span>
-            </div>
-            <div class="ov-market-groups">
-              <div class="ov-mkt-group">
-                <div class="ov-mkt-group-label">Equity</div>
-                <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card mkt-clickable" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                </div>
-              </div>
-              <div class="ov-mkt-group">
-                <div class="ov-mkt-group-label">FX &amp; Commodities</div>
-                <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card mkt-clickable" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="wti"><div class="ov-mkt-label">WTI Crude</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                </div>
-              </div>
-              <div class="ov-mkt-group rates-group">
-                <div class="ov-mkt-group-label">Rates &amp; Dollar</div>
-                <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card mkt-clickable" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card mkt-clickable" data-key="usd_broad"><div class="ov-mkt-label">USD Broad</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ===================== Phase 29J.2 MARKET CONTEXT VISUALS =====================
-               Compact recent-trend sparklines + a DESCRIPTIVE market-regime summary,
-               filled by loadMarketContext() from the read-only GET /v1/market/context
-               (yfinance + FRED — the same authoritative sources as the tiles above).
-               Reference/context only: the UI performs NO market math and this is NEVER a
-               signal, forecast, or recommendation. Degrades to per-series UNAVAILABLE. -->
-          <div id="cc-market-visuals" class="va-section" style="display:none;">
-            <div class="va-card">
-              <div class="va-card-hd">
-                <span class="va-card-title">Market Trend</span>
-                <span class="cc-badge muted" id="cc-mv-lookback">1M</span>
-                <span class="va-sub">Recent daily closes &mdash; reference only, not a signal.</span>
-                <span class="va-spacer"></span>
-                <span class="va-sub" id="cc-mv-status">&mdash;</span>
-                <!-- Phase 29J.3: compact jump to the interactive Portfolio Analytics
-                     detail view (read-only; opens in its own window). -->
-                <button class="cc-btn ghost" style="font-size:10px;padding:2px 8px;margin-left:8px;"
-                        onclick="if(typeof PTC!=='undefined')PTC.openDetail('performance')"
-                        title="Open the interactive Portfolio Analytics detail view (read-only) in its own window.">Portfolio Analytics &#8599;</button>
-              </div>
-              <div class="va-spark-grid" id="cc-mv-spark-grid"></div>
-            </div>
-            <div class="va-card" style="margin-top:10px;">
-              <div class="va-card-hd">
-                <span class="va-card-title">Market Regime &mdash; Descriptive Context</span>
-                <span class="cc-badge safe">REFERENCE ONLY</span>
-                <span class="cc-badge">NOT A SIGNAL</span>
-                <span class="va-sub">Factual classification of observed prices/rates &mdash; no forecast, no recommendation.</span>
-              </div>
-              <div class="va-regime-grid" id="cc-mv-regime"></div>
-              <div class="va-sub" id="cc-mv-disclaimer" style="margin-top:6px;"></div>
-            </div>
-          </div>
-
-          <!-- ===================== Slice 1 (Phase 29B) DATA FRESHNESS & MARKET SESSION =====================
-               ONE connected read-only strip, filled by the single loadDataFreshness() loader from
-               GET /v1/operations/data-freshness. The UI performs NO market-date arithmetic; every date,
-               status and readiness comes from the backend market-session / data-freshness owner.
-               Operational and research dates are shown SEPARATELY, and research/slower-cadence staleness
-               is explained as a research gate — never rendered as an operational-close failure. -->
-          <div id="cc-freshness" class="cc-panel" style="display:none;border-left:3px solid var(--info,#3b82f6);">
-            <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title">Data Freshness &amp; Market Session</span>
-              <span class="cc-badge" id="df-session-status" title="Canonical market-session status from engine.market_session (the one owner).">&mdash;</span>
-              <span class="cc-badge" id="df-book" title="The ACTIVE operational book that owns every operational date (authoritative book-selection policy).">&mdash;</span>
-              <span class="cc-badge" id="df-consistency" title="Cross-surface consistency of the freshness contract vs the authoritative read models.">&mdash;</span>
-              <span class="cc-badge safe">READ ONLY</span>
-            </div>
-            <!-- RELEASE 29 UI CONSOLIDATION: the twelve individual input dates are
-                 diagnostics. They stay complete and reachable, one click away, so they
-                 never compete with the operator's decision. The gate sentence and the
-                 note stay visible below, because those are the operator-facing verdict. -->
-            <details id="df-dates" class="r29-quiet-details">
-              <summary>Input dates &mdash; operational and research (12 sources)</summary>
-            <!-- OPERATIONAL dates — owned by the ACTIVE operational book / desk / close.
-                 A dormant legacy/current-alpha research book never supplies these. -->
-            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Operational (active book)</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
-              <span class="cc-kv" title="Canonical eligible market date: the most recent session that is BOTH expected-complete and confirmed by the ACTIVE operational owned data."><span class="k">Eligible Market Date</span><span class="v" id="df-eligible">&mdash;</span></span>
-              <span class="cc-kv" title="Active operational NAV / holdings valuation date (ledger-replayed)."><span class="k">Operational Valuation</span><span class="v" id="df-opval">&mdash;</span></span>
-              <span class="cc-kv" title="Active operational owned desk-mark date."><span class="k">Desk Mark</span><span class="v" id="df-desk">&mdash;</span></span>
-              <span class="cc-kv" title="Owned SPY benchmark date attached to the active operational mark."><span class="k">Benchmark</span><span class="v" id="df-benchmark">&mdash;</span></span>
-              <span class="cc-kv" title="Market date the current operational portfolio target was computed for."><span class="k">Target Calculation</span><span class="v" id="df-target">&mdash;</span></span>
-              <span class="cc-kv" title="Whether all owned operational daily marks are current through the eligible session."><span class="k">Daily Inputs</span><span class="v" id="df-daily">&mdash;</span></span>
-            </div>
-            <!-- RESEARCH dates — shown SEPARATELY and never collapsed into one "research date".
-                 Research / slower-cadence staleness is a research gate, not a close failure. -->
-            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Research inputs</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
-              <span class="cc-kv" title="Market date the owned alpha price/score inputs were refreshed to (research)."><span class="k">Latest Price / Score Refresh</span><span class="v" id="df-pricescore">&mdash;</span></span>
-              <span class="cc-kv" title="Frozen monthly momentum input month (read directly from its persisted source; never proxied)."><span class="k">Monthly Momentum Input</span><span class="v" id="df-momentum">&mdash;</span></span>
-              <span class="cc-kv" title="Frozen fundamental panel as-of date (its OWN quarterly cadence)."><span class="k">Fundamental Data</span><span class="v" id="df-fundamental">&mdash;</span></span>
-              <span class="cc-kv" title="Champion research-evaluation mark (research book — never confirms operational owned data)."><span class="k">Champion Research Mark</span><span class="v" id="df-champion">&mdash;</span></span>
-              <span class="cc-kv" title="Latest immutable TRUE_FORWARD snapshot date (evidence output)."><span class="k">TRUE_FORWARD Snapshot</span><span class="v" id="df-trueforward">&mdash;</span></span>
-              <span class="cc-kv" title="Slower-cadence (monthly / quarterly) inputs that are due under their OWN cadence."><span class="k">Slower Inputs Due</span><span class="v" id="df-slower">&mdash;</span></span>
-            </div>
-            </details>
-            <div id="df-gate" style="font-size:12px;color:var(--label);margin-top:6px;line-height:1.45;"></div>
-            <div id="df-note" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
-          </div>
-
           <!-- ===================== Release 29 CONTINUOUS COLLECTION =====================
                Rendered by the single loadInformationCollection() loader from
                GET /v1/operations/information-collection. The card answers, IN ORDER:
@@ -3221,32 +3319,6 @@
                  fabricated. It exists so Release 30 can add the stream without another
                  structural redesign of this card. -->
             <div id="am-activity-slot" aria-hidden="true"></div>
-            <div class="r29-am-lists">
-              <div>
-                <div class="r29-am-list-hd">Latest material events
-                  <span class="cc-badge muted" title="An event may direct attention. Only OPERATIONAL_ALPHA events can change a score.">DECISION AUTHORITY SHOWN</span>
-                </div>
-                <div id="evt-events" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
-              </div>
-              <div>
-                <div class="r29-am-list-hd">Affected holdings
-                  <span class="cc-badge muted" title="Current holdings named by a material event in this window.">CURRENT HOLDINGS</span>
-                </div>
-                <div id="evt-affected" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
-              </div>
-            </div>
-            <div class="r29-am-list-hd" style="margin-top:12px;">Portfolio decision
-              <span class="cc-badge muted" title="Produced by the canonical reassessment owner, for manual review only.">REVIEW ONLY</span>
-            </div>
-            <div id="ic-decision" style="font-size:11px;line-height:1.5;">&mdash;</div>
-            <details id="ic-source-details" class="r29-quiet-details">
-              <summary>Audit / Advanced &mdash; worker diagnostics, source health &amp; cadence</summary>
-              <div id="ic-service-line" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin:6px 0;"></div>
-              <div id="evt-kpis" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;"></div>
-              <div id="ic-sources" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;">&mdash;</div>
-              <div id="evt-audit" style="font-size:10px;margin-top:8px;"></div>
-            </details>
-            <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only. Information collection may run continuously; execution automation stays OFF. An unvalidated news, 8-K, earnings or insider event is TRIGGER ONLY — it can put a holding on the review list and can never contribute expected return. A research-challenger event can never reach the operational target. Nothing here confirms a target, approves a proposal, promotes a model or creates an order.</div>
           </div>
 
           <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
@@ -3333,6 +3405,10 @@
               <span class="cc-badge safe" title="Review only: this creates no target weight, no proposal approval and no order.">REVIEW ONLY</span>
               <span class="cc-spacer" style="flex:1;"></span>
               <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date the model evaluated (owned data)."><span class="k">Market Date</span><span class="v" id="cc-dag-market">&mdash;</span></span>
+              <!-- RELEASE 29 UX2: the opportunity-cost summary on Today is a SUMMARY. The
+                   per-holding review, the alternatives and the proposal live on Portfolio,
+                   one click away, and this is the link. Read-only navigation. -->
+              <button class="cc-btn ghost" id="cc-dag-open-portfolio" style="font-size:var(--fs-0);padding:3px 8px;" onclick="navigateToRoute('portfolio-manager')" title="Open Portfolio — the per-holding opportunity-cost detail, today's portfolio decision and the performance/risk analytics.">Open Portfolio &rarr;</button>
             </div>
             <!-- The structured summary. Filled from holding_opportunity_cost_presentation
                  .recommendation_counts and .data_gaps — no counting happens here. -->
@@ -3404,16 +3480,22 @@
                  waiting for the next eligible close, green = book active). -->
             <div id="cc-ob-lifeline" class="mono" style="display:none;font-size:11px;font-weight:700;margin-top:4px;"></div>
             <div class="dor-grid" style="margin-top:4px;">
-              <div class="cc-kv"><span class="k">Cash</span><span class="v" id="cc-ob-cash">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">NAV</span><span class="v" id="cc-ob-nav">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="cc-ob-holdings">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off"><span class="k">Cash</span><span class="v" id="cc-ob-cash">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off"><span class="k">NAV</span><span class="v" id="cc-ob-nav">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off"><span class="k">Holdings</span><span class="v" id="cc-ob-holdings">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="cc-ob-pending">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Fills</span><span class="v" id="cc-ob-fills">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="cc-ob-target">&mdash;</span></div>
-              <div class="cc-kv" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="cc-ob-mark">&mdash;</span></div>
-              <div class="cc-kv" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="cc-ob-impl">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
-              <div class="cc-kv" title="Next scheduled combined-model review of Alpha Paper Book #1 (monthly cadence). A newer target before this date is informational — the active holdings stay valid."><span class="k">Next Review</span><span class="v" id="cc-ob-review">&mdash;</span></div>
+              <!-- RELEASE 29 UX2: Today shows the SNAPSHOT (cash / NAV / holdings /
+                   pending orders). Fills, the current target, the desk mark, the
+                   implementation state, the raw status string and the next review date
+                   are Portfolio facts: they are rendered in Portfolio section 1 by
+                   renderPmCurrentPortfolio(), which MIRRORS these exact nodes. The nodes
+                   therefore stay live write targets here and are simply not shown. -->
+              <div class="cc-kv r29ux2-off"><span class="k">Fills</span><span class="v" id="cc-ob-fills">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off"><span class="k">Current Target</span><span class="v" id="cc-ob-target">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="cc-ob-mark">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="cc-ob-impl">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off" title="Next scheduled combined-model review of Alpha Paper Book #1 (monthly cadence). A newer target before this date is informational — the active holdings stay valid."><span class="k">Next Review</span><span class="v" id="cc-ob-review">&mdash;</span></div>
             </div>
             <!-- Phase 27B.2: five-stage operational workflow — statuses come from the
                  canonical payload's workflow_stages, never derived per page. -->
@@ -3443,21 +3525,20 @@
           </div>
           <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK END ===================== -->
 
-          <!-- Phase 27B.2: compact research status — RESEARCH ONLY, never the
-               operational holdings and never the operational next action. -->
-          <div class="cc-panel" id="cc-research-strip">
-            <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title">Research Status</span>
-              <span class="cc-badge safe" title="Research evidence books (frozen Top 25 / Top 50, tournament, revalidation). Never the operational Alpha Paper Book #1.">RESEARCH ONLY</span>
-              <span class="cc-spacer" style="flex:1;"></span>
-              <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('research-audit')" title="Open Research &amp; Audit — research books, tournament, revalidation, methodology and raw payloads.">Open Research &amp; Audit &rarr;</button>
-            </div>
-            <div class="dor-grid" style="margin-top:4px;">
-              <div class="cc-kv"><span class="k">Research primary book</span><span class="v" id="cc-research-book">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Research decision</span><span class="v" id="cc-research-decision">&mdash;</span></div>
-              <div class="cc-kv"><span class="k">Research mark freshness</span><span class="v" id="cc-research-mark">&mdash;</span></div>
-            </div>
-            <div class="cc-na-note" style="margin-top:2px;">Research warnings are page-local to Research &amp; Audit &mdash; they never set the operational next action or the global header badge.</div>
+          <!-- ===================== RELEASE 29 UX2 COMPACT MARKET STRIP =====================
+               Today keeps ONE line of market reference: S&P 500, VIX, US 10Y, WTI, and a
+               link to Markets. It is rendered by _r29ux2RenderTodayMarketStrip(), which
+               MIRRORS the authoritative tiles owned by loadMarketDashboard()
+               (GET /v1/market/indicators). It performs no fetch, owns no value and does
+               no market arithmetic. Reference context - never a portfolio signal. -->
+          <div id="today-market-strip" class="r29ux2-mkt-strip" title="Reference market context. Not a signal and not a recommendation. Full detail on Markets.">
+            <span class="lab">Market</span>
+            <span class="cell" data-mkey="sp500"><span class="k">S&amp;P 500</span><span class="v">&mdash;</span><span class="c"></span></span>
+            <span class="cell" data-mkey="vix"><span class="k">VIX</span><span class="v">&mdash;</span><span class="c"></span></span>
+            <span class="cell" data-mkey="us10y"><span class="k">US 10Y</span><span class="v">&mdash;</span><span class="c"></span></span>
+            <span class="cell" data-mkey="wti"><span class="k">WTI</span><span class="v">&mdash;</span><span class="c"></span></span>
+            <span class="sp"></span>
+            <button class="cc-btn ghost" id="today-market-more" onclick="navigateToRoute('markets')" title="Open Markets - the full read-only market dashboard, 30-day trends and the descriptive regime summary.">View Markets &rarr;</button>
           </div>
 
           <div class="cc-updated" id="cc-updated">&nbsp;</div>
@@ -3489,6 +3570,104 @@
         </div>
 
       </div><!-- end tab-overview -->
+
+      <!-- ===================== RELEASE 29 UX2: MARKETS (read-only reference) =====================
+           A dedicated, read-only reference area. It introduces NO calculation, NO data
+           ownership and NO provider call: the tiles below are the SAME elements the single
+           authoritative loader loadMarketDashboard() has always written (one backend owner,
+           GET /v1/market/indicators), and the trend/regime block is the SAME element
+           loadMarketContext() has always written (GET /v1/market/context). They were MOVED
+           here out of Today so the operating screen stops carrying a market dashboard.
+           Every id is unchanged, so every loader, click handler and test selector still
+           resolves. Reference context - NEVER a portfolio signal. -->
+      <div id="tab-markets" class="tab-content">
+        <div class="mkt-page-hd">
+          <span class="mkt-page-title">Markets</span>
+          <span class="cc-badge safe" id="mkt-reference-badge" title="This page describes observed prices, rates and volatility. It never produces a score, a target weight, a proposal or an order.">REFERENCE CONTEXT &mdash; NOT A PORTFOLIO SIGNAL</span>
+          <span class="mkt-page-sub">Equities, cross-asset, rates and the dollar &middot; 30-day trend &middot; descriptive regime. Read only.</span>
+        </div>
+          <!-- ===================== Phase 29J.1 MARKET CONTEXT (restored) =====================
+               Reference context only — NEVER an alpha signal and NEVER a BUY/SELL. Filled by the
+               single loadMarketDashboard() loader from the ONE authoritative backend owner
+               GET /v1/market/indicators (remote free providers: Yahoo Finance for equities/FX/
+               commodities, FRED for rates). The UI performs NO market math and calls NO provider
+               directly; each tile shows the backend value, an as-of / last-close label and an
+               explicit STALE / UNAVAILABLE state. The US-dollar tile is the Federal Reserve
+               Nominal Broad U.S. Dollar Index (FRED DTWEXBGS) — the SAME owned FRED owner as
+               US 10Y / US 2Y, not a new provider and never a direct-from-JS call. Series with
+               no owned/available source (US rates and USD Broad are UNAVAILABLE when the FRED
+               key is absent) render an explicit UNAVAILABLE tile — never a fabricated number. -->
+          <div id="cc-market-context" class="ov-market-section" style="margin:0 0 12px;">
+            <div class="ov-market-section-hdr">
+              <span class="ov-mkt-section-title">Market Context</span>
+              <span style="font-size:9px;color:var(--label);letter-spacing:.02em;">Reference only &mdash; not a signal, not a recommendation. As-of per tile.</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span class="ov-mkt-load-status" id="mkt-load-status">&mdash;</span>
+            </div>
+            <div class="ov-market-groups">
+              <div class="ov-mkt-group">
+                <div class="ov-mkt-group-label">Equity</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card mkt-clickable" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+              <div class="ov-mkt-group">
+                <div class="ov-mkt-group-label">FX &amp; Commodities</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card mkt-clickable" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="wti"><div class="ov-mkt-label">WTI Crude</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+              <div class="ov-mkt-group rates-group">
+                <div class="ov-mkt-group-label">Rates &amp; Dollar</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card mkt-clickable" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="usd_broad"><div class="ov-mkt-label">USD Broad</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== Phase 29J.2 MARKET CONTEXT VISUALS =====================
+               Compact recent-trend sparklines + a DESCRIPTIVE market-regime summary,
+               filled by loadMarketContext() from the read-only GET /v1/market/context
+               (yfinance + FRED — the same authoritative sources as the tiles above).
+               Reference/context only: the UI performs NO market math and this is NEVER a
+               signal, forecast, or recommendation. Degrades to per-series UNAVAILABLE. -->
+          <div id="cc-market-visuals" class="va-section" style="display:none;">
+            <div class="va-card">
+              <div class="va-card-hd">
+                <span class="va-card-title">Market Trend</span>
+                <span class="cc-badge muted" id="cc-mv-lookback">1M</span>
+                <span class="va-sub">Recent daily closes &mdash; reference only, not a signal.</span>
+                <span class="va-spacer"></span>
+                <span class="va-sub" id="cc-mv-status">&mdash;</span>
+                <!-- Phase 29J.3: compact jump to the interactive Portfolio Analytics
+                     detail view (read-only; opens in its own window). -->
+                <button class="cc-btn ghost" style="font-size:10px;padding:2px 8px;margin-left:8px;"
+                        onclick="if(typeof PTC!=='undefined')PTC.openDetail('performance')"
+                        title="Open the interactive Portfolio Analytics detail view (read-only) in its own window.">Portfolio Analytics &#8599;</button>
+              </div>
+              <div class="va-spark-grid" id="cc-mv-spark-grid"></div>
+            </div>
+            <div class="va-card" style="margin-top:10px;">
+              <div class="va-card-hd">
+                <span class="va-card-title">Market Regime &mdash; Descriptive Context</span>
+                <span class="cc-badge safe">REFERENCE ONLY</span>
+                <span class="cc-badge">NOT A SIGNAL</span>
+                <span class="va-sub">Factual classification of observed prices/rates &mdash; no forecast, no recommendation.</span>
+              </div>
+              <div class="va-regime-grid" id="cc-mv-regime"></div>
+              <div class="va-sub" id="cc-mv-disclaimer" style="margin-top:6px;"></div>
+            </div>
+          </div>
+      </div><!-- end tab-markets -->
 
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
@@ -4150,7 +4329,7 @@
             <div class="kpi"><div class="k">Drawdown</div><div class="v" id="pa-hero-dd">&mdash;</div><div class="s" id="pa-hero-dd-sub">from peak</div></div>
           </div>
           <div class="r29-section" id="pm-sec-perf">
-            <span class="n">4</span><span class="t">Performance &amp; risk</span>
+            <span class="n">3</span><span class="t">Performance &amp; risk</span>
             <span class="d">Read-only analytics of the executed paper book &mdash; hover for exact values</span>
           </div>
           <div class="pt-panel" id="pdash-perf-charts" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:10px;display:none;">
@@ -4210,7 +4389,11 @@
                and Reallocation Proposal owners (window._hocData / window._reallocData) and
                deep-links to their full review cards. Review only; no orders; no automation. -->
           <div class="pa-decision" id="pa-decision">
-            <div class="grp"><span class="grp-lab">HOC</span><span id="pa-dec-hoc"><span class="cc-badge muted">loading&hellip;</span></span></div>
+            <!-- RELEASE 29 UX2: the HOC counts are rendered ONCE on this route, by the
+                 Holding Opportunity-Cost card in section 2 (#pm-dag-counts). This group
+                 keeps its id so renderPmDecisionBar() still writes it, and stops being a
+                 second copy of the same six numbers. -->
+            <div class="grp r29ux2-off" id="pa-dec-hoc-grp"><span class="grp-lab">HOC</span><span id="pa-dec-hoc"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <div class="grp"><span class="grp-lab">Reallocation</span><span id="pa-dec-realloc"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <!-- Stage 19.2: the execution gate belongs in the TOP-OF-VIEW decision bar. An
                  8-name blocked set must never be discoverable only by scrolling to the
@@ -4226,9 +4409,11 @@
                daily-close status. Documented HOLD -> the recorded review + P&L, no
                target / snapshot / order confirmation controls. Proposal -> the
                affected names + one manual review flow. Paper only; read only. -->
+          <!-- RELEASE 29 UX2: this section is rendered ONLY when the canonical payload
+               names an actual next action (see renderOperationalBook). -->
           <div class="r29-section" id="pm-sec-actions">
-            <span class="n">5</span><span class="t">Actions</span>
-            <span class="d">The daily close, the paper-order lifecycle and the one available next step</span>
+            <span class="n">4</span><span class="t">Action</span>
+            <span class="d">The one available next step</span>
           </div>
           <div id="pm-dc-card" style="border:1px solid var(--info,#3b82f6);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
@@ -5111,6 +5296,109 @@
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
           </details>
         </div>
+
+        <!-- ===================== RELEASE 29 UX2: OPERATING DIAGNOSTICS (moved off Today) =====
+             Data freshness, the source-by-source collection table, the worker counters
+             (pid / restarts / iterations / heartbeat), the material-event and affected-holding
+             lists, the portfolio-decision line and the research-status strip used to sit on
+             Today, where an operator could act on none of them. They are MOVED here
+             byte-for-byte: same ids, same canonical loaders, same values, nothing removed. -->
+        <div class="card" id="sysops-panel" style="display:none;margin-bottom:14px;">
+          <div class="card-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span>Operating diagnostics</span>
+            <span class="cc-badge safe">READ ONLY</span>
+            <span class="cc-badge muted" title="Moved off Today by Release 29 UX2. Same values, same owners.">MOVED FROM TODAY</span>
+          </div>
+          <!-- ===================== Slice 1 (Phase 29B) DATA FRESHNESS & MARKET SESSION =====================
+               ONE connected read-only strip, filled by the single loadDataFreshness() loader from
+               GET /v1/operations/data-freshness. The UI performs NO market-date arithmetic; every date,
+               status and readiness comes from the backend market-session / data-freshness owner.
+               Operational and research dates are shown SEPARATELY, and research/slower-cadence staleness
+               is explained as a research gate — never rendered as an operational-close failure. -->
+          <div id="cc-freshness" class="cc-panel" style="display:none;border-left:3px solid var(--info,#3b82f6);">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Data Freshness &amp; Market Session</span>
+              <span class="cc-badge" id="df-session-status" title="Canonical market-session status from engine.market_session (the one owner).">&mdash;</span>
+              <span class="cc-badge" id="df-book" title="The ACTIVE operational book that owns every operational date (authoritative book-selection policy).">&mdash;</span>
+              <span class="cc-badge" id="df-consistency" title="Cross-surface consistency of the freshness contract vs the authoritative read models.">&mdash;</span>
+              <span class="cc-badge safe">READ ONLY</span>
+            </div>
+            <!-- RELEASE 29 UI CONSOLIDATION: the twelve individual input dates are
+                 diagnostics. They stay complete and reachable, one click away, so they
+                 never compete with the operator's decision. The gate sentence and the
+                 note stay visible below, because those are the operator-facing verdict. -->
+            <details id="df-dates" class="r29-quiet-details">
+              <summary>Input dates &mdash; operational and research (12 sources)</summary>
+            <!-- OPERATIONAL dates — owned by the ACTIVE operational book / desk / close.
+                 A dormant legacy/current-alpha research book never supplies these. -->
+            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Operational (active book)</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
+              <span class="cc-kv" title="Canonical eligible market date: the most recent session that is BOTH expected-complete and confirmed by the ACTIVE operational owned data."><span class="k">Eligible Market Date</span><span class="v" id="df-eligible">&mdash;</span></span>
+              <span class="cc-kv" title="Active operational NAV / holdings valuation date (ledger-replayed)."><span class="k">Operational Valuation</span><span class="v" id="df-opval">&mdash;</span></span>
+              <span class="cc-kv" title="Active operational owned desk-mark date."><span class="k">Desk Mark</span><span class="v" id="df-desk">&mdash;</span></span>
+              <span class="cc-kv" title="Owned SPY benchmark date attached to the active operational mark."><span class="k">Benchmark</span><span class="v" id="df-benchmark">&mdash;</span></span>
+              <span class="cc-kv" title="Market date the current operational portfolio target was computed for."><span class="k">Target Calculation</span><span class="v" id="df-target">&mdash;</span></span>
+              <span class="cc-kv" title="Whether all owned operational daily marks are current through the eligible session."><span class="k">Daily Inputs</span><span class="v" id="df-daily">&mdash;</span></span>
+            </div>
+            <!-- RESEARCH dates — shown SEPARATELY and never collapsed into one "research date".
+                 Research / slower-cadence staleness is a research gate, not a close failure. -->
+            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Research inputs</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
+              <span class="cc-kv" title="Market date the owned alpha price/score inputs were refreshed to (research)."><span class="k">Latest Price / Score Refresh</span><span class="v" id="df-pricescore">&mdash;</span></span>
+              <span class="cc-kv" title="Frozen monthly momentum input month (read directly from its persisted source; never proxied)."><span class="k">Monthly Momentum Input</span><span class="v" id="df-momentum">&mdash;</span></span>
+              <span class="cc-kv" title="Frozen fundamental panel as-of date (its OWN quarterly cadence)."><span class="k">Fundamental Data</span><span class="v" id="df-fundamental">&mdash;</span></span>
+              <span class="cc-kv" title="Champion research-evaluation mark (research book — never confirms operational owned data)."><span class="k">Champion Research Mark</span><span class="v" id="df-champion">&mdash;</span></span>
+              <span class="cc-kv" title="Latest immutable TRUE_FORWARD snapshot date (evidence output)."><span class="k">TRUE_FORWARD Snapshot</span><span class="v" id="df-trueforward">&mdash;</span></span>
+              <span class="cc-kv" title="Slower-cadence (monthly / quarterly) inputs that are due under their OWN cadence."><span class="k">Slower Inputs Due</span><span class="v" id="df-slower">&mdash;</span></span>
+            </div>
+            </details>
+            <div id="df-gate" style="font-size:12px;color:var(--label);margin-top:6px;line-height:1.45;"></div>
+            <div id="df-note" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
+          </div>
+            <div class="r29-am-lists">
+              <div>
+                <div class="r29-am-list-hd">Latest material events
+                  <span class="cc-badge muted" title="An event may direct attention. Only OPERATIONAL_ALPHA events can change a score.">DECISION AUTHORITY SHOWN</span>
+                </div>
+                <div id="evt-events" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
+              </div>
+              <div>
+                <div class="r29-am-list-hd">Affected holdings
+                  <span class="cc-badge muted" title="Current holdings named by a material event in this window.">CURRENT HOLDINGS</span>
+                </div>
+                <div id="evt-affected" class="compact-scroll-region" style="max-height:190px;overflow:auto;font-size:11px;">&mdash;</div>
+              </div>
+            </div>
+            <div class="r29-am-list-hd" style="margin-top:12px;">Portfolio decision
+              <span class="cc-badge muted" title="Produced by the canonical reassessment owner, for manual review only.">REVIEW ONLY</span>
+            </div>
+            <div id="ic-decision" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            <details id="ic-source-details" class="r29-quiet-details">
+              <summary>Audit / Advanced &mdash; worker diagnostics, source health &amp; cadence</summary>
+              <div id="ic-service-line" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin:6px 0;"></div>
+              <div id="evt-kpis" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;"></div>
+              <div id="ic-sources" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;">&mdash;</div>
+              <div id="evt-audit" style="font-size:10px;margin-top:8px;"></div>
+            </details>
+            <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only. Information collection may run continuously; execution automation stays OFF. An unvalidated news, 8-K, earnings or insider event is TRIGGER ONLY — it can put a holding on the review list and can never contribute expected return. A research-challenger event can never reach the operational target. Nothing here confirms a target, approves a proposal, promotes a model or creates an order.</div>
+          <!-- Phase 27B.2: compact research status — RESEARCH ONLY, never the
+               operational holdings and never the operational next action. -->
+          <div class="cc-panel" id="cc-research-strip">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Research Status</span>
+              <span class="cc-badge safe" title="Research evidence books (frozen Top 25 / Top 50, tournament, revalidation). Never the operational Alpha Paper Book #1.">RESEARCH ONLY</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('research-audit')" title="Open Research &amp; Audit — research books, tournament, revalidation, methodology and raw payloads.">Open Research &amp; Audit &rarr;</button>
+            </div>
+            <div class="dor-grid" style="margin-top:4px;">
+              <div class="cc-kv"><span class="k">Research primary book</span><span class="v" id="cc-research-book">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Research decision</span><span class="v" id="cc-research-decision">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Research mark freshness</span><span class="v" id="cc-research-mark">&mdash;</span></div>
+            </div>
+            <div class="cc-na-note" style="margin-top:2px;">Research warnings are page-local to Research &amp; Audit &mdash; they never set the operational next action or the global header badge.</div>
+          </div>
+        </div>
+
         <!-- One page-level safety strip for the Research & Audit workspace. -->
         <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
           <span class="cc-badge safe">PAPER ONLY</span>
@@ -7884,11 +8172,18 @@ window._switchTab = function(tabName, opts) {
   // whenever it is opened while connected.
   if (tabName === 'overview' && window._appState?.connected) {
     try { if (typeof loadCommandCenter === 'function') loadCommandCenter(); } catch (e) {}
-    // Phase 29J.1: restore the Market Context strip on the Today landing (async,
-    // non-blocking; GET /v1/market/indicators only; degrades to per-tile UNAVAILABLE).
+    // Release 29 UX2: Today no longer carries the market dashboard — the whole market
+    // surface moved to Markets. The SAME single loader still runs (one owner, one GET
+    // /v1/market/indicators) because Today keeps ONE compact four-instrument strip, which
+    // is a mirror of the tiles that loader writes. No second fetch, no second owner.
     try { if (typeof loadMarketDashboard === 'function') loadMarketDashboard(); } catch (e) {}
-    // Phase 29J.2: restore the Market Trend sparklines + descriptive regime block
-    // (async, non-blocking; GET /v1/market/context only; degrades to UNAVAILABLE).
+  }
+
+  // Release 29 UX2: MARKETS — read-only reference context. Both canonical market loaders
+  // run here (GET /v1/market/indicators, GET /v1/market/context); this route owns no data
+  // and computes nothing. Degrades per-series to an explicit UNAVAILABLE tile.
+  if (tabName === 'markets' && window._appState?.connected) {
+    try { if (typeof loadMarketDashboard === 'function') loadMarketDashboard(); } catch (e) {}
     try { if (typeof loadMarketContext === 'function') loadMarketContext(); } catch (e) {}
     // Market Interaction UX: make the Market Context tiles clickable (delegated; attaches
     // once) so any supported tile opens the ONE shared read-only Market Detail drill-down.
@@ -13749,6 +14044,9 @@ async function loadMarketDashboard() {
     }
 
     console.log(`[Market] Loaded: ${updatedCount}/${yfinanceCount} indicators available`);
+    // Release 29 UX2: Today keeps ONE compact market strip. It MIRRORS the tiles this
+    // single owner just wrote — no second fetch, no second interpretation.
+    try { _r29ux2RenderTodayMarketStrip(); } catch (e) {}
     if (statusEl) {
       if (updatedCount === yfinanceCount && yfinanceCount > 0) {
         statusEl.textContent = '(loaded)';
@@ -13763,12 +14061,52 @@ async function loadMarketDashboard() {
     }
   } catch (e) {
     console.error('[Market] Exception:', e.message);
+    try { _r29ux2RenderTodayMarketStrip(); } catch (e2) {}
     if (statusEl) {
       statusEl.textContent = '(error)';
       statusEl.style.color = 'var(--err)';
     }
   }
 }
+
+// --------------------------------------------------------------------------- //
+// RELEASE 29 UX2 — Today's ONE compact market strip.
+//
+// Today used to carry the entire market dashboard: eleven tiles in three groups, a
+// sparkline grid and a five-tile regime summary. An operator cannot act on any of it, so
+// the dashboard now lives on Markets and Today keeps four instruments on one line.
+//
+// This function is a MIRROR, exactly like renderPmCurrentPortfolio: it reads the tiles
+// that the ONE authoritative owner (loadMarketDashboard, GET /v1/market/indicators) has
+// already written and copies their text. It performs no fetch, calls no provider, parses
+// no number and computes no change. If a tile is unavailable the strip says so.
+// --------------------------------------------------------------------------- //
+function _r29ux2RenderTodayMarketStrip() {
+  var strip = document.getElementById('today-market-strip');
+  if (!strip) return;
+  var cells = strip.querySelectorAll('.cell[data-mkey]');
+  Array.prototype.forEach.call(cells, function (cell) {
+    var key = cell.getAttribute('data-mkey');
+    var src = document.querySelector('.ov-market-card[data-key="' + key + '"]');
+    var vEl = cell.querySelector('.v');
+    var cEl = cell.querySelector('.c');
+    if (!src || !vEl) return;
+    var sv = src.querySelector('.ov-mkt-value');
+    var sc = src.querySelector('.ov-mkt-change');
+    var sb = src.querySelector('.ov-mkt-badge');
+    vEl.textContent = sv ? sv.textContent : '—';
+    var unavailable = !!(sb && /UNAVAILABLE/i.test(sb.textContent || ''));
+    vEl.className = 'v' + (unavailable ? ' na' : '');
+    if (cEl) {
+      cEl.textContent = (!unavailable && sc) ? (sc.textContent || '') : '';
+      cEl.className = 'c ' + (sc ? (sc.className || '').replace('ov-mkt-change', '').trim() : '');
+    }
+    var st = src.querySelector('.ov-mkt-status');
+    cell.setAttribute('title', (sb ? sb.textContent + ' · ' : '')
+      + (st ? st.textContent : '') + ' — reference context, not a signal. Open Markets for detail.');
+  });
+}
+window._r29ux2RenderTodayMarketStrip = _r29ux2RenderTodayMarketStrip;
 
 async function downloadCsv(e) {
   e.preventDefault();
@@ -24339,6 +24677,9 @@ var _ROUTE_TO_TAB = {
   'today': 'overview',
   'research': 'audit-advanced',
   'system-audit': 'audit-advanced',
+  // Release 29 UX2: MARKETS — the read-only market reference area. It renders the SAME
+  // authoritative payloads that used to sit on Today; it owns no data of its own.
+  'markets': 'markets',
   // Operator Decision Flow: two dedicated full-screen review experiences whose PARENT is
   // Portfolio (the sidebar keeps "Portfolio" active — see _highlightNav aliases). These are
   // real hash routes so browser Back and deep links work; they never open a new browser tab.
@@ -24378,6 +24719,11 @@ function _highlightNav(base) {
   if (base === 'today') base = 'command-center';           // Phase 29J.1: Today primary uses the command-center route
   if (base === 'research-audit') base = 'research';        // Phase 29J.1: the canonical audit route highlights the Research primary
   if (base === 'holding-review' || base === 'proposed-portfolio') base = 'portfolio-manager'; // Operator Decision Flow: full-screen reviews live UNDER Portfolio
+  // Release 29 UX2: the ACTIVE ROUTE is published on <body> so page-level chrome (the
+  // persistent right diagnostic rail) can be removed from the primary operating screens
+  // by CSS alone. Nothing is deleted from the DOM: every rail id stays a valid write
+  // target, so no canonical writer or existing selector breaks.
+  try { document.body.setAttribute('data-route', base); } catch (e) {}
   var links = document.querySelectorAll('.sidebar-link[data-route]');
   Array.prototype.forEach.call(links, function (a) {
     if (a.getAttribute('data-route') === base) a.classList.add('active');
@@ -24427,9 +24773,12 @@ var _RA_SECTIONS = {
   'stage12':          { panels: ['s12-panel'], champion: false },
   'stage13a':         { panels: ['s13a-panel'], champion: false },
   'data-expansion':   { panels: ['dex-panel'], champion: false },
-  'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
+  // Release 29 UX2: the operating diagnostics MOVED off Today (data freshness, the
+  // source-by-source collection table, worker counters, the material-event / affected
+  // lists, the portfolio-decision line and research status) live in this section.
+  'diagnostics':      { panels: ['sysops-panel', 'cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'rbridge-panel', 'dex-panel'];
+var _RA_ALL_PANELS = ['sysops-panel', 'cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'rbridge-panel', 'dex-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -24579,6 +24928,10 @@ function renderActionRail(view) {
   _initRailTags();
   var panel = document.querySelector('.right-panel');
   if (!panel) return;
+  // Release 29 UX2: the rail is REMOVED from the primary operating screens (Today,
+  // Portfolio, Markets and the two full-screen reviews) by the route-scoped stylesheet.
+  // Its per-view tagging below still runs, so the rail is unchanged everywhere it is
+  // still shown and every id it owns remains a live write target.
   var tagged = panel.querySelectorAll('[data-rail-view]');
   Array.prototype.forEach.call(tagged, function (ch) {
     var v = ch.getAttribute('data-rail-view') || '';
@@ -27296,7 +27649,18 @@ function renderPortfolioReassessment(d) {
         ? ('→ ' + escapeHtml(strongest.replacement) + ' ' + _rsSigned(strongest.expected_net_improvement) + ' net')
         : 'none clears the action hurdle') }
   ];
-  _setHtml('reassess-kpis', kpis.map(function (k) {
+  // RELEASE 29 UX2: "Only show strongest opportunity / expected improvement /
+  // turnover or cost when they ACTUALLY assist a decision." When the assessment is
+  // blocked or nothing clears the hurdle, the backend has no value for these — and a
+  // row of em-dashes is not information, it is furniture. The DECISION cell always
+  // renders; the rest render only when the canonical payload gave them a value.
+  // Nothing is derived here: an absent value is simply not drawn.
+  var _rsKept = kpis.filter(function (k, i) {
+    if (i === 0) return true;                        // the decision itself
+    var v = String(k.value == null ? '' : k.value).replace(/&mdash;|&#8212;/g, '—').trim();
+    return v !== '' && v !== '—' && v !== '-';
+  });
+  _setHtml('reassess-kpis', _rsKept.map(function (k) {
     return '<div class="va-kpi"><div class="lab">' + escapeHtml(k.label) + '</div>'
       + '<div class="val">' + k.value + '</div>'
       + '<div class="sub" style="white-space:normal;">' + (k.sub || '') + '</div></div>';
@@ -29090,7 +29454,12 @@ function renderInformationCollection(d) {
   var _amStep = svc.iteration_in_flight
     ? (_r29Humanise(svc.progress_step, _R29_PROGRESS_STEP_TEXT) || 'Working')
     : (_r29Humanise(svc.progress_step, _R29_PROGRESS_STEP_TEXT) || '—');
-  _setHtml('am-metrics', [
+  // RELEASE 29 UX2: the Active Manager states only what an operator can act on.
+  // "Current step" is a BUSY-only fact — between cycles it says nothing, so it is not
+  // rendered at all rather than rendered as an em-dash. The backend still owns the value;
+  // this only decides whether a cell that has no content occupies the screen.
+  var _amBusy = !!svc.iteration_in_flight;
+  var _amCells = [
     _r29Metric('Last cycle', _r29Clock(svc.last_iteration_finished_at
       || act.last_collection_success_at) || 'never', null, 'tone-neutral',
       'When the collection worker last finished a bounded unit of work.'),
@@ -29103,9 +29472,6 @@ function renderInformationCollection(d) {
       (sum.due_now && sum.healthy_due === sum.due_now) ? 'tone-ok'
         : (sum.due_now ? 'tone-warn' : 'tone-quiet'),
       String(sum.headline || '') + ' ' + String(sum.note || '')),
-    _r29Metric('Current step', _amStep, svc.iteration_in_flight ? 'in flight' : 'between cycles',
-      'txt ' + (svc.iteration_in_flight ? 'tone-info' : 'tone-quiet'),
-      'Backend-reported progress step. Raw: ' + String(svc.progress_step || '—')),
     _r29Metric('Latest event', _r29SentenceCase(head.title) || '—', null,
       'txt ' + (head.tone === 'ok' ? 'tone-ok' : (head.tone === 'warn' ? 'tone-warn' : 'tone-info')),
       String(head.detail || '')),
@@ -29115,7 +29481,14 @@ function renderInformationCollection(d) {
         : (_amCycleState === 'REASSESSED_BLOCKED' ? 'tone-bad' : 'tone-ok')),
       'Outcome of the last portfolio reassessment, produced by the canonical reassessment '
       + 'owner. Review only. Raw: ' + String(_amCycleState || 'NOT_RUN'))
-  ].join(''));
+  ];
+  if (_amBusy) {
+    _amCells.splice(3, 0, _r29Metric('Current step', _amStep, 'in flight', 'txt tone-info',
+      'Backend-reported progress step. Raw: ' + String(svc.progress_step || '—')));
+  }
+  var _amEl = document.getElementById('am-metrics');
+  if (_amEl) _amEl.className = 'r29-metrics cols-' + _amCells.length;
+  _setHtml('am-metrics', _amCells.join(''));
 
   _setHtml('ic-service-line', [
     // IDLE / BUSY are healthy; STALLED / DEAD are not. The verdict and its
@@ -32169,6 +32542,18 @@ function renderOperationalBook(d) {
     if (ob && nextCode) { pb.style.display = ''; pb.textContent = primaryLabel; }
     else { pb.style.display = 'none'; }
   });
+  // RELEASE 29 UX2: the Portfolio "Actions" section exists ONLY when an actual
+  // operator action exists. When the canonical payload names no next action, the
+  // section header and its card are not shown at all — an empty action box is worse
+  // than no action box. Visibility follows the SAME canonical `nextCode` that decides
+  // the button; nothing is derived here and no node is removed from the DOM.
+  try {
+    var _r29ux2HasAction = !!(ob && nextCode);
+    ['pm-sec-actions', 'pm-decision-card'].forEach(function (sid) {
+      var se = document.getElementById(sid);
+      if (se) se.style.display = _r29ux2HasAction ? '' : 'none';
+    });
+  } catch (e) {}
 
   // Phase 27B.8 — the Portfolio route is the operational holdings dashboard.
   // It renders from THIS same canonical payload (operational_book.holdings_detail

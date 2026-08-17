@@ -16,6 +16,50 @@
 # back, so the workflow now has exactly one owner and the duplication is forbidden by a
 # static guard rather than by memory.
 #
+# RELEASE 29 UX2 - PERMANENT RESTART / SMOKE INVOCATION FIX
+# --------------------------------------------------------
+# Two REAL PowerShell defects were observed in production operator workflows:
+#
+#   1. A release wrapper forwarded a String[] of smoke paths across
+#      `powershell.exe -File ...`. `-File` has no PowerShell parser on the far side: the
+#      array was flattened into bare tokens, the parameter binder consumed the first as
+#      -SmokePath and then bound the NEXT URL positionally to -ReadyTimeoutSec:Int32.
+#      The run died on a type-conversion error that named a timeout, not a path.
+#
+#   2. The attempted repair used `powershell.exe -Command` with a DOUBLE-QUOTED
+#      here-string containing continuation backticks. The outer shell consumed the
+#      backticks, so `-Force`, `-Port` and `-SmokePath` became separate commands.
+#
+# Both defects are properties of RE-ENTERING PowerShell, not of this workflow. The fix is
+# therefore structural, and permanent:
+#
+#   * This script contains NO `exit` statement anywhere. It is safe to call DIRECTLY, in
+#     the operator's own shell, with `&` - the caller always survives, whatever happens.
+#   * It reports its outcome the way a directly-called script must: it prints exactly one
+#     terminal token (LIVE_SMOKE_OK / RESTART_PREFLIGHT_OK / RESTART_SMOKE_FAILED - ...)
+#     and sets $LASTEXITCODE. Callers check $LASTEXITCODE and/or the token. There is no
+#     process-terminating statement anywhere, so nothing can end an operator session.
+#   * No child powershell.exe is EVER needed to run it. `scripts/audit_architecture.py`
+#     (check_restart_invocation_hygiene) fails the build if any workflow forwards
+#     -SmokePath through `powershell.exe -File`, builds a lifecycle command dynamically
+#     through `powershell.exe -Command`, or re-implements the restart.
+#   * The first thing it prints is the BOUND PARAMETER CONTRACT - the exact defect above
+#     is visible on line one instead of surfacing as a confusing Int32 cast error.
+#
+# THE CANONICAL DIRECT INVOCATION (Windows PowerShell; no child shell, no -File):
+#
+#     $SmokePaths = @(
+#         '/v1/operations/workflow-state',
+#         '/v1/operations/information-collection',
+#         '/v1/operations/daily-close',
+#         '/v1/operational-book',
+#         '/v1/operations/portfolio-reassessment'
+#     )
+#     & C:\Users\binis\paper_trader\scripts\restart_paper_trader_backend.ps1 `
+#         -Force `
+#         -Port 8001 `
+#         -SmokePath $SmokePaths
+#
 # THIS SCRIPT OWNS, AND NOTHING ELSE MAY REIMPLEMENT:
 #   * process stop / start
 #   * port handling and the exactly-one-listener assertion
@@ -27,8 +71,8 @@
 # A stage handoff DELEGATES to this script and may add stage-specific GET assertions with
 # -SmokePath. scripts/audit_architecture.py fails the build if any other PowerShell script
 # probes a health/readiness route or launches the application, and
-# tests/test_canonical_backend_restart.py proves this script's contract against the real
-# route table and against a live backend.
+# tests/test_canonical_backend_restart.py plus tests/test_release29_restart_contract.py
+# prove this script's contract against the real route table and against a live backend.
 #
 # SAFETY: GET only. This workflow never issues a POST, PUT, PATCH or DELETE. It never runs
 # a Daily Close, never creates a proposal, an order or a fill, never calls a broker and
@@ -37,7 +81,8 @@
 # Usage (Windows PowerShell only):
 #   .\scripts\restart_paper_trader_backend.ps1              # preflight only, no restart
 #   .\scripts\restart_paper_trader_backend.ps1 -Force       # restart 8001 + live smoke
-#   .\scripts\restart_paper_trader_backend.ps1 -Force -SmokePath "/v1/operations/daily-close/progress"
+#   .\scripts\restart_paper_trader_backend.ps1 -Force -SmokePath $SmokePaths
+#   .\scripts\restart_paper_trader_backend.ps1 -ContractProbe   # print the bound contract
 param(
     [switch]$Force,
     [int]$Port = 8001,
@@ -47,7 +92,12 @@ param(
     [string[]]$SmokePath = @(),
     [int]$ReadyTimeoutSec = 90,
     [int]$DiagnosticLines = 20,
-    [string]$LogDir = ""
+    [string]$LogDir = "",
+    # Bind-and-report only. Prints the JSON parameter-binding contract and returns
+    # WITHOUT stopping, starting, probing or reading anything. This is what the contract
+    # tests assert against, so "SmokePath stayed one String[]" is proven by the real
+    # PowerShell parameter binder rather than by a regex over the source.
+    [switch]$ContractProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,6 +114,10 @@ $CANONICAL_READY_PATH = "/v1/ready"
 # The canonical authenticated read. It is the one that proves the backend came up on the
 # REAL book: an empty portfolio here is the Stage-20.1 store-root contamination signature.
 $CANONICAL_SMOKE_PATHS = @("/v1/operations/portfolio-state")
+
+# Every failure raised inside this script carries this prefix, so the outer handler can
+# print ONE terminal line whatever went wrong, and never leaks a raw .NET stack.
+$RESTART_FAILURE_PREFIX = "RESTART_SMOKE_FAILED - "
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoParent = (Resolve-Path (Join-Path $RepoRoot "..")).Path
@@ -85,6 +139,13 @@ function Write-Section([string]$Title) {
     Write-Host ("=" * 72)
     Write-Host $Title
     Write-Host ("=" * 72)
+}
+
+# A failure is a THROW, never a process-terminating statement. The single outer handler
+# turns it into one terminal line plus $LASTEXITCODE, so a directly-invoked caller always
+# survives.
+function Fail([string]$Message) {
+    throw ($RESTART_FAILURE_PREFIX + $Message)
 }
 
 function Read-LogTail([string]$Path, [int]$Lines) {
@@ -146,7 +207,7 @@ function Test-ChildExited {
 
 # REQUIREMENT: on any startup failure this prints the launched PID, whether it is still
 # alive, its exit code when available, the port-listener state, and the tail of both logs
-# BEFORE the script returns nonzero. A failed restart must never be a bare error line.
+# BEFORE the script reports failure. A failed restart must never be a bare error line.
 function Show-StartupDiagnostics([string]$Reason) {
     Write-Host ""
     Write-Host ("-" * 72)
@@ -186,10 +247,61 @@ function Show-StartupDiagnostics([string]$Reason) {
     Write-Host ("-" * 72)
 }
 
-function Fail([string]$Message) {
-    Write-Host ""
-    Write-Host ("RESTART_SMOKE_FAILED - " + $Message)
-    exit 1
+
+# --------------------------------------------------------------------------- #
+# INVOCATION CONTRACT
+#
+# The two production defects were parameter-BINDING defects. They are now impossible to
+# miss: the bound types and the element count are the first thing printed, and a smoke
+# path that is not a rooted path fails immediately, by name, with the array-flattening
+# explanation attached.
+# --------------------------------------------------------------------------- #
+function Get-InvocationContract {
+    # The BOUND type, read from the parameter variable itself - not from a copy and not
+    # from a regex over the source. This is the artefact the contract tests assert on.
+    $pathsType = "<null>"
+    if ($null -ne $SmokePath) { $pathsType = $SmokePath.GetType().FullName }
+    return [ordered]@{
+        Force_type            = $Force.GetType().FullName
+        Force_value           = [bool]$Force
+        Port_type             = $Port.GetType().FullName
+        Port_value            = [int]$Port
+        SmokePath_type        = $pathsType
+        SmokePath_count       = @($SmokePath).Count
+        SmokePath_values      = @($SmokePath)
+        ReadyTimeoutSec_type  = $ReadyTimeoutSec.GetType().FullName
+        ReadyTimeoutSec_value = [int]$ReadyTimeoutSec
+        DiagnosticLines_value = [int]$DiagnosticLines
+        AppModule_value       = [string]$AppModule
+        InvokedWithoutChildShell = $true
+    }
+}
+
+function Write-InvocationContract {
+    $c = Get-InvocationContract
+    Write-Section "INVOCATION CONTRACT (bound parameters)"
+    Write-Host ("  -Force           : [" + $c.Force_type + "] " + $c.Force_value)
+    Write-Host ("  -Port            : [" + $c.Port_type + "] " + $c.Port_value)
+    Write-Host ("  -ReadyTimeoutSec : [" + $c.ReadyTimeoutSec_type + "] " + $c.ReadyTimeoutSec_value)
+    Write-Host ("  -SmokePath       : [" + $c.SmokePath_type + "] " + $c.SmokePath_count + " element(s)")
+    foreach ($p in @($c.SmokePath_values)) { Write-Host ("      " + $p) }
+}
+
+# A smoke path that is not a rooted path is the array-flattening signature. Naming it here
+# is what turns the historical "cannot convert value to Int32" into a diagnosable error.
+function Assert-SmokePathContract {
+    foreach ($p in @($SmokePath)) {
+        if ($null -eq $p) { continue }
+        $s = [string]$p
+        if ($s.Trim() -eq "") { continue }
+        if (-not $s.StartsWith("/")) {
+            Fail ("-SmokePath element '" + $s + "' is not a rooted path. That is the " +
+                  "String[] flattening signature: the array was almost certainly forwarded " +
+                  "through a child shell with -File, which has no PowerShell parser and binds " +
+                  "the following element positionally (historically to -ReadyTimeoutSec:Int32). " +
+                  "Call this script DIRECTLY: & <path> -Force -Port <n> -SmokePath `$paths")
+        }
+    }
 }
 
 
@@ -247,13 +359,22 @@ function Wait-ForCanonicalRoute([string]$Path, [int]$TimeoutSec, [string]$Label)
 
 
 # =========================================================================== #
-# 1. PRODUCTION STORE ROOTS - delegated to the ONE owner of that rule.
+# The workflow itself. One function, no process-terminating statement, one
+# returned terminal token.
 # =========================================================================== #
-Write-Section "PRODUCTION STORE ROOTS"
-if (-not (Test-Path $PythonExe)) { Fail ("python not found: " + $PythonExe) }
-Write-Host "  rule owner: api/environment_isolation.py (not reimplemented here)"
+function Invoke-RestartWorkflow {
 
-$auditJson = & $PythonExe -c @"
+    Write-InvocationContract
+    Assert-SmokePathContract
+
+    # ======================================================================= #
+    # 1. PRODUCTION STORE ROOTS - delegated to the ONE owner of that rule.
+    # ======================================================================= #
+    Write-Section "PRODUCTION STORE ROOTS"
+    if (-not (Test-Path $PythonExe)) { Fail ("python not found: " + $PythonExe) }
+    Write-Host "  rule owner: api/environment_isolation.py (not reimplemented here)"
+
+    $auditJson = & $PythonExe -c @"
 import json, os, sys
 sys.path.insert(0, r'$RepoParent')
 from paper_trader.api import environment_isolation as EI
@@ -263,120 +384,120 @@ print(json.dumps({'status': r['status'], 'ok': bool(r['ok']),
                                  for v in r['violations']],
                   'message': r['message']}))
 "@
-if ($LASTEXITCODE -ne 0) {
-    Fail "could not evaluate production store roots via api/environment_isolation.py"
-}
-$verdict = (@($auditJson) -join "`n") | ConvertFrom-Json
-Write-Host ("  " + $verdict.status)
-if (-not $verdict.ok) {
-    foreach ($v in @($verdict.violations)) { Write-Host ("    " + $v) }
-    Write-Host ("  " + $verdict.message)
-    Fail "production store roots are contaminated - clear them in THIS shell first"
-}
-if ($Port -eq 8001 -and $verdict.status -ne "PRODUCTION_STORE_ROOTS_OK") {
-    Fail ("the live backend port may only be started with production store roots " +
-          "(got " + $verdict.status + ")")
-}
-
-# =========================================================================== #
-# 2. Preflight-only unless -Force. A restart is an explicit operator decision.
-# =========================================================================== #
-if (-not $Force) {
-    Write-Section "NOT RESTARTING"
-    Write-Host ("  target        : http://127.0.0.1:" + $Port)
-    Write-Host ("  app module    : " + $AppModule)
-    Write-Host ("  health / ready: " + $CANONICAL_HEALTH_PATH + " , " + $CANONICAL_READY_PATH)
-    Write-Host "  Re-run with -Force to actually stop and restart the backend."
-    Write-Host ""
-    Write-Host "RESTART_PREFLIGHT_OK"
-    exit 0
-}
-
-# =========================================================================== #
-# 3. STOP whatever owns the port, then verify it is free.
-# =========================================================================== #
-Write-Section ("STOP EXISTING LISTENER ON PORT " + $Port)
-$existing = @(Get-BackendListeners)
-if (@($existing).Count -eq 0) {
-    Write-Host ("  nothing is listening on " + $Port)
-} else {
-    foreach ($ownerPid in $existing) {
-        Write-Host ("  stopping pid " + $ownerPid)
-        Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -ne 0) {
+        Fail "could not evaluate production store roots via api/environment_isolation.py"
     }
-}
-$freed = $false
-for ($i = 0; $i -lt 20; $i++) {
-    if (@(Get-BackendListeners).Count -eq 0) { $freed = $true; break }
-    Start-Sleep -Milliseconds 500
-}
-if (-not $freed) { Fail ("port " + $Port + " is still listening after stop") }
-Write-Host ("  port " + $Port + " is free")
+    $verdict = (@($auditJson) -join "`n") | ConvertFrom-Json
+    Write-Host ("  " + $verdict.status)
+    if (-not $verdict.ok) {
+        foreach ($v in @($verdict.violations)) { Write-Host ("    " + $v) }
+        Write-Host ("  " + $verdict.message)
+        Fail "production store roots are contaminated - clear them in THIS shell first"
+    }
+    if ($Port -eq 8001 -and $verdict.status -ne "PRODUCTION_STORE_ROOTS_OK") {
+        Fail ("the live backend port may only be started with production store roots " +
+              "(got " + $verdict.status + ")")
+    }
 
-# =========================================================================== #
-# 4. START the backend and record everything needed for diagnostics.
-# =========================================================================== #
-Write-Section "START BACKEND"
-$uvicornArgs = @("-m", "uvicorn", $AppModule, "--host", "127.0.0.1", "--port", "$Port")
-if ($AppDir) { $uvicornArgs += @("--app-dir", $AppDir) }
-Write-Host ("  " + $PythonExe + " " + ($uvicornArgs -join " "))
-Write-Host ("  stdout -> " + $StdoutLog)
-Write-Host ("  stderr -> " + $StderrLog)
-try {
-    $script:LaunchedProc = Start-Process -FilePath $PythonExe -ArgumentList $uvicornArgs `
-        -WorkingDirectory $RepoRoot `
-        -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog `
-        -PassThru -WindowStyle Hidden
-} catch {
-    Show-StartupDiagnostics ("the backend process could not be launched: " + $_.Exception.Message)
-    Fail "backend process launch failed"
-}
-$script:LaunchedPid = $script:LaunchedProc.Id
-Write-Host ("  launched pid " + $script:LaunchedPid)
+    # ======================================================================= #
+    # 2. Preflight-only unless -Force. A restart is an explicit operator decision.
+    # ======================================================================= #
+    if (-not $Force) {
+        Write-Section "NOT RESTARTING"
+        Write-Host ("  target        : http://127.0.0.1:" + $Port)
+        Write-Host ("  app module    : " + $AppModule)
+        Write-Host ("  health / ready: " + $CANONICAL_HEALTH_PATH + " , " + $CANONICAL_READY_PATH)
+        Write-Host "  Re-run with -Force to actually stop and restart the backend."
+        Write-Host ""
+        Write-Host "RESTART_PREFLIGHT_OK"
+        return "RESTART_PREFLIGHT_OK"
+    }
 
-# =========================================================================== #
-# 5. READINESS - canonical routes only.
-# =========================================================================== #
-Write-Section "READINESS"
-Write-Host ("  health : http://127.0.0.1:" + $Port + $CANONICAL_HEALTH_PATH)
-Write-Host ("  ready  : http://127.0.0.1:" + $Port + $CANONICAL_READY_PATH)
-$null = Wait-ForCanonicalRoute $CANONICAL_HEALTH_PATH $ReadyTimeoutSec "the health probe"
-Write-Host ("  " + $CANONICAL_HEALTH_PATH + " -> 200")
-$null = Wait-ForCanonicalRoute $CANONICAL_READY_PATH $ReadyTimeoutSec "the readiness probe"
-Write-Host ("  " + $CANONICAL_READY_PATH + " -> 200")
+    # ======================================================================= #
+    # 3. STOP whatever owns the port, then verify it is free.
+    # ======================================================================= #
+    Write-Section ("STOP EXISTING LISTENER ON PORT " + $Port)
+    $existing = @(Get-BackendListeners)
+    if (@($existing).Count -eq 0) {
+        Write-Host ("  nothing is listening on " + $Port)
+    } else {
+        foreach ($ownerPid in $existing) {
+            Write-Host ("  stopping pid " + $ownerPid)
+            Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $freed = $false
+    for ($i = 0; $i -lt 20; $i++) {
+        if (@(Get-BackendListeners).Count -eq 0) { $freed = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $freed) { Fail ("port " + $Port + " is still listening after stop") }
+    Write-Host ("  port " + $Port + " is free")
 
-# =========================================================================== #
-# 6. EXACTLY ONE LISTENER, and it must be the process this script launched.
-# =========================================================================== #
-Write-Section "PORT LISTENER"
-$listeners = @(Get-BackendListeners)
-Write-Host ("  listening pid(s) on " + $Port + " : " + (@($listeners) -join ", "))
-if (@($listeners).Count -ne 1) {
-    Show-StartupDiagnostics ("expected exactly ONE listener on port " + $Port +
-                             ", found " + @($listeners).Count)
-    Fail ("port " + $Port + " has " + @($listeners).Count +
-          " listening process(es) - exactly one backend must own it")
-}
-if (-not (Test-OwnedByLaunched ([int]$listeners[0]))) {
-    Show-StartupDiagnostics ("port " + $Port + " is owned by pid " + $listeners[0] +
-                             ", which is not the process this script launched (" +
-                             $script:LaunchedPid + ") nor a descendant of it")
-    Fail "the port is owned by a process this script did not launch"
-}
-Write-Host ("  exactly one backend listener (pid " + $listeners[0] +
-            "), owned by the launched process tree")
+    # ======================================================================= #
+    # 4. START the backend and record everything needed for diagnostics.
+    # ======================================================================= #
+    Write-Section "START BACKEND"
+    $uvicornArgs = @("-m", "uvicorn", $AppModule, "--host", "127.0.0.1", "--port", "$Port")
+    if ($AppDir) { $uvicornArgs += @("--app-dir", $AppDir) }
+    Write-Host ("  " + $PythonExe + " " + ($uvicornArgs -join " "))
+    Write-Host ("  stdout -> " + $StdoutLog)
+    Write-Host ("  stderr -> " + $StderrLog)
+    try {
+        $script:LaunchedProc = Start-Process -FilePath $PythonExe -ArgumentList $uvicornArgs `
+            -WorkingDirectory $RepoRoot `
+            -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog `
+            -PassThru -WindowStyle Hidden
+    } catch {
+        Show-StartupDiagnostics ("the backend process could not be launched: " + $_.Exception.Message)
+        Fail "backend process launch failed"
+    }
+    $script:LaunchedPid = $script:LaunchedProc.Id
+    Write-Host ("  launched pid " + $script:LaunchedPid)
 
-# =========================================================================== #
-# 7. AUTHENTICATED LIVE READ. The key comes from the shell, or from the ONE
-#    owner of service configuration. This script never parses .env itself and
-#    never prints the key.
-# =========================================================================== #
-Write-Section "AUTHENTICATED LIVE READ"
-$script:ApiKey = $env:PAPER_TRADER_SERVICE_API_KEY
-if ($script:ApiKey) {
-    Write-Host "  api key source: PAPER_TRADER_SERVICE_API_KEY (this shell)"
-} else {
-    $keyOut = & $PythonExe -c @"
+    # ======================================================================= #
+    # 5. READINESS - canonical routes only.
+    # ======================================================================= #
+    Write-Section "READINESS"
+    Write-Host ("  health : http://127.0.0.1:" + $Port + $CANONICAL_HEALTH_PATH)
+    Write-Host ("  ready  : http://127.0.0.1:" + $Port + $CANONICAL_READY_PATH)
+    $null = Wait-ForCanonicalRoute $CANONICAL_HEALTH_PATH $ReadyTimeoutSec "the health probe"
+    Write-Host ("  " + $CANONICAL_HEALTH_PATH + " -> 200")
+    $null = Wait-ForCanonicalRoute $CANONICAL_READY_PATH $ReadyTimeoutSec "the readiness probe"
+    Write-Host ("  " + $CANONICAL_READY_PATH + " -> 200")
+
+    # ======================================================================= #
+    # 6. EXACTLY ONE LISTENER, and it must be the process this script launched.
+    # ======================================================================= #
+    Write-Section "PORT LISTENER"
+    $listeners = @(Get-BackendListeners)
+    Write-Host ("  listening pid(s) on " + $Port + " : " + (@($listeners) -join ", "))
+    if (@($listeners).Count -ne 1) {
+        Show-StartupDiagnostics ("expected exactly ONE listener on port " + $Port +
+                                 ", found " + @($listeners).Count)
+        Fail ("port " + $Port + " has " + @($listeners).Count +
+              " listening process(es) - exactly one backend must own it")
+    }
+    if (-not (Test-OwnedByLaunched ([int]$listeners[0]))) {
+        Show-StartupDiagnostics ("port " + $Port + " is owned by pid " + $listeners[0] +
+                                 ", which is not the process this script launched (" +
+                                 $script:LaunchedPid + ") nor a descendant of it")
+        Fail "the port is owned by a process this script did not launch"
+    }
+    Write-Host ("  exactly one backend listener (pid " + $listeners[0] +
+                "), owned by the launched process tree")
+
+    # ======================================================================= #
+    # 7. AUTHENTICATED LIVE READ. The key comes from the shell, or from the ONE
+    #    owner of service configuration. This script never parses .env itself and
+    #    never prints the key.
+    # ======================================================================= #
+    Write-Section "AUTHENTICATED LIVE READ"
+    $script:ApiKey = $env:PAPER_TRADER_SERVICE_API_KEY
+    if ($script:ApiKey) {
+        Write-Host "  api key source: PAPER_TRADER_SERVICE_API_KEY (this shell)"
+    } else {
+        $keyOut = & $PythonExe -c @"
 import sys
 sys.path.insert(0, r'$RepoParent')
 try:
@@ -385,48 +506,100 @@ try:
 except Exception:
     print('')
 "@
-    $script:ApiKey = (@($keyOut) -join "").Trim()
-    if ($script:ApiKey) { Write-Host "  api key source: paper_trader.config (settings owner)" }
-}
-if (-not $script:ApiKey) {
-    Show-StartupDiagnostics "no service API key is available, so no authenticated read is possible"
-    Fail ("PAPER_TRADER_SERVICE_API_KEY is not set in this shell and paper_trader.config " +
-          "could not supply it - the authenticated live read cannot be performed")
-}
-
-$portfolioBody = $null
-foreach ($p in (@($CANONICAL_SMOKE_PATHS) + @($SmokePath))) {
-    if (-not $p) { continue }
-    $r = Invoke-CanonicalGet $p 45
-    if (-not $r.ok -or $r.status -ne 200) {
-        Show-StartupDiagnostics ("authenticated GET " + $p + " -> " + $r.status)
-        Fail ("live read failed: GET " + $p + " (" + $r.status + ")")
+        $script:ApiKey = (@($keyOut) -join "").Trim()
+        if ($script:ApiKey) { Write-Host "  api key source: paper_trader.config (settings owner)" }
     }
-    Write-Host ("  OK  GET " + $p + " -> 200")
-    if ($p -eq $CANONICAL_SMOKE_PATHS[0]) { $portfolioBody = $r.body }
-}
+    if (-not $script:ApiKey) {
+        Show-StartupDiagnostics "no service API key is available, so no authenticated read is possible"
+        Fail ("PAPER_TRADER_SERVICE_API_KEY is not set in this shell and paper_trader.config " +
+              "could not supply it - the authenticated live read cannot be performed")
+    }
 
-# The read must be authenticated AND real. An empty portfolio served by a backend that
-# started fine is the store-root contamination signature: a fabricated empty book that is
-# indistinguishable from a real one.
-$positionCount = -1
-try {
-    $state = $portfolioBody | ConvertFrom-Json
-    $positionCount = @($state.positions).Count
-} catch {
+    $portfolioBody = $null
+    $checkedPaths = 0
+    foreach ($p in (@($CANONICAL_SMOKE_PATHS) + @($SmokePath))) {
+        if (-not $p) { continue }
+        $r = Invoke-CanonicalGet $p 45
+        if (-not $r.ok -or $r.status -ne 200) {
+            Show-StartupDiagnostics ("authenticated GET " + $p + " -> " + $r.status)
+            Fail ("live read failed: GET " + $p + " (" + $r.status + ")")
+        }
+        $checkedPaths++
+        Write-Host ("  OK  GET " + $p + " -> 200")
+        if ($p -eq $CANONICAL_SMOKE_PATHS[0]) { $portfolioBody = $r.body }
+    }
+    Write-Host ("  authenticated GETs checked: " + $checkedPaths +
+                " (canonical " + @($CANONICAL_SMOKE_PATHS).Count +
+                " + caller-supplied " + @($SmokePath).Count + ")")
+
+    # The read must be authenticated AND real. An empty portfolio served by a backend that
+    # started fine is the store-root contamination signature: a fabricated empty book that is
+    # indistinguishable from a real one.
     $positionCount = -1
-}
-Write-Host ("  positions served: " + $positionCount)
-if ($positionCount -lt 1) {
-    Show-StartupDiagnostics ("the authenticated read returned " + $positionCount +
-                             " position(s)")
-    Fail ("the backend served an EMPTY portfolio - a fabricated book, not the real one")
+    try {
+        $state = $portfolioBody | ConvertFrom-Json
+        $positionCount = @($state.positions).Count
+    } catch {
+        $positionCount = -1
+    }
+    Write-Host ("  positions served: " + $positionCount)
+    if ($positionCount -lt 1) {
+        Show-StartupDiagnostics ("the authenticated read returned " + $positionCount +
+                                 " position(s)")
+        Fail ("the backend served an EMPTY portfolio - a fabricated book, not the real one")
+    }
+
+    Write-Section "RESULT"
+    Write-Host ("  backend pid   : " + $script:LaunchedPid)
+    Write-Host ("  url           : http://127.0.0.1:" + $Port)
+    Write-Host ("  health / ready: 200 / 200 on the canonical v1 routes")
+    Write-Host ""
+    Write-Host "LIVE_SMOKE_OK"
+    return "LIVE_SMOKE_OK"
 }
 
-Write-Section "RESULT"
-Write-Host ("  backend pid   : " + $script:LaunchedPid)
-Write-Host ("  url           : http://127.0.0.1:" + $Port)
-Write-Host ("  health / ready: 200 / 200 on the canonical v1 routes")
-Write-Host ""
-Write-Host "LIVE_SMOKE_OK"
-exit 0
+
+# =========================================================================== #
+# ENTRY POINT.
+#
+# There is deliberately no process-terminating statement in this file. A directly-invoked
+# script that terminates the process can take an operator's shell with it, and the whole
+# point of this release is that the owner is safe to call directly. The outcome is
+# reported as:
+#
+#     * one terminal token on stdout  (LIVE_SMOKE_OK / RESTART_PREFLIGHT_OK /
+#                                      "RESTART_SMOKE_FAILED - <reason>"), printed EXACTLY
+#                                      once so a log grep stays unambiguous
+#     * $LASTEXITCODE                  (0 on success, 1 on failure)
+#     * $global:PaperTraderRestartResult (the same token, for a programmatic caller that
+#                                      does not want to parse output)
+# =========================================================================== #
+$script:ResultToken = $null
+$script:ResultCode = 0
+try {
+    if ($ContractProbe) {
+        Write-InvocationContract
+        Write-Host ""
+        Write-Host "CONTRACT_PROBE_JSON_BEGIN"
+        Write-Host ((Get-InvocationContract) | ConvertTo-Json -Compress -Depth 4)
+        Write-Host "CONTRACT_PROBE_JSON_END"
+        Assert-SmokePathContract
+        Write-Host ""
+        Write-Host "RESTART_CONTRACT_PROBE_OK"
+        $script:ResultToken = "RESTART_CONTRACT_PROBE_OK"
+    } else {
+        $script:ResultToken = Invoke-RestartWorkflow
+    }
+} catch {
+    $failMessage = [string]$_.Exception.Message
+    if (-not $failMessage.StartsWith($RESTART_FAILURE_PREFIX)) {
+        $failMessage = $RESTART_FAILURE_PREFIX + $failMessage
+    }
+    Write-Host ""
+    Write-Host $failMessage
+    $script:ResultToken = "RESTART_SMOKE_FAILED"
+    $script:ResultCode = 1
+}
+
+$global:LASTEXITCODE = $script:ResultCode
+$global:PaperTraderRestartResult = $script:ResultToken

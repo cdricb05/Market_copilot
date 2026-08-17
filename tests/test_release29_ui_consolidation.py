@@ -68,11 +68,17 @@ def test_a1_today_is_ordered_by_the_operator_question_order():
 
     # 2. what is the active manager doing -> before the decision cards
     # 4./5. the portfolio result and the portfolio decision
-    # 7. reference context and diagnostics come LAST, never first.
+    # 7. reference context comes LAST, never first.
     assert order("evt-card") < order("cc-dc-card") < order("cc-dag-card")
     assert order("cc-dag-card") < order("cc-ob-panel")
-    assert order("cc-ob-panel") < order("cc-market-context")
-    assert order("cc-market-context") < order("cc-freshness")
+    # Release 29 UX2 supersedes the ordering of the reference block: the market
+    # dashboard is no longer ON Today (it moved to the Markets area) and the
+    # data-freshness / research-status strips moved to System · Audit. What is left
+    # of "reference context" on Today is ONE compact market strip, and it still
+    # comes after the book. See tests/test_release29_ux2_simplification.py.
+    assert order("cc-ob-panel") < order("today-market-strip")
+    assert 'id="cc-market-context"' not in UI[UI.find('<div id="cc-root">'):
+                                              UI.find("<!-- end tab-overview -->")]
 
 
 def test_a2_portfolio_manager_has_the_six_required_sections_in_order():

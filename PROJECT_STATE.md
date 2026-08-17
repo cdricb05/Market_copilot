@@ -1,11 +1,112 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-07-31
-- **Updated by phase:** **Alpha Agent Stage 8 — autonomous data exhaustion, never-idle research queue, watchdog, and secure Telegram control plane.**
-- **Source Git HEAD:** `a0f3d9c` (`Repair Alpha Agent reporting and cut email to Gmail SMTP`); origin/main synchronized.
-- **Working tree status:** DIRTY — Stage 8 additions uncommitted (footprint below). Nothing committed, pushed, or enabled by this phase.
-- **Current decision:** **DO_NOT_COMMIT (standing instruction) — Stage 8 REAL-PRODUCTION acceptance PROVEN.** Telegram credentials are now configured (DPAPI; bot **@PaperTrader05_bot**, allowed id `8284912423`); `getMe` returns `TELEGRAM_AUTH_OK`. The durable queue was proven to drive REAL production work (not placeholders): live-run evidence below. The operational ledger is byte-identical before and after all real acquisition + experiments; the four cadence tasks stay Disabled. The ONLY soft-pending item is the LIVE Telegram message capture: the bot currently has 0 pending updates, so the user must send the 3 messages TO **@PaperTrader05_bot** for a live poll to process them (the identical enqueue→real-experiment-handler path is already proven end-to-end).
-- **Next required action:** (1) in Telegram, open **@PaperTrader05_bot** and send `/status`, `What data sources are currently available?`, and `Run a residual momentum experiment excluding financials`; (2) reply "sent" and a bounded live poll processes them (read-only replies + a bounded research enqueue); (3) the user runs the full regression and decides on committing the Stage 8 footprint. Claude has NOT committed, pushed or enabled any task.
+- **Last updated:** 2026-08-17
+- **Updated by phase:** **Release 29 UX2 — radical operator simplification (Today / Portfolio / new Markets area) + permanent restart-and-smoke invocation fix.**
+- **Source Git HEAD:** `1bb52fc` (`Make the cockpit read like a portfolio manager, not a diagnostics panel`), branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 29 UX2 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
+- **Current decision:** **DO_NOT_COMMIT (standing instruction) — Release 29 UX2 acceptance PROVEN.** Both deliverables pass: the operating screens are simplified by MOVE (Today −83% visible text / −78% rendered area / −75% page height; Portfolio −41% elements / −54% area / −50% height, measured against the same backend and data), and the canonical restart owner is exit-free, directly callable and guarded. A real Windows lifecycle acceptance ran on the ISOLATED port 8098 and printed `LIVE_SMOKE_OK` with 25 positions served; production 8001 was never restarted and production collection was never touched. Handoff: `D:\Temp\paper_trader_release29_ux2_handoff`.
+- **Next required action:** the user runs `D:\Temp\paper_trader_release29_ux2_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the eight screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+
+## Release 29 UX2 — radical operator simplification + permanent restart/smoke invocation fix (2026-08-17)
+
+**The product rule this phase enforces.** *If the operator cannot act on it, and does not
+need it to make a portfolio decision, it does not belong on Today or Portfolio.* The
+previous pass improved hierarchy and user acceptance still failed, because hierarchy does
+not help when the screen carries information nobody can act on. This phase therefore
+simplified **by removal** — and every removal is a **move**, never a deletion: each
+relocated element keeps its id and stays its canonical loader's write target.
+
+**Navigation** is now three operator questions: **OPERATE** (Today · Portfolio · Markets),
+**RESEARCH** (Research), **SYSTEM** (System · Audit). Every legacy route still resolves.
+
+**MARKETS (new, read-only).** MARKET NOW (S&P 500, Nasdaq, Dow, VIX / EUR-USD, Gold, WTI,
+Brent / US 10Y, US 2Y, USD broad), MARKET TREND (30-day sparklines) and MARKET REGIME
+(equity, volatility, rates, commodities, FX tone), labelled **REFERENCE CONTEXT — NOT A
+PORTFOLIO SIGNAL**. It creates no calculation, owns no data and calls no provider: the
+same single loaders (`GET /v1/market/indicators`, `GET /v1/market/context`) write the same
+elements, relocated out of Today rather than rebuilt.
+
+**TODAY** keeps only: the operator command bar; Active Manager (running/idle/busy, last
+cycle, next check, source-health summary, latest material information, portfolio result,
+and the current step **only while busy**); the portfolio snapshot (NAV, daily P&L,
+cumulative, vs SPY, drawdown, holdings, cash, proposed changes, pending orders); the
+opportunity-cost counts (HOLD/REDUCE/EXIT/REPLACE/ADD/DATA GAPS) with a link to Portfolio;
+and ONE compact market strip (S&P 500 · VIX · US 10Y · WTI · View Markets) that MIRRORS
+the authoritative tiles — no second fetch, no second owner, no market arithmetic. At
+1920x1080 Today needs **no scrolling** (`main.scrollHeight == main.clientHeight`).
+
+**Moved to SYSTEM · AUDIT** (one new `sysops-panel`, routed under Diagnostics): Data
+Freshness & Market Session (12 input dates + gate), the source-by-source collection table,
+the worker counters (PID / restarts / iterations / heartbeat / progress), the material-event
+and affected-holding lists, the portfolio-decision line, and the Research Status strip.
+
+**PORTFOLIO** keeps: current portfolio (NAV / today / cumulative / vs SPY / drawdown, then
+cash, holdings, pending orders, current target, implementation, operational mark, next
+review, book status); the current decision (one human statement, one concise blocked
+reason, compact HOC counts, and the decision metrics only when they carry a value);
+performance & risk (all six charts, unchanged); and an Action section rendered **only when
+the canonical payload names an actual next action**. Removed from the primary route:
+mature-evidence statistics, what-worked/what-did-not, churn and policy diagnostics, the 13
+check badges and raw check names, rebalance lineage and superseded plans, raw order/fill
+history, model-state strings, artifact ids, the duplicate Daily Close, the legacy
+membership comparison and the developer paragraphs — all still reachable through System ·
+Audit or an intentional drill-down.
+
+**The persistent right diagnostic rail is removed** from Today, Portfolio, Markets and the
+two full-screen reviews (route published on `<body data-route>`; rail markup and every id
+in it retained, so no canonical writer or selector broke).
+
+**Permanent restart/smoke invocation fix.** Two real production defects were INVOCATION
+defects, not code defects: (1) a `String[]` of smoke paths forwarded across a child shell
+started with the file switch flattened into bare tokens, and the next URL bound
+positionally to the 32-bit timeout parameter; (2) the repair attempt built the lifecycle
+command in a child shell and lost its continuation backticks to the outer parser.
+`scripts/restart_paper_trader_backend.ps1` now contains **no process-terminating
+statement**, is safe to call directly with `&`, prints its **bound parameter contract**
+first, rejects a non-rooted smoke path **by name** with the flattening explanation, exposes
+`-ContractProbe` (bind-and-report only), and reports through one printed token
+(`LIVE_SMOKE_OK` / `RESTART_PREFLIGHT_OK` / `RESTART_SMOKE_FAILED - …`), `$LASTEXITCODE`
+and `$global:PaperTraderRestartResult`. Every existing gate is preserved: production
+store-root validation, PID tracking, stopping only the intended listener, canonical
+`/v1/health` + `/v1/ready` polling, exactly-one-listener ownership, the authenticated live
+read, the empty-portfolio contamination assertion, and stdout/stderr startup diagnostics.
+
+**New guards.** `scripts/audit_architecture.py` gains
+`check_release29_ux2_simplification` (the move happened, to one place, with every id
+intact, no forked market owner, the rail removed but retained) and
+`check_restart_invocation_hygiene` (owner is exit-free; nobody forwards the smoke paths
+through a child shell's file switch; nobody builds a lifecycle command through a child
+shell's command switch; nobody collapses the array; no second restart implementation).
+Both are wired into `--strict`. Regressions: `tests/test_release29_ux2_simplification.py`
+(34 tests) and `tests/test_release29_restart_contract.py` (31 tests, including a probe that
+proves the binding with the REAL PowerShell parameter binder).
+
+**Acceptance.** 530 targeted tests pass (UI/operator/market/workflow/analytics/architecture
+contracts) plus 63 restart tests; `check_ui_js.py` = `checked_blocks=9 errors=0`; the strict
+architecture audit exits 0; `git diff --check` clean. A real Windows lifecycle acceptance
+ran on the **isolated port 8098** by direct canonical invocation with five caller-supplied
+smoke paths: bound contract `[System.String[]] 5 element(s)`, production store roots OK,
+backend started, health 200, ready 200, exactly one listener owned by the launched tree,
+six authenticated GETs, **25 positions served**, `LIVE_SMOKE_OK`, caller survived, isolated
+backend cleaned up, **production 8001 untouched** (same pid, still 200) and **production
+collection untouched** (worker still running on its own cadence). Eight screenshots at
+1920x1080 and 1440x900 were captured and inspected.
+
+**Release 29 UX2 footprint (changed files).** New: `tests/test_release29_ux2_simplification.py`,
+`tests/test_release29_restart_contract.py`, `tests/support/restart_contract_probe.ps1`.
+Modified: `api/ui/index.html`, `scripts/restart_paper_trader_backend.ps1`,
+`scripts/audit_architecture.py`, `tests/test_canonical_backend_restart.py`,
+`tests/test_release29_ui_consolidation.py`, `CLAUDE.md`, `PROJECT_STATE.md`.
+Handoff (outside the repository): `D:\Temp\paper_trader_release29_ux2_handoff`.
+
+---
+
+## Alpha Agent Stage 8 (earlier phase — retained below for history)
+
+- **Prior Source Git HEAD:** `a0f3d9c` (`Repair Alpha Agent reporting and cut email to Gmail SMTP`); origin/main synchronized.
+- **Prior working tree status:** DIRTY — Stage 8 additions uncommitted (footprint below). Nothing committed, pushed, or enabled by this phase.
+- **Prior decision (Stage 8):** **DO_NOT_COMMIT (standing instruction) — Stage 8 REAL-PRODUCTION acceptance PROVEN.** Telegram credentials are now configured (DPAPI; bot **@PaperTrader05_bot**, allowed id `8284912423`); `getMe` returns `TELEGRAM_AUTH_OK`. The durable queue was proven to drive REAL production work (not placeholders): live-run evidence below. The operational ledger is byte-identical before and after all real acquisition + experiments; the four cadence tasks stay Disabled. The ONLY soft-pending item is the LIVE Telegram message capture: the bot currently has 0 pending updates, so the user must send the 3 messages TO **@PaperTrader05_bot** for a live poll to process them (the identical enqueue→real-experiment-handler path is already proven end-to-end).
+- **Prior next action (Stage 8, still open):** (1) in Telegram, open **@PaperTrader05_bot** and send `/status`, `What data sources are currently available?`, and `Run a residual momentum experiment excluding financials`; (2) reply "sent" and a bounded live poll processes them (read-only replies + a bounded research enqueue); (3) the user runs the full regression and decides on committing the Stage 8 footprint. Claude has NOT committed, pushed or enabled any task.
 
 ## Stage 8 — autonomous data exhaustion + never-idle research + Telegram control
 

@@ -4190,6 +4190,340 @@ def check_backend_restart_ownership(extra_dirs=()) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# RELEASE 29 UX2 - RADICAL OPERATOR SIMPLIFICATION
+#
+# The previous pass improved HIERARCHY and user acceptance still failed, because Today and
+# Portfolio carried far too much information. The standing product rule is:
+#
+#   IF THE OPERATOR CANNOT ACT ON IT, AND DOES NOT NEED IT TO MAKE A PORTFOLIO DECISION,
+#   IT DOES NOT BELONG ON TODAY OR PORTFOLIO.
+#
+# The risk of a REMOVAL pass is the mirror image of the risk of a consolidation pass: that
+# something is genuinely lost, that a canonical owner is forked to feed a new surface, or
+# that "removed" quietly means "deleted from the DOM", breaking a loader. This guard pins
+# the repaired shape: the content MOVED, it moved to exactly one place, its ids survived,
+# and no second data owner appeared.
+# --------------------------------------------------------------------------- #
+
+#: Regions that must NO LONGER be inside the Today tab.
+UX2_OFF_TODAY = ('id="cc-market-context"', 'id="cc-market-visuals"', 'id="cc-freshness"',
+                 'id="cc-research-strip"', 'id="ic-source-details"', 'id="evt-events"',
+                 'id="evt-affected"', 'id="ic-decision"')
+#: ... and where each of them must now live.
+UX2_ON_MARKETS = ('id="cc-market-context"', 'id="cc-market-visuals"')
+UX2_ON_SYSTEM_AUDIT = ('id="cc-freshness"', 'id="cc-research-strip"', 'id="ic-source-details"',
+                       'id="evt-events"', 'id="evt-affected"', 'id="ic-decision"',
+                       'id="ic-service-line"', 'id="evt-kpis"', 'id="ic-sources"')
+#: Today keeps ONE compact market line, and it is a MIRROR - never a second fetch owner.
+UX2_TODAY_STRIP = 'id="today-market-strip"'
+UX2_STRIP_RENDERER = "function _r29ux2RenderTodayMarketStrip"
+#: A mirror may not fetch, and may not do market arithmetic.
+UX2_STRIP_FORBIDDEN = ("call('GET'", "fetch(", "_mhzGet(", "parseFloat(", "toFixed(",
+                       "Number(", "Date(")
+#: The Markets area is REFERENCE CONTEXT and must say so.
+UX2_MARKETS_LABEL = "REFERENCE CONTEXT &mdash; NOT A PORTFOLIO SIGNAL"
+#: Routes whose persistent right diagnostic rail must be removed.
+UX2_RAIL_FREE_ROUTES = ("command-center", "portfolio-manager", "markets")
+#: Portfolio regions that must not be on the primary route any more.
+UX2_OFF_PORTFOLIO = ("#rout-card", "#pm-checks-card", "#rlin-card", "#reassess-audit",
+                     "#reassess-alternatives-card", "#pm-dc-card", "#pm-sec-evidence",
+                     "#pm-sec-audit")
+#: Portfolio regions that MUST remain (performance & risk is explicitly kept).
+UX2_KEEP_PORTFOLIO = ('id="pa-hero"', 'id="pm-current-strip"', 'id="pa-decision"',
+                      'id="reassess-card"', 'id="pm-dag-counts"', 'id="pdash-perf-charts"',
+                      'id="pa-perf-chart"', 'id="pa-pnl-chart"', 'id="pa-dd-chart"',
+                      'id="pa-alloc-chart"', 'id="pa-contrib-chart"', 'id="pa-drift-chart"')
+
+
+def _ux2_region(ui: str, start_marker: str, end_marker: str) -> str:
+    i = ui.find(start_marker)
+    if i == -1:
+        return ""
+    j = ui.find(end_marker, i)
+    return ui[i:j] if j != -1 else ui[i:]
+
+
+def check_release29_ux2_simplification(files: list[Path]) -> dict:
+    """Release 29 UX2 guard. Proves the operating screens were SIMPLIFIED BY REMOVAL, and
+    that the removal was a MOVE rather than a loss:
+
+      (1)  the Markets area exists: nav entry, route, tab, and the reference-only label;
+      (2)  the market dashboard is no longer inside Today and IS inside Markets;
+      (3)  data freshness, collection source health / worker counters, the material-event
+           lists, the portfolio-decision line and research status are no longer inside
+           Today and ARE inside the System - Audit operating-diagnostics panel;
+      (4)  every moved id still exists exactly once (no loader write target was deleted);
+      (5)  Today keeps ONE compact market strip and it is a MIRROR - it performs no fetch
+           and no market arithmetic, so no second market owner exists;
+      (6)  the market data owners are still exactly one each;
+      (7)  the persistent right diagnostic rail is removed from Today / Portfolio / Markets
+           and the rail markup itself is retained (ids stay live write targets);
+      (8)  the Portfolio evidence and history/audit regions left the primary route while
+           performance & risk stayed;
+      (9)  the moved diagnostics panel is registered with the section router, so it is
+           reachable, and only under System - Audit.
+    """
+    ui = _read(UI_FILE)
+
+    today = _ux2_region(ui, '<div id="tab-overview" class="tab-content active">',
+                        "<!-- end tab-overview -->")
+    markets = _ux2_region(ui, '<div id="tab-markets" class="tab-content">',
+                          "<!-- end tab-markets -->")
+    audit_tab = _ux2_region(ui, '<div id="tab-audit-advanced" class="tab-content">',
+                            "<!-- end tab-audit-advanced -->")
+    sysops = _ux2_region(audit_tab, '<div class="card" id="sysops-panel"',
+                         '<!-- One page-level safety strip')
+
+    # (1) the Markets area.
+    markets_nav = ('id="nav-markets"' in ui and 'data-route="markets"' in ui
+                   and ">Markets<" in ui)
+    markets_route = "'markets': 'markets'" in ui
+    markets_tab_present = bool(markets)
+    markets_reference_only = UX2_MARKETS_LABEL in markets
+
+    # (2)/(3) what left Today, and where it went.
+    still_on_today = sorted(t for t in UX2_OFF_TODAY if t in today)
+    missing_on_markets = sorted(t for t in UX2_ON_MARKETS if t not in markets)
+    missing_on_system_audit = sorted(t for t in UX2_ON_SYSTEM_AUDIT if t not in sysops)
+
+    # (4) nothing was deleted: each moved id still exists exactly once in the document.
+    duplicated_or_lost_ids = sorted(
+        t for t in (UX2_ON_MARKETS + UX2_ON_SYSTEM_AUDIT) if ui.count(t) != 1)
+
+    # (5) Today's strip is a mirror.
+    strip_present = UX2_TODAY_STRIP in today
+    strip_src = _ux2_region(ui, UX2_STRIP_RENDERER,
+                            "window._r29ux2RenderTodayMarketStrip")
+    strip_forbidden = sorted(t for t in UX2_STRIP_FORBIDDEN if t in strip_src)
+    strip_reads_authoritative_tiles = ".ov-market-card[data-key=" in strip_src
+
+    # (6) one market owner each, unchanged.
+    market_dashboard_owners = ui.count("async function loadMarketDashboard")
+    market_context_owners = ui.count("function loadMarketContext(")
+
+    # (7) the rail is removed by route, and the markup is retained.
+    rail_rules = [r for r in UX2_RAIL_FREE_ROUTES
+                  if ('body[data-route="%s"]' % r) in ui]
+    rail_route_published = "document.body.setAttribute('data-route', base)" in ui
+    rail_markup_retained = ('<div class="right-panel">' in ui
+                            and 'id="right-current-task"' in ui
+                            and 'id="right-safety-footer"' in ui)
+
+    # (8) Portfolio.
+    pm_removed = sorted(t for t in UX2_OFF_PORTFOLIO
+                        if ("#tab-portfolio-manager > .card > %s," % t) not in ui
+                        and ("#tab-portfolio-manager > .card > %s\n" % t) not in ui
+                        and ("#tab-portfolio-manager > .card > %s " % t) not in ui)
+    pm_kept = sorted(t for t in UX2_KEEP_PORTFOLIO if t not in ui)
+
+    # (9) the moved panel is routed, and only under System - Audit.
+    sysops_registered = ("'diagnostics':      { panels: ['sysops-panel'" in ui
+                         and "var _RA_ALL_PANELS = ['sysops-panel'" in ui)
+
+    return {
+        "markets_nav": bool(markets_nav),
+        "markets_route": bool(markets_route),
+        "markets_tab_present": bool(markets_tab_present),
+        "markets_reference_only_label": bool(markets_reference_only),
+        "regions_still_on_today": still_on_today,
+        "regions_missing_on_markets": missing_on_markets,
+        "regions_missing_on_system_audit": missing_on_system_audit,
+        "moved_ids_duplicated_or_lost": duplicated_or_lost_ids,
+        "today_market_strip_present": bool(strip_present),
+        "today_market_strip_is_a_mirror": bool(strip_reads_authoritative_tiles),
+        "today_market_strip_forbidden_calls": strip_forbidden,
+        "market_dashboard_owner_count": market_dashboard_owners,
+        "market_context_owner_count": market_context_owners,
+        "rail_free_routes": sorted(rail_rules),
+        "rail_route_published": bool(rail_route_published),
+        "rail_markup_retained": bool(rail_markup_retained),
+        "portfolio_regions_not_removed": pm_removed,
+        "portfolio_regions_lost": pm_kept,
+        "moved_diagnostics_panel_routed": bool(sysops_registered),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE 29 UX2 - RESTART / SMOKE INVOCATION HYGIENE
+#
+# Owning the restart workflow was not enough: the workflow kept being INVOKED through a
+# child PowerShell, and re-entering PowerShell is what actually broke it. Two real
+# production defects:
+#
+#   1. A release wrapper forwarded a String[] of smoke paths across
+#      `powershell.exe -File restart_paper_trader_backend.ps1 ... -SmokePath $paths`.
+#      `-File` has no PowerShell parser on the far side, so the array flattened into bare
+#      tokens; the binder took the first as -SmokePath and bound the NEXT URL positionally
+#      to -ReadyTimeoutSec:Int32. The run died naming a timeout, not a path.
+#
+#   2. The repair attempt used `powershell.exe -Command` with a DOUBLE-QUOTED here-string
+#      containing continuation backticks. The outer shell consumed the backticks, so
+#      -Force / -Port / -SmokePath became three separate commands.
+#
+# Neither is a code defect inside the owner - both are INVOCATION defects. So the
+# invocation shape is now a build-time contract: the owner is called DIRECTLY, in-process,
+# and it contains no process-terminating statement, which is what makes direct invocation
+# safe for an operator's own shell.
+# --------------------------------------------------------------------------- #
+
+#: The owner's basename - what an invocation line refers to.
+_RESTART_OWNER_NAME = "restart_paper_trader_backend.ps1"
+
+#: Re-entering PowerShell at all. `-File` and `-Command` are the two shapes that broke.
+_PS_CHILD_SHELL = re.compile(r"(?i)\bpowershell(?:\.exe)?\b")
+_PS_CHILD_FILE_SWITCH = re.compile(r"(?i)(?:^|[\s;`'\"])-f(?:i(?:l(?:e)?)?)?\b")
+_PS_CHILD_COMMAND_SWITCH = re.compile(r"(?i)(?:^|[\s;`'\"])-c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?\b")
+
+#: Constructing a backend LIFECYCLE through a child shell: -Force / -Port / -SmokePath /
+#: the owner itself / a uvicorn launch. Any of these behind `powershell -Command` is the
+#: exact defect #2 shape.
+_PS_LIFECYCLE_TOKEN = re.compile(
+    r"(?i)(?:restart_paper_trader_backend|-SmokePath\b|-ReadyTimeoutSec\b|\buvicorn\b"
+    r"|-Force\b[\s`]*-Port\b|-Port\b[\s`]*\d+[\s`]*-SmokePath\b)")
+
+#: A String[] parameter flattened into ONE comma-joined string, or forwarded positionally.
+#: `-SmokePath "a,b"` and `-SmokePath ($p -join ',')` are the shapes that silently degrade
+#: five checked paths into one nonsense path.
+_PS_SMOKEPATH_JOINED = re.compile(
+    r"""(?i)-SmokePath\s+(?:["'][^"']*,[^"']*["']|\([^)]*-join[^)]*\)|\$\w+\s+-join)""")
+
+#: A second restart implementation - a file that both launches the app and probes a
+#: readiness route, or that redeclares the owner's marker.
+_PS_DUP_IMPL_TOKENS = ("Start-Process", "uvicorn")
+
+#: Quoted spans. Prose inside a string ("process exit code") is not control flow.
+_PS_STRING_LITERAL = re.compile(r""""(?:[^"`]|`.)*"|'(?:[^']|'')*'""")
+
+#: Documentation and workflows must show the DIRECT invocation, never a child shell.
+_RESTART_DIRECT_INVOCATION = "& C:\\Users\\binis\\paper_trader\\scripts\\restart_paper_trader_backend.ps1"
+
+
+def _iter_invocation_scan_files(extra_dirs=()) -> list[tuple[str, Path]]:
+    """PowerShell workflows, Python drivers and Markdown runbooks in scope. An invocation
+    defect can be authored in any of the three, so all three are scanned."""
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    exts = (".ps1", ".py", ".md", ".psm1", ".cmd", ".bat")
+    bases = [REPO_ROOT] + [Path(d) for d in extra_dirs]
+    for base in bases:
+        try:
+            if not base.exists():
+                continue
+        except OSError:
+            continue
+        for root, dirs, files in os.walk(str(base)):
+            dirs[:] = [d for d in dirs
+                       if d not in EXCLUDE_PARTS and not d.endswith(".egg-info")]
+            for name in sorted(files):
+                if not name.lower().endswith(exts):
+                    continue
+                fp = Path(root) / name
+                try:
+                    key = str(fp.resolve()).lower()
+                except OSError:
+                    key = str(fp).lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    label = _rel(fp)
+                except ValueError:
+                    label = str(fp).replace("\\", "/")
+                out.append((label, fp))
+    return sorted(out, key=lambda t: t[0])
+
+
+def check_restart_invocation_hygiene(extra_dirs=()) -> dict:
+    """Release 29 UX2 guard over HOW the canonical restart owner is invoked.
+
+      (1) the owner contains NO process-terminating statement, so calling it directly can
+          never end an operator's shell;
+      (2) NOBODY forwards ``-SmokePath`` through ``powershell.exe -File`` (defect #1:
+          String[] flattening binding a URL to ``-ReadyTimeoutSec:Int32``);
+      (3) NOBODY constructs a backend lifecycle command through ``powershell.exe -Command``
+          (defect #2: the outer shell eating continuation backticks);
+      (4) NOBODY collapses the ``String[]`` into one comma-joined / positional argument;
+      (5) there is no SECOND restart implementation (a file that both launches the app and
+          polls readiness);
+      (6) the owner still declares the direct, in-process invocation contract, exposes the
+          bind-and-report probe, and reports its outcome without terminating the process.
+    """
+    owner_src = _read(RESTART_OWNER)
+
+    # (1) NO process-terminating statement. A bare `exit` (or `exit 1`) in a script an
+    # operator calls directly with `&` is the thing that makes "call it directly" unsafe.
+    # Only real CODE counts: the words "exit code" inside a diagnostics string and the
+    # word "exit" in a comment are prose, not control flow.
+    exit_statements: list[str] = []
+    for i, line in enumerate(owner_src.splitlines(), start=1):
+        code = _PS_STRING_LITERAL.sub(" ", line)      # drop quoted spans first ...
+        code = code.split("#", 1)[0]                  # ... then trailing comments
+        if re.search(r"(?im)(?:^|[\s;{(&|])exit\b", code):
+            exit_statements.append("%s:%d: %s" % (RESTART_OWNER, i, line.strip()))
+        if re.search(r"(?i)\$Host\.SetShouldExit|\[Environment\]::Exit", code):
+            exit_statements.append("%s:%d: %s" % (RESTART_OWNER, i, line.strip()))
+
+    file_forwarding: list[str] = []
+    command_lifecycle: list[str] = []
+    fragile_array_forwarding: list[str] = []
+    duplicate_restart_impls: list[str] = []
+    scanned: list[str] = []
+
+    for label, fp in _iter_invocation_scan_files(extra_dirs):
+        try:
+            text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        scanned.append(label)
+        is_owner = (label == RESTART_OWNER)
+        is_guard = label in ("scripts/audit_architecture.py",)
+        lines = text.splitlines()
+        for i, line in enumerate(lines, start=1):
+            # Continuation-aware window: a PowerShell invocation is routinely spread over
+            # several backtick-continued lines, so judge the logical command, not one line.
+            window = line
+            j = i - 1
+            while j + 1 < len(lines) and window.rstrip().endswith("`"):
+                window = window.rstrip()[:-1] + " " + lines[j + 1]
+                j += 1
+            if is_guard:
+                continue
+            has_child_shell = bool(_PS_CHILD_SHELL.search(window))
+            # (2) -File + the owner + -SmokePath: the exact flattening defect.
+            if (has_child_shell and _PS_CHILD_FILE_SWITCH.search(window)
+                    and _RESTART_OWNER_NAME in window and "-SmokePath" in window):
+                file_forwarding.append("%s:%d: %s" % (label, i, window.strip()[:200]))
+            # (3) -Command carrying a backend lifecycle.
+            if (has_child_shell and _PS_CHILD_COMMAND_SWITCH.search(window)
+                    and _PS_LIFECYCLE_TOKEN.search(window)):
+                command_lifecycle.append("%s:%d: %s" % (label, i, window.strip()[:200]))
+            # (4) the String[] collapsed into one argument.
+            if _PS_SMOKEPATH_JOINED.search(window):
+                fragile_array_forwarding.append("%s:%d: %s" % (label, i, window.strip()[:200]))
+        # (5) a second restart implementation.
+        if (not is_owner and label.lower().endswith(".ps1")
+                and all(t in text for t in _PS_DUP_IMPL_TOKENS)
+                and re.search(r"(?i)/v1/(?:health|ready)", text)):
+            duplicate_restart_impls.append(label)
+
+    return {
+        "owner": RESTART_OWNER,
+        "owner_exit_statements": sorted(set(exit_statements)),
+        "owner_is_exit_free": exit_statements == [],
+        "owner_declares_direct_invocation": _RESTART_DIRECT_INVOCATION in owner_src,
+        "owner_exposes_contract_probe": ("[switch]$ContractProbe" in owner_src
+                                         and "CONTRACT_PROBE_JSON_BEGIN" in owner_src),
+        "owner_reports_last_exit_code": "$global:LASTEXITCODE = $script:ResultCode" in owner_src,
+        "owner_asserts_smokepath_contract": "function Assert-SmokePathContract" in owner_src,
+        "file_switch_smokepath_forwarding": sorted(set(file_forwarding)),
+        "command_switch_lifecycle_construction": sorted(set(command_lifecycle)),
+        "fragile_array_forwarding": sorted(set(fragile_array_forwarding)),
+        "duplicate_restart_implementations": sorted(set(duplicate_restart_impls)),
+        "scanned_invocation_files": len(scanned),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -4280,6 +4614,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
         "normal_cycle_ownership": check_normal_cycle_ownership(files),
         "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
+        "restart_invocation_hygiene": check_restart_invocation_hygiene(extra_ps1_dirs),
+        "release29_ux2_simplification": check_release29_ux2_simplification(files),
         "stage21_outcome_intelligence": check_stage21_outcome_intelligence(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
@@ -4839,6 +5175,53 @@ def _print_console(rep: dict) -> None:
           f"emissions in owner (must be 1): {br['owner_live_smoke_emissions']}")
     print(f"powershell workflows scanned: {len(br['scanned_powershell_files'])}")
 
+    hdr("RADICAL OPERATOR SIMPLIFICATION (Release 29 UX2)")
+    ux2 = rep["release29_ux2_simplification"]
+    print(f"Markets area: nav {ux2['markets_nav']}  route {ux2['markets_route']}  "
+          f"tab {ux2['markets_tab_present']}  reference-only label "
+          f"{ux2['markets_reference_only_label']}")
+    print(f"regions still on Today (must be empty): {ux2['regions_still_on_today']}")
+    print(f"missing on Markets (must be empty): {ux2['regions_missing_on_markets']}  "
+          f"missing on System · Audit (must be empty): "
+          f"{ux2['regions_missing_on_system_audit']}")
+    print(f"moved ids duplicated or lost (must be empty): "
+          f"{ux2['moved_ids_duplicated_or_lost']}")
+    print(f"Today market strip: present {ux2['today_market_strip_present']}  "
+          f"is a mirror {ux2['today_market_strip_is_a_mirror']}  "
+          f"forbidden calls (must be empty) {ux2['today_market_strip_forbidden_calls']}")
+    print(f"market owners (must be 1 each): dashboard "
+          f"{ux2['market_dashboard_owner_count']}  context "
+          f"{ux2['market_context_owner_count']}")
+    print(f"rail-free routes: {ux2['rail_free_routes']}  route published: "
+          f"{ux2['rail_route_published']}  rail markup retained: "
+          f"{ux2['rail_markup_retained']}")
+    print(f"Portfolio regions not removed (must be empty): "
+          f"{ux2['portfolio_regions_not_removed']}  regions lost (must be empty): "
+          f"{ux2['portfolio_regions_lost']}")
+    print(f"moved diagnostics panel routed: {ux2['moved_diagnostics_panel_routed']}")
+
+    hdr("RESTART / SMOKE INVOCATION HYGIENE (Release 29 UX2)")
+    ih = rep["restart_invocation_hygiene"]
+    print(f"owner is exit-free (safe to call directly): {ih['owner_is_exit_free']}")
+    for x in ih["owner_exit_statements"][:20]:
+        print(f"  !{x}")
+    print(f"owner declares the direct invocation: {ih['owner_declares_direct_invocation']}  "
+          f"contract probe: {ih['owner_exposes_contract_probe']}  "
+          f"LASTEXITCODE contract: {ih['owner_reports_last_exit_code']}  "
+          f"SmokePath contract asserted: {ih['owner_asserts_smokepath_contract']}")
+    print(f"-File + -SmokePath forwarding (must be empty): "
+          f"{len(ih['file_switch_smokepath_forwarding'])}")
+    for x in ih["file_switch_smokepath_forwarding"][:20]:
+        print(f"  !{x}")
+    print(f"-Command lifecycle construction (must be empty): "
+          f"{len(ih['command_switch_lifecycle_construction'])}")
+    for x in ih["command_switch_lifecycle_construction"][:20]:
+        print(f"  !{x}")
+    print(f"fragile array forwarding (must be empty): {ih['fragile_array_forwarding']}")
+    print(f"duplicate restart implementations (must be empty): "
+          f"{ih['duplicate_restart_implementations']}")
+    print(f"invocation files scanned: {ih['scanned_invocation_files']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -5056,6 +5439,39 @@ BLOCKING_INVARIANTS = (
     ("backend_restart_ownership", "live_smoke_emitting_scripts",
      ["scripts/restart_paper_trader_backend.ps1"]),
     ("backend_restart_ownership", "owner_live_smoke_emissions", 1),
+    # --- Release 29 UX2: the restart owner is INVOKED safely, not only OWNED --------
+    ("restart_invocation_hygiene", "owner_is_exit_free", True),
+    ("restart_invocation_hygiene", "owner_exit_statements", []),
+    ("restart_invocation_hygiene", "owner_declares_direct_invocation", True),
+    ("restart_invocation_hygiene", "owner_exposes_contract_probe", True),
+    ("restart_invocation_hygiene", "owner_reports_last_exit_code", True),
+    ("restart_invocation_hygiene", "owner_asserts_smokepath_contract", True),
+    ("restart_invocation_hygiene", "file_switch_smokepath_forwarding", []),
+    ("restart_invocation_hygiene", "command_switch_lifecycle_construction", []),
+    ("restart_invocation_hygiene", "fragile_array_forwarding", []),
+    ("restart_invocation_hygiene", "duplicate_restart_implementations", []),
+    # --- Release 29 UX2: the operating screens were simplified BY REMOVAL, and every
+    # removal is a MOVE - nothing was deleted, no owner was forked, nothing was lost.
+    ("release29_ux2_simplification", "markets_nav", True),
+    ("release29_ux2_simplification", "markets_route", True),
+    ("release29_ux2_simplification", "markets_tab_present", True),
+    ("release29_ux2_simplification", "markets_reference_only_label", True),
+    ("release29_ux2_simplification", "regions_still_on_today", []),
+    ("release29_ux2_simplification", "regions_missing_on_markets", []),
+    ("release29_ux2_simplification", "regions_missing_on_system_audit", []),
+    ("release29_ux2_simplification", "moved_ids_duplicated_or_lost", []),
+    ("release29_ux2_simplification", "today_market_strip_present", True),
+    ("release29_ux2_simplification", "today_market_strip_is_a_mirror", True),
+    ("release29_ux2_simplification", "today_market_strip_forbidden_calls", []),
+    ("release29_ux2_simplification", "market_dashboard_owner_count", 1),
+    ("release29_ux2_simplification", "market_context_owner_count", 1),
+    ("release29_ux2_simplification", "rail_free_routes",
+     ["command-center", "markets", "portfolio-manager"]),
+    ("release29_ux2_simplification", "rail_route_published", True),
+    ("release29_ux2_simplification", "rail_markup_retained", True),
+    ("release29_ux2_simplification", "portfolio_regions_not_removed", []),
+    ("release29_ux2_simplification", "portfolio_regions_lost", []),
+    ("release29_ux2_simplification", "moved_diagnostics_panel_routed", True),
 )
 
 

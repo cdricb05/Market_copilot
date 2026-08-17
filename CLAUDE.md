@@ -196,4 +196,39 @@ stages did, and nine stages reintroduced the same defect: polling
   build on any violation, including a probed `/v1` path the application does not
   declare as GET. `tests\test_canonical_backend_restart.py` is the regression.
 
+## Canonical invocation (Release 29 UX2 — permanent)
+
+Call the owner DIRECTLY. Never re-enter PowerShell to run it.
+
+```powershell
+$SmokePaths = @(
+    '/v1/operations/workflow-state',
+    '/v1/operations/information-collection',
+    '/v1/operations/daily-close',
+    '/v1/operational-book',
+    '/v1/operations/portfolio-reassessment'
+)
+
+& C:\Users\binis\paper_trader\scripts\restart_paper_trader_backend.ps1 `
+    -Force `
+    -Port 8001 `
+    -SmokePath $SmokePaths
+```
+
+- The owner contains **no** process-terminating statement, so a direct call can
+  never end the operator's shell. It reports its outcome as ONE printed terminal
+  token (`LIVE_SMOKE_OK` / `RESTART_PREFLIGHT_OK` /
+  `RESTART_SMOKE_FAILED - <reason>`), `$LASTEXITCODE`, and
+  `$global:PaperTraderRestartResult`. Callers check those, not a process code.
+- `-ContractProbe` prints the bound parameter contract as JSON and returns
+  without touching a process, a port or an HTTP route.
+- FORBIDDEN, and enforced by `check_restart_invocation_hygiene`:
+  forwarding `-SmokePath` through `powershell.exe -File` (the `String[]`
+  flattens and a URL binds positionally to `-ReadyTimeoutSec:Int32`); building a
+  lifecycle command through `powershell.exe -Command` (the outer shell eats
+  continuation backticks); collapsing the `String[]` into one comma-joined or
+  positional argument; a second restart implementation.
+  `tests\test_release29_restart_contract.py` is the regression, and it proves
+  the parameter binding with the real PowerShell binder.
+
 <!-- END CANONICAL BACKEND RESTART / SMOKE OWNER -->
