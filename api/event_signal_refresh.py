@@ -257,9 +257,16 @@ def _default_price_panel_loader():
 
 def _default_hoc_fn(*, scoring=None, hoc_dir=None):
     """The canonical Holding Opportunity-Cost owner — the SAME entry point the Daily
-    Research Cycle uses. This module computes no opportunity cost of its own."""
+    Research Cycle uses. This module computes no opportunity cost of its own.
+
+    Release 29.5 — the artifact is stamped with THIS owner and NO ``drc_run_id``, because
+    the event cycle is the incremental refresh, not the governed daily cycle. That is what
+    makes its output Class 1 (LIVE_PRE_DRC_SIGNAL): real, current, displayable signal
+    state that never claims a run manifest and therefore never reads as a missing one.
+    """
     from paper_trader.api import holding_opportunity_cost as hoc
-    return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir)
+    return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir,
+                               produced_by=hoc.PRODUCER_EVENT_SIGNAL_REFRESH)
 
 
 def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,

@@ -1397,7 +1397,15 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
                "opportunity_cost_bound_active_book_id",
                "opportunity_cost_bound_economic_state_hash",
                "opportunity_cost_bound_corporate_actions_hash",
-               "opportunity_cost_stale", "opportunity_cost_stale_reason"):
+               "opportunity_cost_stale", "opportunity_cost_stale_reason",
+               # Release 29.5 — the artifact owner's provenance classification travels the
+               # SAME single shared path. The gate copies it verbatim and interprets it no
+               # more than it interprets a gap taxonomy: whether an artifact is governed
+               # daily-cycle evidence or live pre-cycle signal state is the artifact
+               # owner's answer, adjudicated by the manifest owner — never the gate's.
+               "opportunity_cost_provenance", "opportunity_cost_artifact_class",
+               "opportunity_cost_producer_owner", "opportunity_cost_claims_drc_terminal",
+               "opportunity_cost_drc_run_id", "opportunity_cost_proves_drc_complete"):
         result[_k] = oc.get(_k)
     # --- Slice 7 (Phase 29H) Reallocation Proposal compatibility summary --------- #
     # The gate ALSO delegates to the canonical reallocation-proposal summary (never

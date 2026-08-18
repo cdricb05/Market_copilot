@@ -60,6 +60,109 @@ STATE_UNAVAILABLE = "UNAVAILABLE"
 READ_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_NO_ACTIVE_BOOK,
                     STATE_NOT_RUN, STATE_UNAVAILABLE)
 
+# --------------------------------------------------------------------------- #
+# Release 29.5 — ARTIFACT PROVENANCE. This module writes the artifact, so it owns the
+# answer to "who produced this, and what does it claim to be?".
+#
+# WHY THIS EXISTS
+# ---------------
+# Two canonical owners legitimately call ``run_and_persist``:
+#
+#   * ``api.daily_research_cycle``  — the GOVERNED daily cycle, which persists a run
+#     manifest binding this artifact to a run id.
+#   * ``api.event_signal_refresh``  — the Release 28 incremental refresh that Release 29
+#     continuous collection triggers whenever arriving information is material. It runs
+#     many times a day, produces a perfectly real assessment, and persists NO manifest
+#     because it is not the governed cycle.
+#
+# Before Release 29.5 the two were indistinguishable on disk, so an artifact written by
+# the event cycle read as "a terminal DRC output whose manifest is missing" — a
+# corruption signature. That put the workflow into RECOVERY, RECOVERY offers no
+# executable stage, and the Daily Research Cycle could therefore never run to write the
+# manifest whose absence caused the RECOVERY. The deadlock was structural.
+#
+# THE DISTINCTION
+# ---------------
+# An artifact is GOVERNED_DRC_TERMINAL only when it CLAIMS to be — i.e. it carries a
+# ``drc_run_id``. Everything else is LIVE_PRE_DRC_SIGNAL: real, current, displayable
+# signal state that does NOT prove the governed cycle ran. Absence of a claim is not a
+# broken claim, so a legacy artifact written before this field existed classifies as
+# LIVE_PRE_DRC_SIGNAL and can never manufacture a corruption verdict out of its own age.
+#
+# The claim is what fails closed: an artifact claiming a run id whose manifest is
+# missing, unreadable or bound to a different session IS the corruption case, and
+# ``api.daily_research_cycle`` (the manifest owner) is the only module entitled to
+# adjudicate it. This module states the claim; it never validates a manifest.
+#
+# NOTHING HERE EVER PROVES COMPLETION. ``proves_drc_complete`` is unconditionally False:
+# only a validated manifest held by the manifest owner proves a governed cycle ran.
+# --------------------------------------------------------------------------- #
+PROVENANCE_OWNER = "api.holding_opportunity_cost"
+PROVENANCE_SCHEMA_VERSION = "holding_opportunity_cost.provenance.v1"
+
+#: Canonical producers. Anything else is recorded verbatim and still classifies by CLAIM.
+PRODUCER_DAILY_RESEARCH_CYCLE = "api.daily_research_cycle"
+PRODUCER_EVENT_SIGNAL_REFRESH = "api.event_signal_refresh"
+PRODUCER_UNRECORDED = "UNRECORDED"
+
+#: Class 1 — live/pre-DRC signal state. May exist before a manifest; never proves one.
+ARTIFACT_CLASS_LIVE_PRE_DRC = "LIVE_PRE_DRC_SIGNAL"
+#: Class 2 — an artifact that CLAIMS governed DRC terminal provenance. The manifest owner
+#: must be able to validate that claim or the state is corrupt.
+ARTIFACT_CLASS_GOVERNED_DRC_TERMINAL = "GOVERNED_DRC_TERMINAL"
+ARTIFACT_CLASS_VOCABULARY = (ARTIFACT_CLASS_LIVE_PRE_DRC,
+                             ARTIFACT_CLASS_GOVERNED_DRC_TERMINAL)
+
+#: The artifact key carrying the provenance block (top level — deliberately OUTSIDE
+#: ``identity`` and ``assessment`` so ``assessment_hash`` and ``artifact_id`` are
+#: unaffected and every existing artifact stays byte-valid and re-readable).
+PROVENANCE_KEY = "produced_by"
+
+
+def build_provenance(*, producer_owner: Any = None, drc_run_id: Any = None) -> dict:
+    """The provenance block stamped into a newly written artifact.
+
+    ``drc_run_id`` is supplied ONLY by the governed Daily Research Cycle, and only for
+    the run that is persisting its own manifest. Supplying it is what makes the artifact
+    claim Class 2 — and therefore what makes a missing manifest a corruption.
+    """
+    run_id = str(drc_run_id) if drc_run_id else None
+    return {
+        "schema_version": PROVENANCE_SCHEMA_VERSION,
+        "provenance_owner": PROVENANCE_OWNER,
+        "producer_owner": str(producer_owner) if producer_owner else PRODUCER_UNRECORDED,
+        "drc_run_id": run_id,
+        "claims_drc_terminal": bool(run_id),
+    }
+
+
+def classify_artifact_provenance(artifact: Optional[dict]) -> dict:
+    """Classify an artifact as Class 1 (live/pre-DRC) or Class 2 (claims DRC terminal).
+
+    PURE. Reads only the artifact document. Opens no manifest, no index and no store —
+    validating a claimed manifest belongs to the manifest owner, not here.
+    """
+    pb = ((artifact or {}).get(PROVENANCE_KEY) or {}) if isinstance(artifact, dict) else {}
+    run_id = pb.get("drc_run_id") or None
+    # A claim is made by carrying a run id. The boolean alone can never manufacture one:
+    # a claim without an id names nothing the manifest owner could ever validate, so it
+    # would be permanently unresolvable rather than fail-closed.
+    claims = bool(run_id)
+    return {
+        "provenance_owner": PROVENANCE_OWNER,
+        "provenance_schema_version": PROVENANCE_SCHEMA_VERSION,
+        "producer_owner": pb.get("producer_owner") or PRODUCER_UNRECORDED,
+        "drc_run_id": run_id,
+        "claims_drc_terminal": claims,
+        "artifact_class": (ARTIFACT_CLASS_GOVERNED_DRC_TERMINAL if claims
+                           else ARTIFACT_CLASS_LIVE_PRE_DRC),
+        "artifact_class_vocabulary": list(ARTIFACT_CLASS_VOCABULARY),
+        # INVARIANT (Release 29.5): an artifact NEVER proves the governed cycle ran.
+        # Only a validated run manifest does, and this module holds no manifest.
+        "proves_drc_complete": False,
+        "manifest_owner": PRODUCER_DAILY_RESEARCH_CYCLE,
+    }
+
 # --- immutable artifact root (configurable; a research / decision-evidence root, --- #
 # NEVER the operational ledger root). -------------------------------------------- #
 HOC_DIR_ENV = "PAPER_TRADER_HOC_DIR"
@@ -514,7 +617,8 @@ def run_assessment(*, input_contract: Optional[dict] = None,
 # Persist (immutable artifact) — Workstream H
 # --------------------------------------------------------------------------- #
 def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
-                       now: Optional[datetime] = None) -> dict:
+                       now: Optional[datetime] = None,
+                       produced_by: Any = None, drc_run_id: Any = None) -> dict:
     """Persist a completed production assessment as an immutable artifact.
 
     Idempotent: an identical re-run (same identity incl. assessment_hash) reuses the
@@ -522,6 +626,13 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
     portfolio/universe/assessment hash) is REJECTED — the immutable artifact is never
     overwritten. Only production READY / DEGRADED assessments are persisted; BLOCKED /
     NO_ACTIVE_BOOK are not (nothing durable to record).
+
+    Release 29.5 — ``produced_by`` / ``drc_run_id`` record WHO produced this artifact
+    (see ``build_provenance``). They are written on CREATION only: reuse returns the
+    existing artifact untouched, because an immutable artifact does not acquire a new
+    claim by being read again. That is deliberate — when the governed cycle adopts an
+    existing live artifact, its proof of completion is its own manifest binding, never
+    a retroactive stamp on evidence it did not produce.
     """
     state = result.get("assessment_state")
     if state not in (STATE_READY, STATE_DEGRADED):
@@ -553,6 +664,8 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
         "schema_version": SCHEMA_VERSION,
         "composition_owner": COMPOSITION_OWNER,
         "generated_at": _now_iso(now),
+        PROVENANCE_KEY: build_provenance(producer_owner=produced_by,
+                                         drc_run_id=drc_run_id),
         "identity": identity,
         "input_contract": _compact_input_contract(input_contract),
         "assessment": result,
@@ -595,8 +708,14 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
                     hoc_dir=None, now: Optional[datetime] = None,
                     portfolio_state_loader: Optional[Callable] = None,
                     scoring_loader: Optional[Callable] = None,
-                    price_panel_loader: Optional[Callable] = None) -> dict:
-    """The Daily Research Cycle entry: build -> kernel -> persist (idempotent)."""
+                    price_panel_loader: Optional[Callable] = None,
+                    produced_by: Any = None, drc_run_id: Any = None) -> dict:
+    """The composition entry: build -> kernel -> persist (idempotent).
+
+    Called by BOTH canonical producers (``api.daily_research_cycle`` and
+    ``api.event_signal_refresh``); ``produced_by`` / ``drc_run_id`` is how they identify
+    themselves so the persisted artifact states what it is.
+    """
     run = run_assessment(
         portfolio_state=portfolio_state, scoring=scoring, price_panel=price_panel,
         previous_ranking=previous_ranking, previous_ranking_state=previous_ranking_state,
@@ -604,7 +723,8 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
         portfolio_state_loader=portfolio_state_loader, scoring_loader=scoring_loader,
         price_panel_loader=price_panel_loader)
     persist = persist_assessment(result=run["assessment"],
-                                 input_contract=run["input_contract"], hoc_dir=hoc_dir, now=now)
+                                 input_contract=run["input_contract"], hoc_dir=hoc_dir,
+                                 now=now, produced_by=produced_by, drc_run_id=drc_run_id)
     return {"input_contract": run["input_contract"], "assessment": run["assessment"],
             "persistence": persist}
 
@@ -792,6 +912,20 @@ def load_holding_opportunity_cost(*, portfolio_state: Optional[dict] = None,
 # --------------------------------------------------------------------------- #
 # Lightweight summary for the Daily Action Gate (Workstream K)
 # --------------------------------------------------------------------------- #
+def _absent_provenance_fields() -> dict:
+    """Provenance keys for a summary with NO artifact. No artifact makes no claim, so it
+    is not a governed terminal output and it proves nothing — stated explicitly rather
+    than left absent, so a consumer never reads a missing key as an unknown claim."""
+    return {
+        "opportunity_cost_provenance": None,
+        "opportunity_cost_artifact_class": None,
+        "opportunity_cost_producer_owner": None,
+        "opportunity_cost_claims_drc_terminal": False,
+        "opportunity_cost_drc_run_id": None,
+        "opportunity_cost_proves_drc_complete": False,
+    }
+
+
 def load_assessment_summary(*, active_book_id: Optional[str] = None,
                             eligible_market_date: Optional[str] = None,
                             artifact: Optional[dict] = None, hoc_dir=None,
@@ -821,14 +955,16 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
                 "opportunity_cost_replacement_count": 0, "opportunity_cost_exit_count": 0,
                 "opportunity_cost_reduce_count": 0, "opportunity_cost_hold_count": 0,
                 "opportunity_cost_add_count": 0, "opportunity_cost_data_gaps": [],
-                "opportunity_cost_state": STATE_UNAVAILABLE}
+                "opportunity_cost_state": STATE_UNAVAILABLE,
+                **_absent_provenance_fields()}
     if not art:
         return {"opportunity_cost_available": False, "opportunity_cost_assessment_hash": None,
                 "opportunity_cost_recommendation_counts": zero,
                 "opportunity_cost_replacement_count": 0, "opportunity_cost_exit_count": 0,
                 "opportunity_cost_reduce_count": 0, "opportunity_cost_hold_count": 0,
                 "opportunity_cost_add_count": 0, "opportunity_cost_data_gaps": [],
-                "opportunity_cost_state": STATE_NOT_RUN}
+                "opportunity_cost_state": STATE_NOT_RUN,
+                **_absent_provenance_fields()}
     a = art.get("assessment") or {}
     ident = art.get("identity") or {}
     ic = art.get("input_contract") or {}
@@ -840,6 +976,7 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
     # recomputation of it — so an existing artifact can never be invalidated by adding
     # this contract. Consumers read ``blocking`` instead of parsing a string code.
     gap_summary = classify_data_gaps(assessment=a, artifact=art)
+    prov = classify_artifact_provenance(art)
     # Stage 19.1: resolved from the corporate-action registry file alone by the ONE owner,
     # so this stays a PURE artifact reader (no engine run, no provider call, and no edge
     # back into the canonical state composer — the acyclic read contract is preserved).
@@ -881,4 +1018,14 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
         # honest answer to "does this still describe the portfolio?".
         "opportunity_cost_artifact_id": art.get("artifact_id"),
         "opportunity_cost_holding_count": len(a.get("holding_reviews") or []),
+        # Release 29.5 (Workstream provenance) — WHAT THIS ARTIFACT CLAIMS TO BE, so a
+        # consumer never has to infer governance from the artifact merely existing. The
+        # classification is a description of what was recorded; it validates no manifest
+        # and asserts no completion (``proves_drc_complete`` is always False).
+        "opportunity_cost_provenance": prov,
+        "opportunity_cost_artifact_class": prov["artifact_class"],
+        "opportunity_cost_producer_owner": prov["producer_owner"],
+        "opportunity_cost_claims_drc_terminal": prov["claims_drc_terminal"],
+        "opportunity_cost_drc_run_id": prov["drc_run_id"],
+        "opportunity_cost_proves_drc_complete": False,
     }

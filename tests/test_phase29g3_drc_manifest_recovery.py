@@ -179,28 +179,68 @@ def test_12_restart_preserves_terminal_status(tmp_path):
     assert s["state"] == drc.COMPLETE and s["run_id"] == r["run_id"]
 
 
+# Release 29.5 — "TERMINAL downstream artifact" means an artifact that CLAIMS to be a
+# governed terminal output of a named DRC run. These two tests originally asserted the
+# rule on artifact EXISTENCE, which since Releases 28/29 also matches the perfectly
+# legitimate live artifact the event-driven refresh writes between governed cycles (see
+# test_14c and tests/test_release29_5_drc_provenance.py). The corruption case is the
+# CLAIM, so the probes below now make one — that is the state that must fail closed.
 def test_13_missing_manifest_with_terminal_hoc_artifact_is_inconsistent_not_not_started(tmp_path):
     probe = lambda **kw: {"present": True, "state": "DEGRADED",  # noqa: E731
                           "assessment_hash": "H",
                           "recommendation_counts": {"HOLD": 1},
-                          "data_gaps": ["LIQUIDITY_UNAVAILABLE"]}
+                          "data_gaps": ["LIQUIDITY_UNAVAILABLE"],
+                          "artifact_class": "GOVERNED_DRC_TERMINAL",
+                          "producer_owner": "api.daily_research_cycle",
+                          "claims_drc_terminal": True,
+                          "drc_run_id": "drc_2026-08-03_orphaned00"}
     s = _status(tmp_path, inputs=_inputs(price="2026-08-03", month="2026-08"),
                 downstream_artifacts_fn=probe)
     assert s["state"] == drc.INCONSISTENT and s["state"] != drc.NOT_STARTED
     # The HOC evidence is surfaced (never "assessment not run").
     assert s["opportunity_cost_selected"] is True
     assert s["opportunity_cost_assessment_hash"] == "H"
+    # Even here — where an artifact claims to be terminal — it never proves completion.
+    assert s["opportunity_cost_proves_drc_complete"] is False
+    assert s["governed_research_evidence_current"] is False
 
 
 def test_14_exact_missing_manifest_reason_code(tmp_path):
     probe = lambda **kw: {"present": True, "assessment_hash": "H",  # noqa: E731
-                          "recommendation_counts": {}, "data_gaps": []}
+                          "recommendation_counts": {}, "data_gaps": [],
+                          "claims_drc_terminal": True,
+                          "drc_run_id": "drc_2026-08-03_orphaned00"}
     s = _status(tmp_path, inputs=_inputs(price="2026-08-03", month="2026-08"),
                 downstream_artifacts_fn=probe)
     codes = [b.get("code") for b in s.get("blockers", [])]
     assert drc.TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST in codes
     ra = s.get("required_actions", [])
     assert any(a.get("confirmation_required") == drc.EXECUTE_CONFIRMATION for a in ra)
+    # The orphaned run is NAMED, so the operator can tell which run failed to record.
+    orphan = [b for b in s["blockers"]
+              if b.get("code") == drc.TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST]
+    assert orphan[0]["claimed_drc_run_id"] == "drc_2026-08-03_orphaned00"
+
+
+def test_14c_live_pre_drc_artifact_without_a_claim_is_due_not_recovery(tmp_path):
+    # Release 29.5 — the artifact the Release 28 event refresh writes when Release 29
+    # continuous collection triggers it. It makes NO manifest claim, so it is current
+    # signal state, not corruption: the cycle is simply DUE and remains executable.
+    probe = lambda **kw: {"present": True, "state": "READY",  # noqa: E731
+                          "assessment_hash": "H", "recommendation_counts": {"HOLD": 1},
+                          "data_gaps": [],
+                          "artifact_class": "LIVE_PRE_DRC_SIGNAL",
+                          "producer_owner": "api.event_signal_refresh",
+                          "claims_drc_terminal": False, "drc_run_id": None}
+    s = _status(tmp_path, inputs=_inputs(price="2026-08-03", month="2026-08"),
+                downstream_artifacts_fn=probe)
+    assert s["state"] == drc.NOT_STARTED and s["executable"] is True
+    codes = [b.get("code") for b in s.get("blockers", [])]
+    assert drc.TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST not in codes
+    # The live assessment stays VISIBLE — it is real information — but proves nothing.
+    assert s["opportunity_cost_selected"] is True
+    assert s["opportunity_cost_artifact_class"] == "LIVE_PRE_DRC_SIGNAL"
+    assert s["governed_research_evidence_current"] is False
 
 
 def test_14b_no_downstream_artifact_returns_not_started_not_inconsistent(tmp_path):

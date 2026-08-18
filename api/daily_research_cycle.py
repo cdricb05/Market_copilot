@@ -463,6 +463,14 @@ def _default_downstream_probe(*, active_book_id: Any, eligible: Any, hoc_dir=Non
         "state": summ.get("opportunity_cost_state"),
         "recommendation_counts": summ.get("opportunity_cost_recommendation_counts") or {},
         "data_gaps": list(summ.get("opportunity_cost_data_gaps") or []),
+        # Release 29.5 — the artifact owner's own classification, carried verbatim. The
+        # DRC reads WHAT THE ARTIFACT CLAIMS here and validates that claim against its
+        # manifest below; it never re-derives provenance from the artifact itself.
+        "artifact_class": summ.get("opportunity_cost_artifact_class"),
+        "producer_owner": summ.get("opportunity_cost_producer_owner"),
+        "claims_drc_terminal": bool(summ.get("opportunity_cost_claims_drc_terminal")),
+        "drc_run_id": summ.get("opportunity_cost_drc_run_id"),
+        "provenance": summ.get("opportunity_cost_provenance"),
     }
 
 
@@ -782,7 +790,7 @@ def _default_assessment_loader(*, today):
     return dag.load_daily_action_gate(today=today)
 
 
-def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None):
+def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None, drc_run_id=None):
     """The canonical Holding Opportunity-Cost engine (Slice 6, Milestone 2).
 
     Delegates to ``api.holding_opportunity_cost.run_and_persist`` — the sole
@@ -792,9 +800,16 @@ def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None):
     The DRC never computes the opportunity cost itself. ``scoring`` (the canonical
     universe-scoring contract the cycle already built) is reused so the engine does not
     re-score; ``hoc_dir`` isolates the artifact root for a sandboxed run.
+
+    Release 29.5 — ``drc_run_id`` identifies this cycle as the producer, so a NEW artifact
+    states that it is a governed terminal output of this run. That claim is what makes a
+    subsequently missing manifest detectable as corruption rather than as ordinary live
+    signal state.
     """
     from paper_trader.api import holding_opportunity_cost as hoc
-    return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir)
+    return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir,
+                               produced_by=hoc.PRODUCER_DAILY_RESEARCH_CYCLE,
+                               drc_run_id=drc_run_id)
 
 
 def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,
@@ -1144,6 +1159,19 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "opportunity_cost_data_gaps": hoc.get("data_gaps"),
         "opportunity_cost_last_error": hoc.get("last_error"),
         "holding_opportunity_cost": holding_opp_cost,
+        # --- Release 29.5 — GOVERNED EVIDENCE, stated rather than inferred ---------- #
+        # An opportunity-cost artifact can be present for two entirely different reasons
+        # (a governed run of THIS cycle, or the incremental event refresh between runs),
+        # so ``opportunity_cost_selected`` alone has never been a completion signal.
+        # These fields say which it is, and the manifest — held here — is the only thing
+        # that can make ``governed_research_evidence_current`` true.
+        "governed_evidence_owner": "api.daily_research_cycle",
+        "governed_manifest_run_id": run_id if state in _COMPLETED else None,
+        "governed_research_evidence_current": bool(state in _COMPLETED and run_id),
+        "opportunity_cost_artifact_class": hoc.get("artifact_class"),
+        "opportunity_cost_producer_owner": hoc.get("producer_owner"),
+        "opportunity_cost_claims_drc_terminal": bool(hoc.get("claims_drc_terminal")),
+        "opportunity_cost_proves_drc_complete": False,
         # --- Stage 20 Portfolio Reassessment — the ECONOMIC CHANGE GATE ----------- #
         "portfolio_reassessment_owner": "api.portfolio_reassessment",
         "portfolio_reassessment_state": prs.get("state"),
@@ -1642,10 +1670,26 @@ def load_daily_research_cycle_status(
     if prior and prior.get("state") in _COMPLETED:
         return _reflect_completed_run(prior, facts, warnings)
 
-    # Workstream C: downstream TERMINAL artifacts (an immutable Holding Opportunity-Cost
-    # artifact) exist for the eligible session but the DRC run manifest is missing → an
-    # explicit INCONSISTENT recovery state (NEVER NOT_STARTED, and NEVER a silently
-    # synthesised COMPLETE). The operator resumes through the normal idempotent DRC path.
+    # Workstream C / Release 29.5: a downstream Holding Opportunity-Cost artifact exists
+    # for the eligible session but this cycle's run manifest is missing. WHAT THAT MEANS
+    # depends entirely on what the artifact CLAIMS to be — the artifact owner classifies
+    # it (api.holding_opportunity_cost.classify_artifact_provenance) and this module, the
+    # manifest owner, adjudicates the claim:
+    #
+    #   * CLAIMS governed DRC terminal provenance (carries a drc_run_id) and no manifest
+    #     can be read for it  ->  genuine split brain. INCONSISTENT + recovery, exactly as
+    #     before. A run that stamped the artifact and died before persisting its manifest
+    #     is real corruption and must fail closed.
+    #   * MAKES NO SUCH CLAIM (Class 1, LIVE_PRE_DRC_SIGNAL — the Release 28 event cycle
+    #     that Release 29 continuous collection triggers, or any artifact written before
+    #     this field existed)  ->  NOT an inconsistency. Continuous collection is SUPPOSED
+    #     to refresh live signal state between governed cycles. The cycle is simply DUE,
+    #     and the live artifact stays visible as current signal context.
+    #
+    # The second case is the Release 29.5 deadlock: treating every manifest-less artifact
+    # as corruption forced RECOVERY, RECOVERY opens no stage gate, and the cycle that would
+    # have written the missing manifest could therefore never be run.
+    live_hoc_block = None
     if prior is None and facts["eligible"] and facts["active_book_id"]:
         hoc_dir = (str(Path(drc_dir) / "holding_opportunity_cost") if drc_dir else None)
         probe = downstream_artifacts_fn or _default_downstream_probe
@@ -1653,34 +1697,57 @@ def load_daily_research_cycle_status(
                                  eligible=facts["eligible"], hoc_dir=hoc_dir),
                    warnings, "Downstream-artifact probe") or {}
         if ds.get("present"):
+            claimed_run_id = ds.get("drc_run_id") or None
+            claims_terminal = bool(ds.get("claims_drc_terminal")) or bool(claimed_run_id)
             hoc_block = {"available": True, "owner": "api.holding_opportunity_cost",
                          "state": ds.get("state"),
                          "assessment_hash": ds.get("assessment_hash"),
                          "recommendation_counts": ds.get("recommendation_counts") or {},
                          "data_gaps": list(ds.get("data_gaps") or []),
-                         "holding_count": None}
-            return _contract(
-                state=INCONSISTENT, facts=facts, plan=plan,
-                warnings=warnings + [
-                    "An immutable Holding Opportunity-Cost artifact exists for %s but the "
-                    "Daily Research Cycle run manifest is missing; the run must be durably "
-                    "recorded through a safe idempotent recovery (no evidence is fabricated "
-                    "and the existing artifact is reused)." % facts["eligible"]],
-                blockers=[{"code": TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST,
-                           "detail": "Terminal downstream artifacts without a DRC manifest.",
-                           "downstream": ds}],
-                required_actions=[{"gate": "daily_research_cycle",
-                    "action": ("Resume the Daily Research Cycle to durably record the run "
-                               "manifest for the existing downstream artifacts (safe "
-                               "idempotent recovery; reuses the immutable evidence / "
-                               "opportunity-cost artifact)."),
-                    "confirmation_required": EXECUTE_CONFIRMATION, "recovery": True}],
-                holding_opp_cost=hoc_block, monthly_owner=monthly_owner, executable=True)
+                         "holding_count": None,
+                         "artifact_class": ds.get("artifact_class"),
+                         "producer_owner": ds.get("producer_owner"),
+                         "claims_drc_terminal": claims_terminal,
+                         "drc_run_id": claimed_run_id,
+                         # Never, for either class. Only a validated manifest proves a
+                         # governed cycle ran, and reaching here means there is none.
+                         "proves_drc_complete": False}
+            if claims_terminal:
+                return _contract(
+                    state=INCONSISTENT, facts=facts, plan=plan,
+                    warnings=warnings + [
+                        "An immutable Holding Opportunity-Cost artifact for %s claims to be "
+                        "a terminal output of Daily Research Cycle run '%s', but that run "
+                        "manifest is missing; the run must be durably recorded through a "
+                        "safe idempotent recovery (no evidence is fabricated and the "
+                        "existing artifact is reused)."
+                        % (facts["eligible"], claimed_run_id or "unnamed")],
+                    blockers=[{"code": TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST,
+                               "detail": ("An artifact claiming governed DRC terminal "
+                                          "provenance has no readable run manifest."),
+                               "claimed_drc_run_id": claimed_run_id,
+                               "downstream": ds}],
+                    required_actions=[{"gate": "daily_research_cycle",
+                        "action": ("Resume the Daily Research Cycle to durably record the run "
+                                   "manifest for the existing downstream artifacts (safe "
+                                   "idempotent recovery; reuses the immutable evidence / "
+                                   "opportunity-cost artifact)."),
+                        "confirmation_required": EXECUTE_CONFIRMATION, "recovery": True}],
+                    holding_opp_cost=hoc_block, monthly_owner=monthly_owner, executable=True)
+            # Class 1 — legitimate live/pre-DRC signal state. Carried through so the
+            # operator can SEE it, while every governed-completion field below stays false.
+            live_hoc_block = hoc_block
+            warnings.append(
+                "A live pre-cycle Holding Opportunity-Cost assessment produced by %s exists "
+                "for %s. It is current signal context, not governed daily-cycle evidence: "
+                "the Daily Research Cycle has not run for this session."
+                % (ds.get("producer_owner") or "an incremental refresh", facts["eligible"]))
 
     if plan["plan_blocked"]:
         return _contract(state=BLOCKED, facts=facts, plan=plan, warnings=warnings,
                          blockers=plan["blockers"],
                          required_actions=_blocked_actions(plan),
+                         holding_opp_cost=live_hoc_block,
                          monthly_owner=monthly_owner, executable=False)
 
     # Ready to run (minimal or with refreshable steps). Reflect a prior BLOCKED/FAILED.
@@ -1693,6 +1760,7 @@ def load_daily_research_cycle_status(
                      required_actions=[{"gate": "daily_research_cycle",
                                         "action": "Run the Daily Research Cycle.",
                                         "confirmation_required": EXECUTE_CONFIRMATION}],
+                     holding_opp_cost=live_hoc_block,
                      monthly_owner=monthly_owner, executable=(state == NOT_STARTED))
 
 
@@ -2236,7 +2304,12 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                           or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
             if run_engine:
                 hoc_fn = holding_opp_cost_fn or _default_holding_opp_cost_fn
-                hoc_built = _safe(lambda: hoc_fn(scoring=raw_scoring, hoc_dir=hoc_subdir),
+                # Release 29.5 — only the CANONICAL default is handed this run's id, so an
+                # injected test/sandbox seam keeps its existing (scoring, hoc_dir) contract.
+                hoc_kwargs = {"scoring": raw_scoring, "hoc_dir": hoc_subdir}
+                if holding_opp_cost_fn is None:
+                    hoc_kwargs["drc_run_id"] = run_id
+                hoc_built = _safe(lambda: hoc_fn(**hoc_kwargs),
                                   warnings, "Holding Opportunity-Cost engine")
                 raw_hoc_assessment = (hoc_built or {}).get("assessment")
                 holding_opp = _extract_holding_opp_cost(hoc_built, facts["eligible"])

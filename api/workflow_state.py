@@ -1668,19 +1668,46 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
         # reassessed, and telling the operator otherwise sends them looking for a stale
         # input that does not exist.
         if ctx.get("research_cycle_due_after_close"):
-            explanation = (
-                "The Daily Close for %s is complete, but no Holding Opportunity-Cost "
-                "assessment has been produced for that session yet. The Daily Research "
-                "Cycle is the sole path that refreshes the signals, assesses every "
-                "holding's opportunity cost, reassesses the portfolio and produces a "
-                "reallocation proposal when one is justified. Nothing is approved or "
-                "executed by running it." % (elig or "the eligible session"))
+            # Release 29.5 — the requirement has TWO shapes now, and naming the wrong one
+            # sends the operator hunting for something that is plainly on screen. When
+            # continuous collection has already refreshed a live assessment, saying "no
+            # assessment has been produced" contradicts the counts rendered beside it; the
+            # true reason is that no GOVERNED cycle has run for the session.
+            if ctx.get("live_pre_drc_signal_present"):
+                explanation = (
+                    "The Daily Close for %s is complete. A live opportunity-cost "
+                    "assessment already exists for that session, refreshed by continuous "
+                    "information collection — it is current signal context, not the "
+                    "governed daily-cycle result. The Daily Research Cycle is the sole "
+                    "path that produces the governed outcome: it refreshes every required "
+                    "signal, reassesses the portfolio against complete evidence and "
+                    "records the run manifest. Nothing is approved or executed by running "
+                    "it." % (elig or "the eligible session"))
+            else:
+                explanation = (
+                    "The Daily Close for %s is complete, but no Holding Opportunity-Cost "
+                    "assessment has been produced for that session yet. The Daily Research "
+                    "Cycle is the sole path that refreshes the signals, assesses every "
+                    "holding's opportunity cost, reassesses the portfolio and produces a "
+                    "reallocation proposal when one is justified. Nothing is approved or "
+                    "executed by running it." % (elig or "the eligible session"))
         else:
             explanation = ("Required research inputs are stale or missing for the "
                            "latest eligible session. The canonical Persistent Daily "
                            "Research Cycle (Slice 3) refreshes every required input "
                            "through its authoritative owner, scores the universe, "
                            "prepares the target and captures immutable evidence.")
+        # The task line and the headline name the SAME reason the explanation does. A
+        # post-close cycle whose inputs are all current was still told to "refresh the
+        # stale inputs" — a sentence the operator cannot act on, because there is no
+        # stale input to find.
+        if ctx.get("research_cycle_due_after_close"):
+            task = ("Run the Daily Research Cycle to produce the governed assessment "
+                    "for %s." % (elig or "the eligible session"))
+            headline = ("Daily Close complete — run the Daily Research Cycle.")
+        else:
+            task = "Run the Daily Research Cycle to refresh the stale inputs."
+            headline = "Research inputs are stale — run the Daily Research Cycle."
         return {"action_code": ACTION_RUN_RESEARCH_CYCLE,
                 "label": "Run the Daily Research Cycle",
                 "explanation": explanation,
@@ -1689,8 +1716,8 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "manual_confirmation_required": True, "slice3_pending": False,
                 "confirmation_required": _DRC_EXECUTE_TOKEN,
                 "execution_kind": EXEC_DAILY_RESEARCH_CYCLE,
-                "current_task": "Run the Daily Research Cycle to refresh the stale inputs.",
-                "headline": "Research inputs are stale — run the Daily Research Cycle."}
+                "current_task": task,
+                "headline": headline}
 
     if overall == RESEARCH_CYCLE_RUNNING:
         return {"action_code": ACTION_MONITOR_RESEARCH_CYCLE,
@@ -1936,17 +1963,34 @@ CANONICAL_PORTFOLIO_DECISION_STATES = (
 #: The ONLY canonical states in which an operator action on a proposal exists.
 CANONICAL_ACTIONABLE_DECISION_STATES = (CPD_REVIEW_REQUIRED,)
 
+#: Release 29.5 — WHERE a composed decision came from. Not a decision state: the same
+#: verdict can be reached from governed daily-cycle evidence or from live signal state
+#: that continuous collection refreshed between cycles, and the operator is entitled to
+#: know which. It never changes the verdict, the economics or what is approvable.
+DECISION_PROVENANCE_GOVERNED = "GOVERNED_DAILY_CYCLE"
+DECISION_PROVENANCE_LIVE_PRE_DRC = "LIVE_PRE_DRC_SIGNAL"
+DECISION_PROVENANCE_VOCABULARY = (DECISION_PROVENANCE_GOVERNED,
+                                  DECISION_PROVENANCE_LIVE_PRE_DRC)
+
 
 def build_canonical_portfolio_decision(*, reassessment_summary: dict,
                                        reallocation_operator_state: Any,
                                        portfolio_decision_lane: dict,
                                        attention_count: Any,
-                                       eligible_date: Any) -> dict:
+                                       eligible_date: Any,
+                                       governed_research_evidence_current: bool = True) -> dict:
     """Compose the ONE unambiguous portfolio-decision object.
 
     Pure composition over authoritative owners. Precedence is deterministic:
     a recorded decision > an approvable proposal awaiting review > a withheld complete
     target > a reassessment blocker > no change > not run.
+
+    Release 29.5 — ``governed_research_evidence_current`` says whether the governed Daily
+    Research Cycle has actually run for this session. When it has not, the composed
+    decision is still a truthful reading of the CURRENT reassessment, but it is LIVE
+    signal state rather than the governed daily-cycle verdict, and it is labelled as such.
+    The decision's own precedence, states and economics are untouched: this adds a
+    provenance label, it does not re-decide anything.
     """
     prs = reassessment_summary or {}
     lane = portfolio_decision_lane or {}
@@ -2022,6 +2066,18 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
         "mandatory_exit_obligation": mex_policy.get("obligation") or "NONE",
         "mandatory_exit_statement": mex_policy.get("statement"),
         "proposal_requested_not_produced": proposal_requested_not_produced,
+        # --- Release 29.5 — is this the GOVERNED daily-cycle verdict, or live signal? --- #
+        "decision_provenance": (DECISION_PROVENANCE_GOVERNED
+                                if governed_research_evidence_current
+                                else DECISION_PROVENANCE_LIVE_PRE_DRC),
+        "is_governed_daily_cycle_decision": bool(governed_research_evidence_current),
+        "provenance_label": (None if governed_research_evidence_current
+                             else "CURRENT LIVE ASSESSMENT — GOVERNED DAILY CYCLE PENDING"),
+        "provenance_detail": (
+            None if governed_research_evidence_current else
+            "Continuous collection has refreshed this assessment since the last governed "
+            "Daily Research Cycle. It is current signal information, not the governed "
+            "daily-cycle decision; run the Daily Research Cycle to produce that."),
         "operator_action_available": bool(state in CANONICAL_ACTIONABLE_DECISION_STATES),
         "approvable": bool(lane.get("approvable")),
         "creates_orders": False,
@@ -2628,6 +2684,12 @@ def load_workflow_state(
     hoc_counts = (gate or {}).get("opportunity_cost_recommendation_counts") or {}
     hoc_hash = (gate or {}).get("opportunity_cost_assessment_hash")
     hoc_gaps = (gate or {}).get("opportunity_cost_data_gaps") or []
+    # Release 29.5 — the artifact owner's provenance classification, carried through the
+    # SAME shared gate path as every other opportunity-cost field. This module reads the
+    # classification; it never derives one (an audit invariant).
+    hoc_artifact_class = (gate or {}).get("opportunity_cost_artifact_class")
+    hoc_producer_owner = (gate or {}).get("opportunity_cost_producer_owner")
+    hoc_claims_drc_terminal = bool((gate or {}).get("opportunity_cost_claims_drc_terminal"))
 
     # --- Slice 7 (Phase 29H) reallocation-proposal state (same shared gate path;
     #     the gate delegates to api.reallocation_proposal.load_proposal_summary). The
@@ -2662,8 +2724,36 @@ def load_workflow_state(
     hoc_contract_observable = bool(
         gate is not None
         and ("opportunity_cost_available" in gate or "opportunity_cost_state" in gate))
+    # Release 29.5 — GOVERNED EVIDENCE vs LIVE SIGNAL STATE. The rule above asked only
+    # whether an opportunity-cost artifact EXISTS. Since Release 28/29 that question no
+    # longer answers "did the governed cycle run for this session?": continuous collection
+    # triggers the incremental event refresh many times a day, and it writes a perfectly
+    # real artifact through the same canonical owner. A completed close plus one of those
+    # live artifacts therefore reported the daily cycle as satisfied and dropped the
+    # operator into the terminal region without the governed cycle ever having run.
+    #
+    # The governed answer belongs to the cycle owner, which holds the run manifest. It is
+    # READ here (api.daily_research_cycle: governed_research_evidence_current), never
+    # re-derived from the artifact — this module classifies no provenance of its own.
+    # Degrade-safe: when the DRC contract is not observable, the old artifact-existence
+    # rule still applies, so an unreadable cycle status can never fabricate a requirement.
+    drc_contract_observable = bool(
+        isinstance(research_cycle, dict) and research_cycle.get("state"))
+    # The explicit contract field when the cycle owner publishes it; otherwise its
+    # manifest-backed COMPLETE state, which is the same answer stated less precisely. The
+    # fallback keeps an older/partial status contract behaving exactly as before.
+    governed_research_evidence_current = bool(
+        research_cycle.get("governed_research_evidence_current", cycle_complete)
+        if drc_contract_observable else False)
     research_cycle_due_after_close = bool(
-        eligible_session_closed and hoc_contract_observable and not hoc_available)
+        eligible_session_closed
+        and ((hoc_contract_observable and not hoc_available)
+             or (drc_contract_observable and not governed_research_evidence_current)))
+    # Current signal information exists, but the governed cycle has not produced it. This
+    # is the state the operator must be able to SEE without it being mistaken for a
+    # completed daily cycle — the whole point of the two-class distinction.
+    live_pre_drc_signal_present = bool(hoc_available
+                                       and not governed_research_evidence_current)
     overall = _decide_overall(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
@@ -2680,6 +2770,7 @@ def load_workflow_state(
     primary = assert_primary_action_contract(_primary_action(overall, {
         "eligible_date": eligible_date,
         "research_cycle_due_after_close": research_cycle_due_after_close,
+        "live_pre_drc_signal_present": live_pre_drc_signal_present,
         "reassessment_blocked": reassessment_blocked,
         "reassessment_blocker_codes": reassessment_blocker_codes,
         "session_operator_action": session.get("operator_action")}))
@@ -3064,7 +3155,8 @@ def load_workflow_state(
         reallocation_operator_state=reallocation_operator_state,
         portfolio_decision_lane=portfolio_decision_lane,
         attention_count=reassessment_summary.get("attention_count"),
-        eligible_date=eligible_date)
+        eligible_date=eligible_date,
+        governed_research_evidence_current=governed_research_evidence_current)
 
     # --- Release 29.3: SEMANTIC decision-integrity invariants. ------------------ #
     # Every field below is read verbatim from its canonical owner; the check compares
@@ -3271,6 +3363,25 @@ def load_workflow_state(
             "cycle_running": cycle_running,
             "cycle_blocked": cycle_blocked,
             "cycle_complete": cycle_complete,
+            # --- Release 29.5 — the provenance contract, read from its owners --------- #
+            # Two classes of downstream artifact are legitimate. Class 1 (LIVE_PRE_DRC_
+            # SIGNAL) is produced by the Release 28 event refresh that Release 29
+            # continuous collection triggers; it is real, current and displayable, and it
+            # proves nothing about this cycle. Class 2 (GOVERNED_DRC_TERMINAL) is bound to
+            # a run manifest. Only Class 2 satisfies the governed daily cycle.
+            "governed_research_evidence_current": governed_research_evidence_current,
+            "governed_evidence_owner": "api.daily_research_cycle",
+            "governed_manifest_run_id": (research_cycle or {}).get("governed_manifest_run_id"),
+            "opportunity_cost_artifact_class": hoc_artifact_class,
+            "opportunity_cost_producer_owner": hoc_producer_owner,
+            "opportunity_cost_claims_drc_terminal": hoc_claims_drc_terminal,
+            "opportunity_cost_proves_drc_complete": False,
+            "live_pre_drc_signal_present": live_pre_drc_signal_present,
+            "provenance_note": (
+                "A Holding Opportunity-Cost artifact can exist because the governed Daily "
+                "Research Cycle produced it, or because continuous collection triggered an "
+                "incremental signal refresh between cycles. Only a run manifest proves the "
+                "governed cycle ran; an artifact never does."),
         },
         "portfolio_assessment_state": {
             "latest_assessment_date": latest_assessment_date,

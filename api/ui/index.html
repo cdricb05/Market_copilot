@@ -2357,6 +2357,13 @@
     .r29-verdict.tone-info .r29-verdict-state { color: var(--info, #3b82f6); }
     .r29-verdict-scope { font-size: 10px; color: var(--label, #7a8fb0); text-transform: uppercase;
                          letter-spacing: .05em; }
+    /* R29.5 — one line stating that a decision came from live signal state refreshed by
+       continuous collection rather than from the governed daily cycle. Rendered ONLY
+       when the backend supplies the label, and never styled as an action. */
+    .r29-verdict-prov { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                        letter-spacing: .05em; color: var(--warning, #f59e0b);
+                        border: 1px solid var(--warning, #f59e0b); border-radius: 3px;
+                        padding: 1px 6px; opacity: .9; }
     .r29-verdict-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
                         gap: 4px 18px; margin-top: 8px; }
     @media (max-width: 1240px) { .r29-verdict-rows { grid-template-columns: minmax(0, 1fr); } }
@@ -28526,6 +28533,15 @@ function _wsRenderPortfolioVerdict(d) {
     +   '<span class="r29-verdict-state">' + _wsEsc(cd.headline || cd.state) + '</span>'
     +   (attnTxt ? '<span class="r29-verdict-scope">' + _wsEsc(attnTxt)
                  + ' &middot; per-holding signal</span>' : '')
+    // R29.5 — the backend decides whether this verdict is the GOVERNED daily-cycle
+    // decision or a live assessment refreshed by continuous collection since the last
+    // governed cycle. The UI states which; it never infers cycle completion from the
+    // existence of an assessment, and this chip carries no action.
+    +   (cd.provenance_label
+           ? '<span class="r29-verdict-prov" title="'
+             + _wsEsc(String(cd.provenance_detail || '')) + '">'
+             + _wsEsc(cd.provenance_label) + '</span>'
+           : '')
     +   ctaHtml
     + '</div>'
     + '<div class="r29-verdict-rows">'

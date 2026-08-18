@@ -47,6 +47,7 @@ from pathlib import Path
 from paper_trader.api import alpha_book as ab
 from paper_trader.api import daily_action_gate as dag
 from paper_trader.api import daily_close as dc
+from paper_trader.api import daily_research_cycle as drcmod
 from paper_trader.api import data_freshness as df
 from paper_trader.api import holding_opportunity_cost as hoc
 from paper_trader.api import multi_horizon_ledger as mhz_ledger
@@ -294,6 +295,7 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
           history=None, execution="NONE", close="PROCESSED",
           close_status="HOLD",
           session="CLOSED", research="CURRENT", hoc_artifact="PRESENT",
+          drc=None, hoc_producer=None,
           reassessment_evidence=None, hoc_gaps=None,
           expect_state=None, expect_primary_action=None, expect_attention=0,
           expect_execution_precedence=False, expect_workflow_state=None,
@@ -338,6 +340,24 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
     ``reassessment_evidence`` — ``None``, or ``"STALE_CORPORATE_ACTION"`` to reproduce
                    the real BLOCKED_EVIDENCE assessment the operator sees when a
                    corporate action was registered after the assessment was produced.
+
+    Release 29.5 separates two things this harness used to conflate. It derived the Daily
+    Research Cycle state from ``hoc_artifact`` — artifact present therefore cycle COMPLETE
+    — which is exactly the inference that deadlocked the live system on 2026-08-18: since
+    Releases 28/29 the event-driven refresh writes a real artifact through the same
+    canonical owner whenever continuous collection finds material information.
+
+    ``drc`` — the cycle owner's own verdict, independent of the artifact:
+        ``None``            keep the legacy derivation (artifact present -> COMPLETE);
+        ``"NOT_STARTED"``   no run manifest for this session. With an artifact PRESENT
+                            this is the live Aug-18 world: current signal state, governed
+                            cycle DUE;
+        ``"COMPLETE"``      a governed run manifest exists;
+        ``"INCONSISTENT"``  an artifact CLAIMS a run manifest that cannot be read — the
+                            genuine corruption that must still suspend the cycle.
+    ``hoc_producer`` — ``"api.event_signal_refresh"`` (Class 1) or
+                   ``"api.daily_research_cycle"`` (Class 2). Defaults to the class implied
+                   by ``drc``.
     """
     return {
         "scenario_id": scenario_id,
@@ -362,6 +382,8 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
         "close": close, "close_status": close_status,
         # --- Stage 22 normal-cycle position ------------------------------------ #
         "session": session, "research": research, "hoc_artifact": hoc_artifact,
+        # Release 29.5 — the cycle verdict is DECLARED, never inferred from the artifact.
+        "drc": drc, "hoc_producer": hoc_producer,
         "reassessment_evidence": reassessment_evidence,
         # --- research evidence -------------------------------------------------- #
         "hoc_reviews": hoc_reviews, "hoc_state": hoc_state, "hoc_gaps": hoc_gaps or [],
@@ -549,6 +571,50 @@ def scenarios() -> dict:
             expect_cycle_stage="DAILY_CLOSE",
             expect_evidence_class="CURRENT_EVIDENCE",
             expect_mutation_count=1),
+        # =================================================================== #
+        # RELEASE 29.5 — the post-close deadlock, and the corruption that must
+        # still fail closed.
+        #
+        # On 2026-08-18 the Daily Close SUCCEEDED, continuous collection then ran
+        # the event-driven refresh (evt_b91704271fb7a992, requested_by
+        # PAPER_TRADER_INFORMATION_COLLECTION), and that refresh wrote a real
+        # opportunity-cost artifact for the eligible session. No DRC manifest
+        # existed, so the pair "artifact + no manifest" was read as corruption:
+        # INCONSISTENT_STATE, cycle stage RECOVERY, zero executable stages — and
+        # the only thing that could have written the manifest was the stage
+        # RECOVERY had just disabled.
+        # =================================================================== #
+        "scenario_14_pre_drc_live_signal": world(
+            scenario_id="scenario_14_pre_drc_live_signal",
+            title=("Post-close: live signal state exists, and the governed research "
+                   "cycle is the ONE action"),
+            hoc_reviews=two_soft + [_filler(i) for i in range(23)],
+            execution="NONE", close="PROCESSED", close_status="MEMBERSHIP_DRIFT",
+            hoc_artifact="PRESENT", drc="NOT_STARTED",
+            hoc_producer=hoc.PRODUCER_EVENT_SIGNAL_REFRESH,
+            expect_state=kernel.STATE_CHANGE_CANDIDATE, expect_attention=2,
+            expect_primary_action="RUN_DAILY_RESEARCH_CYCLE",
+            expect_workflow_state="RESEARCH_CYCLE_REQUIRED",
+            expect_cycle_stage="DAILY_RESEARCH_CYCLE",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=1),
+        # The mirror image: an artifact that CLAIMS a run manifest nobody can read is
+        # real corruption. The repair narrowed the trigger to the claim; it did not
+        # remove the fail-closed contract.
+        "scenario_15_falsely_terminal_artifact": world(
+            scenario_id="scenario_15_falsely_terminal_artifact",
+            title=("Corruption: an artifact claims a research-cycle manifest that "
+                   "does not exist"),
+            hoc_reviews=quiet, execution="NONE", close="PROCESSED",
+            close_status="MEMBERSHIP_DRIFT",
+            hoc_artifact="PRESENT", drc="INCONSISTENT",
+            hoc_producer=hoc.PRODUCER_DAILY_RESEARCH_CYCLE,
+            expect_state=kernel.STATE_NO_CHANGE, expect_attention=0,
+            expect_primary_action=None,
+            expect_workflow_state="INCONSISTENT_STATE",
+            expect_cycle_stage="RECOVERY",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=0),
         "scenario_8_session_complete_close_due": world(
             scenario_id="scenario_8_session_complete_close_due",
             title="Session complete: the Daily Close is the ONE action",
@@ -1108,6 +1174,71 @@ def _close_progress(spec: dict) -> dict:
     }
 
 
+def _hoc_provenance(spec: dict) -> dict:
+    """Release 29.5 — the ONE provenance declaration for this world's HOC artifact.
+
+    Read by BOTH the persisted artifact (which the Daily Action Gate classifies) and
+    ``_research_cycle_status`` (which the workflow owner reads as the cycle verdict), so
+    the gate and the cycle owner can never disagree about what the artifact is.
+    """
+    legacy = "COMPLETE" if spec.get("hoc_artifact") != "ABSENT" else "NOT_STARTED"
+    state = spec.get("drc") or legacy
+    producer = spec.get("hoc_producer") or (
+        hoc.PRODUCER_DAILY_RESEARCH_CYCLE if state == "COMPLETE"
+        else hoc.PRODUCER_EVENT_SIGNAL_REFRESH)
+    run_id = None
+    if producer == hoc.PRODUCER_DAILY_RESEARCH_CYCLE:
+        # A governed run stamps its id. When the cycle is INCONSISTENT that id is the
+        # ORPHANED claim — a manifest the cycle owner cannot read — which is precisely
+        # the corruption the fail-closed blocker still has to catch.
+        run_id = ("drc_%s_fixture000" % spec["eligible_market_date"]
+                  if state == "COMPLETE"
+                  else "drc_%s_orphaned" % spec["eligible_market_date"])
+    return hoc.build_provenance(producer_owner=producer, drc_run_id=run_id)
+
+
+def _research_cycle_status(spec: dict) -> dict:
+    """Release 29.5 — the DAILY RESEARCH CYCLE owner's verdict for this world.
+
+    Before 29.5 this was derived as "an opportunity-cost artifact exists, therefore the
+    cycle COMPLETED". That inference is the live defect in miniature: since Releases 28/29
+    the event-driven refresh writes a real artifact through the same canonical owner, so
+    artifact existence stopped being evidence that the governed cycle ran. Scenarios now
+    DECLARE the cycle verdict, and the artifact's producer is declared with it.
+    """
+    legacy = "COMPLETE" if spec.get("hoc_artifact") != "ABSENT" else "NOT_STARTED"
+    state = spec.get("drc") or legacy
+    governed = (state == "COMPLETE")
+    present = (spec.get("hoc_artifact") != "ABSENT")
+    # The SAME declaration the persisted artifact carries, classified by the artifact
+    # owner rather than re-derived here.
+    prov = hoc.classify_artifact_provenance({hoc.PROVENANCE_KEY: _hoc_provenance(spec)})
+    out = {
+        "state": state,
+        "run_id": prov["drc_run_id"] if governed else None,
+        "blockers": [],
+        "executable": state in ("NOT_STARTED", "INCONSISTENT"),
+        "governed_research_evidence_current": governed,
+        "governed_manifest_run_id": prov["drc_run_id"] if governed else None,
+        "governed_evidence_owner": "api.daily_research_cycle",
+        "opportunity_cost_selected": present,
+        "opportunity_cost_artifact_class": prov["artifact_class"] if present else None,
+        "opportunity_cost_producer_owner": prov["producer_owner"] if present else None,
+        "opportunity_cost_claims_drc_terminal": bool(present
+                                                     and prov["claims_drc_terminal"]),
+        "opportunity_cost_proves_drc_complete": False,
+    }
+    if state == "INCONSISTENT":
+        # An artifact claiming a run manifest that cannot be read: the genuine split
+        # brain. The claimed run is NAMED so the operator knows which run failed.
+        out["blockers"] = [{
+            "code": drcmod.TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST,
+            "detail": ("An artifact claiming governed DRC terminal provenance has no "
+                       "readable run manifest."),
+            "claimed_drc_run_id": prov["drc_run_id"]}]
+    return out
+
+
 def _daily_close_payload(spec: dict, opbook: dict, nav: float) -> dict:
     """Release 29.3 — the composed DAILY CLOSE read payload.
 
@@ -1238,7 +1369,15 @@ def compose(scenario_key: str, *, root=None) -> dict:
                      "input_contract": {
                          "eligible_market_date": spec["eligible_market_date"],
                          "active_book_id": BOOK},
-                     "assessment_id": "hoc_%s_%s" % (DATE, BOOK)}
+                     "assessment_id": "hoc_%s_%s" % (DATE, BOOK),
+                     # Release 29.5 — the artifact STATES its producer, exactly as the
+                     # real one does. Without it the gate would classify the fixture's
+                     # artifact from an ABSENT provenance block while the cycle seam
+                     # declared something else, and the two owners this release exists to
+                     # reconcile would disagree inside the harness built to prove they
+                     # agree. Both read `_hoc_provenance(spec)`, so there is exactly ONE
+                     # declaration behind the gate's view and the cycle's view.
+                     hoc.PROVENANCE_KEY: _hoc_provenance(spec)}
                     # READY and DEGRADED are BOTH persistable production states (the
                     # owner writes an artifact for either); only a blocked / absent
                     # assessment leaves no artifact behind.
@@ -1301,8 +1440,7 @@ def compose(scenario_key: str, *, root=None) -> dict:
         desk_marks=desk.read_marks(sdir),
         forward_status={"latest_snapshot_date": spec["eligible_market_date"]},
         target_readiness=readiness,
-        research_cycle={"state": ("COMPLETE" if spec.get("hoc_artifact") != "ABSENT"
-                                  else "NOT_STARTED"), "blockers": []},
+        research_cycle=_research_cycle_status(spec),
         # Stage 22: bind the LAST two seams too. Before this the workflow owner read the
         # reassessment summary and the recorded portfolio decision from the operator's
         # REAL artifact stores while every other panel used the scenario's world.

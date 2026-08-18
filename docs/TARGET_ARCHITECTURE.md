@@ -464,6 +464,22 @@ responsibilities, candidate existing modules, and migration approach.
   satisfies the portfolio reassessment (`READY_FOR_DAILY_CLOSE`); the honest HOC `DEGRADED`
   gaps stay visible. Guarded by `check_drc_manifest_recovery`. No evidence fabrication, no
   order/target authority.
+- **Downstream-artifact provenance: live signal vs governed evidence** (Release 29.5). The
+  target boundary is that a downstream artifact carries a CLAIM about what produced it, and
+  only the manifest owner adjudicates that claim. `api.holding_opportunity_cost` owns
+  `build_provenance()` / `classify_artifact_provenance()` and the two-class vocabulary
+  (`LIVE_PRE_DRC_SIGNAL`, `GOVERNED_DRC_TERMINAL`); `api.daily_research_cycle` remains the
+  ONE manifest owner and publishes `governed_research_evidence_current`; every other module
+  reads and none classifies. Class 1 artifacts — written by `api.event_signal_refresh` when
+  continuous collection finds material information — may exist before a manifest, stay fully
+  visible as current signal context, and never satisfy the governed daily cycle or permit
+  approval/execution. Only a Class-2 claim whose manifest cannot be read is corruption, and
+  it still fails closed to `INCONSISTENT` /
+  `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` with zero executable mutations.
+  Guarded by `check_release29_5_drc_provenance` (13 blocking invariants). The composed
+  portfolio decision carries `decision_provenance` so a pre-cycle verdict is never presented
+  as the governed daily-cycle decision; no state, economic value or approvability changes
+  with it.
 - **ONE operator command + ONE post-close orchestration path** (Stage 19.3): a newly
   eligible completed market close OUTRANKS passive pending-order monitoring, and the
   canonical Daily Close settles eligible NEXT_CLOSE paper orders internally by reusing

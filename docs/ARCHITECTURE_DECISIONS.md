@@ -1711,6 +1711,64 @@ certified the 2026-08-17 payload CONSISTENT while it claimed both PROPOSAL_READY
 NOT_RUN. A validator that recomputed the economics to check them would itself become a
 second calculation of the concept it exists to protect.
 
+### D-R29.5-1 — An artifact's provenance is a CLAIM it makes, not an inference from its existence (CONFIRMED)
+
+**Decision.** `api.holding_opportunity_cost` writes the artifact, so it owns the artifact's
+provenance: `build_provenance()` stamps a top-level `produced_by` block, and
+`classify_artifact_provenance(artifact)` returns `LIVE_PRE_DRC_SIGNAL` or
+`GOVERNED_DRC_TERMINAL`. An artifact is Class 2 only when it carries a `drc_run_id`.
+
+**Why.** "Artifact exists + manifest absent = corruption" was sound while one owner could
+write the artifact. Release 28 added `api.event_signal_refresh`, which by DESIGN calls the
+same canonical owner so the daily and event modes never fork a calculation — and that
+design decision silently invalidated an inference made elsewhere. The fix is to make the
+producer state what it produced, not to give the second owner its own calculation path.
+
+**Why absence is Class 1, not "unknown".** Every artifact written before this field
+existed carries no block. Treating that as a suspect claim would retroactively accuse
+correct history and re-create the deadlock for every legacy session. A claim that names
+nothing cannot be adjudicated, and an unadjudicable claim is not fail-closed — it is
+permanently stuck. So only a NAMED run id constitutes a claim.
+
+**Evidence.** Live 2026-08-18: `evt_b91704271fb7a992` (`requested_by
+PAPER_TRADER_INFORMATION_COLLECTION`) completed 22:07:52Z and wrote the HOC artifact at
+22:07:50Z; no DRC manifest existed for the session.
+
+### D-R29.5-2 — Only a manifest proves a governed cycle ran (CONFIRMED)
+
+**Decision.** `proves_drc_complete` is unconditionally `False` on every artifact of either
+class. `api.daily_research_cycle` is the ONE manifest owner and the only module entitled
+to adjudicate a Class-2 claim; it publishes `governed_research_evidence_current`, and
+`api.workflow_state.research_cycle_due_after_close` keys on that instead of on an artifact
+existing. `scripts/audit_architecture.py` fails the build if any other module writes a run
+record or raises `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST`.
+
+**Why.** The same conflation had a second, quieter half: a live pre-cycle artifact
+satisfied the post-close research requirement, so a completed close plus continuous
+collection reported the daily cycle as finished and dropped the operator into the terminal
+region without the governed cycle ever running. Both halves are the same error — reading
+evidence as governance — and both are fixed by asking the manifest owner.
+
+**Consequence.** A governed run stamps only artifacts it CREATES. When it adopts an
+existing live artifact the reuse path returns it untouched: adoption is proven by the
+adopter's manifest, never by retro-stamping immutable evidence someone else produced.
+
+### D-R29.5-3 — Narrowing a fail-closed trigger is not weakening it (CONFIRMED)
+
+**Decision.** `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` is retained and still
+produces `INCONSISTENT`, the `RECOVERY` stage and zero executable mutations. Its trigger
+narrowed from "an artifact exists" to "an artifact claims a manifest that cannot be read",
+and the orphaned run is now NAMED in the blocker.
+
+**Why.** The deletion would have been easier and wrong: a DRC that stamps its artifact and
+dies before persisting its manifest is real corruption, and that is exactly the sequence
+the stamp makes detectable. The bug was never that the guard existed — it was that the
+guard could not tell the difference between damage and design.
+
+**Consequence.** A recovery state must never be reachable only by the stage it disables.
+Any future blocker that suspends the normal cycle has to name an action outside the
+suspended stage, or it is a deadlock rather than a safeguard.
+
 ### D-R29.4-1 — Operational close validity is COMPLETION, never a portfolio verdict (CONFIRMED)
 
 **Decision.** `api.daily_close` owns close validity and publishes it as

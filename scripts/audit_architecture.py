@@ -2377,6 +2377,129 @@ def check_release29_4_session_authority(files: list[Path]) -> dict:
     }
 
 
+def check_release29_5_drc_provenance(files: list[Path]) -> dict:
+    r"""Release 29.5 - PRE-DRC PROVENANCE vs GOVERNED DRC TERMINAL EVIDENCE.
+
+    On 2026-08-18, after a SUCCESSFUL Daily Close, the normal cycle suspended itself into
+    RECOVERY over TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST - and RECOVERY opens
+    no stage gate, so the Daily Research Cycle that writes the missing manifest could
+    never be run. The trigger was an inference from EXISTENCE: a Holding Opportunity-Cost
+    artifact without a run manifest was read as corruption. Since Releases 28/29 that is
+    ALSO the signature of the perfectly legitimate artifact the event-driven refresh
+    writes whenever continuous collection finds material information.
+
+    These contracts make that class of confusion a build failure:
+
+      (1) the ARTIFACT OWNER publishes the provenance vocabulary and a PURE classifier
+          (no store parameter - validating a manifest is not its job);
+      (2) no artifact of either class ever proves completion; only a manifest does;
+      (3) both canonical producers identify themselves, and ONLY the governed cycle
+          stamps a run id;
+      (4) the manifest has exactly ONE owner - no other module writes a run record or
+          raises the terminal-artifact blocker;
+      (5) ``api.workflow_state`` READS the classification and invents none of its own;
+      (6) the fail-closed blocker still exists and now fires on the CLAIM;
+      (7) the UI states provenance from the backend and infers cycle completion from
+          nothing.
+    """
+    hoc_src = _read("api/holding_opportunity_cost.py")
+    drc_src = _read("api/daily_research_cycle.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    ws_src = _read("api/workflow_state.py")
+    gate_src = _read("api/daily_action_gate.py")
+    ui = _read(UI_FILE)
+
+    def _params(src: str, name: str) -> list:
+        try:
+            for node in ast.parse(src).body:
+                if isinstance(node, ast.FunctionDef) and node.name == name:
+                    return ([a.arg for a in node.args.args]
+                            + [a.arg for a in node.args.kwonlyargs])
+        except SyntaxError:
+            return ["<unparsed>"]
+        return []
+
+    # (1) The artifact owner owns the vocabulary, and the classifier is PURE.
+    classifier_params = _params(hoc_src, "classify_artifact_provenance")
+    provenance_owned_by_artifact_owner = bool(
+        _assign_const(hoc_src, "PROVENANCE_OWNER") == "api.holding_opportunity_cost"
+        and _assign_const(hoc_src,
+                          "ARTIFACT_CLASS_LIVE_PRE_DRC") == "LIVE_PRE_DRC_SIGNAL"
+        and _assign_const(hoc_src,
+                          "ARTIFACT_CLASS_GOVERNED_DRC_TERMINAL") == "GOVERNED_DRC_TERMINAL"
+        and "def classify_artifact_provenance(" in hoc_src
+        and "def build_provenance(" in hoc_src)
+    classifier_is_pure = (classifier_params == ["artifact"])
+
+    # (2) No artifact proves completion - stated by the owner, not by a consumer.
+    artifact_never_proves_completion = (
+        '"proves_drc_complete": False' in hoc_src
+        and '"opportunity_cost_proves_drc_complete": False' in drc_src)
+
+    # (3) Both producers identify themselves; only the governed cycle stamps a run id.
+    #     Asserted on the CALL, so a docstring can never satisfy or break it.
+    producers_identify_themselves = bool(
+        "produced_by=hoc.PRODUCER_DAILY_RESEARCH_CYCLE" in drc_src
+        and "drc_run_id=drc_run_id" in drc_src
+        and "produced_by=hoc.PRODUCER_EVENT_SIGNAL_REFRESH" in esr_src)
+    event_cycle_stamps_no_run_id = "drc_run_id=" not in esr_src
+
+    # (4) ONE manifest owner. Nobody else writes a run record or raises the blocker.
+    manifest_writers = sorted(
+        rel for rel, src in (("api/holding_opportunity_cost.py", hoc_src),
+                             ("api/event_signal_refresh.py", esr_src),
+                             ("api/workflow_state.py", ws_src),
+                             ("api/daily_action_gate.py", gate_src))
+        if "_save_run(" in src
+        or "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST" in src)
+    manifest_has_one_owner = not manifest_writers
+
+    # (5) The workflow owner READS the classification; it derives none.
+    workflow_reads_provenance = bool(
+        "opportunity_cost_artifact_class" in ws_src
+        and "governed_research_evidence_current" in ws_src
+        and "classify_artifact_provenance" not in ws_src)
+    # The gate CARRIES the fields verbatim (the one shared path), never computing them.
+    gate_carries_provenance = bool(
+        '"opportunity_cost_artifact_class"' in gate_src
+        and '"opportunity_cost_claims_drc_terminal"' in gate_src
+        and "classify_artifact_provenance" not in gate_src)
+
+    # (6) The fail-closed blocker survives, and it now fires on the CLAIM.
+    status_body = (drc_src.split("def load_daily_research_cycle_status(", 1)[1]
+                   .split("\ndef ", 1)[0]
+                   if "def load_daily_research_cycle_status(" in drc_src else "")
+    blocker_fires_on_claim = bool(
+        "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST" in status_body
+        and "claims_terminal" in status_body
+        and "if claims_terminal:" in status_body)
+
+    # (7) The UI states what the backend decided and infers nothing.
+    ui_infers_provenance = sorted(
+        t for t in ("LIVE_PRE_DRC_SIGNAL", "GOVERNED_DRC_TERMINAL",
+                    "classify_artifact_provenance", "governed_research_evidence_current")
+        if t in ui)
+    ui_states_backend_provenance = bool(
+        "cd.provenance_label" in ui and "r29-verdict-prov" in ui
+        and not ui_infers_provenance)
+
+    return {
+        "provenance_owned_by_artifact_owner": provenance_owned_by_artifact_owner,
+        "classifier_is_pure": classifier_is_pure,
+        "classifier_signature": classifier_params,
+        "artifact_never_proves_completion": artifact_never_proves_completion,
+        "producers_identify_themselves": producers_identify_themselves,
+        "event_cycle_stamps_no_run_id": event_cycle_stamps_no_run_id,
+        "manifest_has_one_owner": manifest_has_one_owner,
+        "manifest_writers": manifest_writers,
+        "workflow_reads_provenance": workflow_reads_provenance,
+        "gate_carries_provenance": gate_carries_provenance,
+        "blocker_fires_on_claim": blocker_fires_on_claim,
+        "ui_states_backend_provenance": ui_states_backend_provenance,
+        "ui_infers_provenance": ui_infers_provenance,
+    }
+
+
 def check_portfolio_reassessment_ownership(files: list[Path]) -> dict:
     """Stage 20 CONTINUOUS ACTIVE PORTFOLIO REASSESSMENT ownership guard.
 
@@ -5055,6 +5178,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "release29_3_decision_integrity": check_release29_3_decision_integrity(files),
         "release29_4_session_authority": check_release29_4_session_authority(files),
+        "release29_5_drc_provenance": check_release29_5_drc_provenance(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
         "normal_cycle_ownership": check_normal_cycle_ownership(files),
         "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
@@ -5799,6 +5923,22 @@ BLOCKING_INVARIANTS = (
     ("release29_4_session_authority", "session_check_recomputes", []),
     ("release29_4_session_authority", "today_is_sole_execution_surface", True),
     ("release29_4_session_authority", "model_target_lane_scoped", True),
+    # Release 29.5 - a manifest-less artifact was read as corruption, which suspended the
+    # cycle into a RECOVERY that could only be cleared by the stage RECOVERY disables.
+    # These contracts keep "what an artifact IS" a stated claim rather than an inference.
+    ("release29_5_drc_provenance", "provenance_owned_by_artifact_owner", True),
+    ("release29_5_drc_provenance", "classifier_is_pure", True),
+    ("release29_5_drc_provenance", "classifier_signature", ["artifact"]),
+    ("release29_5_drc_provenance", "artifact_never_proves_completion", True),
+    ("release29_5_drc_provenance", "producers_identify_themselves", True),
+    ("release29_5_drc_provenance", "event_cycle_stamps_no_run_id", True),
+    ("release29_5_drc_provenance", "manifest_has_one_owner", True),
+    ("release29_5_drc_provenance", "manifest_writers", []),
+    ("release29_5_drc_provenance", "workflow_reads_provenance", True),
+    ("release29_5_drc_provenance", "gate_carries_provenance", True),
+    ("release29_5_drc_provenance", "blocker_fires_on_claim", True),
+    ("release29_5_drc_provenance", "ui_states_backend_provenance", True),
+    ("release29_5_drc_provenance", "ui_infers_provenance", []),
     ("portfolio_reassessment_ownership", "owners_present", True),
     ("portfolio_reassessment_ownership", "second_calculation_owner_modules", []),
     ("portfolio_reassessment_ownership", "second_composition_owner_modules", []),

@@ -1,11 +1,70 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-18
-- **Updated by phase:** **Release 29.4 — normal-cycle session authority + close validity repair.**
-- **Source Git HEAD:** `9ee3028`, branch `stage19-controlled-rebalance`.
-- **Working tree status:** DIRTY — Release 29.4 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
-- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_4_SESSION_AUTHORITY_FIXED.** On 2026-08-18 at 08:31 ET, with the market session still open, the operator screen offered `RUN_DAILY_CLOSE` for the 2026-08-17 session that had already been closed the previous evening. Root cause: `api.workflow_state` kept a private literal copy of the Daily Close owner's completed-close vocabulary; Release 29.3 renamed `REBALANCE_PROPOSAL_READY` to `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` and the copy kept the old spelling, so a real completed close read as invalid and the eligible session read as unclosed. Close validity now belongs to `api.daily_close` and takes no portfolio input at all. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
-- **Next required action:** the user runs `D:\Temp\paper_trader_release29_4_session_authority_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+- **Updated by phase:** **Release 29.5 — DRC manifest / downstream provenance deadlock hotfix.**
+- **Source Git HEAD:** `42978bf`, branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 29.5 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
+- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_5_DRC_DEADLOCK_FIXED.** After a SUCCESSFUL 2026-08-18 Daily Close, the normal cycle suspended itself into `RECOVERY` with `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` and zero executable stages — and the only thing that could write the missing manifest was the Daily Research Cycle that `RECOVERY` had just disabled. Root cause: the guard inferred provenance from artifact EXISTENCE, and since Releases 28/29 a second legitimate owner (`api.event_signal_refresh`, triggered by continuous collection) writes an artifact through the same canonical entry point. Proven writer: event run `evt_b91704271fb7a992`, `requested_by PAPER_TRADER_INFORMATION_COLLECTION`, completed 22:07:52Z, HOC artifact 22:07:50Z. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
+- **Next required action:** the user runs `D:\Temp\paper_trader_release29_5_drc_manifest_handoff\validate.ps1` and `ui_acceptance.ps1`, then decides on `commit.ps1` / `push.ps1`, restarts through the canonical owner, and runs the real Aug-18 Daily Research Cycle. Claude has NOT committed, pushed or run the cycle.
+
+## Release 29.5 — DRC manifest / downstream provenance (2026-08-18)
+
+**The rule this phase enforces.** *Existence is not provenance.* A guard that reads
+"artifact present + manifest absent = corruption" is only correct while exactly one owner
+can write the artifact. Releases 28/29 deliberately added a second one, and the guard
+kept its old inference — so the system diagnosed its own designed behaviour as damage,
+and chose a recovery state that removed the only way out of it.
+
+**The live deadlock (2026-08-18, after a successful close).**
+
+| Owner | Said |
+|---|---|
+| `engine.market_session` | `SESSION_READY`, eligible completed session `2026-08-18` |
+| `api.daily_close` | close `2026-08-18` recorded, `operational_close_valid = true`, forward evidence captured |
+| `api.daily_research_cycle` | `INCONSISTENT`, `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` |
+| `api.workflow_state` | `INCONSISTENT_STATE`, cycle stage `RECOVERY`, `executable_stage_count = 0` |
+
+**Two legitimate classes of downstream artifact.**
+
+* **Class 1 — `LIVE_PRE_DRC_SIGNAL`.** Written by `api.event_signal_refresh` when
+  continuous collection finds material information. Real, current, displayable. May exist
+  before a manifest, never proves one, never satisfies the governed daily cycle, and never
+  by itself permits approval or execution.
+* **Class 2 — `GOVERNED_DRC_TERMINAL`.** Bound to a run manifest by a `drc_run_id`. Only
+  this can prove `DAILY_RESEARCH_CYCLE = DONE`.
+
+An artifact is Class 2 only when it CLAIMS to be. Absence of a claim is not a broken
+claim — so every artifact written before this field existed classifies as Class 1 and no
+history is rewritten or retroactively accused.
+
+**The fail-closed contract survives; only its trigger narrowed.** An artifact carrying a
+`drc_run_id` whose manifest cannot be read is still `INCONSISTENT` +
+`TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` with no executable mutation, and the
+orphaned run is now NAMED in the blocker. That is the case a DRC which stamped its
+artifact and died before persisting its manifest produces.
+
+**Ownership after this release.**
+
+* `api.holding_opportunity_cost` — OWNS artifact provenance: `PROVENANCE_OWNER`,
+  `build_provenance()`, `classify_artifact_provenance(artifact)`. The classifier is PURE
+  and takes exactly one argument, so it can never open a manifest — audited on the
+  signature.
+* `api.daily_research_cycle` — the ONE manifest owner, and the only module entitled to
+  adjudicate a claim. Publishes `governed_research_evidence_current`.
+* `api.daily_action_gate` — carries the classification verbatim on the one shared path.
+* `api.workflow_state` — READS it. It classifies nothing (audited: no
+  `classify_artifact_provenance`), and `research_cycle_due_after_close` now keys on
+  governed evidence rather than on an artifact existing.
+* `engine.normal_cycle` — **unchanged.** No second state machine.
+
+**The portfolio decision gained a provenance label, not a new verdict.**
+`decision_provenance` is `GOVERNED_DAILY_CYCLE` or `LIVE_PRE_DRC_SIGNAL`; the states,
+economics and approvability are untouched. Pre-cycle, Today shows the live assessment
+under `CURRENT LIVE ASSESSMENT — GOVERNED DAILY CYCLE PENDING`.
+
+**Aug-18 result:** `RESEARCH_CYCLE_REQUIRED`, stage `DAILY_RESEARCH_CYCLE` CURRENT,
+Daily Close `DONE`, `executable_stage_count = 1`, primary action
+`RUN_DAILY_RESEARCH_CYCLE` behind `RUN_DAILY_RESEARCH_CYCLE`, `CONSISTENT`, no Recovery.
 
 ## Release 29.4 — normal-cycle session authority + close validity (2026-08-18)
 

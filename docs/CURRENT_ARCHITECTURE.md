@@ -2083,6 +2083,82 @@ or order control.
 strict-blocking architecture guard (AST/symbol contracts, 23 blocking invariants).
 
 
+## Release 29.5 - Pre-DRC provenance vs governed DRC terminal evidence (LANDED)
+
+After a SUCCESSFUL 2026-08-18 Daily Close the normal cycle suspended itself into a
+recovery state that only the suspended stage could clear.
+
+### The deadlock, as observed
+
+| Owner | Said |
+|---|---|
+| `engine.market_session` | `SESSION_READY`; eligible completed session `2026-08-18` |
+| `api.daily_close` | `latest_completed_close_date = 2026-08-18`; `operational_close_valid = true`; forward evidence captured |
+| `api.daily_research_cycle` | `INCONSISTENT`; `run_id = null`; blocker `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` |
+| `api.workflow_state` | `INCONSISTENT_STATE`; `normal_cycle.current_stage = RECOVERY`; `executable_stage_count = 0` |
+
+    a downstream artifact exists
+      + no DRC manifest exists          -> read as corruption
+      -> RECOVERY                       -> opens no stage gate
+      -> the DRC cannot run             -> the manifest is never written
+
+### Root cause
+
+The guard inferred provenance from EXISTENCE. That was sound while
+`api.daily_research_cycle` was the only writer. Release 28 added
+`api.event_signal_refresh` — the incremental dependency refresh that Release 29
+continuous collection triggers on material information — and it calls the SAME canonical
+owner (`api.holding_opportunity_cost.run_and_persist`) by design, so both modes share one
+calculation. Two producers, one indistinguishable artifact.
+
+The writer of the live Aug-18 artifacts is recorded on disk:
+
+```
+event_fabric/runs/evt_b91704271fb7a992/event_signal_refresh_status.json
+    composition_owner      api.event_signal_refresh
+    requested_by           PAPER_TRADER_INFORMATION_COLLECTION:6ed66ead-...
+    eligible_market_date   2026-08-18
+    completed_at           2026-08-18T22:07:52Z     (HOC artifact 22:07:50Z)
+    state                  REASSESSED_NO_CHANGE
+```
+
+### The two classes
+
+| Class | Token | Producer | May exist without a manifest | Proves the cycle ran |
+|---|---|---|---|---|
+| 1 | `LIVE_PRE_DRC_SIGNAL` | `api.event_signal_refresh` (or unrecorded/legacy) | yes | **never** |
+| 2 | `GOVERNED_DRC_TERMINAL` | `api.daily_research_cycle` | no — a missing manifest is corruption | only via its manifest |
+
+An artifact is Class 2 only when it CLAIMS to be, by carrying a `drc_run_id`. A bare
+boolean is not a claim: it names nothing a manifest owner could look up, so it would be
+permanently unresolvable rather than fail-closed.
+
+### Ownership
+
+* `api.holding_opportunity_cost` — the artifact writer, therefore the provenance owner.
+  `PROVENANCE_OWNER`, `PROVENANCE_KEY = "produced_by"`, `build_provenance()`,
+  `classify_artifact_provenance(artifact)`. The classifier takes ONE argument and opens
+  no store: stating a claim and adjudicating one are different jobs.
+  `proves_drc_complete` is unconditionally `False`.
+* `api.daily_research_cycle` — the ONE manifest owner and the only adjudicator. Publishes
+  `governed_research_evidence_current` / `governed_manifest_run_id`. Stamps its run id
+  into artifacts it CREATES; a reused artifact is never retro-stamped, because adoption is
+  proven by the adopter's manifest, not by rewriting evidence it did not produce.
+* `api.daily_action_gate` — carries the classification verbatim on the one shared path.
+* `api.workflow_state` — reads it; classifies nothing.
+  `research_cycle_due_after_close` now keys on governed evidence, degrading to the old
+  artifact-existence rule when the cycle contract is unobservable.
+* `engine.normal_cycle` — unchanged. Five stages, one projection, no second machine.
+
+### Guard
+
+`scripts/audit_architecture.py` → `check_release29_5_drc_provenance`, 13 blocking
+invariants, including `classifier_signature == ["artifact"]`, `manifest_writers == []`
+and `ui_infers_provenance == []`. Regression:
+`tests/test_release29_5_drc_provenance.py` (49 tests), plus acceptance scenarios
+`scenario_14_pre_drc_live_signal` and `scenario_15_falsely_terminal_artifact`.
+
+
 ## Release 29.4 - Normal-cycle session authority + close validity (LANDED)
 
 On 2026-08-18 at 08:31 ET, with the market session still open, the operator screen
