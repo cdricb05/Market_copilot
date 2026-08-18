@@ -217,9 +217,13 @@ def test_b9_execution_automation_off_is_not_painted_as_an_alarm():
 def test_b10_daily_close_leads_with_the_result_not_the_legacy_view():
     assert 'id="cc-dc-metrics"' in UI
     fn = _fn("renderDailyClose")
+    # Release 29.3 replaced the legacy 'Proposed changes' metric with 'Invested'. That
+    # count came from the LEGACY rank-membership comparison, so a money lane reporting
+    # it was stating a proposal the canonical proposal owner had not produced.
     for label in ("'NAV'", "'Today'", "'Cumulative'", "'Vs SPY'", "'Drawdown'",
-                  "'Proposed changes'"):
+                  "'Invested'"):
         assert label in fn, f"the Daily Close summary must lead with {label}"
+    assert "'Proposed changes'" not in fn
     # the compatibility material moves into the card's detail region
     assert 'id="cc-dc-legacy-slot"' in UI
     head = _fn("_dcApplyHeadline")

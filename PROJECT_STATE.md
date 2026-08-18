@@ -1,11 +1,76 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-17
-- **Updated by phase:** **Release 29.3 — portfolio decision integrity + policy semantics + final operator UX alignment.**
-- **Source Git HEAD:** `98c5908`, branch `stage19-controlled-rebalance`.
-- **Working tree status:** DIRTY — Release 29.3 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
-- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_3_DECISION_INTEGRITY_FIXED.** The real 2026-08-17 DRC produced ONE payload asserting both `REBALANCE_PROPOSAL_READY` / `PROPOSAL_READY` / "PORTFOLIO CHANGES PROPOSED" and `REALLOCATION_PROPOSAL_NOT_RUN` / `PORTFOLIO_DECISION_NO_PROPOSAL`, and reported `consistency_status = CONSISTENT`. Root cause: the LEGACY rank-membership gate spoke the proposal owner's vocabulary and three surfaces republished it. Fixed by ownership, not by hiding fields. Four complete-target constraints (turnover / concentration / sector / post-change risk) MOVED from the reassessment — where they were judged on a retained stub renormalised to 1.0 — to `engine.reallocation_proposal`, which owns the complete target. The mandatory eligibility-exit policy is now explicit, versioned and bounded. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
-- **Next required action:** the user runs `D:\Temp\paper_trader_release29_3_decision_integrity_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+- **Last updated:** 2026-08-18
+- **Updated by phase:** **Release 29.4 — normal-cycle session authority + close validity repair.**
+- **Source Git HEAD:** `9ee3028`, branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 29.4 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
+- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_4_SESSION_AUTHORITY_FIXED.** On 2026-08-18 at 08:31 ET, with the market session still open, the operator screen offered `RUN_DAILY_CLOSE` for the 2026-08-17 session that had already been closed the previous evening. Root cause: `api.workflow_state` kept a private literal copy of the Daily Close owner's completed-close vocabulary; Release 29.3 renamed `REBALANCE_PROPOSAL_READY` to `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` and the copy kept the old spelling, so a real completed close read as invalid and the eligible session read as unclosed. Close validity now belongs to `api.daily_close` and takes no portfolio input at all. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
+- **Next required action:** the user runs `D:\Temp\paper_trader_release29_4_session_authority_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+
+## Release 29.4 — normal-cycle session authority + close validity (2026-08-18)
+
+**The rule this phase enforces.** *A duplicated vocabulary is a vocabulary that will
+drift.* Release 29.3 renamed a close status and migrated it on read — correctly, and
+with tests. What it could not see was that two other modules each held a private
+literal copy of the same vocabulary, kept "so the module stays importable without
+`api.daily_close`". Neither copy was updated, and the very next day the product told
+the operator to close a session it had already closed.
+
+**The live contradiction (2026-08-18 08:31 ET).**
+
+| Owner | Said |
+|---|---|
+| `engine.market_session` | `BEFORE_SESSION_CLOSE`, eligible completed session `2026-08-17` |
+| `api.daily_close` | `AWAITING_MARKET_CLOSE`, `requires_close_run = false`, recorded close `2026-08-17` = `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`, forward evidence 6/6 |
+| `api.workflow_state` | `READY_FOR_DAILY_CLOSE`, `daily_close_gate.execution_allowed = true`, `operational_close_valid = false`, "No completed operational close has been recorded yet." |
+
+Both domain owners were right. The composition owner disagreed with both of them.
+
+**Ownership after this release.**
+
+* `engine.market_session` — WHICH completed session is eligible. The workflow owner runs
+  no calendar arithmetic of its own (audited: no `walk_back_to_trading_day`,
+  `previous_trading_day`, `resolve_expected_session`, `expected_from_reference_date`).
+* `api.daily_close` — whether that session was operationally PROCESSED.
+  `completed_close_statuses()` / `is_completed_close_status()` /
+  `is_operational_close_complete(progress)` are the one definition.
+  `CLOSE_VALIDITY_POLICY = "OPERATIONAL_COMPLETION_ONLY"`.
+* `api.workflow_state` — composes those two answers and re-decides neither.
+* Portfolio / research — membership drift, HOC, reassessment, proposal, decision. None
+  of them can reopen, invalidate or re-run a recorded operational close.
+
+**Close validity is operational completion.** `is_operational_close_complete` accepts
+one argument — the close's own progress document. There is no parameter through which a
+portfolio verdict could arrive, and the audit asserts that on the SIGNATURE rather than
+on a comment. `DAILY_CLOSE_COMPLETE_HOLD` and `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`
+are equally complete; the pre-29.3 byte still on disk normalises on read and is complete
+too. History keeps its bytes.
+
+**Three fail-closed session invariants** (`check_session_authority`, merged into
+`consistency_status`): `DAILY_CLOSE_OFFERED_FOR_ALREADY_PROCESSED_SESSION`,
+`COMPLETED_CLOSE_REPORTED_INVALID`, `COMPLETED_CLOSE_HIDDEN_FROM_EVIDENCE`. The first is
+scoped by the market-session owner's EXPECTED date, not by a blanket rule: once the
+post-close cutoff passes, a new session is expected and the Daily Close is precisely the
+mechanism that advances owned marks (Stage 19.3), so offering it is correct then.
+
+**Evidence presentation.** "No completed close has ever been recorded" and "the most
+recent attempt did not complete" are different facts. The second is now
+`NOT_COMPLETED` and names the date, so a recorded close can never be erased from the
+operator's evidence.
+
+**Today is the sole normal-path execution surface.** Release 29.3 collapsed the hero to
+one compact line off Today but never collapsed the CTA column, so Portfolio still
+rendered a full RUN DAILY CLOSE button. The execute control is now route-scoped to
+Today, replaced elsewhere by an "Open Today to act" routing notice, and
+`dispatchCanonicalPrimaryAction` refuses a mutation off-Today even if a control is
+reached by other means.
+
+**Model target snapshot lane.** `OPERATIONAL TARGET REVIEW / READY TO CONFIRM` sat
+beside a withheld portfolio decision and read as an approval waiting on the operator. It
+is an independent lane — the model's validated ranked 25-name snapshot — so it is
+retitled `MODEL TARGET SNAPSHOT REVIEW`, states its scope explicitly, and its ready
+state names the object (`READY TO CONFIRM SNAPSHOT`). It is not, and by audit cannot
+become, an input to `canonical_portfolio_decision`.
 
 ## Release 29.3 — portfolio decision integrity + policy semantics (2026-08-17)
 

@@ -788,6 +788,23 @@ def _read(rel_path: str) -> str:
         return ""
 
 
+def _assign_const(src: str, name: str):
+    """The literal a module-level constant is assigned, via AST (never a regex).
+
+    Returns None when the name is absent or is not bound to a plain constant.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == name:
+                    return node.value.value
+    return None
+
+
 def _module_func_body(src: str, func_def: str) -> str:
     """Return the source of a MODULE-LEVEL ``def`` (from its signature line to the next
     top-level ``def`` / block divider / ``__all__`` / EOF). Used to scope a semantic
@@ -2141,6 +2158,222 @@ def check_release29_3_decision_integrity(files: list[Path]) -> dict:
         "ui_verdict_derives_state": ui_verdict_derives_state,
         "ui_verdict_synthesises_action": ui_verdict_synthesises_action,
         "ui_hero_scoped": ui_hero_scoped,
+    }
+
+
+def check_release29_4_session_authority(files: list[Path]) -> dict:
+    r"""Release 29.4 - NORMAL-CYCLE SESSION AUTHORITY + CLOSE VALIDITY.
+
+    On 2026-08-18 at 08:31 ET the operator screen offered RUN DAILY CLOSE for the
+    2026-08-17 session, which had already been closed the previous evening, while the
+    market session was still open. The cause was a DUPLICATED VOCABULARY:
+    ``api.workflow_state`` kept a private literal copy of the Daily Close owner's
+    completed-close statuses, Release 29.3 renamed one of them, and the copy kept the
+    old spelling - so a real completed close stopped being recognised.
+
+    These contracts make that class of drift a build failure:
+
+      (1) ``api.daily_close`` OWNS close validity and publishes the predicate;
+      (2) no other module defines a completed-close vocabulary of its own;
+      (3) ``api.workflow_state`` DELEGATES (and its pure-import fallback still matches
+          the owner's set exactly, by AST - the drift itself);
+      (4) close validity takes NO portfolio input (proved on the signature, not on prose);
+      (5) session eligibility belongs to ``engine.market_session``; the workflow owner
+          runs no calendar arithmetic of its own;
+      (6) the session-authority violation codes exist and are wired into the verdict;
+      (7) TODAY is the sole normal-path execution surface (every other route drops the
+          execute control AND the dispatcher refuses off-Today);
+      (8) the model-target snapshot lane states its scope and is not an input to the
+          canonical portfolio decision.
+    """
+    dc_src = _read("api/daily_close.py")
+    ws_src = _read("api/workflow_state.py")
+    ps_src = _read("api/portfolio_state.py")
+    nc_src = _read("engine/normal_cycle.py")
+    ui = _read(UI_FILE)
+
+    def _fn_body(src: str, name: str) -> str:
+        marker = "def %s(" % name
+        if marker not in src:
+            return ""
+        return src.split(marker, 1)[1].split("\ndef ", 1)[0]
+
+    def _set_literal(src: str, name: str) -> set:
+        """The string values a module-level frozenset/set constant holds (AST)."""
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return set()
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+                continue
+            v = node.value
+            if isinstance(v, ast.Call) and getattr(v.func, "id", None) == "frozenset" \
+                    and v.args:
+                v = v.args[0]
+            if isinstance(v, (ast.Set, ast.Tuple, ast.List)):
+                return {e.value for e in v.elts if isinstance(e, ast.Constant)}
+        return set()
+
+    def _tuple_of_strings(src: str, name: str) -> tuple:
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return ()
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+                continue
+            if isinstance(node.value, (ast.Tuple, ast.List)):
+                return tuple(e.value for e in node.value.elts
+                             if isinstance(e, ast.Constant))
+        return ()
+
+    # (1) The owner publishes the predicate and names its policy.
+    close_validity_owned_by_daily_close = all(
+        ("def %s(" % fn) in dc_src for fn in (
+            "completed_close_statuses", "is_completed_close_status",
+            "is_operational_close_complete")) \
+        and _assign_const(dc_src, "CLOSE_VALIDITY_OWNER") == "api.daily_close" \
+        and _assign_const(dc_src, "CLOSE_VALIDITY_POLICY") == "OPERATIONAL_COMPLETION_ONLY"
+
+    # (2) No second definition of the vocabulary anywhere else.
+    duplicate_vocabulary_modules = sorted(
+        rel for rel, src in (("api/workflow_state.py", ws_src),
+                             ("api/portfolio_state.py", ps_src))
+        if "_CLOSE_COMPLETE_STATUSES" in src)
+    no_duplicate_close_vocabulary = not duplicate_vocabulary_modules
+
+    # (3) The workflow owner delegates, and its fallback still matches the owner EXACTLY.
+    #     This is the precise drift that broke the live payload, so it is compared as a
+    #     set of values rather than trusted to a comment.
+    owner_set = _set_literal(dc_src, "_CLOSE_PROCESSED_STATUSES") or {
+        v for v in _tuple_of_strings(dc_src, "_CLOSE_PROCESSED_STATUSES")}
+    if not owner_set:
+        # _CLOSE_PROCESSED_STATUSES is declared through Name references; resolve them.
+        owner_set = set()
+        try:
+            tree = ast.parse(dc_src)
+            consts = {}
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                    for t in node.targets:
+                        if isinstance(t, ast.Name):
+                            consts[t.id] = node.value.value
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and any(
+                        isinstance(t, ast.Name) and t.id == "_CLOSE_PROCESSED_STATUSES"
+                        for t in node.targets) and isinstance(node.value, (ast.Tuple,
+                                                                          ast.List,
+                                                                          ast.Set)):
+                    for e in node.value.elts:
+                        if isinstance(e, ast.Constant):
+                            owner_set.add(e.value)
+                        elif isinstance(e, ast.Name) and e.id in consts:
+                            owner_set.add(consts[e.id])
+        except SyntaxError:
+            owner_set = set()
+    fallback_set = _set_literal(ws_src, "_CLOSE_COMPLETE_FALLBACK")
+    workflow_delegates_close_validity = (
+        "def _is_operational_close_complete(" in ws_src
+        and "_dc.is_operational_close_complete(" in ws_src
+        and "_dc.completed_close_statuses()" in ws_src
+        and _assign_const(ws_src, "CLOSE_VALIDITY_OWNER") == "api.daily_close"
+        and bool(owner_set) and fallback_set == owner_set)
+
+    # (4) Close validity excludes portfolio inputs - proved on the SIGNATURE.
+    validity_params: list[str] = []
+    try:
+        for node in ast.parse(dc_src).body:
+            if isinstance(node, ast.FunctionDef) \
+                    and node.name == "is_operational_close_complete":
+                validity_params = [a.arg for a in node.args.args] \
+                    + [a.arg for a in node.args.kwonlyargs]
+    except SyntaxError:
+        validity_params = ["<unparsed>"]
+    excluded = _tuple_of_strings(dc_src, "CLOSE_VALIDITY_EXCLUDED_INPUTS")
+    close_validity_excludes_portfolio_inputs = (
+        validity_params == ["progress"]
+        and {"membership_drift", "reallocation_proposal", "portfolio_reassessment",
+             "holding_opportunity_cost", "portfolio_decision"} <= set(excluded))
+
+    # (5) Market-date eligibility is not recomputed by the workflow owner.
+    calendar_fns = ("walk_back_to_trading_day(", "previous_trading_day(",
+                    "resolve_expected_session(", "expected_from_reference_date(")
+    workflow_recomputes_calendar = sorted(f for f in calendar_fns if f in ws_src)
+    session_eligibility_owned_by_market_session = (
+        _assign_const(ws_src, "SESSION_ELIGIBILITY_OWNER") == "engine.market_session"
+        and not workflow_recomputes_calendar
+        # And no second state machine: the cycle kernel keeps its five stages.
+        and len(_tuple_of_strings(nc_src, "STAGE_SEQUENCE") or ()) in (0, 5))
+
+    # (6) The session-authority invariants exist, are frozen and are wired in.
+    codes = _tuple_of_strings(ws_src, "SESSION_AUTHORITY_VIOLATION_CODES")
+    session_authority_codes_frozen = set(codes) == {
+        "DAILY_CLOSE_OFFERED_FOR_ALREADY_PROCESSED_SESSION",
+        "COMPLETED_CLOSE_REPORTED_INVALID",
+        "COMPLETED_CLOSE_HIDDEN_FROM_EVIDENCE"}
+    session_check_wired = (
+        "def check_session_authority(" in ws_src
+        and "session_violations = check_session_authority(" in ws_src
+        and "consistency_violations = list(consistency_violations) + session_violations"
+        in ws_src)
+    # It must COMPARE owners, never load or recompute one.
+    sa_body = _fn_body(ws_src, "check_session_authority")
+    session_check_recomputes = sorted(
+        f for f in ("load_", "import ", "open(", "Path(") if f in sa_body)
+
+    # (7) TODAY is the sole normal-path execution surface.
+    non_today_routes = ("portfolio-manager", "holding-review", "proposed-portfolio",
+                        "markets", "system-audit")
+    cta_hidden = all(
+        'body[data-route="%s"] #operator-command .opc-cta' % r in ui
+        for r in non_today_routes)
+    today_keeps_cta = not any(
+        'body[data-route="%s"] #operator-command .opc-cta' % r in ui
+        for r in ("command-center", "today"))
+    dispatcher = (ui.split("function dispatchCanonicalPrimaryAction(", 1)[1]
+                  .split("\nwindow.", 1)[0]
+                  if "function dispatchCanonicalPrimaryAction(" in ui else "")
+    dispatcher_guarded = ("_wsIsTodayRoute()" in dispatcher
+                          and "navigateToRoute('command-center')" in dispatcher)
+    today_is_sole_execution_surface = bool(
+        cta_hidden and today_keeps_cta and dispatcher_guarded
+        and "function _wsIsTodayRoute(" in ui and 'id="opc-go-today"' in ui)
+
+    # (8) The model-target snapshot lane states its scope and stays out of the
+    #     canonical portfolio decision (the Release 30 contract).
+    scope_block = ui.split('id="otr-scope"')[1].split("</div>")[0].lower() \
+        if 'id="otr-scope"' in ui else ""
+    cpd_body = _fn_body(ws_src, "build_canonical_portfolio_decision")
+    model_target_lane_scoped = bool(
+        "MODEL TARGET SNAPSHOT REVIEW" in ui
+        and "not a portfolio reallocation proposal" in scope_block
+        and "'READY_TO_CONFIRM': 'READY TO CONFIRM SNAPSHOT'" in ui
+        and cpd_body
+        and not any(t in cpd_body for t in ("alpha_target", "target_readiness")))
+
+    return {
+        "close_validity_owned_by_daily_close": close_validity_owned_by_daily_close,
+        "no_duplicate_close_vocabulary": no_duplicate_close_vocabulary,
+        "duplicate_vocabulary_modules": duplicate_vocabulary_modules,
+        "workflow_delegates_close_validity": workflow_delegates_close_validity,
+        "close_validity_owner_set": sorted(owner_set),
+        "workflow_fallback_set": sorted(fallback_set),
+        "close_validity_excludes_portfolio_inputs":
+            close_validity_excludes_portfolio_inputs,
+        "close_validity_signature": validity_params,
+        "session_eligibility_owned_by_market_session":
+            session_eligibility_owned_by_market_session,
+        "workflow_recomputes_calendar": workflow_recomputes_calendar,
+        "session_authority_codes_frozen": session_authority_codes_frozen,
+        "session_check_wired": session_check_wired,
+        "session_check_recomputes": session_check_recomputes,
+        "today_is_sole_execution_surface": today_is_sole_execution_surface,
+        "model_target_lane_scoped": model_target_lane_scoped,
     }
 
 
@@ -4821,6 +5054,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "release29_3_decision_integrity": check_release29_3_decision_integrity(files),
+        "release29_4_session_authority": check_release29_4_session_authority(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
         "normal_cycle_ownership": check_normal_cycle_ownership(files),
         "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
@@ -5549,6 +5783,22 @@ BLOCKING_INVARIANTS = (
     ("release29_3_decision_integrity", "ui_hero_scoped", True),
     # Exactly ONE module may declare what a mandatory eligibility exit authorises.
     ("release29_3_decision_integrity", "mandatory_exit_policy_owner_count", 1),
+    # --- Release 29.4: session authority + close validity ---------------------- #
+    # A duplicated vocabulary is what invalidated a real completed close. These are the
+    # contracts that make the same drift a build failure rather than a live defect.
+    ("release29_4_session_authority", "close_validity_owned_by_daily_close", True),
+    ("release29_4_session_authority", "no_duplicate_close_vocabulary", True),
+    ("release29_4_session_authority", "duplicate_vocabulary_modules", []),
+    ("release29_4_session_authority", "workflow_delegates_close_validity", True),
+    ("release29_4_session_authority", "close_validity_excludes_portfolio_inputs", True),
+    ("release29_4_session_authority", "close_validity_signature", ["progress"]),
+    ("release29_4_session_authority", "session_eligibility_owned_by_market_session", True),
+    ("release29_4_session_authority", "workflow_recomputes_calendar", []),
+    ("release29_4_session_authority", "session_authority_codes_frozen", True),
+    ("release29_4_session_authority", "session_check_wired", True),
+    ("release29_4_session_authority", "session_check_recomputes", []),
+    ("release29_4_session_authority", "today_is_sole_execution_surface", True),
+    ("release29_4_session_authority", "model_target_lane_scoped", True),
     ("portfolio_reassessment_ownership", "owners_present", True),
     ("portfolio_reassessment_ownership", "second_calculation_owner_modules", []),
     ("portfolio_reassessment_ownership", "second_composition_owner_modules", []),

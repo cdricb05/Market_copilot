@@ -2081,3 +2081,120 @@ or order control.
 `tests/test_release29_3_decision_integrity.py` (59 tests) is the regression, and
 `scripts/audit_architecture.py` → `check_release29_3_decision_integrity` is the
 strict-blocking architecture guard (AST/symbol contracts, 23 blocking invariants).
+
+
+## Release 29.4 - Normal-cycle session authority + close validity (LANDED)
+
+On 2026-08-18 at 08:31 ET, with the market session still open, the operator screen
+offered `RUN_DAILY_CLOSE` for the 2026-08-17 session that had been closed the previous
+evening. Both domain owners were correct; the composition owner disagreed with both.
+
+### The contradiction, as observed
+
+| Owner | Said |
+|---|---|
+| `engine.market_session` | `BEFORE_SESSION_CLOSE`; expected + eligible completed session `2026-08-17`; cutoff `17:30` |
+| `api.daily_close` | `AWAITING_MARKET_CLOSE`; `requires_close_run = false`; `primary_action.kind = AWAIT`; recorded close `2026-08-17` = `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`; forward evidence 6/6 |
+| `api.workflow_state` | `READY_FOR_DAILY_CLOSE`; `normal_cycle.current_stage = DAILY_CLOSE`; `daily_close_gate.execution_allowed = true`; `primary_action.action_code = RUN_DAILY_CLOSE`; `operational_close_valid = false`; `evidence_presentation.latest_completed_close.state = NONE` |
+
+### Root cause
+
+`api.workflow_state` did not ask the Daily Close owner whether the close completed. It
+held a private literal copy of that owner's completed-close vocabulary:
+
+```python
+_CLOSE_COMPLETE_STATUSES = frozenset({
+    "DAILY_CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
+    "PAPER_ORDERS_SUBMITTED", "INITIAL_BASELINE_RECORDED", "ALREADY_PROCESSED"})
+```
+
+Release 29.3 renamed `REBALANCE_PROPOSAL_READY` to
+`DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` and migrated the token on read. The copy kept
+the old spelling, so the real Aug-17 close normalised on read to a token the copy did
+not contain: `operational_close_valid` went False, `eligible_session_closed` went False,
+and the priority policy's P3.7 ("an unclosed eligible session must be closed") fired for
+a session that was already closed. `api.portfolio_state` carried the identical dead
+mirror.
+
+The defect was never about membership drift being undesirable. A PORTFOLIO finding had
+no business deciding whether an OPERATIONAL close happened - and after this release it
+structurally cannot.
+
+### Ownership
+
+| Question | Owner |
+|---|---|
+| WHICH completed session is eligible? | `engine.market_session` (reaches the workflow through `api.data_freshness`) |
+| Was that session operationally PROCESSED? | `api.daily_close` |
+| What does the operator do next? | `api.workflow_state`, composing the two above and re-deciding neither |
+| Membership drift / HOC / reassessment / proposal / decision | the portfolio + research lanes - never inputs to close validity |
+
+`api.daily_close` publishes `CLOSE_VALIDITY_OWNER`, `CLOSE_VALIDITY_POLICY =
+"OPERATIONAL_COMPLETION_ONLY"`, `CLOSE_VALIDITY_POLICY_VERSION`,
+`CLOSE_VALIDITY_EXCLUDED_INPUTS`, and the three predicates
+`completed_close_statuses()`, `is_completed_close_status(status)` and
+`is_operational_close_complete(progress)`. The last takes exactly one argument - the
+close's own probe-free progress document - so no portfolio verdict can reach it, and the
+audit asserts that on the SIGNATURE rather than on prose. `api.workflow_state` delegates
+to all three and keeps one documented fallback for a pure-import context, which the
+audit compares against the owner's set by value. The dead mirror in
+`api.portfolio_state` was deleted.
+
+`DAILY_CLOSE_COMPLETE_HOLD` and `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` are equally
+complete, as are `PAPER_ORDERS_SUBMITTED`, `INITIAL_BASELINE_RECORDED` and
+`ALREADY_PROCESSED`. A pre-29.3 byte still on disk normalises on read and is complete
+too; history keeps its bytes.
+
+### Session-authority invariants
+
+`api.workflow_state.check_session_authority` compares the two owners' published answers
+against what the composed payload OFFERS, recomputing neither (audited: no `load_`,
+`import`, `open(` or `Path(` in its body). Its violations merge into
+`consistency_status`, so a regression reads INCONSISTENT rather than silently offering a
+mutation.
+
+| Code | Fires when |
+|---|---|
+| `DAILY_CLOSE_OFFERED_FOR_ALREADY_PROCESSED_SESSION` | the eligible session is processed, no newer session is expected, and the close gate is open |
+| `COMPLETED_CLOSE_REPORTED_INVALID` | a recorded close carrying a completed status reads as invalid |
+| `COMPLETED_CLOSE_HIDDEN_FROM_EVIDENCE` | a valid completed close is presented as "no completed close exists" |
+
+The first is scoped by the market-session owner's EXPECTED date rather than by a blanket
+rule. Once the post-close cutoff passes, a newer session is expected while the owned
+provider may not have published yet, and in that state the Daily Close is precisely the
+mechanism that advances owned marks (Stage 19.3) - so offering it is correct. Before the
+cutoff nothing newer exists, and offering it is the Release 29.4 defect.
+
+`engine.normal_cycle` is unchanged: it remains a pure projection of the one decided
+overall state. No second state machine was introduced.
+
+### Evidence presentation
+
+"No completed close has ever been recorded" and "the most recent attempt did not
+complete" are different facts, and the live payload asserted the first while a valid
+2026-08-17 close with 6/6 forward snapshots sat in the journal. A recorded date with an
+incomplete outcome is now `NOT_COMPLETED` and names the date; only a genuinely empty
+history is `NONE`. The still-open current session keeps saying `NO_RESULT_YET`
+independently - both facts are true at once and neither overwrites the other.
+
+### Operator surface
+
+Today is the sole normal-path execution surface. Release 29.3 collapsed the hero's
+paragraph off Today but not its CTA column, so Portfolio still rendered a full
+RUN DAILY CLOSE button. `.opc-cta` is now route-scoped to Today; every other route shows
+an "Open Today to act" routing notice, and `dispatchCanonicalPrimaryAction` refuses a
+normal-path mutation off-Today regardless of which control is reached.
+
+The Phase-27A.2 target band is an independent lane - the model's validated ranked
+25-name snapshot - and is retitled `MODEL TARGET SNAPSHOT REVIEW` with an explicit
+inline scope line; its ready state is `READY TO CONFIRM SNAPSHOT`. Confirming a snapshot
+records a model target: it approves no capital change, moves no capital, changes no
+holding and creates no order. It is not an input to `canonical_portfolio_decision`, and
+the audit asserts that on the function body.
+
+### Guards
+
+`tests/test_release29_4_session_authority.py` (78 tests) is the regression, built on the
+real Aug-18 08:31 ET semantics plus the mirror-image post-cutoff world.
+`scripts/audit_architecture.py` -> `check_release29_4_session_authority` is the
+strict-blocking architecture guard (AST/symbol contracts, 13 blocking invariants).

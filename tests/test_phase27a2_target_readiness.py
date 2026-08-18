@@ -606,7 +606,12 @@ class TestUiOperationalPanel:
     def test_review_panel_present_with_all_sections(self, html):
         region = self._pm_region(html)
         assert 'id="otr-band"' in region
-        assert "OPERATIONAL TARGET REVIEW" in region
+        # Release 29.4 retitled this band. "OPERATIONAL TARGET REVIEW" read as though a
+        # portfolio change were pending approval while the canonical portfolio decision
+        # was CHANGE_CANDIDATE_WITHHELD with no proposal run. It is the MODEL target
+        # snapshot lane, and #otr-scope now says so explicitly.
+        assert "MODEL TARGET SNAPSHOT REVIEW" in region
+        assert 'id="otr-scope"' in region
         for did in ("otr-state", "otr-next-action", "otr-blockers", "otr-dates",
                     "otr-summary", "otr-checklist", "otr-table", "otr-act-refresh",
                     "otr-act-preview", "otr-act-confirm", "otr-confirm-box",
@@ -633,7 +638,10 @@ class TestUiOperationalPanel:
 
     def test_state_vocabulary_and_tokens_wired(self, html):
         assert "'STALE_TARGET': 'STALE TARGET'" in html
-        assert "'READY_TO_CONFIRM': 'READY TO CONFIRM'" in html
+        # Release 29.4: the state names the OBJECT it is ready to confirm. Beside a
+        # withheld portfolio decision, a bare "READY TO CONFIRM" read as a portfolio
+        # approval waiting on the operator; this is a MODEL TARGET SNAPSHOT.
+        assert "'READY_TO_CONFIRM': 'READY TO CONFIRM SNAPSHOT'" in html
         assert "'CONFIRMED': 'CONFIRMED'" in html
         assert "CONFIRM_ALPHA_TARGET_REFRESH" in html
         assert "CONFIRM_MHZ_PAPER_SNAPSHOT" in html

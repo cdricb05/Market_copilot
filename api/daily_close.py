@@ -326,6 +326,76 @@ def normalize_close_decision(decision):
     """Map a persisted close decision onto the canonical Release-29.3 vocabulary."""
     return _LEGACY_DECISION_ALIASES.get(decision, decision)
 
+
+# --------------------------------------------------------------------------- #
+# Release 29.4 — OPERATIONAL CLOSE VALIDITY HAS EXACTLY ONE OWNER: this module.
+#
+# WHY THIS EXISTS
+# ---------------
+# `api.workflow_state` and `api.portfolio_state` each carried a private LITERAL
+# COPY of "which close statuses mean the session was operationally processed".
+# Release 29.3 renamed REBALANCE_PROPOSAL_READY -> DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+# and migrated the token on READ; both copies kept the OLD spelling. From that moment
+# the real, complete 2026-08-17 close normalised on read to a token neither copy
+# recognised, so `operational_close_valid` became False, the eligible session read as
+# UNCLOSED, and on 2026-08-18 at 08:31 ET — with the session still open — the workflow
+# offered RUN_DAILY_CLOSE for a session that was already fully processed.
+#
+# A duplicated vocabulary is a vocabulary that will drift. The predicate now lives with
+# the owner that writes the token, and the mirrors delegate to it.
+#
+# THE POLICY, STATED ONCE
+# -----------------------
+# A close is VALID because it COMPLETED OPERATIONALLY — marks, NAV, settlement and
+# forward evidence recorded. Validity is NEVER a function of what the portfolio lane
+# later concluded. Membership drift, a reallocation proposal, a Holding Opportunity-Cost
+# verdict and a CHANGE_CANDIDATE reassessment are findings ABOUT the portfolio; none of
+# them can reopen, invalidate or re-run an operational close that already happened.
+# `is_operational_close_complete` therefore accepts the close's OWN progress document
+# and nothing else — there is no parameter through which a portfolio verdict could enter.
+# --------------------------------------------------------------------------- #
+CLOSE_VALIDITY_OWNER = "api.daily_close"
+CLOSE_VALIDITY_POLICY = "OPERATIONAL_COMPLETION_ONLY"
+CLOSE_VALIDITY_POLICY_VERSION = "close_validity.v1"
+
+#: Inputs that are explicitly NOT part of close validity (documented, and asserted by
+#: tests/test_release29_4_session_authority.py so the list cannot rot).
+CLOSE_VALIDITY_EXCLUDED_INPUTS = (
+    "membership_drift", "reallocation_proposal", "portfolio_reassessment",
+    "holding_opportunity_cost", "portfolio_decision",
+)
+
+
+def completed_close_statuses() -> frozenset:
+    """The canonical set of close statuses that mark a COMPLETED operational close.
+
+    This is the ONE definition. Consumers must delegate here rather than mirror it.
+    """
+    return frozenset(_CLOSE_PROCESSED_STATUSES)
+
+
+def is_completed_close_status(status) -> bool:
+    """True when ``status`` (legacy spellings included) marks a completed close."""
+    if status is None:
+        return False
+    return normalize_close_status(status) in completed_close_statuses()
+
+
+def is_operational_close_complete(progress) -> bool:
+    """Did the operational Daily Close COMPLETE for the date this progress describes?
+
+    ``progress`` is a ``load_close_progress()`` document (the probe-free read). The
+    answer depends only on the close's own run record: it finished, and its final status
+    is one this module classifies as processed. No portfolio input exists here by
+    construction — see ``CLOSE_VALIDITY_EXCLUDED_INPUTS``.
+    """
+    if not isinstance(progress, dict):
+        return False
+    if not progress.get("done"):
+        return False
+    return is_completed_close_status(progress.get("final_close_status"))
+
+
 # --------------------------------------------------------------------------- #
 # Presentation (ONE operator vocabulary per status — every surface renders these).
 # --------------------------------------------------------------------------- #
@@ -3219,6 +3289,10 @@ __all__ = [
     "CLOSE_COMPLETE_MEMBERSHIP_DRIFT", "DECISION_MEMBERSHIP_DRIFT",
     "LEGACY_REBALANCE_PROPOSAL_READY", "LEGACY_DECISION_REBALANCE",
     "normalize_close_status", "normalize_close_decision",
+    # Release 29.4 — operational close validity (this module is the ONE owner).
+    "CLOSE_VALIDITY_OWNER", "CLOSE_VALIDITY_POLICY", "CLOSE_VALIDITY_POLICY_VERSION",
+    "CLOSE_VALIDITY_EXCLUDED_INPUTS", "completed_close_statuses",
+    "is_completed_close_status", "is_operational_close_complete",
     "PAPER_ORDERS_SUBMITTED", "DATA_BLOCKED", "ALREADY_PROCESSED",
     "AWAITING_ELIGIBLE_CLOSE", "ALL_CLOSE_STATUSES",
     "DECISION_HOLD", "DECISION_REBALANCE", "DECISION_DATA_BLOCKED",

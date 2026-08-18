@@ -85,14 +85,21 @@ class TestTargetStateMapping:
         assert r["target_state_label"] == "CURRENT — ALIGNED WITH HOLDINGS"
         assert "READY TO CONFIRM" not in r["target_state_label"].upper()
 
-    def test_proposal_maps_to_manual_review(self):
+    def test_membership_diff_maps_to_the_legacy_comparison_state(self):
+        # Release 29.3 reclassified this gate as the LEGACY rank-membership comparison
+        # and renamed its VALUES: a holdings-vs-ranked-names diff is a membership
+        # observation, not a portfolio proposal, so its label no longer claims changes
+        # are proposed and a diff alone is no longer action_required. The canonical
+        # portfolio proposal is owned by api.reallocation_proposal.
         h, tg = _rich_aligned()
         tg["Z"] = {"weight": 0.04, "rank": 99, "sector": "S1"}   # a genuine entrant
         r = _evaluate(h, tg, target_count=len(tg))
-        assert r["outcome"] == dag.OUTCOME_PROPOSAL_READY
-        assert r["target_state"] == dag.TARGET_STATE_PROPOSAL_READY
-        assert "MANUAL REVIEW" in r["target_state_label"].upper()
-        assert r["action_required"] is True
+        assert r["outcome"] == dag.OUTCOME_MEMBERSHIP_DRIFT
+        assert r["target_state"] == dag.TARGET_STATE_MEMBERSHIP_DRIFT
+        label = r["target_state_label"].upper()
+        assert "LEGACY MEMBERSHIP" in label and "COMPATIBILITY ONLY" in label
+        assert "PROPOSED" not in label
+        assert r["action_required"] is False
 
     def test_data_not_ready_maps_to_refresh(self):
         r = dag.evaluate_daily_action_gate(holdings={}, target={}, target_count=0,

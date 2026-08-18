@@ -1710,3 +1710,89 @@ economics (architecture-tested).
 certified the 2026-08-17 payload CONSISTENT while it claimed both PROPOSAL_READY and
 NOT_RUN. A validator that recomputed the economics to check them would itself become a
 second calculation of the concept it exists to protect.
+
+### D-R29.4-1 — Operational close validity is COMPLETION, never a portfolio verdict (CONFIRMED)
+
+**Decision.** `api.daily_close` owns close validity and publishes it as
+`completed_close_statuses()` / `is_completed_close_status()` /
+`is_operational_close_complete(progress)`, under
+`CLOSE_VALIDITY_POLICY = "OPERATIONAL_COMPLETION_ONLY"`. The predicate takes exactly one
+argument: the close's own probe-free progress document. Membership drift, a reallocation
+proposal, a Holding Opportunity-Cost verdict, a portfolio reassessment and a portfolio
+decision are named in `CLOSE_VALIDITY_EXCLUDED_INPUTS` and none of them is reachable.
+
+**Why.** A close records marks, NAV, NEXT_CLOSE settlement and forward evidence. That
+work either happened or it did not. What the portfolio lane concluded afterwards is a
+finding ABOUT the portfolio and cannot un-happen it. Stating the rule in prose was not
+enough — Release 29.4 makes it structural, so the audit can assert it on the signature
+rather than on a comment, and a future contributor cannot thread a portfolio input in.
+
+**Evidence.** Live 2026-08-18 08:31 ET: a real, complete 2026-08-17 close with 6/6
+forward snapshots reported `operational_close_valid = false`, and the workflow offered a
+second Daily Close for it while the market session was still open.
+
+### D-R29.4-2 — A vocabulary is defined once; mirrors are a build failure (CONFIRMED)
+
+**Decision.** No module may keep a private literal copy of another owner's status
+vocabulary. `api.workflow_state` delegates to the Daily Close owner and keeps one
+documented fallback for a pure-import context; `scripts/audit_architecture.py`
+(`release29_4_session_authority.workflow_delegates_close_validity`) compares that
+fallback against the owner's set BY VALUE and fails the build if they ever differ. The
+dead duplicate in `api.portfolio_state` was deleted rather than refreshed.
+
+**Why.** Both mirrors carried the same justification — "kept as literals so this module
+stays importable/pure" — and that convenience is what silently invalidated a completed
+close one day after the rename that caused it. The import concern is real; the answer is
+a delegate plus an audited fallback, not a second definition. An unused duplicate is a
+duplicate waiting to be used.
+
+**Consequence.** Renaming a close status now either propagates automatically or fails
+`audit_architecture.py --strict`. It can no longer pass tests and break production.
+
+### D-R29.4-3 — Session eligibility outranks close-stage selection (CONFIRMED)
+
+**Decision.** Two owners answer two questions and `api.workflow_state` composes them
+without re-deciding either: `engine.market_session` decides WHICH completed session is
+eligible; `api.daily_close` decides whether that session was processed. Three fail-closed
+invariants (`SESSION_AUTHORITY_VIOLATION_CODES`) merge into `consistency_status`, so a
+regression surfaces as INCONSISTENT rather than as a silently offered mutation.
+
+**Why not a blanket rule.** "Never offer a close for a processed session" is too strong:
+after the post-close cutoff the market-session owner advances the EXPECTED date while
+the owned provider has not published yet, and in that state the Daily Close is precisely
+the mechanism that advances owned marks (Stage 19.3). The invariant is therefore scoped
+by the expected date — it fires only when no newer session is expected to exist. Both
+directions are proven by fixture: pre-cutoff → `WAITING_FOR_SESSION_CLOSE`, zero
+mutations; post-cutoff with the provider confirming → `READY_FOR_DAILY_CLOSE`, exactly
+one.
+
+**Rejected.** A second state machine. `engine.normal_cycle` stays a pure projection of
+the one decided overall state; the repair is entirely in what that state is decided
+FROM.
+
+### D-R29.4-4 — Today is the sole normal-path execution surface (CONFIRMED)
+
+**Decision.** The execute control renders only on Today. Every other route drops
+`.opc-cta` and shows an "Open Today to act" routing notice, and
+`dispatchCanonicalPrimaryAction` refuses a mutation off-Today regardless of what control
+is reached.
+
+**Why.** Release 29.3 collapsed the hero's PARAGRAPH off Today but not its CTA column,
+so Portfolio still rendered a full RUN DAILY CLOSE button. The single-mutation guarantee
+has to be about the button, not the prose around it — and a CSS rule alone is a
+presentation guarantee, so the dispatcher carries the behavioural one.
+
+### D-R29.4-5 — The model target snapshot is not capital allocation (CONFIRMED)
+
+**Decision.** `api.alpha_target`'s review band is an independent lane: the model's
+validated ranked 25-name snapshot. It is retitled `MODEL TARGET SNAPSHOT REVIEW`, states
+its scope inline, and its ready state names the object (`READY TO CONFIRM SNAPSHOT`). It
+is not an input to `canonical_portfolio_decision` and the audit asserts that on the
+function body.
+
+**Why.** Confirming a snapshot records a model target; it approves no capital change,
+moves no capital, changes no holding and creates no order. Sitting beside a
+`CHANGE_CANDIDATE_WITHHELD` portfolio decision with no proposal run, "OPERATIONAL TARGET
+REVIEW / READY TO CONFIRM" read as an approval waiting on the operator. The
+functionality is valid and was kept; only the words that misattributed its authority
+changed.

@@ -71,6 +71,9 @@ const FUNCS = [
   '_wsApplyRightPanel', '_wsRenderTodayHero',
   // Stage 19.3 — the ONE operator command bar renders from the same canonical payload.
   'renderOperatorCommand',
+  // Release 29.4 — the dispatcher refuses a normal-path mutation off Today, so the
+  // route predicate it guards on has to be in the sandbox with it.
+  '_wsIsTodayRoute',
   'dispatchCanonicalPrimaryAction', '_wsExecuteOwnedDataRefresh',
   'wsExecConfirmYes', 'wsExecConfirmNo', 'runDailyResearchCycle',
   '_wsDailyCloseGate', '_wsCommandOwnsExecution', '_wsIsNoOpState',

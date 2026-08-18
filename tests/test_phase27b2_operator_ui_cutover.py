@@ -289,15 +289,24 @@ class TestUiCommandCenterCutover:
         # now spans cc-root to the next tab.
         return html[html.index('id="cc-root"'):html.index('id="tab-prediction-cockpit"')]
 
-    def test_primary_is_canonical_card_plus_research_strip(self):
+    def test_primary_is_the_canonical_operator_card(self):
         html = _html()
         primary = self._primary(html)
         for el in ('id="cc-ob-panel"', 'id="cc-ob-headline"',
-                   'id="cc-ob-primary-btn"', 'id="cc-ob-workflow"',
-                   'id="cc-research-strip"', "RESEARCH ONLY"):
+                   'id="cc-ob-primary-btn"', 'id="cc-ob-workflow"'):
             assert el in primary, el
         for i in range(1, 6):
             assert 'id="cc-wf-stage-%d"' % i in primary, i
+
+    def test_the_research_strip_lives_on_the_research_surface_not_on_today(self):
+        # Phase 29J.1 consolidated six views into four and moved the research status
+        # strip off Today. Today answers "what must I do now"; research governance is
+        # its own surface. The strip still exists and is still RESEARCH ONLY — it is
+        # simply no longer inside the Command Center region.
+        html = _html()
+        assert 'id="cc-research-strip"' in html
+        assert "RESEARCH ONLY" in html
+        assert 'id="cc-research-strip"' not in self._primary(html)
 
     def test_context_research_legacy_panels_removed(self):
         # Phase 27B.7 hard cutover: the old Phase-14 Command Center panels were

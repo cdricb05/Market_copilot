@@ -2775,6 +2775,39 @@
       font-size: 11px; font-weight: 600; color: var(--label, #7a8fb0);
     }
 
+    /* ---- R29.4 - TODAY IS THE SOLE NORMAL-PATH EXECUTION SURFACE ---------- */
+    /* Release 29.3 collapsed the hero to one compact line off Today, but the CTA
+       column was never part of that collapse: with an action pending, Portfolio
+       still rendered a full RUN DAILY CLOSE / RUN DAILY RESEARCH CYCLE button, so
+       the same normal-path mutation was offered from two screens. The button is the
+       thing that must be single, not just the paragraph around it. Every non-Today
+       route drops the execute control and shows a routing notice instead; the
+       dispatcher below refuses to execute off-Today even if a control is reached. */
+    body[data-route="portfolio-manager"] #operator-command .opc-cta,
+    body[data-route="holding-review"] #operator-command .opc-cta,
+    body[data-route="proposed-portfolio"] #operator-command .opc-cta,
+    body[data-route="markets"] #operator-command .opc-cta,
+    body[data-route="research"] #operator-command .opc-cta,
+    body[data-route="system-audit"] #operator-command .opc-cta,
+    body[data-route="audit-advanced"] #operator-command .opc-cta,
+    body[data-route="research-audit"] #operator-command .opc-cta,
+    body[data-route="system-maintenance"] #operator-command .opc-cta,
+    body[data-route="daily-workflow"] #operator-command .opc-cta,
+    body[data-route="multi-horizon"] #operator-command .opc-cta,
+    body[data-route="portfolio"] #operator-command .opc-cta { display: none !important; }
+    /* The routing notice is the off-Today replacement: it names where the one action
+       lives without becoming a second place to take it. */
+    #opc-go-today { display: none; }
+    body[data-route="portfolio-manager"] #operator-command #opc-go-today,
+    body[data-route="holding-review"] #operator-command #opc-go-today,
+    body[data-route="proposed-portfolio"] #operator-command #opc-go-today {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+      color: var(--accent, #6ea8ff); background: none; border: 0;
+      padding: 0; cursor: pointer; white-space: nowrap;
+    }
+    #opc-go-today:hover { text-decoration: underline; }
+
     body[data-route="command-center"] .right-panel,
     body[data-route="today"] .right-panel,
     body[data-route="portfolio-manager"] .right-panel,
@@ -4726,7 +4759,7 @@
              the backend confirm endpoint enforces the hard freshness gate itself. -->
         <div class="card" id="otr-band" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">OPERATIONAL TARGET REVIEW
+            <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">MODEL TARGET SNAPSHOT REVIEW
               <span class="cc-badge" id="otr-state">Loading&hellip;</span></span>
             <button class="btn-sm" id="otr-refresh-view" onclick="loadAlphaTargetReview()" title="Reload the read-only operational target review. Writes nothing.">&#8635; Refresh View</button>
           </div>
@@ -4738,7 +4771,20 @@
             <span class="cc-badge">AUTOMATION OFF</span>
             <span class="cc-badge manual">MANUAL REVIEW</span>
           </div>
-          <div id="otr-next-action" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 6px;font-size:11px;font-weight:700;">Loading the operational target review&hellip;</div>
+          <!-- Release 29.4 — SCOPE, stated before anything else. "OPERATIONAL TARGET
+               REVIEW / READY TO CONFIRM" read as though a portfolio change were waiting
+               for approval, while the canonical portfolio decision said
+               CHANGE_CANDIDATE_WITHHELD with no proposal run at all. These are two
+               independent lanes and this line says so in the operator's own words. -->
+          <div id="otr-scope" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:7px 12px;margin:0 0 6px;font-size:10.5px;line-height:1.5;color:var(--label,#7a8fb0);">
+            <b style="color:var(--fg,#dbe6f7);">Scope:</b> the model&rsquo;s validated ranked 25-name target snapshot.
+            This is <b>not a portfolio reallocation proposal</b> and it is not the portfolio decision.
+            Confirming a snapshot records the model target; it approves no capital change, moves no
+            capital, changes no holding and creates no order. The portfolio decision lives on
+            <b>Today</b> and is owned by the portfolio reassessment, the reallocation proposal and the
+            portfolio decision record.
+          </div>
+          <div id="otr-next-action" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 6px;font-size:11px;font-weight:700;">Loading the model target snapshot review&hellip;</div>
           <div id="otr-model-line" class="mono" style="font-size:10px;color:var(--label);margin:0 0 8px;">&mdash;</div>
           <div id="otr-blockers" style="display:none;border:1px solid rgba(239,68,68,.5);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;"></div>
           <div id="otr-confirmed-note" style="display:none;border:1px solid rgba(34,197,94,.4);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;color:var(--ok,#22c55e);font-weight:700;">Target already confirmed &mdash; no further confirmation required.</div>
@@ -26481,7 +26527,11 @@ window._otrData = null;
 window._otrPreviewDone = false;
 window._otrPending = null;
 
-var _OTR_STATE_LABEL = { 'STALE_TARGET': 'STALE TARGET', 'READY_TO_CONFIRM': 'READY TO CONFIRM',
+// Release 29.4 — the state names the OBJECT it is ready to confirm. A bare "READY TO
+// CONFIRM" beside a withheld portfolio decision read as an approval waiting on the
+// operator; it is a model target snapshot, and never a portfolio change.
+var _OTR_STATE_LABEL = { 'STALE_TARGET': 'STALE TARGET',
+                         'READY_TO_CONFIRM': 'READY TO CONFIRM SNAPSHOT',
                          'CONFIRMED': 'CONFIRMED', 'BLOCKED': 'BLOCKED' };
 var _OTR_STATE_CLS = { 'STALE_TARGET': 'danger', 'READY_TO_CONFIRM': 'safe',
                        'CONFIRMED': 'safe', 'BLOCKED': 'danger' };
@@ -30197,10 +30247,29 @@ window._wsRoute = _wsRoute;
 //                          POST /v1/paper-desk/refresh) behind the styled confirm panel.
 // Anything else NAVIGATES to the canonical destination (+focus). No second
 // writer, no client-side workflow recalculation, no browser-date eligibility.
+// Release 29.4 — Today is the ONE screen the normal-path action is taken from. The
+// route ids that ARE Today (the sidebar uses command-center; "today" is the legacy id
+// that still resolves).
+function _wsIsTodayRoute() {
+  var r = '';
+  try { r = String(document.body.getAttribute('data-route') || ''); } catch (e) { r = ''; }
+  return r === 'command-center' || r === 'today' || r === '';
+}
+window._wsIsTodayRoute = _wsIsTodayRoute;
+
 function dispatchCanonicalPrimaryAction(btn) {
   var d = window._wsData;
   if (!d || !d.primary_action) return;
   var pa = d.primary_action;
+  // Release 29.4 — a normal-path MUTATION is never dispatched from a secondary screen.
+  // The CSS above hides the control off Today; this is the behavioural guarantee behind
+  // it, so a stale DOM node or a keyboard activation still cannot start a close or a
+  // research cycle from Portfolio. Off Today the operator is routed TO Today, where the
+  // one canonical action lives with its full context and its confirmation token.
+  if (pa.execution_available === true && pa.execution_kind && !_wsIsTodayRoute()) {
+    navigateToRoute('command-center');
+    return;
+  }
   if (pa.execution_available === true && pa.execution_kind) {
     if (pa.execution_kind === 'DAILY_RESEARCH_CYCLE') { runDailyResearchCycle(btn); return; }
     if (pa.execution_kind === 'DAILY_CLOSE') { runDailyClose(btn); return; }
@@ -30418,12 +30487,20 @@ function renderOperatorCommand(d) {
   if (c.confirmation_required) meta.push('Confirmation ' + _wsEsc(c.confirmation_required));
 
   // AT MOST ONE normal-path mutation control, and only when the backend allows it.
+  // Release 29.4 — the execute control renders once, and the route-scoped rules keep it
+  // to Today. Off Today the same element carries a NAVIGATION notice instead, so the
+  // operator still learns an action is pending and where it is taken.
   var side = c.primary_action_available
     ? '<div class="opc-next">' + _wsEsc(c.next_text || '') + '</div>'
       + '<button class="opc-cta" id="opc-primary-btn"'
       + ' title="' + _wsEsc(c.primary_action_label || '') + '"'
       + ' onclick="event.stopPropagation(); dispatchCanonicalPrimaryAction(this);">'
       + _wsEsc(c.primary_action_label || '') + '</button>'
+      + '<button class="opc-goto" id="opc-go-today"'
+      + ' title="Open Today, where the one canonical action is taken. This button'
+      + ' navigates only — it starts nothing and creates no order."'
+      + ' onclick="event.stopPropagation(); navigateToRoute(\'command-center\');">'
+      + 'Open Today to act &rarr;</button>'
     : '<div class="opc-noaction" id="opc-no-action">' + _wsEsc(c.next_text || '') + '</div>';
 
   // STAGE 22 — the canonical NORMAL CYCLE strip. Rendered VERBATIM from

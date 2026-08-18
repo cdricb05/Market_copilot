@@ -292,6 +292,7 @@ def _freshness(rows=None, eligible=DATE):
 # =========================================================================== #
 def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=None,
           history=None, execution="NONE", close="PROCESSED",
+          close_status="HOLD",
           session="CLOSED", research="CURRENT", hoc_artifact="PRESENT",
           reassessment_evidence=None, hoc_gaps=None,
           expect_state=None, expect_primary_action=None, expect_attention=0,
@@ -312,6 +313,16 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
         ``"PROCESSED"`` the eligible session has already been closed (no new close is
                         due — the operator is passively monitoring the execution);
         ``"DUE"``       a newly eligible completed session exists and has NOT been closed.
+
+    ``close_status`` (Release 29.4) — which COMPLETED close the journal recorded:
+        ``"HOLD"``              DAILY_CLOSE_COMPLETE_HOLD;
+        ``"MEMBERSHIP_DRIFT"``  DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT — the status the
+                        REAL 2026-08-17 close recorded. Both are equally COMPLETE: a
+                        portfolio finding never decides whether an operational close
+                        happened. The workflow owner used to keep a private literal copy
+                        of this vocabulary that still spelled the pre-29.3 token, and
+                        that copy is what made the completed Aug-17 close read as
+                        invalid and offered a second Daily Close for it on Aug-18.
 
     Stage 22 adds the knobs the canonical NORMAL CYCLE needs end to end:
 
@@ -348,7 +359,7 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
                             "cancelled": SUPERSEDED_CANCELLED if execution != "NONE" else 0},
         "historical_implementation_fills": HISTORICAL_FILLS,
         # --- daily close ------------------------------------------------------- #
-        "close": close,
+        "close": close, "close_status": close_status,
         # --- Stage 22 normal-cycle position ------------------------------------ #
         "session": session, "research": research, "hoc_artifact": hoc_artifact,
         "reassessment_evidence": reassessment_evidence,
@@ -494,6 +505,50 @@ def scenarios() -> dict:
             expect_cycle_stage="WAIT_FOR_SESSION_CLOSE",
             expect_evidence_class="EXPECTED_STALE_EVIDENCE",
             expect_mutation_count=0),
+        # =================================================================== #
+        # RELEASE 29.4 — the live 2026-08-18 08:31 ET SESSION-AUTHORITY defect.
+        #
+        # The exact world the operator was looking at: the market session is still
+        # open, the 2026-08-17 session was fully closed the previous evening with
+        # DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT, forward evidence was captured, and
+        # the Holding Opportunity-Cost assessment is current. Nothing is required.
+        #
+        # Before Release 29.4 this rendered as READY_FOR_DAILY_CLOSE with an
+        # executable RUN DAILY CLOSE and "No completed operational close has been
+        # recorded yet" — a second close offered for a session already processed.
+        # =================================================================== #
+        "scenario_12_pre_close_membership_drift": world(
+            scenario_id="scenario_12_pre_close_membership_drift",
+            title=("Pre-close: the session is still open and the completed close "
+                   "stays completed"),
+            # The portfolio lane is genuinely loud — two holdings deteriorating, the
+            # same CHANGE_CANDIDATE the real Aug-17 reassessment reached — and the
+            # operational lane still has nothing to do. That is the whole point: the
+            # two lanes answer different questions.
+            hoc_reviews=two_soft + [_filler(i) for i in range(23)],
+            execution="NONE", close="PROCESSED", close_status="MEMBERSHIP_DRIFT",
+            session="OPEN",
+            expect_state=kernel.STATE_CHANGE_CANDIDATE, expect_primary_action=None,
+            expect_attention=2,
+            expect_workflow_state="WAITING_FOR_SESSION_CLOSE",
+            expect_cycle_stage="WAIT_FOR_SESSION_CLOSE",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=0),
+        # The mirror image: once a NEWER session is eligible, the membership-drift
+        # token must not suppress its close. The repair is session authority, not a
+        # blanket suppression of the Daily Close.
+        "scenario_13_post_close_next_session_due": world(
+            scenario_id="scenario_13_post_close_next_session_due",
+            title=("Post-close: a newer eligible session makes the Daily Close the "
+                   "ONE action again"),
+            hoc_reviews=quiet, execution="NONE", close="DUE",
+            close_status="MEMBERSHIP_DRIFT",
+            expect_state=kernel.STATE_NO_CHANGE,
+            expect_primary_action="RUN_DAILY_CLOSE", expect_attention=0,
+            expect_workflow_state="READY_FOR_DAILY_CLOSE",
+            expect_cycle_stage="DAILY_CLOSE",
+            expect_evidence_class="CURRENT_EVIDENCE",
+            expect_mutation_count=1),
         "scenario_8_session_complete_close_due": world(
             scenario_id="scenario_8_session_complete_close_due",
             title="Session complete: the Daily Close is the ONE action",
@@ -1030,8 +1085,14 @@ def _close_progress(spec: dict) -> dict:
     """
     closed = (spec["prior_market_date"] if spec["close"] == "DUE"
               else spec["eligible_market_date"])
+    # Release 29.4 — which COMPLETED status the journal recorded. Both are equally a
+    # completed operational close; only api.daily_close decides that, and it decides it
+    # from the close's own run record, never from a portfolio finding.
+    status = (dc.CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+              if spec.get("close_status") == "MEMBERSHIP_DRIFT"
+              else dc.CLOSE_COMPLETE_HOLD)
     return {
-        "status": dc.CLOSE_COMPLETE_HOLD, "final_close_status": dc.CLOSE_COMPLETE_HOLD,
+        "status": status, "final_close_status": status,
         "running": False, "done": True, "market_date": closed,
         "schema_version": dc.CLOSE_RUN_SCHEMA_VERSION,
         "outcome": dc.RUN_COMPLETED,
@@ -1062,7 +1123,15 @@ def _daily_close_payload(spec: dict, opbook: dict, nav: float) -> dict:
               else spec["eligible_market_date"])
     cash = float((opbook.get("book") or {}).get("cash") or 0.0)
     holdings = len((opbook.get("holdings") or []))
-    status = (dc.CLOSE_DUE if spec["close"] == "DUE" else dc.CLOSE_COMPLETE_HOLD)
+    # Release 29.4 — a PROCESSED close reports the status the journal actually recorded,
+    # so the Today card is faithful to a MEMBERSHIP_DRIFT world rather than always
+    # showing HOLD. A DUE close is still simply due.
+    if spec["close"] == "DUE":
+        status = dc.CLOSE_DUE
+    elif spec.get("close_status") == "MEMBERSHIP_DRIFT":
+        status = dc.CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+    else:
+        status = dc.CLOSE_COMPLETE_HOLD
     return {
         "status": "DAILY_CLOSE_OK",
         "close_status": status,

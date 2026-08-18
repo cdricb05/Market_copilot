@@ -224,11 +224,25 @@ EXECUTION_CONTRACTS = {
         "confirmation_token": "CONFIRM_ALPHA_DAILY_CLOSE"},
 }
 
-# Daily-close status vocabulary mirror (a FROZEN subset of api.daily_close's
-# tested contract). Kept as literals so this module stays importable/pure without
-# api.daily_close; the production path reads the real status via load_close_progress.
-_CLOSE_COMPLETE_STATUSES = frozenset({
-    "DAILY_CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
+# Release 29.4 — CLOSE VALIDITY IS NOT DECIDED HERE.
+#
+# This module used to keep a private LITERAL COPY of "which close statuses mean the
+# session was processed". Release 29.3 renamed the drift token and migrated it on read;
+# this copy kept the old spelling, so the real, complete 2026-08-17 close stopped being
+# recognised, the eligible session read as UNCLOSED, and on 2026-08-18 08:31 ET — with
+# the session still open — RUN_DAILY_CLOSE was offered for an already-processed session.
+#
+# The predicate now belongs to the module that WRITES the token (api.daily_close). The
+# fallback below exists only so this module stays importable in a pure context; it is a
+# copy of the owner's set and `scripts/audit_architecture.py` fails the build if it ever
+# stops matching, so the two can no longer drift silently.
+CLOSE_VALIDITY_OWNER = "api.daily_close"
+#: WHICH completed session is eligible to work on is decided by the market-session
+#: domain and reaches this module through api.data_freshness. The workflow owner never
+#: recomputes a market date, a trading calendar or a session cutoff of its own.
+SESSION_ELIGIBILITY_OWNER = "engine.market_session"
+_CLOSE_COMPLETE_FALLBACK = frozenset({
+    "DAILY_CLOSE_COMPLETE_HOLD", "DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT",
     "PAPER_ORDERS_SUBMITTED", "INITIAL_BASELINE_RECORDED", "ALREADY_PROCESSED"})
 _CLOSE_FAILED_STATUSES = frozenset({"DATA_BLOCKED", "EXECUTION_ERROR"})
 
@@ -773,8 +787,19 @@ def build_evidence_presentation(*, operational_close_valid: bool, latest_close_d
                "explanation": "The current market session has been processed."}
 
     if not operational_close_valid:
-        comp = {"state": "NONE", "label": "No completed close",
-                "explanation": "No completed operational close has been recorded yet."}
+        # Release 29.4 — "no completed close has EVER been recorded" and "the most recent
+        # close attempt did not complete" are different facts, and the live 2026-08-18
+        # payload asserted the first while a valid 2026-08-17 close with 6/6 forward
+        # snapshots sat in the journal. A recorded date means a close ran: say what is
+        # actually true about it and never erase it from the operator's evidence.
+        if close_txt:
+            comp = {"state": "NOT_COMPLETED", "label": "Last close attempt incomplete",
+                    "explanation": "The most recent close attempt (%s) did not complete. "
+                                   "No completed operational close has been recorded "
+                                   "since." % close_txt}
+        else:
+            comp = {"state": "NONE", "label": "No completed close",
+                    "explanation": "No completed operational close has been recorded yet."}
     elif evidence_gap:
         comp = {"state": "VALID_WITH_DOCUMENTED_GAP",
                 "label": "Valid — documented forward-evidence gap",
@@ -2032,6 +2057,85 @@ SEMANTIC_VIOLATION_CODES = (
     "MANDATORY_EXIT_PRESENTED_AS_EXECUTABLE_OBLIGATION",
 )
 
+#: Release 29.4 — SESSION-AUTHORITY violation codes. These compare the market-session
+#: owner and the Daily Close owner against what the composed payload OFFERS. They
+#: recompute neither owner's answer; they only detect a composition that contradicts one.
+SESSION_AUTHORITY_VIOLATION_CODES = (
+    "DAILY_CLOSE_OFFERED_FOR_ALREADY_PROCESSED_SESSION",
+    "COMPLETED_CLOSE_REPORTED_INVALID",
+    "COMPLETED_CLOSE_HIDDEN_FROM_EVIDENCE",
+)
+
+
+def check_session_authority(*, session_status: Any, eligible_market_date: Any,
+                            expected_completed_market_date: Any,
+                            latest_completed_close_date: Any,
+                            operational_close_valid: bool,
+                            latest_close_status: Any,
+                            daily_close_execution_allowed: bool,
+                            evidence_completed_close_state: Any) -> list[dict]:
+    """Release 29.4 — the workflow may never contradict the two session owners.
+
+    ``engine.market_session`` owns WHICH completed session is eligible; ``api.daily_close``
+    owns whether that session was operationally processed. This is pure: it asks the two
+    owners' published answers whether the composed payload is telling the operator
+    something neither of them said.
+    """
+    violations: list[dict] = []
+    elig = _coerce_date(eligible_market_date)
+    expected = _coerce_date(expected_completed_market_date)
+    closed = _coerce_date(latest_completed_close_date)
+    already_processed = bool(operational_close_valid and elig and closed and closed >= elig)
+    # Is there a NEWER session for a close to work toward? Once the post-close cutoff
+    # passes, the market-session owner advances the EXPECTED date even while the owned
+    # provider has not published yet — and in that state the Daily Close is precisely the
+    # mechanism that advances owned marks (Stage 19.3), so offering it is correct. Before
+    # the cutoff nothing newer is expected, and offering it is the Release 29.4 defect.
+    new_session_expected = bool(expected and closed and expected > closed)
+
+    # S1. THE RELEASE 29.4 DEFECT. A Daily Close may never be offered for a session the
+    #     close owner already processed when no newer session is expected to exist yet.
+    if already_processed and not new_session_expected and daily_close_execution_allowed:
+        violations.append({
+            "code": "DAILY_CLOSE_OFFERED_FOR_ALREADY_PROCESSED_SESSION",
+            "concept": "session_authority",
+            "value_session_status": session_status,
+            "value_eligible_market_date": _iso(elig),
+            "value_expected_completed_market_date": _iso(expected),
+            "value_latest_completed_close_date": _iso(closed),
+            "authoritative_owners": [SESSION_ELIGIBILITY_OWNER, CLOSE_VALIDITY_OWNER],
+            "surface": "workflow_state"})
+
+    # S2. A recorded COMPLETED close may never be reported as an invalid one. Only the
+    #     close owner's vocabulary decides this — never a portfolio finding.
+    if closed is not None and not operational_close_valid and _completed_close_token(
+            latest_close_status):
+        violations.append({
+            "code": "COMPLETED_CLOSE_REPORTED_INVALID",
+            "concept": "close_validity",
+            "value_latest_close_status": latest_close_status,
+            "value_latest_completed_close_date": _iso(closed),
+            "authoritative_owners": [CLOSE_VALIDITY_OWNER],
+            "surface": "workflow_state"})
+
+    # S3. A valid completed close may never be presented as "no completed close exists".
+    if operational_close_valid and closed is not None and \
+            str(evidence_completed_close_state) == "NONE":
+        violations.append({
+            "code": "COMPLETED_CLOSE_HIDDEN_FROM_EVIDENCE",
+            "concept": "evidence_presentation",
+            "value_latest_completed_close_date": _iso(closed),
+            "authoritative_owners": [CLOSE_VALIDITY_OWNER, "api.workflow_state"],
+            "surface": "workflow_state"})
+    return violations
+
+
+def _completed_close_token(status) -> bool:
+    """True when ``status`` is one the Daily Close owner classifies as COMPLETED."""
+    if status is None:
+        return False
+    return _normalize_close_status(status) in _close_complete_statuses()
+
 
 def _normalize_close_status(status):
     """Delegate to the Daily Close owner's Release-29.3 vocabulary normalisation.
@@ -2047,6 +2151,33 @@ def _normalize_close_status(status):
         return _dc.normalize_close_status(status)
     except Exception:  # noqa: BLE001 - a pure read must never crash the composition
         return status
+
+
+def _close_complete_statuses() -> frozenset:
+    """The Daily Close owner's completed-close vocabulary (never a local literal)."""
+    try:
+        from paper_trader.api import daily_close as _dc
+        return _dc.completed_close_statuses()
+    except Exception:  # noqa: BLE001 - degrade to the audited fallback, never crash
+        return _CLOSE_COMPLETE_FALLBACK
+
+
+def _is_operational_close_complete(progress) -> bool:
+    """Release 29.4 — ask the Daily Close owner whether its close COMPLETED.
+
+    The workflow owner composes; it does not re-decide another lane's verdict. This is a
+    question about OPERATIONAL COMPLETION only: whether the close ran to the end and
+    recorded its work. What the portfolio lane later concluded about membership drift, a
+    reallocation proposal or a Holding Opportunity-Cost verdict is a separate lane and
+    can never reopen a close that already happened.
+    """
+    try:
+        from paper_trader.api import daily_close as _dc
+        return bool(_dc.is_operational_close_complete(progress))
+    except Exception:  # noqa: BLE001 - degrade to the audited fallback, never crash
+        p = progress if isinstance(progress, dict) else {}
+        return bool(p.get("done") and _normalize_close_status(
+            p.get("final_close_status")) in _CLOSE_COMPLETE_FALLBACK)
 
 
 def _claims_proposal(value) -> bool:
@@ -2372,17 +2503,26 @@ def load_workflow_state(
     close_status = close_final_status or _normalize_close_status(
         (close_progress or {}).get("status"))
     close_done = bool((close_progress or {}).get("done"))
-    operational_close_valid = bool(
-        close_done and close_final_status in _CLOSE_COMPLETE_STATUSES)
-    latest_close_date = close_market_date if operational_close_valid else close_market_date
+    # Release 29.4 — the DAILY CLOSE OWNER answers this, not a local status mirror.
+    operational_close_valid = _is_operational_close_complete(close_progress)
+    latest_close_date = close_market_date
     close_failed = bool(close_final_status in _CLOSE_FAILED_STATUSES)
 
     elig_d = _coerce_date(eligible_date)
     close_d = _coerce_date(latest_close_date)
     has_confirmed_eligible = elig_d is not None
+    # SESSION AUTHORITY (Release 29.4). Two independent owners answer two different
+    # questions and this line composes them without re-deciding either:
+    #   engine.market_session  -> WHICH completed session is eligible to work on
+    #   api.daily_close        -> whether THAT session was operationally processed
+    # The portfolio lane appears nowhere in this predicate, so no portfolio finding can
+    # reopen a recorded close or make an already-processed session look runnable.
     eligible_session_closed = bool(
         operational_close_valid and elig_d is not None and close_d is not None
         and close_d >= elig_d)
+    #: The Release 29.4 invariant, computed from the SAME two owners: a Daily Close must
+    #: never be offered for a session the close owner already processed.
+    eligible_session_already_processed = eligible_session_closed
 
     pending_orders = int(ob.get("pending_order_count") or 0)
 
@@ -2967,6 +3107,24 @@ def load_workflow_state(
             "portfolio_assessment_state.portfolio_decision_state":
                 portfolio_decision_lane.get("portfolio_decision_state"),
         })
+    # Release 29.4 — SESSION AUTHORITY. The composed payload may never offer a Daily
+    # Close for a session the close owner already processed, report a completed close as
+    # invalid, or hide one from the evidence presentation.
+    _dc_gate = build_daily_close_gate(overall, eligible_date=eligible_date,
+                                      latest_close_date=latest_close_date)
+    session_violations = check_session_authority(
+        session_status=session_status,
+        eligible_market_date=eligible_date,
+        expected_completed_market_date=expected_date,
+        latest_completed_close_date=latest_close_date,
+        operational_close_valid=operational_close_valid,
+        latest_close_status=close_status,
+        daily_close_execution_allowed=bool(_dc_gate.get("execution_allowed")),
+        evidence_completed_close_state=(
+            (evidence_presentation.get("latest_completed_close") or {}).get("state")))
+    if session_violations:
+        consistency_violations = list(consistency_violations) + session_violations
+        consistency_status = INCONSISTENT
     if semantic_violations:
         consistency_violations = list(consistency_violations) + semantic_violations
         consistency_status = INCONSISTENT
@@ -3031,9 +3189,7 @@ def load_workflow_state(
         "blocking_data_gap_count": gap_taxonomy.get("blocking_gap_count", 0),
         # Operator Action Integrity (Defect 3): the canonical Daily-Close
         # availability verdict every secondary close surface obeys verbatim.
-        "daily_close_gate": build_daily_close_gate(
-            overall, eligible_date=eligible_date,
-            latest_close_date=latest_close_date),
+        "daily_close_gate": _dc_gate,
         "queued_actions": queued,
         "blockers": blockers,
         "warnings": uniq_warnings,
@@ -3060,6 +3216,15 @@ def load_workflow_state(
             "latest_close_status": close_status,
             "operational_close_valid": operational_close_valid,
             "operational_consistency_status": fresh_consistency,
+            # --- Release 29.4 SESSION AUTHORITY (two owners, no re-derivation) ---- #
+            "close_validity_owner": CLOSE_VALIDITY_OWNER,
+            "close_validity_policy": "OPERATIONAL_COMPLETION_ONLY",
+            "close_run_completed": close_done,
+            "session_eligibility_owner": SESSION_ELIGIBILITY_OWNER,
+            "eligible_market_date": eligible_date,
+            "eligible_session_closed": eligible_session_closed,
+            "eligible_session_already_processed": eligible_session_already_processed,
+            "close_validity_independent_of_portfolio_outcome": True,
         },
         "research_state": {
             "latest_price_score_refresh_date": _row(freshness, "price_score_refresh"),

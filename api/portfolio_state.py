@@ -105,10 +105,14 @@ MONEY_TOL = 0.01
 _PROPOSAL_OUTCOMES = frozenset({
     "PROPOSAL_READY", "APPROVAL_REQUIRED", "PORTFOLIO_CHANGES_PROPOSED", "PROPOSED"})
 
-# Daily-close final statuses that mark a valid completed operational close.
-_CLOSE_COMPLETE_STATUSES = frozenset({
-    "DAILY_CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
-    "PAPER_ORDERS_SUBMITTED", "INITIAL_BASELINE_RECORDED", "ALREADY_PROCESSED"})
+# Release 29.4 — the completed-close vocabulary has ONE owner: api.daily_close
+# (``completed_close_statuses`` / ``is_completed_close_status``). This module used to
+# carry a private LITERAL copy of it. That copy was never read, but it was still a
+# second definition of a business concept, and its twin in api.workflow_state — kept in
+# the same shape, for the same stated reason — is exactly what silently invalidated the
+# real 2026-08-17 close when Release 29.3 renamed the token. An unused duplicate is a
+# duplicate waiting to be used, so it is deleted rather than refreshed. Any future
+# consumer here must delegate to the owner.
 
 # The canonical review-only proposal banner. Slice 7 (Phase 29H): the reassessment is
 # backed by the Holding Opportunity-Cost review (Slice 6) and the Reallocation Proposal
