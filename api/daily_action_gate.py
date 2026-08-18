@@ -86,7 +86,18 @@ _EPS = 1e-9
 # --------------------------------------------------------------------------- #
 OUTCOME_DATA_NOT_READY = "DATA_NOT_READY"
 OUTCOME_NO_ACTION_TODAY = "NO_ACTION_TODAY"
-OUTCOME_PROPOSAL_READY = "PROPOSAL_READY"
+# Release 29.3 — this gate is the LEGACY RANK-MEMBERSHIP COMPARISON (holdings vs the
+# ranked names). Since Phase 29G.1 it is compatibility-only: it is NOT the portfolio
+# proposal owner, so it must not speak that owner's vocabulary. The token value used to
+# be "PROPOSAL_READY", which made every downstream summary (Daily Close status, DRC
+# assessment status, workflow completed_summary) assert that a reallocation proposal
+# existed while api.reallocation_proposal reported REALLOCATION_PROPOSAL_NOT_RUN — the
+# exact contradiction observed live on 2026-08-17. The constant is renamed to what it
+# actually measures; the legacy value survives only as a read-compatibility alias.
+OUTCOME_MEMBERSHIP_DRIFT = "MEMBERSHIP_DRIFT_DETECTED"
+#: Read-compatibility only: the value historical artifacts / journals were written with.
+LEGACY_OUTCOME_PROPOSAL_READY = "PROPOSAL_READY"
+OUTCOME_PROPOSAL_READY = OUTCOME_MEMBERSHIP_DRIFT
 OUTCOME_APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 OUTCOME_ORDERS_SUBMITTED = "ORDERS_SUBMITTED"
 OUTCOME_FORWARD_TRACKING = "FORWARD_TRACKING"
@@ -100,7 +111,10 @@ ALL_OUTCOMES = (OUTCOME_DATA_NOT_READY, OUTCOME_NO_ACTION_TODAY, OUTCOME_PROPOSA
 # CONFIRM" / "review required" when the book is actually aligned).
 # --------------------------------------------------------------------------- #
 TARGET_STATE_CURRENT_ALIGNED = "CURRENT_ALIGNED"
-TARGET_STATE_PROPOSAL_READY = "PROPOSAL_READY"
+TARGET_STATE_MEMBERSHIP_DRIFT = "MEMBERSHIP_DRIFT"
+#: Read-compatibility only.
+LEGACY_TARGET_STATE_PROPOSAL_READY = "PROPOSAL_READY"
+TARGET_STATE_PROPOSAL_READY = TARGET_STATE_MEMBERSHIP_DRIFT
 TARGET_STATE_APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 TARGET_STATE_DATA_NOT_READY = "DATA_NOT_READY"
 TARGET_STATE_ORDERS_SUBMITTED = "ORDERS_SUBMITTED"
@@ -112,7 +126,8 @@ ALL_TARGET_STATES = (TARGET_STATE_CURRENT_ALIGNED, TARGET_STATE_PROPOSAL_READY,
 
 _TARGET_STATE_LABELS = {
     TARGET_STATE_CURRENT_ALIGNED: "CURRENT — ALIGNED WITH HOLDINGS",
-    TARGET_STATE_PROPOSAL_READY: "PROPOSAL READY — MANUAL REVIEW REQUIRED",
+    TARGET_STATE_MEMBERSHIP_DRIFT: ("LEGACY MEMBERSHIP COMPARISON — HOLDINGS DIFFER "
+                                    "FROM THE RANKED NAMES (COMPATIBILITY ONLY)"),
     TARGET_STATE_APPROVAL_REQUIRED: "MANUAL APPROVAL REQUIRED",
     TARGET_STATE_DATA_NOT_READY: "DATA REFRESH REQUIRED",
     TARGET_STATE_ORDERS_SUBMITTED: "PAPER ORDERS SUBMITTED",
@@ -344,19 +359,28 @@ _PRESENTATION = {
         "primary_action_label": "Monitor Holdings and Performance",
         "current_task": "Monitor holdings, NAV, drift and forward performance",
     },
-    OUTCOME_PROPOSAL_READY: {
-        "label": "PROPOSAL READY",
-        "headline": "PORTFOLIO CHANGES PROPOSED — MANUAL REVIEW REQUIRED",
+    # Release 29.3: compatibility-only wording. This outcome describes a RANK-MEMBERSHIP
+    # DIFFERENCE, never a portfolio proposal. The canonical portfolio decision flows
+    # through engine.portfolio_reassessment -> engine.reallocation_proposal ->
+    # api.portfolio_decision, and only those owners may claim a proposal exists.
+    OUTCOME_MEMBERSHIP_DRIFT: {
+        "label": "LEGACY MEMBERSHIP COMPARISON",
+        "headline": ("LEGACY MEMBERSHIP COMPARISON — HOLDINGS DIFFER FROM THE RANKED "
+                     "NAMES (COMPATIBILITY ONLY)"),
         "severity": SEV_AMBER,
-        "primary_action_label": "Review Proposed Changes",
-        "current_task": "Review proposed portfolio changes",
+        "primary_action_label": "View Legacy Membership Comparison",
+        "current_task": "Review the legacy membership comparison (compatibility-only)",
     },
+    # Release 29.3: this outcome is never produced by evaluate() (the gate emits
+    # DATA_NOT_READY / ORDERS_SUBMITTED / MEMBERSHIP_DRIFT_DETECTED / NO_ACTION_TODAY).
+    # It is retained only so historical payloads still resolve, and its wording no
+    # longer claims a portfolio proposal this owner cannot produce.
     OUTCOME_APPROVAL_REQUIRED: {
         "label": "APPROVAL REQUIRED",
-        "headline": "PORTFOLIO CHANGES PROPOSED — MANUAL APPROVAL REQUIRED",
+        "headline": "LEGACY APPROVAL STATE — COMPATIBILITY ONLY",
         "severity": SEV_AMBER,
-        "primary_action_label": "Review and Approve Proposed Changes",
-        "current_task": "Review and approve proposed portfolio changes",
+        "primary_action_label": "View Legacy Membership Comparison",
+        "current_task": "Review the legacy membership comparison (compatibility-only)",
     },
     OUTCOME_ORDERS_SUBMITTED: {
         "label": "ORDERS SUBMITTED",
@@ -991,8 +1015,9 @@ def evaluate_daily_action_gate(
     else:
         outcome = OUTCOME_NO_ACTION_TODAY
 
-    action_required = outcome in (OUTCOME_DATA_NOT_READY, OUTCOME_PROPOSAL_READY,
-                                  OUTCOME_APPROVAL_REQUIRED)
+    # Release 29.3: a rank-membership difference is compatibility-only evidence, never
+    # required operator work — the canonical portfolio decision owners decide that.
+    action_required = outcome in (OUTCOME_DATA_NOT_READY, OUTCOME_APPROVAL_REQUIRED)
 
     pres = dict(_PRESENTATION[outcome])
     # Phase 28B wording: the no-action decision is anchored to the latest
@@ -1443,6 +1468,8 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
 __all__ = [
     "PHASE",
     "OUTCOME_DATA_NOT_READY", "OUTCOME_NO_ACTION_TODAY", "OUTCOME_PROPOSAL_READY",
+    "OUTCOME_MEMBERSHIP_DRIFT", "TARGET_STATE_MEMBERSHIP_DRIFT",
+    "LEGACY_OUTCOME_PROPOSAL_READY", "LEGACY_TARGET_STATE_PROPOSAL_READY",
     "OUTCOME_APPROVAL_REQUIRED", "OUTCOME_ORDERS_SUBMITTED", "OUTCOME_FORWARD_TRACKING",
     "ALL_OUTCOMES",
     "TARGET_STATE_CURRENT_ALIGNED", "TARGET_STATE_PROPOSAL_READY",

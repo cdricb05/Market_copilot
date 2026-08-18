@@ -167,6 +167,48 @@ GATE_LIQUIDITY = "LIQUIDITY_BLOCKS_CHANGE"
 GATE_RISK_DETERIORATION = "RISK_DETERIORATION_BLOCKS_CHANGE"
 GATE_IMPROVEMENT_UNMEASURABLE = "IMPROVEMENT_NOT_MEASURABLE"
 
+# --- Release 29.3 — WHICH OBJECT EACH CONSTRAINT IS ENTITLED TO JUDGE -------- #
+# A constraint may only be decided on the business object that actually determines
+# it. This kernel sees the RELEASE SET (which incumbents give capital back); it does
+# NOT see the complete target, because released capital is allocated exactly once by
+# ``engine.reallocation_proposal``. Concentration, sector concentration, post-change
+# risk and the turnover BUDGET are all properties of that complete target, so this
+# kernel reports them as PRE-PROPOSAL CONTEXT and never as a blocker.
+#
+# Evidence that forced the split (live 2026-08-17 reassessment
+# prs_2026-08-17_alpha_paper_book_1_7edb4353341f): the release set freed ~49.6% of the
+# book, leaving ``retained_invested_weight = 0.504258``. Renormalising the retained
+# stub to 1.0 scaled every surviving weight by ~1.98x, so ``max_name_weight`` "rose"
+# 0.044184 -> 0.081571 and ``max_sector_weight`` "rose" 0.325195 -> 0.374216 without a
+# single dollar moving into any of those names — and the sector comparison was between
+# two DIFFERENT sectors ("Unknown" before, "Information Technology" after). Those are
+# renormalisation artifacts of an intentionally incomplete portfolio, not economics.
+CONSTRAINT_OWNER_COMPLETE_TARGET = TARGET_ENGINE_OWNER
+#: Codes this kernel is entitled to raise as blockers (properties of the release set).
+RELEASE_SET_BLOCKER_CODES = (GATE_IMPROVEMENT_UNMEASURABLE, GATE_BELOW_NET_HURDLE,
+                             GATE_LIQUIDITY)
+#: Codes MOVED to the complete-target owner in Release 29.3. This kernel still
+#: publishes the underlying arithmetic (as context) but never blocks on it.
+COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
+                                    GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET)
+
+# --- Mandatory eligibility-exit policy (Release 29.3 — made explicit) -------- #
+#: An eligibility exit is a CONSTRAINT breach, not an alpha bet, so it overrides the
+#: purely ECONOMIC gates: a sub-hurdle or unmeasurable score improvement must never
+#: trap an ineligible name in the book. It NEVER overrides a HARD feasibility blocker
+#: (liquidity / churn protection), and it NEVER authorises an order, a naked sell-only
+#: plan, or a bypass of the complete-target constraints owned by the proposal engine.
+MANDATORY_EXIT_POLICY_VERSION = "mandatory_eligibility_exit_policy.v1"
+MANDATORY_EXIT_POLICY = "ELIGIBILITY_EXIT_OVERRIDES_ECONOMIC_GATES_ONLY"
+#: The economic gates a mandatory eligibility exit is allowed to override.
+MANDATORY_EXIT_OVERRIDES = (GATE_BELOW_NET_HURDLE, GATE_IMPROVEMENT_UNMEASURABLE)
+#: The hard feasibility blockers it can NEVER override (a human adjudicates instead).
+MANDATORY_EXIT_HARD_BLOCKERS = (GATE_LIQUIDITY, CHURN_COOLDOWN, CHURN_REVERSAL)
+#: Raised when an eligibility exit is real but a hard blocker withholds the ASK. The
+#: operator wording MUST then say "required if a reallocation proceeds", never
+#: "must exit now" — the exit is not an executable obligation in this state.
+GATE_MANDATORY_EXIT_WITHHELD = "MANDATORY_EXIT_WITHHELD_BY_HARD_BLOCKER"
+
 #: The improvement unit. There is NO validated expected-return model anywhere in the
 #: system, so a portfolio improvement is a SIGNAL-SCORE comparison in percentile points
 #: and is never presented as basis points / dollars of expected return.
@@ -440,6 +482,78 @@ def _herfindahl(weights: dict) -> Optional[float]:
     return sum((w / tot) ** 2 for w in weights.values() if w and w > 0)
 
 
+def constraint_ownership() -> dict:
+    """Release 29.3 — the explicit, machine-readable statement of which owner is
+    entitled to DECIDE each portfolio constraint, and on which business object.
+
+    This kernel judges the RELEASE SET. Anything that can only be known once the
+    released capital has been allocated belongs to the complete-target owner. The
+    numbers are still published here (as context) so the operator can see the
+    magnitude, but they are never a blocker in this artifact.
+    """
+    return {
+        "decided_here": {
+            "object": "RELEASE_SET",
+            "owner": CALCULATION_OWNER,
+            "constraints": list(RELEASE_SET_BLOCKER_CODES),
+            "question": "Is there enough economic reason to ASK for a complete target?",
+        },
+        "deferred_to_complete_target": {
+            "object": "COMPLETE_TARGET",
+            "owner": CONSTRAINT_OWNER_COMPLETE_TARGET,
+            "constraints": list(COMPLETE_TARGET_CONSTRAINT_CODES),
+            "question": ("Does the ONE complete target the proposal owner builds satisfy "
+                         "turnover, concentration, sector and risk limits?"),
+            "reason": ("These are properties of the complete post-change portfolio. This "
+                       "kernel can only see the retained stub, which must be renormalised "
+                       "to 1.0 to be compared at all — an object nobody will ever hold."),
+        },
+        "duplicated": False,
+    }
+
+
+def mandatory_exit_policy_block(*, mandatory_exits: list, hard_blockers: list,
+                                cleared: bool) -> dict:
+    """Release 29.3 — the explicit mandatory eligibility-exit contract.
+
+    ``cleared`` means the eligibility exit was allowed to override the ECONOMIC gates
+    and the reassessment therefore ASKS the proposal owner for a complete target. It
+    does NOT mean anything may be sold: the target is review-only and still passes the
+    complete-target constraints and two manual gates.
+    """
+    withheld = bool(mandatory_exits) and not cleared
+    return {
+        "policy": MANDATORY_EXIT_POLICY,
+        "policy_version": MANDATORY_EXIT_POLICY_VERSION,
+        "overrides": list(MANDATORY_EXIT_OVERRIDES),
+        "never_overrides": list(MANDATORY_EXIT_HARD_BLOCKERS),
+        "never_overrides_complete_target_constraints": list(
+            COMPLETE_TARGET_CONSTRAINT_CODES),
+        "tickers": list(mandatory_exits),
+        "hard_blockers_present": list(hard_blockers),
+        "override_applied": bool(cleared),
+        "withheld": withheld,
+        # The ONE operator-facing obligation statement. It is never "must exit now":
+        # an eligibility exit is executable only through an approved complete target.
+        "obligation": ("REQUIRED_IF_REALLOCATION_PROCEEDS" if mandatory_exits
+                       else "NONE"),
+        "authorizes_order": False,
+        "authorizes_sell_only_plan": False,
+        "requires_complete_target": True,
+        "manual_review_required": True,
+        "statement": (
+            "No eligibility exit is outstanding." if not mandatory_exits else
+            ("%s no longer meet the eligibility rule. Exiting them is required IF a "
+             "reallocation proceeds; it is executed only inside an approved complete "
+             "target, never as a standalone sell. The portfolio-level economic gates "
+             "do not withhold them." % ", ".join(mandatory_exits)) if cleared else
+            ("%s no longer meet the eligibility rule. Exiting them is required IF a "
+             "reallocation proceeds, but a hard feasibility blocker (%s) withholds the "
+             "reallocation, so no exit is executable today and a human adjudicates."
+             % (", ".join(mandatory_exits), ", ".join(hard_blockers) or "none"))),
+    }
+
+
 def retained_concentration(*, current_weight: dict, released: dict,
                            sector_of: dict) -> dict:
     """Concentration of the retained book after the recommended releases.
@@ -571,9 +685,15 @@ def explain_holding(review: dict, *, universe_size: Optional[int], policy: dict,
 
     if rec == REC_EXIT:
         why = ", ".join(review.get("deterioration_reason_codes") or []) or det
-        return ("EXIT — %s is rank %s (%s) and is no longer a retained/eligible holding "
-                "(%s). Exiting is required by the eligibility rule, not by an expected-"
-                "return forecast." % (tk, rank_txt, move, why))
+        # Release 29.3 wording contract: an eligibility exit is REQUIRED IF A
+        # REALLOCATION PROCEEDS. It is never an executable standalone obligation, so
+        # this sentence must never read "must exit now" / "required exit" while the
+        # portfolio verdict is monitor / no proposal.
+        return ("EXIT — %s is rank %s (%s) and no longer meets the eligibility rule "
+                "(%s). Exiting it is required IF a reallocation proceeds; it is carried "
+                "out only inside an approved complete target, never as a standalone "
+                "sell, and it is not an expected-return forecast."
+                % (tk, rank_txt, move, why))
 
     if rec == REC_REPLACE:
         bits = ["REPLACE — %s is rank %s (%s), signal %s" % (tk, rank_txt, move, det)]
@@ -651,13 +771,30 @@ def explain_portfolio(result_core: dict, policy: dict) -> str:
                 "would move %s of the book at an estimated %s transaction cost, and the "
                 "expected improvement of %s score points is not positive after that cost."
                 % (n_act, _fmt_pct(turn), _fmt_usd(cost), _fmt_score(net)))
+    mex = list(d.get("mandatory_exit_tickers") or [])
     if state == STATE_CHANGE_CANDIDATE:
         blockers = ", ".join(d.get("blockers") or []) or "the portfolio hurdle"
-        return ("%d holding(s) have attractive alternatives, but a portfolio change is not "
+        base = ("%d holding(s) have attractive alternatives, but no portfolio change is "
                 "proposed: expected net improvement %s score points against a %.3f hurdle, "
-                "%s one-way turnover, %s estimated cost — withheld by %s."
+                "%s estimated one-way turnover, %s estimated cost — withheld by %s."
                 % (n_act, _fmt_score(net), hurdle, _fmt_pct(turn), _fmt_usd(cost), blockers))
+        if mex:
+            base += (" %s no longer meet the eligibility rule; exiting them is required IF "
+                     "a reallocation proceeds, and it is not executable while the "
+                     "reallocation itself is withheld." % ", ".join(mex))
+        return base
     if state == STATE_PROPOSAL_READY:
+        if mex and GATE_MANDATORY_EXIT in (d.get("reason_codes") or []):
+            return ("%s no longer meet the eligibility rule, so a complete target is "
+                    "requested even though the expected net improvement of %s score points "
+                    "does not clear the %.3f economic hurdle on its own: an ineligible name "
+                    "is a constraint breach, not an alpha bet. %d actionable holding(s), %s "
+                    "estimated one-way turnover, %s estimated cost. The canonical "
+                    "reallocation proposal is built for MANUAL REVIEW — nothing is approved "
+                    "or executed, and the complete target must still satisfy the turnover, "
+                    "concentration, sector and risk limits owned by %s."
+                    % (", ".join(mex), _fmt_score(net), hurdle, n_act, _fmt_pct(turn),
+                       _fmt_usd(cost), TARGET_ENGINE_OWNER))
         return ("A portfolio change is economically justified: %d actionable holding(s), "
                 "expected net improvement %s score points against a %.3f hurdle, %s one-way "
                 "turnover at an estimated %s transaction cost. The canonical reallocation "
@@ -1062,6 +1199,7 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
     # ---------------------------------------------------------------------- #
     blockers: list[str] = []
     reason_codes: list[str] = []
+    mandatory_hard_blockers: list[str] = []
     state = STATE_NO_CHANGE
 
     if not actionable:
@@ -1072,25 +1210,17 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
             blockers.append(GATE_IMPROVEMENT_UNMEASURABLE)
             state = STATE_CHANGE_CANDIDATE
         else:
-            # Deterministic risk / constraint vetoes — these can reject a nominal
-            # score improvement outright.
-            # NOTE both risk vetoes test DETERIORATION, not a pre-existing breach. A book
-            # that already sits above a cap is a standing condition the operator owns; it
-            # must not permanently freeze every future reallocation. What is rejected is a
-            # change that makes concentration WORSE.
-            if hhi_change is not None and hhi_change > pol["max_concentration_increase"] + 1e-12:
-                blockers.append(GATE_CONCENTRATION)
-                blockers.append(GATE_RISK_DETERIORATION)
-            sector_worsens = (max_sector_after is not None
-                              and max_sector_before is not None
-                              and max_sector_after > max_sector_before + 1e-9)
-            if (max_sector_after is not None and sector_worsens
-                    and max_sector_after > pol["sector_cap_fraction"] + 1e-12):
-                blockers.append(GATE_SECTOR_CAP)
+            # Release 29.3 — CONSTRAINT OWNERSHIP. Concentration, sector concentration,
+            # post-change risk and the turnover BUDGET are properties of the COMPLETE
+            # TARGET, which only ``engine.reallocation_proposal`` can build (it is the
+            # one owner that allocates the released capital). Judging them here means
+            # judging a retained-only stub renormalised to 1.0 — an object nobody will
+            # ever hold — so they are DEFERRED, not duplicated. The arithmetic is still
+            # published (``concentration`` / ``expected_one_way_turnover``) as explicitly
+            # non-binding pre-proposal context, and the binding verdict is reached once,
+            # on the complete target, by the proposal owner.
             if liquidity_blocked:
                 blockers.append(GATE_LIQUIDITY)
-            if one_way_turnover > pol["max_one_way_turnover_per_reassessment"] + 1e-12:
-                blockers.append(CHURN_TURNOVER_BUDGET)
             if churn_protected:
                 reason_codes.extend(sorted(set(churn_codes_all)))
 
@@ -1109,14 +1239,31 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
                 reason_codes.append(GATE_CLEARED)
                 state = STATE_PROPOSAL_READY
 
+        # MANDATORY ELIGIBILITY-EXIT POLICY (Release 29.3 — explicit, versioned).
         # A holding that is no longer ELIGIBLE must leave regardless of score economics:
-        # holding an ineligible name is a constraint breach, not an alpha bet. It is
-        # overridden ONLY by a hard blocker (turnover / concentration / sector / liquidity
-        # / churn), which is exactly when a human should adjudicate — an unmeasurable or
-        # sub-hurdle improvement must never trap an ineligible name in the book.
-        if mandatory_exits and not blockers:
-            reason_codes.append(GATE_MANDATORY_EXIT)
-            state = STATE_PROPOSAL_READY
+        # holding an ineligible name is a constraint breach, not an alpha bet. The
+        # override therefore defeats the ECONOMIC gates (MANDATORY_EXIT_OVERRIDES) so an
+        # unmeasurable or sub-hurdle improvement can never trap an ineligible name in the
+        # book — which is exactly what the pre-29.3 implementation did, because it tested
+        # ``not blockers`` while GATE_BELOW_NET_HURDLE was itself in ``blockers``.
+        # It NEVER defeats a HARD feasibility blocker (MANDATORY_EXIT_HARD_BLOCKERS);
+        # in that case the exit stays a REQUIRED-IF-A-REALLOCATION-PROCEEDS signal, is
+        # recorded as GATE_MANDATORY_EXIT_WITHHELD, and a human adjudicates. In neither
+        # branch does it authorise an order or a sell-only plan: the ONLY thing a cleared
+        # mandatory exit does is let the proposal owner build a complete bounded target,
+        # which remains review-only behind manual approval.
+        mandatory_hard_blockers = sorted(
+            set(blockers) & set(MANDATORY_EXIT_HARD_BLOCKERS))
+        if mandatory_exits:
+            if not mandatory_hard_blockers:
+                reason_codes.append(GATE_MANDATORY_EXIT)
+                blockers = [b for b in blockers
+                            if b not in MANDATORY_EXIT_OVERRIDES]
+                state = STATE_PROPOSAL_READY
+            else:
+                reason_codes.append(GATE_MANDATORY_EXIT_WITHHELD)
+                blockers.append(GATE_MANDATORY_EXIT_WITHHELD)
+                state = STATE_CHANGE_CANDIDATE
 
     # A hard constraint breach on a retained name is a human decision.
     if constraint_breaches and state == STATE_NO_CHANGE:
@@ -1269,6 +1416,19 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
         "improvement_basis": IMPROVEMENT_BASIS,
         "net_improvement_hurdle": pol["min_portfolio_net_improvement"],
         "turnover_budget": pol["max_one_way_turnover_per_reassessment"],
+        # Release 29.3 — the turnover / concentration / sector / post-change-risk numbers
+        # above are PRE-PROPOSAL ESTIMATES over the release set, published as context.
+        # None of them is binding here; the binding verdict is reached exactly once, on
+        # the COMPLETE target, by ``engine.reallocation_proposal``.
+        "turnover_budget_binding_here": False,
+        "expected_turnover_basis": "PRE_PROPOSAL_RELEASE_SET_ESTIMATE",
+        "concentration_basis": "PRE_PROPOSAL_RETAINED_BOOK_RENORMALISED",
+        "complete_target_constraint_owner": CONSTRAINT_OWNER_COMPLETE_TARGET,
+        "constraint_ownership": constraint_ownership(),
+        "mandatory_exit_policy": mandatory_exit_policy_block(
+            mandatory_exits=sorted(set(mandatory_exits)),
+            hard_blockers=mandatory_hard_blockers,
+            cleared=bool(mandatory_exits) and not mandatory_hard_blockers),
         "strongest_evidence": strongest_evidence,
         "blockers": sorted(set(blockers)),
         "reason_codes": sorted(set(reason_codes)),
@@ -1323,6 +1483,10 @@ __all__ = [
     "CHURN_COOLDOWN", "CHURN_REVERSAL", "CHURN_TURNOVER_BUDGET",
     "GATE_NO_ACTIONABLE", "GATE_BELOW_NET_HURDLE", "GATE_NET_NON_POSITIVE", "GATE_CLEARED",
     "GATE_MANDATORY_EXIT", "GATE_CONCENTRATION", "GATE_SECTOR_CAP", "GATE_LIQUIDITY",
+    "GATE_MANDATORY_EXIT_WITHHELD", "MANDATORY_EXIT_POLICY", "MANDATORY_EXIT_POLICY_VERSION",
+    "MANDATORY_EXIT_OVERRIDES", "MANDATORY_EXIT_HARD_BLOCKERS",
+    "RELEASE_SET_BLOCKER_CODES", "COMPLETE_TARGET_CONSTRAINT_CODES",
+    "CONSTRAINT_OWNER_COMPLETE_TARGET", "constraint_ownership", "mandatory_exit_policy_block",
     "GATE_RISK_DETERIORATION", "GATE_IMPROVEMENT_UNMEASURABLE",
     "IMPROVEMENT_BASIS", "EXPECTED_RETURN_STATE",
     "default_policy", "build_reassessment", "classify_inputs", "evaluate_churn",

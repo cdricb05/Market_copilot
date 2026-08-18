@@ -1544,6 +1544,14 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "blockers": [],
         "reason_codes": [],
         "explanation": None,
+        "hoc_assessment_hash": None,
+        "mandatory_exit_tickers": [],
+        "mandatory_exit_policy": {},
+        "constraint_ownership": {},
+        "turnover_budget_binding_here": False,
+        "expected_turnover_basis": None,
+        "concentration_basis": None,
+        "complete_target_constraint_owner": None,
         "policy_version": REASSESSMENT_POLICY_VERSION,
         "owner": COMPOSITION_OWNER,
     }
@@ -1574,6 +1582,22 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "blockers": dec.get("blockers") or [],
         "reason_codes": dec.get("reason_codes") or [],
         "explanation": res.get("explanation"),
+        # Release 29.3 — the explicit mandatory eligibility-exit contract and the
+        # constraint-ownership statement travel with the summary so no consumer has to
+        # infer whether "mandatory" means "sell it now" (it never does).
+        # Release 29.3 — the evidence a proposal produced by THIS reassessment must
+        # carry. A proposal bound to a different HOC assessment is not bound to the
+        # current eligible-session reassessment, and the semantic invariants say so.
+        "hoc_assessment_hash": (art.get("reassessment") or {}).get(
+            "proposal_binding", {}).get("hoc_assessment_hash") or (
+                (art.get("proposal_binding") or {}).get("hoc_assessment_hash")),
+        "mandatory_exit_tickers": dec.get("mandatory_exit_tickers") or [],
+        "mandatory_exit_policy": dec.get("mandatory_exit_policy") or {},
+        "constraint_ownership": dec.get("constraint_ownership") or {},
+        "turnover_budget_binding_here": bool(dec.get("turnover_budget_binding_here")),
+        "expected_turnover_basis": dec.get("expected_turnover_basis"),
+        "concentration_basis": dec.get("concentration_basis"),
+        "complete_target_constraint_owner": dec.get("complete_target_constraint_owner"),
         "policy_version": REASSESSMENT_POLICY_VERSION,
         "owner": COMPOSITION_OWNER,
     }

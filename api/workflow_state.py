@@ -407,10 +407,16 @@ RPS_NOT_RUN = "REALLOCATION_PROPOSAL_NOT_RUN"
 RPS_READY = "REALLOCATION_PROPOSAL_READY"
 RPS_DEGRADED = "REALLOCATION_PROPOSAL_DEGRADED"
 RPS_BLOCKED = "REALLOCATION_PROPOSAL_BLOCKED"
+#: Release 29.3 — a COMPLETE candidate target exists and is reviewable, but a
+#: portfolio-level limit only the complete target can settle (turnover / concentration /
+#: sector / risk) is breached, so the change is WITHHELD. Never approvable.
+RPS_WITHHELD = "REALLOCATION_PROPOSAL_WITHHELD"
 RPS_NO_ACTIVE_BOOK = "REALLOCATION_PROPOSAL_NO_ACTIVE_BOOK"
 RPS_UNAVAILABLE = "REALLOCATION_PROPOSAL_UNAVAILABLE"
 REALLOCATION_OPERATOR_STATES = (RPS_NOT_RUN, RPS_READY, RPS_DEGRADED, RPS_BLOCKED,
-                                RPS_NO_ACTIVE_BOOK, RPS_UNAVAILABLE)
+                                RPS_WITHHELD, RPS_NO_ACTIVE_BOOK, RPS_UNAVAILABLE)
+#: The ONLY reallocation operator states in which a proposal may be reviewed/approved.
+REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)
 # Reallocation read-summary states (mirror of api.reallocation_proposal READ_STATE_VOCAB).
 _RP_READY = "READY"
 _RP_DEGRADED = "DEGRADED"
@@ -418,6 +424,7 @@ _RP_BLOCKED = "BLOCKED"
 _RP_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
 _RP_NOT_RUN = "NOT_RUN"
 _RP_UNAVAILABLE = "UNAVAILABLE"
+_RP_WITHHELD = "WITHHELD"
 
 # HOC read-summary states (mirror of api.holding_opportunity_cost READ_STATE_VOCAB) —
 # kept as literals so this module stays importable/pure without importing the owner.
@@ -460,6 +467,18 @@ ACTION_REVIEW_PROPOSED_PORTFOLIO = "REVIEW_PROPOSED_PORTFOLIO"
 PRS_TITLE = "ACTIVE PORTFOLIO ASSESSMENT"
 PRS_CANONICAL_OWNER = "api.portfolio_reassessment"
 PRS_NOT_RUN = "NOT_RUN"
+PRS_CHANGE_CANDIDATE = "CHANGE_CANDIDATE"
+#: Policy defaults mirrored from engine.portfolio_reassessment.default_policy() ONLY so
+#: a pre-29.3 artifact (which did not carry them) still renders a complete decision
+#: object. A live artifact always supplies its own values and they win.
+_PRS_NET_HURDLE_DEFAULT = 0.05
+_PRS_TURNOVER_BUDGET_DEFAULT = 0.35
+PRS_PROPOSAL_READY = "PROPOSAL_READY"
+#: The canonical portfolio-decision tokens this module cross-checks (mirrored from
+#: api.portfolio_decision as literals so the module stays importable/pure).
+PDS_NO_PROPOSAL = "PORTFOLIO_DECISION_NO_PROPOSAL"
+PDS_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
+PDS_REVIEW_REQUIRED = "PROPOSAL_REVIEW_REQUIRED"
 #: Operator-facing reassessment states (the kernel vocabulary plus the read states).
 PRS_OPERATOR_STATES = (
     "NOT_READY", "CURRENT_NO_CHANGE", "CHANGE_CANDIDATE", "PROPOSAL_READY",
@@ -649,6 +668,7 @@ _RP_STATE_MAP = {
     _RP_BLOCKED: (RPS_BLOCKED, "BLOCKED", SEV_BLOCKED),
     _RP_NO_ACTIVE_BOOK: (RPS_NO_ACTIVE_BOOK, "NO ACTIVE BOOK", SEV_ATTENTION),
     _RP_NOT_RUN: (RPS_NOT_RUN, "NOT_RUN", SEV_INFO),
+    _RP_WITHHELD: (RPS_WITHHELD, "WITHHELD — PORTFOLIO LIMITS", SEV_ATTENTION),
     _RP_UNAVAILABLE: (RPS_UNAVAILABLE, "UNAVAILABLE", SEV_ATTENTION),
 }
 
@@ -1872,6 +1892,265 @@ def _queued_actions(*, primary_code: str, research_current: bool,
 
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Release 29.3 — the ONE canonical portfolio-decision object.
+#
+# Composed (never recomputed) from the three canonical owners so a downstream consumer
+# (Release 30 / Telegram) reads exactly ONE state and one human sentence. It carries no
+# economics of its own: every number is copied verbatim from the owner that produced it.
+# --------------------------------------------------------------------------- #
+CPD_NO_CHANGE = "NO_CHANGE"
+CPD_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
+CPD_REVIEW_REQUIRED = "PROPOSAL_REVIEW_REQUIRED"
+CPD_DECISION_RECORDED = "DECISION_RECORDED"
+CPD_BLOCKED = "BLOCKED"
+CPD_NOT_RUN = "NOT_RUN"
+CANONICAL_PORTFOLIO_DECISION_STATES = (
+    CPD_NOT_RUN, CPD_NO_CHANGE, CPD_CHANGE_WITHHELD, CPD_REVIEW_REQUIRED,
+    CPD_DECISION_RECORDED, CPD_BLOCKED)
+#: The ONLY canonical states in which an operator action on a proposal exists.
+CANONICAL_ACTIONABLE_DECISION_STATES = (CPD_REVIEW_REQUIRED,)
+
+
+def build_canonical_portfolio_decision(*, reassessment_summary: dict,
+                                       reallocation_operator_state: Any,
+                                       portfolio_decision_lane: dict,
+                                       attention_count: Any,
+                                       eligible_date: Any) -> dict:
+    """Compose the ONE unambiguous portfolio-decision object.
+
+    Pure composition over authoritative owners. Precedence is deterministic:
+    a recorded decision > an approvable proposal awaiting review > a withheld complete
+    target > a reassessment blocker > no change > not run.
+    """
+    prs = reassessment_summary or {}
+    lane = portfolio_decision_lane or {}
+    prs_state = prs.get("reassessment_state") or PRS_NOT_RUN
+    pd_state = lane.get("portfolio_decision_state")
+    mex = list(prs.get("mandatory_exit_tickers") or [])
+    mex_policy = prs.get("mandatory_exit_policy") or {}
+    blockers = list(prs.get("blockers") or [])
+    withheld_reasons = list(lane.get("withheld_reasons") or [])
+
+    if pd_state in ("PROPOSAL_APPROVED", "PROPOSAL_REJECTED"):
+        state = CPD_DECISION_RECORDED
+    elif lane.get("requires_manual_review") and reallocation_operator_state in             REALLOCATION_APPROVABLE_STATES:
+        state = CPD_REVIEW_REQUIRED
+    elif pd_state == PDS_CHANGE_WITHHELD or reallocation_operator_state == RPS_WITHHELD:
+        state = CPD_CHANGE_WITHHELD
+    elif prs_state in ("BLOCKED_DATA", "BLOCKED_EVIDENCE", "MANUAL_REVIEW_REQUIRED"):
+        state = CPD_BLOCKED
+    elif prs_state == PRS_CHANGE_CANDIDATE:
+        # Deterioration was found, but the reassessment did not ask for a target. That is
+        # a WITHHELD change, never "no change recommended".
+        state = CPD_CHANGE_WITHHELD
+    elif prs_state == "CURRENT_NO_CHANGE":
+        state = CPD_NO_CHANGE
+    elif prs_state in (PRS_NOT_RUN, "NOT_READY", "UNAVAILABLE"):
+        state = CPD_NOT_RUN
+    else:
+        state = CPD_NOT_RUN
+
+    reasons = withheld_reasons or [b for b in blockers]
+    # A reassessment that CLEARED the gate but whose proposal the owner has not produced
+    # is not "no decision yet" — it is a requested proposal that is still missing. Say so
+    # precisely so a downstream consumer never reads it as "nothing to do".
+    proposal_requested_not_produced = bool(
+        state == CPD_NOT_RUN and prs_state == PRS_PROPOSAL_READY
+        and reallocation_operator_state not in REALLOCATION_APPROVABLE_STATES)
+    headline = {
+        CPD_NO_CHANGE: "NO PORTFOLIO CHANGE REQUIRED",
+        CPD_CHANGE_WITHHELD: "PORTFOLIO CHANGE WITHHELD",
+        CPD_REVIEW_REQUIRED: "PORTFOLIO PROPOSAL — MANUAL REVIEW REQUIRED",
+        CPD_DECISION_RECORDED: "PORTFOLIO DECISION RECORDED",
+        CPD_BLOCKED: "PORTFOLIO DECISION BLOCKED",
+        CPD_NOT_RUN: "NO PORTFOLIO DECISION YET",
+    }[state]
+    if proposal_requested_not_produced:
+        headline = "PORTFOLIO PROPOSAL REQUESTED — NOT YET PRODUCED"
+    return {
+        "state": state,
+        "state_vocabulary": list(CANONICAL_PORTFOLIO_DECISION_STATES),
+        "headline": headline,
+        "eligible_market_date": eligible_date,
+        # The human sentence is produced by the reassessment owner; never re-worded here.
+        "explanation": prs.get("explanation"),
+        "holding_attention_count": attention_count,
+        "holding_attention_scope": "INDIVIDUAL_HOLDING_REVIEW_SIGNAL",
+        "portfolio_scope": "WHOLE_PORTFOLIO_ECONOMIC_VERDICT",
+        "scopes_are_different_questions": True,
+        "reassessment_state": prs_state,
+        "reassessment_owner": PRS_CANONICAL_OWNER,
+        "reassessment_hash": prs.get("reassessment_hash"),
+        "proposal_state": reallocation_operator_state,
+        "proposal_owner": RP_CANONICAL_OWNER,
+        "proposal_hash": lane.get("proposal_hash"),
+        "decision_state": pd_state,
+        "decision_owner": "api.portfolio_decision",
+        "withheld_reasons": reasons,
+        "expected_net_improvement": prs.get("expected_net_improvement"),
+        "net_improvement_hurdle": prs.get("net_improvement_hurdle"),
+        "expected_one_way_turnover": prs.get("expected_one_way_turnover"),
+        "turnover_budget": prs.get("turnover_budget"),
+        "expected_transaction_cost_usd": prs.get("expected_transaction_cost_usd"),
+        "mandatory_exit_tickers": mex,
+        "mandatory_exit_obligation": mex_policy.get("obligation") or "NONE",
+        "mandatory_exit_statement": mex_policy.get("statement"),
+        "proposal_requested_not_produced": proposal_requested_not_produced,
+        "operator_action_available": bool(state in CANONICAL_ACTIONABLE_DECISION_STATES),
+        "approvable": bool(lane.get("approvable")),
+        "creates_orders": False,
+        "automation_off": True,
+        "manual_review_only": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Release 29.3 — SEMANTIC decision-integrity invariants.
+#
+# The pre-29.3 validator compared only DATES, so the live 2026-08-17 payload reported
+# CONSISTENT while simultaneously claiming PROPOSAL_READY (legacy gate, Daily Close and
+# DRC summaries) and REALLOCATION_PROPOSAL_NOT_RUN / PORTFOLIO_DECISION_NO_PROPOSAL
+# (canonical owners). These invariants COMPARE AUTHORITATIVE OWNERS; they never
+# recompute an owner's economics, so no decision calculation is duplicated.
+# --------------------------------------------------------------------------- #
+#: Tokens that assert, in operator vocabulary, that a reviewable portfolio proposal
+#: exists. Only the canonical proposal owner is entitled to make that claim.
+PROPOSAL_CLAIM_TOKENS = frozenset({
+    "PROPOSAL_READY", "REBALANCE_PROPOSAL_READY", "PORTFOLIO_CHANGES_PROPOSED",
+    "PROPOSAL", "APPROVAL_REQUIRED", "PROPOSED"})
+#: Operator phrases that assert the same thing in prose.
+PROPOSAL_CLAIM_PHRASES = ("PORTFOLIO CHANGES PROPOSED", "PROPOSAL READY",
+                          "REBALANCE PROPOSAL READY", "CHANGES PROPOSED")
+
+SEMANTIC_VIOLATION_CODES = (
+    "PROPOSAL_CLAIMED_WITHOUT_PROPOSAL_OWNER",
+    "PROPOSAL_REQUIRED_CONTRADICTS_PORTFOLIO_DECISION",
+    "APPROVABLE_WITHOUT_CANONICAL_PROPOSAL",
+    "PROPOSAL_NOT_BOUND_TO_CURRENT_REASSESSMENT",
+    "WITHHELD_PROPOSAL_EXPOSED_AS_APPROVABLE",
+    "MANDATORY_EXIT_PRESENTED_AS_EXECUTABLE_OBLIGATION",
+)
+
+
+def _normalize_close_status(status):
+    """Delegate to the Daily Close owner's Release-29.3 vocabulary normalisation.
+
+    Lazy import keeps ``api.workflow_state`` acyclic. Degrade-safe: if the owner cannot
+    be imported the raw value is returned unchanged and the semantic invariants below
+    still catch any proposal claim it carries.
+    """
+    if status is None:
+        return None
+    try:
+        from paper_trader.api import daily_close as _dc
+        return _dc.normalize_close_status(status)
+    except Exception:  # noqa: BLE001 - a pure read must never crash the composition
+        return status
+
+
+def _claims_proposal(value) -> bool:
+    """True when a surfaced value asserts a reviewable proposal exists."""
+    if not isinstance(value, str):
+        return False
+    token = value.strip().upper()
+    if token in PROPOSAL_CLAIM_TOKENS:
+        return True
+    return any(phrase in token for phrase in PROPOSAL_CLAIM_PHRASES)
+
+
+def check_decision_semantics(*, reallocation_operator_state: Any,
+                             reallocation_approvable: bool,
+                             reassessment_state: Any,
+                             reassessment_proposal_required: bool,
+                             portfolio_decision_state: Any,
+                             portfolio_decision_requires_review: bool,
+                             portfolio_decision_approvable: bool,
+                             proposal_bound_reassessment_hash: Any,
+                             current_reassessment_hash: Any,
+                             mandatory_exit_tickers: Any,
+                             mandatory_exit_obligation: Any,
+                             summary_claims: Optional[dict] = None) -> list[dict]:
+    """Compare the authoritative owners and return every SEMANTIC contradiction.
+
+    Pure; no io, no recomputation of any owner's economics. ``summary_claims`` maps a
+    surfaced field path -> its value, so a summary that republishes a proposal claim is
+    caught at the exact field that produced it.
+    """
+    violations: list[dict] = []
+    proposal_exists = reallocation_operator_state in REALLOCATION_APPROVABLE_STATES
+
+    # I1. No surface may claim a proposal the canonical proposal owner has not produced.
+    if not proposal_exists:
+        for path, value in sorted((summary_claims or {}).items()):
+            if _claims_proposal(value):
+                violations.append({
+                    "code": "PROPOSAL_CLAIMED_WITHOUT_PROPOSAL_OWNER",
+                    "concept": "portfolio_proposal", "field": path, "value": value,
+                    "authoritative_owners": [RP_CANONICAL_OWNER, "api.workflow_state"],
+                    "canonical_proposal_state": reallocation_operator_state,
+                    "surface": "workflow_state"})
+
+    # I2. A reassessment that did not request a proposal cannot yield a decision lane
+    #     that requires proposal review.
+    if (reassessment_state == PRS_CHANGE_CANDIDATE
+            and not reassessment_proposal_required
+            and portfolio_decision_requires_review):
+        violations.append({
+            "code": "PROPOSAL_REQUIRED_CONTRADICTS_PORTFOLIO_DECISION",
+            "concept": "portfolio_decision",
+            "value_reassessment": reassessment_state,
+            "value_portfolio_decision": portfolio_decision_state,
+            "authoritative_owners": ["api.portfolio_reassessment",
+                                     "api.portfolio_decision"],
+            "surface": "workflow_state"})
+
+    # I3. A NO_PROPOSAL decision may never expose an approvable proposal.
+    if portfolio_decision_state == PDS_NO_PROPOSAL and (
+            portfolio_decision_approvable or reallocation_approvable):
+        violations.append({
+            "code": "APPROVABLE_WITHOUT_CANONICAL_PROPOSAL",
+            "concept": "portfolio_decision",
+            "value_portfolio_decision": portfolio_decision_state,
+            "authoritative_owners": ["api.portfolio_decision", RP_CANONICAL_OWNER],
+            "surface": "workflow_state"})
+
+    # I4. A current proposal must bind to the current eligible-session reassessment.
+    if proposal_exists and current_reassessment_hash and proposal_bound_reassessment_hash             and proposal_bound_reassessment_hash != current_reassessment_hash:
+        violations.append({
+            "code": "PROPOSAL_NOT_BOUND_TO_CURRENT_REASSESSMENT",
+            "concept": "proposal_binding",
+            "value_proposal_bound_hoc_assessment": proposal_bound_reassessment_hash,
+            "value_reassessment_bound_hoc_assessment": current_reassessment_hash,
+            "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_reassessment"],
+            "surface": "workflow_state"})
+
+    # I5. A WITHHELD complete target is never approvable.
+    if reallocation_operator_state == RPS_WITHHELD and (
+            reallocation_approvable or portfolio_decision_approvable):
+        violations.append({
+            "code": "WITHHELD_PROPOSAL_EXPOSED_AS_APPROVABLE",
+            "concept": "portfolio_proposal",
+            "value_proposal_state": reallocation_operator_state,
+            "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_decision"],
+            "surface": "workflow_state"})
+
+    # I6. An eligibility exit is REQUIRED_IF_REALLOCATION_PROCEEDS, never an executable
+    #     obligation while no approvable proposal exists.
+    if (mandatory_exit_tickers and not proposal_exists
+            and mandatory_exit_obligation not in (None, "NONE",
+                                                  "REQUIRED_IF_REALLOCATION_PROCEEDS")):
+        violations.append({
+            "code": "MANDATORY_EXIT_PRESENTED_AS_EXECUTABLE_OBLIGATION",
+            "concept": "mandatory_eligibility_exit",
+            "value_obligation": mandatory_exit_obligation,
+            "tickers": list(mandatory_exit_tickers),
+            "authoritative_owners": ["engine.portfolio_reassessment",
+                                     RP_CANONICAL_OWNER],
+            "surface": "workflow_state"})
+    return violations
+
+
 # Cross-surface consistency validator (Workstream K). Read-only; no provider call.
 # Inherits data_freshness's violations and adds workflow-level owner cross-checks;
 # staleness/overdue are NORMAL states and are NOT consistency violations.
@@ -2085,8 +2364,13 @@ def load_workflow_state(
     # --- Operational facts (active book + close). ------------------------------ #
     ob = _op_book(operational)
     close_market_date = (close_progress or {}).get("market_date")
-    close_final_status = (close_progress or {}).get("final_close_status")
-    close_status = close_final_status or (close_progress or {}).get("status")
+    # Release 29.3 — the Daily Close owner normalises its own persisted vocabulary; the
+    # workflow owner re-applies it defensively so an injected/legacy progress document
+    # can never republish a token that claims a portfolio proposal the close never owned.
+    close_final_status = _normalize_close_status(
+        (close_progress or {}).get("final_close_status"))
+    close_status = close_final_status or _normalize_close_status(
+        (close_progress or {}).get("status"))
     close_done = bool((close_progress or {}).get("done"))
     operational_close_valid = bool(
         close_done and close_final_status in _CLOSE_COMPLETE_STATUSES)
@@ -2126,9 +2410,16 @@ def load_workflow_state(
 
     # --- Assessment currency (Workstream F). ----------------------------------- #
     latest_assessment_date = (gate or {}).get("latest_completed_market_date")
-    latest_assessment_result = (gate or {}).get("outcome")
-    latest_assessment_recommendation = ((gate or {}).get("headline")
+    # Release 29.3 — these two fields USED to be the legacy rank-membership gate's
+    # outcome/headline, which said "PROPOSAL_READY" / "PORTFOLIO CHANGES PROPOSED —
+    # MANUAL REVIEW REQUIRED" while api.reallocation_proposal reported NOT_RUN. They are
+    # now explicitly scoped as the legacy comparison; the canonical portfolio verdict is
+    # attached separately below from its real owners.
+    legacy_membership_result = (gate or {}).get("outcome")
+    legacy_membership_recommendation = ((gate or {}).get("headline")
                                         or (gate or {}).get("explanation"))
+    latest_assessment_result = legacy_membership_result
+    latest_assessment_recommendation = legacy_membership_recommendation
     next_review_date = (gate or {}).get("next_scheduled_full_review")
     gate_review_due = bool((gate or {}).get("scheduled_review_due"))
     gate_target_state = (gate or {}).get("target_state")
@@ -2140,7 +2431,10 @@ def load_workflow_state(
                              review_due=gate_review_due)
     assessment_status = ac["status"]
 
-    manual_review_required = bool(gate_target_state == _GATE_APPROVAL_REQUIRED)
+    # Release 29.3: manual review is required when the CANONICAL portfolio-decision
+    # owner says so — never because a rank-membership diff exists. Resolved after the
+    # portfolio-decision lane is composed (see ``manual_review_required`` below).
+    manual_review_required = False
 
     # --- Stage 20 (Workstream I): the canonical PORTFOLIO-REASSESSMENT lane. -------- #
     #     A PURE ARTIFACT READ of the immutable reassessment for the active book +
@@ -2367,8 +2661,12 @@ def load_workflow_state(
             "valid": operational_close_valid},
         "latest_portfolio_assessment": {
             "market_date": latest_assessment_date,
+            # Release 29.3 — scoped to what it actually is (see portfolio_assessment_state).
             "result": latest_assessment_result,
             "recommendation": latest_assessment_recommendation,
+            "scope": "LEGACY_RANK_MEMBERSHIP_COMPARISON",
+            "owner": "api.daily_action_gate",
+            "is_portfolio_proposal": False,
             "preserved_statement": preserved_statement,
             "current_for_eligible_session": ac["current_for_eligible_session"]},
         "latest_research_refresh": {"market_date": _row(freshness, "price_score_refresh")},
@@ -2513,6 +2811,16 @@ def load_workflow_state(
         "reallocation_score_improvement_net_of_cost": (gate or {}).get(
             "reallocation_score_improvement_net_of_cost"),
         "reallocation_data_gaps": rp_gaps,
+        # Release 29.3 — the complete-target withhold verdict travels with the summary so
+        # the decision owner can never present a withheld target as approvable.
+        "reallocation_proposal_withheld": bool(
+            (gate or {}).get("reallocation_proposal_withheld")
+            or rp_state == _RP_WITHHELD),
+        "reallocation_withheld_reasons": list(
+            (gate or {}).get("reallocation_withheld_reasons") or []),
+        "reallocation_proposal_stale": bool((gate or {}).get("reallocation_proposal_stale")),
+        "reallocation_proposal_stale_reason": (gate or {}).get(
+            "reallocation_proposal_stale_reason"),
     }
     active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
     if decision_record is None:
@@ -2603,6 +2911,65 @@ def load_workflow_state(
         latest_assessment_date=latest_assessment_date, eligible_date=eligible_date,
         latest_close_date=latest_close_date, overall=overall,
         primary_code=primary_code, pending_orders=pending_orders)
+
+    # --- Release 29.3: the ONE canonical portfolio-decision object. ------------- #
+    canonical_portfolio_decision = build_canonical_portfolio_decision(
+        reassessment_summary={**reassessment_summary,
+                              "net_improvement_hurdle": (
+                                  reassessment_summary.get("net_improvement_hurdle")
+                                  or _PRS_NET_HURDLE_DEFAULT),
+                              "turnover_budget": (
+                                  reassessment_summary.get("turnover_budget")
+                                  or _PRS_TURNOVER_BUDGET_DEFAULT)},
+        reallocation_operator_state=reallocation_operator_state,
+        portfolio_decision_lane=portfolio_decision_lane,
+        attention_count=reassessment_summary.get("attention_count"),
+        eligible_date=eligible_date)
+
+    # --- Release 29.3: SEMANTIC decision-integrity invariants. ------------------ #
+    # Every field below is read verbatim from its canonical owner; the check compares
+    # owners and recomputes none of their economics.
+    _mex_policy = (reassessment_summary.get("mandatory_exit_policy") or {})
+    semantic_violations = check_decision_semantics(
+        reallocation_operator_state=reallocation_operator_state,
+        reallocation_approvable=bool(
+            reallocation_operator_state in REALLOCATION_APPROVABLE_STATES
+            and not rp_summary.get("reallocation_proposal_withheld")
+            and not rp_summary.get("reallocation_proposal_stale")),
+        reassessment_state=reassessment_state,
+        reassessment_proposal_required=reassessment_proposal_required,
+        portfolio_decision_state=portfolio_decision_lane.get("portfolio_decision_state"),
+        portfolio_decision_requires_review=bool(
+            portfolio_decision_lane.get("requires_manual_review")),
+        portfolio_decision_approvable=bool(portfolio_decision_lane.get("approvable")),
+        # The proposal and the reassessment are both bound to the SAME immutable HOC
+        # assessment, so that hash is the provable binding between them. A proposal
+        # carrying a different one was produced from different evidence.
+        proposal_bound_reassessment_hash=(gate or {}).get(
+            "reallocation_bound_hoc_assessment_hash"),
+        current_reassessment_hash=reassessment_summary.get("hoc_assessment_hash"),
+        mandatory_exit_tickers=(reassessment_summary.get("mandatory_exit_tickers") or []),
+        mandatory_exit_obligation=_mex_policy.get("obligation"),
+        summary_claims={
+            "operational_state.latest_close_status": close_status,
+            "research_cycle_state.assessment_status":
+                (research_cycle or {}).get("assessment_status"),
+            "portfolio_assessment_state.latest_assessment_result":
+                latest_assessment_result,
+            "portfolio_assessment_state.latest_assessment_recommendation":
+                latest_assessment_recommendation,
+            "portfolio_assessment_state.gate_target_state": gate_target_state,
+            "completed_summary.latest_completed_close.status": close_status,
+            "completed_summary.latest_portfolio_assessment.result":
+                latest_assessment_result,
+            "completed_summary.latest_portfolio_assessment.recommendation":
+                latest_assessment_recommendation,
+            "portfolio_assessment_state.portfolio_decision_state":
+                portfolio_decision_lane.get("portfolio_decision_state"),
+        })
+    if semantic_violations:
+        consistency_violations = list(consistency_violations) + semantic_violations
+        consistency_status = INCONSISTENT
     if consistency_status == INCONSISTENT:
         warnings.append("Cross-surface consistency check found %d violation(s); see "
                         "consistency_violations." % len(consistency_violations))
@@ -2724,7 +3091,17 @@ def load_workflow_state(
                             if (research_cycle or {}).get("top50") is not None else None),
             "target_status": (research_cycle or {}).get("target_status"),
             "evidence_status": (research_cycle or {}).get("evidence_status"),
+            # Release 29.3 — the DRC reports ORCHESTRATION semantics. Its
+            # ``assessment_status`` is the LEGACY rank-membership comparison outcome and
+            # is scoped as such; the canonical portfolio verdict is carried alongside it,
+            # read verbatim from api.portfolio_reassessment / api.reallocation_proposal.
             "assessment_status": (research_cycle or {}).get("assessment_status"),
+            "assessment_status_scope": "LEGACY_RANK_MEMBERSHIP_COMPARISON",
+            "assessment_status_owner": "api.daily_action_gate",
+            "portfolio_reassessment_state": reassessment_state,
+            "portfolio_reassessment_owner": PRS_CANONICAL_OWNER,
+            "reallocation_operator_state": reallocation_operator_state,
+            "reallocation_proposal_owner": RP_CANONICAL_OWNER,
             "confirmation_required": _DRC_EXECUTE_TOKEN,
             "cycle_running": cycle_running,
             "cycle_blocked": cycle_blocked,
@@ -2732,8 +3109,16 @@ def load_workflow_state(
         },
         "portfolio_assessment_state": {
             "latest_assessment_date": latest_assessment_date,
+            # Release 29.3 — the four legacy fields below describe the compatibility-only
+            # rank-membership comparison owned by api.daily_action_gate. Before 29.3 they
+            # published "PROPOSAL_READY" / "PORTFOLIO CHANGES PROPOSED — MANUAL REVIEW
+            # REQUIRED" while the canonical proposal owner reported NOT_RUN. They are now
+            # explicitly scoped, and the CANONICAL portfolio verdict sits beside them.
             "latest_assessment_result": latest_assessment_result,
             "latest_assessment_recommendation": latest_assessment_recommendation,
+            "latest_assessment_scope": "LEGACY_RANK_MEMBERSHIP_COMPARISON",
+            "latest_assessment_owner": "api.daily_action_gate",
+            "latest_assessment_is_portfolio_proposal": False,
             "latest_assessment_current_for_eligible_session": ac["current_for_eligible_session"],
             "next_scheduled_review_date": next_review_date,
             "review_due": ac["review_due"],
@@ -2741,6 +3126,17 @@ def load_workflow_state(
             "assessment_age_sessions": ac["assessment_age_sessions"],
             "assessment_status": assessment_status,
             "gate_target_state": gate_target_state,
+            # --- the ONE canonical portfolio verdict (read verbatim from its owners) --- #
+            "portfolio_reassessment_state": reassessment_state,
+            "portfolio_reassessment_owner": PRS_CANONICAL_OWNER,
+            "portfolio_proposal_required": reassessment_proposal_required,
+            "reallocation_operator_state": reallocation_operator_state,
+            "reallocation_proposal_owner": RP_CANONICAL_OWNER,
+            "portfolio_decision_state": portfolio_decision_lane.get(
+                "portfolio_decision_state"),
+            "portfolio_decision_owner": "api.portfolio_decision",
+            "portfolio_decision_approvable": bool(
+                portfolio_decision_lane.get("approvable")),
         },
         "evidence_state": {
             "latest_snapshot_date": latest_snapshot_date,
@@ -2791,6 +3187,7 @@ def load_workflow_state(
         "legacy_membership_comparison": legacy_membership_comparison,
         "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,
+        "canonical_portfolio_decision": canonical_portfolio_decision,
         "consistency_status": consistency_status,
         "consistency_violations": consistency_violations,
         "safety": {

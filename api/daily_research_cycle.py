@@ -1321,8 +1321,17 @@ def _extract_assessment(gate: Optional[dict], eligible: Optional[str]) -> dict:
         "available": bool(g),
         "assessment_date": g.get("latest_completed_market_date") or g.get("evaluation_date"),
         "eligible_market_date": eligible,
+        # Release 29.3 — this block describes the LEGACY RANK-MEMBERSHIP COMPARISON,
+        # not the portfolio assessment. Before 29.3 it published the legacy gate's
+        # "PROPOSAL_READY" outcome as ``assessment_status``, so a DRC that produced NO
+        # proposal still reported PROPOSAL_READY (live 2026-08-17). The canonical
+        # portfolio verdict is owned by api.portfolio_reassessment /
+        # api.reallocation_proposal / api.portfolio_decision and is published by them.
         "assessment_status": g.get("outcome") or g.get("status"),
         "assessment_result": g.get("target_state") or g.get("outcome"),
+        "assessment_scope": "LEGACY_RANK_MEMBERSHIP_COMPARISON",
+        "assessment_owner": "api.daily_action_gate",
+        "is_portfolio_proposal": False,
         "headline": g.get("headline"),
         "current_for_eligible_session": bool(
             _coerce_date(g.get("latest_completed_market_date")) is not None

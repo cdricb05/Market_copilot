@@ -213,10 +213,21 @@ def test_18_manual_review_takes_documented_precedence():
     assert _decide(manual_review_required=True, evidence_gap=True) == ws.MANUAL_REVIEW_REQUIRED
     # ...yet an unmet upstream gate (research) still wins over manual review.
     assert _decide(manual_review_required=True, research_current=False) == ws.RESEARCH_CYCLE_REQUIRED
+    # Release 29.3 — manual review is raised by the CANONICAL portfolio owner, never by
+    # the legacy rank-membership gate. The gate's own target_state cannot raise it.
     r = _ready(gate={**_GATE, "latest_completed_market_date": "2026-08-04",
                      "target_state": "APPROVAL_REQUIRED", "action_required": True,
                      "next_scheduled_full_review": "2026-09-01", "scheduled_review_due": False})
-    assert r["overall_state"] == ws.MANUAL_REVIEW_REQUIRED
+    assert r["overall_state"] != ws.MANUAL_REVIEW_REQUIRED
+    assert r["model_governance_state"]["manual_review_required"] is False
+    # The canonical owner asking for a proposal DOES raise it.
+    r2 = _ready(reassessment_summary={"reassessment_available": True,
+                                      "reassessment_state": "PROPOSAL_READY",
+                                      "proposal_required": True,
+                                      "reassessment_hash": "h1", "blockers": [],
+                                      "attention_count": 3})
+    assert r2["model_governance_state"]["manual_review_required"] is True
+    assert r2["overall_state"] == ws.MANUAL_REVIEW_REQUIRED
 
 
 def test_19_inconsistent_state_highest_priority():

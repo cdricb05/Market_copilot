@@ -27,6 +27,7 @@ unless --strict is given, in which case a nonzero code is returned when any
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -649,7 +650,12 @@ LA6_OBSOLETE_REASSESSMENT_TOKENS = ("not yet implemented", "Run a portfolio reas
 # (3) legacy "rebalance proposal ready" primary label — must NOT appear in daily_close.
 LA6_OBSOLETE_REBALANCE_TOKENS = ("REBALANCE PROPOSAL READY", "Review Rebalance Proposal")
 # (4) the legacy comparison MUST be reclassified compatibility-only in daily_close.
-LA6_LEGACY_COMPAT_TOKENS = ("LEGACY MEMBERSHIP-COMPARISON",)
+# Release 29.3 renamed the close status to DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT so the
+# Daily Close no longer speaks the portfolio-proposal owner's vocabulary. The invariant
+# is unchanged and is now asserted on the two SEMANTIC tokens rather than on one exact
+# label string: the presentation must name the legacy comparison AND classify it as
+# compatibility-only.
+LA6_LEGACY_COMPAT_TOKENS = ("LEGACY MEMBERSHIP", "COMPATIBILITY ONLY")
 # (9) SERVICE vs WORKFLOW readiness — both distinct UI indicators must exist.
 LA6_UI_SERVICE_READINESS_TOKENS = ('id="health-status"', "checkServiceReady")
 LA6_UI_WORKFLOW_READINESS_TOKENS = ('id="wf-readiness-text"', "wf-readiness-light")
@@ -1932,6 +1938,209 @@ def check_reallocation_proposal_ownership(files: list[Path]) -> dict:
         "slice8_present_modules": slice8_present_modules,
         "automatic_model_promotion_allowed": False,
         "cadence_enabled": False,
+    }
+
+
+def check_release29_3_decision_integrity(files: list[Path]) -> dict:
+    r"""Release 29.3 - PORTFOLIO DECISION INTEGRITY.
+
+    Structural (AST / symbol) contracts wherever one is possible, never a fragile string
+    guard where the structure is available. It proves:
+
+      (1) the LEGACY rank-membership gate no longer emits the proposal owner's
+          vocabulary (its outcome / target-state VALUES and its headline);
+      (2) the Daily Close status describes CLOSE semantics and carries a read-time
+          normaliser for the historical token, so no stored byte is rewritten;
+      (3) exactly ONE module declares the mandatory eligibility-exit policy;
+      (4) the four complete-target constraints are DEFERRED by the reassessment kernel
+          and DECIDED by the proposal kernel - moved, never duplicated, with identical
+          codes on both sides;
+      (5) the reassessment kernel raises none of them as a blocker (AST);
+      (6) the semantic-consistency validator exists, is wired into the verdict and
+          recomputes no owner's economics;
+      (7) WITHHELD is fail-closed at every layer (kernel, read API, decision, workflow);
+      (8) the UI renders the canonical decision verbatim, through ONE loader, and
+          synthesises no approve / order control.
+    """
+    prs_k = _read(Path("engine/portfolio_reassessment.py"))
+    rp_k = _read(Path("engine/reallocation_proposal.py"))
+    dag_src = _read(Path("api/daily_action_gate.py"))
+    dc_src = _read(Path("api/daily_close.py"))
+    ws_src = _read(Path("api/workflow_state.py"))
+    pd_src = _read(Path("api/portfolio_decision.py"))
+    arp_src = _read(Path("api/reallocation_proposal.py"))
+    ui = _read(UI_FILE)
+
+    def _assign(src, name):
+        """The literal a module-level constant is assigned, via AST (never a regex)."""
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return None
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == name \
+                            and isinstance(node.value, ast.Constant):
+                        return node.value.value
+        return None
+
+    def _tuple_items(src, name):
+        """The VALUES a module-level tuple holds, resolving Name elements through the
+        module's own constant assignments. Both kernels declare the moved constraints as
+        SYMBOLS, so comparing symbol names would prove nothing about the strings that
+        actually reach an operator - the values are what must agree."""
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return []
+        consts = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        consts[t.id] = node.value.value
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == name \
+                            and isinstance(node.value, (ast.Tuple, ast.List)):
+                        out = []
+                        for e in node.value.elts:
+                            if isinstance(e, ast.Constant):
+                                out.append(e.value)
+                            elif isinstance(e, ast.Name) and e.id in consts:
+                                out.append(consts[e.id])
+                        return out
+        return []
+
+    # (1) legacy gate vocabulary + wording
+    legacy_outcome = _assign(dag_src, "OUTCOME_MEMBERSHIP_DRIFT")
+    legacy_target = _assign(dag_src, "TARGET_STATE_MEMBERSHIP_DRIFT")
+    gate_vocabulary_clean = bool(
+        legacy_outcome and legacy_target
+        and "PROPOSAL" not in str(legacy_outcome).upper()
+        and "PROPOSAL" not in str(legacy_target).upper())
+    gate_headline_clean = "PORTFOLIO CHANGES PROPOSED" not in dag_src
+    m = re.search(r"action_required = outcome in \(([^)]*)\)", dag_src, re.S)
+    membership_not_action_required = bool(
+        m and "MEMBERSHIP_DRIFT" not in m.group(1)
+        and "OUTCOME_PROPOSAL_READY" not in m.group(1))
+
+    # (2) daily close vocabulary + read-time normalisation of immutable history
+    close_token = _assign(dc_src, "CLOSE_COMPLETE_MEMBERSHIP_DRIFT")
+    close_vocabulary_clean = bool(
+        close_token and "PROPOSAL" not in str(close_token).upper())
+    close_normaliser_present = ("def normalize_close_status(" in dc_src
+                                and "def normalize_close_decision(" in dc_src)
+    close_normalises_history = "normalize_close_status(r.get(" in dc_src
+
+    # (3) exactly ONE mandatory eligibility-exit policy owner
+    policy_owners = sorted(
+        f.as_posix() for f in files
+        if f.suffix == ".py"
+        and re.search(r"^MANDATORY_EXIT_OVERRIDES\s*=", _read(f), re.M))
+
+    # (4) moved, not duplicated: identical codes on both sides
+    prs_deferred = set(_tuple_items(prs_k, "COMPLETE_TARGET_CONSTRAINT_CODES"))
+    rp_owned = set(_tuple_items(rp_k, "COMPLETE_TARGET_CONSTRAINT_CODES"))
+    constraint_codes_agree = bool(prs_deferred and prs_deferred == rp_owned)
+    constraint_owner_declared = ("def constraint_ownership(" in prs_k
+                                 and "def evaluate_complete_target_limits(" in rp_k)
+
+    # (5) AST: the reassessment kernel appends none of the moved codes to `blockers`
+    moved_names = {"GATE_CONCENTRATION", "GATE_SECTOR_CAP", "GATE_RISK_DETERIORATION",
+                   "CHURN_TURNOVER_BUDGET"}
+    reassessment_raises_moved = []
+    try:
+        prs_tree = ast.parse(prs_k)
+    except SyntaxError:
+        prs_tree = None
+    if prs_tree is not None:
+        for node in ast.walk(prs_tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "append" \
+                    and isinstance(node.func.value, ast.Name) \
+                    and node.func.value.id == "blockers":
+                for a in node.args:
+                    if isinstance(a, ast.Name) and a.id in moved_names:
+                        reassessment_raises_moved.append(a.id)
+
+    # (6) semantic consistency: present, wired, and free of recomputed economics
+    semantic_check_present = "def check_decision_semantics(" in ws_src
+    semantic_check_wired = "semantic_violations = check_decision_semantics(" in ws_src
+    semantic_sets_inconsistent = "consistency_status = INCONSISTENT" in ws_src
+    sem_body = ""
+    if semantic_check_present:
+        _s = ws_src.index("def check_decision_semantics(")
+        sem_body = ws_src[_s:ws_src.index("\ndef ", _s + 10)]
+    semantic_recomputes_economics = sorted(
+        t for t in ("hurdle", "turnover_budget", "herfindahl", "cost_rate")
+        if t in sem_body)
+
+    # (7) WITHHELD is fail-closed at every layer
+    withheld_declared_everywhere = all([
+        bool(_assign(rp_k, "STATE_WITHHELD")),
+        bool(_assign(pd_src, "PDS_CHANGE_WITHHELD")),
+        bool(_assign(ws_src, "RPS_WITHHELD")),
+    ])
+    withheld_not_approvable = all([
+        "APPROVABLE_STATES = (STATE_READY, STATE_DEGRADED)" in rp_k,
+        "APPROVABLE_READ_STATES = (STATE_READY, STATE_DEGRADED)" in arp_src,
+        "REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)" in ws_src,
+        "APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)" in pd_src,
+    ])
+    withheld_blocks_record = "reallocation_proposal_withheld" in pd_src
+
+    # (8) UI: verbatim, ONE loader, no synthesised approve / order control
+    ui_verdict_present = ('id="cc-verdict"' in ui
+                          and "function _wsRenderPortfolioVerdict(d)" in ui)
+    ui_verdict_reads_owner = "d.canonical_portfolio_decision" in ui
+    ui_verdict_single_call = ui.count(
+        "try { _wsRenderPortfolioVerdict(d); } catch (e) {}") == 1
+    ui_verdict_body = ""
+    if ui_verdict_present:
+        _u = ui.index("function _wsRenderPortfolioVerdict(d)")
+        ui_verdict_body = ui[_u:ui.index("\nwindow._wsRenderPortfolioVerdict", _u)]
+    ui_verdict_derives_state = sorted(
+        t for t in ("herfindahl", "* nav", "cost_rate", "0.05", "0.35")
+        if t in ui_verdict_body)
+    ui_verdict_synthesises_action = sorted(
+        t for t in ("dispatchCanonicalPrimaryAction", "createOrder", "recordDecision",
+                    "CONFIRM_PORTFOLIO_REBALANCE_DECISION", "alert(", "confirm(")
+        if t in ui_verdict_body)
+    ui_hero_scoped = all(t in ui for t in (
+        'body[data-route="markets"] #operator-command',
+        'body[data-route="system-audit"] #operator-command',
+        'body[data-route="portfolio-manager"] #operator-command',
+        'body[data-route="research"] #operator-command[data-op-research="1"]'))
+
+    return {
+        "gate_vocabulary_clean": gate_vocabulary_clean,
+        "gate_headline_clean": gate_headline_clean,
+        "membership_not_action_required": membership_not_action_required,
+        "close_vocabulary_clean": close_vocabulary_clean,
+        "close_normaliser_present": close_normaliser_present,
+        "close_normalises_history": close_normalises_history,
+        "mandatory_exit_policy_owners": policy_owners,
+        "mandatory_exit_policy_owner_count": len(policy_owners),
+        "constraint_codes_agree": constraint_codes_agree,
+        "constraint_owner_declared": constraint_owner_declared,
+        "deferred_constraints": sorted(prs_deferred),
+        "reassessment_raises_moved_constraint": sorted(set(reassessment_raises_moved)),
+        "semantic_check_present": semantic_check_present,
+        "semantic_check_wired": semantic_check_wired,
+        "semantic_sets_inconsistent": semantic_sets_inconsistent,
+        "semantic_recomputes_economics": semantic_recomputes_economics,
+        "withheld_declared_everywhere": withheld_declared_everywhere,
+        "withheld_not_approvable": withheld_not_approvable,
+        "withheld_blocks_record": withheld_blocks_record,
+        "ui_verdict_present": ui_verdict_present,
+        "ui_verdict_reads_owner": ui_verdict_reads_owner,
+        "ui_verdict_single_call": ui_verdict_single_call,
+        "ui_verdict_derives_state": ui_verdict_derives_state,
+        "ui_verdict_synthesises_action": ui_verdict_synthesises_action,
+        "ui_hero_scoped": ui_hero_scoped,
     }
 
 
@@ -4611,6 +4820,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
+        "release29_3_decision_integrity": check_release29_3_decision_integrity(files),
         "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
         "normal_cycle_ownership": check_normal_cycle_ownership(files),
         "backend_restart_ownership": check_backend_restart_ownership(extra_ps1_dirs),
@@ -5305,6 +5515,40 @@ BLOCKING_INVARIANTS = (
     # rebalance and no automatic promotion; signal refresh and reassessment are LINKED and
     # the reassessment GATES the target engine; recalibration stays a separate lane; the
     # Stage-19 execution lifecycle keeps precedence while it is active.
+    # Release 29.3 - PORTFOLIO DECISION INTEGRITY. One authoritative interpretation per
+    # business concept: the legacy rank-membership gate may not speak the proposal
+    # owner's vocabulary; the Daily Close describes close semantics and normalises its
+    # historical token on READ; exactly one module declares the mandatory
+    # eligibility-exit policy; the four complete-target constraints are MOVED to the
+    # complete-target owner (identical codes both sides, never raised by the
+    # reassessment); the semantic-consistency validator is wired and recomputes no
+    # owner's economics; WITHHELD is fail-closed at every layer; and the UI renders the
+    # canonical decision verbatim through one loader with no synthesised approve/order
+    # control.
+    ("release29_3_decision_integrity", "gate_vocabulary_clean", True),
+    ("release29_3_decision_integrity", "gate_headline_clean", True),
+    ("release29_3_decision_integrity", "membership_not_action_required", True),
+    ("release29_3_decision_integrity", "close_vocabulary_clean", True),
+    ("release29_3_decision_integrity", "close_normaliser_present", True),
+    ("release29_3_decision_integrity", "close_normalises_history", True),
+    ("release29_3_decision_integrity", "constraint_codes_agree", True),
+    ("release29_3_decision_integrity", "constraint_owner_declared", True),
+    ("release29_3_decision_integrity", "reassessment_raises_moved_constraint", []),
+    ("release29_3_decision_integrity", "semantic_check_present", True),
+    ("release29_3_decision_integrity", "semantic_check_wired", True),
+    ("release29_3_decision_integrity", "semantic_sets_inconsistent", True),
+    ("release29_3_decision_integrity", "semantic_recomputes_economics", []),
+    ("release29_3_decision_integrity", "withheld_declared_everywhere", True),
+    ("release29_3_decision_integrity", "withheld_not_approvable", True),
+    ("release29_3_decision_integrity", "withheld_blocks_record", True),
+    ("release29_3_decision_integrity", "ui_verdict_present", True),
+    ("release29_3_decision_integrity", "ui_verdict_reads_owner", True),
+    ("release29_3_decision_integrity", "ui_verdict_single_call", True),
+    ("release29_3_decision_integrity", "ui_verdict_derives_state", []),
+    ("release29_3_decision_integrity", "ui_verdict_synthesises_action", []),
+    ("release29_3_decision_integrity", "ui_hero_scoped", True),
+    # Exactly ONE module may declare what a mandatory eligibility exit authorises.
+    ("release29_3_decision_integrity", "mandatory_exit_policy_owner_count", 1),
     ("portfolio_reassessment_ownership", "owners_present", True),
     ("portfolio_reassessment_ownership", "second_calculation_owner_modules", []),
     ("portfolio_reassessment_ownership", "second_composition_owner_modules", []),

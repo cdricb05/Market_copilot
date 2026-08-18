@@ -55,14 +55,20 @@ STATE_READY = kernel.STATE_READY
 STATE_DEGRADED = kernel.STATE_DEGRADED
 STATE_BLOCKED = kernel.STATE_BLOCKED
 STATE_NO_ACTIVE_BOOK = kernel.STATE_NO_ACTIVE_BOOK
+#: Release 29.3 — a COMPLETE target exists and is reviewable, but a portfolio-level
+#: limit that only the complete target can settle (turnover / concentration / sector /
+#: risk) is breached. Never approvable, never executable.
+STATE_WITHHELD = kernel.STATE_WITHHELD
 STATE_NOT_RUN = "NOT_RUN"
 STATE_UNAVAILABLE = "UNAVAILABLE"
 #: Stage 19.1 — the persisted proposal was produced against a DIFFERENT corporate-action
 #: registry state than the current portfolio. Review-only, never approvable, never
 #: executable; the Daily Research Cycle must produce a fresh proposal.
 STATE_STALE = "STALE_CORPORATE_ACTION_REVIEW_REQUIRED"
-READ_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_NO_ACTIVE_BOOK,
-                    STATE_NOT_RUN, STATE_UNAVAILABLE, STATE_STALE)
+READ_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_WITHHELD,
+                    STATE_NO_ACTIVE_BOOK, STATE_NOT_RUN, STATE_UNAVAILABLE, STATE_STALE)
+#: The ONLY read-layer states in which a proposal may be reviewed / approved.
+APPROVABLE_READ_STATES = (STATE_READY, STATE_DEGRADED)
 
 # --- immutable artifact root (configurable; a research / decision-evidence root, ----- #
 # NEVER the operational ledger root). ---------------------------------------------- #
@@ -623,8 +629,12 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
         # Stage 19.1 — the explicit approvability contract every surface renders.
         "stale": stale,
         "staleness": staleness,
-        "approvable": (not stale) and state in (STATE_READY, STATE_DEGRADED),
-        "executable": (not stale) and state in (STATE_READY, STATE_DEGRADED),
+        "approvable": (not stale) and state in APPROVABLE_READ_STATES,
+        "executable": (not stale) and state in APPROVABLE_READ_STATES,
+        # Release 29.3 — the complete-target limit verdict, rendered verbatim.
+        "complete_target_limits": p.get("complete_target_limits") or {},
+        "withheld": state == STATE_WITHHELD,
+        "withheld_reasons": p.get("withheld_reasons") or [],
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
         "composition_owner": COMPOSITION_OWNER,
@@ -753,6 +763,9 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         "reallocation_proposal_stale": False,
         "reallocation_proposal_stale_reason": None,
         "reallocation_corporate_actions_hash": None,
+        "reallocation_proposal_withheld": False,
+        "reallocation_withheld_reasons": [],
+        "reallocation_proposal_approvable": False,
     }
     try:
         art = artifact if artifact is not None else load_latest_artifact(
@@ -786,6 +799,14 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
                                         else p.get("proposal_state")),
         "reallocation_proposal_hash": p.get("proposal_hash"),
         "reallocation_proposal_id": art.get("proposal_id"),
+        # Release 29.3 — a withheld complete target is visible but never approvable.
+        "reallocation_proposal_withheld": bool(
+            p.get("proposal_state") == STATE_WITHHELD),
+        "reallocation_withheld_reasons": [
+            b.get("code") for b in (p.get("withheld_reasons") or []) if b.get("code")],
+        "reallocation_proposal_approvable": bool(
+            not stale_blk.get("stale")
+            and p.get("proposal_state") in APPROVABLE_READ_STATES),
         "reallocation_action_counts": p.get("action_counts") or {a: 0 for a in ACTION_VOCAB},
         "reallocation_score_improvement": sig.get("score_improvement"),
         "reallocation_score_improvement_net_of_cost": sig.get("score_improvement_net_of_cost"),

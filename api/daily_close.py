@@ -65,7 +65,9 @@ Canonical statuses (every eligible completed market date resolves to exactly one
     WAITING_FOR_MARKET_DATA    session complete but the provider has not published
     DAILY_CLOSE_DUE            a new eligible close needs processing
     DAILY_CLOSE_COMPLETE_HOLD  processed; documented HOLD (no change)
-    REBALANCE_PROPOSAL_READY   processed; a material trigger fired -> proposal
+    DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT   processed; the legacy rank-membership
+                               comparison differs from the holdings (compatibility-only
+                               observation; NEVER a portfolio-proposal claim)
     PAPER_ORDERS_SUBMITTED     paper orders from a prior proposal are working
     DATA_BLOCKED               owned data cannot reach the required close
     ALREADY_PROCESSED          re-run of an already-closed date (POST only)
@@ -256,7 +258,19 @@ AWAITING_MARKET_CLOSE = "AWAITING_MARKET_CLOSE"
 WAITING_FOR_MARKET_DATA = "WAITING_FOR_MARKET_DATA"
 CLOSE_DUE = "DAILY_CLOSE_DUE"
 CLOSE_COMPLETE_HOLD = "DAILY_CLOSE_COMPLETE_HOLD"
-REBALANCE_PROPOSAL_READY = "REBALANCE_PROPOSAL_READY"
+# Release 29.3 — the Daily Close describes CLOSE semantics only. It settles, marks,
+# recalculates and records; it does not own the portfolio-proposal conclusion (that is
+# engine.portfolio_reassessment -> engine.reallocation_proposal -> api.portfolio_decision).
+# This status was previously written as "REBALANCE_PROPOSAL_READY" from the LEGACY
+# rank-membership gate outcome, so a completed close asserted a proposal existed while
+# the canonical proposal owner reported REALLOCATION_PROPOSAL_NOT_RUN (live 2026-08-17).
+# The token now states what the close actually observed. The legacy value is retained
+# for READING historical journal rows and is normalised on read — history is never
+# rewritten.
+CLOSE_COMPLETE_MEMBERSHIP_DRIFT = "DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT"
+#: Read-compatibility only: the value historical daily-close journal rows carry.
+LEGACY_REBALANCE_PROPOSAL_READY = "REBALANCE_PROPOSAL_READY"
+REBALANCE_PROPOSAL_READY = CLOSE_COMPLETE_MEMBERSHIP_DRIFT
 PAPER_ORDERS_SUBMITTED = "PAPER_ORDERS_SUBMITTED"
 DATA_BLOCKED = "DATA_BLOCKED"
 ALREADY_PROCESSED = "ALREADY_PROCESSED"
@@ -264,15 +278,16 @@ AWAITING_ELIGIBLE_CLOSE = "AWAITING_ELIGIBLE_CLOSE"
 
 ALL_CLOSE_STATUSES = (INITIAL_BASELINE_DUE, INITIAL_BASELINE_RECORDED,
                       AWAITING_MARKET_CLOSE, WAITING_FOR_MARKET_DATA,
-                      CLOSE_DUE, CLOSE_COMPLETE_HOLD, REBALANCE_PROPOSAL_READY,
+                      CLOSE_DUE, CLOSE_COMPLETE_HOLD, CLOSE_COMPLETE_MEMBERSHIP_DRIFT,
                       PAPER_ORDERS_SUBMITTED, DATA_BLOCKED, ALREADY_PROCESSED,
                       AWAITING_ELIGIBLE_CLOSE)
+
 
 # Phase 28C — close statuses that represent a durable, successful operational close
 # (a re-run is NEVER safe: it would be a no-op ALREADY_PROCESSED and must not be
 # suggested). And statuses where re-running the close is legitimately safe (nothing
 # durable was recorded yet — due, retryable after a data block, or awaiting data).
-_CLOSE_PROCESSED_STATUSES = (CLOSE_COMPLETE_HOLD, REBALANCE_PROPOSAL_READY,
+_CLOSE_PROCESSED_STATUSES = (CLOSE_COMPLETE_HOLD, CLOSE_COMPLETE_MEMBERSHIP_DRIFT,
                              PAPER_ORDERS_SUBMITTED, INITIAL_BASELINE_RECORDED,
                              ALREADY_PROCESSED)
 _CLOSE_RERUNNABLE_STATUSES = (CLOSE_DUE, INITIAL_BASELINE_DUE, DATA_BLOCKED,
@@ -282,10 +297,34 @@ _CLOSE_RERUNNABLE_STATUSES = (CLOSE_DUE, INITIAL_BASELINE_DUE, DATA_BLOCKED,
 # Canonical daily decision-journal results (persisted per closed date).
 # --------------------------------------------------------------------------- #
 DECISION_HOLD = "HOLD_CURRENT_PORTFOLIO"
-DECISION_REBALANCE = "REBALANCE_PROPOSAL_READY"
+DECISION_MEMBERSHIP_DRIFT = "MEMBERSHIP_DRIFT_OBSERVED"
+#: Read-compatibility only: the value historical decision-journal rows carry.
+LEGACY_DECISION_REBALANCE = "REBALANCE_PROPOSAL_READY"
+DECISION_REBALANCE = DECISION_MEMBERSHIP_DRIFT
 DECISION_DATA_BLOCKED = "DATA_BLOCKED"
 DECISION_ORDERS_PENDING = "ORDERS_ALREADY_PENDING"
 DECISION_BASELINE = "INITIAL_BASELINE_RECORDED"
+
+#: Historical -> canonical close-status / decision mapping. Applied on READ so that
+#: immutable journal rows written before Release 29.3 are interpreted with today's
+#: canonical vocabulary without a single stored byte being rewritten.
+_LEGACY_STATUS_ALIASES = {LEGACY_REBALANCE_PROPOSAL_READY: CLOSE_COMPLETE_MEMBERSHIP_DRIFT}
+_LEGACY_DECISION_ALIASES = {LEGACY_DECISION_REBALANCE: DECISION_MEMBERSHIP_DRIFT}
+
+
+def normalize_close_status(status):
+    """Map a persisted close status onto the canonical Release-29.3 vocabulary.
+
+    Read-only vocabulary migration: historical rows keep their bytes, every consumer
+    reads ONE vocabulary, and no surface can republish a token that claims a portfolio
+    proposal the Daily Close never owned.
+    """
+    return _LEGACY_STATUS_ALIASES.get(status, status)
+
+
+def normalize_close_decision(decision):
+    """Map a persisted close decision onto the canonical Release-29.3 vocabulary."""
+    return _LEGACY_DECISION_ALIASES.get(decision, decision)
 
 # --------------------------------------------------------------------------- #
 # Presentation (ONE operator vocabulary per status — every surface renders these).
@@ -372,9 +411,9 @@ _PRESENTATION = {
     # are preserved for historical/audit compatibility; only the operator-facing
     # classification changes. It never says "Rebalance Proposal Ready", "Portfolio
     # Changes Proposed", "approved proposal" or "ready to rebalance".
-    REBALANCE_PROPOSAL_READY: {
-        "label": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY",
-        "headline": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — REVIEW-ONLY COMPATIBILITY",
+    CLOSE_COMPLETE_MEMBERSHIP_DRIFT: {
+        "label": "DAILY CLOSE COMPLETE — LEGACY MEMBERSHIP DIFFERENCE OBSERVED",
+        "headline": "DAILY CLOSE COMPLETE — LEGACY MEMBERSHIP DIFFERENCE (COMPATIBILITY ONLY)",
         "severity": SEV_AMBER,
         "primary_action_label": "View Legacy Membership Comparison",
         "primary_action_kind": "REVIEW_PROPOSAL",
@@ -385,7 +424,7 @@ _PRESENTATION = {
                         "canonical portfolio decision now flows through the Holding "
                         "Opportunity-Cost Review (Slice 6) and the review-only "
                         "Reallocation Proposal (Slice 7)."),
-        "cycle_label": "LEGACY MEMBERSHIP COMPARISON",
+        "cycle_label": "DAILY CLOSE COMPLETE — MEMBERSHIP DIFFERENCE",
     },
     PAPER_ORDERS_SUBMITTED: {
         "label": "PAPER ORDERS PENDING",
@@ -719,7 +758,11 @@ def load_close_progress(desk_dir=None) -> dict:
                 "updated_at", "completed_at", "stage", "stage_label", "stages",
                 "completed_steps", "writes_occurred", "blocker", "failure",
                 "settlement", "journal_row_id", "warning",
-                "final_close_status", "final_evidence_status")},
+                "final_evidence_status")},
+            # Release 29.3 — persisted progress documents predating the vocabulary
+            # migration carry the legacy token; normalise it on READ so every consumer
+            # sees ONE close vocabulary and no stored byte is rewritten.
+            "final_close_status": normalize_close_status(doc.get("final_close_status")),
             **_safety(False)}
 
 
@@ -1288,8 +1331,11 @@ def _last_processed_date(sdir, book_id: str) -> Optional[str]:
 def _decision_history(sdir, book_id: str, limit: int = 30) -> list[dict]:
     rows = [r for r in _journal_rows(sdir) if r.get("book_id") == book_id]
     rows = sorted(rows, key=lambda r: (r.get("market_date") or "", r.get("seq") or 0))
-    out = [{"market_date": r.get("market_date"), "decision": r.get("decision"),
-            "close_status": r.get("close_status"), "nav": r.get("nav"),
+    # Release 29.3 — normalise the persisted vocabulary on READ (history untouched).
+    out = [{"market_date": r.get("market_date"),
+            "decision": normalize_close_decision(r.get("decision")),
+            "close_status": normalize_close_status(r.get("close_status")),
+            "nav": r.get("nav"),
             "daily_pnl": r.get("daily_pnl"), "cumulative_pnl": r.get("cumulative_pnl"),
             "proposed_change_count": r.get("proposed_change_count"),
             "is_baseline": bool(r.get("is_baseline")),
@@ -1980,7 +2026,7 @@ def resolve_daily_close_status(
         d = processed_decision_for_latest
         # An actionable recorded decision is never hidden behind a "waiting" state.
         if d == DECISION_REBALANCE:
-            return REBALANCE_PROPOSAL_READY
+            return CLOSE_COMPLETE_MEMBERSHIP_DRIFT
         if d == DECISION_DATA_BLOCKED:
             return DATA_BLOCKED
         if d == DECISION_ORDERS_PENDING:
@@ -2084,7 +2130,7 @@ def _daily_cycle_stages(close_status: str) -> list[dict]:
         s = [B, P, P, P, P]
     elif close_status == WAITING_FOR_MARKET_DATA:
         s = [P, P, P, P, P]
-    elif close_status == REBALANCE_PROPOSAL_READY:
+    elif close_status == CLOSE_COMPLETE_MEMBERSHIP_DRIFT:
         # Operator Action Integrity (Defect 4): the legacy membership comparison is
         # compatibility-only and review-only — it is NOT required operator work, so
         # stage 4 never claims NEEDS_ACTION after a completed close; monitoring is
@@ -2188,15 +2234,15 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
               headline_override: Optional[str] = None) -> dict:
     pres = _PRESENTATION[close_status]
     gslim = _gate_slim(gate)
-    recorded_decision = (processed_row or {}).get("decision")
+    recorded_decision = normalize_close_decision((processed_row or {}).get("decision"))
     # Estimated cash after a proposed implementation (indicative only).
     expected_cash_after = None
-    if close_status == REBALANCE_PROPOSAL_READY and book.get("cash") is not None:
+    if close_status == CLOSE_COMPLETE_MEMBERSHIP_DRIFT and book.get("cash") is not None:
         cost = _f(gslim.get("estimated_cost")) or 0.0
         nav = book.get("nav") or 0.0
         expected_cash_after = _r2(book.get("cash") - cost * nav)
     proposal = None
-    if close_status == REBALANCE_PROPOSAL_READY or gslim["proposed_change_count"]:
+    if close_status == CLOSE_COMPLETE_MEMBERSHIP_DRIFT or gslim["proposed_change_count"]:
         proposal = {
             "proposed_additions": gslim["proposed_additions"],
             "proposed_removals": gslim["proposed_removals"],
@@ -2278,8 +2324,8 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "decision_recorded": processed_row is not None,
         "recorded_close": (None if processed_row is None else {
             "market_date": processed_row.get("market_date"),
-            "decision": processed_row.get("decision"),
-            "close_status": processed_row.get("close_status"),
+            "decision": normalize_close_decision(processed_row.get("decision")),
+            "close_status": normalize_close_status(processed_row.get("close_status")),
             "is_baseline": bool(processed_row.get("is_baseline")),
             "evaluation_date": processed_row.get("evaluation_date"),
             "recorded_at": processed_row.get("recorded_at"),
@@ -2966,8 +3012,14 @@ def _run_daily_close_locked(
         decision, close_status, is_baseline = DECISION_BASELINE, INITIAL_BASELINE_RECORDED, True
     elif pending_after or outcome == dag.OUTCOME_ORDERS_SUBMITTED:
         decision, close_status = DECISION_ORDERS_PENDING, PAPER_ORDERS_SUBMITTED
-    elif pcount > 0 or outcome in (dag.OUTCOME_PROPOSAL_READY, dag.OUTCOME_APPROVAL_REQUIRED):
-        decision, close_status = DECISION_REBALANCE, REBALANCE_PROPOSAL_READY
+    elif pcount > 0 or outcome in (dag.OUTCOME_MEMBERSHIP_DRIFT,
+                                   dag.OUTCOME_APPROVAL_REQUIRED):
+        # Release 29.3: this branch records ONLY what the close observed — the legacy
+        # rank-membership comparison differs from the current holdings. It deliberately
+        # does NOT assert that a reallocation proposal exists; that conclusion belongs
+        # to engine.portfolio_reassessment -> engine.reallocation_proposal ->
+        # api.portfolio_decision and is published by those owners alone.
+        decision, close_status = DECISION_MEMBERSHIP_DRIFT, CLOSE_COMPLETE_MEMBERSHIP_DRIFT
     else:
         decision, close_status = DECISION_HOLD, CLOSE_COMPLETE_HOLD
 
@@ -3148,7 +3200,7 @@ def _completed_message(close_status: str, closed_date: str, pcount: int,
         return ("Daily close complete for %s. Documented decision: HOLD CURRENT PORTFOLIO — "
                 "target and holdings remain aligned at the same price date; no paper orders. "
                 "This is a recorded decision, not inaction." % closed_date + suffix)
-    if close_status == REBALANCE_PROPOSAL_READY:
+    if close_status == CLOSE_COMPLETE_MEMBERSHIP_DRIFT:
         return ("Daily close complete for %s. A material trigger produced %d proposed change(s) "
                 "— manual review required. No paper orders were created." % (closed_date, pcount)
                 + suffix)
@@ -3164,6 +3216,9 @@ __all__ = [
     "INITIAL_BASELINE_DUE", "INITIAL_BASELINE_RECORDED", "AWAITING_MARKET_CLOSE",
     "WAITING_FOR_MARKET_DATA",
     "CLOSE_DUE", "CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
+    "CLOSE_COMPLETE_MEMBERSHIP_DRIFT", "DECISION_MEMBERSHIP_DRIFT",
+    "LEGACY_REBALANCE_PROPOSAL_READY", "LEGACY_DECISION_REBALANCE",
+    "normalize_close_status", "normalize_close_decision",
     "PAPER_ORDERS_SUBMITTED", "DATA_BLOCKED", "ALREADY_PROCESSED",
     "AWAITING_ELIGIBLE_CLOSE", "ALL_CLOSE_STATUSES",
     "DECISION_HOLD", "DECISION_REBALANCE", "DECISION_DATA_BLOCKED",

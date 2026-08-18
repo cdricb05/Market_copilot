@@ -1,11 +1,63 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-17
-- **Updated by phase:** **Release 29 UX2 — radical operator simplification (Today / Portfolio / new Markets area) + permanent restart-and-smoke invocation fix.**
-- **Source Git HEAD:** `1bb52fc` (`Make the cockpit read like a portfolio manager, not a diagnostics panel`), branch `stage19-controlled-rebalance`.
-- **Working tree status:** DIRTY — Release 29 UX2 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
-- **Current decision:** **DO_NOT_COMMIT (standing instruction) — Release 29 UX2 acceptance PROVEN.** Both deliverables pass: the operating screens are simplified by MOVE (Today −83% visible text / −78% rendered area / −75% page height; Portfolio −41% elements / −54% area / −50% height, measured against the same backend and data), and the canonical restart owner is exit-free, directly callable and guarded. A real Windows lifecycle acceptance ran on the ISOLATED port 8098 and printed `LIVE_SMOKE_OK` with 25 positions served; production 8001 was never restarted and production collection was never touched. Handoff: `D:\Temp\paper_trader_release29_ux2_handoff`.
-- **Next required action:** the user runs `D:\Temp\paper_trader_release29_ux2_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the eight screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+- **Updated by phase:** **Release 29.3 — portfolio decision integrity + policy semantics + final operator UX alignment.**
+- **Source Git HEAD:** `98c5908`, branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 29.3 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
+- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_3_DECISION_INTEGRITY_FIXED.** The real 2026-08-17 DRC produced ONE payload asserting both `REBALANCE_PROPOSAL_READY` / `PROPOSAL_READY` / "PORTFOLIO CHANGES PROPOSED" and `REALLOCATION_PROPOSAL_NOT_RUN` / `PORTFOLIO_DECISION_NO_PROPOSAL`, and reported `consistency_status = CONSISTENT`. Root cause: the LEGACY rank-membership gate spoke the proposal owner's vocabulary and three surfaces republished it. Fixed by ownership, not by hiding fields. Four complete-target constraints (turnover / concentration / sector / post-change risk) MOVED from the reassessment — where they were judged on a retained stub renormalised to 1.0 — to `engine.reallocation_proposal`, which owns the complete target. The mandatory eligibility-exit policy is now explicit, versioned and bounded. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
+- **Next required action:** the user runs `D:\Temp\paper_trader_release29_3_decision_integrity_handoff\validate.ps1` and `ui_acceptance.ps1`, reviews the screenshots in `evidence\screenshots\`, then decides on `commit.ps1` / `push.ps1`. Claude has NOT committed or pushed.
+
+## Release 29.3 — portfolio decision integrity + policy semantics (2026-08-17)
+
+**The rule this phase enforces.** *One authoritative interpretation per business
+concept — including its VOCABULARY.* Phase 29G.1 reclassified the legacy
+rank-membership comparison's presentation but left its tokens saying `PROPOSAL_READY`.
+Presentation is what a human reads; tokens are what every downstream consumer reads,
+and Release 30 (Telegram) reads tokens.
+
+**What changed, by owner.**
+
+* `api.daily_action_gate` — `MEMBERSHIP_DRIFT_DETECTED` / `MEMBERSHIP_DRIFT`; the
+  headline no longer claims changes are proposed; a membership difference is no longer
+  `action_required`.
+* `api.daily_close` — records `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`; the legacy token
+  is migrated on READ (`normalize_close_status` / `normalize_close_decision`), so the
+  immutable Aug-17 journal row keeps its bytes.
+* `api.daily_research_cycle` — its assessment block is explicitly scoped
+  `LEGACY_RANK_MEMBERSHIP_COMPARISON`, `is_portfolio_proposal: false`.
+* `engine.portfolio_reassessment` — owns the ASK gate only. Turnover budget,
+  concentration, sector concentration and post-change risk are DEFERRED to the
+  complete-target owner and published as explicitly non-binding context. The mandatory
+  eligibility-exit policy is declared once, versioned, and its documented intent is now
+  what the code does.
+* `engine.reallocation_proposal` — decides the four moved constraints on the COMPLETE
+  target, exactly once, and yields the new fail-closed `WITHHELD` state.
+* `api.portfolio_decision` — new `CHANGE_CANDIDATE_WITHHELD`; a withheld target can
+  never be approved (`record_decision` refuses it).
+* `api.workflow_state` — `canonical_portfolio_decision` (ONE decision object for
+  Release 30) and `check_decision_semantics` (six semantic invariants).
+
+**The evidence that forced the constraint move.** On 2026-08-17 the release set freed
+~49.6% of the book (`retained_invested_weight = 0.504258`). Renormalising the retained
+stub to 1.0 scaled every surviving weight by ~1.98x, so `max_name_weight` "rose"
+0.044184 (DVN) → 0.081571 (FANG) without a dollar moving into FANG, and the sector cap
+fired comparing `Unknown` (0.325195) against `Information Technology` (0.374216). All
+four recorded blockers were renormalisation artifacts of a portfolio nobody will hold.
+
+**UI.** Today keeps the full operator hero and gains one balanced full-width portfolio
+status row (money lane left; HOC counts + the canonical verdict right — net improvement
+vs hurdle, turnover vs budget, strongest signal, portfolio action). Portfolio shows a
+compact one-line workflow notice; Markets, System · Audit and non-research Research show
+none. Holding attention and the portfolio decision are rendered as different questions.
+
+**Guards.** `tests/test_release29_3_decision_integrity.py` (59 tests) and
+`scripts/audit_architecture.py` → `check_release29_3_decision_integrity`
+(23 strict-blocking invariants, AST/symbol contracts). Proven to block: renaming one
+moved constraint code on one side alone fails the audit with exit 1.
+
+**Safety, unchanged.** Paper-only, preview-first, manual review mandatory, automation
+off, no broker execution, no Create Orders, no fabricated expected return. Release 30
+(Telegram / notifications) is deliberately NOT implemented.
 
 ## Release 29 UX2 — radical operator simplification + permanent restart/smoke invocation fix (2026-08-17)
 

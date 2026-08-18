@@ -1955,3 +1955,129 @@ acceptance server.
 `scripts/audit_architecture.py` → `check_information_collection_ownership` is the
 strict-blocking architecture guard. The hermetic suite result of record is 21
 scenarios / 117 checks / 3 consecutive clean runs / 0 network leaks.
+
+
+## Release 29.3 — Portfolio decision integrity + policy semantics (LANDED)
+
+The real 2026-08-17 Daily Research Cycle completed successfully and produced a single
+payload that asserted two mutually exclusive things at once. That payload is the
+evidence base for this release; every number below is quoted from it.
+
+### The contradiction, as observed
+
+The canonical owners said:
+
+| Owner | Value |
+|---|---|
+| `api.portfolio_reassessment` | `CHANGE_CANDIDATE`, `proposal_required = false` |
+| `api.reallocation_proposal`  | `REALLOCATION_PROPOSAL_NOT_RUN`, `proposal_hash = null` |
+| `api.portfolio_decision`     | `PORTFOLIO_DECISION_NO_PROPOSAL`, `approvable = false` |
+
+The SAME payload also said `latest_close_status = REBALANCE_PROPOSAL_READY`,
+`research_cycle_state.assessment_status = PROPOSAL_READY`,
+`latest_assessment_result = PROPOSAL_READY`, and
+`latest_assessment_recommendation = "PORTFOLIO CHANGES PROPOSED — MANUAL REVIEW
+REQUIRED"` — and `consistency_status = CONSISTENT`, `consistency_violations = []`.
+
+### Root cause — one owner's vocabulary spoken by three others
+
+`api.daily_action_gate` is the LEGACY rank-membership comparison (current holdings vs
+the ranked names). Phase 29G.1 reclassified its PRESENTATION as compatibility-only but
+left its TOKENS alone, so it kept emitting `outcome = "PROPOSAL_READY"`,
+`target_state = "PROPOSAL_READY"` and the headline "PORTFOLIO CHANGES PROPOSED".
+`api.daily_close` derived `close_status` from that outcome; `api.daily_research_cycle`
+republished it as `assessment_status`; `api.workflow_state` fanned both into
+`portfolio_assessment_state` and `completed_summary`. A downstream consumer reads
+TOKENS, not presentation, so every one of those surfaces claimed a proposal existed.
+
+**Repair.** The tokens now say what they measure:
+`MEMBERSHIP_DRIFT_DETECTED` / `MEMBERSHIP_DRIFT` /
+`DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`. Immutable history is NEVER rewritten:
+`api.daily_close.normalize_close_status` / `normalize_close_decision` migrate the
+legacy token on READ, so pre-29.3 journal rows keep their bytes and every consumer sees
+one vocabulary. A rank-membership difference also stopped raising `action_required`: it
+is compatibility-only evidence, never operator work.
+
+### The canonical decision object
+
+`api.workflow_state.build_canonical_portfolio_decision` composes ONE unambiguous state
+from the three owners — `NO_CHANGE` / `CHANGE_CANDIDATE_WITHHELD` /
+`PROPOSAL_REVIEW_REQUIRED` / `DECISION_RECORDED` / `BLOCKED` / `NOT_RUN` — published as
+`canonical_portfolio_decision`. It recomputes nothing: every number is copied from the
+owner that produced it, and the human sentence is the reassessment owner's own.
+`PROPOSAL_REVIEW_REQUIRED` is the ONLY state in which an operator proposal action may
+appear anywhere in the product. This is the object Release 30 consumes.
+
+### Semantic consistency (the validator compared only DATES)
+
+`api.workflow_state.check_decision_semantics` compares AUTHORITATIVE OWNERS and
+recomputes none of their economics. Violation codes:
+
+* `PROPOSAL_CLAIMED_WITHOUT_PROPOSAL_OWNER` — a surfaced field claims a proposal while
+  the canonical proposal owner reports NOT_RUN (fires at the exact field);
+* `PROPOSAL_REQUIRED_CONTRADICTS_PORTFOLIO_DECISION`;
+* `APPROVABLE_WITHOUT_CANONICAL_PROPOSAL`;
+* `PROPOSAL_NOT_BOUND_TO_CURRENT_REASSESSMENT` (proven through the immutable HOC
+  assessment hash both owners bind to);
+* `WITHHELD_PROPOSAL_EXPOSED_AS_APPROVABLE`;
+* `MANDATORY_EXIT_PRESENTED_AS_EXECUTABLE_OBLIGATION`.
+
+Replayed against the live 2026-08-17 field set the validator now returns six
+violations; against the repaired composition it returns none.
+
+### Constraint ownership — the release set vs the complete target
+
+`engine.portfolio_reassessment` sees the RELEASE SET. It cannot see the complete target
+because the released capital is allocated exactly once, by
+`engine.reallocation_proposal`. To compare concentration at all it had to renormalise
+the retained stub to 1.0 — and on 2026-08-17 the release set freed ~49.6% of the book
+(`retained_invested_weight = 0.504258`), scaling every surviving weight by ~1.98x:
+
+* `max_name_weight` 0.044184 (DVN) → 0.081571 (FANG) — **not one dollar moved into
+  FANG**;
+* `herfindahl` 0.040629 → 0.065710;
+* `max_sector_weight` 0.325195 → 0.374216, comparing two DIFFERENT sectors, the
+  "before" one being the `Unknown` bucket.
+
+All four blockers the artifact recorded were therefore renormalisation artifacts of a
+portfolio nobody will ever hold. They MOVED (they were not duplicated) to the
+complete-target owner:
+
+| Constraint | Object | Owner |
+|---|---|---|
+| net-improvement hurdle, churn/cooldown, liquidity, data quality | RELEASE SET | `engine.portfolio_reassessment` |
+| turnover budget, concentration, sector concentration, post-change risk | COMPLETE TARGET | `engine.reallocation_proposal` |
+
+`engine.reallocation_proposal.evaluate_complete_target_limits` judges them once, on the
+complete target, and a breach yields the new fail-closed `WITHHELD` proposal state: the
+target stays fully visible so the operator can see what was rejected and why, but it is
+never approvable, produces no order plan, and `api.portfolio_decision.record_decision`
+refuses it outright. The reassessment still publishes the same arithmetic as explicitly
+non-binding context (`turnover_budget_binding_here = false`,
+`expected_turnover_basis = PRE_PROPOSAL_RELEASE_SET_ESTIMATE`,
+`concentration_basis = PRE_PROPOSAL_RETAINED_BOOK_RENORMALISED`), so transaction cost is
+still counted exactly once.
+
+### Mandatory eligibility exits
+
+`ELIGIBILITY_EXIT_OVERRIDES_ECONOMIC_GATES_ONLY` (`mandatory_eligibility_exit_policy.v1`).
+An ineligible holding is a CONSTRAINT breach, not an alpha bet, so the exit overrides
+the ECONOMIC gates and never a hard feasibility blocker. The operator obligation is
+always `REQUIRED_IF_REALLOCATION_PROCEEDS` — never "must exit now" — because an
+eligibility exit is executable only inside an approved complete target.
+
+### Where the operator hero lives
+
+Today: full operator-command hero. Portfolio: a compact one-line notice. Markets,
+Research (unless the current action is research-related) and System · Audit: none. The
+Today status row is one balanced full-width area — money lane left (NAV, today,
+cumulative, vs SPY, drawdown, holdings, cash, invested), decision lane right (HOC counts
+plus the canonical portfolio verdict). The UI renders `canonical_portfolio_decision`
+verbatim through the single workflow-state renderer and synthesises no approve, confirm
+or order control.
+
+### Guards
+
+`tests/test_release29_3_decision_integrity.py` (59 tests) is the regression, and
+`scripts/audit_architecture.py` → `check_release29_3_decision_integrity` is the
+strict-blocking architecture guard (AST/symbol contracts, 23 blocking invariants).

@@ -73,10 +73,20 @@ PDS_APPROVED = "PROPOSAL_APPROVED"
 PDS_REJECTED = "PROPOSAL_REJECTED"
 PDS_HELD = "PROPOSAL_HELD"
 PDS_STALE = "STALE_PROPOSAL_REVIEW_REQUIRED"
+#: Release 29.3 — a COMPLETE candidate target was built and is fully visible, but a
+#: portfolio-level limit that only the complete target can settle (turnover budget /
+#: concentration / sector concentration / post-change risk) is breached, so the change
+#: is WITHHELD. This is materially different from "no proposal yet": deterioration was
+#: found and a target was constructed; it simply did not clear the portfolio gates.
+#: Never approvable, never executable, and it is NOT outstanding operator work.
+PDS_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
-    PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_UNAVAILABLE)
+    PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
+    PDS_UNAVAILABLE)
+#: The ONLY states in which any surface may expose an approvable proposal action.
+APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
 # Structural (membership) vs resize action tokens (mirror engine.reallocation_proposal).
 _MEMBERSHIP_ACTIONS = ("EXIT", "ADD", "REPLACE_IN", "REPLACE_OUT")
@@ -307,6 +317,18 @@ def record_decision(*, decision: str, confirm: Optional[str],
         active_book_id=binding.get("active_book_id"),
         eligible_market_date=binding.get("eligible_market_date"),
         artifact=artifact, reallocation_dir=reallocation_dir)
+    # Release 29.3 fail-closed guard: a complete target the proposal owner WITHHELD can
+    # never be approved. It is reviewable evidence of a rejected change, not a proposal.
+    if summ.get("reallocation_proposal_withheld"):
+        return {**base, "status": PDS_CHANGE_WITHHELD,
+                "message": ("The complete candidate target did not clear the portfolio-"
+                            "level limits owned by engine.reallocation_proposal (%s); the "
+                            "change is withheld and cannot be approved."
+                            % (", ".join(summ.get("reallocation_withheld_reasons") or [])
+                               or "portfolio limit breach")),
+                "withheld_reasons": list(summ.get("reallocation_withheld_reasons") or []),
+                "binding": _binding_from_artifact(artifact)}
+
     materiality = assess_materiality(summ)
     if not materiality["material"]:
         return {**base, "status": PDS_NO_MATERIAL_CHANGE,
@@ -405,6 +427,7 @@ _STATE_META = {
     PDS_REJECTED: ("Proposal rejected", "INFO"),
     PDS_HELD: ("Proposal held / deferred", "ATTENTION"),
     PDS_STALE: ("Proposal superseded — fresh review required", "ATTENTION"),
+    PDS_CHANGE_WITHHELD: ("Portfolio change withheld", "ATTENTION"),
     PDS_UNAVAILABLE: ("Portfolio-decision state unavailable", "ATTENTION"),
 }
 _DECISION_TO_STATE = {DECISION_APPROVE: PDS_APPROVED, DECISION_REJECT: PDS_REJECTED,
@@ -423,6 +446,10 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
     # Stage 19.1: a proposal produced before a registered corporate action is stale
     # regardless of any recorded decision — it describes holdings that no longer exist.
     ca_stale = bool(summ.get("reallocation_proposal_stale"))
+    # Release 29.3: the complete-target owner withheld the change. A withheld target is
+    # reviewable evidence, never an approvable proposal, so it can never reach the
+    # manual-review branch below. Fail closed: it outranks materiality.
+    withheld = bool(summ.get("reallocation_proposal_withheld"))
 
     if not has_active_book:
         state = PDS_NO_ACTIVE_BOOK
@@ -430,6 +457,8 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         state = PDS_NO_PROPOSAL
     elif ca_stale:
         state = PDS_STALE
+    elif withheld:
+        state = PDS_CHANGE_WITHHELD
     elif not materiality["material"]:
         state = PDS_NO_MATERIAL_CHANGE
     else:
@@ -472,7 +501,11 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         # renders it and never decides it).
         "corporate_action_stale": ca_stale,
         "corporate_action_stale_reason": summ.get("reallocation_proposal_stale_reason"),
-        "approvable": bool(available and materiality["material"] and not ca_stale),
+        # Release 29.3 — the complete-target withhold verdict, rendered verbatim.
+        "change_withheld": withheld,
+        "withheld_reasons": list(summ.get("reallocation_withheld_reasons") or []),
+        "approvable": bool(available and materiality["material"] and not ca_stale
+                           and not withheld),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),

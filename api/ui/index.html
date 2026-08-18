@@ -2142,6 +2142,8 @@
     }
     .r29-metrics.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .r29-metrics.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .r29-metrics.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .r29-metrics.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .r29-metric {
       background: var(--cc-panel, #101a34);
       padding: 9px 12px;
@@ -2292,11 +2294,17 @@
     header #ui-refresh-stamp { display: inline; }
 
     /* ---------- TODAY: read in the operator's question order -------------- */
-    /* #cc-root is a two-column grid so the portfolio result and the
-       opportunity-cost summary sit side by side, as one row, above the fold. */
+    /* RELEASE 29.3 — the PORTFOLIO STATUS row.
+       The two cards used to be equal halves, and the money lane ran out of content
+       long before the decision lane did, leaving a tall empty block beside it. They
+       are now one full-width row split 5:7 across a twelve-column grid: the money
+       lane carries six metrics (NAV, today, cumulative, vs SPY, drawdown, cash and
+       holdings) and the decision lane carries the HOC counts AND the canonical
+       portfolio verdict (net improvement vs hurdle, turnover vs budget, strongest
+       signal, portfolio action). Neither lane is padding for the other. */
     #cc-root {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(12, minmax(0, 1fr));
       /* stretch, so the paired result/decision cards share one baseline instead
          of leaving a ragged block of empty space beside the taller one */
       align-items: stretch;
@@ -2309,9 +2317,9 @@
     #cc-root > #wf-cc         { order: 3; }
     /* 2. WHAT IS THE ACTIVE MANAGER DOING?  3. DID ANYTHING CHANGE? */
     #cc-root > #evt-card      { order: 10; margin-bottom: 0 !important; }
-    /* 4./5. THE PORTFOLIO RESULT AND THE PORTFOLIO DECISION, side by side. */
-    #cc-root > #cc-dc-card    { order: 20; grid-column: span 1; }
-    #cc-root > #cc-dag-card   { order: 21; grid-column: span 1; }
+    /* 4./5. THE PORTFOLIO RESULT AND THE PORTFOLIO DECISION, one balanced row. */
+    #cc-root > #cc-dc-card    { order: 20; grid-column: span 5; }
+    #cc-root > #cc-dag-card   { order: 21; grid-column: span 7; }
     #cc-root > #cc-realloc-card { order: 22; }
     /* 6. THE BOOK ITSELF. */
     #cc-root > #cc-ob-panel   { order: 30; }
@@ -2325,6 +2333,44 @@
       #cc-root { grid-template-columns: minmax(0, 1fr); }
       #cc-root > #cc-dc-card, #cc-root > #cc-dag-card { grid-column: 1 / -1; }
     }
+    /* Below the stacking breakpoint the money lane becomes FULL width, so it needs MORE
+       columns, not fewer. The generic .r29-metrics rule collapses cols-4 to two columns
+       at 1460px — correct while the card was a half-width column, wrong once it spans the
+       page (two ~600px cells each holding one number, four rows tall, pushing the
+       portfolio verdict below the fold at 1440x900). The id-scoped rule below wins on
+       specificity regardless of source order. */
+    #cc-dc-metrics.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    @media (max-width: 900px) {
+      #cc-dc-metrics.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    /* RELEASE 29.3 — the canonical PORTFOLIO VERDICT block inside the decision lane.
+       Every value is rendered verbatim from canonical_portfolio_decision; the UI
+       performs no portfolio arithmetic and derives no state. */
+    .r29-verdict { margin-top: 10px; border-top: 1px solid var(--cc-border, #243b63);
+                   padding-top: 10px; }
+    .r29-verdict-hd { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .r29-verdict-state { font-size: 15px; font-weight: 800; letter-spacing: .01em; }
+    .r29-verdict.tone-ok   .r29-verdict-state { color: var(--ok, #22c55e); }
+    .r29-verdict.tone-warn .r29-verdict-state { color: var(--warning, #f59e0b); }
+    .r29-verdict.tone-bad  .r29-verdict-state { color: var(--danger, #ef4444); }
+    .r29-verdict.tone-info .r29-verdict-state { color: var(--info, #3b82f6); }
+    .r29-verdict-scope { font-size: 10px; color: var(--label, #7a8fb0); text-transform: uppercase;
+                         letter-spacing: .05em; }
+    .r29-verdict-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+                        gap: 4px 18px; margin-top: 8px; }
+    @media (max-width: 1240px) { .r29-verdict-rows { grid-template-columns: minmax(0, 1fr); } }
+    .r29-vrow { display: flex; align-items: baseline; justify-content: space-between;
+                gap: 10px; font-size: 11px; min-width: 0; }
+    .r29-vrow .k { color: var(--label, #7a8fb0); white-space: nowrap; }
+    .r29-vrow .v { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                   color: var(--text-primary, #e0e0ff); }
+    .r29-vrow .v.tone-ok { color: var(--ok, #22c55e); }
+    .r29-vrow .v.tone-warn { color: var(--warning, #f59e0b); }
+    .r29-vrow .v.tone-quiet { color: var(--label, #7a8fb0); font-weight: 600; }
+    .r29-verdict-note { font-size: 11px; color: var(--label, #7a8fb0); margin-top: 8px;
+                        line-height: 1.5; }
 
     /* The Today status bar is a page action bar, not a second status readout:
        the service and connection state already live in the sticky header. */
@@ -2651,6 +2697,84 @@
        operating screen; the header already states paper / manual / automation-off
        and the collection state. It remains, unchanged, on the routes that are
        ABOUT diagnostics. */
+    /* ================= RELEASE 29.3 — WHERE THE OPERATOR HERO LIVES =================
+       ONE hero, on ONE screen. The operator-command bar is a single canonical element
+       rendered from the single workflow-state payload; these rules decide only where it
+       is SHOWN, so no page reinterprets it and no second loader exists.
+
+         TODAY          full operator-command hero + its one action button
+         PORTFOLIO      no full hero — a compact one-line workflow notice instead
+         MARKETS        no hero at all; market context starts below the global chrome
+         RESEARCH       a workflow action only while the current action is research-related
+         SYSTEM/AUDIT   no operator hero
+
+       Nothing is removed from the DOM: #operator-command keeps its id, its
+       data-wf-owned marker and its canonical writer on every route. */
+
+    /* MARKETS + SYSTEM/AUDIT — no operator hero. (The canonical sidebar route for
+       the diagnostics screen is "system-audit"; "audit-advanced" and
+       "system-maintenance" are the legacy tab ids that still resolve.) */
+    body[data-route="markets"] #operator-command,
+    body[data-route="system-audit"] #operator-command,
+    body[data-route="audit-advanced"] #operator-command,
+    body[data-route="research-audit"] #operator-command,
+    body[data-route="system-maintenance"] #operator-command { display: none !important; }
+
+    /* RESEARCH — the hero renders ONLY when the backend's own action code is
+       research-related. The data-op-state attribute is written verbatim by the
+       canonical renderer; the UI classifies nothing. */
+    body[data-route="research"] #operator-command { display: none !important; }
+    body[data-route="research"] #operator-command[data-op-research="1"] {
+      display: flex !important;
+    }
+
+    /* PORTFOLIO — a compact ONE-LINE notice, never the full hero. Same element, same
+       canonical text; the secondary blocks and the CTA column collapse to a single row. */
+    body[data-route="portfolio-manager"] #operator-command,
+    body[data-route="holding-review"] #operator-command,
+    body[data-route="proposed-portfolio"] #operator-command {
+      padding: 7px 14px; margin-bottom: 10px; align-items: center; gap: 10px;
+    }
+    body[data-route="portfolio-manager"] #operator-command .opc-eyebrow,
+    body[data-route="portfolio-manager"] #operator-command .opc-why,
+    body[data-route="portfolio-manager"] #operator-command .opc-meta,
+    body[data-route="portfolio-manager"] #operator-command .opc-after,
+    body[data-route="portfolio-manager"] #operator-command #opc-supporting,
+    body[data-route="portfolio-manager"] #operator-command .opc-cycle,
+    body[data-route="portfolio-manager"] #operator-command .opc-next,
+    body[data-route="holding-review"] #operator-command .opc-eyebrow,
+    body[data-route="holding-review"] #operator-command .opc-why,
+    body[data-route="holding-review"] #operator-command .opc-meta,
+    body[data-route="holding-review"] #operator-command .opc-after,
+    body[data-route="holding-review"] #operator-command #opc-supporting,
+    body[data-route="holding-review"] #operator-command .opc-cycle,
+    body[data-route="holding-review"] #operator-command .opc-next,
+    body[data-route="proposed-portfolio"] #operator-command .opc-eyebrow,
+    body[data-route="proposed-portfolio"] #operator-command .opc-why,
+    body[data-route="proposed-portfolio"] #operator-command .opc-meta,
+    body[data-route="proposed-portfolio"] #operator-command .opc-after,
+    body[data-route="proposed-portfolio"] #operator-command #opc-supporting,
+    body[data-route="proposed-portfolio"] #operator-command .opc-cycle,
+    body[data-route="proposed-portfolio"] #operator-command .opc-next { display: none !important; }
+    body[data-route="portfolio-manager"] #operator-command .opc-task,
+    body[data-route="holding-review"] #operator-command .opc-task,
+    body[data-route="proposed-portfolio"] #operator-command .opc-task {
+      font-size: 13px; font-weight: 700; margin: 0;
+    }
+    /* A PASSIVE cycle needs no line at all on Portfolio — the portfolio verdict below
+       is the answer there. An action pending still shows its one compact line. */
+    body[data-route="portfolio-manager"] #operator-command[data-op-passive="1"],
+    body[data-route="holding-review"] #operator-command[data-op-passive="1"],
+    body[data-route="proposed-portfolio"] #operator-command[data-op-passive="1"] {
+      background: none; border-color: var(--cc-border-soft, rgba(122,143,176,.16));
+      padding: 5px 12px;
+    }
+    body[data-route="portfolio-manager"] #operator-command[data-op-passive="1"] .opc-task,
+    body[data-route="holding-review"] #operator-command[data-op-passive="1"] .opc-task,
+    body[data-route="proposed-portfolio"] #operator-command[data-op-passive="1"] .opc-task {
+      font-size: 11px; font-weight: 600; color: var(--label, #7a8fb0);
+    }
+
     body[data-route="command-center"] .right-panel,
     body[data-route="today"] .right-panel,
     body[data-route="portfolio-manager"] .right-panel,
@@ -3417,6 +3541,15 @@
               <div id="cc-dag-headline" style="font-size:13px;font-weight:600;">Loading the Holding Opportunity-Cost review&hellip;</div>
             </div>
             <div id="cc-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <!-- ============ RELEASE 29.3: THE CANONICAL PORTFOLIO VERDICT ============
+                 HOLDING ATTENTION and the PORTFOLIO DECISION are different questions and
+                 are rendered as different things. The counts above are per-holding review
+                 signals; this block is the ONE whole-portfolio verdict, read VERBATIM from
+                 workflow_state.canonical_portfolio_decision (state, headline, the net
+                 improvement against its hurdle, the turnover against its budget, the
+                 strongest signal and the eligibility-exit obligation). The UI computes
+                 none of it, derives no state and never invents an approve/apply control. -->
+            <div id="cc-verdict" class="r29-verdict" style="display:none;"></div>
             <details id="cc-dag-detail" class="r29-quiet-details">
               <summary>Review detail &mdash; scope, risk checks and the legacy compatibility view</summary>
               <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:6px;">
@@ -28256,6 +28389,112 @@ function _wsRenderTodayHero(d) {
 }
 window._wsRenderTodayHero = _wsRenderTodayHero;
 
+// ---- RELEASE 29.3: THE CANONICAL PORTFOLIO VERDICT ------------------------
+// Renders workflow_state.canonical_portfolio_decision VERBATIM. This is the ONE
+// whole-portfolio answer; the HOC counts beside it are per-holding review signals and
+// the two are deliberately labelled as different questions. No client arithmetic, no
+// state derivation, no approve / apply / order control is ever synthesised here: the
+// only affordance is navigation, and it appears only when the CANONICAL proposal owner
+// says an operator action exists.
+var _R29_VERDICT_TONE = {
+  'NO_CHANGE': 'tone-ok',
+  'CHANGE_CANDIDATE_WITHHELD': 'tone-warn',
+  'PROPOSAL_REVIEW_REQUIRED': 'tone-warn',
+  'DECISION_RECORDED': 'tone-info',
+  'BLOCKED': 'tone-bad',
+  'NOT_RUN': 'tone-info'
+};
+function _r29VRow(k, v, tone, title) {
+  return '<div class="r29-vrow"' + (title ? ' title="' + _wsEsc(title) + '"' : '') + '>'
+    + '<span class="k">' + _wsEsc(k) + '</span>'
+    + '<span class="v' + (tone ? ' ' + tone : '') + '">' + v + '</span></div>';
+}
+function _wsRenderPortfolioVerdict(d) {
+  var host = document.getElementById('cc-verdict');
+  if (!host) return;
+  var cd = d && d.canonical_portfolio_decision;
+  if (!cd || !cd.state) { host.style.display = 'none'; return; }
+
+  // Improvement vs its hurdle, turnover vs its budget — both pairs rendered as the
+  // backend supplied them, so the operator sees the comparison, not a bare number.
+  var netTxt = (cd.expected_net_improvement == null) ? '&mdash;'
+    : (_opxNum(cd.expected_net_improvement, 3)
+       + (cd.net_improvement_hurdle == null ? ''
+          : ' <span class="k">/ ' + _opxNum(cd.net_improvement_hurdle, 3) + ' required</span>'));
+  var netTone = (cd.expected_net_improvement == null || cd.net_improvement_hurdle == null)
+    ? 'tone-quiet'
+    : (cd.expected_net_improvement >= cd.net_improvement_hurdle ? 'tone-ok' : 'tone-warn');
+  var turnTxt = (cd.expected_one_way_turnover == null) ? '&mdash;'
+    : (_opxPct(cd.expected_one_way_turnover, 1)
+       + (cd.turnover_budget == null ? ''
+          : ' <span class="k">/ ' + _opxPct(cd.turnover_budget, 1) + ' limit</span>'));
+  var turnTone = (cd.expected_one_way_turnover == null || cd.turnover_budget == null)
+    ? 'tone-quiet'
+    : (cd.expected_one_way_turnover <= cd.turnover_budget ? 'tone-ok' : 'tone-warn');
+
+  // The strongest signal: the eligibility-exit obligation when one exists (always
+  // phrased as REQUIRED-IF, never "must exit now"), else the leading withheld reason.
+  var strongest = '&mdash;', strongestTone = 'tone-quiet', strongestTitle = '';
+  if (cd.mandatory_exit_tickers && cd.mandatory_exit_tickers.length) {
+    strongest = _wsEsc(cd.mandatory_exit_tickers.join(', ')) + ' eligibility-exit signal';
+    strongestTone = 'tone-warn';
+    strongestTitle = String(cd.mandatory_exit_statement || '');
+  } else if (cd.withheld_reasons && cd.withheld_reasons.length) {
+    strongest = _wsEsc(_r29SentenceCase(String(cd.withheld_reasons[0]).replace(/_/g, ' ')));
+    strongestTone = 'tone-warn';
+  }
+
+  // The portfolio ACTION sentence. Navigation only, and only when the canonical
+  // proposal owner has produced something an operator can actually review.
+  var actionTxt, actionTone;
+  if (cd.operator_action_available) {
+    actionTxt = 'Manual review required'; actionTone = 'tone-warn';
+  } else if (cd.state === 'NO_CHANGE') {
+    actionTxt = 'Monitor &mdash; portfolio is current'; actionTone = 'tone-ok';
+  } else if (cd.state === 'CHANGE_CANDIDATE_WITHHELD') {
+    actionTxt = 'Monitor &mdash; no proposal cleared the gates'; actionTone = 'tone-quiet';
+  } else if (cd.state === 'BLOCKED') {
+    actionTxt = 'Resolve the named blocker'; actionTone = 'tone-warn';
+  } else {
+    actionTxt = 'Monitor'; actionTone = 'tone-quiet';
+  }
+
+  var attn = (cd.holding_attention_count == null) ? null : Number(cd.holding_attention_count);
+  var attnTxt = (attn == null) ? '' : (attn === 1 ? '1 holding needs attention'
+                                                  : (attn + ' holdings need attention'));
+  var ctaHtml = '';
+  if (cd.operator_action_available) {
+    ctaHtml = '<a class="thc-link" role="button" tabindex="0" style="margin-left:auto;"'
+      + ' title="Navigation only — opens the review. Nothing is approved and no order is created."'
+      + ' onclick="navigateToRoute(\'proposed-portfolio\')">Review proposal <span class="arw">&rarr;</span></a>';
+  }
+
+  host.className = 'r29-verdict ' + (_R29_VERDICT_TONE[cd.state] || 'tone-info');
+  host.setAttribute('data-decision-state', cd.state);
+  host.innerHTML = ''
+    + '<div class="r29-verdict-hd">'
+    +   '<span class="r29-verdict-state">' + _wsEsc(cd.headline || cd.state) + '</span>'
+    +   (attnTxt ? '<span class="r29-verdict-scope">' + _wsEsc(attnTxt)
+                 + ' &middot; per-holding signal</span>' : '')
+    +   ctaHtml
+    + '</div>'
+    + '<div class="r29-verdict-rows">'
+    +   _r29VRow('Net improvement', netTxt, netTone,
+                 'Expected portfolio net improvement in signal-score points against the '
+                 + 'portfolio hurdle. Decided by api.portfolio_reassessment; there is no '
+                 + 'validated expected-return model, so this is never a dollar forecast.')
+    +   _r29VRow('Turnover', turnTxt, turnTone,
+                 'Expected one-way turnover against the budget. The BINDING verdict is '
+                 + 'reached on the complete target by engine.reallocation_proposal.')
+    +   _r29VRow('Strongest signal', strongest, strongestTone, strongestTitle)
+    +   _r29VRow('Portfolio action', actionTxt, actionTone,
+                 'What the operator does now, decided by api.portfolio_decision.')
+    + '</div>'
+    + (cd.explanation ? '<div class="r29-verdict-note">' + _wsEsc(cd.explanation) + '</div>' : '');
+  host.style.display = '';
+}
+window._wsRenderPortfolioVerdict = _wsRenderPortfolioVerdict;
+
 // ---- HOLDING REVIEW (dedicated full screen) -------------------------------
 function loadHoldingReviewView() {
   var render = function () { try { renderHoldingReviewView(window._hocData); } catch (e) {} };
@@ -30165,6 +30404,13 @@ function renderOperatorCommand(d) {
   host.setAttribute('data-op-state', c.state || '');
   host.setAttribute('data-op-passive', c.passive ? '1' : '0');
   host.setAttribute('data-op-action-available', c.primary_action_available ? '1' : '0');
+  // Release 29.3 — Research shows a workflow action ONLY when the current canonical
+  // action is research-related. The set below is the backend's own action vocabulary;
+  // the UI reads the code and never re-derives what the operator should do.
+  var _opAc = String((d.primary_action && d.primary_action.action_code) || '');
+  host.setAttribute('data-op-research',
+    (_opAc === 'RUN_DAILY_RESEARCH_CYCLE' || _opAc === 'MONITOR_DAILY_RESEARCH_CYCLE'
+     || _opAc === 'RESOLVE_RESEARCH_CYCLE_BLOCKER' || _opAc === 'REVIEW_EVIDENCE_GAP') ? '1' : '0');
 
   var meta = [];
   if (c.eligible_market_date) meta.push('Eligible session ' + _wsEsc(c.eligible_market_date));
@@ -30264,6 +30510,9 @@ function renderWorkflowState(d) {
   // Operator Decision Flow: the Today hero is the ONE current-state answer, rendered from
   // this SAME canonical payload (single owner). Defined outside this region; call only.
   try { _wsRenderTodayHero(d); } catch (e) {}
+  // Release 29.3 — the canonical portfolio verdict rides the SAME single workflow-state
+  // loader/renderer as everything else on the page; it introduces no second loader.
+  try { _wsRenderPortfolioVerdict(d); } catch (e) {}
   // Stage 22 (Workstream B): the stale-evidence information hierarchy is decided by THIS
   // payload, so re-apply it now that the authoritative classification is present — the
   // final visible weight depends on OWNERSHIP, not on which loader finished first.
@@ -31382,7 +31631,6 @@ function renderDailyClose(d) {
         if (x === null || x === undefined || isNaN(Number(x))) return 'tone-quiet';
         return Number(x) > 0 ? 'tone-ok' : (Number(x) < 0 ? 'tone-bad' : 'tone-neutral');
       };
-      var _chg = (d.proposed_change_count == null ? 0 : d.proposed_change_count);
       ccM.innerHTML = [
         _r29Metric('NAV', _dcMoney(pnl.nav), 'cash + marked holdings', 'tone-neutral',
           'Net asset value of Alpha Paper Book #1 (paper only).'),
@@ -31404,10 +31652,15 @@ function renderDailyClose(d) {
           'Positions currently held by Alpha Paper Book #1.'),
         _r29Metric('Cash', _dcMoney(pnl.cash), 'uninvested', 'tone-neutral',
           'Uninvested paper cash.'),
-        _r29Metric('Proposed changes', _chg, 'for manual review',
-          _chg ? 'tone-warn' : 'tone-ok',
-          'Portfolio changes proposed by this close. Review only — nothing is executed.')
+        _r29Metric('Invested', _dcMoney(pnl.invested_value), 'marked at the close',
+          'tone-neutral', 'Marked market value of the paper holdings.')
+        // RELEASE 29.3 — the legacy rank-membership change COUNT is not a portfolio
+        // proposal and no longer sits in the money lane labelled "for manual review".
+        // It keeps its canonical write target (#cc-dc-changes) and its full text in the
+        // compatibility-only disclosure below; the whole-portfolio verdict is rendered
+        // by _wsRenderPortfolioVerdict from the CANONICAL decision owners.
       ].join('');
+      ccM.className = 'r29-metrics cols-4';
       ccM.style.display = '';
     } else { ccM.innerHTML = ''; ccM.style.display = 'none'; }
   }

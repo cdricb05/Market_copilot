@@ -131,6 +131,9 @@ def bind_scenario(scenario: str, root: Path) -> dict:
     _dag.load_daily_action_gate = _const(panels["daily_action_gate"])
     _dclose.load_close_progress = _const(fx._close_progress(   # noqa: SLF001
         fx.scenarios()[scenario]))
+    # Release 29.3 — GET /v1/operations/daily-close was the one canonical Today read
+    # left unbound, so the money lane rendered empty in every acceptance screenshot.
+    _dclose.load_daily_close = _const(panels["daily_close"])
 
     # Release 28 — the event lane reads the portfolio through its OWN loader, so the
     # composed portfolio is bound there too. Its corpus roots are already redirected
@@ -152,6 +155,7 @@ BOUND_SEAMS = (
     "api.portfolio_reassessment.load_portfolio_reassessment",
     "api.daily_action_gate.load_daily_action_gate",
     "api.daily_close.load_close_progress",
+    "api.daily_close.load_daily_close",
 )
 
 

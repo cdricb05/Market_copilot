@@ -1631,3 +1631,82 @@ information flow continuously is a governance decision about DATA; creating an o
 a governance decision about MONEY. Collapsing them would have forced a choice between a
 stale decision surface and a weakened execution boundary. Keeping the start path out of
 HTTP entirely means no browser, script or misrouted request can begin calling providers.
+
+
+### D-R29.3-1 — A concept's vocabulary belongs to its owner (CONFIRMED)
+
+**Decision.** A module may publish only the vocabulary of the concepts it owns. The
+legacy rank-membership gate (`api.daily_action_gate`) no longer emits
+`PROPOSAL_READY` / "PORTFOLIO CHANGES PROPOSED"; its tokens are
+`MEMBERSHIP_DRIFT_DETECTED` / `MEMBERSHIP_DRIFT`, and `api.daily_close` records
+`DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`.
+
+**Why.** Phase 29G.1 reclassified the legacy comparison's PRESENTATION but left its
+TOKENS speaking the proposal owner's language. Presentation is what a human reads;
+tokens are what every downstream consumer reads. On 2026-08-17 that gap produced one
+payload asserting both `REBALANCE_PROPOSAL_READY` and `REALLOCATION_PROPOSAL_NOT_RUN`.
+Release 30 (Telegram) would have forwarded the wrong half.
+
+**Evidence.** Live `GET /v1/operations/workflow-state`, 2026-08-17, reassessment
+`prs_2026-08-17_alpha_paper_book_1_7edb4353341f`.
+
+### D-R29.3-2 — Immutable history is migrated on READ, never rewritten (CONFIRMED)
+
+**Decision.** `api.daily_close.normalize_close_status` / `normalize_close_decision` map
+the legacy token onto the canonical vocabulary at read time. Persisted journal rows are
+never edited.
+
+**Why.** The Aug-17 close row carries `REBALANCE_PROPOSAL_READY`. Rewriting it would
+destroy evidence; leaving it unmapped would keep the contradiction alive on every
+historical read. Read-time normalisation gives one vocabulary and zero rewritten bytes.
+
+### D-R29.3-3 — A constraint is decided on the object that determines it (CONFIRMED)
+
+**Decision.** Turnover budget, concentration, sector concentration and post-change risk
+are properties of the COMPLETE TARGET and are decided once by
+`engine.reallocation_proposal`. `engine.portfolio_reassessment` publishes the same
+arithmetic as explicitly non-binding pre-proposal context and blocks on none of it.
+
+**Why.** The reassessment can only see the retained stub, which must be renormalised to
+1.0 to be comparable. On 2026-08-17 the release set freed ~49.6% of the book, so FANG's
+reported weight rose 0.0442 → 0.0816 without a dollar moving, and the sector cap fired
+comparing `Unknown` (0.325) against `Information Technology` (0.374). Those are
+renormalisation artifacts, not economics. The proposal engine can also RETAIN an
+incumbent when no feasible net-positive replacement exists, so the pre-proposal turnover
+estimate is an upper bound — judging the budget on it rejects plans that are in fact
+within it.
+
+**Bounded by.** A breach WITHHOLDS the proposal (`WITHHELD`); it never trims the target
+to fit and never relaxes a limit to force a proposal into existence. `WITHHELD` is
+fail-closed at the kernel, the read API, the decision owner and the workflow composition.
+
+### D-R29.3-4 — Mandatory eligibility exits override economics, never feasibility (CONFIRMED)
+
+**Decision.** `ELIGIBILITY_EXIT_OVERRIDES_ECONOMIC_GATES_ONLY`. The override defeats
+`BELOW_PORTFOLIO_NET_IMPROVEMENT_HURDLE` and `IMPROVEMENT_NOT_MEASURABLE`; it never
+defeats liquidity or churn protection, and never the complete-target constraints. The
+operator obligation is `REQUIRED_IF_REALLOCATION_PROCEEDS`.
+
+**Why.** This was the policy the kernel already DOCUMENTED ("an unmeasurable or
+sub-hurdle improvement must never trap an ineligible name in the book") but not the one
+it implemented: the guard tested `not blockers` while the sub-hurdle code was itself in
+`blockers`. On 2026-08-17 that trapped AIZ (rank 33/199) and SPG (rank 31/199) against
+an exit buffer of 30, while the product simultaneously told the operator they "must
+exit" and that no action was required. Option B (rename "mandatory" to a pure signal)
+was rejected: the eligibility rule is a real portfolio constraint, and downgrading it to
+advisory would let an ineligible name sit in the book indefinitely.
+
+**Bounded by.** Clearing the ASK authorises nothing. It only lets the proposal owner
+build a complete bounded target, which stays review-only behind two manual gates. No
+naked sell-only order plan is ever produced.
+
+### D-R29.3-5 — Consistency means SEMANTIC agreement between owners (CONFIRMED)
+
+**Decision.** `api.workflow_state.check_decision_semantics` adds six semantic invariants
+to the date checks, comparing authoritative owners and recomputing none of their
+economics (architecture-tested).
+
+**Why.** The pre-29.3 validator compared dates and one action-policy rule, so it
+certified the 2026-08-17 payload CONSISTENT while it claimed both PROPOSAL_READY and
+NOT_RUN. A validator that recomputed the economics to check them would itself become a
+second calculation of the concept it exists to protect.

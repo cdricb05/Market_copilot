@@ -53,7 +53,29 @@ STATE_READY = "READY"
 STATE_DEGRADED = "DEGRADED"
 STATE_BLOCKED = "BLOCKED"
 STATE_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
-PROPOSAL_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_NO_ACTIVE_BOOK)
+#: Release 29.3 — a COMPLETE target was constructed and is fully explainable, but it
+#: does not satisfy a portfolio-level limit that can only be judged on the complete
+#: target (turnover budget / concentration / sector concentration / post-change risk).
+#: The target is published so the operator can see exactly what was rejected and why;
+#: it is NEVER approvable and NEVER produces an order plan. Fail-closed by construction.
+STATE_WITHHELD = "WITHHELD"
+PROPOSAL_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_WITHHELD,
+                        STATE_NO_ACTIVE_BOOK)
+#: States in which the proposal may be offered for manual review / approval.
+APPROVABLE_STATES = (STATE_READY, STATE_DEGRADED)
+
+# --- Release 29.3 — complete-target constraint codes ------------------------- #
+# These four constraints MOVED here from ``engine.portfolio_reassessment``, which could
+# only evaluate them against the retained-only stub renormalised to 1.0 (an object
+# nobody will ever hold). They are decided exactly ONCE, here, on the complete target.
+CT_TURNOVER_BUDGET = "TURNOVER_BUDGET_EXCEEDED"
+CT_CONCENTRATION = "CONCENTRATION_DETERIORATION_BLOCKS_CHANGE"
+CT_RISK_DETERIORATION = "RISK_DETERIORATION_BLOCKS_CHANGE"
+CT_SECTOR_CAP = "SECTOR_CAP_BREACH_BLOCKS_CHANGE"
+COMPLETE_TARGET_CONSTRAINT_CODES = (CT_TURNOVER_BUDGET, CT_CONCENTRATION,
+                                    CT_RISK_DETERIORATION, CT_SECTOR_CAP)
+#: The owner that ASKS for a target but must never decide these constraints itself.
+ASK_GATE_OWNER = "engine.portfolio_reassessment"
 
 # --- Frozen per-ticker action vocabulary ------------------------------------- #
 ACT_RETAIN = "RETAIN"
@@ -152,6 +174,17 @@ def default_policy() -> dict[str, Any]:
         # Minimum fraction of proposed invested weight that must be covered by aligned
         # returns before an after-covariance portfolio volatility is reported.
         "min_volatility_coverage": 0.80,                         # new
+        # --- Release 29.3: complete-target portfolio limits ------------------ #
+        # MOVED here from engine.portfolio_reassessment (same values, same meaning) so
+        # each is judged exactly once, on the object that actually determines it. A
+        # breach WITHHOLDS the proposal; it never silently trims the target to fit, and
+        # it never relaxes a limit to force a proposal into existence.
+        "max_one_way_turnover": 0.35,                 # moved: reassessment turnover budget
+        "max_concentration_increase": 0.02,           # moved: reassessment HHI deterioration
+        # Both deterioration limits test WORSENING, never a pre-existing breach: a book
+        # that already sits above a cap is a standing condition the operator owns and it
+        # must not permanently freeze every future reallocation.
+        "sector_cap_deterioration_only": True,        # moved: reassessment semantics
         # --- classification / reconciliation tolerances ---------------------- #
         "material_weight_delta": 1.0e-4,                          # new: RETAIN vs INCREASE/REDUCE band
         "weight_reconcile_tol": 1.0e-6,                          # new
@@ -610,9 +643,19 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     # --- data gaps (carried + own) ------------------------------------------ #
     data_gaps = _collect_gaps(hoc_gaps=hoc_gaps, risk_gaps=risk_gaps)
 
-    # DEGRADED when any non-by-design analytic gap is present; else READY.
+    # --- complete-target portfolio limits (Release 29.3) --------------------- #
+    # Judged on the ONE complete target this kernel just built. A breach WITHHOLDS the
+    # proposal: the target stays fully visible for review, but it is not approvable and
+    # no order plan can be derived from it.
+    complete_target_limits = evaluate_complete_target_limits(
+        turnover=turnover, risk=risk, policy=pol)
+
+    # DEGRADED when any non-by-design analytic gap is present; else READY. A
+    # complete-target limit breach outranks both (fail closed).
     degraded = any(not g["by_design"] for g in data_gaps)
     proposal_state = STATE_DEGRADED if degraded else STATE_READY
+    if complete_target_limits["withheld"]:
+        proposal_state = STATE_WITHHELD
 
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -631,6 +674,9 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         "signal": signal,
         "risk": risk,
         "constraints": constraints,
+        "complete_target_limits": complete_target_limits,
+        "approvable": bool(proposal_state in APPROVABLE_STATES),
+        "withheld_reasons": complete_target_limits["breaches"],
         "data_gaps": data_gaps,
         "diagnostics": {
             "candidate_pool_size": len(candidate_pool),
@@ -916,6 +962,79 @@ def _validate_constraints(*, allocations: list, proposed_weight: dict, sector_of
 
 
 # --------------------------------------------------------------------------- #
+# Complete-target portfolio limits (Release 29.3 — MOVED from the reassessment)
+# --------------------------------------------------------------------------- #
+def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
+                                    policy: dict) -> dict:
+    """Judge the portfolio-level limits that require knowing the COMPLETE target.
+
+    Pure arithmetic over values this kernel has already computed on the complete
+    target — nothing is recomputed and no economics are re-derived. A breach withholds
+    the proposal (``STATE_WITHHELD``); it never trims the target to fit and never
+    relaxes a limit. ``engine.portfolio_reassessment`` publishes pre-proposal estimates
+    of the same quantities but is explicitly non-binding, so each limit is applied here
+    exactly once and transaction cost is never counted twice.
+    """
+    breaches: list[dict] = []
+    one_way = _f(turnover.get("one_way_turnover"))
+    budget = _f(policy.get("max_one_way_turnover"))
+    if one_way is not None and budget is not None and one_way > budget + 1e-12:
+        breaches.append({
+            "code": CT_TURNOVER_BUDGET, "value": _r(one_way, 6), "limit": _r(budget, 6),
+            "object": "COMPLETE_TARGET",
+            "detail": ("The complete target requires %.4f one-way turnover against a "
+                       "%.4f budget." % (one_way, budget))})
+
+    hhi_b, hhi_a = _f(risk.get("concentration_before")), _f(risk.get("concentration_after"))
+    max_inc = _f(policy.get("max_concentration_increase"))
+    if hhi_b is not None and hhi_a is not None and max_inc is not None:
+        delta = hhi_a - hhi_b
+        if delta > max_inc + 1e-12:
+            breaches.append({
+                "code": CT_CONCENTRATION, "value": _r(delta, 6), "limit": _r(max_inc, 6),
+                "object": "COMPLETE_TARGET",
+                "detail": ("The complete target raises the Herfindahl index by %.6f "
+                           "against a %.6f limit." % (delta, max_inc))})
+            breaches.append({
+                "code": CT_RISK_DETERIORATION, "value": _r(delta, 6),
+                "limit": _r(max_inc, 6), "object": "COMPLETE_TARGET",
+                "detail": "Concentration deterioration on the complete target."})
+
+    sec_b, sec_a = (_f(risk.get("sector_concentration_before")),
+                    _f(risk.get("sector_concentration_after")))
+    cap = _f(policy.get("sector_cap_fraction"))
+    if sec_a is not None and cap is not None:
+        worsens = (sec_b is None or sec_a > sec_b + 1e-9)
+        if sec_a > cap + 1e-12 and (worsens or not policy.get(
+                "sector_cap_deterioration_only", True)):
+            breaches.append({
+                "code": CT_SECTOR_CAP, "value": _r(sec_a, 6), "limit": _r(cap, 6),
+                "object": "COMPLETE_TARGET",
+                "detail": ("The complete target's largest sector weight is %.4f against "
+                           "a %.4f cap." % (sec_a, cap))})
+
+    return {
+        "owner": CALCULATION_OWNER,
+        "object": "COMPLETE_TARGET",
+        "ask_gate_owner": ASK_GATE_OWNER,
+        "constraint_codes": list(COMPLETE_TARGET_CONSTRAINT_CODES),
+        "evaluated_once": True,
+        "one_way_turnover": _r(one_way, 6),
+        "one_way_turnover_budget": _r(budget, 6),
+        "concentration_before": _r(hhi_b, 6),
+        "concentration_after": _r(hhi_a, 6),
+        "max_concentration_increase": _r(max_inc, 6),
+        "sector_concentration_before": _r(sec_b, 6),
+        "sector_concentration_after": _r(sec_a, 6),
+        "sector_cap_fraction": _r(cap, 6),
+        "breaches": breaches,
+        "all_ok": not breaches,
+        "withheld": bool(breaches),
+        "withheld_codes": sorted({b["code"] for b in breaches}),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Gaps
 # --------------------------------------------------------------------------- #
 def _collect_gaps(*, hoc_gaps: list, risk_gaps: list) -> list[dict]:
@@ -1016,6 +1135,9 @@ def _empty_result(pol: dict, ic: dict, state: str, blockers: list,
         "diagnostics": {},
         "hoc_reference": {"assessment_hash": ic.get("hoc_assessment_hash"),
                           "assessment_state": ic.get("hoc_assessment_state")},
+        "complete_target_limits": {},
+        "approvable": False,
+        "withheld_reasons": [],
         "blockers": blockers,
         "safety": _safety(),
         "provenance": _provenance(ic),

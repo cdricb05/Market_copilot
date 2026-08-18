@@ -94,16 +94,22 @@ class TestSharedScenarioContract:
         assert fx.SCENARIO_OWNER == "scripts/stage20_ui_fixtures.py"
 
     def test_3_execution_vocabulary_is_closed(self):
+        # Release 29.3 added AWAITING_REVIEW: a produced, immutable proposal with NO
+        # recorded decision and NO orders — the manual-review state, which had no
+        # scenario before.
         assert {s["execution"] for s in fx.scenarios().values()} <= {
-            "NONE", "PENDING", "EXECUTED"}
+            "NONE", "PENDING", "EXECUTED", "AWAITING_REVIEW"}
 
     def test_4_close_vocabulary_is_closed(self):
         assert {s["close"] for s in fx.scenarios().values()} <= {"PROCESSED", "DUE"}
 
     def test_5_every_panel_is_produced_for_every_scenario(self, composed):
+        # Release 29.3 bound the last unbound canonical Today read (daily_close), so the
+        # money lane renders from a composed payload instead of the empty temp store.
         expected = {"portfolio_state", "operational_book", "rebalance",
                     "holding_opportunity_cost", "reallocation_proposal",
-                    "portfolio_reassessment", "daily_action_gate", "workflow_state"}
+                    "portfolio_reassessment", "daily_action_gate", "workflow_state",
+                    "daily_close"}
         for key, c in composed.items():
             assert set(c["panels"]) == expected, key
 

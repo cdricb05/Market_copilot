@@ -5642,7 +5642,7 @@ class DailyCloseExecuteRequest(BaseModel):
 def operations_daily_close() -> dict:
     """Read-only canonical DAILY CLOSE status for Alpha Paper Book #1: the one
     close status (DAILY_CLOSE_DUE / DAILY_CLOSE_COMPLETE_HOLD /
-    REBALANCE_PROPOSAL_READY / PAPER_ORDERS_SUBMITTED / DATA_BLOCKED /
+    DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT / PAPER_ORDERS_SUBMITTED / DATA_BLOCKED /
     ALREADY_PROCESSED / AWAITING_ELIGIBLE_CLOSE), the latest eligible / last
     processed / valuation dates, NAV and daily + cumulative P&L (honest daily-P&L
     unavailability on the first mark), forward-performance history, the recorded

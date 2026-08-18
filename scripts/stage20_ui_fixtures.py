@@ -304,7 +304,9 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
         ``"NONE"``      no rebalance orders at all;
         ``"PENDING"``   the live shape: 29 SUBMITTED (15 BUY / 14 SELL), 0 current-plan
                         fills, a superseded plan with 22 CANCELLED, 25 historical fills;
-        ``"EXECUTED"``  the same plan fully settled (29 FILLED).
+        ``"EXECUTED"``  the same plan fully settled (29 FILLED);
+        ``"AWAITING_REVIEW"`` (Release 29.3) a produced, immutable proposal with NO
+                        recorded decision and NO orders — the manual-review state.
 
     ``close`` — the daily-close journal state for the eligible session:
         ``"PROCESSED"`` the eligible session has already been closed (no new close is
@@ -367,7 +369,11 @@ def world(*, scenario_id, title, hoc_reviews, hoc_state="READY", freshness_rows=
             "current_submitted": LIVE_SUBMITTED if execution == "PENDING" else 0,
             "current_filled": LIVE_SUBMITTED if execution == "EXECUTED" else 0,
             "historical_fills": HISTORICAL_FILLS,
-            "superseded_cancelled": (SUPERSEDED_CANCELLED if execution != "NONE" else 0),
+            # Release 29.3 — AWAITING_REVIEW carries NO order cohort at all: a produced
+            # proposal is evidence, never an order plan, so there is nothing to supersede.
+            "superseded_cancelled": (
+                SUPERSEDED_CANCELLED
+                if execution not in ("NONE", "AWAITING_REVIEW") else 0),
         },
     }
 
@@ -399,6 +405,18 @@ def scenarios() -> dict:
             title="Strong replacement — one proposal review action",
             hoc_reviews=strong + [_filler(i) for i in range(21)],
             execution="NONE", close="PROCESSED",
+            expect_state=kernel.STATE_PROPOSAL_READY,
+            expect_primary_action="REVIEW_PORTFOLIO_PROPOSAL", expect_attention=4),
+        # Release 29.3 — the PROPOSAL REVIEW REQUIRED world: the reassessment cleared the
+        # portfolio gate, the canonical proposal owner produced ONE complete immutable
+        # target, and no manual decision has been recorded yet. Nothing is approved and
+        # no order exists; this is the only state in which an operator proposal action
+        # may appear anywhere in the product.
+        "scenario_11_proposal_review_required": world(
+            scenario_id="scenario_11_proposal_review_required",
+            title="Proposal produced — manual review required, no orders",
+            hoc_reviews=strong + [_filler(i) for i in range(21)],
+            execution="AWAITING_REVIEW", close="PROCESSED",
             expect_state=kernel.STATE_PROPOSAL_READY,
             expect_primary_action="REVIEW_PORTFOLIO_PROPOSAL", expect_attention=4),
         "scenario_4_data_blocked": world(
@@ -591,7 +609,8 @@ def _plan_cohort(spec: dict) -> list[dict]:
     plan. Three permanently separate cohorts — never folded into one another."""
     out = [_historical_order(tk, i) for i, tk in enumerate(HELD)]
     ex = spec["execution"]
-    if ex == "NONE":
+    if ex in ("NONE", "AWAITING_REVIEW"):
+        # Release 29.3 — a produced proposal awaiting manual review creates NO order.
         return out
     status = desk.ST_SUBMITTED if ex == "PENDING" else desk.ST_FILLED
     plan = spec["current_plan"]
@@ -971,6 +990,16 @@ def _reallocation_artifact(spec: dict, nav: float) -> dict:
                              "reallocation_allocation_policy.v1"},
             "proposal": {"proposal_state": "READY", "portfolio": {"nav": nav},
                          "allocations": allocations,
+                         # Release 29.3 — materiality is derived by api.portfolio_decision
+                         # from the proposal's OWN action counts. They are published ONLY
+                         # for the AWAITING_REVIEW cohort, whose whole purpose is to reach
+                         # the manual-review state; every pre-existing scenario keeps the
+                         # exact artifact it had before, byte for byte.
+                         **({"action_counts": {
+                             a: sum(1 for r in allocations if r["action"] == a)
+                             for a in ("RETAIN", "INCREASE", "REDUCE", "EXIT", "ADD",
+                                       "REPLACE_OUT", "REPLACE_IN")}}
+                            if spec["execution"] == "AWAITING_REVIEW" else {}),
                          "proposal_hash": LIVE_PROPOSAL_HASH,
                          "turnover": {"one_way_turnover": round(two_way / 2.0, 6),
                                       "two_way_turnover": round(two_way, 6),
@@ -979,7 +1008,9 @@ def _reallocation_artifact(spec: dict, nav: float) -> dict:
 
 
 def _decision_record(spec: dict) -> dict:
-    if spec["execution"] == "NONE":
+    # Release 29.3 — "AWAITING_REVIEW": the proposal exists but NO manual decision has
+    # been recorded, so the portfolio-decision owner must say PROPOSAL_REVIEW_REQUIRED.
+    if spec["execution"] in ("NONE", "AWAITING_REVIEW"):
         return None
     return {"record_id": "pdec_%s_%s" % (DATE, BOOK), "decision": pdec.DECISION_APPROVE,
             "proposal_id": "reap_%s_%s" % (DATE, BOOK),
@@ -1013,6 +1044,69 @@ def _close_progress(spec: dict) -> dict:
         "retry_guidance": ("The close for %s is already recorded as COMPLETED. Re-running "
                            "it would be a no-op; nothing needs to be retried." % closed),
         "client_timeout_is_not_an_outcome": True,
+    }
+
+
+def _daily_close_payload(spec: dict, opbook: dict, nav: float) -> dict:
+    """Release 29.3 — the composed DAILY CLOSE read payload.
+
+    Before 29.3 the acceptance backend left ``GET /v1/operations/daily-close`` unbound,
+    so it answered from the (empty) throwaway store and the Today money lane rendered
+    as a hole: NAV, P&L, drawdown, cash and holdings were all absent from every
+    acceptance screenshot, which is exactly the region the visual acceptance has to
+    judge. The payload below mirrors the live production shape so the hermetic Today
+    screen is faithful. It is synthetic and derived from the scenario spec only — no
+    live store, no provider, no write.
+    """
+    closed = (spec["prior_market_date"] if spec["close"] == "DUE"
+              else spec["eligible_market_date"])
+    cash = float((opbook.get("book") or {}).get("cash") or 0.0)
+    holdings = len((opbook.get("holdings") or []))
+    status = (dc.CLOSE_DUE if spec["close"] == "DUE" else dc.CLOSE_COMPLETE_HOLD)
+    return {
+        "status": "DAILY_CLOSE_OK",
+        "close_status": status,
+        "close_status_label": dc._PRESENTATION[status]["label"],  # noqa: SLF001
+        "book_id": BOOK,
+        "latest_eligible_market_date": spec["eligible_market_date"],
+        "last_processed_date": closed,
+        "current_valuation_date": closed,
+        "holdings_count": holdings,
+        "proposed_change_count": 0,
+        "operational_close": True,
+        "pnl": {
+            "valuation_date": closed,
+            "starting_capital": 100000.0,
+            "nav": round(nav, 2),
+            "cash": round(cash, 2),
+            "invested_value": round(nav - cash, 2),
+            "daily_pnl": -574.57,
+            "daily_return_pct": -0.5696,
+            "daily_pnl_available": True,
+            "daily_pnl_display": None,
+            "cumulative_pnl": round(nav - 100000.0, 2),
+            "cumulative_return_pct": round((nav - 100000.0) / 1000.0, 4),
+            "spy_cumulative_return_pct": 3.3797,
+            "excess_return_pct": -3.0762,
+            "drawdown_pct": -1.8665,
+            "basis": "CURRENT_ECONOMIC_STATE",
+        },
+        # The operator presentation the card renders: headline, explanation and the
+        # (non-executing) primary action. Same shape the live owner returns.
+        "headline": dc._PRESENTATION[status]["headline"],   # noqa: SLF001
+        "next_action": dc._PRESENTATION[status]["next_action"],   # noqa: SLF001
+        "current_task": dc._PRESENTATION[status]["current_task"],   # noqa: SLF001
+        "primary_action": {
+            "label": dc._PRESENTATION[status]["primary_action_label"],   # noqa: SLF001
+            "kind": dc._PRESENTATION[status]["primary_action_kind"],   # noqa: SLF001
+            "enabled": bool(spec["close"] == "DUE"),
+            "runs_daily_close": bool(spec["close"] == "DUE"),
+        },
+        "operational_close": {"complete": bool(spec["close"] != "DUE"),
+                              "market_date": closed, "valid": True},
+        "checks_summary": {"line": ""},
+        "safety": {"paper_only": True, "manual_review": True, "automation_off": True,
+                   "creates_orders": False},
     }
 
 
@@ -1146,7 +1240,12 @@ def compose(scenario_key: str, *, root=None) -> dict:
         reassessment_summary=prs.load_reassessment_summary(
             active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
             artifact=prs_art),
-        decision_record=decision,
+        # Release 29.3 HERMETICITY: api.workflow_state treats decision_record=None as
+        # "not injected" and falls back to loading the REAL portfolio-decision store.
+        # A scenario with a proposal but deliberately NO recorded decision therefore
+        # picked up the operator's live APPROVE record. An empty dict is an explicit
+        # "no decision exists" and blocks the fallback.
+        decision_record=(decision or {}),
         **clock)
 
     return {
@@ -1162,6 +1261,8 @@ def compose(scenario_key: str, *, root=None) -> dict:
             "portfolio_reassessment": reassessment,
             "daily_action_gate": gate,
             "workflow_state": workflow,
+            "daily_close": _daily_close_payload(
+                spec, opbook, opbook.get("nav") or NAV),
         },
         "artifacts": {"reassessment": prs_art, "reallocation": realloc_art,
                       "decision": decision, "hoc_assessment": assessment},

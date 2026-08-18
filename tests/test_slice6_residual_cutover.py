@@ -77,8 +77,13 @@ def test_01_legacy_proposal_ready_normalized_compatibility_only():
 def test_02_legacy_rebalance_proposal_ready_normalized_compatibility_only():
     # daily_close reclassifies the legacy REBALANCE_PROPOSAL_READY state, and the
     # workflow owner normalizes it to compatibility-only.
-    pres = dc._PRESENTATION[dc.REBALANCE_PROPOSAL_READY]
-    assert "LEGACY MEMBERSHIP-COMPARISON" in pres["label"]
+    # Release 29.3 renamed the close status to DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT so
+    # the Daily Close stops speaking the proposal owner's vocabulary. The invariant is
+    # unchanged: the label names the legacy comparison and never claims a proposal.
+    pres = dc._PRESENTATION[dc.CLOSE_COMPLETE_MEMBERSHIP_DRIFT]
+    assert "LEGACY MEMBERSHIP" in pres["label"]
+    assert "PROPOSAL" not in pres["label"].upper()
+    assert "COMPATIBILITY ONLY" in pres["headline"].upper()
     ap = ws.build_assessment_presentation(
         assessment_status=ws.ASSESS_STALE, assessment_date="2026-08-05",
         outcome="REBALANCE_PROPOSAL_READY", recommendation=None,
@@ -98,8 +103,12 @@ def test_03_no_primary_portfolio_changes_proposed_label():
 
 def test_04_no_primary_proposal_ready_label():
     assert "PROPOSAL READY" not in UI            # never rendered as a primary chip
-    # The raw gate vocabulary is PRESERVED for historical consumers (compatibility).
-    assert "PROPOSAL READY — MANUAL REVIEW REQUIRED" in GATE_SRC
+    # Release 29.3: the legacy gate no longer carries that label at all — it is the
+    # rank-membership comparison, not the proposal owner, and the compatibility path is
+    # now the LEGACY token constant plus the read-time normaliser.
+    assert "PROPOSAL READY — MANUAL REVIEW REQUIRED" not in GATE_SRC
+    assert "PORTFOLIO CHANGES PROPOSED" not in GATE_SRC
+    assert 'LEGACY_OUTCOME_PROPOSAL_READY = "PROPOSAL_READY"' in GATE_SRC
 
 
 def test_05_no_review_proposed_changes_action():

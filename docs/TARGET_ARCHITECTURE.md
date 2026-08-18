@@ -594,3 +594,52 @@ Target invariants Stage 22 must keep satisfying:
   artifact's hash, never re-run an engine, and never write.
 * A hermetic scenario can bind EVERY canonical read seam, so no acceptance run can read a
   production store.
+
+
+## Release 29.3 boundary amendment — where each portfolio constraint is decided
+
+The Slice 6 → Stage 20 → Slice 7 sequence is unchanged. What Release 29.3 fixes is
+WHICH OWNER DECIDES WHICH CONSTRAINT, because a constraint can only be judged on the
+business object that actually determines it.
+
+```
+HOC (per-holding signal)                      engine.holding_opportunity_cost
+        |
+        v
+Portfolio reassessment  -- the ASK gate --    engine.portfolio_reassessment
+   decides: net-improvement hurdle, churn / cooldown / reversal, liquidity,
+            point-in-time data quality, mandatory eligibility-exit override
+   publishes (NON-BINDING context): expected turnover, retained-book concentration
+        |
+        v  (only when PROPOSAL_READY)
+Reallocation proposal -- the COMPLETE TARGET  engine.reallocation_proposal
+   builds:  ONE complete target; allocates every released dollar exactly once
+   decides: name cap, sector cap, position count, long-only, capital reconciliation,
+            turnover budget, concentration deterioration, sector deterioration,
+            post-change risk        --> READY / DEGRADED / WITHHELD / BLOCKED
+        |
+        v
+Portfolio decision                            api.portfolio_decision
+   NO_CHANGE | CHANGE_CANDIDATE_WITHHELD | PROPOSAL_REVIEW_REQUIRED | DECISION_RECORDED
+        |
+        v  manual review only
+Controlled paper rebalance                    api.rebalance_execution
+   only from an approved proposal, behind two manual gates
+```
+
+**The boundary rule.** A constraint that cannot be evaluated without knowing the final
+target belongs to the target owner. The reassessment may estimate it and MUST label the
+estimate non-binding; it may not veto on it. Conversely the proposal engine never
+re-derives a per-holding comparison, a rank or a switching cost — those stay Slice 6's.
+Nothing is duplicated: the codes are identical on both sides and the architecture audit
+fails the build if they drift (`check_release29_3_decision_integrity`).
+
+**The composed answer.** `api.workflow_state.build_canonical_portfolio_decision`
+publishes ONE decision object over the three owners, recomputing none of their
+economics. It is the single contract Release 30 (operator notifications) consumes;
+`PROPOSAL_REVIEW_REQUIRED` is the only state carrying an operator action.
+
+**Forbidden, unchanged.** No Create Orders, no order execution, no automation, no
+automatic approval, no fabricated expected return, and no relaxing a limit to force a
+proposal into existence. A target that cannot satisfy the limits is WITHHELD and says
+so explicitly.

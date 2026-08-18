@@ -99,8 +99,12 @@ def _kic(*, n_target=4, name_cap=0.5, sector_cap=1.0, with_returns=True, **over)
 
 def _pol(**over):
     p = dict(R.default_policy())
+    # 4-name toy book: every portfolio limit is scaled to it (see _api_pol). The
+    # Release 29.3 complete-target turnover budget is exercised at its real boundary in
+    # tests/test_release29_3_decision_integrity.py.
     p.update({"target_position_count": 4, "candidate_rank_max": 50, "max_name_weight": 0.5,
               "sector_cap_fraction": 1.0, "min_covariance_obs": 20, "covariance_lookback": 60,
+              "max_one_way_turnover": 1.0,
               "min_volatility_coverage": 0.5})
     p.update(over)
     return p
@@ -396,8 +400,15 @@ def _hoc(state="READY", gaps=None):
 
 
 def _api_pol():
+    # This is a 4-name toy book, so every portfolio limit is scaled to it exactly as the
+    # name cap and sector cap already were. Release 29.3 added the complete-target
+    # turnover budget (0.35, calibrated for the real 25-name book); in a 4-name book a
+    # single swap is 25% of the portfolio, so the production value would withhold every
+    # construction fixture. The budget itself is exercised at its boundary on a
+    # realistic book by tests/test_release29_3_decision_integrity.py.
     return A.resolve_policy({"target_position_count": 4, "candidate_rank_max": 50,
                              "max_name_weight": 0.5, "sector_cap_fraction": 1.0,
+                             "max_one_way_turnover": 1.0,
                              "min_covariance_obs": 20, "min_volatility_coverage": 0.5})
 
 

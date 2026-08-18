@@ -452,30 +452,51 @@ def test_17_meaningful_net_improvement_requires_a_proposal():
     assert K.GATE_CLEARED in d["reason_codes"]
 
 
-def test_18_turnover_violation_blocks_the_proposal():
-    # Ten 4% positions = 0.40 one-way turnover, above the 0.35 budget.
+def test_18_turnover_budget_is_deferred_to_the_complete_target_owner():
+    """Release 29.3 — the turnover BUDGET is a property of the complete target.
+
+    The release-set estimate is an UPPER BOUND: the proposal owner may retain an
+    incumbent when no feasible net-positive replacement exists, which lowers the real
+    turnover. Judging the budget here would reject plans that are in fact within it, so
+    the reassessment publishes the estimate as explicitly non-binding context and
+    engine.reallocation_proposal decides it once, on the complete target.
+    """
     rows = _book([_replace_row("A%d" % i, weight=0.04, gross=0.90, net=0.85)
                   for i in range(10)])
     r = _res(hoc=_hoc(reviews=rows))
     d = r["decision"]
     assert d["expected_one_way_turnover"] > d["turnover_budget"]
-    assert r["reassessment_state"] == K.STATE_CHANGE_CANDIDATE
-    assert K.CHURN_TURNOVER_BUDGET in d["blockers"]
-    assert d["proposal_required"] is False
+    # The estimate is published, and explicitly NOT binding here.
+    assert d["turnover_budget_binding_here"] is False
+    assert d["expected_turnover_basis"] == "PRE_PROPOSAL_RELEASE_SET_ESTIMATE"
+    assert K.CHURN_TURNOVER_BUDGET not in d["blockers"]
+    # Ownership is stated structurally, and the constraint is not duplicated.
+    own = d["constraint_ownership"]
+    assert own["duplicated"] is False
+    assert own["deferred_to_complete_target"]["owner"] == K.TARGET_ENGINE_OWNER
+    assert K.CHURN_TURNOVER_BUDGET in own["deferred_to_complete_target"]["constraints"]
 
 
-def test_19_concentration_violation_blocks_the_proposal():
-    # Exiting most of the book concentrates what remains: HHI rises far beyond the
-    # +0.01 tolerance, so a nominal score improvement is REJECTED.
+def test_19_retained_book_concentration_is_context_never_a_blocker():
+    """Release 29.3 — the retained stub must be renormalised to 1.0 to be compared, so
+    exiting most of the book ALWAYS 'raises' concentration even though no dollar has
+    moved into any surviving name. That is a renormalisation artifact of an incomplete
+    portfolio, not economics, so it can never veto the ask."""
     actionable = [_replace_row("X%d" % i, weight=0.03, gross=0.90, net=0.85)
                   for i in range(10)]
     keep = [_review("BIG", current_weight=0.50, market_value=50000.0)]
     r = _res(hoc=_hoc(reviews=actionable + keep))
     d = r["decision"]
+    # The arithmetic is still published — honestly labelled for what it is.
     assert d["expected_concentration_change"] > r["policy"]["max_concentration_increase"]
-    assert r["reassessment_state"] == K.STATE_CHANGE_CANDIDATE
-    assert K.GATE_CONCENTRATION in d["blockers"]
-    assert d["proposal_required"] is False
+    assert d["concentration_basis"] == "PRE_PROPOSAL_RETAINED_BOOK_RENORMALISED"
+    assert r["concentration"]["basis"] == "RETAINED_BOOK_RENORMALISED"
+    # ...but it blocks nothing here.
+    assert K.GATE_CONCENTRATION not in d["blockers"]
+    assert K.GATE_SECTOR_CAP not in d["blockers"]
+    own = d["constraint_ownership"]["deferred_to_complete_target"]
+    assert K.GATE_CONCENTRATION in own["constraints"]
+    assert K.GATE_SECTOR_CAP in own["constraints"]
 
 
 def test_20_liquidity_violation_blocks_the_proposal():
@@ -491,17 +512,23 @@ def test_20_liquidity_violation_blocks_the_proposal():
     assert K.GATE_LIQUIDITY in d["blockers"]
 
 
-def test_21_risk_deterioration_rejects_a_nominal_return_improvement():
+def test_21_post_change_risk_is_owned_by_the_complete_target_engine():
+    """Release 29.3 — post-change portfolio risk cannot be known before the released
+    capital is allocated. The reassessment asks; engine.reallocation_proposal answers."""
     actionable = [_replace_row("X%d" % i, weight=0.03, gross=5.0, net=4.9)
                   for i in range(8)]
     keep = [_review("BIG", current_weight=0.60, market_value=60000.0)]
     r = _res(hoc=_hoc(reviews=actionable + keep))
     d = r["decision"]
-    # The nominal (score) improvement is large...
     assert d["expected_net_improvement"] > d["net_improvement_hurdle"]
-    # ...but acting deteriorates portfolio risk, so it is NOT a proposal.
-    assert r["reassessment_state"] != K.STATE_PROPOSAL_READY
-    assert K.GATE_RISK_DETERIORATION in d["blockers"]
+    # The economics clear, so the ask is made; risk is judged on the complete target.
+    assert r["reassessment_state"] == K.STATE_PROPOSAL_READY
+    assert K.GATE_RISK_DETERIORATION not in d["blockers"]
+    assert d["portfolio_volatility_after_state"] == K.VOLATILITY_AFTER_STATE_PRE_PROPOSAL
+    assert d["target_tracking_error"] is None
+    assert d["target_tracking_error_owner"] == K.TARGET_ENGINE_OWNER
+    assert K.GATE_RISK_DETERIORATION in (
+        d["constraint_ownership"]["deferred_to_complete_target"]["constraints"])
 
 
 def test_22_transaction_costs_are_counted_exactly_once():
@@ -592,19 +619,60 @@ def test_24b1_a_mandatory_exit_with_NO_replacement_comparison_still_acts():
     assert any(a.get("mandatory") for a in d["actionable_holdings"])
 
 
-def test_24b2_a_hard_blocker_still_overrides_a_mandatory_exit():
-    """A mandatory exit is forced only when NOTHING is blocking. A turnover-budget breach
-    is exactly when a human should adjudicate instead."""
+def test_24b2_a_hard_feasibility_blocker_still_withholds_a_mandatory_exit():
+    """Release 29.3 — the mandatory eligibility-exit override defeats the ECONOMIC gates
+    but NEVER a hard feasibility blocker. A turnover-budget breach is no longer a
+    reassessment blocker at all (it belongs to the complete-target owner), so the hard
+    case is proved with the blocker this kernel genuinely owns: illiquidity."""
     broken = [_review("B%d" % i, current_weight=0.04, market_value=4000.0,
                       recommendation=K.REC_EXIT,
                       deterioration_state=K.hoc_kernel.DET_BROKEN,
                       deterioration_reason_codes=["NOT_ELIGIBLE"],
+                      liquidity_state=K.hoc_kernel.LIQ_ILLIQUID,
                       gross_score_improvement=None, risk_adjusted_improvement=None,
-                      net_improvement=None) for i in range(10)]   # 0.40 one-way
+                      net_improvement=None) for i in range(10)]
     r = _res(hoc=_hoc(reviews=_book(broken)))
-    assert K.CHURN_TURNOVER_BUDGET in r["decision"]["blockers"]
+    d = r["decision"]
+    assert K.GATE_LIQUIDITY in d["blockers"]
     assert r["reassessment_state"] == K.STATE_CHANGE_CANDIDATE
-    assert K.GATE_MANDATORY_EXIT not in r["decision"]["reason_codes"]
+    assert K.GATE_MANDATORY_EXIT not in d["reason_codes"]
+    assert K.GATE_MANDATORY_EXIT_WITHHELD in d["reason_codes"]
+    # The operator contract must say REQUIRED-IF, never "must exit now".
+    pol = d["mandatory_exit_policy"]
+    assert pol["withheld"] is True and pol["override_applied"] is False
+    assert pol["obligation"] == "REQUIRED_IF_REALLOCATION_PROCEEDS"
+    assert pol["authorizes_order"] is False
+    assert pol["authorizes_sell_only_plan"] is False
+    assert K.GATE_LIQUIDITY in pol["hard_blockers_present"]
+
+
+def test_24b3_a_sub_hurdle_improvement_never_traps_an_ineligible_holding():
+    """Release 29.3 — the documented policy always said an unmeasurable or sub-hurdle
+    improvement must never trap an ineligible name in the book, but the implementation
+    tested ``not blockers`` while BELOW_PORTFOLIO_NET_IMPROVEMENT_HURDLE was itself in
+    ``blockers``. That is the live 2026-08-17 AIZ / SPG case."""
+    weak = [_replace_row("W%d" % i, weight=0.01, gross=0.06, net=0.011)
+            for i in range(3)]
+    broken = [_review("AIZ", current_weight=0.04, market_value=4000.0,
+                      recommendation=K.REC_EXIT,
+                      deterioration_state=K.hoc_kernel.DET_BROKEN,
+                      deterioration_reason_codes=["FELL_BELOW_EXIT_BUFFER"],
+                      gross_score_improvement=None, risk_adjusted_improvement=None,
+                      net_improvement=None)]
+    r = _res(hoc=_hoc(reviews=_book(weak + broken)))
+    d = r["decision"]
+    assert "AIZ" in d["mandatory_exit_tickers"]
+    assert r["reassessment_state"] == K.STATE_PROPOSAL_READY
+    assert K.GATE_MANDATORY_EXIT in d["reason_codes"]
+    assert K.GATE_BELOW_NET_HURDLE not in d["blockers"]
+    pol = d["mandatory_exit_policy"]
+    assert pol["override_applied"] is True and pol["withheld"] is False
+    assert pol["policy"] == K.MANDATORY_EXIT_POLICY
+    assert K.GATE_BELOW_NET_HURDLE in pol["overrides"]
+    # Clearing the ASK is not an authorisation to trade.
+    assert pol["authorizes_order"] is False
+    assert pol["requires_complete_target"] is True
+    assert pol["manual_review_required"] is True
 
 
 def test_24b3_a_non_mandatory_action_with_no_improvement_is_still_unmeasurable():
@@ -675,16 +743,20 @@ def test_24f_sensitivity_the_hurdle_boundary_flips_the_decision():
     assert above["reassessment_state"] == K.STATE_PROPOSAL_READY
 
 
-def test_24g_sensitivity_the_turnover_budget_boundary_flips_the_decision():
+def test_24g_the_turnover_budget_no_longer_flips_the_reassessment_decision():
+    """Release 29.3 — moving the budget to the complete-target owner means the
+    reassessment verdict is INVARIANT to it. The boundary is exercised where it is now
+    decided (engine.reallocation_proposal) in
+    tests/test_release29_3_decision_integrity.py."""
     rows = _book([_replace_row("A%d" % i, weight=0.04, gross=0.90, net=0.85)
                   for i in range(5)])          # 0.20 one-way
     tight = _res(hoc=_hoc(reviews=rows),
                  policy={"max_one_way_turnover_per_reassessment": 0.10})
     loose = _res(hoc=_hoc(reviews=rows),
                  policy={"max_one_way_turnover_per_reassessment": 0.50})
-    assert K.CHURN_TURNOVER_BUDGET in tight["decision"]["blockers"]
+    assert K.CHURN_TURNOVER_BUDGET not in tight["decision"]["blockers"]
     assert K.CHURN_TURNOVER_BUDGET not in loose["decision"]["blockers"]
-    assert loose["reassessment_state"] == K.STATE_PROPOSAL_READY
+    assert tight["reassessment_state"] == loose["reassessment_state"]         == K.STATE_PROPOSAL_READY
 
 
 def test_24h_sensitivity_the_cooldown_window_boundary_flips_protection():
