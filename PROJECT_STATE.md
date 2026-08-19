@@ -1,11 +1,126 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-18
-- **Updated by phase:** **Release 29.5 — DRC manifest / downstream provenance deadlock hotfix.**
-- **Source Git HEAD:** `42978bf`, branch `stage19-controlled-rebalance`.
-- **Working tree status:** DIRTY — Release 29.5 changes uncommitted (footprint below). Nothing committed, pushed or enabled by this phase; the commit script is prepared for the user.
-- **Current decision:** **DO_NOT_COMMIT (standing instruction) — RELEASE29_5_DRC_DEADLOCK_FIXED.** After a SUCCESSFUL 2026-08-18 Daily Close, the normal cycle suspended itself into `RECOVERY` with `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` and zero executable stages — and the only thing that could write the missing manifest was the Daily Research Cycle that `RECOVERY` had just disabled. Root cause: the guard inferred provenance from artifact EXISTENCE, and since Releases 28/29 a second legitimate owner (`api.event_signal_refresh`, triggered by continuous collection) writes an artifact through the same canonical entry point. Proven writer: event run `evt_b91704271fb7a992`, `requested_by PAPER_TRADER_INFORMATION_COLLECTION`, completed 22:07:52Z, HOC artifact 22:07:50Z. Production was READ ONLY throughout: no close, no DRC, no proposal, no order, no restart.
-- **Next required action:** the user runs `D:\Temp\paper_trader_release29_5_drc_manifest_handoff\validate.ps1` and `ui_acceptance.ps1`, then decides on `commit.ps1` / `push.ps1`, restarts through the canonical owner, and runs the real Aug-18 Daily Research Cycle. Claude has NOT committed, pushed or run the cycle.
+- **Updated by phase:** **Release 30 — Zero-base adaptive alpha capital allocation.**
+- **Source Git HEAD:** `88e4300`, branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 30 changes uncommitted (footprint below). Nothing committed, pushed, activated or restarted by this phase; the commit script is prepared for the user.
+- **Current decision:** **DO_NOT_COMMIT (standing instruction) — `R30_ZERO_BASE_ALLOCATOR_READY` + `R30_ADAPTIVE_MODEL_NO_GO`.** The zero-base allocator is built, converged, constraint-verified, reproducible and live behind four GET routes. The new adaptive forecasting ensemble is **NOT** approved: on the survivorship-free universe it loses 5.9–9.2 pp p.a. NET of transaction costs to the frozen momentum benchmark at every horizon, no out-of-sample rank-IC t-statistic reaches 2, and every paired net-return t is negative. It buys a slightly higher information coefficient with 0.73–0.87 one-way turnover against the benchmark's 0.51, and the costs eat the difference. The operational champion `fundamental_momentum_50_50_v1` is unchanged and nothing was promoted. Production was READ ONLY throughout: no close, no DRC, no proposal, no decision, no order, no cash or holding change, no port-8001 restart.
+- **Next required action:** the user runs `D:\Temp\paper_trader_release30_zero_base_adaptive_allocator_handoff\validate.ps1` and `ui_acceptance.ps1`, then decides on `commit.ps1` / `push.ps1`, and restarts through the canonical owner so the four new read-only routes are served by port 8001. Claude has NOT committed, pushed, activated a model or restarted production.
+
+## Release 30 — Zero-base adaptive alpha capital allocation (2026-08-18)
+
+**The rule this phase enforces.** *Ownership is not an investment thesis.* Every portfolio
+construction path in the system started from the current holdings and asked what to
+change — a question that quietly grants an incumbent a status no evidence gave it, and
+does so invisibly, because the output still looks like a portfolio. Release 30 asks the
+portfolio manager's real question instead: **if all of this were cash right now, what
+would we buy?** — and prices the transition separately.
+
+**Two objects, never conflated.**
+
+| Object | Question it answers | Sees holdings? |
+|---|---|---|
+| **ZERO-BASE TARGET** | the intrinsic desired allocation, as if every investable dollar were cash | **No.** Not an input. |
+| **IMPLEMENTABLE TARGET** | the same objective solved FROM the current book with transaction cost inside the economics | **Yes** — and only here |
+
+**The Aug-18 acceptance test (research evidence; nothing mutated).** Capital = the actual
+operational NAV of $99,913.25, decision date 2026-08-18, both models run through the SAME
+allocator under the SAME policy, so the difference between them is attributable to the
+FORECAST rather than to two different pipelines.
+
+| | positions | cash | E[excess] 20d | vol 20d | q05 | net utility |
+|---|---|---|---|---|---|---|
+| CURRENT | 25 | 4.49 % | +0.097 % | 3.79 % | −5.55 % | +0.000149 |
+| A — current operational model, zero-base | 40 | 1.13 % | +0.099 % | 2.58 % | −3.74 % | +0.000608 |
+| A — implementable | 9 | 89.19 % | −0.010 % | 0.47 % | −0.71 % | −0.000109 |
+| B — adaptive candidate, zero-base | 26 | 0.87 % | +0.219 % | 3.39 % | −4.83 % | +0.001532 |
+| B — implementable | 31 | 0.46 % | +0.164 % | 3.23 % | −4.65 % | +0.001039 |
+
+Transition to B's implementable target: one-way turnover 22.94 %, cost $57.31, 7 retained
+/ 18 removed / 19 new. **These numbers describe what each model WOULD do; they are not
+evidence that B is better.** B's out-of-sample record says the opposite, and the Aug-18
+comparison is a snapshot, not a test.
+
+**Model A's implementable target holds 89 % cash and that is coherent, not a bug.** The
+current model forecasts the current holdings NEGATIVELY (−0.117 % expected excess over 20
+sessions). Selling ~85 % of the book costs about 10.6 bp; the expected return recovered
+plus the risk removed is worth more, so the optimiser sells and does not buy back, because
+buying is a second cost it cannot justify at that forecast.
+
+**Verdicts.**
+
+* `R30_ZERO_BASE_ALLOCATOR_READY` — the allocator is valid.
+* `R30_ADAPTIVE_MODEL_NO_GO` — on BOTH universes. Not a failure of the allocator.
+
+**Point-in-time integrity, measured rather than asserted.** The price/liquidity/risk
+family is survivorship-free: the owned Phase-24 Russell-1000 Current-and-Past panel with a
+per-session PIT membership mask and delisted names retained — 304 decision dates, 277,466
+rows, and 2,135 delisting-truncated labels measured to their LAST OWNED CLOSE rather than
+dropped, because dropping them would put survivorship back into the label.
+
+The fundamental family is **not**, and this release measured how much: issuer resolution
+succeeds for **56.7 %** of symbols still in the universe against **20.7 %** of symbols that
+have left it — a **2.74x survivorship skew** in the rows on which any fundamental factor is
+DEFINED. Every fundamental comparison therefore runs on a coverage-MATCHED sub-sample so
+both sides see identical rows; that isolates the forecast from the sample but does not
+remove the skew, so a fundamental result alone can never justify activation.
+
+**`s25_operating_profitability`, surfaced rather than buried.** On the coverage-matched
+sample its out-of-sample rank IC is −0.0053 / +0.0009 / +0.0019 at 5 / 20 / 60 sessions
+(t = −0.96 / +0.16 / +0.27). It earns an ensemble weight of **0.010 at 20 sessions and
+0.000 elsewhere**. Its turnover is 2.3 % — by far the most persistent signal in the
+tournament — but on this universe and these horizons it carries essentially no
+cross-sectional information. That does not contradict Stage 25, which measured a different
+universe and horizon; it does mean Release 30 cannot claim it as a driver, and the
+leaderboard says so.
+
+**Three defects found and fixed during implementation, each one a real finding.**
+
+1. *A per-name downside penalty prices risk that diversification removes.* The first
+   objective charged each name's own 5 % quantile linearly and allocated **100 % to cash
+   under every realistic input**. Every risk term is now a property of the PORTFOLIO.
+2. *A cold-started optimiser cannot represent "changing is not worth it".* Starting the
+   implementable solve from cash left a prohibitive cost rate stranding the target
+   mid-transition — an artefact of the search, not an economic conclusion. It now starts
+   from the current book projected onto the feasible set, and a prohibitive cost rate
+   produces exactly zero turnover.
+3. *A private authority table was wrong within minutes.* The capital-impact feed now READS
+   `engine.event_fabric`'s own frozensets, so an `EVENT_TRIGGER_ONLY` event can trigger a
+   reassessment and can never contribute expected return.
+
+**Ownership consolidated, not added.** `engine/holding_opportunity_cost.build_covariance`
+extracted so the allocator optimises against the SAME matrix the risk contributions are
+read from; `api/price_panel.aligned_returns` extracted so the Slice-7 proposal and the
+allocator share ONE definition of the trailing return series; public `gross_profit` and
+`pit_as_of()` added to the Stage-24 reader so Release 30 reuses the released gross-profit
+fallback and the reporting-lag POLICY instead of restating either.
+
+**What did not change.** `engine/reallocation_proposal` remains the ONE proposal owner.
+`api/portfolio_decision` remains the ONE decision owner. Stage 19 controlled execution is
+untouched. The zero-base target is a REVIEW surface: it creates no target, order plan,
+order, signal or decision, and it cannot approve anything.
+
+**Known limitations, stated rather than hidden.**
+
+* The owned feature panel's last session is **2026-08-05**, nine sessions behind the
+  eligible market date. Every forecast is stamped with the session it ACTUALLY used and
+  the gap is reported; nothing is extrapolated.
+* Forecast uncertainty is close to uniform across names (≈8.4 % at 20 sessions), because
+  the walk-forward residual dispersion is a single number and ensemble member
+  disagreement is small beside it. The uncertainty penalty therefore does little
+  cross-sectional work today.
+* Cash competes against forecast EXCESS return at a declared zero. The market's own level
+  is not forecast, so a high cash weight means the CROSS-SECTIONAL opportunity set is
+  poor — never that the market is expected to fall.
+
+**Guards.** `tests/test_release30_return_forecast.py` (40),
+`tests/test_release30_zero_base_allocator.py` (43),
+`tests/test_release30_read_models_and_ui.py` (30) — 113 tests.
+`scripts/audit_architecture.py` → `check_release30_zero_base_ownership`, 21
+strict-blocking invariants. Strict audit exits 0.
+
+**Safety, unchanged.** Paper-only, preview-first, manual review mandatory, automation off,
+no broker execution, no Create Orders, no order plan, no model promotion.
 
 ## Release 29.5 — DRC manifest / downstream provenance (2026-08-18)
 

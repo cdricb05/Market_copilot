@@ -5089,6 +5089,250 @@ def check_restart_invocation_hygiene(extra_dirs=()) -> dict:
     }
 
 
+def check_release30_zero_base_ownership(files: list[Path]) -> dict:
+    """Release 30 strict semantic ownership guard for the zero-base adaptive
+    alpha capital allocator.
+
+    The defect this exists to prevent is a SECOND owner appearing beside an
+    existing one: a second proposal engine, a second decision owner, a second
+    covariance builder, a second aligned-return definition, a second event
+    authority table, or a forecast that promotes itself. Each invariant below is
+    a semantic contract, checked on symbols and AST rather than on prose.
+    """
+    forecast_kernel = "engine/return_forecast.py"
+    alloc_kernel = "engine/zero_base_allocator.py"
+    forecast_owner = "api/return_forecast.py"
+    alloc_owner = "api/zero_base_target.py"
+    matinfo = "api/material_information.py"
+    leaderboard = "api/alpha_leaderboard.py"
+    required = (forecast_kernel, alloc_kernel, forecast_owner, alloc_owner,
+                matinfo, leaderboard)
+    src = {p: _read(p) for p in required}
+    missing = [p for p in required if not src[p].strip()]
+
+    # 1. The kernels are PURE: stdlib only, no IO, no state.
+    kernel_impurity: list[dict] = []
+    for path in (forecast_kernel, alloc_kernel):
+        text = src.get(path) or ""
+        if not text.strip():
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as exc:
+            kernel_impurity.append({"path": path, "reason": f"UNPARSEABLE: {exc}"})
+            continue
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+        heavy = imported & {"numpy", "pandas", "requests", "sqlite3", "urllib",
+                            "httpx", "scipy"}
+        if heavy:
+            kernel_impurity.append({"path": path, "heavy_imports": sorted(heavy)})
+        for token in ("open(", "requests.", "write_text(", "os.environ"):
+            if token in text:
+                kernel_impurity.append({"path": path, "io_token": token})
+
+    # 2. There is exactly ONE zero-base calculation owner and ONE composition owner.
+    second_calculation_owner = []
+    second_composition_owner = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in (alloc_kernel, alloc_owner):
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^\s*def build_allocation\s*\(", text, re.M):
+            second_calculation_owner.append(rel)
+        if "ZERO_BASE_TARGET" in text and re.search(
+                r"^\s*def (optimise|build_zero_base)\s*\(", text, re.M):
+            second_composition_owner.append(rel)
+
+    # 3. The forecast layer never promotes, and the read surface never writes.
+    fsrc = src.get(forecast_owner) or ""
+    auto_promotion_declared = "AUTOMATIC_PROMOTION_ALLOWED = False" not in fsrc
+    activation_written_by_code = False
+    read_surface_writes: list[str] = []
+    try:
+        ftree = ast.parse(fsrc) if fsrc.strip() else None
+    except SyntaxError:
+        ftree = None
+    if ftree is not None:
+        for node in ast.walk(ftree):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+                if name == "_atomic_write_json" and node.args:
+                    if "ACTIVATION_FILE" in ast.unparse(node.args[0]):
+                        activation_written_by_code = True
+        fns = {n.name: n for n in ast.walk(ftree)
+               if isinstance(n, ast.FunctionDef)}
+        for name in ("build", "load_return_forecast", "summary",
+                     "activation_state"):
+            body = ast.unparse(fns[name]) if name in fns else ""
+            for token in ("_atomic_write_json", "write_text", "mkdir"):
+                if token in body:
+                    read_surface_writes.append("%s:%s" % (name, token))
+
+    # 4. The allocator is not a proposal or decision owner, and cannot approve.
+    asrc = src.get(alloc_owner) or ""
+    forbidden_calls: list[str] = []
+    try:
+        atree = ast.parse(asrc) if asrc.strip() else None
+    except SyntaxError:
+        atree = None
+    if atree is not None:
+        called = set()
+        for node in ast.walk(atree):
+            if isinstance(node, ast.Call):
+                called.add(getattr(node.func, "attr",
+                                   getattr(node.func, "id", "")))
+        forbidden_calls = sorted(called & {"record_decision", "approve",
+                                           "build_proposal", "run_proposal",
+                                           "persist_proposal", "create_order",
+                                           "confirm_order_plan"})
+
+    # 5. The covariance builder and the aligned-return series each have ONE owner.
+    hoc = _read("engine/holding_opportunity_cost.py")
+    covariance_owner_present = "def build_covariance(" in hoc
+    risk_contributions_delegate = False
+    try:
+        htree = ast.parse(hoc) if hoc.strip() else None
+        if htree is not None:
+            for node in ast.walk(htree):
+                if (isinstance(node, ast.FunctionDef)
+                        and node.name == "compute_risk_contributions"):
+                    risk_contributions_delegate = (
+                        "build_covariance" in ast.unparse(node))
+    except SyntaxError:
+        pass
+    pp = _read("api/price_panel.py")
+    aligned_owner_present = "def aligned_returns(" in pp
+    realloc = _read("api/reallocation_proposal.py")
+    realloc_delegates = "pp.aligned_returns(" in realloc
+    # Scope: the OPERATIONAL lane. A declared research-only module is entitled to
+    # its own estimator - engine/absolute_return_research.py has carried a
+    # shrunk-correlation builder since long before Release 30, and it feeds no
+    # operational calculation. What must stay unique is the risk owner the
+    # portfolio is actually priced on.
+    second_covariance_builders = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "engine/holding_opportunity_cost.py":
+            continue
+        if rel.startswith(RESEARCH_ONLY_DIRS) or rel in RESEARCH_ONLY_MODULES:
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^\s*def build_covariance\s*\(", text, re.M):
+            second_covariance_builders.append(rel)
+
+    # 6. The material-information read model owns NO authority table of its own.
+    msrc = src.get(matinfo) or ""
+    reads_fabric_authority = ("event_fabric" in msrc
+                              and "ALPHA_BEARING_AUTHORITIES" in msrc
+                              and "RISK_BEARING_AUTHORITIES" in msrc)
+    private_authority_table = bool(
+        re.search(r"^_AUTHORITY_REACH\s*=\s*\{", msrc, re.M))
+    owns_no_calculation = ('"owns_no_calculation": True' in msrc
+                           and '"owns_no_calculation": True' in (src.get(leaderboard) or ""))
+
+    # 7. The read surfaces are GET-only: Release 30 declares no mutation route.
+    app = _read(APP_MODULE)
+    r30_routes = ("/v1/operations/zero-base-target", "/v1/research/return-forecast",
+                  "/v1/operations/material-information",
+                  "/v1/research/alpha-leaderboard")
+    missing_routes = [r for r in r30_routes if '"%s"' % r not in app]
+    mutating_routes = []
+    for m in re.finditer(r'@app\.(post|put|delete|patch)\(\s*"([^"]+)"', app):
+        if any(k in m.group(2) for k in ("zero-base", "return-forecast",
+                                         "material-information",
+                                         "alpha-leaderboard")):
+            mutating_routes.append(m.group(2))
+
+    # 8. The UI presents; it never computes a verdict or an authority.
+    ui = _read(UI_FILE)
+    ui_regions = {
+        "material_information": 'id="cc-matinfo-card"' in ui,
+        "zero_base_target": 'id="zb-card"' in ui,
+        "alpha_leaderboard": 'id="albd-panel"' in ui,
+    }
+    ui_loaders = {
+        "material_information": ui.count("function loadMaterialInformation("),
+        "zero_base_target": ui.count("function loadZeroBaseTarget("),
+        "alpha_leaderboard": ui.count("function loadAlphaLeaderboard("),
+    }
+    ui_forbidden = []
+    for token in ("alert(", "confirm("):
+        # The UI must not introduce a browser dialog in a Release 30 renderer.
+        for m in re.finditer(r"function (renderMaterialInformation|"
+                             r"renderZeroBaseTarget|renderAlphaLeaderboard)\("
+                             r"[\s\S]{0,6000}?\n}", ui):
+            if token in m.group(0):
+                ui_forbidden.append({"function": m.group(1), "token": token})
+    # No execute control may appear inside a Release 30 region.
+    ui_execute_controls = []
+    for region in ('id="cc-matinfo-card"', 'id="zb-card"', 'id="albd-panel"'):
+        i = ui.find(region)
+        if i < 0:
+            continue
+        block = ui[i:i + 6000]
+        for token in ("dispatchCanonicalPrimaryAction", "CONFIRM_", "/execute",
+                      "orders/confirm", "rebalance/confirm"):
+            if token in block:
+                ui_execute_controls.append({"region": region, "token": token})
+
+    # 9. The research lane never imports the operational API package.
+    research_imports_api = []
+    for name in ("release30_panel", "release30_models",
+                 "release30_forecast_research", "release30_forecast_emitter"):
+        rel = "alpha_agent/%s.py" % name
+        text = _read(rel)
+        if "from paper_trader.api" in text or "import paper_trader.api" in text:
+            research_imports_api.append(rel)
+
+    # 10. Point-in-time and governance statements are DECLARED, not implied.
+    ksrc = src.get(forecast_kernel) or ""
+    zsrc = src.get(alloc_kernel) or ""
+    declarations = {
+        "target_is_a_return": 'TARGET_QUANTITY = "FORWARD_EXCESS_RETURN' in ksrc,
+        "market_level_not_forecast": 'MARKET_BASELINE_POLICY = "MARKET_LEVEL_NOT_FORECAST"' in ksrc,
+        "cash_policy_declared": 'CASH_RETURN_POLICY = "ZERO_RETURN_PAPER_ASSUMPTION"' in zsrc,
+        "position_count_policy_declared": "POSITION_COUNT_POLICY" in zsrc,
+        "legacy_count_retained": "LEGACY_TARGET_POSITION_COUNT = 25" in zsrc,
+        "objective_versioned": "OBJECTIVE_VERSION" in zsrc,
+        "two_targets_named": ("TARGET_ZERO_BASE" in zsrc
+                              and "TARGET_IMPLEMENTABLE" in zsrc),
+    }
+
+    return {
+        "modules_present": not missing,
+        "missing_modules": missing,
+        "kernel_impurity": kernel_impurity,
+        "second_calculation_owner_modules": sorted(second_calculation_owner),
+        "second_composition_owner_modules": sorted(second_composition_owner),
+        "auto_promotion_declared": auto_promotion_declared,
+        "activation_written_by_code": activation_written_by_code,
+        "read_surface_writes": sorted(read_surface_writes),
+        "allocator_forbidden_calls": forbidden_calls,
+        "covariance_owner_present": covariance_owner_present,
+        "risk_contributions_delegate_to_covariance_owner": risk_contributions_delegate,
+        "second_covariance_builders": sorted(second_covariance_builders),
+        "aligned_returns_owner_present": aligned_owner_present,
+        "reallocation_delegates_aligned_returns": realloc_delegates,
+        "material_information_reads_fabric_authority": reads_fabric_authority,
+        "material_information_private_authority_table": private_authority_table,
+        "read_models_own_no_calculation": owns_no_calculation,
+        "missing_routes": missing_routes,
+        "mutating_routes": sorted(mutating_routes),
+        "ui_regions": ui_regions,
+        "ui_loaders": ui_loaders,
+        "ui_forbidden_dialogs": ui_forbidden,
+        "ui_execute_controls": ui_execute_controls,
+        "research_lane_imports_api": sorted(research_imports_api),
+        "declarations": declarations,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -5194,6 +5438,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "operator_ux_consolidation_ownership": check_operator_ux_consolidation_ownership(files),
         "information_collection_ownership": check_information_collection_ownership(
             files, routes["routes"]),
+        "release30_zero_base_ownership": check_release30_zero_base_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -5812,6 +6057,39 @@ BLOCKING = ("duplicate_declarations", "research_execution_terms")
 #: entry here means a current economic read can silently miss a registered corporate
 #: action, or that split arithmetic was duplicated outside its one owner.
 BLOCKING_INVARIANTS = (
+    # --- Release 30: zero-base adaptive alpha capital allocation ------------
+    # ONE zero-base calculation owner and ONE composition owner; pure stdlib
+    # kernels; the forecast layer cannot promote or activate itself and its read
+    # surface cannot write; the allocator is neither a proposal nor a decision
+    # owner; the covariance builder and the aligned-return series each keep ONE
+    # owner; the material-information feed reads the event fabric's authority
+    # frozensets instead of copying them; the surfaces are GET-only; and no
+    # Release 30 UI region carries an execute control or a browser dialog.
+    ("release30_zero_base_ownership", "modules_present", True),
+    ("release30_zero_base_ownership", "kernel_impurity", []),
+    ("release30_zero_base_ownership", "second_calculation_owner_modules", []),
+    ("release30_zero_base_ownership", "second_composition_owner_modules", []),
+    ("release30_zero_base_ownership", "auto_promotion_declared", False),
+    ("release30_zero_base_ownership", "activation_written_by_code", False),
+    ("release30_zero_base_ownership", "read_surface_writes", []),
+    ("release30_zero_base_ownership", "allocator_forbidden_calls", []),
+    ("release30_zero_base_ownership", "covariance_owner_present", True),
+    ("release30_zero_base_ownership",
+     "risk_contributions_delegate_to_covariance_owner", True),
+    ("release30_zero_base_ownership", "second_covariance_builders", []),
+    ("release30_zero_base_ownership", "aligned_returns_owner_present", True),
+    ("release30_zero_base_ownership",
+     "reallocation_delegates_aligned_returns", True),
+    ("release30_zero_base_ownership",
+     "material_information_reads_fabric_authority", True),
+    ("release30_zero_base_ownership",
+     "material_information_private_authority_table", False),
+    ("release30_zero_base_ownership", "read_models_own_no_calculation", True),
+    ("release30_zero_base_ownership", "missing_routes", []),
+    ("release30_zero_base_ownership", "mutating_routes", []),
+    ("release30_zero_base_ownership", "ui_forbidden_dialogs", []),
+    ("release30_zero_base_ownership", "ui_execute_controls", []),
+    ("release30_zero_base_ownership", "research_lane_imports_api", []),
     # --- Stage 21: outcome intelligence, execution lineage, durable close, env ----
     # ONE outcome calculation owner + ONE persistence owner; ONE execution-lineage
     # owner; pure kernels; no second price/horizon/NAV/cost owner; GET-only surface;

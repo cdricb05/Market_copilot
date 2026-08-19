@@ -277,29 +277,29 @@ def _sample_covariance(a: list[float], b: list[float]) -> Optional[float]:
     return sum((a[i] - ma) * (b[i] - mb) for i in range(n)) / (n - 1)
 
 
-def compute_risk_contributions(*, weights: dict[str, float],
-                               aligned_returns: dict, policy: dict) -> dict:
-    """Standard covariance risk contribution w_i (Σw)_i / (wᵀΣw).
+def build_covariance(*, tickers, aligned_returns: dict, policy: dict) -> dict:
+    """The ONE daily-return covariance builder.
 
     ``aligned_returns`` = ``{"dates": [...], "series": {ticker: [ret|None ...]}}``.
-    Only tickers with at least ``min_covariance_obs`` observations over the dates
-    where EVERY included ticker has a value are used; others get an explicit
-    UNAVAILABLE contribution. Portfolio variance below ``covariance_variance_floor``
-    yields UNAVAILABLE for all (never a forced result). Returns a dict with a
-    ``contributions`` map ({ticker: pct|None}) and diagnostic metadata.
+    A ticker is included only when at least ``min_covariance_obs`` observations
+    survive over the dates where EVERY included ticker has a value; the rest are
+    excluded BY NAME with a reason rather than silently zero-filled.
+
+    Extracted in Release 30 so the zero-base allocator can optimise against the
+    same matrix the risk contributions are read from. A second covariance builder
+    would be a second risk owner, and the two would disagree the first time a
+    lookback or an alignment rule changed.
     """
     series = (aligned_returns or {}).get("series") or {}
     lookback = int(policy["covariance_lookback"])
     min_obs = int(policy["min_covariance_obs"])
+    cand = sorted(tk for tk in tickers if tk in series)
 
-    # Candidate tickers: held names with a weight and a return series.
-    cand = sorted(tk for tk in weights if tk in series and (weights.get(tk) or 0.0) > 0)
-
-    # Trailing lookback window, then the common index set where all candidates are present.
     trimmed = {tk: list(series[tk])[-lookback:] for tk in cand}
     length = min((len(v) for v in trimmed.values()), default=0)
     included: list[str] = []
     excluded: dict[str, str] = {}
+    aligned: dict[str, list] = {}
     if length >= min_obs and cand:
         # Align by trailing position; keep indices where every candidate is non-None.
         for tk in cand:
@@ -310,34 +310,64 @@ def compute_risk_contributions(*, weights: dict[str, float],
             included = list(cand)
             aligned = {tk: [float(trimmed[tk][i]) for i in common_idx] for tk in cand}
         else:
-            aligned = {}
             for tk in cand:
                 excluded[tk] = "INSUFFICIENT_ALIGNED_OBS"
     else:
-        aligned = {}
         for tk in cand:
             excluded[tk] = "INSUFFICIENT_ALIGNED_OBS"
-    for tk in weights:
+    for tk in tickers:
         if tk not in cand:
+            excluded.setdefault(tk, "NO_RETURN_SERIES")
+
+    cov: dict[str, dict[str, float]] = {}
+    if included:
+        cov = {i: {} for i in included}
+        for i in included:
+            for j in included:
+                if j in cov[i]:
+                    continue
+                c = _sample_covariance(aligned[i], aligned[j])
+                cov[i][j] = c if c is not None else 0.0
+                cov[j][i] = cov[i][j]
+    return {
+        "included_tickers": sorted(included),
+        "excluded_tickers": dict(sorted(excluded.items())),
+        "covariance": cov,
+        "observations_used": (len(next(iter(aligned.values()))) if included else 0),
+        "lookback": lookback,
+        "min_observations": min_obs,
+        "basis": "DAILY_SAMPLE_COVARIANCE_OVER_COMMON_ALIGNED_DATES",
+    }
+
+
+def compute_risk_contributions(*, weights: dict[str, float],
+                               aligned_returns: dict, policy: dict) -> dict:
+    """Standard covariance risk contribution w_i (Σw)_i / (wᵀΣw).
+
+    Uses ``build_covariance`` for the matrix itself; only tickers with a positive
+    weight are candidates. Portfolio variance below ``covariance_variance_floor``
+    yields UNAVAILABLE for all (never a forced result). Returns a dict with a
+    ``contributions`` map ({ticker: pct|None}) and diagnostic metadata.
+    """
+    built = build_covariance(
+        tickers=sorted(tk for tk in weights if (weights.get(tk) or 0.0) > 0),
+        aligned_returns=aligned_returns, policy=policy)
+    included = list(built["included_tickers"])
+    excluded = dict(built["excluded_tickers"])
+    cov = built["covariance"]
+    for tk in weights:
+        if tk not in included:
             excluded.setdefault(tk, "NO_RETURN_SERIES")
 
     contributions: dict[str, Optional[float]] = {tk: None for tk in weights}
     portfolio_variance: Optional[float] = None
     obs_used = 0
     if included:
-        obs_used = len(next(iter(aligned.values())))
+        obs_used = int(built["observations_used"])
         # Renormalize weights over the covariance universe (documented policy).
         wsum = sum(max(0.0, weights[tk]) for tk in included)
         if wsum > 0:
             w = {tk: max(0.0, weights[tk]) / wsum for tk in included}
-            cov = {i: {} for i in included}
-            for i in included:
-                for j in included:
-                    if j in cov[i]:
-                        continue
-                    c = _sample_covariance(aligned[i], aligned[j])
-                    cov[i][j] = c if c is not None else 0.0
-                    cov[j][i] = cov[i][j]
             sigma_w = {i: sum(cov[i][j] * w[j] for j in included) for i in included}
             pvar = sum(w[i] * sigma_w[i] for i in included)
             portfolio_variance = pvar
@@ -356,8 +386,8 @@ def compute_risk_contributions(*, weights: dict[str, float],
         "excluded_tickers": dict(sorted(excluded.items())),
         "observations_used": obs_used,
         "portfolio_variance_daily": portfolio_variance,
-        "lookback": lookback,
-        "min_observations": min_obs,
+        "lookback": int(built["lookback"]),
+        "min_observations": int(built["min_observations"]),
         "weight_basis": "renormalized over the covariance-eligible held names",
     }
 

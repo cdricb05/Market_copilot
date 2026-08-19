@@ -659,3 +659,44 @@ economics. It is the single contract Release 30 (operator notifications) consume
 automatic approval, no fabricated expected return, and no relaxing a limit to force a
 proposal into existence. A target that cannot satisfy the limits is WITHHELD and says
 so explicitly.
+
+## Release 30 boundary amendment - forecast, intrinsic target, implementable target
+
+Release 30 adds three canonical concepts to the ownership table. Each has exactly one
+owner, and none of them displaces an existing one.
+
+| Concept | Target owner | Consolidates |
+|---|---|---|
+| Forward-return forecast (what it IS, how a frozen model is applied, its uncertainty and identity) | `engine/return_forecast` (kernel) + `api/return_forecast` (composition / activation / evidence) | the `EXPECTED_RETURN_NOT_CALIBRATED` gap the Slice-7 proposal has carried since Phase 29H |
+| **Zero-base target** - the intrinsic desired allocation | `engine/zero_base_allocator` (kernel) + `api/zero_base_target` (composition / read) | resolved (review-only); no proposal, target, order or decision authority is created |
+| **Implementable target** - the transition-aware version of the same objective | the same owner, same objective, same constraints, same optimiser | resolved; the ONLY place incumbency enters |
+| Daily-return covariance | `engine/holding_opportunity_cost.build_covariance` | the allocator and the risk contributions now share ONE matrix |
+| Trailing aligned return series | `api/price_panel.aligned_returns` | the Slice-7 proposal and the allocator now share ONE definition |
+
+**The boundary that matters.** ZERO-BASE TARGET and IMPLEMENTABLE TARGET are different
+objects and are never conflated. The first may not read the current portfolio at all; the
+second reads it only to price the transition. A single "proposal" that let holdings
+influence which assets look attractive is precisely the ownership-inertia defect this
+boundary removes.
+
+**What Release 30 deliberately does NOT own.**
+
+* It is not a proposal engine - `engine/reallocation_proposal` remains the one owner.
+* It is not a decision owner - `api/portfolio_decision` remains the one owner.
+* It is not an execution path - Stage 19 controlled execution is untouched.
+* It is not a model-promotion authority - activation requires a human and no code path
+  can write an activation record.
+* It is not a second event-authority table - the capital-impact feed READS
+  `engine/event_fabric`'s own frozensets.
+
+**Three cycles, unchanged in cadence.** Signal refresh (frequent) gains a forecast
+refresh; portfolio reassessment (frequent) gains zero-base recalculation and transition
+economics feeding the existing HOC -> reassessment -> proposal -> decision chain; model
+recalibration stays CONTROLLED - ensemble weights and risk prices change only at an
+evidence checkpoint, never per event.
+
+**Governance amendment.** Historical point-in-time walk-forward out-of-sample evidence
+may qualify a forecasting candidate for MANUAL paper approval; twelve future live
+observations are no longer a precondition. Existing TRUE_FORWARD evidence remains
+immutable and is never merged with walk-forward evidence. Automatic promotion remains
+forbidden.

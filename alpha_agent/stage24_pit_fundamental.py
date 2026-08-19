@@ -745,6 +745,24 @@ def _gross_profit(rec_side: dict) -> Optional[float]:
     return rev - cor
 
 
+#: PUBLIC re-export of the derivation above. Release 30 reuses the gross-profit
+#: fallback rather than restating it, and a public name is how that reuse is
+#: declared: a second module reaching for the private one would be exactly the
+#: silent fork this alias exists to prevent.
+gross_profit = _gross_profit
+
+
+def pit_as_of(formation_date: str) -> str:
+    """The as-of date at which a formation on ``formation_date`` may read
+    fundamentals.
+
+    The reporting-lag POLICY - not merely the arithmetic - lives here, so every
+    consumer inherits the same answer. A caller that shifted the date itself
+    would own a second copy of a point-in-time rule, and the two would drift the
+    first time the lag changed."""
+    return _shift_days(formation_date, REPORTING_LAG_DAYS)
+
+
 # =========================================================================== #
 # WORKSTREAM 5/6 - the pre-registered factor set.
 #

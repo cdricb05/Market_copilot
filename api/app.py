@@ -213,6 +213,11 @@ from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
 from paper_trader.api import event_signal_refresh as _event_refresh
 from paper_trader.api import information_collection as _info_collection
+# Release 30 - zero-base adaptive alpha capital allocation (read-only surfaces).
+from paper_trader.api import return_forecast as _forecast
+from paper_trader.api import zero_base_target as _zero_base
+from paper_trader.api import material_information as _matinfo
+from paper_trader.api import alpha_leaderboard as _leaderboard
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6529,6 +6534,115 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/operations/zero-base-target",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_zero_base_target() -> dict:
+    """Release 30 canonical ZERO-BASE TARGET and IMPLEMENTABLE TARGET (read-only).
+
+    Answers the portfolio manager's real question: *if every investable dollar were
+    cash right now, using only information legitimately available at this decision
+    timestamp, what S&P-500-eligible portfolio and how much cash would we choose?*
+    The current portfolio is NOT an input to that optimisation, so a holding gets no
+    advantage from being held. It then computes the IMPLEMENTABLE TARGET - the same
+    objective solved FROM the current book with the canonical transaction cost inside
+    the economics - so incumbency affects only the cost of moving, never which assets
+    are intrinsically attractive.
+
+    Composed by ``api.zero_base_target`` from the canonical owners
+    (``api.universe_scoring`` eligible universe / sector / liquidity,
+    ``api.portfolio_state`` NAV / cash / holdings, ``api.return_forecast`` expected
+    excess return / uncertainty / downside, ``api.price_panel`` trailing returns,
+    ``engine.holding_opportunity_cost`` covariance, ``api.multi_horizon_engine``
+    caps, ``api.paper_trading_desk`` cost rate) and computed by the pure
+    ``engine.zero_base_allocator`` kernel. Cash is a real asset choice at a DECLARED
+    zero return, and the position count is emergent from the weight caps rather than
+    fixed at the legacy 25.
+
+    STRICTLY READ-ONLY, RESEARCH/REVIEW ONLY: it is NOT a proposal
+    (``engine.reallocation_proposal`` remains the one proposal owner) and NOT a
+    decision (``api.portfolio_decision`` remains the one decision owner). It creates
+    no target, no order plan, no order/fill, no signal and no decision; it changes no
+    holding, cash or NAV; it promotes no model and enables no automation.
+    """
+    return _zero_base.load_zero_base_target()
+
+
+@app.get(
+    "/v1/research/return-forecast",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_return_forecast() -> dict:
+    """Release 30 canonical FORWARD-RETURN FORECAST (read-only).
+
+    Per eligible name and horizon (5 / 20 / 60 trading sessions): expected return,
+    expected EXCESS return, forecast uncertainty, a downside quantile, rank, and the
+    exact model / feature hashes and training cutoff behind them. The modelled
+    quantity is a forward RETURN, never a future price level, and it is a
+    cross-sectional EXCESS return - the market's own level is explicitly not
+    forecast, which is stated in the payload rather than left implicit.
+
+    Applied by the pure stdlib ``engine.return_forecast`` kernel to a frozen model
+    artifact produced by the walk-forward research lane, over a feature cross-section
+    emitted from the owned survivorship-free daily panel. Where that panel sits behind
+    the eligible market date, the forecast is stamped with the session it ACTUALLY
+    used and the gap is reported.
+
+    ACTIVATION IS MANUAL: an artifact existing on disk does not make it operational.
+    Until a human writes an activation record the state is NOT_ACTIVATED and the
+    payload is research evidence only - it never reaches the canonical portfolio
+    decision. No code path here can promote or activate a model, and reading never
+    writes.
+    """
+    return _forecast.load_return_forecast()
+
+
+@app.get(
+    "/v1/operations/material-information",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_material_information(limit: int = 12) -> dict:
+    """Release 30 MATERIAL INFORMATION / CAPITAL IMPACT feed (read-only).
+
+    What the system just heard, how it interpreted it, and what that changed. For each
+    recent material event: timestamp, ticker, source, event type, its DECISION
+    AUTHORITY, what changed, and whether the forecast, risk, holding opportunity-cost
+    and portfolio reassessment were affected - plus the resulting portfolio decision.
+
+    A pure READ MODEL owning no calculation: authority reach is read from
+    ``engine.event_fabric``'s own frozensets rather than from a private copy, so an
+    ``EVENT_TRIGGER_ONLY`` event can put a holding on the review list and can never
+    contribute expected return. Creates no order, decision or mutation.
+    """
+    return _matinfo.load_material_information(limit=limit)
+
+
+@app.get(
+    "/v1/research/alpha-leaderboard",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_leaderboard(horizon: int = 20) -> dict:
+    """Release 30 ALPHA MODEL LEADERBOARD (read-only).
+
+    The actual state of the alpha competition on one screen: the operational
+    champion, the new adaptive candidate, and the component alphas that feed it -
+    each with its strict out-of-sample walk-forward evidence (rank IC and its
+    Newey-West t, net-of-cost book return, information ratio, drawdown, turnover,
+    calibration), its ensemble weight, its lifecycle status and its verdict.
+    ``s25_operating_profitability`` is surfaced explicitly rather than left buried,
+    and no row claims superiority its evidence does not support.
+
+    A pure READ MODEL owning no calculation. It promotes nothing: a champion change
+    requires a human, and this surface can only report evidence.
+    """
+    return _leaderboard.load_alpha_leaderboard(horizon=horizon)
 
 
 @app.get(

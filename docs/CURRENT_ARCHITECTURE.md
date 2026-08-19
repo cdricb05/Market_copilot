@@ -2274,3 +2274,103 @@ the audit asserts that on the function body.
 real Aug-18 08:31 ET semantics plus the mirror-image post-cutoff world.
 `scripts/audit_architecture.py` -> `check_release29_4_session_authority` is the
 strict-blocking architecture guard (AST/symbol contracts, 13 blocking invariants).
+
+## Release 30 - Zero-base adaptive alpha capital allocation (LANDED, NOT ACTIVATED)
+
+Full detail: [RELEASE30_ZERO_BASE_ADAPTIVE_ALLOCATOR.md](RELEASE30_ZERO_BASE_ADAPTIVE_ALLOCATOR.md).
+
+### The rule this release enforces
+
+*Ownership is not an investment thesis.* Every construction path before this release
+started from the current holdings and asked what to change, which quietly grants an
+incumbent a status no evidence gave it. Release 30 asks the portfolio manager's real
+question - **"if all of this were cash right now, what would we buy?"** - and prices the
+transition separately.
+
+### Two objects, never conflated
+
+| Object | Question | Sees holdings? |
+|---|---|---|
+| **ZERO-BASE TARGET** | the intrinsic desired allocation, as if all capital were cash | **No** |
+| **IMPLEMENTABLE TARGET** | the same objective solved FROM the current book, with transaction cost inside the economics | **Yes**, and only here |
+
+### Ownership added
+
+| Concept | Owner |
+|---|---|
+| what a forward-return forecast IS | `engine/return_forecast.py` (stdlib kernel) |
+| forecast composition / activation / forward evidence | `api/return_forecast.py` |
+| the zero-base objective, constraints, optimiser, transition economics | `engine/zero_base_allocator.py` (stdlib kernel) |
+| zero-base composition / read | `api/zero_base_target.py` |
+| the capital-impact feed | `api/material_information.py` (read model, owns nothing) |
+| the model leaderboard | `api/alpha_leaderboard.py` (read model, owns nothing) |
+| walk-forward tournament, ensemble weights, risk-price calibration | `alpha_agent/release30_*` (research lane, numpy) |
+
+### Ownership consolidated
+
+* `engine/holding_opportunity_cost.build_covariance()` extracted; `compute_risk_contributions`
+  now calls it, so the allocator optimises against the SAME matrix the risk contributions
+  are read from. A second covariance builder would be a second risk owner.
+* `api/price_panel.aligned_returns()` extracted; `api/reallocation_proposal` delegates to
+  it, so the Slice-7 proposal and the allocator read one definition of the trailing
+  return series.
+* `alpha_agent/stage24_pit_fundamental` gained public `gross_profit` and `pit_as_of()`, so
+  Release 30 reuses the released gross-profit fallback and the reporting-lag POLICY
+  instead of restating either.
+
+### What did NOT change
+
+`engine/reallocation_proposal` remains the ONE portfolio proposal owner.
+`api/portfolio_decision` remains the ONE canonical decision owner. Stage 19 controlled
+execution is untouched. The zero-base target is a REVIEW surface: it creates no target,
+order plan, order, signal or decision, and it cannot approve anything.
+
+### Routes (GET only)
+
+`/v1/operations/zero-base-target` - `/v1/research/return-forecast` -
+`/v1/operations/material-information` - `/v1/research/alpha-leaderboard`
+
+### The forecast
+
+The modelled quantity is a forward **RETURN**, never a price level: forward total return
+minus the equal-weight mean of the same eligible cross-section, at 5 / 20 / 60 trading
+sessions. `MARKET_BASELINE_POLICY = "MARKET_LEVEL_NOT_FORECAST"` - the market's own level
+is not forecast and is never credited to the model, which is why cash competes against
+forecast EXCESS return net of risk.
+
+Training lives in the research lane because it needs numpy while `api/` and `engine/` are
+stdlib-only; the split reuses the Phase-29D.2 monthly-momentum bridge pattern exactly.
+The stdlib rank transform is asserted to match the numpy research transform, and the
+stdlib model application to reproduce every numpy learner.
+
+### Measured point-in-time integrity
+
+The price/liquidity/risk family is survivorship-free (owned Phase-24 panel, PIT
+membership mask, delisted retained): 304 decision dates, 277,466 rows, and 2,135
+delisting-truncated labels RETAINED rather than dropped.
+
+The fundamental family is not. Issuer resolution succeeds for **56.7 %** of symbols still
+in the universe but only **20.7 %** of symbols that have left it - a **2.74x survivorship
+skew** in the rows on which any fundamental factor is DEFINED. Every fundamental
+comparison therefore runs on a coverage-MATCHED sub-sample where both sides see identical
+rows; that isolates the forecast from the sample but does not remove the skew, so a
+fundamental result alone can never justify activation.
+
+Sector is deliberately absent from every historical feature: the canonical PIT sector
+owner classifies its snapshot as `ENTITY_SIC_SNAPSHOT_CONTROL`, inadmissible for signal
+construction. Sector enters only the CURRENT-date sector cap.
+
+### Verdicts
+
+* `R30_ZERO_BASE_ALLOCATOR_READY` - the allocator is valid, converged, constraint-checked
+  and reproducible.
+* `R30_ADAPTIVE_MODEL_NO_GO` on BOTH universes. On the survivorship-free universe the
+  candidate loses 5.9-9.2 pp p.a. net of costs at every horizon and no rank-IC t reaches
+  2. Activation remains manual and is NOT granted.
+
+### Guards
+
+`tests/test_release30_return_forecast.py` (40), `tests/test_release30_zero_base_allocator.py`
+(43) and `tests/test_release30_read_models_and_ui.py` (30) are the regression.
+`scripts/audit_architecture.py` -> `check_release30_zero_base_ownership` is the
+strict-blocking architecture guard (21 blocking invariants over AST/symbol contracts).

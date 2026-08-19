@@ -1854,3 +1854,126 @@ moves no capital, changes no holding and creates no order. Sitting beside a
 REVIEW / READY TO CONFIRM" read as an approval waiting on the operator. The
 functionality is valid and was kept; only the words that misattributed its authority
 changed.
+
+## Release 30 decisions
+
+### D-R30-1 - The intrinsic target may not see the current portfolio (CONFIRMED)
+
+**Decision.** The ZERO-BASE TARGET is computed as if every investable dollar were cash.
+The current portfolio is not an input to it. A separate IMPLEMENTABLE TARGET solves the
+same objective FROM the current book with transaction cost inside the economics.
+
+**Why.** Every construction path before this release started from the holdings and asked
+what to change. That grants an incumbent a status no evidence gave it, and it is
+invisible: the output still looks like a portfolio. Splitting the two objects makes
+ownership inertia impossible to express, because the object that decides what is
+attractive cannot see what is held.
+
+**Evidence.** `tests/test_release30_zero_base_allocator.py::test_01` varies only the
+holdings and requires the intrinsic target back byte-identical; `test_04` requires a held
+name and an unheld economic twin to receive the same weight; `test_24` requires the
+transaction-cost rate to leave the zero-base target unchanged.
+
+### D-R30-2 - Risk is a property of the portfolio, never a sum of per-name penalties (CONFIRMED)
+
+**Decision.** Covariance risk, forecast uncertainty and the downside shortfall are all
+computed on the portfolio, not charged name by name.
+
+**Why.** This was found empirically. The first formulation penalised each name's own
+downside quantile linearly, and it allocated 100 % to cash under every realistic input -
+because per-name forecast error is overwhelmingly idiosyncratic, so charging it per name
+prices risk that diversification removes. A diversified book handles that cross-section
+comfortably; the objective has to say so.
+
+### D-R30-3 - The risk prices are derived from walk-forward evidence, not chosen (CONFIRMED)
+
+**Decision.** `gamma` = mean / variance of the candidate's realised per-period book excess
+return on VALIDATION blocks - the price at which a fully-invested diversified book is
+exactly marginal. `phi` = `gamma` (no evidence supports pricing forecast error
+differently), kept separate so that can change. `tail` = how much fatter the MEASURED
+residual left tail is than a normal one. `delta` = `max(0, tail - 1)`.
+
+**Why.** A hand-picked risk aversion silently decides the cash weight, which is the single
+most consequential number the allocator produces. Deriving it means the cash weight
+reflects the opportunity set rather than somebody's taste. `delta = max(0, tail - 1)` is
+what stops the tail term double-counting a dispersion the variance term already priced:
+on the measured residuals the tail factor came out **below** 1.0 at every horizon, so
+`delta` is 0.0 and the objective charges nothing extra - which is the correct answer, not
+a missing feature.
+
+### D-R30-4 - Cash competes against forecast EXCESS return, at a declared zero (CONFIRMED)
+
+**Decision.** Cash earns `CASH_RETURN = 0.0` under
+`CASH_RETURN_POLICY = "ZERO_RETURN_PAPER_ASSUMPTION"`, and the market's own level is not
+forecast (`MARKET_BASELINE_POLICY = "MARKET_LEVEL_NOT_FORECAST"`).
+
+**Why.** No owned canonical risk-free series is admissible as a portfolio-construction
+input - D-17 declares the market-context owner CONTEXT and never a signal - and a
+cross-sectional model genuinely cannot forecast the market's level. Fabricating an equity
+risk premium is the easiest way to make a long-only allocator look good on paper, so the
+system states the limitation instead. The consequence is honest and must be read as
+such: cash rises when the CROSS-SECTIONAL opportunity set is poor, not when the market is.
+
+### D-R30-5 - The legacy 25-name count is a construction default, not an investment constraint (CONFIRMED)
+
+**Decision.** The zero-base objective fixes no position count; it caps a name's weight and
+lets the count fall out. `LEGACY_TARGET_POSITION_COUNT = 25` is retained, declared and
+reported, and `engine/reallocation_proposal` is unchanged.
+
+**Why.** No evidence says 25 is the right number of names - it is the size of the
+equal-weight book. Silently deleting it would have destroyed a working path; silently
+keeping it would have constrained the intrinsic target for no reason. Naming it resolves
+the ownership question without doing either.
+
+### D-R30-6 - Walk-forward evidence may qualify a model for manual paper approval (CONFIRMED)
+
+**Decision.** Strict point-in-time walk-forward out-of-sample evidence may qualify a
+forecasting candidate for MANUAL paper activation. Twelve future live observations are no
+longer a precondition. Automatic promotion remains forbidden, existing TRUE_FORWARD
+evidence remains immutable, and the two kinds of evidence are never merged.
+
+**Why.** Requiring twelve live observations before a model may affect paper capital made
+the paper book a slower research instrument than the research lane it was meant to
+inform, while adding no safety a walk-forward protocol with an embargo does not already
+provide. What actually protects the book is that a human approves, not that the evidence
+arrived in the future.
+
+### D-R30-7 - An artifact on disk is not an activated model (CONFIRMED)
+
+**Decision.** `activation_state` is `NOT_ACTIVATED` unless a human has written an
+activation record carrying an explicit token, and no code path in `api/return_forecast.py`
+can write one. An unactivated forecast reports `operational_use =
+RESEARCH_EVIDENCE_ONLY` and never reaches the canonical portfolio decision.
+
+**Why.** Producing an artifact and adopting it are different acts. Every prior release
+that blurred a similar line - existence treated as provenance in R29.5, a vocabulary
+mirrored in R29.4 - cost a live incident. The guard asserts on the AST that no
+`_atomic_write_json` call targets the activation file.
+
+### D-R30-8 - The capital-impact feed reads the fabric authority, it does not restate it (CONFIRMED)
+
+**Decision.** `api/material_information.py` derives forecast / risk / opportunity-cost
+reach from `engine.event_fabric`'s own `ALPHA_BEARING_AUTHORITIES`,
+`RISK_BEARING_AUTHORITIES` and `TRIGGER_BEARING_AUTHORITIES` frozensets. A private
+reach table is a strict-blocking audit failure.
+
+**Why.** The first implementation carried its own table and was wrong within minutes - it
+invented authority names the fabric does not use. D-R29.4-2 already established that a
+duplicated vocabulary is a vocabulary that will drift; this is the same rule applied to a
+read model. It is also what makes the product central safety claim checkable: an
+`EVENT_TRIGGER_ONLY` event can trigger a reassessment and can never contribute expected
+return, because only an alpha-bearing authority reaches the forecast.
+
+### D-R30-9 - The fundamental family carries a MEASURED survivorship caveat (CONFIRMED)
+
+**Decision.** Issuer resolution succeeds for 56.7 % of symbols still in the universe and
+20.7 % of symbols that have left it - a 2.74x skew, reported in
+`point_in_time_integrity.json` and on the leaderboard. Every fundamental comparison runs
+on a coverage-MATCHED sub-sample so both sides see identical rows, and a fundamental
+result alone can never justify activation.
+
+**Why.** The matched sub-sample removes the confound between "better forecast" and
+"different sample", which is what makes the comparison meaningful. It does not remove the
+skew from the sample itself, and pretending otherwise would be the exact failure this
+project has repeatedly refused elsewhere. Measuring the skew and naming it is what lets a
+reader discount the result correctly instead of guessing.

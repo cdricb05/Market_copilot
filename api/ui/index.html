@@ -3485,6 +3485,38 @@
             <div id="am-activity-slot" aria-hidden="true"></div>
           </div>
 
+          <!-- ============ RELEASE 30: MATERIAL INFORMATION / CAPITAL IMPACT ============
+               The operator's FIRST question is "what did the system just hear, and what
+               did it change?", so it sits ABOVE the conclusions drawn from it rather
+               than below them. Rendered verbatim from GET /v1/operations/material-
+               information: the UI performs no classification, derives no authority and
+               computes no impact — every flag comes from the owner that decided it
+               (engine.event_fabric for authority, api.holding_opportunity_cost for the
+               holding conclusion, api.portfolio_decision for the portfolio one).
+               Compact and row-capped: Today is an operating surface, and the deep
+               signal ledger lives in Research. READ ONLY — no action, no execute
+               control, no mutation. -->
+          <div id="cc-matinfo-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Material Information &mdash; Capital Impact</span>
+              <span class="cc-badge" id="matinfo-badge" title="Material-information feed state.">&mdash;</span>
+              <span class="cc-badge safe">READ ONLY</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span id="matinfo-counts" style="font-size:11px;color:var(--label);"></span>
+              <details class="r29-safety-fold">
+                <summary title="Full safety state for the material-information feed.">Safety</summary>
+                <span class="r29-safety-body">
+                  <span class="cc-badge safe">NO ORDERS</span>
+                  <span class="cc-badge safe">AUTOMATION OFF</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                </span>
+              </details>
+            </div>
+            <div id="matinfo-sub" style="font-size:11px;color:var(--label);margin-top:4px;">What the system heard, how it read it, and what it changed.</div>
+            <div id="matinfo-table" style="margin-top:8px;overflow-x:auto;"></div>
+            <div id="matinfo-authority" style="font-size:10px;color:var(--label);margin-top:6px;line-height:1.4;"></div>
+          </div>
+
           <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
           <!-- The FIRST primary operator card. ONE canonical daily-close status from
                /v1/operations/daily-close drives the primary action: Run Daily Close
@@ -5256,6 +5288,37 @@
           </div>
         </details>
 
+        <!-- ============ RELEASE 30: ZERO-BASE TARGET vs CURRENT PORTFOLIO ============
+             The intrinsic desired allocation, computed as if every investable dollar
+             were cash right now — the current book is NOT an input to it — beside the
+             IMPLEMENTABLE target, which is the same objective solved FROM the current
+             book with the canonical transaction cost inside the economics.
+
+             This is a REVIEW surface, not a proposal and not a decision:
+             engine.reallocation_proposal remains the one proposal owner and
+             api.portfolio_decision the one decision owner. There is deliberately no
+             apply, confirm, rebalance or approve control here, and there is no client
+             arithmetic — every figure is rendered verbatim from
+             GET /v1/operations/zero-base-target. ============================================ -->
+        <div class="card" id="zb-card" style="margin-bottom:12px;display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Zero-Base Target vs Current Portfolio
+              <span class="cc-badge" id="zb-state" title="Zero-base allocation state.">&mdash;</span></span>
+            <span style="display:flex;gap:4px;flex-wrap:wrap;">
+              <span class="cc-badge safe">PREVIEW ONLY</span>
+              <span class="cc-badge safe">NOT A PROPOSAL</span>
+              <span class="cc-badge safe">NO ORDERS</span>
+              <span class="cc-badge manual">MANUAL REVIEW</span>
+            </span>
+          </div>
+          <div id="zb-question" style="font-size:12px;font-weight:700;margin:2px 0 8px;">&mdash;</div>
+          <div id="zb-columns" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;"></div>
+          <div id="zb-transition" style="margin-top:10px;"></div>
+          <div id="zb-objective" style="font-size:10px;color:var(--label);margin-top:8px;line-height:1.5;"></div>
+          <div id="zb-rows" style="margin-top:10px;overflow-x:auto;"></div>
+          <div id="zb-note" style="font-size:10px;color:var(--label);margin-top:6px;line-height:1.4;"></div>
+        </div>
+
       </div>
       <!-- ===================== Phase 26 PORTFOLIO MANAGER END ===================== -->
 
@@ -5687,6 +5750,29 @@
           </details>
 
           <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">Evidence sufficiency, champion-health states, degradation categories, challenger classification, the recalibration recommendation and every opportunity are produced by the backend research-agent engine, never in the browser. Research governance only &mdash; no model is promoted, no portfolio is changed, no order is created.</div>
+        </div>
+
+        <!-- ============ RELEASE 30: ALPHA MODEL LEADERBOARD ============
+             The actual state of the alpha competition: the operational champion, the
+             adaptive candidate and the component alphas that feed it, each with its
+             STRICT out-of-sample walk-forward evidence and its own verdict.
+             s25_operating_profitability is surfaced explicitly rather than left buried.
+             Rendered verbatim from GET /v1/research/alpha-leaderboard — no statistic,
+             no ranking and no verdict is computed in the browser. Research governance
+             only: this surface promotes nothing and can only report evidence. ======= -->
+        <div class="card" id="albd-panel" style="margin-bottom:14px;display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Alpha Model Leaderboard
+              <span class="cc-badge" id="albd-state" title="Leaderboard state.">&mdash;</span></span>
+            <span style="display:flex;gap:4px;flex-wrap:wrap;">
+              <span class="cc-badge safe">READ ONLY</span>
+              <span class="cc-badge safe">NO LIVE PROMOTION</span>
+              <span class="cc-badge manual">MANUAL REVIEW</span>
+            </span>
+          </div>
+          <div id="albd-champion" style="font-size:11px;color:var(--label);margin:2px 0 8px;"></div>
+          <div id="albd-universes"></div>
+          <div id="albd-note" style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);line-height:1.5;"></div>
         </div>
 
         <!-- ============ CONTROLLED AUTONOMOUS RESEARCH EXECUTION BRIDGE ============ -->
@@ -24945,7 +25031,9 @@ window._ptHighlightNav = _ptHighlightNav;
 // Phase 15-B: Research & Audit workspace — one section active at a time.
 var _RA_SECTIONS = {
   '':                 { panels: [], champion: true },
-  'research-agent':   { panels: ['rag-panel'], champion: false },
+  // Release 30: the leaderboard is part of the Research Agent section, not a new
+  // navigation item — the operator asks "is the research trustworthy?" once.
+  'research-agent':   { panels: ['rag-panel', 'albd-panel'], champion: false },
   'research-bridge':  { panels: ['rbridge-panel'], champion: false },
   'performance':      { panels: ['cap-panel'], champion: false },
   'daily-operations': { panels: ['cao-panel'], champion: false },
@@ -25013,7 +25101,8 @@ window._raApplySection = _raApplySection;
 // Best-effort, read-only data load for the active Research & Audit section.
 function _raLoadSection(sub) {
   var loaders = {
-    'research-agent': ['loadResearchAgent', 'loadResearchBridge'],
+    'research-agent': ['loadResearchAgent', 'loadResearchBridge',
+                       'loadAlphaLeaderboard'],
     'research-bridge': ['loadResearchBridge'],
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
@@ -26031,6 +26120,7 @@ async function loadPortfolioManager() {
   try { loadPortfolioReassessment(); } catch (e) {}  // Stage 20 active portfolio assessment
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
+  try { loadZeroBaseTarget(); } catch (e) {}      // Release 30 zero-base target (review-only)
   try { loadRebalanceLifecycle(); } catch (e) {}   // Stage 19 controlled rebalance lifecycle + CA integrity
   try { loadReassessmentOutcomes(); } catch (e) {}  // Stage 21 decision outcome evidence (read-only)
   try { loadRebalanceExecutionLineage(); } catch (e) {}  // Stage 21 completed-rebalance lineage
@@ -26805,6 +26895,7 @@ function loadOperationalBook() {
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     try { loadReallocationProposal(); } catch (e) {} // Slice 7: the ONE reallocation proposal
+    try { loadMaterialInformation(); } catch (e) {} // Release 30: what arrived and what it changed
     try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
@@ -26816,7 +26907,8 @@ function loadOperationalBook() {
     try { loadWorkflowState(); } catch (e) {}
     try { loadDailyResearchCycle(); } catch (e) {}
     try { loadUniverseScoring(); } catch (e) {}
-    try { loadReallocationProposal(); } catch (e) {} return null; });
+    try { loadReallocationProposal(); } catch (e) {}
+    try { loadMaterialInformation(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -27222,6 +27314,7 @@ function loadReallocationProposal() {
   return p;
 }
 window.loadReallocationProposal = loadReallocationProposal;
+
 
 // ---------------------------------------------------------------------------
 // Stage 19 — Controlled paper-rebalance lifecycle + corporate-action integrity.
@@ -27680,6 +27773,333 @@ function renderReallocationProposal(d) {
   try { _vaRenderReallocVisuals(d); } catch (e) {}
 }
 window.renderReallocationProposal = renderReallocationProposal;
+
+// ===========================================================================
+// RELEASE 30 — zero-base adaptive alpha capital allocation (READ-ONLY surfaces)
+//
+// Three renderers, one rule: the browser presents, it never decides. No
+// expected return, no risk figure, no turnover, no cost, no verdict and no
+// authority flag is computed here — every value is read verbatim from its
+// backend owner. There is no execute, apply, confirm or approve control in any
+// of these regions, and none of them can create an order, a signal, a target or
+// a decision.
+// ===========================================================================
+function _r30num(x, nd, suffix) {
+  if (x === null || x === undefined || x === '' || isNaN(Number(x))) return '&mdash;';
+  return Number(x).toFixed(nd === undefined ? 2 : nd) + (suffix || '');
+}
+function _r30pct(x, nd) {
+  if (x === null || x === undefined || x === '' || isNaN(Number(x))) return '&mdash;';
+  return (Number(x) * 100).toFixed(nd === undefined ? 2 : nd) + '%';
+}
+function _r30money(x) {
+  if (x === null || x === undefined || isNaN(Number(x))) return '&mdash;';
+  return '$' + Number(x).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+function _r30esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _r30dash(s) {
+  // Deliberately NOT `x || fallback`: the canonical portfolio-state guard reserves
+  // that idiom so no page can re-derive an active-book identity. This formats a
+  // value the backend already decided; it never selects one.
+  var v = _r30esc(s);
+  return v === '' ? '&mdash;' : v;
+}
+function _r30yesno(v, yes, no) {
+  return v ? '<b style="color:var(--warning,#f59e0b);">' + (yes || 'yes') + '</b>'
+           : '<span style="color:var(--label);">' + (no || '&mdash;') + '</span>';
+}
+
+// ---- Today: MATERIAL INFORMATION / CAPITAL IMPACT -------------------------
+function renderMaterialInformation(d) {
+  var card = document.getElementById('cc-matinfo-card');
+  if (!card) return;
+  if (!d || d.state === 'UNAVAILABLE') { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var badge = document.getElementById('matinfo-badge');
+  if (badge) badge.textContent = d.state || '—';
+  _setHtml('matinfo-counts',
+    _r30esc(d.total_material_events || 0) + ' material · '
+    + _r30esc(d.material_events_affecting_holdings || 0) + ' touch holdings');
+
+  var rows = d.rows || [];
+  if (!rows.length) {
+    _setHtml('matinfo-table',
+      '<div style="font-size:11px;color:var(--label);">No material information has been'
+      + ' classified for this session. Nothing is inferred when nothing arrived.</div>');
+  } else {
+    var head = '<tr>'
+      + '<th style="text-align:left;">When</th><th style="text-align:left;">Name</th>'
+      + '<th style="text-align:left;">What changed</th>'
+      + '<th style="text-align:left;">Authority</th>'
+      + '<th>Forecast</th><th>Risk</th><th style="text-align:left;">Opportunity cost</th>'
+      + '<th style="text-align:left;">Result</th></tr>';
+    var body = rows.map(function (r) {
+      return '<tr>'
+        + '<td style="white-space:nowrap;">' + _r30esc(String(r.timestamp || '').slice(0, 10)) + '</td>'
+        + '<td><b>' + _r30esc(r.ticker || '—') + '</b>'
+        + (r.held ? ' <span class="cc-badge" style="font-size:9px;">HELD</span>' : '') + '</td>'
+        + '<td>' + _r30esc(r.what_changed || r.event_type || '—') + '</td>'
+        + '<td><span class="cc-badge muted" style="font-size:9px;">'
+        + _r30esc(r.signal_authority || 'UNCLASSIFIED') + '</span></td>'
+        + '<td style="text-align:center;">' + _r30yesno(r.forecast_affected, 'yes', 'no') + '</td>'
+        + '<td style="text-align:center;">' + _r30yesno(r.risk_affected, 'yes', 'no') + '</td>'
+        + '<td>' + _r30esc(r.hoc_recommendation || (r.hoc_affected ? 'review' : '—')) + '</td>'
+        + '<td>' + _r30esc(r.result || '—') + '</td>'
+        + '</tr>';
+    }).join('');
+    _setHtml('matinfo-table',
+      '<table class="mono" style="width:100%;font-size:11px;border-collapse:collapse;">'
+      + '<thead style="color:var(--label);">' + head + '</thead><tbody>' + body
+      + '</tbody></table>');
+  }
+  var cyc = d.last_event_cycle || {};
+  _setHtml('matinfo-authority',
+    _r30esc(d.authority_doc || '')
+    + ' Last event cycle: <b>' + _r30esc(cyc.state || '—') + '</b>'
+    + ' · portfolio reassessed: <b>' + (d.portfolio_reassessed ? 'yes' : 'no') + '</b>'
+    + ' · decision: <b>' + _r30esc((d.portfolio_decision || {}).state || '—') + '</b>.');
+}
+window.renderMaterialInformation = renderMaterialInformation;
+
+function loadMaterialInformation() {
+  if (window._matinfoInFlight) return window._matinfoInFlight;
+  var p = _mhzGet('/v1/operations/material-information').then(function (d) {
+    window._matinfoInFlight = null; window._matinfoData = d;
+    renderMaterialInformation(d); return d;
+  }).catch(function () {
+    window._matinfoInFlight = null; renderMaterialInformation(null); return null;
+  });
+  window._matinfoInFlight = p;
+  return p;
+}
+window.loadMaterialInformation = loadMaterialInformation;
+
+// ---- Portfolio: ZERO-BASE TARGET vs CURRENT -------------------------------
+function _zbColumn(title, sub, e, accent) {
+  if (!e) e = {};
+  return '<div style="border:1px solid var(--border,#2a3550);border-left:3px solid '
+    + accent + ';border-radius:6px;padding:8px 10px;">'
+    + '<div style="font-size:11px;font-weight:800;letter-spacing:.02em;">' + title + '</div>'
+    + '<div style="font-size:10px;color:var(--label);margin-bottom:6px;">' + sub + '</div>'
+    + '<div class="mono" style="font-size:11px;line-height:1.7;">'
+    + 'positions <b>' + _r30esc(e.position_count === undefined ? '—' : e.position_count) + '</b><br>'
+    + 'cash <b>' + _r30pct(e.cash_weight) + '</b><br>'
+    + 'E[excess] <b>' + _r30pct(e.expected_excess_return, 3) + '</b><br>'
+    + 'vol <b>' + _r30pct(e.expected_volatility_horizon, 2) + '</b><br>'
+    + 'downside q05 <b>' + _r30pct(e.expected_downside_q05, 2) + '</b><br>'
+    + 'net utility <b>' + _r30num(e.expected_net_utility, 6) + '</b>'
+    + '</div></div>';
+}
+
+function renderZeroBaseTarget(d) {
+  var card = document.getElementById('zb-card');
+  if (!card) return;
+  if (!d || d.state === 'UNAVAILABLE') { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var st = document.getElementById('zb-state');
+  if (st) st.textContent = d.state || '—';
+
+  var zb = d.zero_base_target || {}, im = d.implementable_target || {};
+  var cur = d.current_portfolio || {};
+  _setHtml('zb-question',
+    'If all ' + _r30money(d.nav) + ' were cash on '
+    + _r30esc(d.eligible_market_date || '—') + ', what would the model buy? '
+    + '<span style="font-weight:500;color:var(--label);">Horizon '
+    + _r30esc(d.policy_horizon_sessions) + ' sessions. The current book is not an '
+    + 'input to the zero-base column.</span>');
+
+  _setHtml('zb-columns',
+    _zbColumn('CURRENT', 'what we hold today', cur.economics, 'var(--label,#8b98b0)')
+    + _zbColumn('ZERO-BASE IDEAL', 'as if all capital were cash', zb.economics,
+                'var(--info,#3b82f6)')
+    + _zbColumn('IMPLEMENTABLE', 'after transition cost', im.economics,
+                'var(--ok,#22c55e)'));
+
+  var tr = (d.transition || {}).current_to_implementable || {};
+  var trz = (d.transition || {}).current_to_zero_base || {};
+  var cmp = (d.comparison || {}).zero_base || {};
+  var both = (d.comparison || {}).zero_base_vs_implementable || {};
+  _setHtml('zb-transition',
+    '<div class="mono" style="font-size:11px;display:flex;gap:16px;flex-wrap:wrap;'
+    + 'border:1px solid var(--border,#2a3550);border-radius:6px;padding:8px 10px;">'
+    + '<span>to ideal: turnover <b>' + _r30pct(trz.one_way_turnover) + '</b> cost <b>'
+    + _r30money(trz.transaction_cost_dollars) + '</b></span>'
+    + '<span>to implementable: turnover <b>' + _r30pct(tr.one_way_turnover)
+    + '</b> cost <b>' + _r30money(tr.transaction_cost_dollars) + '</b></span>'
+    + '<span>retained <b>' + _r30esc(cmp.retained_count) + '</b> · removed <b>'
+    + _r30esc(cmp.removed_count) + '</b> · new <b>' + _r30esc(cmp.new_count) + '</b></span>'
+    + '<span>ideal-only names <b>' + _r30esc((both.zero_base_only || []).length)
+    + '</b></span></div>');
+
+  var obj = d.objective || {};
+  _setHtml('zb-objective',
+    '<b>Objective (' + _r30esc(obj.objective_version) + ')</b>: '
+    + _r30esc(obj.formula || '') + ' &middot; gamma ' + _r30num(obj.risk_aversion_gamma, 3)
+    + ', phi ' + _r30num(obj.uncertainty_aversion_phi, 3)
+    + ', delta ' + _r30num(obj.downside_aversion_delta, 3)
+    + ' (' + _r30esc(obj.risk_price_source) + ') &middot; cash return '
+    + _r30num((d.cash_policy || {}).cash_return, 2) + ' ('
+    + _r30esc((d.cash_policy || {}).policy) + ').');
+
+  var rows = zb.rows || [];
+  if (!rows.length) {
+    _setHtml('zb-rows', '<div style="font-size:11px;color:var(--label);">'
+      + 'No zero-base target rows. ' + _r30esc(((d.blockers || [])[0] || {}).code || '')
+      + '</div>');
+  } else {
+    var head = '<tr><th style="text-align:left;">Ticker</th><th style="text-align:left;">Sector</th>'
+      + '<th>Weight</th><th>$</th><th>E[excess]</th><th>Uncertainty</th><th>q05</th>'
+      + '<th>Risk contrib</th><th>ADV part.</th><th>Cap</th><th>Current</th><th>Change</th></tr>';
+    var body = rows.map(function (r) {
+      return '<tr>'
+        + '<td><b>' + _r30esc(r.ticker) + '</b></td>'
+        + '<td>' + _r30esc(r.sector) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.weight) + '</td>'
+        + '<td style="text-align:right;">' + _r30money(r.dollar_allocation) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.expected_excess_return, 3) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.forecast_uncertainty, 2) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.downside_return_q05, 2) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.risk_contribution, 2) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.adv_participation, 3) + '</td>'
+        + '<td style="text-align:center;">' + (r.cap_binding ? 'binding' : '—') + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.current_weight) + '</td>'
+        + '<td style="text-align:right;">' + _r30pct(r.weight_change) + '</td>'
+        + '</tr>';
+    }).join('');
+    _setHtml('zb-rows',
+      '<table class="mono" style="width:100%;font-size:11px;border-collapse:collapse;">'
+      + '<thead style="color:var(--label);">' + head + '</thead><tbody>' + body
+      + '</tbody></table>');
+  }
+
+  var fc = d.forecast || {};
+  var stale = fc.input_staleness || {};
+  _setHtml('zb-note',
+    'This is a REVIEW surface: it is not a proposal and not a decision, and no control '
+    + 'here can create a target, an order plan or an order. Forecast: <b>'
+    + _r30esc(fc.state || '—') + '</b> (' + _r30esc(fc.operational_use || '—')
+    + '), model <span class="mono">' + _r30esc(String(fc.model_spec_hash || '—').slice(0, 16))
+    + '</span>'
+    + (stale.behind_eligible_session
+        ? ' · <b style="color:var(--warning,#f59e0b);">features as of '
+          + _r30esc(stale.feature_as_of_date) + ', behind the eligible session '
+          + _r30esc(stale.requested_eligible_market_date) + '</b>'
+        : '')
+    + '. Names the ideal wants but the implementable does not are positions whose '
+    + 'expected improvement does not cover the cost of getting into them.');
+}
+window.renderZeroBaseTarget = renderZeroBaseTarget;
+
+function loadZeroBaseTarget() {
+  if (window._zbInFlight) return window._zbInFlight;
+  var p = _mhzGet('/v1/operations/zero-base-target').then(function (d) {
+    window._zbInFlight = null; window._zbData = d;
+    renderZeroBaseTarget(d); return d;
+  }).catch(function () {
+    window._zbInFlight = null; renderZeroBaseTarget(null); return null;
+  });
+  window._zbInFlight = p;
+  return p;
+}
+window.loadZeroBaseTarget = loadZeroBaseTarget;
+
+// ---- Research: ALPHA MODEL LEADERBOARD ------------------------------------
+function renderAlphaLeaderboard(d) {
+  var panel = document.getElementById('albd-panel');
+  if (!panel) return;
+  if (!d || d.state === 'UNAVAILABLE') { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var st = document.getElementById('albd-state');
+  if (st) st.textContent = d.state || '—';
+
+  var ch = d.operational_champion || {};
+  _setHtml('albd-champion',
+    'Operational champion <b>' + _r30esc(ch.model_id || '—') + '</b> '
+    + _r30esc(ch.model_version) + ' · book ' + _r30dash(ch.book_id)
+    + ' · eligible universe ' + _r30esc(ch.universe_size) + ' names on '
+    + _r30esc(ch.eligible_market_date || '—') + '.');
+
+  var us = d.universes || [];
+  if (!us.length) {
+    _setHtml('albd-universes',
+      '<div style="font-size:11px;color:var(--label);">No walk-forward evidence has been '
+      + 'produced yet. Nothing is shown rather than something being implied.</div>');
+  } else {
+    _setHtml('albd-universes', us.map(function (u) {
+      var head = '<tr><th style="text-align:left;">Model</th>'
+        + '<th style="text-align:left;">Lifecycle</th><th>OOS rank IC</th><th>t</th>'
+        + '<th>Net return p.a.</th><th>IR</th><th>Max DD</th><th>Turnover</th>'
+        + '<th>Calib.</th><th>Weight</th></tr>';
+      var body = (u.models || []).map(function (m) {
+        return '<tr>'
+          + '<td><b>' + _r30esc(m.model_id) + '</b></td>'
+          + '<td><span class="cc-badge muted" style="font-size:9px;">'
+          + _r30esc(m.lifecycle) + '</span></td>'
+          + '<td style="text-align:right;">' + _r30num(m.oos_rank_ic, 4) + '</td>'
+          + '<td style="text-align:right;">' + _r30num(m.oos_rank_ic_t, 2) + '</td>'
+          + '<td style="text-align:right;">' + _r30pct(m.oos_net_return_annualised, 2) + '</td>'
+          + '<td style="text-align:right;">' + _r30num(m.information_ratio, 2) + '</td>'
+          + '<td style="text-align:right;">' + _r30pct(m.max_drawdown, 1) + '</td>'
+          + '<td style="text-align:right;">' + _r30pct(m.one_way_turnover, 1) + '</td>'
+          + '<td style="text-align:right;">' + _r30num(m.calibration_slope, 4) + '</td>'
+          + '<td style="text-align:right;">' + _r30num(m.ensemble_weight, 3) + '</td>'
+          + '</tr>';
+      }).join('');
+      var failed = (u.criteria_failed || []);
+      return '<div style="margin:10px 0 0;border:1px solid var(--border,#2a3550);'
+        + 'border-radius:6px;padding:8px 10px;">'
+        + '<div style="font-size:11px;font-weight:800;">'
+        + _r30esc(u.universe_tag) + ' · horizon ' + _r30esc(u.horizon_sessions)
+        + ' sessions <span class="cc-badge ' + (u.survivorship_safe ? 'safe' : 'manual')
+        + '" style="font-size:9px;">'
+        + (u.survivorship_safe ? 'SURVIVORSHIP-FREE' : _r30esc(u.coverage_caveat || 'CAVEAT'))
+        + '</span> <span class="cc-badge" style="font-size:9px;">'
+        + _r30esc(u.forecast_model_verdict || '—') + '</span></div>'
+        + (u.coverage_caveat_detail
+            ? '<div style="font-size:10px;color:var(--warning,#f59e0b);margin:4px 0;">'
+              + _r30esc(u.coverage_caveat_detail) + '</div>' : '')
+        + '<table class="mono" style="width:100%;font-size:11px;border-collapse:collapse;'
+        + 'margin-top:6px;"><thead style="color:var(--label);">' + head + '</thead><tbody>'
+        + body + '</tbody></table>'
+        + '<div style="font-size:10px;color:var(--label);margin-top:6px;">'
+        + 'Benchmark <b>' + _r30esc(u.benchmark_model_id) + '</b> vs candidate <b>'
+        + _r30esc(u.candidate_model_id) + '</b> · net-return difference <b>'
+        + _r30pct(u.net_return_difference_annualised, 2) + '</b> p.a., paired t <b>'
+        + _r30num(u.paired_net_return_t, 2) + '</b>'
+        + (failed.length ? ' · failed criteria: <b>' + _r30esc(failed.join(', ')) + '</b>'
+                         : ' · all criteria passed')
+        + ' · weighting ' + _r30esc(u.ensemble_method || '—') + '.</div></div>';
+    }).join(''));
+  }
+
+  var pit = d.point_in_time_integrity || {};
+  _setHtml('albd-note',
+    _r30esc(d.promotion_doc || '')
+    + ' Point-in-time: price family survivorship-safe <b>'
+    + (pit.price_family_survivorship_safe ? 'yes' : 'no') + '</b>; fundamental family <b>'
+    + _r30esc(pit.fundamental_family_verdict || '—') + '</b>'
+    + (pit.resolution_survivorship_skew
+        ? ' (issuer-resolution skew ' + _r30num(pit.resolution_survivorship_skew, 2) + 'x)'
+        : '')
+    + '. ' + _r30esc((d.forward_evidence || {}).note || ''));
+}
+window.renderAlphaLeaderboard = renderAlphaLeaderboard;
+
+function loadAlphaLeaderboard() {
+  if (window._albdInFlight) return window._albdInFlight;
+  var p = _mhzGet('/v1/research/alpha-leaderboard').then(function (d) {
+    window._albdInFlight = null; window._albdData = d;
+    renderAlphaLeaderboard(d); return d;
+  }).catch(function () {
+    window._albdInFlight = null; renderAlphaLeaderboard(null); return null;
+  });
+  window._albdInFlight = p;
+  return p;
+}
+window.loadAlphaLeaderboard = loadAlphaLeaderboard;
 
 // ---------------------------------------------------------------------------
 // Stage 20 — ACTIVE PORTFOLIO ASSESSMENT (read-only presentation).

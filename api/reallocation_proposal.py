@@ -275,33 +275,15 @@ def _candidate_tickers(*, scoring: dict, held: set, policy: dict) -> list[str]:
 
 def _aligned_returns(*, price_panel: dict, tickers: list, eligible: str,
                      lookback: int) -> dict:
-    """Owned point-in-time daily returns for ``tickers`` aligned on a UNION calendar
-    (None where a name lacks a date), ending at the eligible session. The Slice-6
-    covariance kernel trims each weight-set to its own common non-None index."""
+    """Owned point-in-time daily returns, from the canonical price owner.
+
+    Release 30 moved the body to ``api.price_panel.aligned_returns`` so the
+    zero-base allocator and this proposal read the SAME series. This wrapper is
+    kept because the call shape here is the proposal's, not the panel's.
+    """
     from paper_trader.api import price_panel as pp
-    series = (price_panel or {}).get("series") or {}
-    per: dict[str, dict] = {}
-    all_dates: set = set()
-    for tk in tickers:
-        s = series.get(tk)
-        if not s:
-            continue
-        j = pp.asof_index(s.get("dates") or [], eligible)
-        if j < 1:
-            continue
-        dmap = {}
-        for i in range(1, j + 1):
-            r = s["ret"][i]
-            if r is not None:
-                dmap[s["dates"][i]] = float(r)
-        if dmap:
-            per[tk] = dmap
-            all_dates |= set(dmap.keys())
-    if not per:
-        return {"dates": [], "series": {}}
-    dates = sorted(all_dates)[-lookback:]
-    out = {tk: [per[tk].get(d) for d in dates] for tk in per}
-    return {"dates": dates, "series": out}
+    return pp.aligned_returns(price_panel=price_panel, tickers=tickers,
+                              as_of=eligible, lookback=lookback)
 
 
 def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment: dict,

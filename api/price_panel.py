@@ -434,6 +434,46 @@ def asof_index(dates: list[str], as_of: str) -> int:
     return bisect.bisect_right(dates, as_of) - 1
 
 
+def aligned_returns(*, price_panel: Optional[dict], tickers, as_of: str,
+                    lookback: int) -> dict:
+    """Owned point-in-time daily returns for ``tickers``, aligned on a UNION
+    calendar ending at ``as_of`` (``None`` where a name has no bar that day).
+
+    The shape is the one the canonical covariance builder
+    (``engine.holding_opportunity_cost.build_covariance``) consumes, and it lives
+    HERE - with the price panel - because it is a price-panel question. Release 30
+    needed the same series the Slice-7 proposal already used; giving the allocator
+    its own copy would have meant two definitions of "the trailing return series",
+    and they would have drifted the first time a lookback or an alignment rule
+    moved.
+
+    Point-in-time: no bar after ``as_of`` is ever read.
+    """
+    series = (price_panel or {}).get("series") or {}
+    per: dict[str, dict] = {}
+    all_dates: set = set()
+    for tk in tickers:
+        s = series.get(tk)
+        if not s:
+            continue
+        j = asof_index(s.get("dates") or [], as_of)
+        if j < 1:
+            continue
+        dmap = {}
+        for i in range(1, j + 1):
+            r = s["ret"][i]
+            if r is not None:
+                dmap[s["dates"][i]] = float(r)
+        if dmap:
+            per[tk] = dmap
+            all_dates |= set(dmap.keys())
+    if not per:
+        return {"dates": [], "series": {}}
+    dates = sorted(all_dates)[-int(lookback):]
+    return {"dates": dates,
+            "series": {tk: [per[tk].get(d) for d in dates] for tk in per}}
+
+
 def trailing_median_dollar_volume(series: dict, j: int, k: int) -> Optional[float]:
     """Median owned daily dollar volume over the last ``k`` bars ending at bar ``j``.
 

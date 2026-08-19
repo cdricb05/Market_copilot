@@ -974,3 +974,34 @@ Deferred, deliberately:
   endpoint is not one of the bound canonical panels, so it renders its own empty world in an
   acceptance run. It is pre-existing, visible only under the harness, and belongs to the
   acceptance-panel list rather than to the cycle contract.
+
+## Release 30 - Zero-base adaptive alpha capital allocation (LANDED, NOT ACTIVATED)
+
+**Scope.** Change the FORECAST and TARGET-SELECTION methodology feeding the existing
+capital-management machinery. No downstream owner is replaced.
+
+| Slice | State | Owner |
+|---|---|---|
+| Forward-return forecasting layer (5 / 20 / 60 sessions, uncertainty, downside, hashes) | LANDED | `engine/return_forecast` + `api/return_forecast` |
+| Zero-base target + implementable target + transition economics | LANDED | `engine/zero_base_allocator` + `api/zero_base_target` |
+| Walk-forward tournament, ensemble weighting, risk-price calibration | LANDED (research lane) | `alpha_agent/release30_*`, `scripts/run_release30_zero_base_research.py` |
+| Capital-impact feed on Today | LANDED | `api/material_information` (read model) |
+| Alpha model leaderboard in Research | LANDED | `api/alpha_leaderboard` (read model) |
+| Covariance builder consolidation | LANDED | `engine/holding_opportunity_cost.build_covariance` |
+| Aligned-return series consolidation | LANDED | `api/price_panel.aligned_returns` |
+| Manual activation of the adaptive candidate | **NOT DONE - evidence says NO_GO** | a human, via an activation record |
+
+**Deliberately deferred.**
+
+* Activation of any forecasting model. The candidate is `R30_ADAPTIVE_MODEL_NO_GO` on both
+  universes; nothing is promoted and the operational champion is unchanged.
+* Wiring the zero-base target INTO `engine/reallocation_proposal`. The allocator is a
+  review surface this release. Feeding it into the proposal owner is a separate, bounded
+  slice that must be taken only after a forecasting model has been manually activated -
+  otherwise the proposal would inherit an uncalibrated expected return, which is exactly
+  the `EXPECTED_RETURN_NOT_CALIBRATED` gap it correctly refuses to fake today.
+* Refreshing the owned Phase-24 daily feature panel. Its last session (2026-08-05) sits
+  behind the eligible market date (2026-08-18); the gap is DECLARED on every forecast
+  rather than extrapolated. Closing it is a data-refresh task, not an architecture one.
+* A canonical risk-free / cash-return input. Cash is modelled at a declared zero until an
+  admissible owned series exists.
