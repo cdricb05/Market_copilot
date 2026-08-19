@@ -1977,3 +1977,143 @@ result alone can never justify activation.
 skew from the sample itself, and pretending otherwise would be the exact failure this
 project has repeatedly refused elsewhere. Measuring the skew and naming it is what lets a
 reader discount the result correctly instead of guessing.
+
+## Release 30.1 decisions
+
+### D-R30.1-1 - An artifact that carries the approved model's NAME must carry its RANKING (CONFIRMED)
+
+**Decision.** A frozen artifact that declares itself the current approved operational
+model - by `activation = CURRENT_OPERATIONAL_MODEL` or by a
+`FROZEN_OPERATIONAL_CHAMPION_NO_FITTING` horizon - is subject to a hard rank-identity
+contract. `engine.return_forecast.rank_identity()` is the ONE owner of the verdict, and
+`build_forecast` SUPPRESSES a horizon whose calibration slope is not positive, or which
+declares itself NOT_CALIBRATED. A suppressed horizon supplies no expected return, no
+uncertainty and no downside to any consumer. The contract binds retroactively, and a
+research candidate is deliberately exempt.
+
+**Why.** `expected_excess_return = slope * standardised(rank_normalise(score))`, and the
+standardisation of a positive-weight rank blend is strictly monotone. A negative slope
+therefore does not adjust the approved model - it reverses it, while the payload keeps
+carrying the approved model's name. Release 30's `operational` artifact had a 20-session
+slope of -0.000848, and the Aug-18 target built from it held none of the approved model's
+top 25 names, 19 of its bottom 25, and had a weighted-average approved-model rank of 168
+of 199. Nothing in the codebase could say so. A research candidate is exempt because it is
+entitled to disagree with the incumbent in either direction: it is not claiming to be the
+incumbent, and refusing its disagreement would refuse the only thing a candidate is for.
+
+### D-R30.1-2 - A periodic research snapshot is inadmissible as a LIVE operational input (CONFIRMED)
+
+**Decision.** The operational forecast lane reads the approved model's own score from
+`api.universe_scoring` at the CURRENT eligible market date. No research emission file is
+in the live path. A periodic research snapshot remains fully admissible for HISTORICAL
+calibration, where it is the only thing that can supply a label.
+
+**Why.** A feature stamped with a session behind the decision it is about is not a
+forecast of that decision. Release 30 reported `feature_as_of_date = 2026-08-05` against a
+requested eligible date of `2026-08-18`, and the gap was never in the operational model's
+inputs - it came from routing the operational lane through the research price panel. The
+approved model's own inputs were current through the eligible session the whole time.
+
+### D-R30.1-3 - Freshness is judged by its owner, not restated by its consumer (CONFIRMED)
+
+**Decision.** `api.return_forecast.required_input_freshness()` asks `api.data_freshness`
+which sources are REQUIRED FOR SIGNAL REFRESH and whether any of them blocks. It keeps no
+source table of its own, and the architecture audit fails the build on a second one. A
+source under a slower declared cadence - the quarterly fundamental panel - is judged by its
+own owner and is not stale merely for being older than today.
+
+**Why.** Two freshness tables become two definitions of fresh, and the one that is not the
+canonical owner will silently drift. The quarterly-cadence case is the one a second table
+always gets wrong: it reads a three-month-old fundamental date as staleness rather than as
+the cadence the model was approved under.
+
+### D-R30.1-4 - A target's AUTHORITY is part of the target (CONFIRMED)
+
+**Decision.** Every zero-base payload is stamped with its lane. `RESEARCH_PREVIEW` is
+computed from a model the operator does not run and declares `can_become_a_proposal:
+false`. `GOVERNED_OPERATIONAL_TARGET` is computed from the approved model, on the current
+session, through a rank-preserving calibration. `run_operational_allocation()` never falls
+back to the research forecast, and the audit enforces that on the AST.
+
+**Why.** Two portfolios rendered in the same region, with the same columns and the same
+confidence, are read as equally authoritative regardless of what a caption says. If the
+governed lane could fall back to the research forecast when its own is blocked, the label
+would be worse than useless: it would assert governance over a number that has none.
+
+### D-R30.1-5 - A calibration whose SIGN depends on the fold geometry is not a calibration (CONFIRMED)
+
+**Decision.** The operational calibration contract requires all three of: a positive
+walk-forward slope (rank identity), one sign across every declared fold geometry, and a
+Newey-West t of at least 2. A horizon failing any of them is `NOT_CALIBRATED`, supplies no
+slope, and blocks the governed target rather than degrading it. Measured on the approved
+model over 81 owned decision dates, all three horizons fail; the release verdict is
+`R30_1_CALIBRATION_BLOCKED`.
+
+**Why.** The sign of the mapping decides which half of the universe the allocator buys. At
+60 sessions the approved model's slope is +0.0015 under one defensible geometry and
+-0.0003 under another, which means the portfolio would flip on a choice the evidence does
+not make for us. Reporting no number is a conclusion an operator can act on; reporting an
+unstable one is not.
+
+### D-R30.1-6 - An operational allocator needs a COMMON decision timestamp (CONFIRMED)
+
+**Decision.** Forward returns in the operational calibration are measured over one window
+starting at the shared decision session for the whole cross-section. The frozen fundamental
+panel's own `forward_63d_return` column - whose window starts at each name's private filing
+date, staggered across the month in every month - is inadmissible for this purpose, and its
+higher apparent significance (t = +2.29 versus +1.03) is not credited.
+
+**Why.** A portfolio commits capital at ONE timestamp. A "cross-sectional excess" taken
+over windows that do not overlap is not a cross-sectional excess: it absorbs market timing
+into what is supposed to be a relative claim, and it cannot be transported to the moment a
+decision is actually made. The panel's label also disagrees with the owned
+survivorship-free daily panel by a median 4.4 % over the same horizon and records no window
+end on any row, so its measurement cannot be verified even on its own terms.
+
+### D-R30.1-7 - What may become an href has ONE owner (CONFIRMED)
+
+**Decision.** ``api.external_references.safe_external_url`` is the single decision point
+for whether a reference may be rendered as a link: absolute ``http``/``https`` only, with
+a host, no control characters, length bounded, and a NAMED refusal reason otherwise. Every
+read model that hands a URL to a browser calls it. The architecture audit fails the build
+on a second implementation, and the UI's one link helper refuses to emit an anchor without
+a backend-supplied URL.
+
+**Why.** A URL arriving in a third-party feed is untrusted input, and ``javascript:``,
+``data:`` and ``vbscript:`` are executable in a browser while a scheme-less string would
+resolve against our own origin and impersonate an internal page. The failure mode is not
+"someone forgets to check" - it is TWO checks that drift, where the weaker one wins
+wherever it happens to be called. One owner, checked by the build, is the only version of
+this that stays true.
+
+### D-R30.1-8 - A link is evidence, never an input (CONFIRMED)
+
+**Decision.** The Material Information source URL is the one the normalized event already
+recorded in ``payload_reference``. It is never constructed, guessed, completed or inferred
+from a ticker or a source name; a reference that is not a URL is exposed as
+``source_reference`` and rendered as plain text. Opening it changes nothing:
+``external_article_is_not_alpha`` is declared in the payload, and the same event with and
+without a URL classifies identically - same authority, same reach, same forecast, risk and
+HOC flags.
+
+**Why.** Making evidence one click away is a real operator gain, and it is also the exact
+point at which an external article could quietly acquire standing it was never granted.
+Authority is decided once, by source family, in ``engine.event_fabric``. A readable
+article is still an ``EVENT_TRIGGER_ONLY`` article. Constructing a URL would be worse
+again: it would be this layer making a claim about where evidence lives rather than
+recording where it came from.
+
+### D-R30.1-9 - "Is this site influencing the portfolio?" is answered by the registries (CONFIRMED)
+
+**Decision.** The External Market Sources region on Markets renders its reference/ingested
+state from ``api.source_capability`` (registered? in ``INGESTED_SOURCE_IDS``?) and
+``engine.event_fabric`` (what authority does its event family carry?), computed on every
+read. The UI badge shows that answer. Nothing is captioned in HTML, and the region is
+absent from Today.
+
+**Why.** A hard-coded "reference only" label is the FRONTEND asserting a backend fact, and
+it keeps asserting it on the day someone wires one of these sites into the collection lane
+- which is precisely the day it would be dangerous. Deriving the claim means the page
+corrects itself. Keeping the region off Today follows the same rule as everything else on
+that surface: Today carries what the SYSTEM concluded, not what an operator might want to
+read.

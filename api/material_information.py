@@ -73,6 +73,30 @@ AUTHORITY_DOC = (
 SAFETY_BADGES = ["READ ONLY", "PREVIEW ONLY", "NO ORDERS", "AUTOMATION OFF",
                  "MANUAL REVIEW"]
 
+#: Release 30.1. The evidence behind a signal should be one click away, so each
+#: row carries the CANONICAL source URL the normalized event already recorded in
+#: ``payload_reference``. Two boundaries this must not cross:
+#:
+#: * the URL is never CONSTRUCTED. It is exposed only when the event itself
+#:   carried one, because a link this layer assembled would be a claim about
+#:   where the evidence lives rather than a record of it;
+#: * opening an article changes NOTHING. The link is a convenience for a human
+#:   reading evidence, never an input. Authority still comes from the source
+#:   family, decided once in ``engine.event_fabric``, and an external article
+#:   cannot become operational alpha by being readable.
+#:
+#: Whether a reference may be handed to a browser at all is decided by the ONE
+#: owner of that question, ``api.external_references.safe_external_url``. A
+#: feed-supplied string is untrusted input; a private check here would be a
+#: second definition of "safe link" and the first to drift.
+SOURCE_LINK_POLICY = "CANONICAL_EVENT_REFERENCE_ONLY_NEVER_CONSTRUCTED"
+SOURCE_LINK_DOC = (
+    "The source URL is the one the normalized event recorded in "
+    "payload_reference. It is never constructed, never guessed and never "
+    "inferred from a ticker or a source name. It opens the original evidence in "
+    "a new tab and changes no signal, no authority and no interpretation; a "
+    "reference that is not an absolute http(s) URL is rendered as plain text.")
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -85,6 +109,72 @@ def _f(x: Any) -> Optional[float]:
         return float(x)
     except (TypeError, ValueError):
         return None
+
+
+#: Every field a Material Information row carries so an operator can inspect the
+#: evidence behind a signal without the browser computing anything. Declared as a
+#: contract, asserted by ``tests/test_release30_1_operational_cutover.py``.
+TRANSPARENCY_FIELDS = (
+    "source", "source_family", "source_title", "source_url", "source_url_state",
+    "source_host", "source_reference",
+    "timestamp", "ingested_at",
+    "ticker", "held",
+    "event_type", "event_sub_type", "family",
+    "signal_authority", "authority_reach", "event_quality",
+    "point_in_time_status",
+    "what_changed",
+    "forecast_affected", "risk_affected", "hoc_affected",
+    "hoc_recommendation", "hoc_deterioration_state",
+    "portfolio_reassessed", "result",
+)
+
+
+def _link_policy() -> dict:
+    """The external-link contract, read from its owner rather than restated."""
+    try:
+        from paper_trader.api import external_references as xr
+        return dict(xr.LINK_POLICY)
+    except Exception:                                          # noqa: BLE001
+        return {}
+
+
+def _url_state_vocabulary() -> list:
+    try:
+        from paper_trader.api import external_references as xr
+        return list(xr.URL_STATE_VOCAB)
+    except Exception:                                          # noqa: BLE001
+        return []
+
+
+def _source_link(event: dict) -> dict:
+    """The canonical source URL this event recorded, if it recorded one.
+
+    Delegates the safety decision to ``api.external_references`` - the ONE owner
+    of what may become an ``href``. Degrades to "no link" rather than raising,
+    because a missing link must never take down the capital-impact feed.
+    """
+    ref = (event or {}).get("payload_reference")
+    try:
+        from paper_trader.api import external_references as xr
+        link = xr.safe_external_url(ref)
+        return {"source_url": link["url"], "source_url_state": link["state"],
+                "source_host": link["host"],
+                "source_reference": None if link["url"] else link["raw"]}
+    except Exception:                                          # noqa: BLE001
+        return {"source_url": None, "source_url_state": "NO_CANONICAL_SOURCE_URL",
+                "source_host": None, "source_reference": None}
+
+
+def _source_title(event: dict) -> Optional[str]:
+    """The headline the SOURCE published, verbatim, if it published one.
+
+    Kept separate from ``what_changed`` so the UI can make the title itself the
+    clickable thing without re-parsing a composed sentence.
+    """
+    inputs = (event or {}).get("materiality_inputs") or {}
+    title = inputs.get("title") or inputs.get("headline")
+    t = str(title).strip() if title else ""
+    return t or None
 
 
 def _hoc_by_ticker(hoc: Optional[dict]) -> dict:
@@ -128,6 +218,7 @@ def build(*, event_refresh: Optional[dict] = None,
         reach = authority_reach(authority)
         held = bool(tk and tk in holdings)
         review = hoc_rows.get(tk) or {}
+        link = _source_link(e)
         rows.append({
             "event_id": e.get("event_id"),
             "timestamp": (e.get("published_at") or e.get("source_timestamp")
@@ -137,6 +228,11 @@ def build(*, event_refresh: Optional[dict] = None,
             "held": held,
             "source": e.get("source_id") or e.get("collector_id"),
             "source_family": e.get("source_family"),
+            "source_title": _source_title(e),
+            "source_url": link["source_url"],
+            "source_url_state": link["source_url_state"],
+            "source_host": link["source_host"],
+            "source_reference": link["source_reference"],
             "event_type": e.get("event_type"),
             "event_sub_type": e.get("event_sub_type"),
             "family": e.get("family"),
@@ -186,6 +282,16 @@ def build(*, event_refresh: Optional[dict] = None,
         "authority_doc": AUTHORITY_DOC,
         "authority_reach_policy": authority_reach_policy(),
         "authority_policy_owner": "engine.event_fabric",
+        # Release 30.1: the row contract, declared. An operator inspecting the
+        # evidence behind a signal should be able to see every one of these
+        # WITHOUT the browser deriving any of them, and a reader of the API
+        # should be able to check that claim without reading the markup.
+        "transparency_fields": list(TRANSPARENCY_FIELDS),
+        "source_link_policy": SOURCE_LINK_POLICY,
+        "source_link_doc": SOURCE_LINK_DOC,
+        "link_policy": _link_policy(),
+        "source_url_state_vocabulary": _url_state_vocabulary(),
+        "external_article_is_not_alpha": True,
         "owners": {
             "events": "engine.event_fabric via api.event_signal_refresh",
             "authority": "engine.event_fabric",

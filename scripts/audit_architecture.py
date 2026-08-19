@@ -5333,6 +5333,374 @@ def check_release30_zero_base_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_release30_1_operational_cutover(files: list[Path]) -> dict:
+    """Release 30.1 strict guard for the OPERATIONAL forecast lane.
+
+    Release 30 shipped a frozen artifact that carried the current approved
+    model's name and a NEGATIVE calibration slope. Because
+    ``expected_excess_return = slope * standardised_score`` and the
+    standardisation of a positive-weight rank blend is strictly monotone, that
+    slope did not adjust the approved model - it reversed it, and the resulting
+    "target" held none of the approved model's top 25 names. Nothing in the
+    codebase could have said so. These invariants exist so that the next one is
+    caught by the build rather than by a reader.
+    """
+    kernel = "engine/return_forecast.py"
+    owner = "api/return_forecast.py"
+    alloc_owner = "api/zero_base_target.py"
+    calib = "alpha_agent/release30_1_operational_calibration.py"
+    required = (kernel, owner, alloc_owner, calib)
+    src = {p: _read(p) for p in required}
+    missing = [p for p in required if not src[p].strip()]
+
+    ksrc = src.get(kernel) or ""
+    osrc = src.get(owner) or ""
+    zsrc = src.get(alloc_owner) or ""
+    csrc = src.get(calib) or ""
+
+    # 1. The rank-identity contract is DECLARED and enforced in the kernel.
+    contract = {
+        "identity_contract_declared":
+            'MODEL_IDENTITY_CONTRACT = "APPROVED_MODEL_RANKING_IS_PRESERVED"' in ksrc,
+        "operational_activation_declared":
+            'OPERATIONAL_ACTIVATION = "CURRENT_OPERATIONAL_MODEL"' in ksrc,
+        "verdict_vocabulary_declared": "RANK_IDENTITY_VOCAB" in ksrc,
+        "detector_present": bool(
+            re.search(r"^def represents_approved_model\s*\(", ksrc, re.M)),
+        "verdict_function_present": bool(
+            re.search(r"^def rank_identity\s*\(", ksrc, re.M)),
+        "suppression_disposition_declared": (
+            'HORIZON_SUPPRESSED = "SUPPRESSED"' in ksrc),
+    }
+    enforced_in_build = False
+    try:
+        ktree = ast.parse(ksrc) if ksrc.strip() else None
+    except SyntaxError:
+        ktree = None
+    if ktree is not None:
+        for node in ast.walk(ktree):
+            if isinstance(node, ast.FunctionDef) and node.name == "build_forecast":
+                body = ast.unparse(node)
+                enforced_in_build = ("rank_identity(" in body
+                                     and "HORIZON_SUPPRESSED" in body)
+
+    # 2. The rank-identity verdict has exactly ONE owner - the kernel.
+    second_identity_owner = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == kernel:
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^def rank_identity\s*\(", text, re.M) or \
+                re.search(r"^def represents_approved_model\s*\(", text, re.M):
+            second_identity_owner.append(rel)
+
+    # 3. The LIVE operational lane may not read a periodic research snapshot.
+    #    Historical calibration may; the live decision path may not, because a
+    #    feature stamped with an earlier session is not a forecast of this one.
+    live_reads_research_snapshot = []
+    try:
+        otree = ast.parse(osrc) if osrc.strip() else None
+    except SyntaxError:
+        otree = None
+    if otree is not None:
+        fns = {n.name: n for n in ast.walk(otree)
+               if isinstance(n, ast.FunctionDef)}
+        for name in ("build_operational", "build_operational_cross_section"):
+            body = ast.unparse(fns[name]) if name in fns else ""
+            for token in ("load_forecast_input", "_INPUT_FILE", "forecast_input_"):
+                if token in body:
+                    live_reads_research_snapshot.append("%s:%s" % (name, token))
+    live_lane = {
+        "live_cross_section_owner_present": bool(
+            re.search(r"^def build_operational_cross_section\s*\(", osrc, re.M)),
+        "live_input_policy_declared":
+            'LIVE_INPUT_POLICY = "CURRENT_CANONICAL_SCORE_AT_CURRENT_ELIGIBLE_SESSION"' in osrc,
+        "research_snapshot_scope_declared":
+            'RESEARCH_SNAPSHOT_ADMISSIBLE_FOR = "HISTORICAL_CALIBRATION_ONLY"' in osrc,
+        "score_owner_is_universe_scoring":
+            'OPERATIONAL_SCORE_OWNER = "api.universe_scoring"' in osrc,
+        "freshness_delegated_to_canonical_owner": (
+            "data_freshness" in osrc
+            and "required_for_signal_refresh" in osrc),
+    }
+
+    # 4. The freshness judgement is delegated, never restated.
+    second_freshness_table = bool(re.search(r"^_SOURCES\s*=", osrc, re.M))
+
+    # 5. The GOVERNED lane never falls back to the research forecast, and the two
+    #    lanes are labelled so neither can be read as the other.
+    governed_fallback = []
+    try:
+        ztree = ast.parse(zsrc) if zsrc.strip() else None
+    except SyntaxError:
+        ztree = None
+    if ztree is not None:
+        fns = {n.name: n for n in ast.walk(ztree)
+               if isinstance(n, ast.FunctionDef)}
+        body = ast.unparse(fns["run_operational_allocation"]) \
+            if "run_operational_allocation" in fns else ""
+        for token in ("load_model_artifact", "rfc.build(", "load_forecast_input"):
+            if token in body:
+                governed_fallback.append(token)
+    lanes = {
+        "research_lane_declared": 'LANE_RESEARCH_PREVIEW = "RESEARCH_PREVIEW"' in zsrc,
+        "governed_lane_declared":
+            'LANE_GOVERNED_OPERATIONAL = "GOVERNED_OPERATIONAL_TARGET"' in zsrc,
+        "authority_stamped_on_both": zsrc.count('"authority"') >= 3,
+        "governed_owner_present": bool(
+            re.search(r"^def run_operational_allocation\s*\(", zsrc, re.M)),
+    }
+
+    # 6. The operational calibration admits no new predictor family. Checked on
+    #    CODE, not prose: the docstring must stay free to name what it excludes.
+    forbidden_components = []
+    calibration_code = ""
+    try:
+        ctree = ast.parse(csrc) if csrc.strip() else None
+    except SyntaxError:
+        ctree = None
+    if ctree is not None:
+        ctree.body = [n for n in ctree.body
+                      if not (isinstance(n, ast.Expr)
+                              and isinstance(n.value, ast.Constant)
+                              and isinstance(n.value.value, str))]
+        calibration_code = ast.unparse(ctree)
+        for token in ("s25_operating_profitability", "fcf_to_assets",
+                      "operating_accruals", "gbrt", "extra_trees", "ridge",
+                      "adaptive_ensemble"):
+            if token in calibration_code:
+                forbidden_components.append(token)
+    calibration = {
+        "declares_approved_model":
+            'OPERATIONAL_MODEL_ID = "fundamental_momentum_50_50_v1"' in csrc,
+        "declares_only_approved_components":
+            'OPERATIONAL_COMPONENTS = ("composite_sn", "mom_6_1")' in csrc,
+        "rank_identity_bar_declared": "RANK_IDENTITY_MIN_SLOPE" in csrc,
+        "reliability_bar_declared": "RELIABILITY_MIN_T" in csrc,
+        "sign_stability_tested": "FOLD_GEOMETRIES" in csrc,
+        "walk_forward_embargoed": "embargo" in csrc.lower(),
+        # A random split is a BEHAVIOUR, so look for the behaviour: an RNG
+        # import or call. A substring search on "random" would flag the very
+        # sentence that promises there is no random split.
+        "no_random_split": not any(
+            tok in calibration_code
+            for tok in ("import random", "np.random", "numpy.random",
+                        ".shuffle(", ".permutation(", "default_rng(",
+                        "RandomState(")),
+    }
+
+    # 7. The research calibration lane never imports the operational API package.
+    research_imports_api = bool("from paper_trader.api" in csrc
+                                or "import paper_trader.api" in csrc)
+
+    # 8. No operational read path writes, promotes or decides.
+    read_surface_writes: list[str] = []
+    forbidden_calls: list[str] = []
+    if otree is not None:
+        fns = {n.name: n for n in ast.walk(otree)
+               if isinstance(n, ast.FunctionDef)}
+        for name in ("build_operational", "build_operational_cross_section",
+                     "load_operational_return_forecast", "required_input_freshness",
+                     "load_operational_artifact"):
+            body = ast.unparse(fns[name]) if name in fns else ""
+            for token in ("_atomic_write_json", "write_text", "mkdir"):
+                if token in body:
+                    read_surface_writes.append("%s:%s" % (name, token))
+    if ztree is not None:
+        called = {getattr(n.func, "attr", getattr(n.func, "id", ""))
+                  for n in ast.walk(ztree) if isinstance(n, ast.Call)}
+        forbidden_calls = sorted(called & {
+            "record_decision", "approve", "build_proposal", "run_proposal",
+            "persist_proposal", "create_order", "confirm_order_plan",
+            "optimise", "build_assessment", "build_reassessment"})
+
+    # ----------------------------------------------------------------------- #
+    # Release 30.1 UX: source links and external references
+    # ----------------------------------------------------------------------- #
+    xref = "api/external_references.py"
+    matinfo = "api/material_information.py"
+    xsrc = _read(xref)
+    msrc = _read(matinfo)
+    ui = _read(UI_FILE)
+    app = _read(APP_MODULE)
+    if not xsrc.strip():
+        missing.append(xref)
+
+    # A. The "may this become an href" decision has exactly ONE owner. A second
+    #    URL sanitiser is how an unsafe scheme reaches a browser: the two drift,
+    #    and the weaker one wins wherever it happens to be called.
+    second_url_guard = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == xref:
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^\s*def safe_external_url\s*\(", text, re.M):
+            second_url_guard.append(rel)
+    url_guard = {
+        "owner_present": bool(re.search(r"^def safe_external_url\s*\(", xsrc, re.M)),
+        "schemes_declared": 'ALLOWED_URL_SCHEMES = ("http", "https")' in xsrc,
+        "link_policy_declared": ('LINK_TARGET = "_blank"' in xsrc
+                                 and 'LINK_REL = "noopener noreferrer"' in xsrc),
+        "state_vocabulary_declared": "URL_STATE_VOCAB" in xsrc,
+        "matinfo_delegates": "safe_external_url" in msrc,
+    }
+
+    # B. The backend never CONSTRUCTS a source URL. The only URLs allowed as
+    #    literals in the reference module are the declared reference sites; the
+    #    capital-impact feed must carry none at all, because a link it assembled
+    #    would be a claim about where evidence lives rather than a record of it.
+    constructed_urls = []
+    try:
+        mtree = ast.parse(msrc) if msrc.strip() else None
+    except SyntaxError:
+        mtree = None
+    if mtree is not None:
+        for node in ast.walk(mtree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if node.value.startswith(("http://", "https://")):
+                    constructed_urls.append(node.value[:60])
+    literal_site_urls = sorted(
+        set(re.findall(r'"(https?://[^"]+)"', xsrc))
+        - {u for u in re.findall(r'"(https?://[^"]+)"', xsrc)
+           if '"url": "%s"' % u in xsrc})
+
+    # C. The read models own no calculation and cannot assign an authority.
+    read_model_declarations = {
+        "external_owns_no_calculation": '"owns_no_calculation": True' in xsrc,
+        "external_creates_no_event": '"creates_no_event": True' in xsrc,
+        "external_never_influences_decisions":
+            '"influences_portfolio_decisions": False' in xsrc,
+        "external_reads_canonical_registry": ("source_capability" in xsrc
+                                              and "INGESTED_SOURCE_IDS" in xsrc),
+        "external_reads_fabric_authority": ("event_fabric" in xsrc
+                                            and "EVENT_FAMILIES" in xsrc),
+        "matinfo_declares_article_is_not_alpha":
+            '"external_article_is_not_alpha": True' in msrc,
+        "matinfo_declares_transparency_fields": "TRANSPARENCY_FIELDS" in msrc,
+        "matinfo_declares_link_policy": "SOURCE_LINK_POLICY" in msrc,
+    }
+    # The reference module must not classify: no private authority table.
+    private_authority_table = bool(
+        re.search(r"^(ALPHA|RISK|TRIGGER)_BEARING", xsrc, re.M)
+        or re.search(r"^_?AUTHORITY_[A-Z_]*\s*=\s*\{", xsrc, re.M))
+
+    # D. Every anchor the Release 30.1 renderers emit goes through ONE helper
+    #    that carries target and rel. A hand-rolled `<a href=` in a renderer is
+    #    the case that silently ships without noopener.
+    ui_link_helper = ""
+    m = re.search(r"function _r30srcLink\([\s\S]{0,1600}?\n\}", ui)
+    if m:
+        ui_link_helper = m.group(0)
+    ui_links = {
+        "helper_present": bool(ui_link_helper),
+        "helper_sets_target": 'target="' in ui_link_helper,
+        "helper_sets_rel": "p.rel || 'noopener noreferrer'" in ui_link_helper,
+        "helper_requires_backend_url": "if (!url) return label;" in ui_link_helper,
+        "attribute_escape_present": bool(
+            re.search(r"function _r30attr\(", ui)),
+    }
+    ui_hand_rolled_anchors = []
+    for fn in ("renderMaterialInformation", "renderExternalReferences"):
+        mm = re.search(r"function %s\([\s\S]{0,9000}?\n\}" % fn, ui)
+        if not mm:
+            continue
+        block = mm.group(0)
+        if re.search(r"<a\s+href=", block):
+            ui_hand_rolled_anchors.append(fn)
+        for token in ("http://", "https://"):
+            if token in block:
+                ui_hand_rolled_anchors.append("%s:%s" % (fn, token))
+
+    # E. The external references live on MARKETS and nowhere else. Today is the
+    #    operating surface and carries only what the system itself concluded.
+    today_i = ui.find('id="cc-matinfo-card"')
+    markets_i = ui.find('id="tab-markets"')
+    markets_end = ui.find("end tab-markets")
+    card_i = ui.find('id="ext-refs-card"')
+    ext_surface = {
+        "region_present": card_i >= 0,
+        "region_inside_markets": bool(
+            markets_i >= 0 and markets_end > markets_i
+            and markets_i < card_i < markets_end),
+        "loader_present": "function loadExternalReferences(" in ui,
+        "loader_count": ui.count("function loadExternalReferences("),
+        "declared_markets_only": '"surface": "MARKETS"' in xsrc,
+    }
+    # The reading list must be reachable from the MARKETS route activation and
+    # from nowhere else. Checking a window of MARKUP around the Today card is not
+    # enough - a loader is wired in the bootstrap, hundreds of lines away from the
+    # region it fills - so this checks CALL SITES against the allowed spans.
+    def _span(pattern, size):
+        i = ui.find(pattern)
+        return (i, i + size) if i >= 0 else None
+
+    allowed_spans = []
+    m_def = re.search(r"function loadExternalReferences\([\s\S]{0,1200}?\n\}", ui)
+    if m_def:
+        allowed_spans.append((m_def.start(), m_def.end()))
+    m_win = ui.find("window.loadExternalReferences = loadExternalReferences;")
+    if m_win >= 0:
+        allowed_spans.append((m_win, m_win + 80))
+    # The markets route-activation block. Bounded by the block it opens, not by a
+    # guessed character count.
+    m_mkt = re.search(r"tabName === 'markets'[\s\S]{0,1600}?\n  \}", ui)
+    if m_mkt:
+        allowed_spans.append((m_mkt.start(), m_mkt.end()))
+
+    ext_call_sites_outside_markets = []
+    for m in re.finditer(r"loadExternalReferences\(", ui):
+        if not any(lo <= m.start() < hi for lo, hi in allowed_spans):
+            ext_call_sites_outside_markets.append(
+                ui[max(0, m.start() - 60):m.start() + 40].replace("\n", " ").strip())
+    ext_on_today = bool(ext_call_sites_outside_markets)
+    ext_surface["loaded_from_markets_route"] = bool(m_mkt and
+                                                    "loadExternalReferences(" in m_mkt.group(0))
+
+    # F. The surface is GET-only, declared, and wired.
+    ext_route = "/v1/market/external-references"
+    ext_routes = {
+        "declared": '"%s"' % ext_route in app,
+        "mutating": sorted(
+            m.group(2) for m in
+            re.finditer(r'@app\.(post|put|delete|patch)\(\s*"([^"]+)"', app)
+            if "external-reference" in m.group(2)),
+        "ui_wired": ext_route in ui,
+    }
+
+    return {
+        "modules_present": not missing,
+        "missing_modules": missing,
+        "rank_identity_contract": contract,
+        "rank_identity_enforced_in_build_forecast": enforced_in_build,
+        "external_url_guard": url_guard,
+        "second_external_url_guard_modules": sorted(second_url_guard),
+        "constructed_source_urls_in_matinfo": sorted(set(constructed_urls)),
+        "unowned_literal_urls_in_reference_module": literal_site_urls,
+        "read_model_declarations": read_model_declarations,
+        "reference_module_private_authority_table": private_authority_table,
+        "ui_external_links": ui_links,
+        "ui_hand_rolled_anchors": sorted(set(ui_hand_rolled_anchors)),
+        "external_reference_surface": ext_surface,
+        "external_references_on_today": ext_on_today,
+        "external_reference_call_sites_outside_markets":
+            sorted(ext_call_sites_outside_markets),
+        "external_reference_routes": ext_routes,
+        "second_rank_identity_owner_modules": sorted(second_identity_owner),
+        "live_operational_lane": live_lane,
+        "live_lane_reads_research_snapshot": sorted(live_reads_research_snapshot),
+        "second_freshness_source_table": second_freshness_table,
+        "governed_lane_falls_back_to_research": sorted(governed_fallback),
+        "target_lanes": lanes,
+        "operational_calibration": calibration,
+        "forbidden_components_in_operational_calibration": sorted(forbidden_components),
+        "calibration_lane_imports_api": research_imports_api,
+        "operational_read_surface_writes": sorted(read_surface_writes),
+        "zero_base_owner_forbidden_calls": forbidden_calls,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -5439,6 +5807,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "information_collection_ownership": check_information_collection_ownership(
             files, routes["routes"]),
         "release30_zero_base_ownership": check_release30_zero_base_ownership(files),
+        "release30_1_operational_cutover": check_release30_1_operational_cutover(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -6090,6 +6459,112 @@ BLOCKING_INVARIANTS = (
     ("release30_zero_base_ownership", "ui_forbidden_dialogs", []),
     ("release30_zero_base_ownership", "ui_execute_controls", []),
     ("release30_zero_base_ownership", "research_lane_imports_api", []),
+    # --- Release 30.1: the OPERATIONAL forecast lane ------------------------
+    # An artifact that carries the approved model's NAME must carry its RANKING.
+    # A non-positive calibration slope reverses that ranking rather than
+    # adjusting it, so the kernel refuses the horizon instead of applying it;
+    # the verdict has exactly one owner; the LIVE lane reads the current
+    # canonical score rather than a periodic research snapshot; freshness is
+    # judged by the canonical owner and never restated here; the governed lane
+    # can never fall back to the research forecast; the two lanes are labelled
+    # so neither can be read as the other; and the operational calibration
+    # admits no component of the adaptive candidate.
+    ("release30_1_operational_cutover", "modules_present", True),
+    ("release30_1_operational_cutover", "rank_identity_enforced_in_build_forecast", True),
+    ("release30_1_operational_cutover", "second_rank_identity_owner_modules", []),
+    ("release30_1_operational_cutover", "live_lane_reads_research_snapshot", []),
+    ("release30_1_operational_cutover", "second_freshness_source_table", False),
+    ("release30_1_operational_cutover", "governed_lane_falls_back_to_research", []),
+    ("release30_1_operational_cutover",
+     "forbidden_components_in_operational_calibration", []),
+    ("release30_1_operational_cutover", "calibration_lane_imports_api", False),
+    ("release30_1_operational_cutover", "operational_read_surface_writes", []),
+    ("release30_1_operational_cutover", "zero_base_owner_forbidden_calls", []),
+    ("release30_1_operational_cutover", "rank_identity_contract", {
+        "identity_contract_declared": True,
+        "operational_activation_declared": True,
+        "verdict_vocabulary_declared": True,
+        "detector_present": True,
+        "verdict_function_present": True,
+        "suppression_disposition_declared": True,
+    }),
+    ("release30_1_operational_cutover", "live_operational_lane", {
+        "live_cross_section_owner_present": True,
+        "live_input_policy_declared": True,
+        "research_snapshot_scope_declared": True,
+        "score_owner_is_universe_scoring": True,
+        "freshness_delegated_to_canonical_owner": True,
+    }),
+    ("release30_1_operational_cutover", "target_lanes", {
+        "research_lane_declared": True,
+        "governed_lane_declared": True,
+        "authority_stamped_on_both": True,
+        "governed_owner_present": True,
+    }),
+    ("release30_1_operational_cutover", "operational_calibration", {
+        "declares_approved_model": True,
+        "declares_only_approved_components": True,
+        "rank_identity_bar_declared": True,
+        "reliability_bar_declared": True,
+        "sign_stability_tested": True,
+        "walk_forward_embargoed": True,
+        "no_random_split": True,
+    }),
+    # --- Release 30.1 UX: source links and external references --------------
+    # ONE owner decides what may become an href, and it refuses anything that is
+    # not an absolute http(s) URL - a feed-supplied string is untrusted input. No
+    # backend or browser path CONSTRUCTS a source URL. Every anchor goes through
+    # one helper that carries target=_blank and rel=noopener noreferrer. The
+    # reference reading list lives on MARKETS only, never on Today, and it reports
+    # the canonical registries' answer about ingestion rather than captioning its
+    # own. The read models own no calculation and assign no authority.
+    ("release30_1_operational_cutover", "second_external_url_guard_modules", []),
+    ("release30_1_operational_cutover", "constructed_source_urls_in_matinfo", []),
+    ("release30_1_operational_cutover",
+     "unowned_literal_urls_in_reference_module", []),
+    ("release30_1_operational_cutover",
+     "reference_module_private_authority_table", False),
+    ("release30_1_operational_cutover", "ui_hand_rolled_anchors", []),
+    ("release30_1_operational_cutover", "external_references_on_today", False),
+    ("release30_1_operational_cutover",
+     "external_reference_call_sites_outside_markets", []),
+    ("release30_1_operational_cutover", "external_url_guard", {
+        "owner_present": True,
+        "schemes_declared": True,
+        "link_policy_declared": True,
+        "state_vocabulary_declared": True,
+        "matinfo_delegates": True,
+    }),
+    ("release30_1_operational_cutover", "read_model_declarations", {
+        "external_owns_no_calculation": True,
+        "external_creates_no_event": True,
+        "external_never_influences_decisions": True,
+        "external_reads_canonical_registry": True,
+        "external_reads_fabric_authority": True,
+        "matinfo_declares_article_is_not_alpha": True,
+        "matinfo_declares_transparency_fields": True,
+        "matinfo_declares_link_policy": True,
+    }),
+    ("release30_1_operational_cutover", "ui_external_links", {
+        "helper_present": True,
+        "helper_sets_target": True,
+        "helper_sets_rel": True,
+        "helper_requires_backend_url": True,
+        "attribute_escape_present": True,
+    }),
+    ("release30_1_operational_cutover", "external_reference_surface", {
+        "region_present": True,
+        "region_inside_markets": True,
+        "loader_present": True,
+        "loader_count": 1,
+        "declared_markets_only": True,
+        "loaded_from_markets_route": True,
+    }),
+    ("release30_1_operational_cutover", "external_reference_routes", {
+        "declared": True,
+        "mutating": [],
+        "ui_wired": True,
+    }),
     # --- Stage 21: outcome intelligence, execution lineage, durable close, env ----
     # ONE outcome calculation owner + ONE persistence owner; ONE execution-lineage
     # owner; pure kernels; no second price/horizon/NAV/cost owner; GET-only surface;

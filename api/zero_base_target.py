@@ -55,6 +55,30 @@ _RETURN_LOOKBACK = 120
 
 SAFETY_BADGES = list(kernel.SAFETY_BADGES)
 
+# --------------------------------------------------------------------------- #
+# Authority - Release 30.1
+# --------------------------------------------------------------------------- #
+#: A target computed from a model the operator does not run is RESEARCH. A target
+#: computed from the CURRENT APPROVED model, on current inputs, with a
+#: rank-preserving calibration, is GOVERNED. The two are never shown as equally
+#: authoritative, and only the governed one could ever reach a proposal.
+LANE_RESEARCH_PREVIEW = "RESEARCH_PREVIEW"
+LANE_GOVERNED_OPERATIONAL = "GOVERNED_OPERATIONAL_TARGET"
+LANE_VOCAB = (LANE_RESEARCH_PREVIEW, LANE_GOVERNED_OPERATIONAL)
+
+AUTHORITY_DOC = {
+    LANE_RESEARCH_PREVIEW: (
+        "Computed from a forecasting model that is NOT the approved operational "
+        "model and is NOT activated. It answers a research question and carries "
+        "no capital authority: it can never become a proposal or a decision."),
+    LANE_GOVERNED_OPERATIONAL: (
+        "Computed from the CURRENT APPROVED operational model on the current "
+        "eligible session, through a calibration that preserves that model's "
+        "ranking. This is the only lane a portfolio proposal could ever be "
+        "derived from, and only after the existing reassessment gate, the "
+        "existing proposal owner and a human."),
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -234,6 +258,18 @@ def run_allocation(*, portfolio_state: Optional[dict] = None,
     result = kernel.build_allocation(input_contract=ic, policy=pol)
     result["composition_owner"] = COMPOSITION_OWNER
     result["generated_at"] = _now_iso()
+    # Release 30.1: this lane is RESEARCH. It is built from a forecasting model
+    # the operator does not run, and saying so in the payload - not only in a
+    # footnote - is what stops it being read as a portfolio instruction.
+    result["authority"] = {
+        "lane": LANE_RESEARCH_PREVIEW,
+        "vocabulary": list(LANE_VOCAB),
+        "doc": AUTHORITY_DOC[LANE_RESEARCH_PREVIEW],
+        "forecast_state": fc.get("state"),
+        "forecast_operational_use": fc.get("operational_use"),
+        "activation_state": (fc.get("activation") or {}).get("state"),
+        "can_become_a_proposal": False,
+    }
     result["forecast"] = rfc.summary(fc)
     result["input_contract_summary"] = {
         "eligible_candidates": len(ic["candidates"]),
@@ -245,6 +281,120 @@ def run_allocation(*, portfolio_state: Optional[dict] = None,
         "sources": ic["sources"],
     }
     return result
+
+
+def run_operational_allocation(*, portfolio_state: Optional[dict] = None,
+                               scoring: Optional[dict] = None,
+                               forecast: Optional[dict] = None,
+                               price_panel: Optional[dict] = None,
+                               artifact: Optional[dict] = None,
+                               policy_overrides: Optional[dict] = None) -> dict:
+    """The GOVERNED operational zero-base allocation. PURE - no write, no mutation.
+
+    Everything is the same owner as the research lane except the forecast, which
+    here is the CURRENT APPROVED model's own calibrated representation. When that
+    forecast is blocked this returns a BLOCKED allocation carrying the forecast's
+    reasons; it NEVER falls back to the research forecast, because a target the
+    operator would read as governed must not be able to come from a model the
+    operator does not run.
+    """
+    from paper_trader.api import portfolio_state as ps_owner
+    from paper_trader.api import universe_scoring as us
+
+    ps = portfolio_state if portfolio_state is not None else ps_owner.load_portfolio_state()
+    sc = scoring if scoring is not None else us.load_universe_scoring()
+    art = artifact if artifact is not None else rfc.load_operational_artifact()
+    fc = (forecast if forecast is not None
+          else rfc.build_operational(scoring=sc, artifact=art))
+    pol = resolve_policy(artifact=art, policy_overrides=policy_overrides)
+
+    authority = {
+        "lane": LANE_GOVERNED_OPERATIONAL,
+        "vocabulary": list(LANE_VOCAB),
+        "doc": AUTHORITY_DOC[LANE_GOVERNED_OPERATIONAL],
+        "operational_model_id": sc.get("primary_model_id"),
+        "score_owner": rfc.OPERATIONAL_SCORE_OWNER,
+        "forecast_lane": fc.get("lane"),
+        "model_identity_contract": fc.get("model_identity_contract"),
+        "applied_horizons": fc.get("horizons") or [],
+        "suppressed_horizons": fc.get("suppressed_horizons") or [],
+    }
+
+    horizon = int(pol["policy_horizon_sessions"])
+    if horizon not in (fc.get("horizons") or []):
+        blockers = list(fc.get("blockers") or [])
+        blockers.append({
+            "code": "POLICY_HORIZON_NOT_CALIBRATED",
+            "policy_horizon_sessions": horizon,
+            "applied_horizons": fc.get("horizons") or [],
+            "detail": ("the approved model supplies no rank-preserving, "
+                       "reliable expected return at the policy horizon, so no "
+                       "governed target can be computed without fabricating "
+                       "one"),
+        })
+        out = kernel.build_allocation(input_contract={
+            "input_schema_version": kernel.INPUT_SCHEMA_VERSION,
+            "eligible_market_date": (ps.get("dates") or {}).get("eligible_market_date"),
+            "active_book_id": (ps.get("active_book") or {}).get("book_id"),
+        }, policy=pol)
+        out["state"] = STATE_BLOCKED
+        out["blockers"] = blockers
+        out["composition_owner"] = COMPOSITION_OWNER
+        out["generated_at"] = _now_iso()
+        out["authority"] = authority
+        out["forecast"] = {"state": fc.get("state"),
+                           "lane": fc.get("lane"),
+                           "operational_use": fc.get("operational_use"),
+                           "eligible_market_date": fc.get("eligible_market_date"),
+                           "input_freshness": fc.get("input_freshness"),
+                           "horizons": fc.get("horizons") or [],
+                           "suppressed_horizons": fc.get("suppressed_horizons") or [],
+                           "model_spec_hash": fc.get("model_spec_hash")}
+        return out
+
+    ic = build_input_contract(portfolio_state=ps, scoring=sc, forecast=fc,
+                              price_panel=price_panel, policy=pol)
+    result = kernel.build_allocation(input_contract=ic, policy=pol)
+    result["composition_owner"] = COMPOSITION_OWNER
+    result["generated_at"] = _now_iso()
+    result["authority"] = authority
+    result["forecast"] = rfc.summary(fc)
+    result["input_contract_summary"] = {
+        "eligible_candidates": len(ic["candidates"]),
+        "current_positions": len(ic["current_weights"]),
+        "return_series_names": len((ic["aligned_returns"] or {}).get("series") or {}),
+        "return_series_dates": len((ic["aligned_returns"] or {}).get("dates") or []),
+        "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        "universe_scoring_hash": ic.get("universe_scoring_hash"),
+        "sources": ic["sources"],
+    }
+    return result
+
+
+def load_operational_zero_base_target(**kwargs) -> dict:
+    """Read surface for the GOVERNED operational lane. Degrades, never raises."""
+    try:
+        return run_operational_allocation(**kwargs)
+    except Exception as exc:                                       # noqa: BLE001
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "composition_owner": COMPOSITION_OWNER, "phase": "R30.1",
+            "state": STATE_UNAVAILABLE,
+            "state_vocabulary": list(READ_STATE_VOCAB),
+            "generated_at": _now_iso(),
+            "authority": {"lane": LANE_GOVERNED_OPERATIONAL,
+                          "vocabulary": list(LANE_VOCAB),
+                          "doc": AUTHORITY_DOC[LANE_GOVERNED_OPERATIONAL]},
+            "zero_base_target": {"rows": [], "economics": {}},
+            "implementable_target": {"rows": [], "economics": {}},
+            "current_portfolio": {"weights": {}, "economics": {}},
+            "comparison": {}, "transition": {},
+            "blockers": [{"code": "OPERATIONAL_ZERO_BASE_TARGET_UNAVAILABLE",
+                          "detail": type(exc).__name__}],
+            "warnings": [],
+            "safety": {"badges": list(SAFETY_BADGES), "creates_orders": False,
+                       "creates_decisions": False, "mutates_holdings": False},
+        }
 
 
 def load_zero_base_target(**kwargs) -> dict:

@@ -67,6 +67,36 @@ DEFAULT_ARTIFACT_TAG = "price_only"
 _ARTIFACT_FILE = "model_artifact_%s.json"
 _INPUT_FILE = "forecast_input_%s.json"
 
+# --------------------------------------------------------------------------- #
+# Release 30.1 - the OPERATIONAL lane
+# --------------------------------------------------------------------------- #
+#: The tag under which the CURRENT APPROVED operational model is forecast. Its
+#: frozen calibration lives in the Release-30.1 research root; its FEATURE does
+#: not come from any research file.
+OPERATIONAL_TAG = "operational_v2"
+R30_1_ROOT_ENV = "PAPER_TRADER_R30_1_ROOT"
+_DEFAULT_R30_1_ROOT = Path(
+    r"D:\Stock_Prediction_app_data\release30_1_zero_base_operational_cutover")
+
+#: The single feature the approved model's own cross-sectional score is carried
+#: under. Owned by ``api.universe_scoring`` - never emitted by a research bridge.
+OPERATIONAL_FEATURE = "operational_combined_score"
+OPERATIONAL_SCORE_OWNER = "api.universe_scoring"
+
+#: Release 30.1: the operational forecast reads the CURRENT canonical score at
+#: the CURRENT eligible market date. A periodic research snapshot is admissible
+#: for HISTORICAL calibration and inadmissible as a live operational input,
+#: because a feature stamped with a session 13 days behind the decision it is
+#: about is not a forecast of that decision.
+LIVE_INPUT_POLICY = "CURRENT_CANONICAL_SCORE_AT_CURRENT_ELIGIBLE_SESSION"
+RESEARCH_SNAPSHOT_ADMISSIBLE_FOR = "HISTORICAL_CALIBRATION_ONLY"
+
+#: Reasons the operational lane refuses to produce a forecast.
+BLOCK_NO_LIVE_SCORING = "OPERATIONAL_SCORING_UNAVAILABLE"
+BLOCK_NO_ELIGIBLE_DATE = "OPERATIONAL_SCORING_HAS_NO_ELIGIBLE_MARKET_DATE"
+BLOCK_STALE_REQUIRED_INPUT = "REQUIRED_OPERATIONAL_INPUT_STALE"
+BLOCK_MODEL_IDENTITY = "ARTIFACT_IS_NOT_THE_APPROVED_OPERATIONAL_MODEL"
+
 SAFETY_BADGES = ["PREVIEW ONLY", "READ ONLY", "NO ORDERS", "NO LIVE PROMOTION",
                  "MANUAL REVIEW", "AUTOMATION OFF"]
 
@@ -109,6 +139,116 @@ def load_model_artifact(*, tag: str = DEFAULT_ARTIFACT_TAG,
 def load_forecast_input(*, tag: str = DEFAULT_ARTIFACT_TAG,
                         root=None) -> Optional[dict]:
     return _load_json(r30_root(root) / (_INPUT_FILE % tag))
+
+
+def r30_1_root(root=None) -> Path:
+    return Path(root or os.environ.get(R30_1_ROOT_ENV) or _DEFAULT_R30_1_ROOT)
+
+
+def load_operational_artifact(*, root=None) -> Optional[dict]:
+    """The frozen Release-30.1 calibration of the CURRENT APPROVED model."""
+    return _load_json(r30_1_root(root) / (_ARTIFACT_FILE % OPERATIONAL_TAG))
+
+
+# --------------------------------------------------------------------------- #
+# The LIVE operational cross-section - Release 30.1
+# --------------------------------------------------------------------------- #
+def required_input_freshness(*, freshness: Optional[dict] = None) -> dict:
+    """Whether every input the APPROVED model requires is current.
+
+    Freshness is judged by the canonical owner (``api.data_freshness``) on the
+    sources it already declares REQUIRED FOR SIGNAL REFRESH - this module states
+    no second opinion about what "fresh" means and maintains no second source
+    table. A source under a slower declared cadence (the quarterly fundamental
+    panel) is not stale merely for being older than today; its own owner decides.
+    """
+    if freshness is None:
+        try:
+            from paper_trader.api import data_freshness as dfr
+            freshness = dfr.load_data_freshness()
+        except Exception as exc:                                   # noqa: BLE001
+            return {"state": "UNKNOWN", "owner": "api.data_freshness",
+                    "detail": type(exc).__name__, "required": [], "stale": []}
+    rows = [s for s in (freshness or {}).get("source_freshness") or []
+            if s.get("required_for_signal_refresh")]
+    stale = [{"source_id": s.get("source_id"), "status": s.get("status"),
+              "as_of_date": s.get("as_of_date"),
+              "expected_through_date": s.get("expected_through_date"),
+              "authoritative_owner": s.get("authoritative_owner")}
+             for s in rows if s.get("blocks_current_operation")]
+    return {
+        "state": "FRESH" if (rows and not stale) else ("STALE" if stale else "UNKNOWN"),
+        "owner": "api.data_freshness",
+        "eligible_market_date": (freshness or {}).get("eligible_market_date"),
+        "required": [{"source_id": s.get("source_id"), "status": s.get("status"),
+                      "as_of_date": s.get("as_of_date"),
+                      "cadence": s.get("cadence")} for s in rows],
+        "stale": stale,
+    }
+
+
+def build_operational_cross_section(*, scoring: Optional[dict] = None) -> dict:
+    """The CURRENT decision-date cross-section of the APPROVED model's own score.
+
+    No research file is in this path. The score, the eligible universe, the
+    sector, the liquidity and the decision date all come from
+    ``api.universe_scoring`` at the session the workflow is actually operating
+    on, which is what makes ``forecast.eligible_market_date`` equal to the
+    workflow's eligible market date by construction rather than by coincidence.
+    """
+    if scoring is None:
+        from paper_trader.api import universe_scoring as us
+        scoring = us.load_universe_scoring()
+    sc = scoring or {}
+    eligible = sc.get("eligible_market_date")
+    rows = []
+    excluded: dict = {}
+    for r in sc.get("rankings") or []:
+        tk = r.get("ticker")
+        if not tk:
+            continue
+        if not r.get("eligible", True):
+            excluded[tk] = r.get("exclusion_reason") or "NOT_ELIGIBLE"
+            continue
+        score = r.get("combined_score")
+        if score is None:
+            excluded[tk] = "NO_COMBINED_SCORE"
+            continue
+        rows.append({"ticker": tk,
+                     "features": {OPERATIONAL_FEATURE: float(score)},
+                     "adv_dollar": r.get("adv_dollar"),
+                     "sector": r.get("sector") or "Unknown"})
+    rows.sort(key=lambda x: x["ticker"])
+    return {
+        "input_schema_version": kernel.INPUT_SCHEMA_VERSION,
+        "emitter": COMPOSITION_OWNER,
+        "as_of_date": eligible,
+        "requested_eligible_market_date": eligible,
+        "feature_panel_behind_eligible_session": False,
+        "feature_panel_gap_calendar_days": 0,
+        "feature_names": [OPERATIONAL_FEATURE],
+        "rows": rows,
+        "row_count": len(rows),
+        "excluded": dict(sorted(excluded.items())),
+        "point_in_time_status": kernel.PIT_OK,
+        "point_in_time_controls": [
+            "the score is the canonical operational score at the CURRENT "
+            "eligible market date; no research snapshot is read",
+            "eligibility, sector and liquidity are the scoring owner's own",
+            "no forward window is read - this cross-section has no label",
+            "cross-sectional normalisation happens in the kernel, per date",
+        ],
+        "provenance": {
+            "live_input_policy": LIVE_INPUT_POLICY,
+            "research_snapshot_admissible_for": RESEARCH_SNAPSHOT_ADMISSIBLE_FOR,
+            "operational_score_owner": OPERATIONAL_SCORE_OWNER,
+            "operational_model_id": sc.get("primary_model_id"),
+            "universe_id": sc.get("universe_id"),
+            "universe_scoring_hash": sc.get("output_hash"),
+            "eligible_market_date": eligible,
+            "fundamental_as_of_date": sc.get("fundamental_as_of_date"),
+        },
+    }
 
 
 def activation_state(*, evidence=None) -> dict:
@@ -189,6 +329,125 @@ def build(*, tag: str = DEFAULT_ARTIFACT_TAG, root=None,
                 "reported rather than papered over."),
     }
     return forecast
+
+
+def build_operational(*, scoring: Optional[dict] = None,
+                      artifact: Optional[dict] = None,
+                      cross_section: Optional[dict] = None,
+                      freshness: Optional[dict] = None,
+                      root=None) -> dict:
+    """The forward-return representation of the CURRENT APPROVED model. PURE READ.
+
+    Three things separate this from ``build``:
+
+    1. the FEATURE is the approved model's own live score from
+       ``api.universe_scoring`` - no research snapshot is in the live path;
+    2. the required inputs are judged by ``api.data_freshness``, and a stale
+       REQUIRED input BLOCKS rather than degrades;
+    3. the kernel's rank-identity contract binds, so a horizon whose calibration
+       would re-rank the approved model supplies no expected return at all.
+
+    It cannot activate anything: this lane is the approved model, so there is
+    nothing here to promote.
+    """
+    art = artifact if artifact is not None else load_operational_artifact(root=root)
+    fresh = required_input_freshness(freshness=freshness)
+    ic = (cross_section if cross_section is not None
+          else build_operational_cross_section(scoring=scoring))
+
+    blockers: list = []
+    if art is None:
+        blockers.append({"code": "OPERATIONAL_CALIBRATION_ARTIFACT_ABSENT",
+                         "tag": OPERATIONAL_TAG,
+                         "detail": ("run scripts/run_release30_1_operational_"
+                                    "calibration.py --stage calibrate")})
+    elif not kernel.represents_approved_model(art):
+        blockers.append({"code": BLOCK_MODEL_IDENTITY, "tag": OPERATIONAL_TAG})
+    if not (ic.get("rows") or []):
+        blockers.append({"code": BLOCK_NO_LIVE_SCORING})
+    if not ic.get("as_of_date"):
+        blockers.append({"code": BLOCK_NO_ELIGIBLE_DATE})
+    if fresh["state"] == "STALE":
+        blockers.append({"code": BLOCK_STALE_REQUIRED_INPUT,
+                         "stale": fresh["stale"]})
+
+    if blockers:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "composition_owner": COMPOSITION_OWNER, "phase": "R30.1",
+            "state": STATE_BLOCKED,
+            "state_vocabulary": list(READ_STATE_VOCAB),
+            "generated_at": _now_iso(), "artifact_tag": OPERATIONAL_TAG,
+            "lane": "OPERATIONAL",
+            "eligible_market_date": ic.get("as_of_date"),
+            "by_horizon": {}, "horizons": [], "suppressed_horizons": [],
+            "blockers": blockers, "warnings": [],
+            "input_freshness": fresh,
+            "input_staleness": {"feature_as_of_date": ic.get("as_of_date"),
+                                "requested_eligible_market_date": ic.get("as_of_date"),
+                                "behind_eligible_session": False,
+                                "gap_calendar_days": 0,
+                                "doc": LIVE_INPUT_POLICY},
+            "operational_use": "DATA_BLOCKED",
+            "safety": {"badges": list(SAFETY_BADGES), "creates_orders": False,
+                       "creates_decisions": False, "mutates_holdings": False,
+                       "promotes_models": False},
+        }
+        return payload
+
+    forecast = kernel.build_forecast(cross_section=ic, artifact=art)
+    forecast["generated_at"] = _now_iso()
+    forecast["composition_owner"] = COMPOSITION_OWNER
+    forecast["phase"] = "R30.1"
+    forecast["artifact_tag"] = OPERATIONAL_TAG
+    forecast["lane"] = "OPERATIONAL"
+    forecast["input_freshness"] = fresh
+    forecast["input_staleness"] = {
+        "feature_as_of_date": ic.get("as_of_date"),
+        "requested_eligible_market_date": ic.get("as_of_date"),
+        "behind_eligible_session": False,
+        "gap_calendar_days": 0,
+        "doc": ("the operational lane reads the CURRENT canonical score at the "
+                "CURRENT eligible market date, so there is no periodic research "
+                "snapshot between the decision and the feature it is based on"),
+    }
+    # The approved model needs no activation record - it IS the approved model.
+    # What it needs is a calibration that preserves its ranking, and when no
+    # horizon has one the lane reports DATA_BLOCKED rather than a number.
+    forecast["activation"] = {
+        "state": "APPROVED_OPERATIONAL_MODEL",
+        "vocabulary": ["APPROVED_OPERATIONAL_MODEL"],
+        "automatic_promotion_allowed": AUTOMATIC_PROMOTION_ALLOWED,
+        "requires": ("nothing - this lane carries the model the operator "
+                     "already runs; the adaptive Release-30 candidate is a "
+                     "separate lane and remains NOT_ACTIVATED"),
+    }
+    forecast["operational_use"] = ("ACTIVE" if forecast.get("horizons")
+                                   else "DATA_BLOCKED")
+    if not forecast.get("horizons"):
+        forecast["state"] = STATE_BLOCKED
+    return forecast
+
+
+def load_operational_return_forecast(**kwargs) -> dict:
+    """Read surface for the operational lane. Degrades, never raises."""
+    try:
+        return build_operational(**kwargs)
+    except Exception as exc:                                       # noqa: BLE001
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "composition_owner": COMPOSITION_OWNER, "phase": "R30.1",
+            "state": STATE_UNAVAILABLE, "lane": "OPERATIONAL",
+            "state_vocabulary": list(READ_STATE_VOCAB),
+            "generated_at": _now_iso(), "artifact_tag": OPERATIONAL_TAG,
+            "by_horizon": {}, "horizons": [], "suppressed_horizons": [],
+            "blockers": [{"code": "OPERATIONAL_FORECAST_UNAVAILABLE",
+                          "detail": type(exc).__name__}],
+            "warnings": [], "operational_use": "DATA_BLOCKED",
+            "safety": {"badges": list(SAFETY_BADGES), "creates_orders": False,
+                       "creates_decisions": False, "mutates_holdings": False,
+                       "promotes_models": False},
+        }
 
 
 def load_return_forecast(**kwargs) -> dict:

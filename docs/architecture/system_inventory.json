@@ -596,6 +596,31 @@
    "prefix": "/v1/operations/information-collection",
    "owner": "api/information_collection.py",
    "system": "operations"
+  },
+  {
+   "prefix": "/v1/operations/material-information",
+   "owner": "api/material_information.py",
+   "system": "infrastructure"
+  },
+  {
+   "prefix": "/v1/operations/zero-base-target",
+   "owner": "api/zero_base_target.py",
+   "system": "infrastructure"
+  },
+  {
+   "prefix": "/v1/research/return-forecast",
+   "owner": "api/return_forecast.py",
+   "system": "infrastructure"
+  },
+  {
+   "prefix": "/v1/research/alpha-leaderboard",
+   "owner": "api/alpha_leaderboard.py",
+   "system": "infrastructure"
+  },
+  {
+   "prefix": "/v1/market/external-references",
+   "owner": "api/external_references.py",
+   "system": "infrastructure"
   }
  ],
  "classification_legend": {
@@ -1655,9 +1680,37 @@
    "notes": "Contains NO second provider client, scoring engine, opportunity cost, reassessment, proposal builder or market-session resolver — it composes the existing owners. COLLECTION automation and EXECUTION automation are different switches: enabling collection is token-gated (CONFIRM_ENABLE_INFORMATION_COLLECTION) and never approves a proposal, confirms a target, creates/confirms/fills/cancels an order, runs Daily Close or the full Daily Research Cycle, or promotes a model."
   },
   {
+   "path": "api/external_references.py",
+   "system": "infrastructure",
+   "responsibility": "Release 30.1 EXTERNAL REFERENCE read model. Owns TWO things and no calculation. (1) safe_external_url - the ONE definition of what may become an href anywhere in the product: an absolute http(s) URL with a host, no control characters, length bounded. javascript:, data:, scheme-less and relative references are REFUSED with a named reason so the caller renders plain text; a feed-supplied string is untrusted input and a private check elsewhere would be a second definition of 'safe link'. (2) the declared set of external MARKET reference sites an operator may open from Markets, together with whether each is actually an ingested source - answered on every read from api.source_capability (registry + INGESTED_SOURCE_IDS) and engine.event_fabric (family -> decision authority), never asserted here or in the browser.",
+   "classification": "KEEP",
+   "target_owner": "api/external_references.py",
+   "duplicate_with": [],
+   "direct_reads": [
+    "api.source_capability.SOURCE_BY_ID / INGESTED_SOURCE_IDS / canonical_source_id",
+    "engine.event_fabric.EVENT_FAMILIES (decision authority per event family)"
+   ],
+   "direct_writes": [
+    "none - pure read model. No PostgreSQL / order / fill / target / holding / cash / NAV write, and no network call."
+   ],
+   "endpoints": [
+    "/v1/market/external-references"
+   ],
+   "ui_consumers": [
+    "loadExternalReferences (Markets only)",
+    "renderMaterialInformation (link policy)"
+   ],
+   "tests": [
+    "tests/test_release30_1_operational_cutover.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "A link is a convenience for a human reading evidence; it is never an input. Nothing behind these references is collected, normalised into an event, given a signal authority, or allowed to reach a forecast, target, proposal or portfolio decision - and because the ingestion claim is derived from the canonical registries rather than captioned in HTML, it cannot go stale the day one of these sites genuinely becomes a source. Absent from Today by design."
+  },
+  {
    "path": "api/material_information.py",
    "system": "infrastructure",
-   "responsibility": "Release 30 MATERIAL INFORMATION / CAPITAL IMPACT read model. Answers what the system heard, how it interpreted it and what that changed, for each recent material event: timestamp, ticker, source, event type, DECISION AUTHORITY, what changed, and whether the forecast / risk / holding opportunity-cost / portfolio reassessment were affected, plus the resulting portfolio decision. Owns NO calculation: authority reach is read from engine.event_fabric's own frozensets rather than copied, so an EVENT_TRIGGER_ONLY event can trigger a reassessment and can never contribute expected return.",
+   "responsibility": "Release 30 MATERIAL INFORMATION / CAPITAL IMPACT read model. Answers what the system heard, how it interpreted it and what that changed, for each recent material event: timestamp, ticker, source, event type, DECISION AUTHORITY, what changed, and whether the forecast / risk / holding opportunity-cost / portfolio reassessment were affected, plus the resulting portfolio decision. Owns NO calculation: authority reach is read from engine.event_fabric's own frozensets rather than copied, so an EVENT_TRIGGER_ONLY event can trigger a reassessment and can never contribute expected return. Release 30.1 adds the SOURCE LINK: each row carries the canonical source URL the normalized event already recorded in payload_reference, plus the published title, host and a named url_state. The URL is never constructed, guessed or inferred, the safety decision is delegated to api.external_references.safe_external_url, and a reference that is not an absolute http(s) URL is exposed as source_reference for plain-text rendering. Opening an article changes no signal, authority or interpretation; external_article_is_not_alpha is declared in the payload. The row contract is declared as transparency_fields so it is checkable from the API rather than from markup.",
    "classification": "KEEP",
    "target_owner": "api/material_information.py",
    "duplicate_with": [],
@@ -1666,7 +1719,8 @@
     "engine.event_fabric ALPHA/RISK/TRIGGER bearing authority frozensets",
     "holding_opportunity_cost.load_holding_opportunity_cost (per-holding conclusion)",
     "portfolio_decision.load_portfolio_decision (portfolio conclusion)",
-    "return_forecast.summary"
+    "return_forecast.summary",
+    "api.external_references.safe_external_url + LINK_POLICY (external-link contract)"
    ],
    "direct_writes": [
     "none - pure read model"
@@ -1678,6 +1732,7 @@
     "loadMaterialInformation"
    ],
    "tests": [
+    "tests/test_release30_1_operational_cutover.py",
     "tests/test_release30_read_models_and_ui.py"
    ],
    "migration_priority": 1,
@@ -2389,13 +2444,15 @@
   {
    "path": "api/return_forecast.py",
    "system": "infrastructure",
-   "responsibility": "Release 30 CANONICAL forward-return forecast composition / activation / read owner. Locates the frozen model artifact and the emitted feature cross-section, validates both through the engine.return_forecast kernel, reports the forecast with its staleness declared, and owns the immutable forward-evidence capture. ACTIVATION IS MANUAL AND FAILS CLOSED: an artifact on disk is NOT_ACTIVATED research evidence until a human writes an activation record carrying the explicit token, and no code path here can write one. Reading never writes.",
+   "responsibility": "Release 30 CANONICAL forward-return forecast composition / activation / read owner. Locates the frozen model artifact and the emitted feature cross-section, validates both through the engine.return_forecast kernel, reports the forecast with its staleness declared, and owns the immutable forward-evidence capture. ACTIVATION IS MANUAL AND FAILS CLOSED: an artifact on disk is NOT_ACTIVATED research evidence until a human writes an activation record carrying the explicit token, and no code path here can write one. Reading never writes. Release 30.1 adds the OPERATIONAL lane (build_operational): the CURRENT APPROVED model's own live score from api.universe_scoring at the CURRENT eligible market date - no periodic research snapshot is in the live path - judged for freshness by the canonical owner api.data_freshness on the sources it already declares required for signal refresh. A stale required input BLOCKS. The approved model needs no activation record; the adaptive Release-30 candidate remains a separate, NOT_ACTIVATED lane.",
    "classification": "KEEP",
    "target_owner": "api/return_forecast.py",
    "duplicate_with": [],
    "direct_reads": [
     "frozen model artifact + forecast-input cross-section under PAPER_TRADER_R30_ROOT (research root)",
-    "activation record under PAPER_TRADER_RETURN_FORECAST_DIR"
+    "activation record under PAPER_TRADER_RETURN_FORECAST_DIR",
+    "Release 30.1 frozen operational calibration under PAPER_TRADER_R30_1_ROOT (historical calibration only)",
+    "universe_scoring.load_universe_scoring + data_freshness.load_data_freshness for the LIVE operational cross-section"
    ],
    "direct_writes": [
     "append-only, first-write-wins forecast snapshots under PAPER_TRADER_RETURN_FORECAST_DIR, written ONLY by capture_forecast_snapshot (never by a GET). No PostgreSQL / order / fill / target / holding / cash / NAV write."
@@ -2407,6 +2464,7 @@
     "loadZeroBaseTarget (forecast summary block)"
    ],
    "tests": [
+    "tests/test_release30_1_operational_cutover.py",
     "tests/test_release30_return_forecast.py"
    ],
    "migration_priority": 1,
@@ -2500,7 +2558,7 @@
   {
    "path": "api/zero_base_target.py",
    "system": "infrastructure",
-   "responsibility": "Release 30 CANONICAL zero-base target composition / read owner. Owns no mathematics: it binds the LIVE canonical constants (multi_horizon_engine caps, paper_trading_desk cost rate), applies the walk-forward calibrated risk prices from the frozen artifact, assembles the immutable input contract from the authoritative owners, runs the pure engine.zero_base_allocator kernel and exposes the read contract plus a compact summary. Degrades to an explicit UNAVAILABLE payload rather than raising.",
+   "responsibility": "Release 30 CANONICAL zero-base target composition / read owner. Owns no mathematics: it binds the LIVE canonical constants (multi_horizon_engine caps, paper_trading_desk cost rate), applies the walk-forward calibrated risk prices from the frozen artifact, assembles the immutable input contract from the authoritative owners, runs the pure engine.zero_base_allocator kernel and exposes the read contract plus a compact summary. Degrades to an explicit UNAVAILABLE payload rather than raising. Release 30.1 adds the AUTHORITY distinction and the GOVERNED lane (run_operational_allocation): a target built from the approved model on current inputs through a rank-preserving calibration is GOVERNED_OPERATIONAL_TARGET; a target built from the non-activated adaptive candidate is RESEARCH_PREVIEW and can never become a proposal. The governed lane never falls back to the research forecast, and blocks when the policy horizon has no rank-preserving, reliable calibration.",
    "classification": "KEEP",
    "target_owner": "api/zero_base_target.py",
    "duplicate_with": [],
@@ -2521,6 +2579,7 @@
     "loadZeroBaseTarget"
    ],
    "tests": [
+    "tests/test_release30_1_operational_cutover.py",
     "tests/test_release30_zero_base_allocator.py"
    ],
    "migration_priority": 1,
@@ -3076,7 +3135,7 @@
   {
    "path": "engine/return_forecast.py",
    "system": "infrastructure",
-   "responsibility": "Release 30 CANONICAL forward-return forecasting KERNEL. Owns what a Paper Trader forecast IS: the target quantity (FORWARD_EXCESS_RETURN_VS_CROSS_SECTIONAL_MEAN - a forward RETURN, never a price level, with the market's own level explicitly NOT forecast), the canonical horizons (5/20/60 trading sessions), the per-date rank feature transform, application of a FROZEN model artifact (linear / tree ensemble / rank blend / weighted ensemble whose members are standardised before weighting), forecast uncertainty (measured walk-forward residual dispersion combined with ensemble member disagreement), the downside quantile, and the identity hashes (model_spec_hash, feature_snapshot_hash). Pure stdlib, pure function: no file, no service, no state, no write. Fails CLOSED with named reason codes; never promotes, activates, retrains or sizes a position.",
+   "responsibility": "Release 30 CANONICAL forward-return forecasting KERNEL. Owns what a Paper Trader forecast IS: the target quantity (FORWARD_EXCESS_RETURN_VS_CROSS_SECTIONAL_MEAN - a forward RETURN, never a price level, with the market's own level explicitly NOT forecast), the canonical horizons (5/20/60 trading sessions), the per-date rank feature transform, application of a FROZEN model artifact (linear / tree ensemble / rank blend / weighted ensemble whose members are standardised before weighting), forecast uncertainty (measured walk-forward residual dispersion combined with ensemble member disagreement), the downside quantile, and the identity hashes (model_spec_hash, feature_snapshot_hash). Pure stdlib, pure function: no file, no service, no state, no write. Fails CLOSED with named reason codes; never promotes, activates, retrains or sizes a position. Release 30.1 adds the MODEL IDENTITY CONTRACT: an artifact that declares itself the CURRENT APPROVED operational model must PRESERVE that model's ranking. Because expected_excess_return = slope * standardised_score and the standardisation of a positive-weight rank blend is strictly monotone, a non-positive calibration slope reverses the approved ranking rather than adjusting it; rank_identity() is the ONE owner of that verdict and build_forecast SUPPRESSES such a horizon, which then supplies no expected return to anything downstream.",
    "classification": "KEEP",
    "target_owner": "engine/return_forecast.py",
    "duplicate_with": [],
@@ -3089,11 +3148,12 @@
    "endpoints": [],
    "ui_consumers": [],
    "tests": [
+    "tests/test_release30_1_operational_cutover.py",
     "tests/test_release30_return_forecast.py"
    ],
    "migration_priority": 1,
    "risk": "low",
-   "notes": "Training lives in the research lane (alpha_agent/release30_*) because it needs numpy while api/ and engine/ are stdlib-only - the same split Phase 29D.2 established for the monthly momentum input. The stdlib rank transform is asserted to match the numpy research transform exactly, and the stdlib model application is asserted to reproduce every numpy learner."
+   "notes": "Training lives in the research lane (alpha_agent/release30_*) because it needs numpy while api/ and engine/ are stdlib-only - the same split Phase 29D.2 established for the monthly momentum input. The stdlib rank transform is asserted to match the numpy research transform exactly, and the stdlib model application is asserted to reproduce every numpy learner. The rank-identity contract binds retroactively: the released Release-30 'operational' artifact declares FROZEN_OPERATIONAL_CHAMPION_NO_FITTING and is caught by it at 5 and 20 sessions."
   },
   {
    "path": "engine/risk.py",

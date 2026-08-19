@@ -3872,6 +3872,31 @@
               <div class="va-sub" id="cc-mv-disclaimer" style="margin-top:6px;"></div>
             </div>
           </div>
+
+          <!-- ===================== RELEASE 30.1: EXTERNAL MARKET SOURCES =====================
+               A compact operator reading list. MARKETS ONLY — deliberately absent from
+               Today, which carries only what the system itself concluded.
+
+               These are LINKS, not inputs. Nothing behind them is collected, normalised
+               into an event, given a signal authority, or allowed to reach a forecast, a
+               target, a proposal or a portfolio decision. The rows, the URLs and the
+               "reference only / ingested" state all come from the ONE backend owner
+               GET /v1/market/external-references, which answers the ingestion question
+               from api.source_capability and engine.event_fabric on every read — so a
+               link existing here can never imply ingestion, and the claim cannot go
+               stale the day a site actually becomes a source. The browser constructs no
+               URL and computes no verdict. -->
+          <div class="va-card" id="ext-refs-card" style="margin-top:10px;">
+            <div class="va-card-hd">
+              <span class="va-card-title">External Market Sources</span>
+              <span class="cc-badge safe" id="ext-refs-badge">REFERENCE LINKS ONLY</span>
+              <span class="cc-badge">NOT INGESTED</span>
+              <span class="cc-badge">NOT A SIGNAL</span>
+              <span class="va-sub">Third-party sites for your own reading. Open in a new tab.</span>
+            </div>
+            <div id="ext-refs-list" style="margin-top:8px;"></div>
+            <div class="va-sub" id="ext-refs-doc" style="margin-top:6px;line-height:1.4;"></div>
+          </div>
       </div><!-- end tab-markets -->
 
       <!-- TAB 1: DAILY PLAN -->
@@ -8460,6 +8485,9 @@ window._switchTab = function(tabName, opts) {
     // Market Interaction UX: make the Market Context tiles clickable (delegated; attaches
     // once) so any supported tile opens the ONE shared read-only Market Detail drill-down.
     try { if (typeof _initMarketTileClicks === 'function') _initMarketTileClicks(); } catch (e) {}
+    // Release 30.1: the external reference reading list. MARKETS ONLY — it is not
+    // loaded, rendered or linked from Today.
+    try { if (typeof loadExternalReferences === 'function') loadExternalReferences(); } catch (e) {}
   }
 
   // Phase 14-A/B: connected detail sections must render their real (empty/loaded)
@@ -27807,6 +27835,31 @@ function _r30dash(s) {
   var v = _r30esc(s);
   return v === '' ? '&mdash;' : v;
 }
+// Release 30.1: attribute-context escape. _r30esc is for TEXT nodes; an href or a
+// title also has to survive a quote, or a value could close the attribute and add
+// one of its own.
+function _r30attr(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// Release 30.1: render a BACKEND-SUPPLIED source URL as an external link.
+// The URL is never constructed, inferred or completed here: the backend owner
+// api.external_references.safe_external_url has already decided whether this
+// reference may become an href at all, and a row without one gets plain text
+// rather than a link that goes nowhere. target/rel come from the backend's
+// declared link policy so the contract has one home.
+function _r30srcLink(text, url, policy, title) {
+  var label = _r30esc(text);
+  if (!url) return label;
+  var p = policy || {};
+  return '<a href="' + _r30attr(url) + '"'
+    + ' target="' + _r30attr(p.target || '_blank') + '"'
+    + ' rel="' + _r30attr(p.rel || 'noopener noreferrer') + '"'
+    + ' title="' + _r30attr(title || 'Open the original source in a new tab') + '"'
+    + ' style="color:var(--info,#3b82f6);text-decoration:underline;">'
+    + label + ' &#8599;</a>';
+}
 function _r30yesno(v, yes, no) {
   return v ? '<b style="color:var(--warning,#f59e0b);">' + (yes || 'yes') + '</b>'
            : '<span style="color:var(--label);">' + (no || '&mdash;') + '</span>';
@@ -27830,18 +27883,31 @@ function renderMaterialInformation(d) {
       '<div style="font-size:11px;color:var(--label);">No material information has been'
       + ' classified for this session. Nothing is inferred when nothing arrived.</div>');
   } else {
+    var linkPolicy = d.link_policy || {};
     var head = '<tr>'
       + '<th style="text-align:left;">When</th><th style="text-align:left;">Name</th>'
+      + '<th style="text-align:left;">Source</th>'
       + '<th style="text-align:left;">What changed</th>'
       + '<th style="text-align:left;">Authority</th>'
       + '<th>Forecast</th><th>Risk</th><th style="text-align:left;">Opportunity cost</th>'
       + '<th style="text-align:left;">Result</th></tr>';
     var body = rows.map(function (r) {
+      // The clickable thing is the SOURCE and, when the source published one, the
+      // headline. Both come from the backend row; neither is assembled here.
+      var srcCell = _r30srcLink(r.source || '—', r.source_url, linkPolicy,
+        r.source_host ? ('Open the original source at ' + r.source_host + ' in a new tab')
+                      : 'Open the original source in a new tab');
+      var changed = r.what_changed || r.event_type || '—';
+      var changedCell = r.source_url
+        ? _r30srcLink(changed, r.source_url, linkPolicy,
+            r.source_title || 'Open the original source in a new tab')
+        : _r30esc(changed);
       return '<tr>'
         + '<td style="white-space:nowrap;">' + _r30esc(String(r.timestamp || '').slice(0, 10)) + '</td>'
         + '<td><b>' + _r30esc(r.ticker || '—') + '</b>'
         + (r.held ? ' <span class="cc-badge" style="font-size:9px;">HELD</span>' : '') + '</td>'
-        + '<td>' + _r30esc(r.what_changed || r.event_type || '—') + '</td>'
+        + '<td style="white-space:nowrap;">' + srcCell + '</td>'
+        + '<td>' + changedCell + '</td>'
         + '<td><span class="cc-badge muted" style="font-size:9px;">'
         + _r30esc(r.signal_authority || 'UNCLASSIFIED') + '</span></td>'
         + '<td style="text-align:center;">' + _r30yesno(r.forecast_affected, 'yes', 'no') + '</td>'
@@ -27856,11 +27922,16 @@ function renderMaterialInformation(d) {
       + '</tbody></table>');
   }
   var cyc = d.last_event_cycle || {};
+  var linked = (d.rows || []).filter(function (r) { return !!r.source_url; }).length;
   _setHtml('matinfo-authority',
     _r30esc(d.authority_doc || '')
     + ' Last event cycle: <b>' + _r30esc(cyc.state || '—') + '</b>'
     + ' · portfolio reassessed: <b>' + (d.portfolio_reassessed ? 'yes' : 'no') + '</b>'
-    + ' · decision: <b>' + _r30esc((d.portfolio_decision || {}).state || '—') + '</b>.');
+    + ' · decision: <b>' + _r30esc((d.portfolio_decision || {}).state || '—') + '</b>.'
+    + ' <b>' + _r30esc(linked) + '</b> of ' + _r30esc((d.rows || []).length)
+    + ' rows carry a canonical source link (opens in a new tab); the rest recorded'
+    + ' a reference that is not a URL and are shown as text. '
+    + _r30esc(d.source_link_doc || ''));
 }
 window.renderMaterialInformation = renderMaterialInformation;
 
@@ -27876,6 +27947,53 @@ function loadMaterialInformation() {
   return p;
 }
 window.loadMaterialInformation = loadMaterialInformation;
+
+// ---- Markets: EXTERNAL MARKET SOURCES (Release 30.1) -----------------------
+// Presentation only. Every row, every URL and the reference/ingested verdict come
+// from GET /v1/market/external-references; nothing is constructed or decided here.
+function renderExternalReferences(d) {
+  var card = document.getElementById('ext-refs-card');
+  if (!card) return;
+  if (!d || d.state === 'UNAVAILABLE' || !(d.rows || []).length) {
+    card.style.display = 'none'; return;
+  }
+  card.style.display = '';
+  var policy = d.link_policy || {};
+  var badge = document.getElementById('ext-refs-badge');
+  // The badge states the BACKEND's answer, never a hard-coded caption.
+  if (badge) badge.textContent = d.any_ingested ? 'INGESTED SOURCE PRESENT'
+                                                : 'REFERENCE LINKS ONLY';
+  var body = (d.rows || []).map(function (r) {
+    var label = r.url
+      ? _r30srcLink(r.label || r.host || '—', r.url, policy,
+          'Open ' + (r.host || 'the source') + ' in a new tab')
+      : _r30esc(r.label || '—');
+    return '<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;'
+      + 'border-bottom:1px solid var(--border,#22304a);">'
+      + '<span style="min-width:230px;font-size:12px;">' + label + '</span>'
+      + '<span style="font-size:11px;color:var(--label);flex:1;">'
+      + _r30esc(r.describes || '') + '</span>'
+      + '<span class="cc-badge muted" style="font-size:9px;">'
+      + _r30esc(r.reference_state || 'REFERENCE_ONLY') + '</span>'
+      + '</div>';
+  }).join('');
+  _setHtml('ext-refs-list', body);
+  _setHtml('ext-refs-doc', _r30esc(d.reference_doc || ''));
+}
+window.renderExternalReferences = renderExternalReferences;
+
+function loadExternalReferences() {
+  if (window._extrefsInFlight) return window._extrefsInFlight;
+  var p = _mhzGet('/v1/market/external-references').then(function (d) {
+    window._extrefsInFlight = null; window._extrefsData = d;
+    renderExternalReferences(d); return d;
+  }).catch(function () {
+    window._extrefsInFlight = null; renderExternalReferences(null); return null;
+  });
+  window._extrefsInFlight = p;
+  return p;
+}
+window.loadExternalReferences = loadExternalReferences;
 
 // ---- Portfolio: ZERO-BASE TARGET vs CURRENT -------------------------------
 function _zbColumn(title, sub, e, accent) {

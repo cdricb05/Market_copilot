@@ -218,6 +218,8 @@ from paper_trader.api import return_forecast as _forecast
 from paper_trader.api import zero_base_target as _zero_base
 from paper_trader.api import material_information as _matinfo
 from paper_trader.api import alpha_leaderboard as _leaderboard
+# Release 30.1 - external reference links (read-only, never ingested).
+from paper_trader.api import external_references as _extrefs
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -19258,6 +19260,32 @@ def get_market_context(lookback_days: int = 30) -> MarketContextResponse:
     )
     _MARKET_CONTEXT_CACHE[lookback] = (time.time(), payload)
     return payload
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/market/external-references — Release 30.1 operator reading list
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/market/external-references",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_market_external_references() -> dict:
+    """Release 30.1 EXTERNAL MARKET SOURCES (read-only reference links).
+
+    A small declared set of third-party sites an operator may open from MARKETS for
+    their own reading. Deliberately absent from Today, which carries only what the
+    system itself concluded.
+
+    Nothing here is collected, normalised into an event, given a signal authority, or
+    allowed to reach a forecast, a target, a proposal or a portfolio decision. Whether
+    a site is actually an ingested source is answered on every read by the canonical
+    registries (``api.source_capability`` and ``engine.event_fabric``) rather than
+    asserted by the feed or by the browser, so a link existing here never implies
+    ingestion. No network call is made; the payload is a list of URLs and their
+    registry status.
+    """
+    return _extrefs.load_external_market_references()
 
 
 # --------------------------------------------------------------------------- #

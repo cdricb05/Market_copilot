@@ -77,6 +77,46 @@ PIT_UNVERIFIED = "POINT_IN_TIME_UNVERIFIED"
 PIT_VIOLATED = "POINT_IN_TIME_VIOLATED"
 PIT_VOCAB = (PIT_OK, PIT_UNVERIFIED, PIT_VIOLATED)
 
+#: --------------------------------------------------------------------------
+#: Model identity - Release 30.1
+#: --------------------------------------------------------------------------
+#: An artifact that represents the CURRENT APPROVED operational model is not a
+#: model in its own right: it is an ECONOMIC CALIBRATION of a ranking a human
+#: already approved. Its only job is to say what forward return corresponds to
+#: that ranking - never to change it.
+#:
+#: This matters because ``expected_excess_return = slope * standardised_score``
+#: and the standardisation of a positive-weight rank blend is strictly
+#: monotone. A NEGATIVE slope therefore does not "adjust" the approved model; it
+#: reverses it, and the allocator downstream buys the names the approved model
+#: ranks worst while the payload still carries the approved model's name. That
+#: is exactly what the Release-30 ``operational`` artifact did at 20 sessions
+#: (slope -0.000848), and it is why rank identity is a CONTRACT here rather than
+#: an outcome anyone is expected to notice.
+OPERATIONAL_ACTIVATION = "CURRENT_OPERATIONAL_MODEL"
+MODEL_IDENTITY_CONTRACT = "APPROVED_MODEL_RANKING_IS_PRESERVED"
+
+RANK_IDENTITY_PRESERVED = "RANK_IDENTITY_PRESERVED"
+RANK_IDENTITY_VIOLATED = "RANK_IDENTITY_VIOLATED"
+RANK_IDENTITY_NOT_APPLICABLE = "RANK_IDENTITY_NOT_APPLICABLE"
+RANK_IDENTITY_VOCAB = (RANK_IDENTITY_PRESERVED, RANK_IDENTITY_VIOLATED,
+                       RANK_IDENTITY_NOT_APPLICABLE)
+
+#: Calibration states an approved-model adapter may declare.
+CALIBRATION_CALIBRATED = "CALIBRATED"
+CALIBRATION_NOT_CALIBRATED = "NOT_CALIBRATED"
+
+#: Why a horizon of an approved-model adapter can be refused.
+SUPPRESSED_RANK_IDENTITY = "APPROVED_MODEL_RANK_ORDER_WOULD_INVERT"
+SUPPRESSED_NOT_CALIBRATED = "APPROVED_MODEL_HORIZON_NOT_CALIBRATED"
+SUPPRESSED_NO_SLOPE = "APPROVED_MODEL_HORIZON_SUPPLIES_NO_SLOPE"
+
+#: A horizon that fails the contract is SUPPRESSED: it carries its reasons and
+#: NO expected return. Emitting a degraded number would be worse than emitting
+#: none, because every consumer downstream treats a number as a conclusion.
+HORIZON_APPLIED = "APPLIED"
+HORIZON_SUPPRESSED = "SUPPRESSED"
+
 #: Learner kinds the kernel can apply. Anything else is refused rather than
 #: guessed at, because a silently mis-applied model is worse than no forecast.
 KIND_LINEAR = "linear"
@@ -282,18 +322,34 @@ def validate_artifact(artifact: Optional[dict]) -> dict:
     horizons = a.get("horizons") or {}
     if not horizons:
         problems.append({"code": "NO_HORIZONS"})
+    declared_uncalibrated: list = []
     for key, blk in sorted(horizons.items()):
         spec = (blk or {}).get("model") or {}
         if spec.get("kind") not in KINDS:
             problems.append({"code": "UNSUPPORTED_MODEL_KIND", "horizon": key,
                              "detail": str(spec.get("kind"))})
         cal = (blk or {}).get("calibration") or {}
-        if cal.get("state") != "CALIBRATED":
+        state = cal.get("state")
+        if state == CALIBRATION_NOT_CALIBRATED:
+            # Release 30.1: an explicit "this horizon is NOT calibrated" is a
+            # valid DECLARATION, not a malformed artifact. It is honoured per
+            # horizon by the rank-identity guard in build_forecast, which
+            # suppresses that horizon and lets any properly calibrated sibling
+            # still be applied. Treating it as a structural defect would force
+            # the research lane to omit the horizon instead of stating why it
+            # failed - and the reason is the thing an operator needs.
+            declared_uncalibrated.append(int(key))
+            continue
+        if state != CALIBRATION_CALIBRATED:
             problems.append({"code": "HORIZON_NOT_CALIBRATED", "horizon": key})
         elif _f(cal.get("residual_sigma")) is None:
             problems.append({"code": "CALIBRATION_MISSING_DISPERSION",
                              "horizon": key})
+    if horizons and len(declared_uncalibrated) == len(horizons):
+        problems.append({"code": "NO_CALIBRATED_HORIZON",
+                         "declared_uncalibrated": sorted(declared_uncalibrated)})
     return {"ok": not problems, "reasons": problems,
+            "declared_uncalibrated_horizons": sorted(declared_uncalibrated),
             "model_spec_hash": a.get("model_spec_hash"),
             "horizons": sorted(int(k) for k in horizons) if horizons else [],
             "feature_names": list(names)}
@@ -350,6 +406,64 @@ def feature_snapshot_hash(cross_section: dict) -> str:
 # --------------------------------------------------------------------------- #
 # The forecast itself
 # --------------------------------------------------------------------------- #
+def represents_approved_model(artifact: Optional[dict]) -> bool:
+    """Does this artifact claim to BE the current approved operational model?
+
+    Two independent declarations, either of which is enough. The Release-30
+    ``operational`` artifact carries both, so the guard below applies to it
+    retroactively - which is the point: the contract has to bind the artifact
+    that broke it, not only artifacts written after the rule existed.
+    """
+    art = artifact or {}
+    if str(art.get("activation") or "") == OPERATIONAL_ACTIVATION:
+        return True
+    for blk in (art.get("horizons") or {}).values():
+        if str((blk or {}).get("weighting_method") or "") == \
+                "FROZEN_OPERATIONAL_CHAMPION_NO_FITTING":
+            return True
+    return False
+
+
+def rank_identity(*, artifact: Optional[dict], block: Optional[dict]) -> dict:
+    """Whether one horizon of an approved-model adapter preserves its ranking.
+
+    Pure and total. For an artifact that is not an approved-model adapter the
+    verdict is NOT_APPLICABLE and nothing is suppressed - a genuine research
+    candidate is entitled to disagree with the incumbent in either direction,
+    because it is not claiming to be the incumbent.
+    """
+    if not represents_approved_model(artifact):
+        return {"applies": False, "verdict": RANK_IDENTITY_NOT_APPLICABLE,
+                "disposition": HORIZON_APPLIED, "reasons": [], "slope": None}
+    cal = (block or {}).get("calibration") or {}
+    slope = _f(cal.get("slope"))
+    state = str(cal.get("state") or "")
+    reasons: list = []
+    if state == CALIBRATION_NOT_CALIBRATED:
+        reasons.append(SUPPRESSED_NOT_CALIBRATED)
+    if slope is None:
+        reasons.append(SUPPRESSED_NO_SLOPE)
+    elif slope <= 0.0:
+        reasons.append(SUPPRESSED_RANK_IDENTITY)
+    verdict = (RANK_IDENTITY_VIOLATED
+               if (slope is not None and slope <= 0.0)
+               else (RANK_IDENTITY_PRESERVED if slope is not None
+                     else RANK_IDENTITY_NOT_APPLICABLE))
+    return {
+        "applies": True,
+        "contract": MODEL_IDENTITY_CONTRACT,
+        "verdict": verdict,
+        "disposition": HORIZON_SUPPRESSED if reasons else HORIZON_APPLIED,
+        "reasons": sorted(set(reasons)),
+        "slope": slope,
+        "calibration_state": state or None,
+        "doc": ("expected_excess_return = slope * standardised_score, and the "
+                "standardisation of a positive-weight rank blend is strictly "
+                "monotone, so a non-positive slope reverses the approved "
+                "model's ranking rather than adjusting it"),
+    }
+
+
 def build_forecast(*, cross_section: dict, artifact: dict,
                    horizons=HORIZONS) -> dict:
     """The canonical forward-return forecast for one decision timestamp.
@@ -376,10 +490,33 @@ def build_forecast(*, cross_section: dict, artifact: dict,
 
     by_horizon: dict = {}
     warnings: list = []
+    suppressed: list = []
     for h in horizons:
         blk = (artifact.get("horizons") or {}).get(str(int(h)))
         if not blk:
             warnings.append({"code": "HORIZON_NOT_IN_ARTIFACT", "horizon": int(h)})
+            continue
+        # Release 30.1: an approved-model adapter must preserve the approved
+        # model's ranking. A horizon that does not carries its reasons and NO
+        # expected return, so nothing downstream can allocate against it.
+        identity = rank_identity(artifact=artifact, block=blk)
+        if identity["disposition"] == HORIZON_SUPPRESSED:
+            suppressed.append({"code": "HORIZON_SUPPRESSED", "horizon": int(h),
+                               "rank_identity": identity["verdict"],
+                               "reasons": identity["reasons"]})
+            by_horizon[str(int(h))] = {
+                "horizon_sessions": int(h),
+                "disposition": HORIZON_SUPPRESSED,
+                "rank_identity": identity,
+                "member_ids": [], "weights": blk.get("weights") or {},
+                "weighting_method": blk.get("weighting_method"),
+                "calibration": {"slope": None,
+                                "state": identity.get("calibration_state"),
+                                "basis": (blk.get("calibration") or {}).get("basis"),
+                                "n_rows": (blk.get("calibration") or {}).get("n_rows")},
+                "training_cutoff": blk.get("training_cutoff"),
+                "forecasts": [],
+            }
             continue
         spec = blk["model"]
         cal = blk["calibration"]
@@ -416,6 +553,8 @@ def build_forecast(*, cross_section: dict, artifact: dict,
             row["rank"] = rank
         by_horizon[str(int(h))] = {
             "horizon_sessions": int(h),
+            "disposition": HORIZON_APPLIED,
+            "rank_identity": identity,
             "member_ids": sorted(members),
             "weights": blk.get("weights") or {},
             "weighting_method": blk.get("weighting_method"),
@@ -428,8 +567,12 @@ def build_forecast(*, cross_section: dict, artifact: dict,
         }
 
     fsh = feature_snapshot_hash(cross_section)
-    state = STATE_READY if by_horizon else STATE_BLOCKED
-    if by_horizon and warnings:
+    # Only an APPLIED horizon counts as a forecast. A payload whose every horizon
+    # was suppressed is BLOCKED, not READY with an empty table.
+    applied = sorted(int(k) for k, v in by_horizon.items()
+                     if v.get("disposition", HORIZON_APPLIED) == HORIZON_APPLIED)
+    state = STATE_READY if applied else STATE_BLOCKED
+    if applied and (warnings or suppressed):
         state = STATE_DEGRADED
     return {
         "schema_version": SCHEMA_VERSION,
@@ -451,13 +594,18 @@ def build_forecast(*, cross_section: dict, artifact: dict,
         "feature_names": names,
         "feature_transform": FEATURE_TRANSFORM,
         "feature_coverage": coverage,
-        "horizons": sorted(int(k) for k in by_horizon),
+        "horizons": applied,
+        "suppressed_horizons": sorted(int(b["horizon"]) for b in suppressed),
         "by_horizon": by_horizon,
+        "represents_approved_model": represents_approved_model(artifact),
+        "model_identity_contract": (MODEL_IDENTITY_CONTRACT
+                                    if represents_approved_model(artifact) else None),
         "model_spec_hash": artifact.get("model_spec_hash"),
         "feature_snapshot_hash": fsh,
         "point_in_time_status": cross_section.get("point_in_time_status"),
         "point_in_time_controls": cross_section.get("point_in_time_controls") or [],
         "input_provenance": cross_section.get("provenance") or {},
+        "blockers": suppressed,
         "warnings": warnings,
         "automatic_promotion_allowed": AUTOMATIC_PROMOTION_ALLOWED,
         "safety": {"badges": list(SAFETY_BADGES),
@@ -487,7 +635,11 @@ def _blocked(cross_section, artifact, reasons) -> dict:
         "market_baseline": MARKET_BASELINE,
         "market_baseline_policy": MARKET_BASELINE_POLICY,
         "horizons": [],
+        "suppressed_horizons": [],
         "by_horizon": {},
+        "represents_approved_model": represents_approved_model(artifact),
+        "model_identity_contract": (MODEL_IDENTITY_CONTRACT
+                                    if represents_approved_model(artifact) else None),
         "universe_size": len((cross_section or {}).get("rows") or []),
         "model_spec_hash": (artifact or {}).get("model_spec_hash"),
         "feature_snapshot_hash": (feature_snapshot_hash(cross_section)

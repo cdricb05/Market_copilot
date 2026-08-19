@@ -2374,3 +2374,103 @@ construction. Sector enters only the CURRENT-date sector cap.
 (43) and `tests/test_release30_read_models_and_ui.py` (30) are the regression.
 `scripts/audit_architecture.py` -> `check_release30_zero_base_ownership` is the
 strict-blocking architecture guard (21 blocking invariants over AST/symbol contracts).
+
+## Release 30.1 - Zero-base operational cutover (BLOCKED ON EVIDENCE)
+
+Full detail:
+[RELEASE30_1_ZERO_BASE_OPERATIONAL_CUTOVER.md](RELEASE30_1_ZERO_BASE_OPERATIONAL_CUTOVER.md).
+
+Release 30.1 set out to make the implementable zero-base target the ONE authoritative
+desired allocation, downstream of the CURRENT APPROVED model. It found that the approved
+model's score cannot be turned into an expected return on owned evidence, and the cutover
+is therefore NOT implemented. What landed is the contract that makes the failure visible
+rather than silent.
+
+### The finding
+
+Release 30's `model_artifact_operational.json` declares
+`activation = CURRENT_OPERATIONAL_MODEL` and carries a 20-session calibration slope of
+**-0.000848**. Since `expected_excess_return = slope * standardised(rank_normalise(score))`
+and the standardisation of a positive-weight rank blend is strictly monotone, that slope
+REVERSED the approved model. The Aug-18 target labelled "MODEL A - CURRENT OPERATIONAL
+MODEL / ZERO BASE" held **0** of the approved model's top 25 names, **19** of its bottom
+25, and had a weighted-average approved-model rank of **168 of 199**.
+
+### What landed
+
+| Concern | Owner |
+|---|---|
+| the model-identity contract and the rank-identity verdict | `engine/return_forecast.py` (`rank_identity`, `represents_approved_model`) |
+| the LIVE operational cross-section and the freshness delegation | `api/return_forecast.py` (`build_operational`, `required_input_freshness`) |
+| target lane authority (RESEARCH_PREVIEW vs GOVERNED_OPERATIONAL_TARGET) | `api/zero_base_target.py` (`run_operational_allocation`) |
+| the historical calibration of the approved model | `alpha_agent/release30_1_operational_calibration.py` (research, numpy) |
+
+A horizon that fails the rank-identity contract is SUPPRESSED and supplies no expected
+return, no uncertainty and no downside - so `engine.zero_base_allocator` blocks with
+`NO_EXPECTED_RETURNS` rather than allocating against it. The contract binds
+retroactively and catches the released Release-30 artifact at 5 and 20 sessions. A
+research candidate is exempt: it is entitled to disagree with the incumbent.
+
+The live operational lane reads the approved model's own score from
+`api.universe_scoring` at the current eligible market date - no research snapshot is in
+the live path - and delegates freshness to `api.data_freshness`. The 2026-08-05 gap
+Release 30 reported was an artifact of the research price panel, not of the operational
+model's inputs, which were current through the eligible session throughout.
+
+### The measured calibration
+
+81 owned decision dates (2016-06-30 .. 2026-05-29), ~199 names per cross-section,
+198/199 live names covered by the reconstruction.
+
+| Horizon | slope | Newey-West t | sign stable across geometries | rank identity | state |
+|---|---|---|---|---|---|
+| 5 | -0.000992 | -0.52 | no | VIOLATED | NOT_CALIBRATED |
+| 20 | +0.000965 | +0.95 | yes | preserved | NOT_CALIBRATED |
+| 60 | +0.001485 | +0.57 | no | preserved | NOT_CALIBRATED |
+
+### Verdicts
+
+* `R30_1_CALIBRATION_BLOCKED` - no horizon clears the contract; the governed operational
+  zero-base target is `DATA_BLOCKED`, by economics rather than by data.
+* `CURRENT_SESSION_FORECAST_FRESH` - the operational forecast's eligible market date
+  equals the workflow's, and every required input is FRESH.
+* `R30_ADAPTIVE_MODEL_NO_GO` unchanged - `NOT_ACTIVATED`.
+
+The legacy incremental construction in `engine.reallocation_proposal` remains the
+operational path, unchanged. The consolidation is a data problem, not an architecture
+problem: it unblocks when an approved model has a rank-preserving, reliable
+forward-return calibration at the policy horizon.
+
+### Evidence links and external references (Release 30.1 UX)
+
+One rule: a link is a convenience for a human reading evidence, never an input.
+
+| Concern | Owner |
+|---|---|
+| what may become an `href` anywhere in the product | `api/external_references.py` (`safe_external_url`) |
+| the declared external market reference sites, and whether any is ingested | `api/external_references.py` (reads `api.source_capability` + `engine.event_fabric`) |
+| the capital-impact row contract, incl. `source_url` / `source_title` / `source_reference` | `api/material_information.py` |
+
+* **Material Information** exposes the URL the normalized event already recorded in
+  `payload_reference`. It is never constructed. A non-URL reference is returned as
+  `source_reference` and rendered as plain text; `javascript:`, `data:`, `vbscript:`,
+  `ftp:`, scheme-less and relative references are refused with a named reason. The same
+  event with and without a URL classifies identically, and the payload declares
+  `external_article_is_not_alpha`.
+* **External Market Sources** (`GET /v1/market/external-references`) is a compact
+  reading list on MARKETS only - absent from Today. Its reference/ingested state is
+  derived from the canonical registries on every read, never captioned in HTML, so the
+  claim cannot go stale if one of these sites ever becomes a real source. No network
+  call, no event, no authority.
+* **The UI** emits every external anchor through ONE helper carrying `target="_blank"`
+  and `rel="noopener noreferrer"`, with the href attribute-escaped. It constructs no URL
+  and computes no verdict.
+
+### Guards
+
+`tests/test_release30_1_operational_cutover.py` (59) is the regression.
+`scripts/audit_architecture.py` -> `check_release30_1_operational_cutover` is the
+strict-blocking architecture guard (26 blocking invariants over AST/symbol contracts,
+covering the calibration contract, the live lane, the lane authority, the single URL
+guard, the absence of constructed URLs, the link attributes and the Markets-only
+surface).
