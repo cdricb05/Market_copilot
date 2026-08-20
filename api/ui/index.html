@@ -27937,13 +27937,13 @@ async function loadMathematicalAlphaFrontier() {
   var calrej = d.calibration_rejections || {};
 
   var html = '';
-  html += _r31row('Campaign', _r30esc(d.campaign_id) + ' &middot; ' + _r30esc(d.campaign_state));
+  html += _r31row('Campaign', _r30esc(d.campaign_id) + ' · ' + _r30esc(d.campaign_state));
   (d.superseded_campaigns || []).forEach(function (sc) {
-    html += _r31row('&nbsp;&nbsp;superseded &middot; ' + _r30esc(sc.campaign_id),
+    html += _r31row('  superseded · ' + _r30esc(sc.campaign_id),
                     '<span class="cc-badge">' + _r30esc(sc.state || 'SUPERSEDED') + '</span>'
                     + (sc.artifacts_preserved
                        ? ' <span class="cc-badge muted">ARTIFACTS PRESERVED</span>' : '')
-                    + ' &middot; ' + _r30esc((sc.defects || []).length) + ' recorded defect(s)',
+                    + ' · ' + _r30esc((sc.defects || []).length) + ' recorded defect(s)',
                     'Superseded experimental design. Its evidence stays on disk and cannot '
                     + 'select a v3 hyperparameter, finalist or verdict, or reduce the '
                     + 'multiple-testing denominator.');
@@ -27957,19 +27957,19 @@ async function loadMathematicalAlphaFrontier() {
                   + (uni.point_in_time ? ' <span class="cc-badge safe">POINT IN TIME</span>' : '')
                   + (uni.current_membership_applied_backwards === false
                      ? ' <span class="cc-badge safe">NO HINDSIGHT MEMBERSHIP</span>' : '')
-                  + ' &middot; median ' + _r30esc(uni.median_members_per_session)
+                  + ' · median ' + _r30esc(uni.median_members_per_session)
                   + ' members/session',
                   'Every portfolio decision the primary judge scores is restricted to names '
                   + 'that were index members ON THAT DECISION DATE.');
   html += _r31row('Training universes',
-                  _r30esc((uni.training_universes || []).join(' &middot; '))
+                  _r30esc((uni.training_universes || []).join(' · '))
                   + (uni.broader_training_never_widens_evaluation
                      ? ' <span class="cc-badge safe">BROADER TRAINING NEVER WIDENS EVALUATION</span>' : ''),
                   'What a candidate may LEARN from. The choice is part of its specification '
                   + 'hash, so "train broad, invest narrow" is a tested hypothesis.');
   html += _r31row('Investment-universe completeness',
                   'missing member-days ' + _r31pct(uni.missing_member_day_fraction)
-                  + ' &middot; <span class="cc-badge'
+                  + ' · <span class="cc-badge'
                   + (uni.completeness_verdict === 'INVESTMENT_UNIVERSE_MATERIALLY_COMPLETE'
                      ? ' safe' : '') + '">' + _r30esc(uni.completeness_verdict) + '</span>',
                   _r30esc(uni.dominant_structural_cause || ''));
@@ -27984,18 +27984,18 @@ async function loadMathematicalAlphaFrontier() {
                   'Both architectures are turned into an actual portfolio by the canonical '
                   + 'zero-base allocator. A top-N equal-weight book cannot carry the verdict.');
   html += _r31row('Canonical owners',
-                  _r30esc(ec.allocator_owner) + ' &middot; ' + _r30esc(ec.covariance_owner)
+                  _r30esc(ec.allocator_owner) + ' · ' + _r30esc(ec.covariance_owner)
                   + (ec.second_portfolio_optimiser_exists === false
                      ? ' <span class="cc-badge safe">NO SECOND OPTIMISER</span>' : ''),
                   'The campaign owns no optimiser, no covariance and no cost model.');
   html += _r31row('Risk frontier (gamma)',
-                  _r30esc((ec.risk_frontier_gamma_multipliers || []).join(' &times; / ')) + ' &times;'
-                  + ' &middot; primary ' + _r30esc(ec.primary_gamma_multiplier) + '&times;'
-                  + ' &middot; ' + _r30esc(ec.frontier_scope),
+                  _r30esc((ec.risk_frontier_gamma_multipliers || []).join(' × / ')) + ' ×'
+                  + ' · primary ' + _r30esc(ec.primary_gamma_multiplier) + '×'
+                  + ' · ' + _r30esc(ec.frontier_scope),
                   'Pre-registered before any candidate return. Varies RISK APPETITE, not '
                   + 'concentration; selection always uses the canonical 1.0x point.');
-  html += _r31row('Cost &amp; turnover',
-                  _r30esc(ec.cost_base) + ' &middot; ' + _r30esc(ec.turnover_alignment),
+  html += _r31row('Cost & turnover',
+                  _r30esc(ec.cost_base) + ' · ' + _r30esc(ec.turnover_alignment),
                   'Turnover is measured over the union of SECURITY IDENTITIES, never by '
                   + 'array position.');
   html += _r31row('Historical sector constraint',
@@ -28013,22 +28013,22 @@ async function loadMathematicalAlphaFrontier() {
 
   // --- CORRECTION 4: two benchmarks, neither substitutable ---------------- //
   html += _r31row('Benchmarks',
-                  _r30esc((bm.reported || []).join(' &middot; '))
+                  _r30esc((bm.reported || []).join(' · '))
                   + (bm.substitution_permitted === false
                      ? ' <span class="cc-badge safe">NO SUBSTITUTION</span>' : ''),
                   'Universe-neutral equal weight isolates SELECTION skill; the investable '
                   + 'total-return series isolates the decision to run the strategy at all.');
   html += _r31row('Investable benchmark',
                   _r30esc(bm.investable_source || '&mdash;')
-                  + ' &middot; coverage ' + _r31pct(bm.investable_coverage)
-                  + ' &middot; <span class="cc-badge'
+                  + ' · coverage ' + _r31pct(bm.investable_coverage)
+                  + ' · <span class="cc-badge'
                   + (bm.investable_state === 'SPY_TOTAL_RETURN_AVAILABLE' ? ' safe' : '')
                   + '">' + _r30esc(bm.investable_state) + '</span>');
 
   if (calrej && calrej.count !== undefined && calrej.count !== null) {
     var att = calrej.attribution || {};
     html += _r31row('Track-A calibration rejections',
-                    _r30esc(calrej.count) + ' candidate(s) &middot; best observed per-date t '
+                    _r30esc(calrej.count) + ' candidate(s) · best observed per-date t '
                     + _r31num(att.best_per_date_slope_t_observed, 2)
                     + ' against a required ' + _r31num(att.min_slope_t_required, 2),
                     'A model whose score cannot be defensibly mapped into economic return '
@@ -28037,10 +28037,10 @@ async function loadMathematicalAlphaFrontier() {
   }
 
   html += _r31row('Data snapshot',
-                  _r30esc(s.cross_sections) + ' cross-sections &middot; '
+                  _r30esc(s.cross_sections) + ' cross-sections · '
                   + _r30esc(s.feature_count) + ' features');
   (s.samples || []).forEach(function (x) {
-    html += _r31row('&nbsp;&nbsp;' + x.sample,
+    html += _r31row('  ' + x.sample,
                     _r30esc(x.cross_sections) + '  ' + _r30esc(x.first_date) + ' → '
                     + _r30esc(x.last_date)
                     + '  <span class="cc-badge' + (x.survivorship === 'FREE' ? ' safe' : '')
@@ -28050,28 +28050,28 @@ async function loadMathematicalAlphaFrontier() {
   html += _r31row('Survivorship measurement',
                   'still-trading ' + _r31pct((surv.still_trading || {}).coverage)
                   + ' vs delisted ' + _r31pct((surv.delisted || {}).coverage)
-                  + ' &middot; ratio ' + _r31num(surv.coverage_ratio_alive_over_delisted, 2)
-                  + '&times; &middot; ' + _r30esc(surv.verdict),
+                  + ' · ratio ' + _r31num(surv.coverage_ratio_alive_over_delisted, 2)
+                  + '× · ' + _r30esc(surv.verdict),
                   'Point-in-time fundamental coverage by survival status. A ratio above 1 means the fundamental sub-sample omits losers.');
 
   (d.evidence_partition || []).forEach(function (p) {
-    html += _r31row('&nbsp;&nbsp;partition h=' + _r30esc(p.horizon_sessions) + ' ' + _r30esc(p.sample),
-                    'disc ' + _r30esc(p.discovery) + ' &middot; val ' + _r30esc(p.validation)
-                    + ' &middot; lock ' + _r30esc(p.lockbox) + ' &middot; embargoed '
-                    + _r30esc(p.embargoed) + ' &middot; lockbox ' + _r30esc(p.lockbox_first)
-                    + ' → ' + _r30esc(p.lockbox_last) + ' &middot; ' + _r30esc(p.state));
+    html += _r31row('  partition h=' + _r30esc(p.horizon_sessions) + ' ' + _r30esc(p.sample),
+                    'disc ' + _r30esc(p.discovery) + ' · val ' + _r30esc(p.validation)
+                    + ' · lock ' + _r30esc(p.lockbox) + ' · embargoed '
+                    + _r30esc(p.embargoed) + ' · lockbox ' + _r30esc(p.lockbox_first)
+                    + ' → ' + _r30esc(p.lockbox_last) + ' · ' + _r30esc(p.state));
   });
 
   html += _r31row('Literature',
                   _r30esc(lit.papers_screened) + ' / ' + _r30esc(lit.papers_screened_budget)
-                  + ' screened &middot; ' + _r30esc(lit.methods_extracted) + ' / '
-                  + _r30esc(lit.methods_extracted_budget) + ' extracted &middot; '
+                  + ' screened · ' + _r30esc(lit.methods_extracted) + ' / '
+                  + _r30esc(lit.methods_extracted_budget) + ' extracted · '
                   + _r30esc(lit.families_implemented) + ' / ' + _r30esc(lit.family_budget)
-                  + ' families &middot; ' + _r30esc(lit.stopping_rule_state));
+                  + ' families · ' + _r30esc(lit.stopping_rule_state));
   html += _r31row('Known-method budget', 'families ' + _r31budget(b.known_families)
-                  + ' &middot; configs ' + _r31budget(b.known_configs));
+                  + ' · configs ' + _r31budget(b.known_configs));
   html += _r31row('Novel-discovery budget', 'families ' + _r31budget(b.novel_families)
-                  + ' &middot; candidates ' + _r31budget(b.novel_candidates)
+                  + ' · candidates ' + _r31budget(b.novel_candidates)
                   + (d.novel_exhaustion_triggered
                      ? ' <span class="cc-badge">EXHAUSTION TRIGGERED</span>' : ''));
   html += _r31row('Lockbox accesses', _r31budget(b.lockbox_accesses),
@@ -28079,31 +28079,31 @@ async function loadMathematicalAlphaFrontier() {
 
   if (best) {
     html += _r31row('Best validation candidate',
-                    _r30esc(best.candidate_id) + ' &middot; ' + _r30esc(best.family)
-                    + ' &middot; net excess ' + _r31pct(best.net_excess_annualised)
-                    + ' &middot; Sharpe ' + _r31num(best.sharpe_net, 2)
-                    + ' &middot; maxDD ' + _r31pct(best.max_drawdown_net));
+                    _r30esc(best.candidate_id) + ' · ' + _r30esc(best.family)
+                    + ' · net excess ' + _r31pct(best.net_excess_annualised)
+                    + ' · Sharpe ' + _r31num(best.sharpe_net, 2)
+                    + ' · maxDD ' + _r31pct(best.max_drawdown_net));
   }
   if (inc) {
     html += _r31row('Incumbent benchmark',
-                    _r30esc(inc.candidate_id) + ' &middot; net excess '
+                    _r30esc(inc.candidate_id) + ' · net excess '
                     + _r31pct(inc.net_excess_annualised)
-                    + ' &middot; Sharpe ' + _r31num(inc.sharpe_net, 2));
+                    + ' · Sharpe ' + _r31num(inc.sharpe_net, 2));
   }
   html += _r31row('Net economic improvement vs incumbent',
                   _r31pct(d.net_economic_improvement_vs_incumbent),
                   'Validation-layer net excess of the best candidate minus the incumbent.');
   html += _r31row('Multiple testing',
-                  'denominator ' + _r30esc(mt.denominator) + ' &middot; BH rejected '
+                  'denominator ' + _r30esc(mt.denominator) + ' · BH rejected '
                   + _r30esc(mt.bh_rejected) + '/' + _r30esc(mt.bh_m)
-                  + ' &middot; SPA p=' + _r31num(mt.spa_p_value, 4)
-                  + ' &middot; paired p=' + _r31num(mt.paired_p_value, 4),
+                  + ' · SPA p=' + _r31num(mt.spa_p_value, 4)
+                  + ' · paired p=' + _r31num(mt.paired_p_value, 4),
                   'Every executed candidate stays in the denominator, including rejected ones.');
 
   var checks = (d.verdict && d.verdict.checks) || {};
   Object.keys(checks).sort().forEach(function (k) {
     var c = checks[k] || {};
-    html += _r31row('&nbsp;&nbsp;check &middot; ' + k,
+    html += _r31row('  check · ' + k,
                     '<span class="cc-badge' + (c.pass ? ' safe' : '') + '">'
                     + (c.pass ? 'PASS' : 'FAIL') + '</span> value ' + _r31num(c.value, 5));
   });
@@ -28118,9 +28118,9 @@ async function loadMathematicalAlphaFrontier() {
   _setHtml('r31-body', html);
   _setHtml('r31-hashes',
     'contract ' + _r30esc(String(d.contract_hash || '').slice(0, 12))
-    + ' &middot; snapshot ' + _r30esc(String((d.snapshot || {}).hash || '').slice(0, 12))
-    + ' &middot; verdict ' + _r30esc(String((d.verdict || {}).hash || '').slice(0, 12))
-    + ' &middot; root ' + _r30esc(d.research_root));
+    + ' · snapshot ' + _r30esc(String((d.snapshot || {}).hash || '').slice(0, 12))
+    + ' · verdict ' + _r30esc(String((d.verdict || {}).hash || '').slice(0, 12))
+    + ' · root ' + _r30esc(d.research_root));
 }
 window.loadMathematicalAlphaFrontier = loadMathematicalAlphaFrontier;
 

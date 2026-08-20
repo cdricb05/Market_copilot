@@ -1499,3 +1499,94 @@ def test_audit_catches_a_news_shaped_feature_entering_the_frozen_set(monkeypatch
             "FUNDAMENTAL_FEATURES =",
             'NEWS_SENTIMENT_FEATURE = "sentiment"\nFUNDAMENTAL_FEATURES =', 1)})
     assert "sentiment" in out["news_shaped_features"]
+
+
+# ---------------------------------------------------------------------------
+# The renderer must not author HTML entities into an ESCAPED slot.
+#
+# `_r31row(label, value)` renders the label through `_r30esc()`, which rewrites
+# `&` to `&amp;`. Every Release 31 row label was authored as HTML, so the
+# operator read the entity TEXT instead of the character:
+#
+#     &nbsp;&nbsp;check &middot; beats_incumbent_paired_bootstrap
+#     Cost &amp; turnover
+#     0.5 &times; / 1 &times; / 2 x        <- two escaped, one raw
+#
+# The escaping is correct and stays: the label carries dynamic fragments (a
+# payload key, a campaign id) that must be escaped. The authored ENTITIES were
+# the defect, and are now the literal characters they denote.
+#
+# Static tests never saw this because the fault is only visible once the string
+# reaches a browser. That is precisely why it survived to a live acceptance run.
+# ---------------------------------------------------------------------------
+
+#: Entities that render as literal text once `_r30esc` has escaped the `&`.
+#: `&mdash;` is excluded on purpose: it is only ever returned into the RAW
+#: value slot, where it renders correctly.
+DOUBLE_ESCAPING_ENTITIES = ("&nbsp;", "&middot;", "&times;", "&amp;")
+
+R31_RENDERER_START = "// Renders GET /v1/research/mathematical-alpha-frontier"
+R31_RENDERER_TAIL = "_setHtml('r31-hashes'"
+
+
+def _r31_renderer(html: str | None = None) -> str:
+    """The `loadMathematicalAlphaFrontier` renderer only."""
+    text = UI.read_text(encoding="utf-8") if html is None else html
+    start = text.index(R31_RENDERER_START)
+    tail = text.index(R31_RENDERER_TAIL, start)
+    end = text.index("\n}", tail) + 2
+    block = text[start:end]
+    assert "loadMathematicalAlphaFrontier" in block
+    assert block.count("async function ") == 1, (
+        "the renderer slice spans more than one loader, so this test would be "
+        "asserting about code Release 31 does not own")
+    return block
+
+
+def test_the_release31_renderer_authors_no_double_escaping_html_entity():
+    renderer = _r31_renderer()
+    offenders = {e: renderer.count(e) for e in DOUBLE_ESCAPING_ENTITIES
+                 if e in renderer}
+    assert not offenders, (
+        "the Release 31 renderer authors HTML entities that `_r30esc` will "
+        "escape again, so the operator sees the entity text rather than the "
+        "character: %s\n"
+        "Use the literal character (\\u00a0, \\u00b7, \\u00d7, &) instead."
+        % (offenders,))
+
+
+def test_the_release31_renderer_still_uses_the_literal_separators():
+    """The repair replaced entities with characters; it did not delete them.
+
+    Without this, blanket-deleting every `&middot;` would also pass the test
+    above while quietly destroying the card's formatting.
+    """
+    renderer = _r31_renderer()
+    assert renderer.count("·") >= 30, "middle-dot separators went missing"
+    assert renderer.count("×") >= 4, "multiplication signs went missing"
+    assert renderer.count(" ") >= 8, "indent spaces went missing"
+
+
+def test_a_reintroduced_entity_in_an_escaped_label_is_caught():
+    """Negative probe: prove the guard above can actually fail."""
+    renderer = _r31_renderer()
+    reverted = renderer.replace("·", "&middot;", 1)
+    assert reverted != renderer, (
+        "negative probe is INERT: the renderer no longer contains a literal "
+        "middle dot, so this probe has stopped testing anything")
+    offenders = {e for e in DOUBLE_ESCAPING_ENTITIES if e in reverted}
+    assert offenders == {"&middot;"}
+
+
+def test_the_row_helper_still_escapes_its_label():
+    """The fix must not have been 'stop escaping the label'.
+
+    That one-line alternative would have silently unescaped the dynamic
+    fragments the label concatenates - a payload key and a campaign id.
+    """
+    html = UI.read_text(encoding="utf-8")
+    start = html.index("function _r31row(")
+    body = html[start: html.index("\n}", start)]
+    assert "_r30esc(label)" in body, (
+        "`_r31row` no longer escapes its label. The entity defect must be "
+        "fixed in the authored strings, never by removing the escaping.")
