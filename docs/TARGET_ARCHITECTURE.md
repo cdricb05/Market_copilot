@@ -700,3 +700,111 @@ may qualify a forecasting candidate for MANUAL paper approval; twelve future liv
 observations are no longer a precondition. Existing TRUE_FORWARD evidence remains
 immutable and is never merged with walk-forward evidence. Automatic promotion remains
 forbidden.
+
+---
+
+## Release 31 — the model-research boundary
+
+The target architecture already separates research, operations, portfolio
+decisions and execution (Principle 3). Release 31 makes the **research side** of
+that boundary as well-defined as the operational side, because "research" had
+been the one lane whose scope was bounded by intent rather than by contract.
+
+### The boundary, stated
+
+A model-research campaign is a **closed object** with a frozen contract, an
+append-only candidate registry, a single judge, a single-use lockbox and a
+terminal verdict. It reads owned data and canonical economics; it writes only
+immutable artifacts under its own research root; and its output is at most a
+package for **manual paper review**.
+
+Three properties of that boundary were added by Campaign v3, and each generalises
+beyond Release 31:
+
+* **The universe a model may LEARN from is a different object from the universe
+  it may OWN.** A research campaign states both, and the evaluation universe is
+  the business objective's, never whichever panel happened to be loaded.
+* **A research judge builds the portfolio the operator would actually hold.** It
+  routes candidates through the canonical allocator with cash as a real choice,
+  rather than through a construction convenient for scoring. A score reaches the
+  allocator only through a monotonic, rank-preserving calibration, or not at all.
+* **A benchmark is part of the question, not a presentation detail.** A campaign
+  reports the universe-neutral comparison and the investable one, and may
+  substitute neither for the other.
+
+```
+OWNED PIT DATA ──► campaign snapshot (hashed, frozen)
+                        │            + TRAINING universe (declared, hashed)
+                        ▼
+        DISCOVERY ─► VALIDATION ─► LOCKBOX        evidence partition (frozen)
+                        │
+                        ▼
+                  ONE research judge ◄── engine.zero_base_allocator.optimise
+                        │                engine.holding_opportunity_cost.build_covariance
+                        │                (cost, caps, liquidity, risk, cash)
+                        ▼
+        stocks + CASH over the INVESTMENT universe (PIT index members)
+                        │
+                        ▼
+        judged against BOTH the universe-neutral and the investable benchmark
+                        │
+                        ▼
+            candidate registry (append-only, budgeted)
+                        │
+                        ▼
+              campaign-wide multiple testing
+                        │
+                        ▼
+                  terminal verdict
+                        │
+                        ▼
+        MODEL_READY_FOR_MANUAL_PAPER_REVIEW ──► a human
+                        │
+                        ✗ no automatic path to the operational model,
+                          a target, a proposal, a decision or an order
+```
+
+### What this unblocks
+
+The Release-30 zero-base allocator remains the intended downstream allocation
+architecture, and remains **not** operational, for the reason Release 30.1
+established: it consumes `mu`, and no defensible `mu` exists for the approved
+model. Release 31 is the search for one.
+
+The consolidation therefore stays where 30.1 left it — a **data problem, not an
+architecture problem** — with one addition: Release 31 also measures *how much*
+of it is a data problem, by quantifying the survivorship limitation of the owned
+fundamental history rather than describing it.
+
+### The extension contract for new data
+
+When genuinely new orthogonal information arrives — the pending Intrinio
+historical analyst-revision sample, or a survivorship-complete point-in-time
+fundamental history — it enters **this same framework**:
+
+1. one more entry in `data_snapshot_manifest.json`'s `data_families`, carrying
+   its own PIT semantics, publication/effective-date semantics, historical
+   membership semantics, delisting handling, missingness and eligible
+   transformations;
+2. its **measured** survivorship coverage, which decides whether the sample it
+   creates may carry a verdict;
+3. its features joined to the frozen feature order;
+4. a **new campaign id**, because adding a data family changes the snapshot hash
+   and the snapshot hash is bound into the campaign contract;
+5. the same judge, the same partition policy, the same budgets, unchanged.
+
+No historical analyst revision is ever fabricated, and no current snapshot is
+substituted backwards. Until real point-in-time history exists, the family stays
+`READY_FOR_EXTENSION_NOT_ACQUIRED`.
+
+### What remains deliberately out of scope
+
+* A second portfolio optimiser, risk engine, cost model or HOC engine — the
+  campaign reads the canonical owners and the audit forbids a fork.
+* Any automatic promotion path. Principle 7 is now enforced in code
+  (`AUTOMATIC_PROMOTION_ALLOWED = False`) and by blocking audit invariants, not
+  only intended.
+* News, event text and external reference links as predictors. They remain
+  `EVENT_TRIGGER_ONLY` and reference-only respectively, and the audit asserts no
+  news-shaped feature exists in the frozen feature set.
+* Historical sector as a modelling input, in any form, including as a peer group.

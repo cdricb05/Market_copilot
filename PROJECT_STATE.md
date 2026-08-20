@@ -1,6 +1,55 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-18
+- **Last updated:** 2026-08-19
+- **Updated by phase:** **Release 31 — Mathematical Alpha Frontier, Campaign V3.**
+- **Source Git HEAD:** `8ed7820`, branch `stage19-controlled-rebalance`.
+- **Working tree status:** DIRTY — Release 31 Campaign V3 changes uncommitted. Nothing committed, pushed, activated or restarted by this phase; the commit script is prepared for the user in `D:\Temp\paper_trader_release31_v3_mathematical_alpha_frontier_handoff\`.
+- **Current decision:** **`R31_CURRENT_INFORMATION_MODEL_FRONTIER_EXHAUSTED`** — no candidate earned a paper review. Across 76 executed candidates (33 known-method configs over 11 families, 43 novel specifications, plus the incumbent leg), the best lockbox result was `km:fama_macbeth:01:px:h20`: **+3.88 %/yr net** against a point-in-time S&P 500 equal weight of **+8.67 %/yr** and `$SPXTR` of **+13.00 %/yr**, i.e. **−4.80 %/yr** and **−9.32 %/yr** excess. It loses to the benchmark **before** costs (gross +6.53 %/yr), so this is a selection result, not a cost result. SPA p = 0.53. The dominant constraint is recorded as **`INFORMATION_NOT_METHOD`**: 67 of 77 candidates could not be mapped into economic return units at all. Verdict hash `17e5e2e84e3a`. Nothing is activated, promoted or proposed.
+- **Broad-regression repair (2026-08-20):** the operator's one broad repository suite returned **6863 passed, 971 skipped, 12 failed**. All twelve were classified against a pristine `git archive HEAD` baseline tree, which fails **8** of them identically: those are **PRE-EXISTING baseline failures** (`test_market_interaction_ux` research-bridge literal, `test_phase27b7::TestRequiredContent`, four `test_slice2_workflow_state` states, `test_slice6::test_21`, `test_stage21::test_08`) and are deliberately **not** repaired here. The other **4 were introduced by Release 31** and are now fixed: **(A)** one ambiguous `>NO LIVE ORDERS</span>` badge on the R31 card broke three long-standing UI wording contracts — the canonical 27B.6 token is **`NO LIVE BROKER ORDERS`**, because paper orders are *real* and only *live brokerage* orders are structurally disabled; **(B)** `/v1/research/mathematical-alpha-frontier` was declared with no `route_ownership` entry, now owned by `api/mathematical_alpha_frontier.py`. Both defects lived in files **shared with earlier phases**, whose contracts the bounded R31 gate never consulted — which is why 169/169 green was not evidence about them. `validate.ps1` gains a **touched-owner legacy compatibility** step (46 tests, ~64 s) covering exactly those contracts, the R31 suite gains 8 tests (177 total) including three negative probes, and the audit gains a `ui_ambiguous_safety_badges` invariant. Full evidence: `evidence\broad_regression_failure_classification.txt` in the handoff.
+- **Next required action:** the user runs `validate.ps1` and `ui_acceptance.ps1` from the handoff directory, runs the single broad repository suite **once more** (expect the same 8 pre-existing failures and no others), then decides on `commit.ps1` / `push.ps1`. A restart through the canonical owner is needed before the research read surface (`GET /v1/research/mathematical-alpha-frontier`) is served — the running process predates that route. Claude has NOT committed, pushed, activated a model or restarted production.
+
+## Release 31 — Mathematical Alpha Frontier, Campaign V3 (2026-08-19)
+
+**What this phase corrected.** Campaign v2 was stopped before any verdict because
+its judge was measuring something other than the business question. It scored
+portfolio decisions over the Russell 1000 panel rather than the S&P 500 we manage;
+it built top-N equal-weight books with cash pinned to zero, so a model that found
+nothing worth owning was still made to own twenty-five names; its direct-portfolio
+learner compared consecutive books by array position, which reports a book that
+sold everything and bought something else entirely as having done nothing; and it
+reported an equal-weight basket of the screened names in place of the index an
+operator could actually have bought.
+
+Campaign v3 separates the universe a candidate may LEARN from and the universe
+the judge may let it OWN, routes both architectures through the canonical
+zero-base allocator with cash free between 0 % and 100 %, aligns turnover by
+security identity, and reports both benchmarks without letting either stand in
+for the other. The risk frontier is risk aversion (γ ∈ {0.5×, 1.0×, 2.0×}) rather
+than book size, because a 15-name book and a 40-name book are both fully invested
+by construction.
+
+| Gate | Result |
+|---|---|
+| PIT S&P 500 membership available | **YES** — Norgate "Current & Past", 1,897 securities vs 503 current; median 499 members/session |
+| Investment-universe completeness | 11,839 of 3,350,348 member-days missing = **0.353 %** → `INVESTMENT_UNIVERSE_MATERIALLY_COMPLETE` |
+| Investable benchmark available | **YES** — `$SPXTR` total return, 100 % coverage → `SPY_TOTAL_RETURN_AVAILABLE` |
+| Historical sector | `UNMEASURABLE_PIT` — declared, never substituted backwards |
+
+Neither `R31_S_AND_P_500_UNIVERSE_BLOCKED` nor `SPY_RELATIVE_EVIDENCE_BLOCKED`
+fires.
+
+**Three defects found while building it**, each now a blocking invariant with its
+own negative probe: a walk-forward training fallback that, on the discovery layer,
+fitted on dates *after* the one being scored (unreachable under v2's
+validation-only scoring, squarely on v3's calibration path); a sector sentinel
+that put 500 names in one sector and so capped every portfolio at the 25 % sector
+limit, fabricating a cash preference out of a placeholder string; and a
+calibration significance floor set against the false-positive rate alone, which
+measurement showed rejects genuine alpha.
+
+Full narrative: `docs/RELEASE31_CAMPAIGN_V3_CORRECTION.md`.
+
+- **Last updated (previous):** 2026-08-18
 - **Updated by phase:** **Release 30 — Zero-base adaptive alpha capital allocation.**
 - **Source Git HEAD:** `88e4300`, branch `stage19-controlled-rebalance`.
 - **Working tree status:** DIRTY — Release 30 changes uncommitted (footprint below). Nothing committed, pushed, activated or restarted by this phase; the commit script is prepared for the user.

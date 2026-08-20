@@ -220,6 +220,8 @@ from paper_trader.api import material_information as _matinfo
 from paper_trader.api import alpha_leaderboard as _leaderboard
 # Release 30.1 - external reference links (read-only, never ingested).
 from paper_trader.api import external_references as _extrefs
+# Release 31 - mathematical alpha frontier campaign visibility (read-only).
+from paper_trader.api import mathematical_alpha_frontier as _r31_frontier
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -19260,6 +19262,36 @@ def get_market_context(lookback_days: int = 30) -> MarketContextResponse:
     )
     _MARKET_CONTEXT_CACHE[lookback] = (time.time(), payload)
     return payload
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/research/mathematical-alpha-frontier — Release 31 campaign visibility
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/mathematical-alpha-frontier",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_mathematical_alpha_frontier() -> dict:
+    """Release 31 MATHEMATICAL ALPHA FRONTIER (read-only research visibility).
+
+    Reports the bounded model-research campaign that searches for the best
+    mathematically defensible decision function from the information we already
+    own to capital allocation: the frozen campaign contract, the data snapshot and
+    its measured survivorship limitation, the Discovery / Validation / Lockbox
+    partition, known-method and novel-discovery budget consumption, the current
+    best validation candidate, its net economic improvement over the incumbent,
+    campaign-wide multiple-testing state, lockbox access count and the terminal
+    verdict.
+
+    Every number is READ from the campaign's own hashed artifacts. This endpoint
+    computes no research mathematics, exposes no model-activation or approval
+    control, creates no signal, target, proposal, decision or order, and cannot
+    change the operational model. A research candidate reported here is never
+    activated: ``automatic_promotion_allowed`` is False in the research package and
+    the architecture audit enforces it.
+    """
+    return _r31_frontier.load_frontier()
 
 
 # --------------------------------------------------------------------------- #

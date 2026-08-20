@@ -5701,6 +5701,569 @@ def check_release30_1_operational_cutover(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 31 - Mathematical Alpha Frontier
+# --------------------------------------------------------------------------- #
+# The campaign searches for a better decision function. These invariants make
+# sure it cannot become anything else. Fifteen properties, each one a way a bounded
+# research campaign has historically turned into an unbounded one, or into an
+# accidental production change:
+#
+#   one campaign-contract owner, one judge, one candidate registry, one lockbox
+#   access owner; the lockbox never reachable from training or selection; a
+#   research candidate never reaching the operational model, the canonical
+#   portfolio decision, or an order; budgets encoded as NUMBERS rather than prose;
+#   a terminal exhaustion state that stops further execution; external reference
+#   links and EVENT_TRIGGER_ONLY news never becoming research inputs; the
+#   canonical cost / risk / zero-base owners reused rather than forked; and no
+#   automatic model promotion anywhere.
+R31_PKG = "alpha_agent/r31"
+R31_OWNERS = {
+    "contract": "alpha_agent/r31/contract.py",
+    "snapshot": "alpha_agent/r31/snapshot.py",
+    "partition": "alpha_agent/r31/partition.py",
+    "judge": "alpha_agent/r31/judge.py",
+    "registry": "alpha_agent/r31/registry.py",
+    "lockbox": "alpha_agent/r31/lockbox.py",
+    "multiple_testing": "alpha_agent/r31/multiple_testing.py",
+    "methods": "alpha_agent/r31/methods.py",
+    "novel": "alpha_agent/r31/novel.py",
+    "campaign": "alpha_agent/r31/campaign.py",
+    "learners": "alpha_agent/r31/learners.py",
+    # Campaign v3 correction owners.
+    "universe": "alpha_agent/r31/universe.py",
+    "benchmarks": "alpha_agent/r31/benchmarks.py",
+    "calibration": "alpha_agent/r31/calibration.py",
+    "allocation": "alpha_agent/r31/allocation.py",
+    "covcache": "alpha_agent/r31/covcache.py",
+}
+R31_READ_MODEL = "api/mathematical_alpha_frontier.py"
+R31_ROUTE = "/v1/research/mathematical-alpha-frontier"
+R31_UI_REGION = 'id="r31-frontier"'
+
+#: Budgets that must exist as NUMBERS in the contract owner. A budget that lives
+#: only in a document is a suggestion.
+R31_REQUIRED_BUDGETS = (
+    "MAX_KNOWN_METHOD_FAMILIES", "MAX_KNOWN_METHOD_CONFIGS",
+    "MAX_CONFIGS_PER_KNOWN_FAMILY", "MAX_NOVEL_FAMILIES", "MAX_NOVEL_CAMPAIGNS",
+    "MAX_NOVEL_CANDIDATES_PER_CAMPAIGN", "MAX_NOVEL_CANDIDATES_TOTAL",
+    "MAX_NOVEL_REFINEMENT_DEPTH", "MAX_LOCKBOX_CANDIDATES",
+    "MAX_LOCKBOX_PER_FAMILY",
+)
+
+#: Mutating operations the research package may never perform. Matched WITH the
+#: call parenthesis so the check tests a call or a definition, not the appearance
+#: of a word in prose - "DIRECT_PORTFOLIO_DECISION" is one of the campaign's two
+#: architecture labels, and a bare substring test would flag it while missing an
+#: actual aliased import.
+R31_FORBIDDEN_CALLS = (
+    "create_order(", "submit_order(", "place_order(", "promote_model(",
+    "activate_model(", "set_champion(", "record_decision(",
+    "persist_proposal(", "persist_decision(", "run_daily_close(",
+)
+
+#: Canonical OPERATIONAL owners the research package may never reference, in any
+#: module-qualified form. These are the modules that would turn a research
+#: candidate into a proposal, a decision, an order or a champion change.
+R31_FORBIDDEN_OWNER_REFS = (
+    "api.portfolio_decision", "api.rebalance_execution", "api.alpha_book",
+    "api.operational_book", "api.daily_close", "api.universe_scoring",
+    "engine.reallocation_proposal", "engine.portfolio_reassessment",
+    "engine.event_fabric", "engine.normal_cycle", "broker",
+)
+
+#: Engine modules the research lane MAY read.
+#:
+#: ``holding_opportunity_cost`` is here because it OWNS ``build_covariance``, the
+#: canonical risk matrix. Campaign v2 listed it as forbidden, which was correct
+#: while the judge needed no covariance at all; Campaign v3 allocates capital
+#: through the canonical optimiser, so the choice became "read the canonical
+#: covariance owner" or "write a second one" - and a second risk owner is a
+#: worse outcome than a wider allowlist, because the two would disagree the first
+#: time a lookback changed.
+#:
+#: Widening an allowlist is only safe if admission proves something, so
+#: ``r31_engine_owner_purity`` below re-parses every admitted module and fails if
+#: it imports anything outside the standard library. Admission by NAME would let a
+#: future edit pull a database dependency into the research lane behind a name
+#: this list already trusts.
+R31_ALLOWED_ENGINE = {"zero_base_allocator", "holding_opportunity_cost"}
+
+#: The standard-library roots an admitted engine owner may import. Anything else
+#: makes it unsuitable for the research lane whatever its name is.
+R31_ENGINE_PURE_IMPORTS = {
+    "__future__", "hashlib", "json", "math", "decimal", "typing", "datetime",
+    "collections", "itertools", "functools", "re", "dataclasses", "enum",
+    "statistics", "copy", "abc", "types", "numbers", "operator",
+}
+
+
+def check_release31_mathematical_alpha_frontier(files: list[Path]) -> dict:
+    src = {name: (_read(path) or "") for name, path in R31_OWNERS.items()}
+    modules_present = sorted(n for n, t in src.items() if t)
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    read_model = _read(R31_READ_MODEL) or ""
+    app = _read("api/app.py") or ""
+    ui = _read("api/ui/index.html") or ""
+
+    # (1)-(4) ONE owner each. A second module declaring the same ownership token
+    # is the drift these checks exist to catch.
+    def _second_owners(token: str, owner: str) -> list:
+        """Any OTHER shipped module declaring the same ownership token.
+
+        Paths arrive absolute, so they are normalised to repo-relative first;
+        tests and the audit itself legitimately name these tokens, and are not
+        second owners of the calculation.
+        """
+        out = []
+        for p in files:
+            rel = _rel(p)
+            if rel == owner or not rel.endswith(".py"):
+                continue
+            if rel.startswith("tests/") or rel.startswith("scripts/"):
+                continue
+            if token in (_read(rel) or ""):
+                out.append(rel)
+        return sorted(out)
+
+    second_owners = {
+        "campaign_contract": _second_owners('CONTRACT_SCHEMA = "r31_research_campaign_contract',
+                                            R31_OWNERS["contract"]),
+        "research_judge": _second_owners('JUDGE_SCHEMA = "r31_research_judge_contract',
+                                         R31_OWNERS["judge"]),
+        "candidate_registry": _second_owners('REGISTRY_SCHEMA = "r31_candidate_registry',
+                                             R31_OWNERS["registry"]),
+        "lockbox_access": _second_owners('ACCESS_SCHEMA = "r31_lockbox_access_log',
+                                         R31_OWNERS["lockbox"]),
+    }
+
+    # (5) The lockbox may not be reachable from training or selection. The
+    # training cap and the selection basis are both declared, and the ONLY
+    # module that names the lockbox layer in a fitting context is the lockbox
+    # owner itself.
+    lockbox_guard = {
+        "training_cap_declared": "LAST_VALIDATION_DATE_LOCKBOX_NEVER_TRAINED"
+                                 in src["campaign"],
+        "selection_basis_declared": "DISCOVERY_AND_VALIDATION_ONLY" in src["campaign"],
+        "partition_declares_invisibility":
+            "no_model_or_hyperparameter_may_read_lockbox" in src["partition"],
+        "no_retune_declared": "lockbox_result_may_not_redesign_the_same_candidate"
+                              in src["partition"],
+        "single_execution_enforced": "has already used its single lockbox execution"
+                                     in src["lockbox"],
+        "methods_never_reference_lockbox": "lockbox" not in src["methods"].lower()
+                                           or "never" in src["methods"].lower(),
+    }
+
+    # (6)-(8) A research candidate can never reach the operational model, the
+    # canonical portfolio decision, or an order.
+    forbidden_calls = sorted(
+        {t for t in R31_FORBIDDEN_CALLS if t in all_src.lower()})
+    forbidden_owner_refs = sorted(
+        {t for t in R31_FORBIDDEN_OWNER_REFS if t in all_src.lower()})
+    research_imports_api = sorted(
+        n for n, t in src.items()
+        if re.search(r"^\s*(from|import)\s+.*paper_trader\.api", t, re.M))
+    engine_imports = sorted(set(re.findall(
+        r"from\s+\.\.\.engine\s+import\s+(\w+)", all_src)))
+    forbidden_engine = sorted(set(engine_imports) - R31_ALLOWED_ENGINE)
+
+    # (8b) An admitted engine owner must be import-pure. The allowlist grants
+    # admission by NAME; this proves the thing behind the name is still safe.
+    impure_engine = []
+    for mod in sorted(set(engine_imports) & R31_ALLOWED_ENGINE):
+        text = _read("engine/%s.py" % mod) or ""
+        if not text:
+            impure_engine.append("%s:UNREADABLE" % mod)
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            impure_engine.append("%s:UNPARSEABLE" % mod)
+            continue
+        for node in ast.walk(tree):
+            roots = []
+            if isinstance(node, ast.Import):
+                roots = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                # A relative import inside engine/ stays inside engine/.
+                roots = ([] if node.level else
+                         [(node.module or "").split(".")[0]])
+            for root in roots:
+                if root and root not in R31_ENGINE_PURE_IMPORTS:
+                    impure_engine.append("%s:%s" % (mod, root))
+    impure_engine = sorted(set(impure_engine))
+
+    # (9) Budgets are encoded, not prose.
+    budgets_encoded = sorted(
+        b for b in R31_REQUIRED_BUDGETS
+        if not re.search(r"^%s\s*=\s*\d+" % re.escape(b), src["contract"], re.M))
+    budgets_enforced = {
+        "registry_raises_on_budget": "class BudgetExceeded" in src["registry"]
+                                     and "raise BudgetExceeded" in src["registry"],
+        "registry_raises_on_duplicate": "class DuplicateCandidate" in src["registry"],
+        "lockbox_raises_on_violation": "class LockboxViolation" in src["lockbox"],
+        "contract_drift_raises": "class ContractDrift" in src["registry"],
+    }
+
+    # (10) A terminal exhaustion state exists and stops further execution.
+    exhaustion = {
+        "terminal_states_declared": "TERMINAL_STATES" in src["contract"],
+        "exhausted_state_present":
+            "R31_CURRENT_INFORMATION_MODEL_FRONTIER_EXHAUSTED" in src["contract"],
+        "second_null_campaign_terminates":
+            "two_null_novel_campaigns_terminate" in src["contract"],
+        "no_budget_extension_after_a_poor_result":
+            "no_budget_extension_after_a_poor_result" in src["contract"],
+        "novel_runner_stops_on_budget": "BudgetExceeded" in src["campaign"],
+    }
+
+    # (11)-(12) External reference links and EVENT_TRIGGER_ONLY news are not
+    # research data, and no news-shaped feature exists in the frozen feature set.
+    inadmissible = {
+        "declared": all(k in src["contract"] for k in
+                        ("gdelt_news_text", "external_reference_links",
+                         "current_analyst_snapshots",
+                         "entity_sic_snapshot_sector")),
+        "manifest_carries_the_declaration":
+            "inadmissible_information" in src["snapshot"],
+    }
+    news_tokens = ("gdelt", "news", "article", "sentiment", "headline",
+                   "analyst_revision", "payload_reference")
+    feature_block = ""
+    m = re.search(r"PRICE_FEATURES\s*=.*?FUNDAMENTAL_FEATURES\s*=.*?\n\n",
+                  _read("alpha_agent/release30_panel.py") or "", re.S)
+    if m:
+        feature_block = m.group(0).lower()
+    news_features = sorted(t for t in news_tokens if t in feature_block)
+
+    # (13)-(14) The canonical cost / risk / constraint owner is REUSED, and no
+    # second optimiser or cost model is introduced.
+    # The judge no longer imports the allocator directly: Campaign v3 routes both
+    # architectures through ONE portfolio-construction seam, so the policy chain
+    # is judge -> allocation -> canonical owner. The check follows that chain
+    # rather than accepting the mere presence of a name in the judge's source,
+    # and additionally proves the judge did not fork a policy of its own.
+    reuse = {
+        "judge_reads_canonical_policy":
+            "_alloc.policy()" in src["judge"]
+            and "_zb.default_policy()" in src["allocation"],
+        "judge_defines_no_policy_of_its_own":
+            not re.search(r"^def default_policy\(", src["judge"], re.M),
+        "judge_declares_it_owns_no_cost":
+            "judge_owns_no_cost_or_risk_calculation" in src["judge"],
+        "judge_declares_it_owns_no_optimiser":
+            "judge_owns_no_portfolio_optimiser" in src["judge"],
+        "contract_names_the_policy_owner":
+            "engine.zero_base_allocator.default_policy" in src["contract"],
+        "contract_names_the_allocator_owner":
+            "engine.zero_base_allocator.optimise" in src["contract"],
+        "contract_names_the_covariance_owner":
+            "engine.holding_opportunity_cost.build_covariance" in src["contract"],
+        "contract_declares_no_second_optimiser":
+            "second_portfolio_optimiser_exists" in src["contract"],
+    }
+    duplicate_optimiser = sorted(
+        n for n, t in src.items()
+        if re.search(r"^def (optimise|build_allocation|transition_economics)\(",
+                     t, re.M))
+    duplicate_cost_literal = sorted(
+        n for n, t in src.items()
+        if n != "contract" and re.search(r"(0\.00125|12\.5\s*/\s*10000|cost_bps_per_side\s*=\s*\d)", t))
+
+    # ----------------------------------------------------------------------- #
+    # Campaign v3 corrections. Each of these is a defect that actually shipped
+    # in Campaign v2 and was found only by reading the code, so each is now a
+    # blocking invariant rather than a paragraph in a design document.
+    # ----------------------------------------------------------------------- #
+    # (16)-(19) CORRECTION 1. The training universe is not the investment
+    # universe, and a broader training choice may never widen what is owned.
+    universe_separation = {
+        "one_investment_universe_owner":
+            not _second_owners('MANIFEST_SCHEMA = "r31_investment_universe_manifest',
+                               R31_OWNERS["universe"]),
+        "training_universes_declared":
+            "TRAIN_S_AND_P_500_ONLY" in src["contract"]
+            and "TRAIN_RUSSELL1000_PIT" in src["contract"],
+        "evaluation_universe_declared":
+            "EVALUATE_S_AND_P_500_PIT_MEMBERS_ONLY" in src["contract"],
+        "judge_evaluates_investment_universe_only":
+            "EVALUATION_UNIVERSE" in src["judge"]
+            and "eligible_columns" in src["judge"],
+        "broader_training_never_widens_evaluation":
+            "broader_training_never_widens_evaluation" in src["contract"],
+        "membership_is_point_in_time":
+            "index_constituent_timeseries" in src["universe"],
+        "current_membership_backwards_is_inadmissible":
+            "current_index_membership_applied_backwards" in src["contract"],
+        "blocked_state_exists": "UniverseUnavailable" in src["universe"],
+        "survivorship_gap_measured":
+            "def survivorship_report" in src["universe"],
+        "training_choice_is_candidate_identity":
+            '"training_universe"' in src["methods"],
+    }
+
+    # (20)-(22) CORRECTION 2. The primary judge is real zero-base economics; the
+    # top-N book is demoted; cash is a genuine allocation choice.
+    zero_base_primary = {
+        "top_n_barred_from_primary_verdict":
+            "TOP_N_MAY_CARRY_PRIMARY_VERDICT = False" in src["contract"],
+        "judge_declares_zero_base_primary":
+            "CANONICAL_ZERO_BASE_ALLOCATION_STOCKS_PLUS_CASH" in src["judge"],
+        "allocation_delegates_to_canonical_optimiser":
+            "_zb.optimise(" in src["allocation"],
+        "cash_is_a_real_choice":
+            "cash_is_a_real_allocation_choice" in src["judge"],
+        # Tested as ASSIGNMENTS. The names appear again inside the contract body
+        # that reports them, so a substring test would stay green after the
+        # constant itself was replaced.
+        "book_size_frontier_removed":
+            not re.search(r"^RISK_FRONTIER_BOOK_SIZES\s*=", src["contract"], re.M),
+        "gamma_frontier_declared":
+            bool(re.search(r"^RISK_FRONTIER_GAMMA_MULTIPLIERS\s*=",
+                           src["contract"], re.M)),
+        "frontier_frozen_before_results":
+            "frontier_frozen_before_results" in src["contract"],
+        "only_gamma_moves_on_the_frontier":
+            "def gamma_policy" in src["judge"],
+        "sector_constraint_is_declared_unmeasurable":
+            "UNMEASURABLE_PIT" in src["contract"]
+            and "UNMEASURABLE_PIT" in src["allocation"],
+    }
+
+    # (23)-(25) CORRECTION 2 (Track A units). A score may not become an expected
+    # return without a monotonic, rank-preserving, entitled calibration.
+    calibration_guard = {
+        "one_calibration_owner":
+            not _second_owners('CALIBRATION_SCHEMA = "r31_forecast_calibration',
+                               R31_OWNERS["calibration"]),
+        "rank_identity_violation_state":
+            "FORECAST_RANK_IDENTITY_VIOLATION" in src["calibration"],
+        "not_calibratable_state":
+            "FORECAST_NOT_ECONOMICALLY_CALIBRATABLE" in src["calibration"],
+        "negative_slope_raises":
+            "raise CalibrationRefused" in src["calibration"]
+            and "if slope < 0.0:" in src["calibration"],
+        "fitted_on_entitled_evidence_only":
+            "DISCOVERY_ONLY" in src["calibration"],
+        "lockbox_invisible_to_calibration":
+            '"lockbox_used": False' in src["calibration"]
+            and "invisible_to_calibration" in src["contract"],
+        "bound_into_candidate_identity":
+            "_calib.contract()" in src["judge"],
+        "live_cross_sections_verified":
+            "verify_rank_identity" in src["judge"],
+    }
+
+    # (26)-(28) CORRECTION 3. Track B turnover is aligned by security identity.
+    track_b = {
+        "alignment_declared":
+            "BY_SECURITY_IDENTITY_NEVER_BY_ARRAY_POSITION" in src["contract"],
+        "learner_requires_symbols":
+            "(X_t, r_t, symbols_t)" in src["learners"],
+        "learner_refuses_a_two_element_block":
+            "raise ValueError" in src["learners"]
+            and "cannot carry security identity" in src["learners"],
+        "aligns_by_symbol_union":
+            "def _align_previous" in src["learners"],
+        "no_positional_shape_comparison":
+            "prev_shape" not in src["learners"] and "prev_shape" not in src["novel"],
+        "track_b_can_hold_cash":
+            "def _softmax_with_cash" in src["learners"]
+            and "cash_is_a_competing_asset" in src["learners"],
+        "novel_decision_family_prices_cost":
+            "cost_rate" in src["novel"] and "_ = cost_rate" not in src["novel"],
+        "shared_feasibility_seam":
+            "def feasible_portfolio" in src["allocation"],
+        "one_transition_cost_calculation":
+            "def traded_notional" in src["allocation"],
+    }
+
+    # (29)-(30) CORRECTION 4. Two benchmarks, and neither may replace the other.
+    benchmark_duality = {
+        "one_benchmark_owner":
+            not _second_owners('MANIFEST_SCHEMA = "r31_benchmark_manifest',
+                               R31_OWNERS["benchmarks"]),
+        "both_declared":
+            "SP500_PIT_EQUAL_WEIGHT" in src["contract"]
+            and "SPY_TOTAL_RETURN" in src["contract"],
+        "substitution_forbidden":
+            "BENCHMARK_SUBSTITUTION_PERMITTED = False" in src["contract"],
+        "blocked_state_exists":
+            "SPY_RELATIVE_EVIDENCE_BLOCKED" in src["benchmarks"],
+        "price_only_index_inadmissible":
+            "PRICE_ONLY_INADMISSIBLE" in src["benchmarks"],
+        "judge_reports_both":
+            "net_excess_vs_spy_annualised" in src["judge"]
+            and "equal_weight_benchmark_annualised" in src["judge"],
+        "silent_substitution_refused":
+            "silent_substitution_permitted" in src["benchmarks"],
+    }
+
+    # (31)-(32) The shared covariance cache is one owner, hash-bound, and PIT.
+    covariance_cache = {
+        "one_cache_owner":
+            not _second_owners('MANIFEST_SCHEMA = "r31_covariance_cache_manifest',
+                               R31_OWNERS["covcache"]),
+        "delegates_to_canonical_builder":
+            "_hoc.build_covariance(" in src["covcache"],
+        "owns_no_covariance_mathematics":
+            "campaign_owns_no_covariance_mathematics" in src["covcache"],
+        "key_binds_inputs": "def cache_key" in src["covcache"],
+        "key_mismatch_raises": "class CacheKeyMismatch" in src["covcache"],
+        "point_in_time_window_declared":
+            "never reads a later row" in src["covcache"],
+        "contract_binds_the_key":
+            "covariance_cache_key" in src["contract"],
+    }
+
+    # (33) Campaign v1 and v2 are superseded, preserved, and structurally unable
+    # to influence v3.
+    supersession = {
+        "campaign_is_v3": 'CAMPAIGN_ID = "r31_mathematical_alpha_frontier_v3"'
+                          in src["contract"],
+        "both_predecessors_listed":
+            "r31_mathematical_alpha_frontier_v1" in src["contract"]
+            and "r31_mathematical_alpha_frontier_v2" in src["contract"],
+        "state_declared":
+            "SUPERSEDED_EXPERIMENTAL_DESIGN" in src["contract"],
+        "evidence_rules_declared":
+            "SUPERSEDED_EVIDENCE_RULES" in src["contract"],
+        "excluded_from_denominator":
+            "superseded_campaign_results_are_not_in_the_denominator"
+            in src["contract"],
+        "identity_binds_universe_and_benchmark":
+            '"investment_universe": str(universe_hash)' in src["methods"]
+            and '"benchmarks": str(benchmark_hash)' in src["methods"],
+    }
+
+    # (34) No look-ahead fallback in any walk-forward training window.
+    pit_training = {
+        "minimum_training_window_declared":
+            "MIN_TRAIN_SECTIONS" in src["methods"],
+        "methods_have_no_warmup_fallback":
+            "warmup[:max(12" not in src["methods"],
+        "novel_has_no_warmup_fallback":
+            "or warm[:12]" not in src["novel"],
+        "absent_model_returns_nan":
+            "np.full(X.shape[0], np.nan" in src["methods"]
+            and "np.full(X.shape[0], np.nan" in src["novel"],
+        "judge_skips_a_date_without_a_model":
+            "np.isfinite(score).sum()" in src["judge"],
+    }
+
+    # (35) A superiority check must be CAPABLE of failing. When the incumbent
+    # cannot be priced there is no drawdown and no turnover to compare against,
+    # and filling the absent reference with the candidate's own values compares
+    # the candidate to itself: two blocking checks then pass on every input that
+    # could ever be supplied. An unprovable check is reported UNAVAILABLE and,
+    # being unproven, does not count toward a superiority claim.
+    falsifiable_superiority = {
+        "unavailable_state_declared":
+            "UNAVAILABLE_NO_INCUMBENT" in src["campaign"],
+        "absent_incumbent_does_not_borrow_candidate_drawdown":
+            '"max_drawdown_net": bp.get("max_drawdown_net")'
+            not in src["campaign"],
+        "absent_incumbent_does_not_borrow_candidate_turnover":
+            '"turnover_annualised": bp.get("turnover_annualised")'
+            not in src["campaign"],
+        "unavailable_check_is_not_a_pass":
+            'all(c["pass"] is True for c in checks.values())' in src["campaign"],
+        "unavailable_checks_are_reported":
+            '"checks_unavailable"' in src["campaign"],
+    }
+
+    # (15) No automatic promotion anywhere.
+    promotion = {
+        "declared_false": "AUTOMATIC_PROMOTION_ALLOWED = False"
+                          in (_read("alpha_agent/r31/__init__.py") or ""),
+        "safety_block_reports_it":
+            "automatic_promotion_allowed" in (_read("alpha_agent/r31/__init__.py") or ""),
+        "read_model_reports_it": '"automatic_promotion_allowed": False' in read_model,
+        "read_model_declares_no_activation":
+            '"allows_model_activation": False' in read_model,
+    }
+
+    # Read surface: GET only, authenticated, declared once, and it writes nothing.
+    route_declared = app.count('"%s"' % R31_ROUTE)
+    route_block = ""
+    if route_declared:
+        i = app.index('"%s"' % R31_ROUTE)
+        route_block = app[max(0, i - 300): i + 400]
+    read_surface = {
+        "route_declared_once": route_declared == 1,
+        "route_is_get": "@app.get(" in route_block,
+        "route_authenticated": "_verify_api_key" in route_block,
+        "read_model_present": bool(read_model),
+        "read_model_imports_research_package":
+            "paper_trader.alpha_agent" in read_model,
+    }
+    read_model_writes = sorted(
+        t for t in ("write_text", "mkdir", "savez", "os.replace")
+        if t in read_model)
+
+    # UI: the region exists, carries the safety badges, and has no execute,
+    # approve or activate control.
+    ui_region = ""
+    if R31_UI_REGION in ui:
+        s = ui.index(R31_UI_REGION)
+        e = ui.find("RELEASE 29 UX2: OPERATING DIAGNOSTICS", s)
+        ui_region = ui[s: e if e > s else s + 4000]
+    ui_controls = sorted(
+        t for t in ("<button", "onclick=", "Approve", "Activate", "Promote",
+                    "Execute", "Create Order")
+        if t in ui_region)
+    # 27B.6 wording, and it is the ONLY admissible form here: paper orders are
+    # real and this region creates none, whereas live brokerage orders are
+    # structurally disabled. The bare "NO LIVE ORDERS" badge conflates the two
+    # and is refused by tests/test_alpha_agent_stage12.py,
+    # tests/test_phase27b7_operator_hard_cutover.py and
+    # tests/test_phase27b8_operational_portfolio.py.
+    ui_badges_missing = sorted(
+        b for b in ("RESEARCH ONLY", "READ ONLY", "NO LIVE BROKER ORDERS",
+                    "AUTOMATION OFF", "MANUAL REVIEW")
+        if b not in ui_region)
+    ui_ambiguous_badges = sorted(
+        b for b in (">NO LIVE ORDERS</span>", ">ORDERS DISABLED<")
+        if b in ui_region)
+
+    return {
+        "modules_present": modules_present,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owners,
+        "lockbox_guard": lockbox_guard,
+        "forbidden_calls_in_research_lane": forbidden_calls,
+        "forbidden_operational_owner_refs": forbidden_owner_refs,
+        "research_lane_imports_api": research_imports_api,
+        "forbidden_engine_imports": forbidden_engine,
+        "impure_engine_owner_imports": impure_engine,
+        "universe_separation": universe_separation,
+        "zero_base_primary": zero_base_primary,
+        "calibration_guard": calibration_guard,
+        "track_b_symbol_alignment": track_b,
+        "benchmark_duality": benchmark_duality,
+        "covariance_cache": covariance_cache,
+        "supersession": supersession,
+        "point_in_time_training": pit_training,
+        "falsifiable_superiority": falsifiable_superiority,
+        "budgets_not_encoded": budgets_encoded,
+        "budgets_enforced": budgets_enforced,
+        "exhaustion": exhaustion,
+        "inadmissible_information": inadmissible,
+        "news_shaped_features": news_features,
+        "canonical_owner_reuse": reuse,
+        "duplicate_optimiser_modules": duplicate_optimiser,
+        "duplicate_cost_literal_modules": duplicate_cost_literal,
+        "automatic_promotion": promotion,
+        "read_surface": read_surface,
+        "read_model_write_tokens": read_model_writes,
+        "ui_execute_controls": ui_controls,
+        "ui_missing_safety_badges": ui_badges_missing,
+        "ui_ambiguous_safety_badges": ui_ambiguous_badges,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -5808,6 +6371,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             files, routes["routes"]),
         "release30_zero_base_ownership": check_release30_zero_base_ownership(files),
         "release30_1_operational_cutover": check_release30_1_operational_cutover(files),
+        "release31_mathematical_alpha_frontier":
+            check_release31_mathematical_alpha_frontier(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -6510,6 +7075,171 @@ BLOCKING_INVARIANTS = (
         "walk_forward_embargoed": True,
         "no_random_split": True,
     }),
+    # --- Release 31: the Mathematical Alpha Frontier campaign ----------------
+    # A bounded model-research campaign that cannot become an unbounded one, and
+    # cannot become a production change. One owner per concern; the lockbox
+    # unreachable from training or selection; budgets encoded as numbers and
+    # enforced by exceptions; a terminal exhaustion state; news / external links
+    # never admissible as research inputs; the canonical cost and constraint
+    # owner reused rather than forked; no automatic promotion; and a read-only UI
+    # surface with no execute, approve or activate control.
+    ("release31_mathematical_alpha_frontier", "modules_missing", []),
+    ("release31_mathematical_alpha_frontier", "second_owner_modules", {
+        "campaign_contract": [], "research_judge": [],
+        "candidate_registry": [], "lockbox_access": []}),
+    ("release31_mathematical_alpha_frontier", "lockbox_guard", {
+        "training_cap_declared": True,
+        "selection_basis_declared": True,
+        "partition_declares_invisibility": True,
+        "no_retune_declared": True,
+        "single_execution_enforced": True,
+        "methods_never_reference_lockbox": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "forbidden_calls_in_research_lane", []),
+    ("release31_mathematical_alpha_frontier", "forbidden_operational_owner_refs", []),
+    ("release31_mathematical_alpha_frontier", "research_lane_imports_api", []),
+    ("release31_mathematical_alpha_frontier", "forbidden_engine_imports", []),
+    ("release31_mathematical_alpha_frontier", "impure_engine_owner_imports", []),
+    ("release31_mathematical_alpha_frontier", "budgets_not_encoded", []),
+    # --- Campaign v3 corrections. Each entry below is a defect that SHIPPED in
+    # Campaign v2 and was caught by reading the code rather than by a guard.
+    # CORRECTION 1: the training universe is not the investment universe.
+    ("release31_mathematical_alpha_frontier", "universe_separation", {
+        "one_investment_universe_owner": True,
+        "training_universes_declared": True,
+        "evaluation_universe_declared": True,
+        "judge_evaluates_investment_universe_only": True,
+        "broader_training_never_widens_evaluation": True,
+        "membership_is_point_in_time": True,
+        "current_membership_backwards_is_inadmissible": True,
+        "blocked_state_exists": True,
+        "survivorship_gap_measured": True,
+        "training_choice_is_candidate_identity": True,
+    }),
+    # CORRECTION 2: real zero-base economics, cash a genuine choice, top-N demoted.
+    ("release31_mathematical_alpha_frontier", "zero_base_primary", {
+        "top_n_barred_from_primary_verdict": True,
+        "judge_declares_zero_base_primary": True,
+        "allocation_delegates_to_canonical_optimiser": True,
+        "cash_is_a_real_choice": True,
+        "book_size_frontier_removed": True,
+        "gamma_frontier_declared": True,
+        "frontier_frozen_before_results": True,
+        "only_gamma_moves_on_the_frontier": True,
+        "sector_constraint_is_declared_unmeasurable": True,
+    }),
+    # CORRECTION 2 (units): an arbitrary score may not become an expected return.
+    ("release31_mathematical_alpha_frontier", "calibration_guard", {
+        "one_calibration_owner": True,
+        "rank_identity_violation_state": True,
+        "not_calibratable_state": True,
+        "negative_slope_raises": True,
+        "fitted_on_entitled_evidence_only": True,
+        "lockbox_invisible_to_calibration": True,
+        "bound_into_candidate_identity": True,
+        "live_cross_sections_verified": True,
+    }),
+    # CORRECTION 3: turnover by security identity, never by array position.
+    ("release31_mathematical_alpha_frontier", "track_b_symbol_alignment", {
+        "alignment_declared": True,
+        "learner_requires_symbols": True,
+        "learner_refuses_a_two_element_block": True,
+        "aligns_by_symbol_union": True,
+        "no_positional_shape_comparison": True,
+        "track_b_can_hold_cash": True,
+        "novel_decision_family_prices_cost": True,
+        "shared_feasibility_seam": True,
+        "one_transition_cost_calculation": True,
+    }),
+    # CORRECTION 4: two benchmarks, neither substitutable for the other.
+    ("release31_mathematical_alpha_frontier", "benchmark_duality", {
+        "one_benchmark_owner": True,
+        "both_declared": True,
+        "substitution_forbidden": True,
+        "blocked_state_exists": True,
+        "price_only_index_inadmissible": True,
+        "judge_reports_both": True,
+        "silent_substitution_refused": True,
+    }),
+    # The shared covariance cache: one owner, hash-bound, point-in-time.
+    ("release31_mathematical_alpha_frontier", "covariance_cache", {
+        "one_cache_owner": True,
+        "delegates_to_canonical_builder": True,
+        "owns_no_covariance_mathematics": True,
+        "key_binds_inputs": True,
+        "key_mismatch_raises": True,
+        "point_in_time_window_declared": True,
+        "contract_binds_the_key": True,
+    }),
+    # v1 and v2 are superseded, preserved, and structurally inert for v3.
+    ("release31_mathematical_alpha_frontier", "supersession", {
+        "campaign_is_v3": True,
+        "both_predecessors_listed": True,
+        "state_declared": True,
+        "evidence_rules_declared": True,
+        "excluded_from_denominator": True,
+        "identity_binds_universe_and_benchmark": True,
+    }),
+    # No walk-forward window may fall back to one containing the future.
+    ("release31_mathematical_alpha_frontier", "point_in_time_training", {
+        "minimum_training_window_declared": True,
+        "methods_have_no_warmup_fallback": True,
+        "novel_has_no_warmup_fallback": True,
+        "absent_model_returns_nan": True,
+        "judge_skips_a_date_without_a_model": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "budgets_enforced", {
+        "registry_raises_on_budget": True,
+        "registry_raises_on_duplicate": True,
+        "lockbox_raises_on_violation": True,
+        "contract_drift_raises": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "exhaustion", {
+        "terminal_states_declared": True,
+        "exhausted_state_present": True,
+        "second_null_campaign_terminates": True,
+        "no_budget_extension_after_a_poor_result": True,
+        "novel_runner_stops_on_budget": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "inadmissible_information", {
+        "declared": True, "manifest_carries_the_declaration": True}),
+    ("release31_mathematical_alpha_frontier", "news_shaped_features", []),
+    ("release31_mathematical_alpha_frontier", "canonical_owner_reuse", {
+        "judge_reads_canonical_policy": True,
+        "judge_defines_no_policy_of_its_own": True,
+        "judge_declares_it_owns_no_cost": True,
+        "judge_declares_it_owns_no_optimiser": True,
+        "contract_names_the_policy_owner": True,
+        "contract_names_the_allocator_owner": True,
+        "contract_names_the_covariance_owner": True,
+        "contract_declares_no_second_optimiser": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "falsifiable_superiority", {
+        "unavailable_state_declared": True,
+        "absent_incumbent_does_not_borrow_candidate_drawdown": True,
+        "absent_incumbent_does_not_borrow_candidate_turnover": True,
+        "unavailable_check_is_not_a_pass": True,
+        "unavailable_checks_are_reported": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "duplicate_optimiser_modules", []),
+    ("release31_mathematical_alpha_frontier", "duplicate_cost_literal_modules", []),
+    ("release31_mathematical_alpha_frontier", "automatic_promotion", {
+        "declared_false": True,
+        "safety_block_reports_it": True,
+        "read_model_reports_it": True,
+        "read_model_declares_no_activation": True,
+    }),
+    ("release31_mathematical_alpha_frontier", "read_surface", {
+        "route_declared_once": True,
+        "route_is_get": True,
+        "route_authenticated": True,
+        "read_model_present": True,
+        "read_model_imports_research_package": False,
+    }),
+    ("release31_mathematical_alpha_frontier", "read_model_write_tokens", []),
+    ("release31_mathematical_alpha_frontier", "ui_execute_controls", []),
+    ("release31_mathematical_alpha_frontier", "ui_missing_safety_badges", []),
+    ("release31_mathematical_alpha_frontier", "ui_ambiguous_safety_badges", []),
     # --- Release 30.1 UX: source links and external references --------------
     # ONE owner decides what may become an href, and it refuses anything that is
     # not an absolute http(s) URL - a feed-supplied string is untrusted input. No

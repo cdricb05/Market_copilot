@@ -2474,3 +2474,150 @@ strict-blocking architecture guard (26 blocking invariants over AST/symbol contr
 covering the calibration contract, the live lane, the lane authority, the single URL
 guard, the absence of constructed URLs, the link attributes and the Markets-only
 surface).
+
+---
+
+## Release 31 — Mathematical Alpha Frontier (research lane)
+
+A bounded MODEL-RESEARCH campaign, entirely inside the research lane. It changes
+no operational behaviour: no signal authority, no target, no proposal, no
+decision, no order, no model promotion, no operational store write. What it adds
+to the architecture is a **reusable, enforced way to run a model search that
+cannot quietly become unbounded**, plus one read-only visibility surface.
+
+### The research package
+
+`alpha_agent/r31/` — one owner per concern, enforced by
+`scripts/audit_architecture.py::check_release31_mathematical_alpha_frontier`
+(the strict-blocking guard, 27 invariant groups; every one negative-probed).
+
+The active campaign is **`r31_mathematical_alpha_frontier_v3`**. Campaigns v1 and
+v2 are `SUPERSEDED_EXPERIMENTAL_DESIGN` — preserved on disk, and structurally
+unable to influence v3 because every v3 candidate hash binds the investment
+universe, the benchmark set and the judge's behaviour. See
+[RELEASE31_CAMPAIGN_V3_CORRECTION.md](RELEASE31_CAMPAIGN_V3_CORRECTION.md).
+
+| Concern | Owner | Artifact |
+|---|---|---|
+| campaign contract | `alpha_agent/r31/contract.py` | `research_campaign_contract.json` |
+| PIT S&P 500 **investment universe** | `alpha_agent/r31/universe.py` | `investment_universe_manifest.json`, `sp500_membership.npz` |
+| dual **benchmarks** (equal weight + `$SPXTR`) | `alpha_agent/r31/benchmarks.py` | `benchmark_manifest.json`, `benchmark_series.npz` |
+| Track-A score → expected-return **calibration** | `alpha_agent/r31/calibration.py` | inside each candidate row |
+| shared **portfolio-construction seam** (both tracks) | `alpha_agent/r31/allocation.py` | — |
+| per-decision-date **covariance cache** | `alpha_agent/r31/covcache.py` | `covariance_cache_manifest.json`, `covariance_cache.npz` |
+| data snapshot, survivorship measurement | `alpha_agent/r31/snapshot.py` | `data_snapshot_manifest.json`, `panel_snapshot.npz` |
+| evidence partition | `alpha_agent/r31/partition.py` | `evidence_partition_contract.json` |
+| research judge | `alpha_agent/r31/judge.py` | `research_judge_contract.json` |
+| mathematics | `alpha_agent/r31/learners.py` | — |
+| candidate registry + budgets | `alpha_agent/r31/registry.py` | `candidate_results.jsonl`, `candidate_registry.json` |
+| known methods + literature | `alpha_agent/r31/methods.py` | `literature_method_registry.json`, `known_method_registry.json`, `known_method_results.json` |
+| bounded novel discovery | `alpha_agent/r31/novel.py` | `novel_discovery_contract.json`, `novel_discovery_results.json` |
+| lockbox access | `alpha_agent/r31/lockbox.py` | `lockbox_finalists.json`, `lockbox_access_log.json`, `lockbox_results.json` |
+| multiple testing | `alpha_agent/r31/multiple_testing.py` | `multiple_testing_results.json` |
+| orchestration + verdict | `alpha_agent/r31/campaign.py` | `economic_frontier_results.json`, `final_verdict.json` |
+
+Runner: `scripts/run_release31_campaign.py --stage contracts|known|novel|lockbox|verdict|all [--workers N]`.
+Research root: `D:\Stock_Prediction_app_data\mathematical_alpha_frontier\<campaign_id>\`.
+Every stage is resumable; a candidate whose specification hash is already in the
+registry is not refitted. With `--workers N` candidates fan across processes
+while the parent stays the **only** writer to the append-only candidate log, so
+parallelism cannot corrupt the multiple-testing denominator.
+
+### The two architectures, one seam
+
+```
+TRACK A   information → score → monotonic calibration → μ ─┐
+                                                           ├─► engine.zero_base_allocator.optimise
+TRACK B   information → proposed weights ──────────────────┘    → stocks + CASH
+```
+
+Both land in `alpha_agent/r31/allocation.py`, against the same canonical caps,
+the same liquidity floor, the same minimum position size and the same cost
+semantics. Two constraint systems would mean the architectures were compared on
+two different sets of rules, and the more permissive one would win on the
+strength of its permissions.
+
+Cash is whatever the allocation does not invest, and is free to be 100 %. A
+Track-A candidate that cannot pass the calibration is **rejected as a capital
+allocator** and stays in the multiple-testing denominator; manufacturing a μ is
+the one response the campaign forbids.
+
+### What it REUSES rather than rebuilds
+
+This is the load-bearing property. The campaign introduces **no** second HOC
+engine, portfolio optimiser, risk engine, cost model, proposal engine, decision
+owner, event fabric, execution path or forward-evidence system.
+
+* **Point-in-time features, the delisting-safe label and the cross-section
+  assembly** come from the released Release-30 owners
+  (`alpha_agent/release30_panel.py`, `alpha_agent/release30_forecast_research.py`),
+  whose PIT rules are already asserted by `tests/test_release30_return_forecast.py`.
+* **Ridge, GBRT, extremely-randomised trees and the rank-blend spec** are the
+  released `alpha_agent/release30_models.py`, re-exported — one implementation
+  each. Release 31 adds elastic net, Huber, PCR/PLS, Fama–MacBeth, random forest,
+  shallow networks, quantile regression, forecast combination and a
+  decision-focused portfolio learner.
+* **Cost, name cap, liquidity floor, risk aversion and cash policy** are read
+  from `engine.zero_base_allocator.default_policy()` on every judgement. The
+  audit forbids a literal cost or cap number in the judge, and forbids a second
+  `optimise` / `build_allocation` / `transition_economics` definition anywhere in
+  the package.
+* The research package may not import `paper_trader.api` at all, and may import
+  only `zero_base_allocator` from `engine` — `engine.risk` is DB-bound and
+  excluded.
+
+### The two declared samples, and why only one carries a verdict
+
+| Sample | Cross-sections | Span | Features | Survivorship | May carry a verdict |
+|---|---|---|---|---|---|
+| `PRICE_FULL_SURVIVORSHIP_FREE` | 304 | 2001-01-02 → 2026-04-23 | 14 price | **FREE** | **yes** |
+| `FUNDAMENTAL_MATCHED_SURVIVORSHIP_LIMITED` | 194 | 2010-03-12 → 2026-04-23 | 21 | **LIMITED** | no |
+
+The owned point-in-time fundamental store covers 846 CIKs: **46.2 %** of names
+still trading against **13.5 %** of names that stopped — a measured **3.42×**
+skew. A factor measured there is measured where the losers are missing. The
+fundamental sample is therefore fully measured and reported, and stamped
+`may_carry_verdict: false`; the survivorship-free price sample carries the
+campaign's conclusion.
+
+### The evidence partition (frozen before any result)
+
+```
+DISCOVERY → VALIDATION → LOCKBOX → (TRUE_FORWARD, owned elsewhere)
+```
+
+LOCKBOX is the LATEST contiguous block. Adjacent layers are separated by a purge
+embargo of `ceil(horizon / step)` decision dates belonging to no layer. Training
+is capped at the last VALIDATION date, so no model ever trains on a lockbox row.
+
+On the primary sample: discovery 167 / validation 76 / lockbox 55–59 depending on
+horizon, all `READY`.
+
+### Read surface
+
+`GET /v1/research/mathematical-alpha-frontier` → `api/mathematical_alpha_frontier.py`.
+
+A pure read model. It imports no numeric library and no research package; it
+reads the campaign's own hashed artifacts and reports them, because recomputing a
+metric here would make it a second owner of that metric. It performs no write and
+makes no network call.
+
+UI: one compact region, `#r31-frontier`, inside the existing Research area
+(`#tab-audit-advanced`), loaded by `loadMathematicalAlphaFrontier` through the
+canonical authenticated GET helper `_mhzGet`. It carries `RESEARCH ONLY`,
+`READ ONLY`, `NO LIVE ORDERS`, `AUTOMATION OFF` and `MANUAL REVIEW`, computes no
+research arithmetic, and contains **no** execute, approve, promote or activate
+control — asserted by both the test suite and the architecture audit. No new
+navigation item, no operator control, no mutation route. Today remains the sole
+normal-path mutation surface.
+
+### Regression and audit
+
+`tests/test_release31_mathematical_alpha_frontier.py` (69 tests) is the
+regression: contract immutability and drift, budget enforcement, spec-hash
+idempotency, layer disjointness and embargo, lockbox single-use and
+no-redesign-and-retry, judge delegation to the canonical policy, learner
+determinism, novel-grammar bounds and PIT regime labels, multiple-testing
+behaviour (including that the best of 60 pure-noise candidates does **not** pass
+SPA), research-lane isolation from the API and operational owners, and the
+read-surface / UI safety properties.

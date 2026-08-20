@@ -5571,6 +5571,32 @@
           </details>
         </div>
 
+        <!-- ===================== RELEASE 31: MATHEMATICAL ALPHA FRONTIER =====================
+             ONE compact read-only region reporting the bounded model-research campaign that
+             searches for the best mathematically defensible decision function from the
+             information we already own to capital allocation.
+
+             Every value is RENDERED from GET /v1/research/mathematical-alpha-frontier, which
+             itself only reads the campaign's own hashed artifacts. The browser computes no
+             research mathematics, no metric, no budget percentage and no verdict. There is no
+             execute control, no approval control and no model-activation control here, and
+             there never may be: a research candidate reported in this region is by contract
+             NOT activated. -->
+        <div class="card" id="r31-frontier" style="display:none;margin-bottom:14px;">
+          <div class="card-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span>Mathematical Alpha Frontier</span>
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge safe">READ ONLY</span>
+            <span class="cc-badge safe" title="Live brokerage orders are structurally disabled. Paper orders are real and exist only in the operational book; this research region creates none.">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge safe">AUTOMATION OFF</span>
+            <span class="cc-badge safe">MANUAL REVIEW</span>
+            <span class="cc-badge" id="r31-verdict-badge" title="The campaign's ONE terminal research verdict, read from final_verdict.json.">&mdash;</span>
+          </div>
+          <div id="r31-headline" style="font-size:12px;margin:0 0 10px;">&mdash;</div>
+          <div id="r31-body" style="font-size:11px;"></div>
+          <div id="r31-hashes" class="muted" style="font-size:10px;margin-top:8px;"></div>
+        </div>
+
         <!-- ===================== RELEASE 29 UX2: OPERATING DIAGNOSTICS (moved off Today) =====
              Data freshness, the source-by-source collection table, the worker counters
              (pid / restarts / iterations / heartbeat), the material-event and affected-holding
@@ -25149,6 +25175,14 @@ function _raLoadSection(sub) {
   (loaders[sub] || []).forEach(function (fn) {
     try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {}
   });
+  // Release 31: the Mathematical Alpha Frontier region belongs to the Research
+  // area as a whole, not to one sub-section, so it loads on every Research view.
+  // It hides itself when no campaign artifact exists.
+  try {
+    if (typeof window.loadMathematicalAlphaFrontier === 'function') {
+      window.loadMathematicalAlphaFrontier();
+    }
+  } catch (e) {}
 }
 
 function _applySubsection(base, sub) {
@@ -27843,6 +27877,253 @@ function _r30attr(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// ===================== RELEASE 31: MATHEMATICAL ALPHA FRONTIER LOADER =====================
+// Renders GET /v1/research/mathematical-alpha-frontier. This function performs NO research
+// arithmetic: every metric, budget percentage, hash and verdict below is a value the backend
+// read model already published. It deliberately contains no execute, approve or activate
+// control — a research candidate shown here is by contract NOT activated.
+function _r31num(v, digits) {
+  if (v === null || v === undefined || v === '') return '&mdash;';
+  var n = Number(v);
+  if (!isFinite(n)) return '&mdash;';
+  return _r30esc(n.toFixed(digits === undefined ? 4 : digits));
+}
+function _r31pct(v) {
+  if (v === null || v === undefined) return '&mdash;';
+  var n = Number(v);
+  return isFinite(n) ? _r30esc((n * 100).toFixed(2)) + '%' : '&mdash;';
+}
+function _r31budget(b) {
+  if (!b) return '&mdash;';
+  return _r30esc(b.used) + ' / ' + _r30esc(b.budget)
+    + (b.pct === null || b.pct === undefined ? '' : ' (' + _r30esc(b.pct) + '%)');
+}
+function _r31row(label, value, title) {
+  return '<div style="display:flex;gap:8px;padding:2px 0;">'
+    + '<div style="min-width:230px;color:var(--muted,#94a3b8);"'
+    + (title ? ' title="' + _r30attr(title) + '"' : '') + '>' + _r30esc(label) + '</div>'
+    + '<div>' + value + '</div></div>';
+}
+async function loadMathematicalAlphaFrontier() {
+  var card = document.getElementById('r31-frontier');
+  if (!card) return;
+  // Reuses the canonical authenticated GET helper rather than rolling a second
+  // auth path; it already owns the key, the timeout and the failure shape.
+  var d = await _mhzGet('/v1/research/mathematical-alpha-frontier');
+  if (!d || !d.schema_version) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  var badge = document.getElementById('r31-verdict-badge');
+  if (badge) {
+    var v = (d.verdict && d.verdict.primary) || d.state || '—';
+    badge.textContent = v;
+    badge.title = (d.verdict && d.verdict.primary)
+      ? 'The campaign’s terminal research verdict, read from final_verdict.json.'
+      : 'Campaign state; no terminal verdict has been written yet.';
+  }
+  _setHtml('r31-headline', _r30esc(d.headline || ''));
+
+  var s = d.snapshot || {};
+  var surv = s.survivorship || {};
+  var lit = d.literature || {};
+  var b = d.budgets || {};
+  var mt = d.multiple_testing || {};
+  var best = d.best_validation_candidate || null;
+  var inc = d.incumbent_benchmark || null;
+
+  var uni = d.universe || {};
+  var bm = d.benchmarks || {};
+  var ec = d.economics || {};
+  var calrej = d.calibration_rejections || {};
+
+  var html = '';
+  html += _r31row('Campaign', _r30esc(d.campaign_id) + ' &middot; ' + _r30esc(d.campaign_state));
+  (d.superseded_campaigns || []).forEach(function (sc) {
+    html += _r31row('&nbsp;&nbsp;superseded &middot; ' + _r30esc(sc.campaign_id),
+                    '<span class="cc-badge">' + _r30esc(sc.state || 'SUPERSEDED') + '</span>'
+                    + (sc.artifacts_preserved
+                       ? ' <span class="cc-badge muted">ARTIFACTS PRESERVED</span>' : '')
+                    + ' &middot; ' + _r30esc((sc.defects || []).length) + ' recorded defect(s)',
+                    'Superseded experimental design. Its evidence stays on disk and cannot '
+                    + 'select a v3 hyperparameter, finalist or verdict, or reduce the '
+                    + 'multiple-testing denominator.');
+  });
+  html += _r31row('Objective', _r30esc(d.primary_selection_principle),
+                  'The frozen selection principle. Not MSE, not IC, not gross return.');
+
+  // --- CORRECTION 1: training universe is not the investment universe ------ //
+  html += _r31row('Investment universe (evaluation)',
+                  _r30esc(uni.evaluation_universe)
+                  + (uni.point_in_time ? ' <span class="cc-badge safe">POINT IN TIME</span>' : '')
+                  + (uni.current_membership_applied_backwards === false
+                     ? ' <span class="cc-badge safe">NO HINDSIGHT MEMBERSHIP</span>' : '')
+                  + ' &middot; median ' + _r30esc(uni.median_members_per_session)
+                  + ' members/session',
+                  'Every portfolio decision the primary judge scores is restricted to names '
+                  + 'that were index members ON THAT DECISION DATE.');
+  html += _r31row('Training universes',
+                  _r30esc((uni.training_universes || []).join(' &middot; '))
+                  + (uni.broader_training_never_widens_evaluation
+                     ? ' <span class="cc-badge safe">BROADER TRAINING NEVER WIDENS EVALUATION</span>' : ''),
+                  'What a candidate may LEARN from. The choice is part of its specification '
+                  + 'hash, so "train broad, invest narrow" is a tested hypothesis.');
+  html += _r31row('Investment-universe completeness',
+                  'missing member-days ' + _r31pct(uni.missing_member_day_fraction)
+                  + ' &middot; <span class="cc-badge'
+                  + (uni.completeness_verdict === 'INVESTMENT_UNIVERSE_MATERIALLY_COMPLETE'
+                     ? ' safe' : '') + '">' + _r30esc(uni.completeness_verdict) + '</span>',
+                  _r30esc(uni.dominant_structural_cause || ''));
+
+  // --- CORRECTION 2: the primary judge is real zero-base economics --------- //
+  html += _r31row('Primary judge',
+                  _r30esc(ec.primary_construction)
+                  + (ec.cash_is_a_real_allocation_choice
+                     ? ' <span class="cc-badge safe">CASH 0&ndash;100% IS A REAL CHOICE</span>' : '')
+                  + (ec.top_n_may_carry_primary_verdict === false
+                     ? ' <span class="cc-badge safe">TOP-N IS DIAGNOSTIC ONLY</span>' : ''),
+                  'Both architectures are turned into an actual portfolio by the canonical '
+                  + 'zero-base allocator. A top-N equal-weight book cannot carry the verdict.');
+  html += _r31row('Canonical owners',
+                  _r30esc(ec.allocator_owner) + ' &middot; ' + _r30esc(ec.covariance_owner)
+                  + (ec.second_portfolio_optimiser_exists === false
+                     ? ' <span class="cc-badge safe">NO SECOND OPTIMISER</span>' : ''),
+                  'The campaign owns no optimiser, no covariance and no cost model.');
+  html += _r31row('Risk frontier (gamma)',
+                  _r30esc((ec.risk_frontier_gamma_multipliers || []).join(' &times; / ')) + ' &times;'
+                  + ' &middot; primary ' + _r30esc(ec.primary_gamma_multiplier) + '&times;'
+                  + ' &middot; ' + _r30esc(ec.frontier_scope),
+                  'Pre-registered before any candidate return. Varies RISK APPETITE, not '
+                  + 'concentration; selection always uses the canonical 1.0x point.');
+  html += _r31row('Cost &amp; turnover',
+                  _r30esc(ec.cost_base) + ' &middot; ' + _r30esc(ec.turnover_alignment),
+                  'Turnover is measured over the union of SECURITY IDENTITIES, never by '
+                  + 'array position.');
+  html += _r31row('Historical sector constraint',
+                  '<span class="cc-badge muted">' + _r30esc(ec.historical_sector_constraint)
+                  + '</span>',
+                  'The owned entity-SIC snapshot is inadmissible for historical construction, '
+                  + 'so the sector cap is disabled historically and the limitation is declared '
+                  + 'rather than absorbed into a number.');
+  html += _r31row('Shared covariance cache',
+                  _r30esc(ec.covariance_cache_sections) + ' decision dates'
+                  + (ec.covariance_cache_reused_by_every_candidate
+                     ? ' <span class="cc-badge safe">REUSED BY EVERY CANDIDATE</span>' : ''),
+                  'Covariance depends on the date and the eligible universe, never on the '
+                  + 'candidate. Building it once is what makes the primary judge executable.');
+
+  // --- CORRECTION 4: two benchmarks, neither substitutable ---------------- //
+  html += _r31row('Benchmarks',
+                  _r30esc((bm.reported || []).join(' &middot; '))
+                  + (bm.substitution_permitted === false
+                     ? ' <span class="cc-badge safe">NO SUBSTITUTION</span>' : ''),
+                  'Universe-neutral equal weight isolates SELECTION skill; the investable '
+                  + 'total-return series isolates the decision to run the strategy at all.');
+  html += _r31row('Investable benchmark',
+                  _r30esc(bm.investable_source || '&mdash;')
+                  + ' &middot; coverage ' + _r31pct(bm.investable_coverage)
+                  + ' &middot; <span class="cc-badge'
+                  + (bm.investable_state === 'SPY_TOTAL_RETURN_AVAILABLE' ? ' safe' : '')
+                  + '">' + _r30esc(bm.investable_state) + '</span>');
+
+  if (calrej && calrej.count !== undefined && calrej.count !== null) {
+    var att = calrej.attribution || {};
+    html += _r31row('Track-A calibration rejections',
+                    _r30esc(calrej.count) + ' candidate(s) &middot; best observed per-date t '
+                    + _r31num(att.best_per_date_slope_t_observed, 2)
+                    + ' against a required ' + _r31num(att.min_slope_t_required, 2),
+                    'A model whose score cannot be defensibly mapped into economic return '
+                    + 'units is not a capital allocator. It is rejected and STAYS in the '
+                    + 'multiple-testing denominator.');
+  }
+
+  html += _r31row('Data snapshot',
+                  _r30esc(s.cross_sections) + ' cross-sections &middot; '
+                  + _r30esc(s.feature_count) + ' features');
+  (s.samples || []).forEach(function (x) {
+    html += _r31row('&nbsp;&nbsp;' + x.sample,
+                    _r30esc(x.cross_sections) + '  ' + _r30esc(x.first_date) + ' → '
+                    + _r30esc(x.last_date)
+                    + '  <span class="cc-badge' + (x.survivorship === 'FREE' ? ' safe' : '')
+                    + '">survivorship ' + _r30esc(x.survivorship) + '</span>'
+                    + (x.may_carry_verdict ? '' : ' <span class="cc-badge muted">MAY NOT CARRY VERDICT</span>'));
+  });
+  html += _r31row('Survivorship measurement',
+                  'still-trading ' + _r31pct((surv.still_trading || {}).coverage)
+                  + ' vs delisted ' + _r31pct((surv.delisted || {}).coverage)
+                  + ' &middot; ratio ' + _r31num(surv.coverage_ratio_alive_over_delisted, 2)
+                  + '&times; &middot; ' + _r30esc(surv.verdict),
+                  'Point-in-time fundamental coverage by survival status. A ratio above 1 means the fundamental sub-sample omits losers.');
+
+  (d.evidence_partition || []).forEach(function (p) {
+    html += _r31row('&nbsp;&nbsp;partition h=' + _r30esc(p.horizon_sessions) + ' ' + _r30esc(p.sample),
+                    'disc ' + _r30esc(p.discovery) + ' &middot; val ' + _r30esc(p.validation)
+                    + ' &middot; lock ' + _r30esc(p.lockbox) + ' &middot; embargoed '
+                    + _r30esc(p.embargoed) + ' &middot; lockbox ' + _r30esc(p.lockbox_first)
+                    + ' → ' + _r30esc(p.lockbox_last) + ' &middot; ' + _r30esc(p.state));
+  });
+
+  html += _r31row('Literature',
+                  _r30esc(lit.papers_screened) + ' / ' + _r30esc(lit.papers_screened_budget)
+                  + ' screened &middot; ' + _r30esc(lit.methods_extracted) + ' / '
+                  + _r30esc(lit.methods_extracted_budget) + ' extracted &middot; '
+                  + _r30esc(lit.families_implemented) + ' / ' + _r30esc(lit.family_budget)
+                  + ' families &middot; ' + _r30esc(lit.stopping_rule_state));
+  html += _r31row('Known-method budget', 'families ' + _r31budget(b.known_families)
+                  + ' &middot; configs ' + _r31budget(b.known_configs));
+  html += _r31row('Novel-discovery budget', 'families ' + _r31budget(b.novel_families)
+                  + ' &middot; candidates ' + _r31budget(b.novel_candidates)
+                  + (d.novel_exhaustion_triggered
+                     ? ' <span class="cc-badge">EXHAUSTION TRIGGERED</span>' : ''));
+  html += _r31row('Lockbox accesses', _r31budget(b.lockbox_accesses),
+                  'Each finalist may be executed against the lockbox exactly once.');
+
+  if (best) {
+    html += _r31row('Best validation candidate',
+                    _r30esc(best.candidate_id) + ' &middot; ' + _r30esc(best.family)
+                    + ' &middot; net excess ' + _r31pct(best.net_excess_annualised)
+                    + ' &middot; Sharpe ' + _r31num(best.sharpe_net, 2)
+                    + ' &middot; maxDD ' + _r31pct(best.max_drawdown_net));
+  }
+  if (inc) {
+    html += _r31row('Incumbent benchmark',
+                    _r30esc(inc.candidate_id) + ' &middot; net excess '
+                    + _r31pct(inc.net_excess_annualised)
+                    + ' &middot; Sharpe ' + _r31num(inc.sharpe_net, 2));
+  }
+  html += _r31row('Net economic improvement vs incumbent',
+                  _r31pct(d.net_economic_improvement_vs_incumbent),
+                  'Validation-layer net excess of the best candidate minus the incumbent.');
+  html += _r31row('Multiple testing',
+                  'denominator ' + _r30esc(mt.denominator) + ' &middot; BH rejected '
+                  + _r30esc(mt.bh_rejected) + '/' + _r30esc(mt.bh_m)
+                  + ' &middot; SPA p=' + _r31num(mt.spa_p_value, 4)
+                  + ' &middot; paired p=' + _r31num(mt.paired_p_value, 4),
+                  'Every executed candidate stays in the denominator, including rejected ones.');
+
+  var checks = (d.verdict && d.verdict.checks) || {};
+  Object.keys(checks).sort().forEach(function (k) {
+    var c = checks[k] || {};
+    html += _r31row('&nbsp;&nbsp;check &middot; ' + k,
+                    '<span class="cc-badge' + (c.pass ? ' safe' : '') + '">'
+                    + (c.pass ? 'PASS' : 'FAIL') + '</span> value ' + _r31num(c.value, 5));
+  });
+  var gap = (d.verdict && d.verdict.information_gap) || null;
+  if (gap) {
+    html += _r31row('Dominant constraint', _r30esc(gap.dominant_constraint));
+    html += _r31row('Next action', _r30esc(gap.next_action));
+  }
+  if (d.current_blocker) {
+    html += _r31row('Current blocker', '<span class="cc-badge">' + _r30esc(d.current_blocker) + '</span>');
+  }
+  _setHtml('r31-body', html);
+  _setHtml('r31-hashes',
+    'contract ' + _r30esc(String(d.contract_hash || '').slice(0, 12))
+    + ' &middot; snapshot ' + _r30esc(String((d.snapshot || {}).hash || '').slice(0, 12))
+    + ' &middot; verdict ' + _r30esc(String((d.verdict || {}).hash || '').slice(0, 12))
+    + ' &middot; root ' + _r30esc(d.research_root));
+}
+window.loadMathematicalAlphaFrontier = loadMathematicalAlphaFrontier;
+
 // Release 30.1: render a BACKEND-SUPPLIED source URL as an external link.
 // The URL is never constructed, inferred or completed here: the backend owner
 // api.external_references.safe_external_url has already decided whether this

@@ -1005,3 +1005,101 @@ capital-management machinery. No downstream owner is replaced.
   rather than extrapolated. Closing it is a data-refresh task, not an architecture one.
 * A canonical risk-free / cash-return input. Cash is modelled at a declared zero until an
   admissible owned series exists.
+
+---
+
+## Release 31 Campaign v3 — the three seams the corrections consolidated
+
+Campaign v3 did not add research surface; it removed duplication that the v2
+judge had introduced by not existing.
+
+| Seam | Before v3 | After v3 |
+|---|---|---|
+| **portfolio construction** | the judge built its own top-*N* book, so the research lane and the operational lane constructed portfolios two different ways | ONE seam (`alpha_agent/r31/allocation.py`) delegating to `engine.zero_base_allocator.optimise`; both research tracks and the operator face the same caps, floor and cost |
+| **covariance** | absent from research entirely (a top-*N* book needs none), so the research lane had no risk model at all | the canonical `engine.holding_opportunity_cost.build_covariance`, cached once per decision date and reused by every candidate |
+| **turnover** | two implementations — the judge's symbol-keyed one and the learner's positional one — that disagreed silently | ONE `traded_notional` over the union of security identities, used by the judge and by both Track-B learners |
+
+The architecture audit's engine allowlist was widened to admit
+`engine.holding_opportunity_cost` for exactly this reason, and simultaneously
+tightened: every admitted engine owner is re-parsed and must import nothing
+outside the standard library, so admission by name cannot smuggle a database
+dependency into the research lane.
+
+**What v3 deliberately did not consolidate.** The operational lane still builds
+its own book through the released Release-30 path. Release 31 is read-only
+research and merges nothing into production; a winning candidate ends at
+`MODEL_READY_FOR_MANUAL_PAPER_REVIEW` and a human decides.
+
+## Release 31 — what it consolidated, and what it deliberately did not
+
+### Consolidated
+
+**Model research now has one shape.** Before Release 31 every research stage
+(23, 24, 25, 26, 27, 29A–C, 30) invented its own registry, its own evaluation
+conventions, its own budget discipline and its own notion of "held out". They
+mostly agreed, which is the dangerous case: the differences were invisible and
+the results were compared as if they were commensurable.
+
+`alpha_agent/r31/` is the consolidated shape — contract, snapshot, partition,
+judge, registry, lockbox, inference, verdict — with one owner each and a strict
+audit guard. A future campaign reuses it and changes only the contract.
+
+**One judge, reading canonical economics.** Every prior stage restated a cost
+assumption. Release 31's judge reads
+`engine.zero_base_allocator.default_policy()` and the audit forbids a literal
+cost or cap number inside it. This closes the "research number that cannot be
+compared with an operational number" gap that made several earlier stages'
+conclusions hard to act on.
+
+**Learners are no longer per-stage.** Ridge, GBRT and extremely-randomised trees
+are the released Release-30 implementations, re-exported rather than copied.
+Release 31 adds nine more families in the same module, so the next campaign
+inherits them.
+
+### Explicitly NOT consolidated (and why)
+
+* **The zero-base allocator is still not the operational allocation path.**
+  Release 30.1's verdict stands: it consumes `mu`, and cutting it over without a
+  defensible one would replace a book built from the approved model's top ranks
+  with a book shaped by constraints and noise. Release 31 is the search for that
+  `mu`; it does not pre-empt the result.
+* **`engine.reallocation_proposal` remains the operational construction path**,
+  unchanged and unendorsed. It is at least derived from the approved model's
+  ranking in the approved direction.
+* **No research candidate was given a path to the operational model.** The audit
+  enforces that the research package cannot import the API, cannot reference the
+  proposal/decision/execution owners, and contains no promotion or activation
+  call.
+
+### Remaining gaps, restated with Release 31's measurements
+
+* **The owned point-in-time fundamental history is survivorship-limited by a
+  measured 3.42×** (46.2 % coverage of still-trading names against 13.5 % of
+  delisted names, 846 covered CIKs). This is now a number that changes what a
+  sample is permitted to conclude, not an adjective. Closing it needs a
+  survivorship-complete PIT fundamental source — a data acquisition, not an
+  architecture change.
+* **Historical sector remains unusable** for signal construction, and therefore
+  historical sector EXPOSURE remains unmeasurable. The judge reports
+  `UNMEASURABLE_PIT` rather than a number. Closing it needs a point-in-time
+  historical sector/industry mapping.
+* **The benchmark is the owned universe's equal-weight return**, because the
+  owned panel carries no index security. Closing it needs an owned index series;
+  until then the campaign benchmarks against the universe it actually selects
+  from and says so.
+* **Cash is still modelled at a declared zero return.** Unchanged by Release 31.
+* **The owned Phase-24 daily panel still ends before the eligible market date.**
+  Unchanged by Release 31; the campaign's snapshot declares its own last date
+  (2026-04-23 for a completed 60-session label) rather than extrapolating.
+
+### The next slice, if the campaign exhausts
+
+Not another factor campaign over the same information — the contract explicitly
+forbids extending the budget in response to a poor result, and says why: further
+search over the same information set raises data-mining risk faster than
+knowledge.
+
+The next slice is **new orthogonal information** through the extension contract
+in [TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md): a new data family, its own
+PIT and publication semantics, its **measured** survivorship coverage, a new
+campaign id, and the same judge and budgets unchanged.

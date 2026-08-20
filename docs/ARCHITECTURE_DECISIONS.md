@@ -2117,3 +2117,330 @@ it keeps asserting it on the day someone wires one of these sites into the colle
 corrects itself. Keeping the region off Today follows the same rule as everything else on
 that surface: Today carries what the SYSTEM concluded, not what an operator might want to
 read.
+
+---
+
+## Release 31 — Mathematical Alpha Frontier
+
+### CONFIRMED — the universe a model LEARNS from is not the universe it may OWN
+
+**Decision.** A candidate may be fitted on the broad point-in-time panel or on
+index members only; every decision the primary judge scores is restricted to
+securities that were **S&P 500 members on that decision date**, from
+`norgatedata.index_constituent_timeseries` over the 1,897-security "Current &
+Past" watchlist, aligned by date string and never by row position. The training
+choice is part of the candidate's specification hash. A broader training universe
+never widens evaluation.
+
+**Why.** Campaign v2 scored portfolio decisions over whatever the Russell 1000
+panel contained, because that is the survivorship-safe panel we own. That is a
+good training sample and a poor statement of the business objective, which is
+S&P 500 capital allocation — a model that wins on Russell 1000 has not been shown
+to win on the book we manage. Keeping the two concepts in one variable makes the
+substitution invisible; separating them turns "train broad, invest narrow" into a
+hypothesis the campaign tests and pays for in the multiple-testing denominator.
+
+The gap this leaves is **measured**: 11,839 of 3,350,348 member-days (0.353 %)
+cannot be represented, dominated by S&P's July-2002 removal of non-US
+constituents, which a Russell 1000 history excludes by construction. A campaign
+that cannot say how incomplete its universe is has not established that it is
+complete.
+
+**Owner.** `alpha_agent/r31/universe.py`.
+
+### CONFIRMED — the primary judge allocates capital; a top-N book is a diagnostic
+
+**Decision.** Every candidate, on both architectures, is turned into an actual
+portfolio through `engine.zero_base_allocator.optimise`, with cash free to be
+anywhere from 0 % to 100 %. The top-*N* equal-weight book survives as a reported
+diagnostic and is barred by contract (`TOP_N_MAY_CARRY_PRIMARY_VERDICT = False`)
+from carrying the verdict. The risk frontier varies **risk aversion**
+(γ ∈ {0.5×, 1.0×, 2.0×}), pre-registered and frozen, with selection always at the
+canonical 1.0× point.
+
+**Why.** A judge that forces the system to own 25 names cannot distinguish a model
+that found nothing worth owning from one that found twenty-five good names,
+because both are made to hold twenty-five. Cash has to be a real choice or the
+comparison is rigged toward whichever model is least bad at a task nobody asked
+for. Book size is not risk appetite: a 15-name book and a 40-name book are both
+fully invested by construction, so a frontier built from them varies
+concentration and says nothing about how much risk the operator wanted.
+
+**Owner.** `alpha_agent/r31/allocation.py` (the seam), `judge.py` (the scoring).
+
+### CONFIRMED — an arbitrary score may not become an expected return
+
+**Decision.** A Track-A candidate reaches the allocator only if it already
+forecasts economic return units, or its score passes a pre-registered
+**monotonic affine** calibration fitted on DISCOVERY evidence only. A negative
+fitted slope fails closed with `FORECAST_RANK_IDENTITY_VIOLATION`; an
+indefensible relationship fails closed with
+`FORECAST_NOT_ECONOMICALLY_CALIBRATABLE`. Refusal is a recorded outcome, and the
+candidate stays in the multiple-testing denominator.
+
+**Why.** The allocator prices expected return against variance and cost; every
+trade it makes is denominated in return units. Handing it a z-score produces
+weights whose arithmetic is meaningless even when the ranking underneath was
+excellent. Release 30.1 is the precedent: a calibration whose slope came out
+negative silently **inverted** the approved model, and the allocator — behaving
+perfectly — bought the names the model liked least. A change of units that
+reorders the thing being measured is not a calibration.
+
+The floors are set against **both** error types. An earlier draft used *t* ≥ 3.0,
+chosen only against false positives; measured against real effect sizes that
+rejects genuine alpha, because a good equity factor produces an expected
+per-date *t* of 0.3·√N. The floor is the conventional 2.0, and data-mining risk
+across many candidates is carried by BH/FDR, Hansen SPA, the paired block
+bootstrap and the one-shot lockbox — the machinery built for it.
+
+**Owner.** `alpha_agent/r31/calibration.py`.
+
+### CONFIRMED — portfolio turnover is aligned by security identity
+
+**Decision.** Transition cost is `Σ_i |w_{i,t} − w_{i,t−1}|` over the **union of
+symbols**, in the judge and inside both Track-B learners. Training blocks carry
+`(X_t, r_t, symbols_t)`; a two-element block raises rather than being aligned
+positionally.
+
+**Why.** Row order is an artifact of cross-section assembly. Index membership
+changes month to month and names delist, so position *i* is not the same company
+on two dates. Campaign v2's learner compared consecutive weight vectors
+positionally whenever their lengths matched, which reports a book that sold
+everything and bought something else entirely as having done nothing — and a
+learner rewarded for low turnover then optimises against that fiction rather than
+trading less.
+
+**Owner.** `alpha_agent/r31/allocation.py::traded_notional`,
+`learners.py::_align_previous`.
+
+### CONFIRMED — two benchmarks, and neither may stand in for the other
+
+**Decision.** Every result reports the point-in-time S&P 500 equal-weight return
+**and** the `$SPXTR` total-return series. If the investable series cannot be
+established the campaign reports `SPY_RELATIVE_EVIDENCE_BLOCKED` and leaves that
+comparison absent. A price-only index is inadmissible.
+
+**Why.** "Did this beat an equal-weight basket of the same names we screened?"
+and "did this beat buying the index?" are different questions, and only the
+second is the one an operator faces. The first isolates selection skill by
+neutralising the universe; the second isolates the decision to run the strategy
+at all. A candidate that beats the basket but loses to the ETF has demonstrated
+stock selection inside a universe that was a bad place to be — worth knowing, and
+exactly what a single blended benchmark hides. Comparing a total-return strategy
+against a price index manufactures roughly two points a year of fake alpha.
+
+**Owner.** `alpha_agent/r31/benchmarks.py`.
+
+### CONFIRMED — a walk-forward window has no fallback that contains the future
+
+**Decision.** When fewer than `MIN_TRAIN_SECTIONS` decision dates precede the date
+being scored, no model exists: the predictor returns NaN and the consumer skips
+the date. There is no substitute training window.
+
+**Why.** Every predictor previously fell back to the first *N* dates of the layer
+when the expanding window came up short. On the validation layer that branch is
+unreachable, so it never fired. Campaign v3 fits its calibration by running
+predictors across DISCOVERY, where the earliest dates do reach it — and there
+those dates lie *after* the one being scored. Every Track-A calibration would
+have inherited the leak and then priced capital with it. "Not enough history yet"
+has one honest answer, and filling it with the future is not it.
+
+**Owner.** `alpha_agent/r31/methods.py::walk_forward_predictor`,
+`novel.py::_train_indices`.
+
+### CONFIRMED — covariance is cached per decision date, never per candidate
+
+**Decision.** `alpha_agent/r31/covcache.py` builds the canonical covariance once
+per (decision date, eligible universe, lookback, policy) and every candidate
+reads it. The cache key binds all four plus the snapshot and universe hashes, and
+a mismatch raises rather than degrades.
+
+**Why.** Covariance does not depend on the candidate. Campaign v2 never noticed
+because its top-N book needed no covariance at all; v3 allocates capital at every
+decision date, where rebuilding per candidate costs ~10 hours across a
+100-candidate campaign recomputing an identical matrix against ~6 minutes once.
+This is not an optimisation detail — without it the primary judge is not
+executable, and a judge that cannot be run is not a judge.
+
+**Owner.** `alpha_agent/r31/covcache.py`, delegating to
+`engine.holding_opportunity_cost.build_covariance`.
+
+### CONFIRMED — a model-research campaign is bounded by a hashed contract, not by intent
+
+**Decision.** Every Paper Trader model-research campaign freezes a
+`research_campaign_contract.json` **before its first candidate result exists**.
+The contract carries the data-source content hashes, the sample geometry, the
+evidence-partition policy, the economics owner, every budget, the lockbox policy,
+the multiple-testing policy, the superiority bar, the seeds and the library
+versions. Its SHA-256 binds all of it. `registry.assert_contract_stable()`
+recomputes that hash before every stage and raises `ContractDrift` if it moved
+while results existed. A material change is a **new campaign id**, never an edit.
+
+**Why.** A campaign that can widen a budget, move a lockbox boundary or soften a
+superiority bar after seeing a disappointing number is not running an experiment;
+it is searching until it finds something, and what it finds is a property of the
+search. The failure is invisible after the fact — the surviving artifacts look
+identical either way. Freezing and hashing the terms first is the only control
+that leaves evidence.
+
+**Owner.** `alpha_agent/r31/contract.py`.
+
+### CONFIRMED — a budget is a number in a module, checked by code that raises
+
+**Decision.** Family counts, configuration counts, novel-campaign counts,
+refinement depth and lockbox accesses are integers in `contract.py`, enforced by
+`Registry.check_budget` and `lockbox.freeze_finalists` / `lockbox.authorise`,
+which raise `BudgetExceeded` / `LockboxViolation`. The architecture audit fails
+the build if any declared budget is not present as an assigned integer.
+
+**Why.** Nine stages of this project have shown that a limit expressed only in
+prose is a suggestion. The audit check `budgets_not_encoded` exists because a
+budget nobody can violate is the only kind that bounds a campaign.
+
+### CONFIRMED — the lockbox is the LATEST block, embargoed, and single-use
+
+**Decision.** `LOCKBOX` is the most recent contiguous block of decision dates.
+`VALIDATION` precedes it, `DISCOVERY` precedes that, and adjacent layers are
+separated by a purge embargo of `ceil(horizon / step)` decision dates belonging
+to no layer. Training is capped at the last VALIDATION date, so no model in the
+campaign ever trains on a lockbox row — during selection, or during the lockbox
+evaluation itself. The finalist set is frozen and hashed before the first
+execution; each finalist runs exactly once; a revised candidate may not be
+resubmitted, and a family whose two attempts are spent is refused even under a
+new specification hash.
+
+**Why.** Three separate ways a "held-out" result stops being held out. A lockbox
+drawn from the middle of history lets a model be selected on data that comes
+after it. Without an embargo, an unresolved 60-session label appears in two
+layers at once. Without single-use, the lockbox is a validation set with extra
+steps, and its number means nothing.
+
+**Owner.** `alpha_agent/r31/partition.py` (boundaries),
+`alpha_agent/r31/lockbox.py` (access).
+
+### CONFIRMED — one research judge, reading the canonical economics rather than restating them
+
+**Decision.** `alpha_agent/r31/judge.py` scores every candidate — incumbent,
+reproduced published method, novel discovery — on the same dates. It owns no cost
+model, no risk price and no constraint: it reads
+`engine.zero_base_allocator.default_policy()`. The audit forbids a literal cost
+or cap number anywhere in the judge, and forbids a second `optimise` /
+`build_allocation` / `transition_economics` definition in the research package.
+
+**Why.** Two judges drift, and the more generous one wins wherever it happens to
+be called. A research-only cost assumption would also make every number the
+campaign produces unusable by the lane that would consume it.
+
+**Selection principle.** Implementable NET portfolio economics at comparable risk,
+across a risk frontier pre-registered before any candidate return existed. Never
+MSE, never IC alone, never gross return, never a single-period Sharpe.
+
+### CONFIRMED — the multiple-testing denominator is derived from the append-only registry
+
+**Decision.** Every candidate that executes is recorded, including failures,
+errors and rejections. `executed_count` is computed from the log, never from a
+curated list, and campaign inference (Benjamini–Hochberg, Hansen SPA, paired
+block bootstrap) uses that denominator.
+
+**Why.** Quietly dropping disappointing candidates is the single most effective
+way to manufacture an honest-looking *t*-statistic, and it leaves no trace in the
+surviving evidence. Making the denominator a derived property of an append-only
+log removes the opportunity rather than warning against it.
+
+### CONFIRMED — the survivorship property of a sample is MEASURED, and decides what the sample may conclude
+
+**Decision.** The campaign measures point-in-time fundamental coverage separately
+for names still trading and names that stopped, and publishes the ratio. Measured
+on the owned store: **46.2 % of still-trading names against 13.5 % of delisted
+names — a 3.42× skew**, over 846 covered CIKs. Consequently the survivorship-FREE
+price sample (304 monthly cross-sections, 2001–2026) is the PRIMARY sample and
+carries the verdict; the fundamental-matched sample (194 cross-sections, 2010–2026)
+is measured, reported, and stamped `may_carry_verdict: false`.
+
+**Why.** A factor measured where the losers are missing is measured on a sample
+that has already had its worst outcomes removed — precisely the bias that inflates
+fundamental factor returns. Earlier stages recorded this qualitatively
+("survivor-biased", "fails its own survivorship gate"). Release 31 makes it a
+number that changes what the evidence is allowed to claim.
+
+### CONFIRMED — historical sector remains UNMEASURABLE_PIT, including in the judge
+
+**Decision.** The judge reports `sector_exposure: {state: UNMEASURABLE_PIT}`
+rather than a number, and no novel-discovery peer group may be a sector. The live
+sector cap continues to apply where sector is genuinely known — at the current
+decision timestamp, inside the canonical allocator.
+
+**Why.** The canonical point-in-time sector owner already classifies the owned
+entity-level SIC snapshot as inadmissible for historical signal construction.
+Using it to compute a historical sector exposure would be the same violation
+wearing a different hat, and a reported number would be believed.
+
+### CONFIRMED — news, external links and current analyst snapshots are permanently inadmissible
+
+**Decision.** `INADMISSIBLE_INFORMATION` names four families and the reason for
+each: GDELT / news text (`EVENT_TRIGGER_ONLY`, entity-resolution quality
+unproven), external reference links (operator reference only), current analyst
+snapshots (no point-in-time history), and the entity SIC sector snapshot. The
+audit asserts no news-shaped feature exists in the frozen feature set.
+
+**Why.** Release 30.1's source transparency exposed a live GDELT feed associating
+plainly irrelevant articles with CAT. A weak model is not repaired by feeding
+mislabelled text to a learner; that converts a data-quality problem into a
+modelling claim.
+
+### CONFIRMED — the research mathematics is numpy, and absent libraries are recorded
+
+**Decision.** Every learner is implemented in numpy as a pure function of
+`(X, y, params, seed)`. The contract records the versions of numpy, pandas,
+scipy, scikit-learn, statsmodels, LightGBM, XGBoost, PyTorch and cvxpy —
+including `ABSENT`.
+
+**Why.** The project declares no modelling dependency, and the whole research
+lane from Stage 23 through Release 30 is numpy/pandas only; installing a
+framework to reproduce a paper changes the environment the operational system
+runs beside. Determinism is the deeper reason: a specification hash is only an
+idempotency key if the same triple always produces the same coefficients.
+"No gradient-boosting library was installed" is also a material fact about which
+published methods were reproducible, so it belongs in the contract rather than a
+footnote.
+
+### CONFIRMED — a superiority check must be capable of failing
+
+**Decision.** When a comparator does not exist, the check that depends on it
+reports `UNAVAILABLE_NO_INCUMBENT` with `pass: None`, is named in
+`checks_unavailable`, and does not count toward a superiority claim
+(`all(c["pass"] is True ...)`). The absent reference is never filled with the
+candidate's own statistics. Audit group `falsifiable_superiority` enforces it.
+
+**Why.** Campaign V3's incumbent could not be economically calibrated, and the
+fallback filled the missing incumbent's drawdown and turnover with the
+candidate's own values. `drawdown_not_materially_worse` then computed
+`dd − dd = 0.0` and `turnover_ratio` computed `turn / turn = 1.0`: two blocking
+checks passed on every possible input because the candidate was being compared
+against itself. Substituting `0.0` for the missing incumbent *excess* is correct,
+because the excess is already measured against the equal-weight benchmark; there
+is no equivalent substitution for a drawdown or a turnover, and inventing one
+converts a gate into decoration. This is the same defect class as the inert
+negative probe found earlier in the same campaign — a guard nothing had ever
+tried to break.
+
+### CONFIRMED — exhaustion is a terminal research result, not a failure
+
+**Decision.** Two consecutive null novel campaigns trigger
+`R31_CURRENT_INFORMATION_MODEL_FRONTIER_EXHAUSTED`, and the contract declares
+`no_budget_extension_after_a_poor_result`. The verdict states the dominant
+constraint and names the next action — genuinely new orthogonal information.
+
+**Why.** The alternative is an unbounded search whose expected contribution is
+data-mining risk. Saying so explicitly, with the budget spent recorded, is more
+useful than another factor campaign over the same information.
+
+### CONFIRMED — no automatic promotion, permanently, and enforced
+
+**Decision.** `AUTOMATIC_PROMOTION_ALLOWED = False` in `alpha_agent/r31`. A
+winning candidate produces `MODEL_READY_FOR_MANUAL_PAPER_REVIEW` and an immutable
+package. The research package may not import `paper_trader.api`, may read only
+`engine.zero_base_allocator` from the engine, and may contain no order,
+promotion, activation or decision call. The read surface exposes no control.
+
+**Why.** Principle 7 of the charter, made unbreakable rather than intended.
