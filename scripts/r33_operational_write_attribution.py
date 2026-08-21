@@ -125,6 +125,41 @@ R33_MARKERS = (
 R33_SOURCE_GLOBS = ("alpha_agent/r33/*.py",)
 R33_SOURCE_FILES = ("scripts/run_release33_predictive_edge.py",)
 
+#: Later releases REUSE this rule rather than shipping a second mtime check.
+#: The rule is identical; only the strings that identify a given release's
+#: writer differ, so each release contributes a PROFILE and nothing else. The
+#: R33 profile is the default everywhere, so R33's behaviour, its gate and its
+#: regression suite are unchanged by the existence of the others.
+R34_MARKERS = (
+    "r34_prediction_to_pnl_v1", "r34_prediction_to_pnl_v2",
+    "prediction_to_pnl_r34", "run_release34_prediction_to_pnl",
+    "alpha_agent.r34", "alpha_agent/r34", "alpha_agent\\r34",
+    "release34_prediction_to_pnl",
+)
+R34_SOURCE_GLOBS = ("alpha_agent/r34/*.py",)
+R34_SOURCE_FILES = ("scripts/run_release34_prediction_to_pnl.py",)
+
+RELEASE_PROFILES = {
+    "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
+            "source_files": R33_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R34": {"markers": R34_MARKERS, "source_globs": R34_SOURCE_GLOBS,
+            "source_files": R34_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+}
+DEFAULT_PROFILE = "R33"
+
+
+def profile_for(release: str) -> dict:
+    """The marker/source profile for one release. Unknown releases FAIL CLOSED."""
+    try:
+        return RELEASE_PROFILES[str(release).upper()]
+    except KeyError:
+        raise RuntimeError(
+            "UNKNOWN_RELEASE_PROFILE:%s - a release that wants this gate must "
+            "declare its markers here rather than being attributed by a "
+            "profile that does not describe it" % (release,)) from None
+
 #: Operational owners the research lane may never import.
 FORBIDDEN_OWNER_IMPORTS = (
     "api.information_collection", "api.collection_replay",
@@ -184,13 +219,18 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def r33_markers_in(path: Path) -> list:
-    """Release-33 markers present in a file, lowercased."""
+def markers_in(path: Path, markers=R33_MARKERS) -> list:
+    """Release markers present in a file, lowercased."""
     try:
         text = _read_text(path).lower()
     except OSError as exc:  # pragma: no cover - surfaced as an attribution error
         raise RuntimeError(f"UNREADABLE:{exc}") from exc
-    return [m for m in R33_MARKERS if m in text]
+    return [m for m in markers if m in text]
+
+
+def r33_markers_in(path: Path) -> list:
+    """Release-33 markers present in a file, lowercased."""
+    return markers_in(path, R33_MARKERS)
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -312,8 +352,8 @@ def _attribute_log(path: Path, spec: dict, ident: dict) -> Optional[str]:
     return None
 
 
-def attribute_continuous_service(root: Path, spec: dict,
-                                 since_day: str) -> dict:
+def attribute_continuous_service(root: Path, spec: dict, since_day: str,
+                                 markers=R33_MARKERS) -> dict:
     """Attribute every recent write under one continuous-service store."""
     owned = set(spec["json_files"]) | set(spec["log_files"])
     report = {"root": str(root), "service_id": spec["service_id"],
@@ -349,10 +389,10 @@ def attribute_continuous_service(root: Path, spec: dict,
         report["checked"] += 1
         rel = _rel(f, root)
         try:
-            markers = r33_markers_in(f)
-            if markers:
+            found = markers_in(f, markers)
+            if found:
                 report["r33_attributable"].append(
-                    {"file": rel, "reason": f"R33_MARKER_IN_FILE:{markers}"})
+                    {"file": rel, "reason": f"RELEASE_MARKER_IN_FILE:{found}"})
                 continue
             if rel not in owned:
                 report["unattributed"].append(
@@ -405,8 +445,10 @@ def attribute_strict_root(root: Path, since_day: str) -> dict:
 # --------------------------------------------------------------------------- #
 # static source check
 # --------------------------------------------------------------------------- #
-def r33_source_operational_write_paths(repo: Path) -> dict:
-    """Every way the Release-33 source could address an operational store.
+def source_operational_write_paths(repo: Path, *,
+                                   source_globs=R33_SOURCE_GLOBS,
+                                   source_files=R33_SOURCE_FILES) -> dict:
+    """Every way one release's source could address an operational store.
 
     A campaign that cannot name the store, cannot import its owner and cannot
     call its mutators has no operational write path, whatever any timestamp
@@ -414,10 +456,10 @@ def r33_source_operational_write_paths(repo: Path) -> dict:
     satisfied merely by the stores happening not to change.
     """
     sources = {}
-    for pattern in R33_SOURCE_GLOBS:
+    for pattern in source_globs:
         for f in sorted(repo.glob(pattern)):
             sources[f.relative_to(repo).as_posix()] = _read_text(f)
-    for name in R33_SOURCE_FILES:
+    for name in source_files:
         f = repo / name
         if f.exists():
             sources[name] = _read_text(f)
@@ -450,6 +492,12 @@ def r33_source_operational_write_paths(repo: Path) -> dict:
                                  "token": call})
     return {"sources_scanned": len(sources), "findings": findings,
             "clean": not findings}
+
+
+def r33_source_operational_write_paths(repo: Path) -> dict:
+    """Every way the Release-33 source could address an operational store."""
+    return source_operational_write_paths(
+        repo, source_globs=R33_SOURCE_GLOBS, source_files=R33_SOURCE_FILES)
 
 
 # --------------------------------------------------------------------------- #
@@ -562,16 +610,24 @@ def corroborate_worker(spec: dict) -> dict:
 # --------------------------------------------------------------------------- #
 def attribute(*, data_root: Optional[Path] = None, since_day: str,
               repo: Optional[Path] = None,
-              corroborate: bool = False) -> dict:
+              corroborate: bool = False,
+              release: str = DEFAULT_PROFILE) -> dict:
     """Attribute every recent operational-store write to a writer.
 
-    ``ok`` is True only when no write is attributable to Release 33, every
-    write under a continuous-service root is positively attributed to that
-    service, the Release-33 source carries no operational write path and the
-    protected declaration is intact.
+    ``ok`` is True only when no write is attributable to the NAMED RELEASE,
+    every write under a continuous-service root is positively attributed to
+    that service, the release's source carries no operational write path and
+    the protected declaration is intact.
+
+    ``release`` selects which strings identify the release's writer and which
+    source tree the static check reads. It defaults to R33, so every existing
+    caller behaves exactly as before. An unknown release FAILS CLOSED rather
+    than being attributed by a profile that does not describe it.
     """
+    profile = profile_for(release)
     data_root = Path(data_root) if data_root else OPERATIONAL_DATA_ROOT
     report = {"data_root": str(data_root), "since_day": since_day,
+              "release": str(release).upper(),
               "roots": {}, "r33_attributable": [], "unattributed": [],
               "service_attributed": []}
 
@@ -582,7 +638,8 @@ def attribute(*, data_root: Optional[Path] = None, since_day: str,
             f"{name}/{x['file']}" for x in r["r33_attributable"]]
 
     for name, spec in CONTINUOUS_SERVICE_ROOTS.items():
-        r = attribute_continuous_service(data_root / name, spec, since_day)
+        r = attribute_continuous_service(data_root / name, spec, since_day,
+                                         markers=profile["markers"])
         if corroborate:
             r["corroboration"] = corroborate_worker(spec)
         report["roots"][name] = r
@@ -598,7 +655,9 @@ def attribute(*, data_root: Optional[Path] = None, since_day: str,
 
     src = {"sources_scanned": 0, "findings": [], "clean": None}
     if repo is not None:
-        src = r33_source_operational_write_paths(Path(repo))
+        src = source_operational_write_paths(
+            Path(repo), source_globs=profile["source_globs"],
+            source_files=profile["source_files"])
     report["source"] = src
 
     report["ok"] = bool(
@@ -622,9 +681,13 @@ def main() -> int:
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--repo", default=str(Path(__file__).resolve().parents[1]))
     ap.add_argument("--corroborate", action="store_true")
+    ap.add_argument("--release", default=DEFAULT_PROFILE,
+                    help="which release's writer is being attributed against; "
+                         "defaults to R33, and an unknown value fails closed")
     a = ap.parse_args()
     rep = attribute(data_root=a.data_root, since_day=a.since_day,
-                    repo=Path(a.repo), corroborate=a.corroborate)
+                    repo=Path(a.repo), corroborate=a.corroborate,
+                    release=a.release)
     print(json.dumps(rep, indent=1, sort_keys=True, default=str))
     print(rep["state"])
     return 0 if rep["ok"] else 1

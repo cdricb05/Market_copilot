@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-21
-- **Updated by phase:** **Release 33 — Predictive Edge Acquisition. TERMINAL: `R33_NO_PREDICTIVE_EDGE`. SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL.** Release 32 is CLOSED.
-- **Source Git HEAD:** `c014beab82df36011d17e4a17311221b48296de8`, branch `stage19-controlled-rebalance`, **pushed** (`HEAD == origin/stage19-controlled-rebalance`). This is the Release-32 closeout and is the declared **Release-33 base commit**.
-- **Working tree status:** Release-33 source, tests and documentation uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 33 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release33_predictive_edge_handoff`. Do not rerun Release 31, 32 or 33 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, restarted production, or touched the completed 2026-08-20 operational cycle.
+- **Updated by phase:** **Release 34 — Prediction-to-PnL Conversion. TERMINAL: `R34_PREDICTION_DOES_NOT_CONVERT`. SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL.** Release 33 is CLOSED.
+- **Source Git HEAD:** `7388310acc51ce8d6bb1febdbbc8ef23af5c2423`, branch `stage19-controlled-rebalance`. This is the Release-33 closeout and is the declared **Release-34 base commit**.
+- **Working tree status:** Release-34 source, tests and documentation uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 34 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release34_prediction_to_pnl_handoff`. Do not rerun Release 31, 32, 33 or 34 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -17,10 +17,73 @@ for the second:
 |---|---|---|---|
 | Release 32 | PASS | **FAIL** | `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED` |
 | Release 33 | PASS | **FAIL** | `R33_NO_PREDICTIVE_EDGE` |
+| Release 34 | PASS | **FAIL** | `R34_PREDICTION_DOES_NOT_CONVERT` |
 
-`ALPHA_RESULT` may be `PASS` only alongside `R33_ALPHA_QUALIFIED`, and that rule
-is a constant in `alpha_agent/r33/contract.py` enforced by
+`ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
+and that rule is a constant in each release's `contract.py` enforced by
 `campaign.build_verdict`, not a sentence in this document.
+
+## Release 34 — Prediction-to-PnL Conversion (2026-08-21, TERMINAL)
+
+**Verdict: `R34_PREDICTION_DOES_NOT_CONVERT`. SYSTEM_RESULT = PASS.
+ALPHA_RESULT = FAIL.** 55 executed configurations, 0 qualified candidates,
+$0 spent, production untouched. Full write-up:
+[docs/RELEASE34_PREDICTION_TO_PNL.md](docs/RELEASE34_PREDICTION_TO_PNL.md).
+
+**The universe is finally implementable.** 8,139 exchange-traded products were
+enumerated from the vendor's live AND delisted databases — 2,476 of them dead,
+so the pool carries no survivorship selection. After excluding notes, leveraged
+and inverse products and hedged duplicates, **47 US-listed ETFs across 11 asset
+classes, 1999–2026, on TOTAL-RETURN prices** were admitted by measured rule
+(longest usable history per declared exposure slot; ties to higher liquidity —
+neither criterion a function of returns). Costs are charged by measured
+liquidity tier, 1.5 to 30 bps a side, on traded notional. The label
+`IMPLEMENTABLE_RESEARCH_UNIVERSE` is earned, not claimed. One slot — base
+metals — is recorded UNFILLED: the only candidate medians $2.1m a day.
+
+**Prediction is real and stronger than R33's.** The frozen R33 feature and model
+families, refit on the new instrument returns with no new search, produce
+**rank IC 0.0647, t = 3.39 over 233 non-overlapping monthly decisions**.
+
+**The conversion layer is not what destroys it.** Five lanes — calibration,
+uncertainty-aware sizing, horizon combination, cost-aware turnover, portfolio
+construction — were each varied against pre-declared defaults. Every
+single-lane configuration lost to the risk-matched control. The best of 55
+combined configurations earns **+5.25 %/yr net, 6.03 % vol, Sharpe 0.65,
+max drawdown −19.0 %, turnover 0.39×/yr, cost 1.3 bps/yr** — and a passive
+**0.351 × SPY + cash** mix carrying the same risk earned **+5.25 %/yr**. The
+after-cost excess is **+0.002 %/yr, t = 0.004**. A plain 60/40 earned
++8.39 %/yr at Sharpe 0.68 and beat the research book outright.
+
+**The attrition waterfall puts a number on the constraint.** The same machinery
+driven by the realised return earns **37.3 %/yr**; the real book captures
+**14.9 %** of that, and the single decisive drop is **−5.63 points at the
+risk-matched control** — every point the book earned was beta. Cost costs
+0.02 points; the caps ADD 3.25 points by correcting an over-confident optimiser.
+
+**This is NOT R33's single-market failure.** Max single-instrument share of
+gross PnL **1.2 %**, max asset-class share **7.4 %**, **10.95** effective
+instruments. The leave-one-out sign gate does fail, and the artifact records
+why: with a base excess of 2×10⁻⁵ at t = 0.004, *any* removal reverses the sign.
+`sign_reversal_test_is_informative: false` — a reader must not mistake this for
+a TRYUSD finding.
+
+**No fresh lockbox exists and none was manufactured.**
+`FRESH_UNSEEN_EVIDENCE_EXISTS = False` is declared in the contract before the
+campaign runs: R31, R32 and R33 all selected on evidence through 2026 and R33's
+lockbox was accessed eight times. Six nested chronological walk-forward folds
+(2008→2026) produce `HISTORICAL_WALK_FORWARD_EVIDENCE`, never a lockbox, and
+`R34_ALPHA_QUALIFIED` is therefore structurally unreachable in this release.
+Three of six folds were positive — chance.
+
+**v1 was superseded before its verdict was accepted** (`STRICTLY_TIGHTENING`),
+for a parameter-cliff guard that could not fail: three finalists differing in
+calibration and sizing reported identical economics to seven significant
+figures. Three further corrections each made a number less flattering — a
+perfect-foresight ceiling contaminated by a calibration (98 % → 14.9 % captured),
+a hand-typed configuration count that disagreed with its own frozen grid, and a
+Benjamini-Hochberg rejection that was a significant **loss** being counted as a
+survivor. **0 of 55 candidates beat the control after multiple-testing control.**
 
 ## Release 33 — Predictive Edge Acquisition (2026-08-21, TERMINAL)
 

@@ -6344,6 +6344,253 @@ def check_release33_predictive_edge(files: list[Path]) -> dict:
     }
 
 
+R34_OWNERS = {
+    "root": "alpha_agent/r34/__init__.py",
+    "contract": "alpha_agent/r34/contract.py",
+    "universe": "alpha_agent/r34/universe.py",
+    "panel": "alpha_agent/r34/panel.py",
+    "forecast": "alpha_agent/r34/forecast.py",
+    "calibration": "alpha_agent/r34/calibration.py",
+    "sizing": "alpha_agent/r34/sizing.py",
+    "horizon": "alpha_agent/r34/horizon.py",
+    "turnover": "alpha_agent/r34/turnover.py",
+    "portfolio": "alpha_agent/r34/portfolio.py",
+    "economics": "alpha_agent/r34/economics.py",
+    "concentration": "alpha_agent/r34/concentration.py",
+    "walkforward": "alpha_agent/r34/walkforward.py",
+    "attrition": "alpha_agent/r34/attrition.py",
+    "campaign": "alpha_agent/r34/campaign.py",
+}
+
+#: Operational owners the Release-34 research lane may never import, and the
+#: protected store roots it may never name. The operational-write attribution
+#: rule added in Release 33 proves the runtime half; this is the static half.
+R34_FORBIDDEN_OWNER_REFS = (
+    "api.operational_book", "api.daily_close", "api.rebalance_execution",
+    "api.portfolio_decision", "api.information_collection",
+    "paper_trader.broker", "engine.normal_cycle", "information_collection",
+    "portfolio_decisions", "reallocation_proposals", "rebalance_order_plans",
+)
+
+#: Tokens that would mean the research lane had started trading.
+R34_FORBIDDEN_CALLS = (
+    "create_order", "place_order", "submit_order", "confirm_target",
+    "apply_proposal", "approve_proposal", "promote_champion", "activate_model",
+    "write_holdings", "write_cash", "execute_rebalance",
+)
+
+
+def check_release34_prediction_to_pnl(files: list[Path]) -> dict:
+    """Release 34 ownership, leakage and honesty invariants (69-90)."""
+    src = {name: (_read(path) or "") for name, path in R34_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    runner = _read("scripts/run_release34_prediction_to_pnl.py") or ""
+
+    # (69)-(72) One of each. R34 adds a conversion layer, not a second
+    # statistics library, a second feature library or a second learner set.
+    reuses_r31_statistics = (
+        "from ..r31 import multiple_testing as _mt" in src["campaign"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    reuses_r33_features = (
+        "from ..r33 import features as _r33_features" in src["forecast"])
+    reuses_r33_models = (
+        "from ..r33 import models as _r33_models" in src["forecast"])
+    no_second_learner_library = not re.search(
+        r"def\s+fit_(ridge|elastic_net|gbrt|extra_trees|hmm)\s*\(", all_src)
+
+    # (73)-(75) Safety: research only, promotes nothing, mutates nothing.
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY", "MAY_MUTATE_PRODUCTION"))
+    forbidden_calls = sorted(
+        {t for t in R34_FORBIDDEN_CALLS if t in all_src.lower()})
+    forbidden_owner_refs = sorted(
+        {t for t in R34_FORBIDDEN_OWNER_REFS if t in all_src})
+
+    # (76)-(78) Implementability. R33 could not claim it and said so; R34 may
+    # claim it ONLY for exchange-traded securities on total-return prices, and
+    # the spot-FX series that produced R33's apparent edge is barred outright.
+    implementable_requires_exchange_traded = (
+        "IMPLEMENTABLE_REQUIRES_EXCHANGE_TRADED_SECURITY = True"
+        in src["contract"]
+        and "IMPLEMENTABLE_REQUIRES_TOTAL_RETURN_PRICES = True"
+        in src["contract"])
+    non_investable_series_barred = (
+        "NON_INVESTABLE_SERIES_MAY_ENTER_PORTFOLIO = False" in src["contract"]
+        and "TRYUSD" in src["contract"])
+    universe_includes_delisted = (
+        "UNIVERSE_INCLUDES_DELISTED_CANDIDATES = True" in src["contract"]
+        and "US Equities Delisted" in src["universe"])
+    total_return_prices_used = (
+        "TOTALRETURN" in src["universe"]
+        and "def load_total_return" in src["universe"])
+
+    # (79)-(82) Leakage. These decide whether any number here means anything.
+    no_random_split = "RANDOM_SPLIT_ALLOWED = False" in src["contract"]
+    nested_selection_declared = (
+        "NESTED_SELECTION_INSIDE_TRAINING_ONLY = True" in src["contract"]
+        and "NESTED_SELECTION_ARRANGEMENT" in src["contract"])
+    calibration_training_only = (
+        "CALIBRATION_FITTED_ON_TRAINING_ONLY = True" in src["contract"]
+        and "FUTURE_PERIOD_CALIBRATION_ALLOWED = False" in src["contract"]
+        and "TRAINING rows only" in src["calibration"])
+    liquidity_is_point_in_time = (
+        "LIQUIDITY_IS_POINT_IN_TIME = True" in src["contract"]
+        and "def tradability_mask" in src["panel"])
+    embargo_declared = (
+        "EMBARGO_EXTRA_SESSIONS" in src["contract"]
+        and "SEG_EMBARGOED" in src["walkforward"])
+    non_overlapping_declared = (
+        "NON_OVERLAPPING_FORECAST_DATES = True" in src["contract"])
+
+    # (83)-(85) NO FAKE FRESH LOCKBOX. The one claim this release could most
+    # easily inflate, so it is declared in the contract, enforced in one
+    # function, and the qualified verdict is made structurally unreachable.
+    fresh_evidence_refused = (
+        "FRESH_UNSEEN_EVIDENCE_EXISTS = False" in src["contract"]
+        and "FRESH_UNSEEN_EVIDENCE_REASON" in src["contract"])
+    no_fold_is_a_lockbox = (
+        '"a_fold_may_be_called_a_lockbox": False' in src["walkforward"]
+        and "verdict_ceiling_without_fresh_evidence" in src["walkforward"])
+    independent_evidence_is_a_gate = (
+        "genuinely_independent_evidence_exists"
+        in src["contract"] and
+        "genuinely_independent_evidence_exists" in src["campaign"])
+
+    # (86)-(88) The judge, the control and the horizon correction.
+    cost_base_traded_notional = (
+        'COST_BASE = "TRADED_NOTIONAL"' in src["contract"])
+    excess_over_cash_may_not_rank = (
+        "EXCESS_OVER_CASH_MAY_RANK = False" in src["contract"]
+        and '"excess_over_cash_may_rank": _contract.EXCESS_OVER_CASH_MAY_RANK'
+        in src["economics"])
+    volatility_matched_control = (
+        "def volatility_matched_control" in src["economics"]
+        and "ECONOMIC_CONTROL = CONTROL_VOL_MATCHED" in src["contract"])
+    horizon_not_ranked_by_raw_magnitude = (
+        "HORIZON_CHOSEN_BY_RAW_METRIC_MAGNITUDE = False" in src["contract"]
+        and "HNES_FORMULA" in src["contract"]
+        and "def hnes" in src["horizon"]
+        and "HNES_COMPUTED_ON_TRAINING_ONLY = True" in src["contract"])
+
+    # (89)-(90) The R33 failure mode, and the two-result rule.
+    concentration_frozen_before_evaluation = (
+        "CONCENTRATION_GATE_FROZEN_BEFORE_EVALUATION = True" in src["contract"]
+        and "SIGN_REVERSAL_ON_LEAVE_ONE_OUT_DISQUALIFIES = True"
+        in src["contract"])
+    leave_one_out_is_a_gate = (
+        "LEAVE_ONE_INSTRUMENT_OUT_REQUIRED = True" in src["contract"]
+        and "LEAVE_ONE_ASSET_CLASS_OUT_REQUIRED = True" in src["contract"]
+        and "def analyse" in src["concentration"]
+        and "TRYUSD" in src["concentration"])
+    engagement_gate_present = (
+        "MIN_MEAN_GROSS_EXPOSURE" in src["contract"]
+        and "book_actually_takes_positions" in src["campaign"])
+    bh_direction_is_split = (
+        "rejected_beating_the_control" in src["campaign"]
+        and "rejected_losing_to_the_control" in src["campaign"]
+        and "only_positive_rejections_may_qualify" in src["campaign"])
+    attrition_waterfall_required = (
+        "PREDICTION_TO_PNL_ATTRITION_WATERFALL" in src["attrition"]
+        and "PERFECT_FORESIGHT_SIZED" in src["attrition"]
+        and len(_ATTRITION_REQUIRED_MODES
+                - set(re.findall(r'"([a-z_]+)"', src["attrition"]))) == 0)
+    denominator_all_executed = (
+        "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"]
+        and "CONTROLS_ENTER_DENOMINATOR = False" in src["contract"])
+    adaptive_search_refused = (
+        "ADAPTIVE_SEARCH_ALLOWED = False" in src["contract"]
+        and "NEW_PREDICTOR_SEARCH_ALLOWED = False" in src["contract"])
+    alpha_pass_requires_qualified = (
+        "ALPHA_PASS_REQUIRES = VERDICT_QUALIFIED" in src["contract"]
+        and "alpha_pass_requires" in src["campaign"])
+    reports_both_results = (
+        "SYSTEM_RESULT" in src["campaign"] and "ALPHA_RESULT" in src["campaign"]
+        and "SYSTEM_AND_ALPHA_RESULTS_ARE_SEPARATE = True" in src["contract"])
+
+    runner_flat = " ".join(runner.lower().split())
+    runner_is_research_only = (
+        "research only" in runner_flat and "no order" in runner_flat)
+
+    # The functional half: the planned configuration enumeration must agree
+    # with what the frozen grids will actually produce. v1 typed 12 for a
+    # family the grid enumerates 18 of, so the assertion that compared them was
+    # checking one hand-written number against another.
+    try:
+        if str(REPO_ROOT.parent) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT.parent))
+        from paper_trader.alpha_agent.r34 import contract as _r34_contract
+        from paper_trader.alpha_agent.r34 import forecast as _r34_forecast
+        planned_matches_the_grid = bool(
+            _r34_contract.CONFIG_FAMILIES["FORECAST"]
+            == len(_r34_forecast.model_configs())
+            * len(_r34_contract.HORIZONS)
+            and _r34_contract.PLANNED_CONFIG_TOTAL
+            <= _r34_contract.MAX_PRIMARY_CONFIGS)
+    except Exception as exc:  # noqa: BLE001 - unmeasurable fails closed
+        planned_matches_the_grid = f"UNMEASURABLE:{exc}"
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "reuses_r31_statistics": reuses_r31_statistics,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "reuses_r33_features": reuses_r33_features,
+        "reuses_r33_models": reuses_r33_models,
+        "no_second_learner_library": no_second_learner_library,
+        "safety_flags_false": safety_flags_false,
+        "forbidden_calls": forbidden_calls,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "implementable_requires_exchange_traded_security":
+            implementable_requires_exchange_traded,
+        "non_investable_series_barred_from_portfolio":
+            non_investable_series_barred,
+        "universe_includes_delisted_candidates": universe_includes_delisted,
+        "total_return_prices_used": total_return_prices_used,
+        "no_random_split": no_random_split,
+        "nested_selection_declared": nested_selection_declared,
+        "calibration_fitted_on_training_only": calibration_training_only,
+        "liquidity_is_point_in_time": liquidity_is_point_in_time,
+        "embargo_declared": embargo_declared,
+        "non_overlapping_forecast_dates": non_overlapping_declared,
+        "fresh_unseen_evidence_refused": fresh_evidence_refused,
+        "no_fold_may_be_called_a_lockbox": no_fold_is_a_lockbox,
+        "independent_evidence_is_a_gate": independent_evidence_is_a_gate,
+        "cost_base_traded_notional": cost_base_traded_notional,
+        "excess_over_cash_may_not_rank": excess_over_cash_may_not_rank,
+        "volatility_matched_control_owned": volatility_matched_control,
+        "horizon_not_ranked_by_raw_magnitude":
+            horizon_not_ranked_by_raw_magnitude,
+        "concentration_frozen_before_evaluation":
+            concentration_frozen_before_evaluation,
+        "leave_one_out_is_a_gate": leave_one_out_is_a_gate,
+        "engagement_gate_present": engagement_gate_present,
+        "benjamini_hochberg_direction_is_split": bh_direction_is_split,
+        "attrition_waterfall_required": attrition_waterfall_required,
+        "denominator_counts_all_executed": denominator_all_executed,
+        "adaptive_search_refused": adaptive_search_refused,
+        "alpha_pass_requires_qualified_verdict": alpha_pass_requires_qualified,
+        "reports_system_and_alpha_results": reports_both_results,
+        "runner_is_research_only": runner_is_research_only,
+        "planned_configs_match_the_frozen_grid": planned_matches_the_grid,
+    }
+
+
+#: The failure modes the attrition waterfall is REQUIRED to decompose, whether
+#: or not alpha qualifies. "Prediction did not convert" is a fact; without these
+#: it is not yet knowledge.
+_ATTRITION_REQUIRED_MODES = {
+    "forecast_too_weak", "magnitude_poorly_calibrated",
+    "sizing_destroys_rank_skill", "turnover_consumes_edge",
+    "diversification_dilutes_edge", "risk_matched_benchmark_dominates",
+    "exposure_neutrality_removes_apparent_alpha",
+    "works_only_in_one_asset_class", "works_only_in_one_horizon",
+    "works_only_under_unrealistic_cost", "covariance_or_risk_forecast_error",
+}
+
+
 def _r32_turnover_budget_literals(gov_src: str) -> list:
     """Numeric turnover-budget VALUES invented by the governance module.
 
@@ -6969,6 +7216,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release32_pnl_opportunity_frontier":
             check_release32_pnl_opportunity_frontier(files),
         "release33_predictive_edge": check_release33_predictive_edge(files),
+        "release34_prediction_to_pnl":
+            check_release34_prediction_to_pnl(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -7661,6 +7910,53 @@ BLOCKING_INVARIANTS = (
     ("release33_predictive_edge", "attribution_fails_closed", True),
     ("release33_predictive_edge", "attribution_refuses_time_whitelist", True),
     ("release33_predictive_edge", "information_collection_still_protected",
+     True),
+    # Release 34 - prediction to PnL conversion (69)-(90).
+    ("release34_prediction_to_pnl", "modules_present", True),
+    ("release34_prediction_to_pnl", "reuses_r31_statistics", True),
+    ("release34_prediction_to_pnl", "reuses_r31_hashing", True),
+    ("release34_prediction_to_pnl", "reuses_r33_features", True),
+    ("release34_prediction_to_pnl", "reuses_r33_models", True),
+    ("release34_prediction_to_pnl", "no_second_learner_library", True),
+    ("release34_prediction_to_pnl", "safety_flags_false", True),
+    ("release34_prediction_to_pnl", "forbidden_calls", []),
+    ("release34_prediction_to_pnl", "forbidden_owner_refs", []),
+    ("release34_prediction_to_pnl",
+     "implementable_requires_exchange_traded_security", True),
+    ("release34_prediction_to_pnl",
+     "non_investable_series_barred_from_portfolio", True),
+    ("release34_prediction_to_pnl", "universe_includes_delisted_candidates",
+     True),
+    ("release34_prediction_to_pnl", "total_return_prices_used", True),
+    ("release34_prediction_to_pnl", "no_random_split", True),
+    ("release34_prediction_to_pnl", "nested_selection_declared", True),
+    ("release34_prediction_to_pnl", "calibration_fitted_on_training_only",
+     True),
+    ("release34_prediction_to_pnl", "liquidity_is_point_in_time", True),
+    ("release34_prediction_to_pnl", "embargo_declared", True),
+    ("release34_prediction_to_pnl", "non_overlapping_forecast_dates", True),
+    ("release34_prediction_to_pnl", "fresh_unseen_evidence_refused", True),
+    ("release34_prediction_to_pnl", "no_fold_may_be_called_a_lockbox", True),
+    ("release34_prediction_to_pnl", "independent_evidence_is_a_gate", True),
+    ("release34_prediction_to_pnl", "cost_base_traded_notional", True),
+    ("release34_prediction_to_pnl", "excess_over_cash_may_not_rank", True),
+    ("release34_prediction_to_pnl", "volatility_matched_control_owned", True),
+    ("release34_prediction_to_pnl", "horizon_not_ranked_by_raw_magnitude",
+     True),
+    ("release34_prediction_to_pnl", "concentration_frozen_before_evaluation",
+     True),
+    ("release34_prediction_to_pnl", "leave_one_out_is_a_gate", True),
+    ("release34_prediction_to_pnl", "engagement_gate_present", True),
+    ("release34_prediction_to_pnl", "benjamini_hochberg_direction_is_split",
+     True),
+    ("release34_prediction_to_pnl", "attrition_waterfall_required", True),
+    ("release34_prediction_to_pnl", "denominator_counts_all_executed", True),
+    ("release34_prediction_to_pnl", "adaptive_search_refused", True),
+    ("release34_prediction_to_pnl", "alpha_pass_requires_qualified_verdict",
+     True),
+    ("release34_prediction_to_pnl", "reports_system_and_alpha_results", True),
+    ("release34_prediction_to_pnl", "runner_is_research_only", True),
+    ("release34_prediction_to_pnl", "planned_configs_match_the_frozen_grid",
      True),
     ("release33_predictive_edge", "r33_source_has_no_operational_write_path",
      True),
