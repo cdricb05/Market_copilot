@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-21
-- **Updated by phase:** **Release 34 — Prediction-to-PnL Conversion. TERMINAL: `R34_PREDICTION_DOES_NOT_CONVERT`. SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL.** Release 33 is CLOSED.
-- **Source Git HEAD:** `7388310acc51ce8d6bb1febdbbc8ef23af5c2423`, branch `stage19-controlled-rebalance`. This is the Release-33 closeout and is the declared **Release-34 base commit**.
-- **Working tree status:** Release-34 source, tests and documentation uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 34 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release34_prediction_to_pnl_handoff`. Do not rerun Release 31, 32, 33 or 34 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, restarted production, or changed the scheduler.
+- **Updated by phase:** **Release 35 — Orthogonal Information Acquisition & Incremental Alpha. TERMINAL: `R35_NO_INCREMENTAL_INFORMATION_EDGE`. SYSTEM_RESULT = PASS, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL.** Release 34 is CLOSED.
+- **Source Git HEAD:** `be3bb030afd8b0c764f93691d39ca781149395d6`, branch `stage19-controlled-rebalance`. This is the Release-34 closeout and is the declared **Release-35 base commit**.
+- **Working tree status:** Release-35 source, tests and documentation uncommitted (`alpha_agent/r35/`, `scripts/run_release35_orthogonal_information.py`, `tests/test_release35_orthogonal_information.py`, `docs/RELEASE35_ORTHOGONAL_INFORMATION.md`, plus edits to `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py` and this file). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 35 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release35_orthogonal_information_handoff`. Do not rerun Release 31, 32, 33, 34 or 35 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, started a provider trial, created a provider account, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -18,10 +18,101 @@ for the second:
 | Release 32 | PASS | **FAIL** | `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED` |
 | Release 33 | PASS | **FAIL** | `R33_NO_PREDICTIVE_EDGE` |
 | Release 34 | PASS | **FAIL** | `R34_PREDICTION_DOES_NOT_CONVERT` |
+| Release 35 | PASS | **FAIL** | `R35_NO_INCREMENTAL_INFORMATION_EDGE` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
 `campaign.build_verdict`, not a sentence in this document.
+
+**Release 35 adds a THIRD result between them.** A genuinely positive historical
+increment is a real finding AND is not Alpha, and collapsing those into one word
+is how a release starts lying to itself. From Release 35 onward a research
+release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
+separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 35 — Orthogonal Information Acquisition (2026-08-21, TERMINAL)
+
+**Verdict: `R35_NO_INCREMENTAL_INFORMATION_EDGE`. SYSTEM_RESULT = PASS.
+RESEARCH_CANDIDATE_RESULT = FAIL. ALPHA_RESULT = FAIL.** 28 executed
+configurations (ceiling 80), 6 information families acquired, 0 incremental
+survivors, **$0 spent**, production untouched. Full write-up:
+[docs/RELEASE35_ORTHOGONAL_INFORMATION.md](docs/RELEASE35_ORTHOGONAL_INFORMATION.md).
+
+**The acquisition is real, not a plan.** Six economically distinct families were
+downloaded from free public sources and normalised with true publication
+timestamps — 130 payloads, 901 MB, all checksummed: **CFTC Commitments of
+Traders** (1986–2026, 44,347 rows, 17 instruments), **FRED/OECD foreign short
+rates** (FX carry, the leg R33 recorded as structurally ABSENT), **EIA NYMEX
+contract-1-to-4 settlements** (a real futures curve, 1983 → 2024-04-05 where the
+publisher discontinued it — the other absence R33 declared), **Cboe VIX and
+VIX3M** (implied-volatility term structure), **FRED real yields, breakevens,
+curve curvature and the Baa credit premium**, and **SEC Form 3/4/5 structured
+data sets** (73 quarters, 760,014 issuer-filing pairs) mapped to sector ETFs
+through the already-owned Financial Statement Data Sets and the released
+no-look-ahead PIT SIC reader.
+
+**The information is genuinely new — measured, not asserted.** Residual share
+after regressing each feature on all 28 base features, training rows only:
+positioning **0.892**, FX carry **0.848**, commodity curve **0.622**, insider
+0.535, implied-vol term 0.243, risk premia 0.244. The gate fired where it
+should: `curve_curvature` (0.952 rank correlation with the base's yield slope)
+and `credit_premium_baa10y` (0.73 with the base's quality spread) are labelled
+**REDUNDANT** before any return was looked at.
+
+**Four of six families predict on their own. None adds anything conditional on
+the base set.** Standalone rank IC: risk premia **+0.064 (t 2.95)**, positioning
+**+0.049 (t 2.29)**, insider **+0.041 (t 2.72)**, implied-vol term **+0.047
+(t 2.08)**. Paired per-date increment over the base arm, same model, same rows,
+same dates: the largest of 21 comparisons was **+0.0168 at t = 1.78** (risk
+premia, h=20), below the pre-registered `t ≥ 2.0`. `ALL_NEW_COMBINED` at h=20 is
+**−0.0247** — all 19 features together make the forecast worse. **0 of 19
+configurations with a p-value survived Benjamini–Hochberg in either direction.**
+No family reached the economic stage.
+
+**The near miss dies on subperiod stability.** The risk-premia increment is
++0.035 in 2008–2010 and +0.050 in 2011–2013, then +0.003, +0.007, +0.015 and
+**−0.006** in 2023–2026. It is a crisis-era regime observation, not information.
+
+**The base arm is a verified anchor.** It reproduces R34's finalist to every
+published digit — after-cost excess `+2.072422558810863e-05`, t =
+`0.0037564469686976847` — so every increment is measured against a book known to
+be R34's.
+
+**Two guards fired that R34 paid to learn.** `NO_EFFECT`: at h=60 the selected
+elastic net zeroed every added coefficient and the augmented arm reproduced the
+base bit for bit; that is recorded as an arm that could not respond, not as a
+tested null. And every failed comparison reports its **minimum detectable
+increment**, so "not significant" comes with the size of effect the design could
+have found (risk premia missed by 11 % of its own standard error).
+
+**The insider family is COUNTED, never valued, and that was measured.**
+`TRANS_SHARES` and `TRANS_PRICEPERSHARE` are unvalidated filer-entered fields;
+the acquired archives contain a single filing implying **$2.1 × 10¹⁶**. A
+value-weighted aggregate measures typography, so every feature is a filing count
+classified by transaction code alone. Decided on the acquired data before any
+predictive evaluation.
+
+**Lane A — analyst expectation change — is `SOURCE_ACQUISITION_BLOCKED`, measured
+rather than remembered.** The owned Intrinio/Zacks extract is **one retrieval
+day** of CURRENT consensus over a current-members universe. Six free entitlements
+this estate already holds were probed read-only: FMP, Finnhub and Nasdaq Data
+Link return **HTTP 403**; EODHD and Alpha Vantage return today's estimate plus
+"30 days ago" deltas — `CURRENT_SNAPSHOT_ONLY`, inadmissible as history. Zero of
+six admissible. Stage 13A's adequacy gate returns `TRIAL_DATA_INSUFFICIENT` and
+Release 32's ten-condition purchase gate returns **`EVALUATED_DO_NOT_BUY`**. No
+statistical evidence is claimed from a one-day sample, and the artifact says so.
+
+**No fresh evidence was manufactured.** `FRESH_UNSEEN_EVIDENCE_EXISTS = False`,
+declared before the run: acquiring a new FEATURE does not make an
+already-consumed OUTCOME period unseen. `ALPHA_RESULT = PASS` is structurally
+unreachable, and a test proves it by feeding the verdict builder a fully
+qualified result and watching Alpha still come back FAIL.
+
+**Nothing was searched but the information.** Universe, panel, 28 base features,
+model families, walk-forward partition and the whole R34 conversion
+configuration are imported frozen. `scripts/r33_operational_write_attribution.py`
+gained a tested **R35 profile** rather than a second safety checker; it returns
+`ATTRIBUTED` with 0 findings across 11 scanned sources.
 
 ## Release 34 — Prediction-to-PnL Conversion (2026-08-21, TERMINAL)
 

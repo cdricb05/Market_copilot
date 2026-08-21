@@ -6581,6 +6581,273 @@ def check_release34_prediction_to_pnl(files: list[Path]) -> dict:
 #: The failure modes the attrition waterfall is REQUIRED to decompose, whether
 #: or not alpha qualifies. "Prediction did not convert" is a fact; without these
 #: it is not yet knowledge.
+R35_OWNERS = {
+    "root": "alpha_agent/r35/__init__.py",
+    "contract": "alpha_agent/r35/contract.py",
+    "acquisition": "alpha_agent/r35/acquisition.py",
+    "information": "alpha_agent/r35/information.py",
+    "features": "alpha_agent/r35/features.py",
+    "design": "alpha_agent/r35/design.py",
+    "orthogonality": "alpha_agent/r35/orthogonality.py",
+    "incremental": "alpha_agent/r35/incremental.py",
+    "analyst_lane": "alpha_agent/r35/analyst_lane.py",
+    "campaign": "alpha_agent/r35/campaign.py",
+}
+
+#: The same forbidden sets Release 34 carries. The research lane's boundary did
+#: not move because the release changed.
+R35_FORBIDDEN_OWNER_REFS = R34_FORBIDDEN_OWNER_REFS
+R35_FORBIDDEN_CALLS = R34_FORBIDDEN_CALLS
+
+#: Modules whose existence under alpha_agent/r35 would mean Release 35 had
+#: rebuilt something an earlier release already owns. The release adds
+#: information, not a second statistics library, a second optimiser, a second
+#: universe, a second panel or a second purchase gate.
+R35_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r35/universe.py", "alpha_agent/r35/panel.py",
+    "alpha_agent/r35/models.py", "alpha_agent/r35/learners.py",
+    "alpha_agent/r35/economics.py", "alpha_agent/r35/portfolio.py",
+    "alpha_agent/r35/multiple_testing.py", "alpha_agent/r35/walkforward.py",
+    "alpha_agent/r35/purchase_gate.py", "alpha_agent/r35/calibration.py",
+    "alpha_agent/r35/lockbox.py",
+)
+
+
+def check_release35_orthogonal_information(files: list[Path]) -> dict:
+    """Release 35 ownership, acquisition, point-in-time and honesty invariants."""
+    src = {name: (_read(path) or "") for name, path in R35_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    runner = _read("scripts/run_release35_orthogonal_information.py") or ""
+
+    # One of each. R35 adds INFORMATION; every statistic, model, universe,
+    # panel, optimiser and gate is imported from the release that owns it.
+    reuses_r31_statistics = (
+        "from ..r31 import multiple_testing as _mt" in src["campaign"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    reuses_r33_features = (
+        "from ..r33 import features as _r33_features" in src["campaign"])
+    reuses_r34_universe = (
+        "from ..r34 import universe as _r34_universe" in src["campaign"]
+        and "from ..r34 import panel as _r34_panel" in src["campaign"])
+    reuses_r34_conversion = (
+        "from ..r34 import campaign as _r34_campaign" in src["campaign"]
+        and "from ..r34 import campaign as _r34_campaign" in src["incremental"])
+    reuses_released_orthogonality = (
+        "from .. import orthogonality as _orth" in src["orthogonality"])
+    reuses_released_purchase_gate = (
+        "from ..r32 import purchase_gate as _purchase_gate"
+        in src["analyst_lane"]
+        and "from .. import analyst_revisions as _stage13a"
+        in src["analyst_lane"])
+    reuses_released_pit_sector = (
+        "from .. import pit_sector as _pit_sector" in src["information"])
+    second_owner_modules = sorted(p for p in R35_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+    no_second_learner_library = not re.search(
+        r"def\s+fit_(ridge|elastic_net|gbrt|extra_trees|hmm|linear|"
+        r"hierarchical)\s*\(", all_src)
+
+    # Safety: research only, promotes nothing, mutates nothing, buys nothing.
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY", "MAY_MUTATE_PRODUCTION"))
+    spending_refused = all(
+        f"{flag} = False" in src["contract"] for flag in
+        ("MAY_SPEND_MONEY", "MAY_START_PROVIDER_TRIAL",
+         "MAY_CREATE_PROVIDER_ACCOUNT"))
+    forbidden_calls = sorted(
+        {t for t in R35_FORBIDDEN_CALLS if t in all_src.lower()})
+    forbidden_owner_refs = sorted(
+        {t for t in R35_FORBIDDEN_OWNER_REFS if t in all_src})
+
+    # Point in time. Each of these is a specific way this release could have
+    # manufactured information it did not have.
+    one_alignment_owner = (
+        "def as_of_align" in src["information"]
+        and src["features"].count("def as_of_align") == 0
+        and src["design"].count("def as_of_align") == 0)
+    insider_uses_filing_date = (
+        'INSIDER_OBSERVABLE_AT = "FILING_DATE"' in src["contract"]
+        and "INSIDER_TRANSACTION_DATE_MAY_BE_OBSERVABLE = False"
+        in src["contract"])
+    cot_publication_lag_declared = (
+        "COT_PUBLICATION_LAG_DAYS" in src["contract"]
+        and "COT_PUBLICATION_LAG_STRESS_DAYS" in src["contract"])
+    oecd_lag_declared = (
+        "OECD_RATE_PUBLICATION_LAG_MONTHS" in src["contract"]
+        and "MONTHLY_PUBLISHED_IN_ARREARS" in src["information"])
+    prohibited_substitutions_declared = (
+        "PROHIBITED_SUBSTITUTIONS" in src["contract"]
+        and "manufactured from spot price momentum" in src["contract"]
+        and "written back onto historical dates" in src["contract"])
+    pit_sector_is_no_look_ahead = (
+        "PitSicSeries" in src["information"]
+        and "PIT_SECTOR_OWNER" in src["contract"])
+    curve_is_dated_contracts = (
+        "EIA_WTI_CONTRACTS" in src["contract"]
+        and "def load_eia_curve" in src["information"])
+    insider_value_weighting_refused = (
+        "INSIDER_VALUE_WEIGHTING_ALLOWED = False" in src["contract"]
+        and "INSIDER_VALUE_WEIGHTING_REJECTED = True" in src["information"])
+
+    # Orthogonality is a GATE, and raw correlation may not decide it.
+    orthogonality_is_a_gate = (
+        "ORTHOGONALITY_IS_A_GATE = True" in src["contract"]
+        and "ORTHOGONALITY_MEASURED_BEFORE_PREDICTION = True"
+        in src["contract"])
+    raw_correlation_is_not_distinctness = (
+        "DISTINCTNESS_IS_RAW_CORRELATION_ONLY = False" in src["contract"]
+        and "residual_share" in src["orthogonality"])
+    measured_on_training_only = (
+        "def training_row_mask" in src["campaign"]
+        and '"measured_on": "TRAINING_ROWS_ONLY"' in src["orthogonality"])
+
+    # The increment, not the level, is the primary object.
+    increment_is_paired = (
+        'PRIMARY_INCREMENT_STATISTIC = "PAIRED_PER_DATE_RANK_IC_DIFFERENCE"'
+        in src["contract"]
+        and "def paired_increment" in src["incremental"])
+    model_held_fixed = (
+        "MODEL_HELD_FIXED_ACROSS_ARMS = True" in src["contract"]
+        and "FREE_MODEL_SELECTION_IS_SECONDARY = True" in src["contract"])
+    rows_identical_by_construction = (
+        "def augment_context" in src["design"]
+        and "row-identical by construction" in src["design"])
+    vacuous_arm_detected = (
+        "def arm_responded" in src["incremental"]
+        and "arm_could_respond" in src["incremental"])
+    economic_increment_is_paired = (
+        'PRIMARY_ECONOMIC_INCREMENT = "AFTER_COST_EXCESS_UTILITY_MINUS_BASE_ARM"'
+        in src["contract"]
+        and "def paired_economic_increment" in src["campaign"])
+    conversion_is_frozen = (
+        "CONVERSION_LAYER_SEARCH_ALLOWED = False" in src["contract"]
+        and "FROZEN_CONVERSION" in src["contract"]
+        and "r34_prediction_to_pnl_v2::FINALIST::COMBINED_BEST"
+        in src["contract"])
+
+    # No fake fresh evidence, and three separate results.
+    fresh_evidence_refused = (
+        "FRESH_UNSEEN_EVIDENCE_EXISTS = False" in src["contract"]
+        and "FRESH_UNSEEN_EVIDENCE_REASON" in src["contract"])
+    no_fold_is_a_lockbox = (
+        "A_FOLD_MAY_BE_CALLED_A_LOCKBOX = False" in src["contract"]
+        and "def verdict_ceiling_without_fresh_evidence" in src["contract"])
+    independent_evidence_is_a_gate = (
+        "def genuinely_independent_evidence_exists" in src["contract"]
+        and "genuinely_independent_evidence_exists" in src["campaign"])
+    three_results_reported = (
+        'RESULT_NAMES = ("SYSTEM_RESULT", "RESEARCH_CANDIDATE_RESULT", '
+        '"ALPHA_RESULT")' in src["contract"]
+        and '"RESEARCH_CANDIDATE_RESULT"' in src["campaign"]
+        and "SYSTEM_AND_ALPHA_RESULTS_ARE_SEPARATE = True" in src["contract"])
+    alpha_pass_requires_qualified = (
+        "ALPHA_PASS_REQUIRES = VERDICT_QUALIFIED" in src["contract"]
+        and "ALPHA_PASS_ALSO_REQUIRES_INDEPENDENT_EVIDENCE = True"
+        in src["contract"])
+    no_forward_registration = (
+        "MAY_REGISTER_FORWARD_CANDIDATE = False" in src["contract"]
+        and "MAY_CREATE_SECOND_TRUE_FORWARD_STORE = False" in src["contract"])
+
+    # Bounded search and honest multiple testing.
+    adaptive_search_refused = (
+        "ADAPTIVE_SEARCH_ALLOWED = False" in src["contract"]
+        and "NEW_PREDICTOR_SEARCH_ALLOWED = False" in src["contract"]
+        and "MODEL_ARCHITECTURE_SEARCH_ALLOWED = False" in src["contract"])
+    denominator_all_executed = (
+        "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"]
+        and "CONTROLS_ENTER_DENOMINATOR = False" in src["contract"])
+    bh_direction_is_split = (
+        "rejected_beating_the_base" in src["campaign"]
+        and "rejected_losing_to_the_base" in src["campaign"]
+        and "ONLY_POSITIVE_REJECTIONS_MAY_QUALIFY = True" in src["contract"])
+
+    runner_flat = " ".join(runner.lower().split())
+    runner_is_research_only = (
+        "research only" in runner_flat and "no order" in runner_flat)
+
+    # The functional half: the planned configuration count must be DERIVED from
+    # the frozen grids rather than typed, and every declared feature must belong
+    # to a declared family. R34 v1 hand-typed a count its own grid disagreed
+    # with, and the assertion that compared them was checking one hand-written
+    # number against another.
+    try:
+        if str(REPO_ROOT.parent) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT.parent))
+        from paper_trader.alpha_agent.r35 import contract as _r35_contract
+        planned_matches_the_grid = bool(
+            _r35_contract.CONFIG_FAMILIES["PREDICTIVE_INCREMENT"]
+            == (len(_r35_contract.ACQUIRED_FAMILIES) + 1)
+            * len(_r35_contract.HORIZONS)
+            and _r35_contract.CONFIG_FAMILIES["STANDALONE_DIAGNOSTIC"]
+            == len(_r35_contract.ACQUIRED_FAMILIES)
+            and _r35_contract.PLANNED_CONFIG_TOTAL
+            <= _r35_contract.MAX_PRIMARY_CONFIGS)
+        every_feature_has_a_family = all(
+            spec[0] in _r35_contract.ALL_FAMILIES
+            for spec in _r35_contract.NEW_FEATURES.values())
+        alpha_pass_unreachable = not (
+            _r35_contract.genuinely_independent_evidence_exists())
+    except Exception as exc:  # noqa: BLE001 - unmeasurable fails closed
+        planned_matches_the_grid = f"UNMEASURABLE:{exc}"
+        every_feature_has_a_family = f"UNMEASURABLE:{exc}"
+        alpha_pass_unreachable = f"UNMEASURABLE:{exc}"
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "reuses_r31_statistics": reuses_r31_statistics,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "reuses_r33_features": reuses_r33_features,
+        "reuses_r34_universe_and_panel": reuses_r34_universe,
+        "reuses_r34_conversion": reuses_r34_conversion,
+        "reuses_released_orthogonality": reuses_released_orthogonality,
+        "reuses_released_purchase_gate": reuses_released_purchase_gate,
+        "reuses_released_pit_sector": reuses_released_pit_sector,
+        "no_second_learner_library": no_second_learner_library,
+        "safety_flags_false": safety_flags_false,
+        "spending_refused": spending_refused,
+        "forbidden_calls": forbidden_calls,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "one_alignment_owner": one_alignment_owner,
+        "insider_observable_at_filing_date": insider_uses_filing_date,
+        "cot_publication_lag_declared": cot_publication_lag_declared,
+        "oecd_publication_lag_declared": oecd_lag_declared,
+        "prohibited_substitutions_declared":
+            prohibited_substitutions_declared,
+        "pit_sector_is_no_look_ahead": pit_sector_is_no_look_ahead,
+        "commodity_curve_is_dated_contracts": curve_is_dated_contracts,
+        "insider_value_weighting_refused": insider_value_weighting_refused,
+        "orthogonality_is_a_gate": orthogonality_is_a_gate,
+        "raw_correlation_is_not_distinctness":
+            raw_correlation_is_not_distinctness,
+        "orthogonality_measured_on_training_only": measured_on_training_only,
+        "increment_is_paired": increment_is_paired,
+        "model_held_fixed_across_arms": model_held_fixed,
+        "rows_identical_by_construction": rows_identical_by_construction,
+        "vacuous_arm_is_detected": vacuous_arm_detected,
+        "economic_increment_is_paired": economic_increment_is_paired,
+        "conversion_layer_is_frozen": conversion_is_frozen,
+        "fresh_unseen_evidence_refused": fresh_evidence_refused,
+        "no_fold_may_be_called_a_lockbox": no_fold_is_a_lockbox,
+        "independent_evidence_is_a_gate": independent_evidence_is_a_gate,
+        "reports_three_separate_results": three_results_reported,
+        "alpha_pass_requires_qualified_verdict":
+            alpha_pass_requires_qualified,
+        "alpha_pass_is_structurally_unreachable": alpha_pass_unreachable,
+        "no_forward_registration": no_forward_registration,
+        "adaptive_search_refused": adaptive_search_refused,
+        "denominator_counts_all_executed": denominator_all_executed,
+        "benjamini_hochberg_direction_is_split": bh_direction_is_split,
+        "runner_is_research_only": runner_is_research_only,
+        "planned_configs_match_the_frozen_grid": planned_matches_the_grid,
+        "every_new_feature_has_a_declared_family": every_feature_has_a_family,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -7218,6 +7485,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release33_predictive_edge": check_release33_predictive_edge(files),
         "release34_prediction_to_pnl":
             check_release34_prediction_to_pnl(files),
+        "release35_orthogonal_information":
+            check_release35_orthogonal_information(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -7958,6 +8227,73 @@ BLOCKING_INVARIANTS = (
     ("release34_prediction_to_pnl", "runner_is_research_only", True),
     ("release34_prediction_to_pnl", "planned_configs_match_the_frozen_grid",
      True),
+    ("release35_orthogonal_information", "modules_present", True),
+    ("release35_orthogonal_information", "reuses_r31_statistics", True),
+    ("release35_orthogonal_information", "reuses_r31_hashing", True),
+    ("release35_orthogonal_information", "reuses_r33_features", True),
+    ("release35_orthogonal_information",
+     "reuses_r34_universe_and_panel", True),
+    ("release35_orthogonal_information", "reuses_r34_conversion", True),
+    ("release35_orthogonal_information",
+     "reuses_released_orthogonality", True),
+    ("release35_orthogonal_information",
+     "reuses_released_purchase_gate", True),
+    ("release35_orthogonal_information", "reuses_released_pit_sector", True),
+    ("release35_orthogonal_information", "no_second_learner_library", True),
+    ("release35_orthogonal_information", "safety_flags_false", True),
+    ("release35_orthogonal_information", "spending_refused", True),
+    ("release35_orthogonal_information", "one_alignment_owner", True),
+    ("release35_orthogonal_information",
+     "insider_observable_at_filing_date", True),
+    ("release35_orthogonal_information", "cot_publication_lag_declared", True),
+    ("release35_orthogonal_information",
+     "oecd_publication_lag_declared", True),
+    ("release35_orthogonal_information",
+     "prohibited_substitutions_declared", True),
+    ("release35_orthogonal_information", "pit_sector_is_no_look_ahead", True),
+    ("release35_orthogonal_information",
+     "commodity_curve_is_dated_contracts", True),
+    ("release35_orthogonal_information",
+     "insider_value_weighting_refused", True),
+    ("release35_orthogonal_information", "orthogonality_is_a_gate", True),
+    ("release35_orthogonal_information",
+     "raw_correlation_is_not_distinctness", True),
+    ("release35_orthogonal_information",
+     "orthogonality_measured_on_training_only", True),
+    ("release35_orthogonal_information", "increment_is_paired", True),
+    ("release35_orthogonal_information", "model_held_fixed_across_arms", True),
+    ("release35_orthogonal_information",
+     "rows_identical_by_construction", True),
+    ("release35_orthogonal_information", "vacuous_arm_is_detected", True),
+    ("release35_orthogonal_information", "economic_increment_is_paired", True),
+    ("release35_orthogonal_information", "conversion_layer_is_frozen", True),
+    ("release35_orthogonal_information",
+     "fresh_unseen_evidence_refused", True),
+    ("release35_orthogonal_information",
+     "no_fold_may_be_called_a_lockbox", True),
+    ("release35_orthogonal_information",
+     "independent_evidence_is_a_gate", True),
+    ("release35_orthogonal_information",
+     "reports_three_separate_results", True),
+    ("release35_orthogonal_information",
+     "alpha_pass_requires_qualified_verdict", True),
+    ("release35_orthogonal_information",
+     "alpha_pass_is_structurally_unreachable", True),
+    ("release35_orthogonal_information", "no_forward_registration", True),
+    ("release35_orthogonal_information", "adaptive_search_refused", True),
+    ("release35_orthogonal_information",
+     "denominator_counts_all_executed", True),
+    ("release35_orthogonal_information",
+     "benjamini_hochberg_direction_is_split", True),
+    ("release35_orthogonal_information", "runner_is_research_only", True),
+    ("release35_orthogonal_information",
+     "planned_configs_match_the_frozen_grid", True),
+    ("release35_orthogonal_information",
+     "every_new_feature_has_a_declared_family", True),
+    ("release35_orthogonal_information", "forbidden_calls", []),
+    ("release35_orthogonal_information", "forbidden_owner_refs", []),
+    ("release35_orthogonal_information", "modules_missing", []),
+    ("release35_orthogonal_information", "second_owner_modules", []),
     ("release33_predictive_edge", "r33_source_has_no_operational_write_path",
      True),
     ("release32_pnl_opportunity_frontier", "modules_present", True),

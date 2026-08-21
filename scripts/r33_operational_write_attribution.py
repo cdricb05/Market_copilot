@@ -139,12 +139,28 @@ R34_MARKERS = (
 R34_SOURCE_GLOBS = ("alpha_agent/r34/*.py",)
 R34_SOURCE_FILES = ("scripts/run_release34_prediction_to_pnl.py",)
 
+#: Release 35 downloads third-party payloads, so its profile carries the
+#: acquisition root and the campaign id as markers too: a stray write of an
+#: acquired archive into an operational store would be attributable, and a gate
+#: that could not see it would be a gate about the wrong thing.
+R35_MARKERS = (
+    "r35_orthogonal_information_v1", "orthogonal_information_r35",
+    "run_release35_orthogonal_information",
+    "alpha_agent.r35", "alpha_agent/r35", "alpha_agent\\r35",
+    "release35_orthogonal_information",
+)
+R35_SOURCE_GLOBS = ("alpha_agent/r35/*.py",)
+R35_SOURCE_FILES = ("scripts/run_release35_orthogonal_information.py",)
+
 RELEASE_PROFILES = {
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
     "R34": {"markers": R34_MARKERS, "source_globs": R34_SOURCE_GLOBS,
             "source_files": R34_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R35": {"markers": R35_MARKERS, "source_globs": R35_SOURCE_GLOBS,
+            "source_files": R35_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
 }
 DEFAULT_PROFILE = "R33"
