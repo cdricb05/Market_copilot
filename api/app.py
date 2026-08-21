@@ -222,6 +222,8 @@ from paper_trader.api import alpha_leaderboard as _leaderboard
 from paper_trader.api import external_references as _extrefs
 # Release 31 - mathematical alpha frontier campaign visibility (read-only).
 from paper_trader.api import mathematical_alpha_frontier as _r31_frontier
+# Release 32 - PnL opportunity frontier campaign visibility (read-only).
+from paper_trader.api import pnl_opportunity_frontier as _r32_frontier
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -19292,6 +19294,38 @@ def get_mathematical_alpha_frontier() -> dict:
     the architecture audit enforces it.
     """
     return _r31_frontier.load_frontier()
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/research/pnl-opportunity-frontier — Release 32 campaign visibility
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/pnl-opportunity-frontier",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_pnl_opportunity_frontier() -> dict:
+    """Release 32 PNL OPPORTUNITY FRONTIER (read-only research visibility).
+
+    Reports the asset-agnostic opportunity research: which zero-cost information
+    this project actually owns and which of it is admissible as point-in-time
+    history, the six strategy sleeves measured under one common economic judge,
+    each sleeve's after-cost economics against cash and against a
+    volatility-matched mix of the benchmark and cash, the correlation map and
+    the latent risk clusters it implies, the multiple-testing denominator, the
+    information gaps that blocked a sleeve, the Information Purchase Frontier,
+    the declared Daily Multi-Asset Governance contract, and the terminal
+    verdict.
+
+    Every number is READ from the campaign's own hashed artifacts. This endpoint
+    computes no research mathematics, exposes no sleeve-activation, allocation
+    or approval control, creates no signal, target, capital allocation,
+    proposal, decision or order, and cannot change the operational portfolio. A
+    sleeve reported here is never activated: a sleeve GENERATES OPPORTUNITIES
+    and never owns capital, ``automatic_sleeve_activation_allowed`` is False in
+    the research package, and the architecture audit enforces both.
+    """
+    return _r32_frontier.load_frontier()
 
 
 # --------------------------------------------------------------------------- #

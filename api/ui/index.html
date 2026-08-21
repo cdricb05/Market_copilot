@@ -5571,6 +5571,38 @@
           </details>
         </div>
 
+        <!-- ===================== R32 PNL OPPORTUNITY FRONTIER =========================
+             Release 32 asks the asset-agnostic question: if every investable dollar were
+             cash right now, where should capital be deployed? This region READS
+             GET /v1/research/pnl-opportunity-frontier, which itself only reads the
+             campaign's own hashed artifacts. The browser computes no research
+             mathematics, no metric, no correlation, no budget percentage and no verdict.
+             There is no execute control, no approve control, no activate control and no
+             ALLOCATE control here, and there never may be: a sleeve reported in this
+             region GENERATES OPPORTUNITIES and never owns capital.
+
+             Placed ABOVE the Release 31 region deliberately. Release 31's region-scoped
+             tests delimit their region as "from id=r31-frontier to the next landmark
+             comment", so a card inserted after it would silently fall INSIDE that region
+             and make Release 31's badge-removal negative probe inert - it would strip the
+             first of two identical badges and the guard would still find the second. -->
+        <div class="card" id="r32-frontier" style="display:none;margin-bottom:14px;">
+          <div class="card-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span>PnL Opportunity Frontier</span>
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge safe">READ ONLY</span>
+            <span class="cc-badge safe" title="Live brokerage orders are structurally disabled. Paper orders are real and exist only in the operational book; this research region creates none.">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge safe">AUTOMATION OFF</span>
+            <span class="cc-badge safe">MANUAL REVIEW</span>
+            <span class="cc-badge safe" title="A sleeve generates opportunities and never owns capital. Nothing in this region is activated.">NO SLEEVE ACTIVATION</span>
+            <span class="cc-badge" id="r32-verdict-badge" title="The campaign's ONE terminal research verdict, read from final_verdict.json.">&mdash;</span>
+          </div>
+          <div id="r32-headline" style="font-size:12px;margin:0 0 10px;">&mdash;</div>
+          <div id="r32-body" style="font-size:11px;"></div>
+          <div id="r32-hashes" class="muted" style="font-size:10px;margin-top:8px;"></div>
+        </div>
+        <!-- R32 PNL OPPORTUNITY FRONTIER END -->
+
         <!-- ===================== RELEASE 31: MATHEMATICAL ALPHA FRONTIER =====================
              ONE compact read-only region reporting the bounded model-research campaign that
              searches for the best mathematically defensible decision function from the
@@ -25183,6 +25215,12 @@ function _raLoadSection(sub) {
       window.loadMathematicalAlphaFrontier();
     }
   } catch (e) {}
+  // Release 32: same reasoning for the PnL Opportunity Frontier region.
+  try {
+    if (typeof window.loadPnlOpportunityFrontier === 'function') {
+      window.loadPnlOpportunityFrontier();
+    }
+  } catch (e) {}
 }
 
 function _applySubsection(base, sub) {
@@ -28123,6 +28161,133 @@ async function loadMathematicalAlphaFrontier() {
     + ' · root ' + _r30esc(d.research_root));
 }
 window.loadMathematicalAlphaFrontier = loadMathematicalAlphaFrontier;
+
+// Renders GET /v1/research/pnl-opportunity-frontier (Release 32).
+// READ-ONLY. Every value below is printed from the backend read model, which
+// itself only reads the campaign's frozen artifacts. Nothing here computes a
+// metric, a correlation, a percentage or a verdict, and nothing here allocates:
+// a sleeve GENERATES OPPORTUNITIES and never owns capital.
+//
+// Labels are plain text and are escaped by _r31row. They therefore contain
+// LITERAL separator characters, never HTML entities: Release 31 authored its
+// labels as HTML, the escaper rewrote each ampersand, and the operator read the
+// raw entity names as text on the live page. The regression test for this
+// greps the block for entity literals, so they must not appear even in a
+// comment - which is why this note describes them instead of quoting them.
+async function loadPnlOpportunityFrontier() {
+  var card = document.getElementById('r32-frontier');
+  if (!card) return;
+  var d = await _mhzGet('/v1/research/pnl-opportunity-frontier');
+  if (!d || !d.schema_version) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  var badge = document.getElementById('r32-verdict-badge');
+  if (badge) {
+    badge.textContent = d.primary_verdict || d.state || '—';
+    badge.title = d.primary_verdict
+      ? 'The campaign’s ONE terminal research verdict, read from final_verdict.json.'
+      : 'The campaign has not produced a verdict yet.';
+  }
+  _setHtml('r32-headline', _r30esc(d.headline || ''));
+
+  var html = '';
+  html += _r31row('Question', _r30esc(d.question || ''));
+  html += _r31row('Campaign', _r30esc(d.campaign_id) + ' · state ' + _r30esc(d.state)
+    + ' · artifacts ' + _r30esc(d.artifact_count) + '/' + _r30esc(d.artifact_total));
+  html += _r31row('Terminal verdict',
+    '<span class="cc-badge">' + _r30esc(d.primary_verdict || '—') + '</span>'
+    + ' · secondary ' + _r30esc(d.secondary_verdict || '—'));
+  html += _r31row('Sleeves qualified',
+    _r30esc(d.n_qualified) + ' of ' + _r30esc((d.sleeves || []).length)
+    + (((d.qualified_sleeves || []).length)
+        ? ' · ' + _r30esc((d.qualified_sleeves || []).join(', '))
+        : ' · none — cash and the existing book remain the standing answer'));
+
+  var src = d.sources || {};
+  var counts = src.admissibility_counts || {};
+  html += _r31row('Zero-cost sources',
+    _r30esc(src.source_count) + ' inventoried · marginal cost $'
+    + _r30esc(src.total_marginal_cost_usd));
+  Object.keys(counts).sort().forEach(function (k) {
+    html += _r31row('  admissibility · ' + k, _r30esc(counts[k]));
+  });
+
+  (d.sleeves || []).forEach(function (s) {
+    html += _r31row(String(s.sleeve || ''),
+      '<span class="cc-badge' + (s.qualifies ? ' safe' : '') + '">'
+      + _r30esc(s.state || '—') + '</span>'
+      + (s.is_control ? ' <span class="cc-badge muted">CONTROL</span>' : '')
+      + ' · net ' + _r31pct(s.net_annual_return)
+      + ' · Sharpe ' + _r31num(s.net_sharpe, 2)
+      + ' · maxDD ' + _r31pct(s.max_drawdown)
+      + ' · cash ' + _r31pct(s.mean_cash_weight));
+    if (s.rejection_reason) {
+      html += _r31row('  rejected · ' + String(s.sleeve || ''),
+                      _r30esc(s.rejection_reason));
+    }
+  });
+
+  html += _r31row('Strongest sleeve', _r30esc(d.strongest_sleeve || '—')
+    + ' · second ' + _r30esc(d.second_strongest_sleeve || '—'));
+  (d.latent_risk_clusters || []).forEach(function (c, i) {
+    html += _r31row('  latent risk cluster ' + (i + 1),
+                    _r30esc((c.cluster || []).join(' · '))
+                    + ' (' + _r30esc(c.size) + ' sleeves, one bet)');
+  });
+  if (!(d.latent_risk_clusters || []).length) {
+    html += _r31row('  latent risk clusters', 'none above threshold');
+  }
+
+  var mt = d.multiple_testing || {};
+  html += _r31row('Multiple testing',
+    'denominator ' + _r30esc(mt.denominator)
+    + ' · tested ' + _r30esc(mt.tested)
+    + ' · FDR survivors ' + _r30esc(mt.n_survivors)
+    + ' · q ' + _r30esc(mt.fdr_q));
+
+  var pf = d.purchase_frontier || {};
+  html += _r31row('Information purchase frontier',
+    _r30esc(pf.n_gaps) + ' gaps · spent $' + _r30esc(pf.total_spent_usd)
+    + ' · may spend money ' + _r30esc(String(pf.may_spend_money)));
+  if (pf.highest_value_sample_request) {
+    html += _r31row('  highest-value request',
+                    _r30esc(pf.highest_value_sample_request));
+  }
+  (d.panel_limitations || []).forEach(function (l) {
+    html += _r31row('  limitation · ' + String(l.limitation || ''),
+                    _r30esc(l.handling || ''));
+  });
+
+  var gov = d.governance || {};
+  html += _r31row('Governance contract',
+    _r30esc(gov.state || '—')
+    + ' · daily reassessment implies daily trading '
+    + _r30esc(String(gov.daily_reassessment_implies_daily_trading))
+    + ' · stale data fails closed '
+    + _r30esc(String(gov.stale_data_fails_closed)));
+  // Concepts declared, values deliberately absent. Rendered as a state rather
+  // than as a list of blanks, which an operator would read as a zero budget.
+  html += _r31row('  turnover budgets',
+    _r30esc(Object.keys(gov.turnover_budgets || {}).join(' · ') || '—')
+    + ' · values ' + _r30esc(gov.turnover_budget_value_state || '—')
+    + ' · owner ' + _r30esc(gov.turnover_budget_value_owner || '—'));
+
+  var inh = d.inherited_equity_selection || {};
+  html += _r31row('Inherited control (Release 31)',
+    _r30esc(inh.verdict || '—') + ' · rerun in R32 '
+    + _r30esc(String(inh.rerun_in_r32)));
+
+  _setHtml('r32-body', html);
+  var h = d.hashes || {};
+  _setHtml('r32-hashes',
+    'contract ' + _r30esc(String(h.contract || '').slice(0, 12))
+    + ' · sources ' + _r30esc(String(h.sources || '').slice(0, 12))
+    + ' · judge ' + _r30esc(String(h.judge_behaviour || '').slice(0, 12))
+    + ' · frontier ' + _r30esc(String(h.frontier || '').slice(0, 12))
+    + ' · verdict ' + _r30esc(String(h.verdict || '').slice(0, 12))
+    + ' · root ' + _r30esc(d.research_root));
+}
+window.loadPnlOpportunityFrontier = loadPnlOpportunityFrontier;
 
 // Release 30.1: render a BACKEND-SUPPLIED source URL as an external link.
 // The URL is never constructed, inferred or completed here: the backend owner

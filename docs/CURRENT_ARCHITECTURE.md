@@ -2621,3 +2621,53 @@ determinism, novel-grammar bounds and PIT regime labels, multiple-testing
 behaviour (including that the best of 60 pure-noise candidates does **not** pass
 SPA), research-lane isolation from the API and operational owners, and the
 read-surface / UI safety properties.
+## Release 32 — PnL Opportunity Frontier (research lane, TERMINAL)
+
+The objective became **asset-agnostic**. Release 31 answered "which equities?"
+and returned `INFORMATION_NOT_METHOD`; Release 32 asks the permanent question —
+if every investable dollar were cash right now, where should capital be
+deployed? — and answers it across six strategy sleeves under one economic judge.
+
+**Modules.** `alpha_agent/r32/` owns the campaign contract and budgets
+(`contract`), the zero-cost data source registry and its measured admissibility
+classifier (`sources`), the canonical four-timestamp `InformationState`
+(`information_state`), the cross-asset point-in-time panels (`panels`), the
+Strategy Sleeve contract (`sleeve`), the six sleeves (`sleeves/`), the common
+economic judge (`judge`), the bounded funnel and multiple-testing denominator
+(`funnel`), the opportunity frontier (`frontier`), the Information Purchase Gate
+(`purchase_gate`), the declared governance contract (`governance`) and
+orchestration (`campaign`). `api/pnl_opportunity_frontier.py` is the read model
+behind `GET /v1/research/pnl-opportunity-frontier`; the UI region is
+`#r32-frontier`.
+
+**No second owner.** Multiple-testing statistics (BH/FDR, stationary bootstrap,
+SPA) and the lockbox discipline are REUSED from `alpha_agent/r31/`. There is no
+second portfolio optimiser, covariance owner, HOC engine, cost model, event
+system or forward-evidence system in this lane.
+
+**The load-bearing boundary.** A sleeve GENERATES OPPORTUNITIES and never owns
+capital. `StrategyOpportunity.recommended_exposure` is a shape, not a size; the
+global allocator (Release 33) decides how much capital, if any, stands behind
+it. The judge builds a *research book* purely to measure economics, and every
+artifact carries `research_book_is_not_a_portfolio_target: true`.
+
+**What the information inventory found.** The Norgate subscription covers
+futures, FX, cash commodities, US and world indices and economic series — but
+**106 of 144 owned macro series are `REVISED_NOT_PIT`**. Each statistical
+release changes value on the first business day of the period it measures, which
+is roughly a publication lag of look-ahead every period, on top of carrying
+today's revised vintage. Classified by measured change-day fingerprint, not by
+assertion.
+
+**Terminal result.** `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED` /
+`INFORMATION_SAMPLE_PRIORITY_IDENTIFIED`. Zero sleeves qualified, zero FDR
+survivors against a denominator of 104 executed hypotheses. Every sleeve beat
+cash; not one beat a volatility-matched mix of the benchmark and cash. Three
+sleeves — equity beta timing, sector rotation and volatility regime — form a
+single latent risk cluster (correlations 0.78 to 0.91): one bet wearing three
+names.
+
+**Production untouched.** Read-only throughout: no order, proposal, decision,
+allocation, model promotion, sleeve activation, automation, restart or spend.
+Guarded by `check_release32_pnl_opportunity_frontier` (43 blocking invariants);
+regression `tests/test_release32_pnl_opportunity_frontier.py`.

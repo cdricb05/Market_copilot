@@ -626,6 +626,11 @@
       "prefix": "/v1/market/external-references",
       "owner": "api/external_references.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/research/pnl-opportunity-frontier",
+      "owner": "api/pnl_opportunity_frontier.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3305,6 +3310,56 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "A research candidate reported here is NOT activated and cannot be: alpha_agent.r31 declares AUTOMATIC_PROMOTION_ALLOWED = False, the region carries no execute / approve / activate control, and the architecture audit check release31_mathematical_alpha_frontier enforces both plus the campaign's fifteen ownership and budget invariants. The campaign's fundamental sample is measured but declared may_carry_verdict=false: point-in-time fundamental coverage of still-trading names is 3.4x that of delisted names, so a factor result measured on it is measured where the losers are missing. Campaign V3 (LANDED): campaign v1 and v2 are SUPERSEDED_EXPERIMENTAL_DESIGN - preserved on disk and structurally unable to influence v3, because every v3 candidate specification hash binds the investment-universe hash, the benchmark hash and the judge's behaviour hash, none of which existed in the v2 keyspace. Four corrections: (1) the TRAINING universe is separated from the INVESTMENT universe - a candidate may learn from the broad point-in-time panel, and every decision the primary judge scores is restricted to point-in-time S&P 500 members on that decision date (owner alpha_agent/r31/universe.py; the 0.353% of member-days the frozen panel cannot represent is MEASURED, not assumed); (2) the primary judge is real zero-base economics - both architectures are turned into an actual portfolio by engine.zero_base_allocator.optimise with cash free between 0% and 100%, the top-N equal-weight book is demoted to a reported diagnostic barred from carrying the verdict, and the risk frontier varies RISK AVERSION (gamma 0.5x/1.0x/2.0x, selection always at 1.0x) rather than book size; a Track-A score reaches the allocator only through a pre-registered monotonic rank-preserving calibration fitted on DISCOVERY only, and a refusal is a recorded outcome that stays in the multiple-testing denominator; (3) Track-B turnover is aligned by SECURITY IDENTITY over the symbol union, never by array position, and both Track-B families allocate cash and price their own turnover; (4) BOTH benchmarks are reported - the point-in-time S&P 500 equal weight (isolates selection skill) and the $SPXTR total return (isolates the decision to run the strategy at all) - and neither may substitute for the other. A shared per-decision-date covariance cache (alpha_agent/r31/covcache.py, delegating to engine.holding_opportunity_cost.build_covariance) makes the primary judge executable at all. Read-only throughout: no order, proposal, decision, model activation or champion promotion. Guarded by check_release31_mathematical_alpha_frontier (27 invariant groups, every one negative-probed)."
+    },
+    {
+      "path": "api/pnl_opportunity_frontier.py",
+      "system": "infrastructure",
+      "classification": "KEEP",
+      "target_owner": "api/pnl_opportunity_frontier.py",
+      "duplicate_with": [],
+      "responsibility": "Release 32 PNL OPPORTUNITY FRONTIER read model. Reports the asset-agnostic opportunity research: the zero-cost data source registry with each source's MEASURED point-in-time admissibility, the cross-asset panel manifest and its declared limitations, the six strategy sleeves under one common economic judge, each sleeve's after-cost economics against cash and against a volatility-matched benchmark/cash mix, the cross-sleeve correlation map and latent risk clusters, funnel budget consumption, the multiple-testing denominator, the Information Purchase Frontier, the declared Daily Multi-Asset Governance contract, and the terminal verdict. It OWNS presentation only: every number is READ from the campaign's hashed artifacts. It computes no research mathematics, exposes no sleeve-activation or allocation control, and writes nothing.",
+      "direct_reads": [
+        "D:/Stock_Prediction_app_data/pnl_opportunity_frontier/<campaign_id>/*.json (research_campaign_contract, data_source_registry, information_state_contract, cross_asset_panel_manifest, strategy_sleeve_contract, common_economic_judge, daily_multi_asset_governance_contract_v2, sleeve_candidate_registry, sleeve_results, information_purchase_frontier, pnl_opportunity_frontier, final_verdict)"
+      ],
+      "direct_writes": [
+        "none - pure read model. No PostgreSQL / order / fill / target / holding / cash / NAV write, no sleeve activation, no research-artifact write, and no network call."
+      ],
+      "endpoints": [
+        "/v1/research/pnl-opportunity-frontier"
+      ],
+      "ui_consumers": [
+        "loadPnlOpportunityFrontier (Research area, #r32-frontier)"
+      ],
+      "tests": [
+        "tests/test_release32_pnl_opportunity_frontier.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "A sleeve reported here is NOT activated and cannot be: a sleeve GENERATES OPPORTUNITIES and never owns capital, alpha_agent.r32 declares AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED = False and MAY_SPEND_MONEY = False, the region carries no execute / approve / activate / allocate control, and the architecture audit check release32_pnl_opportunity_frontier enforces all of it plus invariants 28-40. Campaign v4 (LANDED): v1, v2 and v3 are SUPERSEDED and preserved on disk. v1 was SUPERSEDED_EXPERIMENTAL_DESIGN because its primary selection and multiple-testing statistic was excess over CASH - over a long window every strategy with equity exposure beats bills, so that statistic measures exposure rather than skill; all ten v1 lockbox results had NEGATIVE excess over the benchmark while one was reported as qualified. It also let the EVENT_DRIVEN 'hold the index every session' CONTROL reach the lockbox, and read the inherited Release-31 verdict from a key that does not exist. v2 and v3 were SUPERSEDED_INCOMPLETE_REPORTING: v2's candidate registry stripped the sleeve return paths before returning them, so the cross-sleeve correlation map and latent risk clusters were EMPTY; v3 gave every panel its own decision calendar, so no two sleeves shared a single decision date and the correlation remained unmeasurable. v4 judges every candidate against a VOLATILITY-MATCHED mix of the benchmark and cash - the control that carries the sleeve's own risk with none of its timing - excludes controls from finalist selection, and derives a SHARED decision calendar for the reporting-only cross-sleeve comparison. Terminal verdict R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED with zero FDR survivors against a denominator of 104 executed hypotheses."
+    },
+    {
+      "path": "alpha_agent/r32/",
+      "system": "research",
+      "classification": "KEEP",
+      "target_owner": "alpha_agent/r32/",
+      "duplicate_with": [],
+      "responsibility": "Release 32 PnL Opportunity Frontier research package. Owns the campaign contract and budgets (contract), the zero-cost data source registry and its measured admissibility classifier (sources), the canonical four-timestamp InformationState (information_state), the cross-asset PIT panels (panels), the Strategy Sleeve contract (sleeve), the six sleeves (sleeves/), the common economic judge (judge), the bounded funnel and multiple-testing denominator (funnel), the opportunity frontier (frontier), the Information Purchase Gate (purchase_gate), the declared Daily Multi-Asset Governance contract (governance), and orchestration plus the terminal verdict (campaign). RESEARCH ONLY: a sleeve generates opportunities and never owns capital; the package creates no signal authority, target, allocation, proposal, decision or order, activates nothing, promotes nothing, spends nothing, and writes only under its own research root. Multiple-testing statistics and the lockbox discipline are reused from alpha_agent/r31/ rather than reimplemented.",
+      "direct_reads": [
+        "Norgate Data local databases (US Equities, US Indices, World Indices, Forex Spot, Cash Commodities, Continuous Futures, Economic) via norgatedata, read-only",
+        "D:/Stock_Prediction_app_data/mathematical_alpha_frontier/r31_mathematical_alpha_frontier_v3/final_verdict.json (the inherited EQUITY_SELECTION control, read never rerun)",
+        "D:/Stock_Prediction_app_data/external_normalized/** (measured for coverage; the earnings and analyst-revision stores are synthetic fixtures and are declared unusable rather than consumed)"
+      ],
+      "direct_writes": [
+        "D:/Stock_Prediction_app_data/pnl_opportunity_frontier/<campaign_id>/*.json - immutable research artifacts under its own research root ONLY. No operational store, no PostgreSQL, no order / fill / target / holding / cash / NAV write, no model promotion, no sleeve activation, no money spent."
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release32_pnl_opportunity_frontier.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "RESEARCH ONLY, PRODUCTION READ-ONLY. Answers the asset-agnostic question: if every investable dollar were cash right now, where should capital be deployed to maximise expected after-cost, risk-adjusted paper portfolio PnL? Cash is a real asset choice and a NULL result is valid. The measured Phase-1 finding that constrains everything downstream: 106 of 144 owned Norgate Economic series are REVISED_NOT_PIT because each statistical release changes value on the FIRST BUSINESS DAY OF THE PERIOD IT MEASURES - CPI for month M appears on day one of month M, GDP on day one of its quarter - so reading them at their own timestamp is roughly a publication lag of look-ahead plus today's revisions. Classified by a measured change-day fingerprint, not by assertion. Multiple-testing statistics (BH/FDR, stationary bootstrap, SPA) and the lockbox discipline are REUSED from alpha_agent/r31/ rather than reimplemented; there is no second portfolio optimiser, covariance owner, HOC engine, cost model, event system or forward-evidence system here."
     }
   ]
 }

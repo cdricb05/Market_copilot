@@ -71,8 +71,35 @@ def test_charter_has_exactly_seven_milestones():
 
 
 def test_charter_has_exactly_eight_principles():
+    """The principle set is the stable spine and does not grow per release.
+
+    Release 32 made the objective asset-agnostic and added four multi-asset
+    rules. Those are *derived design rules*, not principles nine through
+    twelve -- see test_release32_design_rules_are_not_principles. The count is
+    pinned so a principle cannot be added, dropped, or duplicated silently.
+    """
     heads = re.findall(r"^### Principle (\d+) —", _read(CHARTER), re.M)
     assert [int(h) for h in heads] == [1, 2, 3, 4, 5, 6, 7, 8], heads
+
+
+def test_release32_design_rules_are_not_principles():
+    """The four R32 multi-asset rules survive, outside the principle set.
+
+    Without this, "restore eight principles" could be satisfied by deleting the
+    rules outright, which would drop the sleeve/capital boundary the whole of
+    Release 32 rests on. They must exist, under their own heading, and must not
+    be numbered as principles.
+    """
+    text = _read(CHARTER)
+    assert "## Release-32 Multi-Asset Design Rules" in text, (
+        "the R32 design-rule section was removed"
+    )
+    rules = re.findall(r"^### Design Rule ([A-Z]) — (.+)$", text, re.M)
+    assert [r[0] for r in rules] == ["A", "B", "C", "D"], rules
+    joined = " ".join(r[1] for r in rules).lower()
+    for phrase in ("do not own capital", "owns capital",
+                   "do not equal diversification", "daily trading"):
+        assert phrase in joined, f"missing R32 design rule: {phrase}"
 
 
 def test_charter_states_three_operating_cycles():

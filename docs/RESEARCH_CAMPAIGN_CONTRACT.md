@@ -177,3 +177,33 @@ decision and no order; it writes no operational store; and
 `AUTOMATIC_PROMOTION_ALLOWED` is `False`. A winning candidate is packaged for
 **manual paper review** and is never activated. All fifteen of these properties
 are blocking invariants in the architecture audit.
+
+## Release 32 amendment — the contract generalised beyond one asset class
+
+Release 32 applies this same contract to six strategy sleeves rather than one
+model family. Four terms are added, each because a Release-32 campaign was
+superseded for getting it wrong:
+
+- **The control is declared with the judge.** A campaign must state what a
+  candidate is compared against BEFORE it runs. Excess over cash may be
+  reported but may never rank, select or qualify: over a long window every
+  strategy holding equities beats bills, so that statistic measures exposure
+  rather than skill. Campaign v1 ranked on it and reported a qualified sleeve
+  whose every lockbox result lost to buy-and-hold.
+- **A control configuration may never become a finalist.** It is executed, it
+  counts in the denominator, and it is reported — but it exists to be compared
+  against, not to win.
+- **A cross-candidate comparison must name its shared decision calendar.**
+  Candidates measured on disjoint calendars are being compared across eras. The
+  shared-calendar view is REPORTING ONLY: it cannot qualify anything and does
+  not enter the denominator, or it becomes a second window to choose from.
+- **Sleeves never own capital.** A campaign may measure a research book to
+  obtain economics; that book is a measurement device and carries
+  `research_book_is_not_a_portfolio_target` in every artifact.
+
+The supersession rule is unchanged and was exercised three times in Release 32:
+a material change is a NEW campaign id, never an edit to a frozen artifact, and
+the superseded campaigns stay on disk with their defects recorded. Where only
+the REPORTING changed and the judge behaviour hash did not, the successor must
+reproduce the predecessor's per-candidate numbers exactly — which is the
+evidence that a supersession was a reporting fix rather than a quiet re-measure.

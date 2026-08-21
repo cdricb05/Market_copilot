@@ -2444,3 +2444,65 @@ package. The research package may not import `paper_trader.api`, may read only
 promotion, activation or decision call. The read surface exposes no control.
 
 **Why.** Principle 7 of the charter, made unbreakable rather than intended.
+## Release 32 — PnL Opportunity Frontier
+
+**CONFIRMED — a sleeve generates opportunities and never owns capital.**
+Evidence: `alpha_agent/r32/sleeve.py` refuses gross exposure above 1.0 and
+declares `STATES_THAT_OWN_CAPITAL = ()`; the audit asserts no sleeve module
+calls an order, proposal, allocation or activation path. *Why:* six sleeves that
+each size a book are six competing portfolio managers, which Principle 1
+forbids.
+
+**CONFIRMED — excess over cash may not rank, select or qualify.** Evidence:
+campaign v1 ranked on it and produced a "qualified" sleeve at t = 4.03 while all
+ten of its lockbox results had negative excess against buy-and-hold. *Why:* over
+a long window every strategy with equity exposure beats bills, so the statistic
+measures exposure, not skill. The primary control is now a volatility-matched
+mix of the benchmark and cash, capped at 100 % equity because this project has
+no leverage.
+
+**CONFIRMED — a daily series is not automatically point-in-time.** Evidence:
+106 of 144 owned Norgate Economic series change value on the first business day
+of the period they measure (135 of 138 changes since 2015 land on day ≤ 3; GDP
+flips on 1 Jan / 1 Apr / 1 Jul / 1 Oct). *Why:* reading them at their own
+timestamp is roughly a publication lag of look-ahead every period, plus today's
+revisions. Classified by measured fingerprint in `alpha_agent/r32/sources.py`,
+never by assertion.
+
+**CONFIRMED — a control configuration may never become a finalist.** Evidence:
+campaign v1's `always_invested_control` reached the lockbox, where beating cash
+would have qualified EVENT_DRIVEN for rediscovering buy-and-hold. *Why:* a
+control exists to be compared against.
+
+**CONFIRMED — cross-sleeve comparison requires a shared decision calendar.**
+Evidence: campaign v3 gave each panel its own calendar; no two sleeves shared a
+single decision date, so the correlation map was empty rather than zero. *Why:*
+comparing strategies measured on disjoint calendars compares eras. The shared
+calendar view is REPORTING ONLY — it cannot qualify a sleeve and does not enter
+the denominator, or it would become a second window to choose from.
+
+**CONFIRMED — asset labels do not equal diversification.** Evidence: on the
+shared calendar, EQUITY_BETA_TIMING, SECTOR_ROTATION and VOLATILITY_RISK_REGIME
+correlate 0.78–0.91 and form one latent cluster despite different instruments
+and different state variables. *Why:* counting instruments would have reported
+three independent opportunities where there is one.
+
+**CONFIRMED — Release 32 spends nothing and waits for nothing.** Evidence:
+`MAY_SPEND_MONEY = False`; the purchase gate's every row carries
+`purchase_authorised: false` and `money_spent_usd: 0.0`;
+`waits_for_a_vendor_sample: false`. *Why:* a campaign that pauses for a vendor
+sample has handed its schedule to a sales team, and the gate exists to find
+which information matters *before* paying.
+
+**PROVISIONAL — the owned event data gap is the highest-value purchase
+candidate.** Evidence: the owned earnings and analyst-revision stores are
+synthetic fixtures (`provider_id: synthetic_test`, tickers `S000`) and SEC
+filing timestamps cover 63 tickers; EVENT_DRIVEN was the only sleeve
+uncorrelated with the equity-beta cluster. *Why provisional:* a sample has not
+been evaluated, and Stage 13B → 13C (t = 2.27 in-sample, t = −0.29
+out-of-sample) is why a promising event signal is not a purchase.
+
+**UNRESOLVED — whether any zero-cost sleeve can beat a volatility-matched
+control at all.** Release 32 found none across 104 executed hypotheses. Whether
+that is a property of these five sleeve families or of zero-cost information
+generally is not settled by this campaign.

@@ -808,3 +808,36 @@ substituted backwards. Until real point-in-time history exists, the family stays
   `EVENT_TRIGGER_ONLY` and reference-only respectively, and the audit asserts no
   news-shaped feature exists in the frozen feature set.
 * Historical sector as a modelling input, in any form, including as a peer group.
+## Release 32 — the multi-asset opportunity boundary
+
+Release 32 draws the boundary that Release 33 will build the allocator inside.
+Four rules, each derived from the eight architectural principles rather than
+added to them.
+
+**Sleeves generate opportunities; the allocator owns capital.** A sleeve
+expresses an opinion in its own terms and stops there. Six sleeves that each
+size their own book are six portfolio managers who cannot see each other's
+exposures — two can hold the same factor through different instruments and both
+believe they are diversified, and nothing knows the total. Sizing is global
+because risk is global. *(Principles 1 and 3.)*
+
+**Asset labels are not risk factors.** Exposure is tracked by risk factor and
+correlation cluster, never by counting instruments. Release 32 measured why:
+three sleeves with different instruments and different state variables
+correlated 0.78–0.91 and are a single latent bet. *(Principle 4 — a
+diversification claim without point-in-time evidence is fabricated evidence.)*
+
+**Daily reassessment is not daily trading.** A gap between the current portfolio
+and the target is a reason to evaluate a change, not to make one. The portfolio
+moves only when expected after-cost utility improvement clears the governance
+hurdle. Most days the correct action is none. *(Principles 3 and 7.)*
+
+**One future NAV owner.** Multi-asset NAV is declared to `api.portfolio_valuation`
+before any second implementation can appear. *(Principle 1.)*
+
+The daily loop, its scheduled and event-driven modes (sharing ONE orchestration
+contract and reusing `engine.event_fabric`, never a second event system), mixed
+market calendars, the IDEAL vs CURRENTLY EXECUTABLE target split, turnover
+budgets, stale-data fail-closed behaviour and risk-driven reduction are
+specified in `DAILY_MULTI_ASSET_GOVERNANCE.md` and declared in
+`alpha_agent/r32/governance.py`. Release 32 declares them; it runs none of them.

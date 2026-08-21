@@ -151,12 +151,30 @@ The system runs three operating cycles: **signal refresh (frequent)**,
 evidence-gated)**. Work is sequenced across seven milestones and governed by
 eight architectural principles.
 
+**The objective is asset-agnostic (Release 32).** Equities were the proving
+ground, not the goal. The permanent question is: *if every investable dollar
+were cash right now, given everything legitimately observable right now, where
+should capital be deployed to maximise expected after-cost, risk-adjusted paper
+portfolio PnL?* Legitimate answers include cash, equities, indices, sectors,
+rates, commodities, FX, volatility and event-driven sleeves. The system need not
+allocate to every asset class; capital belongs only where evidence supports it;
+a NULL result is valid; **cash is a real asset choice**. Four Release-32
+*design rules* follow (derived from the eight principles, and not principles
+themselves): strategy sleeves generate opportunities and never own capital; the
+global allocator owns capital; asset labels are not risk factors; daily
+reassessment does not imply daily trading.
+
+**Before major work, read:** `docs/PROJECT_CHARTER.md`, `PROJECT_STATE.md`,
+`docs/TARGET_ARCHITECTURE.md`, `docs/PNL_OPPORTUNITY_FRONTIER.md`,
+`docs/DAILY_MULTI_ASSET_GOVERNANCE.md`, `docs/ARCHITECTURE_DECISIONS.md`.
+
 The authoritative statements live in these canonical documents — read them
 before architectural or workflow changes, and keep them in sync with the code:
 
 - [docs/PROJECT_CHARTER.md](docs/PROJECT_CHARTER.md) — canonical objective, three
-  operating cycles, seven milestones, eight architectural principles, safety
-  boundaries, current and deferred scope.
+  operating cycles, seven milestones, eight architectural principles, the
+  Release-32 multi-asset design rules, safety boundaries, current and deferred
+  scope.
 - [docs/CURRENT_ARCHITECTURE.md](docs/CURRENT_ARCHITECTURE.md) — the current,
   evidence-based system map (modules, endpoints, UI, stores, workflows, risks).
 - [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) — the target
@@ -165,6 +183,16 @@ before architectural or workflow changes, and keep them in sync with the code:
   bounded consolidation slices behind tests.
 - [docs/ARCHITECTURE_DECISIONS.md](docs/ARCHITECTURE_DECISIONS.md) — confirmed,
   provisional, and unresolved architectural decisions with evidence.
+- [docs/PNL_OPPORTUNITY_FRONTIER.md](docs/PNL_OPPORTUNITY_FRONTIER.md) — the
+  asset-agnostic question, the common-overlap rule, and sleeve qualification.
+- [docs/STRATEGY_SLEEVE_CONTRACT.md](docs/STRATEGY_SLEEVE_CONTRACT.md) — what a
+  sleeve is, and why it may never own capital.
+- [docs/DAILY_MULTI_ASSET_GOVERNANCE.md](docs/DAILY_MULTI_ASSET_GOVERNANCE.md) —
+  the daily loop, no-churn hysteresis, mixed calendars, one authoritative NAV.
+- [docs/INFORMATION_PURCHASE_GATE.md](docs/INFORMATION_PURCHASE_GATE.md) — the
+  ten conditions before any dataset becomes a purchase candidate.
+- [docs/RELEASE32_ZERO_COST_INFORMATION_EXPANSION.md](docs/RELEASE32_ZERO_COST_INFORMATION_EXPANSION.md)
+  — the Release-32 programme, research funnel budgets, artifacts, invariants.
 
 These canonical rules do not replace the UI redesign workflow above; both apply.
 Paper-only, preview-first, manual-review, and no-automation safety boundaries

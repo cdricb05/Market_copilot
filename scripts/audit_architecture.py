@@ -5798,6 +5798,344 @@ R31_ENGINE_PURE_IMPORTS = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Release 32 — PnL Opportunity Frontier (invariants 1-40)
+# --------------------------------------------------------------------------- #
+#: One owner per Release-32 concern. A second module declaring the same schema
+#: token is the drift these checks exist to catch.
+R32_OWNERS = {
+    "contract": "alpha_agent/r32/contract.py",
+    "sources": "alpha_agent/r32/sources.py",
+    "information_state": "alpha_agent/r32/information_state.py",
+    "panels": "alpha_agent/r32/panels.py",
+    "sleeve": "alpha_agent/r32/sleeve.py",
+    "judge": "alpha_agent/r32/judge.py",
+    "funnel": "alpha_agent/r32/funnel.py",
+    "frontier": "alpha_agent/r32/frontier.py",
+    "purchase_gate": "alpha_agent/r32/purchase_gate.py",
+    "governance": "alpha_agent/r32/governance.py",
+    "campaign": "alpha_agent/r32/campaign.py",
+}
+R32_READ_MODEL = "api/pnl_opportunity_frontier.py"
+R32_SLEEVE_DIR = "alpha_agent/r32/sleeves"
+R32_ROUTE = "/v1/research/pnl-opportunity-frontier"
+
+#: A sleeve that calls any of these has stopped generating opportunities and
+#: started managing a portfolio.
+R32_FORBIDDEN_SLEEVE_CALLS = (
+    "create_order", "place_order", "submit_order", "confirm_target",
+    "apply_proposal", "approve_proposal", "promote_champion", "activate_model",
+    "activate_sleeve", "write_holdings", "write_cash", "execute_rebalance",
+)
+
+#: Operational owners the research lane may never import.
+R32_FORBIDDEN_OWNER_REFS = (
+    "paper_trader.api.operational_book", "paper_trader.api.daily_close",
+    "paper_trader.api.rebalance_execution", "paper_trader.api.portfolio_decision",
+    "paper_trader.broker", "engine.normal_cycle",
+)
+
+
+def check_release32_pnl_opportunity_frontier(files: list[Path]) -> dict:
+    """Release 32 ownership, safety and point-in-time invariants (1-40)."""
+    src = {name: (_read(path) or "") for name, path in R32_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    read_model = _read(R32_READ_MODEL) or ""
+    app = _read("api/app.py") or ""
+    ui = _read("api/ui/index.html") or ""
+
+    sleeve_files = sorted(
+        _rel(p) for p in files
+        if _rel(p).startswith(R32_SLEEVE_DIR) and _rel(p).endswith(".py"))
+    sleeve_src = "\n".join((_read(f) or "") for f in sleeve_files)
+
+    def _second_owners(token: str, owner: str) -> list:
+        out = []
+        for p in files:
+            rel = _rel(p)
+            if rel == owner or not rel.endswith(".py"):
+                continue
+            if rel.startswith("tests/") or rel.startswith("scripts/"):
+                continue
+            if token in (_read(rel) or ""):
+                out.append(rel)
+        return sorted(out)
+
+    # (1)-(5) ONE owner each.
+    second_owners = {
+        "sleeve_contract": _second_owners(
+            'CONTRACT_SCHEMA = "r32_strategy_sleeve_contract',
+            R32_OWNERS["sleeve"]),
+        "information_state": _second_owners(
+            'STATE_SCHEMA = "r32_information_state_contract',
+            R32_OWNERS["information_state"]),
+        "frontier": _second_owners(
+            'FRONTIER_SCHEMA = "r32_pnl_opportunity_frontier',
+            R32_OWNERS["frontier"]),
+        "purchase_gate": _second_owners(
+            'GATE_SCHEMA = "r32_information_purchase_frontier',
+            R32_OWNERS["purchase_gate"]),
+        "governance": _second_owners(
+            'GOVERNANCE_SCHEMA = "r32_daily_multi_asset_governance_contract',
+            R32_OWNERS["governance"]),
+    }
+
+    # (6)-(8) No second optimiser / covariance / HOC owner. Release 32 adds
+    # sleeves, not a second risk library: it reuses r31's statistics.
+    reuses_r31_statistics = "from ..r31 import multiple_testing" in src["campaign"]
+    reuses_r31_judge_stats = "from ..r31.judge import" in src["judge"]
+    no_second_optimiser = not re.search(
+        r"def\s+(optimise|optimize|zero_base_target)\s*\(", all_src)
+    no_second_covariance = not re.search(r"def\s+build_covariance\s*\(", all_src)
+
+    # (9)-(11) A sleeve may not allocate capital, propose, or order.
+    sleeve_forbidden = sorted(
+        {t for t in R32_FORBIDDEN_SLEEVE_CALLS if t in sleeve_src.lower()})
+    sleeve_owns_capital_declared_false = "owns_capital = False" in src["sleeve"]
+    states_own_capital_empty = "STATES_THAT_OWN_CAPITAL = ()" in src["sleeve"]
+    gross_exposure_capped = "may not lever, and may not size a book" in src["sleeve"]
+
+    # (12) The Release-31 result is reused, not rerun.
+    control_not_researched = (
+        "def assert_control_not_researched" in src["funnel"]
+        and "MAY_BE_RESEARCHED_IN_R32 = False"
+        in (_read(f"{R32_SLEEVE_DIR}/equity_selection.py") or ""))
+
+    # (13)-(16) Point-in-time integrity.
+    pit_measured_not_asserted = (
+        "MEASURED_CHANGE_DAY_FINGERPRINT" in src["sources"])
+    revised_macro_inadmissible = (
+        "REVISED_NOT_PIT" in src["sources"]
+        and "REVISED_NOT_PIT" not in _admissible_block(src["sources"]))
+    sector_definition_dates = (
+        "GICS_REAL_ESTATE_FROM" in src["panels"]
+        and "definition_from" in src["panels"])
+    etf_inception_declared = "pre-inception" in src["panels"].lower() or (
+        "inception" in src["panels"].lower())
+
+    # (17) Common-overlap comparison enforced.
+    common_overlap_enforced = (
+        "def common_overlap" in src["campaign"]
+        and "def _common_calendar" in src["campaign"])
+    overlap_reporting_only = (
+        '"may_qualify_a_sleeve": False' in src["campaign"])
+
+    # (18)-(20) Lockbox, denominator, and negative results.
+    lockbox_single_access = (
+        "has already used its single "
+        in src["funnel"])
+    denominator_counts_all = (
+        "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"])
+    denominator_padded_to_family = (
+        "padded_with_non_reportable" in src["campaign"])
+    control_cannot_qualify = (
+        '"is_not_a_control"' in src["campaign"]
+        and 'r.get("is_control")' in src["campaign"])
+    primary_control_is_volatility_matched = (
+        "VOLATILITY_MATCHED_BENCHMARK_CASH_MIX" in src["judge"]
+        and "vs_volatility_matched_control" in src["campaign"])
+
+    # (21)-(23) Nothing is activated, promoted, or written operationally.
+    pkg = _read("alpha_agent/r32/__init__.py") or ""
+    auto_promotion_false = "AUTOMATIC_PROMOTION_ALLOWED = False" in pkg
+    auto_activation_false = (
+        "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED = False" in pkg)
+    may_spend_money_false = "MAY_SPEND_MONEY = False" in pkg
+    forbidden_owner_refs = sorted(
+        {t for t in R32_FORBIDDEN_OWNER_REFS if t in all_src + sleeve_src})
+    research_imports_api = sorted(
+        n for n, t in src.items()
+        if re.search(r"^\s*(from|import)\s+.*paper_trader\.api", t, re.M))
+
+    # (24)-(27) Prohibited substitutions and the purchase gate.
+    prohibited_substitutions = (
+        "PROHIBITED_SUBSTITUTIONS" in src["sources"]
+        and "external reference links" in src["sources"]
+        and "GDELT article text" in src["sources"]
+        and "current analyst snapshots" in src["sources"])
+    gate_ten_conditions = src["purchase_gate"].count('"') > 0 and (
+        "CONDITIONS = (" in src["purchase_gate"])
+    gate_never_purchases = (
+        '"purchase_authorised": False' in src["purchase_gate"]
+        and '"money_spent_usd": 0.0' in src["purchase_gate"])
+
+    # (28)-(35) Governance contract invariants.
+    gov = src["governance"]
+    governance = {
+        "daily_reassessment_is_not_daily_trading":
+            '"daily_reassessment_implies_daily_trading": False' in gov,
+        "closed_market_delta_pending":
+            "DELTA_PENDING_MARKET_CLOSED" in gov
+            and '"closed_market_delta_remains_pending": True' in gov,
+        "no_unvalidated_hedge_substitution":
+            "UNRELATED_INSTRUMENT_HEDGE_SUBSTITUTION_ALLOWED = False" in gov
+            and "NO_VALIDATED_HEDGE_POLICY_EXISTS" in gov,
+        "one_future_nav_owner":
+            "MULTI_ASSET_NAV_OWNER =" in gov
+            and gov.count("MULTI_ASSET_NAV_OWNER =") == 1,
+        "asset_count_is_not_diversification":
+            '"asset_count_is_not_diversification": True' in gov
+            and "RISK_FACTOR_AND_CORRELATION_CLUSTER" in gov,
+        "reuses_event_fabric":
+            'EVENT_FABRIC_OWNER = "engine.event_fabric"' in gov
+            and "SECOND_EVENT_SYSTEM_ALLOWED = False" in gov,
+        "one_orchestration_contract":
+            "ORCHESTRATION_CONTRACT =" in gov
+            and "ONE_REASSESSMENT_CONTRACT_FOR_BOTH_MODES" in gov,
+        "turnover_budgets_declared":
+            "TURNOVER_BUDGET_PERIODS = " in gov
+            and '"turnover_budget_concepts_declared": True' in gov
+            and '"turnover_budgets_are_future_governance_concepts": True' in gov,
+        # The concepts are authorised; the VALUES are not. A number here would
+        # be inherited by Release 33 as a calibrated limit nobody set.
+        "turnover_budget_values_not_invented":
+            not _r32_turnover_budget_literals(gov)
+            and '"turnover_budget_values_calibrated": False' in gov
+            and '"turnover_budget_value_owner": TURNOVER_BUDGET_VALUE_OWNER'
+                in gov,
+        "uncalibrated_turnover_budget_is_not_zero":
+            '"uncalibrated_turnover_budget_means_zero_turnover": False' in gov
+            and '"uncalibrated_turnover_budget_means_unlimited_turnover": False'
+                in gov
+            and "TURNOVER_BUDGET_UNDECIDABLE" in gov,
+    }
+
+    # (36)-(40) Cash, staleness, exhaustion, no hidden N+1, read-only.
+    cash_is_a_valid_opportunity = (
+        "CASH_IS_A_REAL_ASSET_CHOICE = True" in src["contract"]
+        and "cash_is_a_real_asset_choice" in src["campaign"])
+    stale_data_fails_closed = (
+        '"stale_data_fails_closed": True' in gov
+        and "DELTA_PENDING_STALE_DATA" in gov)
+    exhaustion_stops_search = (
+        "adds to the multiple-testing " in src["funnel"]
+        and "ControlSleeveResearched" in src["funnel"])
+    no_hidden_followup_campaign = (
+        "BudgetExceeded" in src["funnel"]
+        and "budget exhausted at" in src["funnel"])
+    production_read_only = (
+        '"production_read_only": True' in read_model
+        and '"writes_operational_store": False' in pkg)
+
+    # Read surface: GET only, no control, canonical badge wording.
+    route_declared = R32_ROUTE in app
+    route_is_get_only = bool(re.search(
+        r'@app\.get\(\s*\n?\s*"' + re.escape(R32_ROUTE), app))
+    route_not_mutating = not any(
+        re.search(r'@app\.' + verb + r'\(\s*\n?\s*"' + re.escape(R32_ROUTE), app)
+        for verb in ("post", "put", "patch", "delete"))
+    read_model_writes = sorted(set(re.findall(
+        r"\b(open\([^)]*['\"]w|write_text|write_json|mkdir|os\.replace)\b",
+        read_model)))
+    ambiguous_badges = sorted(
+        t for t in (">NO LIVE ORDERS</span>", ">ORDERS DISABLED<")
+        if t in _r32_ui_region(ui))
+    canonical_badge = "NO LIVE BROKER ORDERS" in read_model
+    ui_controls = sorted(
+        t for t in ("Execute", "Approve", "Activate", "Promote",
+                    "Create Order", "Allocate")
+        if t in _r32_ui_region(ui))
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "sleeve_modules": sleeve_files,
+        "second_owner_modules": sorted(
+            {m for v in second_owners.values() for m in v}),
+        "reuses_r31_statistics": reuses_r31_statistics,
+        "reuses_r31_judge_statistics": reuses_r31_judge_stats,
+        "no_second_optimiser": no_second_optimiser,
+        "no_second_covariance_owner": no_second_covariance,
+        "sleeve_forbidden_calls": sleeve_forbidden,
+        "sleeve_owns_capital_declared_false": sleeve_owns_capital_declared_false,
+        "states_that_own_capital_empty": states_own_capital_empty,
+        "sleeve_gross_exposure_capped": gross_exposure_capped,
+        "control_sleeve_not_researched": control_not_researched,
+        "pit_admissibility_is_measured": pit_measured_not_asserted,
+        "revised_macro_inadmissible": revised_macro_inadmissible,
+        "sector_definition_dates_declared": sector_definition_dates,
+        "instrument_inception_declared": etf_inception_declared,
+        "common_overlap_enforced": common_overlap_enforced,
+        "overlap_view_is_reporting_only": overlap_reporting_only,
+        "lockbox_single_access_enforced": lockbox_single_access,
+        "denominator_counts_all_executed": denominator_counts_all,
+        "denominator_is_the_bh_family_size": denominator_padded_to_family,
+        "control_cannot_qualify_a_sleeve": control_cannot_qualify,
+        "primary_control_is_volatility_matched":
+            primary_control_is_volatility_matched,
+        "auto_promotion_declared_false": auto_promotion_false,
+        "auto_sleeve_activation_declared_false": auto_activation_false,
+        "may_spend_money_declared_false": may_spend_money_false,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "research_imports_api": research_imports_api,
+        "prohibited_substitutions_declared": prohibited_substitutions,
+        "purchase_gate_ten_conditions": gate_ten_conditions,
+        "purchase_gate_never_purchases": gate_never_purchases,
+        "governance": governance,
+        "governance_failures": sorted(k for k, v in governance.items() if not v),
+        "cash_is_a_valid_opportunity": cash_is_a_valid_opportunity,
+        "stale_data_fails_closed": stale_data_fails_closed,
+        "exhaustion_stops_same_information_search": exhaustion_stops_search,
+        "no_hidden_followup_campaign": no_hidden_followup_campaign,
+        "production_read_only": production_read_only,
+        "route_declared": route_declared,
+        "route_is_get_only": route_is_get_only,
+        "route_not_mutating": route_not_mutating,
+        "read_model_writes": read_model_writes,
+        "ui_ambiguous_safety_badges": ambiguous_badges,
+        "read_model_uses_canonical_order_badge": canonical_badge,
+        "ui_control_labels": ui_controls,
+    }
+
+
+def _r32_turnover_budget_literals(gov_src: str) -> list:
+    """Numeric turnover-budget VALUES invented by the governance module.
+
+    AST rather than a substring search: the defect is a number inside one
+    specific mapping, and the module legitimately contains other numbers. A
+    grep for ``0.05`` would both miss ``5e-2`` and fire on an unrelated float.
+    """
+    try:
+        tree = ast.parse(gov_src)
+    except SyntaxError:
+        return ["UNPARSEABLE_GOVERNANCE_MODULE"]
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "TURNOVER_BUDGETS"
+                   for t in node.targets):
+            continue
+        for sub in ast.walk(node.value):
+            if (isinstance(sub, ast.Constant)
+                    and isinstance(sub.value, (int, float))
+                    and not isinstance(sub.value, bool)):
+                found.append(repr(sub.value))
+    return sorted(found)
+
+
+def _admissible_block(sources_src: str) -> str:
+    """The ADMISSIBLE_FOR_HISTORY tuple only.
+
+    Checked as its own slice because ``REVISED_NOT_PIT`` legitimately appears
+    all over that module - as a constant, in the classifier, in docstrings. The
+    invariant is not "the token is absent"; it is "the token is not in the
+    admissible list", and only a targeted slice can tell those apart.
+    """
+    m = re.search(r"ADMISSIBLE_FOR_HISTORY\s*=\s*\(([^)]*)\)", sources_src)
+    return m.group(1) if m else ""
+
+
+def _r32_ui_region(ui: str) -> str:
+    """The Release-32 UI card only, so prose elsewhere cannot trip a check."""
+    start = ui.find("R32 PNL OPPORTUNITY FRONTIER")
+    if start < 0:
+        return ""
+    end = ui.find("R32 PNL OPPORTUNITY FRONTIER END", start + 1)
+    return ui[start:end if end > start else start + 40000]
+
+
 def check_release31_mathematical_alpha_frontier(files: list[Path]) -> dict:
     src = {name: (_read(path) or "") for name, path in R31_OWNERS.items()}
     modules_present = sorted(n for n, t in src.items() if t)
@@ -6373,6 +6711,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release30_1_operational_cutover": check_release30_1_operational_cutover(files),
         "release31_mathematical_alpha_frontier":
             check_release31_mathematical_alpha_frontier(files),
+        "release32_pnl_opportunity_frontier":
+            check_release32_pnl_opportunity_frontier(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -6991,6 +7331,78 @@ BLOCKING = ("duplicate_declarations", "research_execution_terms")
 #: entry here means a current economic read can silently miss a registered corporate
 #: action, or that split arithmetic was duplicated outside its one owner.
 BLOCKING_INVARIANTS = (
+    # --- Release 32: PnL Opportunity Frontier (invariants 1-40) -------------
+    # ONE owner per concern; no second optimiser, covariance owner or statistics
+    # library; a sleeve generates opportunities and never owns capital,
+    # allocates, proposes, orders, promotes or activates; the Release-31 result
+    # is inherited rather than rerun; point-in-time admissibility is MEASURED
+    # and revised macro can never be admitted as history; cross-sleeve
+    # comparison names its shared calendar and that view can qualify nothing;
+    # the lockbox opens once; every executed hypothesis stays in the
+    # denominator; a control can never qualify its own sleeve; the primary
+    # control is volatility-matched rather than cash; the governance contract
+    # declares that daily reassessment is not daily trading, that a closed
+    # market leaves a delta pending, that stale data fails closed, that asset
+    # count is not diversification, that the event fabric is reused, and that
+    # multi-asset NAV has exactly one future owner; nothing is bought; and the
+    # read surface is GET-only with the canonical order badge.
+    ("release32_pnl_opportunity_frontier", "modules_present", True),
+    ("release32_pnl_opportunity_frontier", "second_owner_modules", []),
+    ("release32_pnl_opportunity_frontier", "reuses_r31_statistics", True),
+    ("release32_pnl_opportunity_frontier", "reuses_r31_judge_statistics", True),
+    ("release32_pnl_opportunity_frontier", "no_second_optimiser", True),
+    ("release32_pnl_opportunity_frontier", "no_second_covariance_owner", True),
+    ("release32_pnl_opportunity_frontier", "sleeve_forbidden_calls", []),
+    ("release32_pnl_opportunity_frontier",
+     "sleeve_owns_capital_declared_false", True),
+    ("release32_pnl_opportunity_frontier", "states_that_own_capital_empty", True),
+    ("release32_pnl_opportunity_frontier", "sleeve_gross_exposure_capped", True),
+    ("release32_pnl_opportunity_frontier", "control_sleeve_not_researched", True),
+    ("release32_pnl_opportunity_frontier", "pit_admissibility_is_measured", True),
+    ("release32_pnl_opportunity_frontier", "revised_macro_inadmissible", True),
+    ("release32_pnl_opportunity_frontier",
+     "sector_definition_dates_declared", True),
+    ("release32_pnl_opportunity_frontier",
+     "instrument_inception_declared", True),
+    ("release32_pnl_opportunity_frontier", "common_overlap_enforced", True),
+    ("release32_pnl_opportunity_frontier",
+     "overlap_view_is_reporting_only", True),
+    ("release32_pnl_opportunity_frontier",
+     "lockbox_single_access_enforced", True),
+    ("release32_pnl_opportunity_frontier",
+     "denominator_counts_all_executed", True),
+    ("release32_pnl_opportunity_frontier",
+     "denominator_is_the_bh_family_size", True),
+    ("release32_pnl_opportunity_frontier",
+     "control_cannot_qualify_a_sleeve", True),
+    ("release32_pnl_opportunity_frontier",
+     "primary_control_is_volatility_matched", True),
+    ("release32_pnl_opportunity_frontier", "auto_promotion_declared_false", True),
+    ("release32_pnl_opportunity_frontier",
+     "auto_sleeve_activation_declared_false", True),
+    ("release32_pnl_opportunity_frontier", "may_spend_money_declared_false", True),
+    ("release32_pnl_opportunity_frontier", "forbidden_owner_refs", []),
+    ("release32_pnl_opportunity_frontier", "research_imports_api", []),
+    ("release32_pnl_opportunity_frontier",
+     "prohibited_substitutions_declared", True),
+    ("release32_pnl_opportunity_frontier", "purchase_gate_ten_conditions", True),
+    ("release32_pnl_opportunity_frontier", "purchase_gate_never_purchases", True),
+    ("release32_pnl_opportunity_frontier", "governance_failures", []),
+    ("release32_pnl_opportunity_frontier", "cash_is_a_valid_opportunity", True),
+    ("release32_pnl_opportunity_frontier", "stale_data_fails_closed", True),
+    ("release32_pnl_opportunity_frontier",
+     "exhaustion_stops_same_information_search", True),
+    ("release32_pnl_opportunity_frontier", "no_hidden_followup_campaign", True),
+    ("release32_pnl_opportunity_frontier", "production_read_only", True),
+    ("release32_pnl_opportunity_frontier", "route_declared", True),
+    ("release32_pnl_opportunity_frontier", "route_is_get_only", True),
+    ("release32_pnl_opportunity_frontier", "route_not_mutating", True),
+    ("release32_pnl_opportunity_frontier", "read_model_writes", []),
+    ("release32_pnl_opportunity_frontier", "ui_ambiguous_safety_badges", []),
+    ("release32_pnl_opportunity_frontier",
+     "read_model_uses_canonical_order_badge", True),
+    ("release32_pnl_opportunity_frontier", "ui_control_labels", []),
+
     # --- Release 30: zero-base adaptive alpha capital allocation ------------
     # ONE zero-base calculation owner and ONE composition owner; pure stdlib
     # kernels; the forecast layer cannot promote or activate itself and its read

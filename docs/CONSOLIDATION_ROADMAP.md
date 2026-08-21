@@ -1103,3 +1103,34 @@ The next slice is **new orthogonal information** through the extension contract
 in [TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md): a new data family, its own
 PIT and publication semantics, its **measured** survivorship coverage, a new
 campaign id, and the same judge and budgets unchanged.
+## Release 32 — what it consolidated, and what it deliberately did not
+
+**Consolidated.**
+
+- ONE data source registry with a MEASURED point-in-time admissibility class per
+  source, replacing the per-phase habit of deciding admissibility in prose.
+- ONE canonical `InformationState` carrying four distinct timestamps
+  (`observed_at` / `published_at` / `effective_at` /
+  `eligible_for_decision_at`), so look-ahead is refused at construction instead
+  of being reviewed for.
+- ONE Strategy Sleeve contract, so a sleeve cannot become a second portfolio
+  optimiser.
+- ONE common economic judge for every sleeve, and ONE control — the
+  volatility-matched benchmark/cash mix — so six strategies are comparable.
+- ONE bounded funnel owning every budget as a number and the multiple-testing
+  denominator, including hypotheses that failed.
+- Multiple-testing statistics and the lockbox discipline REUSED from Release 31
+  rather than reimplemented.
+
+**Deliberately not consolidated.**
+
+- No production allocator. Release 32 produces a research comparison and a
+  governance contract; Release 33 builds the allocator that consumes them.
+- No second event system: the governance contract declares reuse of
+  `engine.event_fabric`.
+- No multi-asset NAV implementation: the future owner is *declared*
+  (`api.portfolio_valuation`) so a second one cannot appear, but nothing was
+  extended.
+- Release 31's equity-selection search was NOT rerun. It is inherited as the
+  control with its frozen verdict, because more mining of the same information
+  adds to the multiple-testing denominator and adds no knowledge.

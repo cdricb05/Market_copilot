@@ -1,14 +1,203 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-19
-- **Updated by phase:** **Release 31 — Mathematical Alpha Frontier, Campaign V3.**
-- **Source Git HEAD:** `8ed7820`, branch `stage19-controlled-rebalance`.
-- **Working tree status:** DIRTY — Release 31 Campaign V3 changes uncommitted. Nothing committed, pushed, activated or restarted by this phase; the commit script is prepared for the user in `D:\Temp\paper_trader_release31_v3_mathematical_alpha_frontier_handoff\`.
-- **Current decision:** **`R31_CURRENT_INFORMATION_MODEL_FRONTIER_EXHAUSTED`** — no candidate earned a paper review. Across 76 executed candidates (33 known-method configs over 11 families, 43 novel specifications, plus the incumbent leg), the best lockbox result was `km:fama_macbeth:01:px:h20`: **+3.88 %/yr net** against a point-in-time S&P 500 equal weight of **+8.67 %/yr** and `$SPXTR` of **+13.00 %/yr**, i.e. **−4.80 %/yr** and **−9.32 %/yr** excess. It loses to the benchmark **before** costs (gross +6.53 %/yr), so this is a selection result, not a cost result. SPA p = 0.53. The dominant constraint is recorded as **`INFORMATION_NOT_METHOD`**: 67 of 77 candidates could not be mapped into economic return units at all. Verdict hash `17e5e2e84e3a`. Nothing is activated, promoted or proposed.
-- **Broad-regression repair (2026-08-20):** the operator's one broad repository suite returned **6863 passed, 971 skipped, 12 failed**. All twelve were classified against a pristine `git archive HEAD` baseline tree, which fails **8** of them identically: those are **PRE-EXISTING baseline failures** (`test_market_interaction_ux` research-bridge literal, `test_phase27b7::TestRequiredContent`, four `test_slice2_workflow_state` states, `test_slice6::test_21`, `test_stage21::test_08`) and are deliberately **not** repaired here. The other **4 were introduced by Release 31** and are now fixed: **(A)** one ambiguous `>NO LIVE ORDERS</span>` badge on the R31 card broke three long-standing UI wording contracts — the canonical 27B.6 token is **`NO LIVE BROKER ORDERS`**, because paper orders are *real* and only *live brokerage* orders are structurally disabled; **(B)** `/v1/research/mathematical-alpha-frontier` was declared with no `route_ownership` entry, now owned by `api/mathematical_alpha_frontier.py`. Both defects lived in files **shared with earlier phases**, whose contracts the bounded R31 gate never consulted — which is why 169/169 green was not evidence about them. `validate.ps1` gains a **touched-owner legacy compatibility** step (46 tests, ~64 s) covering exactly those contracts, the R31 suite gains 8 tests (177 total) including three negative probes, and the audit gains a `ui_ambiguous_safety_badges` invariant. Full evidence: `evidence\broad_regression_failure_classification.txt` in the handoff.
-- **Next required action:** the user runs `validate.ps1` and `ui_acceptance.ps1` from the handoff directory, runs the single broad repository suite **once more** (expect the same 8 pre-existing failures and no others), then decides on `commit.ps1` / `push.ps1`. A restart through the canonical owner is needed before the research read surface (`GET /v1/research/mathematical-alpha-frontier`) is served — the running process predates that route. Claude has NOT committed, pushed, activated a model or restarted production.
+- **Last updated:** 2026-08-20
+- **Updated by phase:** **Release 32 — PnL Opportunity Frontier. TERMINAL: `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED`.** Release 31 is CLOSED.
+- **Source Git HEAD:** `59eaa05c6e9e937bbd089fd016e15099cb8482aa`, branch `stage19-controlled-rebalance`, **pushed** (`HEAD == origin/stage19-controlled-rebalance`). This is the Release-31 closeout fix described below and is the declared **Release-32 base commit**.
+- **Working tree status:** Release-32 documentation changes uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 32 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release32_pnl_opportunity_frontier_handoff`. Do not rerun Release 31 or Release 32 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, or restarted production.
+
+## Release 32 — PnL Opportunity Frontier (2026-08-20, IN PROGRESS)
+
+**The objective became asset-agnostic.** Equities were the proving ground, not
+the goal. The permanent question: *if every investable dollar were cash right
+now, given everything legitimately observable right now, where should capital be
+deployed to maximise expected after-cost, risk-adjusted paper portfolio PnL?*
+The system need not allocate to every asset class; a NULL result is valid; cash
+is a real asset choice. Release 32 is **research and production read-only** — it
+builds the contracts Release 33 will consume and moves no capital.
+
+**Phase 0 (persistence) — DONE.** Five new canonical documents:
+`docs/PNL_OPPORTUNITY_FRONTIER.md` (the question, the common-overlap rule,
+standalone vs marginal portfolio value, sleeve qualification, terminal
+verdicts), `docs/STRATEGY_SLEEVE_CONTRACT.md` (a sleeve generates opportunities
+and never owns capital; the full `StrategyOpportunity` field set; sleeve states;
+0 %/all-cash is a legitimate output; `RESEARCH_ONLY_NOT_OPERATIONALLY_ADMISSIBLE`
+for short/levered variants), `docs/DAILY_MULTI_ASSET_GOVERNANCE.md` (the daily
+loop, event-driven reassessment reusing `engine.event_fabric`, no-churn
+hysteresis, global turnover budget, risk-driven reduction, mixed calendars and
+IDEAL vs CURRENTLY EXECUTABLE target, one authoritative NAV, cross-asset HOC
+extension), `docs/INFORMATION_PURCHASE_GATE.md` (ten conditions, eight states,
+prohibited substitutions), and
+`docs/RELEASE32_ZERO_COST_INFORMATION_EXPANSION.md` (phase map, funnel budgets,
+package structure, artifacts, 27 blocking audit invariants).
+`docs/PROJECT_CHARTER.md` gains the asset-agnostic objective and the four
+**Release-32 Multi-Asset Design Rules**. `CLAUDE.md` gains the asset-agnostic
+statement and the before-major-work reading list.
+
+**The charter still has exactly EIGHT architectural principles.** This was
+corrected after a first pass wrongly promoted the four Release-32 rules to
+"Principles 9–12". The distinction is load-bearing and is now pinned by two
+contracts:
+
+- The **eight principles** are the stable architectural spine. They do not grow
+  when a release adds a constraint.
+  `test_charter_has_exactly_eight_principles` asserts the heading sequence is
+  exactly `[1..8]`.
+- The **four R32 design rules** (A sleeves generate opportunities and never own
+  capital; B the global allocator owns capital; C asset labels do not equal
+  diversification; D daily reassessment does not imply daily trading) are
+  *derived* rules under their own `## Release-32 Multi-Asset Design Rules`
+  heading, each traced to the principle it comes from. They remain fully
+  mandatory. `test_release32_design_rules_are_not_principles` asserts they still
+  exist as `### Design Rule A–D`, so "restore eight principles" cannot be
+  satisfied by deleting the sleeve/capital boundary Release 32 rests on.
+
+**Charter wording corrected.** The safety-badge list still named the superseded
+`NO LIVE ORDERS`. It now names **`NO LIVE BROKER ORDERS`** and states the 27B.6
+distinction explicitly: paper orders are *real*; only *live brokerage* orders
+are structurally disabled.
+
+**Budgets (ceilings, not targets).** Screening 8 hypotheses per new sleeve;
+qualification 3 families × 8 configs = 24 per sleeve, 120 total; novel/refinement
+12 per sleeve, 60 total, depth 2; lockbox 2 finalists per sleeve, 12 total, one
+access each, no retuning after lockbox.
+
+### Terminal result — `r32_pnl_opportunity_frontier_v4`
+
+**`R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED`** /
+**`INFORMATION_SAMPLE_PRIORITY_IDENTIFIED`**. Zero sleeves qualified. Zero FDR
+survivors at q = 0.10 against a denominator of **104 executed hypotheses**.
+Nothing activated, allocated, proposed or purchased; **$0 spent**.
+
+**Phase 1 — the information finding.** The Norgate subscription is not
+equities-only: Continuous Futures, Forex Spot, Cash Commodities, US Indices,
+World Indices and Economic are all owned, which made five sleeves testable. But
+**106 of 144 owned macro series are `REVISED_NOT_PIT`**: every statistical
+release changes value on the *first business day of the period it measures*
+(CPI for month M on day one of month M; GDP on 1 Jan / 1 Apr / 1 Jul / 1 Oct;
+135 of 138 changes since 2015 land on day ≤ 3). Reading them at their own
+timestamp is roughly six weeks of look-ahead per period, on top of carrying
+today's revised vintage. Classified by MEASURED change-day fingerprint in
+`alpha_agent/r32/sources.py`, never by assertion. Market observables — yields,
+index levels, volatility indices, FX, commodity indices — change nearly every
+session and are admissible.
+
+Also measured: vendor metadata overstates availability (`$USTSY` advertises 1990
+and delivers 2022), and the owned earnings / analyst-revision stores are
+**synthetic test fixtures** (`provider_id: synthetic_test`, tickers `S000`) with
+SEC filing timestamps covering 63 tickers. EVENT_DRIVEN therefore studies only
+DETERMINISTIC CALENDAR structure, and the corporate-event gap is escalated to
+the purchase frontier rather than proxied.
+
+**Sleeve results.** Every sleeve beats cash. **Not one beats a
+volatility-matched mix of the benchmark and cash** — t vs matched control ranges
+−0.93 to −1.83. These strategies deliver equity exposure, not skill.
+
+**The clustering result.** On the shared decision calendar,
+`EQUITY_BETA_TIMING`, `SECTOR_ROTATION` and `VOLATILITY_RISK_REGIME` correlate
+0.78–0.91 and form ONE latent risk cluster: three differently-named strategies,
+different instruments, different state variables, one bet on equity beta. Only
+`EVENT_DRIVEN` is genuinely uncorrelated (−0.01 to +0.33). This is what "asset
+labels do not equal diversification" looks like in numbers.
+
+**Three superseded campaigns, all preserved on disk** with defects recorded in
+`alpha_agent/r32/contract.py`:
+
+- **v1 `SUPERSEDED_EXPERIMENTAL_DESIGN`** — ranked and FDR-corrected on excess
+  over **cash**. Over a long window everything with equity exposure beats bills,
+  so it measured exposure, not skill: it reported a qualified sleeve at t = 4.03
+  while all ten of its lockbox results had negative excess against buy-and-hold.
+  It also let the `always_invested_control` reach the lockbox, and read the
+  inherited R31 verdict from a key that does not exist.
+- **v2 `SUPERSEDED_INCOMPLETE_REPORTING`** — the candidate registry stripped
+  sleeve return paths before returning them, so the correlation map and latent
+  clusters were EMPTY, which reads as "nothing is related".
+- **v3 `SUPERSEDED_INCOMPLETE_REPORTING`** — every panel had its own decision
+  calendar, so no two sleeves shared a single decision date and correlation
+  stayed unmeasurable.
+
+Because the judge behaviour hash is identical across v2/v3/v4, every
+per-candidate number reproduces exactly — which is why the reporting defects
+were superseded rather than rewritten in place.
+
+**One superseded ARTIFACT, for the same reason at a smaller scale.**
+`daily_multi_asset_governance_contract.json` (schema 1) serialised INVENTED
+turnover budget values — daily/weekly/monthly numbers that Release 32 measured
+nothing to calibrate and named no owner for; Release 33 would have inherited
+them as settled limits. Schema 2
+(`daily_multi_asset_governance_contract_v2.json`) declares the same three budget
+**concepts** with `null` values, `turnover_budget_values_calibrated: false`, a
+`NOT_CALIBRATED` value state and the explicit future owner
+`RELEASE_33_MULTI_ASSET_TARGET_GOVERNANCE_CALIBRATION_OWNER`. Schema 1 stays on
+disk, frozen. This is an artifact supersession and not a new campaign because no
+verdict, frontier or sleeve number reads the governance artifact — verified
+before the correction, not assumed.
+
+**An uncalibrated budget is UNDECIDABLE — not zero, not unlimited.**
+`governance.check_turnover_budget()` returns `TURNOVER_BUDGET_NOT_CALIBRATED`
+rather than a comparison, because the one-liner `turnover > (budget or 0.0)`
+silently converts "nobody has set this" into "nothing may trade". The audit
+guard is AST-based (`_r32_turnover_budget_literals`) so a number reintroduced in
+any form is refused, and it is negative-probed against the pre-repair literal.
+
+**Where things live.** Research package `alpha_agent/r32/`; runner
+`scripts/run_release32_pnl_opportunity_frontier.py`; read model
+`api/pnl_opportunity_frontier.py` behind `GET /v1/research/pnl-opportunity-frontier`;
+UI region `#r32-frontier` (placed ABOVE the R31 card deliberately — see below);
+artifacts under `D:\Stock_Prediction_app_data\pnl_opportunity_frontier\<campaign_id>\`;
+tests `tests/test_release32_pnl_opportunity_frontier.py` (83); audit check
+`check_release32_pnl_opportunity_frontier` (43 blocking invariants).
+
+**Three traps worth remembering.**
+
+1. `def evaluate(` is a RESERVED ownership token for the Slice-8 research-agent
+   kernel. The audit greps for it as a plain substring, so even naming it in a
+   docstring trips the guard.
+2. The R31 UI region is delimited "from `id=\"r31-frontier\"` to the next
+   landmark comment". A card inserted after it falls INSIDE that region and
+   makes R31's badge-removal negative probe inert. R32's card therefore sits
+   ABOVE R31's.
+3. `a or b` on numpy arrays raises; array truth values are ambiguous.
+
+### Release 31 closeout — `59eaa05` (2026-08-20)
+
+The live browser acceptance run at 1920×1080 found a defect that 177 targeted
+tests and every static check had missed: **the research card rendered its own
+markup as text.** `_r31row(label, value)` escapes the label through `_r30esc()`,
+which rewrites `&` to `&amp;`, but every Release-31 label was authored as HTML.
+The operator read `&nbsp;&nbsp;check &middot; survives_spa`, `Cost &amp;
+turnover`, and `0.5 &times; / 1 &times; / 2 ×` — 53 authored entities across 43
+lines, affecting roughly half the rows including every indented sub-row.
+
+The escaping is correct and stays: the label concatenates dynamic fragments (a
+multiple-testing key, a superseded campaign id) that must remain escaped. The
+authored **entities** were the defect, and are now the characters they denote
+(U+00A0, U+00B7, U+00D7, and a bare `&` that `_r30esc` escapes back). `&mdash;`
+is untouched — it only ever reaches the raw value slot.
+
+**Root-cause class:** a string that is correct as HTML and wrong once escaped.
+No static test can see it, because the fault only exists after a browser has
+parsed the output. Four regression tests now guard it, including a negative
+probe and a guard that `_r31row` must still escape its label — closing the
+one-line "stop escaping" shortcut that would have unescaped the dynamic
+fragments. The handoff `ui_acceptance.ps1` gates on it too.
+
+`ui_acceptance.ps1` was itself rewritten. It had been demanding the pre-repair
+badge `NO LIVE ORDERS`, reporting a **correct** product as `MISSING`, and
+terminating on `R31_V3_UI_CHECKLIST_PRINTED` — a token meaning only that a list
+had been printed. It now performs the 13-item acceptance by assertion, does a
+read-only authenticated GET of the read model, classifies HTTP/auth/schema/
+process failures precisely instead of collapsing them to "unreachable", checks
+`/v1/health` and `/v1/ready` continuity, and sets one machine-readable
+`$global:R31UiResult`.
+
+Backend was **not** restarted: the server serves `api/ui/index.html` per request,
+proven by a cache-busted GET returning the repaired bytes.
 
 ## Release 31 — Mathematical Alpha Frontier, Campaign V3 (2026-08-19)
+
+- **Current decision:** **`R31_CURRENT_INFORMATION_MODEL_FRONTIER_EXHAUSTED`** — no candidate earned a paper review. Across 76 executed candidates (33 known-method configs over 11 families, 43 novel specifications, plus the incumbent leg), the best lockbox result was `km:fama_macbeth:01:px:h20`: **+3.88 %/yr net** against a point-in-time S&P 500 equal weight of **+8.67 %/yr** and `$SPXTR` of **+13.00 %/yr**, i.e. **−4.80 %/yr** and **−9.32 %/yr** excess. It loses to the benchmark **before** costs (gross +6.53 %/yr), so this is a selection result, not a cost result. SPA p = 0.53. The dominant constraint is recorded as **`INFORMATION_NOT_METHOD`**: 67 of 77 candidates could not be mapped into economic return units at all. Verdict hash `17e5e2e84e3a`. Nothing is activated, promoted or proposed.
+- **Broad-regression repair (2026-08-20):** the operator's one broad repository suite returned **6863 passed, 971 skipped, 12 failed**. All twelve were classified against a pristine `git archive HEAD` baseline tree, which fails **8** of them identically: those are **PRE-EXISTING baseline failures** (`test_market_interaction_ux` research-bridge literal, `test_phase27b7::TestRequiredContent`, four `test_slice2_workflow_state` states, `test_slice6::test_21`, `test_stage21::test_08`) and are deliberately **not** repaired here. The other **4 were introduced by Release 31** and are now fixed: **(A)** one ambiguous `>NO LIVE ORDERS</span>` badge on the R31 card broke three long-standing UI wording contracts — the canonical 27B.6 token is **`NO LIVE BROKER ORDERS`**, because paper orders are *real* and only *live brokerage* orders are structurally disabled; **(B)** `/v1/research/mathematical-alpha-frontier` was declared with no `route_ownership` entry, now owned by `api/mathematical_alpha_frontier.py`. Both defects lived in files **shared with earlier phases**, whose contracts the bounded R31 gate never consulted — which is why 169/169 green was not evidence about them. `validate.ps1` gains a **touched-owner legacy compatibility** step (46 tests, ~64 s) covering exactly those contracts, the R31 suite gains 8 tests (177 total) including three negative probes, and the audit gains a `ui_ambiguous_safety_badges` invariant. Full evidence: `evidence\broad_regression_failure_classification.txt` in the handoff.
 
 **What this phase corrected.** Campaign v2 was stopped before any verdict because
 its judge was measuring something other than the business question. It scored
