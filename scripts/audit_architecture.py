@@ -6089,6 +6089,261 @@ def check_release32_pnl_opportunity_frontier(files: list[Path]) -> dict:
     }
 
 
+R33_OWNERS = {
+    "root": "alpha_agent/r33/__init__.py",
+    "contract": "alpha_agent/r33/contract.py",
+    "universe": "alpha_agent/r33/universe.py",
+    "panel": "alpha_agent/r33/panel.py",
+    "pit": "alpha_agent/r33/pit.py",
+    "features": "alpha_agent/r33/features.py",
+    "targets": "alpha_agent/r33/targets.py",
+    "partition": "alpha_agent/r33/partition.py",
+    "models": "alpha_agent/r33/models.py",
+    "regime": "alpha_agent/r33/regime.py",
+    "predictive": "alpha_agent/r33/predictive.py",
+    "economic": "alpha_agent/r33/economic.py",
+    "registry": "alpha_agent/r33/registry.py",
+    "lockbox": "alpha_agent/r33/lockbox.py",
+    "robustness": "alpha_agent/r33/robustness.py",
+    "campaign": "alpha_agent/r33/campaign.py",
+}
+
+#: Operational owners the Release-33 research lane may never import.
+R33_FORBIDDEN_OWNER_REFS = (
+    "api.operational_book", "api.daily_close", "api.rebalance_execution",
+    "api.portfolio_decision", "paper_trader.broker", "engine.normal_cycle",
+)
+
+#: Tokens that would mean the research lane had started trading.
+R33_FORBIDDEN_CALLS = (
+    "create_order", "place_order", "submit_order", "confirm_target",
+    "apply_proposal", "approve_proposal", "promote_champion", "activate_model",
+    "write_holdings", "write_cash", "execute_rebalance",
+)
+
+
+def check_release33_predictive_edge(files: list[Path]) -> dict:
+    """Release 33 ownership, leakage and honesty invariants (41-62)."""
+    src = {name: (_read(path) or "") for name, path in R33_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    runner = _read("scripts/run_release33_predictive_edge.py") or ""
+
+    # (41)-(43) One statistics library, one hashing owner, no second optimiser.
+    reuses_r31_statistics = (
+        "from ..r31.multiple_testing import" in src["campaign"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    reuses_r31_learners = "from ..r31 import learners as _l" in src["models"]
+    no_second_optimiser = not re.search(
+        r"def\s+(optimise|optimize|zero_base_target)\s*\(", all_src)
+    no_second_covariance = not re.search(r"def\s+build_covariance\s*\(", all_src)
+
+    # (44)-(46) Safety: research only, promotes nothing, spends nothing.
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY"))
+    forbidden_calls = sorted(
+        {t for t in R33_FORBIDDEN_CALLS if t in all_src.lower()})
+    forbidden_owner_refs = sorted(
+        {t for t in R33_FORBIDDEN_OWNER_REFS if t in all_src})
+    declares_no_futures_execution = (
+        '"executes_futures": False' in src["root"]
+        and '"integrates_broker": False' in src["root"])
+
+    # (47)-(49) The implementability distinction may not be blurred.
+    futures_claim_refused = (
+        "FUTURES_IMPLEMENTABILITY_CLAIMABLE = False" in src["contract"]
+        and "UNIVERSE_IMPLEMENTABILITY_STATE = SIGNAL_RESEARCH_VALID"
+        in src["contract"])
+    universe_declares_signal_only = (
+        "SIGNAL_RESEARCH_VALID" in src["universe"]
+        and "futures_implementability_claimable" in src["universe"])
+    return_heterogeneity_declared = (
+        "RETURN_DEFINITION_HETEROGENEOUS = True" in src["contract"]
+        and "EQUITY_INDICES_EXCLUDE_DIVIDENDS = True" in src["contract"]
+        and "FX_SPOT_EXCLUDES_CARRY = True" in src["contract"])
+
+    # (50)-(53) Leakage controls. These are the invariants that decide whether
+    # any number in this release means anything.
+    hmm_filtered_only = (
+        "def hmm_filter_states" in src["models"]
+        and "states_are_filtered_only" in src["models"]
+        and "smoothed" in src["models"].lower())
+    regime_uses_filtered = (
+        "hmm_filter_states" in src["regime"]
+        and "fitted_on_training_only" in src["regime"])
+    scaler_fitted_on_training = (
+        "def fit_scaler" in src["models"]
+        and "TRAINING rows only" in src["models"])
+    no_random_split = (
+        "random_split_allowed" in src["partition"]
+        and "RANDOM" not in src["partition"].upper().replace(
+            "RANDOM_SPLIT_ALLOWED", "").replace("NO RANDOM", ""))
+    non_overlapping_declared = (
+        "NON_OVERLAPPING_FORECAST_DATES = True" in src["contract"])
+    implementation_lag_declared = (
+        "IMPLEMENTATION_LAG_SESSIONS = 1" in src["contract"])
+    pit_probe_present = (
+        "def point_in_time_probe" in src["campaign"]
+        and "truncated" in src["campaign"].lower())
+
+    # (54)-(56) Point-in-time information honesty.
+    revised_macro_excluded = "REVISED_NOT_PIT_EXCLUDED" in src["pit"]
+    cot_publication_lag = (
+        "COT_PUBLICATION_LAG_BUSINESS_DAYS" in src["pit"]
+        and "available_from" in src["pit"])
+    alfred_vintages_used = (
+        "realtime_start" in src["pit"] and "def as_of_series" in src["pit"])
+    synthetic_data_inadmissible = (
+        "LANE_C_SYNTHETIC_DATA_ADMISSIBLE = False" in src["contract"])
+
+    # (57)-(59) The judge, and the control that decides skill.
+    cost_base_traded_notional = (
+        'COST_BASE = "TRADED_NOTIONAL"' in src["contract"])
+    volatility_matched_control = (
+        "def volatility_matched_control" in src["economic"]
+        and "ECONOMIC_CONTROL = \"VOLATILITY_MATCHED_BENCHMARK_CASH_MIX\""
+        in src["contract"])
+    excess_over_cash_may_not_rank = (
+        '"excess_over_cash_may_rank": False' in src["economic"])
+    cost_sensitivity_declared = (
+        "COST_SENSITIVITY_MULTIPLIERS" in src["contract"]
+        and "def cost_sensitivity" in src["robustness"])
+
+    # (60)-(62) Budget, lockbox and the two-result rule.
+    denominator_all_executed = (
+        "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"]
+        and "failed_configurations_stay_in_denominator" in src["registry"])
+    adaptive_search_refused = (
+        "ADAPTIVE_SEARCH_ALLOWED = False" in src["contract"])
+    deep_learning_out_of_scope = (
+        "DEEP_LEARNING_IN_SCOPE = False" in src["contract"])
+    lockbox_one_access = (
+        "MAX_LOCKBOX_ACCESSES_PER_FINALIST = 1" in src["contract"]
+        and "RETUNING_AFTER_LOCKBOX_ALLOWED = False" in src["contract"]
+        and "already used its single" in src["lockbox"])
+    alpha_pass_requires_qualified = (
+        "ALPHA_PASS_REQUIRES = VERDICT_QUALIFIED" in src["contract"]
+        and "alpha_pass_requires" in src["campaign"])
+    reports_both_results = (
+        "SYSTEM_RESULT" in src["campaign"] and "ALPHA_RESULT" in src["campaign"]
+        and "system_result" in src["campaign"])
+    min_scored_dates_enforced = (
+        "MIN_SCORED_FORECAST_DATES" in src["campaign"]
+        and "scored_dates_sufficient" in src["campaign"])
+    stability_fails_closed = (
+        '"single_subperiod_dependent": True' in src["robustness"]
+        and "FAIL CLOSED" in src["robustness"])
+    leave_market_out_is_a_gate = (
+        "LEAVE_MARKET_OUT_REQUIRED = True" in src["contract"]
+        and "single_market_dependent" in src["robustness"])
+    # Whitespace-normalised: the phrase this looks for wraps across a line in
+    # the runner's docstring, and a guard that a line break can silence is not
+    # a guard.
+    runner_flat = " ".join(runner.lower().split())
+    runner_is_research_only = (
+        "research only" in runner_flat and "no order" in runner_flat)
+
+    # (63)-(67) The operational-write gate attributes writes to a WRITER.
+    #
+    # The first gate inferred causality from mtime, so the Release-29
+    # continuous collection service advancing its own heartbeat presented as a
+    # Release-33 write. The two ways to "fix" that - stop production, or
+    # whitelist the directory - are both worse than the defect, so the rule is
+    # owner-specific and provenance-specific instead, and these invariants stop
+    # it decaying back into either one.
+    attrib_path = "scripts/r33_operational_write_attribution.py"
+    attrib_src = _read(attrib_path)
+    attribution_owner_present = bool(attrib_src)
+    attribution_is_provenance_based = (
+        '"provenance_required": True' in attrib_src
+        and "WRITER_PROVENANCE_NOT_THE_DECLARED_SERVICE" in attrib_src
+        and "UNRECOGNISED_FILE_UNDER_PROTECTED_ROOT" in attrib_src
+        and "def attribute_continuous_service" in attrib_src)
+    # Whitespace-normalised: the phrase wraps across lines in the docstring,
+    # and a guard a line break can silence is not a guard.
+    attrib_flat = " ".join(attrib_src.lower().split())
+    attribution_fails_closed = (
+        "attribution_error" in attrib_src.lower()
+        and "fails closed" in attrib_flat
+        and "unmeasurable is not innocent" in attrib_flat)
+    attribution_refuses_time_whitelist = (
+        "no r33-attributable operational store write" in attrib_flat
+        and "never time-specific" in attrib_flat)
+
+    # The functional half: the declaration must actually hold. A docstring
+    # promising provenance while the protected set has quietly lost a root is
+    # exactly what a substring check cannot see.
+    try:
+        if str(REPO_ROOT / "scripts") not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import r33_operational_write_attribution as _attrib
+        _decl = _attrib.check_owner_declarations(REPO_ROOT)
+        information_collection_still_protected = bool(
+            _decl.get("ok") is True
+            and "information_collection" in _attrib.OPERATIONAL_ROOTS
+            and "information_collection" in _attrib.CONTINUOUS_SERVICE_ROOTS)
+        r33_source_has_no_operational_write_path = bool(
+            _attrib.r33_source_operational_write_paths(REPO_ROOT)["clean"])
+    except Exception as exc:  # noqa: BLE001 - unmeasurable fails closed
+        information_collection_still_protected = f"UNMEASURABLE:{exc}"
+        r33_source_has_no_operational_write_path = f"UNMEASURABLE:{exc}"
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "reuses_r31_statistics": reuses_r31_statistics,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "reuses_r31_learners": reuses_r31_learners,
+        "no_second_optimiser": no_second_optimiser,
+        "no_second_covariance_owner": no_second_covariance,
+        "safety_flags_false": safety_flags_false,
+        "forbidden_calls": forbidden_calls,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "declares_no_futures_execution": declares_no_futures_execution,
+        "futures_implementability_refused": futures_claim_refused,
+        "universe_declares_signal_research_only":
+            universe_declares_signal_only,
+        "return_definition_heterogeneity_declared":
+            return_heterogeneity_declared,
+        "hmm_states_filtered_only": hmm_filtered_only,
+        "regime_uses_filtered_states": regime_uses_filtered,
+        "scaler_fitted_on_training_only": scaler_fitted_on_training,
+        "no_random_split": no_random_split,
+        "non_overlapping_forecast_dates": non_overlapping_declared,
+        "implementation_lag_declared": implementation_lag_declared,
+        "point_in_time_probe_present": pit_probe_present,
+        "revised_macro_excluded": revised_macro_excluded,
+        "cot_publication_lag_applied": cot_publication_lag,
+        "alfred_vintages_used": alfred_vintages_used,
+        "synthetic_data_inadmissible": synthetic_data_inadmissible,
+        "cost_base_traded_notional": cost_base_traded_notional,
+        "volatility_matched_control_owned": volatility_matched_control,
+        "excess_over_cash_may_not_rank": excess_over_cash_may_not_rank,
+        "cost_sensitivity_declared": cost_sensitivity_declared,
+        "denominator_counts_all_executed": denominator_all_executed,
+        "adaptive_search_refused": adaptive_search_refused,
+        "deep_learning_out_of_scope": deep_learning_out_of_scope,
+        "lockbox_single_access": lockbox_one_access,
+        "alpha_pass_requires_qualified_verdict": alpha_pass_requires_qualified,
+        "reports_system_and_alpha_results": reports_both_results,
+        "min_scored_dates_enforced_at_the_gate": min_scored_dates_enforced,
+        "stability_check_fails_closed": stability_fails_closed,
+        "leave_market_out_is_a_gate": leave_market_out_is_a_gate,
+        "runner_is_research_only": runner_is_research_only,
+        "attribution_owner_present": attribution_owner_present,
+        "attribution_is_provenance_based": attribution_is_provenance_based,
+        "attribution_fails_closed": attribution_fails_closed,
+        "attribution_refuses_time_whitelist":
+            attribution_refuses_time_whitelist,
+        "information_collection_still_protected":
+            information_collection_still_protected,
+        "r33_source_has_no_operational_write_path":
+            r33_source_has_no_operational_write_path,
+    }
+
+
 def _r32_turnover_budget_literals(gov_src: str) -> list:
     """Numeric turnover-budget VALUES invented by the governance module.
 
@@ -6713,6 +6968,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release31_mathematical_alpha_frontier(files),
         "release32_pnl_opportunity_frontier":
             check_release32_pnl_opportunity_frontier(files),
+        "release33_predictive_edge": check_release33_predictive_edge(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -7346,6 +7602,68 @@ BLOCKING_INVARIANTS = (
     # count is not diversification, that the event fabric is reused, and that
     # multi-asset NAV has exactly one future owner; nothing is bought; and the
     # read surface is GET-only with the canonical order badge.
+    # Release 33 (invariants 41-62): one statistics library and one hashing
+    # owner; the research lane promotes nothing, spends nothing, and never
+    # touches an operational owner; the SIGNAL_RESEARCH_VALID /
+    # FUTURES_IMPLEMENTABILITY_PROVEN distinction is refused rather than
+    # blurred, because the owned Continuous Futures entitlement is one market;
+    # the leakage controls that decide whether any number here means anything
+    # are structural (filtered HMM states only, training-only scaling, no
+    # random split, non-overlapping forecast dates, an executable
+    # point-in-time probe); point-in-time honesty (revised macro excluded,
+    # CFTC publication lag applied, ALFRED vintages, no synthetic substitute);
+    # the judge charges traded notional and ranks on a volatility-matched
+    # control rather than on excess over cash; and ALPHA_RESULT may be PASS
+    # only with a qualified verdict.
+    ("release33_predictive_edge", "modules_present", True),
+    ("release33_predictive_edge", "reuses_r31_statistics", True),
+    ("release33_predictive_edge", "reuses_r31_hashing", True),
+    ("release33_predictive_edge", "reuses_r31_learners", True),
+    ("release33_predictive_edge", "no_second_optimiser", True),
+    ("release33_predictive_edge", "no_second_covariance_owner", True),
+    ("release33_predictive_edge", "safety_flags_false", True),
+    ("release33_predictive_edge", "forbidden_calls", []),
+    ("release33_predictive_edge", "forbidden_owner_refs", []),
+    ("release33_predictive_edge", "declares_no_futures_execution", True),
+    ("release33_predictive_edge", "futures_implementability_refused", True),
+    ("release33_predictive_edge", "universe_declares_signal_research_only",
+     True),
+    ("release33_predictive_edge", "return_definition_heterogeneity_declared",
+     True),
+    ("release33_predictive_edge", "hmm_states_filtered_only", True),
+    ("release33_predictive_edge", "regime_uses_filtered_states", True),
+    ("release33_predictive_edge", "scaler_fitted_on_training_only", True),
+    ("release33_predictive_edge", "non_overlapping_forecast_dates", True),
+    ("release33_predictive_edge", "implementation_lag_declared", True),
+    ("release33_predictive_edge", "point_in_time_probe_present", True),
+    ("release33_predictive_edge", "revised_macro_excluded", True),
+    ("release33_predictive_edge", "cot_publication_lag_applied", True),
+    ("release33_predictive_edge", "alfred_vintages_used", True),
+    ("release33_predictive_edge", "synthetic_data_inadmissible", True),
+    ("release33_predictive_edge", "cost_base_traded_notional", True),
+    ("release33_predictive_edge", "volatility_matched_control_owned", True),
+    ("release33_predictive_edge", "excess_over_cash_may_not_rank", True),
+    ("release33_predictive_edge", "cost_sensitivity_declared", True),
+    ("release33_predictive_edge", "denominator_counts_all_executed", True),
+    ("release33_predictive_edge", "adaptive_search_refused", True),
+    ("release33_predictive_edge", "deep_learning_out_of_scope", True),
+    ("release33_predictive_edge", "lockbox_single_access", True),
+    ("release33_predictive_edge", "alpha_pass_requires_qualified_verdict",
+     True),
+    ("release33_predictive_edge", "reports_system_and_alpha_results", True),
+    ("release33_predictive_edge", "min_scored_dates_enforced_at_the_gate",
+     True),
+    ("release33_predictive_edge", "stability_check_fails_closed", True),
+    ("release33_predictive_edge", "leave_market_out_is_a_gate", True),
+    ("release33_predictive_edge", "runner_is_research_only", True),
+    ("release33_predictive_edge", "attribution_owner_present", True),
+    ("release33_predictive_edge", "attribution_is_provenance_based", True),
+    ("release33_predictive_edge", "attribution_fails_closed", True),
+    ("release33_predictive_edge", "attribution_refuses_time_whitelist", True),
+    ("release33_predictive_edge", "information_collection_still_protected",
+     True),
+    ("release33_predictive_edge", "r33_source_has_no_operational_write_path",
+     True),
     ("release32_pnl_opportunity_frontier", "modules_present", True),
     ("release32_pnl_opportunity_frontier", "second_owner_modules", []),
     ("release32_pnl_opportunity_frontier", "reuses_r31_statistics", True),

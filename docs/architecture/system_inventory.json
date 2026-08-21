@@ -3360,6 +3360,30 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "RESEARCH ONLY, PRODUCTION READ-ONLY. Answers the asset-agnostic question: if every investable dollar were cash right now, where should capital be deployed to maximise expected after-cost, risk-adjusted paper portfolio PnL? Cash is a real asset choice and a NULL result is valid. The measured Phase-1 finding that constrains everything downstream: 106 of 144 owned Norgate Economic series are REVISED_NOT_PIT because each statistical release changes value on the FIRST BUSINESS DAY OF THE PERIOD IT MEASURES - CPI for month M appears on day one of month M, GDP on day one of its quarter - so reading them at their own timestamp is roughly a publication lag of look-ahead plus today's revisions. Classified by a measured change-day fingerprint, not by assertion. Multiple-testing statistics (BH/FDR, stationary bootstrap, SPA) and the lockbox discipline are REUSED from alpha_agent/r31/ rather than reimplemented; there is no second portfolio optimiser, covariance owner, HOC engine, cost model, event system or forward-evidence system here."
+    },
+    {
+      "path": "alpha_agent/r33/",
+      "system": "research",
+      "classification": "KEEP",
+      "target_owner": "alpha_agent/r33/",
+      "duplicate_with": [],
+      "responsibility": "Release 33 Predictive Edge Acquisition research package. Owns the frozen campaign contract, budgets and qualification gate (contract), the measured cross-market universe and its R1-R6 selection rules (universe), the aligned USD price/return panel and its non-overlapping forecast geometry (panel), the Lane B point-in-time information layer - ALFRED vintages, CFTC Commitments of Traders and owned market observables (pit), the bounded feature registry (features), the four forecast targets (targets), the chronological DISCOVERY/VALIDATION/LOCKBOX partition and its embargo (partition), the model families (models), the filtered-state regime layer (regime), forecast scoring against pre-registered baselines (predictive), the economic judge and its volatility-matched control (economic), the candidate registry and multiple-testing denominator (registry), the one-access lockbox (lockbox), the robustness gates (robustness), and orchestration plus the terminal verdict (campaign). RESEARCH ONLY: the package creates no signal authority, target, allocation, proposal, decision or order, activates nothing, promotes nothing, spends nothing, executes no futures, integrates no broker, and writes only under its own research root. Hashing, artifact format, multiple-testing statistics and the numpy learner library are REUSED from alpha_agent/r31/ rather than reimplemented.",
+      "direct_reads": [
+        "Norgate Data local databases (World Indices, US Indices, Forex Spot, Cash Commodities, Continuous Futures, Economic) via norgatedata, read-only",
+        "https://api.stlouisfed.org/fred/series/observations - ALFRED vintage macro observations, free, credential by presence only and redacted from every stored fingerprint",
+        "https://www.cftc.gov/files/dea/history/deacot<year>.zip - free Commitments of Traders history, cached under the research root"
+      ],
+      "direct_writes": [
+        "D:/Stock_Prediction_app_data/predictive_edge_r33/<campaign_id>/*.json - immutable research artifacts under its own research root ONLY. No operational store, no PostgreSQL, no order, no proposal, no model promotion."
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release33_predictive_edge.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "RESEARCH ONLY, PRODUCTION READ-ONLY. Commissioned to run a broad CONTINUOUS-FUTURES campaign; the owned Continuous Futures entitlement was MEASURED and contains exactly ONE market (&ES), so the broad cross-market universe is assembled instead from world equity indices, ICE/FTSE bond total-return indices, Bloomberg commodity sub-indices and Forex Spot - 66 markets across 6 asset classes and 26 economic groups, 1995-2026 - and is labelled SIGNAL_RESEARCH_VALID and never FUTURES_IMPLEMENTABILITY_PROVEN. Terminal verdict R33_NO_PREDICTIVE_EDGE against a denominator of 105 executed configurations: SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL. Predictive improvement was real and did not convert - 46 of 105 configurations survived Benjamini-Hochberg on validation forecast score, and ZERO of the 96 configurations with an economic path beat a volatility-matched benchmark/cash control on validation at any horizon. Five lockbox finalists showed positive after-cost excess, and leave-one-market-out attributed all of it to ONE market: removing TRYUSD moved mean excess from +0.0041 to -0.0069, a NEGATIVE retention, so the apparent broad cross-market edge is a short-the-lira trade. Campaign v1 is SUPERSEDED_GATE_DID_NOT_ENFORCE_A_FROZEN_TERM (the declared minimum of scored forecast dates was never read by the qualification gate, and subperiod stability passed vacuously when unmeasurable); v2 tightened the gate only, and every v1 per-candidate number reproduces exactly - 1260 fields, 0 mismatches, identical judge behaviour hash. Guarded by check_release33_predictive_edge (39 sub-checks) including the leakage invariants that decide whether any number here means anything: HMM state beliefs are FILTERED and never smoothed, scaling is fitted on training rows only, no random split, forecast dates are non-overlapping, and an executable point-in-time probe rebuilds the design matrix from a truncated panel and demands row-for-row equality (16170 rows checked, 0 mismatched)."
     }
   ]
 }

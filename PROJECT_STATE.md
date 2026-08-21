@@ -1,12 +1,91 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-20
-- **Updated by phase:** **Release 32 — PnL Opportunity Frontier. TERMINAL: `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED`.** Release 31 is CLOSED.
-- **Source Git HEAD:** `59eaa05c6e9e937bbd089fd016e15099cb8482aa`, branch `stage19-controlled-rebalance`, **pushed** (`HEAD == origin/stage19-controlled-rebalance`). This is the Release-31 closeout fix described below and is the declared **Release-32 base commit**.
-- **Working tree status:** Release-32 documentation changes uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 32 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release32_pnl_opportunity_frontier_handoff`. Do not rerun Release 31 or Release 32 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, or restarted production.
+- **Last updated:** 2026-08-21
+- **Updated by phase:** **Release 33 — Predictive Edge Acquisition. TERMINAL: `R33_NO_PREDICTIVE_EDGE`. SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL.** Release 32 is CLOSED.
+- **Source Git HEAD:** `c014beab82df36011d17e4a17311221b48296de8`, branch `stage19-controlled-rebalance`, **pushed** (`HEAD == origin/stage19-controlled-rebalance`). This is the Release-32 closeout and is the declared **Release-33 base commit**.
+- **Working tree status:** Release-33 source, tests and documentation uncommitted. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 33 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release33_predictive_edge_handoff`. Do not rerun Release 31, 32 or 33 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, restarted production, or touched the completed 2026-08-20 operational cycle.
 
-## Release 32 — PnL Opportunity Frontier (2026-08-20, IN PROGRESS)
+## Every major research release reports TWO results from now on
+
+A completed campaign, a clean audit and a large artifact set are **SYSTEM**
+outcomes. They are not an investment outcome. From Release 33 onward every major
+research release reports both, separately, and does not let the first stand in
+for the second:
+
+| release | SYSTEM_RESULT | ALPHA_RESULT | terminal verdict |
+|---|---|---|---|
+| Release 32 | PASS | **FAIL** | `R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED` |
+| Release 33 | PASS | **FAIL** | `R33_NO_PREDICTIVE_EDGE` |
+
+`ALPHA_RESULT` may be `PASS` only alongside `R33_ALPHA_QUALIFIED`, and that rule
+is a constant in `alpha_agent/r33/contract.py` enforced by
+`campaign.build_verdict`, not a sentence in this document.
+
+## Release 33 — Predictive Edge Acquisition (2026-08-21, TERMINAL)
+
+**Verdict: `R33_NO_PREDICTIVE_EDGE`. SYSTEM_RESULT = PASS. ALPHA_RESULT = FAIL.**
+105 executed configurations, 0 qualified candidates, $0 spent, production
+untouched.
+
+**The commissioned lane did not exist.** Release 33 was to run a broad
+CONTINUOUS-FUTURES campaign across 30–60 markets. The owned Norgate Continuous
+Futures entitlement was measured and contains **exactly one market** (`&ES`).
+The broad universe was therefore assembled from what the estate actually holds —
+world equity indices, ICE/FTSE bond total-return indices, Bloomberg commodity
+sub-indices and Forex Spot: **66 markets, 6 asset classes, 26 economic groups,
+1995–2026, 95 % coverage**. Because roll yield, contract selection and futures
+execution semantics are absent for every market but one, the universe is
+labelled `SIGNAL_RESEARCH_VALID` and **never** `FUTURES_IMPLEMENTABILITY_PROVEN`.
+
+**Prediction improved. It did not convert.** 46 of 105 configurations survived
+Benjamini–Hochberg on their validation forecast score; cross-sectional rank IC
+reached 0.095 at the 60-session horizon. And **zero of the 96 configurations
+with an economic path beat a volatility-matched benchmark/cash control on
+validation** — at any horizon, median t between −2.8 and −4.2. That is the
+contract's own branch: *predicts better but cannot produce superior after-cost
+economics ⇒ NOT investable alpha.*
+
+**The one apparent exception was one currency.** Five lockbox finalists showed
+positive after-cost excess over the control. Leave-one-market-out attributed all
+of it to a single market: removing **`TRYUSD`** moved mean excess from
+**+0.0041 to −0.0069** — a *negative* retention of −1.67 to −1.98. The apparent
+broad cross-market edge is a short-the-lira trade riding one currency's
+collapse. This is exactly the failure mode leave-market-out exists to catch, and
+it is why that diagnostic is a GATE here rather than commentary.
+
+**Campaign v1 is SUPERSEDED, for a gate defect.** The contract declared that a
+candidate with fewer than `MIN_SCORED_FORECAST_DATES` scored dates in a segment
+cannot carry a verdict for that segment — and the gate never read that frozen
+term, so every lockbox result (all resting on 23 scored dates against a declared
+minimum of 24) satisfied the two predictive conditions. Subperiod stability also
+passed **vacuously** when it had too few observations to measure. v2 enforces
+the frozen minimum and makes the stability check fail closed. The change is
+strictly tightening and touches no measurement, which is asserted rather than
+assumed: **1,260 per-candidate fields compared across v1 and v2, 0 mismatches,
+identical judge behaviour hash**. The lockbox was not reopened.
+
+**Point-in-time integrity is measured, not declared.** The design matrix is
+rebuilt from a panel truncated at 2015-06-30 and every row before the cut must
+be identical: **16,170 rows checked, 0 mismatched**. Lane B acquired genuinely
+point-in-time information for free — 8 ALFRED vintage series (CPI alone carries
+409 distinct vintages back to 1994) and 14 CFTC Commitments-of-Traders series
+(1995–2026, ~1,650 weekly reports each) lagged four business days to their
+publication. The 106 revised Norgate economic series Release 32 measured remain
+excluded.
+
+**Lane C stays `READY_FOR_SAMPLE_NO_GENUINE_PROVIDER_DATA`.** The owned
+earnings and analyst-revision stores carry `provider_id: synthetic_test` /
+`PROXY_LOCAL`; synthetic data cannot support a predictive claim and this release
+spent nothing. Lane C never blocked A or B.
+
+**What Release 34 should NOT conclude.** This is not "the method was wrong".
+Four model families, four poolings, three horizons and four targets all agree,
+and the transparent baselines were not beaten by the learners in any way that
+mattered economically. The binding constraint remains INFORMATION, and the one
+economically positive result found was a single currency's trend.
+
+## Release 32 — PnL Opportunity Frontier (2026-08-20, CLOSED)
 
 **The objective became asset-agnostic.** Equities were the proving ground, not
 the goal. The permanent question: *if every investable dollar were cash right
