@@ -51,13 +51,24 @@ RECOMMENDATION_VOCAB = kernel.RECOMMENDATION_VOCAB
 COMPOSITION_OWNER = "api.data_expansion"
 PHASE = "29J-Slice9"
 
-# Read-layer states extend the kernel's recommendation vocabulary.
+# --- decision context — re-exported so no caller invents its own spelling ----------- #
+# Stage A ("is it worth paying to learn?") and Stage B ("did it earn continued purchase?")
+# are both answered by the ONE canonical kernel. The default is Stage B, which is the
+# historical behaviour of every existing caller.
+CONTEXT_RESEARCH_ACQUISITION = kernel.CONTEXT_RESEARCH_ACQUISITION
+CONTEXT_POST_ACQUISITION_VALUE = kernel.CONTEXT_POST_ACQUISITION_VALUE
+DECISION_CONTEXT_VOCAB = kernel.DECISION_CONTEXT_VOCAB
+DEFAULT_DECISION_CONTEXT = kernel.DEFAULT_DECISION_CONTEXT
+ACQUISITION_RECOMMENDATION_VOCAB = kernel.ACQUISITION_RECOMMENDATION_VOCAB
+DECISION_STATE_VOCAB = kernel.DECISION_STATE_VOCAB
+
+# Read-layer states extend the kernel's recommendation vocabularies (both contexts).
 STATE_NOT_RUN = "NOT_RUN"
 STATE_OK = "OK"
 STATE_EMPTY_CATALOG = "EMPTY_CATALOG"
 STATE_UNAVAILABLE = "UNAVAILABLE"
 STATE_NOT_FOUND = "NOT_FOUND"
-READ_STATE_VOCAB = tuple(list(RECOMMENDATION_VOCAB) + [STATE_NOT_RUN, STATE_OK,
+READ_STATE_VOCAB = tuple(list(DECISION_STATE_VOCAB) + [STATE_NOT_RUN, STATE_OK,
                                                        STATE_EMPTY_CATALOG, STATE_UNAVAILABLE,
                                                        STATE_NOT_FOUND])
 
@@ -345,14 +356,27 @@ def _catalog_entry(dataset_id: str, *, catalog: Optional[list] = None,
 def build_input_contract(*, catalog_entry: dict,
                          evidence_override: Optional[dict] = None,
                          dataset_override: Optional[dict] = None,
-                         requirements_override: Optional[dict] = None) -> dict:
+                         requirements_override: Optional[dict] = None,
+                         acquisition_case: Optional[dict] = None,
+                         decision_context: Optional[str] = None) -> dict:
     """Assemble the immutable dataset-evaluation input contract from a catalog entry.
 
     Overrides let an operator / the test suite inject freshly-MEASURED research evidence (from
     the existing experiment/evidence owners) or corrected metadata without editing the catalog
     on disk. Nothing is re-derived here; measured evidence always comes from its owner.
+
+    ``acquisition_case`` carries the Stage-A declarations the kernel refuses to invent — what
+    capability the acquisition unlocks, how distinct it is expected to be from owned data,
+    whether an owned substitute was tried and whether a bounded evaluation exists. Omitting it
+    in the research-acquisition context does not produce a recommendation; it produces an
+    explained INSUFFICIENT_EVIDENCE.
     """
     ce = catalog_entry or {}
+    ctx = kernel.resolve_decision_context(input_contract=ce,
+                                          decision_context=decision_context)
+    acq = dict(ce.get("acquisition_case") or {})
+    if acquisition_case is not None:
+        acq = dict(acquisition_case)
     dataset = dict(ce.get("dataset") or {})
     if dataset_override:
         dataset.update(dataset_override)
@@ -372,6 +396,8 @@ def build_input_contract(*, catalog_entry: dict,
         "dataset": dataset,
         "research_requirements": requirements,
         "evidence": evidence,
+        "acquisition_case": acq,
+        "decision_context": ctx,
         "existing_ownership": dict(ce.get("existing_ownership") or {}),
         "catalog_provenance": ce.get("provenance"),
     }
@@ -387,11 +413,15 @@ def run_evaluation(*, dataset_id: Optional[str] = None,
                    dataset_override: Optional[dict] = None,
                    requirements_override: Optional[dict] = None,
                    catalog: Optional[list] = None, catalog_path=None,
-                   policy: Optional[dict] = None) -> dict:
+                   policy: Optional[dict] = None,
+                   acquisition_case: Optional[dict] = None,
+                   decision_context: Optional[str] = None) -> dict:
     """Build the dataset-evaluation contract (unless supplied) and run the pure kernel.
 
     Returns ``{"input_contract": ..., "evaluation": <kernel result>}``. Read-only: persists
-    nothing, purchases nothing, activates no provider, calls no paid API.
+    nothing, purchases nothing, acquires nothing, activates no provider, calls no paid API.
+    ``decision_context`` selects Stage A or Stage B; omitting it keeps the historical
+    post-acquisition semantics for every caller that has not asked for anything else.
     """
     pol = policy or resolve_policy()
     if input_contract is None:
@@ -402,8 +432,10 @@ def run_evaluation(*, dataset_id: Optional[str] = None,
             raise ValueError("Unknown dataset_id and no catalog_entry / input_contract supplied.")
         input_contract = build_input_contract(
             catalog_entry=ce, evidence_override=evidence_override,
-            dataset_override=dataset_override, requirements_override=requirements_override)
-    evaluation = kernel.evaluate_dataset(input_contract=input_contract, policy=pol)
+            dataset_override=dataset_override, requirements_override=requirements_override,
+            acquisition_case=acquisition_case, decision_context=decision_context)
+    evaluation = kernel.evaluate_dataset(input_contract=input_contract, policy=pol,
+                                         decision_context=decision_context)
     return {"input_contract": input_contract, "evaluation": evaluation}
 
 
@@ -415,6 +447,7 @@ def evaluation_identity(*, input_contract: dict, result: dict) -> dict:
         "dataset_id": input_contract.get("dataset_id"),
         "provider": input_contract.get("provider"),
         "data_category": input_contract.get("data_category"),
+        "decision_context": result.get("decision_context") or DEFAULT_DECISION_CONTEXT,
         "policy_version": POLICY_VERSION,
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "evaluation_hash": result.get("evaluation_hash"),
@@ -424,11 +457,27 @@ def evaluation_identity(*, input_contract: dict, result: dict) -> dict:
 def evaluation_id_for(identity: dict) -> str:
     ds = identity.get("dataset_id") or "dataset"
     h = (identity.get("evaluation_hash") or "")[:12]
+    # The legacy (post-acquisition) id shape is unchanged so existing artifacts keep resolving;
+    # a Stage-A evaluation is tagged so the two are never mistaken for one another on disk.
+    if identity.get("decision_context") == CONTEXT_RESEARCH_ACQUISITION:
+        return "dxev_acq_%s_%s" % (ds, h)
     return "dxev_%s_%s" % (ds, h)
 
 
-def _index_key(dataset_id: Optional[str]) -> str:
-    return str(dataset_id or "?")
+def _index_key(dataset_id: Optional[str],
+               decision_context: Optional[str] = None) -> str:
+    """The index pointer for one dataset in one decision context.
+
+    The default context keeps the bare ``dataset_id`` key it has always had, so no existing
+    index entry is orphaned. A Stage-A evaluation gets its own key: the two stages answer
+    different questions, and letting one supersede the other would silently destroy the
+    answer to the question nobody re-ran.
+    """
+    key = str(dataset_id or "?")
+    ctx = decision_context or DEFAULT_DECISION_CONTEXT
+    if ctx == DEFAULT_DECISION_CONTEXT:
+        return key
+    return "%s::%s" % (key, ctx)
 
 
 def _compact_input_contract(ic: dict) -> dict:
@@ -442,6 +491,8 @@ def _compact_input_contract(ic: dict) -> dict:
         "dataset": ic.get("dataset"),
         "research_requirements": ic.get("research_requirements"),
         "evidence": ic.get("evidence"),
+        "acquisition_case": ic.get("acquisition_case"),
+        "decision_context": ic.get("decision_context") or DEFAULT_DECISION_CONTEXT,
         "existing_ownership": ic.get("existing_ownership"),
         "catalog_provenance": ic.get("catalog_provenance"),
         "policy_version": POLICY_VERSION,
@@ -470,7 +521,7 @@ def persist_evaluation(*, result: dict, input_contract: dict, data_expansion_dir
 
     identity = evaluation_identity(input_contract=input_contract, result=result)
     eid = evaluation_id_for(identity)
-    key = _index_key(dataset_id)
+    key = _index_key(dataset_id, identity.get("decision_context"))
     index = _load_json(_index_path(data_expansion_dir)) or {}
     if not isinstance(index, dict):
         index = {}
@@ -498,6 +549,7 @@ def persist_evaluation(*, result: dict, input_contract: dict, data_expansion_dir
     index[key] = {"evaluation_id": eid, "path": str(path),
                   "evaluation_hash": identity["evaluation_hash"],
                   "recommendation_state": result.get("recommendation_state"),
+                  "decision_context": identity["decision_context"],
                   "dataset_id": dataset_id, "provider": identity["provider"],
                   "data_category": identity["data_category"],
                   "generated_at": payload["generated_at"]}
@@ -508,12 +560,16 @@ def persist_evaluation(*, result: dict, input_contract: dict, data_expansion_dir
             "identity": identity}
 
 
-def load_latest_evaluation(*, dataset_id: Optional[str], data_expansion_dir=None) -> Optional[dict]:
-    """Load the current persisted evaluation artifact for a dataset (or None)."""
+def load_latest_evaluation(*, dataset_id: Optional[str], data_expansion_dir=None,
+                           decision_context: Optional[str] = None) -> Optional[dict]:
+    """Load the current persisted evaluation artifact for a dataset (or None).
+
+    Defaults to the post-acquisition context, which is the key shape every existing artifact
+    was written under."""
     index = _load_json(_index_path(data_expansion_dir)) or {}
     if not isinstance(index, dict):
         return None
-    entry = index.get(_index_key(dataset_id))
+    entry = index.get(_index_key(dataset_id, decision_context))
     if not entry:
         return None
     art = _load_json(Path(entry.get("path"))) if entry.get("path") else None
@@ -531,6 +587,8 @@ def run_and_persist(*, dataset_id: Optional[str] = None,
                     requirements_override: Optional[dict] = None,
                     catalog: Optional[list] = None, catalog_path=None,
                     policy: Optional[dict] = None,
+                    acquisition_case: Optional[dict] = None,
+                    decision_context: Optional[str] = None,
                     data_expansion_dir=None, now: Optional[datetime] = None) -> dict:
     """Operator / checkpoint entry: build -> kernel -> persist (idempotent, supersede-safe).
 
@@ -542,7 +600,8 @@ def run_and_persist(*, dataset_id: Optional[str] = None,
         dataset_id=dataset_id, catalog_entry=catalog_entry, input_contract=input_contract,
         evidence_override=evidence_override, dataset_override=dataset_override,
         requirements_override=requirements_override, catalog=catalog, catalog_path=catalog_path,
-        policy=policy)
+        policy=policy, acquisition_case=acquisition_case,
+        decision_context=decision_context)
     persist = persist_evaluation(result=run["evaluation"], input_contract=run["input_contract"],
                                  data_expansion_dir=data_expansion_dir, now=now)
     return {"input_contract": run["input_contract"], "evaluation": run["evaluation"],
@@ -580,14 +639,22 @@ def _evaluation_view(art: Optional[dict]) -> dict:
     if not art:
         return {"state": STATE_NOT_RUN, "recommendation_state": STATE_NOT_RUN,
                 "recommendation": None, "evaluation_id": None, "evaluation_hash": None,
-                "blockers": [], "gaps": [], "generated_at": None}
+                "decision_context": None, "blockers": [], "gaps": [], "generated_at": None}
     ev = art.get("evaluation") or {}
     rec = ev.get("recommendation") or {}
     return {
         "state": ev.get("recommendation_state"),
         "recommendation_state": ev.get("recommendation_state"),
+        "decision_context": ev.get("decision_context") or DEFAULT_DECISION_CONTEXT,
+        "decision_context_question": ev.get("decision_context_question"),
+        "measured_lift_required": ev.get("measured_lift_required"),
+        "acquisition_case": ev.get("acquisition_case"),
         "recommendation": {"state": rec.get("state"), "headline": rec.get("headline"),
                            "manual_approval_required": rec.get("manual_approval_required"),
+                           "is_research_acquisition_recommendation":
+                               rec.get("is_research_acquisition_recommendation"),
+                           "is_purchase_recommendation":
+                               rec.get("is_purchase_recommendation"),
                            "reason_codes": rec.get("reason_codes") or []},
         "dimension_summary": ev.get("dimension_summary") or {},
         "failed_dimensions": ev.get("failed_dimensions") or [],
@@ -610,6 +677,33 @@ def _evaluation_view(art: Optional[dict]) -> dict:
         "generated_at": art.get("generated_at"),
         "immutable": True,
         "root_env": DATA_EXPANSION_DIR_ENV,
+    }
+
+
+def _decision_contexts_block() -> dict:
+    """The two questions the ONE canonical gate answers, and what each result is NOT.
+
+    Declared in the read contract so a reader never has to infer which question produced a
+    state, and never reads a pre-research acquisition recommendation as post-research proof.
+    """
+    return {
+        "vocabulary": list(DECISION_CONTEXT_VOCAB),
+        "default": DEFAULT_DECISION_CONTEXT,
+        "default_is_legacy_behaviour": True,
+        "questions": dict(kernel.DECISION_CONTEXT_QUESTION),
+        "research_acquisition_states": list(ACQUISITION_RECOMMENDATION_VOCAB),
+        "post_acquisition_states": list(RECOMMENDATION_VOCAB),
+        "acquisition_recommendation_is_alpha_evidence":
+            kernel.ACQUISITION_RECOMMENDATION_IS_ALPHA_EVIDENCE,
+        "acquisition_recommendation_is_integration_approval":
+            kernel.ACQUISITION_RECOMMENDATION_IS_INTEGRATION_APPROVAL,
+        "acquisition_recommendation_requires_manual_approval":
+            kernel.ACQUISITION_RECOMMENDATION_REQUIRES_MANUAL_APPROVAL,
+        "detail": ("Stage A asks whether the dataset is worth paying to LEARN, before any "
+                   "lift can be measured. Stage B asks whether the measured evidence earned "
+                   "continued purchase or integration. One canonical calculation owner "
+                   "answers both; neither result may stand in for the other, and neither "
+                   "grants purchasing authority."),
     }
 
 
@@ -647,16 +741,26 @@ def load_data_expansion(*, catalog: Optional[list] = None, catalog_path=None,
 
     datasets = []
     evaluated = 0
+    acquisition_evaluated = 0
     for ce in entries:
         did = ce.get("dataset_id")
         art = None
+        acq_art = None
         try:
             art = load_latest_evaluation(dataset_id=did, data_expansion_dir=data_expansion_dir)
         except Exception:  # noqa: BLE001 — a pure artifact read must never crash the read
             art = None
+        try:
+            acq_art = load_latest_evaluation(
+                dataset_id=did, data_expansion_dir=data_expansion_dir,
+                decision_context=CONTEXT_RESEARCH_ACQUISITION)
+        except Exception:  # noqa: BLE001
+            acq_art = None
         view = _evaluation_view(art)
         if art:
             evaluated += 1
+        if acq_art:
+            acquisition_evaluated += 1
         datasets.append({
             "dataset_id": did,
             "provider": ce.get("provider"),
@@ -667,6 +771,9 @@ def load_data_expansion(*, catalog: Optional[list] = None, catalog_path=None,
             "research_intent": (ce.get("research_requirements") or {}).get("research_intent"),
             "notes": ce.get("notes"),
             "evaluation": view,
+            # Stage A, reported BESIDE Stage B and never merged into it: one says "worth
+            # paying to learn", the other "the measured evidence earned continued purchase".
+            "acquisition_evaluation": _evaluation_view(acq_art),
         })
 
     datasets.sort(key=lambda d: d.get("dataset_id") or "")
@@ -683,8 +790,11 @@ def load_data_expansion(*, catalog: Optional[list] = None, catalog_path=None,
         "catalog_size": len(entries),
         "evaluated_count": evaluated,
         "not_run_count": len(entries) - evaluated,
+        "acquisition_evaluated_count": acquisition_evaluated,
         "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
+        "acquisition_recommendation_vocabulary": list(ACQUISITION_RECOMMENDATION_VOCAB),
         "read_state_vocabulary": list(READ_STATE_VOCAB),
+        "decision_contexts": _decision_contexts_block(),
         "datasets": datasets,
         "policy": resolve_policy(),
         "policy_version": POLICY_VERSION,
@@ -718,10 +828,17 @@ def load_data_expansion_detail(dataset_id: str, *, catalog: Optional[list] = Non
                 "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
                 "cadence": _cadence_block(), "safety": kernel._safety()}
     art = None
+    acq_art = None
     try:
         art = load_latest_evaluation(dataset_id=dataset_id, data_expansion_dir=data_expansion_dir)
     except Exception:  # noqa: BLE001
         art = None
+    try:
+        acq_art = load_latest_evaluation(
+            dataset_id=dataset_id, data_expansion_dir=data_expansion_dir,
+            decision_context=CONTEXT_RESEARCH_ACQUISITION)
+    except Exception:  # noqa: BLE001
+        acq_art = None
     full_eval = (art or {}).get("evaluation")
     return {
         "schema_version": SCHEMA_VERSION,
@@ -739,8 +856,12 @@ def load_data_expansion_detail(dataset_id: str, *, catalog: Optional[list] = Non
         "metadata_summary": _metadata_summary(ce),
         "evaluation_view": _evaluation_view(art),
         "evaluation": full_eval,
+        "acquisition_evaluation_view": _evaluation_view(acq_art),
+        "acquisition_evaluation": (acq_art or {}).get("evaluation"),
         "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
+        "acquisition_recommendation_vocabulary": list(ACQUISITION_RECOMMENDATION_VOCAB),
         "read_state_vocabulary": list(READ_STATE_VOCAB),
+        "decision_contexts": _decision_contexts_block(),
         "cadence": _cadence_block(),
         "policy": resolve_policy(),
         "policy_version": POLICY_VERSION,
@@ -765,7 +886,9 @@ def load_data_expansion_summary(*, catalog: Optional[list] = None, catalog_path=
         "data_expansion_evaluated_count": 0,
         "data_expansion_purchase_recommended_count": 0,
         "data_expansion_integration_recommended_count": 0,
+        "data_expansion_research_acquisition_recommended_count": 0,
         "data_expansion_states": {},
+        "data_expansion_acquisition_states": {},
         "data_expansion_cadence_enabled": CADENCE_ENABLED,
     }
     try:
@@ -775,16 +898,26 @@ def load_data_expansion_summary(*, catalog: Optional[list] = None, catalog_path=
     if not entries:
         return dict(empty)
     states: dict[str, str] = {}
+    acq_states: dict[str, str] = {}
     evaluated = 0
     for ce in entries:
         did = ce.get("dataset_id")
         art = None
+        acq_art = None
         try:
             art = load_latest_evaluation(dataset_id=did, data_expansion_dir=data_expansion_dir)
         except Exception:  # noqa: BLE001
             art = None
+        try:
+            acq_art = load_latest_evaluation(
+                dataset_id=did, data_expansion_dir=data_expansion_dir,
+                decision_context=CONTEXT_RESEARCH_ACQUISITION)
+        except Exception:  # noqa: BLE001
+            acq_art = None
         st = ((art or {}).get("evaluation") or {}).get("recommendation_state") or STATE_NOT_RUN
         states[did] = st
+        acq_states[did] = (((acq_art or {}).get("evaluation") or {})
+                           .get("recommendation_state") or STATE_NOT_RUN)
         if art:
             evaluated += 1
     return {
@@ -795,7 +928,10 @@ def load_data_expansion_summary(*, catalog: Optional[list] = None, catalog_path=
             sum(1 for s in states.values() if s == kernel.REC_PURCHASE),
         "data_expansion_integration_recommended_count":
             sum(1 for s in states.values() if s == kernel.REC_INTEGRATION),
+        "data_expansion_research_acquisition_recommended_count":
+            sum(1 for s in acq_states.values() if s == kernel.REC_RESEARCH_ACQUISITION),
         "data_expansion_states": states,
+        "data_expansion_acquisition_states": acq_states,
         "data_expansion_cadence_enabled": CADENCE_ENABLED,
     }
 
@@ -804,6 +940,8 @@ def _read_provenance() -> dict:
     return {
         "composition_owner": COMPOSITION_OWNER,
         "calculation_owner": kernel.CALCULATION_OWNER,
+        "decision_contexts": list(DECISION_CONTEXT_VOCAB),
+        "default_decision_context": DEFAULT_DECISION_CONTEXT,
         "catalog_source": "api.data_expansion.DEFAULT_CATALOG / %s" % DATA_EXPANSION_CATALOG_ENV,
         "artifact_root_env": DATA_EXPANSION_DIR_ENV,
         "reused_owners": {
@@ -829,8 +967,11 @@ def _empty_read(generated_at: str, state: str, message: str) -> dict:
         "catalog_size": 0,
         "evaluated_count": 0,
         "not_run_count": 0,
+        "acquisition_evaluated_count": 0,
         "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
+        "acquisition_recommendation_vocabulary": list(ACQUISITION_RECOMMENDATION_VOCAB),
         "read_state_vocabulary": list(READ_STATE_VOCAB),
+        "decision_contexts": _decision_contexts_block(),
         "datasets": [],
         "policy": resolve_policy(),
         "policy_version": POLICY_VERSION,

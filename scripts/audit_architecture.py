@@ -561,6 +561,34 @@ DE_DETAIL_ROUTE = "/v1/research/data-expansion/{dataset_id}"
 DE_KERNEL_EVAL_DEF = "def evaluate_dataset("
 DE_OWNER_LOAD_DEF = "def load_data_expansion("
 DE_OWNER_PERSIST_DEF = "def persist_evaluation("
+# --- Release 37.1: the ONE gate answers TWO questions, explicitly ------------------ #
+# Stage A (pre-acquisition, "worth paying to LEARN") and Stage B (post-acquisition,
+# "did the measured evidence earn continued purchase"). The danger the guard exists to
+# prevent is a SECOND acquisition owner appearing so the estate has two answers to one
+# question, and a Stage-A recommendation being emitted as though it were Stage-B proof.
+DE_DECISION_CONTEXT_TOKENS = ('CONTEXT_RESEARCH_ACQUISITION = "RESEARCH_ACQUISITION"',
+                              'CONTEXT_POST_ACQUISITION_VALUE = "POST_ACQUISITION_VALUE"',
+                              "DECISION_CONTEXT_VOCAB = (")
+# The DEFAULT must remain the legacy post-acquisition context, or every existing caller
+# silently changes meaning without being edited.
+DE_LEGACY_DEFAULT_TOKEN = "DEFAULT_DECISION_CONTEXT = CONTEXT_POST_ACQUISITION_VALUE"
+# Stage A has its own state; it may NOT be spelled PURCHASE_RECOMMENDED.
+DE_ACQ_STATE_TOKEN = 'REC_RESEARCH_ACQUISITION = "RESEARCH_ACQUISITION_RECOMMENDED"'
+DE_ACQ_CLASSIFIER_DEF = "def _classify_acquisition("
+DE_ACQ_DIMENSION_DEFS = ("def _eval_capability(", "def _eval_expected_distinctness(")
+# Stage B's evidence standard is NOT weakened: the measured-lift gates stay in _classify.
+DE_STAGE_B_LIFT_GATES = ('return REC_INSUFFICIENT, ["OUT_OF_SAMPLE_EVIDENCE_REQUIRED"]',
+                         'return REC_INSUFFICIENT, ["RESEARCH_SAMPLE_TOO_SMALL"]',
+                         'if not facts["material_lift"]:')
+# A Stage-A recommendation is never alpha evidence, never integration approval and never
+# purchasing authority — declared as constants so the claim is checkable, not implied.
+DE_ACQ_NOT_AUTHORITY = ("ACQUISITION_RECOMMENDATION_IS_ALPHA_EVIDENCE = False",
+                        "ACQUISITION_RECOMMENDATION_IS_INTEGRATION_APPROVAL = False",
+                        "ACQUISITION_RECOMMENDATION_REQUIRES_MANUAL_APPROVAL = True")
+# The composition owner must THREAD the context, never fork a second evaluation path.
+DE_OWNER_CONTEXT_TOKENS = ("decision_context=decision_context",
+                           "CONTEXT_RESEARCH_ACQUISITION = kernel.CONTEXT_RESEARCH_ACQUISITION",
+                           "def _decision_contexts_block(")
 DE_LANDED_MODULES = ("engine/data_expansion_gate.py", "api/data_expansion.py")
 # The composition owner MUST reference (reuse, never fork) these authoritative data/provider/
 # evidence owners — Slice 9 is a decision gate over existing owners, not a new provider layer.
@@ -3438,6 +3466,32 @@ def check_data_expansion_ownership(files: list[Path]) -> dict:
     slice10_present_modules = sorted(m for m in SLICE10_ABSENT_MODULES
                                      if (REPO_ROOT / m).exists())
 
+    # --- Release 37.1: two explicit decision contexts on ONE calculation owner ---- #
+    decision_contexts_declared = all(t in kernel_src for t in DE_DECISION_CONTEXT_TOKENS)
+    legacy_default_preserved = DE_LEGACY_DEFAULT_TOKEN in kernel_src
+    acquisition_state_declared = DE_ACQ_STATE_TOKEN in kernel_src
+    acquisition_classifier_present = DE_ACQ_CLASSIFIER_DEF in kernel_src
+    acquisition_dimensions_present = all(t in kernel_src for t in DE_ACQ_DIMENSION_DEFS)
+    # Stage A must NOT reuse the post-acquisition purchase state, or a pre-research
+    # judgement becomes indistinguishable from post-research proof.
+    acquisition_state_is_distinct = (
+        "REC_RESEARCH_ACQUISITION" in kernel_src
+        and 'REC_PURCHASE = "PURCHASE_RECOMMENDED"' in kernel_src
+        and "return REC_RESEARCH_ACQUISITION, reasons" in kernel_src
+        and "return REC_PURCHASE, reasons" in kernel_src)
+    # Stage B's evidence standard is unchanged — the measured-lift gates still bind.
+    stage_b_evidence_intact = all(t in kernel_src for t in DE_STAGE_B_LIFT_GATES)
+    acquisition_is_not_authority = all(t in kernel_src for t in DE_ACQ_NOT_AUTHORITY)
+    acquisition_requires_manual_approval = (
+        "manual_acquisition_approval_required" in kernel_src
+        and '"automatic_acquisition_allowed": False' in kernel_src
+        and '"auto_acquisition_allowed": False' in kernel_src)
+    owner_threads_decision_context = all(t in owner_src for t in DE_OWNER_CONTEXT_TOKENS)
+    # The two contexts must not overwrite each other on disk.
+    contexts_persist_separately = (
+        "def _index_key(dataset_id: Optional[str]," in owner_src
+        and 'return "%s::%s" % (key, ctx)' in owner_src)
+
     return {
         "kernel": DE_KERNEL, "owner": DE_OWNER,
         "kernel_present": kernel_present, "owner_present": owner_present,
@@ -3463,6 +3517,20 @@ def check_data_expansion_ownership(files: list[Path]) -> dict:
         "cadence_disabled": bool(cadence_disabled),
         "drc_daily_job_present": drc_daily_job_present,
         "slice10_present_modules": slice10_present_modules,
+        # --- Release 37.1 decision-context contract --------------------------------- #
+        "decision_contexts_declared": bool(decision_contexts_declared),
+        "legacy_default_decision_context_preserved": bool(legacy_default_preserved),
+        "research_acquisition_state_declared": bool(acquisition_state_declared),
+        "research_acquisition_state_is_distinct_from_purchase":
+            bool(acquisition_state_is_distinct),
+        "acquisition_classifier_present": bool(acquisition_classifier_present),
+        "acquisition_dimensions_present": bool(acquisition_dimensions_present),
+        "post_acquisition_evidence_standard_intact": bool(stage_b_evidence_intact),
+        "acquisition_recommendation_is_not_authority": bool(acquisition_is_not_authority),
+        "acquisition_requires_manual_approval": bool(acquisition_requires_manual_approval),
+        "owner_threads_decision_context": bool(owner_threads_decision_context),
+        "decision_contexts_persist_separately": bool(contexts_persist_separately),
+        "automatic_acquisition_allowed": False,
         "automatic_purchase_allowed": False,
         "automatic_provider_activation_allowed": False,
         "automatic_subscription_allowed": False,
@@ -7173,6 +7241,399 @@ def check_release36_global_multi_asset_frontier(files: list[Path]) -> dict:
     }
 
 
+R37_OWNERS = {
+    "root": "alpha_agent/r37/__init__.py",
+    "contract": "alpha_agent/r37/contract.py",
+    "providers": "alpha_agent/r37/providers.py",
+    "unlock": "alpha_agent/r37/unlock.py",
+    "samples": "alpha_agent/r37/samples.py",
+    "scoring": "alpha_agent/r37/scoring.py",
+    "purchase": "alpha_agent/r37/purchase.py",
+    "compute": "alpha_agent/r37/compute.py",
+    "ml_readiness": "alpha_agent/r37/ml_readiness.py",
+    "market_structure": "alpha_agent/r37/market_structure.py",
+    "campaign": "alpha_agent/r37/campaign.py",
+}
+
+R37_FORBIDDEN_OWNER_REFS = R34_FORBIDDEN_OWNER_REFS
+R37_FORBIDDEN_CALLS = R34_FORBIDDEN_CALLS
+
+#: Modules whose existence under alpha_agent/r37 would mean Release 37 had
+#: rebuilt something an earlier release already owns. The purchase gates are
+#: the point: there are already THREE canonical answers to "should we buy this
+#: data" (the Slice-9 kernel, its composition owner, and the R32 ten-condition
+#: gate) and a fourth would be a fourth answer to one question.
+R37_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r37/purchase_gate.py",
+    "alpha_agent/r37/data_expansion_gate.py",
+    "alpha_agent/r37/information_purchase_gate.py",
+    "alpha_agent/r37/acquisition.py", "alpha_agent/r37/entitlements.py",
+    "alpha_agent/r37/coverage.py", "alpha_agent/r37/economics.py",
+    "alpha_agent/r37/judge.py", "alpha_agent/r37/universe.py",
+    "alpha_agent/r37/models.py", "alpha_agent/r37/learners.py",
+    "alpha_agent/r37/multiple_testing.py", "alpha_agent/r37/experiments.py",
+    "alpha_agent/r37/strategies.py", "alpha_agent/r37/native_markets.py",
+    "alpha_agent/r37/forward_evidence.py", "alpha_agent/r37/training.py",
+)
+
+#: Tokens that would mean the release had spent money, installed a toolchain or
+#: started training something. Matched case-insensitively across the package.
+#: Deliberately NOT the bare token ``credit_card``: the long list legitimately
+#: records ``credit_card_required`` as a property of every vendor, and a guard
+#: that fires on its own scorecard field is a guard about the wrong thing.
+R37_FORBIDDEN_COMMERCIAL = (
+    "stripe", "checkout.session", "card_number", "cardnumber", "cvv",
+    "payment_method_id", "billing_address",
+    "pip install", "conda install", "subprocess.run([\"pip\"",
+    "start_trial(", "create_account(", "subscribe(",
+)
+
+
+def check_release37_native_market_data_gate(files: list[Path]) -> dict:
+    """Release 37 ownership, commercial-safety and evidence invariants.
+
+    The release exists to recommend a PURCHASE, so its invariants are unlike
+    every prior release's: the dangerous outcomes are spending money, creating a
+    fourth purchase gate, crediting a vendor's brochure as a measurement, and
+    letting a value-per-dollar score outrank a hard data-integrity gate.
+    """
+    src = {name: (_read(path) or "") for name, path in R37_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    all_lower = all_src.lower()
+    runner = _read("scripts/run_release37_native_market_data_gate.py") or ""
+
+    second_owner_modules = sorted(p for p in R37_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) Release 37 defines NO gate. It composes the three that exist.
+    gate_definitions = [tok for tok in ("def evaluate_dataset(",
+                                        "def evaluate_gap(",
+                                        "def load_data_expansion(",
+                                        "def purchase_decision(")
+                        if tok in all_src]
+    composes_slice9 = (
+        "from ...api import data_expansion as _slice9" in src["purchase"]
+        and "_slice9.run_evaluation(" in src["purchase"])
+    # Release 37.1: the acquisition decision is DELEGATED to the canonical gate in its
+    # research-acquisition context, and this release may not recommend what that gate
+    # refused. Without this the release has a second, competing acquisition authority.
+    delegates_acquisition_to_canonical_gate = (
+        "_slice9.CONTEXT_RESEARCH_ACQUISITION" in src["purchase"]
+        and "def acquisition_result" in src["purchase"]
+        and "def acquisition_case" in src["purchase"]
+        and "decision_context=context" in src["purchase"])
+    canonical_gate_is_authoritative = (
+        "CANONICAL_ACQUISITION_GATE_IS_AUTHORITATIVE = True" in src["purchase"]
+        and "R37_MAY_RECOMMEND_WHAT_THE_CANONICAL_GATE_REFUSED = False"
+        in src["purchase"]
+        and "recommended_by_r37_but_refused_by_canonical_gate" in src["purchase"])
+    r37_defines_no_acquisition_authority = (
+        "R37_DEFINES_ITS_OWN_ACQUISITION_AUTHORITY = False" in src["contract"]
+        and "R37_STATES_ARE_TRIAGE_LABELS = True" in src["contract"]
+        and "ACQUISITION_DECISION_OWNER" in src["contract"])
+    acquisition_is_not_alpha_evidence = (
+        "ACQUISITION_RECOMMENDATION_IS_ALPHA_EVIDENCE = False" in src["contract"]
+        and "ACQUISITION_RECOMMENDATION_IS_INTEGRATION_APPROVAL = False"
+        in src["contract"]
+        and "ACQUISITION_RECOMMENDATION_IS_PURCHASE_AUTHORITY = False"
+        in src["contract"]
+        and "ACQUISITION_REQUIRES_MANUAL_OPERATOR_APPROVAL = True" in src["contract"])
+    # The headline cell count is an EXPECTED unlock until the entitlement is activated.
+    expected_unlocks_are_not_measured = (
+        "EXPECTED_UNLOCKS_ARE_NOT_MEASURED_UNLOCKS = True" in src["contract"]
+        and "UNLOCK_BECOMES_MEASURED_ONLY_AFTER_ENTITLEMENT_ACTIVATION = True"
+        in src["contract"]
+        and "unlocks_are_expected_not_measured" in src["campaign"])
+    # Track C may not report hardware capability as though it were runnability.
+    ml_readiness_separates_install_from_hardware = (
+        "READINESS_CLASSES = (READY_INSTALLED, READY_AFTER_INSTALL," in src["ml_readiness"]
+        and 'READY_INSTALLED = "CURRENTLY_INSTALLED_AND_RUNNABLE"' in src["ml_readiness"]
+        and 'READY_AFTER_INSTALL = "HARDWARE_FEASIBLE_AFTER_SOFTWARE_INSTALL"'
+        in src["ml_readiness"]
+        and 'READY_IMPRACTICAL = "LOCALLY_POSSIBLE_BUT_IMPRACTICAL"' in src["ml_readiness"]
+        and 'READY_EXTERNAL_GPU = "EXTERNAL_GPU_RECOMMENDED"' in src["ml_readiness"]
+        and 'READY_NOT_FEASIBLE = "NOT_CURRENTLY_FEASIBLE"' in src["ml_readiness"]
+        and "required_libraries" in src["ml_readiness"]
+        and "currently_runnable_count" in src["ml_readiness"]
+        and "_ml.matrix(constraints, inventory.get(\"libraries\"))" in src["campaign"])
+    composes_r32_gate = (
+        "from ..r32 import purchase_gate as _r32_gate" in src["purchase"]
+        and "_r32_gate.build(" in src["purchase"])
+    slice9_not_overridden = (
+        "SLICE9_RESULT_MAY_BE_OVERRIDDEN = False" in src["purchase"])
+    slice9_not_persisted = (
+        '"persisted_to_slice9_store": False' in src["purchase"]
+        and '"written_to_r32_root": False' in src["purchase"])
+
+    # (2) Reuse, never fork: the HTTP owner, the entitlement owner, the
+    # coverage matrix and the hashing owner all belong to earlier releases.
+    reuses_r35_http_owner = (
+        "from ..r35 import acquisition as _r35_acquisition" in src["samples"]
+        and "_r35_acquisition.fetch(" in src["samples"])
+    reuses_r36_entitlements = (
+        "from ..r36 import entitlements as _r36_entitlements" in src["samples"]
+        and "_r36_entitlements.measure_all(" in src["campaign"])
+    reuses_r36_coverage = (
+        "from ..r36 import coverage as _r36_coverage" in src["unlock"]
+        and "_r36_coverage.MARKETS" in src["unlock"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    no_second_downloader = "def fetch(" not in all_src
+    no_second_coverage_matrix = "MARKETS = {" not in all_src
+
+    # (3) Commercial safety - the subject of the release.
+    spending_refused = all(
+        f"{flag} = False" in src["contract"] for flag in
+        ("MAY_SPEND_MONEY", "MAY_START_PROVIDER_TRIAL",
+         "MAY_CREATE_PROVIDER_ACCOUNT", "MAY_CHANGE_SUBSCRIPTION_TIER",
+         "MAY_ACCEPT_LICENCE_AGREEMENT", "MAY_SUBMIT_PAYMENT_DETAILS",
+         "MAY_PURCHASE_CLOUD_COMPUTE", "MAY_INSTALL_CUDA",
+         "MAY_DOWNLOAD_MODEL_WEIGHTS"))
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY", "MAY_MUTATE_PRODUCTION"))
+    no_purchase_authority = (
+        "PURCHASE_AUTHORITY_GRANTED_BY_THIS_RELEASE = False" in src["contract"]
+        and "def purchase_authority" in src["contract"]
+        and '"purchase_authorised": False' in src["contract"])
+    commercial_tokens = sorted({t for t in R37_FORBIDDEN_COMMERCIAL
+                                if t in all_lower})
+    forbidden_calls = sorted({t for t in R37_FORBIDDEN_CALLS
+                              if t in all_lower})
+    forbidden_owner_refs = sorted({t for t in R37_FORBIDDEN_OWNER_REFS
+                                   if t in all_src})
+
+    # (4) A vendor claim is not a measurement, and a proxy is not a native.
+    marketing_is_not_measurement = (
+        "A_MARKETING_CLAIM_IS_NOT_A_MEASUREMENT = True" in src["contract"]
+        and "VENDOR_CLAIM_ALONE_MAY_UNLOCK_A_CELL = False" in src["contract"]
+        and "UNLOCK_REQUIRES_DECLARED_INSTRUMENT_MAPPING = True"
+        in src["contract"])
+    partial_not_in_headline = (
+        "PARTIAL_UNLOCK_COUNTS_IN_HEADLINE = False" in src["contract"]
+        and "markets_unlocked_partial" in src["unlock"])
+    proxy_may_not_unlock = (
+        "def _level_allows_full_unlock" in src["unlock"]
+        and "proxy_credit_refused" in src["unlock"])
+    unlock_is_derived = (
+        "def blocked_frontier" in src["unlock"]
+        and "def _from_frozen" in src["unlock"]
+        and "def _from_market_table" in src["unlock"])
+    evidence_classes_declared = (
+        "EVIDENCE_CLASSES" in src["contract"]
+        and "EVIDENCE_SAMPLE_VALIDATED" in src["contract"]
+        and "evidence" in src["providers"])
+    every_row_terminal = (
+        "EVERY_CANDIDATE_MUST_BE_TERMINAL = True" in src["contract"]
+        and "def validate" in src["providers"])
+
+    # (5) The score is a ranking aid and may never beat a hard gate.
+    score_declared_before_use = (
+        "SCORE_FORMULA" in src["contract"]
+        and "SCORE_IS_A_RANKING_AID_NOT_AN_OPTIMISER = True" in src["contract"]
+        and "SCORE_MAY_OVERRIDE_A_HARD_GATE = False" in src["contract"])
+    hard_gates_bind = (
+        "HARD_FAIL_STATES" in src["scoring"]
+        and "rankable_as_investment" in src["scoring"]
+        and "naive_ranking_ignoring_hard_gates" in src["scoring"])
+    free_data_has_a_cost_floor = (
+        "FREE_COST_FLOOR_USD" in src["contract"]
+        and "cost_floor_applied" in src["scoring"])
+
+    # (6) Samples prove a schema, never an edge.
+    sample_is_not_an_alpha_claim = (
+        "A_SAMPLE_MAY_SUPPORT_AN_ALPHA_CLAIM = False" in src["samples"])
+    blocks_are_reprobed = (
+        "def confirm_blocks" in src["samples"]
+        and "BLOCK_CONFIRMATION_ROUTES" in src["contract"])
+    unmeasured_is_not_open = (
+        "None if status is None" in src["samples"])
+    owned_client_measured = (
+        "def measure_owned_futures_client" in src["samples"]
+        and "NORGATE_DATED_CONTRACT_API" in src["samples"])
+    credentials_never_serialised = (
+        "credentials_written_to_artifacts" in src["samples"])
+
+    # (7) Track C is bounded: no training, no install, no weights.
+    ml_trains_nothing = (
+        "TRAINS_A_MODEL = False" in src["ml_readiness"]
+        and "SELECTS_A_MODEL = False" in src["ml_readiness"]
+        and "NEWER_IMPLIES_BETTER = False" in src["ml_readiness"]
+        and "ML_TRAINING_CAMPAIGN_IN_SCOPE = False" in src["contract"])
+    compute_is_read_only = (
+        '"installed_anything": False' in src["compute"]
+        and '"downloaded_model_weights": False' in src["compute"]
+        and "presence is read from package metadata" in src["compute"])
+    feasibility_is_computed = (
+        "def feasibility" in src["ml_readiness"]
+        and "def constraints" in src["compute"])
+    data_contract_composes = (
+        "COMPOSES_EXISTING_OWNERS = True" in src["ml_readiness"]
+        and "CREATES_A_SECOND_MARKET_DATA_OWNER = False"
+        in src["ml_readiness"]
+        and "expected_excess_return" in src["ml_readiness"]
+        and "quantiles" in src["ml_readiness"])
+
+    # (8) Track D is designed, not run, and Fibonacci carries a placebo arm.
+    structure_not_executed = (
+        "EXECUTED_IN_THIS_RELEASE = False" in src["market_structure"]
+        and "READS_A_PRICE = False" in src["market_structure"]
+        and "MARKET_STRUCTURE_EXPERIMENT_IN_SCOPE = False" in src["contract"])
+    pivots_need_confirmation = (
+        "PIVOT_CONFIRMATION_REQUIRED = True" in src["market_structure"]
+        and "PIVOT_TIMESTAMP_IS_THE_CONFIRMATION_DATE = True"
+        in src["market_structure"]
+        and "FUTURE_KNOWN_EXTREMA_ALLOWED = False" in src["market_structure"])
+    fibonacci_has_a_placebo_arm = (
+        "FIBONACCI_PLACEBO_LEVELS" in src["market_structure"]
+        and "PLACEBO_ARM_REQUIRED = True" in src["market_structure"]
+        and "FIBONACCI_IS_DOCTRINE = False" in src["market_structure"])
+    visual_lane_is_designed_only = (
+        "VISUAL_EXPERIMENT_IN_SCOPE = False" in src["market_structure"]
+        and "REPRESENTATION_ARMS" in src["market_structure"])
+
+    # (9) Three results, and the alpha one is structurally untestable here.
+    three_results_reported = (
+        'RESULT_NAMES = ("SYSTEM_RESULT", "PURCHASE_RECOMMENDATION_RESULT",'
+        in src["contract"]
+        and '"ALPHA_RESULT")' in src["contract"]
+        and "SYSTEM_AND_ALPHA_RESULTS_ARE_SEPARATE = True" in src["contract"])
+    alpha_result_is_not_tested = (
+        "ALPHA_RESULT_IS_STRUCTURALLY_NOT_TESTED = True" in src["contract"]
+        and 'ALPHA_RESULT_VALUE = "NOT_TESTED"' in src["contract"]
+        and "def alpha_result" in src["contract"])
+    superseded_declared = ("SUPERSEDED_CAMPAIGNS" in src["contract"])
+    exhausted_not_rerun = (
+        "MAY_RERUN_EXHAUSTED_CAMPAIGNS = False" in src["contract"]
+        and "MAY_LAUNCH_ALPHA_CAMPAIGN = False" in src["contract"]
+        and "MAY_RUN_OPTIMISER_SEARCH = False" in src["contract"])
+    blocked_actions_named = (
+        "VENDOR_ACTIONS" in src["campaign"]
+        and "def blocked_actions" in src["campaign"]
+        and "exact_step" in src["campaign"])
+
+    runner_flat = " ".join(runner.lower().split())
+    runner_is_research_only = (
+        "research only" in runner_flat and "no order" in runner_flat
+        and "spends no money" in runner_flat)
+
+    # The functional half: derived counts must come from Release 36's frontier.
+    try:
+        if str(REPO_ROOT.parent) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT.parent))
+        from paper_trader.alpha_agent.r37 import contract as _r37_contract
+        from paper_trader.alpha_agent.r37 import providers as _r37_providers
+        from paper_trader.alpha_agent.r37 import scoring as _r37_scoring
+        from paper_trader.alpha_agent.r37 import unlock as _r37_unlock
+        from paper_trader.alpha_agent.r37 import purchase as _r37_purchase
+        long_list_valid = bool(_r37_providers.validate()["valid"])
+        built = _r37_unlock.build()
+        every_claim_is_blocked = not built["claims_without_a_blocked_market"]
+        scorecard = _r37_scoring.build(built)
+        hard_failed_never_ranked = not (
+            set(scorecard["hard_failed"]) & set(scorecard["ranked_investable"]))
+        every_state_terminal = all(
+            row["gate_state"] in _r37_contract.GATE_STATES
+            for row in _r37_providers.rows())
+        no_state_grants_authority = all(
+            _r37_contract.purchase_authority(s)["purchase_authorised"] is False
+            for s in _r37_contract.GATE_STATES)
+        # The functional half of the delegation contract: run the real gate and prove
+        # this release recommends NOTHING the canonical acquisition gate refused.
+        gate_results = _r37_purchase.build(built, scorecard,
+                                           campaign_id="architecture_audit")
+        nothing_recommended_against_the_gate = not gate_results[
+            "recommended_by_r37_but_refused_by_canonical_gate"]
+        every_row_agrees = bool(gate_results["every_row_agrees_with_canonical_gate"])
+        acquisition_states_are_canonical = all(
+            s in _r37_purchase._slice9.ACQUISITION_RECOMMENDATION_VOCAB
+            for s in gate_results["canonical_acquisition_states"].values())
+    except Exception as exc:  # noqa: BLE001 - unmeasurable fails closed
+        long_list_valid = f"UNMEASURABLE:{exc}"
+        every_claim_is_blocked = f"UNMEASURABLE:{exc}"
+        hard_failed_never_ranked = f"UNMEASURABLE:{exc}"
+        every_state_terminal = f"UNMEASURABLE:{exc}"
+        no_state_grants_authority = f"UNMEASURABLE:{exc}"
+        nothing_recommended_against_the_gate = f"UNMEASURABLE:{exc}"
+        every_row_agrees = f"UNMEASURABLE:{exc}"
+        acquisition_states_are_canonical = f"UNMEASURABLE:{exc}"
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "defines_no_second_gate": not gate_definitions,
+        "gate_definitions_found": sorted(gate_definitions),
+        "composes_slice9_gate": composes_slice9,
+        "composes_r32_information_gate": composes_r32_gate,
+        "slice9_result_may_not_be_overridden": slice9_not_overridden,
+        "nothing_persisted_to_another_release_store": slice9_not_persisted,
+        "reuses_r35_http_owner": reuses_r35_http_owner,
+        "reuses_r36_entitlement_owner": reuses_r36_entitlements,
+        "reuses_r36_coverage_matrix": reuses_r36_coverage,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "no_second_downloader": no_second_downloader,
+        "no_second_coverage_matrix": no_second_coverage_matrix,
+        "spending_refused": spending_refused,
+        "safety_flags_false": safety_flags_false,
+        "no_purchase_authority": no_purchase_authority,
+        "commercial_tokens_present": commercial_tokens,
+        "forbidden_calls": forbidden_calls,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "a_marketing_claim_is_not_a_measurement": marketing_is_not_measurement,
+        "partial_unlock_stays_out_of_the_headline": partial_not_in_headline,
+        "a_proxy_may_not_unlock_a_native_cell": proxy_may_not_unlock,
+        "unlock_is_derived_from_release36": unlock_is_derived,
+        "evidence_classes_declared": evidence_classes_declared,
+        "every_candidate_must_be_terminal": every_row_terminal,
+        "score_declared_before_use": score_declared_before_use,
+        "hard_gates_bind_the_ranking": hard_gates_bind,
+        "free_data_has_a_cost_floor": free_data_has_a_cost_floor,
+        "a_sample_is_not_an_alpha_claim": sample_is_not_an_alpha_claim,
+        "blocks_are_reprobed": blocks_are_reprobed,
+        "an_unmeasured_probe_is_not_an_open_route": unmeasured_is_not_open,
+        "owned_client_capability_is_measured": owned_client_measured,
+        "credentials_never_serialised": credentials_never_serialised,
+        "ml_trains_nothing": ml_trains_nothing,
+        "compute_inventory_is_read_only": compute_is_read_only,
+        "feasibility_is_computed_not_typed": feasibility_is_computed,
+        "ml_data_contract_composes_existing_owners": data_contract_composes,
+        "market_structure_is_designed_not_executed": structure_not_executed,
+        "pivots_require_real_time_confirmation": pivots_need_confirmation,
+        "fibonacci_has_a_placebo_arm": fibonacci_has_a_placebo_arm,
+        "visual_lane_is_designed_only": visual_lane_is_designed_only,
+        "reports_three_separate_results": three_results_reported,
+        "alpha_result_is_not_tested": alpha_result_is_not_tested,
+        "superseded_campaigns_declared": superseded_declared,
+        "exhausted_campaigns_not_rerun": exhausted_not_rerun,
+        "blocked_vendor_actions_are_named": blocked_actions_named,
+        "runner_is_research_only": runner_is_research_only,
+        "long_list_validates": long_list_valid,
+        "every_unlock_claim_names_a_blocked_market": every_claim_is_blocked,
+        "a_hard_failed_dataset_is_never_ranked": hard_failed_never_ranked,
+        "every_candidate_state_is_terminal": every_state_terminal,
+        "no_gate_state_grants_purchase_authority": no_state_grants_authority,
+        # --- Release 37.1 canonical-acquisition delegation ---------------------- #
+        "delegates_acquisition_to_canonical_gate":
+            delegates_acquisition_to_canonical_gate,
+        "canonical_gate_is_authoritative": canonical_gate_is_authoritative,
+        "r37_defines_no_acquisition_authority":
+            r37_defines_no_acquisition_authority,
+        "acquisition_recommendation_is_not_alpha_evidence":
+            acquisition_is_not_alpha_evidence,
+        "expected_unlocks_are_not_measured_unlocks":
+            expected_unlocks_are_not_measured,
+        "ml_readiness_separates_install_from_hardware":
+            ml_readiness_separates_install_from_hardware,
+        "nothing_recommended_against_the_canonical_gate":
+            nothing_recommended_against_the_gate,
+        "every_row_agrees_with_canonical_gate": every_row_agrees,
+        "acquisition_states_come_from_the_canonical_vocabulary":
+            acquisition_states_are_canonical,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -7814,6 +8275,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release35_orthogonal_information(files),
         "release36_global_multi_asset_frontier":
             check_release36_global_multi_asset_frontier(files),
+        "release37_native_market_data_gate":
+            check_release37_native_market_data_gate(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -8720,6 +9183,126 @@ BLOCKING_INVARIANTS = (
      "every_market_family_is_declared", True),
     ("release36_global_multi_asset_frontier", "every_lane_control_is_distinct",
      True),
+    # --- Release 37: the purchase release. Its dangerous outcomes are
+    # spending money, a fourth purchase gate, a brochure counted as evidence,
+    # and a score outranking a data-integrity gate.
+    ("release37_native_market_data_gate", "modules_present", True),
+    ("release37_native_market_data_gate", "modules_missing", []),
+    ("release37_native_market_data_gate", "second_owner_modules", []),
+    ("release37_native_market_data_gate", "forbidden_calls", []),
+    ("release37_native_market_data_gate", "forbidden_owner_refs", []),
+    ("release37_native_market_data_gate", "commercial_tokens_present", []),
+    ("release37_native_market_data_gate", "defines_no_second_gate", True),
+    ("release37_native_market_data_gate", "gate_definitions_found", []),
+    ("release37_native_market_data_gate", "composes_slice9_gate", True),
+    ("release37_native_market_data_gate", "composes_r32_information_gate",
+     True),
+    ("release37_native_market_data_gate",
+     "slice9_result_may_not_be_overridden", True),
+    ("release37_native_market_data_gate",
+     "nothing_persisted_to_another_release_store", True),
+    ("release37_native_market_data_gate", "reuses_r35_http_owner", True),
+    ("release37_native_market_data_gate", "reuses_r36_entitlement_owner", True),
+    ("release37_native_market_data_gate", "reuses_r36_coverage_matrix", True),
+    ("release37_native_market_data_gate", "reuses_r31_hashing", True),
+    ("release37_native_market_data_gate", "no_second_downloader", True),
+    ("release37_native_market_data_gate", "no_second_coverage_matrix", True),
+    ("release37_native_market_data_gate", "spending_refused", True),
+    ("release37_native_market_data_gate", "safety_flags_false", True),
+    ("release37_native_market_data_gate", "no_purchase_authority", True),
+    ("release37_native_market_data_gate",
+     "a_marketing_claim_is_not_a_measurement", True),
+    ("release37_native_market_data_gate",
+     "partial_unlock_stays_out_of_the_headline", True),
+    ("release37_native_market_data_gate",
+     "a_proxy_may_not_unlock_a_native_cell", True),
+    ("release37_native_market_data_gate", "unlock_is_derived_from_release36",
+     True),
+    ("release37_native_market_data_gate", "evidence_classes_declared", True),
+    ("release37_native_market_data_gate", "every_candidate_must_be_terminal",
+     True),
+    ("release37_native_market_data_gate", "score_declared_before_use", True),
+    ("release37_native_market_data_gate", "hard_gates_bind_the_ranking", True),
+    ("release37_native_market_data_gate", "free_data_has_a_cost_floor", True),
+    ("release37_native_market_data_gate", "a_sample_is_not_an_alpha_claim",
+     True),
+    ("release37_native_market_data_gate", "blocks_are_reprobed", True),
+    ("release37_native_market_data_gate",
+     "an_unmeasured_probe_is_not_an_open_route", True),
+    ("release37_native_market_data_gate",
+     "owned_client_capability_is_measured", True),
+    ("release37_native_market_data_gate", "credentials_never_serialised", True),
+    ("release37_native_market_data_gate", "ml_trains_nothing", True),
+    ("release37_native_market_data_gate", "compute_inventory_is_read_only",
+     True),
+    ("release37_native_market_data_gate", "feasibility_is_computed_not_typed",
+     True),
+    ("release37_native_market_data_gate",
+     "ml_data_contract_composes_existing_owners", True),
+    ("release37_native_market_data_gate",
+     "market_structure_is_designed_not_executed", True),
+    ("release37_native_market_data_gate",
+     "pivots_require_real_time_confirmation", True),
+    ("release37_native_market_data_gate", "fibonacci_has_a_placebo_arm", True),
+    ("release37_native_market_data_gate", "visual_lane_is_designed_only", True),
+    ("release37_native_market_data_gate", "reports_three_separate_results",
+     True),
+    ("release37_native_market_data_gate", "alpha_result_is_not_tested", True),
+    ("release37_native_market_data_gate", "superseded_campaigns_declared",
+     True),
+    ("release37_native_market_data_gate", "exhausted_campaigns_not_rerun",
+     True),
+    ("release37_native_market_data_gate", "blocked_vendor_actions_are_named",
+     True),
+    ("release37_native_market_data_gate", "runner_is_research_only", True),
+    ("release37_native_market_data_gate", "long_list_validates", True),
+    ("release37_native_market_data_gate",
+     "every_unlock_claim_names_a_blocked_market", True),
+    ("release37_native_market_data_gate",
+     "a_hard_failed_dataset_is_never_ranked", True),
+    ("release37_native_market_data_gate", "every_candidate_state_is_terminal",
+     True),
+    ("release37_native_market_data_gate",
+     "no_gate_state_grants_purchase_authority", True),
+    # --- Release 37.1: ONE canonical acquisition authority. The dangerous
+    # outcome here is a second acquisition truth - this release ranking a
+    # dataset the canonical gate refused - and a hardware capability being
+    # reported as though the software to use it were installed.
+    ("release37_native_market_data_gate",
+     "delegates_acquisition_to_canonical_gate", True),
+    ("release37_native_market_data_gate", "canonical_gate_is_authoritative",
+     True),
+    ("release37_native_market_data_gate",
+     "r37_defines_no_acquisition_authority", True),
+    ("release37_native_market_data_gate",
+     "acquisition_recommendation_is_not_alpha_evidence", True),
+    ("release37_native_market_data_gate",
+     "expected_unlocks_are_not_measured_unlocks", True),
+    ("release37_native_market_data_gate",
+     "ml_readiness_separates_install_from_hardware", True),
+    ("release37_native_market_data_gate",
+     "nothing_recommended_against_the_canonical_gate", True),
+    ("release37_native_market_data_gate",
+     "every_row_agrees_with_canonical_gate", True),
+    ("release37_native_market_data_gate",
+     "acquisition_states_come_from_the_canonical_vocabulary", True),
+    # --- Slice 9 / Release 37.1: two explicit decision contexts, one owner.
+    ("data_expansion_ownership", "decision_contexts_declared", True),
+    ("data_expansion_ownership", "legacy_default_decision_context_preserved",
+     True),
+    ("data_expansion_ownership", "research_acquisition_state_declared", True),
+    ("data_expansion_ownership",
+     "research_acquisition_state_is_distinct_from_purchase", True),
+    ("data_expansion_ownership", "acquisition_classifier_present", True),
+    ("data_expansion_ownership", "acquisition_dimensions_present", True),
+    ("data_expansion_ownership", "post_acquisition_evidence_standard_intact",
+     True),
+    ("data_expansion_ownership", "acquisition_recommendation_is_not_authority",
+     True),
+    ("data_expansion_ownership", "acquisition_requires_manual_approval", True),
+    ("data_expansion_ownership", "owner_threads_decision_context", True),
+    ("data_expansion_ownership", "decision_contexts_persist_separately", True),
+    ("data_expansion_ownership", "automatic_acquisition_allowed", False),
     ("release33_predictive_edge", "r33_source_has_no_operational_write_path",
      True),
     ("release32_pnl_opportunity_frontier", "modules_present", True),

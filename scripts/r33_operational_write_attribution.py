@@ -162,6 +162,27 @@ R36_MARKERS = (
 R36_SOURCE_GLOBS = ("alpha_agent/r36/*.py",)
 R36_SOURCE_FILES = ("scripts/run_release36_global_multi_asset_frontier.py",)
 
+#: Release 37 downloads free samples and CALLS two gates that own their own
+#: stores, so its profile carries the acquisition root and the campaign ids as
+#: markers: a sample written into an operational store, or a Slice-9 evaluation
+#: persisted by a research release, would both be attributable here.
+R37_MARKERS = (
+    "r37_native_market_data_gate_v1", "r37_native_market_data_gate_v2",
+    "r37_native_market_data_gate_v3", "r37_native_market_data_gate_v4",
+    "r37_native_market_data_gate_v5", "native_market_data_gate_r37",
+    "run_release37_native_market_data_gate",
+    "alpha_agent.r37", "alpha_agent/r37", "alpha_agent\\r37",
+    "release37_native_market_data_gate",
+    # Release 37.1 extended the canonical Slice-9 owners with a second decision
+    # context. Those owners persist evaluations, so a write landing in the
+    # Slice-9 store because a research release ran the gate is attributable here
+    # - which is exactly what this release must be able to prove it did NOT do.
+    "dxev_acq_", "data_expansion", "RESEARCH_ACQUISITION",
+)
+R37_SOURCE_GLOBS = ("alpha_agent/r37/*.py",)
+R37_SOURCE_FILES = ("scripts/run_release37_native_market_data_gate.py",
+                    "engine/data_expansion_gate.py", "api/data_expansion.py")
+
 RELEASE_PROFILES = {
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
@@ -174,6 +195,9 @@ RELEASE_PROFILES = {
             "attributable_key": "r33_attributable"},
     "R36": {"markers": R36_MARKERS, "source_globs": R36_SOURCE_GLOBS,
             "source_files": R36_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R37": {"markers": R37_MARKERS, "source_globs": R37_SOURCE_GLOBS,
+            "source_files": R37_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
 }
 DEFAULT_PROFILE = "R33"

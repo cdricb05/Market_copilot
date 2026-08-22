@@ -853,6 +853,37 @@
   complexity, operational reliability), separates hard blockers from soft gaps, and returns ONE
   explicit recommendation drawn from a frozen vocabulary: `REJECT` / `INSUFFICIENT_EVIDENCE` /
   `RESEARCH_ONLY` / `CANDIDATE` / `PURCHASE_RECOMMENDED` / `INTEGRATION_RECOMMENDED`.
+- **AMENDED (Release 37.1) — the ONE gate answers TWO questions, selected by an explicit
+  `decision_context` rather than assumed.** Release 37 exposed a semantic gap: the gate modelled
+  only the POST-acquisition question, so asking it a PRE-acquisition question was circular — you
+  need the data to measure lift, and the gate needed lift to recommend acquiring the data. The
+  amendment adds the missing question to the SAME owner rather than allowing a second acquisition
+  authority to grow beside it.
+  - **`POST_ACQUISITION_VALUE`** — *"did the measured evidence earn continued purchase /
+    integration?"* Unchanged in every respect, sixteen dimensions, the frozen six-state
+    vocabulary above, and the **DEFAULT** for every caller that does not ask otherwise, so no
+    existing caller's semantics changed.
+  - **`RESEARCH_ACQUISITION`** — *"is this dataset credible and economically valuable enough to
+    justify a manually approved research acquisition, so that we can LEARN?"* Eighteen
+    dimensions: the sixteen, plus `capability_unlocked` (what does acquiring this unlock — a
+    dataset that unlocks nothing is REJECTed, one that unlocks only at a weaker level is a
+    CANDIDATE, an undeclared one is INSUFFICIENT_EVIDENCE) and
+    `expected_incremental_distinctness` (declared with its basis, plus whether an owned/free
+    substitute was tried first and whether a bounded evaluation that can return DO_NOT_BUY
+    exists). Both are CALLER declarations; the kernel refuses to invent either. States:
+    `REJECT` / `INSUFFICIENT_EVIDENCE` / `CANDIDATE` / `RESEARCH_ACQUISITION_RECOMMENDED` /
+    `NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED`.
+  - **It is not a softer gate — it is the same gate asked a different question.** It drops
+    exactly one requirement, the one that cannot exist before acquisition. PIT, survivorship,
+    history and licensing failures still REJECT; unknown cost, unclear licensing and undeclared
+    distinctness still cap at CANDIDATE.
+  - **`RESEARCH_ACQUISITION_RECOMMENDED` is deliberately NOT `PURCHASE_RECOMMENDED`.** One says
+    "worth paying to learn", the other "the measured evidence earned continued purchase".
+    Collapsing them would let a pre-research judgement be read as post-research proof. A Stage-A
+    recommendation is never alpha evidence, never integration approval and never purchasing
+    authority, and manual operator approval remains mandatory.
+  - The two contexts persist to separate index keys, so neither supersedes the other's answer;
+    the legacy key shape is unchanged so no existing artifact is orphaned.
 - **Why a gate, not a provider layer:** the existing owners already own the underlying concerns
   — `alpha_agent/source_contracts` (provider/provenance), `api/data_freshness` (freshness),
   `alpha_agent/experiment_contracts` (evidence gates), `alpha_agent/analyst_revisions` (Stage 13A

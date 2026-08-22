@@ -837,6 +837,19 @@ flowchart LR
   / `RESEARCH_ONLY` / `CANDIDATE` / `PURCHASE_RECOMMENDED` / `INTEGRATION_RECOMMENDED`). It never
   fabricates a score when required data is absent, and never recommends a purchase on
   in-sample-only evidence or on current/live P&L.
+- **Two decision contexts on the ONE calculation owner (Release 37.1):** the gate answers both
+  acquisition questions, selected by an explicit `decision_context` argument.
+  `POST_ACQUISITION_VALUE` — *"did the measured evidence earn continued purchase?"* — is the
+  behaviour described above and remains the **DEFAULT**, so no existing caller changed meaning.
+  `RESEARCH_ACQUISITION` — *"is this worth paying to LEARN?"* — applies BEFORE any lift can be
+  measured: it requires no measured lift (requiring it would be circular), adds two
+  caller-declared dimensions (`capability_unlocked`, `expected_incremental_distinctness`), keeps
+  every other gate binding exactly as hard, and returns `REJECT` / `INSUFFICIENT_EVIDENCE` /
+  `CANDIDATE` / `RESEARCH_ACQUISITION_RECOMMENDED` / `NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED`.
+  The two states are deliberately distinct from `PURCHASE_RECOMMENDED` so a pre-research
+  judgement can never be read as post-research proof; both require manual approval and neither
+  is purchasing authority. Evaluations persist under separate index keys per context (the legacy
+  key shape is unchanged), and the read contract exposes both side by side.
 - **Reuses (never forks) the existing owners:** `alpha_agent/source_contracts` (provider /
   provenance), `api/data_freshness` (freshness), `alpha_agent/experiment_contracts` (evidence
   gates), `alpha_agent/analyst_revisions` (Stage 13A analyst-revisions candidate), and

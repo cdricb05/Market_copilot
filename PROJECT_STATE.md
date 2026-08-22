@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-22
-- **Updated by phase:** **Release 36 — Global Multi-Asset Alpha Frontier & Coverage Closure. TERMINAL: `R36_FRONTIER_PARTIALLY_CLOSED`. SYSTEM_RESULT = PASS, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL.** Release 35 is CLOSED.
-- **Source Git HEAD:** `46cf96a642c962975ee230fb163aea1319778b56`, branch `stage19-controlled-rebalance`. This is the Release-35 closeout and is the declared **Release-36 base commit**.
-- **Working tree status:** Release-36 source, tests and documentation uncommitted (`alpha_agent/r36/`, `scripts/run_release36_global_multi_asset_frontier.py`, `tests/test_release36_global_multi_asset_frontier.py`, `docs/RELEASE36_GLOBAL_MULTI_ASSET_FRONTIER.md`, plus edits to `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py`, `alpha_agent/r35/information.py` and this file). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 36 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release36_global_multi_asset_frontier_handoff`. Do not rerun Release 31, 32, 33, 34, 35 or 36 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, started a provider trial, created a provider account, changed a subscription tier, restarted production, or changed the scheduler.
+- **Updated by phase:** **Release 37 + 37.1 — Native-Market Data Expansion, Purchase Gate & Advanced Intelligence Readiness, with the canonical acquisition-gate alignment. TERMINAL: `R37_DATA_INVESTMENT_RECOMMENDED`. SYSTEM_RESULT = PASS, PURCHASE_RECOMMENDATION_RESULT = PASS, ALPHA_RESULT = NOT_TESTED.** Release 36 is CLOSED.
+- **Source Git HEAD:** `0eb3cf79c1b96b0f0f0077ee3c0fa56fa145c885`, branch `stage19-controlled-rebalance`. This is the Release-36 closeout and is the declared **Release-37 base commit**.
+- **Working tree status:** Release-37 source, tests and documentation uncommitted. New: `alpha_agent/r37/`, `scripts/run_release37_native_market_data_gate.py`, `tests/test_release37_native_market_data_gate.py`, `tests/test_release37_1_canonical_acquisition_gate.py`, `docs/RELEASE37_NATIVE_MARKET_DATA_GATE.md`. Modified: `engine/data_expansion_gate.py` and `api/data_expansion.py` (the 37.1 decision-context extension of the canonical Slice-9 owners), `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py` and this file. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 37 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release37_native_market_data_gate_handoff`. **Then the operator takes ONE purchase decision:** the Norgate Data Futures Package, USD 270/year, as an add-on to the existing account — expected to unlock 53 of Release 36's 95 blocked cells at USD 5.09 per cell per year, recommended by the canonical acquisition gate and requiring manual approval. Do not rerun Release 31–37 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, changed a subscription tier, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -20,16 +20,199 @@ for the second:
 | Release 34 | PASS | **FAIL** | `R34_PREDICTION_DOES_NOT_CONVERT` |
 | Release 35 | PASS | **FAIL** | `R35_NO_INCREMENTAL_INFORMATION_EDGE` |
 | Release 36 | PASS | **FAIL** | `R36_FRONTIER_PARTIALLY_CLOSED` |
+| Release 37 | PASS | **NOT_TESTED** | `R37_DATA_INVESTMENT_RECOMMENDED` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
 `campaign.build_verdict`, not a sentence in this document.
+
+**Release 37 is the first release whose `ALPHA_RESULT` is `NOT_TESTED`.** It ran
+no experiment, fitted no model and judged no book, so it has no Alpha result to
+report — and a purchase recommendation is emphatically not one. The value is a
+constant, `ALPHA_RESULT_VALUE = "NOT_TESTED"`, returned by a function with no
+other code path.
 
 **Release 35 adds a THIRD result between them.** A genuinely positive historical
 increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 37 — Native-Market Data Expansion & Purchase Gate (2026-08-22, TERMINAL)
+
+**Verdict: `R37_DATA_INVESTMENT_RECOMMENDED`. SYSTEM_RESULT = PASS.
+PURCHASE_RECOMMENDATION_RESULT = PASS. ALPHA_RESULT = NOT_TESTED.** 20 datasets
+challenged across 6 lanes, 5 free samples acquired and validated (29.7 MB),
+**$0 spent**, production untouched. Full write-up:
+[docs/RELEASE37_NATIVE_MARKET_DATA_GATE.md](docs/RELEASE37_NATIVE_MARKET_DATA_GATE.md).
+
+**This is the first release in this project's history whose deliverable is a
+purchase order rather than a research result.** Release 36 left 95 of 200
+applicable cells blocked by an entitlement, a licence, a point-in-time gap or a
+survivorship gap. Pricing that wall is a purchase decision, and it belongs to the
+operator.
+
+**The measurement that decided it.** Release 36 recorded that the owned Norgate
+Continuous Futures database serves ONE market, `&ES`. Release 37 re-measured it,
+got the same answer, and then asked the question Release 36 did not: *can the
+installed client express a dated futures contract at all?* All fifteen
+dated-contract calls exist in `norgatedata` 1.0.74; seven of seven metadata calls
+return real values for the entitled market (`point_value` 50.0, `tick_size` 0.25,
+`margin` 16060.0, `currency` USD, `exchange_name` CME, `first_quoted_date`
+1997-09-09); and `futures_market_session_contracts('&ES')` raises. **The wall is
+the ENTITLEMENT, not the vendor and not the code** — which turns the leading
+candidate's implementation cost from an integration project into a checkout page.
+
+**The recommendation: the Norgate Data Futures Package, USD 270/year**, an
+add-on to the subscription this estate already pays for. ~100 markets across 11
+exchange groups, individual dated contracts, ~45 years of history, official daily
+settlements, volume and open interest, first notice and last trading dates.
+
+| what it closes | cells |
+|---|---|
+| COMMODITY — precious, industrial, grains, softs, livestock | **36** |
+| INTERNATIONAL_EQUITY — developed ex-US | **7** |
+| RATES — Treasury futures | **6** |
+| VOLATILITY — the Cboe VX term structure | **4** |
+| **total** | **53 of 95 — 55.8 % of the blocked frontier** |
+
+**USD 5.09 per unlocked cell per year.** Three further markets are recorded as
+PARTIAL and deliberately excluded from the headline, because
+`PARTIAL_UNLOCK_COUNTS_IN_HEADLINE` is False; counting them would give 68.
+
+**Release 36's second-priority purchase turned out to be a subset of the first.**
+It named "a licensed VIX futures history" as the next thing to buy after a
+futures archive. The Cboe VX curve from 2004 is inside the USD 270 package, so
+the DataShop product is now `DO_NOT_BUY_LOW_INCREMENTAL_VALUE` — buying both
+would pay twice for one curve.
+
+**Analyst history is the second question, not the first.** It unlocks 3 cells
+against 53, has no published price, cannot be sampled without a sales
+conversation, and is the one family this estate has already tested twice
+(Stage 13B t = 2.27, Stage 13C out-of-sample t = −0.29, Intrinio trial
+`NO_DEFENSIBLE_ALPHA`). The Nasdaq Data Link Zacks table was re-probed and still
+answers HTTP 403.
+
+**Release 37 defines NO purchase gate**, and after 37.1 it defines no acquisition
+authority either. `alpha_agent/r37/purchase_gate.py` is forbidden by the
+architecture audit.
+
+**Release 37.1 — the canonical acquisition-gate alignment.** Release 37 ran every
+candidate through `engine.data_expansion_gate` and got INSUFFICIENT_EVIDENCE for
+15 and REJECT for 5 — PURCHASE_RECOMMENDED for none, including its own
+recommendation — then published a separate capability judgement beside it. Both
+halves were honest; the pair was two competing acquisition truths. **The defect
+was in the gate's SEMANTICS, not in either result:** it modelled only the
+post-acquisition question, so asking it a pre-acquisition question is circular —
+you need the data to measure lift, and it needs lift to bless the purchase.
+
+The ONE canonical gate now answers both, selected by an explicit
+`decision_context`:
+
+- **`RESEARCH_ACQUISITION`** (Stage A) — *"is this worth paying to LEARN?"*
+  Requires no measured lift, because none can exist yet. Adds two dimensions the
+  post-acquisition context has no reason to ask — `capability_unlocked` and
+  `expected_incremental_distinctness` — both of which the CALLER must declare and
+  neither of which the kernel will invent. Every other gate binds as hard as
+  before: PIT, survivorship, history and licence failures still REJECT; unknown
+  cost, unclear licence and undeclared distinctness still cap at CANDIDATE.
+  New states: `RESEARCH_ACQUISITION_RECOMMENDED` and
+  `NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED`.
+- **`POST_ACQUISITION_VALUE`** (Stage B) — unchanged, still the **DEFAULT**, so
+  no existing caller changed meaning. Its frozen six-state vocabulary is
+  untouched and its INSUFFICIENT_EVIDENCE verdicts are still recorded verbatim.
+
+`RESEARCH_ACQUISITION_RECOMMENDED` is deliberately NOT `PURCHASE_RECOMMENDED`:
+one means "worth paying to learn", the other "the measured evidence earned
+continued purchase", and collapsing them would let a pre-research judgement read
+as post-research proof. **Run in Stage A the canonical gate independently returns
+`RESEARCH_ACQUISITION_RECOMMENDED` for exactly one candidate — Norgate Futures —
+with no failed dimension and no outstanding blocker.** The other nineteen: 8
+CANDIDATE, 6 REJECT, 1 INSUFFICIENT_EVIDENCE, 1 NO_ACQUISITION_REQUIRED. The
+canonical result is the AUTHORITY; Release 37's own states are triage labels and
+`recommended_by_r37_but_refused_by_canonical_gate` must stay empty.
+`SLICE9_RESULT_MAY_BE_OVERRIDDEN` is False and
+`CANONICAL_ACQUISITION_GATE_IS_AUTHORITATIVE` is True. **The recommendation is
+unchanged** — 37.1 changed where the decision is taken, not what it is.
+
+**The ~53 cells are EXPECTED unlocks, not measured ones.** They become measured
+only after the entitlement is activated and the delivered markets and contracts
+are enumerated, which is step one of Release 38.
+`EXPECTED_UNLOCKS_ARE_NOT_MEASURED_UNLOCKS` is True.
+
+**Free and acquired, honestly labelled:** LBMA gold (1968→), silver (1968→) and
+platinum (1990→); NY Fed primary-dealer positions (751,169 rows, 1998→); the
+Cboe CFE volume and open-interest archive (2004→). **None of them unlocks a
+single cell**, and the report says so — a fixing is a LEVEL 1 SIGNAL and cannot
+close a metals cell. They are controls and conditioning variables, and the NY Fed
+series is the rates analogue of the Commitments of Traders report Release 35
+already owns.
+
+**A sample disproved one of this release's own scorecard rows.** The Cboe file
+was first recorded as per-dated-contract on the strength of the exchange's page.
+Parsing the bytes showed it is wide and product-level with no expiry key
+anywhere; the row was corrected and the run superseded. That is
+`A_MARKETING_CLAIM_IS_NOT_A_MEASUREMENT` catching the release itself.
+
+**Track C — ML readiness (secondary, no campaign).** The workstation was
+inventoried read-only: i3-10105F (8 logical), **68.6 GB RAM**, **GTX 1650 with
+4.0 GB VRAM** and compute capability 7.5, no CUDA toolkit, C: 7.3 GB free and
+D: 777.9 GB free, and a numerical stack of `numpy` and `pandas` **and nothing
+else**. Thirteen model families were declared with their input requirements,
+sample floors, hardware demands and point-in-time/survivorship failure modes;
+readiness is COMPUTED against the measurement, not typed.
+
+**Release 37.1 corrected an overstatement here.** Release 37 reported "8 of 13
+run here today", which was true of the HARDWARE and false as a statement about
+what could be executed. Readiness is now a five-value class computed against the
+measured library inventory as well as the measured machine:
+**`CURRENTLY_INSTALLED_AND_RUNNABLE` 1** (regularised linear, closed-form ridge
+on `numpy`) · **`HARDWARE_FEASIBLE_AFTER_SOFTWARE_INSTALL` 5** ·
+**`LOCALLY_POSSIBLE_BUT_IMPRACTICAL` 2** (both need 4 GB VRAM on a 4 GB card) ·
+**`EXTERNAL_GPU_RECOMMENDED` 5** (8–16 GB) · **`NOT_CURRENTLY_FEASIBLE` 0**.
+Missing libraries: scipy, scikit-learn, xgboost, torch, transformers, tabpfn,
+chronos-forecasting — **all free, and this release installs none of them**.
+**10 of 13 are made more valuable by the purchase.** The highest-value family is
+the least fashionable one — calibrated quantile/distributional regression, which
+is CPU-only (it needs `scipy`, not a GPU) and addresses the
+`CALIBRATION_BLOCKED` gap recorded in Release 30.1. Classical tabular ML is
+locally feasible after a free install; serious foundation-model research will
+need rented GPU capacity later, which is a decision for a future release. A canonical ML input/output data contract was declared,
+composing existing owners; its output vocabulary extends past a point return to
+excess return, probability, quantiles, tail risk, volatility, uncertainty, model
+disagreement and an explicit **abstain**. `TRAINS_A_MODEL` is False and
+`NEWER_IMPLIES_BETTER` is False.
+
+**Track D — market structure (designed, not run).** Nine structural hypotheses,
+each with a declared control and its leakage risk. A pivot is confirmed only
+after 5 sessions and 1 × ATR displacement and is stamped with the CONFIRMATION
+date, never the extreme's own date. Fibonacci is a hypothesis with **seven
+placebo levels inside the multiple-testing denominator**; if the arms are
+indistinguishable the conclusion is "retracement entries in trends work", not
+"Fibonacci works". Three representation arms — numeric, engineered structure and
+chart image. `EXECUTED_IN_THIS_RELEASE` is False.
+
+**Four runs, three superseded, all artifacts retained:** v1 read the Slice-9
+result from the wrapper so every gate verdict serialised as null; v2 was
+disproved by its own downloaded sample; v3 measured RAM with `os.sysconf`, which
+does not exist on Windows, and reported a 64 GB machine as unknown. v4 is
+authoritative.
+
+**Safety.** $0.00 spent, 0 trials, 0 accounts, 0 licences accepted, 0 payment
+details submitted, 0 subscription changes, no CUDA installed, no model weights
+downloaded, no cloud compute purchased, no operational write, no portfolio
+mutation, no model promotion. `PURCHASE_AUTHORITY_GRANTED_BY_THIS_RELEASE` is
+False and every gate state — including the recommending one — returns
+`purchase_authorised: False`. Proven by
+`check_release37_native_market_data_gate` (54 required assertions) and by
+`scripts/r33_operational_write_attribution.py --release R37`, which returns
+`ATTRIBUTED` with zero writes.
+
+**Release 38, if the purchase happens:** execute the 53 native cells with the
+Release-36 machinery — trailing statistics, per-lane controls, cost on traded
+notional, minimum detectable effect reported on every failure. If it does not,
+Release 38 is the six vendor conversations named in
+`blocked_vendor_actions.json`.
 
 ## Release 36 — Global Multi-Asset Alpha Frontier (2026-08-22, TERMINAL)
 

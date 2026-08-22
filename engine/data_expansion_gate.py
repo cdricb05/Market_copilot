@@ -31,10 +31,37 @@ prohibited licensing; future leakage; no reliable identifier mapping; a research
 small; a dataset that materially duplicates already-owned information without measurable
 lift) are separated from soft, visible gaps.
 
-The result is ONE explicit recommendation drawn from a frozen vocabulary:
+The gate answers TWO business questions, and which one it is answering is an explicit input
+(``decision_context``) rather than an assumption:
+
+  * ``POST_ACQUISITION_VALUE`` — *"now that the dataset has been acquired and tested, did it
+    produce enough MEASURED incremental value to justify continued purchase / integration?"*
+    This is the historical behaviour of this kernel and remains the DEFAULT for every caller
+    that does not ask for anything else. Its evidence standards are unchanged: no purchase
+    recommendation without out-of-sample, adequately-sampled, cost-adjusted measured lift.
+  * ``RESEARCH_ACQUISITION`` — *"is this dataset credible and economically valuable enough to
+    justify a MANUALLY APPROVED research acquisition, so that we can learn?"* This stage
+    happens BEFORE measured lift can exist, and requiring lift here is circular: the lift of
+    data that has not been acquired cannot be measured. Stage A therefore does not require
+    measured lift — and is strict about everything else, including two requirements Stage B
+    has no reason to make: a DECLARED capability the acquisition unlocks, and a DECLARED
+    expectation of economic distinctness from already-owned data, each of which must be
+    supplied by the caller and neither of which the kernel will invent.
+
+The result is ONE explicit recommendation. The post-acquisition vocabulary is frozen:
 
     REJECT · INSUFFICIENT_EVIDENCE · RESEARCH_ONLY · CANDIDATE ·
     PURCHASE_RECOMMENDED · INTEGRATION_RECOMMENDED
+
+and the research-acquisition vocabulary reuses the three states that mean the same thing in
+both stages and adds the two that only exist before acquisition:
+
+    REJECT · INSUFFICIENT_EVIDENCE · CANDIDATE ·
+    RESEARCH_ACQUISITION_RECOMMENDED · NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED
+
+``RESEARCH_ACQUISITION_RECOMMENDED`` is deliberately NOT ``PURCHASE_RECOMMENDED``: one says
+"worth paying to learn", the other says "the measured evidence earned continued purchase",
+and collapsing them would let a pre-research judgement be read as post-research proof.
 
 Everything the gate produces is RESEARCH GOVERNANCE ONLY. The result NEVER purchases a
 dataset, subscribes to or activates a provider, calls a paid provider, uses a paid API quota,
@@ -57,7 +84,28 @@ POLICY_VERSION = "data_expansion_gate_policy.v1"
 
 CALCULATION_OWNER = "engine.data_expansion_gate"
 
-# --- Frozen recommendation vocabulary ---------------------------------------- #
+# --- Decision context — WHICH question the gate is being asked ---------------- #
+# Stage A: before acquisition, "is it worth paying to learn?". Stage B: after acquisition and
+# research, "did it earn continued purchase / integration?". The DEFAULT is Stage B, which is
+# this kernel's historical behaviour, so every existing caller keeps its exact semantics
+# without being edited.
+CONTEXT_RESEARCH_ACQUISITION = "RESEARCH_ACQUISITION"
+CONTEXT_POST_ACQUISITION_VALUE = "POST_ACQUISITION_VALUE"
+DECISION_CONTEXT_VOCAB = (CONTEXT_RESEARCH_ACQUISITION, CONTEXT_POST_ACQUISITION_VALUE)
+DEFAULT_DECISION_CONTEXT = CONTEXT_POST_ACQUISITION_VALUE
+LEGACY_DECISION_CONTEXT = CONTEXT_POST_ACQUISITION_VALUE
+
+DECISION_CONTEXT_QUESTION = {
+    CONTEXT_RESEARCH_ACQUISITION:
+        "Is this dataset credible and economically valuable enough to justify a manually "
+        "approved research acquisition, so that we can learn? Measured research lift cannot "
+        "exist yet and is therefore NOT required — everything else is.",
+    CONTEXT_POST_ACQUISITION_VALUE:
+        "Now that the dataset has been acquired and tested, did it produce enough measured "
+        "incremental value to justify continued purchase / integration?",
+}
+
+# --- Frozen post-acquisition recommendation vocabulary ------------------------ #
 REC_REJECT = "REJECT"
 REC_INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 REC_RESEARCH_ONLY = "RESEARCH_ONLY"
@@ -66,6 +114,30 @@ REC_PURCHASE = "PURCHASE_RECOMMENDED"
 REC_INTEGRATION = "INTEGRATION_RECOMMENDED"
 RECOMMENDATION_VOCAB = (REC_REJECT, REC_INSUFFICIENT, REC_RESEARCH_ONLY, REC_CANDIDATE,
                         REC_PURCHASE, REC_INTEGRATION)
+#: The historical name is the POST-ACQUISITION vocabulary; the alias says so out loud.
+POST_ACQUISITION_RECOMMENDATION_VOCAB = RECOMMENDATION_VOCAB
+
+# --- Research-acquisition (Stage A) vocabulary -------------------------------- #
+# REJECT / INSUFFICIENT_EVIDENCE / CANDIDATE mean exactly what they mean in Stage B and are
+# reused rather than duplicated. The two states below exist only before acquisition.
+REC_RESEARCH_ACQUISITION = "RESEARCH_ACQUISITION_RECOMMENDED"
+REC_ALREADY_ENTITLED = "NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED"
+ACQUISITION_RECOMMENDATION_VOCAB = (REC_REJECT, REC_INSUFFICIENT, REC_CANDIDATE,
+                                    REC_RESEARCH_ACQUISITION, REC_ALREADY_ENTITLED)
+#: Every state either stage can emit, in a stable order, for read layers.
+DECISION_STATE_VOCAB = tuple(dict.fromkeys(RECOMMENDATION_VOCAB
+                                           + ACQUISITION_RECOMMENDATION_VOCAB))
+
+VOCAB_FOR_CONTEXT = {
+    CONTEXT_RESEARCH_ACQUISITION: ACQUISITION_RECOMMENDATION_VOCAB,
+    CONTEXT_POST_ACQUISITION_VALUE: RECOMMENDATION_VOCAB,
+}
+
+#: A Stage-A recommendation is NOT evidence of alpha, NOT integration approval and NOT
+#: purchasing authority. Declared as a constant so no reader has to infer it.
+ACQUISITION_RECOMMENDATION_IS_ALPHA_EVIDENCE = False
+ACQUISITION_RECOMMENDATION_IS_INTEGRATION_APPROVAL = False
+ACQUISITION_RECOMMENDATION_REQUIRES_MANUAL_APPROVAL = True
 
 # --- Per-dimension state vocabulary ------------------------------------------ #
 D_PASS = "PASS"
@@ -83,6 +155,25 @@ DIMENSIONS = (
     "incremental_information", "measured_research_lift", "implementation_complexity",
     "operational_reliability",
 )
+
+# Two dimensions that only exist BEFORE acquisition. Stage B has no reason to ask them (by
+# then the answer is measured, not expected), so they are appended only in Stage A and the
+# canonical sixteen above are left exactly as they were.
+ACQ_CAPABILITY = "capability_unlocked"
+ACQ_DISTINCTNESS = "expected_incremental_distinctness"
+ACQUISITION_ONLY_DIMENSIONS = (ACQ_CAPABILITY, ACQ_DISTINCTNESS)
+ACQUISITION_DIMENSIONS = DIMENSIONS + ACQUISITION_ONLY_DIMENSIONS
+
+DIMENSIONS_FOR_CONTEXT = {
+    CONTEXT_RESEARCH_ACQUISITION: ACQUISITION_DIMENSIONS,
+    CONTEXT_POST_ACQUISITION_VALUE: DIMENSIONS,
+}
+
+#: Declared expectation of economic distinctness from already-owned data. Stage A cannot
+#: measure a correlation it has no data for, so the CALLER must declare an expectation and
+#: name what it rests on; the kernel refuses to guess and treats an absent declaration as
+#: unknown rather than as good news.
+DISTINCTNESS_VOCAB = ("HIGH", "MEDIUM", "LOW", "NONE", "UNKNOWN")
 
 # --- Blocker tiers ----------------------------------------------------------- #
 TIER_DISQUALIFYING = "DISQUALIFYING"   # -> REJECT
@@ -136,6 +227,16 @@ def default_policy() -> dict[str, Any]:
         # --- cost / freshness / implementation ------------------------------- #
         "annual_cost_budget_usd": 12000.0,        # over-budget caps below PURCHASE
         "max_acceptable_staleness_days": 45,      # last-update lag beyond this -> WATCH
+        # --- RESEARCH_ACQUISITION (Stage A) floors --------------------------- #
+        # Used ONLY when the caller asks for the research-acquisition context; they change
+        # no Stage-B behaviour. Each encodes a rule this estate already holds elsewhere:
+        # capability must be named (a purchase that unlocks nothing teaches nothing), owned
+        # and free substitutes must have been tried first (USE_OWNED_DATA_FIRST), and a
+        # bounded evaluation that CAN return DO_NOT_BUY must exist before money is asked for.
+        "acquisition_min_capability_unlocked": 1,
+        "acquisition_min_distinctness": ("HIGH", "MEDIUM"),
+        "acquisition_requires_owned_substitute_tried": True,
+        "acquisition_requires_bounded_evaluation": True,
     }
 
 
@@ -778,6 +879,124 @@ def _eval_operational(ds: dict, req: dict, pol: dict):
 
 
 # --------------------------------------------------------------------------- #
+# RESEARCH_ACQUISITION (Stage A) evaluators — evaluated ONLY in that context.
+# --------------------------------------------------------------------------- #
+def _eval_capability(acq: dict, pol: dict):
+    """What research capability does acquiring this dataset actually unlock?
+
+    Stage A's central question, and the one Stage B never has to ask. A dataset that unlocks
+    no named capability cannot be worth paying to learn from, however clean it is; a dataset
+    whose capability was never declared is unproven rather than good.
+    """
+    count = _i(acq.get("capability_unlocked_count"))
+    ceiling = _i(acq.get("capability_unlocked_ceiling_count"))
+    detail = acq.get("capability_unlocked_detail")
+    units = acq.get("capability_unlocked_units")
+    floor = _i(pol.get("acquisition_min_capability_unlocked")) or 1
+    blk, gap = [], []
+    if count is None:
+        blk.append(_blocker("CAPABILITY_UNLOCKED_NOT_DECLARED", TIER_EVIDENCE, ACQ_CAPABILITY,
+                            "No declared capability this acquisition would unlock."))
+        gap.append(_gap("CAPABILITY_UNLOCKED_NOT_DECLARED", ACQ_CAPABILITY,
+                        "The acquisition case did not declare what the dataset unlocks."))
+        return _dim(ACQ_CAPABILITY, D_UNKNOWN, value=None, required=floor,
+                    reason_codes=["CAPABILITY_UNLOCKED_NOT_DECLARED"],
+                    detail="Unlocked capability undeclared."), blk, gap
+    if count < floor:
+        # A dataset that unlocks the capability only at a weaker implementation level is
+        # LIMITED, not worthless: that is a reported constraint which caps the result below a
+        # recommendation, and only a dataset that unlocks nothing at any level is disqualified.
+        if ceiling is not None and ceiling >= floor:
+            blk.append(_blocker("CAPABILITY_ONLY_AT_CEILING", TIER_PURCHASE, ACQ_CAPABILITY,
+                                "Unlocks %s capabilities only at the weaker ceiling level and "
+                                "%s fully." % (ceiling, count)))
+            gap.append(_gap("CAPABILITY_ONLY_AT_CEILING", ACQ_CAPABILITY,
+                            "The declared capability is reachable only at a weaker "
+                            "implementation level than the research requires."))
+            return _dim(ACQ_CAPABILITY, D_WATCH,
+                        value={"count": count, "ceiling": ceiling, "units": units,
+                               "detail": detail},
+                        required=floor, reason_codes=["CAPABILITY_ONLY_AT_CEILING"],
+                        detail="Capability unlocked only at the ceiling level."), blk, gap
+        blk.append(_blocker("NO_CAPABILITY_UNLOCKED", TIER_DISQUALIFYING, ACQ_CAPABILITY,
+                            "The acquisition unlocks %s declared capabilities, below the "
+                            "floor of %s, at any implementation level." % (count, floor)))
+        return _dim(ACQ_CAPABILITY, D_FAIL, value={"count": count, "ceiling": ceiling},
+                    required=floor, reason_codes=["NO_CAPABILITY_UNLOCKED"],
+                    detail="Acquiring this dataset would unlock nothing that is blocked."), blk, gap
+    if not detail:
+        gap.append(_gap("CAPABILITY_DETAIL_MISSING", ACQ_CAPABILITY,
+                        "A capability count was declared without naming what it consists of."))
+        return _dim(ACQ_CAPABILITY, D_WATCH, value={"count": count, "ceiling": ceiling,
+                    "units": units}, required=floor,
+                    reason_codes=["CAPABILITY_DETAIL_MISSING"],
+                    detail="Capability counted but not named."), blk, gap
+    return _dim(ACQ_CAPABILITY, D_PASS, value={"count": count, "ceiling": ceiling,
+                "units": units, "detail": detail}, required=floor,
+                detail="The acquisition unlocks a named, counted research capability."), blk, gap
+
+
+def _eval_expected_distinctness(acq: dict, pol: dict):
+    """Is the dataset EXPECTED to be economically distinct from what is already owned?
+
+    Stage B measures this as a correlation. Stage A has no data to correlate, so the caller
+    declares an expectation and says what it rests on — and an undeclared expectation caps
+    the result below a recommendation rather than passing quietly.
+    """
+    declared = _u(acq.get("expected_incremental_distinctness")) or "UNKNOWN"
+    basis = acq.get("expected_distinctness_basis")
+    tried = _b(acq.get("owned_substitute_tried"))
+    bounded = _b(acq.get("bounded_evaluation_declared"))
+    floor = tuple(pol.get("acquisition_min_distinctness") or ("HIGH", "MEDIUM"))
+    blk, gap = [], []
+    rc = []
+
+    if declared not in DISTINCTNESS_VOCAB:
+        declared = "UNKNOWN"
+    if declared in ("LOW", "NONE"):
+        blk.append(_blocker("NOT_ECONOMICALLY_DISTINCT_FROM_OWNED_DATA", TIER_DISQUALIFYING,
+                            ACQ_DISTINCTNESS,
+                            "Declared distinctness %s duplicates already-owned information."
+                            % declared))
+        return _dim(ACQ_DISTINCTNESS, D_FAIL, value=declared, required=list(floor),
+                    reason_codes=["NOT_ECONOMICALLY_DISTINCT_FROM_OWNED_DATA"],
+                    detail="Expected to duplicate owned data."), blk, gap
+    if declared not in floor:
+        blk.append(_blocker("EXPECTED_DISTINCTNESS_NOT_DECLARED", TIER_PURCHASE,
+                            ACQ_DISTINCTNESS,
+                            "Expected incremental distinctness was not declared."))
+        gap.append(_gap("EXPECTED_DISTINCTNESS_NOT_DECLARED", ACQ_DISTINCTNESS,
+                        "No declared expectation of distinctness from owned data."))
+        rc.append("EXPECTED_DISTINCTNESS_NOT_DECLARED")
+
+    if pol.get("acquisition_requires_owned_substitute_tried") and tried is not True:
+        blk.append(_blocker("OWNED_SUBSTITUTE_NOT_TRIED", TIER_PURCHASE, ACQ_DISTINCTNESS,
+                            "No owned or free substitute has been tried and measured as "
+                            "insufficient; owned data is used first."))
+        gap.append(_gap("OWNED_SUBSTITUTE_NOT_TRIED", ACQ_DISTINCTNESS,
+                        "The owned/free substitute was not tried before asking to buy."))
+        rc.append("OWNED_SUBSTITUTE_NOT_TRIED")
+
+    if pol.get("acquisition_requires_bounded_evaluation") and bounded is not True:
+        blk.append(_blocker("NO_BOUNDED_EVALUATION_DECLARED", TIER_PURCHASE, ACQ_DISTINCTNESS,
+                            "No bounded evaluation that could return DO_NOT_BUY was declared."))
+        gap.append(_gap("NO_BOUNDED_EVALUATION_DECLARED", ACQ_DISTINCTNESS,
+                        "An acquisition with no evaluation that can fail is open-ended."))
+        rc.append("NO_BOUNDED_EVALUATION_DECLARED")
+
+    if not basis and declared in floor:
+        gap.append(_gap("EXPECTED_DISTINCTNESS_BASIS_MISSING", ACQ_DISTINCTNESS,
+                        "A distinctness expectation was declared without naming its basis."))
+        rc.append("EXPECTED_DISTINCTNESS_BASIS_MISSING")
+
+    state = D_PASS if not rc else (D_UNKNOWN if declared not in floor else D_WATCH)
+    return _dim(ACQ_DISTINCTNESS, state, value={"declared": declared, "basis": basis,
+                "owned_substitute_tried": tried, "bounded_evaluation_declared": bounded},
+                required=list(floor), reason_codes=rc,
+                detail="Expected economic distinctness from already-owned data."), blk, gap
+
+
+# --------------------------------------------------------------------------- #
 # Entitlement / integration context
 # --------------------------------------------------------------------------- #
 def _ownership(ds: dict, own: dict) -> dict:
@@ -834,9 +1053,51 @@ def _classify(*, blockers: list, facts: dict, ownership: dict) -> tuple[str, lis
     return REC_PURCHASE, reasons
 
 
+def _classify_acquisition(*, blockers: list, ownership: dict) -> tuple[str, list[str]]:
+    """Stage A — "is it worth paying to learn?" (deterministic decision tree).
+
+    The ONE thing this classifier does differently from ``_classify`` is that it does not
+    require measured research lift, because at this stage measured lift cannot exist. Every
+    other gate binds exactly as hard: a disqualifying data-integrity blocker still REJECTs, an
+    unproven dataset is still INSUFFICIENT_EVIDENCE, and an unknown cost, unclear licence,
+    undeclared distinctness, untried owned substitute or absent bounded evaluation still caps
+    the result at CANDIDATE. It is not a softer gate — it is a gate asked a different question.
+    """
+    fatal = [b for b in blockers if b["tier"] == TIER_DISQUALIFYING]
+    evidence_b = [b for b in blockers if b["tier"] == TIER_EVIDENCE]
+    purchase_b = [b for b in blockers if b["tier"] == TIER_PURCHASE]
+    reasons: list[str] = []
+
+    # Ownership is settled BEFORE any other test, and only in this context. Stage A asks
+    # whether to ACQUIRE, and there is no acquisition decision to take about something the
+    # estate already holds — whatever else is true of it, that is an integration question and
+    # the post-acquisition context is where it belongs. Every blocker found on the way is
+    # still carried in the reason codes, so nothing is hidden by the short circuit.
+    if ownership["already_owned"]:
+        reasons.append("ALREADY_ENTITLED_NO_ACQUISITION_DECISION_TO_TAKE")
+        return REC_ALREADY_ENTITLED, reasons + sorted({b["code"] for b in blockers})
+
+    if fatal:
+        reasons.append("DISQUALIFYING_BLOCKER_PRESENT")
+        return REC_REJECT, reasons + [b["code"] for b in fatal]
+
+    # Dataset PROPERTIES must be proven even though its lift cannot be. Missing point-in-time
+    # metadata, unknown historical depth or an undeclared capability are all "we do not know",
+    # and "we do not know" never buys anything.
+    if evidence_b:
+        return REC_INSUFFICIENT, sorted({b["code"] for b in evidence_b})
+
+    if purchase_b:
+        reasons.append("ACQUISITION_CASE_HAS_OUTSTANDING_GAPS")
+        return REC_CANDIDATE, reasons + sorted({b["code"] for b in purchase_b})
+
+    reasons.append("ALL_ACQUISITION_GATES_PASS_MEASURED_LIFT_NOT_REQUIRED_YET")
+    return REC_RESEARCH_ACQUISITION, reasons
+
+
 def _recommendation_block(state: str, reasons: list, blockers: list, facts: dict,
-                          ownership: dict) -> dict:
-    manual = state in (REC_PURCHASE, REC_INTEGRATION)
+                          ownership: dict, context: str = DEFAULT_DECISION_CONTEXT) -> dict:
+    manual = state in (REC_PURCHASE, REC_INTEGRATION, REC_RESEARCH_ACQUISITION)
     headline = {
         REC_REJECT: "REJECT — dataset not worth acquiring / integrating as evaluated.",
         REC_INSUFFICIENT: "INSUFFICIENT_EVIDENCE — cannot judge incremental value yet.",
@@ -844,10 +1105,18 @@ def _recommendation_block(state: str, reasons: list, blockers: list, facts: dict
         REC_CANDIDATE: "CANDIDATE — promising; outstanding gaps before a purchase recommendation.",
         REC_PURCHASE: "PURCHASE_RECOMMENDED — MANUAL APPROVAL REQUIRED.",
         REC_INTEGRATION: "INTEGRATION_RECOMMENDED — MANUAL APPROVAL REQUIRED.",
+        REC_RESEARCH_ACQUISITION:
+            "RESEARCH_ACQUISITION_RECOMMENDED — worth paying to LEARN; MANUAL APPROVAL "
+            "REQUIRED. This is not alpha evidence and not integration approval.",
+        REC_ALREADY_ENTITLED:
+            "NO_ACQUISITION_REQUIRED_ALREADY_ENTITLED — the estate already holds this; the "
+            "open question is integration, not acquisition.",
     }[state]
+    is_acquisition = state == REC_RESEARCH_ACQUISITION
     return {
         "state": state,
-        "vocabulary": list(RECOMMENDATION_VOCAB),
+        "decision_context": context,
+        "vocabulary": list(VOCAB_FOR_CONTEXT.get(context, RECOMMENDATION_VOCAB)),
         "headline": headline,
         "reason_codes": sorted(set(reasons)),
         "manual_approval_required": True,
@@ -855,32 +1124,61 @@ def _recommendation_block(state: str, reasons: list, blockers: list, facts: dict
         "auto_purchase_allowed": False,
         "auto_integration_allowed": False,
         "auto_provider_activation_allowed": False,
+        "auto_acquisition_allowed": False,
         "is_purchase_recommendation": state == REC_PURCHASE,
         "is_integration_recommendation": state == REC_INTEGRATION,
+        "is_research_acquisition_recommendation": is_acquisition,
+        "is_alpha_evidence": False,
+        "is_integration_approval": False,
         "requires_manual_purchase_approval": manual,
         "detail": headline + " No dataset is ever purchased, no provider ever activated and "
-                  "no paid API ever called automatically — this is research governance only.",
+                  "no paid API ever called automatically — this is research governance only."
+                  + (" A research-acquisition recommendation says the dataset is worth paying "
+                     "to learn from; it says nothing about whether it will produce alpha, and "
+                     "it grants no purchasing authority."
+                     if is_acquisition else ""),
     }
 
 
 # --------------------------------------------------------------------------- #
 # Core entry point
 # --------------------------------------------------------------------------- #
-def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None) -> dict:
+def resolve_decision_context(*, input_contract: Optional[dict] = None,
+                             decision_context: Optional[str] = None) -> str:
+    """Which question is being asked. Precedence: explicit argument → contract → LEGACY.
+
+    An unrecognised value falls back to the legacy default rather than raising, because this
+    kernel degrades to an explained result instead of crashing a caller — but the fallback is
+    always the STRICTER, historical context, never the newer one.
+    """
+    raw = decision_context
+    if raw is None:
+        raw = (input_contract or {}).get("decision_context")
+    ctx = _u(raw)
+    return ctx if ctx in DECISION_CONTEXT_VOCAB else DEFAULT_DECISION_CONTEXT
+
+
+def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None,
+                     decision_context: Optional[str] = None) -> dict:
     """Evaluate one dataset-expansion candidate (pure, deterministic).
 
     ``input_contract`` is the immutable dataset-evaluation contract (dataset metadata,
-    research requirements and measured research evidence). Returns the frozen evaluation
-    result with one recommendation from ``RECOMMENDATION_VOCAB``. Never raises on incomplete
-    data — it degrades to BLOCKED / INSUFFICIENT_EVIDENCE with explicit reason codes, blockers
-    and gaps, and NEVER fabricates a score when required data is absent. Purchases nothing,
-    activates no provider, calls no paid API.
+    research requirements and — for the post-acquisition context — measured research
+    evidence). ``decision_context`` selects WHICH question is answered; omitting it preserves
+    this kernel's historical ``POST_ACQUISITION_VALUE`` behaviour exactly, so no existing
+    caller changes meaning. Returns the frozen evaluation result with one recommendation drawn
+    from that context's vocabulary. Never raises on incomplete data — it degrades to BLOCKED /
+    INSUFFICIENT_EVIDENCE with explicit reason codes, blockers and gaps, and NEVER fabricates a
+    score when required data is absent. Purchases nothing, activates no provider, calls no
+    paid API, in either context.
     """
     pol = dict(default_policy())
     if policy:
         pol.update(policy)
 
     ic = input_contract or {}
+    context = resolve_decision_context(input_contract=ic, decision_context=decision_context)
+    acquiring = context == CONTEXT_RESEARCH_ACQUISITION
     dataset_id = ic.get("dataset_id")
     provider = ic.get("provider")
     category = ic.get("data_category")
@@ -901,10 +1199,11 @@ def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None) -> 
         core_blockers.append(_blocker("MISSING_DATA_CATEGORY", TIER_DISQUALIFYING, "catalog",
                                       "No data_category supplied."))
     if core_blockers:
-        return _blocked_result(pol, ic, core_blockers)
+        return _blocked_result(pol, ic, core_blockers, context=context)
 
     facts = _evidence_facts(ev, req, pol)
     ownership = _ownership(ds, own)
+    acq = dict(ic.get("acquisition_case") or {})
 
     dims: list[dict] = []
     blockers: list[dict] = []
@@ -919,13 +1218,28 @@ def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None) -> 
         _eval_cost(ds, req, pol), _eval_incremental(facts, pol), _eval_lift(facts, pol),
         _eval_implementation(ds, req, pol), _eval_operational(ds, req, pol),
     ]
+    if acquiring:
+        evaluators.extend([_eval_capability(acq, pol),
+                           _eval_expected_distinctness(acq, pol)])
     for dim, blk, gap in evaluators:
         dims.append(dim)
         blockers.extend(blk)
         gaps.extend(gap)
 
-    state, reasons = _classify(blockers=blockers, facts=facts, ownership=ownership)
-    recommendation = _recommendation_block(state, reasons, blockers, facts, ownership)
+    if acquiring:
+        # Measured lift is UNAVAILABLE at this stage by definition, not missing by accident.
+        # Recording it as a by-design gap keeps the artifact honest without letting the
+        # absence be read either as a failure or as a pass.
+        gaps.append(_gap("MEASURED_LIFT_NOT_REQUIRED_BEFORE_ACQUISITION",
+                         "measured_research_lift",
+                         "The research-acquisition context does not require measured lift: "
+                         "the lift of data that has not been acquired cannot be measured.",
+                         by_design=True))
+        state, reasons = _classify_acquisition(blockers=blockers, ownership=ownership)
+    else:
+        state, reasons = _classify(blockers=blockers, facts=facts, ownership=ownership)
+    recommendation = _recommendation_block(state, reasons, blockers, facts, ownership,
+                                           context=context)
 
     dim_by_name = {d["dimension"]: d for d in dims}
     result = {
@@ -938,7 +1252,15 @@ def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None) -> 
         "dataset_name": ic.get("dataset_name") or ds.get("dataset_name"),
         "recommendation": recommendation,
         "recommendation_state": state,
-        "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
+        "recommendation_vocabulary": list(VOCAB_FOR_CONTEXT.get(context,
+                                                                RECOMMENDATION_VOCAB)),
+        "decision_context": context,
+        "decision_context_question": DECISION_CONTEXT_QUESTION[context],
+        "decision_context_vocabulary": list(DECISION_CONTEXT_VOCAB),
+        "decision_context_is_default": context == DEFAULT_DECISION_CONTEXT,
+        "measured_lift_required": not acquiring,
+        "evaluated_dimensions": list(DIMENSIONS_FOR_CONTEXT[context]),
+        "acquisition_case": (acq if acquiring else None),
         "dimensions": dims,
         "dimension_summary": {d["dimension"]: d["state"] for d in dims},
         "failed_dimensions": sorted(d["dimension"] for d in dims if d["state"] == D_FAIL),
@@ -960,7 +1282,7 @@ def evaluate_dataset(*, input_contract: dict, policy: Optional[dict] = None) -> 
         "state_reason_codes": recommendation["reason_codes"],
         "manual_review": _manual_review(state),
         "policy": pol,
-        "provenance": _provenance(ic),
+        "provenance": _provenance(ic, context=context),
         "safety": _safety(),
     }
     result["evaluation_hash"] = stable_hash(result)
@@ -1036,13 +1358,17 @@ def _facts_summary(facts: dict) -> dict:
 def _manual_review(state: str) -> dict:
     return {
         "manual_review_required": True,
-        "manual_purchase_approval_required": state in (REC_PURCHASE, REC_INTEGRATION),
+        "manual_purchase_approval_required": state in (REC_PURCHASE, REC_INTEGRATION,
+                                                       REC_RESEARCH_ACQUISITION),
+        "manual_acquisition_approval_required": state == REC_RESEARCH_ACQUISITION,
         "automatic_purchase_allowed": False,
         "automatic_subscription_allowed": False,
         "automatic_provider_activation_allowed": False,
         "automatic_integration_allowed": False,
-        "detail": ("Every data-expansion recommendation is a manual-approval governance "
-                   "recommendation; no dataset is acquired or integrated automatically."),
+        "automatic_acquisition_allowed": False,
+        "detail": ("Every data-expansion recommendation — in either decision context — is a "
+                   "manual-approval governance recommendation; no dataset is acquired, "
+                   "purchased or integrated automatically."),
     }
 
 
@@ -1076,14 +1402,19 @@ def _safety() -> dict:
         "auto_purchase_allowed": False,
         "auto_integration_allowed": False,
         "auto_provider_activation_allowed": False,
+        "auto_acquisition_allowed": False,
+        "acquired_dataset": False,
         "safety_badges": ["RESEARCH ONLY", "MANUAL PURCHASE APPROVAL", "NO AUTO-PURCHASE",
-                          "NO PROVIDER ACTIVATION", "NO PORTFOLIO MUTATION"],
+                          "NO AUTO-ACQUISITION", "NO PROVIDER ACTIVATION",
+                          "NO PORTFOLIO MUTATION"],
     }
 
 
-def _provenance(ic: dict) -> dict:
+def _provenance(ic: dict, *, context: str = DEFAULT_DECISION_CONTEXT) -> dict:
     return {
         "calculation_owner": CALCULATION_OWNER,
+        "decision_context": context,
+        "decision_context_question": DECISION_CONTEXT_QUESTION.get(context),
         "catalog_source": "api.data_expansion (dataset catalog + provider metadata)",
         "provenance_contract_source": "alpha_agent.source_contracts (normalized-record provenance)",
         "freshness_source": "api.data_freshness",
@@ -1098,7 +1429,8 @@ def _provenance(ic: dict) -> dict:
     }
 
 
-def _blocked_result(pol: dict, ic: dict, blockers: list) -> dict:
+def _blocked_result(pol: dict, ic: dict, blockers: list,
+                    *, context: str = DEFAULT_DECISION_CONTEXT) -> dict:
     """A readable BLOCKED result for missing core inputs (never raises; degrade-safe)."""
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -1110,18 +1442,26 @@ def _blocked_result(pol: dict, ic: dict, blockers: list) -> dict:
         "dataset_name": ic.get("dataset_name"),
         "recommendation": {
             "state": REC_INSUFFICIENT,
-            "vocabulary": list(RECOMMENDATION_VOCAB),
+            "decision_context": context,
+            "vocabulary": list(VOCAB_FOR_CONTEXT.get(context, RECOMMENDATION_VOCAB)),
             "headline": "BLOCKED — core dataset identity is incomplete.",
             "reason_codes": sorted({b["code"] for b in blockers}),
             "manual_approval_required": True,
             "manual_approval_state": MANUAL_APPROVAL_PENDING,
             "auto_purchase_allowed": False,
             "auto_integration_allowed": False,
+            "auto_acquisition_allowed": False,
             "is_purchase_recommendation": False,
             "is_integration_recommendation": False,
+            "is_research_acquisition_recommendation": False,
         },
         "recommendation_state": REC_INSUFFICIENT,
-        "recommendation_vocabulary": list(RECOMMENDATION_VOCAB),
+        "recommendation_vocabulary": list(VOCAB_FOR_CONTEXT.get(context,
+                                                                RECOMMENDATION_VOCAB)),
+        "decision_context": context,
+        "decision_context_question": DECISION_CONTEXT_QUESTION.get(context),
+        "decision_context_vocabulary": list(DECISION_CONTEXT_VOCAB),
+        "decision_context_is_default": context == DEFAULT_DECISION_CONTEXT,
         "blocked": True,
         "dimensions": [],
         "dimension_summary": {},
@@ -1136,7 +1476,7 @@ def _blocked_result(pol: dict, ic: dict, blockers: list) -> dict:
         "state_reason_codes": sorted({b["code"] for b in blockers}),
         "manual_review": _manual_review(REC_INSUFFICIENT),
         "policy": pol,
-        "provenance": _provenance(ic),
+        "provenance": _provenance(ic, context=context),
         "safety": _safety(),
     }
     result["evaluation_hash"] = stable_hash(result)
