@@ -199,7 +199,7 @@ def cot_instrument_series(frame: pd.DataFrame, codes, *,
 # --------------------------------------------------------------------------- #
 # FRED
 # --------------------------------------------------------------------------- #
-def load_fred(files: dict) -> dict:
+def load_fred(files: dict, *, monthly_ids=None, lag_months=None) -> dict:
     """FRED observation payloads into ``observable_at``-indexed series.
 
     Daily market observables (constant-maturity yields, TIPS yields, breakevens,
@@ -207,9 +207,19 @@ def load_fred(files: dict) -> dict:
     rates are published in arrears and are therefore stamped forward by
     ``OECD_RATE_PUBLICATION_LAG_MONTHS``; a month-M rate carrying a month-M
     index would be a two-month look-ahead repeated 300 times.
+
+    ``monthly_ids`` and ``lag_months`` let a LATER release declare its own
+    published-in-arrears set and per-series lag without a second FRED parser.
+    Both default to Release 35's, so an existing caller is unaffected: Release
+    36 reads twenty short rates and twenty-one consumer price indices, and a
+    quarterly price index needs a longer lag than a monthly interbank rate.
     """
-    monthly_ids = set(_contract.FRED_FOREIGN_SHORT_RATES.values())
-    monthly_ids.add(_contract.FRED_US_SHORT_RATE)
+    if monthly_ids is None:
+        monthly_ids = set(_contract.FRED_FOREIGN_SHORT_RATES.values())
+        monthly_ids.add(_contract.FRED_US_SHORT_RATE)
+    else:
+        monthly_ids = set(monthly_ids)
+    lag_months = dict(lag_months or {})
     series, meta = {}, {}
     for sid, path in sorted(files.items()):
         try:
@@ -234,14 +244,17 @@ def load_fred(files: dict) -> dict:
         index = pd.to_datetime(pd.Index(dates), errors="coerce")
         line = pd.Series(values, index=index, dtype=float).dropna()
         if sid in monthly_ids:
-            shifted = line.index + pd.DateOffset(
-                months=int(_contract.OECD_RATE_PUBLICATION_LAG_MONTHS))
+            months = int(lag_months.get(
+                sid, _contract.OECD_RATE_PUBLICATION_LAG_MONTHS))
+            shifted = line.index + pd.DateOffset(months=months)
             line = pd.Series(line.values, index=shifted, dtype=float)
             cadence = "MONTHLY_PUBLISHED_IN_ARREARS"
         else:
+            months = 0
             cadence = "DAILY_MARKET_OBSERVABLE"
         series[sid] = line.sort_index()
         meta[sid] = {"ok": True, "cadence": cadence,
+                     "publication_lag_months": months,
                      "observations": int(len(line)),
                      "first": str(line.index.min())[:10],
                      "last": str(line.index.max())[:10]}
@@ -281,16 +294,22 @@ def load_cboe(files: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # EIA petroleum futures curve
 # --------------------------------------------------------------------------- #
-def load_eia_curve(path, *, series_ids=_contract.EIA_WTI_CONTRACTS) -> dict:
+def load_eia_curve(path, *, series_ids=_contract.EIA_WTI_CONTRACTS,
+                   cache_name: str = "eia_wti_curve.csv") -> dict:
     """Dated NYMEX settlement prices for contracts 1..4.
 
     These are four DIFFERENT contracts quoted on the same day. That is what
     makes the resulting basis a curve and not a lagged transformation of one
     price, which is the substitution ``contract.PROHIBITED_SUBSTITUTIONS``
     forbids.
+
+    ``cache_name`` exists because the derived cache is keyed by FILE and a
+    second market read through this function would otherwise read, fail to
+    match, and then OVERWRITE the first market's cache with its own columns.
+    Release 36 reads five curves and passes a distinct name for each.
     """
     wanted = set(series_ids)
-    cached = cache_path("eia_wti_curve.csv")
+    cached = cache_path(cache_name)
     if cached.exists():
         frame = pd.read_csv(cached, index_col=0, parse_dates=True)
         if set(frame.columns) >= wanted:

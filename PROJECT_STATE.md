@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-21
-- **Updated by phase:** **Release 35 — Orthogonal Information Acquisition & Incremental Alpha. TERMINAL: `R35_NO_INCREMENTAL_INFORMATION_EDGE`. SYSTEM_RESULT = PASS, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL.** Release 34 is CLOSED.
-- **Source Git HEAD:** `be3bb030afd8b0c764f93691d39ca781149395d6`, branch `stage19-controlled-rebalance`. This is the Release-34 closeout and is the declared **Release-35 base commit**.
-- **Working tree status:** Release-35 source, tests and documentation uncommitted (`alpha_agent/r35/`, `scripts/run_release35_orthogonal_information.py`, `tests/test_release35_orthogonal_information.py`, `docs/RELEASE35_ORTHOGONAL_INFORMATION.md`, plus edits to `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py` and this file). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 35 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release35_orthogonal_information_handoff`. Do not rerun Release 31, 32, 33, 34 or 35 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, started a provider trial, created a provider account, restarted production, or changed the scheduler.
+- **Last updated:** 2026-08-22
+- **Updated by phase:** **Release 36 — Global Multi-Asset Alpha Frontier & Coverage Closure. TERMINAL: `R36_FRONTIER_PARTIALLY_CLOSED`. SYSTEM_RESULT = PASS, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL.** Release 35 is CLOSED.
+- **Source Git HEAD:** `46cf96a642c962975ee230fb163aea1319778b56`, branch `stage19-controlled-rebalance`. This is the Release-35 closeout and is the declared **Release-36 base commit**.
+- **Working tree status:** Release-36 source, tests and documentation uncommitted (`alpha_agent/r36/`, `scripts/run_release36_global_multi_asset_frontier.py`, `tests/test_release36_global_multi_asset_frontier.py`, `docs/RELEASE36_GLOBAL_MULTI_ASSET_FRONTIER.md`, plus edits to `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py`, `alpha_agent/r35/information.py` and this file). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 36 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release36_global_multi_asset_frontier_handoff`. Do not rerun Release 31, 32, 33, 34, 35 or 36 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, spent money, started a provider trial, created a provider account, changed a subscription tier, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -19,6 +19,7 @@ for the second:
 | Release 33 | PASS | **FAIL** | `R33_NO_PREDICTIVE_EDGE` |
 | Release 34 | PASS | **FAIL** | `R34_PREDICTION_DOES_NOT_CONVERT` |
 | Release 35 | PASS | **FAIL** | `R35_NO_INCREMENTAL_INFORMATION_EDGE` |
+| Release 36 | PASS | **FAIL** | `R36_FRONTIER_PARTIALLY_CLOSED` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
@@ -29,6 +30,107 @@ increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 36 — Global Multi-Asset Alpha Frontier (2026-08-22, TERMINAL)
+
+**Verdict: `R36_FRONTIER_PARTIALLY_CLOSED`. SYSTEM_RESULT = PASS.
+RESEARCH_CANDIDATE_RESULT = FAIL. ALPHA_RESULT = FAIL.** 34 executed
+configurations (ceiling 80), 7 lanes built, 0 qualified survivors, **$0 spent**,
+production untouched. Full write-up:
+[docs/RELEASE36_GLOBAL_MULTI_ASSET_FRONTIER.md](docs/RELEASE36_GLOBAL_MULTI_ASSET_FRONTIER.md).
+
+**Releases 34 and 35 were statements about ONE decision problem**, a 47-fund ETF
+cross-section rebalanced monthly. They were never statements about the FX
+market, the commodity curve, the Treasury curve, credit or volatility. `FXE` is
+not the FX market, `USO` is not the WTI futures curve, `HYG` is not credit and
+VIX as a feature is not a volatility sleeve. Release 36 exists because that
+distinction had never been written down, and it is now a recorded property of
+every experiment: **LEVEL 1 SIGNAL, LEVEL 2 PROXY, LEVEL 3 NATIVE**, with
+`PROXY_MAY_CLOSE_A_NATIVE_FRONTIER = False`.
+
+**Two native markets were opened that this project has never held.** Deliverable
+one-month FX forwards across **20 currencies, 1990–2026**, priced as
+`spot + (i_c - i_usd)` from owned Norgate spot and OECD three-month interbank
+rates — the carry leg Release 33 recorded as structurally ABSENT. And five
+**dated NYMEX energy curves** (WTI, heating oil, RBOB, natural gas and propane,
+which was delisted in 2009 and is included precisely because it was), where the
+one-month return of holding contract 2 until it becomes contract 1 needs no roll
+date to be inferred and no contract to be chosen with hindsight.
+
+**The headline finding: FX carry predicts powerfully and pays almost nothing
+extra.** Cross-sectional rank IC **+0.155 at t = +7.97** over 441 monthly dates
+— the strongest predictive statistic this project has ever measured, five
+times Release 34's. Net +5.06 %/yr, volatility 3.7 %, Sharpe 0.66, turnover
+0.80x/yr, 18.4 effective instruments. Against a volatility-matched passive
+foreign-currency basket its after-cost excess is **+1.39 %/yr at t = 1.79**,
+below the pre-registered gate of 2.0 and below the 1.55 % minimum detectable
+effect. The top five predictive results in the release are all FX; four of the
+five have a negative or negligible after-cost excess.
+
+**Nothing qualified.** Benjamini-Hochberg over all 34 executed configurations:
+**2 rejections, both LOSING, 0 beating.** One-month currency reversal is
+reliably backwards (−3.58 %/yr, t − 4.67) and tilting to equity on a
+steep curve reliably lost to 60/40 (−8.64 %/yr, t − 4.31). Hansen SPA
+per lane: no lane below 0.12.
+
+**Half the global frontier is blocked, and the blockers are named.** 200
+applicable cells: **32 % tested native, 19 % proxy-only, 48 % BLOCKED, one cell
+untested**. `BLOCKED_ENTITLEMENT` covers metals, grains, softs, livestock,
+Treasury futures, international government bonds and non-US equity — all
+downstream of ONE measured fact re-verified here: the owned Norgate Continuous
+Futures entitlement serves **exactly one market, `&ES`**. `BLOCKED_LICENSING`
+covers the Cboe VX settlement history (five routes probed, all 403/404).
+`BLOCKED_SURVIVORSHIP` covers short-volatility ETPs — `SVXY` and `UVXY` are
+owned but `XIV`, `TVIX`, `ZIV` and `VIIX` are absent, so the products that
+TERMINATED are exactly the ones missing — and the broad crypto cross-section.
+
+**The single untested cell is the discipline working.** `CREDIT_INVESTMENT_GRADE
+:: MACRO_CONDITIONAL` could have been closed by adding a 35th configuration or
+by relabelling an existing one. Both were refused: the grid was frozen before
+any result was seen and may not be widened afterwards. That one cell is why the
+verdict is `PARTIALLY_CLOSED` rather than `NO_NATIVE_MULTI_ASSET_EDGE`.
+
+**Release 36 caught two of its own defects and superseded itself twice**, both
+recorded in `SUPERSEDED_CAMPAIGNS` with artifacts preserved and permanent
+regression tests:
+
+- **v1 — the control did not match what was traded.** The volatility lane
+  measured an EQUITY-holding configuration against a volatility-matched slice of
+  passive long volatility, which decays about 60 %/yr. It read **+10.5 %/yr at
+  t = 2.81** and would have shipped as a qualified native candidate; against the
+  right control it reads **−1.8 %/yr at t = −0.90**, a 3.7-standard-error
+  swing produced entirely by the benchmark.
+- **v2 — the control was fabricated before its own legs existed.** The
+  cross-asset 60/40 benchmark filled its missing bond leg with zero, so fifteen
+  years of decisions were scored against "60 % equity and 40 % nothing".
+  `XA_FX_CARRY_VS_EQUITY` read **+2.27 %/yr at t = 2.15** against it and
+  **+1.29 %/yr at t = 0.91** against the benchmark that actually existed.
+
+The permanent lesson, now learned three times in three disguises: **the control
+decides everything, and a wrong control is not conservative in a knowable
+direction.** Every lane is now trimmed to the window in which its own control is
+observable, uniformly and before any strategy runs.
+
+**Reuse, not reinvention.** Release 36 adds MARKETS. The economic judge, its
+controls, its traded-notional cost model and its concentration diagnostics are
+`alpha_agent.r34.economics` and `.concentration`; the multiple-testing
+statistics are `alpha_agent.r31.multiple_testing`; the Norgate readers are
+`r33.universe.load_close` and `r34.universe.load_total_return`; the
+point-in-time alignment rule and the HTTP primitive are
+`r35.information.as_of_align` and `r35.acquisition.fetch`; the admissibility
+thresholds and publication lags are imported constants from R33 and R35.
+`alpha_agent/r35/information.py` was EXTENDED (a `monthly_ids`/`lag_months`
+keyword and a `cache_name` keyword, both defaulting to prior behaviour) rather
+than copied. `scripts/r33_operational_write_attribution.py` gained a tested
+**R36 profile**; unknown profiles still fail closed.
+
+**Owner:** `alpha_agent/r36/` (9 modules), runner
+`scripts/run_release36_global_multi_asset_frontier.py`, regression
+`tests/test_release36_global_multi_asset_frontier.py` (76), audit guard
+`check_release36_global_multi_asset_frontier` (58 required assertions),
+evidence `D:\Stock_Prediction_app_data\global_multi_asset_frontier_r36\
+r36_global_multi_asset_frontier_v3\`.
+
 
 ## Release 35 — Orthogonal Information Acquisition (2026-08-21, TERMINAL)
 

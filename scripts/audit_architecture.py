@@ -6848,6 +6848,331 @@ def check_release35_orthogonal_information(files: list[Path]) -> dict:
     }
 
 
+R36_OWNERS = {
+    "root": "alpha_agent/r36/__init__.py",
+    "contract": "alpha_agent/r36/contract.py",
+    "entitlements": "alpha_agent/r36/entitlements.py",
+    "acquisition": "alpha_agent/r36/acquisition.py",
+    "native_markets": "alpha_agent/r36/native_markets.py",
+    "strategies": "alpha_agent/r36/strategies.py",
+    "experiments": "alpha_agent/r36/experiments.py",
+    "coverage": "alpha_agent/r36/coverage.py",
+    "campaign": "alpha_agent/r36/campaign.py",
+}
+
+#: The research lane's boundary did not move because the release changed.
+R36_FORBIDDEN_OWNER_REFS = R34_FORBIDDEN_OWNER_REFS
+R36_FORBIDDEN_CALLS = R34_FORBIDDEN_CALLS
+
+#: Modules whose existence under alpha_agent/r36 would mean Release 36 had
+#: rebuilt something an earlier release already owns. This release adds
+#: MARKETS, not a second economic judge, a second statistics library, a second
+#: optimiser, a second walk-forward framework or a second forward store.
+R36_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r36/economics.py", "alpha_agent/r36/judge.py",
+    "alpha_agent/r36/universe.py", "alpha_agent/r36/panel.py",
+    "alpha_agent/r36/models.py", "alpha_agent/r36/learners.py",
+    "alpha_agent/r36/portfolio.py", "alpha_agent/r36/multiple_testing.py",
+    "alpha_agent/r36/walkforward.py", "alpha_agent/r36/purchase_gate.py",
+    "alpha_agent/r36/calibration.py", "alpha_agent/r36/lockbox.py",
+    "alpha_agent/r36/concentration.py", "alpha_agent/r36/orthogonality.py",
+    "alpha_agent/r36/forward_evidence.py",
+)
+
+
+def check_release36_global_multi_asset_frontier(files: list[Path]) -> dict:
+    """Release 36 ownership, control, point-in-time and honesty invariants."""
+    src = {name: (_read(path) or "") for name, path in R36_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    runner = _read("scripts/run_release36_global_multi_asset_frontier.py") or ""
+
+    # One of each. R36 adds MARKETS; every statistic, judge, optimiser, vendor
+    # reader and gate is imported from the release that owns it.
+    reuses_r31_statistics = (
+        "from ..r31 import multiple_testing as _mt" in src["campaign"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    reuses_r34_economics = (
+        "from ..r34 import economics as _economics" in src["experiments"]
+        and "from ..r34 import concentration as _concentration"
+        in src["experiments"])
+    reuses_r33_vendor_reader = (
+        "from ..r33 import universe as _r33_universe" in src["native_markets"])
+    reuses_r34_vendor_reader = (
+        "from ..r34 import universe as _r34_universe" in src["native_markets"])
+    reuses_r35_alignment = (
+        "from ..r35 import information as _r35_information"
+        in src["native_markets"]
+        and "_r35_information.as_of_align" in src["native_markets"])
+    reuses_r35_http_owner = (
+        "from ..r35 import acquisition as _r35_acquisition"
+        in src["acquisition"]
+        and "_r35_acquisition.fetch" in src["acquisition"])
+    reuses_released_rank_correlation = (
+        "from .. import orthogonality as _orth" in src["experiments"])
+    second_owner_modules = sorted(p for p in R36_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+    no_second_learner_library = not re.search(
+        r"def\s+fit_(ridge|elastic_net|gbrt|extra_trees|hmm|linear|"
+        r"hierarchical)\s*\(", all_src)
+    no_second_economic_judge = not re.search(
+        r"def\s+(evaluate_book|volatility_matched_control|"
+        r"excess_significance|annualised_return)\s*\(", all_src)
+
+    # Safety: research only, promotes nothing, mutates nothing, buys nothing.
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY", "MAY_MUTATE_PRODUCTION"))
+    spending_refused = all(
+        f"{flag} = False" in src["contract"] for flag in
+        ("MAY_SPEND_MONEY", "MAY_START_PROVIDER_TRIAL",
+         "MAY_CREATE_PROVIDER_ACCOUNT", "MAY_CHANGE_SUBSCRIPTION_TIER"))
+    api_key_is_not_entitlement = (
+        "API_KEY_IMPLIES_ENTITLEMENT = False" in src["contract"]
+        and "def measure_all" in src["entitlements"])
+    credentials_never_serialised = (
+        "credentials_written_to_artifacts" in src["acquisition"]
+        and "api_key=REDACTED" in src["acquisition"]
+        and "Never their values" in src["entitlements"])
+    forbidden_calls = sorted(
+        {t for t in R36_FORBIDDEN_CALLS if t in all_src.lower()})
+    forbidden_owner_refs = sorted(
+        {t for t in R36_FORBIDDEN_OWNER_REFS if t in all_src})
+
+    # The control is the release's central discipline, and it is where both of
+    # this release's own superseded campaigns went wrong.
+    control_matches_what_is_traded = (
+        "CONTROL_IS_THE_PASSIVE_HOLD_OF_WHAT_IS_TRADED = True"
+        in src["contract"]
+        and "STRATEGY_CONTROL_LEG" in src["contract"]
+        and "STRATEGY_CONTROL_LEG.get(name)" in src["experiments"])
+    universal_equity_control_refused = (
+        "UNIVERSAL_SPY_CASH_CONTROL_ALLOWED = False" in src["contract"]
+        and "EXCESS_OVER_CASH_MAY_RANK = False" in src["contract"])
+    control_must_be_observable = (
+        "def trim_to_control" in src["native_markets"]
+        and "trim_to_control" in src["campaign"]
+        and "every_lane_control_is_observable_throughout" in src["campaign"])
+    superseded_campaigns_declared = (
+        "SUPERSEDED_CAMPAIGNS" in src["contract"]
+        and "SUPERSEDED_CONTROL_DEFECT" in src["contract"]
+        and "SUPERSEDED_WINDOW_DEFECT" in src["contract"])
+    cadence_is_per_lane_with_a_reason = (
+        "LANE_CADENCE_REASON" in src["contract"]
+        and len(re.findall(r"LANE_CADENCE\s*=\s*\{", src["contract"])) == 1)
+
+    # Point in time and survivorship: each is a specific way this release could
+    # have manufactured information or a market it did not have.
+    one_alignment_owner = (
+        "def as_of_align" not in all_src
+        and "_r35_information.as_of_align" in src["native_markets"])
+    admissibility_reused_from_r33 = (
+        "ADMISSIBILITY_RULES_ARE_REUSED_FROM_R33 = True" in src["contract"]
+        and "_r33_universe.MAX_ZERO_RETURN_FRACTION" in src["contract"])
+    publication_lags_reused_from_r35 = (
+        "_r35_contract.COT_PUBLICATION_LAG_DAYS" in src["contract"]
+        and "_r35_contract.OECD_RATE_PUBLICATION_LAG_MONTHS"
+        in src["contract"])
+    prohibited_substitutions_declared = (
+        "PROHIBITED_SUBSTITUTIONS" in src["contract"]
+        and "written back onto historical dates" in src["contract"]
+        and "manufactured from spot price momentum" in src["contract"])
+    curve_is_dated_contracts = (
+        "COMMODITY_CURVES" in src["contract"]
+        and "def read_commodity_curves" in src["native_markets"]
+        and "cache_name=" in src["native_markets"])
+    terminated_market_is_admitted = (
+        "COMMODITY_TERMINATED_MARKETS" in src["contract"]
+        and "PROPANE" in src["contract"])
+    contract_splice_refused = (
+        "GASOLINE_CONTRACT_SPLICE_ALLOWED = False" in src["contract"])
+    short_volatility_survivorship_refused = (
+        "SHORT_VOLATILITY_DIRECTION_TESTABLE = False" in src["contract"]
+        and "SHORT_VOLATILITY_BLOCK_REASON" in src["contract"])
+    broad_crypto_survivorship_refused = (
+        "CRYPTO_BROAD_UNIVERSE_ADMISSIBLE = False" in src["contract"]
+        and "CRYPTO_BROAD_UNIVERSE_BLOCK_REASON" in src["contract"])
+    normalisation_is_trailing_only = (
+        "NORMALISATION_IS_TRAILING_ONLY = True" in src["contract"]
+        and "FULL_SAMPLE_STATISTICS_ALLOWED = False" in src["contract"]
+        and "shifted one period first" in src["strategies"])
+    non_overlapping_decisions = (
+        "NON_OVERLAPPING_DECISIONS = True" in src["contract"]
+        and "def decision_dates" in src["native_markets"])
+    a_position_needs_an_observable_return = (
+        "observable = returns.reindex" in src["experiments"]
+        and "held = held.where(observable, 0.0)" in src["experiments"])
+
+    # Native versus proxy: the distinction the release exists to record.
+    three_implementation_levels = (
+        "LEVEL_SIGNAL" in src["contract"] and "LEVEL_PROXY" in src["contract"]
+        and "LEVEL_NATIVE" in src["contract"])
+    proxy_may_not_close_a_native_frontier = (
+        "PROXY_MAY_CLOSE_A_NATIVE_FRONTIER = False" in src["contract"]
+        and "STATE_TESTED_PROXY_ONLY" in src["coverage"])
+    every_cell_terminal = (
+        "EVERY_CELL_MUST_BE_TERMINAL = True" in src["contract"]
+        and "AMBIGUOUS_CELL_STATES_ALLOWED = False" in src["contract"]
+        and "def summarise" in src["coverage"])
+    coverage_is_derived_not_typed = (
+        "def _lane_family_results" in src["coverage"]
+        and "def _cell_state" in src["coverage"])
+    blocked_frontier_named = (
+        "def blocked_frontier" in src["coverage"]
+        and "def _next_action" in src["coverage"])
+
+    # Bounded search, honest multiple testing, three separate results.
+    adaptive_search_refused = (
+        "ADAPTIVE_SEARCH_ALLOWED = False" in src["contract"]
+        and "PARAMETER_SEARCH_ALLOWED = False" in src["contract"]
+        and "MODEL_ARCHITECTURE_SEARCH_ALLOWED = False" in src["contract"])
+    denominator_all_executed = (
+        "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"]
+        and "CONTROLS_ENTER_DENOMINATOR = False" in src["contract"])
+    bh_direction_is_split = (
+        "rejected_beating_the_control" in src["campaign"]
+        and "rejected_losing_to_the_control" in src["campaign"]
+        and "ONLY_POSITIVE_REJECTIONS_MAY_QUALIFY = True" in src["contract"])
+    minimum_detectable_effect_reported = (
+        "def minimum_detectable_excess" in src["experiments"])
+    cost_sensitivity_reported = (
+        "COST_SENSITIVITY_MULTIPLIERS" in src["experiments"]
+        and "COST_STRESS_MULTIPLIER" in src["contract"])
+    fresh_evidence_refused = (
+        "FRESH_UNSEEN_EVIDENCE_EXISTS = False" in src["contract"]
+        and "FRESH_UNSEEN_EVIDENCE_REASON" in src["contract"])
+    no_fold_is_a_lockbox = (
+        "A_FOLD_MAY_BE_CALLED_A_LOCKBOX = False" in src["contract"]
+        and "def verdict_ceiling_without_fresh_evidence" in src["contract"])
+    independent_evidence_is_a_gate = (
+        "def genuinely_independent_evidence_exists" in src["contract"]
+        and "genuinely_independent_evidence_exists" in src["campaign"])
+    three_results_reported = (
+        'RESULT_NAMES = ("SYSTEM_RESULT", "RESEARCH_CANDIDATE_RESULT", '
+        '"ALPHA_RESULT")' in src["contract"]
+        and '"RESEARCH_CANDIDATE_RESULT"' in src["campaign"]
+        and "SYSTEM_AND_ALPHA_RESULTS_ARE_SEPARATE = True" in src["contract"])
+    alpha_pass_requires_qualified = (
+        "ALPHA_PASS_REQUIRES = VERDICT_EDGE_FOUND" in src["contract"]
+        and "ALPHA_PASS_ALSO_REQUIRES_INDEPENDENT_EVIDENCE = True"
+        in src["contract"])
+    no_forward_registration = (
+        "MAY_REGISTER_FORWARD_CANDIDATE = False" in src["contract"]
+        and "MAY_CREATE_SECOND_TRUE_FORWARD_STORE = False" in src["contract"]
+        and "def forward_handoff" in src["campaign"])
+
+    runner_flat = " ".join(runner.lower().split())
+    runner_is_research_only = (
+        "research only" in runner_flat and "no order" in runner_flat)
+
+    # The functional half: the planned count must be DERIVED from the frozen
+    # grid rather than typed, every strategy must belong to a declared lane,
+    # and every declared market family must be a declared strategy family.
+    try:
+        if str(REPO_ROOT.parent) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT.parent))
+        from paper_trader.alpha_agent.r36 import contract as _r36_contract
+        from paper_trader.alpha_agent.r36 import coverage as _r36_coverage
+        planned_matches_the_grid = bool(
+            _r36_contract.PLANNED_CONFIG_TOTAL
+            == len(_r36_contract.STRATEGIES)
+            and _r36_contract.PLANNED_CONFIG_TOTAL
+            <= _r36_contract.MAX_PRIMARY_CONFIGS
+            and sum(_r36_contract.lane_config_counts().values())
+            == len(_r36_contract.STRATEGIES))
+        every_strategy_has_a_declared_lane = all(
+            spec[0] in _r36_contract.EXECUTED_LANES
+            and spec[2] in _r36_contract.LEVELS
+            and spec[3] in _r36_contract.CONSTRUCTIONS
+            and all(f in _r36_contract.STRATEGY_FAMILIES for f in spec[1])
+            for spec in _r36_contract.STRATEGIES.values())
+        every_market_family_is_declared = all(
+            family in _r36_contract.STRATEGY_FAMILIES
+            and market.get("level") in _r36_contract.LEVELS
+            for market in _r36_coverage.MARKETS.values()
+            for family in market["families"])
+        every_lane_control_is_distinct = bool(
+            len(set(_r36_contract.LANE_CONTROL.values()))
+            == len(_r36_contract.LANE_CONTROL))
+        alpha_pass_unreachable = not (
+            _r36_contract.genuinely_independent_evidence_exists())
+    except Exception as exc:  # noqa: BLE001 - unmeasurable fails closed
+        planned_matches_the_grid = f"UNMEASURABLE:{exc}"
+        every_strategy_has_a_declared_lane = f"UNMEASURABLE:{exc}"
+        every_market_family_is_declared = f"UNMEASURABLE:{exc}"
+        every_lane_control_is_distinct = f"UNMEASURABLE:{exc}"
+        alpha_pass_unreachable = f"UNMEASURABLE:{exc}"
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "reuses_r31_statistics": reuses_r31_statistics,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "reuses_r34_economic_judge": reuses_r34_economics,
+        "reuses_r33_vendor_reader": reuses_r33_vendor_reader,
+        "reuses_r34_vendor_reader": reuses_r34_vendor_reader,
+        "reuses_r35_alignment_owner": reuses_r35_alignment,
+        "reuses_r35_http_owner": reuses_r35_http_owner,
+        "reuses_released_rank_correlation": reuses_released_rank_correlation,
+        "no_second_learner_library": no_second_learner_library,
+        "no_second_economic_judge": no_second_economic_judge,
+        "safety_flags_false": safety_flags_false,
+        "spending_refused": spending_refused,
+        "api_key_is_not_an_entitlement": api_key_is_not_entitlement,
+        "credentials_never_serialised": credentials_never_serialised,
+        "forbidden_calls": forbidden_calls,
+        "forbidden_owner_refs": forbidden_owner_refs,
+        "control_matches_what_is_traded": control_matches_what_is_traded,
+        "universal_equity_control_refused": universal_equity_control_refused,
+        "control_must_be_observable_throughout": control_must_be_observable,
+        "superseded_campaigns_declared": superseded_campaigns_declared,
+        "cadence_is_per_lane_with_a_reason": cadence_is_per_lane_with_a_reason,
+        "one_alignment_owner": one_alignment_owner,
+        "admissibility_reused_from_r33": admissibility_reused_from_r33,
+        "publication_lags_reused_from_r35": publication_lags_reused_from_r35,
+        "prohibited_substitutions_declared":
+            prohibited_substitutions_declared,
+        "commodity_curve_is_dated_contracts": curve_is_dated_contracts,
+        "a_terminated_market_is_admitted": terminated_market_is_admitted,
+        "contract_splice_refused": contract_splice_refused,
+        "short_volatility_survivorship_refused":
+            short_volatility_survivorship_refused,
+        "broad_crypto_survivorship_refused":
+            broad_crypto_survivorship_refused,
+        "normalisation_is_trailing_only": normalisation_is_trailing_only,
+        "non_overlapping_decisions": non_overlapping_decisions,
+        "a_position_requires_an_observable_return":
+            a_position_needs_an_observable_return,
+        "three_implementation_levels": three_implementation_levels,
+        "proxy_may_not_close_a_native_frontier":
+            proxy_may_not_close_a_native_frontier,
+        "every_cell_must_be_terminal": every_cell_terminal,
+        "coverage_is_derived_not_typed": coverage_is_derived_not_typed,
+        "blocked_frontier_is_named": blocked_frontier_named,
+        "adaptive_search_refused": adaptive_search_refused,
+        "denominator_counts_all_executed": denominator_all_executed,
+        "benjamini_hochberg_direction_is_split": bh_direction_is_split,
+        "minimum_detectable_effect_reported":
+            minimum_detectable_effect_reported,
+        "cost_sensitivity_reported": cost_sensitivity_reported,
+        "fresh_unseen_evidence_refused": fresh_evidence_refused,
+        "no_fold_may_be_called_a_lockbox": no_fold_is_a_lockbox,
+        "independent_evidence_is_a_gate": independent_evidence_is_a_gate,
+        "reports_three_separate_results": three_results_reported,
+        "alpha_pass_requires_qualified_verdict":
+            alpha_pass_requires_qualified,
+        "alpha_pass_is_structurally_unreachable": alpha_pass_unreachable,
+        "no_forward_registration": no_forward_registration,
+        "runner_is_research_only": runner_is_research_only,
+        "planned_configs_match_the_frozen_grid": planned_matches_the_grid,
+        "every_strategy_has_a_declared_lane": every_strategy_has_a_declared_lane,
+        "every_market_family_is_declared": every_market_family_is_declared,
+        "every_lane_control_is_distinct": every_lane_control_is_distinct,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -7487,6 +7812,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release34_prediction_to_pnl(files),
         "release35_orthogonal_information":
             check_release35_orthogonal_information(files),
+        "release36_global_multi_asset_frontier":
+            check_release36_global_multi_asset_frontier(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -8294,6 +8621,105 @@ BLOCKING_INVARIANTS = (
     ("release35_orthogonal_information", "forbidden_owner_refs", []),
     ("release35_orthogonal_information", "modules_missing", []),
     ("release35_orthogonal_information", "second_owner_modules", []),
+    # --- Release 36 -------------------------------------------------------- #
+    ("release36_global_multi_asset_frontier", "modules_present", True),
+    ("release36_global_multi_asset_frontier", "modules_missing", []),
+    ("release36_global_multi_asset_frontier", "second_owner_modules", []),
+    ("release36_global_multi_asset_frontier", "forbidden_calls", []),
+    ("release36_global_multi_asset_frontier", "forbidden_owner_refs", []),
+    ("release36_global_multi_asset_frontier", "reuses_r31_statistics", True),
+    ("release36_global_multi_asset_frontier", "reuses_r31_hashing", True),
+    ("release36_global_multi_asset_frontier", "reuses_r34_economic_judge",
+     True),
+    ("release36_global_multi_asset_frontier", "reuses_r33_vendor_reader", True),
+    ("release36_global_multi_asset_frontier", "reuses_r34_vendor_reader", True),
+    ("release36_global_multi_asset_frontier", "reuses_r35_alignment_owner",
+     True),
+    ("release36_global_multi_asset_frontier", "reuses_r35_http_owner", True),
+    ("release36_global_multi_asset_frontier",
+     "reuses_released_rank_correlation", True),
+    ("release36_global_multi_asset_frontier", "no_second_learner_library",
+     True),
+    ("release36_global_multi_asset_frontier", "no_second_economic_judge", True),
+    ("release36_global_multi_asset_frontier", "safety_flags_false", True),
+    ("release36_global_multi_asset_frontier", "spending_refused", True),
+    ("release36_global_multi_asset_frontier", "api_key_is_not_an_entitlement",
+     True),
+    ("release36_global_multi_asset_frontier", "credentials_never_serialised",
+     True),
+    ("release36_global_multi_asset_frontier", "control_matches_what_is_traded",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "universal_equity_control_refused", True),
+    ("release36_global_multi_asset_frontier",
+     "control_must_be_observable_throughout", True),
+    ("release36_global_multi_asset_frontier", "superseded_campaigns_declared",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "cadence_is_per_lane_with_a_reason", True),
+    ("release36_global_multi_asset_frontier", "one_alignment_owner", True),
+    ("release36_global_multi_asset_frontier", "admissibility_reused_from_r33",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "publication_lags_reused_from_r35", True),
+    ("release36_global_multi_asset_frontier",
+     "prohibited_substitutions_declared", True),
+    ("release36_global_multi_asset_frontier",
+     "commodity_curve_is_dated_contracts", True),
+    ("release36_global_multi_asset_frontier", "a_terminated_market_is_admitted",
+     True),
+    ("release36_global_multi_asset_frontier", "contract_splice_refused", True),
+    ("release36_global_multi_asset_frontier",
+     "short_volatility_survivorship_refused", True),
+    ("release36_global_multi_asset_frontier",
+     "broad_crypto_survivorship_refused", True),
+    ("release36_global_multi_asset_frontier", "normalisation_is_trailing_only",
+     True),
+    ("release36_global_multi_asset_frontier", "non_overlapping_decisions",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "a_position_requires_an_observable_return", True),
+    ("release36_global_multi_asset_frontier", "three_implementation_levels",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "proxy_may_not_close_a_native_frontier", True),
+    ("release36_global_multi_asset_frontier", "every_cell_must_be_terminal",
+     True),
+    ("release36_global_multi_asset_frontier", "coverage_is_derived_not_typed",
+     True),
+    ("release36_global_multi_asset_frontier", "blocked_frontier_is_named",
+     True),
+    ("release36_global_multi_asset_frontier", "adaptive_search_refused", True),
+    ("release36_global_multi_asset_frontier",
+     "denominator_counts_all_executed", True),
+    ("release36_global_multi_asset_frontier",
+     "benjamini_hochberg_direction_is_split", True),
+    ("release36_global_multi_asset_frontier",
+     "minimum_detectable_effect_reported", True),
+    ("release36_global_multi_asset_frontier", "cost_sensitivity_reported",
+     True),
+    ("release36_global_multi_asset_frontier", "fresh_unseen_evidence_refused",
+     True),
+    ("release36_global_multi_asset_frontier", "no_fold_may_be_called_a_lockbox",
+     True),
+    ("release36_global_multi_asset_frontier", "independent_evidence_is_a_gate",
+     True),
+    ("release36_global_multi_asset_frontier", "reports_three_separate_results",
+     True),
+    ("release36_global_multi_asset_frontier",
+     "alpha_pass_requires_qualified_verdict", True),
+    ("release36_global_multi_asset_frontier",
+     "alpha_pass_is_structurally_unreachable", True),
+    ("release36_global_multi_asset_frontier", "no_forward_registration", True),
+    ("release36_global_multi_asset_frontier", "runner_is_research_only", True),
+    ("release36_global_multi_asset_frontier",
+     "planned_configs_match_the_frozen_grid", True),
+    ("release36_global_multi_asset_frontier",
+     "every_strategy_has_a_declared_lane", True),
+    ("release36_global_multi_asset_frontier",
+     "every_market_family_is_declared", True),
+    ("release36_global_multi_asset_frontier", "every_lane_control_is_distinct",
+     True),
     ("release33_predictive_edge", "r33_source_has_no_operational_write_path",
      True),
     ("release32_pnl_opportunity_frontier", "modules_present", True),

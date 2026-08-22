@@ -152,6 +152,16 @@ R35_MARKERS = (
 R35_SOURCE_GLOBS = ("alpha_agent/r35/*.py",)
 R35_SOURCE_FILES = ("scripts/run_release35_orthogonal_information.py",)
 
+R36_MARKERS = (
+    "r36_global_multi_asset_frontier_v1", "r36_global_multi_asset_frontier_v2",
+    "r36_global_multi_asset_frontier_v3", "global_multi_asset_frontier_r36",
+    "run_release36_global_multi_asset_frontier",
+    "alpha_agent.r36", "alpha_agent/r36", "alpha_agent\\r36",
+    "release36_global_multi_asset_frontier",
+)
+R36_SOURCE_GLOBS = ("alpha_agent/r36/*.py",)
+R36_SOURCE_FILES = ("scripts/run_release36_global_multi_asset_frontier.py",)
+
 RELEASE_PROFILES = {
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
@@ -161,6 +171,9 @@ RELEASE_PROFILES = {
             "attributable_key": "r33_attributable"},
     "R35": {"markers": R35_MARKERS, "source_globs": R35_SOURCE_GLOBS,
             "source_files": R35_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R36": {"markers": R36_MARKERS, "source_globs": R36_SOURCE_GLOBS,
+            "source_files": R36_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
 }
 DEFAULT_PROFILE = "R33"
