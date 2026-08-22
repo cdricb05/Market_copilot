@@ -850,6 +850,13 @@ flowchart LR
   judgement can never be read as post-research proof; both require manual approval and neither
   is purchasing authority. Evaluations persist under separate index keys per context (the legacy
   key shape is unchanged), and the read contract exposes both side by side.
+- **First measured Stage-B feed (Release 38):** after the operator's manual World Futures
+  purchase, `alpha_agent/r38/campaign.py` is the first caller to ask `POST_ACQUISITION_VALUE`
+  with MEASURED facts — the delivered market/contract census, structural quality states, the
+  recomputed R36 cell unlocks and the frozen-design research outcomes — through
+  `api.data_expansion.run_evaluation` with an `evidence_override`. The kernel result is recorded
+  verbatim in the R38 research artifacts and is NOT persisted to the Slice-9 store; renewal
+  remains a manual operator decision and no Release-38 state carries purchase authority.
 - **Reuses (never forks) the existing owners:** `alpha_agent/source_contracts` (provider /
   provenance), `api/data_freshness` (freshness), `alpha_agent/experiment_contracts` (evidence
   gates), `alpha_agent/analyst_revisions` (Stage 13A analyst-revisions candidate), and

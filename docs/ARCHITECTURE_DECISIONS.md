@@ -884,6 +884,15 @@
     authority, and manual operator approval remains mandatory.
   - The two contexts persist to separate index keys, so neither supersedes the other's answer;
     the legacy key shape is unchanged so no existing artifact is orphaned.
+- **EXERCISED (Release 38) — the first measured `POST_ACQUISITION_VALUE` evaluation.** After the
+  operator's manual World Futures purchase, `alpha_agent/r38/campaign.py` fed the gate MEASURED
+  facts (the delivered 105-market/23,805-contract census, structural quality, the recomputed R36
+  unlocks, and a lift field populated ONLY from multiple-testing survivors — of which Release 38
+  produced none) and recorded the verbatim answer: `RESEARCH_ONLY`. The evaluation is written
+  into the R38 research artifacts, NOT persisted to the Slice-9 store, and grants nothing —
+  `purchase_authorised: False`, `renewal_authorised: False`; renewal stays a manual operator
+  decision. Guarded by `check_release38_native_futures_information_frontier` (no second gate, no
+  second coverage authority, taxonomy enforced, frozen experiment family, zero spend).
 - **Why a gate, not a provider layer:** the existing owners already own the underlying concerns
   — `alpha_agent/source_contracts` (provider/provenance), `api/data_freshness` (freshness),
   `alpha_agent/experiment_contracts` (evidence gates), `alpha_agent/analyst_revisions` (Stage 13A

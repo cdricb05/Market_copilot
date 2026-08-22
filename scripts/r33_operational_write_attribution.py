@@ -183,6 +183,27 @@ R37_SOURCE_GLOBS = ("alpha_agent/r37/*.py",)
 R37_SOURCE_FILES = ("scripts/run_release37_native_market_data_gate.py",
                     "engine/data_expansion_gate.py", "api/data_expansion.py")
 
+#: Release 38 READS a paid entitlement someone else purchased and CALLS the
+#: canonical Slice-9 gate in its POST_ACQUISITION_VALUE context, so its
+#: profile carries the campaign ids, the research root and the gate markers:
+#: a native-futures artifact landing in an operational store, or a Slice-9
+#: evaluation persisted by this research release, would both be attributable.
+R38_MARKERS = (
+    "r38_native_futures_information_frontier_v1",
+    "r38_native_futures_information_frontier_v2",
+    "r38_native_futures_information_frontier_v3",
+    "r38_native_futures_information_frontier_v4",
+    "native_futures_r38",
+    "run_release38_native_futures_information_frontier",
+    "alpha_agent.r38", "alpha_agent/r38", "alpha_agent\\r38",
+    "release38_native_futures_information_frontier",
+    "dxev_", "data_expansion", "POST_ACQUISITION_VALUE",
+)
+R38_SOURCE_GLOBS = ("alpha_agent/r38/*.py",)
+R38_SOURCE_FILES = (
+    "scripts/run_release38_native_futures_information_frontier.py",
+    "engine/data_expansion_gate.py", "api/data_expansion.py")
+
 RELEASE_PROFILES = {
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
@@ -198,6 +219,9 @@ RELEASE_PROFILES = {
             "attributable_key": "r33_attributable"},
     "R37": {"markers": R37_MARKERS, "source_globs": R37_SOURCE_GLOBS,
             "source_files": R37_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R38": {"markers": R38_MARKERS, "source_globs": R38_SOURCE_GLOBS,
+            "source_files": R38_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
 }
 DEFAULT_PROFILE = "R33"

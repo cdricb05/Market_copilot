@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-22
-- **Updated by phase:** **Release 37 + 37.1 — Native-Market Data Expansion, Purchase Gate & Advanced Intelligence Readiness, with the canonical acquisition-gate alignment. TERMINAL: `R37_DATA_INVESTMENT_RECOMMENDED`. SYSTEM_RESULT = PASS, PURCHASE_RECOMMENDATION_RESULT = PASS, ALPHA_RESULT = NOT_TESTED.** Release 36 is CLOSED.
-- **Source Git HEAD:** `0eb3cf79c1b96b0f0f0077ee3c0fa56fa145c885`, branch `stage19-controlled-rebalance`. This is the Release-36 closeout and is the declared **Release-37 base commit**.
-- **Working tree status:** Release-37 source, tests and documentation uncommitted. New: `alpha_agent/r37/`, `scripts/run_release37_native_market_data_gate.py`, `tests/test_release37_native_market_data_gate.py`, `tests/test_release37_1_canonical_acquisition_gate.py`, `docs/RELEASE37_NATIVE_MARKET_DATA_GATE.md`. Modified: `engine/data_expansion_gate.py` and `api/data_expansion.py` (the 37.1 decision-context extension of the canonical Slice-9 owners), `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py` and this file. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 37 is **complete and terminal**. The operator runs ONE broad repository regression, then commits and pushes from `D:\Temp\paper_trader_release37_native_market_data_gate_handoff`. **Then the operator takes ONE purchase decision:** the Norgate Data Futures Package, USD 270/year, as an add-on to the existing account — expected to unlock 53 of Release 36's 95 blocked cells at USD 5.09 per cell per year, recommended by the canonical acquisition gate and requiring manual approval. Do not rerun Release 31–37 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, changed a subscription tier, restarted production, or changed the scheduler.
+- **Updated by phase:** **Release 38 — Native Futures Information Frontier. TERMINAL: `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA`. SYSTEM_RESULT = PASS, DATA_ENTITLEMENT_RESULT = SYNCHRONIZED, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL, POST_ACQUISITION_VALUE_RESULT = RESEARCH_ONLY.** Release 37 is CLOSED and committed.
+- **Source Git HEAD:** `b1a36a316a9697419a2867efec26e46e2bf59fb3`, branch `stage19-controlled-rebalance`. This is the Release-37/37.1 closeout and is the declared **Release-38 base commit**.
+- **Working tree status:** Release-38 source, tests and documentation uncommitted. New: `alpha_agent/r38/` (11 modules), `scripts/run_release38_native_futures_information_frontier.py`, `tests/test_release38_native_futures_information_frontier.py`, `docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md`. Modified: `scripts/audit_architecture.py` (the R38 check, 27 required assertions), `scripts/r33_operational_write_attribution.py` (R38 profile), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 38 is **complete and terminal**. The operator runs ONE broad repository regression (accepted pre-R38 baseline: exactly 8 unrelated failures; any additional failure attributable to R38 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release38_native_futures_handoff`. **Parallel lane:** review and send the prepared Steele Barcomb five-ticker sample request (`intrinio_steele_sample_request_message.md` in the R38 campaign directory). **No renewal action is due** — the World Futures subscription runs to 2027-02-22 and renewal is a manual operator decision informed by the canonical gate's RESEARCH_ONLY state and whatever Release 39 builds on the ML-ready foundation. Do not rerun Release 31–38 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -21,6 +21,7 @@ for the second:
 | Release 35 | PASS | **FAIL** | `R35_NO_INCREMENTAL_INFORMATION_EDGE` |
 | Release 36 | PASS | **FAIL** | `R36_FRONTIER_PARTIALLY_CLOSED` |
 | Release 37 | PASS | **NOT_TESTED** | `R37_DATA_INVESTMENT_RECOMMENDED` |
+| Release 38 | PASS | **FAIL** | `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
@@ -37,6 +38,99 @@ increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 38 — Native Futures Information Frontier (2026-08-22, TERMINAL)
+
+**Verdict: `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA`. SYSTEM_RESULT = PASS.
+DATA_ENTITLEMENT_RESULT = SYNCHRONIZED. RESEARCH_CANDIDATE_RESULT = FAIL.
+ALPHA_RESULT = FAIL. POST_ACQUISITION_VALUE_RESULT = RESEARCH_ONLY.**
+13 of 13 frozen configurations executed, 0 multiple-testing survivors,
+**$0 spent**, nothing renewed, production untouched. Full write-up:
+[docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md](docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md).
+
+**The purchase this release inherited was delivered while it watched.** The
+operator manually bought Norgate World Futures (Silver, 6 months, expiry
+2027-02-22). At 17:03 ET the local updater still served the thrice-measured
+baseline — ONE futures market. The vendor's own hourly cycle distributed the
+new `future` database at 16:59:57 ET, and the re-probe measured **105
+markets, 23,805 dated contracts, 15 exchanges**, history to the 1970s for 26
+markets, full metadata on all 105, and the Cboe VX curve from 2004 that
+Release 36 recorded as BLOCKED_LICENSING. Both states are frozen evidence:
+a website confirmation is not local bytes, and this release refused to start
+until the bytes arrived.
+
+**The `'&ES'` near-miss is closed as a PARAMETER_ERROR.** The session-contract
+endpoint's identifier domain is the session-symbol namespace; `&ES` is a
+Continuous-Futures database symbol. Every provider call now classifies
+through a frozen six-state taxonomy
+(`A_PROGRAMMER_ERROR_IS_NOT_AN_ENTITLEMENT_LIMITATION`), with a permanent
+eight-case regression.
+
+**R37 expected 53 unlocks; R38 measured 59 — and truth ran both ways.** All
+95 R36 blocked cells re-judged from delivered bytes: **59
+NATIVE_DATA_VERIFIED_RESEARCHABLE** (48 of the expected 53 confirmed), 6
+PARTIALLY_UNLOCKED, 27 STILL_BLOCKED_ENTITLEMENT, 3 STILL_BLOCKED_HISTORY.
+Five expected cells were DOWNGRADED honestly (futures prices don't carry the
+USDA supply/demand or issuer-fundamental information legs; one industrial
+metal is not a cross-section; non-US listings lack COT). Eleven cells opened
+BEYOND expectation: international government bonds arrived eleven markets
+deep (Bund complex, BTP, OAT, JGB, Canada, ASX) and real EM index futures
+(MSCI Taiwan 1997→, FTSE China A50) carried 10+ years. The CME crypto curve
+fails the 10-year floor and stays blocked on HISTORY — measured, not argued.
+
+**The frozen native campaign: prediction is real, conversion missed the bar
+again.** 13 pre-registered configurations (ceiling 20), observable roll
+(first-notice/last-trade buffers, `NO_ROLL_RULE_SEARCH`), traded-notional
+costs (modelled, labelled), lane-correct vol-matched controls, BH q=0.10 over
+every executed test. Strongest predictive statistics: commodity carry rank IC
+**+0.057 (t 6.01)**, the FX-futures carry implementation **+0.148 (t 6.29)**
+— independently reproducing R36's forward-based carry via covered interest
+parity — momentum +0.053 (t 4.62), seasonality +0.049 (t 4.02), VX carry
+direction right 61 % of 1,107 weeks. Best after-cost excess vs control:
+**commodity time-series trend +3.85 %/yr (t 2.48**, Sharpe 0.79, 48 years,
+same sign in halves and thirds, 0 of 39 leave-one-market-out sign flips**)**
+and **VX term-structure carry +6.24 %/yr (t 2.28)**. Both die on the BH
+step-up at m=13 (p 0.0133/0.0224 vs cut-offs 0.0077/0.0154); the denominator
+was not widened, no neighbouring parameter was added, and the estate has
+already paid once (13B→13C) to learn what a t≈2.3 near-miss is worth.
+Honest losers recorded with minimum detectable effects: COT hedging pressure
+negative after costs; international index momentum/trend LOSE to their own
+passive baskets; VX calendar spreads pay 4.2 %/yr in modelled costs.
+
+**The canonical gate answered `RESEARCH_ONLY`** ("usable & distinct but no
+proven purchase-grade lift"): the first POST_ACQUISITION_VALUE evaluation fed
+with measured facts — 105 markets, ~56y depth, daily settlements, STRONG
+identifiers, HIGH reliability, lift fed ONLY from BH survivors (none). Not
+persisted to the Slice-9 store; `purchase_authorised` and
+`renewal_authorised` both False everywhere. Renewal is the operator's call,
+due by 2027-02-22, and Release 38's own recommendation is to let Release 39's
+use of the data inform it.
+
+**Release 39 inherits engineering, not conclusions:**
+`ml_ready_native_futures_panel.csv` — 31,175 decision-stamped rows, 68
+markets, forward-only targets, missingness masks, per-row costs and controls,
+chronological TRAIN/VALIDATION/TEST with embargo rows, checksummed; full
+sequences in the 68 per-market layer CSVs. `TRAINS_A_MODEL = False`.
+
+**Parallel lane:** the Steele Barcomb five-ticker historical analyst sample
+request is drafted and operator-ready (AAPL / MON / META / HTZ / CALM, each
+stressing a distinct failure mode; `SCHEMA_AND_PIT_VALIDATION_ONLY`, never
+Alpha evidence). Nothing was sent, purchased or trialled.
+
+**Three campaigns superseded on the way (defects named, artifacts kept):**
+v1 classification map incomplete (34 delivered markets UNCLASSIFIED); v2
+activity judged on the newest LISTED contract (Henry Hub mislabelled); v3
+the calendar-front can expire before its delivery month (Brent mislabelled).
+v4 is authoritative.
+
+**Owner:** `alpha_agent/r38/` (11 modules), runner
+`scripts/run_release38_native_futures_information_frontier.py`, regression
+`tests/test_release38_native_futures_information_frontier.py` (35), audit
+guard `check_release38_native_futures_information_frontier` (27 required
+assertions), attribution `--release R38` → `ATTRIBUTED`, 0 findings.
+Evidence: `D:\Stock_Prediction_app_data\native_futures_r38\
+r38_native_futures_information_frontier_v4\` (16 artifacts + 68-market native
+contract layer, all hashed).
 
 ## Release 37 — Native-Market Data Expansion & Purchase Gate (2026-08-22, TERMINAL)
 

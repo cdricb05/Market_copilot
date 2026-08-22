@@ -7634,6 +7634,186 @@ def check_release37_native_market_data_gate(files: list[Path]) -> dict:
     }
 
 
+R38_OWNERS = {
+    "root": "alpha_agent/r38/__init__.py",
+    "contract": "alpha_agent/r38/contract.py",
+    "entitlement": "alpha_agent/r38/entitlement.py",
+    "enumeration": "alpha_agent/r38/enumeration.py",
+    "quality": "alpha_agent/r38/quality.py",
+    "research_layer": "alpha_agent/r38/research_layer.py",
+    "unlock_actual": "alpha_agent/r38/unlock_actual.py",
+    "experiments": "alpha_agent/r38/experiments.py",
+    "ml_contract": "alpha_agent/r38/ml_contract.py",
+    "steele": "alpha_agent/r38/steele.py",
+    "campaign": "alpha_agent/r38/campaign.py",
+}
+
+#: Modules whose existence under alpha_agent/r38 would mean Release 38 had
+#: rebuilt an owner an earlier release already provides - above all a FOURTH
+#: acquisition gate or a SECOND coverage authority.
+R38_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r38/purchase_gate.py",
+    "alpha_agent/r38/data_expansion_gate.py",
+    "alpha_agent/r38/information_purchase_gate.py",
+    "alpha_agent/r38/coverage.py", "alpha_agent/r38/economics.py",
+    "alpha_agent/r38/judge.py", "alpha_agent/r38/multiple_testing.py",
+    "alpha_agent/r38/universe.py", "alpha_agent/r38/unlock.py",
+    "alpha_agent/r38/acquisition.py", "alpha_agent/r38/entitlements.py",
+)
+
+
+def check_release38_native_futures_information_frontier(
+        files: list[Path]) -> dict:
+    """Release 38 ownership, taxonomy and commercial-safety invariants.
+
+    The dangerous outcomes here: classifying a caller defect as an
+    entitlement wall (or the reverse), letting the ~53 EXPECTED unlocks stand
+    in for measured ones, growing the frozen experiment family after results,
+    and any code path that could spend, renew or grant purchase authority.
+    """
+    src = {name: (_read(path) or "") for name, path in R38_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    all_lower = all_src.lower()
+
+    second_owner_modules = sorted(p for p in R38_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+    gate_definitions = [tok for tok in ("def evaluate_dataset(",
+                                        "def evaluate_gap(",
+                                        "def purchase_decision(")
+                        if tok in all_src]
+    delegates_to_canonical_gate = (
+        "from ...api import data_expansion as _slice9" in src["campaign"]
+        and "_slice9.run_evaluation(" in src["campaign"]
+        and "CONTEXT_POST_ACQUISITION_VALUE" in src["campaign"]
+        and '"persisted_to_slice9_store": False' in src["campaign"])
+    reuses_r34_economic_judge = (
+        "from ..r34 import economics as _econ" in src["experiments"]
+        and "def evaluate_book" not in all_src)
+    reuses_r31_multiple_testing = (
+        "from ..r31 import multiple_testing as _mt" in src["experiments"]
+        and "def benjamini_hochberg" not in all_src)
+    reuses_r36_coverage_matrix = (
+        "from ..r36 import coverage as _r36_coverage" in src["unlock_actual"]
+        and "def _judge_cell" in src["unlock_actual"])
+    reuses_r37_unlock_expectation = (
+        "from ..r37 import unlock as _r37_unlock" in src["unlock_actual"])
+    reuses_r35_cot_parser = (
+        "from ..r35 import information as _r35_info" in src["experiments"]
+        and "_r35_info.load_cot(" in src["experiments"])
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+
+    taxonomy_declared = all(
+        tok in src["contract"] for tok in (
+            'CALL_VALID_WITH_DATA = "VALID_REQUEST_WITH_DATA"',
+            'CALL_PARAMETER_ERROR = "PARAMETER_ERROR"',
+            'CALL_ENTITLEMENT_ERROR = "ENTITLEMENT_ERROR"',
+            'CALL_EMPTY_HISTORY = "EMPTY_HISTORY"',
+            'CALL_UNSUPPORTED_MARKET = "UNSUPPORTED_MARKET"',
+            'CALL_OTHER_PROVIDER_ERROR = "OTHER_PROVIDER_ERROR"',
+            "A_PROGRAMMER_ERROR_IS_NOT_AN_ENTITLEMENT_LIMITATION = True"))
+    taxonomy_enforced = (
+        "def classify_session_contracts_call" in src["entitlement"]
+        and "C.CALL_PARAMETER_ERROR" in src["entitlement"]
+        and "C.CALL_ENTITLEMENT_ERROR" in src["entitlement"])
+
+    purchase_is_inherited = (
+        "PURCHASE_MADE_BY_THIS_RELEASE = False" in src["contract"]
+        and "MONEY_SPENT_BY_R38_USD = 0.0" in src["contract"]
+        and '"purchased_by_release38": False' in src["contract"]
+        and "RENEWAL_DECIDED_BY_THIS_RELEASE = False" in src["contract"])
+    spending_refused = all(
+        f"{flag} = False" in src["contract"] for flag in
+        ("MAY_SPEND_MONEY", "MAY_START_PROVIDER_TRIAL",
+         "MAY_CREATE_PROVIDER_ACCOUNT", "MAY_CHANGE_SUBSCRIPTION_TIER",
+         "MAY_RENEW_SUBSCRIPTION", "MAY_ACCEPT_LICENCE_AGREEMENT",
+         "MAY_SUBMIT_PAYMENT_DETAILS", "MAY_PURCHASE_CLOUD_COMPUTE",
+         "MAY_INSTALL_CUDA", "MAY_DOWNLOAD_MODEL_WEIGHTS",
+         "MAY_UPGRADE_NORGATE_PACKAGES"))
+    safety_flags_false = all(
+        f"{flag} = False" in src["root"] for flag in
+        ("AUTOMATIC_PROMOTION_ALLOWED", "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED",
+         "MAY_SPEND_MONEY", "MAY_MUTATE_PRODUCTION"))
+    no_purchase_authority = (
+        "PURCHASE_AUTHORITY_GRANTED_BY_THIS_RELEASE = False" in src["contract"]
+        and "RENEWAL_AUTHORITY_GRANTED_BY_THIS_RELEASE = False"
+        in src["contract"]
+        and "def purchase_authority" in src["contract"]
+        and '"purchase_authorised": False' in src["contract"]
+        and '"renewal_authorised": False' in src["contract"])
+    commercial_tokens = sorted({t for t in R37_FORBIDDEN_COMMERCIAL
+                                if t in all_lower})
+
+    roll_is_observable = (
+        'ROLL_POLICY = "OBSERVABLE_FIRST_NOTICE_LAST_TRADE"' in src["contract"]
+        and "NO_ROLL_RULE_SEARCH = True" in src["contract"]
+        and "ROLL_RULE_MAY_REFERENCE_OUTCOMES = False" in src["contract"]
+        and "NO_HINDSIGHT_ROLL = True" in src["contract"])
+    continuous_series_refused = (
+        "NO_SILENT_CONTINUOUS_SUBSTITUTION = True" in src["contract"]
+        and "VENDOR_CONTINUOUS_SERIES_ARE_DERIVED_FEATURES_ONLY = True"
+        in src["contract"]
+        and '"vendor_continuous_series_used": False' in src["research_layer"])
+    frozen_design = (
+        "FROZEN_PRIMARY_CONFIGURATIONS" in src["contract"]
+        and "NO_OPTIMIZER_CAMPAIGN = True" in src["contract"]
+        and "NO_GENETIC_SEARCH = True" in src["contract"]
+        and "NO_RESULT_DRIVEN_EXPANSION = True" in src["contract"]
+        and "DENOMINATOR_COUNTS_ALL_EXECUTED = True" in src["contract"])
+    expectation_is_not_measurement = (
+        "EXPECTED_UNLOCKS_ARE_NOT_MEASURED_UNLOCKS = True" in src["contract"]
+        and "TRUTH_WINS_OVER_EXPECTATION = True" in src["contract"]
+        and "expected_full_downgraded" in src["unlock_actual"]
+        and "unlocked_beyond_expectation" in src["unlock_actual"])
+    alpha_pass_requires_qualified_verdict = (
+        "ALPHA_PASS_REQUIRES_VERDICT" in src["contract"]
+        and "verdict == C.ALPHA_PASS_REQUIRES_VERDICT" in src["campaign"]
+        and "HISTORICAL_ALPHA_IS_NOT_TRUE_FORWARD_EVIDENCE = True"
+        in src["contract"])
+    six_result_axes = (
+        '"POST_ACQUISITION_VALUE_RESULT")' in src["contract"]
+        and '"SYSTEM_RESULT", "DATA_ENTITLEMENT_RESULT",' in src["contract"])
+    steele_is_schema_only = (
+        'SAMPLE_PURPOSE = "SCHEMA_AND_PIT_VALIDATION_ONLY"' in src["steele"]
+        and "SAMPLE_IS_ALPHA_EVIDENCE = False" in src["steele"]
+        and '"claude_sends_nothing": True' in src["steele"])
+    ml_trains_nothing = "TRAINS_A_MODEL = False" in src["ml_contract"]
+    superseded_declared = "SUPERSEDED_CAMPAIGNS" in src["contract"]
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "defines_no_second_gate": not gate_definitions,
+        "gate_definitions_found": sorted(gate_definitions),
+        "delegates_to_canonical_gate": delegates_to_canonical_gate,
+        "reuses_r34_economic_judge": reuses_r34_economic_judge,
+        "reuses_r31_multiple_testing": reuses_r31_multiple_testing,
+        "reuses_r36_coverage_matrix": reuses_r36_coverage_matrix,
+        "reuses_r37_unlock_expectation": reuses_r37_unlock_expectation,
+        "reuses_r35_cot_parser": reuses_r35_cot_parser,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "provider_call_taxonomy_declared": taxonomy_declared,
+        "provider_call_taxonomy_enforced": taxonomy_enforced,
+        "purchase_is_inherited_not_made": purchase_is_inherited,
+        "spending_refused": spending_refused,
+        "safety_flags_false": safety_flags_false,
+        "no_purchase_or_renewal_authority": no_purchase_authority,
+        "commercial_tokens_present": commercial_tokens,
+        "roll_policy_is_observable_and_frozen": roll_is_observable,
+        "vendor_continuous_series_refused": continuous_series_refused,
+        "experiment_family_is_frozen": frozen_design,
+        "expected_unlocks_are_not_measured_unlocks":
+            expectation_is_not_measurement,
+        "alpha_pass_requires_qualified_verdict":
+            alpha_pass_requires_qualified_verdict,
+        "six_result_axes_declared": six_result_axes,
+        "steele_sample_is_schema_only": steele_is_schema_only,
+        "ml_contract_trains_nothing": ml_trains_nothing,
+        "superseded_campaigns_declared": superseded_declared,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -8277,6 +8457,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release36_global_multi_asset_frontier(files),
         "release37_native_market_data_gate":
             check_release37_native_market_data_gate(files),
+        "release38_native_futures_information_frontier":
+            check_release38_native_futures_information_frontier(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -9286,6 +9468,59 @@ BLOCKING_INVARIANTS = (
      "every_row_agrees_with_canonical_gate", True),
     ("release37_native_market_data_gate",
      "acquisition_states_come_from_the_canonical_vocabulary", True),
+    # --- Release 38 -------------------------------------------------------- #
+    ("release38_native_futures_information_frontier", "modules_present", True),
+    ("release38_native_futures_information_frontier", "modules_missing", []),
+    ("release38_native_futures_information_frontier",
+     "second_owner_modules", []),
+    ("release38_native_futures_information_frontier",
+     "defines_no_second_gate", True),
+    ("release38_native_futures_information_frontier",
+     "delegates_to_canonical_gate", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r34_economic_judge", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r31_multiple_testing", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r36_coverage_matrix", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r37_unlock_expectation", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r35_cot_parser", True),
+    ("release38_native_futures_information_frontier",
+     "reuses_r31_hashing", True),
+    ("release38_native_futures_information_frontier",
+     "provider_call_taxonomy_declared", True),
+    ("release38_native_futures_information_frontier",
+     "provider_call_taxonomy_enforced", True),
+    ("release38_native_futures_information_frontier",
+     "purchase_is_inherited_not_made", True),
+    ("release38_native_futures_information_frontier",
+     "spending_refused", True),
+    ("release38_native_futures_information_frontier",
+     "safety_flags_false", True),
+    ("release38_native_futures_information_frontier",
+     "no_purchase_or_renewal_authority", True),
+    ("release38_native_futures_information_frontier",
+     "commercial_tokens_present", []),
+    ("release38_native_futures_information_frontier",
+     "roll_policy_is_observable_and_frozen", True),
+    ("release38_native_futures_information_frontier",
+     "vendor_continuous_series_refused", True),
+    ("release38_native_futures_information_frontier",
+     "experiment_family_is_frozen", True),
+    ("release38_native_futures_information_frontier",
+     "expected_unlocks_are_not_measured_unlocks", True),
+    ("release38_native_futures_information_frontier",
+     "alpha_pass_requires_qualified_verdict", True),
+    ("release38_native_futures_information_frontier",
+     "six_result_axes_declared", True),
+    ("release38_native_futures_information_frontier",
+     "steele_sample_is_schema_only", True),
+    ("release38_native_futures_information_frontier",
+     "ml_contract_trains_nothing", True),
+    ("release38_native_futures_information_frontier",
+     "superseded_campaigns_declared", True),
     # --- Slice 9 / Release 37.1: two explicit decision contexts, one owner.
     ("data_expansion_ownership", "decision_contexts_declared", True),
     ("data_expansion_ownership", "legacy_default_decision_context_preserved",
