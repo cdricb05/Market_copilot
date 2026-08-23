@@ -8108,6 +8108,229 @@ def check_release39_continuation(files: list[Path]) -> dict:
     }
 
 
+R40_OWNERS = {
+    "root": "alpha_agent/r40/__init__.py",
+    "contract": "alpha_agent/r40/contract.py",
+    "closeout_import": "alpha_agent/r40/closeout_import.py",
+    "burden_ledger": "alpha_agent/r40/burden_ledger.py",
+    "availability": "alpha_agent/r40/availability.py",
+    "director": "alpha_agent/r40/director.py",
+    "wide_successor": "alpha_agent/r40/wide_successor.py",
+    "nyfed_bridge": "alpha_agent/r40/nyfed_bridge.py",
+    "open_models": "alpha_agent/r40/open_models.py",
+    "model_challenge": "alpha_agent/r40/model_challenge.py",
+    "cross_asset": "alpha_agent/r40/cross_asset.py",
+    "shadow_registry": "alpha_agent/r40/shadow_registry.py",
+    "research_cycle": "alpha_agent/r40/research_cycle.py",
+    "sequential": "alpha_agent/r40/sequential.py",
+    "evidence_velocity": "alpha_agent/r40/evidence_velocity.py",
+    "research_portfolio": "alpha_agent/r40/research_portfolio.py",
+    "intrinio_readiness": "alpha_agent/r40/intrinio_readiness.py",
+    "compute_escalation": "alpha_agent/r40/compute_escalation.py",
+    "campaign": "alpha_agent/r40/campaign.py",
+}
+R40_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r40/economics.py", "alpha_agent/r40/multiple_testing.py",
+    "alpha_agent/r40/judge.py", "alpha_agent/r40/zones.py",
+    "alpha_agent/r40/lockbox.py", "alpha_agent/r40/ledger.py",
+    "alpha_agent/r40/forward_evidence.py", "alpha_agent/r40/purchase_gate.py",
+    "alpha_agent/r40/coverage.py", "alpha_agent/r40/scheduler.py",
+    "alpha_agent/r40/trade_space.py", "alpha_agent/r40/universal_state.py",
+)
+R40_SCRIPTS = ("scripts/run_release40_prospective_alpha.py",
+               "scripts/run_r40_research_cycle.py")
+
+
+def check_release40_prospective_alpha_acceleration(files: list[Path]) -> dict:
+    """Release 40 invariants - prospective alpha acceleration.
+
+    The dangerous outcomes: a second forward-evidence / ledger / burden /
+    judge implementation; a campaign id that launders the 194-trial burden;
+    a forward row dated at or before a candidate's freeze (backdating); a
+    scheduler or automation surface; a research shadow that could be
+    promoted; a sixth shadow; a Slot-5 rule tuned after outcomes; fake
+    independence (daily marks, markets x days); an open-weight download
+    that needs an account or a click-through; a contaminated model given a
+    clean historical-OOS label; an invented NY Fed backfill.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R40_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    scripts_src = "\n".join((_read(REPO_ROOT / p) or "") for p in R40_SCRIPTS)
+    second_owner_modules = sorted(p for p in R40_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    burden_inherited_not_reset = (
+        "R39_INHERITED_EFFECTIVE_TRIALS_EXPECTED = 194" in src["contract"]
+        and "BURDEN_NEVER_RESETS = True" in src["contract"]
+        and "NO_CAMPAIGN_ID_LAUNDERING = True" in src["contract"]
+        and "refusing to guess" in src["burden_ledger"]
+        and "zones.record_zone_b(" in src["burden_ledger"]
+        and "def record_zone_b" not in all_src)
+    one_campaign_root_binding = (
+        "register_campaign_root" in src["root"]
+        and "def register_campaign_root" in (_read(
+            REPO_ROOT / "alpha_agent/r39/__init__.py") or "")
+        and "already bound to" in (_read(
+            REPO_ROOT / "alpha_agent/r39/__init__.py") or ""))
+    canonical_ledger_primitives = (
+        "def _append_ledger" not in all_src
+        and "def _row_hash" not in all_src
+        and "def verify_ledger" not in all_src
+        and "RS._desk()" in src["research_cycle"])
+    api_imports = [ln for ln in (all_src + "\n" + scripts_src).splitlines()
+                   if "paper_trader.api" in ln and "import" in ln
+                   and not ln.strip().startswith("#")]
+    no_operational_imports = (
+        not api_imports and "from ...api" not in all_src
+        and "from ...engine" not in all_src)
+    forward_honesty = (
+        "NO_HISTORICAL_ROW_IN_TRUE_FORWARD = True" in src["contract"]
+        and "NO_ROW_AT_OR_BEFORE_CANDIDATE_FREEZE = True" in src["contract"]
+        and "NO_OPTIONAL_THRESHOLD_RESET = True" in src["contract"]
+        and "NO_MODEL_SWAP_UNDER_ONE_ID = True" in src["contract"]
+        and "d > frozen_at and d <= now" in src["research_cycle"]
+        and "LATE_CAPTURE_CONTIGUOUS" in src["research_cycle"]
+        and "capture_lateness_sessions" in src["research_cycle"])
+    r39_capture_owner_reused = (
+        "RS.capture(" in src["research_cycle"]
+        and "RS.mature(" in src["research_cycle"]
+        and "RS.build_fresh_state()" in src["research_cycle"])
+    no_scheduler_or_automation = (
+        "MAY_ENABLE_SCHEDULED_TASK = False" in src["contract"]
+        and "MAY_MODIFY_PRODUCTION_SCHEDULER = False" in src["contract"]
+        and "RESEARCH_CYCLE_IS_A_CALLABLE_NOT_A_SCHEDULE = True"
+        in src["contract"]
+        and "AUTOMATION OFF" in scripts_src
+        and not any(tok in (all_src + scripts_src) for tok in (
+            "schtasks", "Register-ScheduledTask", "CronCreate",
+            "crontab")))
+    shadows_not_promotable = (
+        "PROMOTION_ALLOWED = False" in src["shadow_registry"]
+        and 'HISTORICAL_QUALIFICATION = "FAIL"' in src["shadow_registry"]
+        and '"promotion_allowed": False' in src["research_cycle"]
+        and "MAY_PROMOTE_MODEL = False" in src["contract"])
+    family_cap_five = (
+        "MAX_RESEARCH_SHADOW_FAMILY = 5" in src["contract"]
+        and "class FamilyCapExceeded" in src["shadow_registry"]
+        and "enforce_cap(rows)" in src["shadow_registry"]
+        and "R39_SHADOWS_REMAIN_IMMUTABLE = True" in src["contract"])
+    slot5_rule_frozen = (
+        "SLOT_5_SELECTION_RULE = {" in src["contract"]
+        and '"may_read_zone_c": False' in src["contract"]
+        and '"may_read_true_forward": False' in src["contract"]
+        and "SLOT_5_SELECTION_RULE" in src["closeout_import"]
+        and "r40_contract_hash_frozen_before_any_evaluation"
+        in src["closeout_import"]
+        and "def contract_hash" in src["contract"])
+    e_process_reused = (
+        "from ..r39 import prospective_design as PD" in src["sequential"]
+        and "def e_process" not in all_src
+        and "PD.decide(" in src["sequential"]
+        and "thresholds_never_reset" in src["sequential"])
+    economic_judge_reused = (
+        "from ..r39.continuation_director import" in src["director"]
+        and "def judge_candidate" not in all_src
+        and "def excess_significance" not in all_src
+        and "def annualised_return" not in all_src
+        and "def xs_long_short" not in all_src)
+    multiple_testing_reused = (
+        "from ..r31 import multiple_testing as _mt" in src["cross_asset"]
+        and "def benjamini_hochberg" not in all_src
+        and "def deflated_sharpe" not in all_src)
+    no_fake_independence = (
+        "DAILY_MARKS_OF_A_MONTHLY_POSITION_ARE_NOT_INDEPENDENT_TRADES = True"
+        in src["contract"]
+        and "NEVER_REPORT_MARKETS_TIMES_DAYS_AS_INDEPENDENT_SAMPLES = True"
+        in src["contract"]
+        and '"mean_information_gain": 0.0' in src["evidence_velocity"]
+        and '"counted_as_independent_trades": False'
+        in src["evidence_velocity"]
+        and "def ess_ratio" in src["evidence_velocity"]
+        and "def effective_markets" in src["evidence_velocity"])
+    open_weight_policy = (
+        "MAY_DOWNLOAD_MODEL_WEIGHTS = True" in src["contract"]
+        and src["contract"].count('    "') >= 10
+        and '"NOT_GATED_BEHIND_CLICK_THROUGH"' in src["contract"]
+        and '"NO_PROVIDER_ACCOUNT_REQUIRED"' in src["contract"]
+        and "def conditions_verdict" in src["open_models"]
+        and "REFUSED" in src["open_models"]
+        and "MAY_PURCHASE_COMPUTE = False" in src["contract"]
+        and "MAY_INSTALL_CUDA = False" in src["contract"])
+    weights_on_research_drive = (
+        'research_root() / "_r40_lib"' in src["open_models"]
+        and 'research_root() / "_hf_cache"' in src["open_models"]
+        and 'LARGE_FILE_DRIVE = "D:"' in src["root"])
+    contamination_labels = (
+        "CONTAMINATED_MODELS_CANNOT_CLAIM_CLEAN_OOS = True" in src["contract"]
+        and '"PRETRAINING_OVERLAP_LIKELY"' in src["open_models"]
+        and '"PRETRAINING_DATA_KNOWN_CLEAN"' in src["open_models"]
+        and "clean_historical_oos_label_admissible" in src["open_models"])
+    availability_rule = (
+        "MIN_SELECTION_COVERAGE = 0.50" in src["availability"]
+        and "INADMISSIBLE_SELECTION_UNAVAILABLE" in src["availability"]
+        and "def add_causal_masks" in src["availability"]
+        and '"original_wide_untouched": True' in src["availability"]
+        and "successor_is_new_object_with_new_hash" in src["wide_successor"]
+        and '"zone_c_inspected_for_selection": False'
+        in src["wide_successor"])
+    nyfed_no_invented_backfill = (
+        "BLOCKED_IDENTITY_SEMANTICS" in src["nyfed_bridge"]
+        and '"no_invented_backfill": True' in src["nyfed_bridge"]
+        and "LAG_DAYS = IE.NYFED_LAG_DAYS" in src["nyfed_bridge"]
+        and "def arithmetic_identities" in src["nyfed_bridge"]
+        and "def seam_checks" in src["nyfed_bridge"])
+    search_discipline = (
+        "MAX_CONFIGS_PER_MODEL_FAMILY = 3" in src["contract"]
+        and "NO_ZONE_C_REDESIGN = True" in src["contract"]
+        and "_screen_one(cand)" in src["model_challenge"]
+        and "one_zone_b_run_per_family" in src["model_challenge"])
+    commercial_refused = (
+        "INTRINIO_PURCHASE_ALLOWED = False" in src["contract"]
+        and "MAY_PURCHASE_DATA = False" in src["contract"]
+        and '"request_sent_by_claude": False' in src["intrinio_readiness"]
+        and "SAMPLE_CAN_PROVE_ALPHA = False" in src["intrinio_readiness"])
+    result_axes_declared = (
+        "RESULT_AXES = (" in src["contract"]
+        and '"PROSPECTIVE_ALPHA_RESULT"' in src["contract"]
+        and "DO_NOT_FORCE_A_SUCCESS_STATE = True" in src["contract"]
+        and '"HISTORICAL_ALPHA_RESULT": "FAIL"' in src["campaign"])
+    shell_policy_recorded = (
+        "SHELL_POLICY_EVENTS = {" in src["contract"]
+        and "SHELL_POLICY_VIOLATION_REPORTED = True" in src["contract"]
+        and "monitor_tool_invocations" in src["contract"])
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "one_campaign_root_binding": one_campaign_root_binding,
+        "canonical_ledger_primitives_reused": canonical_ledger_primitives,
+        "no_operational_imports": no_operational_imports,
+        "api_imports_found": api_imports,
+        "forward_evidence_honesty": forward_honesty,
+        "r39_capture_owner_reused": r39_capture_owner_reused,
+        "no_scheduler_or_automation": no_scheduler_or_automation,
+        "shadows_not_promotable": shadows_not_promotable,
+        "family_cap_five": family_cap_five,
+        "slot5_rule_frozen_before_evaluation": slot5_rule_frozen,
+        "e_process_reused": e_process_reused,
+        "economic_judge_reused": economic_judge_reused,
+        "multiple_testing_reused": multiple_testing_reused,
+        "no_fake_independence": no_fake_independence,
+        "open_weight_policy_ten_conditions": open_weight_policy,
+        "weights_on_research_drive": weights_on_research_drive,
+        "contamination_labels_applied": contamination_labels,
+        "availability_rule_declared": availability_rule,
+        "nyfed_no_invented_backfill": nyfed_no_invented_backfill,
+        "hierarchical_search_discipline": search_discipline,
+        "commercial_refused": commercial_refused,
+        "result_axes_declared": result_axes_declared,
+        "shell_policy_recorded": shell_policy_recorded,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -8756,6 +8979,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release39_universal_alpha_discovery":
             check_release39_universal_alpha_discovery(files),
         "release39_continuation": check_release39_continuation(files),
+        "release40_prospective_alpha_acceleration":
+            check_release40_prospective_alpha_acceleration(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -10556,6 +10781,52 @@ BLOCKING_INVARIANTS = (
     ("release39_continuation", "subsplit_protocol_declared", True),
     ("release39_continuation", "shell_policy_audit_recorded", True),
     ("release39_universal_alpha_discovery", "no_operational_imports", True),
+    ("release40_prospective_alpha_acceleration", "modules_present", True),
+    ("release40_prospective_alpha_acceleration", "modules_missing", []),
+    ("release40_prospective_alpha_acceleration", "second_owner_modules", []),
+    ("release40_prospective_alpha_acceleration", "burden_inherited_not_reset",
+     True),
+    ("release40_prospective_alpha_acceleration", "one_campaign_root_binding",
+     True),
+    ("release40_prospective_alpha_acceleration",
+     "canonical_ledger_primitives_reused", True),
+    ("release40_prospective_alpha_acceleration", "no_operational_imports",
+     True),
+    ("release40_prospective_alpha_acceleration", "forward_evidence_honesty",
+     True),
+    ("release40_prospective_alpha_acceleration", "r39_capture_owner_reused",
+     True),
+    ("release40_prospective_alpha_acceleration",
+     "no_scheduler_or_automation", True),
+    ("release40_prospective_alpha_acceleration", "shadows_not_promotable",
+     True),
+    ("release40_prospective_alpha_acceleration", "family_cap_five", True),
+    ("release40_prospective_alpha_acceleration",
+     "slot5_rule_frozen_before_evaluation", True),
+    ("release40_prospective_alpha_acceleration", "e_process_reused", True),
+    ("release40_prospective_alpha_acceleration", "economic_judge_reused",
+     True),
+    ("release40_prospective_alpha_acceleration", "multiple_testing_reused",
+     True),
+    ("release40_prospective_alpha_acceleration", "no_fake_independence",
+     True),
+    ("release40_prospective_alpha_acceleration",
+     "open_weight_policy_ten_conditions", True),
+    ("release40_prospective_alpha_acceleration", "weights_on_research_drive",
+     True),
+    ("release40_prospective_alpha_acceleration",
+     "contamination_labels_applied", True),
+    ("release40_prospective_alpha_acceleration",
+     "availability_rule_declared", True),
+    ("release40_prospective_alpha_acceleration",
+     "nyfed_no_invented_backfill", True),
+    ("release40_prospective_alpha_acceleration",
+     "hierarchical_search_discipline", True),
+    ("release40_prospective_alpha_acceleration", "commercial_refused", True),
+    ("release40_prospective_alpha_acceleration", "result_axes_declared",
+     True),
+    ("release40_prospective_alpha_acceleration", "shell_policy_recorded",
+     True),
 )
 
 

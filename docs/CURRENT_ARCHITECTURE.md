@@ -2742,3 +2742,70 @@ research-root ledgers reusing `api.paper_trading_desk` primitives) and
 `prospective_design` (pre-registered anytime-valid capped-bet e-process).
 Terminal: `R39_CONTINUATION_NO_NEW_QUALIFIED_ALPHA`, zero Zone-C accesses,
 cumulative burden 194 trials.
+
+## Release 40 — Prospective Alpha Acceleration & Open Intelligence Frontier (research lane)
+
+**Package `alpha_agent/r40/` (19 owners), runners
+`scripts/run_release40_prospective_alpha.py` (phases `IEFGHRSQVPLMZ`) and
+`scripts/run_r40_research_cycle.py` (the ONE research cycle), research
+root `D:\Stock_Prediction_app_data\prospective_alpha_r40\`, campaign
+`r40_prospective_alpha_acceleration_v1`.** Reuses the R39 owners under the
+R40 root through `r39.register_campaign_root` (reuse ledger, lockbox,
+artifact writer), the R39 capture/maturation owner, the R39 e-process, the
+R34 economic judge and the R31 multiple-testing owner; defines no second
+ledger, judge, gate, scheduler or forward-evidence system.
+
+`contract` (frozen rules: R39 facts to verify, forward honesty, the
+five-member family cap, the Slot-5 selection rule, declared evidence-
+channel roles, the ten open-weight conditions, the contamination
+vocabulary, the automation boundary, the shell-policy event record);
+`closeout_import` (R39_CLOSEOUT_IMPORT: manifest hashes, burden 194,
+shadow immutability, contract hash frozen before any evaluation);
+`burden_ledger` (194 inherited, marker `R39_INHERITED`, never reset;
+records through `r39.zones`); `availability` (coverage by zone/era/market/
+class, missingness transitions, activation dates, causal masks, the
+≥ 50 % selection-coverage rule); `director` (one prepared `Director2` per
+process, ledgering into R40); `wide_successor` (three availability-
+controlled successor designs, fit A / judge B, paired against the
+immutable WIDE); `nyfed_bridge` (NY Fed reference-menu provenance, seven
+bridged concepts 1998→2026 with arithmetic-identity and seam-continuity
+proofs, named BLOCKED_IDENTITY_SEMANTICS, per-market own-bucket features,
+the first ZONE_B-protocol paired increment); `open_models` (2026
+inventory with HF-API facts, the ten-condition verdict, provenance with
+SHA-256 on D:, contamination registry, TabPFN-v2 and Chronos-Bolt adapters);
+`model_challenge` (SSM-lite, PatchTST-lite, one-hop graph aggregation,
+TabPFN-v2, Chronos features under the same protocol with a Zone-A-only
+hierarchical screen and one Zone-B run per family); `cross_asset`
+(29 monthly nodes, declared edge-class whitelist, Zone-A HAC screen with
+BH, Zone-B predictive checks and paired economic increments — all
+ledger-counted); `shadow_registry` (SHADOW_REGISTRY_V2: three R39 members
+by reference, Slot 4 intl-rates carry RV, Slot 5 by the frozen rule, frozen
+model bytes, cap enforced, the per-date scorer); `research_cycle`
+(eligibility, freshness, contiguous catch-up, capture, maturation,
+sequential evidence, FORWARD_RESEARCH_CYCLE_STATE + FORWARD_CAPTURE_LEDGER_
+STATUS); `sequential` (designs for the new members, e-process-inverted
+confidence sequence, family error budget); `evidence_velocity` (HAC ESS,
+participation-ratio effective markets, log-evidence growth, time to
+decision, the zero-information verdict on daily marks); `research_portfolio`
+(return/prediction correlation, factor exposure, family/class/regime
+overlap, redundancy verdicts, attention priority); `intrinio_readiness`
+(inbox + schema/PIT validator, WAITING_FOR_SAMPLE); `compute_escalation`
+(three priced requests, one weakly justified); `campaign` (joint
+predictive/economic evidence table, cumulative ledger, seven-axis verdict).
+
+Operator surface: `scripts/run_r40_research_cycle.py --mode capture`
+after each month-end (AUTOMATION OFF; attaching it to the Persistent Daily
+Research Cycle is a separate governed decision). Forward ledgers: R39
+members under the R39 root (written only by `r39.research_shadow`), R40
+members under `<campaign>/research_shadow_forward/` (same desk
+primitives). Terminal: `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` +
+`R40_NO_INCREMENTAL_EDGE_FOUND` + `R40_COMPUTE_LIMIT_BINDING`; cumulative
+burden 230 — see
+[RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md](RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md).
+
+Canonical-builder repair carried by this release: `r39.universal_state.
+build_futures_panel` / `build_vx_weekly` and `r39.research_shadow.
+build_fresh_state` normalise layer dates to `datetime64[ns]` (a live
+Norgate series arrives as `[us]` under pandas 3 and `merge_asof` refused
+the mix) — output-preserving for the frozen layer; the R39 manual capture
+command could not have run end to end before it.

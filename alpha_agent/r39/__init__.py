@@ -102,7 +102,31 @@ def research_root() -> Path:
     return Path(os.environ.get(RESEARCH_ROOT_ENV) or DEFAULT_RESEARCH_ROOT)
 
 
+#: Campaigns of LATER releases that reuse this package's owners (reuse
+#: ledger, lockbox, artifact writer) under their OWN research root. A later
+#: release registers its campaign here instead of re-implementing the
+#: owners; an unregistered campaign id resolves under the R39 root exactly
+#: as before, so every R39 path is unchanged.
+_EXTERNAL_CAMPAIGN_ROOTS: dict = {}
+
+
+def register_campaign_root(campaign_id: str, root) -> Path:
+    """Bind ``campaign_id`` to ``root/campaign_id`` for every owner in this
+    package. Idempotent for the same root; a different root for an already
+    bound campaign is refused (a campaign has ONE home)."""
+    target = Path(root) / str(campaign_id)
+    bound = _EXTERNAL_CAMPAIGN_ROOTS.get(str(campaign_id))
+    if bound is not None and Path(bound) != target:
+        raise ValueError("campaign %s is already bound to %s"
+                         % (campaign_id, bound))
+    _EXTERNAL_CAMPAIGN_ROOTS[str(campaign_id)] = target
+    return target
+
+
 def campaign_dir(campaign_id: str) -> Path:
+    ext = _EXTERNAL_CAMPAIGN_ROOTS.get(str(campaign_id))
+    if ext is not None:
+        return Path(ext)
     return research_root() / str(campaign_id)
 
 
@@ -170,7 +194,7 @@ __all__ = [
     "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED", "MAY_SPEND_MONEY",
     "MAY_MUTATE_PRODUCTION", "TRAINS_MODELS", "PROMOTES_MODELS",
     "research_root", "campaign_dir", "state_dir", "safety_block",
-    "artifact_body",
+    "artifact_body", "register_campaign_root",
     "sha", "sha_file", "file_fingerprint", "write_json", "read_json",
     "ArtifactImmutable",
 ]

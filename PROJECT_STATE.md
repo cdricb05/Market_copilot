@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-23
-- **Updated by phase:** **Release 39 — Autonomous Universal Alpha Discovery Engine + CONTINUATION (campaign `r39_universal_alpha_continuation_v2`). v1 TERMINAL: `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH`; continuation TERMINAL: `R39_CONTINUATION_NO_NEW_QUALIFIED_ALPHA`.** SYSTEM_RESULT = PASS, HISTORICAL_ALPHA_RESULT = FAIL, ALPHA_RESULT = FAIL, FORWARD_CANDIDATE_RESULT = NONE_FROZEN — and **three non-promotable research shadows now accumulate TRUE_FORWARD evidence** under a pre-registered anytime-valid design. Cumulative search burden **194 effective trials** (107 v1 + 87 continuation; never reset). Release 38 is CLOSED and committed (`f484fc9`).
-- **Source Git HEAD:** `f484fc9a02e304164cbfd2f3eaebf5399ec19d11`, branch `stage19-controlled-rebalance`. This is the Release-38 closeout and is the declared **Release-39 base commit**.
-- **Working tree status:** Release-39 source, tests and documentation uncommitted. New: `alpha_agent/r39/` (17 v1 modules + 9 continuation modules: `continuation`, `wide_prosecution`, `info_expansion`, `trade_space_ext`, `models_ext`, `continuation_director`, `continuation_campaign`, `research_shadow`, `prospective_design`), `scripts/run_release39_universal_alpha_discovery.py`, `scripts/run_release39_continuation.py`, `scripts/run_r39_shadow_capture.py`, `tests/test_release39_universal_alpha_discovery.py` (46 tests), `tests/test_release39_continuation.py` (25 tests), `docs/RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md` (with the continuation section). Modified: `scripts/audit_architecture.py` (R39 check + 15 continuation blocking invariants, 40 total), `scripts/r33_operational_write_attribution.py` (R39 profile incl. continuation), `alpha_agent/r39/trade_space.py` (pandas-3 `idxmax` all-NaN guard in `group_spread`, output-preserving), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. New packages (free, licences recorded): scikit-learn, scipy, xgboost, lightgbm, statsmodels in the venv; torch CPU-only (BSD-3) on the research drive — deep models trained from random initialisation, `MAY_DOWNLOAD_MODEL_WEIGHTS` still False. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 39 is **complete and terminal**. The operator runs ONE broad repository regression (accepted baseline: exactly 8 unrelated failures; any additional failure attributable to R39 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release39_universal_alpha_handoff`. **Parallel lane:** the Steele Barcomb five-ticker sample request remains operator-ready and unsent. **Compute lane:** `compute_escalation_request.json` prices the only unexecuted model families (deep/foundation) at ~$40–90 external GPU or a $0 local path (free ~10 GB on C:, approve a CPU-only torch install and flip `MAY_DOWNLOAD_MODEL_WEIGHTS` for open-weight models) — an operator decision, not a default. **No renewal action is due** before 2027-02-22. Do not rerun Release 31–39 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
+- **Updated by phase:** **Release 40 — Prospective Alpha Acceleration & Open Intelligence Frontier (campaign `r40_prospective_alpha_acceleration_v1`). TERMINAL: `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` + `R40_NO_INCREMENTAL_EDGE_FOUND` + `R40_COMPUTE_LIMIT_BINDING`.** SYSTEM_RESULT = PASS, FORWARD_ENGINE_RESULT = CANONICAL_IDEMPOTENT_CYCLE_READY, FORWARD_EVIDENCE_RESULT = NO_TRUE_FORWARD_OBSERVATIONS_YET, INFORMATION_RESULT = NO_INCREMENTAL_INFORMATION_EDGE, MODEL_RESULT = NO_MATERIAL_IMPROVEMENT_OVER_R39_TCN, HISTORICAL_ALPHA_RESULT = FAIL, PROSPECTIVE_ALPHA_RESULT = NOT_YET_TESTABLE. **Five non-promotable research shadows** (three R39 immutable + international-rates carry RV + the R39 TCN by the pre-declared Slot-5 rule) are frozen before any forward outcome; the ONE canonical research cycle ran on live data and reported `READY_WAITING_FOR_ELIGIBLE_DATE` (first eligible decisions: each market's last session of 2026-08). Cumulative search burden **230 effective trials** (194 inherited + 36 new; never reset). Release 39 is CLOSED and committed (`8d6d8d7`).
+- **Source Git HEAD:** `8d6d8d7b415fc6b5c6b0aeb4f43c18c9c2f755c2`, branch `stage19-controlled-rebalance` (local == origin verified). This is the Release-39 closeout and is the declared **Release-40 base commit**.
+- **Working tree status:** Release-40 source, tests and documentation uncommitted. New: `alpha_agent/r40/` (19 modules: `contract`, `closeout_import`, `burden_ledger`, `availability`, `director`, `wide_successor`, `nyfed_bridge`, `open_models`, `model_challenge`, `cross_asset`, `shadow_registry`, `research_cycle`, `sequential`, `evidence_velocity`, `research_portfolio`, `intrinio_readiness`, `compute_escalation`, `campaign` + root), `scripts/run_release40_prospective_alpha.py`, `scripts/run_r40_research_cycle.py`, `tests/test_release40_prospective_alpha.py` (28 tests), `docs/RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md`. Modified: `alpha_agent/r39/__init__.py` (`register_campaign_root` — one owner, two releases), `alpha_agent/r39/universal_state.py` and `alpha_agent/r39/research_shadow.py` (datetime-unit normalisation; the R39 manual capture could not run end to end on pandas 3 before it — output-preserving for the frozen layer), `scripts/audit_architecture.py` (R40 check, 27 blocking invariants), `scripts/r33_operational_write_attribution.py` (R40 profile), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. Research-drive additions (never staged): `D:\Stock_Prediction_app_data\prospective_alpha_r40\` (campaign artifacts, `_r40_lib` packages, `_hf_cache` weights — TabPFN-v2 regressor and chronos-bolt-small, SHA-256 recorded). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 40 is **complete**; the binding limitation is **time**. The operator runs ONE broad repository regression (accepted baseline: exactly the 8 known unrelated failures; any additional failure attributable to R40 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release40_prospective_alpha_handoff`. **Forward routine (AUTOMATION OFF):** after each month-end close run `scripts/run_r40_research_cycle.py --mode capture` (first eligible: 2026-08-31; contiguous catch-up makes a late run safe). **Governed decision for Release 41:** attach `alpha_agent.r40.research_cycle.run_cycle` to the Persistent Daily Research Cycle. **Shell policy:** one `Monitor` tool invocation ran a bash-syntax log watcher for ~1 minute (recorded in `contract.SHELL_POLICY_EVENTS`; the validator counts it from the transcript) — the operator decides whether that blocks. **Parallel lane:** the Steele Barcomb five-ticker sample request remains operator-ready and unsent; an inbox + schema/PIT validator is ready. **Compute lane:** `R40_COMPUTE_ESCALATION_REQUEST.json` — only the sequence-model scale request (~6 GPU-hours, $5–12) is weakly justified. **No renewal action is due** before 2027-02-22. Do not rerun Release 31–40 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -23,6 +23,7 @@ for the second:
 | Release 37 | PASS | **NOT_TESTED** | `R37_DATA_INVESTMENT_RECOMMENDED` |
 | Release 38 | PASS | **FAIL** | `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA` |
 | Release 39 | PASS | **FAIL** | `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH` |
+| Release 40 | PASS | **FAIL** (historical) / **NOT_YET_TESTABLE** (prospective) | `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
@@ -39,6 +40,94 @@ increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 40 — Prospective Alpha Acceleration & Open Intelligence Frontier (2026-08-23, TERMINAL — waiting for time)
+
+**Terminal: `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` +
+`R40_NO_INCREMENTAL_EDGE_FOUND` + `R40_COMPUTE_LIMIT_BINDING`. Seven
+axes, never collapsed: SYSTEM PASS · FORWARD_ENGINE
+CANONICAL_IDEMPOTENT_CYCLE_READY · FORWARD_EVIDENCE
+NO_TRUE_FORWARD_OBSERVATIONS_YET · INFORMATION
+NO_INCREMENTAL_INFORMATION_EDGE · MODEL NO_MATERIAL_IMPROVEMENT_OVER_R39_TCN
+· HISTORICAL_ALPHA FAIL · PROSPECTIVE_ALPHA NOT_YET_TESTABLE.** Full
+write-up:
+[docs/RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md](docs/RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md).
+
+**R39 verified, not trusted.** 63/63 research artifacts and 37/37 repo
+files hash to the R39 handoff manifest; 608/594/107/12; burden 194 from
+both the artifact and the ledger; 0 Zone-C accesses; WIDE reconstruction,
+residual alpha and kill tests re-read; three shadows immutable (registry
+and coefficient hashes reproduce from bytes). The R40 contract — including
+the Slot-5 selection rule — was hashed into the closeout-import artifact
+before any evaluation (`3c21aff4…cf71fb`). Measured discrepancy: the frozen
+WIDE ridge has 30 live features, not the "86" of narrative text.
+
+**The ONE research cycle exists and ran on live data.**
+`alpha_agent.r40.research_cycle.run_cycle` (wrapper
+`scripts/run_r40_research_cycle.py`): eligibility strictly after each
+shadow's immutable freeze, never in the future, never twice; input
+freshness stamped per snapshot; R39 members scored through the R39 capture
+owner, R40 members through frozen bytes; contiguous catch-up with lateness
+recorded; maturation with supporting marks; always-valid evidence after
+every call; chain-hashed desk ledgers. Live run: latest session
+2026-08-21, no stale sources, 0 eligible dates, 0 captures, chains intact,
+`READY_WAITING_FOR_ELIGIBLE_DATE`; next: each market's last session of
+2026-08. Defect repaired on the way: the R39 fresh-state builder refused
+`datetime64[us]` (live Norgate) vs `[ns]` merge keys under pandas 3, so the
+R39 manual capture had never run end to end here.
+
+**Five shadows, frozen before any outcome, cap enforced.** Slot 4 =
+international-rates carry RV `c39_1a0105dd2f0c` (Zone-B t 2.47, 11
+markets, 3 bps/side, spec hash `935e3de5…`). Slot 5 by the frozen rule =
+the R39 TCN `c39_fad367467c79` (t 2.07; correlations with WIDE/carry/intl
+0.44/0.33/0.06; fit once on Zone A+B and frozen as a hashed torch
+state_dict, coefficient hash `b77b2d1e…`); the corrected WIDE successor
+was ineligible (t 1.37 < 1.5), the new SSM-lite eligible but lower (1.80).
+All five RESEARCH_SHADOW_ONLY / HISTORICAL_QUALIFICATION FAIL /
+PROMOTION_ALLOWED False. Designs frozen (e ≥ 20, R39 futility/horizon,
+σ₀ from Zone B, 50 % shrinkage) with an e-process-inverted confidence
+sequence and a declared family error budget (per-candidate 0.05, union
+0.25 reported, family claim via the averaged e-process).
+
+**Evidence velocity, honestly.** Effective obs/year 11–42 after HAC
+serial correction; 68 markets ≈ 9–10 effective; daily marks of a fixed
+position add zero mean information; the rank-IC channel carries 1.2–3.1×
+the per-observation information about predictive skill only. Years to the
+success boundary at the frozen point estimates: intl-RV 9.6, TCN 14.3,
+WIDE 18.3, carry 21.9, VX 26.5 (far longer at 50 % shrinkage). The R39
+futility boundary is nearly inert under the null; the 60-observation
+horizon is the effective stop — a finding, not a reset.
+
+**Availability defect removed, and the result is worse.** 10 of WIDE's 30
+frozen features fail the declared ≥ 50 % Zone-A-and-B coverage rule (v1
+latent/graph, BTC, VIX term, breakevens/real yields, COT); the corrected
+successor (admissible columns + causal masks + calendar-grid latent/graph)
+scores Zone-B t 1.37 vs 1.62 — part of WIDE's selection evidence rested
+on information its training window could not see. WIDE untouched; Zone C
+never read.
+
+**NY Fed legacy positioning decoded — and null.** Seven concepts bridged
+1998→2026 from the NY Fed's own per-series-break reference menu with
+zero-residual arithmetic identities (both official totals INCLUDE TIPS,
+whatever the current label says) and seam checks; the 5-year 1998–2001
+split and all financing/repo concepts are BLOCKED_IDENTITY_SEMANTICS. First
+ZONE_B-protocol paired test (388 Zone-A rows): best increment t 1.26 —
+`NYFED_NO_ROBUST_INCREMENT`.
+
+**Open weights under ten conditions.** TabPFN-v2 regressor (ungated HF
+checkpoint; Prior Labs License 1.1 = Apache-2.0 + attribution; synthetic
+prior → `PRETRAINING_DATA_KNOWN_CLEAN`) and chronos-bolt-small (Apache-2.0;
+`PRETRAINING_OVERLAP_LIKELY` → representation research only) acquired to
+D: with hashes; the tabpfn package's login + click-through path for v2.5
+weights was REFUSED. Model challenge under the same protocol: TCN 2.07
+(exact re-score) > SSM-lite 1.80 > PatchTST-lite 1.77 > ridge WIDE 1.62 >
+… > Chronos XS rule 1.07 > TabPFN-v2 0.15 > graph-MLP −0.01. Nothing
+materially beats the TCN; model capability is open only on the scale axis
+(one weakly justified ~$10 GPU request). Cross-asset: 103 Zone-A pairs
+screened, 0 survive FDR. Burden 194 + 36 = **230**, never reset. Safety:
+$0, 0 operational writes (`ATTRIBUTED`, 21 sources), 0 promotions, 0
+scheduler changes, 2 weight sets downloaded. Shell policy: 0 Bash tool
+invocations; 1 `Monitor` bash-syntax watcher recorded and reported.
 
 ## Release 39 — Autonomous Universal Alpha Discovery Engine (2026-08-22, TERMINAL)
 

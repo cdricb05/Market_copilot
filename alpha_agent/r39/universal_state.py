@@ -213,6 +213,11 @@ def build_futures_panel(layer: dict, meta: pd.DataFrame,
         if mkt not in meta_by_market.index:
             continue
         d = df.reset_index(drop=True)
+        # ONE datetime unit for every layer source: the frozen CSV layer is
+        # datetime64[ns]; a live Norgate series arrives as datetime64[us]
+        # under pandas 3, and the COT merge_asof refuses mixed units.
+        # Output-preserving for the frozen layer (already ns).
+        d["Date"] = pd.to_datetime(d["Date"]).astype("datetime64[ns]")
         dates = d["Date"]
         rets = d["ret"].to_numpy(dtype=np.float64)
         close = d["close"].to_numpy(dtype=np.float64)
@@ -297,6 +302,13 @@ def build_futures_panel(layer: dict, meta: pd.DataFrame,
         ["decision_date", "market_id"]).reset_index(drop=True)
 
     # COT join: latest R38-panel observation at or before the decision date
+    # (one datetime unit on both keys - pandas 3 infers mixed units from
+    # CSV strings and live Timestamps, and merge_asof refuses the mix)
+    panel["decision_date"] = pd.to_datetime(panel["decision_date"]) \
+        .astype("datetime64[ns]")
+    cot = cot.copy()
+    cot["decision_date"] = pd.to_datetime(cot["decision_date"]) \
+        .astype("datetime64[ns]")
     panel = panel.sort_values("decision_date")
     cot = cot.sort_values("decision_date")
     parts = []
@@ -382,6 +394,7 @@ def build_vx_weekly(layer: dict, meta: pd.DataFrame,
     if "VX" not in layer:
         return pd.DataFrame()
     d = layer["VX"].reset_index(drop=True)
+    d["Date"] = pd.to_datetime(d["Date"]).astype("datetime64[ns]")
     rets = d["ret"].to_numpy(dtype=np.float64)
     slope = d["slope_ann"].to_numpy(dtype=np.float64)
     dates = d["Date"]

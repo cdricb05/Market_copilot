@@ -339,6 +339,9 @@ def build_fresh_state() -> dict:
             continue
         df = series.reset_index()
         df = df.rename(columns={df.columns[0]: "Date"})
+        # live Norgate series arrive as datetime64[us] under pandas 3; the
+        # frozen layer (and every merge key downstream) is datetime64[ns]
+        df["Date"] = pd.to_datetime(df["Date"]).astype("datetime64[ns]")
         layer[mkt] = df
     fut = US.build_futures_panel(layer, meta, cot, macro)
     fut, _, _ = R.add_spectral(fut)

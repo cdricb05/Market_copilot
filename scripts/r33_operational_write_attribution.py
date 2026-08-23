@@ -223,7 +223,27 @@ R39_SOURCE_FILES = (
     "scripts/run_release39_continuation.py",
     "scripts/run_r39_shadow_capture.py",)
 
+#: Release 40 runs the prospective research cycle and the open-model
+#: frontier; it writes ONLY under its research root (and, through the R39
+#: capture owner, under the R39 shadow ledgers). A shadow snapshot, a
+#: forward ledger row or a model-weight cache landing in an operational
+#: store would be attributable here.
+R40_MARKERS = (
+    "r40_prospective_alpha_acceleration_v1", "prospective_alpha_r40",
+    "run_release40_prospective_alpha", "run_r40_research_cycle",
+    "alpha_agent.r40", "alpha_agent/r40", "alpha_agent\\r40",
+    "release40_prospective_alpha",
+    "shadow_registry_v2", "_hf_cache", "_r40_lib",
+)
+R40_SOURCE_GLOBS = ("alpha_agent/r40/*.py",)
+R40_SOURCE_FILES = (
+    "scripts/run_release40_prospective_alpha.py",
+    "scripts/run_r40_research_cycle.py",)
+
 RELEASE_PROFILES = {
+    "R40": {"markers": R40_MARKERS, "source_globs": R40_SOURCE_GLOBS,
+            "source_files": R40_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

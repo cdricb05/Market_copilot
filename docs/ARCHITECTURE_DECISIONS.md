@@ -2601,3 +2601,104 @@ ledgers reusing the canonical desk primitives, monitored by a
 pre-registered anytime-valid e-process. Historical observations cannot
 enter the forward ledgers by construction (eligibility begins strictly
 after the registry freeze).
+
+**CONFIRMED (Release 40) — a later release reuses an earlier release's
+owners under its OWN research root by REGISTERING its campaign, never by
+re-implementing the owner.** `alpha_agent.r39.register_campaign_root`
+binds one campaign id to one external root (a second root for the same
+campaign is refused); the R39 reuse ledger, lockbox and artifact writer
+then serve Release 40 unchanged. The cumulative search burden therefore
+continues in the same ledger schema (194 inherited, marker `R39_INHERITED`,
+mismatch refuses to guess; 230 after R40) and the audit forbids
+`alpha_agent/r40/{zones,ledger,judge,economics,multiple_testing,
+forward_evidence,...}.py` outright. Guarded by
+`check_release40_prospective_alpha_acceleration` (27 blocking invariants);
+regression `tests/test_release40_prospective_alpha.py`.
+
+**CONFIRMED (Release 40) — prospective evidence capture is ONE canonical
+idempotent callable, and a late capture must be contiguous.**
+`alpha_agent.r40.research_cycle.run_cycle` determines eligibility
+(strictly after each shadow's immutable freeze, in the CURRENT panel,
+never in the future, never twice), measures input freshness and stamps it
+on every snapshot, scores R39 members through the R39 capture owner and
+R40 members through the registry-v2 scorer with frozen bytes, matures
+outcomes with supporting marks, and re-evaluates the always-valid evidence.
+A catch-up must capture EVERY missed date in order (`CATCH_UP_MUST_BE_
+CONTIGUOUS`) with the lateness recorded per row — a frozen model cannot
+change a weight, so the only thing a late capture could do is SELECT dates,
+and contiguity forbids it. The callable is not a scheduler; attaching it
+to the Persistent Daily Research Cycle stays an operator decision
+(`MAY_ENABLE_SCHEDULED_TASK = False`).
+
+**CONFIRMED (Release 40) — the research-shadow family is capped at FIVE,
+and the fifth slot is chosen by a rule frozen before any evaluation.**
+`contract.SLOT_5_SELECTION_RULE` (highest Zone-B after-cost t among
+eligible candidates; eligibility t ≥ 1.5, same-sign halves, positive at 2×
+cost, |corr| < 0.90 with every existing shadow, no identical
+family+expression; NULL valid; Zone C and TRUE_FORWARD never read) is
+hashed into `r39_closeout_import.json` before the first R40 evaluation.
+Exercised: the R39 TCN (t 2.07) beat the corrected WIDE successor
+(ineligible at t 1.37) and the new SSM-lite (t 1.80); the international-
+rates carry RV rule took Slot 4. A learned winner is frozen as BYTES (torch
+state_dict + standardiser statistics, hashed); capture never refits.
+`shadow_registry.enforce_cap` refuses a sixth member.
+
+**CONFIRMED (Release 40) — evidence velocity is measured with dependence,
+and a channel's ROLE is declared before outcomes.** One PRIMARY channel
+(after-cost excess per primary decision period vs the declared control);
+supporting channels (daily marks, rank IC, sign accuracy, residual alpha,
+drawdown, cost, regime) may inform and never qualify. The velocity engine
+reports HAC effective-sample ratios, the participation-ratio effective
+number of markets, expected log-evidence growth per effective observation
+under the frozen alternative and the null, and calendar time to the
+pre-registered boundary — and states that daily marks of a fixed position
+carry zero mean information and that markets × days is never a sample
+count (`NEVER_REPORT_MARKETS_TIMES_DAYS_AS_INDEPENDENT_SAMPLES`).
+
+**CONFIRMED (Release 40) — a feature family absent through selection may
+not be claimed as selected information, whatever it does later.** The
+availability owner measures coverage by zone/era/market/class, missingness
+transitions and activation dates BEFORE any model is evaluated, applies a
+declared admissibility floor (≥ 50 % finite in Zone A AND Zone B), and
+attaches causal availability masks so train-only imputation cannot
+silently become a different model when a family switches on. Exercised on
+WIDE: 10 of 30 frozen features are inadmissible (v1 latent/graph, BTC,
+VIX term, breakevens/real yields, COT) and the corrected successor loses
+Zone-B economics (t 1.37 vs 1.62) — recorded as the finding it is. The
+original WIDE stays immutable; the successor is a new object with a new
+hash.
+
+**CONFIRMED (Release 40) — open model weights enter the estate only under
+ten conditions, and pretraining exposure is an evidence PROPERTY.**
+`MAY_DOWNLOAD_MODEL_WEIGHTS` became True under `MODEL_WEIGHT_DOWNLOAD_
+CONDITIONS` ($0, no subscription, no card, no provider account, no
+restricted-data upload, research-permitting licence, no licence accepted on
+the operator's behalf, research-drive storage, hashed provenance, no
+click-through gate). A package path that demanded an interactive login
+and click-through (tabpfn's default v2.5 weights) was REFUSED; the ungated
+v2 checkpoint was used through a local path. Every model carries a
+contamination class; only `PRETRAINING_DATA_KNOWN_CLEAN` (TabPFN-v2,
+synthetic prior) may carry a clean historical-OOS label; Chronos-Bolt
+(`PRETRAINING_OVERLAP_LIKELY`) is representation research only
+(`CONTAMINATED_MODELS_CANNOT_CLAIM_CLEAN_OOS`).
+
+**CONFIRMED (Release 40) — a legacy mnemonic is bridged by documentation
+plus arithmetic identity plus seam continuity, or it is
+BLOCKED_IDENTITY_SEMANTICS.** The NY Fed dealer-positioning bridge quotes
+the NY Fed's own per-series-break reference menu, proves within-era
+identities on the owned data (both official totals equal their components
+including TIPS with zero residual — the current code's "excluding TIPS"
+label is wrong and the arithmetic wins), measures seam jumps in
+pooled-change SDs, and refuses the 1998–2001 5-year coupon split and all
+financing/repo concepts rather than inventing a backfill. A market-invariant
+series cannot move a cross-sectional rank, so such features are tested
+through timing expressions or per-market interactions (own-maturity-bucket
+inventory), never through a degenerate cross-section.
+
+**CONFIRMED (Release 40) — shell policy is reported from transcript
+evidence, including the events that count against it.** The session
+transcript is searched for tool invocations by name; the one `Monitor`
+tool call that ran a bash-syntax log watcher is recorded verbatim in
+`contract.SHELL_POLICY_EVENTS`, the handoff validator blocks on a count
+mismatch, and the release reports `SHELL_POLICY_VIOLATION_REPORTED = True`
+under the operator's literal rule rather than explaining it away.
