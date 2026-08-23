@@ -204,6 +204,25 @@ R38_SOURCE_FILES = (
     "scripts/run_release38_native_futures_information_frontier.py",
     "engine/data_expansion_gate.py", "api/data_expansion.py")
 
+#: Release 39 fits models over the whole owned estate and writes ONLY under
+#: its research root, so its profile carries the campaign id, the research
+#: root and the runner: a universal-state panel, a candidate registry or a
+#: lockbox log landing in an operational store would be attributable here.
+R39_MARKERS = (
+    "r39_universal_alpha_discovery_v1", "universal_alpha_r39",
+    "run_release39_universal_alpha_discovery",
+    "alpha_agent.r39", "alpha_agent/r39", "alpha_agent\\r39",
+    "release39_universal_alpha_discovery",
+    # continuation campaign (same release family, new immutable id)
+    "r39_universal_alpha_continuation_v2",
+    "run_release39_continuation", "run_r39_shadow_capture",
+)
+R39_SOURCE_GLOBS = ("alpha_agent/r39/*.py",)
+R39_SOURCE_FILES = (
+    "scripts/run_release39_universal_alpha_discovery.py",
+    "scripts/run_release39_continuation.py",
+    "scripts/run_r39_shadow_capture.py",)
+
 RELEASE_PROFILES = {
     "R33": {"markers": R33_MARKERS, "source_globs": R33_SOURCE_GLOBS,
             "source_files": R33_SOURCE_FILES,
@@ -222,6 +241,9 @@ RELEASE_PROFILES = {
             "attributable_key": "r33_attributable"},
     "R38": {"markers": R38_MARKERS, "source_globs": R38_SOURCE_GLOBS,
             "source_files": R38_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R39": {"markers": R39_MARKERS, "source_globs": R39_SOURCE_GLOBS,
+            "source_files": R39_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
 }
 DEFAULT_PROFILE = "R33"

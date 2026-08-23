@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-22
-- **Updated by phase:** **Release 38 — Native Futures Information Frontier. TERMINAL: `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA`. SYSTEM_RESULT = PASS, DATA_ENTITLEMENT_RESULT = SYNCHRONIZED, RESEARCH_CANDIDATE_RESULT = FAIL, ALPHA_RESULT = FAIL, POST_ACQUISITION_VALUE_RESULT = RESEARCH_ONLY.** Release 37 is CLOSED and committed.
-- **Source Git HEAD:** `b1a36a316a9697419a2867efec26e46e2bf59fb3`, branch `stage19-controlled-rebalance`. This is the Release-37/37.1 closeout and is the declared **Release-38 base commit**.
-- **Working tree status:** Release-38 source, tests and documentation uncommitted. New: `alpha_agent/r38/` (11 modules), `scripts/run_release38_native_futures_information_frontier.py`, `tests/test_release38_native_futures_information_frontier.py`, `docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md`. Modified: `scripts/audit_architecture.py` (the R38 check, 27 required assertions), `scripts/r33_operational_write_attribution.py` (R38 profile), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 38 is **complete and terminal**. The operator runs ONE broad repository regression (accepted pre-R38 baseline: exactly 8 unrelated failures; any additional failure attributable to R38 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release38_native_futures_handoff`. **Parallel lane:** review and send the prepared Steele Barcomb five-ticker sample request (`intrinio_steele_sample_request_message.md` in the R38 campaign directory). **No renewal action is due** — the World Futures subscription runs to 2027-02-22 and renewal is a manual operator decision informed by the canonical gate's RESEARCH_ONLY state and whatever Release 39 builds on the ML-ready foundation. Do not rerun Release 31–38 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
+- **Last updated:** 2026-08-23
+- **Updated by phase:** **Release 39 — Autonomous Universal Alpha Discovery Engine + CONTINUATION (campaign `r39_universal_alpha_continuation_v2`). v1 TERMINAL: `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH`; continuation TERMINAL: `R39_CONTINUATION_NO_NEW_QUALIFIED_ALPHA`.** SYSTEM_RESULT = PASS, HISTORICAL_ALPHA_RESULT = FAIL, ALPHA_RESULT = FAIL, FORWARD_CANDIDATE_RESULT = NONE_FROZEN — and **three non-promotable research shadows now accumulate TRUE_FORWARD evidence** under a pre-registered anytime-valid design. Cumulative search burden **194 effective trials** (107 v1 + 87 continuation; never reset). Release 38 is CLOSED and committed (`f484fc9`).
+- **Source Git HEAD:** `f484fc9a02e304164cbfd2f3eaebf5399ec19d11`, branch `stage19-controlled-rebalance`. This is the Release-38 closeout and is the declared **Release-39 base commit**.
+- **Working tree status:** Release-39 source, tests and documentation uncommitted. New: `alpha_agent/r39/` (17 v1 modules + 9 continuation modules: `continuation`, `wide_prosecution`, `info_expansion`, `trade_space_ext`, `models_ext`, `continuation_director`, `continuation_campaign`, `research_shadow`, `prospective_design`), `scripts/run_release39_universal_alpha_discovery.py`, `scripts/run_release39_continuation.py`, `scripts/run_r39_shadow_capture.py`, `tests/test_release39_universal_alpha_discovery.py` (46 tests), `tests/test_release39_continuation.py` (25 tests), `docs/RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md` (with the continuation section). Modified: `scripts/audit_architecture.py` (R39 check + 15 continuation blocking invariants, 40 total), `scripts/r33_operational_write_attribution.py` (R39 profile incl. continuation), `alpha_agent/r39/trade_space.py` (pandas-3 `idxmax` all-NaN guard in `group_spread`, output-preserving), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. New packages (free, licences recorded): scikit-learn, scipy, xgboost, lightgbm, statsmodels in the venv; torch CPU-only (BSD-3) on the research drive — deep models trained from random initialisation, `MAY_DOWNLOAD_MODEL_WEIGHTS` still False. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 39 is **complete and terminal**. The operator runs ONE broad repository regression (accepted baseline: exactly 8 unrelated failures; any additional failure attributable to R39 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release39_universal_alpha_handoff`. **Parallel lane:** the Steele Barcomb five-ticker sample request remains operator-ready and unsent. **Compute lane:** `compute_escalation_request.json` prices the only unexecuted model families (deep/foundation) at ~$40–90 external GPU or a $0 local path (free ~10 GB on C:, approve a CPU-only torch install and flip `MAY_DOWNLOAD_MODEL_WEIGHTS` for open-weight models) — an operator decision, not a default. **No renewal action is due** before 2027-02-22. Do not rerun Release 31–39 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -22,6 +22,7 @@ for the second:
 | Release 36 | PASS | **FAIL** | `R36_FRONTIER_PARTIALLY_CLOSED` |
 | Release 37 | PASS | **NOT_TESTED** | `R37_DATA_INVESTMENT_RECOMMENDED` |
 | Release 38 | PASS | **FAIL** | `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA` |
+| Release 39 | PASS | **FAIL** | `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
@@ -38,6 +39,127 @@ increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 39 — Autonomous Universal Alpha Discovery Engine (2026-08-22, TERMINAL)
+
+**Verdict: `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH`. SYSTEM_RESULT =
+PASS. DATA_RESULT = UNIVERSAL_STATE_ASSEMBLED. DISCOVERY_RESULT = EXECUTED.
+HISTORICAL_ALPHA_RESULT = FAIL. ALPHA_RESULT = FAIL.
+FORWARD_CANDIDATE_RESULT = NONE_FROZEN.** 608 candidates generated, 594
+screened, 107 distinct candidates on the selection zone, 12 locked
+confirmations, 2 Benjamini-Hochberg survivors, **0 deflated-Sharpe
+survivors**, $0 spent, 0 operational writes (`ATTRIBUTED`, 18 sources).
+Full write-up:
+[docs/RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md](docs/RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md).
+
+**The idea boundary opened; the evidence boundary held.** One universal PIT
+state (4 lanes: 68 native futures markets, the VX curve weekly, the
+survivorship-safe 753-name/month US equity cross-section, an 11-ETF
+credit/duration/REIT sleeve; 311,267 decision rows; a macro overlay with
+true ALFRED vintages and PIT_FAILURE exclusion of revised-snapshot series),
+11 representation families with 206 machine-generated features under full
+lineage, a 2026 model-technology registry (CPU zoo executed; deep/foundation
+families deferred with named reasons and a priced escalation request), three
+evidence zones with a reuse-counted selection ledger, and the Release-31
+lockbox over a confirmation window honestly labelled
+`HISTORICAL_CONFIRMATION_EVIDENCE`.
+
+**The strongest candidate the estate has produced since R31 — and still not
+Alpha.** A machine-generated wide-representation ridge cross-section over
+all 68 futures markets confirmed at **+3.47 %/yr after cost vs
+risk-matched cash (the frozen control for a self-financed L/S futures
+book), t = 2.43, Sharpe 0.66** on the locked zone, sign-stable in
+halves, surviving 2× costs and 0/68 leave-one-market-out flips; the
+inverse-vol combination of all 11 finalists confirmed at t = 2.47. Both are
+BH survivors at m = 12 — and both die on the deflated Sharpe ratio with the
+Zone-B trial count (107): DSR 0.586 and 0.058 against the frozen 0.95 bar,
+with Hansen SPA agreeing (p = 0.15). A t > 2 after searching 107
+alternatives is what luck looks like, and the release says so instead of
+freezing a forward candidate it could not defend.
+
+**Named negative results:** Fibonacci retracement levels LOST to their own
+placebo levels (max t −0.90 vs +0.97, both ≈ 0) under real-time-confirmed
+pivots — closed as uninformative; latent-PCA, lead-lag-graph, spectral,
+market-structure and COT-positioning representations all below t = 1.0 on
+selection; the single-name equity lane decayed from t = 1.60 (selection) to
+0.25 (confirmation), consistent with the Stage-8-26 owned-equity exhaustion.
+
+**Predecessor integrity repaired inside R39:** the
+`R38_CELL_TO_EXPERIMENT_INTEGRITY_MAP` classifies all 95 R36 cells —
+2 DIRECTLY_TESTED, 45 VALIDLY_REPRESENTED_BY_GROUP_TEST, **12
+DATA_AVAILABLE_BUT_NOT_TESTED** (never counted as rejected), 6
+MISSING_REQUIRED_INFORMATION_LEG, 30 STILL_BLOCKED. RESEARCHABLE is not
+TESTED, and now that distinction is a table.
+
+**Release 40 inherits a measured constraint ordering:** information first
+(the 12 untested cells + four owned-but-unconsumed families: EIA physical
+balances, NY-Fed dealer positioning, SEC insider flow, direct PIT
+fundamentals), compute second (`compute_escalation_request.json`: ~$40–90
+external GPU or $0 after local disk cleanup, operator decision), and one
+denominator-free test that costs nothing: re-confirm the frozen
+wide-representation spec on genuinely fresh post-2026-07 data as it
+accrues.
+
+## Release 39 CONTINUATION (2026-08-23, campaign `r39_universal_alpha_continuation_v2`, TERMINAL)
+
+**Verdict: `R39_CONTINUATION_NO_NEW_QUALIFIED_ALPHA`** — and the residual
+work v1 left executable is now EXECUTED. Same immutable-artifact
+discipline, NEW campaign id, the search burden inherited and never reset:
+**194 cumulative effective trials** (107 v1 + 87 continuation), all in
+`cumulative_search_ledger.json`. Zero Zone-C accesses: no continuation
+candidate cleared the pre-declared pre-gate (Zone-B t ≥ 3.0), so the v2
+lockbox budget was never spent on arithmetic-certain failures.
+
+- **WIDE prosecuted (Tracks A–D).** `c39_c9233eccaa74` reconstructed
+  EXACTLY (id, spec hash, Zone-B/C economics to 1e-9). Control
+  reconciled: RISK_MATCHED_CASH was always the computed control; the
+  "passive basket" phrase was a narrative error, now corrected
+  everywhere. Factor residualisation over 13 known-premia streams:
+  **residual alpha +3.65 %/yr, t = 2.58, R² = 0.41** — the premia explain
+  variance, not the mean. Group kill tests: **0/12 sign flips** (weakest:
+  all-commodities-out, +1.72 %/yr t 1.03). Attribution: no single
+  representation family is significant — the edge is ridge-aggregated
+  weak signals; and a real defect surfaced: v1 latent/graph features are
+  era-patchy (EMPTY across Zone B, partial in A/C), so Zone-B family
+  verdicts judged filler while the Zone-C book carried live latent
+  loadings (~53 % of prediction variance). The repaired month-grid
+  features (~89 % coverage) are STILL noise and dilute WIDE — the defect
+  changed the anatomy, not the conclusion.
+- **All 12 DATA_AVAILABLE_BUT_NOT_TESTED cells executed**, including
+  `RATES_INTERNATIONAL::RELATIVE_VALUE` on an 11-market international
+  bond-futures layer built at $0 through the canonical R38 builder. Best
+  cells: intl-rates carry RV t 2.47, DM macro-conditional t 2.14 — below
+  the pre-gate, honestly unconfirmed.
+- **Four owned information families consumed** under the paired-increment
+  rule: EIA no robust increment; NYFed fitted PIT test structurally
+  impossible (current-format codes begin 2013-04; $0 unlock = decode the
+  legacy mnemonics); insider per-name joined via the phase-24 identity
+  bridge, SPY breadth-timing negative; direct fundamentals increments
+  t < 1. Structural finding: free families begin 1982/1998/2008/2009 —
+  most cannot train PIT models in the discovery zone at all.
+- **$0 model frontier completed**: mlp, calibrated probability, quantile
+  blend, from-scratch TCN/GRU sequence nets (torch CPU on the research
+  drive, no pretrained weights), masked-AE embeddings. Best new model:
+  **TCN cross-section Zone-B t 2.07** — beats every ridge/boosted
+  baseline, clears nothing. Foundation lanes stay blocked for NAMED
+  licence/contamination reasons.
+- **Prospective evidence started (Tracks H/I)**: three predeclared,
+  non-promotable research shadows frozen (WIDE with serialised frozen
+  coefficients; the transparent carry rule; VX carry) with chain-hashed
+  research-root ledgers on the canonical desk primitives, first eligible
+  TRUE_FORWARD decisions 2026-08-31 (monthly) / first VX decision after
+  freeze; capture via `scripts/run_r39_shadow_capture.py` (manual,
+  AUTOMATION OFF). Sequential monitoring pre-registered as an
+  anytime-valid capped-bet e-process with declared success/futility/
+  horizon boundaries and honest sample arithmetic (~173 months to detect
+  WIDE's point estimate at 80 % power).
+- **Governance**: 15 new blocking audit invariants
+  (`release39_continuation`), 25 continuation tests, attribution
+  `ATTRIBUTED`, $0 spent, 0 operational writes, no promotion, no
+  scheduler change. The v1 handoff's shell attestation is superseded by
+  an EVIDENCE-based transcript audit (0 Bash tool invocations found; the
+  operator's contrary assertion is recorded verbatim beside the audit in
+  `continuation.SHELL_POLICY_AUDIT`).
 
 ## Release 38 — Native Futures Information Frontier (2026-08-22, TERMINAL)
 

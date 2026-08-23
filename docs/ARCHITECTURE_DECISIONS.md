@@ -2546,3 +2546,58 @@ out-of-sample) is why a promising event signal is not a purchase.
 control at all.** Release 32 found none across 104 executed hypotheses. Whether
 that is a property of these five sleeve families or of zero-cost information
 generally is not settled by this campaign.
+
+**CONFIRMED (Release 39) — machine search is admissible only behind a
+search-burden gate, and the gate is arithmetic, not prose.** The autonomous
+discovery engine (`alpha_agent/r39/`) opens the idea boundary (any asset,
+model family, representation, trade structure; 608 candidates, 206
+machine-generated features under lineage) and closes the evidence boundary
+structurally: three zones sharing one calendar, a reuse-counted selection
+ledger, the Release-31 lockbox budget over a confirmation window labelled
+`HISTORICAL_CONFIRMATION_EVIDENCE` (never fresh), Benjamini-Hochberg AND a
+deflated Sharpe whose trial count comes from the reuse ledger. Exercised
+end-to-end: two BH survivors at t ≈ 2.4 were refused qualification because
+DSR priced them as the luck of a best-of-107 search
+(`T_ABOVE_2_IS_NOT_QUALIFICATION`). One economic judge (r34), one
+multiple-testing owner (r31), no second gate/coverage/forward-evidence
+system — guarded by `check_release39_universal_alpha_discovery`
+(25 blocking invariants); regression
+`tests/test_release39_universal_alpha_discovery.py`.
+
+**CONFIRMED (Release 39) — a dataset leaves the estate only for a NAMED
+reason, and untested is not rejected.** The universal-estate owner enforces
+the frozen exclusion vocabulary (PIT_FAILURE for revised-snapshot macro,
+SURVIVORSHIP_FAILURE for analyst archives, INSUFFICIENT_HISTORY for crypto
+outrights and news, UNAVAILABLE for intl single names), and the
+R38 cell/experiment integrity map records 12 R36 cells as
+DATA_AVAILABLE_BUT_NOT_TESTED — a backlog, never a verdict.
+
+**CONFIRMED (Release 39 continuation) — a campaign continues under a NEW
+immutable id and the multiple-testing denominator NEVER resets.** The
+continuation (`r39_universal_alpha_continuation_v2`) initialises its
+Zone-B reuse ledger FROM the v1 ledger (107 inherited trials, marker
+`V1_INHERITED`, mismatch refuses to guess), every new evaluation adds to
+it (194 cumulative), and the deflated-Sharpe denominator is the cumulative
+count for every future qualification claim in the release family
+(`continuation.BURDEN_NEVER_RESETS`, `NO_CAMPAIGN_ID_LAUNDERING`). A
+declared Zone-C PRE-GATE (Zone-B t ≥ 3.0 at the cumulative burden) refuses
+to spend single-execution confirmation budget on candidates the DSR
+arithmetic has already priced as certain failures — v2 made zero Zone-C
+accesses. Guarded by `check_release39_continuation` (15 blocking
+invariants); regression `tests/test_release39_continuation.py`.
+
+**CONFIRMED (Release 39 continuation) — a frozen near-miss is prosecuted,
+never retuned; prospective evidence is the only status-changing test.**
+The WIDE finalist was reconstructed EXACTLY from immutable artifacts (id,
+spec hash and Zone-B/C economics to 1e-9), its control reconciled
+(RISK_MATCHED_CASH was always the computation; the "passive basket"
+narrative was the error), factor-residualised (+3.65 %/yr residual alpha,
+t 2.58, R² 0.41 — known premia explain variance, not mean), and
+group-kill-tested (0/12 sign flips) — all as diagnostics that CANNOT
+upgrade qualification. Its prospective test is three predeclared,
+non-promotable research shadows (WIDE with serialised frozen
+coefficients, the carry rule, VX carry) on chain-hashed research-root
+ledgers reusing the canonical desk primitives, monitored by a
+pre-registered anytime-valid e-process. Historical observations cannot
+enter the forward ledgers by construction (eligibility begins strictly
+after the registry freeze).

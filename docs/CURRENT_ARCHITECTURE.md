@@ -2691,3 +2691,54 @@ names.
 allocation, model promotion, sleeve activation, automation, restart or spend.
 Guarded by `check_release32_pnl_opportunity_frontier` (43 blocking invariants);
 regression `tests/test_release32_pnl_opportunity_frontier.py`.
+
+## Release 39 — Autonomous Universal Alpha Discovery Engine (research lane)
+
+**Package `alpha_agent/r39/` (17 owners), runner
+`scripts/run_release39_universal_alpha_discovery.py`, research root
+`D:\Stock_Prediction_app_data\universal_alpha_r39\`.** One universal
+point-in-time state over four lanes (68 native futures markets monthly, VX
+weekly, the survivorship-safe Release-30 US single-name cross-section, an
+11-ETF total-return sleeve for the credit/REIT cells) with a lagged macro
+overlay (market-quoted FRED, true ALFRED vintages, VIX term); a target
+factory, a costed/controlled trade-space generator, an 11-family
+representation factory (seeded auto-transform and symbolic grammars,
+walk-forward latent PCA, an annually re-estimated lead-lag graph, confirmed
+pivot Fibonacci vs placebo), a 2026 model-technology registry with a
+CPU-admitted adapter zoo (ridge/EN/Huber/logistic, XGBoost/LightGBM/HistGB,
+forests, kNN, quantile, GMM-regime experts, ensembles) and named deferrals
+(deep/foundation → `compute_escalation_request.json`); three evidence zones
+with a Zone-B reuse ledger and a Zone-C lockbox on the Release-31 budget;
+search-burden inference (r31 BH/SPA + deflated Sharpe on the ledger's trial
+count); an alpha frontier, a correlation matrix and a reserved-slot
+diversified combination book. Reuses r31 hashing/multiple-testing, r34
+economics and r36 MDE; defines no second judge, gate, coverage authority or
+forward-evidence system. Terminal:
+`R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH` — see
+[RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md](RELEASE39_AUTONOMOUS_UNIVERSAL_ALPHA_DISCOVERY.md).
+
+**Continuation (campaign `r39_universal_alpha_continuation_v2`; 9 further
+modules in the same package; runner `scripts/run_release39_continuation.py`;
+operator shadow capture `scripts/run_r39_shadow_capture.py`).**
+`continuation` (the v2 contract: inherited 107-trial burden, never reset;
+declared Zone-C pre-gate t ≥ 3.0; Track-K qualification adds residual
+alpha; the shell-policy transcript audit), `wide_prosecution` (exact
+reconstruction, control reconciliation, 13-factor HAC residualisation,
+block-bootstrap group kill tests, paired information attribution),
+`info_expansion` (NYFed/EIA/SEC-insider/direct-fundamentals loaders with
+declared lags, the phase-24 position-indexed equity identity bridge, the
+Zone-B sub-split protocol for families without Zone-A coverage),
+`trade_space_ext` (vol-scaled GROUP_RV, observable regime gates,
+abstention, sector-neutral cross-sections; butterflies and free pairwise
+cointegration blocked by NAME), `models_ext` ($0 frontier: mlp, calibrated
+probability, quantile blend, from-scratch TCN/GRU on torch CPU from the
+research drive — no pretrained weights — and masked-AE embeddings),
+`continuation_director`/`continuation_campaign` (Director2, the 12-cell
+execution incl. the 11-market international-rates layer built through the
+canonical R38 builder, paired increments, the month-grid latent/graph
+repair, registry/pre-gate/ledger/verdict), `research_shadow` (three
+predeclared non-promotable TRUE_FORWARD shadows on chain-hashed
+research-root ledgers reusing `api.paper_trading_desk` primitives) and
+`prospective_design` (pre-registered anytime-valid capped-bet e-process).
+Terminal: `R39_CONTINUATION_NO_NEW_QUALIFIED_ALPHA`, zero Zone-C accesses,
+cumulative burden 194 trials.

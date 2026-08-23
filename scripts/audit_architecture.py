@@ -7814,6 +7814,300 @@ def check_release38_native_futures_information_frontier(
     }
 
 
+R39_OWNERS = {
+    "root": "alpha_agent/r39/__init__.py",
+    "contract": "alpha_agent/r39/contract.py",
+    "estate": "alpha_agent/r39/estate.py",
+    "integrity": "alpha_agent/r39/integrity.py",
+    "universal_state": "alpha_agent/r39/universal_state.py",
+    "target_factory": "alpha_agent/r39/target_factory.py",
+    "trade_space": "alpha_agent/r39/trade_space.py",
+    "representation_factory": "alpha_agent/r39/representation_factory.py",
+    "model_registry": "alpha_agent/r39/model_registry.py",
+    "zones": "alpha_agent/r39/zones.py",
+    "discovery_director": "alpha_agent/r39/discovery_director.py",
+    "search_budget": "alpha_agent/r39/search_budget.py",
+    "judge": "alpha_agent/r39/judge.py",
+    "burden": "alpha_agent/r39/burden.py",
+    "frontier": "alpha_agent/r39/frontier.py",
+    "handoff": "alpha_agent/r39/handoff.py",
+    "campaign": "alpha_agent/r39/campaign.py",
+}
+
+#: Modules whose existence under alpha_agent/r39 would mean Release 39 had
+#: rebuilt an owner an earlier release already provides - a second economic
+#: judge, a second multiple-testing library, a FIFTH acquisition gate, a
+#: second coverage authority, or a second forward-evidence system.
+R39_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r39/economics.py", "alpha_agent/r39/multiple_testing.py",
+    "alpha_agent/r39/purchase_gate.py", "alpha_agent/r39/coverage.py",
+    "alpha_agent/r39/data_expansion_gate.py",
+    "alpha_agent/r39/information_purchase_gate.py",
+    "alpha_agent/r39/forward_evidence.py", "alpha_agent/r39/lockbox.py",
+    "alpha_agent/r39/unlock.py", "alpha_agent/r39/acquisition.py",
+    "alpha_agent/r39/universe.py",
+)
+
+
+def check_release39_universal_alpha_discovery(files: list[Path]) -> dict:
+    """Release 39 ownership, evidence-zone and search-honesty invariants.
+
+    The dangerous outcomes here: optimizing against the locked confirmation
+    zone, quoting a p-value without its search denominator, relabelling
+    historical confirmation as fresh or forward evidence, letting the
+    Fibonacci family qualify without beating its placebo levels, a second
+    economic judge or multiple-testing owner, and any code path that could
+    spend, download model weights, promote a model or write operationally.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R39_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    all_lower = all_src.lower()
+
+    second_owner_modules = sorted(p for p in R39_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+    gate_definitions = [tok for tok in ("def evaluate_dataset(",
+                                        "def evaluate_gap(",
+                                        "def purchase_decision(")
+                        if tok in all_src]
+    reuses_r34_economic_judge = (
+        "from ..r34 import economics as _econ" in src["judge"]
+        and "def evaluate_book" not in all_src
+        and "def excess_significance" not in all_src)
+    reuses_r31_multiple_testing = (
+        "from ..r31 import multiple_testing as _mt" in src["burden"]
+        and "def benjamini_hochberg" not in all_src
+        and "def superior_predictive_ability" not in all_src)
+    reuses_r31_hashing = "from ..r31 import (" in src["root"]
+    reuses_r36_mde = ("from ..r36.experiments import "
+                      "minimum_detectable_excess" in src["judge"])
+    lockbox_budget_from_r31 = (
+        "MAX_LOCKBOX_CANDIDATES = _r31c.MAX_LOCKBOX_CANDIDATES"
+        in src["contract"]
+        and "MAX_LOCKBOX_PER_FAMILY = _r31c.MAX_LOCKBOX_PER_FAMILY"
+        in src["contract"])
+
+    zones_honest = (
+        'ZONE_C_EVIDENCE_LABEL = "HISTORICAL_CONFIRMATION_EVIDENCE"'
+        in src["contract"]
+        and "ZONE_C_IS_FRESH_UNSEEN_EVIDENCE = False" in src["contract"]
+        and "NEVER_OPTIMIZE_AGAINST_ZONE_C = True" in src["contract"]
+        and "ZONE_B_REUSE_IS_TRACKED = True" in src["contract"]
+        and "HISTORICAL_ALPHA_IS_NOT_TRUE_FORWARD_EVIDENCE = True"
+        in src["contract"])
+    zone_c_single_execution = (
+        "has already used its single Zone-C execution" in src["zones"]
+        and "already frozen with a different hash" in src["zones"]
+        and "def authorise" in src["zones"])
+    budget_enforced = (
+        "STAGE1_MAX_CANDIDATES" in src["contract"]
+        and "class BudgetExceeded" in src["search_budget"]
+        and "raise BudgetExceeded" in src["search_budget"])
+    burden_reported = (
+        "EFFECTIVE_SEARCH_BURDEN_IS_REPORTED = True" in src["contract"]
+        and "T_ABOVE_2_IS_NOT_QUALIFICATION = True" in src["contract"]
+        and "def deflated_sharpe" in src["burden"]
+        and "def effective_search_burden" in src["burden"])
+    fib_placebo_controlled = (
+        "PLACEBO_LEVELS" in src["contract"]
+        and 'FIB_TIE_WITH_PLACEBO_MEANS = "PULLBACK_STRUCTURE_MAY_MATTER"'
+        in src["contract"]
+        and "FIB_REQUIRES_CONFIRMED_PIVOTS = True" in src["contract"]
+        and "piv_idx + 10 <= pos" in src["representation_factory"])
+    spending_refused = all(
+        f"{flag} = False" in src["contract"] for flag in
+        ("MAY_SPEND_MONEY", "MAY_START_PROVIDER_TRIAL",
+         "MAY_CREATE_PROVIDER_ACCOUNT", "MAY_CHANGE_SUBSCRIPTION_TIER",
+         "MAY_RENEW_SUBSCRIPTION", "MAY_ACCEPT_LICENCE_AGREEMENT",
+         "MAY_SUBMIT_PAYMENT_DETAILS", "MAY_PURCHASE_CLOUD_COMPUTE",
+         "MAY_INSTALL_CUDA", "MAY_DOWNLOAD_MODEL_WEIGHTS",
+         "MAY_UPGRADE_NORGATE_PACKAGES"))
+    safety_flags = (
+        "AUTOMATIC_PROMOTION_ALLOWED = False" in src["root"]
+        and "AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED = False" in src["root"]
+        and "MAY_SPEND_MONEY = False" in src["root"]
+        and "MAY_MUTATE_PRODUCTION = False" in src["root"]
+        and "TRAINS_MODELS = True" in src["root"]
+        and "PROMOTES_MODELS = False" in src["root"])
+    no_purchase_authority = (
+        "PURCHASE_AUTHORITY_GRANTED_BY_THIS_RELEASE = False"
+        in src["contract"]
+        and "RENEWAL_AUTHORITY_GRANTED_BY_THIS_RELEASE = False"
+        in src["contract"]
+        and "def purchase_authority" in src["contract"]
+        and '"purchase_authorised": False' in src["contract"]
+        and '"renewal_authorised": False' in src["contract"])
+    commercial_tokens = sorted({t for t in R37_FORBIDDEN_COMMERCIAL
+                                if t in all_lower})
+    alpha_pass_gated = (
+        'ALPHA_PASS_REQUIRES_VERDICT = "R39_AUTONOMOUS_ALPHA_DISCOVERED"'
+        in src["contract"]
+        and "verdict == C.ALPHA_PASS_REQUIRES_VERDICT" in src["campaign"])
+    five_result_axes = (
+        'RESULT_AXES = ("SYSTEM_RESULT", "DATA_RESULT", "DISCOVERY_RESULT",'
+        in src["contract"])
+    untested_is_not_rejected = (
+        "DATA_AVAILABLE_BUT_NOT_TESTED_IS_NOT_A_REJECTED_HYPOTHESIS = True"
+        in src["contract"]
+        and "NO_EXPERIMENTS_ARE_MANUFACTURED_HERE = True"
+        in src["integrity"])
+    exclusions_named = (
+        "EXCLUSION_REASONS" in src["contract"]
+        and "unnamed exclusion reason" in src["estate"])
+    forward_prepared_not_activated = (
+        '"PREPARED_NOT_ACTIVATED"' in src["handoff"]
+        or 'registration_state": "PREPARED_NOT_ACTIVATED' in src["handoff"])
+    steele_read_only = (
+        "SCHEMA_AND_PIT_VALIDATION_ONLY" in src["handoff"]
+        and '"sample_is_alpha_evidence": False' in src["handoff"])
+    no_operational_imports = (
+        "from ...api" not in all_src and "from ...engine" not in all_src
+        and "import paper_trader.api" not in all_src)
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "defines_no_second_gate": not gate_definitions,
+        "gate_definitions_found": sorted(gate_definitions),
+        "reuses_r34_economic_judge": reuses_r34_economic_judge,
+        "reuses_r31_multiple_testing": reuses_r31_multiple_testing,
+        "reuses_r31_hashing": reuses_r31_hashing,
+        "reuses_r36_minimum_detectable_excess": reuses_r36_mde,
+        "lockbox_budget_imported_from_r31": lockbox_budget_from_r31,
+        "evidence_zones_honestly_labelled": zones_honest,
+        "zone_c_single_execution_enforced": zone_c_single_execution,
+        "search_budget_ceilings_enforced": budget_enforced,
+        "search_burden_reported": burden_reported,
+        "fibonacci_placebo_controlled": fib_placebo_controlled,
+        "spending_refused": spending_refused,
+        "safety_flags_declared": safety_flags,
+        "no_purchase_or_renewal_authority": no_purchase_authority,
+        "commercial_tokens_present": commercial_tokens,
+        "alpha_pass_requires_qualified_verdict": alpha_pass_gated,
+        "five_result_axes_declared": five_result_axes,
+        "untested_is_not_rejected": untested_is_not_rejected,
+        "exclusions_use_named_vocabulary": exclusions_named,
+        "forward_handoff_prepared_not_activated":
+            forward_prepared_not_activated,
+        "steele_lane_read_only": steele_read_only,
+        "no_operational_imports": no_operational_imports,
+    }
+
+
+R39C_OWNERS = {
+    "continuation": "alpha_agent/r39/continuation.py",
+    "wide_prosecution": "alpha_agent/r39/wide_prosecution.py",
+    "info_expansion": "alpha_agent/r39/info_expansion.py",
+    "trade_space_ext": "alpha_agent/r39/trade_space_ext.py",
+    "models_ext": "alpha_agent/r39/models_ext.py",
+    "continuation_director": "alpha_agent/r39/continuation_director.py",
+    "continuation_campaign": "alpha_agent/r39/continuation_campaign.py",
+    "research_shadow": "alpha_agent/r39/research_shadow.py",
+    "prospective_design": "alpha_agent/r39/prospective_design.py",
+}
+
+
+def check_release39_continuation(files: list[Path]) -> dict:
+    """Release 39 CONTINUATION invariants (campaign v2).
+
+    The dangerous outcomes: laundering the multiple-testing denominator
+    through the new campaign id, redesigning against the already-accessed
+    Zone C, spending Zone-C confirmation budget on arithmetic-certain
+    failures, sneaking pretrained weights in as 'free packages', a second
+    chain-hash ledger implementation, or a research shadow that could be
+    mistaken for (or become) an operational stream.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R39C_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+
+    burden_never_resets = (
+        "BURDEN_NEVER_RESETS = True" in src["continuation"]
+        and "NO_CAMPAIGN_ID_LAUNDERING = True" in src["continuation"]
+        and "V1_EFFECTIVE_TRIALS_EXPECTED = 107" in src["continuation"]
+        and "refusing to guess" in src["continuation"])
+    pregate_declared = (
+        "ZONE_C_PREGATE_MIN_ZONE_B_T = 3.0" in src["continuation"]
+        and "pregate_min_zone_b_t" in src["continuation_campaign"])
+    masked_eval_no_zone_c = (
+        "masked evaluation may never touch Zone C"
+        in src["continuation_director"]
+        and "LockboxViolation" in src["continuation_director"])
+    diagnostics_cannot_upgrade = (
+        "ZONE_C_DIAGNOSTICS_CANNOT_UPGRADE_QUALIFICATION = True"
+        in src["continuation"]
+        and "attribution_cannot_upgrade_qualification"
+        in src["wide_prosecution"]
+        and "diagnostic_only_cannot_upgrade_qualification"
+        in src["wide_prosecution"])
+    reconstruction_pinned = (
+        "RECONSTRUCTION_TOLERANCE" in src["wide_prosecution"]
+        and "c39_c9233eccaa74" in src["wide_prosecution"]
+        and "this_is_not_a_new_zone_c_experiment"
+        in src["wide_prosecution"])
+    no_pretrained_weights = (
+        "MAY_DOWNLOAD_MODEL_WEIGHTS_STILL_FALSE = True"
+        in src["continuation"]
+        and "DEEP_MODELS_TRAINED_FROM_SCRATCH = True"
+        in src["continuation"]
+        and "FOUNDATION_MODEL_BLOCKERS" in src["continuation"])
+    shadows_not_promotable = (
+        "PROMOTION_ALLOWED = False" in src["research_shadow"]
+        and 'HISTORICAL_QUALIFICATION = "FAIL"' in src["research_shadow"]
+        and "d > frozen_at" in src["research_shadow"])
+    canonical_ledger_primitives = (
+        "paper_trading_desk" in src["research_shadow"]
+        and "def _row_hash" not in all_src
+        and "def _append_ledger" not in all_src)
+    api_imports = [ln for ln in all_src.splitlines()
+                   if "paper_trader.api" in ln and "import" in ln
+                   and not ln.strip().startswith("#")]
+    only_desk_primitives_imported = all(
+        "paper_trading_desk" in ln for ln in api_imports)
+    anytime_valid_design = (
+        "anytime_valid" in src["prospective_design"]
+        and "E_SUCCESS = 20.0" in src["prospective_design"]
+        and "registered_before_first_forward_observation"
+        in src["prospective_design"])
+    v1_generator_untouched_repair_is_new = (
+        "latent2" in src["continuation_director"]
+        and "graph2" in src["continuation_director"]
+        and "byte-identical" in src["continuation_director"])
+    subsplit_declared = (
+        'SUBSPLIT_FIT_END = "2012-12-31"' in src["info_expansion"]
+        and "standalone_significance_does_not_count"
+        in src["continuation_campaign"])
+    shell_audit_recorded = (
+        "SHELL_POLICY_AUDIT" in src["continuation"]
+        and "operator_assertion" in src["continuation"]
+        and "NO_BASH_TOOL_INVOCATION_FOUND_IN_TRANSCRIPT"
+        in src["continuation"])
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "burden_never_resets": burden_never_resets,
+        "zone_c_pregate_declared": pregate_declared,
+        "masked_eval_cannot_touch_zone_c": masked_eval_no_zone_c,
+        "diagnostics_cannot_upgrade_qualification":
+            diagnostics_cannot_upgrade,
+        "wide_reconstruction_pinned": reconstruction_pinned,
+        "no_pretrained_weights_downloaded": no_pretrained_weights,
+        "shadows_not_promotable": shadows_not_promotable,
+        "canonical_ledger_primitives_reused":
+            canonical_ledger_primitives,
+        "only_desk_primitives_imported_from_api":
+            only_desk_primitives_imported,
+        "anytime_valid_design_registered": anytime_valid_design,
+        "v1_generator_untouched_repair_is_new":
+            v1_generator_untouched_repair_is_new,
+        "subsplit_protocol_declared": subsplit_declared,
+        "shell_policy_audit_recorded": shell_audit_recorded,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -8459,6 +8753,9 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release37_native_market_data_gate(files),
         "release38_native_futures_information_frontier":
             check_release38_native_futures_information_frontier(files),
+        "release39_universal_alpha_discovery":
+            check_release39_universal_alpha_discovery(files),
+        "release39_continuation": check_release39_continuation(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -10195,6 +10492,70 @@ BLOCKING_INVARIANTS = (
     ("release29_ux2_simplification", "portfolio_regions_not_removed", []),
     ("release29_ux2_simplification", "portfolio_regions_lost", []),
     ("release29_ux2_simplification", "moved_diagnostics_panel_routed", True),
+    # --- Release 39: Autonomous Universal Alpha Discovery ------------------ #
+    # The idea boundary is open and the evidence boundary is closed: one
+    # economic judge (r34), one multiple-testing owner (r31), the r31 lockbox
+    # budget, honestly labelled evidence zones (Zone C is HISTORICAL
+    # confirmation, never fresh/forward), ledgered search with a reported
+    # effective burden, placebo-controlled Fibonacci, named exclusions,
+    # untested-is-not-rejected, and every commercial/production refusal.
+    ("release39_universal_alpha_discovery", "modules_present", True),
+    ("release39_universal_alpha_discovery", "modules_missing", []),
+    ("release39_universal_alpha_discovery", "second_owner_modules", []),
+    ("release39_universal_alpha_discovery", "defines_no_second_gate", True),
+    ("release39_universal_alpha_discovery", "reuses_r34_economic_judge",
+     True),
+    ("release39_universal_alpha_discovery", "reuses_r31_multiple_testing",
+     True),
+    ("release39_universal_alpha_discovery", "reuses_r31_hashing", True),
+    ("release39_universal_alpha_discovery",
+     "reuses_r36_minimum_detectable_excess", True),
+    ("release39_universal_alpha_discovery",
+     "lockbox_budget_imported_from_r31", True),
+    ("release39_universal_alpha_discovery",
+     "evidence_zones_honestly_labelled", True),
+    ("release39_universal_alpha_discovery",
+     "zone_c_single_execution_enforced", True),
+    ("release39_universal_alpha_discovery",
+     "search_budget_ceilings_enforced", True),
+    ("release39_universal_alpha_discovery", "search_burden_reported", True),
+    ("release39_universal_alpha_discovery", "fibonacci_placebo_controlled",
+     True),
+    ("release39_universal_alpha_discovery", "spending_refused", True),
+    ("release39_universal_alpha_discovery", "safety_flags_declared", True),
+    ("release39_universal_alpha_discovery",
+     "no_purchase_or_renewal_authority", True),
+    ("release39_universal_alpha_discovery", "commercial_tokens_present", []),
+    ("release39_universal_alpha_discovery",
+     "alpha_pass_requires_qualified_verdict", True),
+    ("release39_universal_alpha_discovery", "five_result_axes_declared",
+     True),
+    ("release39_universal_alpha_discovery", "untested_is_not_rejected",
+     True),
+    ("release39_universal_alpha_discovery",
+     "exclusions_use_named_vocabulary", True),
+    ("release39_universal_alpha_discovery",
+     "forward_handoff_prepared_not_activated", True),
+    ("release39_universal_alpha_discovery", "steele_lane_read_only", True),
+    ("release39_continuation", "modules_present", True),
+    ("release39_continuation", "modules_missing", []),
+    ("release39_continuation", "burden_never_resets", True),
+    ("release39_continuation", "zone_c_pregate_declared", True),
+    ("release39_continuation", "masked_eval_cannot_touch_zone_c", True),
+    ("release39_continuation", "diagnostics_cannot_upgrade_qualification",
+     True),
+    ("release39_continuation", "wide_reconstruction_pinned", True),
+    ("release39_continuation", "no_pretrained_weights_downloaded", True),
+    ("release39_continuation", "shadows_not_promotable", True),
+    ("release39_continuation", "canonical_ledger_primitives_reused", True),
+    ("release39_continuation", "only_desk_primitives_imported_from_api",
+     True),
+    ("release39_continuation", "anytime_valid_design_registered", True),
+    ("release39_continuation", "v1_generator_untouched_repair_is_new",
+     True),
+    ("release39_continuation", "subsplit_protocol_declared", True),
+    ("release39_continuation", "shell_policy_audit_recorded", True),
+    ("release39_universal_alpha_discovery", "no_operational_imports", True),
 )
 
 
