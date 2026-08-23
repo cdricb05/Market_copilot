@@ -1,10 +1,10 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-23
-- **Updated by phase:** **Release 40 — Prospective Alpha Acceleration & Open Intelligence Frontier (campaign `r40_prospective_alpha_acceleration_v1`). TERMINAL: `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` + `R40_NO_INCREMENTAL_EDGE_FOUND` + `R40_COMPUTE_LIMIT_BINDING`.** SYSTEM_RESULT = PASS, FORWARD_ENGINE_RESULT = CANONICAL_IDEMPOTENT_CYCLE_READY, FORWARD_EVIDENCE_RESULT = NO_TRUE_FORWARD_OBSERVATIONS_YET, INFORMATION_RESULT = NO_INCREMENTAL_INFORMATION_EDGE, MODEL_RESULT = NO_MATERIAL_IMPROVEMENT_OVER_R39_TCN, HISTORICAL_ALPHA_RESULT = FAIL, PROSPECTIVE_ALPHA_RESULT = NOT_YET_TESTABLE. **Five non-promotable research shadows** (three R39 immutable + international-rates carry RV + the R39 TCN by the pre-declared Slot-5 rule) are frozen before any forward outcome; the ONE canonical research cycle ran on live data and reported `READY_WAITING_FOR_ELIGIBLE_DATE` (first eligible decisions: each market's last session of 2026-08). Cumulative search burden **230 effective trials** (194 inherited + 36 new; never reset). Release 39 is CLOSED and committed (`8d6d8d7`).
-- **Source Git HEAD:** `8d6d8d7b415fc6b5c6b0aeb4f43c18c9c2f755c2`, branch `stage19-controlled-rebalance` (local == origin verified). This is the Release-39 closeout and is the declared **Release-40 base commit**.
-- **Working tree status:** Release-40 source, tests and documentation uncommitted. New: `alpha_agent/r40/` (19 modules: `contract`, `closeout_import`, `burden_ledger`, `availability`, `director`, `wide_successor`, `nyfed_bridge`, `open_models`, `model_challenge`, `cross_asset`, `shadow_registry`, `research_cycle`, `sequential`, `evidence_velocity`, `research_portfolio`, `intrinio_readiness`, `compute_escalation`, `campaign` + root), `scripts/run_release40_prospective_alpha.py`, `scripts/run_r40_research_cycle.py`, `tests/test_release40_prospective_alpha.py` (28 tests), `docs/RELEASE40_PROSPECTIVE_ALPHA_ACCELERATION.md`. Modified: `alpha_agent/r39/__init__.py` (`register_campaign_root` — one owner, two releases), `alpha_agent/r39/universal_state.py` and `alpha_agent/r39/research_shadow.py` (datetime-unit normalisation; the R39 manual capture could not run end to end on pandas 3 before it — output-preserving for the frozen layer), `scripts/audit_architecture.py` (R40 check, 27 blocking invariants), `scripts/r33_operational_write_attribution.py` (R40 profile), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. Research-drive additions (never staged): `D:\Stock_Prediction_app_data\prospective_alpha_r40\` (campaign artifacts, `_r40_lib` packages, `_hf_cache` weights — TabPFN-v2 regressor and chronos-bolt-small, SHA-256 recorded). The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
-- **Next required action:** Release 40 is **complete**; the binding limitation is **time**. The operator runs ONE broad repository regression (accepted baseline: exactly the 8 known unrelated failures; any additional failure attributable to R40 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release40_prospective_alpha_handoff`. **Forward routine (AUTOMATION OFF):** after each month-end close run `scripts/run_r40_research_cycle.py --mode capture` (first eligible: 2026-08-31; contiguous catch-up makes a late run safe). **Governed decision for Release 41:** attach `alpha_agent.r40.research_cycle.run_cycle` to the Persistent Daily Research Cycle. **Shell policy:** one `Monitor` tool invocation ran a bash-syntax log watcher for ~1 minute (recorded in `contract.SHELL_POLICY_EVENTS`; the validator counts it from the transcript) — the operator decides whether that blocks. **Parallel lane:** the Steele Barcomb five-ticker sample request remains operator-ready and unsent; an inbox + schema/PIT validator is ready. **Compute lane:** `R40_COMPUTE_ESCALATION_REQUEST.json` — only the sequence-model scale request (~6 GPU-hours, $5–12) is weakly justified. **No renewal action is due** before 2027-02-22. Do not rerun Release 31–40 research. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail**, restarted production, or changed the scheduler.
+- **Updated by phase:** **Release 41 — Multi-Horizon Alpha Breakthrough Campaign (campaign `r41_multi_horizon_alpha_breakthrough_v1`). TERMINAL: `R41_NO_QUALIFIED_ALPHA_YET` + `R41_TIME_LIMIT_BINDING`.** SYSTEM_RESULT = PASS, DATA_FRONTIER_RESULT = FOUR_FREE_INTRADAY_LANES_OPENED, RESEARCH_CANDIDATE_RESULT = **PASS**, HISTORICAL_ALPHA_RESULT = FAIL (one frozen-gate check — the family deflated Sharpe — with its estimator contamination documented, never loosened), PROSPECTIVE_ALPHA_RESULT = NOT_YET_TESTABLE, MODEL_RESULT = SCALING_DEGRADES, PURCHASE_RESULT = ORATS_OPTIONS_ARCHIVE_RECOMMENDED. **The strongest after-cost stream the estate has ever measured** — the delta-neutral BTC perp funding-carry basis rule (Zone-B t 10.2, +8.7 %/yr on 0.7 % vol; Zone-C confirmation t 6.9, +3.2 %/yr; 0/9 killer sign flips; survives cost ×3 and latency) — is FROZEN as the first R41 research shadow (`shadow_btc_funding_carry_1d`, DAILY cadence, first eligible TRUE_FORWARD day 2026-08-24, cap 3, non-promotable). Cumulative search burden global **230 → ~250** with new FAMILY-level ledgers; the R40 five-shadow family is untouched and starts accruing 2026-08-31. Release 40 is CLOSED and committed (`5f27ba4`).
+- **Source Git HEAD:** `5f27ba4b0417032d84cb9503bbc18a2569235fbc`, branch `stage19-controlled-rebalance` (local == origin verified). This is the Release-40 closeout and is the declared **Release-41 base commit**.
+- **Working tree status:** Release-41 source, tests and documentation uncommitted. New: `alpha_agent/r41/` (23 modules: `contract`, `closeout_import`, `evidence`, `burden`, `curve_state`, `sample_acquisition`, `data_inventory`, `provider_frontier`, `purchase_engine`, `horizon_engine`, `triggers`, `readiness`, `rates_rv_lab`, `commodity_curve_lab`, `vol_lab`, `crypto_lab`, `fx_credit_lab`, `intraday_lab`, `model_scale`, `alpha_killer`, `forward_freeze`, `campaign` + root), `tests/test_release41_multi_horizon_alpha.py` (23 tests), `docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md`. Modified: `scripts/audit_architecture.py` (R41 check, 20 blocking invariants), `scripts/r33_operational_write_attribution.py` (R41 profile), `docs/ARCHITECTURE_DECISIONS.md`, `docs/CURRENT_ARCHITECTURE.md` and this file. Research-drive additions (never staged): `D:\Stock_Prediction_app_data\multi_horizon_alpha_r41\` — the campaign artifacts, the 105-market dated-contract CURVE STORE (bars + tenor panels + daily series), and the acquired free archives (`_data_dukascopy` minute bars with real spreads, `_data_binance` klines/funding/metrics, `_data_tiingo` IEX 1m, `_data_tardis` L2 sample days, `_data_cboe`, `_data_curves_gov`, `_data_fred`), all provenance-hashed. The pre-existing unrelated untracked set (`.claude/settings.json*`, `.playwright-mcp/`, the two `paper_trader_8001` logs, `tests/test_market_context_endpoint.py`, `tests/test_phase29j1_operator_ux.py`, root `validate.ps1`) is preserved and never staged.
+- **Next required action:** Release 41 is **complete**; the binding limitation is **INFORMATION (priced) then TIME**. The operator runs ONE broad repository regression (accepted baseline: exactly the known unrelated failures; any additional failure attributable to R41 is DO_NOT_COMMIT), then validates, commits and pushes from `D:\Temp\paper_trader_release41_multi_horizon_alpha_handoff`. **Forward routine (AUTOMATION OFF):** daily (or any late day — contiguous catch-up is safe) run the R41 shadow capture (`python -c "from paper_trader.alpha_agent.r41 import forward_freeze; print(forward_freeze.capture())"`), and after each month-end close run `scripts/run_r40_research_cycle.py --mode capture` (first eligible 2026-08-31). **Purchase lane (operator decisions, evidence in `R41_DATA_PURCHASE_DECISION.json`):** ORATS options archive $599 one-time (top per-dollar unlock), Alpha Vantage premium $50/1mo options pilot, Databento $125 signup credits ($0 cash) for native intraday futures, and the Steele Barcomb sample email (drafted since R38, still unsent). **Compute lane:** the GPU scale request is now WEAKENED by measurement (scaled TCN Zone-B t −0.03 vs 2.07). **No renewal action is due** before 2027-02-22. Do not rerun Release 31–41 research over owned daily data. Claude has not activated a sleeve or model, created a proposal, decision, allocation or order, mutated the operational portfolio, **spent money, renewed or changed any subscription, started a provider trial, created a provider account, accepted a licence, submitted a payment detail, sent a vendor email**, restarted production, or changed the scheduler.
 
 ## Every major research release reports TWO results from now on
 
@@ -24,6 +24,7 @@ for the second:
 | Release 38 | PASS | **FAIL** | `R38_FRONTIER_MEASURED_NO_QUALIFIED_ALPHA` |
 | Release 39 | PASS | **FAIL** | `R39_NO_ROBUST_ALPHA_DESPITE_UNIVERSAL_SEARCH` |
 | Release 40 | PASS | **FAIL** (historical) / **NOT_YET_TESTABLE** (prospective) | `R40_PROSPECTIVE_ENGINE_READY_WAITING_FOR_TIME` |
+| Release 41 | PASS | **FAIL** (historical, one documented gate check) / **NOT_YET_TESTABLE** (prospective) — RESEARCH_CANDIDATE **PASS** | `R41_NO_QUALIFIED_ALPHA_YET` |
 
 `ALPHA_RESULT` may be `PASS` only alongside the release's own qualified verdict,
 and that rule is a constant in each release's `contract.py` enforced by
@@ -40,6 +41,65 @@ increment is a real finding AND is not Alpha, and collapsing those into one word
 is how a release starts lying to itself. From Release 35 onward a research
 release reports `SYSTEM_RESULT`, `RESEARCH_CANDIDATE_RESULT` and `ALPHA_RESULT`
 separately; the middle one may pass on historical evidence, the last one may not.
+
+## Release 41 — Multi-Horizon Alpha Breakthrough Campaign (2026-08-23, TERMINAL)
+
+**Terminal: `R41_NO_QUALIFIED_ALPHA_YET` + `R41_TIME_LIMIT_BINDING` — and
+RESEARCH_CANDIDATE_RESULT = PASS for the first time since Release 35.**
+Full write-up:
+[docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md](docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md).
+
+**The four blockers were attacked together.** INFORMATION: four free
+intraday lanes opened at $0 with provenance hashes (Dukascopy tick/minute
+FX 2003→ + CFD proxies, Binance 1-minute klines with SIGNED taker flow +
+full funding history + OI metrics, Tiingo IEX 1m on the existing key,
+Tardis L2 sample days) — two genuinely NEW information families measured.
+CADENCE: a DAILY candidate frozen; the three clocks restated; cadence is a
+candidate property. EXPRESSION: 21 duration-neutral rates structures, 66
+commodity curve structures, VX spread books, basis books — the survivor is
+a BASIS expression. BURDEN: global 230 → ~250 with family-level ledgers
+and full lineage records; Zone-A screening before any Zone-B spend.
+
+**The discovery: BTC perp funding-carry basis (delta-neutral).** Zone-B
+t 10.2 (+8.7 %/yr, vol 0.7 %), Zone-C confirmation t 6.9 (+3.2 %/yr,
+Sharpe 7.8, maxDD −0.5 %, ×3-cost t 3.0), 0/9 killer sign flips, placebo
+shows the unconditional premium drives it with real timing on top — and
+the OUT-OF-ASSET replication on ETH (BTC-frozen parameters, nothing fit)
+confirms the mechanism: B t 9.5, C t 4.5, ×3 t 6.0. The
+frozen QUALIFIED gate still says FAIL on exactly one check — the family
+deflated Sharpe, whose trial-variance estimator is contaminated by the
+candidate's own cadence variants; the nulls-only diagnostic (DSR ≈ 1.0) is
+reported beside it, labelled, and the gate was NOT loosened after the
+fact. **`shadow_btc_funding_carry_1d` is frozen** (2026-08-23T21:39:06Z,
+cap 3, non-promotable, chain-hashed ledgers, first eligible TRUE_FORWARD
+day 2026-08-24, ~365 marks/yr — discrimination in months, not years).
+
+**Named negative results, all measured:** rates spread momentum at 1–2s
+and commodity curve signals (carry/seasonality/fly-reversion, gross t
+2.1–4.4) are REAL and COST-KILLED; the pooled-LGBM rates RV t 2.27 was
+killed by the battery (year-block flip + placebo insensitivity = static
+tilt); FX carry/momentum is era-limited at EVERY horizon (A t 3.4 → B ≈
+0); VX conditioning underperforms the unconditional premium; credit ETF
+RV null; signed-flow OFI carries +21 %/yr gross at 5m and dies at taker
+fees; **the scaled TCN (2–8×) collapses to Zone-B t −0.03 vs 2.07 — the
+GPU escalation case is weakened by measurement**; intraday Fibonacci LOST
+to its own placebo levels in all 9 symbol × hold cells (named-minus-placebo
+day-clustered t −1.21 to −5.39) — REJECTED (`intraday_lab_results.json`).
+
+**The purchase frontier is now priced to the dollar**
+(`R41_DATA_PURCHASE_DECISION.json`): ORATS options archive $599 one-time
+(top), AV premium $50 pilot, Databento $125 credits ($0 cash), FirstRate,
+ThetaData (dominated), Zacks full (deprioritised — paid lessons twice).
+Measured walls: ICE OAS capped at ~3y on FRED; AV options premium-only;
+Zacks NDL key = megacap sample tier, snapshots not vintages; Kibot login;
+Polygon free = recent window. Steele: drafted since R38, never sent,
+nothing received (inbox searched), NOT tested.
+
+**Governance:** R40 verified not trusted (30/30 + 2/2 + 31/31 hashes,
+burden 230, five shadows immutable, ledgers intact); 20 new blocking audit
+invariants (`release41_multi_horizon_alpha`); 23 targeted tests;
+attribution `ATTRIBUTED` (R41 profile); $0 spent, 0 accounts, 0 vendor
+emails, 0 operational writes, no promotion, no scheduler change.
 
 ## Release 40 — Prospective Alpha Acceleration & Open Intelligence Frontier (2026-08-23, TERMINAL — waiting for time)
 

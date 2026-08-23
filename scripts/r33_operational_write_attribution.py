@@ -240,7 +240,24 @@ R40_SOURCE_FILES = (
     "scripts/run_release40_prospective_alpha.py",
     "scripts/run_r40_research_cycle.py",)
 
+#: Release 41 runs the multi-horizon labs and the free-sample acquisition;
+#: it writes ONLY under its research root (curve caches, tick/kline
+#: archives, lab artifacts, the R41 shadow ledgers). A curve store, a
+#: minute-bar cache or an R41 forward ledger row landing in an operational
+#: store would be attributable here.
+R41_MARKERS = (
+    "r41_multi_horizon_alpha_breakthrough_v1", "multi_horizon_alpha_r41",
+    "alpha_agent.r41", "alpha_agent/r41", "alpha_agent\\r41",
+    "release41_multi_horizon_alpha", "r41_shadow_registry",
+    "_data_curves", "_data_dukascopy", "_data_binance", "_data_tiingo",
+)
+R41_SOURCE_GLOBS = ("alpha_agent/r41/*.py",)
+R41_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R41": {"markers": R41_MARKERS, "source_globs": R41_SOURCE_GLOBS,
+            "source_files": R41_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R40": {"markers": R40_MARKERS, "source_globs": R40_SOURCE_GLOBS,
             "source_files": R40_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

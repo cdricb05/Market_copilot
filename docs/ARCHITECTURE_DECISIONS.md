@@ -2702,3 +2702,36 @@ tool call that ran a bash-syntax log watcher is recorded verbatim in
 `contract.SHELL_POLICY_EVENTS`, the handoff validator blocks on a count
 mismatch, and the release reports `SHELL_POLICY_VIOLATION_REPORTED = True`
 under the operator's literal rule rather than explaining it away.
+
+**CONFIRMED (Release 41) — a horizon exists only where genuine source
+frequency exists, and cadence belongs to the candidate.** Daily prices are
+never interpolated into minutes; every family carries measured
+SOURCE_FREQUENCY / EARLIEST_HISTORY facts; a monthly candidate is not
+upsampled; overlap enters inference (HAC lags, effective sample), never
+the annualisation.
+
+**CONFIRMED (Release 41) — a failed gate check is documented, never
+loosened after the result.** The funding-carry candidate fails the frozen
+family-deflated-Sharpe check because the trial-variance estimator is
+contaminated by the candidate's own cadence variants; the release records
+the failure, reports the nulls-only computation beside it labelled
+DIAGNOSTIC-NEVER-THE-GATE, and lets the frozen forward stream arbitrate.
+
+**CONFIRMED (Release 41) — free public samples are acquired only under
+eight conditions** ($0, no account, no payment detail, no click-through on
+the operator's behalf, public terms permitting research, rate limits
+respected, research-drive storage, URL+time+hash provenance), and existing
+entitlement keys are read-only within their tier — a tier change or vendor
+email is an operator action.
+
+**CONFIRMED (Release 41) — the alpha-killer battery is part of the gate,
+and placebo insensitivity is a kill.** A model whose Zone-B t is unchanged
+under feature ablation and placebo substitution has not demonstrated
+conditional prediction, whatever its t-statistic; the pooled-LGBM rates
+book (t 2.27) was rejected on exactly this evidence plus a year-block sign
+flip.
+
+**CONFIRMED (Release 41) — model scale is a measured axis, not a wish.**
+The from-scratch TCN scaled 2–8x through the identical protocol collapses
+(Zone-B t 2.07 -> −0.03); a compute-escalation request that survives this
+measurement must argue against it explicitly.

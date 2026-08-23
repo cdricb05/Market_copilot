@@ -2809,3 +2809,45 @@ build_fresh_state` normalise layer dates to `datetime64[ns]` (a live
 Norgate series arrives as `[us]` under pandas 3 and `merge_asof` refused
 the mix) — output-preserving for the frozen layer; the R39 manual capture
 command could not have run end to end before it.
+
+## Release 41 — Multi-Horizon Alpha Breakthrough Campaign (research lane)
+
+`alpha_agent/r41/` (23 modules) runs the multi-horizon research operating
+system on the R40-verified base: `contract` (frozen gates, zones A/B/C =
+50/30/20 with embargo, Zone-C pre-gate t >= 2.5, cost model on traded
+notional, the Fibonacci placebo levels, the eight free-sample acquisition
+conditions, the blocker vocabulary); `closeout_import` (R40 verified from
+manifests — 30/30 + 2/2 weights + 31/31 repo files, burden 230, five
+shadows immutable); `evidence` (ONE multi-horizon inference owner: HAC t
+with overlap-aware lags, capped ESS, scorecards with cost stress, the
+research-candidate and qualified-alpha gates, family BH via r31, deflated
+Sharpe via r39); `burden` (GLOBAL 230-inherited + FAMILY ledgers with full
+candidate lineage); `curve_state` (the 105-market dated-contract CURVE
+STORE: per-market bars + contract metadata, tenor matrices under the R38
+roll rule, tenor panels, roll-aware daily tenor-1/2/3 series with calendar
+slopes); `sample_acquisition` (Dukascopy tick+candle decoding to 1-minute
+bid/ask bars, Binance klines/funding/metrics, Tardis free days, Cboe
+indices, ECB/BoC/MoF/RBA curves, FRED, vendor samples — every byte
+provenance-hashed); the five labs (`rates_rv_lab`, `commodity_curve_lab`,
+`vol_lab`, `crypto_lab` incl. signed-flow microstructure, `fx_credit_lab`,
+`intraday_lab` incl. the causal-pivot Fibonacci placebo trial);
+`model_scale` (the TCN 2–8x scale test through the exact R40 director
+protocol — scaling DEGRADES); `alpha_killer` (LOCO/year-block/latency/
+cost/ablation/placebo battery; killed the rates LGBM, confirmed the
+funding candidate); `forward_freeze` (the R41 shadow registry, cap 3,
+non-promotable, chain-hashed desk ledgers, contiguous daily capture);
+`data_inventory` / `provider_frontier` / `purchase_engine` /
+`horizon_engine` / `triggers` / `readiness` (the measured frequency
+inventory, the priced 2026 provider landscape, the per-dollar purchase
+ranking, the horizon contract, material-update definitions with measured
+trigger frequencies, near-real-time readiness); `campaign` (lab-artifact
+persistence, the qualified gate in code, verdict, the 22 answers, the
+branch matrix, the QUANT DECISION REPORT).
+
+Operator surface: daily R41 shadow capture via
+`paper_trader.alpha_agent.r41.forward_freeze.capture()` (AUTOMATION OFF,
+contiguous catch-up safe); the monthly R40 cycle unchanged. Research root:
+`D:\Stock_Prediction_app_data\multi_horizon_alpha_r41\` (campaign dir +
+`_data_*` archives). Terminal: `R41_NO_QUALIFIED_ALPHA_YET` +
+`R41_TIME_LIMIT_BINDING`; RESEARCH_CANDIDATE PASS; burden global ~250 —
+see [RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md](RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md).

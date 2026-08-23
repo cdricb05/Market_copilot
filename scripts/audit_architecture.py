@@ -8331,6 +8331,160 @@ def check_release40_prospective_alpha_acceleration(files: list[Path]) -> dict:
     }
 
 
+R41_OWNERS = {
+    "root": "alpha_agent/r41/__init__.py",
+    "contract": "alpha_agent/r41/contract.py",
+    "closeout_import": "alpha_agent/r41/closeout_import.py",
+    "evidence": "alpha_agent/r41/evidence.py",
+    "burden": "alpha_agent/r41/burden.py",
+    "curve_state": "alpha_agent/r41/curve_state.py",
+    "sample_acquisition": "alpha_agent/r41/sample_acquisition.py",
+    "data_inventory": "alpha_agent/r41/data_inventory.py",
+    "provider_frontier": "alpha_agent/r41/provider_frontier.py",
+    "purchase_engine": "alpha_agent/r41/purchase_engine.py",
+    "horizon_engine": "alpha_agent/r41/horizon_engine.py",
+    "triggers": "alpha_agent/r41/triggers.py",
+    "readiness": "alpha_agent/r41/readiness.py",
+    "rates_rv_lab": "alpha_agent/r41/rates_rv_lab.py",
+    "commodity_curve_lab": "alpha_agent/r41/commodity_curve_lab.py",
+    "vol_lab": "alpha_agent/r41/vol_lab.py",
+    "crypto_lab": "alpha_agent/r41/crypto_lab.py",
+    "fx_credit_lab": "alpha_agent/r41/fx_credit_lab.py",
+    "intraday_lab": "alpha_agent/r41/intraday_lab.py",
+    "model_scale": "alpha_agent/r41/model_scale.py",
+    "alpha_killer": "alpha_agent/r41/alpha_killer.py",
+    "forward_freeze": "alpha_agent/r41/forward_freeze.py",
+    "campaign": "alpha_agent/r41/campaign.py",
+}
+#: A second implementation of an owned concern inside r41 is a blocking
+#: defect - these names may not exist.
+R41_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r41/economics.py", "alpha_agent/r41/multiple_testing.py",
+    "alpha_agent/r41/judge.py", "alpha_agent/r41/zones.py",
+    "alpha_agent/r41/lockbox.py", "alpha_agent/r41/ledger.py",
+    "alpha_agent/r41/trade_space.py", "alpha_agent/r41/universal_state.py",
+    "alpha_agent/r41/scheduler.py", "alpha_agent/r41/purchase_gate.py",
+)
+
+
+def check_release41_multi_horizon_alpha(files: list[Path]) -> dict:
+    """Release 41 invariants - the multi-horizon alpha breakthrough campaign.
+
+    The dangerous outcomes: a burden reset behind a new campaign id; a
+    Zone-C peek before the pre-declared pre-gate; interpolated intraday
+    bars; a Fibonacci verdict without its placebo arm; hindsight pivots; a
+    fourth R41 shadow or a promotable one; a paid sample, account or
+    vendor email; the qualified-alpha gate rewritten after its DSR check
+    failed; a second ledger/multiple-testing/economics implementation.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R41_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R41_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+    burden_inherited_not_reset = (
+        "GLOBAL_INHERITED_EFFECTIVE_TRIALS = 230" in src["contract"]
+        and "BURDEN_NEVER_RESETS = True" in src["contract"]
+        and "NO_CAMPAIGN_ID_LAUNDERING = True" in src["contract"]
+        and '"never_reset": True' in src["burden"]
+        and "global_inherited" in src["burden"])
+    one_campaign_root_binding = (
+        "register_campaign_root" in src["root"])
+    canonical_ledger_primitives = (
+        "def _append_ledger" not in all_src
+        and "def verify_ledger" not in all_src
+        and "from ..r39.research_shadow import _desk"
+        in src["forward_freeze"])
+    api_imports = [ln for ln in all_src.splitlines()
+                   if "paper_trader.api" in ln and "import" in ln
+                   and not ln.strip().startswith("#")]
+    no_operational_imports = not api_imports
+    gates_frozen_before_results = (
+        "RESEARCH_CANDIDATE_GATE = {" in src["contract"]
+        and "QUALIFIED_ALPHA_GATE = {" in src["contract"]
+        and "ZONE_C_PREGATE_T = 2.5" in src["contract"]
+        and "def contract_hash" in src["contract"]
+        and "r41_contract_hash_frozen_before_any_evaluation"
+        in src["closeout_import"])
+    r40_verified_not_trusted = (
+        'ARTIFACT_NAME = "r40_closeout_import.json"' in src["closeout_import"]
+        and "R40_VERIFIED" in src["closeout_import"]
+        and '"cumulative_effective_trials": 230' in src["contract"])
+    multiple_testing_reused = (
+        "from ..r31 import multiple_testing as MT" in src["evidence"]
+        and "R39B.deflated_sharpe" in src["evidence"]
+        and "def benjamini_hochberg" not in all_src)
+    no_interpolated_intraday = (
+        "NO_INTERPOLATED_INTRADAY = True" in src["contract"]
+        and "HORIZON_REQUIRES_NATIVE_SOURCE_FREQUENCY = True"
+        in src["contract"]
+        and "MIN_INTRADAY_BARS_FOR_RESEARCH" in src["contract"])
+    fibonacci_placebo_controlled = (
+        "FIB_PLACEBO_LEVELS" in src["contract"]
+        and "NO_HINDSIGHT_EXTREMA = True" in src["contract"]
+        and "PLACEBO" in src["intraday_lab"]
+        and "NAMED_MINUS_PLACEBO" in src["intraday_lab"]
+        and "confirm" in src["intraday_lab"])
+    sign_fit_declared = (
+        "SIGN_FIT_ON_A" in src["rates_rv_lab"]
+        and "SIGN_FIT_ON_A" in src["commodity_curve_lab"])
+    sample_conditions_eight = (
+        "SAMPLE_ACQUISITION_CONDITIONS = (" in src["contract"]
+        and '"NO_ACCOUNT_CREATION"' in src["contract"]
+        and '"NO_PAYMENT_DETAIL"' in src["contract"]
+        and "MAY_PURCHASE_DATA = False" in src["contract"]
+        and "MAY_SEND_VENDOR_EMAIL = False" in src["contract"]
+        and "MAY_CHANGE_ENTITLEMENT_TIER = False" in src["contract"])
+    no_scheduler_or_automation = (
+        "MAY_ENABLE_SCHEDULED_TASK = False" in src["contract"]
+        and "MAY_RESTART_PRODUCTION = False" in src["contract"]
+        and not any(tok in all_src for tok in (
+            "schtasks", "Register-ScheduledTask", "crontab")))
+    shadows_capped_not_promotable = (
+        "MAX_R41_SHADOWS = 3" in src["forward_freeze"]
+        and '"promotion_allowed": False' in src["forward_freeze"]
+        and '"research_shadow_only": True' in src["forward_freeze"]
+        and "R41 shadow cap exceeded" in src["forward_freeze"]
+        and "d > frozen_at" in src["forward_freeze"]
+        and '"true_forward": True' in src["forward_freeze"])
+    qualified_gate_in_code = (
+        "def qualified_gate_funding" in src["campaign"]
+        and '"PASS" if qual["passes"] else "FAIL"' in src["campaign"]
+        and "DIAGNOSTIC, NEVER THE GATE" in src["campaign"]
+        and "DO_NOT_FORCE_A_SUCCESS_STATE = True" in src["contract"])
+    killer_battery_declared = (
+        "ALPHA_KILLER_TESTS = (" in src["contract"]
+        and "PLACEBO_CARRY" in src["alpha_killer"]
+        and "COST_X3" in src["alpha_killer"]
+        and "sign_flip" in src["alpha_killer"])
+    cost_on_traded_notional = (
+        "COST_BASE_IS_TRADED_NOTIONAL = True" in src["contract"]
+        and "COST_STRESS_MULTIPLIERS" in src["contract"])
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "one_campaign_root_binding": one_campaign_root_binding,
+        "canonical_ledger_primitives_reused": canonical_ledger_primitives,
+        "no_operational_imports": no_operational_imports,
+        "api_imports_found": api_imports,
+        "gates_frozen_before_results": gates_frozen_before_results,
+        "r40_verified_not_trusted": r40_verified_not_trusted,
+        "multiple_testing_reused": multiple_testing_reused,
+        "no_interpolated_intraday": no_interpolated_intraday,
+        "fibonacci_placebo_controlled": fibonacci_placebo_controlled,
+        "sign_fit_declared_on_zone_a": sign_fit_declared,
+        "sample_conditions_eight": sample_conditions_eight,
+        "no_scheduler_or_automation": no_scheduler_or_automation,
+        "shadows_capped_not_promotable": shadows_capped_not_promotable,
+        "qualified_gate_in_code": qualified_gate_in_code,
+        "killer_battery_declared": killer_battery_declared,
+        "cost_on_traded_notional": cost_on_traded_notional,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -8981,6 +9135,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release39_continuation": check_release39_continuation(files),
         "release40_prospective_alpha_acceleration":
             check_release40_prospective_alpha_acceleration(files),
+        "release41_multi_horizon_alpha":
+            check_release41_multi_horizon_alpha(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -10827,6 +10983,26 @@ BLOCKING_INVARIANTS = (
      True),
     ("release40_prospective_alpha_acceleration", "shell_policy_recorded",
      True),
+    ("release41_multi_horizon_alpha", "modules_present", True),
+    ("release41_multi_horizon_alpha", "modules_missing", []),
+    ("release41_multi_horizon_alpha", "second_owner_modules", []),
+    ("release41_multi_horizon_alpha", "burden_inherited_not_reset", True),
+    ("release41_multi_horizon_alpha", "one_campaign_root_binding", True),
+    ("release41_multi_horizon_alpha", "canonical_ledger_primitives_reused",
+     True),
+    ("release41_multi_horizon_alpha", "no_operational_imports", True),
+    ("release41_multi_horizon_alpha", "gates_frozen_before_results", True),
+    ("release41_multi_horizon_alpha", "r40_verified_not_trusted", True),
+    ("release41_multi_horizon_alpha", "multiple_testing_reused", True),
+    ("release41_multi_horizon_alpha", "no_interpolated_intraday", True),
+    ("release41_multi_horizon_alpha", "fibonacci_placebo_controlled", True),
+    ("release41_multi_horizon_alpha", "sign_fit_declared_on_zone_a", True),
+    ("release41_multi_horizon_alpha", "sample_conditions_eight", True),
+    ("release41_multi_horizon_alpha", "no_scheduler_or_automation", True),
+    ("release41_multi_horizon_alpha", "shadows_capped_not_promotable", True),
+    ("release41_multi_horizon_alpha", "qualified_gate_in_code", True),
+    ("release41_multi_horizon_alpha", "killer_battery_declared", True),
+    ("release41_multi_horizon_alpha", "cost_on_traded_notional", True),
 )
 
 
