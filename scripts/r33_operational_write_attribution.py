@@ -254,7 +254,25 @@ R41_MARKERS = (
 R41_SOURCE_GLOBS = ("alpha_agent/r41/*.py",)
 R41_SOURCE_FILES = ()
 
+#: Release 42 prosecutes ONE R41 candidate. It writes only under its own
+#: research root and reads the R41 root; the one write it delegates - the
+#: R41 forward capture - belongs to the R41 owner and lands in the R41
+#: shadow ledger. An R42 artifact, a Binance universe archive or a venue
+#: funding cache landing in an operational store would be attributable
+#: here, as would any R42 row in an operational ledger.
+R42_MARKERS = (
+    "r42_crypto_basis_alpha_validation_v1", "crypto_basis_r42",
+    "alpha_agent.r42", "alpha_agent/r42", "alpha_agent\\r42",
+    "release42_crypto_basis_alpha", "r42_shadow_registry",
+    "r42_frozen_contract", "_data_binance_universe", "_data_venues",
+)
+R42_SOURCE_GLOBS = ("alpha_agent/r42/*.py",)
+R42_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R42": {"markers": R42_MARKERS, "source_globs": R42_SOURCE_GLOBS,
+            "source_files": R42_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R41": {"markers": R41_MARKERS, "source_globs": R41_SOURCE_GLOBS,
             "source_files": R41_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

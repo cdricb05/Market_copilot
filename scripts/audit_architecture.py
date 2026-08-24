@@ -8485,6 +8485,258 @@ def check_release41_multi_horizon_alpha(files: list[Path]) -> dict:
     }
 
 
+R42_OWNERS = {
+    "root": "alpha_agent/r42/__init__.py",
+    "contract": "alpha_agent/r42/contract.py",
+    "closeout_import": "alpha_agent/r42/closeout_import.py",
+    "acquisition": "alpha_agent/r42/acquisition.py",
+    "pnl_audit": "alpha_agent/r42/pnl_audit.py",
+    "funding_ledger": "alpha_agent/r42/funding_ledger.py",
+    "basis": "alpha_agent/r42/basis.py",
+    "legs": "alpha_agent/r42/legs.py",
+    "capital": "alpha_agent/r42/capital.py",
+    "execution": "alpha_agent/r42/execution.py",
+    "margin": "alpha_agent/r42/margin.py",
+    "venues": "alpha_agent/r42/venues.py",
+    "asset_universe": "alpha_agent/r42/asset_universe.py",
+    "cme_basis": "alpha_agent/r42/cme_basis.py",
+    "hierarchy": "alpha_agent/r42/hierarchy.py",
+    "attribution": "alpha_agent/r42/attribution.py",
+    "capacity": "alpha_agent/r42/capacity.py",
+    "collateral": "alpha_agent/r42/collateral.py",
+    "forward": "alpha_agent/r42/forward.py",
+    "microstructure_check": "alpha_agent/r42/microstructure_check.py",
+    "campaign": "alpha_agent/r42/campaign.py",
+}
+#: A second implementation of an owned concern inside r42 is a blocking
+#: defect - these names may not exist.
+R42_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r42/evidence.py", "alpha_agent/r42/multiple_testing.py",
+    "alpha_agent/r42/economics.py", "alpha_agent/r42/zones.py",
+    "alpha_agent/r42/ledger.py", "alpha_agent/r42/burden.py",
+    "alpha_agent/r42/research_shadow.py", "alpha_agent/r42/scheduler.py",
+    "alpha_agent/r42/purchase_gate.py", "alpha_agent/r42/crypto_lab.py",
+)
+#: Release-42 qualification vocabulary. A verdict outside this set means a
+#: label was invented to describe an inconvenient result.
+R42_REQUIRED_STATES = (
+    "R42_CRYPTO_BASIS_ALPHA_VALIDATED_HISTORICALLY",
+    "R42_STRONG_REPLICATED_CANDIDATE_FORWARD_PENDING",
+    "R42_SINGLE_VENUE_PREMIUM_ONLY",
+    "R42_EXECUTION_REALITY_KILLS_EDGE",
+    "R42_CAPITAL_EFFICIENCY_KILLS_EDGE",
+    "R42_BORROW_REALITY_KILLS_REVERSE_LEG",
+    "R42_CROSS_ASSET_REPLICATION_FAILS",
+    "R42_CROSS_VENUE_REPLICATION_FAILS",
+    "R42_STRUCTURAL_PREMIUM_CONFIRMED_NOT_TIMING_ALPHA",
+    "R42_FORWARD_EVIDENCE_STRENGTHENED",
+    "R42_FORWARD_EVIDENCE_WEAKENED",
+    "R42_DATA_LIMIT_BINDING",
+)
+
+
+def check_release42_crypto_basis_alpha(files: list[Path]) -> dict:
+    """Release 42 invariants - prosecuting ONE candidate to destruction.
+
+    The dangerous outcomes this guard exists to catch: the frozen R41
+    shadow edited, refit or re-parameterised so a failing candidate is
+    quietly improved; the R41 verdict rewritten instead of inherited; a
+    capital denominator or control chosen AFTER the result; the
+    self-financing (zero-control) convention reused for a book that
+    immobilises 100% of its notional; a reverse leg counted as
+    implementable without borrow evidence; an asset or venue universe
+    filtered on performance; a statistical method selected because it
+    makes BTC pass; a maker fill assumed; a fourth R42 shadow or a
+    promotable one; a forward row backfilled; an exchange account, API
+    trading key, order or purchase; a second evidence / multiple-testing /
+    ledger implementation.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R42_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R42_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) The R41 candidate is IMMUTABLE. R42 may read it and may call its
+    # capture owner; it may never freeze, write or re-parameterise it.
+    r41_declared_immutable = (
+        "R41_CANDIDATE_IS_IMMUTABLE = True" in src["contract"]
+        and "R42_CORRECTIONS_GET_NEW_IDENTITIES = True" in src["contract"])
+    r41_shadow_not_refrozen = (
+        "FF.freeze(" not in all_src
+        and "forward_freeze.freeze(" not in all_src)
+    r41_capture_delegated = (
+        "FF.capture(" in src["forward"]
+        and "def capture(" not in all_src
+        and "r42_wrote_no_forward_row" in src["forward"])
+    r41_verdict_inherited = (
+        '"HISTORICAL_ALPHA_RESULT": "FAIL"' in src["campaign"]
+        and "R41_DSR_REPORTED_UNCHANGED = True" in src["contract"]
+        and "r41_dsr_unchanged" in src["hierarchy"])
+
+    # (2) The contract is frozen BEFORE results and is hash-detectable.
+    contract_frozen_before_results = (
+        "METHOD_FROZEN_BEFORE_RESULTS = True" in src["contract"]
+        and "ASSET_UNIVERSE_FROZEN_BEFORE_RESULTS = True" in src["contract"]
+        and "STANDARDS_MAY_NOT_BE_LOWERED_AFTER_DATA = True"
+        in src["contract"]
+        and "def contract_hash" in src["contract"]
+        and "def freeze_artifact" in src["contract"]
+        and "r42_contract_hash" in src["closeout_import"])
+
+    # (3) Capital and control - the correction this release exists to make.
+    capital_control_declared = (
+        'PRIMARY_CONTROL = "RISK_FREE_ON_COMMITTED_CAPITAL"'
+        in src["contract"]
+        and 'PRIMARY_CAPITAL_MODEL = "CONSERVATIVE_COLLATERAL"'
+        in src["contract"]
+        and "CONTROL_RATIONALE" in src["contract"]
+        and "def risk_free_daily" in src["capital"]
+        and "def denominator_table" in src["capital"])
+    one_authoritative_roic = (
+        "authoritative_primary_roic" in src["capital"]
+        and '"one_authoritative_number": True' in src["capital"])
+    zero_control_not_reused = (
+        "charge_financing" in src["capital"]
+        and "benchmark" in src["capital"])
+
+    # (4) Borrow evidence gates the reverse leg.
+    borrow_rule_enforced = (
+        'BORROW_UNPROVEN_VERDICT = "HISTORICALLY_NON_IMPLEMENTABLE"'
+        in src["contract"]
+        and "CURRENT_SNAPSHOT_IS_NOT_HISTORY = True" in src["contract"]
+        and "def borrow_evidence" in src["legs"]
+        and "BORROW_HISTORY_UNAVAILABLE" in src["legs"])
+
+    # (5) Universes frozen on METADATA, never on performance.
+    universes_metadata_only = (
+        '"selection_may_use_performance": False' in src["contract"]
+        and "def evaluate_symbol_metadata" in src["asset_universe"]
+        and "include_delisted_if_history_exists" in src["contract"]
+        and "VENUE_ELIGIBILITY" in src["contract"]
+        and "DATA_ACCESS_IS_NOT_INVESTABILITY = True" in src["contract"])
+    investability_separated = (
+        "INVESTABLE_BY_OPERATOR" in src["venues"]
+        and "ELIGIBLE_FOR_REPLICATION" in src["venues"]
+        and "INVESTABILITY_REQUIRES_ADMISSIBLE_VENUE_PATH = True"
+        in src["contract"])
+
+    # (6) Statistics: hierarchical, frozen first, and never re-implemented.
+    hierarchy_frozen_first = (
+        "METHOD_MAY_NOT_BE_CHOSEN_TO_PASS = True" in src["contract"]
+        and "HIERARCHY_LEVELS" in src["contract"]
+        and "CLOSED_TESTING" in src["contract"]
+        and "def westfall_young" in src["hierarchy"]
+        and "def level_1" in src["hierarchy"])
+    reuses_canonical_statistics = (
+        "from ..r31 import multiple_testing" in src["hierarchy"]
+        and "from ..r41 import evidence" in all_src
+        and "def scorecard" not in all_src
+        and "def hac_t" not in all_src
+        and "def deflated_sharpe(" not in all_src)
+
+    # (7) Execution honesty.
+    maker_fill_forbidden = (
+        "ASSUMED_LIMIT_FILL_IS_FORBIDDEN = True" in src["contract"]
+        and "def maker_admissibility" in src["execution"]
+        and "MAKER_CLAIM_INADMISSIBLE" in src["execution"])
+    no_fabricated_fills = (
+        "no_fills_were_fabricated" in src["microstructure_check"]
+        and "BLOCKED_EXECUTION_MICROSTRUCTURE_DATA"
+        in src["microstructure_check"])
+
+    # (8) Shadows: capped, non-promotable, never backfilled.
+    shadows_capped_not_promotable = (
+        "MAX_R42_SHADOWS = 3" in src["forward"]
+        and '"promotion_allowed": False' in src["forward"]
+        and '"research_shadow_only": True' in src["forward"]
+        and "R42 shadow cap exceeded" in src["forward"]
+        and "specification_predates_every_prospective_observation"
+        in src["forward"])
+    forward_never_backfilled = (
+        '"never_backfilled": True' in src["forward"]
+        and '"never_refitted": True' in src["forward"]
+        and "true_forward" in src["forward"])
+    canonical_ledger_primitives = (
+        "def _append_ledger" not in all_src
+        and "def verify_ledger" not in all_src
+        and "from ..r39.research_shadow import _desk" in src["forward"])
+
+    # (9) Safety boundary.
+    api_imports = [ln for ln in all_src.splitlines()
+                   if "paper_trader.api" in ln and "import" in ln
+                   and not ln.strip().startswith("#")]
+    no_operational_imports = not api_imports
+    safety_flags_false = (
+        "MAY_SPEND_MONEY = False" in src["root"]
+        and "MAY_MUTATE_PRODUCTION = False" in src["root"]
+        and "PROMOTES_MODELS = False" in src["root"]
+        and "AUTOMATIC_PROMOTION_ALLOWED = False" in src["root"]
+        and "CHANGES_SCHEDULER = False" in src["root"]
+        and "MONEY_BUDGET_USD = 0.0" in src["contract"]
+        and "CLAUDE_MAY_COMMIT = False" in src["contract"]
+        and "CLAUDE_MAY_PUSH = False" in src["contract"])
+    no_exchange_account_or_orders = (
+        '"creates_exchange_account"' in src["root"]
+        and '"holds_api_trading_key"' in src["root"]
+        and '"creates_paper_order"' in src["root"]
+        and '"buys_crypto"' in src["root"]
+        and "NO EXCHANGE ACCOUNT" in src["root"])
+    shell_policy_declared = (
+        'SHELL_POLICY = "WINDOWS_POWERSHELL_ONLY"' in src["contract"])
+
+    # (10) The reconstruction must be exact before anything is argued.
+    reconstruction_is_a_gate = (
+        "RECONSTRUCTION_FAILED" in src["pnl_audit"]
+        and '"state": "EXACT"' in src["pnl_audit"]
+        and "worst_abs_diff" in src["pnl_audit"])
+    funding_event_exact = (
+        "def pit_integrity" in src["funding_ledger"]
+        and "no_future_funding_in_signal" in src["funding_ledger"]
+        and "reconciles" in src["funding_ledger"])
+    venue_cadence_asserted = (
+        "VENUE_FUNDING_CADENCE" in src["acquisition"]
+        and "def cadence_audit" in src["acquisition"]
+        and "cadence_all_verified" in src["venues"])
+
+    # (11) Every declared qualification state exists in the vocabulary.
+    states_declared = sorted(s for s in R42_REQUIRED_STATES
+                             if s not in src["contract"])
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "r41_declared_immutable": r41_declared_immutable,
+        "r41_shadow_not_refrozen": r41_shadow_not_refrozen,
+        "r41_capture_delegated": r41_capture_delegated,
+        "r41_verdict_inherited": r41_verdict_inherited,
+        "contract_frozen_before_results": contract_frozen_before_results,
+        "capital_control_declared": capital_control_declared,
+        "one_authoritative_roic": one_authoritative_roic,
+        "zero_control_not_reused": zero_control_not_reused,
+        "borrow_rule_enforced": borrow_rule_enforced,
+        "universes_metadata_only": universes_metadata_only,
+        "investability_separated": investability_separated,
+        "hierarchy_frozen_first": hierarchy_frozen_first,
+        "reuses_canonical_statistics": reuses_canonical_statistics,
+        "maker_fill_forbidden": maker_fill_forbidden,
+        "no_fabricated_fills": no_fabricated_fills,
+        "shadows_capped_not_promotable": shadows_capped_not_promotable,
+        "forward_never_backfilled": forward_never_backfilled,
+        "canonical_ledger_primitives": canonical_ledger_primitives,
+        "no_operational_imports": no_operational_imports,
+        "safety_flags_false": safety_flags_false,
+        "no_exchange_account_or_orders": no_exchange_account_or_orders,
+        "shell_policy_declared": shell_policy_declared,
+        "reconstruction_is_a_gate": reconstruction_is_a_gate,
+        "funding_event_exact": funding_event_exact,
+        "venue_cadence_asserted": venue_cadence_asserted,
+        "qualification_states_missing": states_declared,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -9137,6 +9389,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release40_prospective_alpha_acceleration(files),
         "release41_multi_horizon_alpha":
             check_release41_multi_horizon_alpha(files),
+        "release42_crypto_basis_alpha":
+            check_release42_crypto_basis_alpha(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -11003,6 +11257,48 @@ BLOCKING_INVARIANTS = (
     ("release41_multi_horizon_alpha", "qualified_gate_in_code", True),
     ("release41_multi_horizon_alpha", "killer_battery_declared", True),
     ("release41_multi_horizon_alpha", "cost_on_traded_notional", True),
+    # --- Release 42: Crypto Funding/Basis Alpha Validation ------------------
+    # The R41 candidate is prosecuted, not improved: its shadow may never be
+    # re-frozen, re-parameterised or refit, its capture is delegated to its
+    # own owner, and its FAIL verdict is inherited verbatim. The corrections
+    # get NEW identities. Everything that could be bent after seeing a
+    # result - the capital denominator, the control, the execution ladder,
+    # the borrow rule, the asset and venue universes, the statistical
+    # architecture, the belief standard - is frozen in a hashed contract
+    # first. Data access is never confused with investability. A maker fill
+    # is never assumed and a microstructure fill is never fabricated. Each
+    # venue's funding cadence is asserted before its rows are summed,
+    # because summing an 8-hour rate over 24 hourly rows is exactly the
+    # class of error this release exists to catch.
+    ("release42_crypto_basis_alpha", "modules_present", True),
+    ("release42_crypto_basis_alpha", "modules_missing", []),
+    ("release42_crypto_basis_alpha", "second_owner_modules", []),
+    ("release42_crypto_basis_alpha", "r41_declared_immutable", True),
+    ("release42_crypto_basis_alpha", "r41_shadow_not_refrozen", True),
+    ("release42_crypto_basis_alpha", "r41_capture_delegated", True),
+    ("release42_crypto_basis_alpha", "r41_verdict_inherited", True),
+    ("release42_crypto_basis_alpha", "contract_frozen_before_results", True),
+    ("release42_crypto_basis_alpha", "capital_control_declared", True),
+    ("release42_crypto_basis_alpha", "one_authoritative_roic", True),
+    ("release42_crypto_basis_alpha", "zero_control_not_reused", True),
+    ("release42_crypto_basis_alpha", "borrow_rule_enforced", True),
+    ("release42_crypto_basis_alpha", "universes_metadata_only", True),
+    ("release42_crypto_basis_alpha", "investability_separated", True),
+    ("release42_crypto_basis_alpha", "hierarchy_frozen_first", True),
+    ("release42_crypto_basis_alpha", "reuses_canonical_statistics", True),
+    ("release42_crypto_basis_alpha", "maker_fill_forbidden", True),
+    ("release42_crypto_basis_alpha", "no_fabricated_fills", True),
+    ("release42_crypto_basis_alpha", "shadows_capped_not_promotable", True),
+    ("release42_crypto_basis_alpha", "forward_never_backfilled", True),
+    ("release42_crypto_basis_alpha", "canonical_ledger_primitives", True),
+    ("release42_crypto_basis_alpha", "no_operational_imports", True),
+    ("release42_crypto_basis_alpha", "safety_flags_false", True),
+    ("release42_crypto_basis_alpha", "no_exchange_account_or_orders", True),
+    ("release42_crypto_basis_alpha", "shell_policy_declared", True),
+    ("release42_crypto_basis_alpha", "reconstruction_is_a_gate", True),
+    ("release42_crypto_basis_alpha", "funding_event_exact", True),
+    ("release42_crypto_basis_alpha", "venue_cadence_asserted", True),
+    ("release42_crypto_basis_alpha", "qualification_states_missing", []),
 )
 
 
