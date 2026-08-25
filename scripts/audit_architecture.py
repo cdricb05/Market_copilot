@@ -10033,6 +10033,329 @@ def check_docs_present() -> dict:
                               if not (REPO_ROOT / d).exists())}
 
 
+R45_OWNERS = {
+    "root": "alpha_agent/r45/__init__.py",
+    "contract": "alpha_agent/r45/contract.py",
+    "burden": "alpha_agent/r45/burden.py",
+    "shell_policy": "alpha_agent/r45/shell_policy.py",
+    "bars": "alpha_agent/r45/bars.py",
+    "acquisition": "alpha_agent/r45/acquisition.py",
+    "eventstudy": "alpha_agent/r45/eventstudy.py",
+    "replication": "alpha_agent/r45/replication.py",
+    "causal": "alpha_agent/r45/causal.py",
+    "discovery": "alpha_agent/r45/discovery.py",
+    "rv": "alpha_agent/r45/rv.py",
+    "surprise": "alpha_agent/r45/surprise.py",
+    "ml": "alpha_agent/r45/ml.py",
+    "killer": "alpha_agent/r45/killer.py",
+    "implementable": "alpha_agent/r45/implementable.py",
+    "options": "alpha_agent/r45/options.py",
+    "analyst": "alpha_agent/r45/analyst.py",
+    "frontier": "alpha_agent/r45/frontier.py",
+    "campaign": "alpha_agent/r45/campaign.py",
+    "closeout": "alpha_agent/r45/closeout.py",
+}
+
+#: A second implementation of an already-owned concern inside r45 is a
+#: blocking defect. The capital equation in particular belongs to Release 43
+#: and is IMPORTED: a release that writes its own denominator can quote
+#: whatever return it likes.
+R45_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r45/judge.py", "alpha_agent/r45/capital.py",
+    "alpha_agent/r45/evidence.py", "alpha_agent/r45/economics.py",
+    "alpha_agent/r45/zones.py", "alpha_agent/r45/multiple_testing.py",
+    "alpha_agent/r45/panels.py", "alpha_agent/r45/scheduler.py",
+    "alpha_agent/r45/research_shadow.py", "alpha_agent/r45/forward_freeze.py",
+    "alpha_agent/r45/deflated_sharpe.py", "alpha_agent/r45/ledger.py",
+)
+
+R45_REQUIRED_STATES = (
+    "R45_QUALIFIED_EVENT_ALPHA_FOUND",
+    "R45_NATIVE_FUTURES_EVENT_ALPHA_CANDIDATE_FOUND",
+    "R45_EVENT_RELATIVE_VALUE_ALPHA_CANDIDATE_FOUND",
+    "R45_STRONG_EVENT_CANDIDATE_FORWARD_PENDING",
+    "R45_GOLD_SPECIFIC_EFFECT_NOT_GENERAL_MACRO_ALPHA",
+    "R45_R44_MACRO_EFFECT_REFUTED_IN_NATIVE_MARKETS",
+    "R45_NATIVE_FUTURES_DATA_WALL_BINDING",
+    "R45_NO_QUALIFIED_EVENT_ALPHA",
+)
+
+
+def check_release45_macro_event_alpha(files: list[Path]) -> dict:
+    """Release 45 invariants - a REPLICATION that may not quietly become a search.
+
+    Release 45's whole claim is that it tested somebody else's rule without
+    changing it. Every invariant below closes one route by which that claim
+    could be false:
+
+    * retune the rule until it works and still call it a replication - closed
+      by carrying R44's parameters as a frozen literal, by an identity check
+      that must reproduce R44's published card from R45's own code, and by
+      charging every post-replication parameter cell to the burden ledger;
+    * quietly report a CFD or an ETF as a native futures result - closed by an
+      instrument-class table, two separate no-proxy flags, and a lane that
+      states in its own payload that it is not a futures result;
+    * invent a spread where no quote exists - closed by requiring the cost
+      source to be labelled on every card, and by a declared floor under the
+      estimated one;
+    * let several releases printing into the same minute inflate a t-statistic
+      - closed by clustering inference on the event date;
+    * present the search zone's placebo as evidence - closed by running the
+      identical control battery on the never-scored events;
+    * freeze a dead candidate just to have a shadow - closed outright;
+    * assert a data wall instead of probing it, or buy something.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R45_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R45_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) The rule is inherited, not re-derived, and proven identical.
+    frozen_rule_is_inherited = (
+        "FROZEN_RULE = {" in src["contract"]
+        and '"source_release": "R44"' in src["contract"]
+        and '"entry_delay_min": 5' in src["contract"]
+        and '"hold_min": 120' in src["contract"]
+        and '"rule": "REVERSAL"' in src["contract"]
+        and "R44_ZONE_A_REFERENCE" in src["contract"]
+        and "NO_PARAMETER_SEARCH_BEFORE_FIRST_REPLICATION = True"
+        in src["contract"]
+        and "RETUNING_AFTER_A_FAILED_FROZEN_TEST_IS_NOT_A_REPLICATION = True"
+        in src["contract"])
+    identity_is_proven_not_asserted = (
+        "def identity_check" in src["eventstudy"]
+        and "R44_REFERENCE_TOLERANCE" in src["contract"]
+        and "IDENTICAL" in src["eventstudy"]
+        and "identity_check" in src["replication"])
+    holdout_is_the_first_test = (
+        "L1_GOLD_HOLDOUT" in src["contract"]
+        and "REPLICATION_LANES_FIRST" in src["contract"]
+        and "def lane_l1_gold_holdout" in src["replication"]
+        and "n_events_never_scored_by_r44" in src["replication"])
+
+    # (2) Burden inherits and never resets.
+    burden_inherited_not_reset = (
+        "INHERITED_GLOBAL_BURDEN = 310" in src["contract"]
+        and "INHERITED_GLOBAL_BURDEN_CONSERVATIVE = 312" in src["contract"]
+        and "BURDEN_MAY_NEVER_BE_RESET = True" in src["contract"]
+        and "class BurdenLaundering" in src["burden"]
+        and "raise BurdenLaundering" in src["burden"])
+    replication_is_one_trial_but_search_is_charged = (
+        "FROZEN_REPLICATION_IS_ONE_TRIAL = True" in src["contract"]
+        and "POST_REPLICATION_EXPLORATION_IS_CHARGED_PER_CELL = True"
+        in src["contract"]
+        and "def charge_frozen_replication" in src["burden"]
+        and "charge=BU.charge" in src["campaign"]
+        and "family=\"EVENT_RELATIVE_VALUE\"" in src["rv"]
+        and "family=\"EVENT_ML\"" in src["ml"])
+
+    # (3) An instrument is never reported as something it is not.
+    instrument_class_is_declared = (
+        "INSTRUMENT_CLASS = {" in src["contract"]
+        and "NATIVE_FUTURES" in src["contract"]
+        and "LISTED_ETF" in src["contract"]
+        and '"CFD"' in src["contract"])
+    no_proxy_for_a_futures_hypothesis = (
+        "NO_CFD_PROXY_FOR_A_FUTURES_HYPOTHESIS = True" in src["contract"]
+        and "NO_ETF_PROXY_FOR_A_FUTURES_HYPOTHESIS = True" in src["contract"]
+        and "this_is_not_a_futures_result" in src["replication"]
+        and "cfd_symbols_may_not_be_called_a_futures_replication"
+        in src["replication"])
+
+    # (4) Cost may be estimated, but never unlabelled.
+    cost_source_is_labelled = (
+        "COST_SOURCE_OBSERVED" in src["contract"]
+        and "COST_SOURCE_ESTIMATED" in src["contract"]
+        and "COST_SOURCE_MUST_BE_LABELLED = True" in src["contract"]
+        and "ESTIMATED_HALF_SPREAD_FLOOR_BPS" in src["contract"]
+        and "cost_source" in src["bars"]
+        and "cost_source" in src["eventstudy"])
+    estimated_spread_has_a_floor = (
+        "def corwin_schultz_half_bps" in src["bars"]
+        and "floor_bps" in src["bars"]
+        and "clip(lower=float(floor_bps))" in src["bars"])
+    no_fabricated_fill = (
+        "NO_FABRICATED_FILL = True" in src["contract"]
+        and "NO_MIDPOINT_FILL_WITHOUT_A_QUOTE = True" in src["contract"]
+        and "NO_INTERPOLATED_INTRADAY = True" in src["contract"])
+    entry_is_never_at_the_print = (
+        '"entry_delay_min": 5' in src["contract"]
+        and "extra_latency" in src["eventstudy"])
+
+    # (5) Inference is clustered, and the controls run on the holdout too.
+    inference_is_clustered_by_event_date = (
+        'CLUSTER_INFERENCE_BY = "EVENT_DATE"' in src["contract"]
+        and "def cluster_t" in src["eventstudy"]
+        and "net_t_cluster" in src["eventstudy"]
+        and "net_t_cluster" in src["replication"])
+    controls_run_on_the_holdout_not_just_the_search_zone = (
+        'zones = ("A", "BC", "ALL")' in src["causal"]
+        and "SUPPORTED_ONLY_WHERE_THE_SEARCH_LOOKED" in src["causal"]
+        and "verdicts_by_zone" in src["causal"]
+        and "timing_sweeps_by_zone" in src["causal"])
+    placebo_battery_is_plural = (
+        "def placebo_shifted_days" in src["causal"]
+        and "def placebo_random_dates" in src["causal"]
+        and "def placebo_label_permutation" in src["causal"]
+        and "def timing_sweep" in src["causal"])
+    seeds_are_declared_not_hashed = (
+        "PLACEBO_SEED = " in src["causal"]
+        and "default_rng" in src["causal"]
+        and "BOOTSTRAP_SEED = " in src["killer"]
+        and "hash(" not in all_src)
+
+    # (6) Hedge ratios and models never see the window they are judged on.
+    hedge_ratio_is_fitted_on_training_events_only = (
+        "HEDGE_RATIOS_ARE_FITTED_ON_TRAINING_EVENTS_ONLY = True"
+        in src["contract"]
+        and "in_fit" in src["rv"]
+        and "beta = _fit_beta(y_shock[in_fit], X_shock[in_fit])" in src["rv"])
+    models_fit_select_and_judge_on_separate_zones = (
+        "fit on A, choose on B, judged once on C" in src["ml"]
+        and "frozen_rule_baseline" in src["ml"]
+        and "chosen_beats_frozen_rule_on_zone_c" in src["ml"])
+    ml_must_beat_the_transparent_rule = (
+        "ML_ADDED_ECONOMIC_VALUE" in src["ml"]
+        and "ML_ADDED_ECONOMIC_VALUE" in src["closeout"])
+
+    # (7) The economic judge is R43's, imported.
+    capital_equation_is_imported = (
+        "from ..r43 import judge as J43" in src["implementable"]
+        and 'CAPITAL_EQUATION_OWNER = "alpha_agent.r43.judge"'
+        in src["implementable"]
+        and "J43.futures_committed_capital" in src["implementable"])
+    remunerated_margin_treated_correctly = (
+        'COLLATERAL_CLASS = "REMUNERATED_MARGIN"' in src["implementable"]
+        and "no further cash rent is charged" in src["implementable"])
+
+    # (8) Kill battery, qualification and freezing.
+    kill_battery_complete = all(
+        tok in src["killer"] for tok in
+        ("def cost_stress", "def latency_stress", "def leave_one_out",
+         "def remove_extremes", "def bootstrap_by_event_date",
+         "def horizon_perturbation"))
+    qualification_is_stricter_than_one_t = (
+        "A_SINGLE_T_ABOVE_2_IS_NOT_A_QUALIFICATION = True" in src["contract"]
+        and '"net_t_cluster_ge": 2.5' in src["contract"]
+        and '"must_survive_cost_x2": True' in src["contract"]
+        and '"must_survive_leave_one_year_out": True' in src["contract"]
+        and "MIN_EVENTS_TO_QUALIFY = 100" in src["contract"])
+    no_mediocre_shadow = (
+        "DO_NOT_FREEZE_MEDIOCRE_CANDIDATES_TO_CREATE_A_SHADOW = True"
+        in src["contract"]
+        and "def freeze_gate" in src["frontier"]
+        and "MAX_NEW_SHADOWS" in src["frontier"]
+        and "why_none" in src["frontier"])
+    forward_never_backfilled = (
+        "NEVER_BACKFILL_PROSPECTIVE_ROWS = True" in src["contract"]
+        and "PRIOR_SHADOWS_ARE_IMMUTABLE = True" in src["contract"]
+        and "backfilled" in src["analyst"]
+        and "READ_ONLY = True" in src["analyst"])
+    prior_artifacts_read_only = (
+        "r44_artifacts_read_only" in src["options"]
+        and "sha_before" in src["options"]
+        and "wrote_into_the_ledger" in src["analyst"])
+
+    # (9) Data walls are probed, not asserted, and nothing is bought.
+    walls_probed_not_asserted = (
+        "def probe_blocked_native_routes" in src["acquisition"]
+        and "ACCOUNT_REQUIRED" in src["acquisition"]
+        and "rows_when_asked_for_1min" in src["acquisition"])
+    no_purchase_or_account = (
+        "AUTHORIZED_SPEND_USD = 0.0" in src["contract"]
+        and '"money_spent_usd": 0.0' in src["acquisition"]
+        and '"accounts_created": 0' in src["acquisition"]
+        and "DO_NOT_BUY_YET" in src["frontier"])
+    keys_never_leak = not re.search(
+        r"(apiKey|api_token|api_key)\s*=\s*[\"'][A-Za-z0-9]{12,}", all_src)
+
+    # (10) Safety, shell policy, terminals.
+    no_operational_imports = not any(
+        tok in all_src for tok in
+        ("from api.", "import api.", "from engine.", "import engine.",
+         "operational_book", "portfolio_decision", "rebalance"))
+    no_scheduler_or_task_registration = not any(
+        tok in all_src for tok in
+        ("schtasks", "Register-ScheduledTask", "crontab", "CronCreate"))
+    safety_flags_false = (
+        "PROMOTION_ALLOWED = False" in src["contract"]
+        and "RESEARCH_ONLY = True" in src["contract"]
+        and '"ORDERS": 0' in src["closeout"]
+        and '"PORTFOLIO_MUTATIONS": 0' in src["closeout"])
+    shell_policy_declared = (
+        'SHELL_POLICY = "WINDOWS_POWERSHELL_ONLY"' in src["contract"]
+        and "SHELL_POLICY_WAIVERS_ARE_NOT_AVAILABLE = True" in src["contract"]
+        and "INHERITED_SHELL_DISCLOSURES" in src["contract"]
+        and "R45_EVENTS" in src["shell_policy"]
+        and "SHELL_POLICY_VIOLATION" in src["shell_policy"])
+    inherited_disclosures_preserved = (
+        '"release": "R42"' in src["contract"]
+        and '"release": "R44"' in src["contract"]
+        and "inherited_disclosures_are_never_erased" in src["shell_policy"])
+    every_lane_must_terminate = (
+        "BLOCKER_VOCAB" in src["contract"]
+        and "A_FAILED_LANE_IS_A_ROUTING_EVENT = True" in src["contract"]
+        and "ONE_LANE_MAY_NOT_HALT_ANOTHER = True" in src["contract"]
+        and "NO_BROAD_EXECUTABLE_ZERO_COST_BRANCH_MAY_BE_DEFERRED = True"
+        in src["contract"])
+    verdict_keys_declared = (
+        "REQUIRED_VERDICT_KEYS" in src["contract"]
+        and "def terminal_state" in src["closeout"])
+    states_missing = sorted(
+        s for s in R45_REQUIRED_STATES if s not in src["contract"])
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "frozen_rule_is_inherited": frozen_rule_is_inherited,
+        "identity_is_proven_not_asserted": identity_is_proven_not_asserted,
+        "holdout_is_the_first_test": holdout_is_the_first_test,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "replication_is_one_trial_but_search_is_charged":
+            replication_is_one_trial_but_search_is_charged,
+        "instrument_class_is_declared": instrument_class_is_declared,
+        "no_proxy_for_a_futures_hypothesis": no_proxy_for_a_futures_hypothesis,
+        "cost_source_is_labelled": cost_source_is_labelled,
+        "estimated_spread_has_a_floor": estimated_spread_has_a_floor,
+        "no_fabricated_fill": no_fabricated_fill,
+        "entry_is_never_at_the_print": entry_is_never_at_the_print,
+        "inference_is_clustered_by_event_date":
+            inference_is_clustered_by_event_date,
+        "controls_run_on_the_holdout_not_just_the_search_zone":
+            controls_run_on_the_holdout_not_just_the_search_zone,
+        "placebo_battery_is_plural": placebo_battery_is_plural,
+        "seeds_are_declared_not_hashed": seeds_are_declared_not_hashed,
+        "hedge_ratio_is_fitted_on_training_events_only":
+            hedge_ratio_is_fitted_on_training_events_only,
+        "models_fit_select_and_judge_on_separate_zones":
+            models_fit_select_and_judge_on_separate_zones,
+        "ml_must_beat_the_transparent_rule": ml_must_beat_the_transparent_rule,
+        "capital_equation_is_imported": capital_equation_is_imported,
+        "remunerated_margin_treated_correctly":
+            remunerated_margin_treated_correctly,
+        "kill_battery_complete": kill_battery_complete,
+        "qualification_is_stricter_than_one_t":
+            qualification_is_stricter_than_one_t,
+        "no_mediocre_shadow": no_mediocre_shadow,
+        "forward_never_backfilled": forward_never_backfilled,
+        "prior_artifacts_read_only": prior_artifacts_read_only,
+        "walls_probed_not_asserted": walls_probed_not_asserted,
+        "no_purchase_or_account": no_purchase_or_account,
+        "keys_never_leak": bool(keys_never_leak),
+        "no_operational_imports": no_operational_imports,
+        "no_scheduler_or_task_registration": no_scheduler_or_task_registration,
+        "safety_flags_false": safety_flags_false,
+        "shell_policy_declared": shell_policy_declared,
+        "inherited_disclosures_preserved": inherited_disclosures_preserved,
+        "every_lane_must_terminate": every_lane_must_terminate,
+        "verdict_keys_declared": verdict_keys_declared,
+        "terminal_states_missing": states_missing,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
@@ -10120,6 +10443,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release43_global_alpha_offensive(files),
         "release44_orthogonal_portfolio_alpha":
             check_release44_orthogonal_portfolio_alpha(files),
+        "release45_macro_event_alpha":
+            check_release45_macro_event_alpha(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),

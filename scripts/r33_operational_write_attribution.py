@@ -300,7 +300,27 @@ R44_MARKERS = (
 R44_SOURCE_GLOBS = ("alpha_agent/r44/*.py",)
 R44_SOURCE_FILES = ()
 
+#: Release 45 replicates Release 44's frozen macro-event rule on events R44
+#: never scored, acquires listed and native intraday panels, and measures
+#: price discovery. It writes ONLY under its own research root and opens
+#: every prior release's root read-only. An R45 artifact, an acquired minute
+#: panel or an R45 frontier row landing in an operational store would be
+#: attributable here - as would any R45 row in an operational ledger.
+R45_MARKERS = (
+    "r45_macro_event_alpha_v1", "macro_event_alpha_r45",
+    "alpha_agent.r45", "alpha_agent/r45", "alpha_agent\\r45",
+    "release45_macro_event_alpha", "r45_frozen_contract",
+    "r45_search_burden_ledger", "R45_SHADOW_REGISTRY",
+    "R45_LANE_RESULTS", "R45_FINAL_VERDICT", "_data_intraday",
+    "polygon_spy_option_surface_r45_extension",
+)
+R45_SOURCE_GLOBS = ("alpha_agent/r45/*.py",)
+R45_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R45": {"markers": R45_MARKERS, "source_globs": R45_SOURCE_GLOBS,
+            "source_files": R45_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R44": {"markers": R44_MARKERS, "source_globs": R44_SOURCE_GLOBS,
             "source_files": R44_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
