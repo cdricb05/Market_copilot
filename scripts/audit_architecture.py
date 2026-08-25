@@ -9044,6 +9044,424 @@ def check_release43_global_alpha_offensive(files: list[Path]) -> dict:
     }
 
 
+R44_OWNERS = {
+    "root": "alpha_agent/r44/__init__.py",
+    "contract": "alpha_agent/r44/contract.py",
+    "burden": "alpha_agent/r44/burden.py",
+    "closeout": "alpha_agent/r44/closeout.py",
+    "streams": "alpha_agent/r44/streams.py",
+    "combine": "alpha_agent/r44/combine.py",
+    "control": "alpha_agent/r44/control.py",
+    "portfolio": "alpha_agent/r44/portfolio.py",
+    "options": "alpha_agent/r44/options.py",
+    "intraday": "alpha_agent/r44/intraday.py",
+    "acquisition": "alpha_agent/r44/acquisition.py",
+    "niche": "alpha_agent/r44/niche.py",
+    "purchase": "alpha_agent/r44/purchase.py",
+    "frontier": "alpha_agent/r44/frontier.py",
+    "campaign": "alpha_agent/r44/campaign.py",
+    "shell_policy": "alpha_agent/r44/shell_policy.py",
+}
+
+#: A second implementation of an already-owned concern inside r44 is a
+#: blocking defect - these names may not exist. The universal economic judge
+#: in particular is R43's and is IMPORTED, never re-derived: a release that
+#: quietly writes its own capital equation can quote whatever it likes.
+R44_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r44/evidence.py", "alpha_agent/r44/multiple_testing.py",
+    "alpha_agent/r44/judge.py", "alpha_agent/r44/panels.py",
+    "alpha_agent/r44/economics.py", "alpha_agent/r44/zones.py",
+    "alpha_agent/r44/ledger.py", "alpha_agent/r44/research_shadow.py",
+    "alpha_agent/r44/scheduler.py", "alpha_agent/r44/forward_freeze.py",
+    "alpha_agent/r44/curve_state.py", "alpha_agent/r44/crypto_lab.py",
+    "alpha_agent/r44/deflated_sharpe.py", "alpha_agent/r44/capital.py",
+)
+
+R44_REQUIRED_STATES = (
+    "R44_STANDALONE_ALPHA_FOUND",
+    "R44_PORTFOLIO_ALPHA_FOUND",
+    "R44_STRUCTURAL_PREMIA_ONLY",
+    "R44_LESS_EFFICIENT_MARKET_EDGE_FOUND",
+    "R44_NO_ALPHA_AFTER_ORTHOGONAL_AND_PORTFOLIO_SYNTHESIS",
+)
+
+
+def check_release44_orthogonal_portfolio_alpha(files: list[Path]) -> dict:
+    """Release 44 invariants - a PORTFOLIO claim that may not cheat.
+
+    A portfolio result is the easiest kind of result to fake, and every
+    invariant below exists to close one specific route:
+
+    * score many streams, keep the winners, publish the aggregate - closed by
+      an inventory declared by economics in the frozen contract, with losers
+      required to be in it;
+    * try eight weighting schemes and report the best - closed by naming the
+      primary rule before the lockbox, charging each DISTINCT book to the
+      burden ledger, and measuring PBO over the rules;
+    * flip a stream's sign until the book works - closed outright, and where
+      a sign-selected DIAGNOSTIC is run it must charge the transaction cost
+      on the flipped book instead of crediting it;
+    * quote the aggregate against a benchmark it was always going to beat -
+      closed by a structural-premium control built the same way, plus a
+      volatility-matched passive long;
+    * call a smoother package of risk premia "portfolio alpha" - closed by
+      keeping three qualification words separate;
+    * assert a data wall instead of probing it, or buy something.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R44_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R44_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) Burden inherits 302 from R43's bytes and never resets.
+    burden_inherited_not_reset = (
+        "GLOBAL_INHERITED_EFFECTIVE_TRIALS = 302" in src["contract"]
+        and "INHERITED_R43_DISTINCT = 13" in src["contract"]
+        and "BURDEN_NEVER_RESETS = True" in src["contract"]
+        and "NO_CAMPAIGN_ID_LAUNDERING = True" in src["contract"]
+        and "def verify_inherited" in src["burden"]
+        and "class BurdenLaundering" in src["burden"]
+        and "raise BurdenLaundering" in src["burden"])
+    r43_ledger_read_only = (
+        "PRIOR_LEDGERS_ARE_READ_ONLY = True" in src["contract"]
+        and "r43_ledger_mutated" in src["burden"]
+        and "R43_LEDGER" in src["burden"])
+    lane_caps_enforced = (
+        "has exhausted its FROZEN ZONE_B cap" in src["burden"]
+        and "TOTAL_ZONE_B_BUDGET" in src["contract"]
+        and "LANE_CAP_IS_A_CEILING_NOT_A_TARGET = True" in src["contract"])
+    portfolio_synthesis_is_charged = (
+        "PORTFOLIO_SYNTHESIS_IS_A_SEARCHED_FAMILY = True" in src["contract"]
+        and '"PORTFOLIO_SYNTHESIS"' in src["campaign"]
+        and "n_distinct_books" in src["campaign"])
+
+    # (2) The contract is frozen before the first number; amendments are
+    #     disclosed beside the freeze rather than folded into it.
+    contract_frozen_before_results = (
+        "def frozen_body" in src["contract"]
+        and "def verify_contract_unchanged" in src["closeout"]
+        and "contract_frozen_before_first_number" in src["closeout"]
+        and "KILL_TESTS_ARE_CHOSEN_BEFORE_RESULTS = True" in src["contract"])
+    amendments_disclosed_and_bounded = (
+        "POST_FREEZE_AMENDMENTS" in src["contract"]
+        and "AMENDMENTS_MAY_ONLY_MAKE_AN_UNBUILT_STREAM_BUILDABLE = True"
+        in src["contract"]
+        and "AMENDMENTS_AFTER_THE_LOCKBOX_ARE_FORBIDDEN = True"
+        in src["contract"]
+        and "def amend" in src["closeout"]
+        and "original_frozen_contract_hash" in src["closeout"])
+
+    # (3) The portfolio claim's defences.
+    primary_rule_named_before_lockbox = (
+        'PRIMARY_COMBINATION_RULE = "FAMILY_BALANCED_ERC"' in src["contract"]
+        and "PRIMARY_RULE_RATIONALE" in src["contract"]
+        and "primary_rule_named_before_lockbox" in src["campaign"])
+    no_threshold_is_chosen = (
+        "NO_THRESHOLD_IS_CHOSEN = True" in src["contract"]
+        and 'STREAM_EXPRESSION = "CONTINUOUS"' in src["contract"])
+    losers_are_included = (
+        "LOSERS_ARE_INCLUDED = True" in src["contract"]
+        and "SELECTION_ON_MEASURED_PERFORMANCE_IS_FORBIDDEN = True"
+        in src["contract"])
+    dangerous_optimisers_forbidden = (
+        "UNCONSTRAINED_MEAN_VARIANCE_IS_FORBIDDEN = True" in src["contract"]
+        and "MAXIMISING_HISTORICAL_SHARPE_IS_FORBIDDEN = True"
+        in src["contract"]
+        and "SHORTING_A_STREAM_IS_FORBIDDEN = True" in src["contract"])
+    weights_fitted_on_fit_zones_only = (
+        "WEIGHTS_ARE_FITTED_ON_FIT_ZONES_ONLY = True" in src["contract"]
+        and "NO_OPTIMISATION_ON_THE_HOLDOUT = True" in src["contract"]
+        and '"fitted_on": "FIT_ZONES_ONLY"' in src["combine"])
+    constraints_applied_to_every_rule = (
+        "def apply_constraints" in src["combine"]
+        and "max_single_stream_weight" in src["contract"]
+        and "max_family_weight" in src["contract"]
+        and "max_asset_class_weight" in src["contract"])
+
+    # (4) The bug guard. A short pays the spread exactly like a long.
+    sign_flip_charges_cost = (
+        "def excess_frame_signed" in src["streams"]
+        and "rec[\"gross\"] * s" in src["streams"]
+        and "excess_frame_signed" in src["portfolio"]
+        and "sub.mul(pd.Series(signs))" not in src["portfolio"])
+    sign_diagnostic_cannot_qualify = (
+        "SIGN_SELECTED_DIAGNOSTIC" in src["contract"]
+        and '"may_qualify": False' in src["contract"]
+        and '"may_qualify"] = False' in src["portfolio"])
+
+    # (5) Controls. The premium portfolio is the benchmark, not the product.
+    structural_premium_control_declared = (
+        "STRUCTURAL_PREMIUM_PORTFOLIO" in src["contract"]
+        and "VOLATILITY_MATCHED_PASSIVE" in src["contract"]
+        and "A_SMOOTHER_PACKAGE_OF_PREMIA_IS_NOT_ALPHA = True"
+        in src["contract"]
+        and "def premium_portfolio" in src["control"]
+        and "def passive_long_stream" in src["control"])
+    increment_is_volatility_matched = (
+        "INCREMENT_IS_VOLATILITY_MATCHED = True" in src["contract"]
+        and "def volatility_matched_increment" in src["control"]
+        and "signal_is_decoration" in src["control"])
+    three_qualification_words_kept_apart = (
+        "STANDALONE_ALPHA" in src["contract"]
+        and "PORTFOLIO_ALPHA" in src["contract"]
+        and "STRUCTURAL_PREMIUM" in src["contract"]
+        and "ALPHA_IS_NOT_A_LOOSE_WORD = True" in src["contract"]
+        and "A_POSITIVE_NOMINAL_RETURN_IS_NOT_ALPHA = True"
+        in src["contract"])
+
+    # (6) The kill battery and the search adjustment.
+    kill_battery_complete = (
+        "PORTFOLIO_KILL_TESTS" in src["contract"]
+        and all(t in src["portfolio"] for t in
+                ("LEAVE_ONE_STREAM_OUT", "LEAVE_ONE_FAMILY_OUT",
+                 "LEAVE_ONE_ASSET_CLASS_OUT", "LEAVE_ONE_YEAR_OUT",
+                 "WEIGHT_PERTURBATION", "CORRELATION_STRESS",
+                 "BLOCK_BOOTSTRAP", "CONCENTRATION",
+                 "STRUCTURAL_PREMIUM_CONTROL_INCREMENT",
+                 "VOLATILITY_MATCHED_PASSIVE_INCREMENT")))
+    pbo_measured_over_the_rules = (
+        "def pbo" in src["portfolio"]
+        and "combinatorially" in src["portfolio"].lower()
+        and "n_splits" in src["portfolio"])
+    negative_is_never_called_a_survivor = (
+        "is_a_positive_survivor" in src["frontier"]
+        and "n_positive_survivors" in src["frontier"])
+
+    # (7) Canonical statistics are imported, never re-implemented.
+    reuses_canonical_statistics = (
+        "from ..r41 import evidence" in src["portfolio"]
+        and "from ..r43 import judge" in src["streams"]
+        and "multiple_testing" in src["frontier"]
+        and "def hac_t" not in all_src
+        and "def benjamini_hochberg" not in all_src
+        and "def implementable_book" not in all_src
+        and "def scorecard" not in all_src)
+
+    # (8) Intraday. No fabricated fill, no CFD proxy, a declared clock.
+    entry_is_never_at_the_print = (
+        "INTRADAY_ENTRY_DELAYS_MIN = (1, 5)" in src["contract"]
+        and "Zero is forbidden" in src["contract"])
+    cost_is_the_observed_spread = (
+        'INTRADAY_COST_MODEL = "OBSERVED_HALF_SPREAD_BOTH_SIDES_PLUS_'
+        'SLIPPAGE"' in src["contract"]
+        and "INTRADAY_SLIPPAGE_BPS_PER_SIDE" in src["contract"]
+        and "half.get(t_in" in src["intraday"]
+        and "half.get(t_out" in src["intraday"])
+    no_cfd_proxy_for_futures = (
+        "NO_CFD_PROXY_FOR_A_FUTURES_HYPOTHESIS = True" in src["contract"]
+        and "INTRADAY_EXCLUDED_AS_CFD" in src["contract"]
+        and "excluded_as_cfd" in src["intraday"])
+    release_time_is_declared_constant = (
+        "MACRO_RELEASE_TIMES_ARE_A_DECLARED_CONSTANT = True"
+        in src["contract"]
+        and "MACRO_RELEASE_TIMES_ET" in src["contract"]
+        and "timing_sweep" in src["intraday"])
+    event_placebo_is_non_release_days = (
+        "INTRADAY_PLACEBO" in src["contract"]
+        and "def placebo" in src["intraday"]
+        and "shift_days" in src["intraday"])
+    no_fabricated_fill = (
+        "NO_INTERPOLATED_INTRADAY = True" in src["contract"]
+        and "no_fill_is_modelled" in src["acquisition"]
+        and "maker_execution_still_blocked" in src["acquisition"])
+
+    # (9) Analyst vintages are RECONCILED, never trusted.
+    no_current_snapshot_as_vintage = (
+        "NO_CURRENT_SNAPSHOT_AS_HISTORICAL_VINTAGE = True" in src["contract"]
+        and "def reconcile_backward_strip" in src["acquisition"]
+        and "VENDOR_BACKWARD_STRIP_IS_RESTATED" in src["acquisition"]
+        and "competing_explanation" in src["acquisition"])
+    sample_request_prepared_not_sent = (
+        "MAY_SEND_VENDOR_EMAIL = False" in src["contract"]
+        and "PREPARED_NOT_SENT" in src["acquisition"]
+        and "smtplib" not in all_src
+        and "send_message" not in all_src)
+
+    # (10) Options may diagnose and may not qualify.
+    options_may_not_qualify = (
+        "A_SHORT_WINDOW_MAY_DIAGNOSE_AND_MAY_NOT_QUALIFY = True"
+        in src["contract"]
+        and '"may_qualify": False' in src["options"]
+        and "sessions_short_by" in src["options"]
+        and "additional_months_required" in src["options"])
+    iv_inverted_locally = (
+        "OPTION_VENDOR_GREEKS_REQUIRED = False" in src["contract"]
+        and "BLACK_SCHOLES" in src["contract"])
+
+    # (11) Less-efficient markets: capacity is measured, cost is scaled.
+    capacity_is_a_result = (
+        "CAPACITY_IS_A_RESULT_NOT_A_FILTER = True" in src["contract"]
+        and "LOWER_CAPACITY_IS_ACCEPTABLE = True" in src["contract"]
+        and "FANTASY_EXECUTION_IS_NOT = True" in src["contract"]
+        and "def capacity" in src["niche"]
+        and "PARTICIPATION_CAP_OF_DAILY_VOLUME" in src["contract"])
+    cost_is_liquidity_scaled = (
+        "NICHE_COST_IS_LIQUIDITY_SCALED = True" in src["contract"]
+        and "COST_SCALE_EXPONENT" in src["niche"]
+        and "COST_SCALE_CAP" in src["niche"])
+    zero_volume_markets_excluded = (
+        'f[f["adv_usd"] > 0]' in src["niche"])
+    niche_advance_bar_is_the_frozen_one = (
+        'ADVANCE_T = C.STANDALONE_ALPHA_GATE["t_min_lock"]' in src["niche"])
+
+    # (12) Acquisition: walls probed, nothing bought, no key leaked.
+    walls_probed_not_asserted = (
+        "probe_analyst_revisions" in src["acquisition"]
+        and "probe_native_credit" in src["acquisition"]
+        and "probe_microstructure" in src["acquisition"]
+        and "live_probe" in src["acquisition"])
+    keys_never_leak = not re.search(
+        r"(api_?key|token)\s*=\s*[\"'][A-Za-z0-9]{12,}", all_src, re.I)
+    no_purchase_or_account = (
+        "MAY_SPEND_MONEY = False" in src["contract"]
+        and "MAY_PURCHASE_DATA = False" in src["contract"]
+        and "MAY_START_PROVIDER_TRIAL = False" in src["contract"]
+        and "MAY_CREATE_PROVIDER_ACCOUNT = False" in src["contract"]
+        and "MAY_SUBMIT_PAYMENT_DETAILS = False" in src["contract"]
+        and "DEFAULT_AUTHORIZED_SPEND_USD = 0.0" in src["contract"]
+        and '"money_spent_usd": 0.0' in src["purchase"])
+    purchase_gate_ranks_by_value_per_dollar = (
+        "gain_per_1000_usd" in src["purchase"]
+        and "TOP_DATA_PURCHASE_RECOMMENDATION" in src["purchase"]
+        and "NEED_SAMPLE" in src["purchase"])
+
+    # (13) Forward evidence and prior releases.
+    shadows_capped_not_promotable = (
+        "PROMOTION_ALLOWED = False" in src["contract"]
+        and "MAX_NEW_SHADOWS" in src["contract"]
+        and "DO_NOT_FREEZE_MEDIOCRE_CANDIDATES_TO_CREATE_ACTIVITY = True"
+        in src["contract"]
+        and "def freeze_decision" in src["frontier"])
+    forward_never_backfilled = (
+        "NEVER_BACKFILL_PROSPECTIVE_ROWS = True" in src["contract"]
+        and "PRIOR_SHADOWS_ARE_IMMUTABLE = True" in src["contract"])
+    prior_roots_witnessed = (
+        "IMMUTABLE_WITNESSES" in src["closeout"]
+        and "def witness_fingerprint" in src["closeout"]
+        and "def witnesses_unchanged" in src["closeout"]
+        and "prior_release_roots_opened_read_only" in src["closeout"])
+    no_operational_imports = not any(
+        tok in all_src for tok in
+        ("from api.", "import api.", "operational_book", "alpha_book",
+         "daily_close", "portfolio_decision", "corporate_actions"))
+
+    # (14) Safety, branch matrix, result axes.
+    safety_flags_false = all(
+        ("%s = False" % f) in src["contract"] for f in
+        ("MAY_CREATE_ORDER", "MAY_CREATE_PAPER_ORDER", "MAY_CHANGE_HOLDINGS",
+         "MAY_PROMOTE_MODEL", "MAY_ACTIVATE_SLEEVE",
+         "MAY_MODIFY_PRODUCTION_SCHEDULER", "MAY_RESTART_PRODUCTION",
+         "MAY_CONNECT_BROKER", "MAY_MUTATE_OPERATIONAL_STORE",
+         "MAY_MUTATE_PRIOR_RELEASE_ARTIFACT",
+         "MAY_CREATE_CAPITAL_ALLOCATION"))
+    every_lane_must_terminate = (
+        "BLOCKER_VOCAB" in src["contract"]
+        and "A_FAILED_LANE_IS_A_ROUTING_EVENT = True" in src["contract"]
+        and "ONE_LANE_MAY_NOT_HALT_ANOTHER = True" in src["contract"]
+        and "def _branch_matrix" in src["campaign"]
+        and "every_lane_terminated" in src["campaign"])
+    result_axes_never_collapsed = (
+        "NEVER_COLLAPSE_RESULT_AXES = True" in src["contract"]
+        and "def _result_axes" in src["campaign"]
+        and "DO_NOT_FORCE_A_SUCCESS_STATE = True" in src["contract"]
+        and "DO_NOT_PROTECT_PROMISING_RESULTS = True" in src["contract"])
+    fifteen_questions_answered = (
+        "FIFTEEN_QUESTIONS" in src["contract"]
+        and "def _fifteen_answers" in src["campaign"])
+    no_alpha_terminal_requires_execution = (
+        "NO_ALPHA_TERMINAL_REQUIRES_EVERY_ZERO_COST_BRANCH_EXECUTED = True"
+        in src["contract"]
+        and "NO_BROAD_EXECUTABLE_ZERO_COST_BRANCH_MAY_BE_DEFERRED = True"
+        in src["contract"])
+    shell_policy_declared = (
+        "WINDOWS_POWERSHELL_ONLY = True" in src["contract"]
+        and "INHERITED_SHELL_POLICY_DISCLOSURES = 1" in src["contract"]
+        and "SHELL_POLICY_MEASURED_BY" in src["contract"])
+    # A policy that is only reported when it was kept is not a policy. The
+    # release must carry a machine-readable record of its OWN events, with a
+    # waiver token, and the verdict must carry the same violation flag the
+    # record does - so a release cannot print "no violation" beside a file
+    # that says otherwise.
+    shell_policy_events_disclosed = (
+        "def violated" in src["shell_policy"]
+        and "def waiver_token" in src["shell_policy"]
+        and "INHERITED_EVENTS" in src["shell_policy"]
+        and "DISCLOSED_WAIVER_IS_THE_OPERATORS" in src["shell_policy"]
+        and "SP.violated()" in src["campaign"]
+        and "R44_SHELL_POLICY_EVENTS.json" in src["campaign"])
+    no_scheduler_or_task_registration = not any(
+        tok in all_src for tok in
+        ("schtasks", "Register-ScheduledTask", "crontab", "CronCreate"))
+    states_declared = sorted(
+        s for s in R44_REQUIRED_STATES if s not in src["contract"])
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "r43_ledger_read_only": r43_ledger_read_only,
+        "lane_caps_enforced": lane_caps_enforced,
+        "portfolio_synthesis_is_charged": portfolio_synthesis_is_charged,
+        "contract_frozen_before_results": contract_frozen_before_results,
+        "amendments_disclosed_and_bounded": amendments_disclosed_and_bounded,
+        "primary_rule_named_before_lockbox": primary_rule_named_before_lockbox,
+        "no_threshold_is_chosen": no_threshold_is_chosen,
+        "losers_are_included": losers_are_included,
+        "dangerous_optimisers_forbidden": dangerous_optimisers_forbidden,
+        "weights_fitted_on_fit_zones_only": weights_fitted_on_fit_zones_only,
+        "constraints_applied_to_every_rule": constraints_applied_to_every_rule,
+        "sign_flip_charges_cost": sign_flip_charges_cost,
+        "sign_diagnostic_cannot_qualify": sign_diagnostic_cannot_qualify,
+        "structural_premium_control_declared":
+            structural_premium_control_declared,
+        "increment_is_volatility_matched": increment_is_volatility_matched,
+        "three_qualification_words_kept_apart":
+            three_qualification_words_kept_apart,
+        "kill_battery_complete": kill_battery_complete,
+        "pbo_measured_over_the_rules": pbo_measured_over_the_rules,
+        "negative_is_never_called_a_survivor":
+            negative_is_never_called_a_survivor,
+        "reuses_canonical_statistics": reuses_canonical_statistics,
+        "entry_is_never_at_the_print": entry_is_never_at_the_print,
+        "cost_is_the_observed_spread": cost_is_the_observed_spread,
+        "no_cfd_proxy_for_futures": no_cfd_proxy_for_futures,
+        "release_time_is_declared_constant": release_time_is_declared_constant,
+        "event_placebo_is_non_release_days": event_placebo_is_non_release_days,
+        "no_fabricated_fill": no_fabricated_fill,
+        "no_current_snapshot_as_vintage": no_current_snapshot_as_vintage,
+        "sample_request_prepared_not_sent": sample_request_prepared_not_sent,
+        "options_may_not_qualify": options_may_not_qualify,
+        "iv_inverted_locally": iv_inverted_locally,
+        "capacity_is_a_result": capacity_is_a_result,
+        "cost_is_liquidity_scaled": cost_is_liquidity_scaled,
+        "zero_volume_markets_excluded": zero_volume_markets_excluded,
+        "niche_advance_bar_is_the_frozen_one":
+            niche_advance_bar_is_the_frozen_one,
+        "walls_probed_not_asserted": walls_probed_not_asserted,
+        "keys_never_leak": bool(keys_never_leak),
+        "no_purchase_or_account": no_purchase_or_account,
+        "purchase_gate_ranks_by_value_per_dollar":
+            purchase_gate_ranks_by_value_per_dollar,
+        "shadows_capped_not_promotable": shadows_capped_not_promotable,
+        "forward_never_backfilled": forward_never_backfilled,
+        "prior_roots_witnessed": prior_roots_witnessed,
+        "no_operational_imports": no_operational_imports,
+        "safety_flags_false": safety_flags_false,
+        "every_lane_must_terminate": every_lane_must_terminate,
+        "result_axes_never_collapsed": result_axes_never_collapsed,
+        "fifteen_questions_answered": fifteen_questions_answered,
+        "no_alpha_terminal_requires_execution":
+            no_alpha_terminal_requires_execution,
+        "shell_policy_declared": shell_policy_declared,
+        "shell_policy_events_disclosed": shell_policy_events_disclosed,
+        "no_scheduler_or_task_registration": no_scheduler_or_task_registration,
+        "qualification_states_missing": states_declared,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -9700,6 +10118,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release42_crypto_basis_alpha(files),
         "release43_global_alpha_offensive":
             check_release43_global_alpha_offensive(files),
+        "release44_orthogonal_portfolio_alpha":
+            check_release44_orthogonal_portfolio_alpha(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -11523,6 +11943,67 @@ BLOCKING_INVARIANTS = (
     ("release43_global_alpha_offensive", 'shell_policy_declared', True),
     ("release43_global_alpha_offensive", 'no_scheduler_or_task_registration', True),
     ("release43_global_alpha_offensive", 'qualification_states_missing', []),
+
+    # --- Release 44: Orthogonal Information x Portfolio Alpha -------------- #
+    # A portfolio claim is the easiest kind to fake. These block the routes:
+    # a filtered inventory, a rule picked after the fact, a sign flip that
+    # credits transaction costs, a benchmark chosen to be beatable, and a
+    # smoother package of risk premia relabelled as alpha.
+    ("release44_orthogonal_portfolio_alpha", 'modules_present', True),
+    ("release44_orthogonal_portfolio_alpha", 'modules_missing', []),
+    ("release44_orthogonal_portfolio_alpha", 'second_owner_modules', []),
+    ("release44_orthogonal_portfolio_alpha", 'burden_inherited_not_reset', True),
+    ("release44_orthogonal_portfolio_alpha", 'r43_ledger_read_only', True),
+    ("release44_orthogonal_portfolio_alpha", 'lane_caps_enforced', True),
+    ("release44_orthogonal_portfolio_alpha", 'portfolio_synthesis_is_charged', True),
+    ("release44_orthogonal_portfolio_alpha", 'contract_frozen_before_results', True),
+    ("release44_orthogonal_portfolio_alpha", 'amendments_disclosed_and_bounded', True),
+    ("release44_orthogonal_portfolio_alpha", 'primary_rule_named_before_lockbox', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_threshold_is_chosen', True),
+    ("release44_orthogonal_portfolio_alpha", 'losers_are_included', True),
+    ("release44_orthogonal_portfolio_alpha", 'dangerous_optimisers_forbidden', True),
+    ("release44_orthogonal_portfolio_alpha", 'weights_fitted_on_fit_zones_only', True),
+    ("release44_orthogonal_portfolio_alpha", 'constraints_applied_to_every_rule', True),
+    ("release44_orthogonal_portfolio_alpha", 'sign_flip_charges_cost', True),
+    ("release44_orthogonal_portfolio_alpha", 'sign_diagnostic_cannot_qualify', True),
+    ("release44_orthogonal_portfolio_alpha", 'structural_premium_control_declared', True),
+    ("release44_orthogonal_portfolio_alpha", 'increment_is_volatility_matched', True),
+    ("release44_orthogonal_portfolio_alpha", 'three_qualification_words_kept_apart', True),
+    ("release44_orthogonal_portfolio_alpha", 'kill_battery_complete', True),
+    ("release44_orthogonal_portfolio_alpha", 'pbo_measured_over_the_rules', True),
+    ("release44_orthogonal_portfolio_alpha", 'negative_is_never_called_a_survivor', True),
+    ("release44_orthogonal_portfolio_alpha", 'reuses_canonical_statistics', True),
+    ("release44_orthogonal_portfolio_alpha", 'entry_is_never_at_the_print', True),
+    ("release44_orthogonal_portfolio_alpha", 'cost_is_the_observed_spread', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_cfd_proxy_for_futures', True),
+    ("release44_orthogonal_portfolio_alpha", 'release_time_is_declared_constant', True),
+    ("release44_orthogonal_portfolio_alpha", 'event_placebo_is_non_release_days', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_fabricated_fill', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_current_snapshot_as_vintage', True),
+    ("release44_orthogonal_portfolio_alpha", 'sample_request_prepared_not_sent', True),
+    ("release44_orthogonal_portfolio_alpha", 'options_may_not_qualify', True),
+    ("release44_orthogonal_portfolio_alpha", 'iv_inverted_locally', True),
+    ("release44_orthogonal_portfolio_alpha", 'capacity_is_a_result', True),
+    ("release44_orthogonal_portfolio_alpha", 'cost_is_liquidity_scaled', True),
+    ("release44_orthogonal_portfolio_alpha", 'zero_volume_markets_excluded', True),
+    ("release44_orthogonal_portfolio_alpha", 'niche_advance_bar_is_the_frozen_one', True),
+    ("release44_orthogonal_portfolio_alpha", 'walls_probed_not_asserted', True),
+    ("release44_orthogonal_portfolio_alpha", 'keys_never_leak', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_purchase_or_account', True),
+    ("release44_orthogonal_portfolio_alpha", 'purchase_gate_ranks_by_value_per_dollar', True),
+    ("release44_orthogonal_portfolio_alpha", 'shadows_capped_not_promotable', True),
+    ("release44_orthogonal_portfolio_alpha", 'forward_never_backfilled', True),
+    ("release44_orthogonal_portfolio_alpha", 'prior_roots_witnessed', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_operational_imports', True),
+    ("release44_orthogonal_portfolio_alpha", 'safety_flags_false', True),
+    ("release44_orthogonal_portfolio_alpha", 'every_lane_must_terminate', True),
+    ("release44_orthogonal_portfolio_alpha", 'result_axes_never_collapsed', True),
+    ("release44_orthogonal_portfolio_alpha", 'fifteen_questions_answered', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_alpha_terminal_requires_execution', True),
+    ("release44_orthogonal_portfolio_alpha", 'shell_policy_declared', True),
+    ("release44_orthogonal_portfolio_alpha", 'shell_policy_events_disclosed', True),
+    ("release44_orthogonal_portfolio_alpha", 'no_scheduler_or_task_registration', True),
+    ("release44_orthogonal_portfolio_alpha", 'qualification_states_missing', []),
     ("release39_continuation", "modules_missing", []),
     ("release39_continuation", "burden_never_resets", True),
     ("release39_continuation", "zone_c_pregate_declared", True),

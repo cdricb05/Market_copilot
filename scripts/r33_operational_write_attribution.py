@@ -269,7 +269,44 @@ R42_MARKERS = (
 R42_SOURCE_GLOBS = ("alpha_agent/r42/*.py",)
 R42_SOURCE_FILES = ()
 
+#: Release 43 ran thirteen research lanes and wrote ONLY under its own
+#: research root; it added no profile of its own. Release 44 inherits the
+#: markers so an R43 artifact appearing in an operational store is still
+#: attributable to a named release rather than to nobody.
+R43_MARKERS = (
+    "r43_global_alpha_offensive_v1", "global_alpha_offensive_r43",
+    "alpha_agent.r43", "alpha_agent/r43", "alpha_agent\\r43",
+    "release43_global_alpha_offensive", "r43_shadow_registry",
+    "r43_frozen_contract", "r43_zone_c_access_ledger",
+    "_data_options", "_data_events", "_data_macro", "_data_equity",
+)
+R43_SOURCE_GLOBS = ("alpha_agent/r43/*.py",)
+R43_SOURCE_FILES = ()
+
+#: Release 44 combines residual streams, deepens an option surface, studies
+#: event-time intraday bars and tiers the futures universe by liquidity. It
+#: writes ONLY under its own research root and opens every prior release's
+#: root read-only. An R44 artifact, a stream cache, an option surface or a
+#: portfolio weight vector landing in an operational store would be
+#: attributable here - as would any R44 row in an operational ledger.
+R44_MARKERS = (
+    "r44_orthogonal_portfolio_alpha_v1", "orthogonal_portfolio_alpha_r44",
+    "alpha_agent.r44", "alpha_agent/r44", "alpha_agent\\r44",
+    "release44_orthogonal_portfolio_alpha", "r44_frozen_contract",
+    "r44_contract_amendment", "r44_search_burden_ledger",
+    "r44_streams", "_data_streams", "_data_analyst",
+    "polygon_spy_option_surface",
+)
+R44_SOURCE_GLOBS = ("alpha_agent/r44/*.py",)
+R44_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R44": {"markers": R44_MARKERS, "source_globs": R44_SOURCE_GLOBS,
+            "source_files": R44_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
+    "R43": {"markers": R43_MARKERS, "source_globs": R43_SOURCE_GLOBS,
+            "source_files": R43_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R42": {"markers": R42_MARKERS, "source_globs": R42_SOURCE_GLOBS,
             "source_files": R42_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
