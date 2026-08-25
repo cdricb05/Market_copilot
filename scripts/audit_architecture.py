@@ -8737,6 +8737,313 @@ def check_release42_crypto_basis_alpha(files: list[Path]) -> dict:
     }
 
 
+
+# --------------------------------------------------------------------------- #
+# Release 43 - Global Alpha Offensive
+# --------------------------------------------------------------------------- #
+R43_OWNERS = {
+    "root": "alpha_agent/r43/__init__.py",
+    "contract": "alpha_agent/r43/contract.py",
+    "burden": "alpha_agent/r43/burden.py",
+    "closeout": "alpha_agent/r43/closeout.py",
+    "judge": "alpha_agent/r43/judge.py",
+    "panels": "alpha_agent/r43/panels.py",
+    "carry": "alpha_agent/r43/carry.py",
+    "rv": "alpha_agent/r43/rv.py",
+    "crossasset": "alpha_agent/r43/crossasset.py",
+    "equity": "alpha_agent/r43/equity.py",
+    "acquisition": "alpha_agent/r43/acquisition.py",
+    "killer": "alpha_agent/r43/killer.py",
+    "frontier": "alpha_agent/r43/frontier.py",
+    "campaign": "alpha_agent/r43/campaign.py",
+}
+#: A second implementation of an already-owned concern inside r43 is a
+#: blocking defect - these names may not exist.
+R43_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r43/evidence.py", "alpha_agent/r43/multiple_testing.py",
+    "alpha_agent/r43/economics.py", "alpha_agent/r43/zones.py",
+    "alpha_agent/r43/ledger.py", "alpha_agent/r43/research_shadow.py",
+    "alpha_agent/r43/scheduler.py", "alpha_agent/r43/forward_freeze.py",
+    "alpha_agent/r43/curve_state.py", "alpha_agent/r43/crypto_lab.py",
+    "alpha_agent/r43/deflated_sharpe.py",
+)
+#: Release-43 terminal vocabulary. A verdict outside this set means a label
+#: was invented to describe an inconvenient result.
+R43_REQUIRED_STATES = (
+    "R43_QUALIFIED_ALPHA_FOUND",
+    "R43_STRONG_CANDIDATE_FORWARD_PENDING",
+    "R43_NO_QUALIFIED_ALPHA_AFTER_GLOBAL_OFFENSIVE",
+)
+
+
+def check_release43_global_alpha_offensive(files: list[Path]) -> dict:
+    """Release 43 invariants - a broad search that may not cheat.
+
+    The dangerous outcomes this guard exists to catch: the inherited search
+    burden reset or laundered through a new campaign id; the R41 ledger or
+    any prior release's artifacts written; a collateral class, capital
+    denominator, control, cap or kill test chosen AFTER a result; the
+    universal judge quietly drifting away from the two prior conventions it
+    claims to generalise; a signal that reads its own trading day; a decile
+    selection lagged differently from the position it selects; a sector
+    neutralisation built from a look-ahead classification; an option,
+    analyst, intraday, credit or crypto wall asserted rather than probed; a
+    purchase, account, licence or trial; a promotable shadow; a backfilled
+    forward row; a lane that ends outside the frozen blocker vocabulary.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R43_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R43_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) Burden is inherited, verified from bytes, and never reset.
+    burden_inherited_not_reset = (
+        "GLOBAL_INHERITED_EFFECTIVE_TRIALS = 289" in src["contract"]
+        and "INHERITED_PRE_R41 = 230" in src["contract"]
+        and "INHERITED_R41_DISTINCT = 59" in src["contract"]
+        and "BURDEN_NEVER_RESETS = True" in src["contract"]
+        and "NO_CAMPAIGN_ID_LAUNDERING = True" in src["contract"]
+        and "def verify_inherited" in src["burden"]
+        and "class BurdenLaundering" in src["burden"]
+        and "raise BurdenLaundering" in src["burden"])
+    r41_ledger_read_only = (
+        "R41_LEDGER_IS_READ_ONLY = True" in src["contract"]
+        and "r41_ledger_mutated" in src["burden"]
+        and ".write_text" not in src["burden"].split("def verify_inherited")[1]
+        .split("def _path")[0])
+    lane_caps_enforced = (
+        "has exhausted its FROZEN ZONE_B cap" in src["burden"]
+        and "TOTAL_ZONE_B_BUDGET" in src["contract"]
+        and "LANE_CAP_IS_A_CEILING_NOT_A_TARGET = True" in src["contract"])
+
+    # (2) The contract is frozen BEFORE the first number and is hash-checked.
+    contract_frozen_before_results = (
+        "def frozen_body" in src["contract"]
+        and "def verify_contract_unchanged" in src["closeout"]
+        and "contract_frozen_before_first_number" in src["closeout"]
+        and "COLLATERAL_MAY_NOT_BE_CHOSEN_AFTER_SEEING_RESULTS = True"
+        in src["contract"]
+        and "KILL_TESTS_ARE_CHOSEN_BEFORE_RESULTS = True" in src["contract"])
+
+    # (3) The collateral declaration - the heart of the release.
+    collateral_declared = (
+        "COLLATERAL_CLASSES" in src["contract"]
+        and "UNREMUNERATED_FULLY_FUNDED" in src["contract"]
+        and "REMUNERATED_MARGIN" in src["contract"]
+        and "FUNDED_LONG_SHORT_EQUITY" in src["contract"]
+        and "COLLATERAL_CHOICE_IS_PREDECLARED = True" in src["contract"]
+        and "DUAL_QUOTATION_REQUIRED = True" in src["contract"])
+    judge_is_one_equation = (
+        "def implementable_book" in src["judge"]
+        and "collateral_earns_rf" in src["judge"]
+        and "undeclared collateral class" in src["judge"]
+        and "def convention" in src["judge"]
+        and "R41_PER_NOTIONAL_ZERO_CONTROL" in src["judge"]
+        and "R42_COMMITTED_CAPITAL_CASH_CONTROL" in src["judge"])
+    risk_free_convention_inherited = (
+        'RISK_FREE_SERIES_PREFERENCE = ("SOFR", "EFFR", "CMT_3M")'
+        in src["judge"])
+    post_freeze_denominator_disclosed = (
+        "RISK_SIZED_CAPITAL_IS_POST_FREEZE = True" in src["judge"]
+        and "POST-FREEZE ADDITION, DISCLOSED" in src["judge"]
+        and "FITTING_ZONE_ONLY" in src["judge"])
+
+    # (4) Causality. Nothing may read its own trading day.
+    signal_is_lagged = (
+        "zl = z.shift(1 + int(extra_lag))" in src["rv"]
+        and "zl = z.shift(1 + int(extra_lag))" in src["equity"]
+        and "rank = zl.rank(axis=1, pct=True)" in src["equity"]
+        and "rank = z.rank(axis=1, pct=True)" not in src["equity"])
+    no_full_sample_risk_target = (
+        "expanding(min_periods=250).median()" in src["rv"]
+        and "np.nanmedian(v)" not in src["rv"])
+    no_padded_returns = (
+        "close.pct_change()" not in src["equity"]
+        and "close.notna() & prev.notna()" in src["equity"])
+    causal_pivots_only = (
+        "NO_HINDSIGHT_EXTREMA = True" in src["contract"]
+        and "NO_HUMAN_VISUAL_CONFIRMATION = True" in src["contract"]
+        and "def _causal_pivots" in src["crossasset"]
+        and "i + confirm" in src["crossasset"])
+    lookahead_sector_map_refused = (
+        "PROVISIONAL_CLASSIFICATION_LOOKAHEAD" in src["equity"]
+        and '"sector": False' in src["equity"])
+    survivorship_handled = (
+        "index_constituent_timeseries" in src["equity"]
+        and "TOTALRETURN" in src["equity"]
+        and '"survivorship_safe": True' in src["equity"])
+
+    # (5) Controls. A signal must beat its own passive exposure.
+    passive_control_measured = (
+        "VOLATILITY-MATCHED" in src["killer"]
+        and "increment_t_hac" in src["killer"]
+        and "def passive_increment" in src["carry"]
+        and "signal_is_decoration" in src["carry"])
+    placebo_declared_not_chosen = (
+        "FIB_PLACEBO_LEVELS" in src["contract"]
+        and "FIB_PLACEBO_LEVELS" in src["crossasset"]
+        and "named_beats_placebo" in src["crossasset"])
+    event_placebo_is_non_event_days = (
+        "placebo_is_the_same_rule_on_non_event_days" in src["crossasset"]
+        and "event_days=False" in src["crossasset"])
+    signed_advance_rule = (
+        "advance_rule_is_signed" in src["rv"]
+        and '"signs_fitted": 0' in src["rv"])
+
+    # (6) Acquisition. Walls are PROBED, and nothing is bought.
+    walls_probed_not_asserted = (
+        "def probe_options" in src["acquisition"]
+        and "def probe_analyst_revisions" in src["acquisition"]
+        and "def probe_native_intraday_futures" in src["acquisition"]
+        and "def probe_native_credit" in src["acquisition"]
+        and "def probe_microstructure" in src["acquisition"]
+        and "def probe_crypto_venues" in src["acquisition"])
+    keys_never_leak = (
+        "def _redact" in src["acquisition"]
+        and "REDACTED" in src["acquisition"]
+        and "entitlement_keys_printed" in src["acquisition"])
+    no_purchase_or_account = (
+        "MAY_PURCHASE_DATA = False" in src["contract"]
+        and "MAY_CREATE_PROVIDER_ACCOUNT = False" in src["contract"]
+        and "MAY_ACCEPT_LICENCE_AGREEMENT = False" in src["contract"]
+        and "MAY_SUBMIT_PAYMENT_DETAILS = False" in src["contract"]
+        and "MAY_START_PROVIDER_TRIAL = False" in src["contract"]
+        and 'method="POST"' not in all_src
+        and "urlopen(req, data=" not in all_src)
+    purchase_gate_ranks_by_value_per_dollar = (
+        "EXPECTED ALPHA INFORMATION GAIN PER DOLLAR" in src["acquisition"]
+        and "WHY_OWNED_DATA_CANNOT_ANSWER_THEM" in src["acquisition"]
+        and '"money_spent": 0.0' in src["acquisition"])
+
+    # (7) ZONE_C lockbox and the freeze.
+    zone_c_gated = (
+        "ZONE_C_PREGATE_T" in src["contract"]
+        and "def may_open_zone_c" in src["frontier"]
+        and "one_access_per_lineage" in src["frontier"]
+        and "ZONE_C_NEVER_READ_FOR_SELECTION = True" in src["contract"])
+    shadows_capped_not_promotable = (
+        "MAX_NEW_SHADOWS = 4" in src["contract"]
+        and "PROMOTION_ALLOWED = False" in src["contract"]
+        and '"promotion_allowed": C.PROMOTION_ALLOWED' in src["frontier"]
+        and "paired_control" in src["frontier"])
+    forward_never_backfilled = (
+        "NEVER_BACKFILL_PROSPECTIVE_ROWS = True" in src["contract"]
+        and "NEVER_REWRITE_FROZEN_PREDICTIONS = True" in src["contract"]
+        and "PRIOR_SHADOWS_ARE_IMMUTABLE = True" in src["contract"]
+        and "prior_release_shadows_mutated" in src["frontier"])
+
+    # (8) Ranking is economic, not statistical vanity.
+    ranked_by_economic_value = (
+        "RANK_BY" in src["contract"]
+        and "evidence-weighted" in src["contract"]
+        and "ECONOMIC_VALUE_SCORE" in src["frontier"]
+        and "def _economic_value" in src["frontier"])
+    frontier_fields_complete = all(
+        f in src["frontier"] for f in
+        ("NET_RESIDUAL_ALPHA", "COMMITTED_CAPITAL", "CASH_HURDLE",
+         "SEARCH_ADJUSTMENT", "ROBUSTNESS", "PIT_STATUS", "FORWARD_READY",
+         "QUALIFICATION_STATE"))
+
+    # (9) Statistics are imported from their canonical owners.
+    reuses_canonical_statistics = (
+        "from ..r31 import multiple_testing" in src["frontier"]
+        and "from ..r39 import burden as R39B" in src["frontier"]
+        and "from ..r41 import evidence as EV" in src["frontier"]
+        and "def deflated_sharpe" not in all_src
+        and "def benjamini_hochberg" not in all_src
+        and "def scorecard" not in all_src)
+
+    # (10) Read-only against prior releases and the operational estate.
+    panels_read_only = all(
+        bad not in src["panels"]
+        for bad in ("to_csv(", "write_text(", "to_pickle(", "mkdir("))
+    no_operational_imports = not any(
+        tok in all_src for tok in
+        ("from api.", "import api.", "operational_book", "alpha_book",
+         "daily_close", "portfolio_decision", "rebalance", "corporate_actions"))
+    prior_roots_witnessed = (
+        "IMMUTABLE_WITNESSES" in src["closeout"]
+        and "def witness_fingerprint" in src["closeout"]
+        and "prior_release_roots_opened_read_only" in src["closeout"])
+
+    # (11) Safety flags and the branch matrix.
+    safety_flags_false = all(
+        ("%s = False" % f) in src["contract"] for f in
+        ("MAY_CREATE_ORDER", "MAY_CREATE_PAPER_ORDER", "MAY_CHANGE_HOLDINGS",
+         "MAY_PROMOTE_MODEL", "MAY_ACTIVATE_SLEEVE",
+         "MAY_MODIFY_PRODUCTION_SCHEDULER", "MAY_RESTART_PRODUCTION",
+         "MAY_CONNECT_BROKER", "MAY_MUTATE_OPERATIONAL_STORE",
+         "MAY_MUTATE_PRIOR_RELEASE_ARTIFACT"))
+    every_lane_must_terminate = (
+        "BLOCKER_VOCAB" in src["contract"]
+        and "NO_ALPHA_FOUND_IS_NOT_A_GLOBAL_STOP = True" in src["contract"]
+        and "def branch_matrix" in src["campaign"]
+        and "every_lane_terminated" in src["campaign"])
+    result_axes_never_collapsed = (
+        "NEVER_COLLAPSE_RESULT_AXES = True" in src["contract"]
+        and "def result_axes" in src["campaign"]
+        and "DO_NOT_FORCE_A_SUCCESS_STATE = True" in src["contract"])
+    states_declared = sorted(
+        s for s in R43_REQUIRED_STATES if s not in src["contract"])
+    twenty_questions_answered = (
+        "TWENTY_QUESTIONS" in src["contract"]
+        and "def twenty_answers" in src["campaign"])
+    shell_policy_declared = (
+        "WINDOWS_POWERSHELL_ONLY = True" in src["contract"]
+        and "INHERITED_SHELL_POLICY_DISCLOSURES" in src["contract"]
+        and "release42" in src["contract"])
+    no_scheduler_or_task_registration = not any(
+        tok in all_src for tok in
+        ("schtasks", "Register-ScheduledTask", "crontab", "CronCreate"))
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "r41_ledger_read_only": r41_ledger_read_only,
+        "lane_caps_enforced": lane_caps_enforced,
+        "contract_frozen_before_results": contract_frozen_before_results,
+        "collateral_declared": collateral_declared,
+        "judge_is_one_equation": judge_is_one_equation,
+        "risk_free_convention_inherited": risk_free_convention_inherited,
+        "post_freeze_denominator_disclosed": post_freeze_denominator_disclosed,
+        "signal_is_lagged": signal_is_lagged,
+        "no_full_sample_risk_target": no_full_sample_risk_target,
+        "no_padded_returns": no_padded_returns,
+        "causal_pivots_only": causal_pivots_only,
+        "lookahead_sector_map_refused": lookahead_sector_map_refused,
+        "survivorship_handled": survivorship_handled,
+        "passive_control_measured": passive_control_measured,
+        "placebo_declared_not_chosen": placebo_declared_not_chosen,
+        "event_placebo_is_non_event_days": event_placebo_is_non_event_days,
+        "signed_advance_rule": signed_advance_rule,
+        "walls_probed_not_asserted": walls_probed_not_asserted,
+        "keys_never_leak": keys_never_leak,
+        "no_purchase_or_account": no_purchase_or_account,
+        "purchase_gate_ranks_by_value_per_dollar":
+            purchase_gate_ranks_by_value_per_dollar,
+        "zone_c_gated": zone_c_gated,
+        "shadows_capped_not_promotable": shadows_capped_not_promotable,
+        "forward_never_backfilled": forward_never_backfilled,
+        "ranked_by_economic_value": ranked_by_economic_value,
+        "frontier_fields_complete": frontier_fields_complete,
+        "reuses_canonical_statistics": reuses_canonical_statistics,
+        "panels_read_only": panels_read_only,
+        "no_operational_imports": no_operational_imports,
+        "prior_roots_witnessed": prior_roots_witnessed,
+        "safety_flags_false": safety_flags_false,
+        "every_lane_must_terminate": every_lane_must_terminate,
+        "result_axes_never_collapsed": result_axes_never_collapsed,
+        "twenty_questions_answered": twenty_questions_answered,
+        "shell_policy_declared": shell_policy_declared,
+        "no_scheduler_or_task_registration": no_scheduler_or_task_registration,
+        "qualification_states_missing": states_declared,
+    }
+
+
 _ATTRITION_REQUIRED_MODES = {
     "forecast_too_weak", "magnitude_poorly_calibrated",
     "sizing_destroys_rank_skill", "turnover_consumes_edge",
@@ -9391,6 +9698,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release41_multi_horizon_alpha(files),
         "release42_crypto_basis_alpha":
             check_release42_crypto_basis_alpha(files),
+        "release43_global_alpha_offensive":
+            check_release43_global_alpha_offensive(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -11173,6 +11482,47 @@ BLOCKING_INVARIANTS = (
      "forward_handoff_prepared_not_activated", True),
     ("release39_universal_alpha_discovery", "steele_lane_read_only", True),
     ("release39_continuation", "modules_present", True),
+    ("release43_global_alpha_offensive", 'modules_present', True),
+    ("release43_global_alpha_offensive", 'modules_missing', []),
+    ("release43_global_alpha_offensive", 'second_owner_modules', []),
+    ("release43_global_alpha_offensive", 'burden_inherited_not_reset', True),
+    ("release43_global_alpha_offensive", 'r41_ledger_read_only', True),
+    ("release43_global_alpha_offensive", 'lane_caps_enforced', True),
+    ("release43_global_alpha_offensive", 'contract_frozen_before_results', True),
+    ("release43_global_alpha_offensive", 'collateral_declared', True),
+    ("release43_global_alpha_offensive", 'judge_is_one_equation', True),
+    ("release43_global_alpha_offensive", 'risk_free_convention_inherited', True),
+    ("release43_global_alpha_offensive", 'post_freeze_denominator_disclosed', True),
+    ("release43_global_alpha_offensive", 'signal_is_lagged', True),
+    ("release43_global_alpha_offensive", 'no_full_sample_risk_target', True),
+    ("release43_global_alpha_offensive", 'no_padded_returns', True),
+    ("release43_global_alpha_offensive", 'causal_pivots_only', True),
+    ("release43_global_alpha_offensive", 'lookahead_sector_map_refused', True),
+    ("release43_global_alpha_offensive", 'survivorship_handled', True),
+    ("release43_global_alpha_offensive", 'passive_control_measured', True),
+    ("release43_global_alpha_offensive", 'placebo_declared_not_chosen', True),
+    ("release43_global_alpha_offensive", 'event_placebo_is_non_event_days', True),
+    ("release43_global_alpha_offensive", 'signed_advance_rule', True),
+    ("release43_global_alpha_offensive", 'walls_probed_not_asserted', True),
+    ("release43_global_alpha_offensive", 'keys_never_leak', True),
+    ("release43_global_alpha_offensive", 'no_purchase_or_account', True),
+    ("release43_global_alpha_offensive", 'purchase_gate_ranks_by_value_per_dollar', True),
+    ("release43_global_alpha_offensive", 'zone_c_gated', True),
+    ("release43_global_alpha_offensive", 'shadows_capped_not_promotable', True),
+    ("release43_global_alpha_offensive", 'forward_never_backfilled', True),
+    ("release43_global_alpha_offensive", 'ranked_by_economic_value', True),
+    ("release43_global_alpha_offensive", 'frontier_fields_complete', True),
+    ("release43_global_alpha_offensive", 'reuses_canonical_statistics', True),
+    ("release43_global_alpha_offensive", 'panels_read_only', True),
+    ("release43_global_alpha_offensive", 'no_operational_imports', True),
+    ("release43_global_alpha_offensive", 'prior_roots_witnessed', True),
+    ("release43_global_alpha_offensive", 'safety_flags_false', True),
+    ("release43_global_alpha_offensive", 'every_lane_must_terminate', True),
+    ("release43_global_alpha_offensive", 'result_axes_never_collapsed', True),
+    ("release43_global_alpha_offensive", 'twenty_questions_answered', True),
+    ("release43_global_alpha_offensive", 'shell_policy_declared', True),
+    ("release43_global_alpha_offensive", 'no_scheduler_or_task_registration', True),
+    ("release43_global_alpha_offensive", 'qualification_states_missing', []),
     ("release39_continuation", "modules_missing", []),
     ("release39_continuation", "burden_never_resets", True),
     ("release39_continuation", "zone_c_pregate_declared", True),
