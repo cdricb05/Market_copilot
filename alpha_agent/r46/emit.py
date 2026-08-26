@@ -38,6 +38,21 @@ CALCULATION_OWNER = "alpha_agent.r46.emit"
 
 BATCH_ARTIFACT = "R46_FORWARD_BATCHES.json"
 
+#: Release 46.2 - the forward-only sub-second stamp contract. Rows emitted from this
+#: release onward carry ``*_precise`` companions to the frozen whole-second fields.
+#: Existing rows are never rewritten and never acquire them.
+TIMESTAMP_PRECISION_CONTRACT = "r46_2_timestamp_precision/1"
+
+#: Release 46.2 - the stable NON-EMISSION reason vocabulary. Every reason names ONE
+#: challenger's condition. None of them is a tournament-level blocker: a challenger
+#: that cannot emit today is recorded and skipped, and the others still emit.
+REASON_DATA_BLOCKED = "DATA_BLOCKED"
+REASON_BUILD_FAILED = "CHALLENGER_BUILD_FAILED"
+REASON_FLAT = "FLAT_NO_POSITION"
+REASON_NO_CUTOFF = "NO_DATA_CUTOFF"
+NON_EMISSION_REASONS = (REASON_DATA_BLOCKED, REASON_BUILD_FAILED, REASON_FLAT,
+                        REASON_NO_CUTOFF)
+
 
 def batch_id(emitted_at: _dt.datetime) -> str:
     return "r46b_" + emitted_at.astimezone(_dt.timezone.utc).strftime(
@@ -79,10 +94,33 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
     bid = batch_id(now)
 
     rows, skipped = [], []
+    # Release 46.2 - CHALLENGER ISOLATION. Every challenger is built inside its own
+    # try/except. Before this, one rule raising (a missing symbol, a provider hiccup,
+    # a division on an empty window) aborted the WHOLE batch, so a single broken
+    # competitor could silently stop nine healthy ones from putting anything on the
+    # record - and the tournament would look quiet rather than broken. A failure is
+    # now that challenger's own reason and nothing else's.
+    blocked_ids = {c["challenger_id"] for c in (reg.get("challengers") or ())
+                   if c.get("state") == C.DATA_BLOCKED}
+    for cid in sorted(blocked_ids):
+        entry = RG.entry_for(reg, cid) or {}
+        skipped.append({"challenger_id": cid, "reason": REASON_DATA_BLOCKED,
+                        "detail": entry.get("blocked_reason")
+                                  or "the registry marks this challenger's data path "
+                                     "as unable to accrue; other challengers are "
+                                     "unaffected"})
     for spec in candidates:
         entry = RG.entry_for(reg, spec["challenger_id"]) or {}
-        book = CH.build(spec)
-        cutoff = _data_cutoff(book, spec)
+        try:
+            book = CH.build(spec)
+            cutoff = _data_cutoff(book, spec)
+        except Exception as exc:                # noqa: BLE001 - isolation is the point
+            skipped.append({"challenger_id": spec["challenger_id"],
+                            "reason": REASON_BUILD_FAILED,
+                            "detail": "%s: %s" % (type(exc).__name__,
+                                                  str(exc)[:180]),
+                            "isolated": True})
+            continue
         if book.get("state") != "OK":
             skipped.append({"challenger_id": spec["challenger_id"],
                             "reason": book.get("state"),
@@ -92,7 +130,7 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
             continue
         if not book.get("legs"):
             skipped.append({"challenger_id": spec["challenger_id"],
-                            "reason": "FLAT_NO_POSITION",
+                            "reason": REASON_FLAT,
                             "detail": "the frozen rule says hold nothing "
                                       "today; this is a valid decision, not "
                                       "a failure, and no row is emitted "
@@ -100,7 +138,10 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
             continue
         if cutoff is None:
             skipped.append({"challenger_id": spec["challenger_id"],
-                            "reason": "NO_DATA_CUTOFF"})
+                            "reason": REASON_NO_CUTOFF,
+                            "detail": "no owned session could be observed for this "
+                                      "challenger's inputs, so nothing states what "
+                                      "the rule actually saw"})
             continue
 
         cost_bps = CH.expected_cost_bps(book, spec)
@@ -130,6 +171,23 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
                 "outcome_window_start_utc": CK.iso(window_start),
                 "data_cutoff_utc": CK.iso(now),
                 "data_cutoff_session": str(cutoff),
+
+                # --- Release 46.2 timestamp precision (FORWARD-ONLY) ---------- #
+                # The frozen whole-second fields above are unchanged, so every
+                # existing row keeps its bytes and every existing reader keeps
+                # working. These additions make "the specification was frozen
+                # before this prediction was emitted" a NUMERIC comparison rather
+                # than an argument about a shared second - the exact ambiguity
+                # Release 46.1 disclosed in the first batch. A legacy row simply
+                # does not carry them, and is read as WHOLE_SECOND resolution.
+                "emitted_at_utc_precise": CK.iso_precise(now),
+                "data_cutoff_utc_precise": CK.iso_precise(now),
+                "outcome_window_start_utc_precise": CK.iso_precise(window_start),
+                "timestamp_precision": "MICROSECOND",
+                "timestamp_precision_contract": TIMESTAMP_PRECISION_CONTRACT,
+                "freeze_before_emission_evidence": CK.ordering_evidence(
+                    entry.get("frozen_at_precise") or entry.get("frozen_at"),
+                    CK.iso_precise(now)),
 
                 "asset_class": spec["asset_class"],
                 "instrument": spec["instrument"],
@@ -194,6 +252,7 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
                     "signal_owner": "%s.%s" % (CH.CALCULATION_OWNER,
                                                spec["signal_owner"]),
                     "registry_frozen_at": entry.get("frozen_at"),
+                    "registry_frozen_at_precise": entry.get("frozen_at_precise"),
                     "contract_hash": C.contract_hash(),
                     "entry_rule": C.ENTRY_RULE["id"],
                     "data_source": "owned Norgate local (NDU), adjusted "

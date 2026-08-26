@@ -130,6 +130,19 @@ STEP_VALIDATE_ALIGNMENT = "VALIDATE_INPUT_ALIGNMENT"
 STEP_SCORE_UNIVERSE = "SCORE_UNIVERSE"
 STEP_PREPARE_TARGET = "PREPARE_TARGET"
 STEP_CAPTURE_EVIDENCE = "CAPTURE_FORWARD_EVIDENCE"
+#: Release 46.2 — advance the ONE prospective alpha tournament (alpha_agent.r46).
+#: It sits HERE, between the forward-evidence capture and the opportunity-cost
+#: assessment, because of what each neighbour guarantees:
+#:
+#:   * the required inputs have already been refreshed (STEP_REFRESH_INPUTS), so the
+#:     judge is counting the instrument's REAL realised sessions rather than a stale
+#:     bar index that would leave a matured prediction looking pending;
+#:   * scoring therefore happens before this run emits anything, which is the one
+#:     ordering that stops a run from being accused of having seen its own outcome;
+#:   * it runs BEFORE the portfolio lane, and it feeds nothing into it. A forward
+#:     challenger confers no capital, so the reassessment that follows is decided by
+#:     exactly the evidence it was decided by before this step existed.
+STEP_ADVANCE_TOURNAMENT = "ADVANCE_PROSPECTIVE_TOURNAMENT"
 STEP_HOLDING_OPP_COST = "ASSESS_HOLDING_OPPORTUNITY_COST"
 #: Stage 20 — the portfolio-level ECONOMIC CHANGE GATE. It sits between the per-holding
 #: opportunity-cost assessment and the target engine: before Stage 20 the cycle built a
@@ -144,9 +157,17 @@ STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
 STEP_SEQUENCE = (
     STEP_RESOLVE_SESSION, STEP_VALIDATE_CONSISTENCY, STEP_PLAN, STEP_REFRESH_INPUTS,
     STEP_VALIDATE_ALIGNMENT, STEP_SCORE_UNIVERSE, STEP_PREPARE_TARGET,
-    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_REASSESS_PORTFOLIO,
+    STEP_CAPTURE_EVIDENCE, STEP_ADVANCE_TOURNAMENT, STEP_HOLDING_OPP_COST,
+    STEP_REASSESS_PORTFOLIO,
     STEP_BUILD_REALLOCATION, STEP_RUN_RESEARCH_AGENT, STEP_RUN_ASSESSMENT,
 )
+
+#: Mirrors ``alpha_agent.r46.advance.STATE_NOT_REGISTERED`` as a literal so this module
+#: stays import-pure (the R46 package is imported lazily, inside the seam). A research
+#: root that holds no Release-46 challenger registry has NOTHING to advance — that is a
+#: quiet tournament, not a broken daily cycle, so the step is SKIPPED rather than FAILED.
+#: ``tests/test_release46_2_live_tournament.py`` pins the two spellings together.
+TOURNAMENT_NOT_REGISTERED = "TOURNAMENT_NOT_REGISTERED"
 
 # Frozen step-status vocabulary.
 S_PENDING = "PENDING"
@@ -493,6 +514,15 @@ def _validate_terminal_manifest(rec: dict) -> list:
         problems.append("no completed_steps")
     if not rec.get("step_results"):
         problems.append("no step_results")
+    # Release 46.2 repair — a COMPLETE run must ACCOUNT FOR every canonical step. Each
+    # one either ran, was reused, was deliberately skipped, was blocked or failed; a
+    # step that reports nothing at all was silently omitted, and a manifest that claims
+    # completion over a step nobody reached is exactly the orchestration lie this check
+    # exists to refuse. Skipping is still legal — staying silent is not.
+    reported = {s.get("step_id") for s in (rec.get("step_results") or [])}
+    missing_steps = [s for s in STEP_SEQUENCE if s not in reported]
+    if missing_steps:
+        problems.append("canonical step(s) never reported: %s" % ", ".join(missing_steps))
     # If the Holding Opportunity-Cost step actually RAN (S_OK), a COMPLETE manifest must
     # carry its immutable artifact reference (id + assessment hash). A hermetically SKIPPED
     # HOC step (sandboxed run without canonical scoring) is exempt.
@@ -530,6 +560,14 @@ def _validate_terminal_manifest(rec: dict) -> list:
     if ra_step and ra_step.get("status") == S_OK:
         if not rec.get("research_agent_id") or not rec.get("research_agent_hash"):
             problems.append("research-agent step OK but assessment reference missing")
+    # Release 46.2: if the prospective-tournament step actually RAN (S_OK), a COMPLETE
+    # manifest must state what it did. A hermetically SKIPPED step (a sandboxed run
+    # with no injected seam) is exempt, and a FAILED one is already reported as failed.
+    tour_step = next((s for s in (rec.get("step_results") or [])
+                      if s.get("step_id") == STEP_ADVANCE_TOURNAMENT), None)
+    if tour_step and tour_step.get("status") == S_OK:
+        if not rec.get("prospective_tournament_state"):
+            problems.append("prospective-tournament step OK but state missing")
     return problems
 
 
@@ -878,6 +916,74 @@ def _default_research_agent_fn(*, scoring=None, reallocation=None, research_agen
                               reallocation_dir=reallocation_dir, desk_dir=desk_dir)
 
 
+def _default_tournament_fn(*, eligible_market_date=None):
+    """Release 46.2 — advance the ONE prospective alpha tournament.
+
+    Delegates to ``alpha_agent.r46.advance.advance``, which owns the whole step:
+    score every prediction whose declared horizon has genuinely matured on the
+    instrument's own realised bar calendar, rebuild the forward leaderboard, then
+    emit the next eligible TRUE_FORWARD batch idempotently. The Daily Research
+    Cycle evaluates no tournament state itself and never writes a prediction row.
+
+    RESEARCH ROOT ONLY. It cannot touch the operational store, the portfolio, a
+    target, a proposal, an order or the scheduler, and it promotes nothing — a
+    forward-confirmed challenger is evidence a person may act on, never capital.
+    """
+    from paper_trader.alpha_agent.r46 import advance as r46_advance
+    return r46_advance.advance(eligible_market_date=eligible_market_date)
+
+
+def _extract_tournament(built: Optional[dict], eligible: Optional[str]) -> dict:
+    """Normalise the tournament advance into the DRC's manifest contract."""
+    b = built or {}
+    if not b:
+        return {"available": False, "owner": "alpha_agent.r46.advance",
+                "state": "UNAVAILABLE", "eligible_market_date": eligible,
+                "predictions_matured": 0, "outcomes_scored": 0,
+                "predictions_emitted": 0, "challengers_active": 0,
+                "forward_evidence_count": 0, "next_maturity": None,
+                "pending_predictions": 0, "stage_failures": []}
+    return {
+        "available": bool(b.get("available")),
+        "owner": "alpha_agent.r46.advance",
+        "calculation_owner": b.get("calculation_owner"),
+        "campaign_id": b.get("campaign_id"),
+        "state": b.get("state"),
+        "state_vocabulary": b.get("state_vocabulary") or [],
+        "eligible_market_date": b.get("eligible_market_date") or eligible,
+        # The six facts §8 of the release requires the manifest to report.
+        "predictions_matured": b.get("tournament_predictions_matured") or 0,
+        "outcomes_scored": b.get("tournament_outcomes_scored") or 0,
+        "predictions_emitted": b.get("tournament_predictions_emitted") or 0,
+        "challengers_active": b.get("tournament_challengers_active") or 0,
+        "forward_evidence_count": b.get("tournament_forward_evidence_count") or 0,
+        "next_maturity": b.get("tournament_next_maturity"),
+        # Context an operator needs to read those six honestly.
+        "pending_predictions": b.get("pending_predictions") or 0,
+        "challengers_registered": b.get("challengers_registered") or 0,
+        "challengers_blocked": b.get("challengers_blocked") or 0,
+        "non_emission_reasons": (b.get("emission") or {}).get(
+            "non_emission_reasons") or [],
+        "skipped_challengers": (b.get("emission") or {}).get("skipped") or [],
+        "top_forward_challenger": (b.get("leaderboard") or {}).get(
+            "top_forward_challenger"),
+        "top_forward_state": (b.get("leaderboard") or {}).get("top_forward_state"),
+        "best_net_alpha_bps": (b.get("leaderboard") or {}).get("best_net_alpha_bps"),
+        "ledger_chain_intact": bool(b.get("ledger_chain_intact")),
+        "stage_failures": b.get("stage_failures") or [],
+        "output_hash": _hash({
+            "state": b.get("state"),
+            "n": b.get("tournament_forward_evidence_count"),
+            "m": b.get("tournament_predictions_matured"),
+            "e": b.get("tournament_predictions_emitted")}),
+        # What the step is not.
+        "creates_orders": False,
+        "mutates_portfolio": False,
+        "promotes_models": False,
+        "research_root_only": True,
+    }
+
+
 def _default_refresh_confirm_token() -> str:
     from paper_trader.api import alpha_target as at
     return at.REFRESH_CONFIRM_TOKEN
@@ -1068,6 +1174,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               portfolio_reassessment: Optional[dict] = None,
               reallocation_proposal: Optional[dict] = None,
               research_agent: Optional[dict] = None,
+              prospective_tournament: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
     step_results = step_results or []
     done_ids = [s["step_id"] for s in step_results
@@ -1076,6 +1183,17 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     pending_ids = [s for s in STEP_SEQUENCE
                    if s not in done_ids and s not in skipped_ids
                    and s != (failed_step or current_step)]
+    # Release 46.2 repair — the ORCHESTRATION-CONTRACT statement. ``completed_steps``
+    # has always meant "ran and produced something", so a legitimately skipped step is
+    # correctly absent from it. What was never stated anywhere is the difference between
+    # a step that was DELIBERATELY skipped and a step that silently never happened: both
+    # simply vanished from the list. A run that adds a canonical step and forgets to
+    # reach it therefore looked exactly like one that reached it and declined. These two
+    # fields close that gap — every canonical step must appear somewhere with a stated
+    # outcome, and a terminal manifest is validated against it below.
+    reported_ids = {s["step_id"] for s in step_results}
+    accounted_ids = [s for s in STEP_SEQUENCE if s in reported_ids]
+    unaccounted_ids = [s for s in STEP_SEQUENCE if s not in reported_ids]
     terminal = state in _TERMINAL
     sc = scoring or {}
     ev = evidence or {}
@@ -1090,6 +1208,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     rp_available = bool(rp.get("available"))
     ra = research_agent or {}
     ra_available = bool(ra.get("available"))
+    tour = prospective_tournament or {}
     return {
         "status": "OK",
         "phase": PHASE,
@@ -1113,6 +1232,10 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "completed_steps": done_ids,
         "pending_steps": pending_ids,
         "skipped_steps": skipped_ids,
+        "step_sequence": list(STEP_SEQUENCE),
+        "accounted_steps": accounted_ids,
+        "unaccounted_steps": unaccounted_ids,
+        "all_steps_accounted_for": not unaccounted_ids,
         "failed_step": failed_step,
         "step_results": step_results,
         "input_plan": plan,
@@ -1216,6 +1339,28 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "research_agent_top_opportunity": ra.get("top_opportunity"),
         "research_agent_data_gaps": ra.get("data_gaps"),
         "research_agent": research_agent,
+        # --- Release 46.2 — the PROSPECTIVE ALPHA TOURNAMENT lane. The manifest states
+        #     what the tournament actually did this cycle, so an operator can see the
+        #     forward evidence accruing (or see honestly that nothing was due) without
+        #     opening a research root. Reporting only totals would make a healthy quiet
+        #     day look identical to a tournament nobody is advancing — which is exactly
+        #     how five earlier releases each froze a shadow registry that never ticked.
+        "prospective_tournament_owner": "alpha_agent.r46.advance",
+        "prospective_tournament_state": tour.get("state"),
+        "prospective_tournament_available": bool(tour.get("available")),
+        "tournament_predictions_matured": tour.get("predictions_matured"),
+        "tournament_outcomes_scored": tour.get("outcomes_scored"),
+        "tournament_predictions_emitted": tour.get("predictions_emitted"),
+        "tournament_challengers_active": tour.get("challengers_active"),
+        "tournament_forward_evidence_count": tour.get("forward_evidence_count"),
+        "tournament_next_maturity": tour.get("next_maturity"),
+        "tournament_pending_predictions": tour.get("pending_predictions"),
+        "tournament_non_emission_reasons": tour.get("non_emission_reasons"),
+        "tournament_top_forward_challenger": tour.get("top_forward_challenger"),
+        "tournament_best_net_alpha_bps": tour.get("best_net_alpha_bps"),
+        "tournament_ledger_chain_intact": tour.get("ledger_chain_intact"),
+        "tournament_promotes_models": False,
+        "prospective_tournament": prospective_tournament,
         "milestone2_limitation": (
             "The Milestone-2 Holding Opportunity-Cost engine (Slice 6) is implemented and "
             "runs inside this cycle (per-holding rank / deterioration / performance / risk / "
@@ -1637,6 +1782,29 @@ def load_daily_research_cycle_status(
             prior = _load_run(idx["run_id"], drc_dir)
 
     pre = _pre_run_state(facts)
+    # Release 46.2 repair — A COMPLETED RUN IS NOT ERASED BY THE CLOCK.
+    #
+    # ``_pre_run_state`` answers "may a cycle be RUN right now?", and while today's
+    # session is open the answer is no. It was returned early, ahead of the reflection
+    # below, so the persisted TERMINAL-COMPLETE manifest for the eligible session was
+    # discarded and the status reported WAITING_FOR_SESSION_CLOSE with zero completed
+    # steps — i.e. it published ``governed_research_evidence_current = False`` for a
+    # session whose governed cycle had demonstrably completed the previous evening.
+    #
+    # That false fact is consumed by ``api.workflow_state`` (the Stage-22 post-close
+    # research requirement), which then told the operator to run a cycle that had
+    # already run. It stayed invisible only because a second gate masked it: until the
+    # portfolio-attention repair above, WAITING_FOR_SESSION_CLOSE outranked the
+    # requirement it produced. Removing one mask exposed the other.
+    #
+    # The state describes THE ELIGIBLE SESSION's cycle, not the wall clock, so a
+    # completed run for that session is what it must report. This opens nothing: the
+    # reflected run carries ``executable = False``, and the RUN path still refuses
+    # before the close (it keeps ``_pre_run_state`` unchanged, and persists nothing).
+    # INCONSISTENT and WAITING_FOR_OWNED_DATA keep their precedence — both say the
+    # inputs themselves cannot be trusted, which a finished run does not answer.
+    if pre == WAITING_FOR_SESSION_CLOSE and prior and prior.get("state") in _COMPLETED:
+        return _reflect_completed_run(prior, facts, warnings)
     if pre is not None:
         blockers = []
         required_actions = [{"gate": "market_session",
@@ -1795,6 +1963,7 @@ def run_daily_research_cycle(
     reassessment_fn: Optional[Callable] = None,
     reallocation_proposal_fn: Optional[Callable] = None,
     research_agent_fn: Optional[Callable] = None,
+    tournament_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
@@ -1831,7 +2000,7 @@ def run_daily_research_cycle(
             assessment_loader=assessment_loader, holding_opp_cost_fn=holding_opp_cost_fn,
             reassessment_fn=reassessment_fn,
             reallocation_proposal_fn=reallocation_proposal_fn,
-            research_agent_fn=research_agent_fn,
+            research_agent_fn=research_agent_fn, tournament_fn=tournament_fn,
             refresh_confirm_token=refresh_confirm_token,
             operational=operational, inputs=inputs, daily_status=daily_status,
             desk_marks=desk_marks, close_progress=close_progress,
@@ -1846,6 +2015,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
                 evidence_registry, assessment_loader, holding_opp_cost_fn,
                 reassessment_fn, reallocation_proposal_fn, research_agent_fn,
+                tournament_fn,
                 refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
@@ -1983,7 +2153,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         refs = {k: kw[k] for k in ("alignment", "scoring", "target", "evidence",
                                    "assessment", "holding_opp_cost",
                                    "portfolio_reassessment", "reallocation_proposal",
-                                   "research_agent", "completed_at")
+                                   "research_agent", "prospective_tournament",
+                                   "completed_at")
                 if k in kw}
         if state in _COMPLETED:
             problems = _validate_terminal_manifest(rec)
@@ -2282,6 +2453,76 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                        % (evidence.get("captured_snapshot_count"),
                           evidence.get("required_snapshot_count"))))
 
+        # STEP: advance the ONE prospective alpha tournament (Release 46.2). Score every
+        # prediction whose declared horizon has genuinely matured on the instrument's own
+        # realised bar calendar, rebuild the forward leaderboard, then emit the next
+        # eligible TRUE_FORWARD batch — in that order, so a run can never be accused of
+        # having seen its own new outcome. Research root ONLY.
+        #
+        # FAIL-SOFT BY CONSTRUCTION: the tournament is evidence, not an input to the
+        # portfolio, so it may never stop the cycle. A step that cannot run is reported
+        # and the daily cycle continues to the opportunity-cost assessment unchanged.
+        _tournament_skipped = {
+            "available": False, "owner": "alpha_agent.r46.advance",
+            "state": "SKIPPED", "eligible_market_date": facts["eligible"],
+            "predictions_matured": 0, "outcomes_scored": 0, "predictions_emitted": 0,
+            "challengers_active": 0, "forward_evidence_count": 0,
+            "next_maturity": None, "pending_predictions": 0, "stage_failures": [],
+            "creates_orders": False, "mutates_portfolio": False,
+            "promotes_models": False, "research_root_only": True}
+        if _reuse_or(STEP_ADVANCE_TOURNAMENT) and prior.get("prospective_tournament"):
+            prospective_tournament = prior["prospective_tournament"]
+            step_results.append(prior_steps[STEP_ADVANCE_TOURNAMENT])
+        elif tournament_fn is not None or drc_dir is None:
+            # A sandboxed run (drc_dir override) with no injected seam skips
+            # hermetically — it must never write into the production R46 research root.
+            t_fn = tournament_fn or _default_tournament_fn
+            t_built = _safe(lambda: t_fn(eligible_market_date=facts["eligible"]),
+                            warnings, "Prospective alpha tournament")
+            prospective_tournament = _extract_tournament(t_built, facts["eligible"])
+            # Three outcomes, not two. A tournament that ADVANCED or had nothing due is
+            # OK; a research root that holds no registry has nothing to advance and is
+            # SKIPPED; only an actual stage failure is FAILED. Classifying "not
+            # registered" as a failure would have made every root without a Release-46
+            # registry report a broken daily cycle.
+            t_available = bool(prospective_tournament.get("available"))
+            t_state = prospective_tournament.get("state")
+            t_status = (S_OK if t_available
+                        else S_SKIPPED if t_state == TOURNAMENT_NOT_REGISTERED
+                        else S_FAILED)
+            step_results.append(_step(STEP_ADVANCE_TOURNAMENT, t_status,
+                owner="alpha_agent.r46.advance",
+                as_of_date=facts["eligible"],
+                records_written=prospective_tournament.get("outcomes_scored"),
+                output_hash=prospective_tournament.get("output_hash"),
+                reason=("Prospective tournament advanced (%s): %s outcome(s) scored, "
+                        "%s prediction(s) emitted, %s forward prediction(s) on the "
+                        "record, next maturity %s. Research evidence only — no order, "
+                        "no portfolio change, no model promotion."
+                        % (t_state,
+                           prospective_tournament.get("outcomes_scored"),
+                           prospective_tournament.get("predictions_emitted"),
+                           prospective_tournament.get("forward_evidence_count"),
+                           prospective_tournament.get("next_maturity") or "none scheduled")
+                       if t_available
+                       else "No Release-46 challenger registry exists at this research "
+                            "root, so there is no tournament to advance; nothing was "
+                            "written." if t_status == S_SKIPPED
+                       else "The prospective tournament could not be advanced (%s); the "
+                            "daily cycle is unaffected and no forward row was written."
+                            % t_state)))
+            if t_status == S_FAILED:
+                warnings.append("The prospective alpha tournament did not advance; the "
+                                "portfolio lane is unaffected and no forward prediction "
+                                "was written.")
+        else:
+            prospective_tournament = _tournament_skipped
+            step_results.append(_step(STEP_ADVANCE_TOURNAMENT, S_SKIPPED,
+                owner="alpha_agent.r46.advance",
+                reason="Sandboxed run without an injected tournament seam; the "
+                       "prospective tournament is skipped hermetically (no write into "
+                       "the Release-46 research root)."))
+
         # STEP: Holding Opportunity-Cost engine (Slice 6 / Milestone 2) — after
         # canonical scoring and before the portfolio-assessment completion step. It
         # reuses the canonical scoring the cycle already built, sources holdings + owned
@@ -2539,7 +2780,9 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                         holding_opp_cost=holding_opp,
                         portfolio_reassessment=reassessment,
                         reallocation_proposal=reallocation,
-                        research_agent=research_agent, completed_at=_now_iso())
+                        research_agent=research_agent,
+                        prospective_tournament=prospective_tournament,
+                        completed_at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])
         step_results.append(_step("UNCAUGHT", S_FAILED, error_code="UNCAUGHT_EXCEPTION",

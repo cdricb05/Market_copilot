@@ -5858,6 +5858,40 @@
           <div id="albd-note" style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);line-height:1.5;"></div>
         </div>
 
+        <!-- ============ RELEASE 46.2 — PROSPECTIVE ALPHA TOURNAMENT ============ -->
+        <!-- The LIVE forward-evidence board. It reads GET /v1/research/prospective-tournament
+             and renders it verbatim: no ranking, no alpha statistic and no maturity
+             judgement is computed in the browser. It sits inside the Research Agent
+             section (where the operator already asks "is the research trustworthy?")
+             rather than becoming another disconnected dashboard.
+
+             The one display rule this panel exists to enforce: HISTORICAL QUALIFICATION
+             AND FORWARD PROOF ARE RENDERED SEPARATELY. A challenger's backtest says how
+             it ENTERED; only matured TRUE_FORWARD rows say what it has proven. Research
+             evidence only — no promotion, no capital, no order. -->
+        <div class="card" id="r46t-panel" style="margin-bottom:14px;display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Prospective Alpha Tournament &mdash; forward evidence
+              <span class="cc-badge" id="r46t-state" title="Tournament lifecycle state read from the backend.">&mdash;</span>
+              <span class="cc-badge muted" id="r46t-maturity" title="How mature the forward evidence is across the whole board.">&mdash;</span>
+            </span>
+            <span style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+              <span class="cc-badge safe">RESEARCH ONLY</span>
+              <span class="cc-badge safe">READ ONLY</span>
+              <span class="cc-badge">NO ORDERS</span>
+              <span class="cc-badge">NO MODEL PROMOTION</span>
+              <span class="cc-badge manual">MANUAL REVIEW</span>
+              <button class="btn-sm" id="r46t-refresh" onclick="loadProspectiveTournament()" title="Reload the read-only forward-evidence board.">&#8635; Refresh</button>
+            </span>
+          </div>
+          <div id="r46t-headline" style="font-size:11px;color:var(--label);margin:2px 0 10px;line-height:1.5;"></div>
+          <div id="r46t-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;"></div>
+          <div id="r46t-advance" style="font-size:10px;color:var(--muted,#8b98b0);margin:0 0 10px;line-height:1.5;"></div>
+          <div id="r46t-board"></div>
+          <div id="r46t-outcomes" style="margin-top:10px;"></div>
+          <div id="r46t-note" style="font-size:10px;margin:10px 0 0;color:var(--muted,#8b98b0);line-height:1.5;"></div>
+        </div>
+
         <!-- ============ CONTROLLED AUTONOMOUS RESEARCH EXECUTION BRIDGE ============ -->
         <!-- The ONE first-class Research Bridge panel. It reads the immutable backend read
              model from GET /v1/research/research-bridge and renders it verbatim. NO bridge
@@ -25119,7 +25153,10 @@ var _RA_SECTIONS = {
   '':                 { panels: [], champion: true },
   // Release 30: the leaderboard is part of the Research Agent section, not a new
   // navigation item — the operator asks "is the research trustworthy?" once.
-  'research-agent':   { panels: ['rag-panel', 'albd-panel'], champion: false },
+  // Release 46.2: the live prospective tournament joins the same section. The
+  // operator's question is one question — "is the research trustworthy?" — and
+  // forward evidence is the only thing that can answer it.
+  'research-agent':   { panels: ['rag-panel', 'albd-panel', 'r46t-panel'], champion: false },
   'research-bridge':  { panels: ['rbridge-panel'], champion: false },
   'performance':      { panels: ['cap-panel'], champion: false },
   'daily-operations': { panels: ['cao-panel'], champion: false },
@@ -25138,7 +25175,7 @@ var _RA_SECTIONS = {
   // lists, the portfolio-decision line and research status) live in this section.
   'diagnostics':      { panels: ['sysops-panel', 'cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['sysops-panel', 'cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'rbridge-panel', 'dex-panel'];
+var _RA_ALL_PANELS = ['sysops-panel', 'cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'albd-panel', 'r46t-panel', 'rbridge-panel', 'dex-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -25188,7 +25225,7 @@ window._raApplySection = _raApplySection;
 function _raLoadSection(sub) {
   var loaders = {
     'research-agent': ['loadResearchAgent', 'loadResearchBridge',
-                       'loadAlphaLeaderboard'],
+                       'loadAlphaLeaderboard', 'loadProspectiveTournament'],
     'research-bridge': ['loadResearchBridge'],
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
@@ -28664,6 +28701,165 @@ function loadAlphaLeaderboard() {
   return p;
 }
 window.loadAlphaLeaderboard = loadAlphaLeaderboard;
+
+// ---- Release 46.2: PROSPECTIVE ALPHA TOURNAMENT (live forward evidence) ----
+// Pure presentation. Every number, state, ranking and sentence below is read
+// verbatim from GET /v1/research/prospective-tournament. The browser computes no
+// alpha, decides no maturity and re-ranks nothing — the backend owns all of it.
+function _r46tKpi(label, value, title, tone) {
+  return '<span class="cc-badge ' + (tone || 'muted') + '" title="' + _r30esc(title || label)
+    + '" style="font-size:10px;">' + _r30esc(label) + ' <b>' + _r30esc(value) + '</b></span>';
+}
+function _r46tNum(v, digits) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  return isFinite(n) ? n.toFixed(digits === undefined ? 2 : digits) : '—';
+}
+function renderProspectiveTournament(d) {
+  var panel = document.getElementById('r46t-panel');
+  if (!panel) return;
+  // No artifacts at all → the tournament does not exist at this location. Show
+  // nothing rather than an empty board that implies a board.
+  if (!d || d.state === 'UNAVAILABLE') { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  var st = document.getElementById('r46t-state');
+  if (st) st.textContent = d.state || '—';
+  var mt = document.getElementById('r46t-maturity');
+  if (mt) mt.textContent = d.evidence_maturity_state || '—';
+
+  _setHtml('r46t-headline', _r30esc(d.headline || ''));
+
+  var hv = d.historical_qualification_vs_forward_proof || {};
+  _setHtml('r46t-kpis', [
+    _r46tKpi('CHALLENGERS', d.how_many_are_active,
+             'Active challengers on the board.'),
+    _r46tKpi('FORWARD PREDICTIONS', d.how_many_real_forward_predictions_exist,
+             'TRUE_FORWARD predictions emitted strictly before their outcome existed.'),
+    _r46tKpi('PENDING', d.how_many_are_still_pending,
+             'Emitted, not yet matured. Too early to judge.'),
+    _r46tKpi('MATURED', d.how_many_have_matured,
+             'Predictions whose declared horizon has genuinely matured.',
+             (d.how_many_have_matured ? 'safe' : 'muted')),
+    _r46tKpi('SCORED', d.how_many_outcomes_are_scored,
+             'Outcome rows appended against the control each challenger declared.',
+             (d.how_many_outcomes_are_scored ? 'safe' : 'muted')),
+    _r46tKpi('BLOCKED', d.how_many_are_blocked,
+             'Challengers whose data path cannot accrue evidence here.',
+             (d.how_many_are_blocked ? 'danger' : 'muted')),
+    _r46tKpi('NEXT MATURITY', d.next_material_maturity || 'none scheduled',
+             'When the next material forward evidence arrives.'),
+    _r46tKpi('BEST NET ALPHA vs CONTROL',
+             (d.current_top_net_alpha_vs_control_bps === null
+              || d.current_top_net_alpha_vs_control_bps === undefined)
+               ? 'no measurement yet'
+               : _r46tNum(d.current_top_net_alpha_vs_control_bps, 1) + ' bps',
+             'Net of BOTH sides of the round trip and of the control the challenger '
+             + 'declared in advance. Beating zero is not beating cash.'),
+  ].join(' '));
+
+  var adv = d.tournament_advance || {};
+  _setHtml('r46t-advance',
+    (adv.has_ever_advanced
+      ? ('Advanced ' + _r30esc(adv.n_advances) + ' time(s) by ' + _r30esc(d.advanced_by)
+         + '. Last advance ' + _r30esc(adv.latest_started_utc || '—') + ' — '
+         + _r30esc(adv.latest_outcomes_scored) + ' outcome(s) scored, '
+         + _r30esc(adv.latest_predictions_emitted) + ' prediction(s) emitted.')
+      : ('Not advanced yet by the Daily Research Cycle. ' + _r30esc(adv.note || '')))
+    + ' Next: ' + _r30esc(d.next_action || '—'));
+
+  var rows = d.leaderboard || [];
+  if (!rows.length) {
+    _setHtml('r46t-board',
+      '<div style="font-size:11px;color:var(--label);">No challenger cells exist yet.</div>');
+  } else {
+    var head = '<tr><th style="text-align:left;">#</th>'
+      + '<th style="text-align:left;">Challenger</th><th style="text-align:left;">Asset class</th>'
+      + '<th>Horizon</th><th style="text-align:left;">Entered as</th>'
+      + '<th>Fwd matured</th><th>Fwd effective</th><th>Net alpha (bps)</th><th>t</th>'
+      + '<th>Hit rate</th><th style="text-align:left;">Forward state</th>'
+      + '<th style="text-align:left;">Next evidence gate</th></tr>';
+    var body = rows.map(function (r) {
+      var tone = { FORWARD_CONFIRMED: 'safe', FORWARD_CANDIDATE: 'safe',
+                   EARLY_FORWARD_EVIDENCE: 'muted', FORWARD_PENDING: 'muted',
+                   FORWARD_REJECTED: 'danger', DATA_BLOCKED: 'danger',
+                   HISTORICAL_ONLY: 'muted' }[r.state] || 'muted';
+      // Historical qualification and forward proof are DIFFERENT columns, never
+      // merged into one score. That separation is the point of the whole release.
+      return '<tr>'
+        + '<td>' + _r30esc(r.rank) + '</td>'
+        + '<td><b>' + _r30esc(r.challenger_id) + '</b> '
+        + '<span style="color:var(--muted,#8b98b0);">' + _r30esc(r.challenger_version) + '</span></td>'
+        + '<td>' + _r30esc(r.asset_class) + '</td>'
+        + '<td style="text-align:center;">' + _r30dash(r.horizon) + '</td>'
+        + '<td><span class="cc-badge muted" style="font-size:9px;">'
+        + _r30esc(r.historical_qualification_state || 'HISTORICAL_ONLY') + '</span></td>'
+        + '<td style="text-align:center;">' + _r30esc(r.raw_matured || 0) + '</td>'
+        + '<td style="text-align:center;">' + _r30esc(r.effective_independent || 0) + '</td>'
+        + '<td style="text-align:right;">' + _r46tNum(r.net_alpha_bps, 1) + '</td>'
+        + '<td style="text-align:right;">' + _r46tNum(r.t_stat, 2) + '</td>'
+        + '<td style="text-align:right;">' + _r46tNum(r.hit_rate, 2) + '</td>'
+        + '<td><span class="cc-badge ' + tone + '" style="font-size:9px;">'
+        + _r30esc(r.state) + '</span></td>'
+        + '<td style="font-size:10px;color:var(--muted,#8b98b0);">'
+        + _r30esc(r.next_evidence_gate || r.blocked_reason || '—') + '</td>'
+        + '</tr>';
+    }).join('');
+    _setHtml('r46t-board',
+      '<div style="overflow-x:auto;"><table class="tbl" style="font-size:10px;width:100%;">'
+      + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>');
+  }
+
+  var outs = d.scored_outcomes || [];
+  _setHtml('r46t-outcomes', outs.length
+    ? ('<div style="font-size:11px;font-weight:700;margin:0 0 4px;">Matured outcomes '
+       + '&mdash; net of cost, against the control declared in advance</div>'
+       + '<div style="overflow-x:auto;"><table class="tbl" style="font-size:10px;width:100%;">'
+       + '<thead><tr><th style="text-align:left;">Challenger</th><th>Horizon</th>'
+       + '<th style="text-align:left;">Matured</th><th>Gross</th><th>Cost</th><th>Net</th>'
+       + '<th style="text-align:left;">Control</th><th>Control return</th>'
+       + '<th>Residual</th><th>Net alpha vs control</th></tr></thead><tbody>'
+       + outs.map(function (o) {
+           return '<tr><td><b>' + _r30esc(o.challenger_id) + '</b></td>'
+             + '<td style="text-align:center;">' + _r30dash(o.horizon) + '</td>'
+             + '<td>' + _r30esc(o.maturity_date || '—') + '</td>'
+             + '<td style="text-align:right;">' + _r46tNum(o.gross_return * 1e4, 1) + '</td>'
+             + '<td style="text-align:right;">' + _r46tNum(o.cost * 1e4, 1) + '</td>'
+             + '<td style="text-align:right;">' + _r46tNum(o.net_return * 1e4, 1) + '</td>'
+             + '<td>' + _r30esc(o.control) + '</td>'
+             + '<td style="text-align:right;">' + _r46tNum(o.control_return * 1e4, 1) + '</td>'
+             + '<td style="text-align:right;">' + _r46tNum(o.residual_return * 1e4, 1) + '</td>'
+             + '<td style="text-align:right;"><b>'
+             + _r46tNum(o.net_alpha_vs_control * 1e4, 1) + '</b></td></tr>';
+         }).join('')
+       + '</tbody></table></div>'
+       + '<div style="font-size:9px;color:var(--muted,#8b98b0);margin-top:3px;">'
+       + 'All figures in basis points. One outcome is not alpha.</div>')
+    : '');
+
+  _setHtml('r46t-note',
+    'Historical qualification says how a challenger ENTERED (' + _r30esc(hv.n_rows_with_historical_qualification_only || 0)
+    + ' cell(s) have only that). Forward proof needs matured TRUE_FORWARD rows ('
+    + _r30esc(hv.n_rows_with_any_forward_evidence || 0) + ' cell(s) have any). The two are '
+    + 'never merged into one score. Ranked by evidence maturity first and measured edge '
+    + 'second — two observations never outrank five hundred. The strongest state that '
+    + 'exists is FORWARD_CONFIRMED; it is research evidence, it confers no capital, and '
+    + 'the portfolio manager still decides manually.');
+}
+window.renderProspectiveTournament = renderProspectiveTournament;
+
+function loadProspectiveTournament() {
+  if (window._r46tInFlight) return window._r46tInFlight;
+  var p = _mhzGet('/v1/research/prospective-tournament').then(function (d) {
+    window._r46tInFlight = null; window._r46tData = d;
+    renderProspectiveTournament(d); return d;
+  }).catch(function () {
+    window._r46tInFlight = null; renderProspectiveTournament(null); return null;
+  });
+  window._r46tInFlight = p;
+  return p;
+}
+window.loadProspectiveTournament = loadProspectiveTournament;
 
 // ---------------------------------------------------------------------------
 // Stage 20 — ACTIVE PORTFOLIO ASSESSMENT (read-only presentation).

@@ -35,9 +35,71 @@ def now_utc() -> _dt.datetime:
 
 
 def iso(dt: _dt.datetime) -> str:
+    """The FROZEN whole-second stamp. Never widened.
+
+    Release 46's eleven prediction rows and the challenger registry that froze them
+    are stamped with this format. Changing it would change their bytes and their
+    chain hashes, so it stays exactly as it was; :func:`iso_precise` carries the
+    extra resolution for rows written from Release 46.2 onward.
+    """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_dt.timezone.utc)
     return dt.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def iso_precise(dt: _dt.datetime) -> str:
+    """Microsecond UTC stamp, for FUTURE rows only (Release 46.2).
+
+    Release 46.1 disclosed that a challenger's ``frozen_at`` and its first
+    prediction's ``emitted_at_utc`` shared one whole second, so "the specification
+    was frozen before the prediction was emitted" could be argued but not COMPUTED.
+    Rows written from R46.2 onward carry this alongside the frozen whole-second
+    field, which keeps every existing hash and every existing reader intact while
+    making the ordering numerically decidable. A row without it is a legacy row and
+    is read exactly as before - see :func:`ordering_evidence`.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return dt.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def parse_iso(value) -> Optional[_dt.datetime]:
+    """Parse either stamp format (or any ISO instant). ``None`` when unparseable."""
+    if isinstance(value, _dt.datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=_dt.timezone.utc))
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def ordering_evidence(earlier, later) -> dict:
+    """Can ``earlier < later`` be decided NUMERICALLY, and does it hold?
+
+    ``resolution`` is ``MICROSECOND`` when both stamps carry sub-second precision,
+    ``WHOLE_SECOND`` otherwise. ``decidable`` is False only when both sides land in
+    the same whole second with no sub-second digits to separate them - which is the
+    exact R46 first-batch condition, reported honestly rather than asserted away.
+    """
+    a, b = parse_iso(earlier), parse_iso(later)
+    if a is None or b is None:
+        return {"decidable": False, "strictly_ordered": None,
+                "resolution": "UNPARSEABLE", "delta_seconds": None,
+                "earlier": earlier, "later": later}
+    sub = ("." in str(earlier)) and ("." in str(later))
+    delta = (b - a).total_seconds()
+    same_second = (a.replace(microsecond=0) == b.replace(microsecond=0))
+    return {
+        "decidable": bool(sub or not same_second),
+        "strictly_ordered": bool(delta > 0),
+        "resolution": "MICROSECOND" if sub else "WHOLE_SECOND",
+        "delta_seconds": delta,
+        "earlier": earlier,
+        "later": later,
+    }
 
 
 def to_eastern(dt: _dt.datetime) -> _dt.datetime:
@@ -169,7 +231,8 @@ def session_index(sessions: Iterable) -> list:
 
 
 __all__ = [
-    "now_utc", "iso", "to_eastern", "eastern_date", "next_weekday",
+    "now_utc", "iso", "iso_precise", "parse_iso", "ordering_evidence",
+    "to_eastern", "eastern_date", "next_weekday",
     "entry_session_date", "outcome_window_start_utc", "is_true_forward",
     "resolve_entry", "maturity_session", "expected_maturity_date",
     "sessions_remaining", "session_index", "CALCULATION_OWNER",

@@ -69,7 +69,24 @@ ARTIFACTS = {
     "contract": "r46_frozen_contract.json",
     "burden": "r46_search_burden_ledger.json",
     "shell_policy": "R46_SHELL_POLICY_EVENTS.json",
+    # Release 46.2 — the record of every tournament advance the Daily Research Cycle
+    # has driven. Optional by design: an estate that has never advanced the tournament
+    # simply has no cycles artifact, and that reads as "not advanced yet" rather than
+    # as a failure.
+    "cycles": "R46_TOURNAMENT_CYCLES.json",
 }
+
+#: Release 46.2 — artifacts whose absence is EXPECTED before the first advance and so
+#: must not become an operator-facing warning.
+OPTIONAL_ARTIFACTS = ("cycles",)
+
+#: Evidence-maturity vocabulary for the whole board (not for a single cell).
+MATURITY_NO_FORWARD_EVIDENCE = "NO_FORWARD_EVIDENCE"
+MATURITY_AWAITING_FIRST = "AWAITING_FIRST_MATURITY"
+MATURITY_ACCRUING = "FORWARD_EVIDENCE_ACCRUING"
+MATURITY_GATE_REACHED = "FORWARD_GATE_REACHED"
+EVIDENCE_MATURITY_STATES = (MATURITY_NO_FORWARD_EVIDENCE, MATURITY_AWAITING_FIRST,
+                            MATURITY_ACCRUING, MATURITY_GATE_REACHED)
 
 FORWARD_LEDGER_DIR = "prospective_forward"
 PREDICTION_LEDGER = "r46_forward_predictions.json"
@@ -109,7 +126,7 @@ def load_prospective_tournament(
     art = {}
     for key, name in ARTIFACTS.items():
         body = _read(cdir / name)
-        if body is None:
+        if body is None and key not in OPTIONAL_ARTIFACTS:
             warnings.append("artifact unavailable: %s" % name)
         art[key] = body
 
@@ -157,6 +174,42 @@ def load_prospective_tournament(
         "forward_evidence_confidence": _confidence(rows),
         "next_material_maturity": _next_maturity(verdict, pending),
         "what_entered": competing["entered"],
+
+        # ---- Release 46.2: the LIVE lifecycle ----------------------------- #
+        # Before R46.2 the tournament could only be advanced by re-running the whole
+        # campaign by hand, so these answers described a board that nothing was
+        # moving. They now describe a board the canonical Daily Research Cycle
+        # advances: it scores what genuinely matured, rebuilds the leaderboard and
+        # emits the next eligible batch, in that order, every cycle.
+        "how_many_outcomes_are_scored": len(outs),
+        "scored_outcomes": _scored_outcomes(outs),
+        "current_top_forward_challenger": _leader(rows),
+        "current_top_net_alpha_vs_control_bps": _top_net_alpha(rows),
+        "evidence_maturity_state": _maturity_state(preds, outs, rows),
+        "evidence_maturity_vocabulary": list(EVIDENCE_MATURITY_STATES),
+        "tournament_advance": _advance(art.get("cycles")),
+        "advancement_owner": "alpha_agent.r46.advance",
+        # Named in prose, not as a module path: the Release-33 write-attribution
+        # gate forbids an R46 source file from carrying the LITERAL name of an
+        # operational store root, and it is right to - a pure read model has no
+        # business referring to one, even in a caption.
+        "advanced_by": ("the canonical Daily Research Cycle "
+                        "(step ADVANCE_PROSPECTIVE_TOURNAMENT)"),
+        "new_batch_emitted": (batches[-1] if batches else None),
+        # The one distinction §17 exists to preserve: a backtest that nominated a
+        # challenger and a forward record that could convict it are DIFFERENT
+        # classes of evidence, and the first may never be displayed as the second.
+        "historical_qualification_vs_forward_proof": {
+            "historical_qualification_is_not_proof": True,
+            "forward_proof_requires_matured_true_forward_rows": True,
+            "n_rows_with_historical_qualification_only": len(
+                [r for r in rows if not int(r.get("raw_matured") or 0)]),
+            "n_rows_with_any_forward_evidence": len(
+                [r for r in rows if int(r.get("raw_matured") or 0)]),
+            "note": ("A challenger's historical_qualification_state describes how it "
+                     "ENTERED. Only raw_matured / effective_independent describe what "
+                     "it has PROVEN forward. The two are never merged into one score."),
+        },
 
         # ---- honesty rails ----------------------------------------------- #
         "no_historical_only_model_looks_proven": True,
@@ -293,13 +346,99 @@ def _confidence(rows: list) -> dict:
     }
 
 
+def _scored_outcomes(outs: list) -> list:
+    """Every MATURED outcome, stated against the control it declared in advance.
+
+    ``net_alpha_vs_control`` is the only number that decides anything: Release 42
+    watched a real premium priced below cash, and Release 43 watched another
+    disappear entirely into two-legged cost. Gross is carried because hiding it
+    would be dishonest, not because it means much on its own.
+    """
+    out = []
+    for o in outs[-100:]:
+        out.append({
+            "prediction_id": o.get("prediction_id"),
+            "challenger_id": o.get("challenger_id"),
+            "asset_class": o.get("asset_class"),
+            "horizon": o.get("horizon"),
+            "effective_as_of": o.get("effective_as_of"),
+            "maturity_date": o.get("maturity_date"),
+            "scored_at_utc": o.get("scored_at_utc"),
+            "gross_return": o.get("realised_gross_return"),
+            "cost": o.get("realised_cost"),
+            "net_return": o.get("realised_net_return"),
+            "control": o.get("control"),
+            "control_return": o.get("control_return"),
+            "benchmark_return": o.get("realised_benchmark_return"),
+            "residual_return": o.get("realised_residual_return"),
+            "net_alpha_vs_control": o.get("net_alpha_vs_control"),
+            "net_alpha_vs_control_at_2x_costs": o.get(
+                "net_alpha_vs_control_at_2x_costs"),
+            "rank_ic": o.get("rank_ic"),
+            "hit": o.get("hit"),
+            "one_outcome_is_not_alpha": True,
+        })
+    return out
+
+
+def _leader(rows: list) -> Optional[dict]:
+    """The top-ranked R46 cell. Ranked by EVIDENCE band first, edge second."""
+    for r in rows:
+        if r.get("origin") == "R46_SEED" and r.get("state") != "DATA_BLOCKED":
+            return _cell(r)
+    return None
+
+
+def _top_net_alpha(rows: list) -> Optional[float]:
+    vals = [r.get("net_alpha_bps") for r in rows
+            if r.get("origin") == "R46_SEED" and r.get("net_alpha_bps") is not None]
+    return max(vals) if vals else None
+
+
+def _maturity_state(preds: list, outs: list, rows: list) -> str:
+    if not preds:
+        return MATURITY_NO_FORWARD_EVIDENCE
+    if not outs:
+        return MATURITY_AWAITING_FIRST
+    if any(float(r.get("forward_evidence_score") or 0.0) >= 1.0 for r in rows):
+        return MATURITY_GATE_REACHED
+    return MATURITY_ACCRUING
+
+
+def _advance(cycles_body: Optional[dict]) -> dict:
+    """What the last Daily Research Cycle actually did to the tournament."""
+    body = cycles_body or {}
+    latest = body.get("latest_cycle") or {}
+    return {
+        "has_ever_advanced": bool(body.get("n_cycles_total")),
+        "n_advances": body.get("n_cycles_total") or 0,
+        "latest": latest or None,
+        "latest_state": latest.get("state"),
+        "latest_started_utc": latest.get("started_utc"),
+        "latest_outcomes_scored": latest.get("tournament_outcomes_scored"),
+        "latest_predictions_emitted": latest.get("tournament_predictions_emitted"),
+        "latest_eligible_market_date": latest.get("eligible_market_date"),
+        "note": ("The Daily Research Cycle advances the tournament: score what "
+                 "matured, rebuild the board, then emit the next eligible batch. "
+                 "A cycle that scores and emits nothing is a QUIET tournament, not "
+                 "a stopped one — the reason is on the step result."),
+    }
+
+
 def _next_maturity(verdict: dict, pending: list) -> Optional[str]:
-    v = verdict.get("NEXT_MATERIAL_EVIDENCE_TIME")
-    if v:
-        return v
+    # Release 46.2 — the LIVE pending ledger wins. The verdict's cached
+    # NEXT_MATERIAL_EVIDENCE_TIME was written by the last full campaign run; once the
+    # Daily Research Cycle started scoring maturities, that cached date keeps naming a
+    # maturity that has already been scored, so the board would advertise evidence that
+    # had already landed. The ledger is the record; the artifact is a snapshot of it.
     dates = sorted({str(p.get("horizon_end_expected")) for p in pending
                     if p.get("horizon_end_expected")})
-    return dates[0] if dates else None
+    if dates:
+        return dates[0]
+    # Nothing is outstanding, so nothing is scheduled to mature. Before the first
+    # batch the verdict's own value is None for the same reason, so there is no
+    # honest fallback to reach for here.
+    return None
 
 
 def _adoption(registry: dict) -> dict:
@@ -333,12 +472,18 @@ def _headline(state: str, preds: list, outs: list, rows: list) -> str:
 def _next_action(state: str, pending: list, outs: list) -> str:
     if state == STATE_UNAVAILABLE:
         return "run the Release 46 campaign to create the tournament artifacts"
+    # Release 46.2 — the Daily Research Cycle now drives all three lifecycle steps
+    # (score matured, rebuild the board, emit the next eligible batch), so the honest
+    # answer is almost always "nothing". Telling an operator to run a judge the daily
+    # cycle already runs would invent an action, which is the failure mode the whole
+    # release exists to remove from the operator surfaces.
     if pending and not outs:
-        return ("wait for the first maturity; then run the outcome judge to "
-                "score it. No operator action is required in the meantime, "
-                "and no challenger may be edited while its predictions are "
-                "outstanding.")
+        return ("nothing. The Daily Research Cycle scores each maturity as it "
+                "arrives and emits the next eligible batch. No challenger may be "
+                "edited while its predictions are outstanding.")
     if pending:
-        return ("run the outcome judge as further horizons mature; review "
-                "any challenger that crosses a gate MANUALLY")
-    return "emit the next forward batch"
+        return ("nothing. The Daily Research Cycle keeps scoring maturities and "
+                "emitting eligible batches; review any challenger that crosses a "
+                "gate MANUALLY — a gate confers no capital.")
+    return ("nothing. The next Daily Research Cycle emits the next eligible "
+            "forward batch.")

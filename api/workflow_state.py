@@ -60,6 +60,8 @@ PHASE = "29C-Slice2"
 #: ``engine.normal_cycle``; nothing here re-derives it.
 NORMAL_CYCLE_OWNER = "engine.normal_cycle"
 DATA_GAP_TAXONOMY_OWNER = "engine.data_gap_taxonomy"
+#: This module — the ONE owner of the composed operator state.
+WORKFLOW_STATE_OWNER = "api.workflow_state"
 
 # --------------------------------------------------------------------------- #
 # Frozen overall workflow-state vocabulary (part of the tested contract,
@@ -904,6 +906,170 @@ def reassessment_blocks_cycle(*, reassessment_state: Any, blockers: Any = None) 
     return bool(is_data or (is_evidence and not all_supersedable))
 
 
+# --------------------------------------------------------------------------- #
+# Release 46.2 — THE canonical PORTFOLIO-ATTENTION rule.
+#
+# WHY THIS EXISTS
+# ---------------
+# The governed 2026-08-25 Daily Research Cycle produced a portfolio reassessment of
+# ``MANUAL_REVIEW_REQUIRED`` naming seven hard-constraint breaches on retained names
+# (ABNB / CVS / DXCM / EXPE / ITW / LH sector weight, AMD risk contribution). The
+# canonical portfolio decision correctly read BLOCKED and said, in the operator's own
+# payload, that "a holding breaches a hard portfolio constraint that requires human
+# adjudication". The SAME payload reported overall_state = DAILY_CYCLE_COMPLETE,
+# current_task = "Monitor the portfolio." and no_action_required = true.
+#
+# It was not a wording bug. This module composed ``manual_review_required`` from ONE
+# signal — the reassessment's ``proposal_required`` — and a constraint breach
+# deliberately proposes nothing (there is no change to propose; a person must decide).
+# The state was equally not "blocked": ``reassessment_blocks_cycle`` above answers a
+# different question (did the reassessment reach a verdict at all?) and a constraint
+# breach DID reach one. Falling through both gates, it landed in the terminal region.
+#
+# THE DISTINCTION THIS ENCODES
+# ----------------------------
+#   MUTATION   a normal-path write is offered (Daily Close / Daily Research Cycle).
+#              Never produced here: a reassessment never opens a write gate.
+#   REVIEW     a human must adjudicate. It creates NO order, NO proposal and NO
+#              portfolio change, requires no rebalance approval, leaves automation
+#              OFF and stays paper-only. Reviewing IS an action, so it can never be
+#              reported as "no action required".
+#   NONE       the economic gate cleared and nothing should change.
+#
+# This is the ONE place that decision is made. ``manual_review_required`` (which
+# drives the overall state), the primary-action wording, and the cross-surface
+# invariant below all read this same verdict, so they cannot disagree.
+# --------------------------------------------------------------------------- #
+ATTENTION_MUTATION = "MUTATION"
+ATTENTION_REVIEW = "REVIEW"
+ATTENTION_NONE = "NONE"
+PORTFOLIO_ATTENTION_KINDS = (ATTENTION_MUTATION, ATTENTION_REVIEW, ATTENTION_NONE)
+
+#: Review reasons, in precedence order.
+REVIEW_REASON_CONSTRAINT_BREACH = "PORTFOLIO_CONSTRAINT_BREACH"
+REVIEW_REASON_PROPOSAL = "PORTFOLIO_PROPOSAL"
+
+#: The canonical operator actions for each review reason. Both already exist in the
+#: reassessment owner's own vocabulary (api.portfolio_reassessment._PRESENTATION);
+#: they are mirrored here as literals so this module stays import-pure.
+ACTION_REVIEW_PORTFOLIO_CONSTRAINT_BREACH = "REVIEW_PORTFOLIO_CONSTRAINT_BREACH"
+
+#: Reassessment states that require HUMAN ADJUDICATION while proposing no change.
+_PRS_REVIEW_REQUIRED_STATES = frozenset({"MANUAL_REVIEW_REQUIRED"})
+
+#: Per-holding hard-constraint blocker codes, mirrored from
+#: engine.portfolio_reassessment (which emits them as ``"<TICKER>:<CODE>"``).
+CONSTRAINT_BREACH_CODES = ("NAME_WEIGHT_BREACH", "SECTOR_WEIGHT_BREACH",
+                           "RISK_CONTRIBUTION_BREACH")
+
+
+def constraint_breaches_of(blockers: Any) -> list[str]:
+    """The ``TICKER:CODE`` hard-constraint breaches in a reassessment blocker list."""
+    return [c for c in blocker_codes_of(blockers)
+            if any(c.endswith(":" + code) or c == code
+                   for code in CONSTRAINT_BREACH_CODES)]
+
+
+def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
+                        blockers: Any = None,
+                        execution_active: bool = False) -> dict[str, Any]:
+    """THE portfolio-attention verdict: MUTATION, REVIEW or NONE.
+
+    Pure. Reads the reassessment owner's already-decided state and its own blocker
+    list; computes no economics, opens no gate and never turns a review into a change.
+
+    ``execution_active`` applies the unchanged Stage-19 precedence: while paper orders
+    from a confirmed plan are still working, a newly produced PROPOSAL must not compete
+    with the execution lifecycle. A hard-constraint breach is NOT a proposal — it is a
+    named condition of the book the operator has to adjudicate either way — so it is
+    reported regardless, exactly as ``reassessment_blocks_cycle`` is.
+    """
+    state = str(reassessment_state or "")
+    breaches = constraint_breaches_of(blockers)
+    constraint_review = state in _PRS_REVIEW_REQUIRED_STATES
+    proposal_review = bool(proposal_required) and not bool(execution_active)
+
+    if constraint_review:
+        reason, action = (REVIEW_REASON_CONSTRAINT_BREACH,
+                          ACTION_REVIEW_PORTFOLIO_CONSTRAINT_BREACH)
+    elif proposal_review:
+        reason, action = (REVIEW_REASON_PROPOSAL, ACTION_REVIEW_PORTFOLIO_PROPOSAL)
+    else:
+        reason, action = None, None
+
+    review = bool(constraint_review or proposal_review)
+    return {
+        "attention_kind": ATTENTION_REVIEW if review else ATTENTION_NONE,
+        "attention_vocabulary": list(PORTFOLIO_ATTENTION_KINDS),
+        "review_required": review,
+        "review_reason": reason,
+        "operator_action": action,
+        "reassessment_state": state or None,
+        "constraint_breaches": breaches,
+        "constraint_breach_count": len(breaches),
+        "proposal_required": bool(proposal_required),
+        "proposal_review_suppressed_by_execution": bool(
+            proposal_required and execution_active),
+        # What a REVIEW is not. Stated on the object so no surface has to assume it.
+        "creates_orders": False,
+        "creates_proposal": False,
+        "mutates_portfolio": False,
+        "requires_rebalance_approval": False,
+        "automation_off": True,
+        "paper_only": True,
+        "is_a_mutation": False,
+        "calculation_owner": WORKFLOW_STATE_OWNER,
+        "reassessment_owner": PRS_CANONICAL_OWNER,
+    }
+
+
+#: Overall states that assert the eligible session needs nothing from the operator.
+#: A portfolio-attention REVIEW may never coexist with one of these.
+_NO_ATTENTION_OVERALL_STATES = frozenset({DAILY_CYCLE_COMPLETE,
+                                          DAILY_CYCLE_COMPLETE_EVIDENCE_GAP,
+                                          WAITING_FOR_SESSION_CLOSE})
+
+
+def portfolio_attention_violations(*, attention: dict, overall: Any,
+                                   cycle_no_action_required: Any,
+                                   cycle_review_required: Any = None,
+                                   primary_action_code: Any = None) -> list[dict]:
+    """THE strict cross-surface invariant (Release 46.2).
+
+    If the canonical portfolio attention requires human review, then the overall
+    workflow may NOT report a completion state and the normal cycle may NOT report
+    ``no_action_required``. Any surface that manages to do both is INCONSISTENT — the
+    exact contradiction the governed 2026-08-25 cycle shipped.
+    """
+    if not (attention or {}).get("review_required"):
+        return []
+    ov = str(overall)
+    common = {"concept": "portfolio_attention",
+              "overall_state": ov,
+              "reassessment_state": attention.get("reassessment_state"),
+              "review_reason": attention.get("review_reason"),
+              "constraint_breaches": attention.get("constraint_breaches"),
+              "authoritative_owners": [PRS_CANONICAL_OWNER, WORKFLOW_STATE_OWNER],
+              "surface": "workflow_state"}
+    out: list[dict] = []
+    if ov in _NO_ATTENTION_OVERALL_STATES:
+        out.append({**common, "code": "PORTFOLIO_ATTENTION_CONTRADICTION",
+                    "detail": ("the canonical portfolio reassessment requires human "
+                               "review while the overall workflow state asserts the "
+                               "eligible session is complete")})
+    if bool(cycle_no_action_required):
+        out.append({**common, "code": "PORTFOLIO_ATTENTION_NO_ACTION_CONTRADICTION",
+                    "detail": ("the canonical portfolio reassessment requires human "
+                               "review while the normal cycle reports "
+                               "no_action_required")})
+    if cycle_review_required is not None and not bool(cycle_review_required):
+        out.append({**common, "code": "PORTFOLIO_ATTENTION_REVIEW_GATE_CLOSED",
+                    "detail": ("the canonical portfolio reassessment requires human "
+                               "review while the normal cycle opened no review gate"),
+                    "primary_action": primary_action_code})
+    return out
+
+
 def build_evidence_classification(*, reassessment_state: Any, overall: str,
                                   blockers: Any = None,
                                   eligible_date: Any = None,
@@ -1491,7 +1657,29 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
 
     # P2 — the current market session has not closed AND the latest eligible
     #      completed session is already fully processed → nothing to do but wait.
-    if session_status == msession.BEFORE_SESSION_CLOSE and eligible_session_closed:
+    #
+    #      RELEASE 46.2 REPAIR. This gate asserts "nothing to do but wait", and that
+    #      claim is false while a canonical portfolio review is outstanding. R46.2
+    #      lifted a required review above the two COMPLETION states but left it below
+    #      this one, so the identical contradiction survived at a different hour: after
+    #      the 2026-08-25 cycle the operator was told at 09:48 the next morning to
+    #      "wait for the current market session to close" and that no action was
+    #      required, while the same payload named seven holdings breaching a hard
+    #      constraint that "requires human adjudication". The payload even declared
+    #      itself INCONSISTENT — the R46.2 invariant fired and nothing above it moved.
+    #
+    #      A hard-constraint breach is a standing condition of the BOOK, not a step of
+    #      the daily cycle: it is review-only, it needs no fresh data and it can be
+    #      adjudicated at any hour, so a clock that has not yet struck 16:00 is no
+    #      reason to hide it. This does NOT let a review outrank work: every gate below
+    #      that NAMES something to do (an unconfirmed session, an in-flight or blocked
+    #      cycle, a due Daily Close, a due research cycle, a due reassessment) still
+    #      outranks it, because those states never claim nothing is outstanding.
+    #      Precisely the three states that DO make that claim — this one and the two
+    #      completion states — are the ones a required review now outranks, which is
+    #      exactly the set the cross-surface invariant names.
+    if session_status == msession.BEFORE_SESSION_CLOSE and eligible_session_closed \
+            and not manual_review_required:
         return WAITING_FOR_SESSION_CLOSE
 
     # P3 — the expected session is not confirmed by owned data (or no confirmed
@@ -1590,6 +1778,9 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     # Terminal region — the eligible session is fully processed. Refinement order
     # (documented precedence 7/8/9): a material-risk / manual-review gate is
     # surfaced ahead of a plain or evidence-gapped completion (P7 > P8 > P9).
+    # Release 46.2 repair: ``manual_review_required`` ALSO suppresses P2 above, so the
+    # review outranks every "nothing is outstanding" claim the state machine can make,
+    # not merely the two it can make after the close.
     if manual_review_required:
         return MANUAL_REVIEW_REQUIRED
     if evidence_gap:
@@ -2658,9 +2849,23 @@ def load_workflow_state(
             rebalance_state=None, pending_orders=pending_orders),
         warnings, "Reassessment execution precedence") or {
             "execution_active": bool(pending_orders), "reassessment_outranked": bool(pending_orders)}
-    reassessment_manual_review = bool(reassessment_proposal_required
-                                      and not reassessment_execution.get("execution_active"))
-    manual_review_required = bool(manual_review_required or reassessment_manual_review)
+    # Release 46.2 — the ONE portfolio-attention verdict. Both review reasons (an
+    # economically justified PROPOSAL, and a hard-constraint breach requiring human
+    # ADJUDICATION) are resolved here, by the single factored rule, so the overall
+    # state, the primary action and the cross-surface invariant cannot disagree.
+    # Before R46.2 only the proposal reason existed, and a constraint breach — which
+    # proposes nothing by design — fell through every gate into DAILY_CYCLE_COMPLETE.
+    portfolio_attention_verdict = portfolio_attention(
+        reassessment_state=reassessment_state,
+        proposal_required=reassessment_proposal_required,
+        blockers=list(reassessment_summary.get("blockers") or []),
+        execution_active=bool(reassessment_execution.get("execution_active")))
+    attention_reason = portfolio_attention_verdict["review_reason"]
+    reassessment_manual_review = bool(attention_reason == REVIEW_REASON_PROPOSAL)
+    reassessment_constraint_review = bool(
+        attention_reason == REVIEW_REASON_CONSTRAINT_BREACH)
+    manual_review_required = bool(manual_review_required
+                                  or portfolio_attention_verdict["review_required"])
     # Stage 22.1 — did the reassessment reach a portfolio-level verdict at all? A blocked
     # reassessment leaves ``proposal_required`` False by design, which is indistinguishable
     # from "no change is justified" unless the STATE itself is consulted. It is consulted
@@ -2806,6 +3011,37 @@ def load_workflow_state(
                 % (eligible_date or "the eligible session",
                    reassessment_summary.get("expected_net_improvement"),
                    reassessment_summary.get("expected_one_way_turnover"))))
+        primary = assert_primary_action_contract(primary)
+    # Release 46.2 — the OTHER manual-review reason: a retained holding breaches a hard
+    # portfolio constraint. The action code stays ACTION_MANUAL_REVIEW (one primary
+    # action, and ``_EXPECTED_ACTION_FOR`` still matches); only the wording and the
+    # named operator action are specialised, from the reassessment owner's own
+    # vocabulary. It offers nothing to execute: REVIEWING a breach creates no order, no
+    # proposal and no portfolio change, and the constraint is NOT auto-corrected.
+    elif overall == MANUAL_REVIEW_REQUIRED and reassessment_constraint_review:
+        breaches = list(portfolio_attention_verdict["constraint_breaches"])
+        primary = dict(
+            primary,
+            label="Review the portfolio constraint breach",
+            headline="A holding breaches a hard portfolio constraint — adjudicate it.",
+            current_task="Review the portfolio constraint breach.",
+            destination=DEST_PORTFOLIO_MANAGER,
+            focus="reassessment",
+            severity=SEV_ATTENTION,
+            execution_available=False,
+            operator_action=ACTION_REVIEW_PORTFOLIO_CONSTRAINT_BREACH,
+            constraint_breaches=breaches,
+            constraint_breach_count=len(breaches),
+            explanation=(
+                "%s Nothing is proposed and nothing is corrected automatically: "
+                "reviewing creates no order, no proposal and no portfolio change, "
+                "requires no rebalance approval, and leaves automation OFF. The "
+                "breach stays on the record until a person adjudicates it."
+                % (reassessment_summary.get("explanation")
+                   or ("The portfolio reassessment for %s found %d hard constraint "
+                       "breach(es) on retained holdings (%s)."
+                       % (eligible_date or "the eligible session", len(breaches),
+                          ", ".join(breaches) or "see the reassessment blockers")))))
         primary = assert_primary_action_contract(primary)
 
     queued = _queued_actions(
@@ -2979,6 +3215,11 @@ def load_workflow_state(
         # EVIDENCE ONLY and contributes no action.
         "execution_precedence": reassessment_execution,
         "raises_manual_review": reassessment_manual_review,
+        # Release 46.2 — the ONE portfolio-attention verdict, carried verbatim so every
+        # surface renders the same interpretation and none derives one of its own.
+        "portfolio_attention": portfolio_attention_verdict,
+        "raises_constraint_breach_review": reassessment_constraint_review,
+        "constraint_breaches": portfolio_attention_verdict["constraint_breaches"],
         "review_only": True,
         "creates_orders": False,
         "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
@@ -3084,6 +3325,13 @@ def load_workflow_state(
         eligible_market_date=eligible_date,
         latest_completed_close_date=latest_close_date,
         execution_active=bool(reassessment_execution.get("execution_active")),
+        # Release 46.2 repair — the ONE attention verdict, handed to the kernel instead
+        # of letting it infer a second one from the overall state. The kernel's own
+        # derivation is only correct while the review IS the overall state; an
+        # outstanding review that a due close or a stale input legitimately outranks was
+        # invisible to it, so the cycle reported "no action required" over a live
+        # adjudication. The verdict has already applied Stage-19 execution precedence.
+        review_required=portfolio_attention_verdict["review_required"],
         blockers=[b.get("code") for b in blockers if isinstance(b, dict)],
         # Stage 22.1 — the stages this owner has authoritatively observed COMPLETE for
         # the eligible session. Wording/status only: it opens no gate and changes no
@@ -3220,6 +3468,19 @@ def load_workflow_state(
     if semantic_violations:
         consistency_violations = list(consistency_violations) + semantic_violations
         consistency_status = INCONSISTENT
+    # Release 46.2 — THE PORTFOLIO-ATTENTION INVARIANT. The composed payload may never
+    # assert that the eligible session needs nothing while the canonical reassessment
+    # requires human adjudication. This is checked against the SAME normal-cycle view
+    # the operator is shown, so a regression here fails on the payload rather than in a
+    # browser.
+    attention_violations = portfolio_attention_violations(
+        attention=portfolio_attention_verdict, overall=overall,
+        cycle_no_action_required=normal_cycle.get("no_action_required"),
+        cycle_review_required=normal_cycle.get("review_required"),
+        primary_action_code=primary_code)
+    if attention_violations:
+        consistency_violations = list(consistency_violations) + attention_violations
+        consistency_status = INCONSISTENT
     if consistency_status == INCONSISTENT:
         warnings.append("Cross-surface consistency check found %d violation(s); see "
                         "consistency_violations." % len(consistency_violations))
@@ -3267,6 +3528,14 @@ def load_workflow_state(
         "normal_cycle_owner": NORMAL_CYCLE_OWNER,
         "normal_cycle_stage": normal_cycle["current_stage"],
         "normal_cycle_stage_gates": normal_cycle["stage_gates"],
+        # Release 46.2 (Objective A): the ONE portfolio-attention verdict — MUTATION,
+        # REVIEW or NONE — promoted to the top level so the Today hero, the Portfolio
+        # page and the Active Manager all read the identical interpretation instead of
+        # each inferring "is there anything to do?" from a different field.
+        "portfolio_attention": portfolio_attention_verdict,
+        "portfolio_attention_owner": WORKFLOW_STATE_OWNER,
+        "portfolio_attention_kind": portfolio_attention_verdict["attention_kind"],
+        "portfolio_review_required": portfolio_attention_verdict["review_required"],
         # Stage 22 (Workstream B): SYSTEM BLOCKER vs EXPECTED STALE EVIDENCE. The
         # fail-closed rule is unchanged; only the information hierarchy moves.
         "evidence_classification": evidence_classification,
@@ -3580,6 +3849,12 @@ __all__ = [
     "classify_assessment", "build_assessment_presentation",
     "build_holding_opportunity_cost_presentation",
     "build_evidence_presentation", "load_workflow_state",
+    # Release 46.2 — the canonical portfolio-attention rule and its invariant.
+    "WORKFLOW_STATE_OWNER", "ATTENTION_MUTATION", "ATTENTION_REVIEW", "ATTENTION_NONE",
+    "PORTFOLIO_ATTENTION_KINDS", "REVIEW_REASON_CONSTRAINT_BREACH",
+    "REVIEW_REASON_PROPOSAL", "ACTION_REVIEW_PORTFOLIO_CONSTRAINT_BREACH",
+    "CONSTRAINT_BREACH_CODES", "constraint_breaches_of", "portfolio_attention",
+    "portfolio_attention_violations",
     # Stage 22 — canonical normal cycle, stale-evidence hierarchy, binding verdict.
     "NORMAL_CYCLE_OWNER", "DATA_GAP_TAXONOMY_OWNER", "NO_ACTION_TEXT",
     "EVIDENCE_SYSTEM_BLOCKER", "EVIDENCE_EXPECTED_STALE", "EVIDENCE_CURRENT",

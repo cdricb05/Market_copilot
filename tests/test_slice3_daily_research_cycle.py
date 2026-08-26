@@ -220,6 +220,23 @@ class Fakes:
                 "persistence": {"status": "CREATED", "assessment_id": "ra_stub",
                                 "persisted": True, "superseded_assessment_id": None}}
 
+    def tournament(self, *, eligible_market_date=None):
+        # Release 46.2: hermetic stub of the prospective-tournament seam. The real
+        # owner (alpha_agent.r46.advance) writes into the R46 research root, so a
+        # sandboxed run must never reach it.
+        self.calls["tournament"] = self.calls.get("tournament", 0) + 1
+        return {"available": True, "state": "TOURNAMENT_LIVE_NOTHING_DUE",
+                "campaign_id": "stub", "eligible_market_date": eligible_market_date,
+                "tournament_predictions_matured": 0,
+                "tournament_outcomes_scored": 0,
+                "tournament_predictions_emitted": 0,
+                "tournament_challengers_active": 10,
+                "tournament_forward_evidence_count": 11,
+                "tournament_next_maturity": "2026-08-27",
+                "pending_predictions": 11, "challengers_registered": 10,
+                "challengers_blocked": 0, "ledger_chain_intact": True,
+                "stage_failures": [], "emission": {}, "leaderboard": {}}
+
     def kw(self):
         return dict(daily_refresh_fn=self.refresh, scoring_fn=self.score,
                     target_loader=self.target, evidence_capture_fn=self.capture,
@@ -228,6 +245,7 @@ class Fakes:
                     reassessment_fn=self.reassessment,
                     reallocation_proposal_fn=self.reallocation,
                     research_agent_fn=self.research_agent,
+                    tournament_fn=self.tournament,
                     refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
                     monthly_emitter_fn=(self.monthly_emit if self.monthly else None))
 
@@ -332,7 +350,7 @@ def test_11_complete_successful_cycle(tmp_path):
     # only because the stubbed economic change gate returned PROPOSAL_READY.
     assert f.calls == {"refresh": 1, "monthly": 0, "score": 1, "target": 1,
                        "evidence": 1, "assess": 1, "holding_opp": 1, "reassessment": 1,
-                       "reallocation": 1, "research_agent": 1}
+                       "reallocation": 1, "research_agent": 1, "tournament": 1}
 
 
 def test_11b_stage20_no_change_gate_skips_the_reallocation_proposal(tmp_path):

@@ -510,9 +510,18 @@ def test_c32_one_click_runs_planned_steps_in_order(tmp_path):
     assert set(completed) <= set(seq)
     # every completed step appears in canonical order (an ordered subsequence)
     assert [s for s in seq if s in set(completed)] == completed
-    # the two Stage-20-gated steps are the ONLY ones absent, and the cycle still completes
+    # The Stage-20-gated steps are absent for the reason above. Release 46.2 adds one
+    # more legitimate absence: the prospective-tournament step writes into the R46
+    # research root, so a SANDBOXED run with no injected seam skips it hermetically
+    # rather than reaching a production root from a test. Both absences are the
+    # product working; the cycle still completes.
     assert set(seq) - set(completed) == {drc.STEP_REASSESS_PORTFOLIO,
-                                         drc.STEP_BUILD_REALLOCATION}
+                                         drc.STEP_BUILD_REALLOCATION,
+                                         drc.STEP_ADVANCE_TOURNAMENT}
+    tour = next(s for s in r["step_results"]
+                if s["step_id"] == drc.STEP_ADVANCE_TOURNAMENT)
+    assert tour["status"] == drc.S_SKIPPED
+    assert "research root" in (tour.get("reason") or "")
     assert r["state"] in (drc.COMPLETE, drc.COMPLETE_WITH_EVIDENCE_GAP)
 
 

@@ -65,6 +65,33 @@ ST_CURRENT = "CURRENT"
 ST_UPCOMING = "UPCOMING"
 STAGE_STATUS_VOCABULARY = (ST_DONE, ST_CURRENT, ST_UPCOMING)
 
+# --------------------------------------------------------------------------- #
+# Release 46.2 — the OPERATOR-ATTENTION vocabulary.
+#
+# Before R46.2 this kernel knew only two things: a normal-path MUTATION was offered,
+# or it was not — and ``no_action_required`` was the negation of that one bit (plus
+# RECOVERY). A stage whose REVIEW gate was open therefore still reported
+# ``no_action_required = True``, which is how the governed 2026-08-25 cycle could
+# report DAILY_CYCLE_COMPLETE / "No action required" over a portfolio reassessment
+# of MANUAL_REVIEW_REQUIRED with seven named hard-constraint breaches.
+#
+# A manual review requirement is NOT a mutating action, and it is NOT nothing. The
+# three kinds are now named, and ``no_action_required`` means the third one only:
+#
+#   MUTATION  the current stage's write gate is open (Daily Close / Daily Research
+#             Cycle). At most one ever is — ``assert_single_primary_mutation``.
+#   REVIEW    something requires the operator's ATTENTION but writes nothing: no
+#             order, no proposal, no portfolio change, no approval. RECOVERY is
+#             reported as its own kind for the same reason.
+#   NONE      genuinely nothing to do.
+# --------------------------------------------------------------------------- #
+ATTENTION_MUTATION = "MUTATION"
+ATTENTION_REVIEW = "REVIEW"
+ATTENTION_RECOVERY = "RECOVERY"
+ATTENTION_NONE = "NONE"
+ATTENTION_VOCABULARY = (ATTENTION_MUTATION, ATTENTION_REVIEW, ATTENTION_RECOVERY,
+                        ATTENTION_NONE)
+
 #: The canonical description of every stage: what happens in it, who owns it and what
 #: the operator's role is. Rendered VERBATIM by every surface — no UI copy of its own.
 STAGE_CONTRACT = {
@@ -218,9 +245,22 @@ _GATE_OPEN_STATES = {
 
 #: Stages whose REVIEW is required, keyed by the overall states that require it. A review
 #: is read-only: it approves nothing, writes no order and enables no automation.
+#:
+#: This map is the FALLBACK derivation, used only when the caller states no verdict of
+#: its own. It infers the review from the overall state, which is true exactly when the
+#: review happens to be the single most urgent thing in the whole cycle — the one case
+#: where a review reaches MANUAL_REVIEW_REQUIRED. An outstanding review that is
+#: OUTRANKED by an earlier gate (an unclosed session, a due close, a stale input) is
+#: still outstanding, and this map cannot see it. That is why ``review_required`` is now
+#: an INPUT: the workflow owner already made the one canonical attention verdict, and a
+#: kernel that re-derives it from a projection of that verdict can disagree with it.
 _REVIEW_REQUIRED_STATES = {
     STAGE_PORTFOLIO_DECISION: frozenset({"MANUAL_REVIEW_REQUIRED"}),
 }
+
+#: The stage an externally-stated review verdict attaches to. A portfolio review is
+#: adjudicated in the portfolio-decision stage wherever the cycle currently stands.
+REVIEW_STAGE = STAGE_PORTFOLIO_DECISION
 
 #: Passive wording per (stage, current stage relationship). Deterministic, never a
 #: disabled-looking execute control.
@@ -282,7 +322,8 @@ def build_stage_gates(*, overall: Any, current_stage: Any,
                       eligible_market_date: Optional[str] = None,
                       latest_completed_close_date: Optional[str] = None,
                       execution_active: bool = False,
-                      completed_stages: Any = None) -> dict[str, dict]:
+                      completed_stages: Any = None,
+                      review_required: Optional[bool] = None) -> dict[str, dict]:
     """The per-stage verdict every surface obeys verbatim.
 
     ``execution_allowed`` is True for AT MOST ONE stage — the current stage, and only
@@ -295,21 +336,35 @@ def build_stage_gates(*, overall: Any, current_stage: Any,
     observed to be COMPLETE for the eligible session. It affects WORDING only — never a
     gate, never the current stage, never the mutation count — so that a suspended cycle
     still reports the valid work it already recorded instead of blanking it.
+
+    ``review_required`` (Release 46.2 repair) is the CANONICAL attention verdict, stated
+    by the workflow owner (``api.workflow_state.portfolio_attention``). When it is given
+    it is the authority: the review gate opens on ``REVIEW_STAGE`` regardless of where
+    the cycle currently stands, because an outstanding adjudication does not stop being
+    outstanding when a closer deadline outranks it. The verdict has ALREADY applied
+    Stage-19 execution precedence (a competing proposal is suppressed while a confirmed
+    plan works; a hard-constraint breach is not), so it is never re-suppressed here —
+    re-applying a rule the caller already applied is how two owners come to disagree.
+    Left as ``None`` the legacy overall-state derivation runs unchanged.
     """
     ov = str(overall)
     cur = str(current_stage)
     done = frozenset(str(s) for s in (completed_stages or ()))
+    stated_review = None if review_required is None else bool(review_required)
     gates: dict[str, dict] = {}
     for stage in STAGE_SEQUENCE:
         open_states = _GATE_OPEN_STATES.get(stage) or frozenset()
         allowed = bool(stage == cur and ov in open_states)
-        review_states = _REVIEW_REQUIRED_STATES.get(stage) or frozenset()
-        review = bool(stage == cur and ov in review_states)
-        # Stage-19 precedence: while a confirmed order plan is still executing, the
-        # portfolio-decision review stays closed (the execution lifecycle keeps the
-        # operator's attention) — the reassessment remains readable as evidence.
-        if review and execution_active:
-            review = False
+        if stated_review is not None:
+            review = bool(stated_review and stage == REVIEW_STAGE)
+        else:
+            review_states = _REVIEW_REQUIRED_STATES.get(stage) or frozenset()
+            review = bool(stage == cur and ov in review_states)
+            # Stage-19 precedence: while a confirmed order plan is still executing, the
+            # portfolio-decision review stays closed (the execution lifecycle keeps the
+            # operator's attention) — the reassessment remains readable as evidence.
+            if review and execution_active:
+                review = False
         gates[stage] = {
             "stage": stage,
             "ordinal": stage_ordinal(stage),
@@ -368,12 +423,18 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
                      latest_completed_close_date: Optional[str] = None,
                      execution_active: bool = False,
                      blockers: Any = None,
-                     completed_stages: Any = None) -> dict[str, Any]:
+                     completed_stages: Any = None,
+                     review_required: Optional[bool] = None) -> dict[str, Any]:
     """Project the ONE decided workflow state onto the canonical normal cycle.
 
     Returns the four operator answers (now / do / why / after), the ordered stage
     list with each stage's status, and the per-stage gates. It decides nothing: the
     overall state and the primary action were already resolved by the workflow owner.
+
+    ``review_required`` carries that owner's canonical portfolio-attention verdict
+    verbatim (see ``build_stage_gates``). Passing it is what makes "is anything
+    outstanding?" a single answer rather than two derivations that agree only while the
+    review happens to be the most urgent thing in the cycle.
     """
     ov = str(overall)
     done = frozenset(str(s) for s in (completed_stages or ()))
@@ -406,8 +467,14 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
     gates = build_stage_gates(
         overall=ov, current_stage=current, eligible_market_date=eligible_market_date,
         latest_completed_close_date=latest_completed_close_date,
-        execution_active=execution_active, completed_stages=done)
+        execution_active=execution_active, completed_stages=done,
+        review_required=review_required)
     allowed = assert_single_primary_mutation(list(gates.values()))
+    # Release 46.2 — the REVIEW/ATTENTION lane, read from the gates this kernel just
+    # built rather than from a second derivation. A review is not a mutation, so it
+    # never enters ``allowed`` and never affects the single-mutation invariant; but it
+    # IS something the operator has to do, so it can never be reported as "no action".
+    review_stages = [s for s in STAGE_SEQUENCE if gates[s]["review_required"]]
 
     nxt = next_stage(current)
     contract = STAGE_CONTRACT[current]
@@ -416,8 +483,16 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
         do_text = str(action_label)
     elif recovery:
         do_text = "Resolve the named blocker before the cycle continues."
+    elif review_stages:
+        do_text = str(action_label or "Review the portfolio item that requires "
+                                      "manual adjudication.")
     else:
         do_text = str(no_action_text or "No action required right now")
+
+    attention_kind = (ATTENTION_MUTATION if allowed
+                      else ATTENTION_RECOVERY if recovery
+                      else ATTENTION_REVIEW if review_stages
+                      else ATTENTION_NONE)
 
     return {
         "cycle_id": CYCLE_ID,
@@ -445,8 +520,29 @@ def build_cycle_view(*, overall: Any, current_task: Any = None,
         # ``no_action_required`` there let a surface truthfully read the gate count as
         # zero and render "nothing to do" over a suspended cycle. ``executable_stages``
         # remains the mutation contract; this pair is the operator-attention contract.
-        "action_required": bool(action_available) or recovery,
-        "no_action_required": not (bool(action_available) or recovery),
+        #
+        # Release 46.2 extends the same correction to the REVIEW lane. An open review
+        # gate (a hard portfolio-constraint breach, a proposal awaiting adjudication)
+        # requires the operator and writes nothing — so it raises ``action_required``
+        # and it does NOT raise ``executable_stage_count``.
+        "action_required": bool(action_available) or recovery or bool(review_stages),
+        "no_action_required": not (bool(action_available) or recovery
+                                   or bool(review_stages)),
+        "attention_kind": attention_kind,
+        "attention_vocabulary": list(ATTENTION_VOCABULARY),
+        "review_required": bool(review_stages),
+        "review_stages": list(review_stages),
+        "review_stage_count": len(review_stages),
+        # Where the review verdict came from. STATED = the workflow owner's canonical
+        # portfolio-attention verdict was passed in and obeyed verbatim; DERIVED = no
+        # verdict was stated and this kernel fell back to inferring one from the overall
+        # state. A composed operator payload must always read STATED.
+        "review_verdict_source": ("STATED" if review_required is not None
+                                  else "DERIVED"),
+        "review_creates_orders": False,
+        "review_creates_proposal": False,
+        "review_mutates_portfolio": False,
+        "review_is_a_mutation": False,
         "in_recovery": recovery,
         "completed_stages": sorted(done),
         "executable_stages": allowed,
@@ -468,6 +564,8 @@ __all__ = [
     "STAGE_PORTFOLIO_DECISION", "STAGE_CONTROLLED_REBALANCE", "STAGE_RECOVERY",
     "STAGE_SEQUENCE", "STAGE_VOCABULARY", "STAGE_CONTRACT", "STAGE_FOR_OVERALL_STATE",
     "ST_DONE", "ST_CURRENT", "ST_UPCOMING", "STAGE_STATUS_VOCABULARY",
+    "ATTENTION_MUTATION", "ATTENTION_REVIEW", "ATTENTION_RECOVERY", "ATTENTION_NONE",
+    "ATTENTION_VOCABULARY",
     "MultiplePrimaryMutationError",
     "stage_for_overall_state", "stage_ordinal", "next_stage", "build_stage_gates",
     "assert_single_primary_mutation", "build_cycle_view",

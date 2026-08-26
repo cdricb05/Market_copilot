@@ -218,7 +218,16 @@ def register(campaign_id: str = CAMPAIGN_ID, specs=None,
     RETUNE_DETECTED blocker rather than silently accepted.
     """
     specs = list(specs if specs is not None else CH.SEED_SPECS)
-    now = frozen_at or CK.iso(CK.now_utc())
+    _now_dt = CK.now_utc()
+    now = frozen_at or CK.iso(_now_dt)
+    # Release 46.2 - the sub-second companion, recorded ONLY for a challenger being
+    # frozen for the first time. An already-registered challenger keeps whatever it
+    # was frozen with (usually nothing, because it predates this field), so no
+    # existing registry entry changes and no existing hash moves.
+    # An explicit ``frozen_at`` drives BOTH stamps, so a caller that pins the freeze
+    # instant cannot end up with a precise stamp taken from the wall clock instead.
+    now_precise = CK.iso_precise(
+        (CK.parse_iso(frozen_at) if frozen_at else None) or _now_dt)
     prior = load(campaign_id)
     prior_by_id = {c["challenger_id"]: c
                    for c in (prior.get("challengers") or [])
@@ -252,6 +261,13 @@ def register(campaign_id: str = CAMPAIGN_ID, specs=None,
             "model_parameters_hash": CH.parameters_hash(spec),
             "feature_set_hash": CH.feature_set_hash(spec),
             "frozen_at": (was or {}).get("frozen_at", now),
+            # Only a challenger being frozen for the FIRST time gets a precise stamp.
+            # An already-registered one keeps its own, which for the R46 cohort is
+            # absent - and absent is the truth. Back-stamping today's microseconds
+            # onto a freeze that happened on 2026-08-25 would manufacture precision
+            # the record never had, which is the opposite of what this field is for.
+            "frozen_at_precise": (was.get("frozen_at_precise") if was
+                                  else now_precise),
             "forward_start": (was or {}).get("forward_start", now),
             "family": spec["family"],
             "asset_class": spec["asset_class"],

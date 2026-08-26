@@ -616,12 +616,28 @@ def _ra_stub(*, scoring=None, reallocation=None, research_agent_dir=None, hoc_di
                             "persisted": True, "superseded_assessment_id": None}}
 
 
+def _tournament_stub(*, eligible_market_date=None):
+    # Release 46.2: hermetic stub of the prospective-tournament seam. Like the four
+    # stubs above it exists so the sandboxed cycle can EXECUTE the step instead of
+    # skipping it — without that seam the real owner would write into the production
+    # Release-46 research root, which a test may never touch.
+    return {"available": True, "state": "TOURNAMENT_LIVE_NOTHING_DUE",
+            "calculation_owner": "alpha_agent.r46.advance",
+            "campaign_id": "r46_stub", "eligible_market_date": eligible_market_date,
+            "tournament_predictions_matured": 0, "tournament_outcomes_scored": 0,
+            "tournament_predictions_emitted": 0, "tournament_challengers_active": 0,
+            "tournament_forward_evidence_count": 0, "tournament_next_maturity": None,
+            "pending_predictions": 0, "ledger_chain_intact": True,
+            "stage_failures": []}
+
+
 def _run_drc(tmp, *, inputs=None, monthly_emitter_fn=None):
     score, target, capture, refresh, assess = _fakes()
     return drc.run_daily_research_cycle(
         confirm=drc.EXECUTE_CONFIRMATION, drc_dir=str(tmp), now=NOW_AFTER_CUTOFF_D,
         holding_opp_cost_fn=_hoc_stub, reassessment_fn=_prs_stub,
         reallocation_proposal_fn=_realloc_stub, research_agent_fn=_ra_stub,
+        tournament_fn=_tournament_stub,
         operational=_op(), inputs=(inputs if inputs is not None else _inputs()),
         daily_status=dict(_DAILY), desk_marks=_desk(), close_progress=dict(_CLOSE),
         forward_status=copy.deepcopy(_FWD), daily_refresh_fn=refresh, scoring_fn=score,
