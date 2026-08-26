@@ -769,9 +769,13 @@ def test_a_blocked_challenger_does_not_block_the_others(sandbox, monkeypatch):
     monkeypatch.setattr(FE.MD, "last_session", selective)
     reg = RG.register(TEST_CAMPAIGN)
     states = {c["challenger_id"]: c["state"] for c in reg["challengers"]}
-    assert states["r46_vx_term_carry_5d"] == C.DATA_BLOCKED
-    others = {k: v for k, v in states.items()
-              if k != "r46_vx_term_carry_5d"}
+    # Release 46.3 added a second cell on the SAME VIX data path (the
+    # one-session carry clock); a dead stream correctly blocks every
+    # challenger that reads it, and only those.
+    vx_readers = {"r46_vx_term_carry_5d", "r46_3_vx_term_carry_1d"}
+    for cid in vx_readers & set(states):
+        assert states[cid] == C.DATA_BLOCKED, cid
+    others = {k: v for k, v in states.items() if k not in vx_readers}
     assert others, "there must be other challengers to survive"
     assert all(v == C.FORWARD_PENDING for v in others.values()), others
 

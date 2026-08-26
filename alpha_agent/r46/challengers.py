@@ -28,9 +28,12 @@ Two things this module deliberately does NOT do:
 """
 from __future__ import annotations
 
+import datetime as _dt
+
 import numpy as np
 import pandas as pd
 
+from . import clock as CK
 from . import contract as C
 from . import marketdata as MD
 from . import sha
@@ -277,8 +280,401 @@ SEED_SPECS = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# Release 46.3 - the EXPANSION cohort. Same door, wider field.
+#
+# Every rule of the seed cohort applies unchanged: parameters are canonical
+# constants declared here BEFORE any of these rules read a bar of this
+# estate's data to be selected; nothing was swept, screened or ranked; a
+# challenger that starts losing is never edited, only versioned. What the
+# expansion adds is BREADTH along the axes evidence velocity actually depends
+# on - economic mechanisms, information families, asset structures, horizons -
+# and it declares, per challenger, which DEPENDENCE CLUSTER its evidence
+# belongs to, so the velocity owner can refuse to count related bets twice.
+# --------------------------------------------------------------------------- #
+EXPANSION_COHORT = "R46_3_EXPANSION"
+
+EXPANSION_CANONICAL_CONSTANTS = {
+    "statement": (
+        "every expansion parameter below is a canonical constant from the "
+        "published literature, written into this module before any of these "
+        "rules was first run on this estate's data. No sweep, screen or "
+        "ranking on owned returns selected any of them."),
+    "max_window_days": 21,          # Bali, Cakici & Whitelaw's MAX month
+    "max_top_days": 5,              # MAX(5): mean of the 5 largest daily moves
+    "amihud_days": 252,             # Amihud's one-year illiquidity average
+    "seasonal_lag_years": 5,        # Heston & Sadka same-month lags 1..5
+    "seasonal_min_years": 3,
+    "turn_of_month_window": (-1, 3),   # McConnell & Xu: last day through +3
+    "futures_leg_fraction": 1 / 3.0,   # Moskowitz-style thirds
+    "curve_skip_spot_month": True,     # delivery distortions are not carry
+    "ml_training_sessions": 756,       # three years of dailies
+    "ml_training_stride_sessions": 21, # monthly samples: overlapping targets
+                                       # inside training would inflate fit
+    "ml_target_sessions": 20,          # the challenger's own horizon
+    "ml_ridge_lambda": 1.0,            # unit penalty on z-scored features
+    "ml_gbt_max_iter": 100,            # library defaults, declared, frozen
+    "ml_gbt_max_depth": 3,
+    "ml_gbt_learning_rate": 0.05,
+    "ml_random_seed": 46,
+}
+
+XK = EXPANSION_CANONICAL_CONSTANTS
+
+#: The six features every ML challenger sees. Frozen as a set; hashed via each
+#: spec's parameters. All are computable from owned bars at the data cutoff.
+ML_FEATURES = ("mom_12_1", "rev_5d", "vol_60d", "beta_60d", "max_21d",
+               "amihud_252d")
+
+#: The declared retraining policy for the ML cohort. Refit happens at EVERY
+#: emission, deterministically, from the trailing window - predeclared here so
+#: it is a contract clause and not a silent habit. A change to this protocol
+#: is a MATERIAL change and forces a new version with a new forward clock.
+ML_RETRAINING_POLICY = (
+    "refit deterministically at each emission from the trailing "
+    "%d-session window, sampled every %d sessions; fixed feature set, fixed "
+    "preprocessing (cross-sectional z-score, clipped at 3 sigma), fixed "
+    "hyperparameters, fixed random seed %d; no hyperparameter search ever; "
+    "forward results may never choose the model"
+    % (XK["ml_training_sessions"], XK["ml_training_stride_sessions"],
+       XK["ml_random_seed"]))
+
+EXPANSION_SPECS = (
+    _spec(
+        challenger_id="r46_3_eq_xs_max_lottery",
+        family="LOTTERY_DEMAND",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_MAX",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="investors overpay for lottery-like payoffs, so names with the "
+               "largest recent daily jumps subsequently underperform names "
+               "without them",
+        parameters={"max_window_days": XK["max_window_days"],
+                    "max_top_days": XK["max_top_days"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_eq_xs_lottery",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_eq_xs_rev_5d", "r46_eq_xs_lowvol_60d"),
+        overlap_note="price-state cross-section on the same universe as the "
+                     "seed equity cells; counted in the same dependence "
+                     "cluster, never as independent evidence",
+    ),
+    _spec(
+        challenger_id="r46_3_eq_xs_amihud_illiq",
+        family="LIQUIDITY_PREMIUM",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ILLIQ",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="holding a name that is expensive to trade earns compensation; "
+               "|return| per dollar of volume prices that inventory risk even "
+               "inside the large-cap universe",
+        parameters={"amihud_days": XK["amihud_days"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_eq_xs_illiquidity",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_VOLUME",
+        dependence_cluster="EQ_XS_VOLUME",
+    ),
+    _spec(
+        challenger_id="r46_3_eq_xs_seasonal_month",
+        family="RETURN_SEASONALITY",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_SEASONAL",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="names that historically did well in this calendar month do "
+               "well in it again - recurring flows and announcement calendars "
+               "repeat on an annual clock",
+        parameters={"lag_years": XK["seasonal_lag_years"],
+                    "min_years": XK["seasonal_min_years"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_eq_xs_seasonal",
+        cohort=EXPANSION_COHORT,
+        information_family="CALENDAR_STRUCTURE",
+        dependence_cluster="EQ_SEASONALITY",
+    ),
+    _spec(
+        challenger_id="r46_3_fut_xs_mom_252",
+        family="CROSS_SECTIONAL_MOMENTUM",
+        asset_class="MULTI_ASSET_FUTURES",
+        instrument="BOOK:FUTURES_XS_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="MIXED_FUTURES",
+        universe="declared liquid continuous futures across equity index, "
+                 "rates, FX and commodities",
+        thesis="RELATIVE twelve-month strength across futures markets "
+               "persists; unlike the time-series trend book this is a "
+               "dollar-neutral relative bet, not an absolute one",
+        parameters={"formation_days": K["trend_days"],
+                    "leg_fraction": XK["futures_leg_fraction"]},
+        signal_owner="_futures_xs_momentum",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="FUTURES_TREND_PRICE",
+        economic_overlap_with=("r46_fut_ts_mom_252",),
+        overlap_note="same information family and largely the same markets as "
+                     "the time-series trend book; same dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_3_comdty_curve_carry",
+        family="FUTURES_CURVE_CARRY",
+        asset_class="COMMODITY",
+        instrument="BOOK:COMMODITY_CURVE_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5, 20),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="COMMODITY_FUTURES",
+        universe="declared liquid commodity futures with a readable dated "
+                 "curve (front and next delivery months)",
+        thesis="backwardation pays the long and contango pays the short: the "
+               "curve's slope is the price of storage and hedging pressure, "
+               "and it accrues to whoever carries the position",
+        parameters={"leg_fraction": XK["futures_leg_fraction"],
+                    "skip_spot_month": XK["curve_skip_spot_month"],
+                    "slope": "ln(front/next) * 12 / months_between"},
+        signal_owner="_commodity_curve_carry",
+        cohort=EXPANSION_COHORT,
+        information_family="FUTURES_CURVE",
+        dependence_cluster="COMMODITY_CURVE",
+    ),
+    _spec(
+        challenger_id="r46_3_rates_curve_carry",
+        family="TERM_PREMIUM_CARRY",
+        asset_class="RATES",
+        instrument="&ZN",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="RATES_FUTURES",
+        universe="&ZN, signed by the owned 10y-2y constant-maturity spread",
+        thesis="a steep curve pays duration holders carry and roll-down; an "
+               "inverted curve takes it away - the oldest bond risk premium "
+               "there is, read from OWNED yield series rather than prices",
+        parameters={"long_series": "%10YTCM", "short_series": "%2YTCM",
+                    "position": "long &ZN when 10y-2y > 0, short when < 0",
+                    "max_series_lag_sessions": 5},
+        signal_owner="_rates_macro_curve",
+        cohort=EXPANSION_COHORT,
+        information_family="MACRO_RATES_LEVELS",
+        dependence_cluster="RATES_MACRO_CARRY",
+    ),
+    _spec(
+        challenger_id="r46_3_spx_turn_of_month",
+        family="CALENDAR_SEASONALITY",
+        asset_class="EQUITY_INDEX",
+        instrument="SPY",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_ETF",
+        universe="SPY",
+        thesis="pension and payroll flows cluster at month turns; equity "
+               "returns concentrate in the last session and first three "
+               "sessions of the month",
+        parameters={"window": list(XK["turn_of_month_window"]),
+                    "position": "long SPY only when the entry session falls "
+                                "inside the turn-of-month window"},
+        signal_owner="_spx_turn_of_month",
+        cohort=EXPANSION_COHORT,
+        information_family="CALENDAR_STRUCTURE",
+        dependence_cluster="CALENDAR_TOM",
+    ),
+    _spec(
+        challenger_id="r46_3_vx_term_carry_1d",
+        family="VOLATILITY_TERM_CARRY",
+        asset_class="VOLATILITY",
+        instrument="&VX",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="VOLATILITY_FUTURES",
+        universe="front VIX future against VIX spot",
+        thesis="the roll-down of a contango VIX curve accrues session by "
+               "session; a one-session horizon reads that accrual on the "
+               "fastest legitimate clock this data supports",
+        parameters={"basis": "front &VX close / $VIX close - 1",
+                    "position": "short when basis > 0, long when basis < 0"},
+        signal_owner="_vx_carry",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="VX_CARRY",
+        economic_overlap_with=("r46_vx_term_carry_5d",
+                               "R39:shadow_vx_carry_ts"),
+        overlap_note="the same signal as the seed 5-session cell on a faster "
+                     "clock; one dependence cluster, never two",
+    ),
+    _spec(
+        challenger_id="r46_3_ens_eq_xs_equal",
+        family="PROSPECTIVE_ENSEMBLE",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ENS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="an equal-weight combination of momentum, low-volatility and "
+               "residual momentum ranks diversifies rule-level noise; the "
+               "weights are frozen at one third each BEFORE any member has a "
+               "single matured forward observation, so no forward result "
+               "chose them",
+        parameters={"members": ["momentum_12_1", "low_volatility_60d",
+                                "residual_momentum_12_1"],
+                    "weights": [1 / 3.0, 1 / 3.0, 1 / 3.0],
+                    "combination": "equal-weight average of cross-sectional "
+                                   "percentile ranks",
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_eq_xs_ensemble",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_eq_xs_mom_12_1", "r46_eq_xs_lowvol_60d",
+                               "r46_eq_xs_resid_mom_12_1"),
+        overlap_note="a fixed combination of three seed signals; same "
+                     "dependence cluster as its members",
+    ),
+    _spec(
+        challenger_id="r46_3_ml_eq_xs_ridge",
+        family="ML_CROSS_SECTIONAL_LINEAR",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ML_RIDGE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="a regularised linear combination of the declared canonical "
+               "features may weight them better than any single rule; if it "
+               "cannot beat its own ingredients net of cost, that is worth "
+               "knowing on the forward record",
+        parameters={"model_class": "RIDGE_CLOSED_FORM",
+                    "features": list(ML_FEATURES),
+                    "preprocessing": "cross-sectional z-score, clip 3 sigma",
+                    "ridge_lambda": XK["ml_ridge_lambda"],
+                    "training_sessions": XK["ml_training_sessions"],
+                    "training_stride_sessions":
+                        XK["ml_training_stride_sessions"],
+                    "target_sessions": XK["ml_target_sessions"],
+                    "retraining_policy": ML_RETRAINING_POLICY,
+                    "random_seed": XK["ml_random_seed"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_ml_eq_cross_section",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_VOLUME",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_eq_xs_mom_12_1", "r46_eq_xs_rev_5d",
+                               "r46_eq_xs_lowvol_60d",
+                               "r46_eq_xs_resid_mom_12_1"),
+        overlap_note="learned from the same price-state features the seed "
+                     "cells use; same dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_3_ml_eq_xs_gbt",
+        family="ML_CROSS_SECTIONAL_NONLINEAR",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ML_GBT",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="if the cross-section rewards INTERACTIONS the linear rules "
+               "cannot express - momentum conditional on volatility, reversal "
+               "conditional on liquidity - a shallow boosted tree is the "
+               "bounded way to find out; identical features, identical "
+               "protocol, so the comparison against the ridge cell isolates "
+               "nonlinearity itself",
+        parameters={"model_class": "HIST_GRADIENT_BOOSTING",
+                    "features": list(ML_FEATURES),
+                    "preprocessing": "cross-sectional z-score, clip 3 sigma",
+                    "max_iter": XK["ml_gbt_max_iter"],
+                    "max_depth": XK["ml_gbt_max_depth"],
+                    "learning_rate": XK["ml_gbt_learning_rate"],
+                    "training_sessions": XK["ml_training_sessions"],
+                    "training_stride_sessions":
+                        XK["ml_training_stride_sessions"],
+                    "target_sessions": XK["ml_target_sessions"],
+                    "retraining_policy": ML_RETRAINING_POLICY,
+                    "random_seed": XK["ml_random_seed"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_ml_eq_cross_section",
+        cohort=EXPANSION_COHORT,
+        information_family="PRICE_VOLUME",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_3_ml_eq_xs_ridge",),
+        overlap_note="same features and protocol as the ridge cell by design; "
+                     "same dependence cluster",
+    ),
+)
+
+#: The full frozen field: seed cohort plus expansion cohort. Registration and
+#: emission default to this; the seed tuple keeps its own name and its own
+#: bytes because the original ten specifications are evidence.
+ALL_SPECS = SEED_SPECS + EXPANSION_SPECS
+
+#: Dependence clusters and information families for the SEED cohort, declared
+#: here rather than edited into the frozen seed dicts. The expansion cohort
+#: carries both inline; :func:`cluster_for` and :func:`info_family_for` are
+#: the one place either is resolved.
+SEED_DEPENDENCE_CLUSTERS = {
+    "r46_eq_xs_mom_12_1": "EQ_XS_PRICE",
+    "r46_eq_xs_rev_5d": "EQ_XS_PRICE",
+    "r46_eq_xs_lowvol_60d": "EQ_XS_PRICE",
+    "r46_eq_xs_resid_mom_12_1": "EQ_XS_PRICE",
+    "r46_fut_ts_mom_252": "FUTURES_TREND_PRICE",
+    "r46_fx_xs_mom_252": "FX_TREND",
+    "r46_vx_term_carry_5d": "VX_CARRY",
+    "r46_rates_curve_rv_5d": "RATES_RV",
+    "r46_comdty_xs_mom_252": "COMMODITY_XS_PRICE",
+    "r46_spx_trend_200d": "SPX_TREND",
+}
+
+SEED_INFORMATION_FAMILIES = {cid: "PRICE_STATE"
+                             for cid in SEED_DEPENDENCE_CLUSTERS}
+
+
+def cluster_for(spec_or_entry: dict) -> str:
+    d = spec_or_entry or {}
+    return (d.get("dependence_cluster")
+            or SEED_DEPENDENCE_CLUSTERS.get(str(d.get("challenger_id")))
+            or "%s|%s" % (d.get("family"), d.get("asset_class")))
+
+
+def info_family_for(spec_or_entry: dict) -> str:
+    d = spec_or_entry or {}
+    return (d.get("information_family")
+            or SEED_INFORMATION_FAMILIES.get(str(d.get("challenger_id")))
+            or "PRICE_STATE")
+
+
 def spec_by_id(challenger_id: str):
-    for s in SEED_SPECS:
+    for s in ALL_SPECS:
         if s["challenger_id"] == challenger_id:
             return s
     return None
@@ -615,6 +1011,447 @@ def _index_trend(spec: dict) -> dict:
             "cost_class_by_leg": {BENCHMARK_EQUITY: "US_ETF"}}
 
 
+# --------------------------------------------------------------------------- #
+# Release 46.3 signal owners
+# --------------------------------------------------------------------------- #
+def _eq_xs_lottery(spec: dict) -> dict:
+    """MAX(5): the mean of the five largest daily moves of the last month."""
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    win, top = int(p["max_window_days"]), int(p["max_top_days"])
+    scores, marks = {}, {}
+    for sym in syms:
+        s = MD.closes(sym)
+        if s is None or len(s) < win + 2:
+            continue
+        marks[sym] = float(s.iloc[-1])
+        r = s.pct_change().dropna()
+        w = r.iloc[-win:]
+        if len(w) < win:
+            continue
+        vals = np.sort(w.to_numpy(dtype=float))
+        if not np.isfinite(vals[-top:]).all():
+            continue
+        scores[sym] = -float(vals[-top:].mean())   # long LOW-MAX names
+    legs = _decile_book(scores, p["decile_fraction"], spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_universe": len(syms), "n_scored": len(scores),
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _eq_xs_illiquidity(spec: dict) -> dict:
+    """Amihud: |return| per dollar traded, averaged over one year."""
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    win = int(p["amihud_days"])
+    scores, marks = {}, {}
+    for sym in syms:
+        s, v = MD.closes(sym), MD.volumes(sym)
+        if s is None or v is None or len(s) < win + 2:
+            continue
+        marks[sym] = float(s.iloc[-1])
+        j = s.align(v, join="inner")
+        px, vol = j[0], j[1]
+        dollar = (px * vol).where(lambda x: x > 0)
+        illiq = (px.pct_change().abs() / dollar).dropna()
+        w = illiq.iloc[-win:]
+        if len(w) < win // 2:
+            continue
+        m = float(w.mean())
+        if np.isfinite(m):
+            scores[sym] = m                        # long HIGH illiquidity
+    legs = _decile_book(scores, p["decile_fraction"], spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_universe": len(syms), "n_scored": len(scores),
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _eq_xs_seasonal(spec: dict) -> dict:
+    """Heston-Sadka: the same calendar month, one to five years back."""
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    lags, min_years = int(p["lag_years"]), int(p["min_years"])
+    entry = CK.entry_session_date(CK.now_utc())
+    scores, marks = {}, {}
+    for sym in syms:
+        s = MD.closes(sym)
+        if s is None or len(s) < 300:
+            continue
+        marks[sym] = float(s.iloc[-1])
+        monthly = s.resample("ME").last().pct_change().dropna()
+        vals = [float(r) for ts, r in monthly.items()
+                if ts.month == entry.month
+                and entry.year - lags <= ts.year <= entry.year - 1
+                and np.isfinite(r)]
+        if len(vals) >= min_years:
+            scores[sym] = float(np.mean(vals))
+    legs = _decile_book(scores, p["decile_fraction"], spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_universe": len(syms), "n_scored": len(scores),
+            "target_month": entry.month, "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _futures_xs_momentum(spec: dict) -> dict:
+    """Relative twelve-month strength ACROSS futures markets, thirds."""
+    p = spec["parameters"]
+    declared = [s for grp, members in FUTURES_GROUPS.items()
+                for s in members if grp != "VOLATILITY_FUTURES"]
+    available = set(MD.continuous_futures())
+    scores, marks, skipped = {}, {}, []
+    for sym in declared:
+        if sym not in available:
+            skipped.append({"instrument": sym, "why": "NOT_IN_DATABASE"})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        if MD.has_non_positive(s, int(p["formation_days"]) + 1):
+            skipped.append({"instrument": sym, "why": MD.NON_POSITIVE_PRICE})
+            continue
+        v = MD.total_return(s, int(p["formation_days"]))
+        if v is not None:
+            scores[sym] = v
+    if len(scores) < MIN_FUTURES_MARKETS:
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    k = max(1, int(round(len(scores) * float(p["leg_fraction"]))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": _futures_group(sym)})
+    for sym, sc in order[:k]:
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": _futures_group(sym)})
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: l["cost_class"]
+                                  for l in legs}}
+
+
+def _commodity_curve_carry(spec: dict) -> dict:
+    """Front/next curve slope per commodity, thirds. Signal from the dated
+    curve; the tradeable expression stays the continuous series, whose bars
+    keep printing through the outcome window."""
+    p = spec["parameters"]
+    ref = CK.eastern_date(CK.now_utc())
+    scores, marks, curves, skipped = {}, {}, [], []
+    for sym in COMMODITY_MARKETS:
+        root = sym.lstrip("&")
+        cv = MD.futures_curve_carry(root, ref)
+        if cv.get("state") != "OK":
+            skipped.append({"instrument": sym, "why": cv.get("state")})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_CONTINUOUS_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        scores[sym] = float(cv["carry_annualised"])
+        curves.append({"instrument": sym, "carry": scores[sym],
+                       "front": cv["front"]["symbol"],
+                       "next": cv["next"]["symbol"],
+                       "months_between": cv["months_between"]})
+    if len(scores) < 9:
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    k = max(1, int(round(len(scores) * float(p["leg_fraction"]))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:                    # long backwardation
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": "COMMODITY_FUTURES"})
+    for sym, sc in order[:k]:                     # short contango
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": "COMMODITY_FUTURES"})
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "curves": curves, "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: "COMMODITY_FUTURES"
+                                  for l in legs}}
+
+
+def _rates_macro_curve(spec: dict) -> dict:
+    """Sign &ZN by the OWNED 10y-2y constant-maturity spread."""
+    p = spec["parameters"]
+    y10 = MD.closes(p["long_series"])
+    y2 = MD.closes(p["short_series"])
+    zn = MD.closes("&ZN")
+    if y10 is None or y2 is None or zn is None:
+        return {"state": "NO_DATA", "legs": []}
+    j = y10.align(y2, join="inner")
+    if not len(j[0]):
+        return {"state": "NO_OVERLAP", "legs": []}
+    last = j[0].index[-1].date()
+    ref = CK.eastern_date(CK.now_utc())
+    lag, d = 0, last
+    while d < ref:
+        d += _dt.timedelta(days=1)
+        if d.weekday() < 5:
+            lag += 1
+    if lag > int(p["max_series_lag_sessions"]):
+        return {"state": "STALE_SERIES", "legs": [],
+                "series_last_session": str(last), "lag_sessions": lag}
+    slope = float(j[0].iloc[-1]) - float(j[1].iloc[-1])
+    if slope == 0.0:
+        return {"state": "OK", "legs": [], "slope": slope,
+                "marks": {"&ZN": float(zn.iloc[-1])}}
+    direction = 1.0 if slope > 0 else -1.0
+    legs = [{"instrument": "&ZN", "weight": direction, "score": slope,
+             "side": "LONG" if direction > 0 else "SHORT",
+             "cost_class": "RATES_FUTURES"}]
+    return {"state": "OK", "legs": legs, "slope": slope,
+            "series_last_session": str(last), "lag_sessions": lag,
+            "marks": {"&ZN": float(zn.iloc[-1])},
+            "cost_class_by_leg": {"&ZN": "RATES_FUTURES"}}
+
+
+def _tom_window_membership(entry: _dt.date) -> bool:
+    """Is ``entry`` the last weekday of its month, or one of the first three?
+
+    Stated on the weekday calendar, like the entry rule itself: no venue in
+    this tournament prints a bar on a weekend, and holidays resolve the entry
+    forward on the instrument's own realised calendar as they do everywhere
+    else in this release.
+    """
+    first3, d = [], entry.replace(day=1)
+    while len(first3) < 3:
+        if d.weekday() < 5:
+            first3.append(d)
+        d += _dt.timedelta(days=1)
+    nxt = (entry.replace(day=28) + _dt.timedelta(days=4)).replace(day=1)
+    last = nxt - _dt.timedelta(days=1)
+    while last.weekday() in CK.WEEKEND:
+        last -= _dt.timedelta(days=1)
+    return entry in first3 or entry == last
+
+
+def _spx_turn_of_month(spec: dict) -> dict:
+    """Long SPY only when the ENTRY session falls in the turn-of-month window.
+
+    Outside the window the rule holds nothing, which is a valid decision and
+    correctly emits no row - there is nothing to score against cash.
+    """
+    s = MD.closes(BENCHMARK_EQUITY)
+    if s is None or not len(s):
+        return {"state": "NO_DATA", "legs": []}
+    entry = CK.entry_session_date(CK.now_utc())
+    inside = _tom_window_membership(entry)
+    px = float(s.iloc[-1])
+    legs = ([{"instrument": BENCHMARK_EQUITY, "weight": 1.0, "score": 1.0,
+              "side": "LONG", "cost_class": "US_ETF"}] if inside else [])
+    return {"state": "OK", "legs": legs, "entry_session": str(entry),
+            "in_turn_of_month_window": inside,
+            "marks": {BENCHMARK_EQUITY: px},
+            "cost_class_by_leg": {BENCHMARK_EQUITY: "US_ETF"}}
+
+
+def _eq_xs_ensemble(spec: dict) -> dict:
+    """Equal-weight rank combination of three seed signals. Weights frozen at
+    one third each before ANY member holds a matured forward observation."""
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    market = MD.closes(BENCHMARK_EQUITY)
+    mkt_mom = (MD.total_return(market, K["momentum_formation_days"],
+                               K["momentum_skip_days"])
+               if market is not None else None)
+    mom, lowvol, resid, marks = {}, {}, {}, {}
+    for sym in syms:
+        s = MD.closes(sym)
+        if s is None or len(s) < 5:
+            continue
+        marks[sym] = float(s.iloc[-1])
+        m = MD.total_return(s, K["momentum_formation_days"],
+                            K["momentum_skip_days"])
+        if m is not None:
+            mom[sym] = m
+        v = MD.realised_vol(s, K["volatility_days"])
+        if v is not None:
+            lowvol[sym] = -v
+        b = MD.beta_to(s, market, K["beta_days"])
+        if m is not None and b is not None and mkt_mom is not None:
+            resid[sym] = m - b * mkt_mom
+
+    def _ranks(d: dict) -> dict:
+        order = sorted(d.items(), key=lambda kv: kv[1])
+        n = max(1, len(order) - 1)
+        return {sym: i / n for i, (sym, _) in enumerate(order)}
+
+    r1, r2, r3 = _ranks(mom), _ranks(lowvol), _ranks(resid)
+    scores = {sym: (r1[sym] + r2[sym] + r3[sym]) / 3.0
+              for sym in set(r1) & set(r2) & set(r3)}
+    legs = _decile_book(scores, p["decile_fraction"], spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_universe": len(syms), "n_scored": len(scores),
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _rolling_top_mean(frame: pd.DataFrame, window: int,
+                      top: int) -> pd.DataFrame:
+    """Rolling mean of the ``top`` largest values in each window, per column.
+
+    Vectorised: a python-level rolling apply over five hundred columns is
+    minutes of wall clock inside a daily cycle, and the daily cycle is where
+    this runs.
+    """
+    out = pd.DataFrame(np.nan, index=frame.index, columns=frame.columns)
+    if len(frame) < window:
+        return out
+    from numpy.lib.stride_tricks import sliding_window_view
+    w = sliding_window_view(frame.to_numpy(dtype=float), window, axis=0)
+    part = np.partition(w, -top, axis=2)[:, :, -top:]
+    out.iloc[window - 1:] = part.mean(axis=2)
+    return out
+
+
+def _ml_eq_cross_section(spec: dict) -> dict:
+    """One deterministic ML pipeline, two frozen model classes.
+
+    The training protocol is a contract clause (see ML_RETRAINING_POLICY):
+    trailing window, monthly-sampled decision dates so overlapping targets do
+    not inflate the fit, cross-sectional z-scores clipped at three sigma,
+    frozen hyperparameters, fixed seed. Every training input existed at the
+    data cutoff and every training TARGET window closed at or before it, so
+    nothing the model saw includes any part of any outcome it will be scored
+    on.
+    """
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    market = MD.closes(BENCHMARK_EQUITY)
+    if market is None:
+        return {"state": "NO_DATA", "legs": []}
+
+    px_map, vol_map = {}, {}
+    for sym in syms:
+        s = MD.closes(sym)
+        if s is None or len(s) < 300:
+            continue
+        px_map[sym] = s
+        v = MD.volumes(sym)
+        if v is not None:
+            vol_map[sym] = v
+    if len(px_map) < MIN_CROSS_SECTION:
+        return {"state": "INSUFFICIENT_CROSS_SECTION", "legs": [],
+                "n_priced": len(px_map)}
+
+    px = pd.DataFrame(px_map).sort_index()
+    px = px.where(px > 0)
+    ret = px.pct_change()
+    logret = np.log(px).diff()
+    mret = np.log(market).diff().reindex(px.index)
+
+    feats = {
+        "mom_12_1": px.shift(21) / px.shift(252) - 1.0,
+        "rev_5d": -(px / px.shift(5) - 1.0),
+        "vol_60d": logret.rolling(60).std() * np.sqrt(252.0),
+        "beta_60d": logret.rolling(60).cov(mret).div(
+            mret.rolling(60).var(), axis=0),
+        "max_21d": _rolling_top_mean(ret, XK["max_window_days"],
+                                     XK["max_top_days"]),
+    }
+    if vol_map:
+        dollar = px * pd.DataFrame(vol_map).reindex(
+            index=px.index, columns=px.columns)
+        feats["amihud_252d"] = (ret.abs() / dollar.where(dollar > 0)) \
+            .rolling(XK["amihud_days"]).mean()
+    else:
+        feats["amihud_252d"] = pd.DataFrame(np.nan, index=px.index,
+                                            columns=px.columns)
+    features = list(p["features"])
+
+    def _zrow(pos: int):
+        row = pd.DataFrame({f: feats[f].iloc[pos] for f in features})
+        row = row.dropna()
+        if len(row) < MIN_CROSS_SECTION:
+            return None
+        for f in features:
+            col = row[f]
+            sd = float(col.std(ddof=1))
+            if not np.isfinite(sd) or sd <= 0:
+                return None
+            row[f] = ((col - float(col.mean())) / sd).clip(-3.0, 3.0)
+        return row
+
+    idx = px.index
+    t_target = int(p["target_sessions"])
+    stride = int(p["training_stride_sessions"])
+    last_train = len(idx) - 1 - t_target
+    first_train = max(300, last_train - int(p["training_sessions"]))
+    if last_train <= first_train:
+        return {"state": "INSUFFICIENT_TRAINING_SAMPLE", "legs": []}
+    positions = list(range(last_train, first_train, -stride))[::-1]
+    fwd = px.shift(-t_target) / px - 1.0
+
+    x_rows, y_rows, used = [], [], []
+    for pos in positions:
+        row = _zrow(pos)
+        if row is None:
+            continue
+        target = fwd.iloc[pos].reindex(row.index).dropna()
+        row = row.loc[target.index]
+        if len(row) < MIN_CROSS_SECTION:
+            continue
+        x_rows.append(row[features].to_numpy(dtype=float))
+        y_rows.append(target.to_numpy(dtype=float))
+        used.append(str(idx[pos].date()))
+    if len(x_rows) < 10:
+        return {"state": "INSUFFICIENT_TRAINING_SAMPLE", "legs": [],
+                "n_training_dates": len(x_rows)}
+    x = np.vstack(x_rows)
+    y = np.concatenate(y_rows)
+
+    model_class = str(p["model_class"])
+    if model_class == "RIDGE_CLOSED_FORM":
+        lam = float(p["ridge_lambda"])
+        beta = np.linalg.solve(x.T @ x + lam * np.eye(x.shape[1]), x.T @ y)
+        predict = lambda m: m @ beta                     # noqa: E731
+    elif model_class == "HIST_GRADIENT_BOOSTING":
+        try:
+            from sklearn.ensemble import HistGradientBoostingRegressor
+        except Exception:
+            return {"state": "ML_DEPENDENCY_UNAVAILABLE", "legs": []}
+        model = HistGradientBoostingRegressor(
+            max_iter=int(p["max_iter"]), max_depth=int(p["max_depth"]),
+            learning_rate=float(p["learning_rate"]),
+            random_state=int(p["random_seed"]))
+        model.fit(x, y)
+        predict = model.predict
+    else:
+        return {"state": "UNKNOWN_MODEL_CLASS", "legs": []}
+
+    today = _zrow(len(idx) - 1)
+    if today is None:
+        return {"state": "INSUFFICIENT_CROSS_SECTION", "legs": []}
+    preds = predict(today[features].to_numpy(dtype=float))
+    scores = {sym: float(v) for sym, v in zip(today.index, preds)
+              if np.isfinite(v)}
+    legs = _decile_book(scores, p["decile_fraction"], spec["cost_class"])
+    marks = {sym: float(v) for sym, v in px.iloc[-1].dropna().items()}
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_scored": len(scores),
+            "model_class": model_class,
+            "n_training_rows": int(len(y)),
+            "n_training_dates": len(used),
+            "training_data_cutoff": used[-1] if used else None,
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
 _OWNERS = {
     "_eq_cross_section": _eq_cross_section,
     "_futures_trend": _futures_trend,
@@ -623,6 +1460,15 @@ _OWNERS = {
     "_rates_rv": _rates_rv,
     "_commodity_cross_section": _commodity_cross_section,
     "_index_trend": _index_trend,
+    "_eq_xs_lottery": _eq_xs_lottery,
+    "_eq_xs_illiquidity": _eq_xs_illiquidity,
+    "_eq_xs_seasonal": _eq_xs_seasonal,
+    "_futures_xs_momentum": _futures_xs_momentum,
+    "_commodity_curve_carry": _commodity_curve_carry,
+    "_rates_macro_curve": _rates_macro_curve,
+    "_spx_turn_of_month": _spx_turn_of_month,
+    "_eq_xs_ensemble": _eq_xs_ensemble,
+    "_ml_eq_cross_section": _ml_eq_cross_section,
 }
 
 

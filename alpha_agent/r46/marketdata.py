@@ -141,6 +141,20 @@ def closes(symbol: str, start: str = NORGATE_START):
     return s if len(s) else None
 
 
+def volumes(symbol: str, start: str = NORGATE_START):
+    """Daily share volume for one symbol, or ``None``.
+
+    Added by Release 46.3 for the liquidity-premium challenger: the Amihud
+    measure is |return| per dollar traded, and dollars traded need volume.
+    Volume is the first owned input in this tournament that is not a price.
+    """
+    df = bars(symbol, start)
+    if df is None or "Volume" not in df.columns:
+        return None
+    s = pd.to_numeric(df["Volume"], errors="coerce").dropna()
+    return s if len(s) else None
+
+
 def sessions(symbol: str, start: str = NORGATE_START) -> list:
     """The instrument's OWN realised bar dates - the eligible-session calendar."""
     s = closes(symbol, start)
@@ -222,6 +236,105 @@ def fx_spot_symbols() -> tuple:
         return tuple(sorted(nd.database_symbols("Forex Spot")))
     except Exception:
         return ()
+
+
+# --------------------------------------------------------------------------- #
+# Dated futures curve (Release 46.3) - a NEW information family from data the
+# estate already owns. The continuous database carries no second-position
+# series, but the dated ``Futures`` database carries every individual contract
+# (27k symbols, ROOT-YYYYM coding), so the front/next slope is observable.
+# --------------------------------------------------------------------------- #
+_MONTH_CODES = {"F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
+                "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12}
+
+
+@lru_cache(maxsize=1)
+def dated_futures_symbols() -> tuple:
+    try:
+        nd = _nd()
+        return tuple(nd.database_symbols("Futures"))
+    except Exception:
+        return ()
+
+
+def _parse_dated(symbol: str):
+    """``CL-2026Z`` -> ("CL", 2026, 12); ``None`` when not that shape."""
+    try:
+        root, tail = symbol.rsplit("-", 1)
+        year = int(tail[:4])
+        month = _MONTH_CODES.get(tail[4:5])
+        if month is None:
+            return None
+        return root, year, month
+    except (ValueError, IndexError):
+        return None
+
+
+def futures_curve_carry(root: str, as_of: _dt.date = None,
+                        max_lag_sessions: int = 5) -> dict:
+    """Annualised front/next curve slope for one futures market root.
+
+    Convention, declared before any forward row existed and never chosen by
+    looking at returns:
+
+    * candidate contracts are the dated contracts of ``root`` whose delivery
+      month is STRICTLY LATER than the current calendar month - the spot
+      month is skipped because a contract in its delivery window carries
+      delivery distortions and can stop printing inside an outcome window;
+    * the first two distinct delivery months that both carry a bar within
+      ``max_lag_sessions`` weekdays of ``as_of`` and a positive close are the
+      front and next contracts;
+    * carry = ln(front / next) * 12 / months_between, in annualised log
+      terms. Positive carry is backwardation; negative is contango.
+
+    The SIGNAL comes from the dated curve; the tradeable expression stays the
+    continuous series, whose bars keep printing through the outcome window.
+    """
+    ref = as_of or _dt.date.today()
+    floor = (ref.year, ref.month)
+    cands = []
+    for sym in dated_futures_symbols():
+        parsed = _parse_dated(sym)
+        if parsed is None or parsed[0] != root:
+            continue
+        _, y, m = parsed
+        if (y, m) <= floor:
+            continue
+        cands.append((y, m, sym))
+    cands.sort()
+    picked = []
+    for y, m, sym in cands:
+        if len(picked) == 2:
+            break
+        if picked and (y, m) == (picked[-1][0], picked[-1][1]):
+            continue
+        s = closes(sym, start=str(ref - _dt.timedelta(days=200)))
+        if s is None:
+            continue
+        last = s.index[-1].date()
+        lag, d = 0, last
+        while d < ref:
+            d += _dt.timedelta(days=1)
+            if d.weekday() < 5:
+                lag += 1
+        px = float(s.iloc[-1])
+        if lag > max_lag_sessions or px <= 0:
+            continue
+        picked.append((y, m, sym, px, str(last)))
+    if len(picked) < 2:
+        return {"root": root, "state": "INSUFFICIENT_CURVE",
+                "n_candidates": len(cands), "n_usable": len(picked)}
+    (fy, fm, fsym, fpx, fdate), (ny, nm, nsym, npx, ndate) = picked
+    months = (ny - fy) * 12 + (nm - fm)
+    if months <= 0:
+        return {"root": root, "state": "INSUFFICIENT_CURVE",
+                "n_usable": len(picked)}
+    import math as _math
+    carry = _math.log(fpx / npx) * 12.0 / float(months)
+    return {"root": root, "state": "OK", "carry_annualised": carry,
+            "front": {"symbol": fsym, "close": fpx, "last_session": fdate},
+            "next": {"symbol": nsym, "close": npx, "last_session": ndate},
+            "months_between": months}
 
 
 # --------------------------------------------------------------------------- #
@@ -351,7 +464,8 @@ def zscore_last(series: pd.Series, window: int) -> Optional[float]:
 
 def reset_cache() -> None:
     for fn in (provider_state, bars, sp500_pit, continuous_futures,
-               fx_spot_symbols, risk_free_annual, _watchlist):
+               fx_spot_symbols, risk_free_annual, _watchlist,
+               dated_futures_symbols):
         try:
             fn.cache_clear()
         except AttributeError:

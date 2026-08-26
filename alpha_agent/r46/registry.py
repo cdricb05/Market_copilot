@@ -216,8 +216,13 @@ def register(campaign_id: str = CAMPAIGN_ID, specs=None,
     version or freeze timestamp: a registered challenger is re-read, its spec
     hash re-derived from the frozen file, and any mismatch is reported as a
     RETUNE_DETECTED blocker rather than silently accepted.
+
+    Release 46.3: the default cohort is ``CH.ALL_SPECS`` - the frozen seed ten
+    plus the frozen expansion cohort. Registering the union preserves every
+    already-registered challenger's freeze verbatim and freezes only the
+    genuinely new ones at the call instant.
     """
-    specs = list(specs if specs is not None else CH.SEED_SPECS)
+    specs = list(specs if specs is not None else CH.ALL_SPECS)
     _now_dt = CK.now_utc()
     now = frozen_at or CK.iso(_now_dt)
     # Release 46.2 - the sub-second companion, recorded ONLY for a challenger being
@@ -274,6 +279,12 @@ def register(campaign_id: str = CAMPAIGN_ID, specs=None,
             "instrument": spec["instrument"],
             "prediction_type": spec["prediction_type"],
             "horizons": list(spec["horizons"]),
+            # Release 46.3 - descriptive dimensions the velocity owner groups
+            # by. Neither enters the spec hash: they describe the evidence's
+            # bookkeeping, not the challenger's economics.
+            "cohort": spec.get("cohort", "R46_SEED"),
+            "information_family": CH.info_family_for(spec),
+            "dependence_cluster": CH.cluster_for(spec),
             "control": spec["control"],
             "benchmark": spec["benchmark"],
             "cost_class": spec["cost_class"],
@@ -337,8 +348,13 @@ def register(campaign_id: str = CAMPAIGN_ID, specs=None,
 
 
 def active_specs(registry: dict, specs=None) -> list:
-    """The seed specs whose registry entry is not DATA_BLOCKED."""
-    specs = list(specs if specs is not None else CH.SEED_SPECS)
+    """The frozen specs whose registry entry is not DATA_BLOCKED.
+
+    Defaults to the FULL frozen field (seed plus expansion) and then filters
+    by what the registry actually froze: a hermetic registry that registered
+    only the seed ten keeps emitting exactly the seed ten.
+    """
+    specs = list(specs if specs is not None else CH.ALL_SPECS)
     ok = {c["challenger_id"] for c in (registry.get("challengers") or ())
           if c.get("state") != C.DATA_BLOCKED}
     return [s for s in specs if s["challenger_id"] in ok]

@@ -5886,6 +5886,8 @@
           </div>
           <div id="r46t-headline" style="font-size:11px;color:var(--label);margin:2px 0 10px;line-height:1.5;"></div>
           <div id="r46t-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;"></div>
+          <div id="r46t-velocity" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;"></div>
+          <div id="r46t-lanes" style="font-size:10px;color:var(--muted,#8b98b0);margin:0 0 10px;line-height:1.5;"></div>
           <div id="r46t-advance" style="font-size:10px;color:var(--muted,#8b98b0);margin:0 0 10px;line-height:1.5;"></div>
           <div id="r46t-board"></div>
           <div id="r46t-outcomes" style="margin-top:10px;"></div>
@@ -28757,6 +28759,45 @@ function renderProspectiveTournament(d) {
              'Net of BOTH sides of the round trip and of the control the challenger '
              + 'declared in advance. Beating zero is not beating cash.'),
   ].join(' '));
+
+  // Release 46.3: evidence velocity — read verbatim from the backend's one
+  // velocity owner. Raw and effective counts always travel together; the
+  // browser computes neither, projects nothing and clusters nothing.
+  var vel = d.evidence_velocity || {};
+  if (vel.available) {
+    var w40 = (vel.weeks_to_targets || {})['40'];
+    _setHtml('r46t-velocity', [
+      _r46tKpi('RAW MATURED', vel.raw_matured_rows,
+               'Outcome rows the judge has scored. Rows are not evidence.'),
+      _r46tKpi('EFFECTIVE INDEPENDENT', vel.effective_independent_observations,
+               'Overlap-discounted, cluster-deduplicated observations — the number the gates read.',
+               (vel.effective_independent_observations ? 'safe' : 'muted')),
+      _r46tKpi('DEPENDENCE PENALTY', vel.dependence_penalty,
+               'Apparent evidence the accounting refuses to count: overlapping horizons and same-mechanism clusters.'),
+      _r46tKpi('CLUSTERS', vel.n_dependence_clusters,
+               'Declared dependence clusters — economically distinct mechanisms on distinct information.'),
+      _r46tKpi('EFFECTIVE / WEEK (PROJ.)', _r46tNum(vel.projected_effective_per_week, 2),
+               'Projected from the declared structure of the active field. A projection, not evidence.'),
+      _r46tKpi('WEEKS TO 40 EFF.', (w40 === null || w40 === undefined) ? 'n/a' : _r46tNum(w40, 1),
+               'Projected calendar weeks until 40 effective independent observations at the current structure.'),
+      _r46tKpi('BOTTLENECK', vel.binding_bottleneck || '—',
+               vel.binding_bottleneck_detail || 'The single binding constraint on evidence accumulation.',
+               'danger'),
+      _r46tKpi('INFORMATION SET', vel.information_set_state || '—',
+               'INFORMATION_SET_INSUFFICIENT is declared only after enough independent evidence across enough families finds nothing — never early.')
+    ].join(' '));
+  } else {
+    _setHtml('r46t-velocity', '');
+  }
+  var lanes = d.lanes || {};
+  var lo = lanes.options || {}, la = lanes.analyst || {}, li = lanes.intraday || {};
+  _setHtml('r46t-lanes',
+    'Lanes — options: <b>' + _r30esc(lo.state || '—') + '</b> (' + _r30esc(lo.usable_sessions_now)
+    + '/' + _r30esc(lo.sessions_required) + ' sessions, hypotheses pre-frozen) · analyst: <b>'
+    + _r30esc(la.state || '—') + '</b> (' + _r30esc(la.revisions_observed) + '/'
+    + _r30esc(la.revisions_required) + ' revisions, never backfilled) · intraday: <b>'
+    + _r30esc(li.state || '—') + '</b>' + (li.exact_blocker ? (' — ' + _r30esc(li.exact_blocker)) : '')
+    + '. A blocked lane stops nothing else.');
 
   var adv = d.tournament_advance || {};
   _setHtml('r46t-advance',

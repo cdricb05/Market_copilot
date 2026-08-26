@@ -59,7 +59,9 @@ from . import emit as EM
 from . import judge as JD
 from . import leaderboard as LB
 from . import ledger as LG
+from . import planner as PL
 from . import registry as RG
+from . import velocity as VL
 
 CALCULATION_OWNER = "alpha_agent.r46.advance"
 
@@ -129,6 +131,15 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
                      failures, "maturity_schedule") or {}
     chain = _safe(lambda: LG.verify(campaign_id), failures, "verify_chain") or {}
 
+    # --- Release 46.3: the velocity and planning read models, rebuilt on the
+    #     evidence that now exists. Pure functions of the ledgers and the
+    #     registry; a failure here degrades to a stage failure and never
+    #     stops scoring, emission or the cycle.
+    vel = _safe(lambda: VL.build(campaign_id, reg),
+                failures, "evidence_velocity") or {}
+    _safe(lambda: PL.build(campaign_id, reg, vel),
+          failures, "throughput_plan")
+
     preds = _safe(lambda: LG.predictions(campaign_id), failures,
                   "read_predictions") or []
     outs = _safe(lambda: LG.outcomes(campaign_id), failures,
@@ -137,7 +148,13 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     n_pending = len([p for p in preds
                      if str(p.get("prediction_id")) not in scored_ids])
 
-    state = (STATE_UNAVAILABLE if failures and not preds
+    # Release 46.3: only CORE stages decide availability. The velocity and
+    # planning artifacts are read models OVER the tournament; a failure there
+    # is reported loudly but cannot make a live tournament read UNAVAILABLE.
+    core_failures = [f for f in failures
+                     if f.get("stage") not in ("evidence_velocity",
+                                               "throughput_plan")]
+    state = (STATE_UNAVAILABLE if core_failures and not preds
              else STATE_ADVANCED if (n_scored or n_emitted)
              else STATE_NOTHING_DUE)
 
@@ -167,6 +184,7 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
         emission=_emission_digest(emission),
         judge=_judge_digest(judged),
         leaderboard=_board_digest(board),
+        evidence_velocity=_velocity_digest(vel),
         maturity_schedule=schedule.get("schedule") or [],
         earliest_maturity=schedule.get("earliest_maturity"),
         ledger_chain_intact=bool(chain.get("all_intact")),
@@ -273,6 +291,26 @@ def _board_digest(board: dict) -> dict:
             "effective_independent"),
         "ranking_rule": board.get("ranking_rule"),
         "no_row_may_read_proven": True,
+    }
+
+
+def _velocity_digest(vel: dict) -> dict:
+    if not vel:
+        return {"state": "NOT_BUILT"}
+    return {
+        "raw_predictions_emitted": vel.get("raw_predictions_emitted"),
+        "raw_matured_rows": vel.get("raw_matured_rows"),
+        "effective_independent_observations":
+            vel.get("effective_independent_observations"),
+        "dependence_penalty": vel.get("dependence_penalty"),
+        "projected_effective_per_week":
+            vel.get("projected_effective_per_week"),
+        "realised_effective_per_week":
+            vel.get("realised_effective_per_week"),
+        "n_dependence_clusters": vel.get("n_dependence_clusters"),
+        "binding_bottleneck": ((vel.get("current_evidence_bottleneck") or {})
+                               .get("binding") or {}).get("code"),
+        "information_set_state": vel.get("information_set_state"),
     }
 
 

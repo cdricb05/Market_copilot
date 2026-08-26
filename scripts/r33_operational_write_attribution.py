@@ -336,6 +336,11 @@ R46_MARKERS = (
     "R46_LEADERBOARD", "R46_FINAL_VERDICT", "R46_FORWARD_BATCHES",
     "R46_SHELL_POLICY_EVENTS", "R46_OPTIONS_LANE", "R46_ANALYST_LANE",
     "polygon_spy_option_surface_r46_weeklies",
+    # Release 46.2 / 46.3 artifacts - every file the tournament's normal
+    # operation can now write, so any of them landing in an operational
+    # store is attributed rather than excused.
+    "R46_TOURNAMENT_CYCLES", "R46_EVIDENCE_VELOCITY",
+    "R46_THROUGHPUT_PLAN", "R46_INTRADAY_LANE",
     "api.prospective_tournament", "api/prospective_tournament",
 )
 R46_SOURCE_GLOBS = ("alpha_agent/r46/*.py",)

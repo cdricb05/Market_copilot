@@ -76,6 +76,16 @@ def _data_cutoff(book: dict, spec: dict):
         "_rates_rv": ("&ZN", "&ZT"),
         "_commodity_cross_section": ("&CL", "&GC"),
         "_index_trend": ("SPY",),
+        # Release 46.3 expansion owners.
+        "_eq_xs_lottery": ("SPY",),
+        "_eq_xs_illiquidity": ("SPY",),
+        "_eq_xs_seasonal": ("SPY",),
+        "_futures_xs_momentum": ("&ES", "&ZN", "&CL"),
+        "_commodity_curve_carry": ("&CL", "&GC"),
+        "_rates_macro_curve": ("&ZN", "%10YTCM"),
+        "_spx_turn_of_month": ("SPY",),
+        "_eq_xs_ensemble": ("SPY",),
+        "_ml_eq_cross_section": ("SPY",),
     }.get(owner, ("SPY",))
     seen = [MD.last_session(s) for s in probe]
     seen = [d for d in seen if d is not None]
@@ -238,7 +248,9 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
                 "model_family": spec["family"],
                 "model_parameters_hash": CH.parameters_hash(spec),
                 "feature_set_hash": CH.feature_set_hash(spec),
-                "training_data_cutoff": None,
+                # Release 46.3 - an ML challenger states the last training
+                # decision date it fit on; a transparent rule has none.
+                "training_data_cutoff": book.get("training_data_cutoff"),
 
                 "market_state_snapshot_hash":
                     book.get("market_state_snapshot_hash"),

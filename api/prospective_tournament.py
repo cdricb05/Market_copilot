@@ -74,11 +74,21 @@ ARTIFACTS = {
     # simply has no cycles artifact, and that reads as "not advanced yet" rather than
     # as a failure.
     "cycles": "R46_TOURNAMENT_CYCLES.json",
+    # Release 46.3 — the velocity, planning and lane artifacts. All optional: a root
+    # built before R46.3, or a hermetic test root, simply has none of them and that
+    # reads as "not computed yet", never as a failure.
+    "velocity": "R46_EVIDENCE_VELOCITY.json",
+    "plan": "R46_THROUGHPUT_PLAN.json",
+    "intraday": "R46_INTRADAY_LANE.json",
+    "options": "R46_OPTIONS_LANE.json",
+    "analyst": "R46_ANALYST_LANE.json",
 }
 
-#: Release 46.2 — artifacts whose absence is EXPECTED before the first advance and so
-#: must not become an operator-facing warning.
-OPTIONAL_ARTIFACTS = ("cycles",)
+#: Artifacts whose absence is EXPECTED (before the first advance, or before the
+#: Release-46.3 owners ever ran here) and so must not become an operator-facing
+#: warning.
+OPTIONAL_ARTIFACTS = ("cycles", "velocity", "plan", "intraday", "options",
+                      "analyst")
 
 #: Evidence-maturity vocabulary for the whole board (not for a single cell).
 MATURITY_NO_FORWARD_EVIDENCE = "NO_FORWARD_EVIDENCE"
@@ -210,6 +220,21 @@ def load_prospective_tournament(
                      "ENTERED. Only raw_matured / effective_independent describe what "
                      "it has PROVEN forward. The two are never merged into one score."),
         },
+
+        # ---- Release 46.3: evidence velocity, planning and lanes ---------- #
+        # All read verbatim from the artifacts their owners persisted. The raw
+        # count and the effective count always travel together, because fifty
+        # overlapping twenty-day bets are not fifty independent observations
+        # and a surface that showed only the raw number would invite exactly
+        # that inference.
+        "evidence_velocity": _velocity(art.get("velocity")),
+        "throughput_plan": _plan(art.get("plan")),
+        "lanes": _lanes(art.get("options"), art.get("analyst"),
+                        art.get("intraday")),
+        "challengers_by_asset_class": _count_by(rows, "asset_class"),
+        "challengers_by_economic_family": _count_by(rows, "family"),
+        "challengers_by_information_family": _count_by_info(registry),
+        "challengers_by_horizon": _count_by(rows, "horizon"),
 
         # ---- honesty rails ----------------------------------------------- #
         "no_historical_only_model_looks_proven": True,
@@ -439,6 +464,110 @@ def _next_maturity(verdict: dict, pending: list) -> Optional[str]:
     # batch the verdict's own value is None for the same reason, so there is no
     # honest fallback to reach for here.
     return None
+
+
+def _velocity(body: Optional[dict]) -> dict:
+    """The velocity owner's answer, or an honest 'not computed yet'."""
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the evidence-velocity artifact has not been "
+                        "computed at this research root yet"}
+    b = (body.get("current_evidence_bottleneck") or {}).get("binding") or {}
+    return {
+        "available": True,
+        "raw_predictions_emitted": body.get("raw_predictions_emitted"),
+        "raw_predictions_pending": body.get("raw_predictions_pending"),
+        "raw_matured_rows": body.get("raw_matured_rows"),
+        "effective_independent_observations":
+            body.get("effective_independent_observations"),
+        "dependence_penalty": body.get("dependence_penalty"),
+        "n_dependence_clusters": body.get("n_dependence_clusters"),
+        "decision_date_count": body.get("decision_date_count"),
+        "realised_effective_per_week":
+            body.get("realised_effective_per_week"),
+        "projected_effective_per_week":
+            body.get("projected_effective_per_week"),
+        "projected_raw_rows_per_week":
+            body.get("projected_raw_rows_per_week"),
+        "weeks_to_targets": ((body.get("projections") or {})
+                             .get("tournament") or {}).get("weeks_to_target"),
+        "binding_bottleneck": b.get("code"),
+        "binding_bottleneck_detail": b.get("detail"),
+        "information_set_state": body.get("information_set_state"),
+        "asset_class_diversity": body.get("asset_class_diversity"),
+        "economic_family_diversity": body.get("economic_family_diversity"),
+        "information_family_diversity":
+            body.get("information_family_diversity"),
+        "horizon_diversity": body.get("horizon_diversity"),
+        "dependence_clusters": body.get("dependence_clusters"),
+        "raw_and_effective_always_shown_together": True,
+    }
+
+
+def _plan(body: Optional[dict]) -> dict:
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the throughput plan has not been computed at this "
+                        "research root yet"}
+    return {
+        "available": True,
+        "top_candidate": body.get("top_candidate"),
+        "ranked_candidates": body.get("ranked_candidates"),
+        "information_set_frontier": body.get("information_set_frontier"),
+        "frontier_is_planning_only": True,
+        "nominates_but_never_registers": True,
+    }
+
+
+def _lanes(options: Optional[dict], analyst: Optional[dict],
+           intraday: Optional[dict]) -> dict:
+    ojs = ((options or {}).get("judgeable_sample")) or {}
+    ajs = ((analyst or {}).get("judgeable_sample")) or {}
+    return {
+        "options": {
+            "state": ojs.get("state"),
+            "usable_sessions_now": ojs.get("usable_sessions_now"),
+            "sessions_required": ojs.get("sessions_required"),
+            "sessions_still_required": ojs.get("sessions_still_required"),
+            "n_predeclared_hypotheses": (options or {}).get("n_predeclared"),
+            "hypotheses_frozen_before_the_confirming_sessions_exist":
+                bool((options or {}).get(
+                    "hypotheses_frozen_before_the_confirming_sessions_exist")),
+        },
+        "analyst": {
+            "state": ajs.get("state"),
+            "revisions_observed": ajs.get("revisions_observed"),
+            "revisions_required": ajs.get("revisions_required"),
+            "approx_months_remaining": ajs.get("approx_months_remaining"),
+            "never_backfilled": bool((analyst or {}).get("never_backfilled")),
+        },
+        "intraday": {
+            "state": (intraday or {}).get("state"),
+            "exact_blocker": (intraday or {}).get("exact_blocker"),
+            "session_close_note": (intraday or {}).get("session_close_note"),
+        },
+        "a_blocked_lane_stops_nothing_else": True,
+    }
+
+
+def _count_by(rows: list, key: str) -> dict:
+    out: dict = {}
+    for r in rows:
+        if r.get("state") == "DATA_BLOCKED":
+            continue
+        k = str(r.get(key))
+        out[k] = out.get(k, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def _count_by_info(registry: dict) -> dict:
+    out: dict = {}
+    for c in (registry.get("challengers") or ()):
+        if c.get("state") == "DATA_BLOCKED":
+            continue
+        k = str(c.get("information_family") or "PRICE_STATE")
+        out[k] = out.get(k, 0) + 1
+    return dict(sorted(out.items()))
 
 
 def _adoption(registry: dict) -> dict:

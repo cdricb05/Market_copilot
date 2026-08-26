@@ -10376,6 +10376,13 @@ R46_OWNERS = {
     "options": "alpha_agent/r46/options.py",
     "analyst": "alpha_agent/r46/analyst.py",
     "campaign": "alpha_agent/r46/campaign.py",
+    # Release 46.2 added the advance owner without gating it here; Release
+    # 46.3 closes that gap and adds its own three owners, so every module in
+    # the R46 lineage is inside the concatenated-source token scans below.
+    "advance": "alpha_agent/r46/advance.py",
+    "velocity": "alpha_agent/r46/velocity.py",
+    "planner": "alpha_agent/r46/planner.py",
+    "intraday": "alpha_agent/r46/intraday.py",
 }
 
 #: A SECOND implementation of a concept Release 46 declares itself the single

@@ -48,6 +48,18 @@ _PROBE_SYMBOLS = {
     "_rates_rv": ("&ZN", "&ZT"),
     "_commodity_cross_section": ("&CL", "&GC", "&ZC"),
     "_index_trend": ("SPY",),
+    # Release 46.3 expansion owners. The macro-curve owner probes the OWNED
+    # yield series itself: constant-maturity yields publish one session behind
+    # prices, which is why the freshness allowance exists at all.
+    "_eq_xs_lottery": ("SPY", "AAPL", "MSFT"),
+    "_eq_xs_illiquidity": ("SPY", "AAPL", "MSFT"),
+    "_eq_xs_seasonal": ("SPY", "AAPL", "MSFT"),
+    "_futures_xs_momentum": ("&ES", "&ZN", "&CL", "&GC"),
+    "_commodity_curve_carry": ("&CL", "&GC", "&ZC"),
+    "_rates_macro_curve": ("&ZN", "%10YTCM", "%2YTCM"),
+    "_spx_turn_of_month": ("SPY",),
+    "_eq_xs_ensemble": ("SPY", "AAPL", "MSFT"),
+    "_ml_eq_cross_section": ("SPY", "AAPL", "MSFT"),
 }
 
 

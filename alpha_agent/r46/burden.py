@@ -43,6 +43,15 @@ R46_NEW_TRIALS_BY_FAMILY = {
     "SEED_CHALLENGER_SELECTION": 0,
     "OPTIONS_VOL": 0,
     "ANALYST_REVISIONS": 0,
+    # Release 46.3 - the expansion cohort charges zero for the same
+    # structural reason the seed cohort did: every parameter is a canonical
+    # constant declared before the rule first ran on this estate's data, the
+    # ML hyperparameters are frozen library constants with no search, and the
+    # ensemble weights are fixed thirds frozen while ZERO forward outcomes
+    # existed anywhere. Building velocity accounting is not searching.
+    "R46_3_EXPANSION_COHORT_SELECTION": 0,
+    "R46_3_ML_HYPERPARAMETERS": 0,
+    "R46_3_VELOCITY_INFRASTRUCTURE": 0,
 }
 
 WHY_ZERO = (
