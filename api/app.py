@@ -224,6 +224,8 @@ from paper_trader.api import external_references as _extrefs
 from paper_trader.api import mathematical_alpha_frontier as _r31_frontier
 # Release 32 - PnL opportunity frontier campaign visibility (read-only).
 from paper_trader.api import pnl_opportunity_frontier as _r32_frontier
+# Release 46 - prospective alpha tournament board (read-only).
+from paper_trader.api import prospective_tournament as _r46_tournament
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -19326,6 +19328,43 @@ def get_pnl_opportunity_frontier() -> dict:
     the research package, and the architecture audit enforces both.
     """
     return _r32_frontier.load_frontier()
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/research/prospective-tournament — Release 46 forward-evidence board
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/prospective-tournament",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_prospective_tournament() -> dict:
+    """Release 46 PROSPECTIVE ALPHA TOURNAMENT (read-only research visibility).
+
+    The ONE board for prospective alpha evidence. Reports how many challengers
+    are competing, how many TRUE_FORWARD predictions actually exist, how many
+    have matured, which are winning, losing or simply too early to judge, the
+    best net alpha against the CORRECT control, the effective independent
+    evidence behind it, the next material maturity, and every challenger
+    including the seven adopted prior-release shadows.
+
+    Two display rules are enforced in the read model rather than the front end.
+    No historical-only model may look proven: a backtest-only challenger is
+    labelled HISTORICAL_ONLY and carries an explicit zero matured count, and
+    the strongest state that exists here is FORWARD_CONFIRMED, which requires
+    the full declared evidence gate and still confers no capital. And raw and
+    EFFECTIVE observation counts always travel together, because fifty
+    overlapping twenty-day bets are not fifty independent ones.
+
+    Every number is READ from the campaign's own hashed artifacts. This
+    endpoint computes no research mathematics, exposes no promotion,
+    activation or allocation control, creates no signal, target, proposal,
+    decision or order, and cannot change the operational portfolio. A
+    FORWARD_CANDIDATE is not an order and a FORWARD_CONFIRMED challenger is not
+    an automatic holding: the canonical portfolio manager still decides,
+    manually, and the architecture audit enforces it.
+    """
+    return _r46_tournament.load_prospective_tournament()
 
 
 # --------------------------------------------------------------------------- #

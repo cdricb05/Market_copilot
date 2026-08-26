@@ -10357,6 +10357,326 @@ def check_release45_macro_event_alpha(files: list[Path]) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Release 46 - the prospective alpha tournament
+# --------------------------------------------------------------------------- #
+R46_OWNERS = {
+    "contract": "alpha_agent/r46/contract.py",
+    "shell_policy": "alpha_agent/r46/shell_policy.py",
+    "clock": "alpha_agent/r46/clock.py",
+    "marketdata": "alpha_agent/r46/marketdata.py",
+    "feasibility": "alpha_agent/r46/feasibility.py",
+    "challengers": "alpha_agent/r46/challengers.py",
+    "registry": "alpha_agent/r46/registry.py",
+    "ledger": "alpha_agent/r46/ledger.py",
+    "emit": "alpha_agent/r46/emit.py",
+    "judge": "alpha_agent/r46/judge.py",
+    "evidence": "alpha_agent/r46/evidence.py",
+    "leaderboard": "alpha_agent/r46/leaderboard.py",
+    "burden": "alpha_agent/r46/burden.py",
+    "options": "alpha_agent/r46/options.py",
+    "analyst": "alpha_agent/r46/analyst.py",
+    "campaign": "alpha_agent/r46/campaign.py",
+}
+
+#: A SECOND implementation of a concept Release 46 declares itself the single
+#: owner of is a blocking defect. The prediction ledger above all: the entire
+#: release is the claim that there is exactly ONE place a forward prediction
+#: can be recorded, and five prior releases each built their own.
+R46_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r46/forward_freeze.py",
+    "alpha_agent/r46/research_shadow.py",
+    "alpha_agent/r46/shadow_registry.py",
+    "alpha_agent/r46/tournament.py",
+    "alpha_agent/r46/prediction_ledger.py",
+    "alpha_agent/r46/outcome_judge.py",
+    "alpha_agent/r46/desk.py",
+    "alpha_agent/r46/paper_trading_desk.py",
+)
+
+R46_REQUIRED_STATES = (
+    "R46_PROSPECTIVE_ALPHA_TOURNAMENT_LIVE",
+    "R46_FORWARD_PREDICTIONS_EMITTED",
+    "R46_FORWARD_EVIDENCE_ALREADY_MATURING",
+    "R46_TOURNAMENT_READY_NEXT_FORWARD_WINDOW",
+    "R46_NO_VALID_FORWARD_WINDOW_TODAY",
+    "R46_BLOCKED_BY_AUTHORITATIVE_DATA_FRESHNESS",
+    "R46_FORWARD_INFRASTRUCTURE_INCOMPLETE",
+)
+
+
+def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
+    """Release 46 invariants - a forward record that cannot be edited into a win.
+
+    The release's claim is narrow and total: a challenger is crowned only by
+    predictions it made before the outcome existed. Every invariant below
+    closes one route by which that claim could be false:
+
+    * emit a prediction after the outcome is knowable and call it forward -
+      closed by a ledger that REFUSES any row whose emission is not strictly
+      before its outcome window, and by an entry rule stated on the Eastern
+      calendar so no fast market can argue it into look-ahead;
+    * write the same decision twice and count it twice - closed by a declared
+      identity key and an idempotency proof that runs in production, not only
+      in tests;
+    * retune a losing challenger in place - closed by spec hashing, by
+      RETUNE_DETECTED on registration, and by a versioning rule that starts a
+      new forward clock rather than editing a record;
+    * revise a forecast once its outcome is known - closed by chain-hashed
+      append-only ledgers and a judge that only ever appends;
+    * count fifty overlapping twenty-day bets as fifty observations - closed by
+      an effective-independent count that the gate, not the display, consumes;
+    * beat zero and call it beating cash - closed by a remunerated collateral
+      control;
+    * quietly present a backtest as proof - closed by two evidence classes that
+      never mix and by PROVEN_ALPHA not existing as a state;
+    * mutate another release's frozen registry while adopting it - closed by
+      read-only adoption with before/after hashes;
+    * let a dead data stream masquerade as a live model - closed by the
+      feasibility gate R42 discovered and nobody enforced.
+    """
+    src = {name: (_read(REPO_ROOT / path) or "")
+           for name, path in R46_OWNERS.items()}
+    modules_missing = sorted(n for n, t in src.items() if not t)
+    all_src = "\n".join(src.values())
+    second_owner_modules = sorted(p for p in R46_SECOND_OWNER_FORBIDDEN
+                                  if (REPO_ROOT / p).exists())
+
+    # (1) TRUE_FORWARD is enforced, not asserted.
+    ledger_refuses_backdated_rows = (
+        "class LedgerRefusal" in src["ledger"]
+        and "REFUSED - not TRUE_FORWARD" in src["ledger"]
+        and "raise LedgerRefusal" in src["ledger"]
+        and "emitted < start" in src["ledger"])
+    entry_rule_is_declared_and_conservative = (
+        "R46_NEXT_TRADING_DAY_CLOSE" in src["contract"]
+        and "ENTRY_RULE" in src["contract"]
+        and "def entry_session_date" in src["clock"]
+        and "def outcome_window_start_utc" in src["clock"])
+    outcome_window_is_eastern_not_utc = (
+        "midnight EASTERN" in src["clock"]
+        or "midnight_et" in src["clock"])
+    evidence_classes_never_mix = (
+        "TRUE_FORWARD" in src["contract"]
+        and "HISTORICAL_SIMULATION" in src["contract"]
+        and "this ledger holds TRUE_FORWARD rows only" in src["ledger"])
+    backfill_forbidden = (
+        "FORBIDDEN_FOREVER" in src["contract"]
+        and "backdating a prediction" in src["contract"]
+        and "labelling a retrospective calculation TRUE_FORWARD"
+        in src["contract"])
+
+    # (2) The record is complete and immutable.
+    record_completeness_enforced = (
+        "PREDICTION_RECORD_FIELDS" in src["contract"]
+        and "missing required contract fields" in src["ledger"])
+    canonical_ledger_primitives_reused = (
+        "api.paper_trading_desk" in src["ledger"]
+        and "_append_ledger" in src["ledger"]
+        and "verify_ledger" in src["ledger"])
+    judge_only_appends = (
+        "never_revises_a_forecast" in src["judge"]
+        and "append_outcomes" in src["judge"]
+        and "def append_predictions" not in src["judge"])
+
+    # (3) Idempotency is proved, not claimed.
+    identity_key_declared = (
+        "PREDICTION_IDENTITY_KEY" in src["contract"]
+        and "OUTCOME_IDENTITY_KEY" in src["contract"]
+        and "def prediction_key" in src["ledger"])
+    idempotency_proved_in_run = (
+        "IDEMPOTENT" in src["campaign"]
+        and "no_duplicate_created" in src["campaign"]
+        and "proved_in_run" in src["campaign"])
+
+    # (4) A losing challenger cannot be improved in place.
+    versioning_forbids_in_place_retune = (
+        "def classify_change" in src["registry"]
+        and "MATERIAL_CHANGE_FIELDS" in src["registry"]
+        and "RETUNE_DETECTED" in src["registry"]
+        and "prior_versions_are_never_edited" in src["registry"])
+    spec_hash_covers_the_economics = (
+        "def spec_hash" in src["challengers"]
+        and '"parameters": spec["parameters"]' in src["challengers"]
+        and '"horizons"' in src["challengers"])
+
+    # (5) Evidence is discounted for overlap, and the gate is not one t-test.
+    effective_independent_count_exists = (
+        "def effective_independent" in src["evidence"]
+        and "raw_matured" in src["evidence"]
+        and "effective_independent" in src["leaderboard"])
+    gate_is_not_a_single_t = (
+        "min_effective_independent" in src["contract"]
+        and "max_single_day_share_of_pnl" in src["contract"]
+        and "require_positive_at_2x_costs" in src["contract"]
+        and "require_same_sign_halves" in src["contract"]
+        and "multiple_testing_control" in src["contract"])
+    forward_selection_is_ledgered = (
+        "FORWARD_SELECTION_MUST_BE_RECORDED" in src["contract"]
+        and "def record_forward_selection" in src["burden"])
+
+    # (6) The control is correct, and cost is charged on traded notional.
+    collateral_is_remunerated = (
+        "COLLATERAL_IS_REMUNERATED = True" in src["contract"]
+        and "CONTROL_CASH" in src["contract"]
+        and "risk_free_per_session" in src["judge"])
+    cost_charged_on_traded_notional = (
+        "COST_BPS_PER_SIDE" in src["contract"]
+        and "abs(float(l[\"weight\"]))" in src["judge"]
+        and "realised_cost_exit_side" in src["judge"])
+    no_invented_expected_return = (
+        "NOT_CALIBRATED" in src["emit"]
+        and '"expected_return": None' in src["emit"])
+
+    # (7) Nothing may read as proven.
+    proven_alpha_is_not_a_state = (
+        "PROVEN_ALPHA_IS_NOT_A_STATE = True" in src["contract"]
+        and "PROVEN_ALPHA" not in str(src["contract"].split(
+            "CHALLENGER_STATES = (")[-1].split(")")[0])
+        and "no_row_may_read_proven" in src["leaderboard"])
+    leaderboard_ranks_evidence_first = (
+        "_BAND" in src["leaderboard"]
+        and "evidence maturity band first" in src["leaderboard"])
+
+    # (8) Adoption never mutates a prior release.
+    adoption_is_read_only = (
+        "ADOPTION_RULES" in src["contract"]
+        and "prior_registries_are_read_only" in src["contract"]
+        and "file_sha256_before" in src["registry"]
+        and "file_sha256_after" in src["registry"]
+        and "unchanged_by_r46" in src["registry"])
+    adoption_writes_no_forward_row = (
+        "r46_never_writes_a_forward_row_for_an_adopted_shadow"
+        in src["contract"]
+        and "r46_writes_forward_rows_for_it" in src["registry"])
+
+    # (9) A dead stream cannot masquerade as a live model.
+    feasibility_gate_enforced = (
+        "def probe" in src["feasibility"]
+        and "CAN_ACCRUE" in src["feasibility"]
+        and "VENUE_BLOCKED" in src["feasibility"]
+        and "FEASIBILITY_RULE" in src["contract"]
+        and "DATA_BLOCKED" in src["registry"])
+    non_positive_price_refused = (
+        "NON_POSITIVE_PRICE" in src["marketdata"]
+        and "def has_non_positive" in src["marketdata"])
+
+    # (10) Burden inherits, never resets, and forward evidence is not a trial.
+    burden_inherited_not_reset = (
+        "INHERITED_GLOBAL_BURDEN = 353" in src["contract"]
+        and "BURDEN_MAY_NEVER_BE_RESET = True" in src["contract"]
+        and "PROSPECTIVE_EVIDENCE_IS_NOT_SEARCH_BURDEN = True"
+        in src["contract"])
+    seed_parameters_were_not_searched = (
+        "SEED_PARAMETERS_WERE_NOT_SEARCHED" in src["contract"]
+        and "parameters_were_searched" in src["challengers"])
+
+    # (11) Options and analyst lanes predeclare before the evidence exists.
+    options_hypotheses_predeclared = (
+        "PREDECLARED_HYPOTHESES" in src["options"]
+        and "hypotheses_frozen_before_the_confirming_sessions_exist"
+        in src["options"]
+        and "generic_short_vol_is_not_alpha" in src["options"])
+    analyst_never_backfilled = (
+        "NEVER_BACKFILLED = True" in src["analyst"]
+        and "PREDECLARED_CHALLENGER" in src["analyst"]
+        and "inadmissible_input" in src["analyst"])
+
+    # (12) Safety.
+    safety_flags_false = all(
+        ("%s\": False" % flag) in src["contract"]
+        for flag in ("creates_order", "creates_paper_order", "promotes_model",
+                     "mutates_holdings", "enables_automation",
+                     "writes_operational_store", "may_spend_money",
+                     "backdates_forward_rows",
+                     "mutates_prior_release_artifacts"))
+    portfolio_boundary_declared = (
+        "PORTFOLIO_BOUNDARY" in src["contract"]
+        and "FORWARD_CANDIDATE_is_an_order" in src["contract"]
+        and "manual_review_remains_mandatory" in src["contract"])
+    no_operational_imports = not any(
+        tok in all_src for tok in
+        ("portfolio_decision", "rebalance_execution", "daily_close",
+         "operational_book import", "from paper_trader.api import app"))
+    no_scheduler_or_task_registration = not any(
+        tok in all_src for tok in
+        ("schtasks", "Register-ScheduledTask", "TaskScheduler",
+         "crontab", "APScheduler"))
+    no_purchase_or_account = not any(
+        tok in all_src.lower() for tok in
+        ("checkout", "subscribe(", "create_account", "billing",
+         "payment_method", "upgrade_plan"))
+    keys_never_leak = not any(
+        tok in all_src for tok in ("apiKey=%s\" % pk, ", "print(pk"))
+    shell_policy_declared = (
+        "SHELL_POLICY = \"WINDOWS_POWERSHELL_ONLY\"" in src["contract"]
+        and "SHELL_POLICY_WAIVERS_ARE_NOT_AVAILABLE = True" in src["contract"]
+        and "SHELL_POLICY_VIOLATION" in src["shell_policy"])
+    inherited_disclosures_preserved = (
+        "INHERITED_SHELL_DISCLOSURES" in src["contract"]
+        and "inherited_disclosures_are_never_erased" in src["shell_policy"]
+        and '"release": "R42"' in src["contract"]
+        and '"release": "R44"' in src["contract"])
+
+    states_missing = sorted(
+        s for s in R46_REQUIRED_STATES if s not in src["contract"])
+
+    read_model = _read(REPO_ROOT / "api/prospective_tournament.py") or ""
+    read_model_is_read_only = bool(read_model) and not any(
+        tok in read_model for tok in ("_append_ledger", "write_json",
+                                      "def emit", "def register"))
+    read_model_hides_no_proof = (
+        "no_historical_only_model_looks_proven" in read_model
+        and "proven_alpha_is_not_a_state" in read_model)
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": second_owner_modules,
+        "ledger_refuses_backdated_rows": ledger_refuses_backdated_rows,
+        "entry_rule_is_declared_and_conservative":
+            entry_rule_is_declared_and_conservative,
+        "outcome_window_is_eastern_not_utc": outcome_window_is_eastern_not_utc,
+        "evidence_classes_never_mix": evidence_classes_never_mix,
+        "backfill_forbidden": backfill_forbidden,
+        "record_completeness_enforced": record_completeness_enforced,
+        "canonical_ledger_primitives_reused": canonical_ledger_primitives_reused,
+        "judge_only_appends": judge_only_appends,
+        "identity_key_declared": identity_key_declared,
+        "idempotency_proved_in_run": idempotency_proved_in_run,
+        "versioning_forbids_in_place_retune":
+            versioning_forbids_in_place_retune,
+        "spec_hash_covers_the_economics": spec_hash_covers_the_economics,
+        "effective_independent_count_exists": effective_independent_count_exists,
+        "gate_is_not_a_single_t": gate_is_not_a_single_t,
+        "forward_selection_is_ledgered": forward_selection_is_ledgered,
+        "collateral_is_remunerated": collateral_is_remunerated,
+        "cost_charged_on_traded_notional": cost_charged_on_traded_notional,
+        "no_invented_expected_return": no_invented_expected_return,
+        "proven_alpha_is_not_a_state": proven_alpha_is_not_a_state,
+        "leaderboard_ranks_evidence_first": leaderboard_ranks_evidence_first,
+        "adoption_is_read_only": adoption_is_read_only,
+        "adoption_writes_no_forward_row": adoption_writes_no_forward_row,
+        "feasibility_gate_enforced": feasibility_gate_enforced,
+        "non_positive_price_refused": non_positive_price_refused,
+        "burden_inherited_not_reset": burden_inherited_not_reset,
+        "seed_parameters_were_not_searched": seed_parameters_were_not_searched,
+        "options_hypotheses_predeclared": options_hypotheses_predeclared,
+        "analyst_never_backfilled": analyst_never_backfilled,
+        "safety_flags_false": safety_flags_false,
+        "portfolio_boundary_declared": portfolio_boundary_declared,
+        "no_operational_imports": no_operational_imports,
+        "no_scheduler_or_task_registration": no_scheduler_or_task_registration,
+        "no_purchase_or_account": no_purchase_or_account,
+        "keys_never_leak": bool(keys_never_leak),
+        "shell_policy_declared": shell_policy_declared,
+        "inherited_disclosures_preserved": inherited_disclosures_preserved,
+        "read_model_is_read_only": read_model_is_read_only,
+        "read_model_hides_no_proof": read_model_hides_no_proof,
+        "terminal_states_missing": states_missing,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 def run_audit(extra_ps1_dirs=()) -> dict:
@@ -10445,6 +10765,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release44_orthogonal_portfolio_alpha(files),
         "release45_macro_event_alpha":
             check_release45_macro_event_alpha(files),
+        "release46_prospective_alpha_tournament":
+            check_release46_prospective_alpha_tournament(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -12455,6 +12777,89 @@ BLOCKING_INVARIANTS = (
     ("release42_crypto_basis_alpha", "funding_event_exact", True),
     ("release42_crypto_basis_alpha", "venue_cadence_asserted", True),
     ("release42_crypto_basis_alpha", "qualification_states_missing", []),
+
+    # ----------------------------------------------------------------- #
+    # Release 46 - the prospective alpha tournament.
+    #
+    # These are the invariants that make it impossible to turn a losing
+    # challenger into a winning one without saying so. The first two are
+    # the release in a sentence: a prediction that was not strictly
+    # earlier than its outcome is refused, and a specification cannot be
+    # edited in place once it has predictions outstanding.
+    # ----------------------------------------------------------------- #
+    ("release46_prospective_alpha_tournament", "modules_present", True),
+    ("release46_prospective_alpha_tournament", "modules_missing", []),
+    ("release46_prospective_alpha_tournament", "second_owner_modules", []),
+    ("release46_prospective_alpha_tournament",
+     "ledger_refuses_backdated_rows", True),
+    ("release46_prospective_alpha_tournament",
+     "entry_rule_is_declared_and_conservative", True),
+    ("release46_prospective_alpha_tournament",
+     "outcome_window_is_eastern_not_utc", True),
+    ("release46_prospective_alpha_tournament",
+     "evidence_classes_never_mix", True),
+    ("release46_prospective_alpha_tournament", "backfill_forbidden", True),
+    ("release46_prospective_alpha_tournament",
+     "record_completeness_enforced", True),
+    ("release46_prospective_alpha_tournament",
+     "canonical_ledger_primitives_reused", True),
+    ("release46_prospective_alpha_tournament", "judge_only_appends", True),
+    ("release46_prospective_alpha_tournament", "identity_key_declared", True),
+    ("release46_prospective_alpha_tournament",
+     "idempotency_proved_in_run", True),
+    ("release46_prospective_alpha_tournament",
+     "versioning_forbids_in_place_retune", True),
+    ("release46_prospective_alpha_tournament",
+     "spec_hash_covers_the_economics", True),
+    ("release46_prospective_alpha_tournament",
+     "effective_independent_count_exists", True),
+    ("release46_prospective_alpha_tournament", "gate_is_not_a_single_t", True),
+    ("release46_prospective_alpha_tournament",
+     "forward_selection_is_ledgered", True),
+    ("release46_prospective_alpha_tournament",
+     "collateral_is_remunerated", True),
+    ("release46_prospective_alpha_tournament",
+     "cost_charged_on_traded_notional", True),
+    ("release46_prospective_alpha_tournament",
+     "no_invented_expected_return", True),
+    ("release46_prospective_alpha_tournament",
+     "proven_alpha_is_not_a_state", True),
+    ("release46_prospective_alpha_tournament",
+     "leaderboard_ranks_evidence_first", True),
+    ("release46_prospective_alpha_tournament", "adoption_is_read_only", True),
+    ("release46_prospective_alpha_tournament",
+     "adoption_writes_no_forward_row", True),
+    ("release46_prospective_alpha_tournament",
+     "feasibility_gate_enforced", True),
+    ("release46_prospective_alpha_tournament",
+     "non_positive_price_refused", True),
+    ("release46_prospective_alpha_tournament",
+     "burden_inherited_not_reset", True),
+    ("release46_prospective_alpha_tournament",
+     "seed_parameters_were_not_searched", True),
+    ("release46_prospective_alpha_tournament",
+     "options_hypotheses_predeclared", True),
+    ("release46_prospective_alpha_tournament",
+     "analyst_never_backfilled", True),
+    ("release46_prospective_alpha_tournament", "safety_flags_false", True),
+    ("release46_prospective_alpha_tournament",
+     "portfolio_boundary_declared", True),
+    ("release46_prospective_alpha_tournament",
+     "no_operational_imports", True),
+    ("release46_prospective_alpha_tournament",
+     "no_scheduler_or_task_registration", True),
+    ("release46_prospective_alpha_tournament",
+     "no_purchase_or_account", True),
+    ("release46_prospective_alpha_tournament", "keys_never_leak", True),
+    ("release46_prospective_alpha_tournament", "shell_policy_declared", True),
+    ("release46_prospective_alpha_tournament",
+     "inherited_disclosures_preserved", True),
+    ("release46_prospective_alpha_tournament",
+     "read_model_is_read_only", True),
+    ("release46_prospective_alpha_tournament",
+     "read_model_hides_no_proof", True),
+    ("release46_prospective_alpha_tournament",
+     "terminal_states_missing", []),
 )
 
 

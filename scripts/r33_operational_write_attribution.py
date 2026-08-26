@@ -317,7 +317,34 @@ R45_MARKERS = (
 R45_SOURCE_GLOBS = ("alpha_agent/r45/*.py",)
 R45_SOURCE_FILES = ()
 
+#: Release 46 runs a prospective tournament: it appends TRUE_FORWARD
+#: predictions and their later outcomes to chain-hashed ledgers under its own
+#: research root, and opens five prior releases' shadow registries read-only.
+#: It is the first release whose normal operation APPENDS ROWS on a schedule,
+#: which makes attribution matter more here than anywhere: an R46 prediction,
+#: outcome, leaderboard row or challenger registry landing in an operational
+#: store - or any R46 row appearing in an operational ledger - is attributable
+#: here. ``api/prospective_tournament.py`` is a pure read model and is listed
+#: so that a write appearing from it would be attributed rather than excused.
+R46_MARKERS = (
+    "r46_prospective_alpha_tournament_v1", "prospective_alpha_tournament_r46",
+    "alpha_agent.r46", "alpha_agent/r46", "alpha_agent\\r46",
+    "release46_prospective_alpha_tournament", "r46_frozen_contract",
+    "r46_search_burden_ledger", "r46_challenger_registry",
+    "r46_forward_predictions", "r46_forward_outcomes",
+    "r46_forward_selection_ledger", "prospective_forward",
+    "R46_LEADERBOARD", "R46_FINAL_VERDICT", "R46_FORWARD_BATCHES",
+    "R46_SHELL_POLICY_EVENTS", "R46_OPTIONS_LANE", "R46_ANALYST_LANE",
+    "polygon_spy_option_surface_r46_weeklies",
+    "api.prospective_tournament", "api/prospective_tournament",
+)
+R46_SOURCE_GLOBS = ("alpha_agent/r46/*.py",)
+R46_SOURCE_FILES = ("api/prospective_tournament.py",)
+
 RELEASE_PROFILES = {
+    "R46": {"markers": R46_MARKERS, "source_globs": R46_SOURCE_GLOBS,
+            "source_files": R46_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R45": {"markers": R45_MARKERS, "source_globs": R45_SOURCE_GLOBS,
             "source_files": R45_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

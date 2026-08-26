@@ -631,6 +631,11 @@
       "prefix": "/v1/research/pnl-opportunity-frontier",
       "owner": "api/pnl_opportunity_frontier.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/research/prospective-tournament",
+      "owner": "api/prospective_tournament.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3336,6 +3341,31 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "A sleeve reported here is NOT activated and cannot be: a sleeve GENERATES OPPORTUNITIES and never owns capital, alpha_agent.r32 declares AUTOMATIC_SLEEVE_ACTIVATION_ALLOWED = False and MAY_SPEND_MONEY = False, the region carries no execute / approve / activate / allocate control, and the architecture audit check release32_pnl_opportunity_frontier enforces all of it plus invariants 28-40. Campaign v4 (LANDED): v1, v2 and v3 are SUPERSEDED and preserved on disk. v1 was SUPERSEDED_EXPERIMENTAL_DESIGN because its primary selection and multiple-testing statistic was excess over CASH - over a long window every strategy with equity exposure beats bills, so that statistic measures exposure rather than skill; all ten v1 lockbox results had NEGATIVE excess over the benchmark while one was reported as qualified. It also let the EVENT_DRIVEN 'hold the index every session' CONTROL reach the lockbox, and read the inherited Release-31 verdict from a key that does not exist. v2 and v3 were SUPERSEDED_INCOMPLETE_REPORTING: v2's candidate registry stripped the sleeve return paths before returning them, so the cross-sleeve correlation map and latent risk clusters were EMPTY; v3 gave every panel its own decision calendar, so no two sleeves shared a single decision date and the correlation remained unmeasurable. v4 judges every candidate against a VOLATILITY-MATCHED mix of the benchmark and cash - the control that carries the sleeve's own risk with none of its timing - excludes controls from finalist selection, and derives a SHARED decision calendar for the reporting-only cross-sleeve comparison. Terminal verdict R32_ZERO_COST_OPPORTUNITY_FRONTIER_EXHAUSTED with zero FDR survivors against a denominator of 104 executed hypotheses."
+    },
+    {
+      "path": "api/prospective_tournament.py",
+      "system": "infrastructure",
+      "classification": "KEEP",
+      "target_owner": "api/prospective_tournament.py",
+      "duplicate_with": [],
+      "responsibility": "Release 46 PROSPECTIVE ALPHA TOURNAMENT read model - the ONE operator board for prospective alpha evidence. Answers directly: how many challengers are competing, how many TRUE_FORWARD predictions actually exist, how many have matured, which are winning, losing or too early to judge, the best net alpha against the CORRECT control, the effective independent evidence behind it, the next material maturity, and what entered or was killed. It OWNS presentation only: every number is READ from the campaign's hashed artifacts and its chain-hashed forward ledgers. It computes no research mathematics, exposes no promotion, activation or allocation control, and writes nothing. Two honesty rules are enforced HERE rather than in the front end: no historical-only model may look proven (a backtest-only challenger is labelled HISTORICAL_ONLY with an explicit zero matured count, and FORWARD_CONFIRMED is the strongest state that exists), and raw and EFFECTIVE observation counts always travel together, because fifty overlapping twenty-day bets are not fifty independent ones.",
+      "direct_reads": [
+        "D:/Stock_Prediction_app_data/prospective_alpha_tournament_r46/<campaign_id>/*.json (r46_frozen_contract, r46_challenger_registry, R46_LEADERBOARD, R46_FORWARD_BATCHES, r46_search_burden_ledger, R46_SHELL_POLICY_EVENTS, R46_FINAL_VERDICT)",
+        "D:/Stock_Prediction_app_data/prospective_alpha_tournament_r46/<campaign_id>/prospective_forward/*.json (r46_forward_predictions, r46_forward_outcomes)"
+      ],
+      "direct_writes": [
+        "none - pure read model. No PostgreSQL / order / fill / target / holding / cash / NAV write, no prediction or outcome append, no model promotion, no research-artifact write, and no network call."
+      ],
+      "endpoints": [
+        "/v1/research/prospective-tournament"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release46_prospective_alpha_tournament.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "A challenger reported here is NEVER activated and cannot be: FORWARD_CANDIDATE is not an order, FORWARD_CONFIRMED is not an automatic holding, alpha_agent.r46 declares promotion_allowed False on every challenger, the region carries no execute / approve / activate / allocate control, and check_release46_prospective_alpha_tournament enforces all of it across 41 blocking invariants. The canonical portfolio manager still decides, manually. The board's founding finding: five releases (R39, R40, R41, R42, R43/R45) each froze a prospective shadow registry, holding SEVEN distinct shadows between them and ZERO forward observations - two streams cannot accrue from this location (Binance publishes funding monthly with a ~24-day lag and answers HTTP 451) and nothing had called the other three's capture owner since their freeze. R46 adds no sixth registry: it adopts all seven BY REFERENCE, hashes their bytes before and after to prove they were not touched, keeps their ledgers and owners exactly where they are, and puts them on one board so the zero is visible in one place instead of spread across five campaign roots."
     },
     {
       "path": "alpha_agent/r32/",
