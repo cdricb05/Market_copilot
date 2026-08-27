@@ -53,17 +53,32 @@ from __future__ import annotations
 import datetime as _dt
 
 from . import CAMPAIGN_ID, artifact_body, campaign_dir, read_json, write_json
+from . import cftc as CF
 from . import clock as CK
 from . import contract as C
+from . import credit as CR
 from . import emit as EM
+from . import events as EVN
 from . import judge as JD
 from . import leaderboard as LB
 from . import ledger as LG
+from . import macro as MC
 from . import planner as PL
 from . import registry as RG
+from . import shadow as SH
 from . import velocity as VL
 
 CALCULATION_OWNER = "alpha_agent.r46.advance"
+
+#: Release 46.4 - the orthogonal information lanes the step refreshes BEFORE
+#: anything is scored or emitted. Each is bounded, free, and fail-soft: a lane
+#: that cannot reach its source records that and the step continues.
+LANE_STAGES = ("lane_cftc", "lane_credit", "lane_macro", "lane_events")
+
+#: Stages that are read models or lanes OVER the tournament. A failure there
+#: is reported loudly but can never make a live tournament read UNAVAILABLE.
+NON_CORE_STAGES = ("evidence_velocity", "throughput_plan",
+                   "shadow_pnl") + LANE_STAGES
 
 #: The append-only record of every tournament advance. Research root only.
 CYCLE_ARTIFACT = "R46_TOURNAMENT_CYCLES.json"
@@ -108,6 +123,27 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
                      reason="no Release-46 challenger registry exists at this "
                             "research root; the tournament has not been created")
 
+    # --- 1b. Release 46.4: REFRESH the orthogonal lanes (raw capture only). - #
+    # Positioning, credit, macro prints and the event calendar are captured
+    # with their acquisition instants BEFORE anything is scored or emitted,
+    # so every row emitted later can point at a capture that preceded it.
+    as_of = _pnl_as_of(eligible_market_date, started)
+    acquire = _lanes_may_acquire()
+    lanes = {
+        "cftc": _safe(lambda: CF.run(acquire_now=acquire,
+                                     campaign_id=campaign_id, as_of=as_of),
+                      failures, "lane_cftc"),
+        "credit": _safe(lambda: CR.run(acquire_now=acquire,
+                                       campaign_id=campaign_id, as_of=as_of),
+                        failures, "lane_credit"),
+        "macro": _safe(lambda: MC.run(acquire_now=acquire,
+                                      campaign_id=campaign_id, as_of=as_of),
+                       failures, "lane_macro"),
+        "events": _safe(lambda: EVN.run(acquire_now=acquire,
+                                        campaign_id=campaign_id, as_of=as_of),
+                        failures, "lane_events"),
+    }
+
     # --- 2. SCORE first. Nothing new may exist when maturity is judged. ------ #
     judged = _safe(lambda: JD.score_pending(campaign_id, started),
                    failures, "score_matured") or {}
@@ -116,6 +152,14 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     # --- 3. The board on the evidence that now exists. ---------------------- #
     board_after_scoring = _safe(lambda: LB.build(campaign_id, reg),
                                 failures, "leaderboard_after_scoring") or {}
+
+    # --- 3b. Release 46.4: the MONEY layer, on the evidence that now exists. #
+    # Open / mark / close research trades, roll the shadow NAVs, and DECIDE
+    # the next allocation from outcomes matured on or before the session -
+    # all BEFORE the next batch is emitted, so no weight can see it.
+    shadow = _safe(lambda: SH.advance_pnl(as_of, reg, board_after_scoring,
+                                          campaign_id, now=started),
+                   failures, "shadow_pnl") or {}
 
     # --- 4. EMIT, idempotently, from data available at the emission instant. - #
     emission = None
@@ -151,9 +195,9 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     # Release 46.3: only CORE stages decide availability. The velocity and
     # planning artifacts are read models OVER the tournament; a failure there
     # is reported loudly but cannot make a live tournament read UNAVAILABLE.
+    # Release 46.4 adds the lanes and the P&L layer to that non-core set.
     core_failures = [f for f in failures
-                     if f.get("stage") not in ("evidence_velocity",
-                                               "throughput_plan")]
+                     if f.get("stage") not in NON_CORE_STAGES]
     state = (STATE_UNAVAILABLE if core_failures and not preds
              else STATE_ADVANCED if (n_scored or n_emitted)
              else STATE_NOTHING_DUE)
@@ -188,6 +232,11 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
         maturity_schedule=schedule.get("schedule") or [],
         earliest_maturity=schedule.get("earliest_maturity"),
         ledger_chain_intact=bool(chain.get("all_intact")),
+
+        # --- Release 46.4: the money facts and the lanes -------------------- #
+        pnl_as_of=str(as_of),
+        shadow_pnl=_shadow_digest(shadow),
+        lanes=_lanes_digest(lanes),
 
         # --- what this step is not ------------------------------------------ #
         promoted_models=0,
@@ -292,6 +341,72 @@ def _board_digest(board: dict) -> dict:
         "ranking_rule": board.get("ranking_rule"),
         "no_row_may_read_proven": True,
     }
+
+
+def _lanes_may_acquire() -> bool:
+    """Lanes reach the network only OUTSIDE the hermetic pytest process.
+
+    The suite declares itself hermetic with ``PAPER_TRADER_ACCEPTANCE_MODE``;
+    inside it a lane reads whatever captures its (redirected) root holds and
+    acquires nothing, so no test can write a capture into production or
+    depend on a provider being up.
+    """
+    import os
+    return os.environ.get("PAPER_TRADER_ACCEPTANCE_MODE") != "1"
+
+
+def _pnl_as_of(eligible_market_date, started: _dt.datetime) -> _dt.date:
+    """The session the money layer marks.
+
+    The Daily Research Cycle names the completed session it is closing; a
+    manual call marks the LAST PRINTED session of the NAV clock, never a
+    session whose bars have not arrived - a NAV row is immutable once rolled
+    and must not be built on stale marks.
+    """
+    if eligible_market_date:
+        try:
+            return _dt.date.fromisoformat(str(eligible_market_date)[:10])
+        except ValueError:
+            pass
+    from . import marketdata as MD
+    from . import trades as TR
+    last = MD.last_session(TR.NAV_CALENDAR_INSTRUMENT)
+    return last or CK.eastern_date(started)
+
+
+def _shadow_digest(shadow: dict) -> dict:
+    if not shadow:
+        return {"state": "NOT_RUN"}
+    keys = ("as_of", "shadow_nav", "shadow_return", "today_net_pnl",
+            "cumulative_net_forward_pnl", "residual_alpha_pnl_vs_cash",
+            "realised_pnl", "unrealised_pnl", "cost_drag", "max_drawdown",
+            "inception", "trades_opened", "trades_marked", "trades_closed",
+            "open_research_trades", "closed_research_trades",
+            "signal_emitted", "funded_trades", "unfunded_open_trades",
+            "canonical_policy", "n_allocated", "top_shadow_allocations",
+            "canonical_cash_weight", "effective_independent_pnl_streams",
+            "nominal_streams", "correlation_source",
+            "economic_state_counts", "opportunity_counts",
+            "best_net_pnl_strategy", "worst_net_pnl_strategy",
+            "best_residual_alpha_strategy",
+            "best_capital_efficiency_strategy", "ledgers_intact",
+            "n_stage_failures", "stage_failures")
+    return {k: shadow.get(k) for k in keys}
+
+
+def _lanes_digest(lanes: dict) -> dict:
+    out = {}
+    for name, body in (lanes or {}).items():
+        b = body or {}
+        out[name] = {"state": b.get("state", "NOT_RUN"),
+                     "as_of": b.get("as_of"),
+                     "n_captures": (b.get("n_captures")
+                                    if b.get("n_captures") is not None
+                                    else (b.get("acquisition") or {}).get(
+                                        "n_captures")),
+                     "information_family": b.get("information_family"),
+                     "challengers_frozen": b.get("challengers_frozen")}
+    return out
 
 
 def _velocity_digest(vel: dict) -> dict:

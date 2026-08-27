@@ -82,12 +82,34 @@ def _r45_state() -> dict:
                 (lane.get("vendor_backward_strip_reconciliation") or {})}
 
 
+def _live_ledger_state() -> dict:
+    """Release 46.4 - the prospective snapshot ledger AS IT IS NOW, read-only.
+
+    The Release-44 capture owner keeps writing one snapshot directory per
+    capture day. Counting them here (never writing) lets the lane report how
+    the sample has grown since Release 45 measured it, so an operator reads
+    a live number rather than a two-releases-old one.
+    """
+    try:
+        from ..r44 import acquisition as R44AQ
+        days = R44AQ._snapshot_dates()
+    except Exception as exc:                    # noqa: BLE001 - reported
+        return {"state": "UNREADABLE", "error": type(exc).__name__}
+    if not days:
+        return {"state": "NO_SNAPSHOTS", "n_snapshot_dates": 0}
+    return {"state": "READ", "n_snapshot_dates": len(days),
+            "first_snapshot": str(days[0]), "last_snapshot": str(days[-1]),
+            "span_days": (days[-1] - days[0]).days,
+            "read_only": True, "wrote_nothing": True}
+
+
 def run(campaign_id: str = CAMPAIGN_ID) -> dict:
     prior = _r45_state()
     freq = prior.get("revision_frequency") or {}
     observed = freq.get("n_observed_revisions")
     per_30d = freq.get("revisions_per_series_per_30d")
     span = freq.get("span_days")
+    live = _live_ledger_state()
 
     still_needed = (None if observed is None
                     else max(0, MIN_REVISIONS_TO_JUDGE - int(observed)))
@@ -112,6 +134,12 @@ def run(campaign_id: str = CAMPAIGN_ID) -> dict:
         purchased_historical_vintages=False,
         hard_pit_floor=prior.get("hard_pit_floor"),
         ledger=prior.get("ledger"),
+        live_ledger=live,
+        economic_tracking_rule=(
+            "Release 46.4: an observed revision may be tracked economically "
+            "in the research shadow system only AFTER its capture instant; "
+            "no trade is ever created before the revision was known, and no "
+            "historical revision is reconstructed"),
         revision_frequency=freq,
         judgeable_sample={
             "revisions_required": MIN_REVISIONS_TO_JUDGE,

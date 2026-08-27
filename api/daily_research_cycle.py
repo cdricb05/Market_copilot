@@ -970,6 +970,20 @@ def _extract_tournament(built: Optional[dict], eligible: Optional[str]) -> dict:
         "top_forward_state": (b.get("leaderboard") or {}).get("top_forward_state"),
         "best_net_alpha_bps": (b.get("leaderboard") or {}).get("best_net_alpha_bps"),
         "ledger_chain_intact": bool(b.get("ledger_chain_intact")),
+        # Release 46.4 — the money facts the same step now reports. Read
+        # verbatim from the advance; the cycle prices nothing itself.
+        "shadow_nav": (b.get("shadow_pnl") or {}).get("shadow_nav"),
+        "shadow_today_net_pnl": (b.get("shadow_pnl") or {}).get("today_net_pnl"),
+        "shadow_cumulative_net_pnl": (b.get("shadow_pnl") or {}).get(
+            "cumulative_net_forward_pnl"),
+        "shadow_realised_pnl": (b.get("shadow_pnl") or {}).get("realised_pnl"),
+        "shadow_unrealised_pnl": (b.get("shadow_pnl") or {}).get("unrealised_pnl"),
+        "open_research_trades": (b.get("shadow_pnl") or {}).get(
+            "open_research_trades"),
+        "closed_research_trades": (b.get("shadow_pnl") or {}).get(
+            "closed_research_trades"),
+        "information_lanes": {k: (v or {}).get("state")
+                              for k, v in (b.get("lanes") or {}).items()},
         "stage_failures": b.get("stage_failures") or [],
         "output_hash": _hash({
             "state": b.get("state"),

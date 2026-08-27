@@ -10383,7 +10383,39 @@ R46_OWNERS = {
     "velocity": "alpha_agent/r46/velocity.py",
     "planner": "alpha_agent/r46/planner.py",
     "intraday": "alpha_agent/r46/intraday.py",
+    # Release 46.4 - the economic layer and the orthogonal lanes. ONE owner
+    # per concept: trade economics, the research trade ledger, strategy
+    # P&L streams, the shadow target, the shadow NAV, the risk state,
+    # attribution, regime, opportunity cost, the P&L board, the P&L stage
+    # of the step, and the four information lanes.
+    "pnl": "alpha_agent/r46/pnl.py",
+    "trades": "alpha_agent/r46/trades.py",
+    "strategy_pnl": "alpha_agent/r46/strategy_pnl.py",
+    "allocation": "alpha_agent/r46/allocation.py",
+    "nav": "alpha_agent/r46/nav.py",
+    "risk": "alpha_agent/r46/risk.py",
+    "attribution": "alpha_agent/r46/attribution.py",
+    "regime": "alpha_agent/r46/regime.py",
+    "opportunity": "alpha_agent/r46/opportunity.py",
+    "pnl_board": "alpha_agent/r46/pnl_board.py",
+    "shadow": "alpha_agent/r46/shadow.py",
+    "cftc": "alpha_agent/r46/cftc.py",
+    "credit": "alpha_agent/r46/credit.py",
+    "macro": "alpha_agent/r46/macro.py",
+    "events": "alpha_agent/r46/events.py",
 }
+
+#: Release 46.4 - a SECOND implementation of an economic concept the release
+#: declares one owner for is a blocking defect, exactly as for the ledger.
+R46_4_SECOND_OWNER_FORBIDDEN = (
+    "alpha_agent/r46/paper_trades.py",
+    "alpha_agent/r46/shadow_nav.py",
+    "alpha_agent/r46/shadow_allocator.py",
+    "alpha_agent/r46/pnl_engine.py",
+    "alpha_agent/r46/trade_ledger.py",
+    "alpha_agent/r46/portfolio.py",
+    "alpha_agent/r46/orders.py",
+)
 
 #: A SECOND implementation of a concept Release 46 declares itself the single
 #: owner of is a blocking defect. The prediction ledger above all: the entire
@@ -10635,10 +10667,117 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         "no_historical_only_model_looks_proven" in read_model
         and "proven_alpha_is_not_a_state" in read_model)
 
+    # (13) Release 46.4 - the economic layer. Money is computed once, closed
+    #      trades take the judge's number, historical P&L is never labelled
+    #      forward, ledgers append, allocation cannot see the future, and
+    #      nothing here is an order, a holding or a promotion.
+    r46_4_second_owner_modules = sorted(
+        p for p in R46_4_SECOND_OWNER_FORBIDDEN if (REPO_ROOT / p).exists())
+    pnl_has_one_owner = (
+        "closed_trades_take_the_judge_number" in src.get("pnl", "")
+        and "RECONCILIATION_MISMATCH" in src.get("pnl", "")
+        and "def economics" in src.get("pnl", "")
+        and "def economics" not in src.get("nav", "")
+        and "def economics" not in src.get("trades", ""))
+    cost_stack_matches_contract = (
+        "def decomposition_matches_contract" in src.get("pnl", "")
+        and "COST_BPS_PER_SIDE" in src.get("pnl", "")
+        and "SCENARIO_STRESS" in src.get("pnl", ""))
+    no_fake_forward_pnl = (
+        "historical_pnl_is_never_labelled_forward" in src.get("pnl", "")
+        and "HISTORICAL_SIMULATION" in src.get("pnl", "")
+        and "RISK_PRIOR" in src.get("pnl", "")
+        and "historical_data_informs_the_prior_never_alpha"
+        in src.get("risk", ""))
+    trade_ledger_is_append_only_and_idempotent = (
+        "_append_ledger" in src.get("trades", "")
+        and "verify_ledger" in src.get("trades", "")
+        and "one_prediction_one_trade" in src.get("trades", "")
+        and "def trade_id" in src.get("trades", "")
+        and "backdated" in src.get("trades", ""))
+    trade_states_are_derived = (
+        "def states" in src.get("trades", "")
+        and "DERIVED" in src.get("trades", "")
+        and "SIGNAL_EMITTED" in src.get("trades", "")
+        and "TRADE_CLOSED" in src.get("trades", ""))
+    nav_never_rewrites_history = (
+        "never_rewrites_prior_history" in src.get("nav", "")
+        and "_append_ledger" in src.get("nav", "")
+        and "STARTING_CAPITAL" in src.get("nav", "")
+        and "high_water_mark" in src.get("nav", ""))
+    allocation_has_no_hindsight = (
+        "applies_from_session" in src.get("allocation", "")
+        and "strictly after decision_session" in src.get("allocation", "")
+        and "weights_optimised_on_forward_results\": False"
+        in src.get("allocation", "")
+        and "def funding_for" in src.get("allocation", "")
+        and "STRICTLY BEFORE" in src.get("allocation", ""))
+    four_policies_predeclared = all(
+        tok in src.get("allocation", "") for tok in
+        ("EQUAL_WEIGHT_ELIGIBLE_v1", "EQUAL_RISK_v1",
+         "EVIDENCE_DISCOUNTED_DIVERSIFIED_v1", "CASH_CONTROL_v1"))
+    redundancy_and_concentration_enforced = (
+        "cluster_size" in src.get("allocation", "")
+        and "def _cap" in src.get("allocation", "")
+        and "effective_streams" in src.get("risk", ""))
+    economic_kill_rules_frozen = (
+        "KILL_RULES" in src.get("strategy_pnl", "")
+        and "no_kill_from_one_unlucky_trade" in src.get("strategy_pnl", "")
+        and "a_killed_strategy_is_never_retuned_in_place"
+        in src.get("strategy_pnl", "")
+        and "ECONOMIC_KILL_CANDIDATE" in src.get("strategy_pnl", ""))
+    three_pnl_concepts_kept_apart = (
+        "expected_vs_unrealised_vs_realised_are_never_summed"
+        in src.get("strategy_pnl", "")
+        and "realised_and_unrealised_are_reported_separately"
+        in src.get("nav", ""))
+    regime_is_ex_ante = (
+        "ex_ante_only" in src.get("regime", "")
+        and "never_relabelled" in src.get("regime", ""))
+    bridge_is_read_only = (
+        "adds_to_portfolio=False" in src.get("opportunity", "")
+        and "creates_orders=False" in src.get("opportunity", "")
+        and "who_decides" in src.get("opportunity", ""))
+    pnl_step_is_inside_the_one_advance = (
+        "SH.advance_pnl" in src.get("advance", "")
+        and "def advance_pnl" in src.get("shadow", "")
+        and "def advance(" not in src.get("shadow", ""))
+    lanes_are_pit_stamped = all(
+        tok in src.get(m, "") for m, tok in (
+            ("cftc", "acquired_at_utc"), ("credit", "realtime_start"),
+            ("macro", "output_type=4"), ("events", "acquired_at_utc")))
+    lanes_never_overwrite = all(
+        "raw_dir()" in src.get(m, "") and "captures" in src.get(m, "")
+        for m in ("cftc", "credit", "macro", "events"))
+    research_trades_are_not_positions = (
+        "is_an_order\": False" in src.get("trades", "")
+        and "is_a_holding\": False" in src.get("trades", "")
+        and "not an order, not a holding" in src.get("trades", ""))
+
     return {
         "modules_present": not modules_missing,
         "modules_missing": modules_missing,
         "second_owner_modules": second_owner_modules,
+        "r46_4_second_owner_modules": r46_4_second_owner_modules,
+        "pnl_has_one_owner": pnl_has_one_owner,
+        "cost_stack_matches_contract": cost_stack_matches_contract,
+        "no_fake_forward_pnl": no_fake_forward_pnl,
+        "trade_ledger_is_append_only_and_idempotent":
+            trade_ledger_is_append_only_and_idempotent,
+        "trade_states_are_derived": trade_states_are_derived,
+        "nav_never_rewrites_history": nav_never_rewrites_history,
+        "allocation_has_no_hindsight": allocation_has_no_hindsight,
+        "four_policies_predeclared": four_policies_predeclared,
+        "redundancy_and_concentration_enforced":
+            redundancy_and_concentration_enforced,
+        "economic_kill_rules_frozen": economic_kill_rules_frozen,
+        "three_pnl_concepts_kept_apart": three_pnl_concepts_kept_apart,
+        "regime_is_ex_ante": regime_is_ex_ante,
+        "bridge_is_read_only": bridge_is_read_only,
+        "pnl_step_is_inside_the_one_advance": pnl_step_is_inside_the_one_advance,
+        "lanes_are_pit_stamped": lanes_are_pit_stamped,
+        "lanes_never_overwrite": lanes_never_overwrite,
+        "research_trades_are_not_positions": research_trades_are_not_positions,
         "ledger_refuses_backdated_rows": ledger_refuses_backdated_rows,
         "entry_rule_is_declared_and_conservative":
             entry_rule_is_declared_and_conservative,
@@ -12867,6 +13006,37 @@ BLOCKING_INVARIANTS = (
      "read_model_hides_no_proof", True),
     ("release46_prospective_alpha_tournament",
      "terminal_states_missing", []),
+    # --- Release 46.4: the economic layer has ONE owner per concept, never
+    #     labels history as forward, appends only, and cannot see the future.
+    ("release46_prospective_alpha_tournament",
+     "r46_4_second_owner_modules", []),
+    ("release46_prospective_alpha_tournament", "pnl_has_one_owner", True),
+    ("release46_prospective_alpha_tournament",
+     "cost_stack_matches_contract", True),
+    ("release46_prospective_alpha_tournament", "no_fake_forward_pnl", True),
+    ("release46_prospective_alpha_tournament",
+     "trade_ledger_is_append_only_and_idempotent", True),
+    ("release46_prospective_alpha_tournament", "trade_states_are_derived", True),
+    ("release46_prospective_alpha_tournament",
+     "nav_never_rewrites_history", True),
+    ("release46_prospective_alpha_tournament",
+     "allocation_has_no_hindsight", True),
+    ("release46_prospective_alpha_tournament",
+     "four_policies_predeclared", True),
+    ("release46_prospective_alpha_tournament",
+     "redundancy_and_concentration_enforced", True),
+    ("release46_prospective_alpha_tournament",
+     "economic_kill_rules_frozen", True),
+    ("release46_prospective_alpha_tournament",
+     "three_pnl_concepts_kept_apart", True),
+    ("release46_prospective_alpha_tournament", "regime_is_ex_ante", True),
+    ("release46_prospective_alpha_tournament", "bridge_is_read_only", True),
+    ("release46_prospective_alpha_tournament",
+     "pnl_step_is_inside_the_one_advance", True),
+    ("release46_prospective_alpha_tournament", "lanes_are_pit_stamped", True),
+    ("release46_prospective_alpha_tournament", "lanes_never_overwrite", True),
+    ("release46_prospective_alpha_tournament",
+     "research_trades_are_not_positions", True),
 )
 
 

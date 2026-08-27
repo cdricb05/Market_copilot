@@ -42,6 +42,10 @@ _BAND = {
     C.DATA_BLOCKED: 6,
 }
 
+#: Release 46.4 - the P&L board ranks inside the SAME bands. Exposed by name
+#: so the band order has exactly one definition.
+EVIDENCE_BANDS = _BAND
+
 
 def _rank_key(row: dict):
     band = _BAND.get(row.get("state"), 7)

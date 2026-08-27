@@ -82,13 +82,37 @@ ARTIFACTS = {
     "intraday": "R46_INTRADAY_LANE.json",
     "options": "R46_OPTIONS_LANE.json",
     "analyst": "R46_ANALYST_LANE.json",
+    # Release 46.4 — the economic layer and the orthogonal lanes. Every one is
+    # read verbatim from the artifact its owner persisted; this module computes
+    # no P&L, no NAV, no weight and no recommendation. All optional: a root
+    # built before R46.4 has none of them and that reads as "not computed".
+    "pnl_nav": "R46_4_SHADOW_NAV.json",
+    "pnl_comparison": "R46_4_SHADOW_POLICY_COMPARISON.json",
+    "pnl_board": "R46_4_PNL_LEADERBOARD.json",
+    "pnl_allocation": "R46_4_SHADOW_ALLOCATION.json",
+    "pnl_risk": "R46_4_RISK_STATE.json",
+    "pnl_attribution": "R46_4_PNL_ATTRIBUTION.json",
+    "pnl_opportunity": "R46_4_OPPORTUNITY_COST.json",
+    "pnl_trades": "R46_4_RESEARCH_TRADES.json",
+    "pnl_strategy": "R46_4_STRATEGY_PNL.json",
+    "pnl_bridge": "R46_4_RESEARCH_BRIDGE.json",
+    "pnl_regime": "R46_4_REGIME_STATE.json",
+    "lane_cftc": "R46_4_CFTC_LANE.json",
+    "lane_credit": "R46_4_CREDIT_LANE.json",
+    "lane_macro": "R46_4_MACRO_LANE.json",
+    "lane_events": "R46_4_EVENT_LANE.json",
 }
+
+R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
+                   "pnl_risk", "pnl_attribution", "pnl_opportunity",
+                   "pnl_trades", "pnl_strategy", "pnl_bridge", "pnl_regime",
+                   "lane_cftc", "lane_credit", "lane_macro", "lane_events")
 
 #: Artifacts whose absence is EXPECTED (before the first advance, or before the
 #: Release-46.3 owners ever ran here) and so must not become an operator-facing
 #: warning.
 OPTIONAL_ARTIFACTS = ("cycles", "velocity", "plan", "intraday", "options",
-                      "analyst")
+                      "analyst") + R46_4_ARTIFACTS
 
 #: Evidence-maturity vocabulary for the whole board (not for a single cell).
 MATURITY_NO_FORWARD_EVIDENCE = "NO_FORWARD_EVIDENCE"
@@ -231,6 +255,13 @@ def load_prospective_tournament(
         "throughput_plan": _plan(art.get("plan")),
         "lanes": _lanes(art.get("options"), art.get("analyst"),
                         art.get("intraday")),
+
+        # ---- Release 46.4: ARE WE MAKING MONEY? ---------------------------- #
+        # The economic layer, read verbatim from its owners. TRUE_FORWARD
+        # dollars only; a historical simulation is never shown as forward
+        # P&L, and realised / unrealised / expected are never one number.
+        "shadow_pnl": _shadow_pnl(art),
+        "information_lanes": _information_lanes(art),
         "challengers_by_asset_class": _count_by(rows, "asset_class"),
         "challengers_by_economic_family": _count_by(rows, "family"),
         "challengers_by_information_family": _count_by_info(registry),
@@ -548,6 +579,176 @@ def _lanes(options: Optional[dict], analyst: Optional[dict],
         },
         "a_blocked_lane_stops_nothing_else": True,
     }
+
+
+def _shadow_pnl(art: dict) -> dict:
+    """The money answer, from the NAV / board / allocation / risk owners."""
+    nav = art.get("pnl_nav")
+    if not isinstance(nav, dict):
+        return {"available": False,
+                "note": "the shadow P&L layer has not run at this research "
+                        "root yet; the tournament is scored, not priced"}
+    comp = art.get("pnl_comparison") or {}
+    board = art.get("pnl_board") or {}
+    alloc = art.get("pnl_allocation") or {}
+    risk = art.get("pnl_risk") or {}
+    attr = art.get("pnl_attribution") or {}
+    opp = art.get("pnl_opportunity") or {}
+    trades = art.get("pnl_trades") or {}
+    strat = art.get("pnl_strategy") or {}
+    bridge = art.get("pnl_bridge") or {}
+    weights = alloc.get("canonical_weights") or {}
+    by = attr.get("by") or {}
+
+    def _grp(key):
+        return [{"key": g.get("key"), "net_pnl": g.get("net_pnl"),
+                 "gross_pnl": g.get("gross_pnl"), "cost_pnl": g.get("cost_pnl"),
+                 "residual_alpha_pnl": g.get("residual_alpha_pnl"),
+                 "n_trades": g.get("n_trades")} for g in (by.get(key) or [])]
+
+    top_rows = []
+    for r in (board.get("rows") or [])[:15]:
+        top_rows.append({
+            "pnl_rank": r.get("pnl_rank"),
+            "challenger_id": r.get("challenger_id"),
+            "horizon": r.get("horizon"),
+            "asset_class": r.get("asset_class"),
+            "state": r.get("state"),
+            "economic_state": r.get("economic_state"),
+            "net_forward_pnl": r.get("net_forward_pnl"),
+            "residual_alpha_pnl": r.get("residual_alpha_pnl"),
+            "realised_pnl": r.get("realised_pnl"),
+            "unrealised_pnl": r.get("unrealised_pnl"),
+            "cost_drag": r.get("cost_drag"),
+            "max_drawdown_pnl": r.get("max_drawdown_pnl"),
+            "hit_rate_closed": r.get("hit_rate_closed"),
+            "shadow_weight": r.get("shadow_weight"),
+            "marginal_diversification": r.get("marginal_diversification"),
+            "n_trades_opened": r.get("n_trades_opened"),
+            "n_trades_closed": r.get("n_trades_closed"),
+            "t_stat": r.get("t_stat"),
+        })
+    recs = [{"challenger_id": r.get("challenger_id"),
+             "recommendation": r.get("recommendation"), "why": r.get("why"),
+             "shadow_weight": r.get("shadow_weight"),
+             "economic_state": r.get("economic_state")}
+            for r in (opp.get("rows") or [])
+            if r.get("recommendation") in ("REDUCE", "EXIT", "REPLACE", "ADD")][:12]
+    return {
+        "available": True,
+        "as_of": nav.get("as_of"),
+        "inception": nav.get("inception"),
+        "starting_capital": nav.get("starting_capital"),
+        "canonical_policy": nav.get("canonical_policy"),
+        "shadow_nav": nav.get("shadow_nav"),
+        "shadow_return": nav.get("shadow_return"),
+        "today_net_pnl": nav.get("today_net_pnl"),
+        "cumulative_net_forward_pnl": nav.get("cumulative_net_forward_pnl"),
+        "residual_alpha_pnl_vs_cash": nav.get(
+            "residual_alpha_pnl_vs_cash_control"),
+        "realised_pnl": nav.get("realised_pnl"),
+        "unrealised_pnl": nav.get("unrealised_pnl"),
+        "cost_drag": nav.get("cost_drag"),
+        "financing_earned": nav.get("financing_earned"),
+        "max_drawdown": nav.get("max_drawdown"),
+        "current_drawdown": nav.get("current_drawdown"),
+        "gross_exposure_share": nav.get("gross_exposure_share"),
+        "net_exposure_share": nav.get("net_exposure_share"),
+        "n_open_trades_funded": nav.get("n_open_trades"),
+        "policy_comparison": comp.get("ranked_by_nav") or [],
+        "canonical_beats_cash": comp.get("canonical_beats_cash"),
+        "canonical_minus_cash_usd": comp.get("canonical_minus_cash_usd"),
+        "canonical_minus_equal_weight_usd": comp.get(
+            "canonical_minus_equal_weight_usd"),
+        "canonical_minus_equal_risk_usd": comp.get(
+            "canonical_minus_equal_risk_usd"),
+        "canonical_minus_passive_spy_usd": comp.get(
+            "canonical_minus_passive_spy_usd"),
+        "canonical_minus_passive_60_40_usd": comp.get(
+            "canonical_minus_passive_60_40_usd"),
+        "active_strategies": alloc.get("current", {}).get(
+            nav.get("canonical_policy") or "", {}).get("n_allocated"),
+        "cash_weight": alloc.get("canonical_cash_weight"),
+        "shadow_weights": sorted(weights.items(), key=lambda kv: -kv[1])[:12],
+        "effective_independent_pnl_streams": risk.get(
+            "effective_independent_streams_allocated"),
+        "nominal_streams": risk.get("nominal_streams"),
+        "correlation_source": risk.get("correlation_source"),
+        "portfolio_annual_vol_estimate": risk.get(
+            "portfolio_annual_vol_estimate"),
+        "top_contributors": (attr.get("top_contributors") or [])[:5],
+        "worst_detractors": (attr.get("worst_detractors") or [])[:5],
+        "what_cost_money": (attr.get("what_cost_money") or [])[:5],
+        "pnl_by_asset_class": _grp("asset_class"),
+        "pnl_by_economic_family": _grp("economic_family"),
+        "pnl_by_information_family": _grp("information_family"),
+        "pnl_by_horizon": _grp("horizon"),
+        "pnl_by_regime": _grp("regime_risk_appetite"),
+        "n_funded_trades": attr.get("n_funded_trades"),
+        "n_unfunded_trades": attr.get("n_unfunded_trades"),
+        "trade_counts": trades.get("counts"),
+        "opportunity_counts": opp.get("counts"),
+        "recommendations": recs,
+        "economic_state_counts": strat.get("economic_state_counts"),
+        "expected_state": strat.get("expected_state"),
+        "pnl_leaderboard": top_rows,
+        "best_net_pnl_strategy": board.get("best_net_pnl_strategy"),
+        "worst_net_pnl_strategy": board.get("worst_net_pnl_strategy"),
+        "best_residual_alpha_strategy": board.get(
+            "best_residual_alpha_strategy"),
+        "best_capital_efficiency_strategy": board.get(
+            "best_capital_efficiency_strategy"),
+        "ALPHA_RESULT": board.get("ALPHA_RESULT"),
+        "alpha_result_vocabulary": (board.get("alpha_result_detail") or {}).get(
+            "vocabulary"),
+        "bridge_candidates": bridge.get("n_candidates"),
+        "bridge_who_decides": bridge.get("who_decides"),
+        "evidence_class": "TRUE_FORWARD",
+        "historical_pnl_is_never_shown_as_forward": True,
+        "realised_unrealised_expected_never_summed": True,
+        "pnl_unit_note": "shadow figures in USD at the research scale; "
+                         "leaderboard figures per 1.0 of strategy capital",
+        "research_only": True,
+    }
+
+
+def _information_lanes(art: dict) -> dict:
+    out = {}
+    for key, name in (("lane_cftc", "cftc"), ("lane_credit", "credit"),
+                      ("lane_macro", "macro"), ("lane_events", "events")):
+        b = art.get(key)
+        if not isinstance(b, dict):
+            out[name] = {"state": "NOT_RUN"}
+            continue
+        out[name] = {
+            "state": b.get("state"),
+            "as_of": b.get("as_of"),
+            "information_family": b.get("information_family"),
+            "challengers_frozen": b.get("challengers_frozen"),
+            "n_captures": (b.get("n_captures")
+                           if b.get("n_captures") is not None
+                           else (b.get("acquisition") or {}).get("n_captures")),
+            "money_spent_usd": b.get("money_spent_usd", 0.0),
+        }
+    cf = art.get("lane_cftc") or {}
+    out["cftc"]["latest_report"] = (cf.get("coverage") or {}).get(
+        "latest_report")
+    out["cftc"]["n_markets_mapped"] = (cf.get("coverage") or {}).get(
+        "n_markets_mapped")
+    cr = art.get("lane_credit") or {}
+    out["credit"]["hy_oas"] = (cr.get("credit_state") or {}).get("hy_oas")
+    out["credit"]["hy_below_mean"] = (cr.get("credit_state") or {}).get(
+        "hy_below_mean")
+    mc = art.get("lane_macro") or {}
+    out["macro"]["next_cpi"] = ((mc.get("coverage") or {}).get("CPI") or {}
+                                ).get("next_release")
+    out["macro"]["next_employment"] = ((mc.get("coverage") or {}).get(
+        "EMPLOYMENT") or {}).get("next_release")
+    ev = art.get("lane_events") or {}
+    out["events"]["next_fomc"] = (ev.get("fomc") or {}).get("next_decision_day")
+    out["events"]["fomc_source"] = (ev.get("fomc") or {}).get("source")
+    out["a_blocked_lane_stops_nothing_else"] = True
+    return out
 
 
 def _count_by(rows: list, key: str) -> dict:

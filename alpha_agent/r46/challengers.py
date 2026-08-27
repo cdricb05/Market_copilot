@@ -633,10 +633,299 @@ EXPANSION_SPECS = (
     ),
 )
 
-#: The full frozen field: seed cohort plus expansion cohort. Registration and
-#: emission default to this; the seed tuple keeps its own name and its own
-#: bytes because the original ten specifications are evidence.
-ALL_SPECS = SEED_SPECS + EXPANSION_SPECS
+# --------------------------------------------------------------------------- #
+# Release 46.4 - the P&L OFFENSIVE cohort: four NEW information families.
+#
+# Same door, same rules. Every parameter below is a declared constant (the
+# CFTC windows are Release 35's, the credit windows are canonical 63/21, the
+# macro forecast is Release 45's, the calendar rules have no parameter at
+# all, the ML hyperparameters are library-style constants), written here
+# before any of these rules was first run on this estate's data to select it.
+# Nothing was swept. What the cohort adds is INFORMATION that no active cell
+# reads: positioning, credit spreads, first-published macro prints and the
+# scheduled event calendar.
+# --------------------------------------------------------------------------- #
+R46_4_COHORT = "R46_4_PNL_OFFENSIVE"
+
+R46_4_CANONICAL_CONSTANTS = {
+    "statement": (
+        "every Release-46.4 parameter is a declared constant written into "
+        "this module before the rule first read a bar of this estate's data "
+        "to be selected; no sweep, screen or ranking on owned returns chose "
+        "any of them"),
+    "cot_z_window_weeks": 156,          # Release 35's declared window
+    "cot_change_weeks": 13,             # Release 35's declared window
+    "cot_publication_lag_days": 6,      # Release 35's declared PIT lag
+    "cot_leg_fraction": 1 / 3.0,        # thirds, as the futures books
+    "credit_mean_window": 63,           # one quarter of sessions
+    "credit_change_window": 21,         # one month of sessions
+    "macro_forecast_window": 12,        # Release 45's declared window
+    "macro_min_history": 24,            # Release 45's declared floor
+    "ml_extra_trees_n_estimators": 200,
+    "ml_extra_trees_max_depth": 4,
+    "ml_extra_trees_min_samples_leaf": 50,
+    "regime_gate_series": "$VIX",
+    "regime_gate_level": 20.0,          # the textbook "elevated VIX" line
+}
+K4 = R46_4_CANONICAL_CONSTANTS
+
+R46_4_SPECS = (
+    _spec(
+        challenger_id="r46_4_cot_xs_positioning_reversal",
+        family="POSITIONING_REVERSAL",
+        asset_class="MULTI_ASSET_FUTURES",
+        instrument="BOOK:FUTURES_COT_REVERSAL_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="MIXED_FUTURES",
+        universe="CFTC-mapped liquid continuous futures across equity index, "
+                 "rates, FX, commodities and volatility",
+        thesis="crowded speculative positioning is a liquidity demand that "
+               "reverses: the most crowded longs underperform and the most "
+               "crowded shorts outperform over the following month",
+        parameters={"z_window_weeks": K4["cot_z_window_weeks"],
+                    "leg_fraction": K4["cot_leg_fraction"],
+                    "publication_lag_days": K4["cot_publication_lag_days"],
+                    "signal": "minus the 156-week z-score of speculative net "
+                              "position as a share of open interest"},
+        signal_owner="_cot_xs_reversal",
+        cohort=R46_4_COHORT,
+        information_family="POSITIONING",
+        dependence_cluster="FUT_POSITIONING",
+    ),
+    _spec(
+        challenger_id="r46_4_cot_xs_positioning_flow",
+        family="POSITIONING_FLOW",
+        asset_class="MULTI_ASSET_FUTURES",
+        instrument="BOOK:FUTURES_COT_FLOW_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="MIXED_FUTURES",
+        universe="CFTC-mapped liquid continuous futures across equity index, "
+                 "rates, FX, commodities and volatility",
+        thesis="speculative flow persists over weeks as positions are built "
+               "gradually; the markets speculators are buying keep rising",
+        parameters={"change_weeks": K4["cot_change_weeks"],
+                    "leg_fraction": K4["cot_leg_fraction"],
+                    "publication_lag_days": K4["cot_publication_lag_days"],
+                    "signal": "13-week change in speculative net position as "
+                              "a share of open interest"},
+        signal_owner="_cot_xs_flow",
+        cohort=R46_4_COHORT,
+        information_family="POSITIONING",
+        dependence_cluster="FUT_POSITIONING",
+        economic_overlap_with=("r46_4_cot_xs_positioning_reversal",),
+        overlap_note="same report, opposite mechanism (level versus change); "
+                     "one dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_4_credit_regime_spx_timing",
+        family="CREDIT_REGIME_TIMING",
+        asset_class="EQUITY_INDEX",
+        instrument="SPY",
+        prediction_type="DIRECTIONAL_VS_BENCHMARK",
+        horizons=(5,),
+        control=C.CONTROL_BENCHMARK,
+        benchmark="SPY",
+        cost_class="US_ETF",
+        universe="SPY, signed by the ICE BofA US High Yield OAS as published "
+                 "(FRED/ALFRED vintage; owned Norgate series as fallback)",
+        thesis="the credit market prices the same default risk equities "
+               "price and it moves first; a spread below its recent mean is "
+               "a benign regime in which owning the index is rewarded",
+        parameters={"mean_window": K4["credit_mean_window"],
+                    "position": "long SPY when HY OAS < its 63-observation "
+                                "mean; cash otherwise"},
+        signal_owner="_credit_regime_spx",
+        cohort=R46_4_COHORT,
+        information_family="CREDIT_SPREADS",
+        dependence_cluster="CREDIT_REGIME",
+    ),
+    _spec(
+        challenger_id="r46_4_credit_hy_ig_momentum",
+        family="CREDIT_SPREAD_MOMENTUM",
+        asset_class="CREDIT",
+        instrument="BOOK:HYG_LQD_LS",
+        prediction_type="RELATIVE_VALUE_SPREAD",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_ETF",
+        universe="HYG against LQD, equal dollar legs",
+        thesis="spread moves persist over weeks because credit repricing is "
+               "slow and dealer-intermediated; tightening spreads favour high "
+               "yield over investment grade",
+        parameters={"change_window": K4["credit_change_window"],
+                    "position": "long HYG / short LQD when the 21-observation "
+                                "change in HY OAS < 0; reversed otherwise"},
+        signal_owner="_credit_hy_ig_momentum",
+        cohort=R46_4_COHORT,
+        information_family="CREDIT_SPREADS",
+        dependence_cluster="CREDIT_REGIME",
+        hedge_definition="equal dollar legs; both legs charged full cost",
+        economic_overlap_with=("r46_4_credit_regime_spx_timing",),
+        overlap_note="same spread series read as change rather than level; "
+                     "one dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_4_macro_surprise_rates_5d",
+        family="MACRO_RELEASE_SURPRISE",
+        asset_class="RATES",
+        instrument="&ZN",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="RATES_FUTURES",
+        universe="&ZN on CPI and Employment Situation release days, signed "
+                 "by the model-based FIRST-PUBLISHED surprise",
+        thesis="an upside inflation or payrolls surprise is repriced into "
+               "the front of the curve over days as the policy path is "
+               "revised, not only in the first minute",
+        parameters={"forecast_window": K4["macro_forecast_window"],
+                    "min_history": K4["macro_min_history"],
+                    "releases": ["CPI", "EMPLOYMENT"],
+                    "position": "short &ZN on a positive surprise, long on a "
+                                "negative one; flat on every other day; "
+                                "sign only, no magnitude threshold"},
+        signal_owner="_macro_surprise_rates",
+        cohort=R46_4_COHORT,
+        information_family="MACRO_RELEASE_SURPRISE",
+        dependence_cluster="MACRO_SURPRISE",
+    ),
+    _spec(
+        challenger_id="r46_4_spx_pre_fomc_drift",
+        family="PRE_FOMC_DRIFT",
+        asset_class="EQUITY_INDEX",
+        instrument="SPY",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_ETF",
+        universe="SPY",
+        thesis="the equity premium concentrates in the twenty-four hours "
+               "before a scheduled FOMC decision as uncertainty is resolved",
+        parameters={"position": "long SPY only when the holding session is a "
+                                "scheduled FOMC decision day"},
+        signal_owner="_spx_pre_fomc",
+        cohort=R46_4_COHORT,
+        information_family="SCHEDULED_EVENT_CALENDAR",
+        dependence_cluster="CALENDAR_EVENT",
+    ),
+    _spec(
+        challenger_id="r46_4_spx_announcement_day_premium",
+        family="ANNOUNCEMENT_DAY_PREMIUM",
+        asset_class="EQUITY_INDEX",
+        instrument="SPY",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_ETF",
+        universe="SPY",
+        thesis="the equity premium is earned on scheduled macro announcement "
+               "days, when systematic risk is resolved, and is close to zero "
+               "on other days",
+        parameters={"position": "long SPY only when the holding session "
+                                "carries a scheduled CPI, Employment "
+                                "Situation or FOMC decision"},
+        signal_owner="_spx_announcement_day",
+        cohort=R46_4_COHORT,
+        information_family="SCHEDULED_EVENT_CALENDAR",
+        dependence_cluster="CALENDAR_EVENT",
+        economic_overlap_with=("r46_4_spx_pre_fomc_drift",),
+        overlap_note="FOMC days are in both calendars; one dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_4_ml_eq_xs_extratrees",
+        family="ML_CROSS_SECTIONAL_NONLINEAR",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ML_ET",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="a randomised forest has a different inductive bias from a "
+               "boosted tree on the same features; if either nonlinearity "
+               "pays after cost it should show in both, and if only one, "
+               "that is a finding about variance rather than about the "
+               "cross-section",
+        parameters={"model_class": "EXTRA_TREES",
+                    "features": list(ML_FEATURES),
+                    "preprocessing": "cross-sectional z-score, clip 3 sigma",
+                    "n_estimators": K4["ml_extra_trees_n_estimators"],
+                    "max_depth": K4["ml_extra_trees_max_depth"],
+                    "min_samples_leaf": K4["ml_extra_trees_min_samples_leaf"],
+                    "training_sessions": XK["ml_training_sessions"],
+                    "training_stride_sessions":
+                        XK["ml_training_stride_sessions"],
+                    "target_sessions": XK["ml_target_sessions"],
+                    "retraining_policy": ML_RETRAINING_POLICY,
+                    "random_seed": XK["ml_random_seed"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_ml_eq_cross_section",
+        cohort=R46_4_COHORT,
+        information_family="PRICE_VOLUME",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_3_ml_eq_xs_gbt", "r46_3_ml_eq_xs_ridge"),
+        overlap_note="same features and protocol as the R46.3 ML cells; "
+                     "same dependence cluster",
+    ),
+    _spec(
+        challenger_id="r46_4_ml_eq_xs_regime_gated",
+        family="REGIME_GATED_ENSEMBLE",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE_ML_GATED",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="linear structure may dominate in calm markets and "
+               "interactions in stressed ones; a frozen volatility gate "
+               "between the ridge and the boosted tree tests that without "
+               "letting any forward result choose the gate",
+        parameters={"model_class": "REGIME_GATED_RIDGE_GBT",
+                    "features": list(ML_FEATURES),
+                    "preprocessing": "cross-sectional z-score, clip 3 sigma",
+                    "gate_series": K4["regime_gate_series"],
+                    "gate_level": K4["regime_gate_level"],
+                    "gate_rule": "ridge when the gate series close at the "
+                                 "data cutoff is at or below the level; "
+                                 "gradient boosting above it",
+                    "ridge_lambda": XK["ml_ridge_lambda"],
+                    "max_iter": XK["ml_gbt_max_iter"],
+                    "max_depth": XK["ml_gbt_max_depth"],
+                    "learning_rate": XK["ml_gbt_learning_rate"],
+                    "training_sessions": XK["ml_training_sessions"],
+                    "training_stride_sessions":
+                        XK["ml_training_stride_sessions"],
+                    "target_sessions": XK["ml_target_sessions"],
+                    "retraining_policy": ML_RETRAINING_POLICY,
+                    "random_seed": XK["ml_random_seed"],
+                    "decile_fraction": K["decile_fraction"]},
+        signal_owner="_ml_eq_cross_section",
+        cohort=R46_4_COHORT,
+        information_family="PRICE_VOLUME",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_3_ml_eq_xs_gbt", "r46_3_ml_eq_xs_ridge"),
+        overlap_note="a gate between two existing members; same cluster",
+    ),
+)
+
+#: The full frozen field: seed cohort plus expansion cohort plus the Release
+#: 46.4 P&L-offensive cohort. Registration and emission default to this; each
+#: tuple keeps its own name and its own bytes because the earlier
+#: specifications are evidence.
+ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -1415,24 +1704,64 @@ def _ml_eq_cross_section(spec: dict) -> dict:
     x = np.vstack(x_rows)
     y = np.concatenate(y_rows)
 
+    def _fit(model_class: str):
+        """One frozen model class -> a predict callable, or None."""
+        if model_class == "RIDGE_CLOSED_FORM":
+            lam = float(p["ridge_lambda"])
+            beta = np.linalg.solve(x.T @ x + lam * np.eye(x.shape[1]),
+                                   x.T @ y)
+            return lambda m: m @ beta
+        if model_class == "HIST_GRADIENT_BOOSTING":
+            try:
+                from sklearn.ensemble import HistGradientBoostingRegressor
+            except Exception:
+                return None
+            model = HistGradientBoostingRegressor(
+                max_iter=int(p["max_iter"]), max_depth=int(p["max_depth"]),
+                learning_rate=float(p["learning_rate"]),
+                random_state=int(p["random_seed"]))
+            model.fit(x, y)
+            return model.predict
+        if model_class == "EXTRA_TREES":
+            # Release 46.4 - a randomised forest with frozen depth and leaf
+            # size; a different inductive bias on the same frozen protocol.
+            try:
+                from sklearn.ensemble import ExtraTreesRegressor
+            except Exception:
+                return None
+            model = ExtraTreesRegressor(
+                n_estimators=int(p["n_estimators"]),
+                max_depth=int(p["max_depth"]),
+                min_samples_leaf=int(p["min_samples_leaf"]),
+                random_state=int(p["random_seed"]), n_jobs=1)
+            model.fit(x, y)
+            return model.predict
+        return None
+
     model_class = str(p["model_class"])
-    if model_class == "RIDGE_CLOSED_FORM":
-        lam = float(p["ridge_lambda"])
-        beta = np.linalg.solve(x.T @ x + lam * np.eye(x.shape[1]), x.T @ y)
-        predict = lambda m: m @ beta                     # noqa: E731
-    elif model_class == "HIST_GRADIENT_BOOSTING":
-        try:
-            from sklearn.ensemble import HistGradientBoostingRegressor
-        except Exception:
-            return {"state": "ML_DEPENDENCY_UNAVAILABLE", "legs": []}
-        model = HistGradientBoostingRegressor(
-            max_iter=int(p["max_iter"]), max_depth=int(p["max_depth"]),
-            learning_rate=float(p["learning_rate"]),
-            random_state=int(p["random_seed"]))
-        model.fit(x, y)
-        predict = model.predict
+    gate = None
+    if model_class == "REGIME_GATED_RIDGE_GBT":
+        # Release 46.4 - a FROZEN gate between two existing frozen members.
+        # The gate reads the declared series at the data cutoff and nothing
+        # else; no forward result may move the level.
+        g = MD.closes(str(p["gate_series"]))
+        if g is None or not len(g):
+            return {"state": "NO_DATA", "legs": [],
+                    "why": "gate series unavailable"}
+        level = float(g.iloc[-1])
+        chosen = ("RIDGE_CLOSED_FORM" if level <= float(p["gate_level"])
+                  else "HIST_GRADIENT_BOOSTING")
+        gate = {"series": p["gate_series"], "level_at_cutoff": level,
+                "gate_level": float(p["gate_level"]), "chosen": chosen,
+                "gate_session": str(g.index[-1].date())}
+        predict = _fit(chosen)
+    elif model_class in ("RIDGE_CLOSED_FORM", "HIST_GRADIENT_BOOSTING",
+                         "EXTRA_TREES"):
+        predict = _fit(model_class)
     else:
         return {"state": "UNKNOWN_MODEL_CLASS", "legs": []}
+    if predict is None:
+        return {"state": "ML_DEPENDENCY_UNAVAILABLE", "legs": []}
 
     today = _zrow(len(idx) - 1)
     if today is None:
@@ -1445,6 +1774,7 @@ def _ml_eq_cross_section(spec: dict) -> dict:
     return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
             "legs": legs, "n_scored": len(scores),
             "model_class": model_class,
+            "regime_gate": gate,
             "n_training_rows": int(len(y)),
             "n_training_dates": len(used),
             "training_data_cutoff": used[-1] if used else None,
@@ -1452,7 +1782,167 @@ def _ml_eq_cross_section(spec: dict) -> dict:
             "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
 
 
+# --------------------------------------------------------------------------- #
+# Release 46.4 signal owners - positioning, credit, macro prints, calendars
+# --------------------------------------------------------------------------- #
+def _cot_book(spec: dict, score_key: str, sign: float) -> dict:
+    """Thirds book across CFTC-mapped futures on one positioning feature."""
+    from . import cftc as CF
+    p = spec["parameters"]
+    ref = CK.eastern_date(CK.now_utc())
+    pos = CF.positioning(CF.load_history(), ref)
+    available = set(MD.continuous_futures())
+    scores, marks, classes, skipped = {}, {}, {}, []
+    for sym, m in (pos.get("markets") or {}).items():
+        if sym not in available:
+            skipped.append({"instrument": sym, "why": "NOT_IN_DATABASE"})
+            continue
+        v = m.get(score_key)
+        if v is None:
+            skipped.append({"instrument": sym, "why": "NO_FEATURE"})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        scores[sym] = sign * float(v)
+        classes[sym] = m.get("cost_class") or _futures_group(sym)
+    if len(scores) < CF.MIN_MARKETS:
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped,
+                "positioning_as_of": pos.get("as_of")}
+    k = max(1, int(round(len(scores) * float(p["leg_fraction"]))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": classes[sym]})
+    for sym, sc in order[:k]:
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": classes[sym]})
+    reports = sorted({m.get("report_as_of")
+                      for m in (pos.get("markets") or {}).values()})
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "skipped": skipped, "marks": marks,
+            "report_as_of": reports[-1] if reports else None,
+            "publication_lag_days": pos.get("publication_lag_days"),
+            "cost_class_by_leg": {l["instrument"]: l["cost_class"]
+                                  for l in legs}}
+
+
+def _cot_xs_reversal(spec: dict) -> dict:
+    """Fade the 156-week z-score of speculative net positioning."""
+    return _cot_book(spec, "spec_net_share_z", -1.0)
+
+
+def _cot_xs_flow(spec: dict) -> dict:
+    """Follow the 13-week change in speculative net positioning."""
+    return _cot_book(spec, "spec_net_share_change_13w", 1.0)
+
+
+def _credit_regime_spx(spec: dict) -> dict:
+    """Long SPY only when the HY spread sits below its 63-observation mean."""
+    from . import credit as CR
+    ref = CK.eastern_date(CK.now_utc())
+    st = CR.state(ref)
+    s = MD.closes(BENCHMARK_EQUITY)
+    if st.get("state") != "OK" or s is None or not len(s):
+        return {"state": "NO_DATA", "legs": [], "credit_state": st}
+    invested = bool(st.get("hy_below_mean"))
+    px = float(s.iloc[-1])
+    legs = ([{"instrument": BENCHMARK_EQUITY, "weight": 1.0,
+              "score": float(st["hy_oas_mean_63"] - st["hy_oas"]),
+              "side": "LONG", "cost_class": "US_ETF"}] if invested else [])
+    return {"state": "OK", "legs": legs, "invested": invested,
+            "credit_state": {k: st.get(k) for k in (
+                "source", "series_last_observation", "published_by",
+                "hy_oas", "hy_oas_mean_63")},
+            "marks": {BENCHMARK_EQUITY: px},
+            "cost_class_by_leg": {BENCHMARK_EQUITY: "US_ETF"}}
+
+
+def _credit_hy_ig_momentum(spec: dict) -> dict:
+    """Long HYG / short LQD on a tightening 21-observation spread change."""
+    from . import credit as CR
+    ref = CK.eastern_date(CK.now_utc())
+    st = CR.state(ref)
+    hyg, lqd = MD.closes("HYG"), MD.closes("LQD")
+    if st.get("state") != "OK" or hyg is None or lqd is None:
+        return {"state": "NO_DATA", "legs": [], "credit_state": st}
+    direction = 1.0 if st.get("hy_tightening") else -1.0
+    sc = -float(st.get("hy_oas_change_21") or 0.0)
+    legs = [{"instrument": "HYG", "weight": 0.5 * direction, "score": sc,
+             "side": "LONG" if direction > 0 else "SHORT",
+             "cost_class": "US_ETF"},
+            {"instrument": "LQD", "weight": -0.5 * direction, "score": -sc,
+             "side": "SHORT" if direction > 0 else "LONG",
+             "cost_class": "US_ETF"}]
+    return {"state": "OK", "legs": legs,
+            "credit_state": {k: st.get(k) for k in (
+                "source", "series_last_observation", "published_by",
+                "hy_oas", "hy_oas_change_21")},
+            "marks": {"HYG": float(hyg.iloc[-1]), "LQD": float(lqd.iloc[-1])},
+            "cost_class_by_leg": {"HYG": "US_ETF", "LQD": "US_ETF"}}
+
+
+def _macro_surprise_rates(spec: dict) -> dict:
+    """Sign &ZN against today's first-published CPI / payrolls surprise."""
+    from . import macro as MC
+    ref = CK.eastern_date(CK.now_utc())
+    sig = MC.rates_signal(ref)
+    zn = MD.closes("&ZN")
+    if zn is None or not len(zn):
+        return {"state": "NO_DATA", "legs": [], "signal": sig}
+    px = float(zn.iloc[-1])
+    if sig.get("state") != "OK" or sig.get("direction") == "FLAT":
+        return {"state": "OK", "legs": [], "signal": sig,
+                "marks": {"&ZN": px}, "cost_class_by_leg": {}}
+    direction = 1.0 if sig["direction"] == "LONG" else -1.0
+    legs = [{"instrument": "&ZN", "weight": direction,
+             "score": float(sig["zn_score"]),
+             "side": "LONG" if direction > 0 else "SHORT",
+             "cost_class": "RATES_FUTURES"}]
+    return {"state": "OK", "legs": legs, "signal": sig, "marks": {"&ZN": px},
+            "cost_class_by_leg": {"&ZN": "RATES_FUTURES"}}
+
+
+def _calendar_spy(spec: dict, inside: bool, label: str, holding) -> dict:
+    s = MD.closes(BENCHMARK_EQUITY)
+    if s is None or not len(s):
+        return {"state": "NO_DATA", "legs": []}
+    px = float(s.iloc[-1])
+    legs = ([{"instrument": BENCHMARK_EQUITY, "weight": 1.0, "score": 1.0,
+              "side": "LONG", "cost_class": "US_ETF"}] if inside else [])
+    return {"state": "OK", "legs": legs, "holding_session": str(holding),
+            label: inside, "marks": {BENCHMARK_EQUITY: px},
+            "cost_class_by_leg": {BENCHMARK_EQUITY: "US_ETF"}}
+
+
+def _spx_pre_fomc(spec: dict) -> dict:
+    """Long SPY only when the HOLDING session is a scheduled FOMC decision."""
+    from . import events as EVN
+    hold = EVN.holding_session_for(CK.now_utc())
+    return _calendar_spy(spec, EVN.is_fomc_decision_day(hold),
+                         "holding_session_is_fomc_decision_day", hold)
+
+
+def _spx_announcement_day(spec: dict) -> dict:
+    """Long SPY only when the HOLDING session carries a scheduled release."""
+    from . import events as EVN
+    hold = EVN.holding_session_for(CK.now_utc())
+    return _calendar_spy(spec, EVN.is_announcement_day(hold),
+                         "holding_session_is_announcement_day", hold)
+
+
 _OWNERS = {
+    "_cot_xs_reversal": _cot_xs_reversal,
+    "_cot_xs_flow": _cot_xs_flow,
+    "_credit_regime_spx": _credit_regime_spx,
+    "_credit_hy_ig_momentum": _credit_hy_ig_momentum,
+    "_macro_surprise_rates": _macro_surprise_rates,
+    "_spx_pre_fomc": _spx_pre_fomc,
+    "_spx_announcement_day": _spx_announcement_day,
     "_eq_cross_section": _eq_cross_section,
     "_futures_trend": _futures_trend,
     "_fx_cross_section": _fx_cross_section,

@@ -86,6 +86,14 @@ def _data_cutoff(book: dict, spec: dict):
         "_spx_turn_of_month": ("SPY",),
         "_eq_xs_ensemble": ("SPY",),
         "_ml_eq_cross_section": ("SPY",),
+        # Release 46.4 owners.
+        "_cot_xs_reversal": ("&ES", "&ZN", "&CL"),
+        "_cot_xs_flow": ("&ES", "&ZN", "&CL"),
+        "_credit_regime_spx": ("SPY", "HYG"),
+        "_credit_hy_ig_momentum": ("HYG", "LQD"),
+        "_macro_surprise_rates": ("&ZN",),
+        "_spx_pre_fomc": ("SPY",),
+        "_spx_announcement_day": ("SPY",),
     }.get(owner, ("SPY",))
     seen = [MD.last_session(s) for s in probe]
     seen = [d for d in seen if d is not None]

@@ -2851,3 +2851,40 @@ contiguous catch-up safe); the monthly R40 cycle unchanged. Research root:
 `_data_*` archives). Terminal: `R41_NO_QUALIFIED_ALPHA_YET` +
 `R41_TIME_LIMIT_BINDING`; RESEARCH_CANDIDATE PASS; burden global ~250 —
 see [RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md](RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md).
+
+## Release 46.4 — Prospective P&L Offensive (research lane, LIVE)
+
+The Release-46 tournament (`alpha_agent/r46/`) gained an ECONOMIC layer and
+four information lanes on 2026-08-26. One owner per concept, all inside the
+one package and all driven by the ONE `advance` step the Daily Research
+Cycle already calls:
+
+| concept | owner | artifact |
+|---|---|---|
+| alpha-to-P&L (marks, cost stack BASE/2X/STRESS, reconciliation with the judge) | `pnl.py` | — |
+| research paper-trade ledger (opens / marks / closes, chain-hashed, derived states) | `trades.py` | `shadow_pnl/r46_4_research_trades.json`, `..._trade_marks.json`, `..._trade_closes.json`, `R46_4_RESEARCH_TRADES.json` |
+| strategy P&L streams, capital efficiency, frozen economic kill / scale rules | `strategy_pnl.py` | `R46_4_STRATEGY_PNL.json` |
+| shadow target — four predeclared policies, zero-base, no hindsight | `allocation.py` | `shadow_pnl/r46_4_shadow_allocations.json`, `R46_4_SHADOW_ALLOCATION.json` |
+| ONE shadow NAV from $1,000,000 + passive benchmarks, same engine | `nav.py` | `shadow_pnl/r46_4_shadow_nav.json`, `R46_4_SHADOW_NAV.json`, `R46_4_SHADOW_POLICY_COMPARISON.json` |
+| cross-strategy risk state, effective independent P&L streams | `risk.py` | `R46_4_RISK_STATE.json` |
+| attribution (challenger / asset / family / information / horizon / date / regime) | `attribution.py` | `R46_4_PNL_ATTRIBUTION.json`, `R46_4_REGIME_PNL.json` |
+| ex-ante regime descriptors | `regime.py` | `R46_4_REGIME_STATE.json` |
+| research opportunity cost + READ-ONLY research-to-portfolio bridge | `opportunity.py` | `R46_4_OPPORTUNITY_COST.json`, `R46_4_RESEARCH_BRIDGE.json` |
+| P&L leaderboard (the evidence board priced; `ALPHA_RESULT`) | `pnl_board.py` | `R46_4_PNL_LEADERBOARD.json` |
+| the P&L stage of the one advance (regime → trades → streams → NAV → risk → decide → read models) | `shadow.py` | — |
+| CFTC positioning lane (raw captures, PIT contract, code+name mapping) | `cftc.py` | `_data_cftc/`, `R46_4_CFTC_LANE.json` |
+| credit-state lane (FRED/ALFRED vintages, owned Norgate fallback) | `credit.py` | `_data_credit/`, `R46_4_CREDIT_LANE.json` |
+| macro first-published prints + release calendars, model-based surprise | `macro.py` | `_data_macro/`, `R46_4_MACRO_LANE.json` |
+| scheduled-event calendar (FOMC page + release calendars) | `events.py` | `_data_events/`, `R46_4_EVENT_LANE.json` |
+
+Order inside `advance` (section 42 of the release): refresh lanes (raw
+capture only; never inside the hermetic pytest process) → score matured →
+board → **money layer** (regime, sync trades, streams, NAV roll, evidence
+view, risk, DECIDE next allocation, NAV, read models) → emit next batch →
+velocity → plan. A trade is funded only by an allocation decided strictly
+before its entry session; closed trades take the judge's outcome row; nothing
+historical is ever labelled TRUE_FORWARD; realised, unrealised and expected
+P&L are never one number. Read surface: `GET
+/v1/research/prospective-tournament` → `shadow_pnl`, `information_lanes`;
+UI `#research/research-agent` → `#r46t-money` ("ARE WE MAKING MONEY?").
+Research only: no order, no holding, no target, no promotion, no purchase.

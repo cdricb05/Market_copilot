@@ -60,6 +60,15 @@ _PROBE_SYMBOLS = {
     "_spx_turn_of_month": ("SPY",),
     "_eq_xs_ensemble": ("SPY", "AAPL", "MSFT"),
     "_ml_eq_cross_section": ("SPY", "AAPL", "MSFT"),
+    # Release 46.4 owners. Positioning and macro prints are read from the
+    # lane captures; the probe checks the TRADEABLE expression is alive.
+    "_cot_xs_reversal": ("&ES", "&ZN", "&CL", "&GC"),
+    "_cot_xs_flow": ("&ES", "&ZN", "&CL", "&GC"),
+    "_credit_regime_spx": ("SPY", "HYG"),
+    "_credit_hy_ig_momentum": ("HYG", "LQD"),
+    "_macro_surprise_rates": ("&ZN",),
+    "_spx_pre_fomc": ("SPY",),
+    "_spx_announcement_day": ("SPY",),
 }
 
 

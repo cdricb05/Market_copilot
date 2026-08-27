@@ -57,6 +57,35 @@ def _score(candidate: dict) -> float:
     return round(feas * fresh * gain / max(1.0, wait / 5.0), 4)
 
 
+#: Release 46.4 - the eight frontier axes (section 48), each scored 0-1 from
+#: the row's declared text; the product is the rank. Cost enters as a
+#: divisor so a free dataset always outranks an equally distinct paid one.
+def _axis(text: str, high=("HIGH",), medium=("MEDIUM",)) -> float:
+    t = str(text or "").upper()
+    if any(h in t for h in high):
+        return 1.0
+    if any(m in t for m in medium):
+        return 0.6
+    return 0.3
+
+
+def _frontier_score(row: dict) -> float:
+    distinct = _axis(row.get("economic_distinctness"))
+    pit = _axis(row.get("pit_integrity"))
+    hist = 1.0 if "DECADES" in str(row.get("history_depth", "")).upper() \
+        else 0.7 if "YEARS" in str(row.get("history_depth", "")).upper() \
+        else 0.5
+    breadth = min(1.0, 0.4 + 0.2 * len(row.get("families_unlocked") or ()))
+    unlock = min(1.0, 0.5 + 0.25 * len(row.get("families_unlocked") or ()))
+    independence = 1.0 if distinct >= 1.0 else 0.6
+    value = min(1.0, float(row.get("expected_effective_gain_per_week") or 0.0)
+                / 2.0 + 0.2)
+    cost = 1.0 if str(row.get("cost", "")).lower().startswith("zero") \
+        else 0.5
+    return round(distinct * pit * hist * breadth * unlock * independence
+                 * value * cost, 4)
+
+
 def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
           velocity: dict = None) -> dict:
     reg = registry if registry is not None else RG.load(campaign_id)
@@ -163,14 +192,55 @@ def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
                   or "probe the intraday lane artifact",
     })
 
+    # 6. Release 46.4 - the four lanes that were nominated above are now LIVE
+    #    or blocked with a named reason; their state is read from their own
+    #    artifacts so the plan cannot keep nominating what already exists.
+    for lane_name, art_name, cand_name in (
+            ("POSITIONING", "R46_4_CFTC_LANE.json", "cot_positioning_challenger"),
+            ("CREDIT_PROXY", "R46_4_CREDIT_LANE.json",
+             "credit_spread_regime_challenger")):
+        body = _lane(campaign_id, art_name)
+        if body.get("state") == "LIVE_PROSPECTIVE":
+            for c in candidates:
+                if c["candidate"] == cand_name:
+                    c["feasibility"] = FEAS_AVAILABLE
+                    c["state"] = ("LIVE_PROSPECTIVE - frozen challengers "
+                                  "registered and emitting (Release 46.4)")
+                    c["opens_new_cluster"] = False
+                    c["opens_new_information_family"] = False
+    for lane_name, art_name, detail in (
+            ("MACRO_RELEASE_SURPRISE", "R46_4_MACRO_LANE.json",
+             "first-published prints and release calendars captured with "
+             "vintage stamps; one frozen rates challenger emits on release "
+             "days"),
+            ("SCHEDULED_EVENT_CALENDAR", "R46_4_EVENT_LANE.json",
+             "FOMC schedule and release calendars captured; two frozen "
+             "calendar challengers emit on eligible sessions")):
+        body = _lane(campaign_id, art_name)
+        candidates.append({
+            "candidate": "%s_lane" % lane_name.lower(),
+            "lane": lane_name,
+            "feasibility": (FEAS_AVAILABLE
+                            if body.get("state") == "LIVE_PROSPECTIVE"
+                            else FEAS_BLOCKED if body else FEAS_PROSPECTIVE),
+            "opens_new_cluster": False,
+            "opens_new_information_family": False,
+            "projected_effective_per_week": 0.25,
+            "sessions_to_first_evidence": 5,
+            "state": body.get("state", "NOT_RUN"),
+            "detail": detail,
+        })
+
     for c in candidates:
         c["priority_score"] = _score(c)
     candidates.sort(key=lambda c: -c["priority_score"])
 
-    # ---- Information-set frontier (section 30) --------------------------- #
+    # ---- Information-set frontier (section 30 / Release 46.4 section 48) - #
     # Ranked by the declared criteria. Listing is not buying: every row is
     # research planning, and the sufficiency state that would make this list
-    # actionable is computed by the velocity owner, not here.
+    # actionable is computed by the velocity owner, not here. Release 46.4
+    # scores every row on the eight declared axes so the ranking is a
+    # number an operator can argue with rather than an order of appearance.
     frontier = [
         {"dataset": "single_name_option_surface",
          "economic_distinctness": "HIGH - dispersion and single-name skew "
@@ -217,7 +287,52 @@ def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
          "expected_effective_gain_per_week": 5.0,
          "families_unlocked": ["EVENT_REACTION", "MICROSTRUCTURE"],
          "licensing": "commercial", "cost": "recurring, not priced here"},
+        {"dataset": "per_name_earnings_announcement_timestamps",
+         "economic_distinctness": "HIGH - post-earnings drift needs the "
+                                  "announcement instant, which no owned "
+                                  "source carries (the on-disk file is a "
+                                  "synthetic fixture)",
+         "pit_integrity": "HIGH if captured forward from a scheduled "
+                          "calendar; vendor history must be vintage-verified",
+         "history_depth": "vendor-dependent",
+         "delisted_coverage": "vendor-dependent - the known failure mode",
+         "expected_effective_gain_per_week": 1.0,
+         "families_unlocked": ["EARNINGS_EVENTS"],
+         "licensing": "commercial or free-tier calendar",
+         "cost": "not priced here"},
+        {"dataset": "insider_transactions_daily_form4",
+         "economic_distinctness": "MEDIUM - informed trading, distinct from "
+                                  "price; the owned SEC data sets are "
+                                  "quarterly and lagged",
+         "pit_integrity": "HIGH from EDGAR daily index acceptance stamps",
+         "history_depth": "decades, free, heavy to parse",
+         "delisted_coverage": "complete (filings persist)",
+         "expected_effective_gain_per_week": 0.5,
+         "families_unlocked": ["INSIDER_ACTIVITY"],
+         "licensing": "free", "cost": "zero, engineering only"},
+        {"dataset": "short_interest_finra_bimonthly",
+         "economic_distinctness": "MEDIUM - crowded shorts; overlaps "
+                                  "positioning economically",
+         "pit_integrity": "HIGH - published settlement dates",
+         "history_depth": "years, free; the venue answered 403 to a scripted "
+                          "client in an earlier release",
+         "delisted_coverage": "partial",
+         "expected_effective_gain_per_week": 0.25,
+         "families_unlocked": ["SHORT_INTEREST"],
+         "licensing": "free with venue terms", "cost": "zero"},
     ]
+    # Release 46.4 - the LIVE lanes are removed from the frontier by state
+    # (they are no longer missing information), and every remaining row is
+    # scored on the eight declared axes.
+    live_lanes = {n for n, art in (("cftc_commitments_weekly",
+                                    "R46_4_CFTC_LANE.json"),
+                                   ("credit_spread_series_fred",
+                                    "R46_4_CREDIT_LANE.json"))
+                  if _lane(campaign_id, art).get("state") == "LIVE_PROSPECTIVE"}
+    frontier = [f for f in frontier if f["dataset"] not in live_lanes]
+    for f in frontier:
+        f["frontier_score"] = _frontier_score(f)
+    frontier.sort(key=lambda f: -f["frontier_score"])
 
     body = artifact_body(
         "r46_throughput_plan/1", CALCULATION_OWNER,

@@ -5885,6 +5885,10 @@
             </span>
           </div>
           <div id="r46t-headline" style="font-size:11px;color:var(--label);margin:2px 0 10px;line-height:1.5;"></div>
+          <!-- Release 46.4: ARE WE MAKING MONEY? The shadow P&L headline, read verbatim
+               from the backend's one NAV / board / allocation owners. TRUE_FORWARD
+               dollars only; nothing historical is ever shown as forward P&L. -->
+          <div id="r46t-money" style="margin:0 0 12px;padding:8px 10px;border:1px solid var(--border,#2a3345);border-radius:6px;"></div>
           <div id="r46t-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;"></div>
           <div id="r46t-velocity" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;"></div>
           <div id="r46t-lanes" style="font-size:10px;color:var(--muted,#8b98b0);margin:0 0 10px;line-height:1.5;"></div>
@@ -28717,6 +28721,127 @@ function _r46tNum(v, digits) {
   var n = Number(v);
   return isFinite(n) ? n.toFixed(digits === undefined ? 2 : digits) : '—';
 }
+// ---- Release 46.4: the MONEY headline. Pure presentation over the backend's
+// shadow_pnl block (one NAV owner, one board owner, one allocation owner).
+// The browser prices nothing, allocates nothing and recommends nothing.
+function _r46tUsd(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  var s = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (n < 0 ? '-$' : '$') + s;
+}
+function _r46tBps(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  return isFinite(n) ? (n * 1e4).toFixed(1) : '—';
+}
+function _r46tTone(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n === 0) return 'muted';
+  return n > 0 ? 'safe' : 'danger';
+}
+function _r46tInfoLanes(il) {
+  var names = ['cftc', 'credit', 'macro', 'events'];
+  var parts = [];
+  for (var i = 0; i < names.length; i++) {
+    var l = il[names[i]] || {};
+    if (!l.state) continue;
+    parts.push(names[i] + ': <b>' + _r30esc(l.state) + '</b>');
+  }
+  return parts.length ? (' · information lanes — ' + parts.join(' · ')) : '';
+}
+function _r46tRenderMoney(d) {
+  var el = document.getElementById('r46t-money');
+  if (!el) return;
+  var sp = d.shadow_pnl || {};
+  if (!sp.available) {
+    _setHtml('r46t-money', '<div style="font-size:11px;color:var(--label);">'
+      + 'ARE WE MAKING MONEY? — the shadow P&amp;L layer has not run at this research root yet; '
+      + 'the tournament is scored but not priced.</div>');
+    return;
+  }
+  var ar = sp.ALPHA_RESULT || '—';
+  var arTone = ar === 'FORWARD_CONFIRMED_CANDIDATE' ? 'safe' : (ar === 'EARLY_FORWARD_PNL_EVIDENCE' ? 'manual' : 'muted');
+  var head = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 6px;">'
+    + '<span style="font-size:12px;font-weight:700;">ARE WE MAKING MONEY? '
+    + '<span class="cc-badge ' + arTone + '" title="NOT_YET_JUDGED / EARLY_FORWARD_PNL_EVIDENCE / FORWARD_CONFIRMED_CANDIDATE. PROVEN_ALPHA is not a state.">ALPHA_RESULT ' + _r30esc(ar) + '</span></span>'
+    + '<span style="display:flex;gap:4px;flex-wrap:wrap;">'
+    + '<span class="cc-badge muted" title="Shadow NAV is built only from TRUE_FORWARD research trades funded by an allocation decided before their entry.">TRUE_FORWARD ONLY</span>'
+    + '<span class="cc-badge muted">HISTORICAL NEVER SHOWN AS FORWARD</span>'
+    + '<span class="cc-badge safe">RESEARCH ONLY</span><span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">NO CAPITAL ALLOCATED</span></span></div>';
+  var k1 = [
+    _r46tKpi('SHADOW NAV', _r46tUsd(sp.shadow_nav), 'Canonical policy ' + (sp.canonical_policy || '') + ' from ' + _r46tUsd(sp.starting_capital) + ' at inception ' + (sp.inception || '—') + '. The scale creates no conclusion.', 'safe'),
+    _r46tKpi('TODAY NET P&L', _r46tUsd(sp.today_net_pnl), 'Change in shadow NAV over the latest session, including financing on collateral.', _r46tTone(sp.today_net_pnl)),
+    _r46tKpi('CUM NET FORWARD P&L', _r46tUsd(sp.cumulative_net_forward_pnl), 'Shadow NAV minus starting capital. Net of the full round-trip cost charged at open.', _r46tTone(sp.cumulative_net_forward_pnl)),
+    _r46tKpi('RESIDUAL ALPHA vs CASH', _r46tUsd(sp.residual_alpha_pnl_vs_cash), 'Canonical NAV minus the CASH_CONTROL NAV — what the strategies added over collateral remuneration.', _r46tTone(sp.residual_alpha_pnl_vs_cash)),
+    _r46tKpi('REALISED', _r46tUsd(sp.realised_pnl), 'Closed research trades at the judge\'s number times the capital they were funded with.', _r46tTone(sp.realised_pnl)),
+    _r46tKpi('UNREALISED', _r46tUsd(sp.unrealised_pnl), 'Open research trades at their point-in-time mark, net of the cost already charged.', _r46tTone(sp.unrealised_pnl)),
+    _r46tKpi('COST DRAG', _r46tUsd(sp.cost_drag), 'Round-trip transaction cost charged on funded trades, in dollars.', sp.cost_drag ? 'danger' : 'muted'),
+    _r46tKpi('MAX DRAWDOWN', (sp.max_drawdown === null || sp.max_drawdown === undefined) ? '—' : (Number(sp.max_drawdown) * 100).toFixed(2) + '%', 'Worst peak-to-trough of the canonical shadow NAV.', sp.max_drawdown < 0 ? 'danger' : 'muted')
+  ].join(' ');
+  var eff = sp.effective_independent_pnl_streams;
+  var tc = sp.trade_counts || {};
+  var k2 = [
+    _r46tKpi('ACTIVE STRATEGIES', sp.active_strategies, 'Strategies holding shadow capital under the canonical policy.'),
+    _r46tKpi('EFFECTIVE P&L STREAMS', (eff === null || eff === undefined) ? '—' : (_r46tNum(eff, 1) + ' of ' + _r30esc(sp.nominal_streams)), 'exp(entropy) of the correlation eigenvalues over allocated strategies — ' + _r30esc(sp.correlation_source || '') + '. Nominal count is not independence.'),
+    _r46tKpi('CASH WEIGHT', (sp.cash_weight === null || sp.cash_weight === undefined) ? '—' : (Number(sp.cash_weight) * 100).toFixed(1) + '%', 'Evidence-discounted deployment: early strategies get SMALL capital that grows only as evidence accrues.'),
+    _r46tKpi('FUNDED TRADES', sp.n_funded_trades, 'Research trades funded by an allocation decided strictly before their entry.'),
+    _r46tKpi('OPEN / CLOSED', _r30esc((tc.TRADE_OPEN || 0) + (tc.TRADE_MARKED || 0) + (tc.TRADE_MATURED || 0)) + ' / ' + _r30esc(tc.TRADE_CLOSED || 0), 'Research paper trades by derived state. SIGNAL_EMITTED: ' + _r30esc(tc.SIGNAL_EMITTED || 0) + ', DATA_BLOCKED: ' + _r30esc(tc.DATA_BLOCKED || 0) + '.'),
+    _r46tKpi('vs CASH', _r46tUsd(sp.canonical_minus_cash_usd), 'Canonical NAV minus cash-control NAV.', _r46tTone(sp.canonical_minus_cash_usd)),
+    _r46tKpi('vs EQUAL-WEIGHT', _r46tUsd(sp.canonical_minus_equal_weight_usd), 'Canonical NAV minus the 1/N policy NAV — the naive control.', _r46tTone(sp.canonical_minus_equal_weight_usd)),
+    _r46tKpi('vs EQUAL-RISK', _r46tUsd(sp.canonical_minus_equal_risk_usd), 'Canonical NAV minus the risk-balanced policy NAV.', _r46tTone(sp.canonical_minus_equal_risk_usd)),
+    _r46tKpi('vs PASSIVE SPY', _r46tUsd(sp.canonical_minus_passive_spy_usd), 'Canonical NAV minus a passive SPY NAV from the same inception.', _r46tTone(sp.canonical_minus_passive_spy_usd)),
+    _r46tKpi('vs 60/40', _r46tUsd(sp.canonical_minus_passive_60_40_usd), 'Canonical NAV minus a passive 60/40 SPY/TLT NAV.', _r46tTone(sp.canonical_minus_passive_60_40_usd))
+  ].join(' ');
+  var grp = function (label, rows) {
+    if (!rows || !rows.length) return '';
+    return '<div style="font-size:10px;color:var(--muted,#8b98b0);margin:2px 0;"><b>' + label + ':</b> '
+      + rows.slice(0, 8).map(function (g) {
+          return _r30esc(g.key) + ' <span class="cc-badge ' + _r46tTone(g.net_pnl) + '" style="font-size:9px;">' + _r46tUsd(g.net_pnl) + '</span>';
+        }).join(' · ') + '</div>';
+  };
+  var rows = sp.pnl_leaderboard || [];
+  var tbl = '';
+  if (rows.length) {
+    tbl = '<div style="overflow-x:auto;margin-top:6px;"><table class="tbl" style="font-size:10px;width:100%;"><thead><tr>'
+      + '<th>#</th><th style="text-align:left;">Strategy</th><th>H</th><th style="text-align:left;">Forward state</th>'
+      + '<th style="text-align:left;">Economic state</th><th>Shadow wt</th><th>Net fwd P&amp;L (bps/cap)</th>'
+      + '<th>Residual α (bps)</th><th>Realised</th><th>Unrealised</th><th>Cost</th><th>Trades o/c</th><th>Marg. div.</th></tr></thead><tbody>'
+      + rows.map(function (r) {
+          var et = { ECONOMIC_OK: 'safe', ECONOMIC_WATCH: 'manual', ECONOMIC_KILL_CANDIDATE: 'danger' }[r.economic_state] || 'muted';
+          return '<tr><td>' + _r30esc(r.pnl_rank) + '</td><td><b>' + _r30esc(r.challenger_id) + '</b></td>'
+            + '<td style="text-align:center;">' + _r30dash(r.horizon) + '</td>'
+            + '<td><span class="cc-badge muted" style="font-size:9px;">' + _r30esc(r.state) + '</span></td>'
+            + '<td><span class="cc-badge ' + et + '" style="font-size:9px;">' + _r30esc(r.economic_state || '—') + '</span></td>'
+            + '<td style="text-align:right;">' + ((r.shadow_weight === null || r.shadow_weight === undefined) ? '—' : (Number(r.shadow_weight) * 100).toFixed(1) + '%') + '</td>'
+            + '<td style="text-align:right;">' + _r46tBps(r.net_forward_pnl) + '</td>'
+            + '<td style="text-align:right;">' + _r46tBps(r.residual_alpha_pnl) + '</td>'
+            + '<td style="text-align:right;">' + _r46tBps(r.realised_pnl) + '</td>'
+            + '<td style="text-align:right;">' + _r46tBps(r.unrealised_pnl) + '</td>'
+            + '<td style="text-align:right;">' + _r46tBps(r.cost_drag) + '</td>'
+            + '<td style="text-align:center;">' + _r30esc(r.n_trades_opened || 0) + '/' + _r30esc(r.n_trades_closed || 0) + '</td>'
+            + '<td style="text-align:right;">' + _r46tNum(r.marginal_diversification, 2) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div style="font-size:9px;color:var(--muted,#8b98b0);margin-top:2px;">Leaderboard figures per 1.0 of strategy capital (unit economics, bps); headline figures in shadow dollars. Ranked by evidence band, then economic state, then net forward P&amp;L — a strong t with negative P&amp;L cannot rank high.</div>';
+  }
+  var oc = sp.opportunity_counts || {};
+  var recs = sp.recommendations || [];
+  var opp = '<div style="font-size:10px;color:var(--muted,#8b98b0);margin:4px 0 0;"><b>Shadow opportunity cost:</b> HOLD '
+    + _r30esc(oc.HOLD || 0) + ' · REDUCE ' + _r30esc(oc.REDUCE || 0) + ' · EXIT ' + _r30esc(oc.EXIT || 0)
+    + ' · REPLACE ' + _r30esc(oc.REPLACE || 0) + ' · ADD ' + _r30esc(oc.ADD || 0)
+    + (recs.length ? (' — ' + recs.slice(0, 6).map(function (r) { return _r30esc(r.recommendation) + ' ' + _r30esc(r.challenger_id); }).join('; ')) : '')
+    + '. Research recommendations only; they change no shadow weight and no holding.</div>';
+  _setHtml('r46t-money', head
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;">' + k1 + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;">' + k2 + '</div>'
+    + grp('P&amp;L by asset class', sp.pnl_by_asset_class)
+    + grp('P&amp;L by economic family', sp.pnl_by_economic_family)
+    + grp('P&amp;L by information family', sp.pnl_by_information_family)
+    + tbl + opp);
+}
 function renderProspectiveTournament(d) {
   var panel = document.getElementById('r46t-panel');
   if (!panel) return;
@@ -28731,6 +28856,7 @@ function renderProspectiveTournament(d) {
   if (mt) mt.textContent = d.evidence_maturity_state || '—';
 
   _setHtml('r46t-headline', _r30esc(d.headline || ''));
+  _r46tRenderMoney(d);
 
   var hv = d.historical_qualification_vs_forward_proof || {};
   _setHtml('r46t-kpis', [
@@ -28797,6 +28923,7 @@ function renderProspectiveTournament(d) {
     + _r30esc(la.state || '—') + '</b> (' + _r30esc(la.revisions_observed) + '/'
     + _r30esc(la.revisions_required) + ' revisions, never backfilled) · intraday: <b>'
     + _r30esc(li.state || '—') + '</b>' + (li.exact_blocker ? (' — ' + _r30esc(li.exact_blocker)) : '')
+    + _r46tInfoLanes(d.information_lanes || {})
     + '. A blocked lane stops nothing else.');
 
   var adv = d.tournament_advance || {};
