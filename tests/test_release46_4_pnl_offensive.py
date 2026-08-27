@@ -207,7 +207,9 @@ def test_the_field_grew_without_touching_earlier_tuples():
     assert len(CH.SEED_SPECS) == 10
     assert len(CH.EXPANSION_SPECS) == 11
     assert len(CH.R46_4_SPECS) == 9
-    assert len(CH.ALL_SPECS) == 30
+    # Release 46.5 added three challengers through the same frozen door.
+    assert len(CH.R46_5_SPECS) == 3
+    assert len(CH.ALL_SPECS) == 33
     ids = [s["challenger_id"] for s in CH.ALL_SPECS]
     assert len(ids) == len(set(ids))
 

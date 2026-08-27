@@ -215,7 +215,14 @@ def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
              "days"),
             ("SCHEDULED_EVENT_CALENDAR", "R46_4_EVENT_LANE.json",
              "FOMC schedule and release calendars captured; two frozen "
-             "calendar challengers emit on eligible sessions")):
+             "calendar challengers emit on eligible sessions"),
+            # Release 46.5 lanes, read from their own artifacts.
+            ("EARNINGS_EVENTS", "R46_5_EARNINGS_LANE.json",
+             "per-name earnings 8-K acceptance instants captured from EDGAR; "
+             "one frozen post-earnings-drift challenger"),
+            ("INSIDER_FLOW", "R46_5_FORM4_LANE.json",
+             "daily Form-4 feed captured from the EDGAR daily index with "
+             "acceptance stamps; two frozen insider-flow challengers")):
         body = _lane(campaign_id, art_name)
         candidates.append({
             "candidate": "%s_lane" % lane_name.lower(),
@@ -289,26 +296,25 @@ def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
          "licensing": "commercial", "cost": "recurring, not priced here"},
         {"dataset": "per_name_earnings_announcement_timestamps",
          "economic_distinctness": "HIGH - post-earnings drift needs the "
-                                  "announcement instant, which no owned "
-                                  "source carries (the on-disk file is a "
-                                  "synthetic fixture)",
-         "pit_integrity": "HIGH if captured forward from a scheduled "
-                          "calendar; vendor history must be vintage-verified",
-         "history_depth": "vendor-dependent",
-         "delisted_coverage": "vendor-dependent - the known failure mode",
+                                  "announcement instant; Release 46.5 reads "
+                                  "it from EDGAR 8-K Item 2.02 acceptance "
+                                  "stamps (the on-disk file remains a "
+                                  "synthetic fixture and is refused)",
+         "pit_integrity": "HIGH - EDGAR acceptance instants captured forward",
+         "history_depth": "years, free (every 8-K on the submissions feed)",
+         "delisted_coverage": "complete (filings persist)",
          "expected_effective_gain_per_week": 1.0,
          "families_unlocked": ["EARNINGS_EVENTS"],
-         "licensing": "commercial or free-tier calendar",
-         "cost": "not priced here"},
+         "licensing": "free", "cost": "zero"},
         {"dataset": "insider_transactions_daily_form4",
          "economic_distinctness": "MEDIUM - informed trading, distinct from "
-                                  "price; the owned SEC data sets are "
-                                  "quarterly and lagged",
-         "pit_integrity": "HIGH from EDGAR daily index acceptance stamps",
+                                  "price; Release 46.5 captures the daily "
+                                  "Form-4 feed from the EDGAR daily index",
+         "pit_integrity": "HIGH from EDGAR ACCEPTANCE-DATETIME stamps",
          "history_depth": "decades, free, heavy to parse",
          "delisted_coverage": "complete (filings persist)",
          "expected_effective_gain_per_week": 0.5,
-         "families_unlocked": ["INSIDER_ACTIVITY"],
+         "families_unlocked": ["INSIDER_FLOW"],
          "licensing": "free", "cost": "zero, engineering only"},
         {"dataset": "short_interest_finra_bimonthly",
          "economic_distinctness": "MEDIUM - crowded shorts; overlaps "
@@ -320,14 +326,64 @@ def build(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
          "expected_effective_gain_per_week": 0.25,
          "families_unlocked": ["SHORT_INTEREST"],
          "licensing": "free with venue terms", "cost": "zero"},
+        # Release 46.5 - the remaining frontier (section 30), reranked after
+        # earnings and Form 4 went live. Listing is not buying.
+        {"dataset": "richer_analyst_revisions_prospective",
+         "economic_distinctness": "MEDIUM - the estate already captures a "
+                                  "prospective revision ledger; a richer "
+                                  "feed adds breadth, not a new mechanism",
+         "pit_integrity": "HIGH only if captured forward; any vendor "
+                          "backward strip is inadmissible",
+         "history_depth": "vendor-dependent; restated series are the known "
+                          "failure mode",
+         "delisted_coverage": "vendor-dependent",
+         "expected_effective_gain_per_week": 0.25,
+         "families_unlocked": ["ANALYST_REVISIONS"],
+         "licensing": "commercial", "cost": "recurring, not priced here"},
+        {"dataset": "options_history_single_and_index",
+         "economic_distinctness": "HIGH - the free SPY surface reaches its "
+                                  "judgeable sample on its own; a history "
+                                  "purchase only shortens the wait",
+         "pit_integrity": "HIGH for captured data; vendor history must be "
+                          "vintage-verified",
+         "history_depth": "vendor-dependent",
+         "delisted_coverage": "not applicable",
+         "expected_effective_gain_per_week": 0.5,
+         "families_unlocked": ["OPTION_SURFACE"],
+         "licensing": "commercial", "cost": "recurring, not priced here"},
+        {"dataset": "credit_default_swap_single_name",
+         "economic_distinctness": "MEDIUM - single-name credit repricing is "
+                                  "distinct from the index spreads the credit "
+                                  "lane already reads",
+         "pit_integrity": "HIGH for a live feed",
+         "history_depth": "vendor-dependent",
+         "delisted_coverage": "vendor-dependent",
+         "expected_effective_gain_per_week": 0.25,
+         "families_unlocked": ["SINGLE_NAME_CREDIT"],
+         "licensing": "commercial", "cost": "recurring, not priced here"},
+        {"dataset": "alternative_corporate_events_edgar",
+         "economic_distinctness": "MEDIUM - buybacks, guidance and M&A "
+                                  "(8-K Items 1.01, 7.01, 8.01) are free on "
+                                  "the same EDGAR feed the earnings lane "
+                                  "already captures",
+         "pit_integrity": "HIGH - EDGAR acceptance instants",
+         "history_depth": "years, free",
+         "delisted_coverage": "complete (filings persist)",
+         "expected_effective_gain_per_week": 0.5,
+         "families_unlocked": ["CORPORATE_EVENTS"],
+         "licensing": "free", "cost": "zero, engineering only"},
     ]
-    # Release 46.4 - the LIVE lanes are removed from the frontier by state
-    # (they are no longer missing information), and every remaining row is
-    # scored on the eight declared axes.
+    # Release 46.4 / 46.5 - the LIVE lanes are removed from the frontier by
+    # state (they are no longer missing information), and every remaining
+    # row is scored on the eight declared axes.
     live_lanes = {n for n, art in (("cftc_commitments_weekly",
                                     "R46_4_CFTC_LANE.json"),
                                    ("credit_spread_series_fred",
-                                    "R46_4_CREDIT_LANE.json"))
+                                    "R46_4_CREDIT_LANE.json"),
+                                   ("per_name_earnings_announcement_timestamps",
+                                    "R46_5_EARNINGS_LANE.json"),
+                                   ("insider_transactions_daily_form4",
+                                    "R46_5_FORM4_LANE.json"))
                   if _lane(campaign_id, art).get("state") == "LIVE_PROSPECTIVE"}
     frontier = [f for f in frontier if f["dataset"] not in live_lanes]
     for f in frontier:

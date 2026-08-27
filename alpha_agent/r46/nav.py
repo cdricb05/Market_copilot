@@ -391,10 +391,49 @@ def _summary(sid: str, srows: list) -> dict:
     }
 
 
+def _policy_competition(sid: str, srows: list, as_of: _dt.date,
+                        campaign_id: str) -> dict:
+    """Release 46.5 - the section-9 facts per policy, from the SAME ledgers."""
+    if not srows:
+        return {"gross_pnl": None, "net_pnl": None, "cost_drag": None,
+                "realised_pnl": None, "unrealised_pnl": None,
+                "turnover_usd": None, "n_allocated": None, "deployment": None,
+                "latest_daily_return": None, "n_sessions": 0}
+    gross = float(sum((r.get("mark_to_market_pnl") or 0.0)
+                      + (r.get("close_pnl") or 0.0) for r in srows))
+    cost = float(-sum(r.get("transaction_cost_pnl") or 0.0 for r in srows))
+    turnover = 0.0
+    if sid in AL.POLICIES:
+        for o in TR.opens(campaign_id):
+            if str(o.get("entry_session")) > str(as_of):
+                continue
+            cap = float(((o.get("capital_by_policy") or {}).get(sid) or {})
+                        .get("capital_usd") or 0.0)
+            turnover += cap * 2.0 * float(
+                o.get("gross_exposure_per_unit_capital") or 0.0)
+    dec = AL.latest(sid, before=None, campaign_id=campaign_id) \
+        if sid in AL.POLICIES else {}
+    return {"gross_pnl": round(gross, 6),
+            "net_pnl": round(float(srows[-1]["ending_nav"]) - STARTING_CAPITAL,
+                             6),
+            "cost_drag": round(cost, 6),
+            "realised_pnl": round(float(sum(r.get("realised_pnl_booked_today")
+                                            or 0.0 for r in srows)), 6),
+            "unrealised_pnl": srows[-1].get("unrealised_pnl_end"),
+            "turnover_usd": round(turnover, 6),
+            "n_allocated": dec.get("n_allocated"),
+            "deployment": dec.get("deployment"),
+            "latest_daily_return": srows[-1].get("daily_return"),
+            "n_sessions": len(srows)}
+
+
 def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID) -> dict:
     """The NAV read models: the canonical headline and the policy comparison."""
     summaries = {sid: _summary(sid, series(sid, campaign_id))
                  for sid in SERIES_IDS}
+    competition = {sid: _policy_competition(sid, series(sid, campaign_id),
+                                            as_of, campaign_id)
+                   for sid in SERIES_IDS}
     canon = summaries[AL.CANONICAL_POLICY]
     cash = summaries[AL.POLICY_CASH]
     canon_nav = canon.get("nav")
@@ -434,17 +473,49 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID) -> dict:
     write_json(campaign_dir(campaign_id) / ARTIFACT, body)
 
     ranked = sorted(summaries.values(), key=lambda s: -(s.get("nav") or 0.0))
+    # Release 46.5 - the policy COMPETITION: does complex allocation beat
+    # simple equal weight or cash? Decidable only on realised forward NAV
+    # with a sample; until then the answer is stated as not yet decidable.
+    n_sess = max((s.get("n_sessions") or 0) for s in summaries.values())
+    n_closed = sum(1 for c in TR.closes(campaign_id)
+                   if str(c.get("exit_session")) <= str(as_of))
+    canon_nav_ = summaries[AL.CANONICAL_POLICY].get("nav")
+    eq_nav = summaries[AL.POLICY_EQUAL].get("nav")
+    rk_nav = summaries[AL.POLICY_RISK].get("nav")
+    decidable = bool(n_closed >= 20 and n_sess >= 20)
+    leader = ranked[0]["series_id"] if ranked else None
     comparison = artifact_body(
         "r46_4_shadow_policy_comparison/1", CALCULATION_OWNER,
         as_of=str(as_of),
         canonical_policy=AL.CANONICAL_POLICY,
         policies=list(AL.POLICIES),
         benchmarks={k: v for k, v in BENCHMARKS.items()},
-        ranked_by_nav=[{"series_id": s["series_id"], "nav": s.get("nav"),
-                        "cumulative_return": s.get("cumulative_return"),
-                        "max_drawdown": s.get("max_drawdown"),
-                        "sharpe": s.get("sharpe_annualised")}
+        ranked_by_nav=[dict({"series_id": s["series_id"], "nav": s.get("nav"),
+                             "cumulative_return": s.get("cumulative_return"),
+                             "max_drawdown": s.get("max_drawdown"),
+                             "sharpe": s.get("sharpe_annualised")},
+                            **competition[s["series_id"]])
                        for s in ranked],
+        competition={
+            "question": "does complex allocation actually beat simple equal "
+                        "weight or cash?",
+            "decidable": decidable,
+            "decidable_when": "at least 20 closed research trades and 20 "
+                              "forward NAV sessions",
+            "n_forward_sessions": n_sess,
+            "n_closed_research_trades": n_closed,
+            "current_leader_by_nav": leader,
+            "canonical_minus_equal_weight_usd": (
+                None if canon_nav_ is None or eq_nav is None
+                else round(canon_nav_ - eq_nav, 6)),
+            "canonical_minus_equal_risk_usd": (
+                None if canon_nav_ is None or rk_nav is None
+                else round(canon_nav_ - rk_nav, 6)),
+            "answer": ("NOT_YET_DECIDABLE" if not decidable else
+                       "CANONICAL_LEADS" if leader == AL.CANONICAL_POLICY
+                       else "SIMPLE_POLICY_LEADS"),
+            "assumes_nothing": True,
+        },
         canonical_beats_cash=(None if residual_vs_cash is None
                               else bool(residual_vs_cash > 0)),
         canonical_minus_cash_usd=residual_vs_cash,

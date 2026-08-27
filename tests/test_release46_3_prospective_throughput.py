@@ -121,7 +121,9 @@ def test_registering_the_union_preserves_every_seed_freeze(sandbox,
             assert c["cohort"] == "R46_SEED"
         else:
             assert c["frozen_at"] == FROZEN_AT_2, cid
-            assert c["cohort"] == CH.EXPANSION_COHORT
+            # Releases 46.4 and 46.5 register their cohorts through the same door.
+            assert c["cohort"] in (CH.EXPANSION_COHORT, CH.R46_4_COHORT,
+                                   CH.R46_5_COHORT)
     assert union["retune_free"] is True
     assert union["n_r46_challengers"] == len(CH.ALL_SPECS)
 
@@ -154,7 +156,9 @@ def test_every_expansion_spec_is_complete_and_unsearched():
 
 def test_no_duplicate_ids_and_no_duplicate_identity_slots():
     ids = [s["challenger_id"] for s in CH.ALL_SPECS]
-    assert len(ids) == len(set(ids)) == 21
+    # 10 seed + 11 expansion (R46.3) + 9 P&L-offensive (R46.4)
+    # + 3 forward-harvest (R46.5: earnings drift, insider cluster, insider NPR).
+    assert len(ids) == len(set(ids)) == 33
     slots = [(s["challenger_id"], s["challenger_version"], s["instrument"])
              for s in CH.ALL_SPECS]
     assert len(slots) == len(set(slots))
@@ -217,7 +221,9 @@ def test_expanded_emission_is_true_forward_and_idempotent(sandbox,
     _stub_books(monkeypatch)
     now = dt.datetime(2026, 8, 25, 22, 0, tzinfo=dt.timezone.utc)
     first = EM.emit(TEST_CAMPAIGN, reg, now)
-    assert first["n_appended"] == _expected_cells() == 23
+    # 23 cells at R46.3; Release 46.4 added nine challengers / nine cells;
+    # Release 46.5 added three challengers / three cells.
+    assert first["n_appended"] == _expected_cells() == 35
     second = EM.emit(TEST_CAMPAIGN, reg, now)
     assert second["n_appended"] == 0
     assert second["n_duplicates_skipped"] == first["n_appended"]

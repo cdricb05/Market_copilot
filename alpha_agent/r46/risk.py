@@ -49,6 +49,61 @@ REALISED_VOL_FLOOR_SHARE_OF_PRIOR = 0.5
 CORRELATION_SHRINK_TO_STRUCTURAL = 0.5
 PRIOR_LOOKBACK_SESSIONS = 252
 
+#: Release 46.5 - the FROZEN realised-correlation blending rule, versioned.
+#: Release 46.4 declared a single step (half realised at 40 common sessions)
+#: and never applied it to a forward observation - zero common sessions
+#: existed. This version replaces that step with a graded rule BEFORE any
+#: realised correlation is used to allocate: the structural prior dominates
+#: with little common data, the realised component grows with the common
+#: sample, and realised may become primary only from 40 common sessions.
+#: v1 is recorded here as superseded-before-use; it is not edited away.
+REALISED_BLEND_RULE = {
+    "version": "REALISED_CORRELATION_BLEND_v2",
+    "supersedes": {"version": "v1 (Release 46.4)",
+                   "rule": "0 realised weight below 40 common sessions, then "
+                           "0.5",
+                   "applied_to_any_forward_observation": False},
+    "frozen_before_any_realised_correlation_was_used": True,
+    "min_common_sessions_for_any_realised_weight": 10,
+    "common_sessions_at_half_realised": MIN_REALISED_SESSIONS,
+    "common_sessions_at_max_realised": 80,
+    "max_realised_weight": 0.75,
+    "rule": "w = 0 below 10 common sessions; rises linearly to 0.50 at 40; "
+            "rises linearly to 0.75 at 80; capped there - the structural "
+            "prior never vanishes",
+    "realised_becomes_primary_at": MIN_REALISED_SESSIONS,
+}
+
+SOURCE_BLENDED = "BLENDED_STRUCTURAL_AND_REALISED"
+SOURCE_REALISED_PRIMARY = "REALISED_PRIMARY_STRUCTURAL_SHRUNK"
+CORRELATION_SOURCES = ("RISK_PRIOR_STRUCTURAL_TABLE", SOURCE_BLENDED,
+                       SOURCE_REALISED_PRIMARY)
+
+
+def realised_blend_weight(n_common_sessions: int) -> float:
+    """The FROZEN weight on realised correlation for ``n`` common sessions."""
+    R = REALISED_BLEND_RULE
+    n = int(n_common_sessions or 0)
+    lo, half, hi = (R["min_common_sessions_for_any_realised_weight"],
+                    R["common_sessions_at_half_realised"],
+                    R["common_sessions_at_max_realised"])
+    if n < lo:
+        return 0.0
+    if n < half:
+        return 0.5 * (n - lo) / float(half - lo)
+    if n < hi:
+        return 0.5 + (R["max_realised_weight"] - 0.5) * (n - half) / float(
+            hi - half)
+    return float(R["max_realised_weight"])
+
+
+def blend_source(weight: float) -> str:
+    if weight <= 0.0:
+        return SOURCE_PRIOR_STRUCTURAL
+    if weight < 0.5:
+        return SOURCE_BLENDED
+    return SOURCE_REALISED_PRIMARY
+
 #: Structural annualised volatility priors for BOOK constructions, per unit
 #: of capital at gross notional 1.0. Declared, not fitted; conservative.
 BOOK_VOL_PRIOR = {
@@ -139,18 +194,22 @@ def correlation(entries: list, streams: dict) -> dict:
     common = sorted(common or ())
     used = SOURCE_PRIOR_STRUCTURAL
     corr = struct
-    if n >= 2 and len(common) >= MIN_REALISED_SESSIONS:
+    w = realised_blend_weight(len(common)) if n >= 2 else 0.0
+    if w > 0.0:
         x = np.array([[float(streams[cid][k]) for k in common] for cid in ids])
         sd = x.std(axis=1, ddof=1)
         if bool((sd > 0).all()):
             real = np.corrcoef(x)
             real = np.nan_to_num(real, nan=0.0)
-            corr = (CORRELATION_SHRINK_TO_STRUCTURAL * struct
-                    + (1.0 - CORRELATION_SHRINK_TO_STRUCTURAL) * real)
+            corr = (1.0 - w) * struct + w * real
             np.fill_diagonal(corr, 1.0)
-            used = SOURCE_REALISED
+            used = blend_source(w)
+        else:
+            w = 0.0
     return {"ids": ids, "matrix": corr, "source": used,
             "n_common_sessions": len(common),
+            "realised_weight": w,
+            "blend_rule": REALISED_BLEND_RULE["version"],
             "structural": struct}
 
 
@@ -209,7 +268,7 @@ def cluster_view(entries: list, streams: dict, weights: dict = None) -> dict:
             for k in sorted(common or ())}
     n = len(names)
     struct = np.eye(n)
-    corr, used, n_common = struct, SOURCE_PRIOR_STRUCTURAL, 0
+    corr, used, n_common, w = struct, SOURCE_PRIOR_STRUCTURAL, 0, 0.0
     if n >= 2:
         common = None
         for name in names:
@@ -217,19 +276,22 @@ def cluster_view(entries: list, streams: dict, weights: dict = None) -> dict:
             common = keys if common is None else (common & keys)
         common = sorted(common or ())
         n_common = len(common)
-        if n_common >= MIN_REALISED_SESSIONS:
+        w = realised_blend_weight(n_common)
+        if w > 0.0:
             x = np.array([[cl_streams[name][k] for k in common]
                           for name in names])
             sd = x.std(axis=1, ddof=1)
             if bool((sd > 0).all()):
                 real = np.nan_to_num(np.corrcoef(x), nan=0.0)
-                corr = (CORRELATION_SHRINK_TO_STRUCTURAL * struct
-                        + (1.0 - CORRELATION_SHRINK_TO_STRUCTURAL) * real)
+                corr = (1.0 - w) * struct + w * real
                 np.fill_diagonal(corr, 1.0)
-                used = SOURCE_REALISED
+                used = blend_source(w)
+            else:
+                w = 0.0
     return {"clusters": names, "members": groups, "matrix": corr,
             "weights": cl_weights, "source": used,
-            "n_common_sessions": n_common}
+            "n_common_sessions": n_common, "realised_weight": w,
+            "blend_rule": REALISED_BLEND_RULE["version"]}
 
 
 def overlap(entries: list) -> list:
@@ -330,13 +392,18 @@ def build(as_of: _dt.date, entries: list, streams: dict,
                                 "fall as realised history arrives"),
         cluster_correlation_source=cv["source"],
         cluster_correlation_common_sessions=cv["n_common_sessions"],
+        cluster_realised_weight=cv["realised_weight"],
         cluster_weights=cv["weights"],
         correlation_source=cr["source"],
         correlation_common_sessions=cr["n_common_sessions"],
+        correlation_realised_weight=cr["realised_weight"],
+        correlation_blend_rule=dict(REALISED_BLEND_RULE),
         correlation_rule=("structural 1.0 inside a declared dependence "
-                          "cluster and 0.0 across; shrunk half-way toward "
-                          "realised only after %d common forward sessions"
-                          % MIN_REALISED_SESSIONS),
+                          "cluster and 0.0 across; blended toward realised "
+                          "under %s - realised may become primary only from "
+                          "%d common forward sessions"
+                          % (REALISED_BLEND_RULE["version"],
+                             MIN_REALISED_SESSIONS)),
         portfolio_annual_vol_estimate=round(port_vol, 6),
         volatility={cid: vols[cid] for cid in ids},
         risk_contribution=contrib,
@@ -353,7 +420,70 @@ def build(as_of: _dt.date, entries: list, streams: dict,
     return body
 
 
-__all__ = ["CALCULATION_OWNER", "ARTIFACT", "MIN_REALISED_SESSIONS",
-           "BOOK_VOL_PRIOR", "volatility_prior", "strategy_volatility",
+CORRELATION_ARTIFACT = "R46_5_REALISED_CORRELATION.json"
+
+
+def correlation_state(as_of: _dt.date, entries: list, streams: dict,
+                      weights: dict = None, campaign_id: str = CAMPAIGN_ID,
+                      write: bool = True) -> dict:
+    """Release 46.5 - where the correlation estimate stands, and why.
+
+    Reports the common forward sample, the frozen blend weight it earns, the
+    source label in use, the transition table an operator can check the next
+    session against, and the effective independent P&L streams under the
+    structural prior AND under the blend so the two can be compared without
+    either being mistaken for the other.
+    """
+    cr = correlation(entries, streams)
+    cv = cluster_view(entries, streams, weights)
+    cl_w = [cv["weights"][c] for c in cv["clusters"]]
+    eff_struct = effective_streams(np.eye(len(cv["clusters"])), cl_w) \
+        if cv["clusters"] and sum(cl_w) > 0 else (
+            effective_streams(np.eye(len(cv["clusters"])))
+            if cv["clusters"] else 0.0)
+    eff_blend = effective_streams(cv["matrix"], cl_w) \
+        if cv["clusters"] and sum(cl_w) > 0 else (
+            effective_streams(cv["matrix"]) if cv["clusters"] else 0.0)
+    table = [{"common_sessions": n, "realised_weight":
+              round(realised_blend_weight(n), 4),
+              "source": blend_source(realised_blend_weight(n))}
+             for n in (0, 5, 10, 20, 30, 40, 60, 80, 120)]
+    R = REALISED_BLEND_RULE
+    body = artifact_body(
+        "r46_5_realised_correlation/1", CALCULATION_OWNER,
+        as_of=str(as_of),
+        built_at_utc=CK.iso(CK.now_utc()),
+        blend_rule=dict(R),
+        rule_frozen_before_use=True,
+        n_common_sessions_strategies=cr["n_common_sessions"],
+        n_common_sessions_clusters=cv["n_common_sessions"],
+        realised_weight_strategies=cr["realised_weight"],
+        realised_weight_clusters=cv["realised_weight"],
+        source_strategies=cr["source"],
+        source_clusters=cv["source"],
+        source_vocabulary=list(CORRELATION_SOURCES),
+        structural_prior_dominates=bool(cv["realised_weight"] < 0.5),
+        realised_is_primary=bool(cv["realised_weight"] >= 0.5),
+        sessions_until_any_realised_weight=max(
+            0, R["min_common_sessions_for_any_realised_weight"]
+            - cv["n_common_sessions"]),
+        sessions_until_realised_primary=max(
+            0, R["realised_becomes_primary_at"] - cv["n_common_sessions"]),
+        transition_table=table,
+        effective_streams_structural_prior=round(float(eff_struct), 3),
+        effective_streams_blended=round(float(eff_blend), 3),
+        n_clusters=len(cv["clusters"]),
+        nominal_strategies=len(entries),
+        historical_data_informs_the_prior_never_alpha=True,
+    )
+    if write:
+        write_json(campaign_dir(campaign_id) / CORRELATION_ARTIFACT, body)
+    return body
+
+
+__all__ = ["CALCULATION_OWNER", "ARTIFACT", "CORRELATION_ARTIFACT",
+           "MIN_REALISED_SESSIONS", "REALISED_BLEND_RULE",
+           "CORRELATION_SOURCES", "BOOK_VOL_PRIOR", "realised_blend_weight",
+           "blend_source", "volatility_prior", "strategy_volatility",
            "structural_correlation", "correlation", "effective_streams",
-           "cluster_view", "overlap", "build"]
+           "cluster_view", "overlap", "correlation_state", "build"]

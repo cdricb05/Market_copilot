@@ -69,6 +69,12 @@ _PROBE_SYMBOLS = {
     "_macro_surprise_rates": ("&ZN",),
     "_spx_pre_fomc": ("SPY",),
     "_spx_announcement_day": ("SPY",),
+    # Release 46.5 owners. Earnings instants and insider filings are read
+    # from the EDGAR lane captures; the probe checks the tradeable equity
+    # expression is alive.
+    "_pead_announcement_return": ("SPY", "AAPL", "MSFT"),
+    "_insider_cluster_buy": ("SPY", "AAPL", "MSFT"),
+    "_insider_net_purchase_xs": ("SPY", "AAPL", "MSFT"),
 }
 
 

@@ -94,6 +94,11 @@ def _data_cutoff(book: dict, spec: dict):
         "_macro_surprise_rates": ("&ZN",),
         "_spx_pre_fomc": ("SPY",),
         "_spx_announcement_day": ("SPY",),
+        # Release 46.5 owners - event instants come from EDGAR captures; the
+        # tradeable expression is the equity cross-section.
+        "_pead_announcement_return": ("SPY",),
+        "_insider_cluster_buy": ("SPY",),
+        "_insider_net_purchase_xs": ("SPY",),
     }.get(owner, ("SPY",))
     seen = [MD.last_session(s) for s in probe]
     seen = [d for d in seen if d is not None]

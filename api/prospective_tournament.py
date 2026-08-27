@@ -101,12 +101,22 @@ ARTIFACTS = {
     "lane_credit": "R46_4_CREDIT_LANE.json",
     "lane_macro": "R46_4_MACRO_LANE.json",
     "lane_events": "R46_4_EVENT_LANE.json",
+    # Release 46.5 — the forward harvest (matured vs mark-to-market), the
+    # strategy verdicts, the realised-correlation state and the two EDGAR
+    # lanes. Read verbatim; this module computes none of them.
+    "harvest": "R46_5_FORWARD_HARVEST.json",
+    "verdicts": "R46_5_STRATEGY_VERDICTS.json",
+    "correlation": "R46_5_REALISED_CORRELATION.json",
+    "lane_earnings": "R46_5_EARNINGS_LANE.json",
+    "lane_form4": "R46_5_FORM4_LANE.json",
 }
 
 R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
                    "pnl_risk", "pnl_attribution", "pnl_opportunity",
                    "pnl_trades", "pnl_strategy", "pnl_bridge", "pnl_regime",
-                   "lane_cftc", "lane_credit", "lane_macro", "lane_events")
+                   "lane_cftc", "lane_credit", "lane_macro", "lane_events",
+                   "harvest", "verdicts", "correlation", "lane_earnings",
+                   "lane_form4")
 
 #: Artifacts whose absence is EXPECTED (before the first advance, or before the
 #: Release-46.3 owners ever ran here) and so must not become an operator-facing
@@ -703,6 +713,11 @@ def _shadow_pnl(art: dict) -> dict:
             "vocabulary"),
         "bridge_candidates": bridge.get("n_candidates"),
         "bridge_who_decides": bridge.get("who_decides"),
+        # ---- Release 46.5: harvest, verdicts, policy competition ---------- #
+        "forward_harvest": _harvest(art.get("harvest")),
+        "strategy_verdicts": _verdicts(art.get("verdicts")),
+        "policy_competition": (comp.get("competition") or {}),
+        "realised_correlation": _correlation(art.get("correlation")),
         "evidence_class": "TRUE_FORWARD",
         "historical_pnl_is_never_shown_as_forward": True,
         "realised_unrealised_expected_never_summed": True,
@@ -712,10 +727,109 @@ def _shadow_pnl(art: dict) -> dict:
     }
 
 
+def _harvest(body: Optional[dict]) -> dict:
+    """Matured forward economics and marks, NEVER summed - from the owner."""
+    if not isinstance(body, dict):
+        return {"available": False,
+                "FORWARD_PNL_EVIDENCE": "STILL_WAITING_FOR_REALITY",
+                "note": "the forward harvest has not been built at this "
+                        "research root yet; nothing has matured"}
+    m = body.get("matured") or {}
+    mtm = body.get("mark_to_market") or {}
+    rec = body.get("reconciliation") or {}
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "FORWARD_PNL_EVIDENCE": body.get("FORWARD_PNL_EVIDENCE"),
+        "evidence_vocabulary": body.get("evidence_vocabulary"),
+        "matured": {
+            "n_matured": m.get("n_matured"),
+            "n_funded": m.get("n_funded"),
+            "hit_rate": m.get("hit_rate"),
+            "unit": m.get("unit_share_weighted"),
+            "usd": m.get("usd_funded"),
+            "by_strategy": (m.get("by_strategy") or [])[:15],
+        },
+        "mark_to_market": {
+            "n_open": mtm.get("n_open"),
+            "n_funded": mtm.get("n_funded"),
+            "unit": mtm.get("unit_share_weighted"),
+            "usd": mtm.get("usd_funded"),
+            "worst_current_drawdown_from_peak_net": mtm.get(
+                "worst_current_drawdown_from_peak_net"),
+            "is_matured_statistical_evidence": False,
+        },
+        "one_economic_truth": rec.get("ONE_ECONOMIC_TRUTH"),
+        "reconciliation_problems": (rec.get("problems") or [])[:10],
+        "next_maturity": body.get("next_maturity"),
+        "matured_and_mark_to_market_are_never_summed": True,
+    }
+
+
+def _verdicts(body: Optional[dict]) -> dict:
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "no strategy verdicts have been built at this "
+                        "research root yet"}
+    rows = body.get("rows") or []
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "vocabulary": body.get("vocabulary"),
+        "counts": body.get("counts"),
+        "rules_version": (body.get("rules") or {}).get("version"),
+        "positive_early": body.get("positive_early"),
+        "negative_early": body.get("negative_early"),
+        "shadow_scale_candidates": body.get("shadow_scale_candidates"),
+        "shadow_reduce_candidates": body.get("shadow_reduce_candidates"),
+        "forward_rejected": body.get("forward_rejected"),
+        "forward_confirmed": body.get("forward_confirmed"),
+        "best_by_residual_alpha": body.get("best_by_residual_alpha"),
+        "worst_by_residual_alpha": body.get("worst_by_residual_alpha"),
+        "rows": [{k: r.get(k) for k in (
+            "challenger_id", "verdict", "reasons", "matured_observations",
+            "effective_observations", "net_pnl_unit",
+            "residual_alpha_pnl_unit", "cost_drag_unit",
+            "net_at_2x_costs_unit", "survives_2x_costs",
+            "max_drawdown_realised", "hit_rate", "t_residual_alpha",
+            "diversification_contribution", "shadow_weight",
+            "net_pnl_usd_funded", "residual_alpha_pnl_usd_funded")}
+            for r in rows[:40]],
+        "no_false_winner": body.get("no_false_winner"),
+        "mark_to_market_never_decides": True,
+    }
+
+
+def _correlation(body: Optional[dict]) -> dict:
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the realised-correlation state has not been built "
+                        "at this research root yet"}
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "blend_rule_version": (body.get("blend_rule") or {}).get("version"),
+        "n_common_sessions": body.get("n_common_sessions_clusters"),
+        "realised_weight": body.get("realised_weight_clusters"),
+        "source": body.get("source_clusters"),
+        "structural_prior_dominates": body.get("structural_prior_dominates"),
+        "realised_is_primary": body.get("realised_is_primary"),
+        "sessions_until_any_realised_weight": body.get(
+            "sessions_until_any_realised_weight"),
+        "sessions_until_realised_primary": body.get(
+            "sessions_until_realised_primary"),
+        "effective_streams_structural_prior": body.get(
+            "effective_streams_structural_prior"),
+        "effective_streams_blended": body.get("effective_streams_blended"),
+        "transition_table": body.get("transition_table"),
+    }
+
+
 def _information_lanes(art: dict) -> dict:
     out = {}
     for key, name in (("lane_cftc", "cftc"), ("lane_credit", "credit"),
-                      ("lane_macro", "macro"), ("lane_events", "events")):
+                      ("lane_macro", "macro"), ("lane_events", "events"),
+                      ("lane_earnings", "earnings"), ("lane_form4", "form4")):
         b = art.get(key)
         if not isinstance(b, dict):
             out[name] = {"state": "NOT_RUN"}
@@ -747,6 +861,20 @@ def _information_lanes(art: dict) -> dict:
     ev = art.get("lane_events") or {}
     out["events"]["next_fomc"] = (ev.get("fomc") or {}).get("next_decision_day")
     out["events"]["fomc_source"] = (ev.get("fomc") or {}).get("source")
+    ea = art.get("lane_earnings") or {}
+    out["earnings"]["n_events"] = (ea.get("coverage") or {}).get("n_events")
+    out["earnings"]["n_events_last_30_days"] = (ea.get("coverage") or {}).get(
+        "n_events_last_30_days")
+    out["earnings"]["n_issuers_captured"] = ea.get("n_issuers_captured")
+    fm = art.get("lane_form4") or {}
+    out["form4"]["days_captured"] = (fm.get("coverage") or {}).get(
+        "days_captured")
+    out["form4"]["n_transactions"] = (fm.get("coverage") or {}).get(
+        "n_transactions")
+    out["form4"]["n_open_market_purchases"] = (fm.get("coverage") or {}).get(
+        "n_open_market_purchases")
+    out["form4"]["n_open_market_sales"] = (fm.get("coverage") or {}).get(
+        "n_open_market_sales")
     out["a_blocked_lane_stops_nothing_else"] = True
     return out
 

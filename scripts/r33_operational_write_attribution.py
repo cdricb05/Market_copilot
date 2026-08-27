@@ -342,6 +342,11 @@ R46_MARKERS = (
     "R46_TOURNAMENT_CYCLES", "R46_EVIDENCE_VELOCITY",
     "R46_THROUGHPUT_PLAN", "R46_INTRADAY_LANE",
     "api.prospective_tournament", "api/prospective_tournament",
+    # Release 46.5 artifacts and raw-capture roots - the forward harvest,
+    # verdicts, realised correlation and the two EDGAR lanes.
+    "R46_5_FORWARD_HARVEST", "R46_5_STRATEGY_VERDICTS",
+    "R46_5_REALISED_CORRELATION", "R46_5_EARNINGS_LANE", "R46_5_FORM4_LANE",
+    "_data_earnings", "_data_form4", "r46_5_",
 )
 R46_SOURCE_GLOBS = ("alpha_agent/r46/*.py",)
 R46_SOURCE_FILES = ("api/prospective_tournament.py",)

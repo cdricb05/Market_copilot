@@ -338,6 +338,70 @@ def economic_state(*, n_closed: int, cum_net: float, cum_residual: float,
     return {"state": state, "reasons": reasons, "flags": flags}
 
 
+def empty_matured(cid: str) -> dict:
+    return {"challenger_id": cid, "n_closed": 0, "cum_net": 0.0,
+            "cum_gross": 0.0, "cum_cost": 0.0, "cum_residual_alpha": 0.0,
+            "cum_net_at_2x": 0.0, "t_residual_alpha": None,
+            "max_drawdown_realised": None, "hit_rate": None,
+            "reconciliation_mismatches": 0, "usd_net": 0.0,
+            "usd_residual_alpha": 0.0, "evidence_class": "MATURED_ONLY"}
+
+
+def matured_summary(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
+                    policy_id: str = None) -> dict:
+    """Per strategy, the CLOSED trades only - what a verdict may read.
+
+    Release 46.5: the stream summaries above blend marks into ``cum_*``
+    because a NAV must; a verdict must not. This is the same ledger read the
+    same way, restricted to trades the judge has closed on or before
+    ``as_of``, so the realised numbers here equal the stream's realised
+    numbers to the penny and never include an open mark.
+    """
+    from . import allocation as AL
+    pid = policy_id or AL.CANONICAL_POLICY
+    opens = {o["research_trade_id"]: o for o in TR.opens(campaign_id)}
+    per: dict = {}
+    for c in sorted(TR.closes(campaign_id),
+                    key=lambda r: (str(r.get("exit_session")),
+                                   str(r.get("research_trade_id")))):
+        if str(c.get("exit_session")) > str(as_of):
+            continue
+        o = opens.get(c["research_trade_id"]) or {}
+        cid = c["challenger_id"]
+        e = per.setdefault(cid, dict(empty_matured(cid), _path=[], _resid=[],
+                                     _hits=[]))
+        share = float(o.get("weight_within_strategy") or 0.0)
+        net = float(c.get("net_return") or 0.0)
+        cap = float(((o.get("capital_by_policy") or {}).get(pid) or {})
+                    .get("capital_usd") or 0.0)
+        resid = c.get("residual_alpha_vs_control")
+        e["n_closed"] += 1
+        e["cum_net"] += share * net
+        e["cum_gross"] += share * float(c.get("gross_return") or 0.0)
+        e["cum_cost"] += share * float(c.get("cost_return") or 0.0)
+        e["cum_net_at_2x"] += share * float(c.get("net_return_at_2x")
+                                            if c.get("net_return_at_2x")
+                                            is not None else net)
+        if resid is not None:
+            e["cum_residual_alpha"] += share * float(resid)
+            e["_resid"].append(float(resid))
+            e["usd_residual_alpha"] += cap * float(resid)
+        e["usd_net"] += cap * net
+        e["_hits"].append(1.0 if c.get("hit") else 0.0)
+        e["_path"].append(e["cum_net"])
+        if (c.get("reconciliation") or {}).get("state") == \
+                "RECONCILIATION_MISMATCH":
+            e["reconciliation_mismatches"] += 1
+    out = {}
+    for cid, e in per.items():
+        e["t_residual_alpha"] = _t(e.pop("_resid"))
+        e["max_drawdown_realised"] = _max_dd(e.pop("_path"))
+        hits = e.pop("_hits")
+        e["hit_rate"] = (float(np.mean(hits)) if hits else None)
+        out[cid] = e
+    return out
+
+
 def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
           registry: dict = None, write: bool = True) -> dict:
     from . import registry as RG
@@ -400,4 +464,5 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
 __all__ = ["CALCULATION_OWNER", "ARTIFACT", "ECON_STATES", "ECON_TOO_EARLY",
            "ECON_OK", "ECON_WATCH", "ECON_KILL_CANDIDATE", "KILL_RULES",
            "SCALING_RULES", "unit_streams", "net_series",
-           "summarise_strategy", "economic_state", "build"]
+           "summarise_strategy", "economic_state", "empty_matured",
+           "matured_summary", "build"]

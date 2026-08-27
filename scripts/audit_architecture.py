@@ -10403,6 +10403,13 @@ R46_OWNERS = {
     "credit": "alpha_agent/r46/credit.py",
     "macro": "alpha_agent/r46/macro.py",
     "events": "alpha_agent/r46/events.py",
+    # Release 46.5 - the forward harvest (matured vs mark-to-market), the
+    # strategy verdicts, the one EDGAR access seam and the two EDGAR lanes.
+    "harvest": "alpha_agent/r46/harvest.py",
+    "verdicts": "alpha_agent/r46/verdicts.py",
+    "sec": "alpha_agent/r46/sec.py",
+    "earnings": "alpha_agent/r46/earnings.py",
+    "form4": "alpha_agent/r46/form4.py",
 }
 
 #: Release 46.4 - a SECOND implementation of an economic concept the release
@@ -10415,6 +10422,14 @@ R46_4_SECOND_OWNER_FORBIDDEN = (
     "alpha_agent/r46/trade_ledger.py",
     "alpha_agent/r46/portfolio.py",
     "alpha_agent/r46/orders.py",
+    # Release 46.5 - a second harvester, verdict engine, insider or earnings
+    # owner would split a concept the release gives exactly one owner.
+    "alpha_agent/r46/harvester.py",
+    "alpha_agent/r46/winners.py",
+    "alpha_agent/r46/kill_engine.py",
+    "alpha_agent/r46/insider.py",
+    "alpha_agent/r46/pead.py",
+    "alpha_agent/r46/edgar.py",
 )
 
 #: A SECOND implementation of a concept Release 46 declares itself the single
@@ -10754,7 +10769,96 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         and "is_a_holding\": False" in src.get("trades", "")
         and "not an order, not a holding" in src.get("trades", ""))
 
+    # (14) Release 46.5 - the harvest. Matured economics and marks are never
+    #      one number, verdicts read matured trades only under frozen
+    #      thresholds, the correlation blend is versioned and frozen before
+    #      use, the EDGAR lanes are acceptance-stamped and refuse the
+    #      synthetic fixture, Form 4 codes are classified, and the harvest
+    #      stage sits inside the ONE advance.
+    harvest_keeps_matured_and_mtm_apart = (
+        "MATURED_FORWARD_EVIDENCE" in src.get("harvest", "")
+        and "MARK_TO_MARKET" in src.get("harvest", "")
+        and "matured_and_mark_to_market_are_never_summed=True"
+        in src.get("harvest", "")
+        and "nothing_here_matures_a_prediction=True" in src.get("harvest", "")
+        and "STILL_WAITING_FOR_REALITY" in src.get("harvest", "")
+        and "ONE_ECONOMIC_TRUTH" in src.get("harvest", ""))
+    verdicts_are_frozen_and_matured_only = (
+        "VERDICT_RULES" in src.get("verdicts", "")
+        and "mark_to_market_never_decides" in src.get("verdicts", "")
+        and "one_outcome_never_decides" in src.get("verdicts", "")
+        and "a_verdict_confers_no_capital" in src.get("verdicts", "")
+        and all(v in src.get("verdicts", "") for v in (
+            "TOO_EARLY", "POSITIVE_EARLY", "NEGATIVE_EARLY",
+            "SHADOW_SCALE_CANDIDATE", "SHADOW_REDUCE_CANDIDATE",
+            "FORWARD_REJECTED", "FORWARD_CONFIRMED"))
+        and "def matured_summary" in src.get("strategy_pnl", "")
+        and "PROVEN" not in str(src.get("verdicts", "").split(
+            "VERDICTS = (")[-1].split(")")[0]))
+    correlation_blend_is_versioned_and_frozen = (
+        "REALISED_BLEND_RULE" in src.get("risk", "")
+        and "REALISED_CORRELATION_BLEND_v2" in src.get("risk", "")
+        and "frozen_before_any_realised_correlation_was_used" in src.get("risk", "")
+        and "def realised_blend_weight" in src.get("risk", "")
+        and "supersedes" in src.get("risk", "")
+        and "def correlation_state" in src.get("risk", ""))
+    edgar_lanes_are_acceptance_stamped = (
+        "acceptanceDateTime" in src.get("earnings", "")
+        and "ACCEPTANCE-DATETIME" in src.get("form4", "")
+        and "def classify_timing" in src.get("earnings", "")
+        and "def parse_submission_text" in src.get("form4", "")
+        and "before it AND present in a capture acquired before it"
+        in src.get("earnings", "")
+        and "acquired_at_utc" in src.get("form4", ""))
+    earnings_lane_refuses_synthetic_fixture = (
+        "FORBIDDEN_PATH_TOKENS" in src.get("earnings", "")
+        and "\"fixture\"" in src.get("earnings", "")
+        and "def _forbidden" in src.get("earnings", ""))
+    form4_codes_are_classified = (
+        "TRANSACTION_CLASSES" in src.get("form4", "")
+        and "OPEN_MARKET_PURCHASE" in src.get("form4", "")
+        and "TAX_WITHHOLDING" in src.get("form4", "")
+        and "OPTION_EXERCISE" in src.get("form4", "")
+        and "INFORMATIVE_CODES" in src.get("form4", "")
+        and "not_all_form4s_are_equivalent" in src.get("form4", ""))
+    edgar_access_has_one_seam = (
+        "REQUEST_INTERVAL_SECONDS" in src.get("sec", "")
+        and "def user_agent" in src.get("sec", "")
+        and "urllib.request.urlopen" not in src.get("earnings", "")
+        and "urllib.request.urlopen" not in src.get("form4", "")
+        and "def mask" in src.get("sec", ""))
+    harvest_stage_is_inside_the_one_advance = (
+        "HV.build" in src.get("shadow", "")
+        and "VD.build" in src.get("shadow", "")
+        and "RK.correlation_state" in src.get("shadow", "")
+        and "lane_earnings" in src.get("advance", "")
+        and "lane_form4" in src.get("advance", "")
+        and "def advance(" not in src.get("harvest", "")
+        and "def advance(" not in src.get("verdicts", ""))
+    r46_5_challengers_frozen_unsearched = (
+        "R46_5_SPECS" in src.get("challengers", "")
+        and "R46_5_CANONICAL_CONSTANTS" in src.get("challengers", "")
+        and "R46_5_FORWARD_HARVEST" in src.get("challengers", "")
+        and "ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + "
+            "R46_5_SPECS" in src.get("challengers", ""))
+
     return {
+        "harvest_keeps_matured_and_mtm_apart":
+            harvest_keeps_matured_and_mtm_apart,
+        "verdicts_are_frozen_and_matured_only":
+            verdicts_are_frozen_and_matured_only,
+        "correlation_blend_is_versioned_and_frozen":
+            correlation_blend_is_versioned_and_frozen,
+        "edgar_lanes_are_acceptance_stamped":
+            edgar_lanes_are_acceptance_stamped,
+        "earnings_lane_refuses_synthetic_fixture":
+            earnings_lane_refuses_synthetic_fixture,
+        "form4_codes_are_classified": form4_codes_are_classified,
+        "edgar_access_has_one_seam": edgar_access_has_one_seam,
+        "harvest_stage_is_inside_the_one_advance":
+            harvest_stage_is_inside_the_one_advance,
+        "r46_5_challengers_frozen_unsearched":
+            r46_5_challengers_frozen_unsearched,
         "modules_present": not modules_missing,
         "modules_missing": modules_missing,
         "second_owner_modules": second_owner_modules,
@@ -13006,6 +13110,27 @@ BLOCKING_INVARIANTS = (
      "read_model_hides_no_proof", True),
     ("release46_prospective_alpha_tournament",
      "terminal_states_missing", []),
+    # --- Release 46.5: the harvest keeps matured economics and marks apart,
+    #     verdicts are frozen and matured-only, the correlation blend is
+    #     versioned before use, the EDGAR lanes are acceptance-stamped.
+    ("release46_prospective_alpha_tournament",
+     "harvest_keeps_matured_and_mtm_apart", True),
+    ("release46_prospective_alpha_tournament",
+     "verdicts_are_frozen_and_matured_only", True),
+    ("release46_prospective_alpha_tournament",
+     "correlation_blend_is_versioned_and_frozen", True),
+    ("release46_prospective_alpha_tournament",
+     "edgar_lanes_are_acceptance_stamped", True),
+    ("release46_prospective_alpha_tournament",
+     "earnings_lane_refuses_synthetic_fixture", True),
+    ("release46_prospective_alpha_tournament",
+     "form4_codes_are_classified", True),
+    ("release46_prospective_alpha_tournament",
+     "edgar_access_has_one_seam", True),
+    ("release46_prospective_alpha_tournament",
+     "harvest_stage_is_inside_the_one_advance", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_5_challengers_frozen_unsearched", True),
     # --- Release 46.4: the economic layer has ONE owner per concept, never
     #     labels history as forward, appends only, and cannot see the future.
     ("release46_prospective_alpha_tournament",

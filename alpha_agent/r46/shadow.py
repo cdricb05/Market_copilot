@@ -30,6 +30,7 @@ from . import allocation as AL
 from . import attribution as AT
 from . import clock as CK
 from . import contract as C
+from . import harvest as HV
 from . import nav as NV
 from . import opportunity as OC
 from . import pnl_board as PB
@@ -37,13 +38,19 @@ from . import regime as RGM
 from . import risk as RK
 from . import strategy_pnl as SP
 from . import trades as TR
+from . import verdicts as VD
 
 CALCULATION_OWNER = "alpha_agent.r46.shadow"
 
+#: Release 46.5 appends three read models AFTER the board: the forward
+#: harvest (matured vs mark-to-market), the strategy verdicts (winner /
+#: loser separation on matured trades only) and the realised-correlation
+#: state (the frozen blend rule, and where the common sample stands).
 STAGES = ("regime", "sync_trades", "strategy_pnl", "nav_roll",
           "evidence_view", "risk_state", "allocation", "nav_inception_roll",
           "nav_read_model", "risk_read_model", "attribution", "opportunity",
-          "pnl_board", "trade_snapshot")
+          "pnl_board", "trade_snapshot", "forward_harvest",
+          "strategy_verdicts", "realised_correlation")
 
 
 def _safe(fn, failures: list, label: str):
@@ -147,6 +154,15 @@ def advance_pnl(as_of: _dt.date, registry: dict, board: dict,
     snap = _safe(lambda: TR.snapshot(as_of, campaign_id), failures,
                  "trade_snapshot") or {}
 
+    # ---- Release 46.5: harvest, verdicts, realised correlation ------------- #
+    harvest = _safe(lambda: HV.build(as_of, campaign_id, registry=registry),
+                    failures, "forward_harvest") or {}
+    verdicts = _safe(lambda: VD.build(as_of, campaign_id, registry, board),
+                     failures, "strategy_verdicts") or {}
+    corr = _safe(lambda: RK.correlation_state(
+        as_of, list(entries.values()), streams, new_weights, campaign_id),
+        failures, "realised_correlation") or {}
+
     counts = (snap.get("counts") or {})
     return artifact_body(
         "r46_4_shadow_advance/1", CALCULATION_OWNER,
@@ -197,6 +213,24 @@ def advance_pnl(as_of: _dt.date, registry: dict, board: dict,
         best_capital_efficiency_strategy=pboard.get(
             "best_capital_efficiency_strategy"),
         nav_roll={"first": roll1, "after_decision": roll2},
+        # ---- Release 46.5 ---------------------------------------------------- #
+        forward_pnl_evidence=harvest.get("FORWARD_PNL_EVIDENCE"),
+        n_matured_trades=(harvest.get("matured") or {}).get("n_matured"),
+        matured_net_usd=((harvest.get("matured") or {}).get("usd_funded")
+                         or {}).get("net"),
+        matured_residual_alpha_usd=((harvest.get("matured") or {})
+                                    .get("usd_funded") or {}).get(
+            "residual_alpha"),
+        one_economic_truth=(harvest.get("reconciliation") or {}).get(
+            "ONE_ECONOMIC_TRUTH"),
+        next_maturity=harvest.get("next_maturity"),
+        verdict_counts=verdicts.get("counts"),
+        shadow_scale_candidates=verdicts.get("shadow_scale_candidates"),
+        shadow_reduce_candidates=verdicts.get("shadow_reduce_candidates"),
+        realised_correlation_source=corr.get("source_clusters"),
+        realised_correlation_weight=corr.get("realised_weight_clusters"),
+        realised_correlation_common_sessions=corr.get(
+            "n_common_sessions_clusters"),
         ledgers_intact=bool((snap.get("chain") or {}).get("all_intact")),
         research_only=True, orders_created=0, portfolio_mutations=0,
         model_promotions=0,

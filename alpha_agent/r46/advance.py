@@ -57,8 +57,10 @@ from . import cftc as CF
 from . import clock as CK
 from . import contract as C
 from . import credit as CR
+from . import earnings as EA
 from . import emit as EM
 from . import events as EVN
+from . import form4 as FM
 from . import judge as JD
 from . import leaderboard as LB
 from . import ledger as LG
@@ -73,7 +75,9 @@ CALCULATION_OWNER = "alpha_agent.r46.advance"
 #: Release 46.4 - the orthogonal information lanes the step refreshes BEFORE
 #: anything is scored or emitted. Each is bounded, free, and fail-soft: a lane
 #: that cannot reach its source records that and the step continues.
-LANE_STAGES = ("lane_cftc", "lane_credit", "lane_macro", "lane_events")
+LANE_STAGES = ("lane_cftc", "lane_credit", "lane_macro", "lane_events",
+               # Release 46.5 - the two free EDGAR lanes.
+               "lane_earnings", "lane_form4")
 
 #: Stages that are read models or lanes OVER the tournament. A failure there
 #: is reported loudly but can never make a live tournament read UNAVAILABLE.
@@ -142,6 +146,15 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
         "events": _safe(lambda: EVN.run(acquire_now=acquire,
                                         campaign_id=campaign_id, as_of=as_of),
                         failures, "lane_events"),
+        # Release 46.5 - per-name earnings instants and daily insider flow,
+        # both from EDGAR, both captured with acquisition instants before
+        # anything downstream may read them.
+        "earnings": _safe(lambda: EA.run(acquire_now=acquire,
+                                         campaign_id=campaign_id, as_of=as_of),
+                          failures, "lane_earnings"),
+        "form4": _safe(lambda: FM.run(acquire_now=acquire,
+                                      campaign_id=campaign_id, as_of=as_of),
+                       failures, "lane_form4"),
     }
 
     # --- 2. SCORE first. Nothing new may exist when maturity is judged. ------ #
@@ -390,6 +403,13 @@ def _shadow_digest(shadow: dict) -> dict:
             "best_net_pnl_strategy", "worst_net_pnl_strategy",
             "best_residual_alpha_strategy",
             "best_capital_efficiency_strategy", "ledgers_intact",
+            # Release 46.5
+            "forward_pnl_evidence", "n_matured_trades", "matured_net_usd",
+            "matured_residual_alpha_usd", "one_economic_truth",
+            "next_maturity", "verdict_counts", "shadow_scale_candidates",
+            "shadow_reduce_candidates", "realised_correlation_source",
+            "realised_correlation_weight",
+            "realised_correlation_common_sessions",
             "n_stage_failures", "stage_failures")
     return {k: shadow.get(k) for k in keys}
 

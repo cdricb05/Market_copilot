@@ -28742,7 +28742,7 @@ function _r46tTone(v) {
   return n > 0 ? 'safe' : 'danger';
 }
 function _r46tInfoLanes(il) {
-  var names = ['cftc', 'credit', 'macro', 'events'];
+  var names = ['cftc', 'credit', 'macro', 'events', 'earnings', 'form4'];
   var parts = [];
   for (var i = 0; i < names.length; i++) {
     var l = il[names[i]] || {};
@@ -28827,6 +28827,40 @@ function _r46tRenderMoney(d) {
       + '</tbody></table></div>'
       + '<div style="font-size:9px;color:var(--muted,#8b98b0);margin-top:2px;">Leaderboard figures per 1.0 of strategy capital (unit economics, bps); headline figures in shadow dollars. Ranked by evidence band, then economic state, then net forward P&amp;L — a strong t with negative P&amp;L cannot rank high.</div>';
   }
+  // Release 46.5: WINNERS / LOSERS on MATURED trades only, the harvest split
+  // (matured vs mark-to-market, never summed), the policy competition and the
+  // realised-correlation state — every number read verbatim from its owner.
+  var hv = sp.forward_harvest || {};
+  var vd = sp.strategy_verdicts || {};
+  var pc = sp.policy_competition || {};
+  var rc = sp.realised_correlation || {};
+  var vc = vd.counts || {};
+  var hvm = hv.matured || {};
+  var hvo = hv.mark_to_market || {};
+  var fpe = hv.FORWARD_PNL_EVIDENCE || 'STILL_WAITING_FOR_REALITY';
+  var fpeTone = fpe === 'MATURED_ECONOMICS_ACCRUING' ? 'safe' : (fpe === 'FIRST_MATURED_ECONOMICS' ? 'manual' : 'muted');
+  var k3 = [
+    _r46tKpi('MATURED TRADES', hvm.n_matured === undefined ? '—' : hvm.n_matured, 'Closed research trades: the judge\'s number, the only economics that may decide anything.', hvm.n_matured ? 'safe' : 'muted'),
+    _r46tKpi('MATURED NET (USD)', _r46tUsd((hvm.usd || {}).net), 'Realised net P&L of funded matured trades. MATURED_FORWARD_EVIDENCE.', _r46tTone((hvm.usd || {}).net)),
+    _r46tKpi('MATURED RESIDUAL α (USD)', _r46tUsd((hvm.usd || {}).residual_alpha), 'Realised residual alpha vs the declared control, funded matured trades only.', _r46tTone((hvm.usd || {}).residual_alpha)),
+    _r46tKpi('OPEN MTM (USD)', _r46tUsd((hvo.usd || {}).net), 'Open research trades at their last point-in-time mark. MARK_TO_MARKET — at risk, NOT evidence, never summed with matured.', _r46tTone((hvo.usd || {}).net)),
+    _r46tKpi('ONE ECONOMIC TRUTH', hv.one_economic_truth === undefined || hv.one_economic_truth === null ? '—' : (hv.one_economic_truth ? 'YES' : 'NO'), 'Judge outcome row == trade close == strategy stream == NAV realised booking, checked every session.', hv.one_economic_truth === false ? 'danger' : 'muted'),
+    _r46tKpi('NEXT MATURITY', hv.next_maturity || d.next_material_maturity || 'none scheduled', 'The next session on which a pending prediction can be scored by the judge.'),
+    _r46tKpi('POLICY COMPETITION', _r30esc(pc.answer || '—'), 'Does complex allocation beat equal weight or cash? Decidable only with ' + _r30esc(pc.decidable_when || 'a forward sample') + '. Leader by NAV: ' + _r30esc(pc.current_leader_by_nav || '—') + '.', pc.answer === 'CANONICAL_LEADS' ? 'safe' : (pc.answer === 'SIMPLE_POLICY_LEADS' ? 'manual' : 'muted')),
+    _r46tKpi('REALISED CORRELATION', (rc.n_common_sessions === undefined ? '—' : _r30esc(rc.n_common_sessions) + ' common · w ' + _r46tNum(rc.realised_weight, 2)), 'Frozen blend ' + _r30esc(rc.blend_rule_version || '') + ': the structural prior dominates until 40 common forward sessions; source now ' + _r30esc(rc.source || '') + '.')
+  ].join(' ');
+  var vOrder = ['FORWARD_CONFIRMED', 'SHADOW_SCALE_CANDIDATE', 'POSITIVE_EARLY', 'TOO_EARLY', 'NEGATIVE_EARLY', 'SHADOW_REDUCE_CANDIDATE', 'FORWARD_REJECTED'];
+  var vTone = { FORWARD_CONFIRMED: 'safe', SHADOW_SCALE_CANDIDATE: 'safe', POSITIVE_EARLY: 'manual', TOO_EARLY: 'muted', NEGATIVE_EARLY: 'manual', SHADOW_REDUCE_CANDIDATE: 'danger', FORWARD_REJECTED: 'danger' };
+  var verdictStrip = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin:6px 0 4px;">'
+    + '<span style="font-size:11px;font-weight:700;">WINNERS / LOSERS <span class="cc-badge ' + fpeTone + '" title="STILL_WAITING_FOR_REALITY / FIRST_MATURED_ECONOMICS / MATURED_ECONOMICS_ACCRUING — from the harvest owner.">FORWARD_PNL_EVIDENCE ' + _r30esc(fpe) + '</span></span>'
+    + '<span style="display:flex;gap:4px;flex-wrap:wrap;">'
+    + vOrder.map(function (v) { return '<span class="cc-badge ' + (vc[v] ? vTone[v] : 'muted') + '" title="Frozen verdict rules ' + _r30esc(vd.rules_version || '') + '; matured trades only, mark-to-market never decides, one outcome never decides.">' + _r30esc(v) + ' ' + _r30esc(vc[v] || 0) + '</span>'; }).join('')
+    + '</span></div>'
+    + '<div style="font-size:10px;color:var(--muted,#8b98b0);margin:0 0 4px;">'
+    + 'Best by matured residual α: <b>' + _r30esc(vd.best_by_residual_alpha || 'none matured') + '</b> · worst: <b>' + _r30esc(vd.worst_by_residual_alpha || 'none matured') + '</b>'
+    + (vd.shadow_scale_candidates && vd.shadow_scale_candidates.length ? ' · scale candidates: ' + vd.shadow_scale_candidates.map(_r30esc).join(', ') : '')
+    + (vd.shadow_reduce_candidates && vd.shadow_reduce_candidates.length ? ' · reduce candidates: ' + vd.shadow_reduce_candidates.map(_r30esc).join(', ') : '')
+    + '. A verdict confers no capital; FORWARD_CONFIRMED remains the tournament\'s word under its full gate.</div>';
   var oc = sp.opportunity_counts || {};
   var recs = sp.recommendations || [];
   var opp = '<div style="font-size:10px;color:var(--muted,#8b98b0);margin:4px 0 0;"><b>Shadow opportunity cost:</b> HOLD '
@@ -28836,6 +28870,8 @@ function _r46tRenderMoney(d) {
     + '. Research recommendations only; they change no shadow weight and no holding.</div>';
   _setHtml('r46t-money', head
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;">' + k1 + '</div>'
+    + verdictStrip
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;">' + k3 + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;">' + k2 + '</div>'
     + grp('P&amp;L by asset class', sp.pnl_by_asset_class)
     + grp('P&amp;L by economic family', sp.pnl_by_economic_family)

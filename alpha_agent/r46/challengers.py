@@ -925,7 +925,130 @@ R46_4_SPECS = (
 #: 46.4 P&L-offensive cohort. Registration and emission default to this; each
 #: tuple keeps its own name and its own bytes because the earlier
 #: specifications are evidence.
-ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS
+# --------------------------------------------------------------------------- #
+# Release 46.5 - the forward-harvest cohort. Two information families no
+# active cell reads: per-name EARNINGS announcement instants (SEC 8-K Item
+# 2.02 acceptance stamps) and daily INSIDER FLOW (SEC Form 4). Every constant
+# is the literature's, declared here before any of these rules first read a
+# bar of this estate's data. Nothing was swept.
+# --------------------------------------------------------------------------- #
+R46_5_COHORT = "R46_5_FORWARD_HARVEST"
+
+R46_5_CANONICAL_CONSTANTS = {
+    "statement": (
+        "every Release-46.5 parameter is a declared constant written into "
+        "this module before the rule first read a bar of this estate's data "
+        "to be selected; no sweep, screen or ranking on owned returns chose "
+        "any of them"),
+    "pead_window_sessions": 5,          # announcements in the trailing week
+    "pead_leg_fraction": 1 / 3.0,       # terciles, as the event literature
+    "pead_min_names": 15,               # five names per leg, at least
+    "insider_cluster_window_sessions": 21,   # one month
+    "insider_cluster_min_insiders": 2,       # two distinct buyers = a cluster
+    "insider_cluster_min_names": 5,
+    "insider_npr_window_sessions": 63,       # one quarter
+    "insider_npr_leg_fraction": 1 / 3.0,
+    "insider_npr_min_names": 15,
+}
+K5 = R46_5_CANONICAL_CONSTANTS
+
+R46_5_SPECS = (
+    _spec(
+        challenger_id="r46_5_pead_announcement_return_20d",
+        family="POST_EARNINGS_ANNOUNCEMENT_DRIFT",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_EARNINGS_TERCILE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names whose earnings 8-K (Item 2.02) was accepted by "
+                 "EDGAR before the emission instant and whose reaction "
+                 "session falls in the trailing five sessions",
+        thesis="the market under-reacts to earnings news; the announcement-"
+               "window abnormal return sorts the cross-section into names "
+               "that keep drifting in the direction of the surprise for "
+               "weeks (Chan, Jegadeesh and Lakonishok's earnings-"
+               "announcement-return formulation, which needs no consensus)",
+        parameters={"window_sessions": K5["pead_window_sessions"],
+                    "leg_fraction": K5["pead_leg_fraction"],
+                    "min_names": K5["pead_min_names"],
+                    "signal": "announcement-window return minus the SPY "
+                              "return over the same window (close before "
+                              "the reaction session to the reaction close)",
+                    "event_source": "SEC 8-K Item 2.02 acceptance instant"},
+        signal_owner="_pead_announcement_return",
+        cohort=R46_5_COHORT,
+        information_family="EARNINGS_EVENTS",
+        dependence_cluster="EARNINGS_DRIFT",
+    ),
+    _spec(
+        challenger_id="r46_5_insider_cluster_buy_20d",
+        family="INSIDER_CLUSTER_BUYING",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LONG_INSIDER_CLUSTER",
+        prediction_type="DIRECTIONAL_VS_BENCHMARK",
+        horizons=(20,),
+        control=C.CONTROL_BENCHMARK,
+        benchmark="SPY",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names with at least two distinct insiders making open-"
+                 "market purchases (Form 4 code P) accepted by EDGAR within "
+                 "the trailing 21 sessions",
+        thesis="several insiders buying the same stock in the open market "
+               "within a month is informed demand that the price has not "
+               "absorbed; the basket outperforms the index over the following "
+               "month",
+        parameters={"window_sessions": K5["insider_cluster_window_sessions"],
+                    "min_insiders": K5["insider_cluster_min_insiders"],
+                    "min_names": K5["insider_cluster_min_names"],
+                    "signal": "count of distinct open-market buyers; equal "
+                              "weight long basket, gross 1.0",
+                    "event_source": "SEC Form 4 ACCEPTANCE-DATETIME"},
+        signal_owner="_insider_cluster_buy",
+        cohort=R46_5_COHORT,
+        information_family="INSIDER_FLOW",
+        dependence_cluster="INSIDER_FLOW",
+    ),
+    _spec(
+        challenger_id="r46_5_insider_net_purchase_xs_20d",
+        family="INSIDER_NET_PURCHASE_RATIO",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_INSIDER_NPR_TERCILE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names with any open-market insider purchase or sale "
+                 "(Form 4 codes P / S) accepted by EDGAR within the trailing "
+                 "63 sessions",
+        thesis="the net purchase ratio - insider buying minus selling over "
+               "buying plus selling - ranks names by the direction of informed "
+               "flow; net buyers outperform net sellers over the following "
+               "month",
+        parameters={"window_sessions": K5["insider_npr_window_sessions"],
+                    "leg_fraction": K5["insider_npr_leg_fraction"],
+                    "min_names": K5["insider_npr_min_names"],
+                    "signal": "(purchase value - sale value) / (purchase "
+                              "value + sale value), value = shares x price "
+                              "where priced, shares otherwise",
+                    "event_source": "SEC Form 4 ACCEPTANCE-DATETIME"},
+        signal_owner="_insider_net_purchase_xs",
+        cohort=R46_5_COHORT,
+        information_family="INSIDER_FLOW",
+        dependence_cluster="INSIDER_FLOW",
+        economic_overlap_with=("r46_5_insider_cluster_buy_20d",),
+        overlap_note="same filings, different aggregation (breadth of "
+                     "buyers versus net value); one dependence cluster",
+    ),
+)
+
+ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -1935,7 +2058,211 @@ def _spx_announcement_day(spec: dict) -> dict:
                          "holding_session_is_announcement_day", hold)
 
 
+def _fraction_book(scores: dict, fraction: float, min_names: int,
+                   cost_class: str = "US_EQUITY") -> list:
+    """Dollar-neutral long-top / short-bottom ``fraction`` book, gross 1.0,
+    over a SMALL event cross-section. Refuses below ``min_names``."""
+    clean = {k: float(v) for k, v in scores.items()
+             if v is not None and np.isfinite(v)}
+    n = len(clean)
+    if n < int(min_names):
+        return []
+    k = max(1, int(round(n * float(fraction))))
+    order = sorted(clean.items(), key=lambda kv: kv[1])
+    shorts, longs = order[:k], order[-k:]
+    legs = []
+    for sym, sc in longs:
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": cost_class})
+    for sym, sc in shorts:
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": cost_class})
+    return legs
+
+
+def _trailing_sessions(cutoff: _dt.date, n: int) -> list:
+    out, d = [], cutoff
+    while len(out) < int(n):
+        if d.weekday() not in CK.WEEKEND:
+            out.append(str(d))
+        d -= _dt.timedelta(days=1)
+    return out
+
+
+def _pead_announcement_return(spec: dict) -> dict:
+    """Sort last week's announcers by announcement-window abnormal return."""
+    from . import earnings as EA
+    p = spec["parameters"]
+    now = CK.now_utc()
+    cutoff = MD.last_session(BENCHMARK_EQUITY)
+    spy = MD.closes(BENCHMARK_EQUITY)
+    if cutoff is None or spy is None or not len(spy):
+        return {"state": "NO_DATA", "legs": []}
+    raw_universe = _eq_universe()
+    cov = EA.universe_coverage(raw_universe, now)
+    if not cov["complete"]:
+        return {"state": "LANE_COVERAGE_INCOMPLETE", "legs": [],
+                "universe_coverage": cov}
+    # Normalise on BOTH sides. The coverage gate compares normalised names; a
+    # membership test against the raw watchlist here would silently drop any
+    # share class the two sources spell differently.
+    universe = {EA.norm_ticker(t) for t in raw_universe}
+    by_norm = {EA.norm_ticker(t): t for t in raw_universe}
+    ann = EA.recent_announcements(cutoff, p["window_sessions"], now)
+    scores, marks, detail = {}, {}, []
+    for e in ann:
+        sym = EA.norm_ticker(e.get("ticker"))
+        if sym not in universe or sym in scores:
+            continue
+        sym = by_norm.get(sym, sym)       # trade the name the bars are keyed by
+        s = MD.closes(sym)
+        if s is None or len(s) < 3:
+            continue
+        rs = str(e.get("reaction_session"))
+        idx = [str(ts.date()) for ts in s.index]
+        if rs not in idx:
+            continue
+        i = idx.index(rs)
+        if i == 0 or str(s.index[i].date()) > str(cutoff):
+            continue
+        sidx = [str(ts.date()) for ts in spy.index]
+        if rs not in sidx or sidx.index(rs) == 0:
+            continue
+        j = sidx.index(rs)
+        r_name = float(s.iloc[i]) / float(s.iloc[i - 1]) - 1.0
+        r_spy = float(spy.iloc[j]) / float(spy.iloc[j - 1]) - 1.0
+        scores[sym] = r_name - r_spy
+        marks[sym] = float(s.iloc[-1])
+        detail.append({"ticker": sym, "reaction_session": rs,
+                       "timing": e.get("timing"),
+                       "accepted_at_utc": e.get("accepted_at_utc"),
+                       "abnormal_return": scores[sym]})
+    legs = _fraction_book(scores, p["leg_fraction"], p["min_names"],
+                          spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_announcers_in_window": len(ann),
+            "n_in_universe_scored": len(scores), "events": detail[:60],
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _insider_window(spec: dict, window_key: str = "window_sessions"):
+    """The declared window's transactions - or the reason there are none.
+
+    Returns ``(cutoff, coverage, transactions)``. A window that is not
+    COMPLETELY covered by complete daily captures yields no transactions and
+    carries its coverage report: a breadth-of-buyers count over a window half
+    of which was never captured systematically undercounts, and would read as
+    a weak signal rather than as missing data.
+    """
+    from . import form4 as FM
+    now = CK.now_utc()
+    cutoff = MD.last_session(BENCHMARK_EQUITY)
+    if cutoff is None:
+        return None, None, []
+    window = _trailing_sessions(cutoff, spec["parameters"][window_key])
+    cov = FM.window_coverage(window, now)
+    if not cov["complete"]:
+        return cutoff, cov, []
+    sessions = set(window)
+    txs = [t for t in FM.transactions(now, informative_only=True)
+           if str(t.get("transaction_date") or "") in sessions
+           and t.get("shares")]
+    return cutoff, cov, txs
+
+
+def _insider_cluster_buy(spec: dict) -> dict:
+    """Equal-weight long basket of names with clustered open-market buying."""
+    p = spec["parameters"]
+    cutoff, cov, txs = _insider_window(spec)
+    if cutoff is None:
+        return {"state": "NO_DATA", "legs": []}
+    if not (cov or {}).get("complete"):
+        return {"state": "LANE_COVERAGE_INCOMPLETE", "legs": [],
+                "window_coverage": cov}
+    from . import earnings as EA
+    raw_universe = _eq_universe()
+    by_norm = {EA.norm_ticker(t): t for t in raw_universe}
+    buyers: dict = {}
+    for t in txs:
+        if t.get("transaction_code") != "P":
+            continue
+        sym = by_norm.get(t.get("issuer_ticker"))
+        if sym is None:
+            continue
+        buyers.setdefault(sym, set()).add(t.get("insider_cik")
+                                          or t.get("insider_name"))
+    names = sorted(s for s, b in buyers.items()
+                   if len(b) >= int(p["min_insiders"]))
+    marks = {}
+    for s in list(names):
+        px = MD.closes(s)
+        if px is None or not len(px):
+            names.remove(s)
+            continue
+        marks[s] = float(px.iloc[-1])
+    if len(names) < int(p["min_names"]):
+        return {"state": "OK", "legs": [], "n_cluster_names": len(names),
+                "n_informative_transactions": len(txs),
+                "window_coverage": cov,
+                "why_flat": "fewer than %d names carry a buying cluster"
+                            % p["min_names"],
+                "marks": marks, "cost_class_by_leg": {}}
+    legs = [{"instrument": s, "weight": 1.0 / len(names),
+             "score": float(len(buyers[s])), "side": "LONG",
+             "cost_class": spec["cost_class"]} for s in names]
+    return {"state": "OK", "legs": legs, "n_cluster_names": len(names),
+            "n_informative_transactions": len(txs), "window_coverage": cov,
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _insider_net_purchase_xs(spec: dict) -> dict:
+    """Long top-third / short bottom-third by insider net purchase ratio."""
+    p = spec["parameters"]
+    cutoff, cov, txs = _insider_window(spec)
+    if cutoff is None:
+        return {"state": "NO_DATA", "legs": []}
+    if not (cov or {}).get("complete"):
+        return {"state": "LANE_COVERAGE_INCOMPLETE", "legs": [],
+                "window_coverage": cov}
+    from . import earnings as EA
+    raw_universe = _eq_universe()
+    by_norm = {EA.norm_ticker(t): t for t in raw_universe}
+    buy: dict = {}
+    sell: dict = {}
+    for t in txs:
+        sym = by_norm.get(t.get("issuer_ticker"))
+        if sym is None:
+            continue
+        val = float(t["shares"]) * float(t.get("price_per_share") or 1.0)
+        if t.get("transaction_code") == "P":
+            buy[sym] = buy.get(sym, 0.0) + val
+        elif t.get("transaction_code") == "S":
+            sell[sym] = sell.get(sym, 0.0) + val
+    scores, marks = {}, {}
+    for sym in set(buy) | set(sell):
+        tot = buy.get(sym, 0.0) + sell.get(sym, 0.0)
+        if tot <= 0:
+            continue
+        px = MD.closes(sym)
+        if px is None or not len(px):
+            continue
+        scores[sym] = (buy.get(sym, 0.0) - sell.get(sym, 0.0)) / tot
+        marks[sym] = float(px.iloc[-1])
+    legs = _fraction_book(scores, p["leg_fraction"], p["min_names"],
+                          spec["cost_class"])
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_names_with_flow": len(scores),
+            "n_informative_transactions": len(txs), "window_coverage": cov,
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
 _OWNERS = {
+    "_pead_announcement_return": _pead_announcement_return,
+    "_insider_cluster_buy": _insider_cluster_buy,
+    "_insider_net_purchase_xs": _insider_net_purchase_xs,
     "_cot_xs_reversal": _cot_xs_reversal,
     "_cot_xs_flow": _cot_xs_flow,
     "_credit_regime_spx": _credit_regime_spx,
