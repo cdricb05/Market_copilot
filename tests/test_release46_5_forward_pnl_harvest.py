@@ -204,11 +204,18 @@ def test_r46_5_specs_are_frozen_at_their_published_hashes():
 
 
 def test_the_field_is_thirty_three_and_every_id_is_unique():
+    """The R46.5 field is thirty-three and stays thirty-three.
+
+    Release 46.6 added seven FAST-EVIDENCE challengers in their own cohort;
+    the four cohorts this release froze are untouched, which is what this test
+    exists to prove.
+    """
     assert len(CH.SEED_SPECS) == 10
     assert len(CH.EXPANSION_SPECS) == 11
     assert len(CH.R46_4_SPECS) == 9
     assert len(CH.R46_5_SPECS) == 3
-    assert len(CH.ALL_SPECS) == 33
+    assert (len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS)
+            + len(CH.R46_4_SPECS) + len(CH.R46_5_SPECS)) == 33
     ids = [s["challenger_id"] for s in CH.ALL_SPECS]
     assert len(ids) == len(set(ids))
 

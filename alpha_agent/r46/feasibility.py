@@ -75,6 +75,14 @@ _PROBE_SYMBOLS = {
     "_pead_announcement_return": ("SPY", "AAPL", "MSFT"),
     "_insider_cluster_buy": ("SPY", "AAPL", "MSFT"),
     "_insider_net_purchase_xs": ("SPY", "AAPL", "MSFT"),
+    # Release 46.6 fast-evidence owners. Same rule as everywhere above: the
+    # probe checks the TRADEABLE expression is alive, never the signal. These
+    # symbols are a declaration about the data path and do not enter any
+    # challenger's specification hash.
+    "_insider_cluster_fast": ("SPY", "AAPL", "MSFT"),
+    "_cot_xs_commercial": ("&ES", "&ZN", "&CL", "&GC"),
+    "_credit_shock_spx": ("SPY", "HYG"),
+    "_eq_xs_rev_variant": ("SPY", "AAPL", "MSFT"),
 }
 
 
@@ -175,13 +183,31 @@ def adopted_stream_state(shadow: dict) -> dict:
             "can_accrue_today": False,
         }
     if rel in ("R39", "R40"):
+        # Release 46.6 replaced an assertion with a measurement. The owner was
+        # DRIVEN: alpha_agent.r39.research_shadow.build_fresh_state() rebuilt
+        # the futures and VX panels from the live Norgate entitlement in ~361
+        # seconds and carried decision dates through the current session. The
+        # stream is not dead and its data is not gone - it was never called.
+        # It is now a registered lane of the canonical cycle
+        # (alpha_agent.r46.lanes), so it reports a lifecycle state every run.
+        # What still blocks the ROW is a different thing, and it is named:
+        # appending writes into the PRIOR RELEASE's ledger, and
+        # contract.SAFETY_BLOCK["mutates_prior_release_artifacts"] is False.
         return {
             "state": NOT_PROBED,
             "reason": "decides at per-market month-end or on VX Fridays "
-                      "through its own capture owner; no run has called that "
-                      "owner since the freeze, so its ledgers hold zero rows",
-            "measured_by": "alpha_agent.r40.research_cycle "
-                           "(forward_capture_ledger_status.json, n_rows 0)",
+                      "through its own capture owner. R46.6 wired that owner "
+                      "into the canonical Daily Research Cycle and measured "
+                      "it working; the remaining blocker is that appending "
+                      "would mutate a prior release's ledger, which the "
+                      "frozen R46 safety block forbids without a human "
+                      "decision",
+            "measured_by": "alpha_agent.r46.lanes (R46.6), which drives "
+                           "alpha_agent.r39.research_shadow directly",
+            "owner_is_reachable": True,
+            "called_by_canonical_drc": True,
+            "append_blocked_by": "contract.SAFETY_BLOCK"
+                                 "['mutates_prior_release_artifacts'] is False",
             "can_accrue_today": False,
         }
     return {"state": NOT_PROBED, "reason": "no declared probe for this source",

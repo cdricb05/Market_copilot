@@ -3700,7 +3700,7 @@
               <div class="cc-kv r29ux2-off" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="cc-ob-mark">&mdash;</span></div>
               <div class="cc-kv r29ux2-off" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="cc-ob-impl">&mdash;</span></div>
               <div class="cc-kv r29ux2-off"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
-              <div class="cc-kv r29ux2-off" title="Next scheduled combined-model review of Alpha Paper Book #1 (monthly cadence). A newer target before this date is informational — the active holdings stay valid."><span class="k">Next Review</span><span class="v" id="cc-ob-review">&mdash;</span></div>
+              <div class="cc-kv r29ux2-off" title="Scheduled MODEL-RECALIBRATION checkpoint for Alpha Paper Book #1. This is not the cadence at which the portfolio is reassessed: the governed Daily Research Cycle reassesses the portfolio after every material signal refresh. A newer target before this date is informational — the active holdings stay valid."><span class="k">Model recalibration checkpoint</span><span class="v" id="cc-ob-review">&mdash;</span></div>
             </div>
             <!-- Phase 27B.2: five-stage operational workflow — statuses come from the
                  canonical payload's workflow_stages, never derived per page. -->
@@ -4033,7 +4033,7 @@
             <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="dwob-sum-holdings">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Unrealized P&amp;L</span><span class="v" id="dwob-sum-upnl">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Valuation Date</span><span class="v" id="dwob-sum-valdate">&mdash;</span></div>
-            <div class="cc-kv" title="Next scheduled combined-model review (monthly cadence). A newer target before this date is informational."><span class="k">Next Review</span><span class="v" id="dwob-review">&mdash;</span></div>
+            <div class="cc-kv" title="Scheduled MODEL-RECALIBRATION checkpoint. The portfolio itself is reassessed by the governed Daily Research Cycle after every material signal refresh, not on this date. A newer target before this date is informational."><span class="k">Model recalibration checkpoint</span><span class="v" id="dwob-review">&mdash;</span></div>
           </div>
           <button id="dwob-monitor-btn" class="cc-btn primary" style="margin-top:6px;font-size:var(--fs-0);padding:4px 10px;" onclick="navigateToPortfolioPositions()" title="Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&amp;L.">Monitor Holdings and Performance</button>
           <div class="cc-na-note" id="dwob-next" style="margin-top:6px; font-size:11px; line-height:1.5;">Next Action: connect to load the operational book.</div>
@@ -29215,8 +29215,12 @@ function renderPortfolioReassessment(d) {
       sub: 'one-way; budget ' + _rsPct(dec.turnover_budget) },
     { label: 'Estimated cost', value: _rsUsd(dec.expected_transaction_cost_usd),
       sub: 'canonical desk cost model, counted once' },
-    { label: 'Holdings needing attention', value: String(attn),
-      sub: (dec.actionable_holding_count === undefined ? '' : (dec.actionable_holding_count + ' actionable')) },
+    // Release 46.6 — the label says WHICH question this count answers. A
+    // non-zero signal-level count with zero actionable after the portfolio
+    // gate is the normal state, not a contradiction with the other card.
+    { label: 'Holdings under signal-level review', value: String(attn),
+      sub: (dec.actionable_holding_count === undefined ? 'signal level, before the portfolio gate'
+            : (dec.actionable_holding_count + ' actionable after the portfolio gate')) },
     { label: 'Strongest opportunity',
       value: escapeHtml(strongest && strongest.ticker ? strongest.ticker : '—'),
       sub: (strongest && strongest.replacement
@@ -29900,9 +29904,14 @@ function _wsRenderPortfolioVerdict(d) {
     actionTxt = 'Monitor'; actionTone = 'tone-quiet';
   }
 
+  // Release 46.6 — name the scope. This is the SIGNAL-LEVEL count; the
+  // post-portfolio-gate actionable count is a different question and is
+  // labelled as such wherever it appears.
   var attn = (cd.holding_attention_count == null) ? null : Number(cd.holding_attention_count);
-  var attnTxt = (attn == null) ? '' : (attn === 1 ? '1 holding needs attention'
-                                                  : (attn + ' holdings need attention'));
+  var _actionable = cd.actionable_holdings_after_portfolio_gate;
+  var attnTxt = (attn == null) ? ''
+    : ((attn === 1 ? '1 holding' : (attn + ' holdings')) + ' under signal-level review'
+       + (_actionable == null ? '' : (' · ' + _actionable + ' actionable after the portfolio gate')));
   var ctaHtml = '';
   if (cd.operator_action_available) {
     ctaHtml = '<a class="thc-link" role="button" tabindex="0" style="margin-left:auto;"'
@@ -30176,10 +30185,26 @@ function renderProposedPortfolioView(d) {
   var signal = d.signal || {}, risk = d.risk || {}, allocations = d.allocations || [];
   var hasProposal = !!(d.artifact || d.proposal_hash || (allocations && allocations.length));
   if (!hasProposal) {
-    if (stateEl) { stateEl.style.display = ''; stateEl.textContent = (state === 'NOT_RUN') ? 'NO PROPOSAL YET' : state; stateEl.className = 'opx-state muted'; }
-    if (sumEl) sumEl.textContent = (state === 'NOT_RUN')
-      ? 'No reallocation proposal yet. The first proposal is produced by the next completed Daily Research Cycle. Read-only — no orders.'
-      : ('Reallocation proposal state: ' + state + '.');
+    // Release 46.6 — when the AUTHORITATIVE reason there is no proposal is
+    // known, print the reason instead of "NO PROPOSAL YET". The wording comes
+    // verbatim from workflow_state.canonical_portfolio_decision; nothing is
+    // composed here.
+    var _cpd = (window._workflowStatusData || {}).canonical_portfolio_decision || {};
+    var _noPropHead = _cpd.no_proposal_headline || null;
+    var _noPropWhy = _cpd.no_proposal_reason || null;
+    if (stateEl) {
+      stateEl.style.display = '';
+      stateEl.textContent = _noPropHead
+        || ((state === 'NOT_RUN') ? 'NO PROPOSAL YET' : state);
+      stateEl.className = 'opx-state muted';
+    }
+    if (sumEl) {
+      sumEl.textContent = _noPropWhy
+        ? (_noPropWhy + ' Read-only — no orders.')
+        : ((state === 'NOT_RUN')
+          ? 'No reallocation proposal yet. The first proposal is produced by the next completed Daily Research Cycle. Read-only — no orders.'
+          : ('Reallocation proposal state: ' + state + '.'));
+    }
     body.innerHTML = '';
     return;
   }
@@ -34222,8 +34247,11 @@ function renderOperationalBook(d) {
   // source), and the canonical Next Review clock on the Command Center card.
   if (ob) {
     _obSet('cc-status-mark', view.valuationDate || (ob.desk_mark_date || '—'));
+    // Release 46.6 — this clock is the MODEL-RECALIBRATION checkpoint, never
+    // the portfolio-action cadence. Naming it precisely stops the header from
+    // implying the next portfolio action is a monthly review.
     var revTxt = view.nextReviewDate
-      ? (view.nextReviewDate + (view.reviewDue ? ' · REVIEW DUE' : ' · review not due'))
+      ? (view.nextReviewDate + (view.reviewDue ? ' · RECALIBRATION DUE' : ' · not due'))
       : '—';
     _obSet('cc-ob-review', revTxt);
     _obSet('dwob-review', revTxt);
@@ -34491,7 +34519,7 @@ function renderPmCurrentPortfolio() {
     { k: 'Current target', v: _r29Mirror('cc-ob-target'), t: 'The confirmed target the book is implementing.' },
     { k: 'Implementation', v: _r29Mirror('cc-ob-impl'), t: 'Target names the book ACTUALLY holds. A confirmed target weight is not an executed position.' },
     { k: 'Operational mark', v: _r29Mirror('cc-status-mark'), t: 'Operational desk valuation date of Alpha Paper Book #1.' },
-    { k: 'Next review', v: _r29Mirror('cc-ob-review'), t: 'Next scheduled combined-model review. A material event can still propose action before this date.' }
+    { k: 'Model recalibration checkpoint', v: _r29Mirror('cc-ob-review'), t: 'Scheduled model-recalibration checkpoint. The portfolio is reassessed by the governed Daily Research Cycle after every material signal refresh; a material event can propose action at any time.' }
   ];
   var html = rows.map(function (r) {
     return '<div class="kv" title="' + escapeHtml(r.t) + '">'

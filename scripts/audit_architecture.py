@@ -10410,6 +10410,12 @@ R46_OWNERS = {
     "sec": "alpha_agent/r46/sec.py",
     "earnings": "alpha_agent/r46/earnings.py",
     "form4": "alpha_agent/r46/form4.py",
+    # Release 46.6 - the cost-efficiency owner (signal edge versus economic
+    # edge), the research-lane lifecycle registry, and the scorer for the
+    # three option hypotheses predeclared before the sample closed.
+    "cost_efficiency": "alpha_agent/r46/cost_efficiency.py",
+    "lanes": "alpha_agent/r46/lanes.py",
+    "options_hypotheses": "alpha_agent/r46/options_hypotheses.py",
 }
 
 #: Release 46.4 - a SECOND implementation of an economic concept the release
@@ -10835,12 +10841,90 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         and "lane_form4" in src.get("advance", "")
         and "def advance(" not in src.get("harvest", "")
         and "def advance(" not in src.get("verdicts", ""))
+    # Every cohort enters through the SAME frozen door and no cohort is ever
+    # removed from the union. Release 46.6 added a fifth tuple, so the union
+    # is matched on its MEMBERSHIP rather than on one exact line of source -
+    # a later cohort must not be able to drop an earlier one, which is what
+    # this invariant is actually for.
+    _ch = src.get("challengers", "")
+    _union = _ch.split("ALL_SPECS =", 1)[-1].split("\n\n", 1)[0]
     r46_5_challengers_frozen_unsearched = (
-        "R46_5_SPECS" in src.get("challengers", "")
-        and "R46_5_CANONICAL_CONSTANTS" in src.get("challengers", "")
-        and "R46_5_FORWARD_HARVEST" in src.get("challengers", "")
-        and "ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + "
-            "R46_5_SPECS" in src.get("challengers", ""))
+        "R46_5_SPECS" in _ch
+        and "R46_5_CANONICAL_CONSTANTS" in _ch
+        and "R46_5_FORWARD_HARVEST" in _ch
+        and all(t in _union for t in ("SEED_SPECS", "EXPANSION_SPECS",
+                                      "R46_4_SPECS", "R46_5_SPECS")))
+
+    # ---- Release 46.6 ------------------------------------------------------ #
+    # Signal edge and ECONOMIC edge are different things, and exactly one
+    # module is allowed to know the difference.
+    _ce = src.get("cost_efficiency", "")
+    r46_6_cost_efficiency_has_one_owner = (
+        "CALCULATION_OWNER = \"alpha_agent.r46.cost_efficiency\"" in _ce
+        and "def break_even(" in _ce
+        and "def classify(" in _ce
+        and "def classify_observation(" in _ce
+        and "GROSS_EDGE_POSITIVE_COST_DESTROYED" in _ce
+        # the descriptive economic state never replaces the scientific verdict
+        and "descriptive_states_never_replace_verdicts" in _ce
+        and "matured_and_mark_to_market_are_never_summed" in _ce
+        # a ratio on a non-positive gross edge is refused, not printed
+        and "UNDEFINED_GROSS_EDGE_NOT_POSITIVE" in _ce
+        # and no OTHER R46 module may compute a break-even of its own
+        and "def break_even(" not in src.get("leaderboard", "")
+        and "def break_even(" not in src.get("verdicts", "")
+        and "def break_even(" not in src.get("pnl_board", ""))
+
+    # A research lane that nobody calls is the defect this release exists to
+    # abolish, so the vocabulary must contain no state meaning "forgotten"
+    # and the audit that proves it must live in the owner.
+    _ln = src.get("lanes", "")
+    r46_6_lane_contract_is_enforced = (
+        "CALCULATION_OWNER = \"alpha_agent.r46.lanes\"" in _ln
+        and "CALLED_QUIET_NOT_DUE" in _ln
+        and "CALLED_SAMPLE_BLOCKED" in _ln
+        and "CALLED_PIT_BLOCKED" in _ln
+        and "FORGOTTEN_IS_NOT_A_STATE" in _ln
+        and "def audit(" in _ln
+        and "contract_holds" in _ln
+        # the option surface and the seven adopted shadows are REGISTERED
+        and '"options"' in _ln and "r39_fut_month_end" in _ln
+        and "r41_btc_funding" in _ln and "r42_btc_basis" in _ln
+        # and the canonical cycle calls the registry, not a lane list of its own
+        and "LN.run_all(" in src.get("advance", "")
+        and "research_lanes" in src.get("advance", ""))
+
+    # A prior release's ledger is never written by R46, and the flag that
+    # would allow it is False with the frozen safety block named.
+    r46_6_prior_release_ledgers_untouched = (
+        "ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS = False" in _ln
+        and "mutates_prior_release_artifacts" in _ln)
+
+    # The option hypotheses are scored as HISTORICAL_SIMULATION and may never
+    # enter the prospective ledger, however good they look.
+    _oh = src.get("options_hypotheses", "")
+    r46_6_option_hypotheses_are_historical = (
+        "EVIDENCE_CLASS = C.HISTORICAL_SIMULATION" in _oh
+        and "SAMPLE_INSUFFICIENT" in _oh
+        and "crowns_nothing" in _oh
+        and "enters_no_prospective_ledger" in _oh
+        and "LG.append" not in _oh and "ledger" not in _oh.split("\n\n")[0])
+
+    # The R46.6 cohort is declared, not searched, and its two reversal cells
+    # are NEW challengers rather than an edit of the one that lost.
+    r46_6_challengers_frozen_unsearched = (
+        "R46_6_SPECS" in _ch
+        and "R46_6_CANONICAL_CONSTANTS" in _ch
+        and "R46_6_FAST_EVIDENCE" in _ch
+        and "R46_6_DECLINED" in _ch
+        and "R46_6_SPECS" in _union
+        # the seed reversal challenger - the one that produced the first
+        # matured loss - is still present, verbatim, with its own thesis and
+        # its own parameters. R46.6 answers it with NEW cells, never an edit.
+        and "r46_eq_xs_rev_5d" in _ch
+        and "a week of one-sided pressure in a large-cap name is mostly" in _ch
+        and "r46_6_eq_xs_rev_5d_tail2" in _ch
+        and "r46_6_eq_xs_rev_5d_hold5" in _ch)
 
     return {
         "harvest_keeps_matured_and_mtm_apart":
@@ -10859,6 +10943,16 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
             harvest_stage_is_inside_the_one_advance,
         "r46_5_challengers_frozen_unsearched":
             r46_5_challengers_frozen_unsearched,
+        # --- Release 46.6 ------------------------------------------------- #
+        "r46_6_cost_efficiency_has_one_owner":
+            r46_6_cost_efficiency_has_one_owner,
+        "r46_6_lane_contract_is_enforced": r46_6_lane_contract_is_enforced,
+        "r46_6_prior_release_ledgers_untouched":
+            r46_6_prior_release_ledgers_untouched,
+        "r46_6_option_hypotheses_are_historical":
+            r46_6_option_hypotheses_are_historical,
+        "r46_6_challengers_frozen_unsearched":
+            r46_6_challengers_frozen_unsearched,
         "modules_present": not modules_missing,
         "modules_missing": modules_missing,
         "second_owner_modules": second_owner_modules,
@@ -13131,6 +13225,18 @@ BLOCKING_INVARIANTS = (
      "harvest_stage_is_inside_the_one_advance", True),
     ("release46_prospective_alpha_tournament",
      "r46_5_challengers_frozen_unsearched", True),
+    # --- Release 46.6: signal edge is not economic edge, and no research
+    #     lane may be in a state nobody can see.
+    ("release46_prospective_alpha_tournament",
+     "r46_6_cost_efficiency_has_one_owner", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_lane_contract_is_enforced", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_prior_release_ledgers_untouched", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_option_hypotheses_are_historical", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_challengers_frozen_unsearched", True),
     # --- Release 46.4: the economic layer has ONE owner per concept, never
     #     labels history as forward, appends only, and cannot see the future.
     ("release46_prospective_alpha_tournament",

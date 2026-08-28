@@ -2228,10 +2228,43 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
     }[state]
     if proposal_requested_not_produced:
         headline = "PORTFOLIO PROPOSAL REQUESTED — NOT YET PRODUCED"
+
+    # Release 46.6 - when there is no proposal and the AUTHORITATIVE reason is
+    # known, say the reason. The Proposed Portfolio surface printed "NO
+    # PROPOSAL YET" over a portfolio whose reassessment was BLOCKED on named
+    # constraint breaches, which reads as "nothing has happened" when what
+    # actually happened is that something needs a person.
+    no_proposal_headline, no_proposal_reason = None, None
+    if state == CPD_BLOCKED:
+        no_proposal_headline = "NO PROPOSAL — PORTFOLIO CONSTRAINT REVIEW REQUIRED"
+        no_proposal_reason = (
+            "the portfolio reassessment is %s and named %d blocker(s): %s. A "
+            "proposal is not produced while a blocker stands; this is a "
+            "review, not an outage."
+            % (prs_state, len(blockers), ", ".join(blockers[:8]) or "none listed"))
+    elif state == CPD_CHANGE_WITHHELD:
+        no_proposal_headline = "NO PROPOSAL — PORTFOLIO CHANGE WITHHELD"
+        no_proposal_reason = (
+            "deterioration was found and no change cleared the economic "
+            "hurdle: %s" % (", ".join(reasons[:8]) or "no reason recorded"))
+    elif proposal_requested_not_produced:
+        no_proposal_headline = "NO PROPOSAL — REQUESTED BUT NOT YET PRODUCED"
+        no_proposal_reason = (
+            "the reassessment cleared its gate and asked for a proposal; the "
+            "proposal owner has not produced one for this session yet")
+    elif state == CPD_NO_CHANGE:
+        no_proposal_headline = "NO PROPOSAL — NO PORTFOLIO CHANGE REQUIRED"
+        no_proposal_reason = (
+            "the reassessment ran and found the current holdings remain the "
+            "best available use of capital")
+
     return {
         "state": state,
         "state_vocabulary": list(CANONICAL_PORTFOLIO_DECISION_STATES),
         "headline": headline,
+        "no_proposal_headline": no_proposal_headline,
+        "no_proposal_reason": no_proposal_reason,
+        "no_proposal_reason_is_authoritative": bool(no_proposal_reason),
         "eligible_market_date": eligible_date,
         # The human sentence is produced by the reassessment owner; never re-worded here.
         "explanation": prs.get("explanation"),
@@ -2239,6 +2272,25 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
         "holding_attention_scope": "INDIVIDUAL_HOLDING_REVIEW_SIGNAL",
         "portfolio_scope": "WHOLE_PORTFOLIO_ECONOMIC_VERDICT",
         "scopes_are_different_questions": True,
+        # Release 46.6 - the two counts an operator sees on different cards,
+        # under names that say which is which. One card read "15 holdings need
+        # attention" while another read "holdings needing attention = 0"; both
+        # were right and the labels made them look like a contradiction.
+        "signal_level_holdings_under_review": attention_count,
+        # ``decision`` is a dict on the full reassessment artifact and a plain
+        # state STRING on the summary the workflow composer passes here, so
+        # the nested read is guarded rather than assumed.
+        "actionable_holdings_after_portfolio_gate": (
+            prs.get("actionable_holding_count")
+            if prs.get("actionable_holding_count") is not None
+            else (prs.get("decision") or {}).get("actionable_holding_count")
+            if isinstance(prs.get("decision"), dict) else None),
+        "attention_counts_are_different_questions": (
+            "SIGNAL-LEVEL HOLDINGS UNDER REVIEW counts individual holdings "
+            "whose own economics flagged them. ACTIONABLE HOLDINGS AFTER THE "
+            "PORTFOLIO GATE counts what survived churn control, concentration "
+            "and the turnover budget. A non-zero first number with a zero "
+            "second one is the NORMAL state, not a contradiction."),
         "reassessment_state": prs_state,
         "reassessment_owner": PRS_CANONICAL_OWNER,
         "reassessment_hash": prs.get("reassessment_hash"),

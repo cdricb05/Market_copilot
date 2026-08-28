@@ -53,18 +53,14 @@ from __future__ import annotations
 import datetime as _dt
 
 from . import CAMPAIGN_ID, artifact_body, campaign_dir, read_json, write_json
-from . import cftc as CF
 from . import clock as CK
 from . import contract as C
-from . import credit as CR
-from . import earnings as EA
+from . import cost_efficiency as CE
 from . import emit as EM
-from . import events as EVN
-from . import form4 as FM
 from . import judge as JD
+from . import lanes as LN
 from . import leaderboard as LB
 from . import ledger as LG
-from . import macro as MC
 from . import planner as PL
 from . import registry as RG
 from . import shadow as SH
@@ -75,14 +71,21 @@ CALCULATION_OWNER = "alpha_agent.r46.advance"
 #: Release 46.4 - the orthogonal information lanes the step refreshes BEFORE
 #: anything is scored or emitted. Each is bounded, free, and fail-soft: a lane
 #: that cannot reach its source records that and the step continues.
-LANE_STAGES = ("lane_cftc", "lane_credit", "lane_macro", "lane_events",
-               # Release 46.5 - the two free EDGAR lanes.
+#:
+#: Release 46.6 moved the lane list itself into :mod:`alpha_agent.r46.lanes`,
+#: which is now THE registry of every research lane in the estate, and added
+#: the ones this module silently did not call: the option surface, and the
+#: seven prospective shadows five prior releases froze. The stage names are
+#: kept so failure isolation and the non-core classification are unchanged.
+LANE_STAGES = ("research_lanes", "lane_lifecycle",
+               # Release 46.4 / 46.5 names, retained for continuity.
+               "lane_cftc", "lane_credit", "lane_macro", "lane_events",
                "lane_earnings", "lane_form4")
 
 #: Stages that are read models or lanes OVER the tournament. A failure there
 #: is reported loudly but can never make a live tournament read UNAVAILABLE.
-NON_CORE_STAGES = ("evidence_velocity", "throughput_plan",
-                   "shadow_pnl") + LANE_STAGES
+NON_CORE_STAGES = ("evidence_velocity", "throughput_plan", "shadow_pnl",
+                   "cost_efficiency") + LANE_STAGES
 
 #: The append-only record of every tournament advance. Research root only.
 CYCLE_ARTIFACT = "R46_TOURNAMENT_CYCLES.json"
@@ -133,29 +136,26 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     # so every row emitted later can point at a capture that preceded it.
     as_of = _pnl_as_of(eligible_market_date, started)
     acquire = _lanes_may_acquire()
-    lanes = {
-        "cftc": _safe(lambda: CF.run(acquire_now=acquire,
-                                     campaign_id=campaign_id, as_of=as_of),
-                      failures, "lane_cftc"),
-        "credit": _safe(lambda: CR.run(acquire_now=acquire,
-                                       campaign_id=campaign_id, as_of=as_of),
-                        failures, "lane_credit"),
-        "macro": _safe(lambda: MC.run(acquire_now=acquire,
-                                      campaign_id=campaign_id, as_of=as_of),
-                       failures, "lane_macro"),
-        "events": _safe(lambda: EVN.run(acquire_now=acquire,
-                                        campaign_id=campaign_id, as_of=as_of),
-                        failures, "lane_events"),
-        # Release 46.5 - per-name earnings instants and daily insider flow,
-        # both from EDGAR, both captured with acquisition instants before
-        # anything downstream may read them.
-        "earnings": _safe(lambda: EA.run(acquire_now=acquire,
-                                         campaign_id=campaign_id, as_of=as_of),
-                          failures, "lane_earnings"),
-        "form4": _safe(lambda: FM.run(acquire_now=acquire,
-                                      campaign_id=campaign_id, as_of=as_of),
-                       failures, "lane_form4"),
-    }
+    # Release 46.6: ONE registry, called in full. Every registered lane owner
+    # is invoked and resolves to exactly one lifecycle state; a lane that has
+    # nothing to say says so, and a lane nobody called is a contract breach
+    # the audit below reports rather than a silence nobody can see.
+    lane_result = _safe(lambda: LN.run_all(as_of, campaign_id,
+                                           acquire=acquire),
+                        failures, "research_lanes") or {}
+    lifecycle = _safe(lambda: LN.build(as_of, campaign_id, result=lane_result),
+                      failures, "lane_lifecycle") or {}
+    lanes = {r.get("lane_id"): r for r in (lane_result.get("rows") or ())}
+    # The lane registry is fail-soft BY DESIGN: an owner that raises becomes a
+    # CALLED_DATA_BLOCKED lifecycle row rather than an exception. That is more
+    # informative than a bare stage failure, but it must not be QUIETER: a
+    # raising owner is still reported under its own stage name, exactly as it
+    # was before the lane list moved into alpha_agent.r46.lanes.
+    for _lid, _row in lanes.items():
+        if _row.get("owner_state") == "OWNER_RAISED":
+            failures.append({"stage": "lane_%s" % _lid,
+                             "error": _row.get("error") or "LaneOwnerError",
+                             "detail": str(_row.get("detail") or "")[:200]})
 
     # --- 2. SCORE first. Nothing new may exist when maturity is judged. ------ #
     judged = _safe(lambda: JD.score_pending(campaign_id, started),
@@ -173,6 +173,13 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     shadow = _safe(lambda: SH.advance_pnl(as_of, reg, board_after_scoring,
                                           campaign_id, now=started),
                    failures, "shadow_pnl") or {}
+
+    # --- 3c. Release 46.6: THE cost-efficiency owner, on the same evidence. -- #
+    # Runs after the money layer (it reads the trade ledgers the money layer
+    # just wrote) and BEFORE emission, so no efficiency number can have seen
+    # the batch that is about to be emitted.
+    efficiency = _safe(lambda: CE.build(as_of, campaign_id, reg),
+                       failures, "cost_efficiency") or {}
 
     # --- 4. EMIT, idempotently, from data available at the emission instant. - #
     emission = None
@@ -250,6 +257,10 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
         pnl_as_of=str(as_of),
         shadow_pnl=_shadow_digest(shadow),
         lanes=_lanes_digest(lanes),
+
+        # --- Release 46.6: the lane contract and the economics -------------- #
+        research_lane_lifecycle=_lifecycle_digest(lifecycle),
+        cost_efficiency=_efficiency_digest(efficiency),
 
         # --- what this step is not ------------------------------------------ #
         promoted_models=0,
@@ -415,18 +426,64 @@ def _shadow_digest(shadow: dict) -> dict:
 
 
 def _lanes_digest(lanes: dict) -> dict:
+    """One row per REGISTERED lane, from the lifecycle result.
+
+    Release 46.6: ``state`` is now the lane's LIFECYCLE state, so an operator
+    reading this digest can tell a quiet lane from a blocked one from a
+    retired one - and can no longer read a lane that was never called, because
+    there is no longer a way for one to be absent.
+    """
     out = {}
-    for name, body in (lanes or {}).items():
-        b = body or {}
-        out[name] = {"state": b.get("state", "NOT_RUN"),
-                     "as_of": b.get("as_of"),
-                     "n_captures": (b.get("n_captures")
-                                    if b.get("n_captures") is not None
-                                    else (b.get("acquisition") or {}).get(
-                                        "n_captures")),
-                     "information_family": b.get("information_family"),
-                     "challengers_frozen": b.get("challengers_frozen")}
+    for name, row in (lanes or {}).items():
+        r = row or {}
+        out[name] = {"state": r.get("lifecycle", "NOT_RUN"),
+                     "owner": r.get("owner"),
+                     "owner_state": r.get("owner_state"),
+                     "cadence": r.get("cadence"),
+                     "classification": r.get("classification"),
+                     "was_called": r.get("was_called", False),
+                     "as_of": r.get("as_of"),
+                     "n_captures": r.get("n_captures"),
+                     "information_family": r.get("information_family"),
+                     "next_decision_date": r.get("next_decision_date"),
+                     "challengers_frozen": r.get("challengers")}
     return out
+
+
+def _lifecycle_digest(life: dict) -> dict:
+    """Release 46.6 - the contract, reported on every advance."""
+    if not life:
+        return {"state": "NOT_BUILT", "contract_holds": None}
+    a = life.get("audit") or {}
+    return {
+        "n_lanes": life.get("n_lanes"),
+        "lifecycle_counts": life.get("lifecycle_counts"),
+        "contract_holds": life.get("contract_holds"),
+        "never_called": a.get("never_called"),
+        "n_never_called": a.get("n_never_called"),
+        "lanes_with_unknown_lifecycle": a.get("lanes_with_unknown_lifecycle"),
+        "forgotten_is_not_a_state": life.get("forgotten_is_not_a_state"),
+    }
+
+
+def _efficiency_digest(eff: dict) -> dict:
+    """Release 46.6 - signal edge versus economic edge, in one place."""
+    if not eff:
+        return {"state": "NOT_BUILT"}
+    return {
+        "as_of": eff.get("as_of"),
+        "n_strategies": eff.get("n_strategies"),
+        "economic_state_counts": eff.get("economic_state_counts"),
+        "cost_robustness_counts": eff.get("cost_robustness_counts"),
+        "n_matured_observations": eff.get("n_matured_observations"),
+        "observation_economic_state_counts": eff.get(
+            "observation_economic_state_counts"),
+        "cost_destroyed": eff.get("cost_destroyed"),
+        "gross_edge_negative": eff.get("gross_edge_negative"),
+        "positive_residual_alpha": eff.get("positive_residual_alpha"),
+        "n_with_matured_evidence": eff.get("n_with_matured_evidence"),
+        "descriptive_states_never_replace_verdicts": True,
+    }
 
 
 def _velocity_digest(vel: dict) -> dict:

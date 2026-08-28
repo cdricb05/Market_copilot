@@ -1448,6 +1448,19 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
         "strongest_alternatives": alternatives,
         "attention": attention,
         "recommendation_counts": rec_counts,
+        # Release 46.6 - ONE business concept, ONE authoritative name. See the
+        # matching block in engine.holding_opportunity_cost: the same key name
+        # carried two different concepts on two read models. These counts are
+        # the POST-PORTFOLIO-GATE ones - what survives churn control,
+        # concentration and the turnover budget - and they are deliberately
+        # NOT the same number as the signal-level per-holding counts.
+        "post_portfolio_gate_recommendation_counts": dict(rec_counts),
+        "recommendation_counts_semantic":
+            hoc_kernel.SEMANTIC_POST_PORTFOLIO_GATE,
+        "recommendation_counts_scope": (
+            "per-holding recommendations after the portfolio-level gate; a "
+            "holding under signal-level review is not necessarily actionable "
+            "here"),
         "decision": decision,
         "churn_control": {
             "policy_version": pol["churn_policy_version"],

@@ -57,6 +57,14 @@ REC_REPLACE = "REPLACE"
 REC_ADD = "ADD"
 RECOMMENDATION_VOCAB = (REC_HOLD, REC_REDUCE, REC_EXIT, REC_REPLACE, REC_ADD)
 
+#: Release 46.6 - the two DISTINCT meanings a ``recommendation_counts`` block
+#: can carry, named so they can never be silently interchanged. A read model
+#: that publishes counts must declare which of these it is.
+SEMANTIC_SIGNAL_LEVEL = "SIGNAL_LEVEL_PER_HOLDING_HOC_RECOMMENDATIONS"
+SEMANTIC_POST_PORTFOLIO_GATE = "POST_PORTFOLIO_GATE_ACTIONABLE_RECOMMENDATIONS"
+RECOMMENDATION_COUNT_SEMANTICS = (SEMANTIC_SIGNAL_LEVEL,
+                                  SEMANTIC_POST_PORTFOLIO_GATE)
+
 # --- Frozen assessment-state vocabulary -------------------------------------- #
 STATE_READY = "READY"
 STATE_DEGRADED = "DEGRADED"
@@ -803,6 +811,22 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         "policy": pol,
         "portfolio_summary": portfolio_summary,
         "recommendation_counts": rec_counts,
+        # Release 46.6 - ONE business concept, ONE authoritative name.
+        #
+        # Two different read models published a key called
+        # ``recommendation_counts`` carrying two different concepts: these
+        # SIGNAL-LEVEL per-holding review recommendations, and the
+        # POST-PORTFOLIO-GATE actionable counts that
+        # engine.portfolio_reassessment produces after churn control,
+        # concentration and turnover budget have had their say. The numbers
+        # differ and both were correct; the NAME was not. The explicit key and
+        # the declared semantic below are what a consumer should bind to, and
+        # ``recommendation_counts`` is retained unchanged for compatibility.
+        "signal_level_holding_recommendation_counts": dict(rec_counts),
+        "recommendation_counts_semantic": SEMANTIC_SIGNAL_LEVEL,
+        "recommendation_counts_scope": (
+            "raw per-holding opportunity-cost review signals, before any "
+            "portfolio-level gate has been applied"),
         "holding_reviews": reviews,
         "addition_candidates": addition_candidates,
         "diagnostics": {

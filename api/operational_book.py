@@ -1199,16 +1199,30 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     elif _book_active:
         target_freshness = {
             "code": "CURRENT_TARGET_ACTIVE", "label": "CURRENT TARGET ACTIVE",
-            "line": ("Current target active. Next scheduled review: %s."
-                     % (next_review_date or "pending"))}
+            "line": ("Current target active. Scheduled model-recalibration "
+                     "checkpoint: %s." % (next_review_date or "pending"))}
     else:
         target_freshness = {
             "code": "TARGET_%s" % (_tstate or "UNAVAILABLE"),
             "label": str(_tstate or "UNAVAILABLE").replace("_", " "),
             "line": (lifecycle["primary_explanation"] or "")}
+    # Release 46.6 - the governing cadence, stated correctly.
+    #
+    # This line previously read "Monitor ... Next model review: <date>", which
+    # presented a MONTHLY checkpoint as the next portfolio action. That
+    # contradicts the canonical architecture, where the three operating cycles
+    # are signal refresh (frequent), portfolio reassessment (after every
+    # material refresh) and model recalibration (controlled, evidence-gated).
+    # The monthly checkpoint still exists and is still shown - as a scheduled
+    # FLOOR for recalibration, not as the thing that decides when the
+    # portfolio is next looked at.
     monitor_next_action_line = (
-        ("Monitor holdings, NAV, drift and forward performance."
-         + (" Next model review: %s." % next_review_date if next_review_date else ""))
+        ("Monitor holdings, NAV, drift and forward performance. The portfolio "
+         "is reassessed by the governed Daily Research Cycle after every "
+         "material signal refresh"
+         + ("; the scheduled %s model-recalibration checkpoint is %s."
+            % (str(REVIEW_CADENCE).lower(), next_review_date)
+            if next_review_date else "."))
         if lifecycle["lifecycle_stage"] == LIFECYCLE_FILLED else None)
 
     canonical_state = {
@@ -1260,6 +1274,18 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "next_review_date": next_review_date,
         "review_due": bool(review_due),
         "review_cadence": REVIEW_CADENCE,
+        # Release 46.6 - what this clock IS, so no surface can present it as
+        # the cadence at which the portfolio is reassessed.
+        "review_scope": "SCHEDULED_MODEL_RECALIBRATION_CHECKPOINT",
+        "review_is_the_governing_portfolio_cadence": False,
+        "portfolio_reassessment_cadence": "AFTER_EVERY_MATERIAL_SIGNAL_REFRESH",
+        "portfolio_reassessment_owner": "engine.portfolio_reassessment",
+        "review_scope_note": (
+            "the canonical architecture runs three cycles: signal refresh "
+            "(frequent), portfolio reassessment (after every material "
+            "refresh) and model recalibration (controlled, evidence-gated). "
+            "This date is the scheduled FLOOR for the third; it is not when "
+            "the portfolio is next looked at."),
         "active_target_date": operational_book["target_market_date"],
         "desk_valuation_date": operational_book["desk_mark_date"],
         "target_freshness": target_freshness,

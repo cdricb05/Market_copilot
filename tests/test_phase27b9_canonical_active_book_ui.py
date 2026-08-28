@@ -180,7 +180,15 @@ class TestFilledWorldCanonicalState:
         # target date vs valuation date differ but that is NOT a blocker
         assert cs["active_target_date"] != cs["desk_valuation_date"] or True
         assert cs["monitor_next_action_line"].startswith("Monitor holdings, NAV, drift")
-        assert "Next model review:" in cs["monitor_next_action_line"]
+        # Release 46.6 — the monitor line still NAMES the scheduled checkpoint,
+        # but no longer presents it as the next portfolio action. The canonical
+        # architecture reassesses the portfolio after every material signal
+        # refresh; the monthly date is the model-RECALIBRATION floor.
+        assert "model-recalibration checkpoint" in cs["monitor_next_action_line"]
+        assert cs["next_review_date"] in cs["monitor_next_action_line"]
+        assert "governed Daily Research Cycle" in cs["monitor_next_action_line"]
+        assert cs["review_scope"] == "SCHEDULED_MODEL_RECALIBRATION_CHECKPOINT"
+        assert cs["review_is_the_governing_portfolio_cadence"] is False
         tf = cs["target_freshness"]
         assert tf["code"] in ("CURRENT_TARGET_ACTIVE",
                               "NEXT_CYCLE_TARGET_AVAILABLE_REVIEW_NOT_DUE")
@@ -240,7 +248,11 @@ class TestBackendOperatorStrings:
         assert "Current — review not due" in _OB_SRC
 
     def test_monitor_line_names_next_review(self):
-        assert "Next model review:" in _OB_SRC
+        # Release 46.6 — the line still names the scheduled checkpoint; it no
+        # longer calls it "the next model review", which read as the next
+        # portfolio action.
+        assert "model-recalibration checkpoint" in _OB_SRC
+        assert "reassessed by the governed Daily Research Cycle" in _OB_SRC
 
     def test_next_cycle_target_informational_string(self):
         assert "NEXT_CYCLE_TARGET_AVAILABLE" in _OB_SRC

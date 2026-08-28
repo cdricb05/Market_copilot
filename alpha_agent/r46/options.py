@@ -67,9 +67,19 @@ OUT_DIR = C.RESEARCH_ROOT / "_data_options"
 R46_SURFACE = OUT_DIR / "polygon_spy_option_surface_r46_weeklies.csv.gz"
 R46_SURFACE_GLOB = "polygon_spy_option_surface_r46_weeklies*.csv.gz"
 
+#: Release 46.6 - the front-expiry extension batches. Kept under their own
+#: glob so the weekly-expiry sample and the session-axis extension can never
+#: be confused with one another in an audit.
+R46_FRONT_GLOB = "polygon_spy_option_surface_r46_front_*.csv.gz"
+
 UNDERLYING = "SPY"
 STRIKES_PER_EXPIRY = 8
 CALL_BUDGET = 120
+
+#: Deliberately small. The front extension needs a handful of near-the-money
+#: contracts to establish the session dates, not a surface.
+FRONT_STRIKES = 4
+FRONT_CALL_BUDGET = 8
 
 MIN_FIT_SESSIONS = 250
 MIN_JUDGED_SESSIONS = 250
@@ -226,16 +236,195 @@ def _weekly_expiries(lo: _dt.date, hi: _dt.date) -> list:
 
 
 def r46_batches():
-    """Every R46 weekly batch acquired so far, concatenated."""
+    """Every R46 batch acquired so far, concatenated and DEDUPED.
+
+    Release 46.6 added a second batch shape - the front-expiry extension,
+    which re-samples the SAME contract on successive days as new bars print -
+    so a plain concat would double-count rows. The surface is keyed by
+    (ticker, date) and the last write of a key wins.
+    """
     frames = []
     if OUT_DIR.exists():
         for p in sorted(OUT_DIR.glob(R46_SURFACE_GLOB)):
             f = _read(p, "R46")
             if f is not None:
                 frames.append(f)
+        for p in sorted(OUT_DIR.glob(R46_FRONT_GLOB)):
+            f = _read(p, "R46_FRONT")
+            if f is not None:
+                frames.append(f)
     if not frames:
         return None
-    return pd.concat(frames, ignore_index=True)
+    out = pd.concat(frames, ignore_index=True)
+    if {"ticker", "date"}.issubset(out.columns):
+        out = out.drop_duplicates(subset=["ticker", "date"], keep="last")
+    return out.reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------- #
+# Release 46.6 - the front-expiry extension
+# --------------------------------------------------------------------------- #
+def _front_expiry(after: _dt.date) -> _dt.date:
+    """The first Friday strictly after ``after`` - the nearest expiry whose
+    contracts are still trading, and therefore the ONLY ones that can print a
+    bar on a session the surface does not already hold."""
+    d = after + _dt.timedelta(days=1)
+    while d.weekday() != 4:
+        d += _dt.timedelta(days=1)
+    return d
+
+
+def acquire_front_extension(*, budget_calls: int = FRONT_CALL_BUDGET,
+                            strikes: int = FRONT_STRIKES,
+                            acquire: bool = True, batch: str = None) -> dict:
+    """Extend the SESSION AXIS using the nearest still-trading expiry.
+
+    The 499-session surface stopped dead at the last expiry that had already
+    expired, because :func:`acquire_weeklies` only ever considers expiries
+    inside ``today - ENTITLEMENT_RECENT_EMBARGO_DAYS``. That embargo was a
+    settlement-slack heuristic this estate wrote, not a boundary the provider
+    imposes, and it had a consequence nobody measured: **no contract the plan
+    serves trades after the last expired Friday**, so the sample could never
+    reach 500 no matter how many old expiries were sampled.
+
+    R46.6 measured the real boundary instead of assuming it. The owned plan
+    answers ``DELAYED`` and serves daily aggregates through T-1 for a
+    CURRENTLY TRADING contract. Those bars are printed, historical and free,
+    and they carry exactly the sessions the surface is missing.
+
+    Nothing here requests a date the provider does not return, and nothing is
+    interpolated: whatever the aggregate endpoint hands back is what is
+    written. If it hands back nothing past the last covered session, the
+    function says so and the sample stays where it is.
+    """
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUT_DIR / ("polygon_spy_option_surface_r46_front_%s.csv.gz"
+                          % (batch or "latest"))
+    if out_path.exists():
+        try:
+            df = pd.read_csv(out_path, compression="gzip")
+            return {"state": "EXECUTED", "from_cache": True,
+                    "rows": int(len(df)),
+                    "sessions": int(pd.to_datetime(df["date"]).nunique()),
+                    "path": str(out_path), "sha256": _sha(out_path),
+                    "api_calls": 0, "money_spent_usd": 0.0}
+        except Exception:                               # pragma: no cover
+            pass
+    if not acquire:
+        return {"state": "SKIPPED", "why": "acquisition not requested",
+                "api_calls": 0, "money_spent_usd": 0.0}
+
+    from ..r43 import acquisition as R43AQ
+    pk = R43AQ._key("POLYGON_API_KEY")
+    if not pk:
+        return {"state": "ACCOUNT_REQUIRED", "api_calls": 0,
+                "money_spent_usd": 0.0,
+                "why": "no owned Polygon key in the operator shell"}
+
+    prev, mine = existing_surface(), r46_batches()
+    have = [f for f in (prev, mine) if f is not None]
+    combined = pd.concat(have, ignore_index=True) if have else None
+    covered = (set(pd.to_datetime(combined["date"]).dt.date.unique())
+               if combined is not None else set())
+    if not covered:
+        return {"state": "NO_PRIOR_SURFACE", "api_calls": 0,
+                "money_spent_usd": 0.0}
+    latest = max(covered)
+    exp = _front_expiry(latest)
+
+    calls, rows, errors = 0, [], []
+    s, b, _ = R43AQ.http_get(
+        R43AQ.POLY + "/v3/reference/options/contracts"
+        "?underlying_ticker=%s&expiration_date=%s&contract_type=call"
+        "&limit=1000&apiKey=%s" % (UNDERLYING, exp.isoformat(), pk))
+    calls += 1
+    time.sleep(R43AQ.POLYGON_RPM_SLEEP)
+    if s != 200:
+        return {"state": "HISTORICAL_DATA_UNAVAILABLE", "api_calls": calls,
+                "front_expiry": exp.isoformat(), "status": s,
+                "money_spent_usd": 0.0}
+    res = json.loads(b).get("results") or []
+    if not res:
+        return {"state": "NO_CONTRACTS_AT_FRONT_EXPIRY", "api_calls": calls,
+                "front_expiry": exp.isoformat(), "money_spent_usd": 0.0}
+
+    #: Strikes nearest the MEDIAN listed strike. The median of a listed chain
+    #: sits close to the money, and near-the-money contracts are the ones that
+    #: actually print a bar every session - which is the whole point here.
+    ks = sorted({float(r["strike_price"]) for r in res})
+    mid = ks[len(ks) // 2]
+    chosen = sorted(ks, key=lambda k: abs(k - mid))[:int(strikes)]
+    by_strike = {}
+    for r in res:
+        by_strike.setdefault(float(r["strike_price"]), r)
+
+    start = (latest - _dt.timedelta(days=4)).isoformat()
+    today = _dt.date.today()
+    for k in chosen:
+        if calls >= budget_calls:
+            break
+        r = by_strike.get(k)
+        if not r:
+            continue
+        tk = r["ticker"]
+        s2, b2, _ = R43AQ.http_get(
+            R43AQ.POLY + "/v2/aggs/ticker/%s/range/1/day/%s/%s"
+            "?adjusted=true&limit=500&apiKey=%s"
+            % (tk, start, today.isoformat(), pk))
+        calls += 1
+        time.sleep(R43AQ.POLYGON_RPM_SLEEP)
+        if s2 != 200:
+            errors.append({"ticker": tk, "status": s2})
+            continue
+        for a in (json.loads(b2).get("results") or []):
+            rows.append({
+                "ticker": tk, "underlying": UNDERLYING,
+                "expiration": exp.isoformat(), "strike": float(k),
+                "type": "call",
+                "date": pd.to_datetime(a["t"], unit="ms").date().isoformat(),
+                "open": a.get("o"), "high": a.get("h"), "low": a.get("l"),
+                "close": a.get("c"), "vwap": a.get("vw"),
+                "volume": a.get("v"), "trades": a.get("n")})
+
+    if not rows:
+        return {"state": "HISTORICAL_DATA_UNAVAILABLE", "api_calls": calls,
+                "front_expiry": exp.isoformat(), "errors": errors[:10],
+                "money_spent_usd": 0.0,
+                "why": "the entitlement returned no aggregate for the front "
+                       "expiry"}
+
+    frame = pd.DataFrame(rows)
+    try:
+        inv = R43AQ._invert_iv(frame, UNDERLYING)
+        if inv is not None:
+            frame = inv
+    except Exception:                                   # pragma: no cover
+        pass
+    got = set(pd.to_datetime(frame["date"]).dt.date.unique())
+    new = sorted(d for d in got if d not in covered)
+    if not new:
+        return {"state": "NO_NEW_SESSION", "api_calls": calls,
+                "front_expiry": exp.isoformat(),
+                "latest_date_already_covered": str(latest),
+                "money_spent_usd": 0.0,
+                "why": "every session the front expiry printed is already in "
+                       "the surface"}
+    frame.to_csv(out_path, index=False, compression="gzip")
+    return {"state": "EXECUTED", "from_cache": False, "api_calls": calls,
+            "front_expiry": exp.isoformat(),
+            "front_expiry_has_expired": exp <= today,
+            "rows": int(len(frame)),
+            "contracts": int(frame["ticker"].nunique()),
+            "n_strikes": int(frame["strike"].nunique()),
+            "sessions": int(pd.to_datetime(frame["date"]).nunique()),
+            "new_session_dates": [str(d) for d in new],
+            "n_new_sessions": len(new),
+            "latest_date_already_covered": str(latest),
+            "date_span": [str(frame["date"].min()), str(frame["date"].max())],
+            "path": str(out_path), "sha256": _sha(out_path),
+            "errors": errors[:10], "money_spent_usd": 0.0,
+            "requested_beyond_what_the_entitlement_returns": False,
+            "interpolated_bars": 0, "fabricated_sessions": 0}
 
 
 def acquire_weeklies(*, budget_calls: int = CALL_BUDGET,
@@ -384,7 +573,7 @@ def acquire_weeklies(*, budget_calls: int = CALL_BUDGET,
 
 # --------------------------------------------------------------------------- #
 def run(*, acquire: bool = True, campaign_id: str = CAMPAIGN_ID,
-        batch: str = None) -> dict:
+        batch: str = None, front_batch: str = None) -> dict:
     before = {"r44": _sha(R44_SURFACE), "r44_term": _sha(R44_SURFACE_TERM),
               "r45": _sha(R45_SURFACE)}
 
@@ -410,6 +599,11 @@ def run(*, acquire: bool = True, campaign_id: str = CAMPAIGN_ID,
             "could not fire. This is a defect, not an empty estate.")
 
     ext = acquire_weeklies(acquire=acquire, batch=batch)
+    #: Release 46.6. Run only while the sample is short - once it is judgeable
+    #: there is nothing to extend and the call is not made.
+    front = None
+    if prior_sessions < SESSIONS_REQUIRED:
+        front = acquire_front_extension(acquire=acquire, batch=front_batch)
 
     combined = prev
     new = r46_batches()
@@ -435,6 +629,17 @@ def run(*, acquire: bool = True, campaign_id: str = CAMPAIGN_ID,
         prior_artifacts_unchanged=(before == after),
         prior_surface_state=prior_state,
         acquisition=ext,
+        front_extension=front,
+        front_extension_rationale=(
+            "the 499-session sample stopped at the last EXPIRED Friday "
+            "because acquire_weeklies only considers expiries inside a "
+            "3-day settlement embargo this estate imposed on itself. No "
+            "contract inside that embargo trades after the last expired "
+            "Friday, so the sample could not reach 500 however many old "
+            "expiries were sampled. R46.6 probed the provider instead of "
+            "assuming it: the owned plan serves DELAYED daily aggregates "
+            "through T-1 for a currently-trading contract, which is exactly "
+            "the missing session axis, free and already printed."),
         expiry_overlap_with_prior_releases=overlap,
         n_expiry_overlap=len(overlap),
         resampled_an_expiry_a_prior_release_already_paid_for=bool(overlap),

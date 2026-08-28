@@ -209,7 +209,16 @@ def test_the_field_grew_without_touching_earlier_tuples():
     assert len(CH.R46_4_SPECS) == 9
     # Release 46.5 added three challengers through the same frozen door.
     assert len(CH.R46_5_SPECS) == 3
-    assert len(CH.ALL_SPECS) == 33
+    # Release 46.6 added seven FAST-EVIDENCE challengers through the same
+    # door. The point of this test is that earlier tuples are UNTOUCHED - each
+    # cohort above still holds exactly what it froze - so the total is the sum
+    # of the cohorts, not a number a later release has to keep re-pinning.
+    assert len(CH.R46_6_SPECS) == 7
+    assert (len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS)
+            + len(CH.R46_4_SPECS) + len(CH.R46_5_SPECS)) == 33
+    assert len(CH.ALL_SPECS) == (
+        len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS) + len(CH.R46_4_SPECS)
+        + len(CH.R46_5_SPECS) + len(CH.R46_6_SPECS))
     ids = [s["challenger_id"] for s in CH.ALL_SPECS]
     assert len(ids) == len(set(ids))
 

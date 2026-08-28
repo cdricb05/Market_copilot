@@ -1048,7 +1048,318 @@ R46_5_SPECS = (
     ),
 )
 
-ALL_SPECS = SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
+# --------------------------------------------------------------------------- #
+# Release 46.6 - the FAST-EVIDENCE cohort
+# --------------------------------------------------------------------------- #
+R46_6_COHORT = "R46_6_FAST_EVIDENCE"
+
+#: Every one of these is a declared constant, written here before the rule
+#: first read a bar to be selected. Nothing was swept, screened or ranked on
+#: this estate's returns to choose any of them, and - the rule that matters
+#: most in this release - not one of them was chosen after seeing the first
+#: matured forward result. The two reversal widths and the held horizon follow
+#: from the BREAK-EVEN ARITHMETIC, which needs no outcome at all: a book with
+#: gross notional 1.0 pays 12 bps of round trip whatever it holds, so width
+#: raises gross edge per unit of cost and holding period amortises it.
+R46_6_CANONICAL_CONSTANTS = {
+    "statement": (
+        "declared constants, fixed before any of these rules read a bar to be "
+        "selected, and none of them chosen by looking at the first matured "
+        "forward outcome"),
+    "pead_fast_window_sessions": 2,     # FRESH announcements only
+    "pead_fast_leg_fraction": 0.10,     # deciles of announcers
+    "pead_fast_min_names": 20,
+    "pead_drift_window_sessions": 5,    # as the 20d parent
+    "pead_drift_leg_fraction": 1 / 3.0,
+    "pead_drift_min_names": 15,
+    "insider_fast_window_sessions": 5,  # trailing COMPLETE capture days
+    "insider_fast_min_insiders": 2,
+    "insider_fast_min_names": 3,
+    "cot_commercial_leg_fraction": 1 / 3.0,
+    "credit_shock_z_window": 63,        # one quarter of daily changes
+    "credit_shock_z_threshold": 2.0,    # a two-sigma day is a shock
+    "reversal_days": 5,                 # unchanged from the seed contract
+    "reversal_tail_fraction": 0.02,     # ten names a side out of ~500
+    "reversal_decile_fraction": 0.10,   # the seed width, held longer
+}
+K6 = R46_6_CANONICAL_CONSTANTS
+
+#: Declared and DECLINED, so the absence is a recorded decision rather than a
+#: hypothesis quietly dropped.
+R46_6_DECLINED = {
+    "macro_release_reaction_1d": (
+        "the R46 entry rule enters at the close of the NEXT trading day, so a "
+        "prediction emitted on a release day never touches the release-day "
+        "move. A 1-session macro cell would therefore measure the T+1 to T+2 "
+        "continuation - a pure horizon slice of "
+        "r46_4_macro_surprise_rates_5d, not the immediate reaction section 15 "
+        "asks about. It is not frozen."),
+    "volatility_fast_variants": (
+        "section 16 is explicit: the volatility family already carries a "
+        "1-day and a 5-day carry cell and must not be multiplied. Nothing is "
+        "added; what R46.6 gives that family is cost-efficiency measurement."),
+    "cot_horizon_slice": (
+        "a 1-session or 5-session slice of the existing speculative "
+        "positioning cells would share their signal exactly. R46.6 freezes "
+        "the COMMERCIAL side instead - a different claim about the same "
+        "filing."),
+}
+
+R46_6_SPECS = (
+    # ---- earnings, fast ---------------------------------------------------- #
+    _spec(
+        challenger_id="r46_6_pead_reaction_1d",
+        family="POST_EARNINGS_IMMEDIATE_REACTION",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_EARNINGS_DECILE_FRESH",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names whose earnings 8-K (Item 2.02) was accepted by "
+                 "EDGAR before the emission instant and whose reaction "
+                 "session falls in the trailing TWO sessions",
+        thesis="the announcement drift is strongest immediately after the "
+               "event and decays; a book built only on FRESH announcements "
+               "and concentrated in the extreme deciles of the announcement "
+               "return holds the part of the drift curve that has not yet "
+               "been absorbed. This is not the 20-day cell over a shorter "
+               "window: it trades a different, narrower, younger set of "
+               "events",
+        parameters={"window_sessions": K6["pead_fast_window_sessions"],
+                    "leg_fraction": K6["pead_fast_leg_fraction"],
+                    "min_names": K6["pead_fast_min_names"],
+                    "signal": "announcement-window return minus the SPY "
+                              "return over the same window",
+                    "event_source": "SEC 8-K Item 2.02 acceptance instant"},
+        signal_owner="_pead_announcement_return",
+        cohort=R46_6_COHORT,
+        information_family="EARNINGS_EVENTS",
+        dependence_cluster="EARNINGS_DRIFT",
+        economic_overlap_with=("r46_5_pead_announcement_return_20d",),
+        overlap_note="same filings and the same information family; a "
+                     "narrower, fresher book at a much shorter horizon. ONE "
+                     "dependence cluster - these never count as two "
+                     "independent alpha streams",
+    ),
+    _spec(
+        challenger_id="r46_6_pead_drift_5d",
+        family="POST_EARNINGS_ANNOUNCEMENT_DRIFT",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_EARNINGS_TERCILE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names whose earnings 8-K (Item 2.02) was accepted by "
+                 "EDGAR before the emission instant and whose reaction "
+                 "session falls in the trailing five sessions",
+        thesis="the drift documented over one to three months accrues from "
+               "the first session onward; a one-week expression tests whether "
+               "the early part of that curve survives its own costs, which is "
+               "a question the 20-day cell cannot answer for four more weeks",
+        parameters={"window_sessions": K6["pead_drift_window_sessions"],
+                    "leg_fraction": K6["pead_drift_leg_fraction"],
+                    "min_names": K6["pead_drift_min_names"],
+                    "signal": "announcement-window return minus the SPY "
+                              "return over the same window",
+                    "event_source": "SEC 8-K Item 2.02 acceptance instant"},
+        signal_owner="_pead_announcement_return",
+        cohort=R46_6_COHORT,
+        information_family="EARNINGS_EVENTS",
+        dependence_cluster="EARNINGS_DRIFT",
+        economic_overlap_with=("r46_5_pead_announcement_return_20d",
+                               "r46_6_pead_reaction_1d"),
+        overlap_note="an explicit HORIZON SLICE of the 20-day parent - "
+                     "identical book, identical signal, shorter hold. "
+                     "Declared as such so it is never counted as independent "
+                     "evidence",
+        is_a_horizon_slice_of="r46_5_pead_announcement_return_20d",
+    ),
+    # ---- insider, fast, on the corrected PIT anchor ------------------------ #
+    _spec(
+        challenger_id="r46_6_insider_cluster_buy_5d",
+        family="INSIDER_FRESH_CLUSTER_BUYING",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LONG_FRESH_INSIDER_CLUSTER",
+        prediction_type="DIRECTIONAL_VS_BENCHMARK",
+        horizons=(5,),
+        control=C.CONTROL_BENCHMARK,
+        benchmark="SPY",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission, restricted "
+                 "to names with at least two distinct insiders making open-"
+                 "market purchases (Form 4 code P) inside the trailing FIVE "
+                 "COMPLETE EDGAR capture days",
+        thesis="the informational content of insider buying is concentrated "
+               "in the days right after the filing becomes public; a basket "
+               "of names whose cluster formed THIS WEEK expresses that, where "
+               "a 21-session accumulation mixes fresh signal with three-week-"
+               "old signal the market has had time to absorb",
+        parameters={"window_sessions": K6["insider_fast_window_sessions"],
+                    "min_insiders": K6["insider_fast_min_insiders"],
+                    "min_names": K6["insider_fast_min_names"],
+                    "window_anchor": "last COMPLETE Form-4 capture day",
+                    "signal": "count of distinct open-market buyers; equal "
+                              "weight long basket, gross 1.0",
+                    "event_source": "SEC Form 4 ACCEPTANCE-DATETIME"},
+        signal_owner="_insider_cluster_fast",
+        cohort=R46_6_COHORT,
+        information_family="INSIDER_FLOW",
+        dependence_cluster="INSIDER_FLOW",
+        economic_overlap_with=("r46_5_insider_cluster_buy_20d",
+                               "r46_5_insider_net_purchase_xs_20d"),
+        overlap_note="same filings, one dependence cluster. The v1 cells are "
+                     "NOT modified by this challenger's existence",
+        addresses_root_cause="INCORRECT_ELIGIBILITY_LOGIC: the v1 window is "
+                             "anchored to the last EQUITY session and so "
+                             "demands the current day's EDGAR capture, which "
+                             "is not complete until 22:15 ET - after every "
+                             "governed cycle this estate has ever run. This "
+                             "anchor uses strictly LESS information and is "
+                             "emittable at any hour",
+    ),
+    # ---- positioning: the OTHER side of the same report --------------------- #
+    _spec(
+        challenger_id="r46_6_cot_commercial_xs_5d",
+        family="COMMERCIAL_HEDGER_POSITIONING",
+        asset_class="FUTURES",
+        instrument="BOOK:COT_LS_COMMERCIAL_TERCILE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="MIXED_FUTURES",
+        universe="CFTC-mapped futures markets present in the owned continuous "
+                 "database, observable only after the report's publication "
+                 "instant",
+        thesis="commercials are the natural hedgers and the counterparty to "
+               "speculative demand; their net position carries information "
+               "about physical supply and demand that the speculative side "
+               "does not, and following it is a different economic claim from "
+               "fading or following speculators",
+        parameters={"leg_fraction": K6["cot_commercial_leg_fraction"],
+                    "signal": "commercial net share of open interest, "
+                              "followed (not faded)",
+                    "release_cadence": "weekly CFTC Commitments of Traders",
+                    "decision_independence": "decisions are weekly and the "
+                                             "horizon is five sessions, so "
+                                             "consecutive decisions do not "
+                                             "overlap"},
+        signal_owner="_cot_xs_commercial",
+        cohort=R46_6_COHORT,
+        information_family="POSITIONING",
+        dependence_cluster="FUT_POSITIONING",
+        economic_overlap_with=("r46_4_cot_xs_positioning_reversal",
+                               "r46_4_cot_xs_positioning_flow"),
+        overlap_note="same weekly filing, opposite side of it; one dependence "
+                     "cluster",
+    ),
+    # ---- credit: a SHOCK, not a state --------------------------------------- #
+    _spec(
+        challenger_id="r46_6_credit_shock_spx_5d",
+        family="CREDIT_SHOCK_EQUITY_RESPONSE",
+        asset_class="US_ETF",
+        instrument="SPY",
+        prediction_type="DIRECTIONAL_TIMING",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_ETF",
+        universe="SPY, conditioned on the PIT-safe high-yield OAS series",
+        thesis="an abnormal single-day move in high-yield spreads is a shock "
+               "to the price of risk, and equity reprices it over the "
+               "following week; a two-sigma daily move is a different event "
+               "from a spread LEVEL below its quarterly mean or a 21-day "
+               "trend, and can fire on a day neither of those has moved",
+        parameters={"z_window": K6["credit_shock_z_window"],
+                    "z_threshold": K6["credit_shock_z_threshold"],
+                    "signal": "one-day change in HY OAS divided by the "
+                              "standard deviation of the trailing 63 daily "
+                              "changes; long SPY on an abnormal TIGHTENING, "
+                              "short on an abnormal WIDENING",
+                    "source": "FRED/ALFRED point-in-time vintage"},
+        signal_owner="_credit_shock_spx",
+        cohort=R46_6_COHORT,
+        information_family="CREDIT_SPREADS",
+        dependence_cluster="CREDIT_REGIME",
+        economic_overlap_with=("r46_4_credit_regime_spx_timing",
+                               "r46_4_credit_hy_ig_momentum"),
+        overlap_note="same underlying series, different functional; one "
+                     "dependence cluster",
+    ),
+    # ---- section 33: the two levers on the break-even arithmetic ------------ #
+    _spec(
+        challenger_id="r46_6_eq_xs_rev_5d_tail2",
+        family="CROSS_SECTIONAL_REVERSAL",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_TAIL2",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(1,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="cost is charged on traded NOTIONAL, and gross notional is 1.0 "
+               "whether the book holds a hundred names or twenty. The same 12 "
+               "bps therefore buys the two-percent tails of the reversal sort "
+               "just as cheaply as the deciles, and the tails carry a "
+               "materially larger signal per unit of notional. This is a "
+               "statement about the cost contract and about monotone sorts - "
+               "both knowable before any outcome existed - not a reaction to "
+               "one",
+        parameters={"reversal_days": K6["reversal_days"],
+                    "book_fraction": K6["reversal_tail_fraction"],
+                    "break_even_note": "gross notional 1.0, round trip 12 bps "
+                                       "of traded notional, break-even gross "
+                                       "edge 12 bps in ONE session"},
+        signal_owner="_eq_xs_rev_variant",
+        cohort=R46_6_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_eq_xs_rev_5d",),
+        overlap_note="identical signal, different book width. The seed "
+                     "challenger is NOT modified, retuned, re-parameterised "
+                     "or re-clocked by this cell's existence",
+    ),
+    _spec(
+        challenger_id="r46_6_eq_xs_rev_5d_hold5",
+        family="CROSS_SECTIONAL_REVERSAL",
+        asset_class="US_EQUITY",
+        instrument="BOOK:SP500_LS_DECILE",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="US_EQUITY",
+        universe="S&P 500 index membership observed at emission",
+        thesis="the round trip is charged ONCE, so holding the same decile "
+               "book for five sessions instead of one amortises the same 12 "
+               "bps over five times as much signal. The break-even gross edge "
+               "PER SESSION falls from 12 bps to 2.4. This is the genuine "
+               "lower-turnover expression, and whether reversal persists "
+               "beyond one session is exactly the open question",
+        parameters={"reversal_days": K6["reversal_days"],
+                    "book_fraction": K6["reversal_decile_fraction"],
+                    "break_even_note": "same 12 bps round trip, amortised "
+                                       "over five sessions"},
+        signal_owner="_eq_xs_rev_variant",
+        cohort=R46_6_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="EQ_XS_PRICE",
+        economic_overlap_with=("r46_eq_xs_rev_5d",
+                               "r46_6_eq_xs_rev_5d_tail2"),
+        overlap_note="identical signal, longer hold; one dependence cluster "
+                     "with the seed reversal cell",
+    ),
+)
+
+ALL_SPECS = (SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
+             + R46_6_SPECS)
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -2259,7 +2570,226 @@ def _insider_net_purchase_xs(spec: dict) -> dict:
             "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
 
 
+# --------------------------------------------------------------------------- #
+# Release 46.6 signal owners - the fast-evidence cohort
+# --------------------------------------------------------------------------- #
+def _insider_window_fast(spec: dict):
+    """The declared window, anchored to the last COMPLETE Form-4 capture day.
+
+    Release 46.5's two insider challengers anchor their window to the last
+    printed EQUITY session, so the window always includes the CURRENT day -
+    and the Form-4 lane will not call a day complete until 22:15 ET, which is
+    correct because EDGAR's daily index is still filling. R46.6 measured the
+    consequence: every governed cycle so far started before 22:15 ET, so those
+    two challengers asked for information that could not exist at their own
+    decision time and emitted nothing, ever.
+
+    The v1 challengers are NOT changed - no parameter, window, universe or
+    cost moves, and their spec hashes stand. This anchor belongs to a NEW
+    challenger with its own clock. It uses strictly LESS information than the
+    equity anchor (it stops at the last day EDGAR has finished publishing),
+    so it is point-in-time safe by construction and emittable at any hour.
+    """
+    from . import form4 as FM
+    now = CK.now_utc()
+    complete = sorted(FM.covered_days(now))
+    if not complete:
+        return None, {"complete": False, "n_sessions": 0, "n_covered": 0,
+                      "why": "the Form-4 lane holds no complete day"}, []
+    window = complete[-int(spec["parameters"]["window_sessions"]):]
+    cov = {"n_sessions": len(window), "n_covered": len(window),
+           "missing": [], "n_missing": 0,
+           "complete": len(window) >= int(spec["parameters"]
+                                          ["window_sessions"]),
+           "window_first": window[0], "window_last": window[-1],
+           "anchor": "last COMPLETE Form-4 capture day",
+           "rule": "the window is the trailing N COMPLETE capture days, so it "
+                   "never demands a day EDGAR has not finished publishing"}
+    if not cov["complete"]:
+        return window[-1], cov, []
+    sessions = set(window)
+    txs = [t for t in FM.transactions(now, informative_only=True)
+           if str(t.get("transaction_date") or "") in sessions
+           and t.get("shares")]
+    return window[-1], cov, txs
+
+
+def _insider_cluster_fast(spec: dict) -> dict:
+    """Fresh open-market buying clusters, filed in the last N COMPLETE days."""
+    p = spec["parameters"]
+    cutoff, cov, txs = _insider_window_fast(spec)
+    if cutoff is None:
+        return {"state": "NO_DATA", "legs": [], "window_coverage": cov}
+    if not cov.get("complete"):
+        return {"state": "LANE_COVERAGE_INCOMPLETE", "legs": [],
+                "window_coverage": cov}
+    from . import earnings as EA
+    by_norm = {EA.norm_ticker(t): t for t in _eq_universe()}
+    buyers: dict = {}
+    for t in txs:
+        if t.get("transaction_code") != "P":
+            continue
+        sym = by_norm.get(t.get("issuer_ticker"))
+        if sym is None:
+            continue
+        buyers.setdefault(sym, set()).add(t.get("insider_cik")
+                                          or t.get("insider_name"))
+    names = sorted(s for s, b in buyers.items()
+                   if len(b) >= int(p["min_insiders"]))
+    marks = {}
+    for s in list(names):
+        px = MD.closes(s)
+        if px is None or not len(px):
+            names.remove(s)
+            continue
+        marks[s] = float(px.iloc[-1])
+    if len(names) < int(p["min_names"]):
+        return {"state": "OK", "legs": [], "n_cluster_names": len(names),
+                "n_informative_transactions": len(txs),
+                "window_coverage": cov,
+                "why_flat": "fewer than %d names carry a FRESH buying cluster"
+                            % p["min_names"],
+                "marks": marks, "cost_class_by_leg": {}}
+    legs = [{"instrument": s, "weight": 1.0 / len(names),
+             "score": float(len(buyers[s])), "side": "LONG",
+             "cost_class": spec["cost_class"]} for s in names]
+    return {"state": "OK", "legs": legs, "n_cluster_names": len(names),
+            "n_informative_transactions": len(txs), "window_coverage": cov,
+            "marks": marks,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
+def _cot_xs_commercial(spec: dict) -> dict:
+    """Follow the COMMERCIAL (hedger) side of the same weekly report.
+
+    Not a horizon slice of either speculative cell: it reads the OTHER side of
+    the report. Commercials are the natural hedgers, their net position is the
+    mirror of speculative demand, and the economic claim - that hedger
+    positioning carries information speculative positioning does not - is a
+    different claim about the same filing, not the same claim over a shorter
+    window.
+    """
+    return _cot_book(spec, "commercial_net_share", 1.0)
+
+
+def _credit_shock_spx(spec: dict) -> dict:
+    """Equity response to an ABNORMAL ONE-DAY credit-spread move.
+
+    Distinct from both existing credit cells by construction: one reads the
+    LEVEL against a 63-observation mean (a regime), the other a 21-observation
+    CHANGE (momentum). This one reads a single day's move against the
+    dispersion of single-day moves - a shock, not a state - and it is the only
+    one of the three that can fire on a day the regime and the momentum have
+    not moved at all.
+    """
+    from . import credit as CR
+    p = spec["parameters"]
+    ref = CK.eastern_date(CK.now_utc())
+    s = CR.pit_series("HY_OAS", ref)
+    spy = MD.closes(BENCHMARK_EQUITY)
+    if s is None or len(s) < int(p["z_window"]) + 5 or spy is None \
+            or not len(spy):
+        return {"state": "NO_DATA", "legs": [],
+                "n_observations": (0 if s is None else int(len(s)))}
+    d = s.astype(float).diff().dropna()
+    win = d.iloc[-int(p["z_window"]):]
+    sd = float(np.std(win.to_numpy(dtype=float), ddof=1))
+    last = float(d.iloc[-1])
+    px = float(spy.iloc[-1])
+    if sd <= 0:
+        return {"state": "OK", "legs": [], "why_flat": "no dispersion",
+                "marks": {BENCHMARK_EQUITY: px}, "cost_class_by_leg": {}}
+    z = last / sd
+    state = {"series_last_observation": str(s.index[-1].date()),
+             "one_day_change": last, "z": z, "z_window": int(p["z_window"]),
+             "threshold": float(p["z_threshold"])}
+    if abs(z) < float(p["z_threshold"]):
+        return {"state": "OK", "legs": [], "credit_state": state,
+                "why_flat": "no abnormal one-day credit move (|z| %.2f < %.2f)"
+                            % (abs(z), float(p["z_threshold"])),
+                "marks": {BENCHMARK_EQUITY: px}, "cost_class_by_leg": {}}
+    # a NEGATIVE change is a TIGHTENING - risk appetite improving - so go long
+    direction = -1.0 if z > 0 else 1.0
+    legs = [{"instrument": BENCHMARK_EQUITY, "weight": direction,
+             "score": -z, "side": "LONG" if direction > 0 else "SHORT",
+             "cost_class": "US_ETF"}]
+    return {"state": "OK", "legs": legs, "credit_state": state,
+            "marks": {BENCHMARK_EQUITY: px},
+            "cost_class_by_leg": {BENCHMARK_EQUITY: "US_ETF"}}
+
+
+def _eq_xs_rev_variant(spec: dict) -> dict:
+    """The 5-day reversal signal, expressed at a DECLARED book width.
+
+    Release 46.6's answer to the first matured observation, and it is worth
+    being precise about what it is and is not. ``r46_eq_xs_rev_5d`` is
+    untouched: same parameters, same decile, same horizon, same clock, still
+    accruing. What the first outcome showed is that a 100-name decile book
+    charged 12 bps of round-trip cost against +6.48 bps of one-session gross
+    edge, and the break-even arithmetic that says so was knowable the day the
+    challenger was frozen.
+
+    Two levers move that arithmetic and neither is a retune:
+
+    * **width** - cost is charged on traded NOTIONAL, and gross notional is
+      1.0 whether the book holds 100 names or 20. A narrower book therefore
+      costs exactly the same and concentrates the same capital on the most
+      extreme ranks, so the gross edge per unit of cost rises;
+    * **holding period** - the round trip is charged once, so holding the same
+      book for five sessions instead of one amortises the same 12 bps over
+      five times as much signal.
+
+    Both are declared here, before either has an outcome, and each is a
+    SEPARATE challenger with its own id, spec hash and forward clock.
+    """
+    syms = _eq_universe()
+    if not syms:
+        return {"state": "NO_UNIVERSE", "legs": []}
+    p = spec["parameters"]
+    scores, marks, n_seen = {}, {}, 0
+    for sym in syms:
+        s = MD.closes(sym)
+        if s is None or len(s) < 5:
+            continue
+        n_seen += 1
+        marks[sym] = float(s.iloc[-1])
+        r = MD.total_return(s, p["reversal_days"])
+        if r is not None:
+            scores[sym] = -r
+    legs = _decile_book(scores, p["book_fraction"], spec["cost_class"])
+    # Section 34, in the only honest form available at v1: every Release-46
+    # challenger emits expected_return = None by contract, so a break-even
+    # filter on FORECAST MAGNITUDE cannot be built without inventing the
+    # forecast. What CAN be checked before the trade, with no calibration and
+    # no peek at any outcome, is whether the sort is degenerate - whether the
+    # long leg's mean score actually exceeds the short leg's. A book whose
+    # ranks carry no spread has nothing to sell and goes FLAT.
+    dispersion = None
+    if legs:
+        lo = [l["score"] for l in legs if l["weight"] > 0]
+        sh = [l["score"] for l in legs if l["weight"] < 0]
+        if lo and sh:
+            dispersion = float(np.mean(lo) - np.mean(sh))
+        if dispersion is not None and dispersion <= 0:
+            return {"state": "OK", "legs": [], "marks": marks,
+                    "n_scored": len(scores), "signal_dispersion": dispersion,
+                    "why_flat": "FLAT_NO_POSITION: the sort is degenerate - "
+                                "the long leg's mean score does not exceed "
+                                "the short leg's",
+                    "cost_class_by_leg": {}}
+    return {"state": "OK" if legs else "INSUFFICIENT_CROSS_SECTION",
+            "legs": legs, "n_universe": len(syms), "n_priced": n_seen,
+            "n_scored": len(scores), "marks": marks,
+            "book_fraction": p["book_fraction"],
+            "signal_dispersion": dispersion,
+            "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
+
+
 _OWNERS = {
+    "_insider_cluster_fast": _insider_cluster_fast,
+    "_cot_xs_commercial": _cot_xs_commercial,
+    "_credit_shock_spx": _credit_shock_spx,
+    "_eq_xs_rev_variant": _eq_xs_rev_variant,
     "_pead_announcement_return": _pead_announcement_return,
     "_insider_cluster_buy": _insider_cluster_buy,
     "_insider_net_purchase_xs": _insider_net_purchase_xs,

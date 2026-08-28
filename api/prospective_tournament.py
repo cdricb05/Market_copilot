@@ -109,6 +109,16 @@ ARTIFACTS = {
     "correlation": "R46_5_REALISED_CORRELATION.json",
     "lane_earnings": "R46_5_EARNINGS_LANE.json",
     "lane_form4": "R46_5_FORM4_LANE.json",
+    # Release 46.6 — the cost-efficiency owner (signal edge versus economic
+    # edge), the research-lane lifecycle contract, the adopted-shadow
+    # inventory and the scored option hypotheses. Read verbatim; this module
+    # computes no ratio, no break-even and no classification of its own.
+    "cost_efficiency": "R46_6_COST_EFFICIENCY.json",
+    "cost_rankings": "R46_6_COST_DESTRUCTION_RANKINGS.json",
+    "break_even": "R46_6_BREAK_EVEN_ECONOMICS.json",
+    "lane_lifecycle": "R46_6_RESEARCH_LANE_LIFECYCLE.json",
+    "adopted_lanes": "R46_6_ADOPTED_SHADOW_LANE_INVENTORY.json",
+    "options_hypotheses": "R46_6_OPTIONS_HYPOTHESES.json",
 }
 
 R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
@@ -118,11 +128,14 @@ R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
                    "harvest", "verdicts", "correlation", "lane_earnings",
                    "lane_form4")
 
+R46_6_ARTIFACTS = ("cost_efficiency", "cost_rankings", "break_even",
+                   "lane_lifecycle", "adopted_lanes", "options_hypotheses")
+
 #: Artifacts whose absence is EXPECTED (before the first advance, or before the
 #: Release-46.3 owners ever ran here) and so must not become an operator-facing
 #: warning.
-OPTIONAL_ARTIFACTS = ("cycles", "velocity", "plan", "intraday", "options",
-                      "analyst") + R46_4_ARTIFACTS
+OPTIONAL_ARTIFACTS = (("cycles", "velocity", "plan", "intraday", "options",
+                       "analyst") + R46_4_ARTIFACTS + R46_6_ARTIFACTS)
 
 #: Evidence-maturity vocabulary for the whole board (not for a single cell).
 MATURITY_NO_FORWARD_EVIDENCE = "NO_FORWARD_EVIDENCE"
@@ -272,6 +285,21 @@ def load_prospective_tournament(
         # P&L, and realised / unrealised / expected are never one number.
         "shadow_pnl": _shadow_pnl(art),
         "information_lanes": _information_lanes(art),
+
+        # ---- Release 46.6: signal edge versus ECONOMIC edge ---------------- #
+        # The first matured forward observation predicted the direction
+        # correctly and still lost money. These three blocks exist so that
+        # distinction survives every surface that reads this payload.
+        "economic_truth": _economic_truth(art.get("pnl_nav"),
+                                          art.get("pnl_comparison"),
+                                          art.get("harvest"),
+                                          art.get("cost_efficiency")),
+        "cost_efficiency": _cost_efficiency(art.get("cost_efficiency"),
+                                            art.get("cost_rankings"),
+                                            art.get("break_even")),
+        "research_lane_lifecycle": _research_lanes(
+            art.get("lane_lifecycle"), art.get("adopted_lanes"),
+            art.get("options_hypotheses")),
         "challengers_by_asset_class": _count_by(rows, "asset_class"),
         "challengers_by_economic_family": _count_by(rows, "family"),
         "challengers_by_information_family": _count_by_info(registry),
@@ -908,6 +936,271 @@ def _adoption(registry: dict) -> dict:
         "prior_registries_unchanged": a.get("all_sources_unchanged"),
         "r46_writes_no_forward_row_for_an_adopted_shadow": True,
     }
+
+
+def _cost_efficiency(body: Optional[dict], rankings: Optional[dict],
+                     break_even: Optional[dict]) -> dict:
+    """Signal edge versus economic edge - read from the ONE owner.
+
+    Release 46.6 built :mod:`alpha_agent.r46.cost_efficiency` because the
+    first matured forward observation predicted the direction correctly and
+    still lost money: +6.48 bps of gross edge against a 12 bps round trip.
+    Every ratio, break-even and classification below is taken verbatim from
+    that owner's artifact. This module computes none of them, and neither
+    does the UI.
+    """
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the cost-efficiency owner has not run at this "
+                        "research root yet"}
+    rows = body.get("rows") or []
+    obs = body.get("observations") or []
+
+    def _row(r):
+        m = r.get("matured") or {}
+        return {
+            "challenger_id": r.get("challenger_id"),
+            "asset_class": r.get("asset_class"),
+            "economic_family": r.get("economic_family"),
+            "horizons": r.get("horizons"),
+            "economic_state": r.get("economic_state"),
+            "cost_robustness": r.get("cost_robustness"),
+            "matured_observations": m.get("n_observations"),
+            "gross_edge_bps": m.get("gross_edge_bps"),
+            "cost_bps": m.get("cost_bps"),
+            "net_edge_bps": m.get("net_edge_bps"),
+            "control_bps": m.get("control_bps"),
+            "residual_alpha_bps": m.get("residual_alpha_bps"),
+            "net_at_2x_costs_bps": m.get("net_at_2x_costs_bps"),
+            "cost_to_gross_edge_ratio": m.get("cost_to_gross_edge_ratio"),
+            "pct_of_gross_edge_consumed_by_cost": m.get(
+                "pct_of_gross_edge_consumed_by_cost"),
+            "edge_retention_ratio": m.get("edge_retention_ratio"),
+            "pnl_per_unit_turnover": m.get("pnl_per_unit_turnover"),
+            "survives_2x_costs": m.get("survives_2x_costs"),
+            "break_even_gross_edge_bps": (r.get("ex_ante_break_even") or {})
+            .get("break_even_gross_edge_bps"),
+            "gross_edge_to_beat_control_bps": (r.get("ex_ante_break_even")
+                                               or {})
+            .get("gross_edge_to_beat_control_bps"),
+            "is_a_scientific_verdict": False,
+        }
+
+    with_evidence = [_row(r) for r in rows
+                     if (r.get("matured") or {}).get("n_observations")]
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "calculation_owner": body.get("calculation_owner"),
+        "question": body.get("question"),
+        "economic_state_vocabulary": body.get("economic_state_vocabulary"),
+        "cost_robustness_vocabulary": body.get("cost_robustness_vocabulary"),
+        "n_strategies": body.get("n_strategies"),
+        "economic_state_counts": body.get("economic_state_counts"),
+        "cost_robustness_counts": body.get("cost_robustness_counts"),
+        "cost_destroyed": body.get("cost_destroyed"),
+        "gross_edge_negative": body.get("gross_edge_negative"),
+        "positive_residual_alpha": body.get("positive_residual_alpha"),
+        "net_positive_control_negative": body.get(
+            "net_positive_control_negative"),
+        "n_with_matured_evidence": body.get("n_with_matured_evidence"),
+        # ---- the observation tier, kept strictly apart from the strategy
+        #      tier: a TRADE may be cost-destroyed while its STRATEGY is still
+        #      TOO_EARLY, and both are true at once.
+        "n_matured_observations": body.get("n_matured_observations"),
+        "observation_economic_state_counts": body.get(
+            "observation_economic_state_counts"),
+        "observations": obs[:25],
+        "an_observation_state_is_not_a_strategy_state": True,
+        "descriptive_states_never_replace_verdicts": True,
+        "strategies_with_matured_evidence": with_evidence,
+        "first_matured_explained": body.get("first_matured_explained"),
+        "rankings": {
+            "by_net_edge_bps": (rankings or {}).get("by_net_edge_bps"),
+            "by_residual_alpha_bps": (rankings or {}).get(
+                "by_residual_alpha_bps"),
+            "by_cumulative_gross_edge_bps": (rankings or {}).get(
+                "by_cumulative_gross_edge_bps"),
+            "by_cumulative_cost_drag_bps": (rankings or {}).get(
+                "by_cumulative_cost_drag_bps"),
+            "by_pct_of_gross_edge_consumed_by_cost": (rankings or {}).get(
+                "by_pct_of_gross_edge_consumed_by_cost"),
+            "ranking_rule": (rankings or {}).get("ranking_rule"),
+        } if isinstance(rankings, dict) else {},
+        "break_even": {
+            "statement": (break_even or {}).get("statement"),
+            "hardest_to_clear": (break_even or {}).get("hardest_to_clear"),
+            "easiest_to_clear": (break_even or {}).get("easiest_to_clear"),
+            "rows": ((break_even or {}).get("rows") or [])[:40],
+        } if isinstance(break_even, dict) else {},
+        "matured_and_mark_to_market_are_never_summed": True,
+        "research_only": True,
+    }
+
+
+def _research_lanes(body: Optional[dict], adopted: Optional[dict],
+                    opt_hyp: Optional[dict]) -> dict:
+    """The research-lane lifecycle contract - every lane, every run."""
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the research-lane lifecycle owner has not run at "
+                        "this research root yet"}
+    rows = [{
+        "lane_id": r.get("lane_id"), "owner": r.get("owner"),
+        "lifecycle": r.get("lifecycle"), "owner_state": r.get("owner_state"),
+        "cadence": r.get("cadence"),
+        "classification": r.get("classification"),
+        "information_family": r.get("information_family"),
+        "adopted_from": r.get("adopted_from"),
+        "was_called": r.get("was_called"),
+        "next_decision_date": r.get("next_decision_date"),
+        "why": r.get("why") or r.get("reason"),
+        "challengers": r.get("challengers"),
+        "usable_sessions": r.get("usable_sessions"),
+        "sessions_still_required": r.get("sessions_still_required"),
+    } for r in (body.get("rows") or [])]
+    a = body.get("audit") or {}
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "calculation_owner": body.get("calculation_owner"),
+        "statement": body.get("statement"),
+        "lifecycle_vocabulary": body.get("lifecycle_vocabulary"),
+        "forgotten_is_not_a_state": body.get("forgotten_is_not_a_state"),
+        "n_lanes": body.get("n_lanes"),
+        "lifecycle_counts": body.get("lifecycle_counts"),
+        "contract_holds": body.get("contract_holds"),
+        "never_called": a.get("never_called"),
+        "n_never_called": a.get("n_never_called"),
+        "quiet_is_not_broken": body.get("quiet_is_not_broken"),
+        "adopted_append_blocker": body.get("adopted_append_blocker"),
+        "rows": rows,
+        "adopted_inventory": ({
+            "n_adopted_lanes": (adopted or {}).get("n_adopted_lanes"),
+            "n_shadows": (adopted or {}).get("n_shadows"),
+            "n_wired_into_drc": (adopted or {}).get("n_wired_into_drc"),
+            "n_retired": (adopted or {}).get("n_retired"),
+            "finding": (adopted or {}).get("finding"),
+            "measured_owner_reachability": (adopted or {}).get(
+                "measured_owner_reachability"),
+            "rows": (adopted or {}).get("rows") or [],
+        } if isinstance(adopted, dict) else {"available": False}),
+        "option_hypotheses": ({
+            "evidence_class": (opt_hyp or {}).get("evidence_class"),
+            "n_feature_sessions": (opt_hyp or {}).get("n_feature_sessions"),
+            "sessions_required": (opt_hyp or {}).get("sessions_required"),
+            "judgeable": (opt_hyp or {}).get("judgeable"),
+            "n_predeclared": (opt_hyp or {}).get("n_predeclared"),
+            "n_scored": (opt_hyp or {}).get("n_scored"),
+            "n_sample_insufficient": (opt_hyp or {}).get(
+                "n_sample_insufficient"),
+            "positive_after_costs_and_control": (opt_hyp or {}).get(
+                "positive_after_costs_and_control"),
+            "binding_constraint": (opt_hyp or {}).get("binding_constraint"),
+            "results": (opt_hyp or {}).get("results"),
+        } if isinstance(opt_hyp, dict) else {"available": False}),
+        "research_only": True,
+    }
+
+
+def _economic_truth(nav: Optional[dict], comp: Optional[dict],
+                    harvest: Optional[dict], eff: Optional[dict]) -> dict:
+    """"Are we making money?" - answered so a gain cannot be misread.
+
+    The shadow book's NAV is ABOVE its starting capital and the book is
+    BEHIND its cash control, and both of those are true at once: the gain is
+    financing on idle collateral, and the strategies have so far subtracted
+    from it. A headline that reported only the NAV would say "up $132" about a
+    book that is down $20 against the only control that matters. This block
+    exists so no surface can make that mistake.
+    """
+    if not isinstance(nav, dict):
+        return {"available": False,
+                "note": "the shadow P&L layer has not run at this research "
+                        "root yet"}
+    c = comp or {}
+    fin = nav.get("financing_earned")
+    real = nav.get("realised_pnl")
+    unreal = nav.get("unrealised_pnl")
+    cost = nav.get("cost_drag")
+    vs_cash = c.get("canonical_minus_cash_usd")
+    strategy_pnl = None
+    if real is not None and unreal is not None:
+        strategy_pnl = float(real) + float(unreal)
+    return {
+        "available": True,
+        "as_of": nav.get("as_of"),
+        "question": "are we making money?",
+        "shadow_nav": nav.get("shadow_nav"),
+        "starting_capital": nav.get("starting_capital"),
+        "headline_gain_usd": (None if nav.get("shadow_nav") is None
+                              or nav.get("starting_capital") is None
+                              else round(float(nav["shadow_nav"])
+                                         - float(nav["starting_capital"]), 6)),
+        "financing_earned_usd": fin,
+        "strategy_pnl_usd": strategy_pnl,
+        "realised_net_forward_pnl_usd": real,
+        "unrealised_net_pnl_usd": unreal,
+        "cost_drag_usd": cost,
+        "residual_forward_alpha_usd": nav.get(
+            "residual_alpha_pnl_vs_cash_control"),
+        "canonical_minus_cash_usd": vs_cash,
+        "canonical_minus_passive_spy_usd": c.get(
+            "canonical_minus_passive_spy_usd"),
+        "canonical_minus_passive_60_40_usd": c.get(
+            "canonical_minus_passive_60_40_usd"),
+        "canonical_minus_equal_weight_usd": c.get(
+            "canonical_minus_equal_weight_usd"),
+        "canonical_minus_equal_risk_usd": c.get(
+            "canonical_minus_equal_risk_usd"),
+        "canonical_beats_cash": c.get("canonical_beats_cash"),
+        "matured_observations": ((harvest or {}).get("matured") or {})
+        .get("n_matured"),
+        "matured_funded": ((harvest or {}).get("matured") or {}).get("n_funded"),
+        "matured_unfunded": ((harvest or {}).get("matured") or {})
+        .get("n_unfunded_unit_economics"),
+        "why_realised_pnl_is_zero": (
+            "the matured trade(s) so far were UNFUNDED under the canonical "
+            "allocation policy, so their unit economics are on the record and "
+            "their dollar effect on the shadow NAV is zero. The loss is real "
+            "evidence and it cost the book nothing."
+            if (((harvest or {}).get("matured") or {}).get("n_funded") == 0
+                and ((harvest or {}).get("matured") or {}).get("n_matured"))
+            else None),
+        "forward_pnl_evidence": (harvest or {}).get("FORWARD_PNL_EVIDENCE"),
+        "next_maturity": (harvest or {}).get("next_maturity"),
+        "cost_destroyed_strategies": (eff or {}).get("cost_destroyed"),
+        "gross_edge_negative_strategies": (eff or {}).get(
+            "gross_edge_negative"),
+        "positive_residual_alpha_strategies": (eff or {}).get(
+            "positive_residual_alpha"),
+        # ---- the sentence a surface may print, and the one it may not ----- #
+        "verdict": _economic_truth_sentence(nav, c, strategy_pnl),
+        "a_positive_nav_is_not_alpha": True,
+        "why": ("collateral earns the risk-free rate whether or not a single "
+                "strategy works. The only number that says whether the "
+                "RESEARCH earned anything is the book against its cash "
+                "control."),
+        "research_only": True,
+    }
+
+
+def _economic_truth_sentence(nav: dict, comp: dict, strategy_pnl) -> str:
+    vs_cash = comp.get("canonical_minus_cash_usd")
+    fin = nav.get("financing_earned")
+    if vs_cash is None:
+        return ("The shadow book has not been compared with its cash control "
+                "yet.")
+    if float(vs_cash) > 0:
+        return ("The shadow research book is AHEAD of its cash control by "
+                "$%.2f. Financing contributed $%.2f of the headline."
+                % (float(vs_cash), float(fin or 0.0)))
+    return ("The shadow research book is BEHIND its cash control by $%.2f. "
+            "The headline NAV is above its starting capital only because "
+            "collateral earned $%.2f of financing; the strategies themselves "
+            "have subtracted $%.2f so far."
+            % (abs(float(vs_cash)), float(fin or 0.0),
+               abs(float(strategy_pnl or 0.0))))
 
 
 def _headline(state: str, preds: list, outs: list, rows: list) -> str:
