@@ -10416,6 +10416,11 @@ R46_OWNERS = {
     "cost_efficiency": "alpha_agent/r46/cost_efficiency.py",
     "lanes": "alpha_agent/r46/lanes.py",
     "options_hypotheses": "alpha_agent/r46/options_hypotheses.py",
+    # Release 46.6.1 - THE adopted-shadow forward continuation owner. R46.6
+    # left three adopted lanes CALLED and unable to accrue, because the only
+    # ledger their owners write belongs to a prior release. This is the one
+    # place adopted forward evidence is written, and it writes nothing else.
+    "adopted_forward": "alpha_agent/r46/adopted_forward.py",
 }
 
 #: Release 46.4 - a SECOND implementation of an economic concept the release
@@ -10604,10 +10609,22 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         and "file_sha256_before" in src["registry"]
         and "file_sha256_after" in src["registry"]
         and "unchanged_by_r46" in src["registry"])
+    # Release 46.6.1 SCOPED this clause rather than silently breaking it. The
+    # R46 PREDICTION ledger still holds no adopted row and no prior release's
+    # store is ever written; adopted forward evidence goes to an R46-OWNED
+    # continuation ledger whose owner names the clause it supersedes. Reading
+    # this invariant as "R46 produces no adopted forward evidence" would now be
+    # false, so the token scan requires the amendment to be declared out loud.
     adoption_writes_no_forward_row = (
         "r46_never_writes_a_forward_row_for_an_adopted_shadow"
         in src["contract"]
-        and "r46_writes_forward_rows_for_it" in src["registry"])
+        and "r46_writes_forward_rows_for_it" in src["registry"]
+        and "SUPERSEDED_ADOPTION_CLAUSE" in src.get("adopted_forward", "")
+        and "PRIOR_RELEASE_APPEND_AUTHORISED = False"
+        in src.get("adopted_forward", "")
+        # the adopted row may never enter the canonical prediction ledger
+        and "CONTINUATION_LEDGER" not in src["ledger"]
+        and "adopted_challenger_id" not in src["emit"])
 
     # (9) A dead stream cannot masquerade as a live model.
     feasibility_gate_enforced = (
@@ -10900,6 +10917,88 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         "ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS = False" in _ln
         and "mutates_prior_release_artifacts" in _ln)
 
+    # ---- Release 46.6.1 - the adopted forward continuation bridge --------- #
+    # R46.6 registered the adopted lanes and proved their owners work, and
+    # they still produced nothing: the only ledger those owners write belongs
+    # to a prior release. A lane that is called, has something to say and has
+    # nowhere to say it is the same defect wearing a label.
+    _af = src.get("adopted_forward", "")
+    r46_6_1_continuation_has_one_owner = (
+        "CALCULATION_OWNER = \"alpha_agent.r46.adopted_forward\"" in _af
+        and "CONTINUATION_IDENTITY_KEY" in _af
+        and "def run_lane(" in _af
+        and "_append_ledger" in _af and "verify_ledger" in _af
+        # and no OTHER R46 module opens a continuation ledger or reimplements
+        # a prior release's capture
+        and "CONTINUATION_LEDGER" not in src["ledger"]
+        and "def run_lane(" not in _ln
+        and "_target_snapshot" not in _ln
+        and "eligible_new_decisions" not in _ln)
+    r46_6_1_prior_release_stores_stay_read_only = (
+        "PRIOR_RELEASE_APPEND_AUTHORISED = False" in _af
+        and "prior_release_artifact_mutated" in _af
+        and "prior_release_ledger_written" in _af
+        # never drives a prior release's own capture or maturation path
+        and ".capture(" not in _af and "run_cycle(" not in _af
+        and "RS.mature(" not in _af)
+    r46_6_1_amendment_is_named_not_implied = (
+        "SUPERSEDED_ADOPTION_CLAUSE" in _af
+        and "r46_never_writes_a_forward_row_for_an_adopted_shadow" in _af
+        and "frozen_contract_file_edited" in _af
+        and "contract_hash_unchanged" in _af
+        and "what_remains_forbidden" in _af
+        and "amended_by" in _af)
+    r46_6_1_continuation_is_true_forward_gated = (
+        "class ContinuationRefusal" in _af
+        and "raise ContinuationRefusal" in _af
+        and "REFUSED - not TRUE_FORWARD" in _af
+        and "def outcome_window_start(" in _af
+        and "CK.outcome_window_start_utc" in _af
+        and "OUTCOME_WINDOW_ALREADY_OPEN" in _af)
+    r46_6_1_signal_comes_from_the_prior_owner = (
+        "_target_snapshot" in _af and "score_at" in _af
+        # a second copy of a frozen strategy is a retune waiting to happen
+        and "rank(pct=True)" not in _af
+        and "apply_frozen_wide" not in _af
+        and "def score_at" not in _af)
+    r46_6_1_append_rights_are_reported_apart = (
+        "prior_release_append_authorised" in _ln
+        and "r46_continuation_append_authorised" in _ln
+        and "ADOPTED_CONTINUATION_OWNER" in _ln
+        and "old_artifacts_became_writable" in _ln)
+    # R46.6.1 - two controls, computed apart. The scientific one is the
+    # strategy's OWN frozen control, computed by the PRIOR RELEASE's own
+    # implementation; the capital one is R46 cash. Neither may stand in for the
+    # other, and this release may not define a control of its own.
+    _vd = src.get("verdicts", "")
+    r46_6_1_two_controls_are_computed_apart = (
+        "SCIENTIFIC_ALPHA_FIELD" in _af
+        and "CAPITAL_ALPHA_FIELD" in _af
+        and "scientific_alpha_vs_declared_control" in _af
+        and "capital_alpha_vs_cash" in _af
+        and "CASH_SUBSTITUTION_FOR_NONCASH_CONTROL_ALLOWED = False" in _af
+        and "def declared_control_path(" in _af
+        # the ORIGINAL owner computes the control; this release invents none
+        and "passive_ew_control" in _af
+        and "_r39_trade_space" in _af
+        and "def passive_ew_control" not in _af
+        and "np.sign(pred" not in _af)
+    r46_6_1_formal_verdict_uses_the_frozen_control = (
+        "scientific_control_state" in _vd
+        and "SCIENTIFIC_CONTROL_GATE" in _vd
+        and "capital_alpha_vs_cash_is_never_a_substitute" in _vd
+        and "formal_verdict_blocked" in _vd
+        and "def verdict_inputs(" in _af
+        and "FORMAL_VERDICT_USES" in _af)
+    _oh_src = src.get("options_hypotheses", "")
+    r46_6_1_options_gate_semantics_are_explicit = (
+        "SESSION_GATE_MET" in src["options"]
+        and "NUMBER_OF_SESSIONS_ONLY" in src["options"]
+        and "STRIKE_AND_EXPIRY_BREADTH_PER_SESSION" in src["options"]
+        and "hypothesis_sample_sufficient" in _oh_src
+        and "hypothesis_sample_state" in _oh_src
+        and "session_gate_state" in _oh_src)
+
     # The option hypotheses are scored as HISTORICAL_SIMULATION and may never
     # enter the prospective ledger, however good they look.
     _oh = src.get("options_hypotheses", "")
@@ -10949,6 +11048,25 @@ def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
         "r46_6_lane_contract_is_enforced": r46_6_lane_contract_is_enforced,
         "r46_6_prior_release_ledgers_untouched":
             r46_6_prior_release_ledgers_untouched,
+        # --- Release 46.6.1 ------------------------------------------------ #
+        "r46_6_1_continuation_has_one_owner":
+            r46_6_1_continuation_has_one_owner,
+        "r46_6_1_prior_release_stores_stay_read_only":
+            r46_6_1_prior_release_stores_stay_read_only,
+        "r46_6_1_amendment_is_named_not_implied":
+            r46_6_1_amendment_is_named_not_implied,
+        "r46_6_1_continuation_is_true_forward_gated":
+            r46_6_1_continuation_is_true_forward_gated,
+        "r46_6_1_signal_comes_from_the_prior_owner":
+            r46_6_1_signal_comes_from_the_prior_owner,
+        "r46_6_1_append_rights_are_reported_apart":
+            r46_6_1_append_rights_are_reported_apart,
+        "r46_6_1_two_controls_are_computed_apart":
+            r46_6_1_two_controls_are_computed_apart,
+        "r46_6_1_formal_verdict_uses_the_frozen_control":
+            r46_6_1_formal_verdict_uses_the_frozen_control,
+        "r46_6_1_options_gate_semantics_are_explicit":
+            r46_6_1_options_gate_semantics_are_explicit,
         "r46_6_option_hypotheses_are_historical":
             r46_6_option_hypotheses_are_historical,
         "r46_6_challengers_frozen_unsearched":
@@ -13173,6 +13291,28 @@ BLOCKING_INVARIANTS = (
     ("release46_prospective_alpha_tournament", "adoption_is_read_only", True),
     ("release46_prospective_alpha_tournament",
      "adoption_writes_no_forward_row", True),
+    # Release 46.6.1 - adopted shadows may now accrue, into an R46-OWNED
+    # ledger, with the superseded clause named and the prior stores read-only.
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_continuation_has_one_owner", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_prior_release_stores_stay_read_only", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_amendment_is_named_not_implied", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_continuation_is_true_forward_gated", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_signal_comes_from_the_prior_owner", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_append_rights_are_reported_apart", True),
+    # ...and the two CONTROLS: a strategy's frozen benchmark is not cash, and
+    # beating cash may never be promoted into a formal scientific verdict.
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_two_controls_are_computed_apart", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_formal_verdict_uses_the_frozen_control", True),
+    ("release46_prospective_alpha_tournament",
+     "r46_6_1_options_gate_semantics_are_explicit", True),
     ("release46_prospective_alpha_tournament",
      "feasibility_gate_enforced", True),
     ("release46_prospective_alpha_tournament",

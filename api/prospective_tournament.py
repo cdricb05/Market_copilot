@@ -119,6 +119,13 @@ ARTIFACTS = {
     "lane_lifecycle": "R46_6_RESEARCH_LANE_LIFECYCLE.json",
     "adopted_lanes": "R46_6_ADOPTED_SHADOW_LANE_INVENTORY.json",
     "options_hypotheses": "R46_6_OPTIONS_HYPOTHESES.json",
+    # Release 46.6.1 — the adopted-shadow forward continuation. R46.6 left the
+    # adopted lanes CALLED and unable to accrue, and this payload said so with
+    # a single "append_authorised: false" that could only be read as "dead".
+    # The continuation owner's artifact distinguishes the prior-release append
+    # right (still forbidden, permanently) from the R46 continuation ledger
+    # (where adopted forward evidence now goes).
+    "adopted_continuation": "R46_6_1_ADOPTED_CONTINUATION.json",
 }
 
 R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
@@ -129,7 +136,8 @@ R46_4_ARTIFACTS = ("pnl_nav", "pnl_comparison", "pnl_board", "pnl_allocation",
                    "lane_form4")
 
 R46_6_ARTIFACTS = ("cost_efficiency", "cost_rankings", "break_even",
-                   "lane_lifecycle", "adopted_lanes", "options_hypotheses")
+                   "lane_lifecycle", "adopted_lanes", "options_hypotheses",
+                   "adopted_continuation")
 
 #: Artifacts whose absence is EXPECTED (before the first advance, or before the
 #: Release-46.3 owners ever ran here) and so must not become an operator-facing
@@ -299,7 +307,8 @@ def load_prospective_tournament(
                                             art.get("break_even")),
         "research_lane_lifecycle": _research_lanes(
             art.get("lane_lifecycle"), art.get("adopted_lanes"),
-            art.get("options_hypotheses")),
+            art.get("options_hypotheses"),
+            art.get("adopted_continuation")),
         "challengers_by_asset_class": _count_by(rows, "asset_class"),
         "challengers_by_economic_family": _count_by(rows, "family"),
         "challengers_by_information_family": _count_by_info(registry),
@@ -443,10 +452,17 @@ def _confidence(rows: list) -> dict:
 def _scored_outcomes(outs: list) -> list:
     """Every MATURED outcome, stated against the control it declared in advance.
 
-    ``net_alpha_vs_control`` is the only number that decides anything: Release 42
-    watched a real premium priced below cash, and Release 43 watched another
-    disappear entirely into two-legged cost. Gross is carried because hiding it
-    would be dishonest, not because it means much on its own.
+    Alpha versus the DECLARED control is the only number that decides anything:
+    Release 42 watched a real premium priced below cash, and Release 43 watched
+    another disappear entirely into two-legged cost. Gross is carried because
+    hiding it would be dishonest, not because it means much on its own.
+
+    For an R46-native row the declared control IS cash, so one number answers
+    both questions. An R46.6.1 adopted continuation row froze its own control -
+    a passive basket of the same scope, say - and then the two questions come
+    apart: it carries ``scientific_alpha`` (versus the control it was frozen
+    against, the only number a formal verdict may use) and ``capital_alpha_vs_
+    cash`` (whether the capital beat cash), and this block never merges them.
     """
     out = []
     for o in outs[-100:]:
@@ -468,8 +484,28 @@ def _scored_outcomes(outs: list) -> list:
             "net_alpha_vs_control": o.get("net_alpha_vs_control"),
             "net_alpha_vs_control_at_2x_costs": o.get(
                 "net_alpha_vs_control_at_2x_costs"),
+            # R46.6.1 - an adopted continuation row carries TWO controls, and a
+            # reader must be able to tell which claim it is looking at. An
+            # R46-native row declares cash as its own control, so these stay
+            # absent there rather than being invented.
+            "net_alpha_vs_control_means": o.get(
+                "net_alpha_vs_control_means", "ALPHA_VS_THE_DECLARED_CONTROL"),
+            "scientific_control": o.get("scientific_control"),
+            "scientific_control_return": o.get("scientific_control_return"),
+            "scientific_control_state": o.get("scientific_control_state"),
+            "scientific_alpha": o.get(
+                "scientific_alpha_vs_declared_control"),
+            "scientific_alpha_at_2x_costs": o.get(
+                "scientific_alpha_vs_declared_control_at_2x_costs"),
+            "capital_control": o.get("capital_control"),
+            "capital_control_return": o.get("capital_control_return"),
+            "capital_alpha_vs_cash": o.get("capital_alpha_vs_cash"),
+            "capital_alpha_vs_cash_at_2x_costs": o.get(
+                "capital_alpha_vs_cash_at_2x_costs"),
+            "formal_verdict_uses": o.get("formal_verdict_uses"),
             "rank_ic": o.get("rank_ic"),
             "hit": o.get("hit"),
+            "capital_hit": o.get("capital_hit"),
             "one_outcome_is_not_alpha": True,
         })
     return out
@@ -595,6 +631,16 @@ def _lanes(options: Optional[dict], analyst: Optional[dict],
     return {
         "options": {
             "state": ojs.get("state"),
+            # Release 46.6.1 — this gate counts DATES. It never measured
+            # whether a predeclared hypothesis has the strikes and expiries it
+            # needs on them, and reading "JUDGEABLE" as if it had is the exact
+            # misreading this wording closes.
+            "session_gate_state": ojs.get("session_gate_state"),
+            "gate_measures": ojs.get("gate_measures"),
+            "gate_does_not_measure": ojs.get("gate_does_not_measure"),
+            "judgeable_here_means": ojs.get("judgeable_here_means"),
+            "hypothesis_sample_sufficiency_is_answered_by": ojs.get(
+                "hypothesis_sample_sufficiency_is_answered_by"),
             "usable_sessions_now": ojs.get("usable_sessions_now"),
             "sessions_required": ojs.get("sessions_required"),
             "sessions_still_required": ojs.get("sessions_still_required"),
@@ -1039,7 +1085,8 @@ def _cost_efficiency(body: Optional[dict], rankings: Optional[dict],
 
 
 def _research_lanes(body: Optional[dict], adopted: Optional[dict],
-                    opt_hyp: Optional[dict]) -> dict:
+                    opt_hyp: Optional[dict],
+                    continuation: Optional[dict] = None) -> dict:
     """The research-lane lifecycle contract - every lane, every run."""
     if not isinstance(body, dict):
         return {"available": False,
@@ -1058,6 +1105,13 @@ def _research_lanes(body: Optional[dict], adopted: Optional[dict],
         "challengers": r.get("challengers"),
         "usable_sessions": r.get("usable_sessions"),
         "sessions_still_required": r.get("sessions_still_required"),
+        # Release 46.6.1 — an adopted lane reports where its evidence goes.
+        "continuation_state": r.get("continuation_state"),
+        "continuation_owner": r.get("continuation_owner"),
+        "n_continuation_appended": r.get("n_appended"),
+        "n_refused_outcome_window_open": r.get(
+            "n_refused_outcome_window_open"),
+        "session_gate_state": r.get("session_gate_state"),
     } for r in (body.get("rows") or [])]
     a = body.get("audit") or {}
     return {
@@ -1083,13 +1137,51 @@ def _research_lanes(body: Optional[dict], adopted: Optional[dict],
             "finding": (adopted or {}).get("finding"),
             "measured_owner_reachability": (adopted or {}).get(
                 "measured_owner_reachability"),
+            # Release 46.6.1 — the two append rights, never one ambiguous flag.
+            "prior_release_append_authorised": (adopted or {}).get(
+                "prior_release_append_authorised"),
+            "r46_continuation_append_authorised": (adopted or {}).get(
+                "r46_continuation_append_authorised"),
+            "continuation_owner": (adopted or {}).get("continuation_owner"),
+            "n_continuation_ready": (adopted or {}).get(
+                "n_continuation_ready"),
+            # Release 46.6.1 — and the two CONTROLS, never one word either.
+            "scientific_control_owner": (adopted or {}).get(
+                "scientific_control_owner"),
+            "capital_control": (adopted or {}).get("capital_control"),
+            "scientific_alpha_field": (adopted or {}).get(
+                "scientific_alpha_field"),
+            "capital_alpha_field": (adopted or {}).get("capital_alpha_field"),
+            "formal_verdict_uses": (adopted or {}).get("formal_verdict_uses"),
+            "cash_substitution_for_noncash_control_allowed": (adopted or {}).get(
+                "cash_substitution_for_noncash_control_allowed"),
+            "old_artifacts_became_writable": False,
             "rows": (adopted or {}).get("rows") or [],
         } if isinstance(adopted, dict) else {"available": False}),
+
+        # Release 46.6.1 — THE adopted forward continuation, read verbatim.
+        "adopted_continuation": _adopted_continuation(continuation),
+
         "option_hypotheses": ({
             "evidence_class": (opt_hyp or {}).get("evidence_class"),
             "n_feature_sessions": (opt_hyp or {}).get("n_feature_sessions"),
             "sessions_required": (opt_hyp or {}).get("sessions_required"),
             "judgeable": (opt_hyp or {}).get("judgeable"),
+            # Release 46.6.1 — "judgeable" meant the SESSION COUNT and nothing
+            # else, while not one hypothesis had a sufficient sample. The two
+            # claims are reported apart so neither can be read as the other.
+            "judgeable_means": (opt_hyp or {}).get("judgeable_means"),
+            "session_gate_state": (opt_hyp or {}).get("session_gate_state"),
+            "session_gate_measures": (opt_hyp or {}).get(
+                "session_gate_measures"),
+            "session_gate_does_not_measure": (opt_hyp or {}).get(
+                "session_gate_does_not_measure"),
+            "hypothesis_sample_sufficient": (opt_hyp or {}).get(
+                "hypothesis_sample_sufficient"),
+            "hypothesis_sample_state": (opt_hyp or {}).get(
+                "hypothesis_sample_state"),
+            "hypothesis_sample_blocker": (opt_hyp or {}).get(
+                "hypothesis_sample_blocker"),
             "n_predeclared": (opt_hyp or {}).get("n_predeclared"),
             "n_scored": (opt_hyp or {}).get("n_scored"),
             "n_sample_insufficient": (opt_hyp or {}).get(
@@ -1099,6 +1191,62 @@ def _research_lanes(body: Optional[dict], adopted: Optional[dict],
             "binding_constraint": (opt_hyp or {}).get("binding_constraint"),
             "results": (opt_hyp or {}).get("results"),
         } if isinstance(opt_hyp, dict) else {"available": False}),
+        "research_only": True,
+    }
+
+
+def _adopted_continuation(body: Optional[dict]) -> dict:
+    """Release 46.6.1 - where adopted forward evidence goes, and what blocks it.
+
+    Read verbatim from ``alpha_agent.r46.adopted_forward``. This module
+    computes no identity, no eligibility and no continuation state of its own.
+    """
+    if not isinstance(body, dict):
+        return {"available": False,
+                "note": "the adopted-shadow continuation owner has not run at "
+                        "this research root yet"}
+    contract = body.get("contract") or {}
+    summary = body.get("summary") or {}
+    return {
+        "available": True,
+        "as_of": body.get("as_of"),
+        "calculation_owner": body.get("calculation_owner"),
+        "continuation_owner": contract.get("continuation_owner"),
+        "statement": body.get("statement"),
+        "prior_release_append_authorised": contract.get(
+            "prior_release_append_authorised"),
+        "r46_continuation_append_authorised": contract.get(
+            "r46_continuation_append_authorised"),
+        "superseded_adoption_clause": contract.get(
+            "superseded_adoption_clause"),
+        "entry_convention": contract.get("entry_convention"),
+        "entry_convention_statement": contract.get(
+            "entry_convention_statement"),
+        "evidence_class": contract.get("evidence_class"),
+        "identity_key": contract.get("identity_key"),
+        "continuation_states": contract.get("continuation_states"),
+        "signal_owners": contract.get("signal_owners"),
+        "no_second_capture_implementation": contract.get(
+            "no_second_capture_implementation"),
+        "n_continuation_predictions": summary.get(
+            "n_continuation_predictions"),
+        "n_continuation_outcomes": summary.get("n_continuation_outcomes"),
+        "n_pending": summary.get("n_pending"),
+        "by_adopted_challenger": summary.get("by_adopted_challenger"),
+        "chain_intact": bool((summary.get("chain") or {}).get("all_intact")),
+        "lane_results": body.get("lane_results") or {},
+        "prior_release_artifacts_mutated": body.get(
+            "prior_release_artifacts_mutated"),
+        "old_artifacts_became_writable": False,
+        # R46.6.1 - the two controls, never merged into one word. "Beat cash"
+        # and "beat the benchmark this strategy froze" are different claims,
+        # and only the second can carry a formal scientific verdict.
+        "controls": (contract.get("controls") or {}),
+        "scientific_control_field": summary.get("scientific_control_field"),
+        "capital_control_field": summary.get("capital_control_field"),
+        "controls_are_separate": bool(summary.get("controls_are_separate")),
+        "formal_verdict_uses": summary.get("formal_verdict_uses"),
+        "verdict_inputs": body.get("verdict_inputs") or {},
         "research_only": True,
     }
 

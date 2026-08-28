@@ -85,6 +85,15 @@ MIN_FIT_SESSIONS = 250
 MIN_JUDGED_SESSIONS = 250
 SESSIONS_REQUIRED = MIN_FIT_SESSIONS + MIN_JUDGED_SESSIONS
 
+#: Release 46.6.1 - what the 500-session gate actually decides, said in its own
+#: words. It counts DATES. Whether the three predeclared hypotheses have a
+#: sufficient sample on those dates is a different question with a different
+#: owner and, at R46.6, a different answer.
+SESSION_GATE_MET = "SESSION_GATE_MET"
+SESSION_GATE_SHORT = "SESSION_GATE_SHORT"
+SESSION_GATE_MEASURES = "NUMBER_OF_SESSIONS_ONLY"
+SESSION_GATE_DOES_NOT_MEASURE = "STRIKE_AND_EXPIRY_BREADTH_PER_SESSION"
+
 #: Never exceeded. The entitlement boundary is a fact about the plan, not a
 #: number to negotiate with.
 ENTITLEMENT_LOOKBACK_DAYS = 700
@@ -660,6 +669,20 @@ def run(*, acquire: bool = True, campaign_id: str = CAMPAIGN_ID,
             "usable_sessions_now": sessions_now,
             "sessions_still_required": still_short,
             "state": "JUDGEABLE" if still_short == 0 else "STILL_SHORT",
+            # Release 46.6.1 - semantic clarity, no science changed. This gate
+            # counts DATES and nothing else. It has never measured whether a
+            # predeclared hypothesis has the strikes and expiries it needs on
+            # those dates; alpha_agent.r46.options_hypotheses answers that, and
+            # its answer is reported separately rather than implied by this one.
+            "session_gate_state": (SESSION_GATE_MET if still_short == 0
+                                   else SESSION_GATE_SHORT),
+            "gate_measures": "NUMBER_OF_SESSIONS_ONLY",
+            "gate_does_not_measure": "STRIKE_AND_EXPIRY_BREADTH_PER_SESSION",
+            "hypothesis_sample_sufficiency_is_answered_by":
+                "alpha_agent.r46.options_hypotheses",
+            "judgeable_here_means": (
+                "the 500-session count is met. It does NOT mean any "
+                "predeclared hypothesis has a sufficient sample."),
         },
         predeclared_hypotheses=[dict(h) for h in PREDECLARED_HYPOTHESES],
         n_predeclared=len(PREDECLARED_HYPOTHESES),

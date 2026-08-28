@@ -1,6 +1,141 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-28
+- **Updated by phase:** **Release 46.6.1 - Adopted Shadow Forward Continuation
+  Bridge (single agent, no subagents, Windows PowerShell only).** Built on
+  R46.6 commit `4202e4b97e3ee050a813372f418baa5fd61a7ce7`.
+  **`R46_6_1_SHELL_POLICY_VIOLATION = TRUE` - one event, disclosed and NOT
+  waived.** The session's harness twice instructed that work be routed through
+  Bash and both instructions were declined in writing; a third Bash tool-use
+  then happened by the agent's mistake, ran `echo blocked`, and read nothing,
+  wrote nothing and touched no repository path, research root, artifact or git
+  state. No test, audit, hash, evidence collection, git operation or file edit
+  in this release ran through a prohibited shell. `shell_attestation.json`
+  records it as one violation, `validate.ps1` fails on it by design, and
+  whether a disclosed no-op blocks the commit is the operator's decision, not
+  the agent's. Zero subagents.
+  **The gap R46.6 left open.** R46.6 registered the seven prospective shadows
+  five prior releases had frozen, called every one of them from the ONE
+  canonical cycle, and proved by driving the owner that the R39/R40 stream was
+  never dead - it was never called. Three of those lanes then still produced
+  nothing, and the live payload said so in the only words it had:
+  `r39_vx_weekly append_authorised = false, next decision 2026-08-28`;
+  `r39_fut_month_end` and `r40_fut_month_end` the same, next decision
+  2026-08-31. The blocker was real: the only ledger those owners write belongs
+  to the PRIOR RELEASE, and
+  `contract.SAFETY_BLOCK["mutates_prior_release_artifacts"]` is `False`.
+  **A lane that is called, has something to say and has nowhere to say it is
+  the same defect wearing a label.**
+  **What R46.6.1 built:** ONE R46-owned, append-only, chain-hashed continuation
+  ledger and one owner for it, `alpha_agent/r46/adopted_forward.py`. It reads
+  the prior registries, PROVES the frozen specification identity (a pinned
+  twelve-field identity hash per shadow, the registry's own self-hash, its
+  freeze timestamp, and a learned model re-hashed from its own stored bytes),
+  calls the ORIGINAL owner's own scoring function
+  (`r39.research_shadow._target_snapshot`, `r40.shadow_registry.score_at`) on
+  the ORIGINAL owner's own panel, and appends into the R46 research root. No
+  second capture implementation exists.
+  **The frozen safety flag is NOT flipped and the contract file is NOT edited.**
+  `mutates_prior_release_artifacts` is still `False` and still true in fact;
+  `contract_hash()` still binds the 68 predictions already on the record. The
+  adoption clause `r46_never_writes_a_forward_row_for_an_adopted_shadow` is
+  SCOPED, and the amendment is named rather than implied:
+  `adopted_forward.SUPERSEDED_ADOPTION_CLAUSE` quotes the frozen clause and its
+  reason verbatim, records who amended it, and lists what stays forbidden. The
+  architecture audit's `adoption_writes_no_forward_row` invariant now REQUIRES
+  that declaration, so the green means what it says.
+  **TRUE_FORWARD is enforced, not asserted.** The adopted owners enter at their
+  own decision close and that convention is unchanged - changing the entry
+  would change the strategy. What the ledger refuses is a row whose OUTCOME was
+  already being determined: the first session after the decision date must not
+  have opened. Every date since the freeze looks eligible to the prior owner,
+  whose only wall is the freeze; run late, the VX lane refuses 2026-08-28 as
+  `OUTCOME_WINDOW_ALREADY_OPEN` and reports `CALLED_PIT_BLOCKED` rather than
+  backfilling it.
+  **The two append rights are now reported apart** in the lifecycle artifact,
+  the adopted inventory, the advance digest and the live payload:
+  `prior_release_append_authorised = false` (permanent),
+  `r46_continuation_append_authorised = true`,
+  `continuation_owner = alpha_agent.r46.adopted_forward`,
+  `continuation_state = READY` or the exact blocker. The old ambiguous
+  `append_authorised` flag remains with
+  `append_authorised_means = PRIOR_RELEASE_LEDGER_ONLY`, so no reader can
+  conclude an old artifact became writable. **None did:** 130 prior-release
+  files byte-identical before and after, and the empty snapshot directories the
+  five freezes created are still empty.
+  **A defect found while doing it:** R40's freeze wrote a DISPLAY string,
+  `"rule:carry_slope_ann (no parameters)"`, into its registry rows while its
+  own scorer reads everything after the colon as a COLUMN NAME. The R40 slot-4
+  shadow could therefore never have scored through its own owner on any path
+  since 2026-08-23. The frozen `spec_hash` was computed over the candidate,
+  whose model name carries no suffix; the owner is given that name and every
+  emitted row records both strings and the fact of the normalisation.
+  **And a second defect, in the suite itself:**
+  `test_options_lane_reports_a_budget_that_bought_no_new_sessions` called the
+  option-lane owner with no sandbox fixture, so every run of the R46 suite - on
+  any machine, in any release - rewrote the PRODUCTION `R46_OPTIONS_LANE.json`.
+  It read the same prior surfaces and spent nothing, so no science ever moved,
+  but it is a real write with no owner. The test now writes where every other
+  test writes, and `validate.ps1` hashes the entire production research root
+  before and after the targeted suite so the leak cannot return unseen.
+  **Maturity, through ONE adapter:** adopted shadows trade Norgate
+  continuous-futures market ids the R46 market-data seam does not price. The
+  adapter resolves the realised forward from the owner's own panel and charges
+  the shadow's OWN frozen cost model.
+  **TWO CONTROLS, and neither may stand in for the other.** The first cut of
+  this adapter RECORDED the frozen control and then scored against cash, which
+  answers a different question than the one the strategy was frozen to ask. The
+  R39 VX shadow declares `VOL_MATCHED_PASSIVE_EW_SAME_SCOPE`; measured against
+  CASH the rule looks like a **+97 bps** win and measured against the benchmark
+  it was ACTUALLY frozen against it adds **exactly 0.0** - a more expensive way
+  to hold the same VX risk. Both numbers are true and they are not the same
+  claim, so every continuation outcome now carries both, apart:
+  **(A) scientific** - `scientific_control`, `scientific_control_return`,
+  `scientific_alpha_vs_declared_control` (+ at 2x costs), computed by the PRIOR
+  RELEASE's OWN implementation:
+  `r39.trade_space.passive_ew_control` for the vol-matched basket (the very
+  function `r39.discovery_director` pairs with TS_OUTRIGHT), and R39's own zero
+  excess line - `control_net = np.zeros(...)` - for `RISK_MATCHED_CASH`, because
+  a self-financed futures book's forwards are already excess of financing. That
+  semantic is PRESERVED, not renamed to a cash rate.
+  **(B) capital** - `capital_control = CASH_COLLATERAL_AT_RISK_FREE`,
+  `capital_control_return`, `capital_alpha_vs_cash` (+ at 2x costs): was research
+  capital better deployed here than in cash? R46.6.1 defines **no control of its
+  own** and searches no parameter. Where the frozen control cannot be
+  reconstructed from the PIT-safe panel the state is `BLOCKED_<exact reason>` and
+  the scientific alpha is `null` - cash never quietly takes its place.
+  **The formal verdict is gated on the frozen control.**
+  `verdicts.verdict_for(..., scientific_control_state=...)` refuses
+  `POSITIVE_EARLY`, `SHADOW_SCALE_CANDIDATE` and `FORWARD_CONFIRMED` while a
+  non-cash declared control is unavailable - in either direction, however large
+  the capital number - and a tournament state cannot rescue it. The gate is
+  inert for the 40 R46-native challengers, whose declared control IS cash.
+  **A discrepancy inside R39, recorded rather than resolved by fiat:** the frozen
+  registry (and `trade_space.EXPRESSION_CONTROLS`, and `discovery_director`) pair
+  TS_OUTRIGHT with the passive basket, while `universal_state.build_vx_weekly`
+  carries `control_fwd_5 = 0.0` and calls the VX control risk-matched cash.
+  R46.6.1 follows THE FROZEN REGISTRY - the artifact the shadow was frozen under -
+  and states the conflict in `adopted_forward.VX_CONTROL_DISCREPANCY`.
+  **Options semantic clarity (no science changed):** `owner_state` read
+  `JUDGEABLE` while zero of three predeclared hypotheses had a sufficient
+  sample. It meant only that the 500-SESSION COUNT was met. The gate now names
+  what it measures (`NUMBER_OF_SESSIONS_ONLY`) and what it never did
+  (`STRIKE_AND_EXPIRY_BREADTH_PER_SESSION`), and
+  `HYPOTHESIS_SAMPLE_INSUFFICIENT` travels beside it. The frozen hypotheses
+  hash is unchanged; nothing was added, weakened, proxied or acquired.
+  **And one read model nobody rebuilt:** the adopted inventory was built once by
+  hand and went stale on disk - the same class of defect as a lane nobody
+  calls. The canonical advance now rebuilds it, and the continuation artifact,
+  as fail-soft non-core lane stages.
+  **Evidence:** prior-release artifacts 130 files byte-identical; prior
+  snapshot ledgers still absent; R46 challengers 40, TRUE_FORWARD rows 68,
+  matured outcomes 1, `contract_hash` unchanged and matching the frozen
+  registry; 0 new production predictions and 0 production continuation rows;
+  78 new targeted tests, 509 green across the R46 lineage and 342 green across
+  the adjacent touched owners; `scripts/audit_architecture.py --strict` green
+  with 9 new blocking invariants; operational write attribution `ATTRIBUTED`;
+  orders 0, portfolio mutations 0, promotions 0, scheduler changes 0, money
+  spent $0.00.
 - **Updated by phase:** **Release 46.6 - Forward Economic Discrimination +
   Cost-Efficiency Offensive + Fast-Evidence Expansion + Research-Lane
   Reliability + UI Truth Alignment (single agent, no subagents, Windows

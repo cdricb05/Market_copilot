@@ -91,7 +91,25 @@ VERDICT_RULES = {
     "mark_to_market_never_decides": True,
     "one_outcome_never_decides": True,
     "a_verdict_confers_no_capital": True,
+    # R46.6.1. A formal verdict is a SCIENTIFIC claim, and a scientific claim is
+    # made against the control the strategy FROZE. Beating cash is a different
+    # claim - a capital-deployment one - and it may not be promoted into this
+    # one. Where a strategy declares a non-cash control that cannot be computed,
+    # no formal verdict is available at all.
+    "formal_verdict_metric": "realised residual alpha vs the strategy's OWN "
+                             "declared control",
+    "capital_alpha_vs_cash_is_never_a_substitute": True,
 }
+
+#: The gate for R46.6.1's adopted continuations. An R46-native challenger
+#: declares CASH_COLLATERAL_AT_RISK_FREE, so its residual alpha already IS its
+#: alpha versus its declared control and the gate is inert (``None``).
+SCIENTIFIC_CONTROL_OK = "OK"
+SCIENTIFIC_CONTROL_GATE = (
+    "a strategy whose FROZEN control is not cash may not earn POSITIVE_EARLY, "
+    "SHADOW_SCALE_CANDIDATE or FORWARD_CONFIRMED from alpha measured against "
+    "cash; while its declared control is unavailable its formal verdict is "
+    "TOO_EARLY, and the capital comparison is displayed separately")
 
 
 def _cells(board: dict) -> dict:
@@ -106,10 +124,25 @@ def _cells(board: dict) -> dict:
 def verdict_for(*, n_closed: int, residual: float, t_residual, net_at_2x: float,
                 max_drawdown, hit_rate, reconciliation_mismatches: int,
                 marginal_diversification, tournament_states: set,
-                economic_state: str) -> dict:
-    """Apply the FROZEN rules to one strategy's MATURED record. Pure."""
+                economic_state: str,
+                scientific_control_state: str = None) -> dict:
+    """Apply the FROZEN rules to one strategy's MATURED record. Pure.
+
+    ``residual`` must ALREADY be measured against the strategy's own declared
+    control. ``scientific_control_state`` is how a caller says it could not be:
+    anything other than ``None`` (an R46-native challenger, whose declared
+    control IS the R46 cash control) or ``"OK"`` blocks a formal verdict
+    outright, in either direction, however large the capital number was.
+    """
     R = VERDICT_RULES
     reasons = []
+    if scientific_control_state not in (None, SCIENTIFIC_CONTROL_OK):
+        return {"verdict": TOO_EARLY,
+                "scientific_control_state": scientific_control_state,
+                "formal_verdict_blocked": True,
+                "reasons": ["the strategy's FROZEN control could not be "
+                            "computed (%s); alpha versus cash is not a "
+                            "substitute for it" % scientific_control_state]}
     if C.FORWARD_CONFIRMED in tournament_states:
         return {"verdict": CONFIRMED,
                 "reasons": ["tournament gate met on at least one cell"]}
@@ -278,4 +311,5 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
 
 __all__ = ["CALCULATION_OWNER", "ARTIFACT", "VERDICTS", "VERDICT_RULES",
            "TOO_EARLY", "POSITIVE_EARLY", "NEGATIVE_EARLY", "SCALE", "REDUCE",
-           "REJECTED", "CONFIRMED", "verdict_for", "build"]
+           "REJECTED", "CONFIRMED", "SCIENTIFIC_CONTROL_OK",
+           "SCIENTIFIC_CONTROL_GATE", "verdict_for", "build"]

@@ -53,6 +53,7 @@ from __future__ import annotations
 import datetime as _dt
 
 from . import CAMPAIGN_ID, artifact_body, campaign_dir, read_json, write_json
+from . import adopted_forward as AF
 from . import clock as CK
 from . import contract as C
 from . import cost_efficiency as CE
@@ -77,7 +78,13 @@ CALCULATION_OWNER = "alpha_agent.r46.advance"
 #: the ones this module silently did not call: the option surface, and the
 #: seven prospective shadows five prior releases froze. The stage names are
 #: kept so failure isolation and the non-core classification are unchanged.
+#:
+#: Release 46.6.1 adds the two read models that were built once by hand and
+#: then went stale on disk: the adopted-shadow inventory, and the adopted
+#: forward continuation. A read model nobody rebuilds is the same class of
+#: defect as a lane nobody calls.
 LANE_STAGES = ("research_lanes", "lane_lifecycle",
+               "adopted_inventory", "adopted_continuation",
                # Release 46.4 / 46.5 names, retained for continuity.
                "lane_cftc", "lane_credit", "lane_macro", "lane_events",
                "lane_earnings", "lane_form4")
@@ -146,6 +153,20 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
     lifecycle = _safe(lambda: LN.build(as_of, campaign_id, result=lane_result),
                       failures, "lane_lifecycle") or {}
     lanes = {r.get("lane_id"): r for r in (lane_result.get("rows") or ())}
+    # Release 46.6.1: rebuild the adopted read models on the evidence this run
+    # produced, so "append_authorised = false" can never outlive the release
+    # that made it false.
+    inventory = _safe(lambda: LN.adopted_inventory(campaign_id),
+                      failures, "adopted_inventory") or {}
+    continuation = _safe(
+        lambda: AF.build(as_of, campaign_id, lane_results={
+            k: {kk: v.get(kk) for kk in
+                ("lifecycle", "owner_state", "continuation_state",
+                 "n_appended", "n_duplicates_skipped",
+                 "n_refused_outcome_window_open", "n_outcomes_matured",
+                 "next_decision_date", "reason")}
+            for k, v in lanes.items() if v.get("adopted_from")}),
+        failures, "adopted_continuation") or {}
     # The lane registry is fail-soft BY DESIGN: an owner that raises becomes a
     # CALLED_DATA_BLOCKED lifecycle row rather than an exception. That is more
     # informative than a bare stage failure, but it must not be QUIETER: a
@@ -261,6 +282,9 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
         # --- Release 46.6: the lane contract and the economics -------------- #
         research_lane_lifecycle=_lifecycle_digest(lifecycle),
         cost_efficiency=_efficiency_digest(efficiency),
+
+        # --- Release 46.6.1: where adopted forward evidence now goes -------- #
+        adopted_continuation=_continuation_digest(continuation, inventory),
 
         # --- what this step is not ------------------------------------------ #
         promoted_models=0,
@@ -463,6 +487,51 @@ def _lifecycle_digest(life: dict) -> dict:
         "n_never_called": a.get("n_never_called"),
         "lanes_with_unknown_lifecycle": a.get("lanes_with_unknown_lifecycle"),
         "forgotten_is_not_a_state": life.get("forgotten_is_not_a_state"),
+    }
+
+
+def _continuation_digest(cont: dict, inventory: dict) -> dict:
+    """Release 46.6.1 - the two append rights, the two controls, and the counts.
+
+    The digest reports the append rights apart because one flag could only ever
+    be misread; it reports the CONTROLS apart for the same reason. An adopted
+    shadow froze its own benchmark, so "beat cash" is a different claim from
+    "beat the control it was frozen against", and only the second can carry a
+    formal verdict.
+    """
+    if not cont:
+        return {"state": "NOT_BUILT",
+                "prior_release_append_authorised": False,
+                "r46_continuation_append_authorised": None}
+    s = cont.get("summary") or {}
+    vi = cont.get("verdict_inputs") or {}
+    return {
+        "continuation_owner": AF.CONTINUATION_OWNER,
+        "prior_release_append_authorised": AF.PRIOR_RELEASE_APPEND_AUTHORISED,
+        "r46_continuation_append_authorised":
+            AF.R46_CONTINUATION_APPEND_AUTHORISED,
+        "n_continuation_predictions": s.get("n_continuation_predictions"),
+        "n_continuation_outcomes": s.get("n_continuation_outcomes"),
+        "n_pending": s.get("n_pending"),
+        "chain_intact": bool((s.get("chain") or {}).get("all_intact")),
+        "n_adopted_lanes": inventory.get("n_adopted_lanes"),
+        "n_continuation_ready": inventory.get("n_continuation_ready"),
+        "prior_release_artifacts_mutated":
+            cont.get("prior_release_artifacts_mutated"),
+        # --- the two controls, never merged into one word ------------------ #
+        "scientific_alpha_field": AF.SCIENTIFIC_ALPHA_FIELD,
+        "capital_alpha_field": AF.CAPITAL_ALPHA_FIELD,
+        "capital_control": AF.CAPITAL_CONTROL,
+        "formal_verdict_uses": AF.FORMAL_VERDICT_USES,
+        "cash_substitution_for_noncash_control_allowed":
+            AF.CASH_SUBSTITUTION_FOR_NONCASH_CONTROL_ALLOWED,
+        "scientific_control_states": sorted({
+            str(r.get("scientific_control_state"))
+            for r in (vi.get("rows") or ())}),
+        "n_formal_verdicts_blocked": sum(
+            1 for r in (vi.get("rows") or ())
+            if r.get("formal_verdict_blocked")),
+        "lane_results": cont.get("lane_results") or {},
     }
 
 

@@ -968,18 +968,25 @@ def test_recent_embargo_does_not_hide_the_useful_expiries():
     assert OP.ENTITLEMENT_LOOKBACK_DAYS == 700
 
 
-def test_options_lane_reports_a_budget_that_bought_no_new_sessions():
+def test_options_lane_reports_a_budget_that_bought_no_new_sessions(sandbox):
     """A budget can be fully spent, return real data, and buy nothing.
 
     R46's first weekly batch spent all 120 calls on the OLDEST fourteen
     expiries and added 106 contracts, 2,195 rows and ZERO new session dates,
     because the surface already covered every date they traded on. The lane
     must be able to say so rather than report the row count as progress.
+
+    Release 46.6.1 added the ``sandbox`` fixture. Without it this test called
+    the lane owner at the PRODUCTION research root and the owner rewrote the
+    production ``R46_OPTIONS_LANE.json`` on every run of the suite - a real
+    write with no owner, of exactly the class the write-attribution gate
+    exists to catch. It read the same prior surfaces and spent nothing, so no
+    science moved; the test now writes where every other test writes.
     """
     from alpha_agent.r46 import options as OP
     if not OP.R44_SURFACE.exists():
         pytest.skip("prior option surfaces not present on this machine")
-    body = OP.run(acquire=False)
+    body = OP.run(acquire=False, campaign_id=TEST_CAMPAIGN)
     assert "prior_surface_state" in body
     assert body["prior_surface_state"]["readable"] is True
     assert body["prior_surface_state"]["n_prior_sessions"] > 0

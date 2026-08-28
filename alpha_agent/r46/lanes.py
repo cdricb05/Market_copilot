@@ -227,7 +227,14 @@ def _options_lane(as_of, campaign_id, acquire):
         life = CALLED_DATA_BLOCKED
     else:
         life = CALLED_SAMPLE_BLOCKED
-    return {"lifecycle": life, "owner_state": js.get("state"),
+    # Release 46.6.1 - SEMANTIC CLARITY ONLY, no science changed. The old
+    # owner_state read "JUDGEABLE" while zero of the three predeclared
+    # hypotheses had a sufficient sample, because this gate only ever counted
+    # SESSIONS. It is now reported as what it is.
+    return {"lifecycle": life,
+            "owner_state": js.get("session_gate_state") or js.get("state"),
+            "session_gate_state": js.get("session_gate_state"),
+            "session_gate_measures": js.get("gate_measures"),
             "usable_sessions": js.get("usable_sessions_now"),
             "sessions_required": js.get("sessions_required"),
             "sessions_still_required": js.get("sessions_still_required"),
@@ -243,7 +250,7 @@ def _option_batch_name(as_of: _dt.date) -> str:
     return "w%04d%02d" % (y, w)
 
 
-#: THE governance flag for adopted streams, and why it is False.
+#: THE governance flag for adopted streams, and why it is still False.
 #:
 #: Release 46.6 measured the thing five releases asserted: the R39/R40 capture
 #: owner is not broken and its data is not gone. Driven directly it rebuilds
@@ -253,33 +260,44 @@ def _option_batch_name(as_of: _dt.date) -> str:
 #: owner** - and that is now fixed: every one of them is registered here and
 #: called by the canonical cycle.
 #:
-#: Appending is a separate question, and R46.6 may not answer it by itself.
-#: The owner writes into the PRIOR RELEASE's own snapshot ledger, and
+#: Appending was a separate question, and R46.6 refused to answer it by itself.
+#: The prior owner writes into the PRIOR RELEASE's own snapshot ledger, and
 #: ``alpha_agent.r46.contract.SAFETY_BLOCK["mutates_prior_release_artifacts"]``
 #: is ``False`` - a frozen safety declaration. A release that quietly flipped
 #: a frozen safety flag to make its own numbers move would be doing exactly
 #: what this estate spent fifteen releases learning not to do. So the lane
-#: reports the blocker BY NAME, with evidence that the owner works, and leaves
-#: the decision to a person.
+#: reported the blocker BY NAME and left the decision to a person.
+#:
+#: Release 46.6.1 is that decision, and it does NOT lift this flag. Prior
+#: release stores stay permanently read-only. What changed is that adopted
+#: forward evidence now has an R46-OWNED place to go:
+#: :mod:`alpha_agent.r46.adopted_forward`. A stream that is called, has
+#: something to say and has nowhere to say it is the same defect wearing a
+#: label, and that is the one this increment closes.
 ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS = False
 
+#: THE R46-owned continuation owner. One owner, one ledger, no second capture.
+ADOPTED_CONTINUATION_OWNER = "alpha_agent.r46.adopted_forward"
+
 ADOPTED_APPEND_BLOCKER = (
-    "the owner is reachable and would emit, but appending writes into the "
-    "PRIOR RELEASE's own snapshot ledger and "
+    "appending into the PRIOR RELEASE's own snapshot ledger remains forbidden: "
     "alpha_agent.r46.contract.SAFETY_BLOCK['mutates_prior_release_artifacts'] "
-    "is False. R46.6 will not flip a frozen safety declaration to make its "
-    "own evidence count move. Lifting it is a governance decision for a "
-    "person, and until then this lane is EXPLICITLY BLOCKED rather than "
-    "silently absent.")
+    "is False and R46 will not flip a frozen safety declaration to make its "
+    "own evidence count move. Since Release 46.6.1 that is no longer the end "
+    "of the sentence: adopted forward evidence is appended to the R46-OWNED "
+    "continuation ledger at " + ADOPTED_CONTINUATION_OWNER + ", which reads "
+    "the prior artifacts and never writes one.")
 
 
 def _adopted_shadow(release: str, owner: str, shadow_ids: tuple,
                     blocked_reason: str = None):
     """Adapter for a prior release's frozen shadow stream.
 
-    Calls the release's OWN capture owner - never a second implementation of
-    it. On a due date it resolves how many decisions the owner would capture,
-    WITHOUT appending, unless the governance flag above has been lifted.
+    Calls the release's OWN scoring owner - never a second implementation of
+    it - through :mod:`alpha_agent.r46.adopted_forward`, which proves the
+    frozen specification identity, refuses any decision date whose outcome
+    window has already opened, and appends into the R46 continuation ledger.
+    No prior-release artifact is opened for write on any path.
     """
     def _call(as_of, campaign_id, acquire):
         if blocked_reason:
@@ -291,72 +309,29 @@ def _adopted_shadow(release: str, owner: str, shadow_ids: tuple,
             return {"lifecycle": CALLED_DATA_BLOCKED,
                     "owner_state": "NO_ADAPTER",
                     "shadow_ids": list(shadow_ids)}
+        if not acquire:
+            return {"lifecycle": CALLED_QUIET_NOT_DUE,
+                    "owner_state": "ACQUISITION_NOT_REQUESTED",
+                    "continuation_owner": ADOPTED_CONTINUATION_OWNER,
+                    "reason": "hermetic run; a network-driven owner is "
+                              "never driven from inside the suite",
+                    "shadow_ids": list(shadow_ids)}
+        from . import adopted_forward as AF
+        lane = next((l for l in registry()
+                     if l.adopted_from == release
+                     and set(l.challengers) == set(shadow_ids)), None)
         try:
-            from ..r39 import research_shadow as RS
-            reg = RS.load_registry()
-            if not reg:
-                return {"lifecycle": CALLED_DATA_BLOCKED,
-                        "owner_state": "NO_REGISTRY",
-                        "reason": "the frozen registry could not be read",
-                        "shadow_ids": list(shadow_ids)}
-            if not acquire:
-                return {"lifecycle": CALLED_QUIET_NOT_DUE,
-                        "owner_state": "ACQUISITION_NOT_REQUESTED",
-                        "reason": "hermetic run; a network-driven owner is "
-                                  "never driven from inside the suite",
-                        "shadow_ids": list(shadow_ids)}
-            state = RS.build_fresh_state()
-            due = _adopted_due_decisions(RS, reg, state, shadow_ids)
-            if not ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS:
-                return {"lifecycle": (CALLED_SAMPLE_BLOCKED if due
-                                      else CALLED_QUIET_NOT_DUE),
-                        "owner_state": ("WOULD_EMIT_APPEND_NOT_AUTHORISED"
-                                        if due else "NO_ELIGIBLE_DECISION"),
-                        "n_decisions_the_owner_would_capture": due,
-                        "owner_is_reachable": True,
-                        "reason": (ADOPTED_APPEND_BLOCKER if due else
-                                   "the owner ran and no decision date is "
-                                   "eligible yet"),
-                        "shadow_ids": list(shadow_ids)}
-            res = RS.capture(None, fresh_state=state)
-            n = int(res.get("appended") or 0)
-            return {"lifecycle": (CALLED_AND_EMITTED if n
-                                  else CALLED_QUIET_NOT_DUE),
-                    "owner_state": "CAPTURED", "n_appended": n,
-                    "shadow_ids": list(shadow_ids),
-                    "ledger": res.get("ledger")}
+            return AF.run_lane(release=release, shadow_ids=shadow_ids,
+                               as_of=as_of, campaign_id=campaign_id,
+                               information_family=(lane.information_family
+                                                  if lane else None))
         except Exception as exc:                    # noqa: BLE001 - reported
             return {"lifecycle": CALLED_DATA_BLOCKED,
                     "owner_state": "OWNER_RAISED",
+                    "continuation_owner": ADOPTED_CONTINUATION_OWNER,
                     "error": type(exc).__name__, "detail": str(exc)[:200],
                     "shadow_ids": list(shadow_ids)}
     return _call
-
-
-def _adopted_due_decisions(RS, reg: dict, state: dict,
-                           shadow_ids: tuple) -> int:
-    """How many decision dates the prior owner would capture, without writing.
-
-    Uses the owner's OWN eligibility function and its OWN already-captured
-    set, so the number reported is the number it would append - not this
-    module's opinion of it.
-    """
-    try:
-        desk = RS._desk()
-        sdir = RS.shadow_dir()
-        rows = desk._read_ledger(sdir, RS.SNAPSHOT_LEDGER)
-    except Exception:                               # noqa: BLE001
-        rows = []
-    n = 0
-    for sh in (reg.get("shadows") or ()):
-        if sh.get("shadow_id") not in shadow_ids:
-            continue
-        captured = {r.get("decision_date") for r in rows
-                    if r.get("shadow_id") == sh.get("shadow_id")}
-        panel = state["fut"] if sh.get("lane") == "FUT" else state["vx"]
-        n += len(RS.eligible_new_decisions(reg, panel, captured,
-                                           sh.get("lane")))
-    return n
 
 
 BTC_VENUE_BLOCKER = (
@@ -549,6 +524,12 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
         adopted_capture_writes_prior_release_ledgers=(
             ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS),
         adopted_append_blocker=ADOPTED_APPEND_BLOCKER,
+        # Release 46.6.1 - a called lane now has somewhere to speak, and the
+        # two append rights are reported apart so no reader can conclude that
+        # a prior release's artifact became writable.
+        prior_release_append_authorised=False,
+        r46_continuation_append_authorised=True,
+        continuation_owner=ADOPTED_CONTINUATION_OWNER,
         rows=res.get("rows"),
         research_only=True,
     )
@@ -560,10 +541,36 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
 # --------------------------------------------------------------------------- #
 # Section 18 - the adopted-shadow inventory
 # --------------------------------------------------------------------------- #
+def _continuation_state(AF, lane, retired: bool) -> dict:
+    """Where this lane's forward evidence goes, and what stops it if anything.
+
+    Release 46.6.1 - reported as a state with an exact blocker, never as a
+    bare boolean. ``READY`` means the R46 continuation ledger will accept this
+    lane's next due decision; anything else names what must be fixed first.
+    """
+    if retired:
+        return {"state": AF.CONTINUATION_RETIRED,
+                "blocker": lane.note, "ledger": None}
+    ledger = str(AF.continuation_dir() / AF.CONTINUATION_LEDGER)
+    try:
+        ident = AF.verify_identity(lane.adopted_from, lane.challengers)
+    except Exception as exc:                        # noqa: BLE001 - reported
+        return {"state": AF.CONTINUATION_DATA_BLOCKED,
+                "blocker": "%s: %s" % (type(exc).__name__, str(exc)[:160]),
+                "ledger": ledger}
+    if ident.get("ok"):
+        return {"state": AF.CONTINUATION_READY, "blocker": None,
+                "ledger": ledger}
+    return {"state": AF.CONTINUATION_IDENTITY_BLOCKED,
+            "blocker": ident.get("blocker") or ident.get("reason"),
+            "ledger": ledger}
+
+
 def adopted_inventory(campaign_id: str = CAMPAIGN_ID,
                       write: bool = True) -> dict:
     """Every adopted prior-release shadow, classified and resolved."""
     from pathlib import Path
+    from . import adopted_forward as AF
     rows = []
     for lane in registry():
         if not lane.adopted_from:
@@ -572,6 +579,7 @@ def adopted_inventory(campaign_id: str = CAMPAIGN_ID,
                     if a["release"] == lane.adopted_from), {})
         reg = read_json(Path(src.get("path", "")), default=None) or {}
         retired = lane.classification in RETIRED_CLASSIFICATIONS
+        cont = _continuation_state(AF, lane, retired)
         rows.append({
             "lane_id": lane.lane_id,
             "adopted_from": lane.adopted_from,
@@ -583,19 +591,50 @@ def adopted_inventory(campaign_id: str = CAMPAIGN_ID,
             "cadence": lane.cadence,
             "classification": lane.classification,
             "resolution": ("RETIRED_UNTIL_DATA_AVAILABLE" if retired
-                           else "WIRED_INTO_CANONICAL_DRC"),
+                           else "WIRED_INTO_CANONICAL_DRC_WITH_R46_"
+                                "CONTINUATION_LEDGER"),
             "now_called_by_the_canonical_drc": not retired,
             "was_called_by_any_run_before_r46_6": False,
             "why": lane.note,
+
+            # --- Release 46.6.1: the control each shadow FROZE -------------- #
+            # Read from the prior release's own registry, so an operator can
+            # see before any outcome exists that these lanes are not all
+            # measured against cash.
+            "scientific_controls": sorted({
+                str(s.get("control"))
+                for s in AF.registry_shadows(lane.adopted_from, reg)
+                if s.get("shadow_id") in set(lane.challengers)}),
+            "capital_control": AF.CAPITAL_CONTROL,
+            "controls_are_separate": True,
+            "formal_verdict_uses": AF.FORMAL_VERDICT_USES,
+
+            # --- Release 46.6.1: the TWO append rights, never conflated ---- #
+            # The old single ``append_authorised`` key could only ever be read
+            # as "this lane cannot accrue". It meant "R46 may not write the
+            # PRIOR RELEASE's ledger" - still true, permanently - and said
+            # nothing about where adopted evidence actually goes.
+            "append_authorised_means": "PRIOR_RELEASE_LEDGER_ONLY",
             "append_authorised": (
                 False if retired
                 else ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS),
-            "append_blocker": (None if retired
-                               or ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS
-                               else ADOPTED_APPEND_BLOCKER),
+            "prior_release_append_authorised": (
+                AF.PRIOR_RELEASE_APPEND_AUTHORISED),
+            "r46_continuation_append_authorised": (
+                False if retired
+                else AF.R46_CONTINUATION_APPEND_AUTHORISED),
+            "continuation_owner": (None if retired
+                                   else ADOPTED_CONTINUATION_OWNER),
+            "continuation_state": cont["state"],
+            "continuation_blocker": cont["blocker"],
+            "continuation_ledger": cont["ledger"],
+            "append_blocker": (None if retired else ADOPTED_APPEND_BLOCKER),
+            "old_artifacts_became_writable": False,
+
             "history_preserved": True,
             "registry_mutated_by_r46_6": False,
             "ledger_mutated_by_r46_6": False,
+            "prior_release_artifact_mutated": False,
         })
     body = artifact_body(
         "r46_6_adopted_shadow_lane_inventory/1", CALCULATION_OWNER,
@@ -621,6 +660,29 @@ def adopted_inventory(campaign_id: str = CAMPAIGN_ID,
             ADOPTED_CAPTURE_WRITES_PRIOR_RELEASE_LEDGERS),
         adopted_append_blocker=ADOPTED_APPEND_BLOCKER,
         prior_registries_are_read_only=True,
+        # --- Release 46.6.1 - the two append rights, stated apart ---------- #
+        prior_release_append_authorised=AF.PRIOR_RELEASE_APPEND_AUTHORISED,
+        r46_continuation_append_authorised=(
+            AF.R46_CONTINUATION_APPEND_AUTHORISED),
+        continuation_owner=ADOPTED_CONTINUATION_OWNER,
+        continuation_ledger=str(AF.continuation_dir(campaign_id)
+                                / AF.CONTINUATION_LEDGER),
+        continuation_state_vocabulary=list(AF.CONTINUATION_STATES),
+        superseded_adoption_clause=AF.SUPERSEDED_ADOPTION_CLAUSE,
+        # --- Release 46.6.1 - the two CONTROLS, stated apart --------------- #
+        # An adopted shadow froze its own scientific control. Beating cash is a
+        # capital question and answers it separately; it may never stand in.
+        scientific_control_owner=dict(AF.SCIENTIFIC_CONTROL_OWNER),
+        capital_control=AF.CAPITAL_CONTROL,
+        scientific_alpha_field=AF.SCIENTIFIC_ALPHA_FIELD,
+        capital_alpha_field=AF.CAPITAL_ALPHA_FIELD,
+        formal_verdict_uses=AF.FORMAL_VERDICT_USES,
+        cash_substitution_for_noncash_control_allowed=(
+            AF.CASH_SUBSTITUTION_FOR_NONCASH_CONTROL_ALLOWED),
+        old_artifacts_became_writable=False,
+        n_continuation_ready=sum(1 for r in rows
+                                 if r["continuation_state"]
+                                 == AF.CONTINUATION_READY),
         rows=rows,
         research_only=True,
     )

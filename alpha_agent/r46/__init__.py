@@ -83,7 +83,7 @@ __all__ = [
     "contract", "shell_policy", "clock", "marketdata", "feasibility",
     "challengers", "registry", "ledger", "emit", "judge", "evidence",
     "leaderboard", "burden", "campaign", "advance",
-    "velocity", "planner", "intraday",
+    "velocity", "planner", "intraday", "lanes", "adopted_forward",
     "CAMPAIGN_ID", "RESEARCH_ROOT", "campaign_dir", "sha", "read_json",
     "write_json", "artifact_body",
 ]

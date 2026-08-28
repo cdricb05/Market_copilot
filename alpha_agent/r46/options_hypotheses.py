@@ -398,6 +398,23 @@ def score(campaign_id: str = CAMPAIGN_ID, write: bool = True) -> dict:
         n_feature_sessions=n_sessions,
         sessions_required=FIT_SESSIONS + JUDGE_SESSIONS,
         judgeable=judgeable,
+        # --- Release 46.6.1: SEMANTIC CLARITY ONLY -------------------------- #
+        # No hypothesis changed, no data was acquired, nothing was scored on a
+        # proxy. The single word "judgeable" was carrying two different claims,
+        # and only one of them was true: the 500-SESSION count is met, and NOT
+        # ONE of the three predeclared hypotheses has a sufficient sample. The
+        # two claims are now reported under two names.
+        session_gate_state=(OP.SESSION_GATE_MET if judgeable
+                            else OP.SESSION_GATE_SHORT),
+        session_gate_measures=OP.SESSION_GATE_MEASURES,
+        session_gate_does_not_measure=OP.SESSION_GATE_DOES_NOT_MEASURE,
+        judgeable_means="THE_500_SESSION_COUNT_IS_MET",
+        hypothesis_sample_sufficient=bool(scored),
+        hypothesis_sample_state=("HYPOTHESIS_SAMPLE_SUFFICIENT" if scored
+                                 else "HYPOTHESIS_SAMPLE_INSUFFICIENT"),
+        n_hypotheses_with_sufficient_sample=len(scored),
+        hypothesis_sample_blocker=(None if scored else
+                                   "STRIKE_AND_EXPIRY_BREADTH_PER_SESSION"),
         fit_window_sessions=FIT_SESSIONS,
         judge_window_sessions=JUDGE_SESSIONS,
         fit_window_span=([str(f["date"].iloc[0]),
