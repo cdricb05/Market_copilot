@@ -495,6 +495,18 @@ PRS_PROPOSAL_READY = "PROPOSAL_READY"
 PDS_NO_PROPOSAL = "PORTFOLIO_DECISION_NO_PROPOSAL"
 PDS_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
 PDS_REVIEW_REQUIRED = "PROPOSAL_REVIEW_REQUIRED"
+#: Release 47 — a complete FEASIBLE alternative was computed and priced and is simply
+#: not worth what switching would cost. It is a decision, not a blocker and not a
+#: withhold, and the operator surface must say so.
+PDS_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
+#: Release 47 — the proposal owner's three authoritative outcomes, mirrored as
+#: literals so this module stays importable and pure. It renders them; it never
+#: decides them.
+RO_PROPOSAL_READY = "PROPOSAL_READY"
+RO_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
+RO_TRUE_BLOCKER = "TRUE_BLOCKER"
+REALLOCATION_OUTCOME_VOCABULARY = (RO_PROPOSAL_READY, RO_HOLD_CURRENT_BOOK,
+                                   RO_TRUE_BLOCKER)
 #: Operator-facing reassessment states (the kernel vocabulary plus the read states).
 PRS_OPERATOR_STATES = (
     "NOT_READY", "CURRENT_NO_CHANGE", "CHANGE_CANDIDATE", "PROPOSAL_READY",
@@ -1030,7 +1042,8 @@ def constraint_breaches_of(blockers: Any) -> list[str]:
 
 def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
                         blockers: Any = None,
-                        execution_active: bool = False) -> dict[str, Any]:
+                        execution_active: bool = False,
+                        held_name_breaches: Any = None) -> dict[str, Any]:
     """THE portfolio-attention verdict: MUTATION, REVIEW or NONE.
 
     Pure. Reads the reassessment owner's already-decided state and its own blocker
@@ -1043,7 +1056,13 @@ def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
     reported regardless, exactly as ``reassessment_blocks_cycle`` is.
     """
     state = str(reassessment_state or "")
-    breaches = constraint_breaches_of(blockers)
+    # Release 47 — a per-holding cap breach is no longer a BLOCKER (it asks for a
+    # target instead), so it no longer arrives through ``blockers``. It is still the
+    # operator's business to see WHICH names breached, so the reassessment owner's
+    # own published list is accepted here and unioned with any legacy blocker form.
+    # Reading it changes nothing: the verdict below still keys off the state.
+    breaches = sorted(set(constraint_breaches_of(blockers))
+                      | {str(b) for b in (held_name_breaches or []) if b})
     constraint_review = state in _PRS_REVIEW_REQUIRED_STATES
     proposal_review = bool(proposal_required) and not bool(execution_active)
 
@@ -2206,9 +2225,15 @@ CPD_REVIEW_REQUIRED = "PROPOSAL_REVIEW_REQUIRED"
 CPD_DECISION_RECORDED = "DECISION_RECORDED"
 CPD_BLOCKED = "BLOCKED"
 CPD_NOT_RUN = "NOT_RUN"
+#: Release 47 — a complete FEASIBLE alternative target exists, was priced against the
+#: current book and did not clear the switching hurdle. Distinct from
+#: CPD_CHANGE_WITHHELD (a portfolio limit the target could not satisfy at all) and
+#: from CPD_BLOCKED (no trustworthy decision exists): here a decision WAS taken, and
+#: the decision is to keep the current book.
+CPD_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
 CANONICAL_PORTFOLIO_DECISION_STATES = (
-    CPD_NOT_RUN, CPD_NO_CHANGE, CPD_CHANGE_WITHHELD, CPD_REVIEW_REQUIRED,
-    CPD_DECISION_RECORDED, CPD_BLOCKED)
+    CPD_NOT_RUN, CPD_NO_CHANGE, CPD_CHANGE_WITHHELD, CPD_HOLD_CURRENT_BOOK,
+    CPD_REVIEW_REQUIRED, CPD_DECISION_RECORDED, CPD_BLOCKED)
 #: The ONLY canonical states in which an operator action on a proposal exists.
 CANONICAL_ACTIONABLE_DECISION_STATES = (CPD_REVIEW_REQUIRED,)
 
@@ -2249,11 +2274,21 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
     mex_policy = prs.get("mandatory_exit_policy") or {}
     blockers = list(prs.get("blockers") or [])
     withheld_reasons = list(lane.get("withheld_reasons") or [])
+    # Release 47 — read (never re-derive) the proposal owner's authoritative outcome.
+    reallocation_outcome = lane.get("reallocation_outcome")
+    hold_current_book = bool(lane.get("hold_current_book")
+                             or reallocation_outcome == RO_HOLD_CURRENT_BOOK)
+    constraints_reshaped = list(lane.get("constraints_that_reshaped") or [])
 
     if pd_state in ("PROPOSAL_APPROVED", "PROPOSAL_REJECTED"):
         state = CPD_DECISION_RECORDED
     elif lane.get("requires_manual_review") and reallocation_operator_state in             REALLOCATION_APPROVABLE_STATES:
         state = CPD_REVIEW_REQUIRED
+    # Release 47: an ECONOMIC hold outranks the withhold branch. A feasible target
+    # that was computed, priced and rejected on its merits must never be presented as
+    # "withheld by a constraint" - that is the exact confusion this release removes.
+    elif pd_state == PDS_HOLD_CURRENT_BOOK or hold_current_book:
+        state = CPD_HOLD_CURRENT_BOOK
     elif pd_state == PDS_CHANGE_WITHHELD or reallocation_operator_state == RPS_WITHHELD:
         state = CPD_CHANGE_WITHHELD
     elif prs_state in ("BLOCKED_DATA", "BLOCKED_EVIDENCE", "MANUAL_REVIEW_REQUIRED"):
@@ -2279,6 +2314,7 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
     headline = {
         CPD_NO_CHANGE: "NO PORTFOLIO CHANGE REQUIRED",
         CPD_CHANGE_WITHHELD: "PORTFOLIO CHANGE WITHHELD",
+        CPD_HOLD_CURRENT_BOOK: "HOLD THE CURRENT BOOK",
         CPD_REVIEW_REQUIRED: "PORTFOLIO PROPOSAL — MANUAL REVIEW REQUIRED",
         CPD_DECISION_RECORDED: "PORTFOLIO DECISION RECORDED",
         CPD_BLOCKED: "PORTFOLIO DECISION BLOCKED",
@@ -2300,6 +2336,17 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
             "proposal is not produced while a blocker stands; this is a "
             "review, not an outage."
             % (prs_state, len(blockers), ", ".join(blockers[:8]) or "none listed"))
+    elif state == CPD_HOLD_CURRENT_BOOK:
+        no_proposal_headline = "NO PROPOSAL — HOLD THE CURRENT BOOK"
+        no_proposal_reason = (
+            "a complete FEASIBLE alternative portfolio was computed%s and priced "
+            "against the current book; its expected improvement does not justify "
+            "what switching would cost (%s). Holding is the decision, not a "
+            "constraint blocking one."
+            % (" after %s reshaped it" % ", ".join(constraints_reshaped[:4])
+               if constraints_reshaped else "",
+               ", ".join(lane.get("reallocation_outcome_reason_codes") or [])
+               or "below the switching hurdle"))
     elif state == CPD_CHANGE_WITHHELD:
         no_proposal_headline = "NO PROPOSAL — PORTFOLIO CHANGE WITHHELD"
         no_proposal_reason = (
@@ -2358,6 +2405,18 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
         "decision_state": pd_state,
         "decision_owner": "api.portfolio_decision",
         "withheld_reasons": reasons,
+        # --- Release 47 — rendered verbatim from the proposal owner --------- #
+        "reallocation_outcome": reallocation_outcome,
+        "reallocation_outcome_vocabulary": list(REALLOCATION_OUTCOME_VOCABULARY),
+        "hold_current_book": hold_current_book,
+        "feasible_target_exists": bool(lane.get("feasible_target_exists")),
+        "constraints_that_reshaped": constraints_reshaped,
+        "constraint_reoptimized": bool(lane.get("constraint_reoptimized")),
+        "switching_hurdle": lane.get("switching_hurdle"),
+        "clears_switching_hurdle": lane.get("clears_switching_hurdle"),
+        "constraint_philosophy": (
+            "A normal portfolio constraint reshapes the solution; it does not "
+            "freeze the portfolio. Only a declared true blocker stops a decision."),
         "expected_net_improvement": prs.get("expected_net_improvement"),
         "net_improvement_hurdle": prs.get("net_improvement_hurdle"),
         "expected_one_way_turnover": prs.get("expected_one_way_turnover"),
@@ -2558,7 +2617,10 @@ def check_decision_semantics(*, reallocation_operator_state: Any,
                              current_reassessment_hash: Any,
                              mandatory_exit_tickers: Any,
                              mandatory_exit_obligation: Any,
-                             summary_claims: Optional[dict] = None) -> list[dict]:
+                             summary_claims: Optional[dict] = None,
+                             reallocation_outcome: Any = None,
+                             feasible_target_exists: Any = None,
+                             constraints_that_reshaped: Any = None) -> list[dict]:
     """Compare the authoritative owners and return every SEMANTIC contradiction.
 
     Pure; no io, no recomputation of any owner's economics. ``summary_claims`` maps a
@@ -2620,6 +2682,30 @@ def check_decision_semantics(*, reallocation_operator_state: Any,
             "code": "WITHHELD_PROPOSAL_EXPOSED_AS_APPROVABLE",
             "concept": "portfolio_proposal",
             "value_proposal_state": reallocation_operator_state,
+            "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_decision"],
+            "surface": "workflow_state"})
+
+    # I7 (Release 47). A reshaping constraint may never be presented as a blocker.
+    #     This is the release's central invariant expressed as a contradiction: if a
+    #     feasible target exists, the operator surface may not say the portfolio is
+    #     blocked, and a named cap may not be the reason it claims.
+    if (feasible_target_exists and reallocation_outcome == RO_TRUE_BLOCKER):
+        violations.append({
+            "code": "BLOCKED_WHILE_FEASIBLE_TARGET_EXISTS",
+            "concept": "portfolio_proposal",
+            "value_outcome": reallocation_outcome,
+            "value_constraints_that_reshaped": list(constraints_that_reshaped or []),
+            "authoritative_owners": [RP_CANONICAL_OWNER,
+                                     "engine.constrained_reallocation"],
+            "surface": "workflow_state"})
+
+    # I8 (Release 47). HOLD_CURRENT_BOOK is a taken decision, never an approvable one.
+    if reallocation_outcome == RO_HOLD_CURRENT_BOOK and (
+            reallocation_approvable or portfolio_decision_approvable):
+        violations.append({
+            "code": "HOLD_CURRENT_BOOK_EXPOSED_AS_APPROVABLE",
+            "concept": "portfolio_decision",
+            "value_outcome": reallocation_outcome,
             "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_decision"],
             "surface": "workflow_state"})
 
@@ -2969,7 +3055,9 @@ def load_workflow_state(
         reassessment_state=reassessment_state,
         proposal_required=reassessment_proposal_required,
         blockers=list(reassessment_summary.get("blockers") or []),
-        execution_active=bool(reassessment_execution.get("execution_active")))
+        execution_active=bool(reassessment_execution.get("execution_active")),
+        held_name_breaches=list(
+            reassessment_summary.get("held_name_constraint_breaches") or []))
     attention_reason = portfolio_attention_verdict["review_reason"]
     reassessment_manual_review = bool(attention_reason == REVIEW_REASON_PROPOSAL)
     reassessment_constraint_review = bool(
@@ -3408,6 +3496,25 @@ def load_workflow_state(
         "reallocation_proposal_stale": bool((gate or {}).get("reallocation_proposal_stale")),
         "reallocation_proposal_stale_reason": (gate or {}).get(
             "reallocation_proposal_stale_reason"),
+        # Release 47 — the outcome, the reshaping ledger and the switching hurdle
+        # travel with the summary, so the decision owner and every surface below it
+        # read ONE authoritative verdict instead of inferring one from a state name.
+        "reallocation_outcome": (gate or {}).get("reallocation_outcome"),
+        "reallocation_outcome_vocabulary": list(REALLOCATION_OUTCOME_VOCABULARY),
+        "reallocation_outcome_headline": (gate or {}).get(
+            "reallocation_outcome_headline"),
+        "reallocation_outcome_reason_codes": list(
+            (gate or {}).get("reallocation_outcome_reason_codes") or []),
+        "reallocation_constraints_reshaped": list(
+            (gate or {}).get("reallocation_constraints_reshaped") or []),
+        "reallocation_constraint_reoptimized": bool(
+            (gate or {}).get("reallocation_constraint_reoptimized")),
+        "reallocation_feasible_target_exists": bool(
+            (gate or {}).get("reallocation_feasible_target_exists")),
+        "reallocation_switching_hurdle": (gate or {}).get(
+            "reallocation_switching_hurdle"),
+        "reallocation_clears_switching_hurdle": (gate or {}).get(
+            "reallocation_clears_switching_hurdle"),
     }
     active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
     if decision_record is None:
@@ -3545,6 +3652,13 @@ def load_workflow_state(
         current_reassessment_hash=reassessment_summary.get("hoc_assessment_hash"),
         mandatory_exit_tickers=(reassessment_summary.get("mandatory_exit_tickers") or []),
         mandatory_exit_obligation=_mex_policy.get("obligation"),
+        # Release 47 — the outcome and the reshaping ledger, read from the proposal
+        # owner's summary. The validator compares them; it never re-derives them.
+        reallocation_outcome=rp_summary.get("reallocation_outcome"),
+        feasible_target_exists=bool(
+            rp_summary.get("reallocation_feasible_target_exists")),
+        constraints_that_reshaped=list(
+            rp_summary.get("reallocation_constraints_reshaped") or []),
         summary_claims={
             "operational_state.latest_close_status": close_status,
             "research_cycle_state.assessment_status":

@@ -52,6 +52,7 @@ research campaign into a blocked commit.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
@@ -362,7 +363,42 @@ R46_MARKERS = (
 R46_SOURCE_GLOBS = ("alpha_agent/r46/*.py",)
 R46_SOURCE_FILES = ("api/prospective_tournament.py",)
 
+#: Release 47 is the FIRST release to use this gate that is OPERATIONAL rather than
+#: research. That difference matters and is stated rather than hidden:
+#:
+#:  * The STATIC lane ("the release's source carries no path to an operational store")
+#:    does not apply and is declared VACUOUS here - R47's whole job is to change the
+#:    operational owners, so it legitimately imports api.portfolio_decision,
+#:    api.rebalance_execution and api.paper_trading_desk. Its source globs are
+#:    therefore empty, and that is a deliberate declaration, not an oversight.
+#:  * The STRICT-ROOT lane carries the weight instead, and it is not vacuous at all:
+#:    portfolio_decisions, reallocation_proposals, rebalance_order_plans,
+#:    portfolio_reassessments, reassessment_outcomes, daily_research_cycle and
+#:    corporate_actions have no independent writer, so ANY change to them on or after
+#:    the campaign day is attributed. For R47 that is exactly the right question:
+#:    "did developing this release mutate the paper portfolio?" must answer NO.
+#:  * The markers are the artifacts R47's own machinery can write. Its decision-outcome
+#:    ledger lives under its OWN root, so any of these strings appearing inside an
+#:    operational store is attributed here rather than excused.
+R47_MARKERS = (
+    "portfolio_decision_outcomes", "PAPER_TRADER_PORTFOLIO_DECISION_OUTCOME_DIR",
+    "portfolio_decision_outcome", "constrained_reallocation",
+    "engine.constrained_reallocation", "engine.portfolio_decision_outcome",
+    "api.portfolio_decision_outcome", "decision_records.json",
+    "release47_constrained_reallocation", "r47_", "R47_",
+    "PORTFOLIO_DECISION_ALPHA", "COUNTERFACTUAL_HOLD_PORTFOLIO",
+    "EXECUTED_PAPER_PORTFOLIO", "portfolio_decision_record.v1",
+    "constrained_reallocation.v1", "portfolio_decision_outcome.v1",
+)
+#: Deliberately empty - see the note above. The static lane cannot describe an
+#: operational release, and pretending otherwise would make the gate dishonest.
+R47_SOURCE_GLOBS = ()
+R47_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R47": {"markers": R47_MARKERS, "source_globs": R47_SOURCE_GLOBS,
+            "source_files": R47_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R46": {"markers": R46_MARKERS, "source_globs": R46_SOURCE_GLOBS,
             "source_files": R46_SOURCE_FILES,
             "attributable_key": "r33_attributable"},
@@ -683,19 +719,88 @@ def attribute_continuous_service(root: Path, spec: dict, since_day: str,
 # --------------------------------------------------------------------------- #
 # strict roots
 # --------------------------------------------------------------------------- #
-def attribute_strict_root(root: Path, since_day: str) -> dict:
+def _baseline_for(baseline: Optional[dict], root: Path) -> Optional[dict]:
+    """The recorded ``{relative path: sha256}`` map for one root, or None."""
+    if not baseline:
+        return None
+    roots = baseline.get("roots") or {}
+    entry = roots.get(str(root)) or roots.get(root.name)
+    if entry is None:
+        for key, value in roots.items():
+            if Path(key).name == root.name:
+                entry = value
+                break
+    if entry is None:
+        return None
+    return {k: (v or {}).get("sha256") for k, v in (entry.get("files") or {}).items()}
+
+
+def attribute_strict_root(root: Path, since_day: str,
+                          baseline: Optional[dict] = None) -> dict:
     """A strict store has no independent writer, so any recent change is
-    attributable to whatever else ran - which here means Release 33."""
+    attributable to whatever else ran.
+
+    ``baseline`` is an optional manifest of file hashes captured BEFORE the release's
+    work began. Supplying one makes this check STRICTLY STRONGER, never weaker:
+
+      * a file whose BYTES are unchanged since the baseline cannot have been written
+        by anything since, whatever its mtime says - so it is acquitted, and the
+        false positive that a same-day pre-existing write produces disappears;
+      * a file whose bytes CHANGED is attributed even if its mtime was preserved or
+        predates ``since_day``, which the mtime rule alone would miss entirely;
+      * a file absent from the baseline but present now is a NEW write and is
+        attributed;
+      * with no baseline the behaviour is exactly the original mtime rule.
+
+    The whole point of this module is that mtime is not causality. A content
+    comparison against a pre-work snapshot is causality.
+    """
     report = {"root": str(root), "since_day": since_day,
-              "r33_attributable": [], "checked": 0, "state": ATTRIBUTED}
+              "r33_attributable": [], "checked": 0, "state": ATTRIBUTED,
+              "baseline_used": baseline is not None}
     if not root.exists():
         report["absent"] = True
         return report
-    for f in changed_files(root, since_day):
-        report["checked"] += 1
-        report["r33_attributable"].append(
-            {"file": _rel(f, root),
-             "reason": "WRITE_TO_A_STORE_WITH_NO_INDEPENDENT_WRITER"})
+    base = _baseline_for(baseline, root)
+    if base is not None:
+        report["baseline_file_count"] = len(base)
+        acquitted = []
+        current: dict = {}
+        for f in sorted(root.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = _rel(f, root)
+            try:
+                current[rel] = hashlib.sha256(f.read_bytes()).hexdigest()
+            except OSError as exc:
+                report["r33_attributable"].append(
+                    {"file": rel, "reason": "UNREADABLE:%s" % exc})
+                continue
+        for rel, digest in sorted(current.items()):
+            if rel not in base:
+                report["checked"] += 1
+                report["r33_attributable"].append(
+                    {"file": rel, "reason": "NEW_FILE_IN_A_STORE_WITH_NO_"
+                                            "INDEPENDENT_WRITER"})
+            elif base[rel] != digest:
+                report["checked"] += 1
+                report["r33_attributable"].append(
+                    {"file": rel, "reason": "CONTENT_CHANGED_SINCE_THE_PRE_WORK_"
+                                            "BASELINE"})
+            else:
+                acquitted.append(rel)
+        for rel in sorted(set(base) - set(current)):
+            report["checked"] += 1
+            report["r33_attributable"].append(
+                {"file": rel, "reason": "FILE_REMOVED_FROM_A_STORE_WITH_NO_"
+                                        "INDEPENDENT_WRITER"})
+        report["byte_identical_files"] = len(acquitted)
+    else:
+        for f in changed_files(root, since_day):
+            report["checked"] += 1
+            report["r33_attributable"].append(
+                {"file": _rel(f, root),
+                 "reason": "WRITE_TO_A_STORE_WITH_NO_INDEPENDENT_WRITER"})
     if report["r33_attributable"]:
         report["state"] = R33_ATTRIBUTABLE
     return report
@@ -870,7 +975,8 @@ def corroborate_worker(spec: dict) -> dict:
 def attribute(*, data_root: Optional[Path] = None, since_day: str,
               repo: Optional[Path] = None,
               corroborate: bool = False,
-              release: str = DEFAULT_PROFILE) -> dict:
+              release: str = DEFAULT_PROFILE,
+              baseline: Optional[dict] = None) -> dict:
     """Attribute every recent operational-store write to a writer.
 
     ``ok`` is True only when no write is attributable to the NAMED RELEASE,
@@ -887,11 +993,12 @@ def attribute(*, data_root: Optional[Path] = None, since_day: str,
     data_root = Path(data_root) if data_root else OPERATIONAL_DATA_ROOT
     report = {"data_root": str(data_root), "since_day": since_day,
               "release": str(release).upper(),
+              "baseline_supplied": baseline is not None,
               "roots": {}, "r33_attributable": [], "unattributed": [],
               "service_attributed": []}
 
     for name in STRICT_OPERATIONAL_ROOTS:
-        r = attribute_strict_root(data_root / name, since_day)
+        r = attribute_strict_root(data_root / name, since_day, baseline=baseline)
         report["roots"][name] = r
         report["r33_attributable"] += [
             f"{name}/{x['file']}" for x in r["r33_attributable"]]
@@ -943,10 +1050,20 @@ def main() -> int:
     ap.add_argument("--release", default=DEFAULT_PROFILE,
                     help="which release's writer is being attributed against; "
                          "defaults to R33, and an unknown value fails closed")
+    ap.add_argument("--baseline", default=None,
+                    help=("a JSON manifest of strict-root file hashes captured "
+                          "BEFORE the release's work began. Supplying one makes the "
+                          "strict-root check content-based instead of mtime-based, "
+                          "which is strictly stronger: an unchanged file is acquitted "
+                          "whatever its mtime, and a changed one is attributed "
+                          "whatever its mtime."))
     a = ap.parse_args()
+    base = None
+    if a.baseline:
+        base = json.loads(Path(a.baseline).read_text(encoding="utf-8"))
     rep = attribute(data_root=a.data_root, since_day=a.since_day,
                     repo=Path(a.repo), corroborate=a.corroborate,
-                    release=a.release)
+                    release=a.release, baseline=base)
     print(json.dumps(rep, indent=1, sort_keys=True, default=str))
     print(rep["state"])
     return 0 if rep["ok"] else 1

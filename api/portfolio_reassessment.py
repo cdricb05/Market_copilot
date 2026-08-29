@@ -357,6 +357,13 @@ def _history_row(*, artifact: dict) -> dict:
         "actionable_holding_count": dec.get("actionable_holding_count"),
         "blockers": dec.get("blockers") or [],
         "reason_codes": dec.get("reason_codes") or [],
+        # Release 47 — held names breaching their own cap. They are the REASON a
+        # target is asked for, not a blocker, and they travel with the summary so a
+        # downstream surface can name them without re-deriving anything.
+        "held_name_constraint_breaches": dec.get(
+            "held_name_constraint_breaches") or [],
+        "held_name_constraint_breach_effect": dec.get(
+            "held_name_constraint_breach_effect"),
         "policy_version": REASSESSMENT_POLICY_VERSION,
         "churn_policy_version": CHURN_POLICY_VERSION,
         "recommendations": recs,
@@ -1581,6 +1588,15 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "expected_transaction_cost_usd": dec.get("expected_transaction_cost_usd"),
         "blockers": dec.get("blockers") or [],
         "reason_codes": dec.get("reason_codes") or [],
+        # Release 47 — held names breaching their own name / sector / risk cap. They
+        # are the REASON a target is asked for, not a blocker, so they travel with
+        # the summary and a downstream surface can name them without re-deriving
+        # anything (before Release 47 they arrived through ``blockers``, which is
+        # what let a cap breach freeze the portfolio).
+        "held_name_constraint_breaches": dec.get(
+            "held_name_constraint_breaches") or [],
+        "held_name_constraint_breach_effect": dec.get(
+            "held_name_constraint_breach_effect"),
         "explanation": res.get("explanation"),
         # Release 29.3 — the explicit mandatory eligibility-exit contract and the
         # constraint-ownership statement travel with the summary so no consumer has to

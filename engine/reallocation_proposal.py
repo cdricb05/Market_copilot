@@ -39,6 +39,7 @@ import math
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
+from paper_trader.engine import constrained_reallocation as _cr
 from paper_trader.engine import holding_opportunity_cost as hoc_kernel
 
 SCHEMA_VERSION = "reallocation_proposal.v1"
@@ -58,6 +59,13 @@ STATE_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
 #: target (turnover budget / concentration / sector concentration / post-change risk).
 #: The target is published so the operator can see exactly what was rejected and why;
 #: it is NEVER approvable and NEVER produces an order plan. Fail-closed by construction.
+#:
+#: Release 47 narrowed WHEN this state is reached, and only that. A breached limit now
+#: RE-OPTIMISES the target first (``engine.constrained_reallocation``); this state is
+#: reached only when the repaired target STILL breaches - i.e. the feasible set is
+#: empty. A sector cap, a concentration cap, a name cap, a risk-contribution limit or
+#: a turnover budget can no longer, on its own, freeze the portfolio. The fail-closed
+#: guarantee is unchanged: WITHHELD remains un-approvable at every layer.
 STATE_WITHHELD = "WITHHELD"
 PROPOSAL_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_WITHHELD,
                         STATE_NO_ACTIVE_BOOK)
@@ -316,6 +324,158 @@ def _max_sector_weight(sector_weights: dict) -> Optional[float]:
 
 
 # --------------------------------------------------------------------------- #
+# Release 47 - constraint re-optimisation seam
+#
+# A breached portfolio limit must CHANGE THE SOLUTION, not freeze the portfolio.
+# These three helpers are the entire seam between this kernel (which decides WHAT a
+# target should contain) and ``engine.constrained_reallocation`` (which decides what
+# a FEASIBLE version of that target looks like). No allocation mathematics moves:
+# the repair kernel only caps, redistributes and defers, and everything it produces
+# is re-measured here by the SAME functions that measured the ideal target.
+# --------------------------------------------------------------------------- #
+def _positive(weights: dict) -> dict:
+    return {tk: w for tk, w in (weights or {}).items() if (_f(w) or 0.0) > 0.0}
+
+
+def _reoptimised_action(*, ticker: str, action: str, reason_codes: list,
+                        delta: float, proposed: float, held: bool,
+                        policy: dict) -> tuple:
+    """Re-derive one row's ACTION from the repaired weights, keeping provenance.
+
+    A repaired target may reduce a name the ideal target wanted to add, or leave a
+    name untouched that the ideal target wanted to exit. The label must follow the
+    weights, never the intention, or the operator reads an action the plan does not
+    perform.
+    """
+    band = float(policy["material_weight_delta"])
+    codes = sorted(set(list(reason_codes or []) + ["CONSTRAINT_REOPTIMIZED"]))
+    if proposed <= band and held:
+        # A REPLACE_OUT keeps its counterparty semantics; anything else is an EXIT.
+        return (action if action == ACT_REPLACE_OUT else ACT_EXIT), codes
+    if proposed <= band and not held:
+        return ACT_EXIT, codes
+    if not held:
+        return (action if action in (ACT_ADD, ACT_REPLACE_IN) else ACT_ADD), codes
+    if delta > band:
+        return ACT_INCREASE, codes
+    if delta < -band:
+        return ACT_REDUCE, codes
+    return ACT_RETAIN, codes
+
+
+def _cr_candidates(*, universe_rows: list, urows: dict, held_set: set,
+                   sector_of: dict, pct_fn) -> list:
+    """The eligible candidate set in the shape the repair kernel expects.
+
+    It is built from the SAME universe rows the allocation passes used, plus the
+    currently held names so a held position can be re-sized rather than only exited.
+    Nothing is scored here: ``score`` is the combined percentile the scoring owner
+    already published, read through this kernel's own ``_pct``.
+    """
+    out: dict[str, dict] = {}
+    for r in universe_rows or []:
+        tk = r.get("ticker")
+        if not tk or not r.get("eligible", True):
+            continue
+        out[tk] = {"ticker": tk, "sector": r.get("sector") or "Unknown",
+                   "adv_dollar": _f(r.get("adv_dollar")), "rank": r.get("rank"),
+                   "score": _f(r.get("percentile"))}
+    for tk in sorted(held_set):
+        if tk in out:
+            continue
+        u = urows.get(tk) or {}
+        # A held name absent from the eligible universe is NOT added here: its exit
+        # is mandatory, and inventing eligibility for it would defeat that.
+        if not u:
+            continue
+        out[tk] = {"ticker": tk,
+                   "sector": sector_of.get(tk) or u.get("sector") or "Unknown",
+                   "adv_dollar": _f(u.get("adv_dollar")), "rank": u.get("rank"),
+                   "score": _f(pct_fn(tk))}
+    return [out[tk] for tk in sorted(out)]
+
+
+def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
+                              held_set: set, universe_rows: list, urows: dict,
+                              sector_of: dict, hoc_reviews: list, pct_fn,
+                              nav: Optional[float], policy: dict) -> dict:
+    """Repair the complete target when - and only when - a portfolio limit breaches.
+
+    Returns a ledger of what the repair did. ``applied`` is False when nothing was
+    breached (the ideal target is already feasible and is used verbatim) or when the
+    repair could not produce a feasible target at all, which is the ONE case that
+    still ends in the fail-closed WITHHELD path.
+    """
+    limits = measured["limits"]
+    breach_codes = sorted({b.get("code") for b in (limits.get("breaches") or [])})
+    base = {
+        "owner": _cr.CALCULATION_OWNER,
+        "constraint_policy_version": _cr.CONSTRAINT_POLICY_VERSION,
+        "applied": False,
+        "ideal_target_was_feasible": not breach_codes,
+        # The unconstrained complete target this kernel wanted, kept verbatim so the
+        # operator can see exactly what the constraints changed and what they cost.
+        "ideal_target": {tk: _r(w, 6) for tk, w in
+                         sorted(_positive(measured["proposed_weight"]).items())},
+        "ideal_limits": limits,
+        "breached_limits": breach_codes,
+        "constraints_that_reshaped": [],
+        "constraint_adjustments": [],
+        "mandatory_exits": [],
+        "incumbency_policy": _cr.INCUMBENCY_POLICY,
+        "doc": ("A normal portfolio constraint reshapes the solution. Only an empty "
+                "feasible set withholds a portfolio decision."),
+    }
+    if not breach_codes:
+        return base
+
+    cands = _cr_candidates(universe_rows=universe_rows, urows=urows,
+                           held_set=held_set, sector_of=sector_of, pct_fn=pct_fn)
+    contrib = {r.get("ticker"): _f(r.get("risk_contribution"))
+               for r in (hoc_reviews or []) if r.get("ticker")
+               and _f(r.get("risk_contribution")) is not None}
+    solution = _cr.solve_feasible_target(
+        current_weight=current_weight,
+        ideal_weight=_positive(measured["proposed_weight"]),
+        candidates=cands, nav=nav, risk_contributions=contrib,
+        policy=constraint_policy_projection(policy))
+    base.update({
+        "applied": bool(solution["feasible"]),
+        "best_feasible_target": solution["best_feasible_target"],
+        "constraint_adjustments": solution["constraint_adjustments"],
+        "constraints_that_reshaped": solution["constraints_that_reshaped"],
+        "mandatory_exits": solution["mandatory_exits"],
+        "released_weight": solution["released_weight"],
+        "redistributed_weight": solution["redistributed_weight"],
+        "turnover": solution["turnover"],
+        "verification": solution["verification"],
+        "solution_hash": solution["solution_hash"],
+        "feasible_set_empty": not solution["feasible"],
+        "blockers": solution["blockers"],
+    })
+    return base
+
+
+def constraint_policy_projection(policy: dict) -> dict:
+    """Project the Slice-7 policy onto the repair kernel's policy so no limit is
+    forked: the caps, the budget and the cost rate keep exactly ONE value each."""
+    out = {}
+    for k in ("max_name_weight", "sector_cap_fraction", "min_adv_dollar",
+              "cost_rate_per_side", "round_trip_cost_bps",
+              "score_points_per_cost_bp", "target_position_count",
+              "max_one_way_turnover", "max_concentration_increase",
+              "material_weight_delta"):
+        if k in policy:
+            out[k] = policy[k]
+    for k in ("max_adv_participation", "max_name_risk_contribution",
+              "min_position_weight", "min_cash_weight", "max_cash_weight",
+              "min_switching_net_improvement", "min_switching_turnover"):
+        if k in policy:
+            out[k] = policy[k]
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Core entry point
 # --------------------------------------------------------------------------- #
 def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> dict:
@@ -530,91 +690,141 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         used_candidates.add(ctk)
 
     # --- build the allocation rows (all current + all proposed tickers) ------ #
-    all_tickers = sorted(held_set | set(selected.keys()))
-    allocations: list[dict] = []
-    proposed_weight: dict[str, float] = {}
-    for tk in all_tickers:
-        cw = current_weight.get(tk, 0.0)
-        sel = selected.get(tk)
-        if sel is not None:
-            pw = round(float(sel["weight"]), 8)
+    def _allocation_rows(override: Optional[dict] = None) -> tuple:
+        """The allocation rows and proposed weights for ONE candidate target.
+
+        ``override`` is the Release-47 constraint-repaired target. Provenance
+        (source recommendation, replacement relationship, reason codes) is carried
+        through unchanged, but the ACTION is re-derived from the actual weight
+        change, so a repaired row can never keep a label its weights no longer
+        support.
+        """
+        all_tickers = sorted(held_set | set(selected.keys()) | set(override or {}))
+        allocations: list[dict] = []
+        proposed_weight: dict[str, float] = {}
+        for tk in all_tickers:
+            cw = current_weight.get(tk, 0.0)
+            sel = selected.get(tk)
+            if override is not None:
+                pw = round(float(override.get(tk, 0.0) or 0.0), 8)
+            elif sel is not None:
+                pw = round(float(sel["weight"]), 8)
+            else:
+                pw = 0.0
+            proposed_weight[tk] = pw
+            delta = round(pw - cw, 8)
+            cmv = current_mv.get(tk, 0.0) if tk in held_set else 0.0
+            pmv = _round_money(pw * nav)
+            capital_change = _round_money(delta * nav)
+            # action + provenance
+            if sel is not None:
+                action = sel["action"]
+                reason_codes = list(sel.get("reason_codes") or [])
+                src_rec = sel.get("source_hoc_recommendation")
+                replacement_relationship = None
+                if sel.get("replacement_of"):
+                    replacement_relationship = {"role": "REPLACE_IN",
+                                                "counterparty": sel["replacement_of"]}
+                # RETAIN may actually be an INCREASE if the base weight lifts a thin incumbent.
+                if action == ACT_RETAIN and tk in held_set:
+                    if delta > pol["material_weight_delta"]:
+                        action = ACT_INCREASE
+                    elif delta < -pol["material_weight_delta"]:
+                        action = ACT_REDUCE
+                        reason_codes = sorted(set(reason_codes + ["EQUAL_WEIGHT_TRIM"]))
+            else:
+                pz = proposed_zero.get(tk) or {"action": ACT_EXIT,
+                                               "reason_codes": ["UNCLASSIFIED_ZEROED"],
+                                               "source_hoc_recommendation": None}
+                action = pz["action"]
+                reason_codes = list(pz.get("reason_codes") or [])
+                src_rec = pz.get("source_hoc_recommendation")
+                replacement_relationship = None
+                if pz.get("replacement_for"):
+                    replacement_relationship = {"role": "REPLACE_OUT",
+                                                "counterparty": pz["replacement_for"]}
+            if override is not None:
+                action, reason_codes = _reoptimised_action(
+                    ticker=tk, action=action, reason_codes=reason_codes, delta=delta,
+                    proposed=pw, held=tk in held_set, policy=pol)
+            urow = urows.get(tk) or {}
+            allocations.append({
+                "ticker": tk,
+                "sector": sector_of.get(tk) or urow.get("sector") or "Unknown",
+                "current_weight": _r(cw, 6),
+                "proposed_weight": _r(pw, 6),
+                "delta_weight": _r(delta, 6),
+                "current_market_value": _round_money(cmv),
+                "proposed_market_value": pmv,
+                "capital_change": capital_change,
+                "action": action,
+                "source_hoc_recommendation": src_rec,
+                "rank": urow.get("rank"),
+                "score": _r(_pct(tk), 6),
+                "combined_score": _r(_combined(tk), 6),
+                "replacement_relationship": replacement_relationship,
+                "reason_codes": reason_codes,
+                "held": tk in held_set,
+            })
+        return allocations, proposed_weight
+
+    def _measure(override: Optional[dict] = None) -> dict:
+        """Turnover, signal, risk, constraints and the complete-target limits for ONE
+        candidate target. Every number for the ideal target and for the repaired one
+        is produced by THIS function, so the two are comparable by construction."""
+        allocs, pweight = _allocation_rows(override)
+        tno = _turnover_and_cost(allocations=allocs, nav=nav, policy=pol,
+                                 proposed_zero=proposed_zero, selected=selected)
+        sig = _signal_block(current_weight=current_weight, proposed_weight=pweight,
+                            pct_fn=_pct, combined_fn=_combined, held_set=held_set,
+                            two_way_turnover=tno["two_way_turnover"], policy=pol)
+        rsk, rgaps = _risk_block(
+            current_weight=current_weight, proposed_weight=pweight,
+            sector_of=sector_of, aligned_returns=ic.get("aligned_returns") or {},
+            hoc_reviews=hoc_reviews, urows=urows, held_set=held_set, policy=pol)
+        cons, hard = _validate_constraints(
+            allocations=allocs, proposed_weight=pweight, sector_of=sector_of,
+            held_set=held_set, nav=nav, cash=cash, N=N, policy=pol)
+        return {"allocations": allocs, "proposed_weight": pweight,
+                "turnover": tno, "signal": sig, "risk": rsk, "risk_gaps": rgaps,
+                "constraints": cons, "hard_violations": hard,
+                "limits": evaluate_complete_target_limits(
+                    turnover=tno, risk=rsk, policy=pol)}
+
+    measured = _measure()
+    if measured["hard_violations"]:
+        return _empty_result(
+            pol, ic, STATE_BLOCKED,
+            [{"code": "CONSTRAINT_VIOLATION",
+              "violations": measured["hard_violations"]}],
+            constraints=measured["constraints"])
+
+    # --- Release 47: a breached portfolio limit RE-OPTIMISES the target ------ #
+    # This is the whole release in one step. The complete target the passes above
+    # built is the IDEAL one; when it breaches a portfolio-level limit the answer is
+    # not "withhold and keep the incumbents", it is "solve the best FEASIBLE target
+    # under that limit". Only when the feasible set is genuinely EMPTY does the old
+    # fail-closed WITHHELD path remain.
+    reoptimisation = _reoptimise_if_infeasible(
+        measured=measured, current_weight=current_weight, held_set=held_set,
+        universe_rows=universe_rows, urows=urows, sector_of=sector_of,
+        hoc_reviews=hoc_reviews, pct_fn=_pct, nav=nav, policy=pol)
+    if reoptimisation["applied"]:
+        repaired = _measure(reoptimisation["best_feasible_target"])
+        if repaired["hard_violations"]:
+            reoptimisation["applied"] = False
+            reoptimisation["abandoned_reason"] = "REPAIRED_TARGET_VIOLATES_CONSTRAINTS"
         else:
-            pw = 0.0
-        proposed_weight[tk] = pw
-        delta = round(pw - cw, 8)
-        cmv = current_mv.get(tk, 0.0) if tk in held_set else 0.0
-        pmv = _round_money(pw * nav)
-        capital_change = _round_money(delta * nav)
-        # action + provenance
-        if sel is not None:
-            action = sel["action"]
-            reason_codes = list(sel.get("reason_codes") or [])
-            src_rec = sel.get("source_hoc_recommendation")
-            replacement_relationship = None
-            if sel.get("replacement_of"):
-                replacement_relationship = {"role": "REPLACE_IN",
-                                            "counterparty": sel["replacement_of"]}
-            # RETAIN may actually be an INCREASE if the base weight lifts a thin incumbent.
-            if action == ACT_RETAIN and tk in held_set:
-                if delta > pol["material_weight_delta"]:
-                    action = ACT_INCREASE
-                elif delta < -pol["material_weight_delta"]:
-                    action = ACT_REDUCE
-                    reason_codes = sorted(set(reason_codes + ["EQUAL_WEIGHT_TRIM"]))
-        else:
-            pz = proposed_zero.get(tk) or {"action": ACT_EXIT,
-                                           "reason_codes": ["UNCLASSIFIED_ZEROED"],
-                                           "source_hoc_recommendation": None}
-            action = pz["action"]
-            reason_codes = list(pz.get("reason_codes") or [])
-            src_rec = pz.get("source_hoc_recommendation")
-            replacement_relationship = None
-            if pz.get("replacement_for"):
-                replacement_relationship = {"role": "REPLACE_OUT",
-                                            "counterparty": pz["replacement_for"]}
-        urow = urows.get(tk) or {}
-        allocations.append({
-            "ticker": tk,
-            "sector": sector_of.get(tk) or urow.get("sector") or "Unknown",
-            "current_weight": _r(cw, 6),
-            "proposed_weight": _r(pw, 6),
-            "delta_weight": _r(delta, 6),
-            "current_market_value": _round_money(cmv),
-            "proposed_market_value": pmv,
-            "capital_change": capital_change,
-            "action": action,
-            "source_hoc_recommendation": src_rec,
-            "rank": urow.get("rank"),
-            "score": _r(_pct(tk), 6),
-            "combined_score": _r(_combined(tk), 6),
-            "replacement_relationship": replacement_relationship,
-            "reason_codes": reason_codes,
-            "held": tk in held_set,
-        })
+            measured = repaired
+            reoptimisation["repaired_limits"] = repaired["limits"]
 
-    # --- turnover / cost ----------------------------------------------------- #
-    turnover = _turnover_and_cost(allocations=allocations, nav=nav, policy=pol,
-                                  proposed_zero=proposed_zero, selected=selected)
-
-    # --- signal (score before/after) ---------------------------------------- #
-    signal = _signal_block(current_weight=current_weight, proposed_weight=proposed_weight,
-                           pct_fn=_pct, combined_fn=_combined, held_set=held_set,
-                           two_way_turnover=turnover["two_way_turnover"], policy=pol)
-
-    # --- risk (concentration + volatility before/after) ---------------------- #
-    risk, risk_gaps = _risk_block(
-        current_weight=current_weight, proposed_weight=proposed_weight, sector_of=sector_of,
-        aligned_returns=ic.get("aligned_returns") or {}, hoc_reviews=hoc_reviews,
-        urows=urows, held_set=held_set, policy=pol)
-
-    # --- constraint validation ---------------------------------------------- #
-    constraints, hard_violations = _validate_constraints(
-        allocations=allocations, proposed_weight=proposed_weight, sector_of=sector_of,
-        held_set=held_set, nav=nav, cash=cash, N=N, policy=pol)
-    if hard_violations:
-        return _empty_result(pol, ic, STATE_BLOCKED,
-                             [{"code": "CONSTRAINT_VIOLATION", "violations": hard_violations}],
-                             constraints=constraints)
+    allocations = measured["allocations"]
+    proposed_weight = measured["proposed_weight"]
+    turnover = measured["turnover"]
+    signal = measured["signal"]
+    risk = measured["risk"]
+    risk_gaps = measured["risk_gaps"]
+    constraints = measured["constraints"]
 
     # --- portfolio summary --------------------------------------------------- #
     invested_before = sum(current_weight.values()) * nav
@@ -643,19 +853,52 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     # --- data gaps (carried + own) ------------------------------------------ #
     data_gaps = _collect_gaps(hoc_gaps=hoc_gaps, risk_gaps=risk_gaps)
 
-    # --- complete-target portfolio limits (Release 29.3) --------------------- #
-    # Judged on the ONE complete target this kernel just built. A breach WITHHOLDS the
-    # proposal: the target stays fully visible for review, but it is not approvable and
-    # no order plan can be derived from it.
-    complete_target_limits = evaluate_complete_target_limits(
-        turnover=turnover, risk=risk, policy=pol)
+    # --- complete-target portfolio limits (Release 29.3 + Release 47) -------- #
+    # Judged on the ONE complete target this kernel publishes. Release 47 changed WHEN
+    # a breach is decisive, never WHETHER the limits bind: the target is re-optimised
+    # under the breached limit FIRST (see ``reoptimisation`` above), and only a target
+    # that still breaches after re-optimisation - i.e. an empty feasible set - is
+    # withheld. The old fail-closed path is intact; it is simply no longer the first
+    # answer to a normal cap.
+    complete_target_limits = measured["limits"]
+
+    # --- Release 47: switching economics + the ONE authoritative outcome ----- #
+    # Every economic input here is DELEGATED: the score comes from the signal block,
+    # the turnover and the cost from the turnover block, the volatility from the risk
+    # block. Release 47 owns the HURDLE and nothing else, so the proposal can never
+    # report two different answers for the same quantity.
+    switching = _cr.switching_economics(
+        current_weight=current_weight, target_weight=_positive(proposed_weight),
+        nav=nav,
+        score_before=signal.get("score_before"),
+        score_after=signal.get("score_after"),
+        score_cost_hurdle=signal.get("score_cost_hurdle"),
+        turnover_one_way=turnover.get("one_way_turnover"),
+        transaction_cost=turnover.get("estimated_transaction_cost"),
+        risk_before=risk.get("portfolio_volatility_before"),
+        risk_after=risk.get("portfolio_volatility_after"),
+        mandatory_exits=reoptimisation.get("mandatory_exits") or [], policy=pol)
 
     # DEGRADED when any non-by-design analytic gap is present; else READY. A
-    # complete-target limit breach outranks both (fail closed).
+    # complete-target limit breach that SURVIVED re-optimisation outranks both.
     degraded = any(not g["by_design"] for g in data_gaps)
     proposal_state = STATE_DEGRADED if degraded else STATE_READY
     if complete_target_limits["withheld"]:
         proposal_state = STATE_WITHHELD
+
+    verdict = _cr.decide_outcome(
+        solution={"feasible": proposal_state != STATE_WITHHELD,
+                  "best_feasible_target": _positive(proposed_weight),
+                  "blockers": ([{"code": _cr.B_NO_FEASIBLE_PORTFOLIO,
+                                 "kind": _cr.KIND_TRUE_BLOCKER,
+                                 "violations": complete_target_limits["breaches"],
+                                 "detail": ("The complete target still breaches a "
+                                            "mandatory portfolio limit after "
+                                            "constraint re-optimisation.")}]
+                               if proposal_state == STATE_WITHHELD else []),
+                  "constraints_that_reshaped": reoptimisation.get(
+                      "constraints_that_reshaped") or []},
+        economics=switching, true_blockers=[])
 
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -675,7 +918,18 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         "risk": risk,
         "constraints": constraints,
         "complete_target_limits": complete_target_limits,
-        "approvable": bool(proposal_state in APPROVABLE_STATES),
+        # --- Release 47 ------------------------------------------------------ #
+        "constraint_inventory": _cr.constraint_inventory(constraint_policy_projection(pol)),
+        "constraint_reoptimization": reoptimisation,
+        "switching_economics": switching,
+        "reallocation_outcome": verdict,
+        "outcome": verdict["outcome"],
+        "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        # A proposal is offered for approval only when the state permits it AND the
+        # switching economics say the change is worth paying for. HOLD_CURRENT_BOOK
+        # is a decision the system has already taken; it is not outstanding work.
+        "approvable": bool(proposal_state in APPROVABLE_STATES
+                           and verdict["outcome"] == _cr.OUTCOME_PROPOSAL_READY),
         "withheld_reasons": complete_target_limits["breaches"],
         "data_gaps": data_gaps,
         "diagnostics": {
@@ -969,10 +1223,16 @@ def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
     """Judge the portfolio-level limits that require knowing the COMPLETE target.
 
     Pure arithmetic over values this kernel has already computed on the complete
-    target — nothing is recomputed and no economics are re-derived. A breach withholds
-    the proposal (``STATE_WITHHELD``); it never trims the target to fit and never
-    relaxes a limit. ``engine.portfolio_reassessment`` publishes pre-proposal estimates
-    of the same quantities but is explicitly non-binding, so each limit is applied here
+    target — nothing is recomputed and no economics are re-derived. A limit is never
+    relaxed to force a proposal into existence.
+
+    Release 47 changed what a breach DOES, not what a limit IS. A breach now sends the
+    target to ``engine.constrained_reallocation`` to be re-solved UNDER that limit; the
+    repaired target is then re-measured and judged here again. Only a target that still
+    breaches after re-optimisation is withheld (``STATE_WITHHELD``), which is the
+    honest statement that the feasible set is empty rather than merely different from
+    the ideal. ``engine.portfolio_reassessment`` publishes pre-proposal estimates of
+    the same quantities but is explicitly non-binding, so each limit is applied here
     exactly once and transaction cost is never counted twice.
     """
     breaches: list[dict] = []
@@ -1136,6 +1396,30 @@ def _empty_result(pol: dict, ic: dict, state: str, blockers: list,
         "hoc_reference": {"assessment_hash": ic.get("hoc_assessment_hash"),
                           "assessment_state": ic.get("hoc_assessment_state")},
         "complete_target_limits": {},
+        # Release 47: a BLOCKED / NO_ACTIVE_BOOK result is a genuine TRUE BLOCKER -
+        # a required input is missing, so no trustworthy decision exists. It is NOT
+        # a constraint breach, and the outcome says exactly that.
+        "constraint_inventory": _cr.constraint_inventory(constraint_policy_projection(pol)),
+        "constraint_reoptimization": {
+            "owner": _cr.CALCULATION_OWNER, "applied": False,
+            "ideal_target_was_feasible": None, "breached_limits": [],
+            "constraints_that_reshaped": [], "constraint_adjustments": [],
+            "mandatory_exits": [],
+            "doc": "No target was constructed, so nothing could be re-optimised."},
+        "switching_economics": {},
+        "reallocation_outcome": {
+            "owner": _cr.CALCULATION_OWNER,
+            "outcome": _cr.OUTCOME_TRUE_BLOCKER,
+            "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+            "headline": "PORTFOLIO DECISION BLOCKED",
+            "reason_codes": sorted({b.get("code") for b in (blockers or [])
+                                    if b.get("code")}),
+            "feasible_target_exists": False,
+            "feasible_alternative_was_computed": False,
+            "requires_manual_approval": False,
+            "authorises_execution": False, "creates_orders": False},
+        "outcome": _cr.OUTCOME_TRUE_BLOCKER,
+        "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
         "approvable": False,
         "withheld_reasons": [],
         "blockers": blockers,

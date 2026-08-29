@@ -5128,6 +5128,43 @@
               <div id="hoc-additions" style="overflow-x:auto;font-size:11px;">&mdash;</div>
               <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms a target, assigns a weight, or creates an order. The strongest replacement is a NON-ALLOCATED comparison candidate. Recommendations, ranks, risk, costs and totals are computed by the backend engine, never in the browser.</div>
             </div>
+            <!-- RELEASE 47 &mdash; CONSTRAINT-RESPECTING REALLOCATION (read-only presentation).
+                 The DECISION story, in the order an operator has to read it: the current book,
+                 the ideal target, exactly which constraints reshaped it, the best feasible
+                 target, the switching economics, and then approval + execution state. Every
+                 value is read verbatim from GET /v1/operations/constrained-reallocation; the
+                 browser decides nothing and creates nothing. -->
+            <div class="card" style="margin-bottom:12px;" id="r47-constrained">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Constraint-Respecting Reallocation
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Release 47 &mdash; a normal portfolio constraint reshapes the solution; it does not freeze the portfolio.">RELEASE 47</span>
+                  <span class="cc-badge safe">PAPER ONLY</span>
+                  <span class="cc-badge safe">PREVIEW ONLY</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                  <span class="cc-badge safe">NO ORDERS</span>
+                  <span class="cc-badge safe">NO LIVE BROKER ORDERS</span>
+                  <span class="cc-badge safe">NO BROKER EXECUTION</span>
+                  <span class="cc-badge safe">AUTOMATION OFF</span>
+                </span>
+                <button class="btn-sm" id="r47-refresh" onclick="_r47Load()" title="Reload the read-only constrained-reallocation decision.">&#8635; Refresh</button>
+              </div>
+              <div id="r47-banner" style="border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONSTRAINT-RESPECTING REALLOCATION &mdash; loading the read-only decision&hellip;</div>
+              <div id="r47-pipeline" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
+              <div class="card-title" style="margin-top:2px;font-size:12px;">Switching economics
+                <span class="cc-badge muted" title="Current book vs the best feasible target, after transition cost. Every value is computed by the backend engine.">CURRENT vs BEST FEASIBLE</span>
+              </div>
+              <div id="r47-economics" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <div id="r47-governance" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
+              <details id="r47-inventory-detail" style="margin:0 0 4px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint inventory</summary>
+                <div id="r47-inventory" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
+              </details>
+              <details id="r47-adjustments-detail" style="margin:0 0 4px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint adjustment ledger</summary>
+                <div id="r47-adjustments" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
+              </details>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. A sector cap, a name cap, a risk-contribution limit, a concentration limit, a liquidity cap or a turnover budget RESHAPES the target here; it never freezes the portfolio. Only a declared true blocker (critical stale or missing data, a point-in-time failure, unreconciled NAV, impossible liquidity, an empty feasible set, or missing manual authorization at the execution boundary) stops a decision. Nothing on this card confirms a target, assigns capital, or creates an order or fill. Portfolio mutation requires explicit manual approval and a second confirmation, both enforced by the backend.</div>
+            </div>
             <!-- REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (Phase 29H, Slice 7, Milestone 3) -->
             <div class="card" style="margin-bottom:12px;" id="realloc-card">
               <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -27038,6 +27075,7 @@ function loadOperationalBook() {
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     try { loadReallocationProposal(); } catch (e) {} // Slice 7: the ONE reallocation proposal
+    try { _r47Load(); } catch (e) {}               // Release 47: the ONE constrained-reallocation decision
     try { loadMaterialInformation(); } catch (e) {} // Release 30: what arrived and what it changed
     try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
     return d;
@@ -27051,6 +27089,7 @@ function loadOperationalBook() {
     try { loadDailyResearchCycle(); } catch (e) {}
     try { loadUniverseScoring(); } catch (e) {}
     try { loadReallocationProposal(); } catch (e) {}
+    try { _r47Load(); } catch (e) {}
     try { loadMaterialInformation(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
@@ -27457,6 +27496,246 @@ function loadReallocationProposal() {
   return p;
 }
 window.loadReallocationProposal = loadReallocationProposal;
+
+
+// ---------------------------------------------------------------------------
+// Release 47 — CONSTRAINT-RESPECTING REALLOCATION (the ONE loader for this card).
+//
+// It reads GET /v1/operations/constrained-reallocation and renders the decision
+// story in the order an operator has to read it. It performs NO portfolio math and
+// makes NO decision: it holds no threshold, no cost rate, no cap and no hurdle, and
+// it never infers an outcome from a state name — the headline, the outcome, the
+// constraint ledger, the economics and the approval/execution states are all read
+// verbatim from the backend. It creates nothing: there is no approve control, no
+// order control and no execute control anywhere in this region.
+// ---------------------------------------------------------------------------
+function _r47Load() {
+  if (window._r47InFlight) return window._r47InFlight;
+  var p = _mhzGet('/v1/operations/constrained-reallocation').then(function (d) {
+    window._r47InFlight = null; window._r47Data = d; _r47Render(d); return d;
+  }).catch(function () {
+    window._r47InFlight = null; _r47Render(null); return null;
+  });
+  window._r47InFlight = p;
+  return p;
+}
+window._r47Load = _r47Load;
+
+function _r47Num(v, digits) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return n.toFixed(digits === undefined ? 4 : digits);
+}
+
+function _r47Bool(v) {
+  if (v === true) return 'YES';
+  if (v === false) return 'NO';
+  return '—';
+}
+
+function _r47Chip(label, value, title) {
+  return '<span class="cc-badge muted" title="' + escapeHtml(title || label) + '">'
+    + escapeHtml(label) + ': <b>' + escapeHtml(String(value)) + '</b></span>';
+}
+
+function _r47Panel(title, rowsHtml) {
+  return '<div class="va-card" style="padding:8px;">'
+    + '<div class="va-card-hd"><span class="va-card-title" style="font-size:10px;">'
+    + escapeHtml(title) + '</span></div>'
+    + '<div style="font-size:11px;line-height:1.7;">' + rowsHtml + '</div></div>';
+}
+
+function _r47Row(k, v) {
+  return '<div style="display:flex;justify-content:space-between;gap:8px;">'
+    + '<span style="color:var(--label);">' + escapeHtml(k) + '</span>'
+    + '<b>' + escapeHtml(v === null || v === undefined ? '—' : String(v)) + '</b></div>';
+}
+
+function _r47Render(d) {
+  var banner = document.getElementById('r47-banner');
+  if (!d || d.status === 'UNAVAILABLE') {
+    if (banner) {
+      banner.textContent = 'CONSTRAINT-RESPECTING REALLOCATION — the read-only decision is unavailable.';
+      banner.style.border = '1px solid rgba(245,158,11,.55)';
+      banner.style.background = 'rgba(245,158,11,.10)';
+      banner.style.color = 'var(--warning, #f59e0b)';
+    }
+    _setHtml('r47-pipeline', '—'); _setHtml('r47-economics', '—');
+    _setHtml('r47-governance', '—'); _setHtml('r47-inventory', '—');
+    _setHtml('r47-adjustments', '—');
+    return;
+  }
+
+  // --- the banner: the BACKEND headline, verbatim. The browser never decides that
+  //     a portfolio is blocked, and never writes that word itself. -------------- #
+  var outcome = d.outcome || '—';
+  var verdict = d.reallocation_outcome || {};
+  var tone = {border: 'rgba(59,130,246,.55)', bg: 'rgba(59,130,246,.10)', fg: 'var(--info, #3b82f6)'};
+  if (outcome === 'TRUE_BLOCKER') {
+    tone = {border: 'rgba(239,68,68,.55)', bg: 'rgba(239,68,68,.10)', fg: 'var(--danger, #ef4444)'};
+  } else if (outcome === 'HOLD_CURRENT_BOOK') {
+    tone = {border: 'rgba(34,197,94,.55)', bg: 'rgba(34,197,94,.10)', fg: 'var(--ok, #22c55e)'};
+  } else if (outcome === 'PROPOSAL_READY') {
+    tone = {border: 'rgba(245,158,11,.55)', bg: 'rgba(245,158,11,.10)', fg: 'var(--warning, #f59e0b)'};
+  }
+  if (banner) {
+    banner.style.border = '1px solid ' + tone.border;
+    banner.style.background = tone.bg;
+    banner.style.color = tone.fg;
+    var reasons = (verdict.reason_codes || []).join(', ');
+    var state = d.outcome_state ? String(d.outcome_state) : String(outcome);
+    banner.innerHTML = escapeHtml(d.headline || state)
+      + ' &middot; ' + escapeHtml(state)
+      + (reasons ? ' &middot; ' + escapeHtml(reasons) : '')
+      + ' &middot; PAPER ONLY &middot; MANUAL REVIEW &middot; NO ORDERS';
+  }
+
+  // --- the pipeline: current book -> ideal -> what constraints did -> feasible -- #
+  var cur = d.current_paper_book || {};
+  var ideal = d.ideal_target || {};
+  var best = d.best_feasible_target || {};
+  var trn = d.turnover || {};
+  var adjustments = d.constraint_adjustments || [];
+  var reshaped = d.constraints_that_reshaped || [];
+
+  var adjRows = '';
+  for (var i = 0; i < adjustments.length && i < 6; i++) {
+    var a = adjustments[i];
+    adjRows += _r47Row(String(a.constraint || '—') + (a.ticker ? ' · ' + a.ticker : ''),
+                       String(a.action || '—'));
+  }
+  if (!adjustments.length) {
+    adjRows = '<div style="color:var(--label);">No constraint changed this target.</div>';
+  } else if (adjustments.length > 6) {
+    adjRows += '<div style="color:var(--label);">+' + (adjustments.length - 6)
+      + ' more in Audit / Advanced</div>';
+  }
+
+  var pipeline =
+    _r47Panel('Current paper book',
+      _r47Row('Positions', cur.position_count)
+      + _r47Row('Cash weight', _r47Num(cur.cash_weight, 4))
+      + _r47Row('NAV', cur.nav === null || cur.nav === undefined ? '—' : cur.nav)
+      + _r47Row('Owner', cur.owner || '—'))
+    + _r47Panel('Ideal target (before constraints)',
+      _r47Row('Positions', Object.keys(ideal.weights || {}).length || '—')
+      + _r47Row('Already feasible', _r47Bool(ideal.was_feasible))
+      + _r47Row('Limits breached', (ideal.breached_limits || []).join(', ') || 'none')
+      + _r47Row('Zero-base owner', ideal.zero_base_owner || '—'))
+    + _r47Panel('Constraint adjustments',
+      _r47Row('Re-optimised', _r47Bool(d.constraint_reoptimization_applied))
+      + _r47Row('Limits that reshaped', reshaped.join(', ') || 'none')
+      + adjRows)
+    + _r47Panel('Best feasible target',
+      _r47Row('Positions', best.position_count)
+      + _r47Row('Cash weight', _r47Num(best.cash_weight, 4))
+      + _r47Row('Hard constraints OK', _r47Bool((best.constraints || {}).all_ok))
+      + _r47Row('One-way turnover', _r47Num(trn.one_way_turnover, 4))
+      + _r47Row('Est. transaction cost', trn.estimated_transaction_cost));
+  _setHtml('r47-pipeline', pipeline);
+
+  // --- switching economics: every number verbatim from the backend ------------- #
+  var sw = d.switching_economics || {};
+  var chips = ''
+    + _r47Chip('Score before', _r47Num(sw.score_before, 4), 'Weighted combined percentile of the current book (backend).')
+    + _r47Chip('Score after', _r47Num(sw.score_after, 4), 'Weighted combined percentile of the best feasible target (backend).')
+    + _r47Chip('Improvement', _r47Num(sw.score_improvement, 4), 'Score after minus score before (backend).')
+    + _r47Chip('Cost hurdle', _r47Num(sw.score_cost_hurdle, 4), 'The modelled transition cost, expressed in the same score points (backend).')
+    + _r47Chip('Net of cost', _r47Num(sw.score_improvement_net_of_cost, 4), 'Improvement after the transition cost (backend).')
+    + _r47Chip('Switching hurdle', _r47Num(sw.switching_hurdle, 4), 'The frozen hurdle the net improvement must clear (backend policy).')
+    + _r47Chip('Clears hurdle', _r47Bool(sw.clears_switching_hurdle), 'Whether switching is worth paying for (backend decision).')
+    + _r47Chip('One-way turnover', _r47Num(sw.one_way_turnover, 4), 'Portfolio distance from the current book (backend).')
+    + _r47Chip('Est. cost', sw.estimated_transaction_cost === null || sw.estimated_transaction_cost === undefined ? '—' : sw.estimated_transaction_cost, 'Modelled transition cost in dollars (backend).')
+    + _r47Chip('Concentration', _r47Num(sw.concentration_before, 4) + ' → ' + _r47Num(sw.concentration_after, 4), 'Portfolio concentration before and after (backend).')
+    + _r47Chip('Volatility', _r47Num(sw.portfolio_volatility_before, 4) + ' → ' + _r47Num(sw.portfolio_volatility_after, 4), 'Portfolio volatility before and after (backend); blank when coverage is insufficient.')
+    + _r47Chip('Positions', String(sw.position_count_before === undefined ? '—' : sw.position_count_before) + ' → ' + String(sw.position_count_after === undefined ? '—' : sw.position_count_after), 'Position count before and after (backend).')
+    + _r47Chip('Cash weight', _r47Num(sw.cash_weight_before, 4) + ' → ' + _r47Num(sw.cash_weight_after, 4), 'Cash weight before and after (backend).')
+    + _r47Chip('Mandatory exits', (sw.mandatory_exits || []).join(', ') || 'none', 'Held names outside the eligible universe. Their exit is a constraint, not a bet.')
+    + _r47Chip('Expected return', sw.expected_return_state || '—', 'No validated forecast model exists, so a dollar expected return is never fabricated.');
+  _setHtml('r47-economics', chips);
+
+  // --- governed proposal / approval state / execution state ------------------- #
+  var ap = d.approval || {};
+  var ex = d.execution || {};
+  var counts = [];
+  var alloc = (best.allocations || []);
+  var byAction = {};
+  for (var j = 0; j < alloc.length; j++) {
+    var act = alloc[j].action || '—';
+    byAction[act] = (byAction[act] || 0) + 1;
+  }
+  for (var k in byAction) { if (byAction.hasOwnProperty(k)) counts.push(k + ' ' + byAction[k]); }
+  var gov =
+    _r47Panel('Governed proposal',
+      _r47Row('Outcome', outcome)
+      + _r47Row('Feasible target exists', _r47Bool(d.feasible_target_exists))
+      + _r47Row('Actions', counts.join(' · ') || '—')
+      + _r47Row('State', d.state || '—'))
+    + _r47Panel('Approval state',
+      _r47Row('Decision state', ap.portfolio_decision_state || '—')
+      + _r47Row('Label', ap.label || '—')
+      + _r47Row('Approvable', _r47Bool(ap.approvable))
+      + _r47Row('Manual approval', _r47Bool(ap.manual_approval_required))
+      + _r47Row('Decision path', ap.decision_path || '—'))
+    + _r47Panel('Execution state',
+      _r47Row('Rebalance state', ex.rebalance_state || '—')
+      + _r47Row('Order plan buildable', _r47Bool(ex.order_plan_buildable))
+      + _r47Row('Orders in plan', ex.n_orders === undefined ? '—' : ex.n_orders)
+      + _r47Row('Broker', 'NONE — PAPER ONLY'));
+  _setHtml('r47-governance', gov);
+
+  // --- Audit / Advanced: the full inventory and the full adjustment ledger ----- #
+  var inv = (d.constraint_inventory || {});
+  var invRows = '';
+  var invList = inv.constraints || [];
+  for (var m = 0; m < invList.length; m++) {
+    var c = invList[m];
+    invRows += '<tr><td>' + escapeHtml(String(c.code || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(c.kind || '—')) + '</td>'
+      + '<td>' + escapeHtml(c.limit === null || c.limit === undefined ? '—' : JSON.stringify(c.limit)) + '</td>'
+      + '<td>' + escapeHtml(String(c.object || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(c.owner || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(c.reshape_action || '—')) + '</td></tr>';
+  }
+  var blkList = inv.true_blocker_conditions || [];
+  for (var n = 0; n < blkList.length; n++) {
+    var b = blkList[n];
+    invRows += '<tr><td>' + escapeHtml(String(b.code || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(b.kind || '—')) + '</td>'
+      + '<td>—</td><td>DECISION</td><td>—</td>'
+      + '<td>' + escapeHtml(String(b.detail || '—')) + '</td></tr>';
+  }
+  _setHtml('r47-inventory', invRows
+    ? '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
+      + '<th style="text-align:left;">Constraint</th><th style="text-align:left;">Kind</th>'
+      + '<th style="text-align:left;">Limit</th><th style="text-align:left;">Judged on</th>'
+      + '<th style="text-align:left;">Owner</th><th style="text-align:left;">What it does</th>'
+      + '</tr></thead><tbody>' + invRows + '</tbody></table>'
+    : '—');
+
+  var ledger = '';
+  for (var q = 0; q < adjustments.length; q++) {
+    var r = adjustments[q];
+    ledger += '<tr><td>' + escapeHtml(String(r.constraint || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(r.kind || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(r.ticker || r.sector || '—')) + '</td>'
+      + '<td>' + escapeHtml(r.before === undefined ? '—' : String(r.before)) + '</td>'
+      + '<td>' + escapeHtml(r.after === undefined ? '—' : String(r.after)) + '</td>'
+      + '<td>' + escapeHtml(String(r.action || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(r.detail || r.redistributed_to || '—')) + '</td></tr>';
+  }
+  _setHtml('r47-adjustments', ledger
+    ? '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
+      + '<th style="text-align:left;">Constraint</th><th style="text-align:left;">Kind</th>'
+      + '<th style="text-align:left;">Name</th><th style="text-align:left;">Before</th>'
+      + '<th style="text-align:left;">After</th><th style="text-align:left;">Action</th>'
+      + '<th style="text-align:left;">Detail</th></tr></thead><tbody>'
+      + ledger + '</tbody></table>'
+    : 'No constraint changed this target.');
+}
+window._r47Render = _r47Render;
+/* R47_REGION_END */
 
 
 // ---------------------------------------------------------------------------

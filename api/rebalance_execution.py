@@ -45,6 +45,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import corporate_actions as ca
 from paper_trader.api import paper_trading_desk as desk
 from paper_trader.api import portfolio_decision as pdec
+from paper_trader.api import portfolio_decision_outcome as pdo
 from paper_trader.api import reallocation_proposal as realloc
 
 PHASE = "STAGE19"
@@ -414,6 +415,10 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
                 "message": _blocked_message(plan, state)}
     return {"state": (RB_NO_CHANGES if not plan["orders"] else RB_PLAN_REVIEW_REQUIRED),
             "bound": bound, "plan": plan, "desk_view": view,
+            # Release 47: the immutable proposal travels with the plan so the
+            # execution boundary can freeze its economics as decision evidence
+            # without re-reading (and possibly re-resolving) a different artifact.
+            "artifact": artifact,
             "decision_record": decision_record}
 
 
@@ -1064,6 +1069,7 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                                  eligible_market_date=None, portfolio_state=None,
                                  portfolio_state_loader=None, artifact=None,
                                  decision_record=None, corporate_actions=None,
+                                 outcome_dir=None,
                                  actor: Optional[str] = None, today: Optional[str] = None) -> dict:
     """SECOND explicit confirmation. Only ``confirm == CONFIRM_TOKEN`` on an APPROVED,
     unchanged proposal writes PAPER orders (into the EXISTING desk lifecycle, submitted for
@@ -1231,9 +1237,23 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
         "Stage-19 paper rebalance confirmed on %s: %d order(s) SUBMITTED for NEXT_CLOSE "
         "(order plan %s). No same-close hindsight fill." % (
             approval_date, len(order_events), plan["order_plan_id"]))])
+    order_ids = [e["order"]["order_id"] for e in order_events]
+    # ----------------------------------------------------------------------- #
+    # Release 47 — freeze the portfolio-decision forward evidence HERE.
+    #
+    # This is the only moment at which an honest counterfactual can be created: the
+    # capital decision has just been made and not one forward price exists yet. Both
+    # paths (the executed paper portfolio and the hold portfolio we are giving up)
+    # are frozen together, with the decision session's own marks. Freezing is
+    # idempotent on the exact order plan, so an approval replay records nothing new,
+    # and it writes ONLY to its own evidence root — never a desk ledger.
+    # ----------------------------------------------------------------------- #
+    decision_evidence = _freeze_decision_evidence(
+        plan=plan, base=base, bound=bound, artifact=base.get("artifact"),
+        n_orders=len(order_ids),
+        outcome_dir=_evidence_dir(outcome_dir, desk_dir))
     # Settle now (no-hindsight: nothing fills at a close already known at approval).
     settle = desk.settle_due_orders(desk_dir=desk_dir, today=today)
-    order_ids = [e["order"]["order_id"] for e in order_events]
     return {**base_safety, "status": C_CREATED, "performed_write": True, "created_orders": True,
             "wrote_to_desk_ledgers_only": True, "rebalance_state": RB_PLAN_CONFIRMED,
             "revalidated_server_side": True,
@@ -1255,9 +1275,106 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                                   "completed owned close strictly after %s — never the "
                                   "already-known close." % marks_latest),
             "settlement": settle, "lineage": lineage,
+            "decision_evidence": decision_evidence,
             "message": ("%d paper rebalance order(s) SUBMITTED for NEXT_CLOSE. Fills occur at "
                         "the next completed owned close via the existing desk settlement."
                         % len(order_ids))}
+
+
+# --------------------------------------------------------------------------- #
+# Release 47 — the decision-evidence freeze (composition only; no calculation)
+# --------------------------------------------------------------------------- #
+def _evidence_dir(outcome_dir, desk_dir):
+    """Where this execution's decision evidence belongs.
+
+    A decision record describes ONE desk, so it lives beside that desk. Production
+    calls inject neither root and land on the evidence owner's own default; an
+    injected (hermetic) desk therefore keeps its evidence hermetic BY CONSTRUCTION,
+    rather than by every caller remembering to redirect a second root. That
+    distinction is the difference between a test that is isolated and a test that
+    quietly appends to the production ledger.
+    """
+    if outcome_dir is not None:
+        return outcome_dir
+    if desk_dir is not None:
+        return Path(desk_dir).parent / "portfolio_decision_outcomes"
+    return None
+
+
+def _freeze_decision_evidence(*, plan: dict, base: dict, bound: dict,
+                              artifact: Optional[dict], n_orders: int,
+                              outcome_dir=None) -> dict:
+    """Hand the executed decision to its evidence owner. Never raises.
+
+    Everything passed here is already owned by somebody else: the before/after
+    weights and the cost come from the reconciled order plan, the reference prices
+    from the desk's own marks, the expected improvement and the constraint state
+    from the immutable proposal. This function computes none of them — a failure to
+    record evidence must never undo a completed, correct paper execution, so it
+    degrades to a reported error instead of propagating.
+    """
+    try:
+        prop = (artifact or {}).get("proposal") or {}
+        view = base.get("desk_view") or {}
+        series = view.get("series") or {}
+        as_of = plan.get("marks_date")
+        before_w = {k: v for k, v in (plan.get("before_weights") or {}).items()
+                    if (v or 0) > 0}
+        after_w = {k: v for k, v in (plan.get("after_weights") or {}).items()
+                   if (v or 0) > 0}
+        proposed_w = {a.get("ticker"): a.get("proposed_weight")
+                      for a in (prop.get("allocations") or [])
+                      if a.get("ticker") and (a.get("proposed_weight") or 0) > 0}
+        prices = {}
+        for tk in sorted(set(before_w) | set(after_w) | set(proposed_w)):
+            p = _price(series, tk, as_of) if as_of else None
+            if p is not None:
+                prices[tk] = p
+        return pdo.freeze_executed_decision(
+            proposal_hash=bound.get("proposal_hash"),
+            order_plan_id=plan.get("order_plan_id"),
+            eligible_market_date=bound.get("eligible_market_date"),
+            active_book_id=bound.get("active_book_id"),
+            previous_weights=before_w, proposed_weights=proposed_w,
+            executed_weights=after_w, reference_prices=prices,
+            nav=plan.get("sizing_nav_basis"),
+            transaction_cost=plan.get("estimated_transaction_cost"),
+            orders_created=int(n_orders or 0),
+            decision_reasons={
+                "outcome": prop.get("outcome"),
+                "reallocation_outcome": prop.get("reallocation_outcome") or {},
+                "action_counts": prop.get("action_counts") or {},
+                "constraint_reoptimization_applied": bool(
+                    (prop.get("constraint_reoptimization") or {}).get("applied")),
+                "constraints_that_reshaped": list(
+                    (prop.get("constraint_reoptimization") or {}).get(
+                        "constraints_that_reshaped") or [])},
+            expected_improvement={
+                "switching_economics": prop.get("switching_economics") or {},
+                "signal": prop.get("signal") or {},
+                "turnover": prop.get("turnover") or {}},
+            risk_at_decision=prop.get("risk") or {},
+            constraints_at_decision={
+                "constraints": prop.get("constraints") or {},
+                "complete_target_limits": prop.get("complete_target_limits") or {},
+                "policy": prop.get("policy") or {}},
+            model_state={
+                "allocation_policy_version": prop.get("policy_version"),
+                "proposal_schema_version": prop.get("schema_version"),
+                "proposal_id": bound.get("proposal_id"),
+                "universe_scoring_hash": bound.get("universe_scoring_hash"),
+                "hoc_assessment_hash": bound.get("hoc_assessment_hash"),
+                "portfolio_state_hash": bound.get("portfolio_state_hash"),
+                "corporate_actions_hash": bound.get("corporate_actions_hash")},
+            provenance={"execution_owner": OWNER,
+                        "order_plan_hash": plan.get("order_plan_hash"),
+                        "marks_date": as_of,
+                        "execution_model": EXECUTION_MODEL},
+            outcome_dir=outcome_dir)
+    except Exception as exc:  # noqa: BLE001 - evidence must never break execution
+        return {"owner": pdo.OWNER, "frozen": False,
+                "status": "DECISION_EVIDENCE_FREEZE_ERROR",
+                "message": str(exc)[:200]}
 
 
 # --------------------------------------------------------------------------- #

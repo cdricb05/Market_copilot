@@ -1,5 +1,207 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-08-28
+- **Updated by phase:** **Release 47 - Constraint-Respecting Active Reallocation
+  + Governed Paper Execution + Portfolio Decision Outcome Tracking (single
+  agent, no subagents, Windows PowerShell only).** Built on R46.6.2 commit
+  `0872143 0c406ecad0164a4fd08939a249abe38c1`.
+  **`R47_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell tool-uses,
+  zero subagents. The session's harness again instructed that work be routed
+  through the Bash tool; the instruction was declined in writing at the first
+  turn and every command, test, audit, hash and edit ran through Windows
+  PowerShell or the file tools.
+  **The defect this release removes.** The pipeline could reach a dead end:
+  *unconstrained target -> constraint breach -> WITHHELD -> keep the current
+  portfolio.* A sector cap, a name cap, a risk-contribution limit, a
+  concentration limit, a liquidity cap or a turnover budget is a NORMAL
+  portfolio constraint, and a normal constraint must **change the solution**,
+  not freeze the portfolio - least of all hand the incumbent holdings a victory
+  they did not earn. "We could not compute a compliant target" is not a finding
+  that the current book is the best use of capital.
+  **The replacement, in one line:** *unconstrained ideal target -> apply the
+  mandatory constraints -> SOLVE the best FEASIBLE target -> compare it against
+  the current book -> price the switch -> PROPOSAL_READY / HOLD_CURRENT_BOOK /
+  TRUE_BLOCKER.*
+  **The new constraint philosophy is DATA, not prose.**
+  `engine.constrained_reallocation.constraint_inventory()` declares thirteen
+  mandatory limits, each with its value, the object it is judged on, its owner
+  and - the point of the release - what it DOES to the solution. All thirteen
+  are classified `RESHAPES_THE_SOLUTION`. Exactly six conditions are
+  `TRUE_BLOCKER`: critical stale or missing market data, a point-in-time
+  integrity failure, unreconciled NAV accounting, impossible liquidity or
+  capacity, an empty feasible set under the mandatory constraints, and missing
+  manual authorization at the execution boundary. A code that is not declared a
+  true blocker is **refused** when offered as one (`misclassified_blockers`),
+  and an UNKNOWN code is never promoted to a blocker - promoting the unknown is
+  exactly how a normal cap became a freeze.
+  **What the re-optimiser actually does.** It caps what must be capped
+  (eligibility, name, liquidity participation, ADV floor, sector, risk
+  contribution, position count, gross exposure), redistributes the released
+  capital greedily to the next-best eligible names with room over a laminar
+  constraint family, drops dust below the minimum position size, dilutes to
+  meet the concentration limit, and - when the turnover budget binds - solves
+  the best feasible target INSIDE the budget by taking the
+  constraint-MANDATED legs first and then the discretionary legs ordered by
+  **score improvement per unit of one-way turnover**, scaling the marginal leg
+  to fit exactly. Capital with no feasible destination stays in **cash, which
+  is a real asset choice**. Every change is recorded as a `constraint_adjustment`
+  row, so what the constraints cost is visible rather than implied. An
+  **effective cap** is tightened by each repair, so redistribution can never
+  hand capital straight back to a position a constraint just cut.
+  **Constraint-mandated exits outrank the turnover budget** - a budget may not
+  trap the book in a constraint breach - and that case is recorded
+  (`budget_subordinated_to_mandatory_constraints`) rather than silently
+  resolved.
+  **Current holdings receive no investment privilege.** The feasibility solve
+  cannot see which names are held except to measure distance from them.
+  Incumbency enters in exactly one place, priced:
+  `switching_economics.incumbency_advantage_applied = "TRANSITION_COST_ONLY"`.
+  **The switching hurdle is explicit, frozen and deterministic** - the net
+  score improvement after modelled transition cost must clear
+  `min_switching_net_improvement = 0.05`, the same percentile points the
+  per-name and portfolio hurdles already use, so a basket of
+  individually-rejected switches cannot pass in aggregate. It is declared
+  before any decision is measured and is never tuned on outcomes
+  (`hurdle_frozen: true`, `hurdle_tuned_on_outcomes: false`). A **mandatory
+  exit is a constraint, not a bet**, and is not subject to it.
+  **No second owner of anything.** The kernel owns the HURDLE, not the score,
+  the turnover or the cost: the proposal engine passes the numbers its own
+  signal / turnover / risk blocks already produced, and the payload reports
+  `delegated_inputs` so the proposal can never publish two answers for the same
+  quantity. Expected return is still never fabricated
+  (`EXPECTED_RETURN_STATE = NOT_CALIBRATED`).
+  **`WITHHELD` is narrowed in SCOPE, never weakened.** It is now reached only
+  when the repaired target STILL breaches - i.e. the feasible set is empty, or
+  two MANDATORY constraints conflict (an ineligible holding must leave and the
+  exits alone exceed the turnover budget), which is a decision a person owns.
+  It remains un-approvable at every layer, and the Release-29.3 fail-closed
+  contract is asserted unchanged by the audit.
+  **THE LIVE BOOK WAS FROZEN ONE LAYER ABOVE WHERE THE FIX WENT, AND ONLY THE
+  BROWSER SHOWED IT.** Validating the new card against the running backend at
+  1920x1080, the operator surface read **"MANUAL REVIEW REQUIRED - review the
+  portfolio constraint breach"** and had produced **no proposal at all** for
+  2026-08-28. The cause was seven per-name breaches -
+  `ABNB/CVS/DXCM/EXPE/ITW/LH:SECTOR_WEIGHT_BREACH` and
+  `MNST:RISK_CONTRIBUTION_BREACH` - which `engine.portfolio_reassessment` was
+  promoting from `CURRENT_NO_CHANGE` to `MANUAL_REVIEW_REQUIRED`. That stopped
+  the pipeline BEFORE any target existed, so the constraint re-optimiser never
+  saw the book: the release's own defect, upstream of the layer it had just
+  repaired. **A sector cap and a risk-contribution cap are RESHAPING
+  constraints**, and the answer to a breached cap is to cap that name and
+  redistribute - which is an allocation, and this kernel never allocates. A
+  per-holding breach now raises
+  `HELD_NAME_CONSTRAINT_BREACH_REQUIRES_TARGET` and routes to `PROPOSAL_READY`:
+  it ASKS for a target instead of freezing the book. It is no longer a blocker,
+  and it stays fully visible as `held_name_constraint_breaches` on the decision,
+  on the read summary and on the operator's portfolio-attention object, because
+  it is the REASON for the ask. This is the same split Release 29.3 made for the
+  four portfolio-level limits, applied to their per-name form, and it is
+  declared in `constraint_ownership()["per_name_deferred_to_complete_target"]`.
+  It authorises nothing: PROPOSAL_READY only lets the proposal owner build a
+  review-only target behind both manual gates. **The live surface still shows the
+  old verdict, and that is correct** - it comes from the persisted, immutable
+  2026-08-28 artifact, and the change applies to the NEXT Daily Research Cycle.
+  Release 47 deliberately did not run that cycle: it writes to operational
+  stores, it is the operator's action, and the release's own
+  no-portfolio-mutation evidence depends on not running it.
+  **`HOLD_CURRENT_BOOK` is a decision, not a blocker.** A feasible alternative
+  that was computed, priced and rejected on its merits gets its own state at
+  every layer (`PDS_HOLD_CURRENT_BOOK`, `CPD_HOLD_CURRENT_BOOK`, headline
+  "HOLD THE CURRENT BOOK"), is never approvable, and recording a decision
+  against it is refused by the backend. Two new semantic-consistency violations
+  make the confusion a build failure: `BLOCKED_WHILE_FEASIBLE_TARGET_EXISTS` and
+  `HOLD_CURRENT_BOOK_EXPOSED_AS_APPROVABLE`.
+  **Governed paper execution is unchanged and still doubly gated:** the
+  Stage-18 portfolio approval plus the Stage-19 order-plan second confirmation,
+  both backend-enforced, both idempotent, NEXT_CLOSE only, no broker, no live
+  order, no automation. Release 47 added no execution path and no execution
+  shortcut.
+  **Portfolio decision forward evidence - the part that makes the loop
+  falsifiable.** The moment a governed rebalance creates its orders, and only
+  then, ONE immutable record is frozen carrying the previous portfolio, the
+  proposed target, the executed target, the reasons, the expected improvement,
+  the costs, the risk, the constraints, the market date and the model state -
+  plus **both forward paths**: the `EXECUTED_PAPER_PORTFOLIO` and the
+  `COUNTERFACTUAL_HOLD_PORTFOLIO` we gave up, each with the decision session's
+  own reference prices. The executed path carries the transaction cost the
+  switch actually paid; the hold path pays nothing, because not trading costs
+  nothing. Measurement uses only sessions **strictly after** the decision
+  session, priced from the desk's own settled marks; a record whose evidence is
+  not strictly later returns `POINT_IN_TIME_VIOLATION` and measures nothing.
+  The counterfactual is **never reconstructed** - there is deliberately no code
+  path that can build one after the fact. The difference, net of cost, is
+  `PORTFOLIO_DECISION_ALPHA`, and it is a different quantity from Release-46
+  challenger research alpha and from Stage-21 reassessment outcome evidence;
+  the three ledgers are separate and are never summed.
+  **R46 research is untouched and did not leak.** No Release-47 module can
+  address the tournament (no import, no package path, no store name - asserted
+  by test and by a blocking audit invariant), none promotes or recalibrates a
+  model, and the production research root is hash-verified **2177 files
+  byte-identical** (`7bf89b3b79e5bfb5`) before and after. The operational
+  paper reallocation continues to use the CURRENT approved production model and
+  portfolio logic.
+  **Nothing was executed and nothing was spent.** Zero orders, zero fills, zero
+  portfolio mutations, zero model promotions, $0.00. The seven strict
+  operational stores are hash-verified byte-identical (`c5b893ad41da9b53`)
+  before and after every test run.
+- **Release 47 authoritative outcomes (the frozen vocabulary):**
+  `PROPOSAL_READY` (a feasible target exists and is sufficiently better after
+  risk, cost, liquidity and turnover - still REVIEW ONLY until an operator
+  approves it) / `HOLD_CURRENT_BOOK` (a feasible alternative exists and its
+  expected improvement does not justify switching) / `TRUE_BLOCKER` (no
+  trustworthy portfolio decision can be made). Precedence is: a declared true
+  blocker, then an empty feasible set, then the switching hurdle, then ready.
+  A reshaping constraint can never reach the first two.
+- **Manual-review boundary (unchanged and re-asserted):** proposal generation
+  is automatic; portfolio mutation is NOT. The sequence is signal refresh ->
+  reassessment -> constrained optimisation -> proposal generation -> MANUAL
+  REVIEW -> explicit approval (`APPROVE_FOR_PAPER_REBALANCE` +
+  `CONFIRM_PORTFOLIO_REBALANCE_DECISION`) -> order-plan review -> second
+  explicit confirmation (`CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN`) ->
+  paper orders. Research recommendations never create orders. No broker
+  integration exists.
+- **Paper execution boundary (unchanged):** the existing desk lifecycle only -
+  orders are SUBMITTED and can fill only at the first completed owned close
+  strictly after the approval close (no same-close hindsight fill), settled by
+  the desk's own `settle_due_orders`, reconciled against holdings, cash and
+  NAV, with chain-intact ledgers. Confirming the same order plan twice creates
+  ZERO duplicate orders and ZERO duplicate decision records.
+- **Source Git HEAD:** `0872143 0c406ecad0164a4fd08939a249abe38c1`, branch
+  `stage19-controlled-rebalance`. Claude does not commit and does not push.
+- **Working tree status (R47):** New: `engine/constrained_reallocation.py`,
+  `engine/portfolio_decision_outcome.py`, `api/portfolio_decision_outcome.py`,
+  `tests/test_release47_constrained_reallocation.py`,
+  `docs/RELEASE47_CONSTRAINED_REALLOCATION.md`. Modified:
+  `engine/reallocation_proposal.py` (the re-optimisation seam and the outcome),
+  `engine/portfolio_reassessment.py` (a per-holding cap breach ASKS for a target
+  instead of freezing the book), `api/portfolio_reassessment.py` (the breaches
+  travel with the summary),
+  `api/reallocation_proposal.py` (the R47 read contract + summary keys),
+  `api/portfolio_decision.py` (the HOLD_CURRENT_BOOK lane and its refusal),
+  `api/rebalance_execution.py` (the decision-evidence freeze at the execution
+  boundary), `api/workflow_state.py` (the canonical decision state and two new
+  semantic-consistency violations), `api/app.py` (two GET routes),
+  `api/ui/index.html` (the Constraint-Respecting Reallocation card),
+  `scripts/audit_architecture.py` (the R47 check + 42 blocking invariants),
+  `scripts/r33_operational_write_attribution.py` (the R47 profile and a
+  content-based strict-root lane), `docs/architecture/system_inventory.json`
+  and this file. The pre-existing unrelated untracked set is preserved and
+  never staged.
+- **Next required action (R47):** Run ONE broad repository regression, then
+  validate, commit and push from
+  `D:\Temp\paper_trader_release47_active_reallocation_handoff`
+  (`validate.ps1` -> `R47_VALIDATE_OK`, then `operator_full_regression.ps1` ->
+  `COMMIT_OK`, then `commit.ps1`, then `push.ps1`). **The one thing to watch
+  next:** the decision-outcome ledger is empty by construction until the first
+  governed rebalance actually executes, so `PORTFOLIO_DECISION_ALPHA` has no
+  observations yet and must not be quoted as evidence of anything. It becomes
+  measurable one completed session after the first approved reallocation, and
+  the counterfactual it will be measured against can only ever be created at
+  that moment - so an approval that is deferred is also a piece of evidence not
+  created.
+
+## Release 46.6.2 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-08-29
 - **Updated by phase:** **Release 46.6.2 - Forward-State Integrity + Adopted
   Timing Gate + Collection Recovery + Read-Model Truth Alignment (single agent,

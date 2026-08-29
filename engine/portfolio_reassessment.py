@@ -192,6 +192,20 @@ RELEASE_SET_BLOCKER_CODES = (GATE_IMPROVEMENT_UNMEASURABLE, GATE_BELOW_NET_HURDL
 COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
                                     GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET)
 
+# --- Release 47 — the PER-NAME form of the same three limits ----------------- #
+#: A held name can breach the name-weight, sector-weight or risk-contribution cap on
+#: its own. Until Release 47 such a breach promoted CURRENT_NO_CHANGE to
+#: MANUAL_REVIEW_REQUIRED and stopped the pipeline before any target existed - the
+#: live 2026-08-28 book was frozen on seven of them. They are RESHAPING constraints in
+#: the canonical inventory (``engine.constrained_reallocation``): the answer to a
+#: breached cap is to cap that name and redistribute, which only the COMPLETE-TARGET
+#: owner can do. This kernel therefore ASKS for a target instead of blocking, exactly
+#: as Release 29.3 already did for the portfolio-level form of the same three limits.
+HELD_NAME_CONSTRAINT_BREACH_CODES = ("NAME_WEIGHT_BREACH", "SECTOR_WEIGHT_BREACH",
+                                     "RISK_CONTRIBUTION_BREACH")
+#: Raised when a held name's own cap breach is what causes the ASK.
+GATE_HELD_NAME_BREACH_REQUIRES_TARGET = "HELD_NAME_CONSTRAINT_BREACH_REQUIRES_TARGET"
+
 # --- Mandatory eligibility-exit policy (Release 29.3 — made explicit) -------- #
 #: An eligibility exit is a CONSTRAINT breach, not an alpha bet, so it overrides the
 #: purely ECONOMIC gates: a sub-hurdle or unmeasurable score improvement must never
@@ -507,6 +521,22 @@ def constraint_ownership() -> dict:
             "reason": ("These are properties of the complete post-change portfolio. This "
                        "kernel can only see the retained stub, which must be renormalised "
                        "to 1.0 to be compared at all — an object nobody will ever hold."),
+        },
+        # Release 47 — the PER-NAME form of the same three limits is deferred for the
+        # same reason: capping a name and REDISTRIBUTING the released capital is an
+        # allocation, and this kernel never allocates. A breach here therefore ASKS
+        # for a target rather than freezing the portfolio.
+        "per_name_deferred_to_complete_target": {
+            "object": "HELD_NAME_INSIDE_THE_COMPLETE_TARGET",
+            "owner": CONSTRAINT_OWNER_COMPLETE_TARGET,
+            "constraints": list(HELD_NAME_CONSTRAINT_BREACH_CODES),
+            "effect": GATE_HELD_NAME_BREACH_REQUIRES_TARGET,
+            "question": ("Can the complete target cap this name and redistribute the "
+                         "released capital feasibly?"),
+            "reason": ("A cap breach is answered by capping and redistributing, which "
+                       "is an allocation. Blocking on it froze the portfolio instead "
+                       "of changing the solution."),
+            "authorises_nothing": True,
         },
         "duplicated": False,
     }
@@ -1106,8 +1136,7 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
                 liquidity_blocked.append(tk)
 
         for code in (r.get("reason_codes") or []):
-            if code in ("NAME_WEIGHT_BREACH", "SECTOR_WEIGHT_BREACH",
-                        "RISK_CONTRIBUTION_BREACH"):
+            if code in HELD_NAME_CONSTRAINT_BREACH_CODES:
                 constraint_breaches.append("%s:%s" % (tk, code))
 
         assessments.append({
@@ -1265,10 +1294,28 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
                 blockers.append(GATE_MANDATORY_EXIT_WITHHELD)
                 state = STATE_CHANGE_CANDIDATE
 
-    # A hard constraint breach on a retained name is a human decision.
+    # Release 47 — a per-holding NAME / SECTOR / RISK-CONTRIBUTION weight breach is a
+    # REASON TO ASK FOR A TARGET, not a reason to stop.
+    #
+    # Until Release 47 this branch promoted CURRENT_NO_CHANGE to
+    # MANUAL_REVIEW_REQUIRED, which stopped the pipeline before a target was ever
+    # built. On the live 2026-08-28 book that froze the entire portfolio on seven
+    # per-name breaches (six SECTOR_WEIGHT_BREACH, one RISK_CONTRIBUTION_BREACH) -
+    # the exact defect Release 47 exists to remove, one layer above where the
+    # proposal engine was repaired. A sector cap and a risk-contribution cap are
+    # RESHAPING constraints in the canonical inventory
+    # (``engine.constrained_reallocation.constraint_inventory``): the answer to one is
+    # to cap that name and redistribute the released capital, which only the
+    # COMPLETE-TARGET owner can do.
+    #
+    # This is the same split Release 29.3 already made for the four portfolio-level
+    # limits, applied to their per-name form. It authorises nothing: PROPOSAL_READY
+    # only lets the proposal owner build a REVIEW-ONLY target, which still faces the
+    # complete-target limits and both manual gates - and if the repaired target still
+    # breaches, it is withheld exactly as before.
     if constraint_breaches and state == STATE_NO_CHANGE:
-        blockers.extend(sorted(set(constraint_breaches)))
-        state = STATE_MANUAL_REVIEW
+        reason_codes.append(GATE_HELD_NAME_BREACH_REQUIRES_TARGET)
+        state = STATE_PROPOSAL_READY
 
     # A degraded (but non-blocking) input set never silently upgrades to a proposal
     # without the operator seeing the gap; it is recorded, not hidden.
@@ -1430,6 +1477,19 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
             hard_blockers=mandatory_hard_blockers,
             cleared=bool(mandatory_exits) and not mandatory_hard_blockers),
         "strongest_evidence": strongest_evidence,
+        # Release 47 — WHICH held names breach their own cap, published as visible
+        # evidence rather than as a blocker. It is the reason the ask exists; the
+        # complete-target owner decides what to do about it.
+        "held_name_constraint_breaches": sorted(set(constraint_breaches)),
+        "held_name_constraint_breach_count": len(set(constraint_breaches)),
+        "held_name_constraint_breach_effect": (
+            GATE_HELD_NAME_BREACH_REQUIRES_TARGET if constraint_breaches else None),
+        "held_name_constraint_breach_policy": (
+            "A held name breaching its own name / sector / risk-contribution cap is a "
+            "RESHAPING constraint: the answer is to cap that name and redistribute the "
+            "released capital, which only the complete-target owner can do. It "
+            "therefore ASKS for a target and never freezes the portfolio. The target "
+            "remains review-only behind two manual gates."),
         "blockers": sorted(set(blockers)),
         "reason_codes": sorted(set(reason_codes)),
         "degraded_codes": degraded_codes,

@@ -39,9 +39,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from paper_trader.engine import constrained_reallocation as _cr
 from paper_trader.engine import reallocation_proposal as kernel
 
 # Re-export the frozen vocabularies / versions so callers use one source.
+OUTCOME_VOCAB = _cr.OUTCOME_VOCAB
+OUTCOME_PROPOSAL_READY = _cr.OUTCOME_PROPOSAL_READY
+OUTCOME_HOLD_CURRENT_BOOK = _cr.OUTCOME_HOLD_CURRENT_BOOK
+OUTCOME_TRUE_BLOCKER = _cr.OUTCOME_TRUE_BLOCKER
 SCHEMA_VERSION = kernel.SCHEMA_VERSION
 INPUT_SCHEMA_VERSION = kernel.INPUT_SCHEMA_VERSION
 ALLOCATION_POLICY_VERSION = kernel.ALLOCATION_POLICY_VERSION
@@ -212,6 +217,18 @@ def resolve_policy(policy_overrides: Optional[dict] = None) -> dict:
     if policy_overrides:
         pol.update(policy_overrides)
     return pol
+
+
+def _cr_policy_view() -> dict:
+    """The constraint policy to DISPLAY when no proposal exists yet.
+
+    The same projection the proposal engine uses, so the inventory an operator
+    reads before a proposal exists carries exactly the limits the next proposal
+    will be built with. It computes nothing and decides nothing."""
+    try:
+        return kernel.constraint_policy_projection(resolve_policy())
+    except Exception:  # noqa: BLE001 - a read must never crash
+        return {}
 
 
 # --------------------------------------------------------------------------- #
@@ -611,12 +628,29 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
         # Stage 19.1 — the explicit approvability contract every surface renders.
         "stale": stale,
         "staleness": staleness,
-        "approvable": (not stale) and state in APPROVABLE_READ_STATES,
-        "executable": (not stale) and state in APPROVABLE_READ_STATES,
+        # Release 47 narrows both: a proposal is offered for approval only when the
+        # kernel's own outcome is PROPOSAL_READY. HOLD_CURRENT_BOOK is a decision the
+        # system has already taken, not outstanding operator work.
+        "approvable": ((not stale) and state in APPROVABLE_READ_STATES
+                       and bool(p.get("approvable", True))),
+        "executable": ((not stale) and state in APPROVABLE_READ_STATES
+                       and bool(p.get("approvable", True))),
         # Release 29.3 — the complete-target limit verdict, rendered verbatim.
         "complete_target_limits": p.get("complete_target_limits") or {},
         "withheld": state == STATE_WITHHELD,
         "withheld_reasons": p.get("withheld_reasons") or [],
+        # --- Release 47 — constraint-respecting active reallocation ----------- #
+        "outcome": p.get("outcome"),
+        "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        "reallocation_outcome": p.get("reallocation_outcome") or {},
+        # The constraint inventory is a property of the SYSTEM, not of a proposal:
+        # an operator is entitled to see which limits exist and what each one does
+        # even before a proposal has been produced. The proposal's own copy wins
+        # when it exists (it carries the live policy the proposal was built with).
+        "constraint_inventory": (p.get("constraint_inventory")
+                                 or _cr.constraint_inventory(_cr_policy_view())),
+        "constraint_reoptimization": p.get("constraint_reoptimization") or {},
+        "switching_economics": p.get("switching_economics") or {},
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
         "composition_owner": COMPOSITION_OWNER,
@@ -721,6 +755,156 @@ def load_reallocation_proposal(*, portfolio_state: Optional[dict] = None,
 # --------------------------------------------------------------------------- #
 # Compact summary the Daily Action Gate / workflow state read
 # --------------------------------------------------------------------------- #
+def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
+                                  artifact: Optional[dict] = None,
+                                  reallocation_dir=None, decision_dir=None,
+                                  desk_dir=None, actions_dir=None,
+                                  now: Optional[datetime] = None,
+                                  portfolio_state_loader: Optional[Callable] = None,
+                                  include_execution: bool = True) -> dict:
+    """Release 47 read contract: the whole constraint-respecting reallocation story,
+    in the order an operator has to read it.
+
+        CURRENT PAPER BOOK -> IDEAL TARGET -> CONSTRAINT ADJUSTMENTS ->
+        BEST FEASIBLE TARGET -> SWITCHING ECONOMICS -> GOVERNED PROPOSAL ->
+        APPROVAL STATE -> EXECUTION STATE
+
+    READ-ONLY and degrade-safe. It runs no engine and writes nothing: every block is
+    read from the owner that already produced it, so this surface can never disagree
+    with the decision the backend actually took. In particular it NEVER says the
+    portfolio is blocked while a feasible constrained target exists - the outcome it
+    renders is the kernel's own, verbatim.
+    """
+    payload = load_reallocation_proposal(
+        portfolio_state=portfolio_state, artifact=artifact,
+        reallocation_dir=reallocation_dir, now=now,
+        portfolio_state_loader=portfolio_state_loader)
+
+    # Local imports: these owners import THIS module, so importing them at module
+    # scope would be circular. They are composed, never forked.
+    from paper_trader.api import portfolio_decision as _pdec
+    lane = _pdec.load_portfolio_decision(
+        portfolio_state=portfolio_state, artifact=artifact,
+        decision_dir=decision_dir, reallocation_dir=reallocation_dir, now=now,
+        portfolio_state_loader=portfolio_state_loader)
+
+    execution = None
+    if include_execution:
+        try:
+            from paper_trader.api import rebalance_execution as _rex
+            rex = _rex.load_rebalance_state(
+                decision_dir=decision_dir, reallocation_dir=reallocation_dir,
+                desk_dir=desk_dir, actions_dir=actions_dir,
+                portfolio_state=portfolio_state,
+                portfolio_state_loader=portfolio_state_loader)
+            execution = {
+                "rebalance_state": rex.get("rebalance_state") or rex.get("state"),
+                "state_vocabulary": rex.get("state_vocabulary"),
+                "order_plan_buildable": rex.get("order_plan_buildable"),
+                "order_plan_id": rex.get("order_plan_id"),
+                "n_orders": rex.get("n_orders"),
+                "blocked_reasons": rex.get("blocked_reasons") or [],
+                "next_action": rex.get("next_action"),
+                "confirm_required_token": _rex.CONFIRM_TOKEN,
+                "message": rex.get("message"),
+            }
+        except Exception as exc:  # noqa: BLE001 - a read must never crash
+            execution = {"rebalance_state": "REBALANCE_UNAVAILABLE",
+                         "message": str(exc)[:160]}
+
+    reopt = payload.get("constraint_reoptimization") or {}
+    verdict = payload.get("reallocation_outcome") or {}
+    alloc = payload.get("allocations") or []
+    # When no proposal exists yet there is no kernel verdict to render, and the card
+    # must not print an empty banner. This owner already owns the READ STATE, so it
+    # states that - and only that. It never invents an outcome: `outcome` stays None
+    # and `outcome_state` names why, so nothing downstream can mistake "not run" for
+    # a decision.
+    headline = verdict.get("headline") or {
+        STATE_NOT_RUN: "NO PROPOSAL YET - RUN THE DAILY RESEARCH CYCLE",
+        STATE_NO_ACTIVE_BOOK: "NO ACTIVE PAPER BOOK",
+        STATE_UNAVAILABLE: "CONSTRAINED REALLOCATION UNAVAILABLE",
+        STATE_STALE: "PROPOSAL SUPERSEDED - FRESH REVIEW REQUIRED",
+        STATE_BLOCKED: "PORTFOLIO DECISION BLOCKED",
+    }.get(payload.get("state"), "CONSTRAINT-RESPECTING REALLOCATION")
+    return {
+        "phase": "R47",
+        "owner": COMPOSITION_OWNER,
+        "calculation_owner": _cr.CALCULATION_OWNER,
+        "generated_at": payload.get("generated_at"),
+        "state": payload.get("state"),
+        "eligible_market_date": payload.get("eligible_market_date"),
+        "active_book": payload.get("active_book") or {},
+        # 1. the current paper book
+        "current_paper_book": {
+            "weights": {a["ticker"]: a.get("current_weight") for a in alloc
+                        if (a.get("current_weight") or 0) > 0},
+            "position_count": (payload.get("portfolio") or {}).get(
+                "current_holding_count"),
+            "cash_weight": (payload.get("portfolio") or {}).get(
+                "current_cash_weight"),
+            "nav": (payload.get("portfolio") or {}).get("nav"),
+            "owner": "api.portfolio_state",
+        },
+        # 2. the ideal target this pipeline wanted, before any constraint bound
+        "ideal_target": {
+            "weights": reopt.get("ideal_target") or {},
+            "was_feasible": reopt.get("ideal_target_was_feasible"),
+            "breached_limits": reopt.get("breached_limits") or [],
+            "zero_base_owner": "api.zero_base_target",
+            "zero_base_route": "/v1/portfolio/zero-base-target",
+            "doc": ("The complete target built from the opportunity-cost "
+                    "assessment and the eligible universe, before the mandatory "
+                    "portfolio limits were applied to it."),
+        },
+        # 3. what the constraints changed
+        "constraint_adjustments": reopt.get("constraint_adjustments") or [],
+        "constraints_that_reshaped": reopt.get("constraints_that_reshaped") or [],
+        "constraint_reoptimization_applied": bool(reopt.get("applied")),
+        "constraint_inventory": payload.get("constraint_inventory") or {},
+        # 4. the best feasible target actually on the table
+        "best_feasible_target": {
+            "weights": {a["ticker"]: a.get("proposed_weight") for a in alloc
+                        if (a.get("proposed_weight") or 0) > 0},
+            "position_count": (payload.get("portfolio") or {}).get(
+                "proposed_holding_count"),
+            "cash_weight": (payload.get("portfolio") or {}).get(
+                "proposed_cash_weight"),
+            "allocations": alloc,
+            "constraints": payload.get("constraints") or {},
+            "complete_target_limits": payload.get("complete_target_limits") or {},
+        },
+        # 5. what switching would cost and buy
+        "switching_economics": payload.get("switching_economics") or {},
+        "turnover": payload.get("turnover") or {},
+        "risk": payload.get("risk") or {},
+        "signal": payload.get("signal") or {},
+        # 6. the one authoritative outcome
+        "outcome": payload.get("outcome"),
+        "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        "outcome_state": (payload.get("state") if not payload.get("outcome")
+                          else None),
+        "reallocation_outcome": verdict,
+        "headline": headline,
+        "feasible_target_exists": verdict.get("feasible_target_exists"),
+        # 7. approval, 8. execution
+        "approval": {
+            "portfolio_decision_state": lane.get("portfolio_decision_state"),
+            "label": lane.get("label"),
+            "approvable": lane.get("approvable"),
+            "requires_manual_review": lane.get("requires_manual_review"),
+            "decision": lane.get("decision"),
+            "decision_recorded_at": lane.get("decision_recorded_at"),
+            "confirm_required_token": lane.get("confirm_required_token"),
+            "decision_path": lane.get("sole_decision_path"),
+            "manual_approval_required": True,
+        },
+        "execution": execution,
+        "review_only": True,
+        "safety": payload.get("safety") or {},
+    }
+
+
 def load_proposal_summary(*, active_book_id: Optional[str] = None,
                           eligible_market_date: Optional[str] = None,
                           artifact: Optional[dict] = None, reallocation_dir=None,
@@ -748,6 +932,16 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         "reallocation_proposal_withheld": False,
         "reallocation_withheld_reasons": [],
         "reallocation_proposal_approvable": False,
+        # --- Release 47 ------------------------------------------------------ #
+        "reallocation_outcome": None,
+        "reallocation_outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        "reallocation_outcome_headline": None,
+        "reallocation_outcome_reason_codes": [],
+        "reallocation_constraints_reshaped": [],
+        "reallocation_constraint_reoptimized": False,
+        "reallocation_feasible_target_exists": False,
+        "reallocation_switching_hurdle": None,
+        "reallocation_clears_switching_hurdle": None,
     }
     try:
         art = artifact if artifact is not None else load_latest_artifact(
@@ -786,9 +980,30 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
             p.get("proposal_state") == STATE_WITHHELD),
         "reallocation_withheld_reasons": [
             b.get("code") for b in (p.get("withheld_reasons") or []) if b.get("code")],
+        # Release 47: approvability now also requires the kernel's own outcome to be
+        # PROPOSAL_READY. A feasible-but-not-worth-it target is HOLD_CURRENT_BOOK, and
+        # HOLD is a decision, not a queue item.
         "reallocation_proposal_approvable": bool(
             not stale_blk.get("stale")
-            and p.get("proposal_state") in APPROVABLE_READ_STATES),
+            and p.get("proposal_state") in APPROVABLE_READ_STATES
+            and p.get("approvable", True)),
+        "reallocation_outcome": p.get("outcome"),
+        "reallocation_outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        "reallocation_outcome_headline": (p.get("reallocation_outcome") or {}).get(
+            "headline"),
+        "reallocation_outcome_reason_codes": list(
+            (p.get("reallocation_outcome") or {}).get("reason_codes") or []),
+        "reallocation_constraints_reshaped": list(
+            (p.get("constraint_reoptimization") or {}).get(
+                "constraints_that_reshaped") or []),
+        "reallocation_constraint_reoptimized": bool(
+            (p.get("constraint_reoptimization") or {}).get("applied")),
+        "reallocation_feasible_target_exists": bool(
+            (p.get("reallocation_outcome") or {}).get("feasible_target_exists")),
+        "reallocation_switching_hurdle": (p.get("switching_economics") or {}).get(
+            "switching_hurdle"),
+        "reallocation_clears_switching_hurdle": (
+            p.get("switching_economics") or {}).get("clears_switching_hurdle"),
         "reallocation_action_counts": p.get("action_counts") or {a: 0 for a in ACTION_VOCAB},
         "reallocation_score_improvement": sig.get("score_improvement"),
         "reallocation_score_improvement_net_of_cost": sig.get("score_improvement_net_of_cost"),

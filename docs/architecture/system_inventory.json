@@ -636,6 +636,16 @@
       "prefix": "/v1/research/prospective-tournament",
       "owner": "api/prospective_tournament.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/constrained-reallocation",
+      "owner": "api/reallocation_proposal.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/portfolio-decision-outcomes",
+      "owner": "api/portfolio_decision_outcome.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3414,6 +3424,80 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "RESEARCH ONLY, PRODUCTION READ-ONLY. Commissioned to run a broad CONTINUOUS-FUTURES campaign; the owned Continuous Futures entitlement was MEASURED and contains exactly ONE market (&ES), so the broad cross-market universe is assembled instead from world equity indices, ICE/FTSE bond total-return indices, Bloomberg commodity sub-indices and Forex Spot - 66 markets across 6 asset classes and 26 economic groups, 1995-2026 - and is labelled SIGNAL_RESEARCH_VALID and never FUTURES_IMPLEMENTABILITY_PROVEN. Terminal verdict R33_NO_PREDICTIVE_EDGE against a denominator of 105 executed configurations: SYSTEM_RESULT = PASS, ALPHA_RESULT = FAIL. Predictive improvement was real and did not convert - 46 of 105 configurations survived Benjamini-Hochberg on validation forecast score, and ZERO of the 96 configurations with an economic path beat a volatility-matched benchmark/cash control on validation at any horizon. Five lockbox finalists showed positive after-cost excess, and leave-one-market-out attributed all of it to ONE market: removing TRYUSD moved mean excess from +0.0041 to -0.0069, a NEGATIVE retention, so the apparent broad cross-market edge is a short-the-lira trade. Campaign v1 is SUPERSEDED_GATE_DID_NOT_ENFORCE_A_FROZEN_TERM (the declared minimum of scored forecast dates was never read by the qualification gate, and subperiod stability passed vacuously when unmeasurable); v2 tightened the gate only, and every v1 per-candidate number reproduces exactly - 1260 fields, 0 mismatches, identical judge behaviour hash. Guarded by check_release33_predictive_edge (39 sub-checks) including the leakage invariants that decide whether any number here means anything: HMM state beliefs are FILTERED and never smoothed, scaling is fitted on training rows only, no random split, forecast dates are non-overlapping, and an executable point-in-time probe rebuilds the design matrix from a truncated panel and demands row-for-row equality (16170 rows checked, 0 mismatched)."
+    },
+    {
+      "path": "engine/constrained_reallocation.py",
+      "system": "infrastructure",
+      "responsibility": "Release 47 CANONICAL constraint re-optimisation kernel: the ONE pure, deterministic owner of (a) the mandatory-constraint INVENTORY and its classification - every normal portfolio limit (name cap, sector cap, risk-contribution cap, concentration limit, liquidity participation cap and ADV floor, turnover budget, minimum position size, maximum position count, cash bounds) RESHAPES the solution, and only six declared conditions are TRUE BLOCKERS; (b) the feasible re-optimisation that turns an infeasible ideal target into the best FEASIBLE target by capping what must be capped, redistributing the released capital to the next-best eligible opportunities and, when the turnover budget binds, keeping the constraint-mandated trades plus the discretionary trades with the highest score improvement per unit of turnover; (c) the explicit, frozen switching hurdle the best feasible target must clear against the CURRENT book after transition cost; and (d) the ONE authoritative outcome PROPOSAL_READY / HOLD_CURRENT_BOOK / TRUE_BLOCKER. It is not a second allocator: the ideal target arrives from the canonical owners and it computes no rank, score, covariance, expected return or cost rate. No I/O; never mutates inputs.",
+      "classification": "KEEP",
+      "target_owner": "engine/constrained_reallocation.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "pure kernel: consumes only the weights, candidate rows, risk contributions and policy supplied by engine.reallocation_proposal (no file/db/network/provider/prediction access)"
+      ],
+      "direct_writes": [
+        "read-only (pure function; no file/ledger/db/order/fill/NAV/target write)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [
+        "/v1/operations/constrained-reallocation"
+      ],
+      "tests": [
+        "tests/test_release47_constrained_reallocation.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 47. A current holding receives NO investment privilege here: the single legitimate advantage of incumbency - that moving a position costs money - is priced in switching_economics and nowhere else, never inside the feasibility solve. Reuses (never forks) the canonical caps, turnover budget and transaction-cost rate, injected through the Slice-7 policy. The switching hurdle is frozen before any decision is measured and is never tuned on realised outcomes. Preview-first, review-only."
+    },
+    {
+      "path": "engine/portfolio_decision_outcome.py",
+      "system": "infrastructure",
+      "responsibility": "Release 47 CANONICAL portfolio-decision forward-evidence kernel: the ONE pure calculation that freezes an EXECUTED paper reallocation as an immutable decision record (previous portfolio, proposed target, executed target, reasons, expected improvement, cost, risk, constraints, market date, model state) carrying BOTH forward paths - the EXECUTED PAPER PORTFOLIO and the COUNTERFACTUAL HOLD PORTFOLIO - with their decision-session reference prices; and the ONE measurement of those paths forward into incremental P&L, incremental return, incremental drawdown, transaction cost, risk-adjusted improvement and holding-period opportunity cost (PORTFOLIO_DECISION_ALPHA). Both paths are frozen at decision time, before any forward price exists; the counterfactual is NEVER reconstructed with hindsight, and evidence dated on or before the decision session is refused. No I/O; no clock ownership.",
+      "classification": "KEEP",
+      "target_owner": "engine/portfolio_decision_outcome.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "pure kernel: consumes only the record, price history and measurement dates supplied by api.portfolio_decision_outcome (no file/db/network/provider/prediction access)"
+      ],
+      "direct_writes": [
+        "read-only (pure function; no file/ledger/db/order/fill/NAV/target write)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [
+        "/v1/operations/portfolio-decision-outcomes"
+      ],
+      "tests": [
+        "tests/test_release47_constrained_reallocation.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 47. PORTFOLIO_DECISION_ALPHA measures an EXECUTED capital decision against the portfolio it replaced. It is a different quantity from the Release-46 challenger research alpha and from the Stage-21 reassessment outcome evidence, and the three are never summed. Cash is priced at the same declared zero return on both paths. Evidence only: it promotes no model, recalibrates nothing and changes no policy."
+    },
+    {
+      "path": "api/portfolio_decision_outcome.py",
+      "system": "infrastructure",
+      "responsibility": "Release 47 CANONICAL composition + persistence owner of the portfolio-decision forward-evidence ledger. Freezes ONE immutable decision record at the execution boundary - at the moment the governed paper rebalance creates its orders, and only then - idempotently on the exact order plan, so an approval or execution replay records nothing new. Provides the read contract that measures every frozen record forward against the desk's own settled marks at sessions strictly AFTER the decision session. It composes api.reallocation_proposal, api.portfolio_decision, api.paper_trading_desk and the pure engine.portfolio_decision_outcome kernel, and computes nothing itself.",
+      "classification": "KEEP",
+      "target_owner": "api/portfolio_decision_outcome.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api.paper_trading_desk (settled mark series, latest completed date); its own append-only decision-record ledger under PAPER_TRADER_PORTFOLIO_DECISION_OUTCOME_DIR"
+      ],
+      "direct_writes": [
+        "its OWN evidence root only (decision_records.json + index.json, atomic temp-file replace, append-only); never the desk ledger root, never the Stage-18 decision root, never a holding/cash/NAV/order/fill"
+      ],
+      "endpoints": [
+        "GET /v1/operations/portfolio-decision-outcomes"
+      ],
+      "ui_consumers": [
+        "/v1/operations/portfolio-decision-outcomes"
+      ],
+      "tests": [
+        "tests/test_release47_constrained_reallocation.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 47. A record that cannot be frozen truthfully is not written at all and is never patched later - there is deliberately no path that can create a counterfactual after the fact. The evidence root follows the desk the decision describes, so an injected (hermetic) desk keeps its evidence hermetic by construction. Read-only surface; no promotion, no recalibration, no policy write."
     }
   ]
 }

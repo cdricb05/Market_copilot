@@ -206,6 +206,7 @@ from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
 from paper_trader.api import portfolio_reassessment as _reassess
 from paper_trader.api import portfolio_decision as _pdecision
+from paper_trader.api import portfolio_decision_outcome as _pdo
 from paper_trader.api import rebalance_execution as _rebalance
 from paper_trader.api import corporate_actions as _corporate_actions
 from paper_trader.api import research_agent as _research_agent
@@ -6542,6 +6543,68 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/operations/constrained-reallocation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_constrained_reallocation() -> dict:
+    """Release 47 canonical CONSTRAINT-RESPECTING ACTIVE REALLOCATION (read-only).
+
+    The whole portfolio decision in the order an operator has to read it: the CURRENT
+    PAPER BOOK, the IDEAL TARGET this pipeline wanted, exactly WHICH CONSTRAINTS
+    RESHAPED it and how, the BEST FEASIBLE TARGET that came out, the SWITCHING
+    ECONOMICS against the current book, the GOVERNED PROPOSAL, the APPROVAL STATE and
+    the EXECUTION STATE.
+
+    A normal portfolio constraint - a sector cap, a name cap, a risk-contribution
+    limit, a concentration limit, a liquidity cap, a turnover budget - now CHANGES
+    THE SOLUTION rather than freezing the portfolio. The three authoritative outcomes
+    are PROPOSAL_READY, HOLD_CURRENT_BOOK and TRUE_BLOCKER, and a blocker is only ever
+    one of the declared true-blocker conditions (critical stale/missing data, a
+    point-in-time failure, unreconciled NAV, impossible liquidity, an empty feasible
+    set, or missing manual authorization at the execution boundary).
+
+    Composed by ``api.reallocation_proposal`` from the immutable proposal artifact,
+    the Stage-18 decision lane and the Stage-19 rebalance lifecycle; every constraint
+    decision is computed by the pure ``engine.constrained_reallocation`` kernel.
+
+    STRICTLY READ-ONLY and MANUAL-REVIEW ONLY: it runs no engine, creates no target,
+    no order plan, no order and no fill; it changes no holding, cash or NAV; it
+    performs no broker execution, promotes no model and enables no automation.
+    """
+    return _realloc.load_constrained_reallocation()
+
+
+@app.get(
+    "/v1/operations/portfolio-decision-outcomes",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision_outcomes() -> dict:
+    """Release 47 PORTFOLIO DECISION FORWARD EVIDENCE (read-only).
+
+    Every EXECUTED paper reallocation, with the two paths that were frozen the moment
+    it executed: the EXECUTED PAPER PORTFOLIO and the COUNTERFACTUAL HOLD PORTFOLIO
+    we gave up. The difference between them, after the transaction cost the switch
+    actually paid, is PORTFOLIO_DECISION_ALPHA: whether the decision added value.
+
+    The counterfactual is frozen PROSPECTIVELY - at decision time, before a single
+    forward price exists - and is never reconstructed afterwards, because a hold
+    portfolio rebuilt with hindsight proves nothing. Measurement uses only sessions
+    strictly AFTER the decision session, priced from the desk's own settled marks.
+
+    This evidence is SEPARATE from Release-46 challenger research alpha and from the
+    Stage-21 reassessment outcome evidence; the three are never summed. Composed by
+    ``api.portfolio_decision_outcome`` and computed by the pure
+    ``engine.portfolio_decision_outcome`` kernel.
+
+    STRICTLY READ-ONLY: it writes nothing, promotes no model, recalibrates nothing
+    and changes no policy, holding, cash or NAV.
+    """
+    return _pdo.load_portfolio_decision_outcomes()
 
 
 @app.get(

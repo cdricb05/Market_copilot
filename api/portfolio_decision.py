@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from paper_trader.api import reallocation_proposal as realloc
+from paper_trader.engine import constrained_reallocation as _cr
 
 PHASE = "STAGE18"
 OWNER = "api.portfolio_decision"
@@ -80,11 +81,18 @@ PDS_STALE = "STALE_PROPOSAL_REVIEW_REQUIRED"
 #: found and a target was constructed; it simply did not clear the portfolio gates.
 #: Never approvable, never executable, and it is NOT outstanding operator work.
 PDS_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
+#: Release 47 — a complete FEASIBLE alternative target exists and is fully visible,
+#: but its expected improvement does not justify what switching to it would cost. The
+#: system has taken the decision to keep the current book; this is an ECONOMIC
+#: conclusion about a computed alternative, and it is emphatically NOT the old
+#: "a constraint blocked us" state, nor outstanding operator work. Not approvable:
+#: rebalancing anyway would be trading because a day passed.
+PDS_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
     PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
-    PDS_UNAVAILABLE)
+    PDS_HOLD_CURRENT_BOOK, PDS_UNAVAILABLE)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
@@ -329,6 +337,27 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 "withheld_reasons": list(summ.get("reallocation_withheld_reasons") or []),
                 "binding": _binding_from_artifact(artifact)}
 
+    # Release 47 fail-closed guard: the proposal owner already decided that the
+    # feasible alternative is not worth what switching costs. Approving it anyway
+    # would be trading because a day passed, which is exactly the behaviour the
+    # switching hurdle exists to prevent. The refusal names the ECONOMICS, so it can
+    # never be mistaken for the data/constraint blocker above.
+    if summ.get("reallocation_outcome") == _cr.OUTCOME_HOLD_CURRENT_BOOK:
+        return {**base, "status": PDS_HOLD_CURRENT_BOOK,
+                "message": ("A complete feasible alternative target exists and was "
+                            "priced, but its expected improvement does not clear the "
+                            "switching hurdle after transition cost (%s). The "
+                            "current book is the decision; there is nothing to "
+                            "approve."
+                            % (", ".join(summ.get(
+                                "reallocation_outcome_reason_codes") or [])
+                               or "below switching hurdle")),
+                "reallocation_outcome": _cr.OUTCOME_HOLD_CURRENT_BOOK,
+                "switching_hurdle": summ.get("reallocation_switching_hurdle"),
+                "feasible_target_exists": bool(
+                    summ.get("reallocation_feasible_target_exists")),
+                "binding": binding}
+
     materiality = assess_materiality(summ)
     if not materiality["material"]:
         return {**base, "status": PDS_NO_MATERIAL_CHANGE,
@@ -428,6 +457,7 @@ _STATE_META = {
     PDS_HELD: ("Proposal held / deferred", "ATTENTION"),
     PDS_STALE: ("Proposal superseded — fresh review required", "ATTENTION"),
     PDS_CHANGE_WITHHELD: ("Portfolio change withheld", "ATTENTION"),
+    PDS_HOLD_CURRENT_BOOK: ("Hold the current book", "SUCCESS"),
     PDS_UNAVAILABLE: ("Portfolio-decision state unavailable", "ATTENTION"),
 }
 _DECISION_TO_STATE = {DECISION_APPROVE: PDS_APPROVED, DECISION_REJECT: PDS_REJECTED,
@@ -450,6 +480,12 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
     # reviewable evidence, never an approvable proposal, so it can never reach the
     # manual-review branch below. Fail closed: it outranks materiality.
     withheld = bool(summ.get("reallocation_proposal_withheld"))
+    # Release 47: the proposal owner's own authoritative outcome. HOLD_CURRENT_BOOK
+    # means a feasible alternative WAS computed and priced and is simply not worth
+    # paying for. It is rendered as its own state so an operator is never shown
+    # "blocked" for what is actually a considered economic decision.
+    outcome = summ.get("reallocation_outcome")
+    hold_current_book = bool(outcome == _cr.OUTCOME_HOLD_CURRENT_BOOK)
 
     if not has_active_book:
         state = PDS_NO_ACTIVE_BOOK
@@ -461,6 +497,8 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         state = PDS_CHANGE_WITHHELD
     elif not materiality["material"]:
         state = PDS_NO_MATERIAL_CHANGE
+    elif hold_current_book:
+        state = PDS_HOLD_CURRENT_BOOK
     else:
         rec = decision_record or None
         if rec and rec.get("proposal_hash") == current_hash:
@@ -504,8 +542,24 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         # Release 29.3 — the complete-target withhold verdict, rendered verbatim.
         "change_withheld": withheld,
         "withheld_reasons": list(summ.get("reallocation_withheld_reasons") or []),
+        # Release 47 — the authoritative outcome and what the constraints did, both
+        # rendered verbatim from the proposal owner. No surface re-derives them.
+        "reallocation_outcome": outcome,
+        "reallocation_outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
+        "reallocation_outcome_headline": summ.get("reallocation_outcome_headline"),
+        "reallocation_outcome_reason_codes": list(
+            summ.get("reallocation_outcome_reason_codes") or []),
+        "hold_current_book": hold_current_book,
+        "feasible_target_exists": bool(
+            summ.get("reallocation_feasible_target_exists")),
+        "constraints_that_reshaped": list(
+            summ.get("reallocation_constraints_reshaped") or []),
+        "constraint_reoptimized": bool(
+            summ.get("reallocation_constraint_reoptimized")),
+        "switching_hurdle": summ.get("reallocation_switching_hurdle"),
+        "clears_switching_hurdle": summ.get("reallocation_clears_switching_hurdle"),
         "approvable": bool(available and materiality["material"] and not ca_stale
-                           and not withheld),
+                           and not withheld and not hold_current_book),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),
@@ -669,6 +723,7 @@ __all__ = [
     "DECISION_VOCAB", "CONFIRM_TOKEN", "DECISION_STATE_VOCAB",
     "PDS_NO_ACTIVE_BOOK", "PDS_NO_PROPOSAL", "PDS_NO_MATERIAL_CHANGE",
     "PDS_REVIEW_REQUIRED", "PDS_APPROVED", "PDS_REJECTED", "PDS_HELD", "PDS_STALE",
+    "PDS_CHANGE_WITHHELD", "PDS_HOLD_CURRENT_BOOK", "APPROVABLE_DECISION_STATES",
     "PDS_UNAVAILABLE", "assess_materiality", "record_decision", "load_decision_record",
     "derive_decision_state", "build_order_plan_preview", "load_portfolio_decision",
     "DECISION_DIR_ENV",

@@ -9985,6 +9985,326 @@ def check_release31_mathematical_alpha_frontier(files: list[Path]) -> dict:
     }
 
 
+#: Release 47 owners. THREE modules and no more: one constraint kernel, one
+#: decision-evidence kernel, one decision-evidence composition owner.
+R47_CONSTRAINT_KERNEL = "engine/constrained_reallocation.py"
+R47_OUTCOME_KERNEL = "engine/portfolio_decision_outcome.py"
+R47_OUTCOME_OWNER = "api/portfolio_decision_outcome.py"
+R47_MODULES = (R47_CONSTRAINT_KERNEL, R47_OUTCOME_KERNEL, R47_OUTCOME_OWNER)
+#: A pure kernel may not reach a clock, a file, a socket or a database.
+R47_KERNEL_IMPURITY = ("import requests", "urllib", "sqlalchemy", "os.environ",
+                       "open(", "Path(", "datetime.now", "date.today")
+#: Nothing in Release 47 may create an order, a fill or a settlement.
+R47_EXECUTION_TOKENS = ("place_order(", "submit_order(", "create_order(",
+                        "route_order(", "settle_due_orders(", "_append_ledger(")
+#: The reshaping limits that must NEVER appear in the true-blocker set. This tuple is
+#: the release in one line: a normal cap changes the answer, it does not stop it.
+R47_MUST_RESHAPE = ("NAME_WEIGHT_CAP", "SECTOR_WEIGHT_CAP", "RISK_CONTRIBUTION_CAP",
+                    "CONCENTRATION_INCREASE_LIMIT", "TURNOVER_BUDGET",
+                    "LIQUIDITY_PARTICIPATION_CAP", "LIQUIDITY_ADV_FLOOR",
+                    "MIN_POSITION_WEIGHT", "MAX_POSITION_COUNT", "CASH_BOUNDS")
+R47_OUTCOMES = ("PROPOSAL_READY", "HOLD_CURRENT_BOOK", "TRUE_BLOCKER")
+R47_ROUTES = ("/v1/operations/constrained-reallocation",
+              "/v1/operations/portfolio-decision-outcomes")
+#: Routes Release 47 must NOT introduce. Proposal generation is automatic; portfolio
+#: mutation is not, and nothing here may create an execution shortcut.
+R47_FORBIDDEN_ROUTES = ("/v1/operations/constrained-reallocation/apply",
+                        "/v1/operations/constrained-reallocation/execute",
+                        "/v1/operations/constrained-reallocation/confirm",
+                        "/v1/operations/portfolio-decision-outcomes/record",
+                        "/v1/operations/auto-rebalance",
+                        "/v1/operations/create-orders")
+#: Ways a Release-47 module could address the Release-46 research tournament. Prose
+#: may NAME it (the separation has to be explained); nothing may REACH it.
+R47_RESEARCH_REACH = ("import alpha_agent", "from alpha_agent", "alpha_agent.",
+                      "alpha_agent/", "prospective_tournament",
+                      "prospective_alpha_tournament", "r46_forward_predictions",
+                      "r46_forward_outcomes", "r46_challenger_registry")
+
+
+def check_release47_constrained_reallocation(files: list[Path]) -> dict:
+    r"""Release 47 - CONSTRAINT-RESPECTING ACTIVE REALLOCATION ownership guard.
+
+    The defect this release removes is structural, so the guard is structural. It
+    proves:
+
+      (1)  the three owners exist and there is no second one;
+      (2)  ONE module classifies constraints, and NO normal portfolio limit is
+           declared a true blocker (the release's central claim, checked as DATA);
+      (3)  the proposal kernel RE-OPTIMISES a breached limit before it withholds -
+           the withheld state is read from the re-measured target, not from the first
+           breach;
+      (4)  WITHHELD remains fail-closed and un-approvable at every layer (the
+           Release-29.3 guarantee is narrowed in scope, never weakened);
+      (5)  the three outcomes are declared once and mirrored consistently by the read
+           owner, the decision owner and the workflow surface;
+      (6)  HOLD_CURRENT_BOOK is never approvable, at any layer;
+      (7)  both kernels are pure and neither can create an order, a fill or a
+           settlement;
+      (8)  decision evidence is frozen AT the execution boundary, idempotently, into
+           its OWN root - never the desk ledger and never the Stage-18 decision root;
+      (9)  the counterfactual is frozen prospectively and there is no reconstruction
+           path;
+      (10) the two new routes are GET-only and no apply / execute / auto route was
+           added;
+      (11) the UI renders the outcome verbatim and derives no constraint decision;
+      (12) no Release-47 module can address the Release-46 research store.
+    """
+    ck = _read(Path(R47_CONSTRAINT_KERNEL))
+    ok = _read(Path(R47_OUTCOME_KERNEL))
+    oo = _read(Path(R47_OUTCOME_OWNER))
+    rp_k = _read(Path("engine/reallocation_proposal.py"))
+    arp = _read(Path("api/reallocation_proposal.py"))
+    pd_src = _read(Path("api/portfolio_decision.py"))
+    ws_src = _read(Path("api/workflow_state.py"))
+    rex = _read(Path("api/rebalance_execution.py"))
+    ui = _read(UI_FILE)
+
+    def _tuple_values(src, name):
+        """The literal VALUES a module-level tuple holds, resolving Name elements
+        through the module's own constants. Comparing symbols would prove nothing
+        about the strings that actually reach an operator."""
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return []
+        consts = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        consts[t.id] = node.value.value
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == name \
+                            and isinstance(node.value, (ast.Tuple, ast.List)):
+                        out = []
+                        for e in node.value.elts:
+                            if isinstance(e, ast.Constant):
+                                out.append(e.value)
+                            elif isinstance(e, ast.Name) and e.id in consts:
+                                out.append(consts[e.id])
+                        return out
+        return []
+
+    # (1) owners present; no second owner of either concept.
+    modules_missing = sorted(m for m in R47_MODULES
+                             if not (REPO_ROOT / m).exists())
+    second_owner_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in R47_MODULES or rel == "scripts/audit_architecture.py":
+            continue
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        if "def solve_feasible_target(" in src or "def constraint_inventory(" in src \
+                or "def freeze_decision_record(" in src \
+                or "def freeze_executed_decision(" in src:
+            second_owner_modules.append(rel)
+
+    # (2) the classification, as data.
+    reshaping = set(_tuple_values(ck, "RESHAPING_CONSTRAINT_CODES"))
+    blockers = set(_tuple_values(ck, "TRUE_BLOCKER_CODES"))
+    reshaping_declared = set(R47_MUST_RESHAPE) <= reshaping
+    caps_declared_as_blockers = sorted(set(R47_MUST_RESHAPE) & blockers)
+    classification_disjoint = not (reshaping & blockers)
+    unknown_not_promoted = "def is_true_blocker(" in ck and \
+        "return str(code) in TRUE_BLOCKER_CODES" in ck
+
+    # (3) re-optimisation happens BEFORE the withhold decision (AST order, not prose).
+    reoptimise_present = "def _reoptimise_if_infeasible(" in rp_k
+    kernel_delegates = ("from paper_trader.engine import constrained_reallocation"
+                        in rp_k)
+    idx_reopt = rp_k.find("reoptimisation = _reoptimise_if_infeasible(")
+    idx_withhold = rp_k.find('proposal_state = STATE_WITHHELD')
+    reoptimise_precedes_withhold = bool(
+        idx_reopt != -1 and idx_withhold != -1 and idx_reopt < idx_withhold)
+    withhold_reads_remeasured = 'complete_target_limits = measured["limits"]' in rp_k
+
+    # (3b) The per-holding form of the SAME three limits must ASK for a target, not
+    #      freeze the book. This is the live defect Release 47 found while validating
+    #      in a browser: seven per-name breaches on the 2026-08-28 book promoted
+    #      CURRENT_NO_CHANGE to MANUAL_REVIEW_REQUIRED and no target was ever built.
+    prs_k = _read(Path("engine/portfolio_reassessment.py"))
+    held_breach_asks_for_target = (
+        "GATE_HELD_NAME_BREACH_REQUIRES_TARGET" in prs_k
+        and "HELD_NAME_CONSTRAINT_BREACH_CODES" in prs_k
+        and "reason_codes.append(GATE_HELD_NAME_BREACH_REQUIRES_TARGET)" in prs_k)
+    held_breach_not_a_blocker = (
+        "blockers.extend(sorted(set(constraint_breaches)))" not in prs_k)
+    per_name_deferral_declared = (
+        '"per_name_deferred_to_complete_target"' in prs_k
+        and "HELD_NAME_CONSTRAINT_BREACH_CODES" in prs_k)
+    held_breach_still_visible = (
+        '"held_name_constraint_breaches"' in prs_k
+        and '"held_name_constraint_breaches"' in _read(
+            Path("api/portfolio_reassessment.py")))
+
+    # (4) WITHHELD stays fail-closed (unchanged Release-29.3 contract).
+    withheld_not_approvable = all([
+        "APPROVABLE_STATES = (STATE_READY, STATE_DEGRADED)" in rp_k,
+        "APPROVABLE_READ_STATES = (STATE_READY, STATE_DEGRADED)" in arp,
+        "REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)" in ws_src,
+        "APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)" in pd_src,
+    ])
+
+    # (5) the three outcomes, declared once and mirrored consistently.
+    outcomes = _tuple_values(ck, "OUTCOME_VOCAB")
+    outcomes_declared = list(outcomes) == list(R47_OUTCOMES)
+    outcomes_mirrored = all([
+        "OUTCOME_VOCAB = _cr.OUTCOME_VOCAB" in arp,
+        "REALLOCATION_OUTCOME_VOCABULARY" in ws_src,
+        list(_tuple_values(ws_src, "REALLOCATION_OUTCOME_VOCABULARY"))
+        == list(R47_OUTCOMES),
+    ])
+    outcome_owner_is_the_kernel = ("def decide_outcome(" in ck
+                                   and ck.count("def decide_outcome(") == 1)
+
+    # (6) HOLD_CURRENT_BOOK is a taken decision, never an approvable one.
+    hold_not_approvable = all([
+        "PDS_HOLD_CURRENT_BOOK" in pd_src,
+        "and not hold_current_book)" in pd_src,
+        'if summ.get("reallocation_outcome") == _cr.OUTCOME_HOLD_CURRENT_BOOK:'
+        in pd_src,
+        "HOLD_CURRENT_BOOK_EXPOSED_AS_APPROVABLE" in ws_src,
+    ])
+    blocked_while_feasible_is_a_violation = (
+        "BLOCKED_WHILE_FEASIBLE_TARGET_EXISTS" in ws_src)
+
+    # (7) purity + no execution capability in either kernel.
+    kernel_impurity = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((R47_CONSTRAINT_KERNEL, ck), (R47_OUTCOME_KERNEL, ok))
+        for t in R47_KERNEL_IMPURITY if t in src)
+    execution_tokens_in_kernels = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((R47_CONSTRAINT_KERNEL, ck), (R47_OUTCOME_KERNEL, ok))
+        for t in R47_EXECUTION_TOKENS if t in src)
+
+    # (8) evidence is frozen at the execution boundary, idempotently, in its own root.
+    freeze_at_execution_boundary = ("_freeze_decision_evidence(" in rex
+                                    and "portfolio_decision_outcome as pdo" in rex)
+    freeze_after_orders_exist = bool(
+        rex.find("desk._append_ledger(sdir, desk.ORDERS_FILE, order_events)") != -1
+        and rex.find("decision_evidence = _freeze_decision_evidence(")
+        > rex.find("desk._append_ledger(sdir, desk.ORDERS_FILE, order_events)"))
+    freeze_is_idempotent = ("F_REUSED" in oo and "load_record(decision_id=" in oo)
+    own_evidence_root = all([
+        'OUTCOME_DIR_ENV = "PAPER_TRADER_PORTFOLIO_DECISION_OUTCOME_DIR"' in oo,
+        "PAPER_TRADER_DESK_DIR" not in oo,
+        "PAPER_TRADER_PORTFOLIO_DECISION_DIR" not in oo,
+    ])
+    refuses_without_execution = "F_REFUSED_NOT_EXECUTED" in oo
+
+    # (9) the counterfactual is prospective; there is no reconstruction path.
+    counterfactual_prospective = all([
+        "COUNTERFACTUAL_HOLD_PORTFOLIO" in ok,
+        "def point_in_time_check(" in ok,
+        "POINT_IN_TIME_VIOLATION" in ok,
+    ])
+    reconstruction_defs = sorted(
+        t for t in ("def reconstruct_", "def backfill_", "def rebuild_hold_",
+                    "def infer_counterfactual_")
+        if t in ok or t in oo)
+
+    # (10) routes.
+    routes = check_routes()["routes"]
+    r47_route_methods = sorted({r["method"] for r in routes
+                                if r["path"] in R47_ROUTES})
+    missing_routes = sorted(p for p in R47_ROUTES
+                            if not any(r["path"] == p for r in routes))
+    forbidden_routes_present = sorted(p for p in R47_FORBIDDEN_ROUTES
+                                      if any(r["path"] == p for r in routes))
+
+    # (11) the UI renders, it does not decide.
+    ui_region_present = ('id="r47-constrained"' in ui
+                         and "function _r47Render(" in ui)
+    ui_loader_count = ui.count("function _r47Load(")
+    ui_body = ""
+    if "function _r47Render(" in ui:
+        _s = ui.index("function _r47Render(")
+        _e = ui.find("/* R47_REGION_END */", _s)
+        ui_body = ui[_s:_e] if _e != -1 else ui[_s:_s + 20000]
+    ui_derives_decision = sorted(
+        t for t in ("sector_cap_fraction", "max_one_way_turnover", "herfindahl",
+                    "cost_rate", "0.35", "0.25", "min_switching_net_improvement")
+        if t in ui_body)
+    ui_action_controls = sorted(
+        t for t in ("CONFIRM_PORTFOLIO_REBALANCE_DECISION",
+                    "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN",
+                    "createOrder", "alert(", "confirm(")
+        if t in ui_body)
+
+    # (12) no Release-47 module can address the Release-46 research store.
+    research_reach = sorted(
+        "%s:%s" % (mod, t)
+        for mod, src in ((R47_CONSTRAINT_KERNEL, ck), (R47_OUTCOME_KERNEL, ok),
+                         (R47_OUTCOME_OWNER, oo))
+        for t in R47_RESEARCH_REACH if t in src)
+
+    # safety declarations
+    safety_flags_false = all(
+        t in ck for t in ('"created_orders": False', '"broker_enabled": False',
+                          '"live_orders_enabled": False',
+                          '"promoted_model": False',
+                          '"automatic_rebalance_allowed": False'))
+    incumbency_declared = ('INCUMBENCY_POLICY = '
+                           '"NO_INVESTMENT_PRIVILEGE_ONLY_PRICED_TRANSITION_COST"'
+                           in ck)
+    hurdle_frozen = ('"hurdle_frozen": True' in ck
+                     and '"hurdle_tuned_on_outcomes": False' in ck)
+    no_fabricated_expected_return = (
+        'EXPECTED_RETURN_STATE_NOT_CALIBRATED = "NOT_CALIBRATED"' in ck
+        and '"expected_return_before": None' in ck)
+
+    return {
+        "modules": list(R47_MODULES),
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "second_owner_modules": sorted(second_owner_modules),
+        "reshaping_constraints_declared": bool(reshaping_declared),
+        "caps_declared_as_true_blockers": caps_declared_as_blockers,
+        "classification_disjoint": bool(classification_disjoint),
+        "unknown_code_not_promoted_to_blocker": bool(unknown_not_promoted),
+        "reoptimise_present": bool(reoptimise_present),
+        "kernel_delegates_to_constraint_owner": bool(kernel_delegates),
+        "reoptimise_precedes_withhold": bool(reoptimise_precedes_withhold),
+        "withhold_reads_remeasured_target": bool(withhold_reads_remeasured),
+        "held_name_breach_asks_for_target": bool(held_breach_asks_for_target),
+        "held_name_breach_not_a_blocker": bool(held_breach_not_a_blocker),
+        "per_name_deferral_declared": bool(per_name_deferral_declared),
+        "held_name_breach_still_visible": bool(held_breach_still_visible),
+        "withheld_not_approvable": bool(withheld_not_approvable),
+        "outcomes_declared": bool(outcomes_declared),
+        "outcomes_mirrored": bool(outcomes_mirrored),
+        "outcome_owner_is_the_kernel": bool(outcome_owner_is_the_kernel),
+        "hold_current_book_not_approvable": bool(hold_not_approvable),
+        "blocked_while_feasible_is_a_violation": bool(
+            blocked_while_feasible_is_a_violation),
+        "kernel_impurity": kernel_impurity,
+        "execution_tokens_in_kernels": execution_tokens_in_kernels,
+        "freeze_at_execution_boundary": bool(freeze_at_execution_boundary),
+        "freeze_after_orders_exist": bool(freeze_after_orders_exist),
+        "freeze_is_idempotent": bool(freeze_is_idempotent),
+        "own_evidence_root": bool(own_evidence_root),
+        "refuses_without_execution": bool(refuses_without_execution),
+        "counterfactual_prospective": bool(counterfactual_prospective),
+        "reconstruction_defs": reconstruction_defs,
+        "route_methods": r47_route_methods,
+        "missing_routes": missing_routes,
+        "forbidden_routes_present": forbidden_routes_present,
+        "ui_region_present": bool(ui_region_present),
+        "ui_loader_count": ui_loader_count,
+        "ui_derives_decision": ui_derives_decision,
+        "ui_action_controls": ui_action_controls,
+        "research_reach": research_reach,
+        "safety_flags_false": bool(safety_flags_false),
+        "incumbency_policy_declared": bool(incumbency_declared),
+        "switching_hurdle_frozen": bool(hurdle_frozen),
+        "no_fabricated_expected_return": bool(no_fabricated_expected_return),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -11229,6 +11549,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release45_macro_event_alpha(files),
         "release46_prospective_alpha_tournament":
             check_release46_prospective_alpha_tournament(files),
+        "release47_constrained_reallocation":
+            check_release47_constrained_reallocation(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13408,6 +13730,80 @@ BLOCKING_INVARIANTS = (
     ("release46_prospective_alpha_tournament", "lanes_never_overwrite", True),
     ("release46_prospective_alpha_tournament",
      "research_trades_are_not_positions", True),
+
+    # ----------------------------------------------------------------- #
+    # Release 47 - constraint-respecting active reallocation.
+    #
+    # These are the invariants that make it impossible for a normal
+    # portfolio constraint to freeze the portfolio again. The first three
+    # are the release in a sentence: every ordinary cap is classified as
+    # RESHAPING, the target is re-optimised under a breached limit BEFORE
+    # anything is withheld, and the withheld verdict is read from the
+    # re-measured target rather than from the first breach.
+    # ----------------------------------------------------------------- #
+    ("release47_constrained_reallocation", "modules_present", True),
+    ("release47_constrained_reallocation", "modules_missing", []),
+    ("release47_constrained_reallocation", "second_owner_modules", []),
+    ("release47_constrained_reallocation",
+     "reshaping_constraints_declared", True),
+    ("release47_constrained_reallocation",
+     "caps_declared_as_true_blockers", []),
+    ("release47_constrained_reallocation", "classification_disjoint", True),
+    ("release47_constrained_reallocation",
+     "unknown_code_not_promoted_to_blocker", True),
+    ("release47_constrained_reallocation", "reoptimise_present", True),
+    ("release47_constrained_reallocation",
+     "kernel_delegates_to_constraint_owner", True),
+    ("release47_constrained_reallocation",
+     "reoptimise_precedes_withhold", True),
+    ("release47_constrained_reallocation",
+     "withhold_reads_remeasured_target", True),
+    # The per-holding form of the same three limits: a held name breaching its
+    # own cap ASKS for a target and is never a blocker, but stays visible.
+    ("release47_constrained_reallocation",
+     "held_name_breach_asks_for_target", True),
+    ("release47_constrained_reallocation",
+     "held_name_breach_not_a_blocker", True),
+    ("release47_constrained_reallocation",
+     "per_name_deferral_declared", True),
+    ("release47_constrained_reallocation",
+     "held_name_breach_still_visible", True),
+    # The Release-29.3 fail-closed guarantee is narrowed in SCOPE, never weakened.
+    ("release47_constrained_reallocation", "withheld_not_approvable", True),
+    ("release47_constrained_reallocation", "outcomes_declared", True),
+    ("release47_constrained_reallocation", "outcomes_mirrored", True),
+    ("release47_constrained_reallocation",
+     "outcome_owner_is_the_kernel", True),
+    ("release47_constrained_reallocation",
+     "hold_current_book_not_approvable", True),
+    ("release47_constrained_reallocation",
+     "blocked_while_feasible_is_a_violation", True),
+    ("release47_constrained_reallocation", "kernel_impurity", []),
+    ("release47_constrained_reallocation",
+     "execution_tokens_in_kernels", []),
+    ("release47_constrained_reallocation",
+     "freeze_at_execution_boundary", True),
+    ("release47_constrained_reallocation", "freeze_after_orders_exist", True),
+    ("release47_constrained_reallocation", "freeze_is_idempotent", True),
+    ("release47_constrained_reallocation", "own_evidence_root", True),
+    ("release47_constrained_reallocation", "refuses_without_execution", True),
+    ("release47_constrained_reallocation",
+     "counterfactual_prospective", True),
+    ("release47_constrained_reallocation", "reconstruction_defs", []),
+    ("release47_constrained_reallocation", "route_methods", ["GET"]),
+    ("release47_constrained_reallocation", "missing_routes", []),
+    ("release47_constrained_reallocation", "forbidden_routes_present", []),
+    ("release47_constrained_reallocation", "ui_region_present", True),
+    ("release47_constrained_reallocation", "ui_loader_count", 1),
+    ("release47_constrained_reallocation", "ui_derives_decision", []),
+    ("release47_constrained_reallocation", "ui_action_controls", []),
+    ("release47_constrained_reallocation", "research_reach", []),
+    ("release47_constrained_reallocation", "safety_flags_false", True),
+    ("release47_constrained_reallocation",
+     "incumbency_policy_declared", True),
+    ("release47_constrained_reallocation", "switching_hurdle_frozen", True),
+    ("release47_constrained_reallocation",
+     "no_fabricated_expected_return", True),
 )
 
 
