@@ -94,6 +94,17 @@ SESSION_GATE_SHORT = "SESSION_GATE_SHORT"
 SESSION_GATE_MEASURES = "NUMBER_OF_SESSIONS_ONLY"
 SESSION_GATE_DOES_NOT_MEASURE = "STRIKE_AND_EXPIRY_BREADTH_PER_SESSION"
 
+#: Release 46.6.2 - what THIS lane's session number counts, said in the payload.
+#: It is the number of distinct DATES present on the combined surface, before
+#: any implied-vol filter and before any per-session row-count requirement.
+#: ``alpha_agent.r46.options_hypotheses`` counts a strictly smaller thing and
+#: publishes both, so a reader who sees 503 here and 501 there is looking at
+#: two questions rather than at a disagreement.
+ACQUIRED_SESSIONS_MEANS = (
+    "ACQUIRED_SESSION_DATES on the combined surface - every distinct date any "
+    "acquisition put a row on, with no implied-vol filter and no minimum row "
+    "count per date")
+
 #: Never exceeded. The entitlement boundary is a fact about the plan, not a
 #: number to negotiate with.
 ENTITLEMENT_LOOKBACK_DAYS = 700
@@ -667,6 +678,16 @@ def run(*, acquire: bool = True, campaign_id: str = CAMPAIGN_ID,
             "sessions_required": SESSIONS_REQUIRED,
             "requirement_is": "250 to fit on plus 250 never seen",
             "usable_sessions_now": sessions_now,
+            # Release 46.6.2 - say WHICH sessions these are. This lane counts
+            # ACQUIRED session dates on the combined surface. The hypothesis
+            # owner counts FEATURE-COMPLETE sessions, which is a subset, and
+            # the two published 503 and 501 with no way to tell that they were
+            # different quantities rather than a stale artifact.
+            "usable_sessions_now_means": ACQUIRED_SESSIONS_MEANS,
+            "acquired_usable_sessions": sessions_now,
+            "feature_complete_sessions_are_counted_by":
+                "alpha_agent.r46.options_hypotheses.session_census",
+            "acquired_and_feature_complete_are_not_forced_equal": True,
             "sessions_still_required": still_short,
             "state": "JUDGEABLE" if still_short == 0 else "STILL_SHORT",
             # Release 46.6.1 - semantic clarity, no science changed. This gate

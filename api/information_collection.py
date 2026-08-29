@@ -1912,14 +1912,247 @@ def read_iteration_history(*, root=None, limit: int = 20) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Release 46.6.2 — RECOVERY: a dead collector must never be able to stay dead
+# QUIETLY
+# --------------------------------------------------------------------------- #
+# What actually happened on 2026-08-28, reconstructed from the durable state,
+# the singleton lock and the Windows Task Scheduler operational log:
+#
+#   13:51:14 ET  iteration 2512 finished cleanly; the worker slept, due to wake
+#                at 13:51:44.
+#   13:51:44 ET  the interactive logon session that owned the worker ended and
+#                Task Scheduler terminated the action (event 201/102, instance
+#                {2ce838cf…}). The process never ran its ``finally``, so
+#                ``release_service_lock`` never ran and the singleton lock was
+#                left on disk with a heartbeat THIRTY SECONDS old.
+#   13:52:36 ET  a NEW logon fired the task's only trigger. The new worker
+#                called :func:`acquire_service_lock`, found a lock whose
+#                heartbeat age was 82 s — far inside ``LOCK_TAKEOVER_SECONDS``
+#                — correctly refused to become a second worker, printed
+#                ``COLLECTION_SERVICE_BLOCKED`` and exited 3.
+#   13:53:01 ET  nothing ran again. For ~6 hours.
+#
+# Three things are true at once and only the third is a defect:
+#
+# * the singleton gate was RIGHT. It cannot know that a pid it can no longer
+#   see is not about to reappear, and a second concurrent collector is a worse
+#   outcome than a paused one. That rule is unchanged here.
+# * an intentional stop and this hard kill are INDISTINGUISHABLE from the
+#   state file, because whoever stops the worker owes it a clean-shutdown
+#   marker and Windows owes nothing. ``-Action Stop`` writes one; a session
+#   ending does not.
+# * NOTHING WOULD EVER HAVE TRIED AGAIN. The scheduled task carries exactly one
+#   trigger — ``LogonTrigger`` — and its ``NextRunTime`` is empty. Collection
+#   could have stayed dead until the next logon, and the read model said only
+#   "COLLECTION DEGRADED / RESTART_COLLECTION_SERVICE", which does not tell an
+#   operator that nothing else is coming.
+#
+# So the repair is not a wider tolerance and not a hidden daemon. It is: say
+# the recoverable truth, and give the recovery ONE authorised, idempotent owner
+# that can clear a lock only when NO worker exists anywhere on this machine.
+
+#: Recovery vocabulary. Every value is DERIVED from the two verdicts
+#: :func:`resolve_service_lifecycle` already produces — this is not a second
+#: state machine and it never overrides ``service_state``.
+REC_RUNNING_HEALTHY = "RUNNING_HEALTHY"
+REC_STARTING = "STARTING"
+REC_DEGRADED_RESTARTABLE = "DEGRADED_RESTARTABLE"
+REC_STOPPED_INTENTIONALLY = "STOPPED_INTENTIONALLY"
+REC_NEVER_INSTALLED = "NEVER_INSTALLED"
+REC_AUTOMATION_DISABLED = "AUTOMATION_DISABLED"
+RECOVERY_STATES = (REC_RUNNING_HEALTHY, REC_STARTING, REC_DEGRADED_RESTARTABLE,
+                   REC_STOPPED_INTENTIONALLY, REC_NEVER_INSTALLED,
+                   REC_AUTOMATION_DISABLED)
+
+#: A worker that has registered a start but has not yet proven a heartbeat this
+#: recently is STARTING rather than degraded.
+STARTING_GRACE_SECONDS = 90.0
+
+#: THE recovery command. One action, named in the payload so the operator never
+#: has to know which of six scripts owns the worker.
+RECOVERY_COMMAND = (
+    r"powershell -File C:\Users\binis\paper_trader\scripts"
+    r"\manage_information_collection.ps1 "
+    r"-RepoRoot C:\Users\binis\paper_trader -Action Recover -Execute")
+
+#: Outcomes of asking whether an ABANDONED lock may be cleared. Fail closed.
+LOCK_NOTHING_TO_CLEAR = "NOTHING_TO_CLEAR"
+LOCK_CLEARABLE = "ABANDONED_CLEARABLE"
+LOCK_REFUSED_WORKER_RUNNING = "REFUSED_A_WORKER_IS_RUNNING"
+LOCK_REFUSED_TOPOLOGY_UNKNOWN = "REFUSED_WORKER_TOPOLOGY_UNRESOLVED"
+
+
+def resolve_recovery(state: dict, lifecycle: dict, *,
+                     now: Optional[datetime] = None) -> dict:
+    """Is recovery required, is it possible, and will anything else try?
+
+    Pure derivation from the existing verdicts. It invents no state the owner
+    does not already hold and it never contradicts ``service_state``.
+    """
+    svc = lifecycle.get("service_state")
+    act = lifecycle.get("worker_activity")
+    hb = lifecycle.get("heartbeat_age_seconds")
+
+    if not state.get("collection_automation_enabled"):
+        rec, required = REC_AUTOMATION_DISABLED, False
+        why = ("Information-collection automation has not been authorised on "
+               "this machine, so no worker is expected to be running.")
+    elif svc == SVC_NEVER_STARTED:
+        rec, required = REC_NEVER_INSTALLED, True
+        why = "No worker has ever run on this machine."
+    elif svc == SVC_RUNNING:
+        if (hb is not None and hb <= STARTING_GRACE_SECONDS
+                and not state.get("loop_count")):
+            rec, required, why = (REC_STARTING, False,
+                                  "A worker has started and has not completed "
+                                  "its first iteration yet.")
+        else:
+            rec, required, why = (REC_RUNNING_HEALTHY, False,
+                                  "The worker is alive and %s."
+                                  % ("busy" if act == ACT_BUSY else "idle"))
+    elif svc == SVC_STOPPED and state.get("graceful_shutdown"):
+        rec, required = REC_STOPPED_INTENTIONALLY, False
+        why = ("The worker was stopped cleanly by an operator action, which "
+               "recorded the shutdown marker.")
+    else:
+        rec, required = REC_DEGRADED_RESTARTABLE, True
+        why = lifecycle.get("reason") or "The worker is not collecting."
+
+    # An UNOWNED stop looks exactly like a crash, and saying which one it was
+    # is the difference between "somebody meant this" and "nobody noticed".
+    unowned = bool(state.get("started_at")
+                   and not state.get("stopped_at")
+                   and act in (ACT_DEAD, ACT_STALLED, ACT_UNKNOWN))
+    return {
+        "recovery_state": rec,
+        "recovery_state_vocabulary": list(RECOVERY_STATES),
+        "recovery_required": required,
+        "recovery_is_a_derivation_of":
+            "service_state x worker_activity (api.information_collection."
+            "resolve_service_lifecycle) - never a second state machine",
+        "why": why,
+        "recovery_action": ("RECOVER_COLLECTION_SERVICE" if required
+                            else "NONE_REQUIRED"),
+        "recovery_command": (RECOVERY_COMMAND if required else None),
+        "recovery_owner": "scripts/manage_information_collection.ps1",
+        "recovery_is_idempotent": True,
+        "recovery_creates_no_second_worker": True,
+        "stop_was_unowned": unowned,
+        "stop_was_unowned_note": (
+            "The worker stopped without writing a clean-shutdown marker, so "
+            "an intentional stop and a hard kill are indistinguishable from "
+            "the durable state alone. Whoever stops a worker owes it that "
+            "marker; Windows ending a logon session does not write one."
+            if unowned else None),
+        # The whole point of this block: nothing on this machine restarts a
+        # dead collector by itself, so a degraded state that nobody looks at
+        # is permanent. That sentence must appear in the payload, not in a
+        # release note nobody reads.
+        "nothing_restarts_it_automatically": True,
+        "can_silently_remain_dead": bool(required and rec !=
+                                         REC_AUTOMATION_DISABLED),
+        "scheduled_task_trigger": "AT_LOGON_ONLY",
+        "scheduled_task_trigger_note": (
+            "The %s task carries one trigger - a logon trigger - and no "
+            "repetition, so after a failed relaunch it has no future run time. "
+            "Recovery is an explicit operator action by design; execution "
+            "automation stays OFF and no scheduler change is made here."
+            % SCHEDULED_TASK_NAME),
+        "collection_automation_is_not_execution_automation": True,
+    }
+
+
+def resolve_abandoned_lock(*, lock: Optional[dict], topology: Optional[dict],
+                           now: Optional[datetime] = None) -> dict:
+    """May an OPERATOR-authorised recovery clear this singleton lock?
+
+    The pid probe alone is not enough authority to take a slot early - that is
+    why :func:`acquire_service_lock` waits out ``LOCK_TAKEOVER_SECONDS`` and
+    why that rule is unchanged. The launch TOPOLOGY is stronger evidence: if no
+    process anywhere on this machine is running the canonical worker script,
+    there is no worker to collide with and the lock is an artefact of a kill
+    that never ran its ``finally``. Anything less certain fails CLOSED.
+    """
+    now = now or _now()
+    if not lock:
+        return {"state": LOCK_NOTHING_TO_CLEAR, "may_clear": False,
+                "reason": "no singleton lock is present"}
+    verdict = (topology or {}).get("verdict")
+    holder = {k: (lock or {}).get(k) for k in
+              ("instance_id", "pid", "host", "acquired_at", "heartbeat_at")}
+    evidence = {
+        "holder": holder,
+        "holder_pid_alive": _pid_alive(holder.get("pid")),
+        "heartbeat_age_seconds": (
+            None if _age(lock.get("heartbeat_at"), now) is None
+            else round(_age(lock.get("heartbeat_at"), now), 1)),
+        "worker_topology_verdict": verdict,
+        "worker_topology_reason": (topology or {}).get("reason"),
+    }
+    if verdict == WORKER_TOPOLOGY_NONE:
+        return dict(evidence, state=LOCK_CLEARABLE, may_clear=True,
+                    reason=("no process on this machine is running %s, so the "
+                            "lock names a worker that does not exist"
+                            % CANONICAL_WORKER_SCRIPT))
+    if verdict in (WORKER_TOPOLOGY_SINGLE, WORKER_TOPOLOGY_VIOLATED):
+        return dict(evidence, state=LOCK_REFUSED_WORKER_RUNNING,
+                    may_clear=False,
+                    reason=("a collection worker IS running; clearing the "
+                            "singleton lock would permit a second one"))
+    return dict(evidence, state=LOCK_REFUSED_TOPOLOGY_UNKNOWN, may_clear=False,
+                reason=("the worker topology could not be resolved, and a "
+                        "recovery that cannot prove the machine is empty "
+                        "fails closed"))
+
+
+def clear_abandoned_lock(*, root=None, lock: Optional[dict] = None,
+                         topology: Optional[dict] = None,
+                         now: Optional[datetime] = None) -> dict:
+    """Clear a PROVABLY abandoned singleton lock. Idempotent, attributed.
+
+    Writes the clean-shutdown marker the killed worker never wrote, so the
+    next reader sees an owned stop rather than a silent gap. Never touches a
+    lock while any worker process exists.
+    """
+    now = now or _now()
+    lock = lock if lock is not None else read_service_lock(root=root)
+    decision = resolve_abandoned_lock(lock=lock, topology=topology, now=now)
+    if not decision.get("may_clear"):
+        return dict(decision, cleared=False)
+    path = _lock_path(root)
+    try:
+        path.unlink()
+        cleared = True
+    except OSError:
+        cleared = False
+    state = load_service_state(root=root)
+    state["stopped_at"] = _iso(now)
+    state["graceful_shutdown"] = False
+    state["current_source"] = None
+    state["iteration_in_flight"] = False
+    state["current_iteration_id"] = None
+    state["last_error"] = (
+        "worker pid %s vanished without releasing the singleton lock; the "
+        "lock was cleared by an operator recovery after the process table "
+        "proved no collection worker was running"
+        % (lock or {}).get("pid"))
+    save_service_state(state, root=root)
+    return dict(decision, cleared=cleared,
+                write_owner="api.information_collection.clear_abandoned_lock",
+                wrote_clean_shutdown_marker=True)
+
+
+# --------------------------------------------------------------------------- #
 # READ CONTRACT — GET /v1/operations/information-collection
 # --------------------------------------------------------------------------- #
 def _headline(*, lifecycle: dict, service: dict, summary: dict,
-              last_receipt: Optional[dict], now: datetime) -> dict:
+              last_receipt: Optional[dict], now: datetime,
+              recovery: Optional[dict] = None) -> dict:
     """The operator sentence, in the order an active manager actually asks:
     is collection running, did anything important arrive, and what must I review?
     """
     svc = lifecycle["service_state"]
+    rec = recovery or {}
     if svc == SVC_NEVER_STARTED:
         return {"title": "COLLECTION NOT INSTALLED",
                 "tone": "idle",
@@ -1934,9 +2167,20 @@ def _headline(*, lifecycle: dict, service: dict, summary: dict,
                            "unchanged: no orders, no broker, manual review."),
                 "operator_action": "START_COLLECTION_SERVICE"}
     if svc == SVC_DEGRADED:
+        # Release 46.6.2: "DEGRADED" alone let a dead collector look like
+        # something that might come back. Nothing restarts it, so the headline
+        # says so and names the one command that does.
         return {"title": "COLLECTION DEGRADED", "tone": "warn",
-                "detail": lifecycle["reason"],
-                "operator_action": "RESTART_COLLECTION_SERVICE"}
+                "detail": ("%s Nothing will restart it automatically - "
+                           "recovery is an explicit operator action."
+                           % lifecycle["reason"]
+                           if rec.get("can_silently_remain_dead")
+                           else lifecycle["reason"]),
+                "operator_action": ("RECOVER_COLLECTION_SERVICE"
+                                    if rec.get("recovery_required")
+                                    else "RESTART_COLLECTION_SERVICE"),
+                "operator_command": rec.get("recovery_command"),
+                "recovery_state": rec.get("recovery_state")}
     material_age = _age(service.get("last_material_information_at"), now)
     if (last_receipt or {}).get("state") == "MATERIAL_INFORMATION" or (
             material_age is not None and material_age < 86400):
@@ -2016,8 +2260,10 @@ def load_information_collection(*, root=None, limit: int = 12,
         })
 
     summary = health["summary"]
+    recovery = resolve_recovery(service, lifecycle, now=now)
     headline = _headline(lifecycle=lifecycle, service=service, summary=summary,
-                         last_receipt=last_receipt, now=now)
+                         last_receipt=last_receipt, now=now,
+                         recovery=recovery)
     return {
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
@@ -2025,6 +2271,10 @@ def load_information_collection(*, root=None, limit: int = 12,
         "contract_id": SERVICE_CONTRACT_ID,
         "generated_at": _iso(now),
         "headline": headline,
+        # Release 46.6.2 - whether this worker can come back, who brings it
+        # back, and whether anything else would. Derived from the two verdicts
+        # below; never a competing state machine.
+        "recovery": recovery,
         "service": {
             "service_id": SERVICE_ID,
             "scheduled_task_name": SCHEDULED_TASK_NAME,

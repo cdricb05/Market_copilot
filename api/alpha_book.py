@@ -890,8 +890,18 @@ def _next_action(states: dict) -> str:
     if cur == S_FULLY_FILLED:
         return ("REFRESH_DESK: fills are complete - the next manual refresh appends the "
                 "first forward-performance rows.")
-    return ("MONITOR: forward tracking is active. Monitor NAV, fills and attribution; "
-            "the next portfolio action is the monthly review.")
+    # Release 46.6.2. This sentence used to end "the next portfolio action is
+    # the monthly review", which contradicts the canonical architecture: the
+    # portfolio is reassessed after every MATERIAL SIGNAL REFRESH, by the
+    # Stage-20 economic gate inside the Daily Research Cycle, and a monthly
+    # checkpoint is a model/review governance date - not the cadence at which
+    # capital is re-examined. api.operational_book stopped presenting the
+    # monthly clock as the next portfolio action; this string did not, and it
+    # is what /v1/operational-book renders as next_action.
+    return ("MONITOR: forward tracking is active. Monitor NAV, fills and attribution. "
+            "The portfolio is reassessed after each material signal refresh by the "
+            "Daily Research Cycle, not on a monthly clock; a monthly checkpoint "
+            "governs model review only.")
 
 
 def _legacy_summary() -> dict:

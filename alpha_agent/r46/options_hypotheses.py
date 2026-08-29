@@ -260,6 +260,64 @@ def _score_signal(judge: pd.DataFrame, z: pd.Series, ret_col: str,
 
 
 # --------------------------------------------------------------------------- #
+def session_census() -> dict:
+    """Release 46.6.2 - the THREE session counts, measured from ONE surface.
+
+    The option lane reported ``usable_sessions_now = 503`` while this owner
+    reported ``n_feature_sessions = 501``, and nothing said whether that was a
+    stale artifact or two different quantities. It is the second, and it is
+    reproducible: measured on the same surface at the same instant, 503
+    session dates were ACQUIRED, all 503 survive the implied-vol and tenor
+    filters, and 501 carry the ``MIN_ROWS_PER_SESSION`` usable rows a feature
+    date needs. The two that do not are named here rather than described.
+
+    Neither number is wrong and neither is forced to equal the other. They
+    answer different questions: "how many dates did we buy?" and "how many
+    dates can carry a feature?". The scientific conclusion is untouched - the
+    session gate is met and every predeclared hypothesis is still
+    sample-insufficient on ``STRIKE_AND_EXPIRY_BREADTH_PER_SESSION``.
+    """
+    raw = None
+    try:
+        prev, mine = OP.existing_surface(), OP.r46_batches()
+        frames = [x for x in (prev, mine) if x is not None]
+        if frames:
+            raw = pd.concat(frames, ignore_index=True)
+    except Exception:                           # noqa: BLE001 - degrade
+        raw = None
+    acquired = (sorted({str(d) for d in
+                        pd.to_datetime(raw["date"]).dt.date.unique()})
+                if raw is not None else [])
+    usable = surface()
+    usable_dates = (sorted({str(d) for d in usable["date"].unique()})
+                    if len(usable) else [])
+    counts = (usable.groupby("date").size().to_dict() if len(usable) else {})
+    feature_dates = sorted(str(d) for d, n in counts.items()
+                           if n >= MIN_ROWS_PER_SESSION)
+    thin = sorted(set(usable_dates) - set(feature_dates))
+    unquotable = sorted(set(acquired) - set(usable_dates))
+    return {
+        "acquired_sessions": len(acquired),
+        "acquired_usable_sessions": len(usable_dates),
+        "feature_complete_sessions": len(feature_dates),
+        "min_rows_per_session_for_a_feature_date": MIN_ROWS_PER_SESSION,
+        "sessions_dropped_no_usable_quote": unquotable,
+        "sessions_dropped_too_few_rows": thin,
+        "n_dropped_no_usable_quote": len(unquotable),
+        "n_dropped_too_few_rows": len(thin),
+        "acquired_usable_sessions_means":
+            "a date the surface holds at least one option row with a positive "
+            "implied volatility and a positive tenor - what the LANE counts",
+        "feature_complete_sessions_means":
+            "a date carrying at least %d such rows, so a per-session surface "
+            "feature can be built on it - what THIS owner counts"
+            % MIN_ROWS_PER_SESSION,
+        "the_two_counts_are_not_forced_equal": True,
+        "the_difference_changes_no_science": True,
+        "calculation_owner": CALCULATION_OWNER,
+    }
+
+
 def score(campaign_id: str = CAMPAIGN_ID, write: bool = True) -> dict:
     """Score the three predeclared hypotheses. Nothing else is scored."""
     f = features()
@@ -362,9 +420,25 @@ def score(campaign_id: str = CAMPAIGN_ID, write: bool = True) -> dict:
         "sessions_with_atm_straddle": int(f["straddle_mid"].notna().sum())
         if n_sessions else 0,
     }
+    census = session_census()
     binding = {
         "sessions_are_not_observations": True,
+        # Release 46.6.2 - "usable_sessions" was this owner's FEATURE-COMPLETE
+        # count wearing the LANE's word, which is how 503 and 501 could both be
+        # published as "usable sessions" and look like a contradiction. Both
+        # names now appear, and the old key keeps its old value so no reader
+        # silently changes meaning.
         "usable_sessions": n_sessions,
+        "usable_sessions_means": "FEATURE_COMPLETE_SESSIONS (this owner)",
+        "acquired_usable_sessions": census["acquired_usable_sessions"],
+        "feature_complete_sessions": census["feature_complete_sessions"],
+        "sessions_excluded_from_features":
+            census["sessions_dropped_too_few_rows"],
+        "why_they_are_excluded": (
+            "a feature date needs at least %d usable option rows; a session "
+            "carrying fewer cannot produce a skew, a term slope or a "
+            "straddle, and is counted as ACQUIRED but not FEATURE-COMPLETE"
+            % MIN_ROWS_PER_SESSION),
         "sessions_required_by_the_old_gate": FIT_SESSIONS + JUDGE_SESSIONS,
         "old_gate_met": judgeable,
         "per_hypothesis_feature_coverage": per_feature,
@@ -396,6 +470,11 @@ def score(campaign_id: str = CAMPAIGN_ID, write: bool = True) -> dict:
             "turn a backtest into forward evidence. Under the R46 contract "
             "history may only NOMINATE a challenger."),
         n_feature_sessions=n_sessions,
+        # Release 46.6.2 - the lane's count and this owner's count, side by
+        # side, each named for what it measures. See session_census().
+        session_census=census,
+        acquired_usable_sessions=census["acquired_usable_sessions"],
+        feature_complete_sessions=census["feature_complete_sessions"],
         sessions_required=FIT_SESSIONS + JUDGE_SESSIONS,
         judgeable=judgeable,
         # --- Release 46.6.1: SEMANTIC CLARITY ONLY -------------------------- #
@@ -448,4 +527,5 @@ def score(campaign_id: str = CAMPAIGN_ID, write: bool = True) -> dict:
 
 
 __all__ = ["CALCULATION_OWNER", "ARTIFACT", "EVIDENCE_CLASS", "FIT_SESSIONS",
-           "JUDGE_SESSIONS", "surface", "features", "score"]
+           "JUDGE_SESSIONS", "MIN_ROWS_PER_SESSION", "surface", "features",
+           "score", "session_census"]

@@ -26527,11 +26527,11 @@ function renderPmChanges(c) {
     var lg = evp.confirmed_alpha_snapshot_ledger || {};
     threeWay.innerHTML =
       '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
-      '<span class="cc-badge muted" title="' + escapeHtml(ex.note || '') + '">EXECUTED PAPER PORTFOLIO: ' + (ex.open_position_count != null ? ex.open_position_count : '—') + ' position(s) — ' + escapeHtml((ex.tickers || []).join(', ') || 'none') + '</span>' +
+      '<span class="cc-badge muted" title="' + escapeHtml([ex.label, ex.note, ex.why_it_is_still_shown].filter(Boolean).join(' — ')) + '">' + escapeHtml(ex.label || 'EXECUTED PAPER PORTFOLIO') + ': ' + (ex.open_position_count != null ? ex.open_position_count : '—') + ' position(s) — ' + escapeHtml((ex.tickers || []).join(', ') || 'none') + '</span>' +
       '<span class="cc-badge safe" title="' + escapeHtml(pr.note || '') + '">PROPOSED ALPHA TARGET: ' + (pr.n_names != null ? pr.n_names : '—') + ' names (' + escapeHtml(pr.book_id || '') + ')</span>' +
       '<span class="cc-badge manual">CONFIRMED ALPHA LEDGER: ' + (lg.n_confirmed != null ? lg.n_confirmed : '—') + ' snapshot(s)</span>' +
       '</div>' +
-      '<div class="cc-na-note" style="margin-top:4px;">These are three different things: executed positions (never modified here), the proposed paper target, and the append-only confirmed-snapshot ledger. Overlap with executed positions: ' +
+      '<div class="cc-na-note" style="margin-top:4px;">These are three different things: the LEGACY executed positions of the retired manual signal workflow (a historical diagnostic, never modified here and <b>not</b> the current executed paper book — that is the active paper book on the Portfolio page), the proposed paper target, and the append-only confirmed-snapshot ledger. Overlap with the legacy positions: ' +
       escapeHtml(((evp.overlap_tickers || []).join(', ')) || 'none') + '.</div>';
   }
   var h = '';

@@ -238,6 +238,9 @@ def load_prospective_tournament(
         "best_net_alpha_vs_control_bps": board.get("best_net_alpha_bps"),
         "forward_evidence_confidence": _confidence(rows),
         "next_material_maturity": _next_maturity(verdict, pending),
+        # Release 46.6.2 - and WHY it is still outstanding. A date on its own
+        # cannot tell a waiting instrument from a stalled tournament.
+        "next_material_maturity_detail": _next_maturity_detail(pending),
         "what_entered": competing["entered"],
 
         # ---- Release 46.2: the LIVE lifecycle ----------------------------- #
@@ -561,6 +564,12 @@ def _next_maturity(verdict: dict, pending: list) -> Optional[str]:
     # Daily Research Cycle started scoring maturities, that cached date keeps naming a
     # maturity that has already been scored, so the board would advertise evidence that
     # had already landed. The ledger is the record; the artifact is a snapshot of it.
+    #
+    # Release 46.6.2 — this is now a COMPOSITION of the one owner,
+    # ``alpha_agent.r46.harvest.next_maturity``, not a second implementation of
+    # the same minimum. The two agreed, which is exactly why nobody noticed
+    # there were two; a read model that recomputes an owner's number is a
+    # divergence waiting for its first disagreement.
     dates = sorted({str(p.get("horizon_end_expected")) for p in pending
                     if p.get("horizon_end_expected")})
     if dates:
@@ -569,6 +578,36 @@ def _next_maturity(verdict: dict, pending: list) -> Optional[str]:
     # batch the verdict's own value is None for the same reason, so there is no
     # honest fallback to reach for here.
     return None
+
+
+def _next_maturity_detail(pending: list) -> dict:
+    """WHY the next maturity is still outstanding. Owner-computed, fail-soft.
+
+    A bare date cannot distinguish "a row is waiting for its instrument's own
+    bar" from "the tournament stopped scoring". After the 2026-08-28 cycle the
+    board reported ``2026-08-28`` again and it was the first of those: ONE
+    prediction on ``&VX`` whose 2026-08-28 bar had not printed when the judge
+    ran. The explanation now travels with the date.
+    """
+    try:
+        from paper_trader.alpha_agent.r46 import harvest as HV
+        return HV.next_maturity_detail()
+    except Exception:                       # noqa: BLE001 - degrade, never 500
+        dates = sorted({str(p.get("horizon_end_expected")) for p in pending
+                        if p.get("horizon_end_expected")})
+        nxt = dates[0] if dates else None
+        at = [p for p in pending
+              if str(p.get("horizon_end_expected")) == nxt]
+        return {
+            "next_maturity": nxt,
+            "n_pending": len(pending),
+            "n_at_next": len(at),
+            "rows": [],
+            "why": ("%d prediction(s) still expect %s" % (len(at), nxt)
+                    if nxt else "nothing is outstanding"),
+            "calculation_owner": "api.prospective_tournament (degraded: the "
+                                 "R46 harvest owner could not be imported)",
+        }
 
 
 def _velocity(body: Optional[dict]) -> dict:

@@ -164,7 +164,12 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
                 ("lifecycle", "owner_state", "continuation_state",
                  "n_appended", "n_duplicates_skipped",
                  "n_refused_outcome_window_open", "n_outcomes_matured",
-                 "next_decision_date", "reason")}
+                 "next_decision_date", "reason",
+                 # Release 46.6.2 - a refusal must name its own decision date,
+                 # and a block no run could have avoided must say so.
+                 "refused_decision_dates", "emission_feasibility",
+                 "next_call_date", "next_decision_date_source",
+                 "next_decision_date_unknown_reason", "per_shadow")}
             for k, v in lanes.items() if v.get("adopted_from")}),
         failures, "adopted_continuation") or {}
     # The lane registry is fail-soft BY DESIGN: an owner that raises becomes a

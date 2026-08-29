@@ -347,6 +347,17 @@ R46_MARKERS = (
     "R46_5_FORWARD_HARVEST", "R46_5_STRATEGY_VERDICTS",
     "R46_5_REALISED_CORRELATION", "R46_5_EARNINGS_LANE", "R46_5_FORM4_LANE",
     "_data_earnings", "_data_form4", "r46_5_",
+    # Release 46.6 / 46.6.1 / 46.6.2. These were NOT declared when they were
+    # built, so an R46.6 artifact landing in an operational store would have
+    # gone unattributed - the exact hole this gate exists to close. Declaring
+    # them can only make the gate stricter: every string here is one more thing
+    # it will refuse to excuse.
+    "R46_6_COST_EFFICIENCY", "R46_6_BREAK_EVEN_ECONOMICS",
+    "R46_6_COST_DESTRUCTION_RANKINGS", "R46_6_RESEARCH_LANE_LIFECYCLE",
+    "R46_6_ADOPTED_SHADOW_LANE_INVENTORY", "R46_6_OPTIONS_HYPOTHESES",
+    "R46_6_1_ADOPTED_CONTINUATION", "adopted_continuation",
+    "r46_adopted_continuation_predictions", "r46_adopted_continuation_outcomes",
+    "r46_6_",
 )
 R46_SOURCE_GLOBS = ("alpha_agent/r46/*.py",)
 R46_SOURCE_FILES = ("api/prospective_tournament.py",)

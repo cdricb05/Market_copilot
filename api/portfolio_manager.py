@@ -732,6 +732,24 @@ def _executed_vs_proposed(ctx: dict) -> dict:
             "tickers": executed,
             "note": "These are the ACTUAL executed paper positions. They are NOT the confirmed "
                     "25-name alpha book and are never modified by this page.",
+            # Release 46.6.2. This badge sat beside the authoritative active
+            # paper book reading "EXECUTED PAPER PORTFOLIO: 2 position(s)",
+            # which is the LEGACY manual-trade workflow's residue - not the
+            # current executed book, and not a subset of it. Its history stays
+            # exactly where it is; what changes is that it can no longer be
+            # mistaken for current holdings.
+            "label": "LEGACY EXECUTED PAPER PORTFOLIO (HISTORICAL DIAGNOSTIC)",
+            "classification": "HISTORICAL_DIAGNOSTIC",
+            "compatibility_only": True,
+            "is_current_executed_book": False,
+            "subordinate_to": "the active paper book reported by "
+                              "GET /v1/operational-book",
+            "current_executed_book_owner": "api.operational_book",
+            "decision_authority": "NONE",
+            "why_it_is_still_shown": "auditability: these positions were really "
+                                     "executed by the legacy manual signal "
+                                     "workflow and their record is never "
+                                     "deleted",
         },
         "proposed_alpha_target_portfolio": {
             "source": "Current primary operational Top-25 target book (fixed 50/50 ensemble)",

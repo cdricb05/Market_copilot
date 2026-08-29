@@ -358,6 +358,79 @@ SKIP_OUTCOME_WINDOW_OPEN = "OUTCOME_WINDOW_ALREADY_OPEN"
 SKIP_SIGNAL_UNAVAILABLE = "OWNER_PRODUCED_NO_SIGNAL"
 SKIP_DUPLICATE = "ALREADY_IN_THE_CONTINUATION_LEDGER"
 
+# --------------------------------------------------------------------------- #
+# Release 46.6.2 - CAN this lane ever emit, and did anyone say which date was
+# refused?
+# --------------------------------------------------------------------------- #
+#: R46.6.1's lane artifact reported ``n_refused_outcome_window_open = 1`` and
+#: never said WHICH decision date was refused, so the 2026-08-28 production
+#: event could not be adjudicated from the artifact at all - it had to be
+#: reconstructed from the owner's panel. A refusal that does not name its own
+#: date is the same defect as a lane nobody calls: the state is recorded and
+#: the fact is not. Every refusal now carries its decision date, its first
+#: outcome session, the instant its window opened and how late the attempt was.
+REFUSAL_EVIDENCE_FIELDS = ("decision_date", "decision_weekday",
+                           "first_outcome_session",
+                           "outcome_window_start_utc", "hours_late")
+
+#: Whether this lane's OWN decision grid can ever expose a decision date before
+#: that date's outcome window opens. Measured on the panel, never assumed.
+EMISSION_CAN_EMIT = "CAN_EMIT"
+EMISSION_STRUCTURALLY_LATE = "STRUCTURALLY_LATE"
+EMISSION_LATE_THIS_RUN = "LATE_THIS_RUN"
+EMISSION_NOTHING_DUE = "NOTHING_DUE"
+EMISSION_FEASIBILITY = (EMISSION_CAN_EMIT, EMISSION_STRUCTURALLY_LATE,
+                        EMISSION_LATE_THIS_RUN, EMISSION_NOTHING_DUE)
+
+#: THE measurement behind ``STRUCTURALLY_LATE``, stated exactly.
+#:
+#: A decision date D becomes visible to this owner only once its panel holds
+#: the row for D. If the panel ALSO holds a session strictly after D, then that
+#: session's own date is >= ``next_weekday(D)``, so midnight Eastern of
+#: ``next_weekday(D)`` - the instant :func:`outcome_window_start` returns - has
+#: already passed. The refusal is then not a scheduling accident that an
+#: earlier run could have avoided: no run could ever have been early enough.
+#:
+#: This is why ``r39_vx_weekly`` refused on 2026-08-28 and why it will refuse
+#: every time. :func:`alpha_agent.r39.universal_state.build_vx_weekly` walks
+#: ``range(260, len(sessions) - 1, 5)``, so its newest decision date is ALWAYS
+#: at least one session short of the panel end. Measured on the live panel that
+#: day: latest VX session 2026-08-28, latest decision date 2026-08-25, first
+#: outcome session 2026-08-26, window open from 2026-08-26T04:00:00Z, emission
+#: attempted 2026-08-28T23:18:37Z - 67.3 hours late.
+#:
+#: Neither side of that is edited to make evidence appear. Widening the grid
+#: would change a frozen strategy; relaxing the refusal would let R46 record an
+#: outcome it already knew. The honest report is that this stream cannot
+#: produce TRUE_FORWARD continuation evidence, said in those words.
+STRUCTURALLY_LATE_TEST = (
+    "the panel holds at least one session strictly after the newest decision "
+    "date, so that decision's outcome window had already opened by the time "
+    "the decision date existed to be read")
+
+VX_CADENCE_DISCREPANCY = {
+    "lane": "r39_vx_weekly",
+    "lane_due_predicate_says": "WEEKLY_ON_FRIDAY "
+                               "(alpha_agent.r46.lanes.due_weekly_friday)",
+    "frozen_owner_grid_says": "every 5th VX session from index 260 "
+                              "(alpha_agent.r39.universal_state."
+                              "build_vx_weekly)",
+    "they_are_not_the_same_rule": True,
+    "measured_2026_08_28": {
+        "latest_vx_session": "2026-08-28",
+        "latest_owner_decision_date": "2026-08-25",
+        "latest_owner_decision_weekday": "Tuesday",
+    },
+    "consequence": "R46.6 reported 'next decision 2026-08-28' for this lane. "
+                   "That was the next FRIDAY, not the next date the frozen "
+                   "owner decides on. The call cadence and the owner's "
+                   "decision grid are now reported apart: next_call_date is "
+                   "the cheap predicate's answer, next_decision_date is the "
+                   "owner's, and a null owner answer is never filled in from "
+                   "the calendar.",
+    "prior_release_artifact_mutated": False,
+}
+
 
 class ContinuationRefusal(Exception):
     """Raised when a row may not enter the continuation ledger."""
@@ -757,6 +830,125 @@ def _as_date(value) -> _dt.date:
 
 
 # --------------------------------------------------------------------------- #
+# Release 46.6.2 - the refusal says WHICH date, and whether any run could have
+# been early enough
+# --------------------------------------------------------------------------- #
+def refusal_evidence(decision_date, emitted_at: _dt.datetime) -> dict:
+    """Everything an auditor needs to adjudicate ONE refusal, by itself.
+
+    R46.6.1 recorded that a decision date had been refused and not which one,
+    so the only way to check the gate was to rebuild the owner's panel. This
+    is that check, written down at the moment the refusal happens.
+    """
+    d = _as_date(decision_date)
+    first = CK.next_weekday(d)
+    start = CK.outcome_window_start_utc(first)
+    return {
+        "decision_date": str(d),
+        "decision_weekday": d.strftime("%A"),
+        "first_outcome_session": str(first),
+        "first_outcome_session_weekday": first.strftime("%A"),
+        "outcome_window_start_utc": CK.iso(start),
+        "emission_attempted_utc": CK.iso(emitted_at),
+        "hours_late": round((emitted_at - start).total_seconds() / 3600.0, 4),
+        "reason": SKIP_OUTCOME_WINDOW_OPEN,
+    }
+
+
+def panel_sessions(panel) -> list:
+    """The decision dates this panel actually carries, ascending."""
+    import pandas as pd
+    if panel is None or not len(panel):
+        return []
+    return [pd.Timestamp(d).date()
+            for d in sorted(pd.to_datetime(panel["decision_date"]).unique())]
+
+
+def owner_session_axis(state: dict, shadow: dict) -> list:
+    """The SESSION dates the adopted owner's OWN source layer actually printed.
+
+    Not the decision dates. The two differ whenever the owner's grid stops
+    short of its own data - which is exactly the condition
+    :data:`STRUCTURALLY_LATE_TEST` measures, and it cannot be seen from the
+    decision column alone. ``build_fresh_state`` carries the raw per-market
+    layer beside the panels precisely so this stays observable.
+    """
+    import pandas as pd
+    layer = (state or {}).get("layer") or {}
+    if not layer:
+        return []
+    lane = str(shadow.get("lane") or "")
+    frames = ([layer["VX"]] if lane == "VX" and "VX" in layer
+              else list(layer.values()))
+    seen = set()
+    for f in frames:
+        if f is None or not len(f) or "Date" not in getattr(f, "columns", ()):
+            continue
+        seen.update(pd.Timestamp(d).date()
+                    for d in pd.to_datetime(f["Date"]).unique())
+    return sorted(seen)
+
+
+def emission_feasibility(*, due: list, panel, emitted_at: _dt.datetime,
+                         sessions: list = None) -> dict:
+    """Could ANY run have emitted these due decision dates in time?
+
+    ``STRUCTURALLY_LATE`` is a statement about the owner's grid, not about this
+    run's punctuality: see :data:`STRUCTURALLY_LATE_TEST`. It is measured, from
+    the owner's own session axis where one is available, and it is never
+    asserted from a lane name. Without a session axis the honest answer is
+    ``LATE_THIS_RUN`` - the refusal is recorded, the structural claim is not
+    made.
+    """
+    axis = list(sessions or [])
+    decisions = panel_sessions(panel)
+    latest_session = (axis[-1] if axis
+                      else (decisions[-1] if decisions else None))
+    if not due:
+        return {"state": EMISSION_NOTHING_DUE,
+                "owner_latest_session": (str(latest_session) if latest_session
+                                         else None),
+                "owner_latest_decision_date": (str(decisions[-1]) if decisions
+                                               else None),
+                "reason": "no decision date is due for this lane"}
+    newest_due = max(_as_date(d) for d in due)
+    window = outcome_window_start(newest_due)
+    after = [d for d in axis if d > newest_due]
+    common = {
+        "owner_latest_session": (str(latest_session) if latest_session
+                                 else None),
+        "owner_latest_decision_date": (str(decisions[-1]) if decisions
+                                       else None),
+        "newest_due_decision_date": str(newest_due),
+        "n_sessions_after_newest_due_decision_date": (len(after) if axis
+                                                      else None),
+        "outcome_window_start_utc": CK.iso(window),
+        "session_axis_available": bool(axis),
+    }
+    if emitted_at < window:
+        return dict(common, state=EMISSION_CAN_EMIT,
+                    reason=("the newest due decision date's outcome window "
+                            "has not opened yet"))
+    if axis and after:
+        return dict(
+            common, state=EMISSION_STRUCTURALLY_LATE,
+            test=STRUCTURALLY_LATE_TEST,
+            reason=("the newest decision date this owner will produce is %s, "
+                    "and its own session axis already held %d session(s) "
+                    "after it, so the outcome window (from %s) had opened "
+                    "before that decision date could be read at all. No "
+                    "earlier run could have emitted it: the grid, not the "
+                    "schedule, is what makes it late."
+                    % (newest_due, len(after), CK.iso(window))))
+    return dict(common, state=EMISSION_LATE_THIS_RUN,
+                reason=("the newest due decision date's outcome window opened "
+                        "at %s, before this run. Whether an earlier run could "
+                        "have caught it is NOT claimed here - the owner's "
+                        "session axis was not available to decide it."
+                        % CK.iso(window)))
+
+
+# --------------------------------------------------------------------------- #
 # Building one continuation record
 # --------------------------------------------------------------------------- #
 def build_record(*, release: str, shadow: dict, identity_row: dict,
@@ -937,6 +1129,7 @@ def run_lane(*, release: str, shadow_ids: tuple, as_of: _dt.date,
 
     ident_by_id = {r["shadow_id"]: r for r in ident["rows"]}
     fresh, skipped, per_shadow = [], [], {}
+    refusals: list = []
     for sh in shadows:
         sid = sh["shadow_id"]
         panel = panel_for(sh, state)
@@ -950,9 +1143,18 @@ def run_lane(*, release: str, shadow_ids: tuple, as_of: _dt.date,
         for d in due:
             if emitted_at >= outcome_window_start(d):
                 n_window += 1
+                # Release 46.6.2: a refusal that does not name its own date
+                # cannot be adjudicated later. This one names everything.
+                ev = dict(refusal_evidence(d, emitted_at), shadow_id=sid)
+                refusals.append(ev)
                 skipped.append({"shadow_id": sid,
                                 "decision_date": str(_as_date(d)),
-                                "reason": SKIP_OUTCOME_WINDOW_OPEN})
+                                "reason": SKIP_OUTCOME_WINDOW_OPEN,
+                                "first_outcome_session":
+                                    ev["first_outcome_session"],
+                                "outcome_window_start_utc":
+                                    ev["outcome_window_start_utc"],
+                                "hours_late": ev["hours_late"]})
                 continue
             w = signal(release, sh, panel, d)
             if not w:
@@ -967,10 +1169,22 @@ def run_lane(*, release: str, shadow_ids: tuple, as_of: _dt.date,
                 source_state_hash=state_hash(sh, panel, d),
                 stale_sources=stale))
             n_emitted += 1
+        feas = emission_feasibility(due=due, panel=panel,
+                                    emitted_at=emitted_at,
+                                    sessions=owner_session_axis(state, sh))
         per_shadow[sid] = {
             "due": len(due), "emitted": n_emitted,
             "refused_outcome_window_open": n_window,
             "already_in_ledger": len(captured_by_shadow.get(sid, set())),
+            # Release 46.6.2 - the owner's OWN answers, never the calendar's.
+            "due_decision_dates": [str(_as_date(d)) for d in due][:20],
+            "emission_feasibility": feas["state"],
+            "emission_feasibility_reason": feas.get("reason"),
+            "owner_latest_session": feas.get("owner_latest_session"),
+            "owner_latest_decision_date":
+                feas.get("owner_latest_decision_date"),
+            "n_sessions_after_newest_due_decision_date":
+                feas.get("n_sessions_after_newest_due_decision_date"),
         }
 
     result = append(fresh, campaign_id)
@@ -1021,6 +1235,15 @@ def run_lane(*, release: str, shadow_ids: tuple, as_of: _dt.date,
         "n_refused_outcome_window_open": n_window_refused,
         "n_due_decision_dates": n_due,
         "n_outcomes_matured": int((matured or {}).get("n_appended") or 0),
+        # Release 46.6.2 - WHICH decision date was refused, and how late.
+        # Without these the gate can only be audited by rebuilding the panel.
+        "refused_decision_dates": refusals[:40],
+        "refusal_evidence_fields": list(REFUSAL_EVIDENCE_FIELDS),
+        # The OWNER's next decision date, or null. Never the call calendar's -
+        # see VX_CADENCE_DISCREPANCY.
+        "next_decision_date": None,
+        "next_decision_date_source": "ADOPTED_OWNER_PANEL",
+        "emission_feasibility": _lane_feasibility(per_shadow),
         "per_shadow": per_shadow,
         "skipped": skipped[:40],
         "input_freshness_stale_sources": stale,
@@ -1031,6 +1254,26 @@ def run_lane(*, release: str, shadow_ids: tuple, as_of: _dt.date,
         "shadow_ids": list(shadow_ids),
         "owner_is_reachable": True,
     }
+
+
+def _lane_feasibility(per_shadow: dict) -> str:
+    """ONE feasibility verdict for a lane whose shadows may disagree.
+
+    The lane can emit if ANY of its shadows can; it is structurally late only
+    when every shadow that had something due was structurally late.
+    """
+    states = [v.get("emission_feasibility") for v in per_shadow.values()
+              if v.get("emission_feasibility")]
+    if not states:
+        return EMISSION_NOTHING_DUE
+    if EMISSION_CAN_EMIT in states:
+        return EMISSION_CAN_EMIT
+    blocked = [s for s in states if s != EMISSION_NOTHING_DUE]
+    if not blocked:
+        return EMISSION_NOTHING_DUE
+    if all(s == EMISSION_STRUCTURALLY_LATE for s in blocked):
+        return EMISSION_STRUCTURALLY_LATE
+    return EMISSION_LATE_THIS_RUN
 
 
 def _blocked(shadow_ids: tuple, owner_state: str, reason: str) -> dict:
@@ -1607,7 +1850,35 @@ def contract_body() -> dict:
         "no_second_capture_implementation": True,
         "ledger_primitives": "api.paper_trading_desk chain-hash ledgers "
                              "(canonical), R46 research root",
+        # ---- Release 46.6.2 --------------------------------------------- #
+        "refusal_evidence_fields": list(REFUSAL_EVIDENCE_FIELDS),
+        "emission_feasibility_vocabulary": list(EMISSION_FEASIBILITY),
+        "structurally_late_test": STRUCTURALLY_LATE_TEST,
+        "vx_cadence_discrepancy": dict(VX_CADENCE_DISCREPANCY),
+        "the_gate_was_not_changed_by_r46_6_2": True,
+        "why_the_gate_was_not_changed": (
+            "R46.6.2 reconstructed the 2026-08-28 refusal from the owner's own "
+            "panel and found it CORRECT. The refused decision date was "
+            "2026-08-25, not 2026-08-28: the frozen VX grid walks every 5th "
+            "session and stops one session short of its own panel end, so its "
+            "newest decision date is never today's. That decision's outcome "
+            "window opened at 2026-08-26T04:00:00Z and the cycle attempted to "
+            "emit at 2026-08-28T23:18:37Z - 67.3 hours late. The observation "
+            "is irrecoverable TRUE_FORWARD evidence and is NOT backfilled. "
+            "What R46.6.2 changed is that the refusal now names its own date, "
+            "and that a refusal no run could have avoided is reported as "
+            "STRUCTURALLY_LATE rather than as a transient block."),
     }
+
+
+def _all_refusals(lane_results: dict) -> dict:
+    """Every refusal this run made, keyed by lane, each naming its own date."""
+    out = {}
+    for lane_id, res in (lane_results or {}).items():
+        rows = (res or {}).get("refused_decision_dates") or []
+        if rows:
+            out[lane_id] = rows
+    return out
 
 
 def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
@@ -1626,6 +1897,13 @@ def build(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID,
         summary=summary(campaign_id),
         verdict_inputs=verdict_inputs(campaign_id),
         lane_results=lane_results or {},
+        # Release 46.6.2 - the refusals this run made, each naming its own
+        # decision date. An artifact that says "1 refused" and not WHICH is
+        # not evidence, and R46.6.1's did exactly that.
+        refused_decision_dates=_all_refusals(lane_results),
+        emission_feasibility={
+            k: (v or {}).get("emission_feasibility")
+            for k, v in (lane_results or {}).items()},
         prior_release_artifacts_mutated=0,
         research_only=True,
     )
@@ -1658,4 +1936,10 @@ __all__ = [
     "CAPITAL_CONTROL", "FORMAL_VERDICT_USES",
     "CASH_SUBSTITUTION_FOR_NONCASH_CONTROL_ALLOWED", "VX_CONTROL_DISCREPANCY",
     "declared_control_path", "verdict_inputs",
+    # Release 46.6.2
+    "REFUSAL_EVIDENCE_FIELDS", "EMISSION_FEASIBILITY", "EMISSION_CAN_EMIT",
+    "EMISSION_STRUCTURALLY_LATE", "EMISSION_LATE_THIS_RUN",
+    "EMISSION_NOTHING_DUE", "STRUCTURALLY_LATE_TEST",
+    "VX_CADENCE_DISCREPANCY", "refusal_evidence", "panel_sessions",
+    "owner_session_axis", "emission_feasibility",
 ]

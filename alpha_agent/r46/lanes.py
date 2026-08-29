@@ -110,19 +110,53 @@ def _last_weekday_of_month(d: _dt.date) -> _dt.date:
     return x
 
 
+#: Release 46.6.2 - WHEN THE CYCLE CALLS A LANE IS NOT WHEN ITS OWNER DECIDES.
+#:
+#: These predicates decide only whether the expensive owner is worth invoking
+#: today. Some of them happen to name the owner's real decision date as well
+#: (``due_month_end``: the R39/R40 futures panels decide on each market's last
+#: session of the calendar month, which is the date this function computes).
+#: ``due_weekly_friday`` does NOT: the VX shadow decides on every 5th session
+#: of its own panel, a grid that lands on a Friday only by coincidence. On
+#: 2026-08-28 R46.6 published "next decision 2026-08-28" for that lane from
+#: this predicate while the frozen owner's newest decision date was Tuesday
+#: 2026-08-25 - and it was that Tuesday, not the Friday, that the continuation
+#: gate refused.
+#:
+#: So the two answers are now reported apart. ``next_call_date`` is always this
+#: predicate's answer. ``next_decision_date`` is populated ONLY by a predicate
+#: that genuinely names the owner's decision date, or by the owner itself; a
+#: lane that cannot know it reports ``None`` and says why, and no reader has to
+#: guess which of the two it is holding.
+CALL_CADENCE_ONLY = "CALL_CADENCE_ONLY"
+DECISION_DATE_FROM_PREDICATE = "LANE_DUE_PREDICATE"
+DECISION_DATE_FROM_OWNER = "ADOPTED_OWNER_PANEL"
+
+
 def due_daily(_as_of: _dt.date) -> dict:
     return {"due": True, "why": "daily stream"}
 
 
 def due_weekly_friday(as_of: _dt.date) -> dict:
+    """Call weekly. This is a CALL cadence and not a decision grid."""
     ok = as_of.weekday() == 4
     nxt = as_of + _dt.timedelta(days=(4 - as_of.weekday()) % 7 or 7)
-    return {"due": ok, "why": ("weekly decision date" if ok else
-                               "weekly stream; next decision date %s" % nxt),
-            "next_decision_date": str(nxt)}
+    return {"due": ok,
+            "why": ("weekly call date" if ok else
+                    "weekly stream; next CALL date %s (the owner's own "
+                    "decision grid is not a weekday rule and is reported by "
+                    "the owner)" % nxt),
+            "next_call_date": str(nxt),
+            "next_decision_date": None,
+            "next_decision_date_source": CALL_CADENCE_ONLY,
+            "next_decision_date_unknown_reason":
+                "this lane's owner decides on its own panel's session grid, "
+                "which no weekday rule can compute; only the owner may name "
+                "it and it names it when it is called"}
 
 
 def due_month_end(as_of: _dt.date) -> dict:
+    """Call at month end - which IS this owner's decision date."""
     end = _last_weekday_of_month(as_of)
     ok = as_of >= end
     if ok:
@@ -133,11 +167,15 @@ def due_month_end(as_of: _dt.date) -> dict:
     return {"due": ok,
             "why": ("month-end decision date" if ok else
                     "month-end stream; next decision date %s" % nxt),
-            "next_decision_date": str(nxt)}
+            "next_call_date": str(nxt),
+            "next_decision_date": str(nxt),
+            "next_decision_date_source": DECISION_DATE_FROM_PREDICATE}
 
 
 def due_never(_as_of: _dt.date) -> dict:
-    return {"due": False, "why": "retired; no decision date will be produced"}
+    return {"due": False, "why": "retired; no decision date will be produced",
+            "next_call_date": None, "next_decision_date": None,
+            "next_decision_date_source": CALL_CADENCE_ONLY}
 
 
 # --------------------------------------------------------------------------- #
@@ -450,10 +488,15 @@ def run_all(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID, *,
             continue
         d = lane.due(as_of) or {}
         if not d.get("due"):
-            rows.append(dict(lane.describe(), lifecycle=CALLED_QUIET_NOT_DUE,
-                             was_called=True, why=d.get("why"),
-                             next_decision_date=d.get("next_decision_date"),
-                             owner_state="NOT_DUE"))
+            rows.append(dict(
+                lane.describe(), lifecycle=CALLED_QUIET_NOT_DUE,
+                was_called=True, why=d.get("why"),
+                next_call_date=d.get("next_call_date"),
+                next_decision_date=d.get("next_decision_date"),
+                next_decision_date_source=d.get("next_decision_date_source"),
+                next_decision_date_unknown_reason=
+                    d.get("next_decision_date_unknown_reason"),
+                owner_state="NOT_DUE"))
             continue
         try:
             res = lane.call(as_of, campaign_id, acquire) or {}
@@ -461,7 +504,12 @@ def run_all(as_of: _dt.date, campaign_id: str = CAMPAIGN_ID, *,
             res = {"lifecycle": CALLED_DATA_BLOCKED,
                    "owner_state": "OWNER_RAISED",
                    "error": type(exc).__name__, "detail": str(exc)[:220]}
-        rows.append(dict(lane.describe(), was_called=True, **res))
+        # ``next_call_date`` is the predicate's; anything the owner returned
+        # about its own decision grid WINS - see CALL_CADENCE_ONLY above.
+        row = dict(lane.describe(), was_called=True,
+                   next_call_date=d.get("next_call_date"))
+        row.update(res)
+        rows.append(row)
 
     counts = {s: sum(1 for r in rows if r.get("lifecycle") == s)
               for s in LIFECYCLE}

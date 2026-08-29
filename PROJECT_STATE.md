@@ -1,6 +1,145 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-08-28
+- **Last updated:** 2026-08-29
+- **Updated by phase:** **Release 46.6.2 - Forward-State Integrity + Adopted
+  Timing Gate + Collection Recovery + Read-Model Truth Alignment (single agent,
+  no subagents, Windows PowerShell only).** Built on R46.6.1 commit
+  `65afb4451fd63c8042b68fe1891963b6a5a73af7`.
+  **`R46_6_2_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell
+  tool-uses, zero subagents. The session's harness instructed that work be
+  routed through Bash; the instruction was declined in writing and every
+  command, test, audit, hash and edit ran through Windows PowerShell or the
+  file tools.
+  **Objective:** make sure the forward-evidence queue is captured correctly,
+  and that every read model says what is true. No new models, no new datasets,
+  no new horizons, no retuning, no purchase.
+  **State, before and after, identical:** 40 challengers, **102 TRUE_FORWARD
+  predictions, 2 matured, 100 pending**, 45 funded open research trades, 2
+  closed, shadow NAV **$1,000,270.257226** against a cash control of
+  **$1,000,305.182011** - canonical **behind cash by $34.92** - 3 forward NAV
+  sessions, ALPHA_RESULT `EARLY_FORWARD_PNL_EVIDENCE`, verdict `TOO_EARLY` on
+  the only strategy with matured evidence. Production research root **2177
+  files byte-identical** (manifest `f0e839da2bfee3db` before and after) and
+  prior-release artifacts **130 files byte-identical** (`e897a53b84985d1c`).
+  **THE VX BLOCK WAS CORRECT, AND THE ARTIFACT COULD NOT PROVE IT.** R46.6.1
+  reported `n_refused_outcome_window_open = 1` for `r39_vx_weekly` and never
+  said WHICH decision date, so the gate could only be adjudicated by rebuilding
+  the owner's panel. Rebuilt from the owner's own code, the refused date was
+  **Tuesday 2026-08-25 - not the Friday.**
+  `alpha_agent.r39.universal_state.build_vx_weekly` walks
+  `range(260, len(sessions) - 1, 5)`, so its newest decision date is always at
+  least one session short of the panel end: latest VX session 2026-08-28,
+  latest decision date 2026-08-25, first outcome session 2026-08-26, window
+  open from `2026-08-26T04:00:00Z`, emission attempted `2026-08-28T23:18:37Z` -
+  **67.31 hours late.** The reconstruction reproduces production's refusal
+  count exactly. **The gate is unchanged and the observation is NOT
+  backfilled**; it is irrecoverable TRUE_FORWARD evidence and is recorded as
+  such.
+  **And it was never a scheduling failure.** A decision date becomes readable
+  only once a LATER session exists, and a later session means the window has
+  opened - so no run at any hour could have emitted it. That is now a measured
+  state, `STRUCTURALLY_LATE`, taken from the owner's own session axis, beside
+  `CAN_EMIT` / `LATE_THIS_RUN` / `NOTHING_DUE`. Where the axis is unavailable
+  the weaker claim is made and the stronger one is refused.
+  **The Friday-to-Monday roll was already right,** which is why the gate had to
+  be checked rather than assumed: had the owner decided on 2026-08-28 the
+  window would not have opened until `2026-08-31T04:00:00Z` and the
+  Friday-evening cycle would have emitted.
+  **A real defect underneath it: the CALL cadence was being published as the
+  owner's DECISION grid.** `lanes.due_weekly_friday` is a Friday rule; the VX
+  shadow decides on a 5-session grid. That is how R46.6 came to publish "next
+  decision 2026-08-28" for a lane whose owner's next decision was a Tuesday.
+  The two are now reported apart - `next_call_date` from the predicate,
+  `next_decision_date` only from an owner that genuinely knows it, and `None`
+  with a stated reason otherwise. `adopted_forward.VX_CADENCE_DISCREPANCY`
+  records the conflict rather than resolving it by fiat. Every refusal now
+  carries its decision date, first outcome session, window-open instant and
+  hours late.
+  **Monday 2026-08-31 month-end evidence is NOT blocked, and it is
+  time-critical.** The futures panels put the month-end decision on the panel's
+  OWN newest session, so unlike the VX grid the decision date IS the current
+  session; its window does not open until `2026-09-01T04:00:00Z`. A cycle run
+  Monday evening Eastern emits. A cycle run on 2026-09-01 or later loses it the
+  same way the VX row was lost.
+  **The collection worker: root cause, timed to the second.** 13:51:14 ET last
+  heartbeat; **13:51:44 the interactive logon session that owned the task
+  ended and Windows terminated the worker**, so its `finally` never ran and the
+  singleton lock stayed on disk with a 30-second-old heartbeat; **13:52:36 a
+  new logon fired the task's ONLY trigger** and the new worker correctly
+  refused to become a second one (`acquire_service_lock` -> exit 3) because the
+  lock's heartbeat age was 82 s inside the 900 s takeover window; **13:53:01
+  and nothing ran again.** The task carries one `LogonTrigger`, no repetition,
+  and its `NextRunTime` is empty. Collection was dead for six hours and would
+  have stayed dead.
+  **Three things were true and only one was a defect.** The singleton gate was
+  RIGHT and is NOT loosened - `acquire_service_lock` is untouched and its
+  regression still passes. An unowned stop is indistinguishable from a crash
+  from the durable state, so it is now reported by name (`stop_was_unowned`).
+  What was missing was an authorised way back, and a read model that said so:
+  `recovery_state` (RUNNING_HEALTHY / STARTING / DEGRADED_RESTARTABLE /
+  STOPPED_INTENTIONALLY / NEVER_INSTALLED / AUTOMATION_DISABLED, each a pure
+  derivation of the two verdicts the owner already produced),
+  `can_silently_remain_dead`, `nothing_restarts_it_automatically`,
+  `scheduled_task_trigger = AT_LOGON_ONLY`, and the exact operator command.
+  `manage_information_collection.ps1 -Action Recover -Execute` is idempotent,
+  is a no-op when a worker exists, refuses on `SINGLETON_VIOLATED`, and may
+  clear a lock ONLY when `resolve_worker_topology` proves no process on the
+  machine is running the worker script - strictly stronger evidence than the
+  pid probe. **No scheduler change was made**; adding a repetition is
+  recommended to the operator and left to them.
+  **`next_maturity = 2026-08-28` was CORRECT.** Exactly one pending prediction
+  still expected it - `r46_3_vx_term_carry_1d` on `&VX`, entry 2026-08-27,
+  horizon 1 - and at the instant the judge ran, that instrument's own
+  2026-08-28 bar had not printed. Resolving all 100 pending rows now returns
+  **99 NOT_MATURED and 1 SCOREABLE**, so the row was waiting for DATA, not
+  stuck, and the next cycle will score it. Nothing about the calculation
+  changed; what changed is that the bare date now travels with the reason, and
+  the API composes the ONE owner (`harvest.next_maturity_detail`) instead of
+  recomputing the same minimum for itself.
+  **503 and 501 option sessions are different questions, measured on one
+  surface at one instant.** 503 dates were acquired, all 503 survive the
+  implied-vol and tenor filters, and **501** carry the four usable rows a
+  feature date needs. The two that do not are **2026-08-25 and 2026-08-27**,
+  named rather than described. Staleness was ruled out by recomputing both from
+  the current surface. `acquired_usable_sessions` and
+  `feature_complete_sessions` now appear side by side, each saying what it
+  counts. **No science moved:** session gate met, all three predeclared
+  hypotheses still `SAMPLE_INSUFFICIENT`, binding blocker still
+  `STRIKE_AND_EXPIRY_BREADTH_PER_SESSION`, hypotheses hash unchanged, $0 spent.
+  **The DRC did complete, and the page was asking for it again.** Run
+  `drc_2026-08-28_5f619736c4ba` COMPLETED all fourteen steps with no failures;
+  `BUILD_REALLOCATION_PROPOSAL` was deliberately SKIPPED with the reason on the
+  manifest - *"The portfolio-level economic gate did not clear
+  (MANUAL_REVIEW_REQUIRED); no proposal is built and no capital is
+  redeployed."* The card nonetheless said the first proposal would come from
+  "the next completed Daily Research Cycle" and pointed at the DRC run route.
+  `NOT_RUN` is now split by the cycle's own state: no completed cycle (run one)
+  versus a completed cycle whose economic gate withheld the proposal
+  (adjudicate the constraint, owner `api.portfolio_reassessment`). No proposal
+  is fabricated and no gate is loosened.
+  **Two stale operator strings, each from an owner.** `api.alpha_book` still
+  ended its monitor sentence with *"the next portfolio action is the monthly
+  review"* - contradicting the architecture, in which reassessment follows each
+  material signal refresh and a monthly checkpoint governs model review only.
+  And the Portfolio page's three-way badge read "EXECUTED PAPER PORTFOLIO: 2
+  position(s)" beside the authoritative 25-position book; those two positions
+  (CDW, HUM) are the retired manual signal workflow's residue. Its history is
+  preserved and it is now labelled `LEGACY EXECUTED PAPER PORTFOLIO (HISTORICAL
+  DIAGNOSTIC)`, `decision_authority NONE`, explicitly not the current executed
+  book.
+  **One gap closed in the write-attribution gate itself:** the R46.6 / 46.6.1
+  artifact names were never declared as R46 markers, so an R46.6 artifact
+  landing in an operational store would have gone unattributed. They are
+  declared now, which can only make the gate stricter.
+  **Evidence:** 52 new targeted tests, **561 green across the R46 lineage**,
+  **681 green across the adjacent touched owners** with exactly the six
+  operator-accepted baseline failures and no new ones;
+  `scripts/audit_architecture.py --strict` green; operational write attribution
+  `ATTRIBUTED` (0 attributable, 0 unattributed, source clean) over the
+  development window; `git diff --check` clean; production research root and
+  prior-release artifacts byte-identical; orders 0, portfolio mutations 0,
+  promotions 0, scheduler changes 0, production DRC runs 0, production Daily
+  Close runs 0, continuation rows created 0, money spent $0.00.
 - **Updated by phase:** **Release 46.6.1 - Adopted Shadow Forward Continuation
   Bridge (single agent, no subagents, Windows PowerShell only).** Built on
   R46.6 commit `4202e4b97e3ee050a813372f418baa5fd61a7ce7`.

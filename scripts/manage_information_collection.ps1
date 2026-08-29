@@ -24,7 +24,22 @@
     Absolute path to the paper_trader repository.
 
 .PARAMETER Action
-    Install | Start | Stop | Restart | Status | Uninstall
+    Install | Start | Stop | Restart | Status | Recover | Uninstall
+
+    Recover (Release 46.6.2) is THE operator answer to a worker that died
+    without being stopped. It is idempotent and singleton-safe: if one logical
+    worker is already running it changes nothing and reports so; otherwise it
+    clears the singleton lock ONLY when the process table proves no collection
+    worker exists anywhere on this machine, then starts exactly one.
+
+    Why it has to exist. On 2026-08-28 the worker was terminated at 13:51:44 ET
+    when its interactive logon session ended, so its `finally` never ran and
+    its lock stayed on disk with a 30-second-old heartbeat. The relaunch 52
+    seconds later (the task's only trigger is a logon) correctly refused to
+    become a second worker and exited 3, and nothing tried again: the task has
+    no repetition and its NextRunTime was empty. Collection was dead for six
+    hours and would have stayed dead. The singleton gate was right; what was
+    missing was an authorised way back.
 
 .PARAMETER Execute
     Required for every MUTATING action. Status is read-only and runs without it.
@@ -39,7 +54,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RepoRoot,
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Install", "Start", "Stop", "Restart", "Status", "Uninstall")]
+    [ValidateSet("Install", "Start", "Stop", "Restart", "Status", "Recover",
+                 "Uninstall")]
     [string]$Action,
     [switch]$Execute,
     [int]$StartTimeoutSec = 90
@@ -53,6 +69,8 @@ $STOPPED_TOKEN   = "COLLECTION_SERVICE_STOPPED_OK"
 $INSTALLED_TOKEN = "COLLECTION_SERVICE_INSTALLED_OK"
 $REMOVED_TOKEN   = "COLLECTION_SERVICE_UNINSTALLED_OK"
 $BLOCKED_TOKEN   = "COLLECTION_SERVICE_BLOCKED"
+$RECOVERED_TOKEN = "COLLECTION_SERVICE_RECOVERED_OK"
+$NOOP_TOKEN      = "COLLECTION_SERVICE_RECOVERY_NOT_REQUIRED"
 
 function Write-Section([string]$Title) {
     Write-Host ""
@@ -209,6 +227,25 @@ function Get-WorkerProcesses() {
         }
     } catch { }
     return $procs
+}
+
+# The process snapshot, in the shape the control helper's stdin contract wants.
+function Get-WorkerSnapshotJson() {
+    $rows = @()
+    foreach ($p in (Get-WorkerProcesses)) {
+        $created = $null
+        if ($p.CreationDate) {
+            try { $created = $p.CreationDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ") } catch { }
+        }
+        $rows += [pscustomobject]@{
+            pid             = $p.ProcessId
+            parent_pid      = $p.ParentProcessId
+            command_line    = $p.CommandLine
+            executable_path = $p.ExecutablePath
+            created_at      = $created
+        }
+    }
+    return (ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress)
 }
 
 # The ONE logical-worker verdict. PowerShell enumerates; Python decides.
@@ -487,6 +524,88 @@ switch ($Action) {
         Info "watermarks     : preserved (source runtime state is durable)"
         Write-Host ""
         Write-Host $OK_TOKEN
+        exit 0
+    }
+
+    "Recover" {
+        # Release 46.6.2. Idempotent, singleton-safe, bounded and auditable.
+        # It NEVER kills a worker, NEVER changes the scheduled task and NEVER
+        # touches execution automation - it only puts back the ONE worker that
+        # died without being stopped.
+        Require-Execute "Recover"
+        Write-Section "RECOVER COLLECTION SERVICE"
+
+        $rec = Invoke-Control @("--action", "recovery-state")
+        if ($rec.ExitCode -ne 0) { Write-Host $rec.Output; Fail "could not read the recovery state" }
+        $state = $null
+        try { $state = $rec.Output | ConvertFrom-Json } catch { }
+        if ($null -eq $state) { Write-Host $rec.Output; Fail "recovery state was not JSON" }
+        Info "recovery state  : $($state.recovery_state)"
+        Info "  $($state.why)"
+        Info "recovery required: $($state.recovery_required)"
+
+        if ($state.recovery_state -eq "AUTOMATION_DISABLED") {
+            Fail "information-collection automation is not enabled. Run -Action Install -Execute first."
+        }
+        if ($null -eq (Get-CollectionTask)) {
+            Fail "the scheduled task is not installed. Run -Action Install -Execute first."
+        }
+
+        # 1. Is a worker already running? Then recovery is a NO-OP, by design:
+        #    calling Recover twice must never produce two workers.
+        $before = Get-WorkerTopology
+        Show-Topology $before
+        if ($null -ne $before -and $before.verdict -eq "SINGLE_LOGICAL_WORKER") {
+            $st = Show-Status "COLLECTION SERVICE STATUS"
+            if ($null -ne $st -and $st.service_state -eq "RUNNING") {
+                Write-Host ""
+                Write-Host $NOOP_TOKEN
+                exit 0
+            }
+            Info "One logical worker exists but the service is not RUNNING; use -Action Restart -Execute."
+            Show-StartupDiagnostics "a worker process exists but the service is not reporting RUNNING"
+            Fail "worker present but not healthy - Recover will not kill a running worker"
+        }
+        if ($null -ne $before -and $before.verdict -eq "SINGLETON_VIOLATED") {
+            Fail "SINGLETON_VIOLATED: $($before.reason) - Recover refuses to add to a violation"
+        }
+        if ($null -eq $before -or $before.verdict -eq "AMBIGUOUS_WORKER_TOPOLOGY") {
+            Fail "the worker topology could not be resolved; recovery fails closed rather than guessing"
+        }
+
+        # 2. NO worker exists. Clear a lock the dead worker never released -
+        #    the control helper re-proves that from the same snapshot and
+        #    refuses if anything is running.
+        Info "No collection worker is running. Checking the singleton lock ..."
+        $snapshot = Get-WorkerSnapshotJson
+        $clear = $snapshot | & $PythonExe $StatePy --action clear-abandoned-lock 2>&1
+        $clearExit = $LASTEXITCODE
+        Write-Host ($clear -join "`n")
+        if ($clearExit -ne 0) { Fail "the abandoned singleton lock could not be cleared" }
+
+        # 3. Start exactly one worker through the SAME path Start uses.
+        Info "Starting one worker ..."
+        Start-ScheduledTask -TaskName $TASK_NAME
+        $st = Wait-ForHeartbeat $StartTimeoutSec
+        if ($null -eq $st) {
+            Show-StartupDiagnostics "no RUNNING heartbeat within $StartTimeoutSec seconds after recovery"
+            Fail "collection service did not come back"
+        }
+        $after = Wait-ForOneLogicalWorker
+        if ($null -eq $after -or -not $after.healthy) {
+            Show-Topology $after
+            Show-StartupDiagnostics "the recovered service is not exactly one logical worker"
+            Fail "singleton violated after recovery: $(if ($after) { $after.reason } else { 'topology unreadable' })"
+        }
+        Show-Topology $after
+        Show-Status "POST-RECOVERY STATE" | Out-Null
+        Write-Section "RECOVERY VERIFIED"
+        Info "worker pid       : $($st.worker_pid)"
+        Info "logical workers  : $($after.logical_worker_count) (physical processes: $($after.physical_process_count))"
+        Info "watermarks       : preserved (source runtime state is durable)"
+        Info "execution autom. : OFF"
+        Write-Host ""
+        Write-Host $RECOVERED_TOKEN
         exit 0
     }
 

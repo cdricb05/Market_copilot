@@ -227,12 +227,12 @@ def action_mark_stopped(root=None) -> int:
     return 0
 
 
-def action_worker_topology(root=None) -> int:
-    """Resolve a STDIN process snapshot into logical workers. Fails closed.
+def _stdin_process_rows():
+    """The STDIN process snapshot as a list, or ``{"_error": ...}``.
 
-    The snapshot is a JSON list of Win32_Process rows (or an object with a
-    ``processes`` key). Empty input means "no candidate process", which is a
-    legitimate answer, not an error.
+    Shared by ``worker-topology`` and the Release-46.6.2 recovery actions so
+    there is exactly ONE place that knows how PowerShell 5.1 hands a process
+    snapshot to a native command (BOM, single-element unwrapping and all).
     """
     # Read BYTES and decode them here. Windows PowerShell 5.1 writes a UTF-8 BOM
     # ahead of anything it pipes into a native command, and json.loads rejects a
@@ -253,27 +253,78 @@ def action_worker_topology(root=None) -> int:
         raw = b""
     text = raw.decode("utf-8-sig", errors="replace").strip()
     if not text:
-        rows = []
-    else:
-        try:
-            parsed = json.loads(text)
-        except ValueError as exc:
-            print(json.dumps({
-                "verdict": ic.WORKER_TOPOLOGY_AMBIGUOUS,
-                "reason": "process snapshot was not valid JSON: %s" % str(exc)[:200],
-                "healthy": False, "singleton_ok": False,
-                "logical_worker_count": None}, indent=1))
-            return 1
-        # PowerShell 5.1 unwraps a single-element array, so ONE candidate process
-        # arrives as a bare object rather than a list. Reading that as "no
-        # processes" would have hidden a running worker from the singleton gate.
-        if isinstance(parsed, dict) and "processes" in parsed:
-            parsed = parsed.get("processes")
-        rows = parsed if isinstance(parsed, list) else ([parsed] if parsed else [])
+        return []
+    try:
+        parsed = json.loads(text)
+    except ValueError as exc:
+        return {"_error": "process snapshot was not valid JSON: %s"
+                          % str(exc)[:200]}
+    # PowerShell 5.1 unwraps a single-element array, so ONE candidate process
+    # arrives as a bare object rather than a list. Reading that as "no
+    # processes" would have hidden a running worker from the singleton gate.
+    if isinstance(parsed, dict) and "processes" in parsed:
+        parsed = parsed.get("processes")
+    return parsed if isinstance(parsed, list) else ([parsed] if parsed else [])
+
+
+def _topology_from_stdin(root=None):
+    """``(topology, error_dict)`` - never both."""
+    rows = _stdin_process_rows()
+    if isinstance(rows, dict) and rows.get("_error"):
+        return None, {"verdict": ic.WORKER_TOPOLOGY_AMBIGUOUS,
+                      "reason": rows["_error"], "healthy": False,
+                      "singleton_ok": False, "logical_worker_count": None}
     lock = ic.read_service_lock(root=root)
-    print(json.dumps(ic.resolve_worker_topology(rows, lock=lock),
-                     indent=1, default=str))
+    return ic.resolve_worker_topology(rows, lock=lock), None
+
+
+def action_worker_topology(root=None) -> int:
+    """Resolve a STDIN process snapshot into logical workers. Fails closed."""
+    topology, err = _topology_from_stdin(root=root)
+    if err is not None:
+        print(json.dumps(err, indent=1))
+        return 1
+    print(json.dumps(topology, indent=1, default=str))
     return 0
+
+
+def action_recovery_state(root=None) -> int:
+    """Release 46.6.2 - is recovery required, and will anything else try?
+
+    Read-only. The answer is a pure derivation of the two lifecycle verdicts;
+    this action starts no worker and writes nothing.
+    """
+    state = ic.load_service_state(root=root)
+    lock = ic.read_service_lock(root=root)
+    now = ic.now_utc()
+    lifecycle = ic.resolve_service_lifecycle(state, lock, now)
+    body = dict(ic.resolve_recovery(state, lifecycle, now=now),
+                service_state=lifecycle["service_state"],
+                worker_activity=lifecycle["worker_activity"],
+                worker_pid=lifecycle["worker_pid"],
+                worker_alive=lifecycle["worker_alive"],
+                single_flight_lock_held=bool(lock))
+    print(json.dumps(body, indent=1, default=str))
+    return 0
+
+
+def action_clear_abandoned_lock(root=None) -> int:
+    """Release 46.6.2 - clear a PROVABLY abandoned singleton lock.
+
+    Reads the process snapshot from STDIN, exactly as ``worker-topology``
+    does, and clears the lock ONLY when no process on this machine is running
+    the canonical worker script. Anything less certain refuses. Idempotent: a
+    second call finds no lock and reports ``NOTHING_TO_CLEAR``.
+    """
+    topology, err = _topology_from_stdin(root=root)
+    if err is not None:
+        print(json.dumps(dict(err, cleared=False, may_clear=False,
+                              state=ic.LOCK_REFUSED_TOPOLOGY_UNKNOWN), indent=1))
+        return 1
+    res = ic.clear_abandoned_lock(root=root, topology=topology)
+    print(json.dumps(res, indent=1, default=str))
+    return 0 if res.get("state") in (ic.LOCK_CLEARABLE,
+                                     ic.LOCK_NOTHING_TO_CLEAR) else 1
 
 
 _ACTIONS = {
@@ -283,6 +334,8 @@ _ACTIONS = {
     "disable": action_disable,
     "mark-stopped": action_mark_stopped,
     "worker-topology": action_worker_topology,
+    "recovery-state": action_recovery_state,
+    "clear-abandoned-lock": action_clear_abandoned_lock,
 }
 
 

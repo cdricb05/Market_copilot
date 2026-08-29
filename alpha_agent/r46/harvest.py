@@ -319,12 +319,95 @@ def reconcile(as_of: _dt.date, matured: list, campaign_id: str = CAMPAIGN_ID,
 
 
 def next_maturity(campaign_id: str = CAMPAIGN_ID) -> Optional[str]:
+    """THE next expected maturity. One owner; every reader composes this."""
     scored = {str(o.get("prediction_id")) for o in LG.outcomes(campaign_id)}
     dates = sorted(str(p.get("horizon_end_expected"))
                    for p in LG.predictions(campaign_id)
                    if str(p.get("prediction_id")) not in scored
                    and p.get("horizon_end_expected"))
     return dates[0] if dates else None
+
+
+#: Release 46.6.2 - why a bare date is not enough.
+#:
+#: After the 2026-08-28 cycle scored a 2026-08-28 maturity, the board still
+#: advertised ``next_maturity = 2026-08-28``, which reads like a stuck clock.
+#: It was not. Exactly ONE prediction still expected that date -
+#: ``r46_3_vx_term_carry_1d`` on ``&VX``, entry 2026-08-27, horizon 1 - and at
+#: the instant the judge ran, that instrument's own 2026-08-28 bar had not
+#: printed, so :func:`alpha_agent.r46.judge.resolve` correctly answered
+#: NOT_MATURED. The bar landed later the same evening and the row became
+#: scoreable, i.e. it was waiting for DATA, not stuck.
+#:
+#: An operator cannot tell those two apart from a date. So the owner now
+#: returns the date WITH the reason it is still outstanding, and every read
+#: model composes this instead of recomputing the minimum for itself.
+MATURITY_ESTIMATE_NOTE = (
+    "horizon_end_expected is a CALENDAR estimate: "
+    "alpha_agent.r46.clock.expected_maturity_date counts weekdays after the "
+    "entry session. Scoring never uses it - the judge counts the instrument's "
+    "OWN realised sessions. A prediction whose estimate has arrived is "
+    "therefore not necessarily scoreable, and a next maturity that does not "
+    "move is evidence about DATA, not about a stalled tournament.")
+
+
+def next_maturity_detail(campaign_id: str = CAMPAIGN_ID, *,
+                         resolve: bool = False) -> dict:
+    """The next expected maturity AND why it is still outstanding.
+
+    Pure over the ledgers by default - a read model must not call a provider
+    on every request. ``resolve=True`` adds the judge's per-row verdict for
+    the rows at that date, which is what an audit wants and a dashboard does
+    not.
+    """
+    scored = {str(o.get("prediction_id")) for o in LG.outcomes(campaign_id)}
+    pending = [p for p in LG.predictions(campaign_id)
+               if str(p.get("prediction_id")) not in scored
+               and p.get("horizon_end_expected")]
+    if not pending:
+        return {"next_maturity": None, "n_pending": 0, "n_at_next": 0,
+                "rows": [], "why": "nothing is outstanding",
+                "estimate_note": MATURITY_ESTIMATE_NOTE,
+                "calculation_owner": CALCULATION_OWNER}
+    nxt = min(str(p["horizon_end_expected"]) for p in pending)
+    at = [p for p in pending if str(p["horizon_end_expected"]) == nxt]
+    rows = []
+    for p in at[:40]:
+        legs = ((p.get("position_expression") or {}).get("legs")) or []
+        row = {
+            "prediction_id": p.get("prediction_id"),
+            "challenger_id": p.get("challenger_id"),
+            "horizon": p.get("horizon"),
+            "entry_session_date": p.get("effective_as_of"),
+            "instruments": sorted({str(l.get("instrument")) for l in legs})[:6],
+            "emitted_at_utc": p.get("emitted_at_utc"),
+        }
+        if resolve:
+            try:
+                from . import judge as JD
+                r = JD.resolve(p)
+                row["judge_state"] = r.get("state")
+                row["judge_reason"] = r.get("reason")
+                row["judge_missing_legs"] = r.get("missing")
+            except Exception as exc:            # noqa: BLE001 - fail soft
+                row["judge_state"] = "UNRESOLVED"
+                row["judge_reason"] = "%s: %s" % (type(exc).__name__,
+                                                  str(exc)[:160])
+        rows.append(row)
+    return {
+        "next_maturity": nxt,
+        "n_pending": len(pending),
+        "n_at_next": len(at),
+        "rows": rows,
+        "why": ("%d prediction(s) still expect %s. A prediction is scored on "
+                "its own instrument's realised sessions, so it stays "
+                "outstanding until that instrument has printed the bar - "
+                "which is why this date can stand after a cycle has already "
+                "scored a maturity on it." % (len(at), nxt)),
+        "estimate_note": MATURITY_ESTIMATE_NOTE,
+        "resolved_against_market_data": bool(resolve),
+        "calculation_owner": CALCULATION_OWNER,
+    }
 
 
 def evidence_state(n_closed: int) -> str:
