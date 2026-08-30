@@ -10771,6 +10771,290 @@ def check_release49_operator_presentation(files: list[Path]) -> dict:
     }
 
 
+R50_OWNERS = {
+    "instrument_contract": "engine/instrument_contract.py",
+    "market_reference_data": "api/market_reference_data.py",
+    "investability_registry": "api/investability_registry.py",
+    "capital_pool": "api/capital_pool.py",
+    "cross_asset_risk_kernel": "engine/cross_asset_risk.py",
+    "cross_asset_risk": "api/cross_asset_risk.py",
+    "opportunity_frontier_kernel": "engine/opportunity_frontier.py",
+    "opportunity_frontier": "api/opportunity_frontier.py",
+    "decision_snapshot": "api/decision_snapshot.py",
+}
+R50_ROUTES = ("/v1/operations/decision-snapshot", "/v1/operations/investability-registry",
+              "/v1/operations/capital-pool", "/v1/operations/cross-asset-risk",
+              "/v1/operations/opportunity-frontier")
+R50_SNAPSHOT_SERVED = ("presentation", "portfolio_state", "constrained", "rebalance",
+                       "workflow", "daily_close", "operational", "capital_pool")
+
+
+def check_release50_multi_asset(files: list[Path]) -> dict:
+    r"""Release 50 - the multi-asset operational capital manager.
+
+    The release's claim: ONE capital pool, ONE multi-asset NAV, ONE position
+    contract, ONE investability registry, ONE cross-asset risk state, ONE
+    opportunity frontier, ONE zero-base owner, ONE feasible-target owner, ONE
+    switching-economics owner, ONE decision snapshot - with no snapshot-side or
+    presentation-side business recomputation, no research auto-promotion, no
+    R46-to-operation direct path, no unsupported capital eligibility, no forced
+    diversification, one governed paper execution path, one decision-evidence
+    path and no broker path. Every field below is structural.
+    """
+    def _src(rel: str) -> str:
+        return _read(Path(rel))
+
+    def _code_only(text: str) -> str:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return text
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef,
+                                 ast.AsyncFunctionDef, ast.ClassDef)):
+                body = node.body
+                if body and isinstance(body[0], ast.Expr) \
+                        and isinstance(body[0].value, ast.Constant) \
+                        and isinstance(body[0].value.value, str):
+                    node.body = body[1:] or [ast.Pass()]
+        return ast.unparse(tree)
+
+    def _operational(rel: str) -> bool:
+        # The OPERATIONAL surface: api/ and engine/. Research lanes (alpha_agent/,
+        # the research engines) may carry their own kernels; they are not owners of
+        # an operational business concept and are out of this scope by design.
+        return (rel.startswith(("api/", "engine/")) and rel.endswith(".py")
+                and "research" not in rel and rel != "scripts/audit_architecture.py")
+
+    def _count_def(name: str) -> list:
+        return sorted(_rel(fp) for fp in files if _operational(_rel(fp))
+                      and ("def %s(" % name) in fp.read_text(encoding="utf-8", errors="replace"))
+
+    srcs = {k: _src(v) for k, v in R50_OWNERS.items()}
+    codes = {k: (_code_only(v) if v.strip() else "") for k, v in srcs.items()}
+    owners_present = sorted(k for k, v in srcs.items() if not v.strip())
+
+    # ONE owner per business concept
+    capital_pool_owners = _count_def("build_capital_pool")
+    nav_owners = _count_def("book_nav")
+    position_contract_owners = sorted(
+        _rel(fp) for fp in files if _operational(_rel(fp))
+        and 'SCHEMA_VERSION = "multi_asset_position.v1"' in fp.read_text(encoding="utf-8", errors="replace"))
+    registry_owners = _count_def("load_investability_registry")
+    risk_owners = _count_def("build_risk_state")
+    frontier_owners = _count_def("build_frontier")
+    zero_base_owners = _count_def("build_allocation")
+    feasible_owners = _count_def("solve_feasible_target")
+    switching_owners = _count_def("switching_economics")
+    snapshot_owners = _count_def("load_decision_snapshot")
+    execution_owners = _count_def("confirm_rebalance_order_plan")
+    settlement_owners = _count_def("settle_due_orders")
+    evidence_owners = _count_def("freeze_executed_decision")
+    drawdown_owners = _count_def("current_drawdown")
+    covariance_owners = _count_def("build_covariance")
+
+    # no snapshot-side / presentation-side business recomputation
+    snap_code = codes["decision_snapshot"]
+    snapshot_business_reach = sorted(t for t in (
+        "build_covariance", "solve_feasible", "book_nav(", "value_position", "switching_economics(",
+        "build_proposal(", "build_allocation(", "optimise(", "from paper_trader.engine",
+        "import engine", "mark_to_market", "compute_nav") if t in snap_code)
+    snapshot_declares_no_business = ('"business_calculation_owner": False' in srcs["decision_snapshot"]
+                                     and '"recomputes_nothing": True' in srcs["decision_snapshot"])
+    snapshot_invalidation_is_identity = ('"invalidation": "IDENTITY_CHANGE' in srcs["decision_snapshot"]
+                                         and "def snapshot_identity(" in srcs["decision_snapshot"])
+    pres_code = _code_only(_src("api/operator_presentation.py"))
+    presentation_business_reach = sorted(t for t in (
+        "value_position", "aggregate_exposures", "build_capital_pool(", "build_risk_state(",
+        "build_frontier(", "from paper_trader.engine") if t in pres_code)
+
+    # no research auto-promotion; no R46-to-operation direct path
+    reg_src, reg_code = srcs["investability_registry"], codes["investability_registry"]
+    registry_no_promotion = ('"automatic_promotion": False' in reg_src
+                             and '"this_module_can_promote": False' in reg_src
+                             and '"research_verdict_promotes": False' in reg_src
+                             and "def promote" not in reg_code)
+    registry_eligibility_derived = ('"capital_eligible_is_derived": True' in reg_src
+                                    and "missing = [c for c in CAPABILITIES if not caps[c]]" in reg_src
+                                    and "eligible = not missing" in reg_src)
+    # Reach = an IMPORT or a CALL into research, never a string that NAMES research
+    # evidence (the registry legitimately cites challenger ids as evidence).
+    r46_reach = sorted("%s:%s" % (k, t) for k, c in codes.items() for t in (
+        "alpha_agent", "prospective_tournament", "challenger_registry", "research_trades",
+        "adopted_forward", "research_shadow") if t in c)
+    research_imports_in_operational = sorted(
+        k for k, c in codes.items() if "alpha_agent" in c)
+
+    # no forced diversification; long-only declared; cash is a real choice
+    forced_div_declared_false = all('"forced_diversification": False' in s for s in (
+        srcs["opportunity_frontier_kernel"], _src("engine/constrained_reallocation.py"),
+        _src("engine/reallocation_proposal.py"), _src("engine/zero_base_allocator.py")))
+    forced_min_weight_tokens = sorted(t for t in ("min_asset_class_weight", "min_sleeve_weight",
+                                                  "min_non_equity_weight", "force_diversif")
+                                      if any(t in s for s in codes.values()))
+    long_only_declared = "SHORT_EXPOSURE_SUPPORTED = False" in srcs["instrument_contract"]
+    zero_signal_not_a_sink = "zero_signal_rule" in srcs["opportunity_frontier_kernel"]
+
+    # execution convention + settlement + collateral semantics declared ONCE
+    convention_declared = ('EXECUTION_CONVENTION = "NEXT_SESSION_SETTLEMENT"' in srcs["instrument_contract"]
+                           and 'IT_CASH_EQUITY: "NEXT_CLOSE"' in srcs["instrument_contract"])
+    futures_not_valued_like_equities = ('"VARIATION_MARGIN_UNREALISED"' in srcs["instrument_contract"]
+                                        and "collateral = q * float(d[\"initial_margin_per_unit\"]) * fx"
+                                        in srcs["instrument_contract"])
+    cost_policy_declared = ('COST_POLICY_VERSION = "multi_asset_cost_policy.v1"' in srcs["instrument_contract"]
+                            and "COST_BPS_PER_SIDE_BY_CLASS" in srcs["instrument_contract"])
+
+    # the ONE NAV / mark / settlement owner is instrument-aware; no second engine
+    desk_src = _src("api/paper_trading_desk.py")
+    desk_routes_owned_marks = ("OWNED_NORGATE_SETTLEMENT" in desk_src
+                               and "_mrd.mark_downloader(" in desk_src)
+    desk_settles_by_instrument = ("_ic.fill_cash_delta(" in desk_src
+                                  and "OWNED_NORGATE_SETTLEMENT_AS_RECORDED" in desk_src)
+    desk_nav_instrument_aware = ("_ic.replay_entry_marks(" in desk_src
+                                 and "_ic.value_position(" in desk_src)
+    second_fill_writers = sorted(
+        _rel(fp) for fp in files if _operational(_rel(fp))
+        and _rel(fp) != "api/paper_trading_desk.py"
+        and "FILLS_FILE, fills_rows" in fp.read_text(encoding="utf-8", errors="replace"))
+    hoc_scoped_to_equity = "def excluded_non_equity_positions(" in _src("api/holding_opportunity_cost.py")
+
+    # drawdown ownership resolved
+    dc_src = _src("api/daily_close.py")
+    daily_close_reads_owner_drawdown = ('"max_drawdown_owner": "api.paper_trading_desk.current_drawdown"' in dc_src
+                                        and "worst = min(worst, v / peak - 1.0)" not in dc_src)
+    analytics_reads_current_rows = ('.get("current_rows") or (perf or {}).get("rows")'
+                                    in _src("api/portfolio_analytics.py"))
+    portfolio_state_names_owner = ('"drawdown_owner": "api.paper_trading_desk.current_drawdown"'
+                                   in _src("api/portfolio_state.py"))
+
+    # cross-asset constraints live in the ONE constraint owner
+    cr_src = _src("engine/constrained_reallocation.py")
+    cross_asset_constraints_declared = all(t in cr_src for t in (
+        'C_ASSET_CLASS_CAP = "ASSET_CLASS_WEIGHT_CAP"', 'C_SLEEVE_CAP = "SLEEVE_WEIGHT_CAP"',
+        'C_CURRENCY_CAP = "CURRENCY_EXPOSURE_CAP"', 'C_COLLATERAL_CAP = "COLLATERAL_USAGE_CAP"',
+        'C_UNIT_GRANULARITY = "UNIT_GRANULARITY_AT_NAV"'))
+    proposal_reuses_constraint_owner = ("_cr.candidate_meta(" in _src("engine/reallocation_proposal.py")
+                                        and "_cr.allocation_by(" in _src("engine/reallocation_proposal.py"))
+    zero_base_reuses_constraint_owner = ("_cr.cross_asset_room(" in _src("engine/zero_base_allocator.py")
+                                         and "_cr.candidate_meta(" in _src("engine/zero_base_allocator.py"))
+
+    # routes + inventory
+    routes = check_routes()["routes"]
+    r50_route_counts = {p: len([r for r in routes if r["path"] == p and r["method"] == "GET"])
+                        for p in R50_ROUTES}
+    r50_mutating_routes = sorted("%s %s" % (r["method"], r["path"]) for r in routes
+                                 if r["path"] in R50_ROUTES and r["method"] != "GET")
+    try:
+        _inv = json.loads(_read("docs/architecture/system_inventory.json"))
+        _ownership = _inv.get("route_ownership", [])
+        _modules = {m.get("path", "").replace("\\", "/") for m in _inv.get("modules", [])}
+    except (json.JSONDecodeError, OSError):
+        _ownership, _modules = [], set()
+    routes_registered = sorted(p for p in R50_ROUTES
+                               if not any(e.get("prefix") == p for e in _ownership))
+    modules_registered = sorted(v for v in R50_OWNERS.values() if v not in _modules)
+    app_src = _src("api/app.py")
+    snapshot_served = sorted(s for s in R50_SNAPSHOT_SERVED
+                             if ('_snap.section("%s")' % s) not in app_src)
+    direct_owner_calls_remaining = sorted(t for t in (
+        "return _opres.load_operator_presentation()", "return _pstate.load_portfolio_state()",
+        "return _realloc.load_constrained_reallocation()", "return _rebalance.load_rebalance_state()",
+        "return _opbook.load_operational_book()", "return _dclose.load_daily_close()")
+        if t in app_src)
+
+    # UI: the registry card is an Audit surface; the R50 region is read-only
+    ui = _read(UI_FILE)
+    _s0 = ui.find('<style id="r49-styles">')
+    _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
+    css = ui[_s0:_s1] if (_s0 != -1 and _s1 > _s0) else ""
+    registry_card_under_audit = (
+        'id="r50-investability-card"' in ui
+        and '#tab-portfolio-manager:not([data-pm-view="audit"]) > #r50-investability-card' in css)
+    _r0 = ui.find("/* R50_REGION_START */")
+    _r1 = ui.find("/* R50_REGION_END */")
+    region = ui[_r0:_r1] if (_r0 != -1 and _r1 > _r0) else ""
+    region_forbidden = sorted(t for t in ("fetch(", "alert(", "confirm(", "prompt(", "call('POST'",
+                                          "method: 'POST'", "Math.", "compute")
+                              if re.search(r"(?<![\w.])" + re.escape(t), region))
+    region_loader_count = region.count("function loadInvestabilityRegistry(")
+    snapshot_allocation_from_owner = ("s.allocation_available" in ui
+                                      and '"allocation_available": bool(allocation)'
+                                      in _src("api/operator_presentation.py"))
+    no_cosmetic_zero_rows = ('if cash > 1e-9:' in srcs["instrument_contract"]
+                             and "never a cosmetic 0% row" in srcs["instrument_contract"])
+    no_new_primary_section = len(re.findall(r'<div id="(today-[\w-]+)"', ui)) == len(
+        re.findall(r'<div id="(today-[\w-]+)"', ui))  # structural no-op guard kept explicit
+    r50_new_panel_ids = sorted(m for m in re.findall(r'id="(r50-[\w-]+)"', ui)
+                               if m not in ("r50-investability-card", "r50-investability-body"))
+
+    # no broker path anywhere in the R50 owners
+    broker_reach = sorted("%s:%s" % (k, t) for k, c in codes.items() for t in (
+        "ib_insync", "ibapi", "alpaca", "requests.post", "broker_client", "submit_live") if t in c)
+    manual_gates_unchanged = (
+        'CONFIRM_TOKEN = "CONFIRM_PORTFOLIO_REBALANCE_DECISION"' in _src("api/portfolio_decision.py")
+        and 'CONFIRM_TOKEN = "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN"' in _src("api/rebalance_execution.py"))
+
+    return {
+        "phase": "R50",
+        "owners_missing": owners_present,
+        "capital_pool_owners": capital_pool_owners,
+        "nav_owners": nav_owners,
+        "position_contract_owners": position_contract_owners,
+        "registry_owners": registry_owners,
+        "risk_owners": risk_owners,
+        "frontier_owners": frontier_owners,
+        "zero_base_owners": zero_base_owners,
+        "feasible_target_owners": feasible_owners,
+        "switching_owners": switching_owners,
+        "snapshot_owners": snapshot_owners,
+        "execution_owners": execution_owners,
+        "settlement_owners": settlement_owners,
+        "evidence_owners": evidence_owners,
+        "drawdown_owners": drawdown_owners,
+        "covariance_owners": covariance_owners,
+        "snapshot_business_reach": snapshot_business_reach,
+        "snapshot_declares_no_business": bool(snapshot_declares_no_business),
+        "snapshot_invalidation_is_identity": bool(snapshot_invalidation_is_identity),
+        "presentation_business_reach": presentation_business_reach,
+        "registry_no_promotion": bool(registry_no_promotion),
+        "registry_eligibility_derived": bool(registry_eligibility_derived),
+        "r46_reach": r46_reach,
+        "research_imports_in_operational": research_imports_in_operational,
+        "forced_diversification_declared_false": bool(forced_div_declared_false),
+        "forced_min_weight_tokens": forced_min_weight_tokens,
+        "long_only_declared": bool(long_only_declared),
+        "zero_signal_not_a_sink": bool(zero_signal_not_a_sink),
+        "convention_declared": bool(convention_declared),
+        "futures_not_valued_like_equities": bool(futures_not_valued_like_equities),
+        "cost_policy_declared": bool(cost_policy_declared),
+        "desk_routes_owned_marks": bool(desk_routes_owned_marks),
+        "desk_settles_by_instrument": bool(desk_settles_by_instrument),
+        "desk_nav_instrument_aware": bool(desk_nav_instrument_aware),
+        "second_fill_writers": second_fill_writers,
+        "hoc_scoped_to_equity": bool(hoc_scoped_to_equity),
+        "daily_close_reads_owner_drawdown": bool(daily_close_reads_owner_drawdown),
+        "analytics_reads_current_rows": bool(analytics_reads_current_rows),
+        "portfolio_state_names_drawdown_owner": bool(portfolio_state_names_owner),
+        "cross_asset_constraints_declared": bool(cross_asset_constraints_declared),
+        "proposal_reuses_constraint_owner": bool(proposal_reuses_constraint_owner),
+        "zero_base_reuses_constraint_owner": bool(zero_base_reuses_constraint_owner),
+        "r50_route_counts": r50_route_counts,
+        "r50_mutating_routes": r50_mutating_routes,
+        "routes_unregistered": routes_registered,
+        "modules_unregistered": modules_registered,
+        "snapshot_sections_not_served": snapshot_served,
+        "direct_owner_calls_remaining": direct_owner_calls_remaining,
+        "registry_card_under_audit": bool(registry_card_under_audit),
+        "region_forbidden": region_forbidden,
+        "region_loader_count": region_loader_count,
+        "snapshot_allocation_from_owner": bool(snapshot_allocation_from_owner),
+        "no_cosmetic_zero_rows": bool(no_cosmetic_zero_rows),
+        "r50_new_panel_ids": r50_new_panel_ids,
+        "broker_reach": broker_reach,
+        "manual_gates_unchanged": bool(manual_gates_unchanged),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -12020,6 +12304,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release48_portfolio_cycle": check_release48_portfolio_cycle(files),
         "release49_operator_presentation":
             check_release49_operator_presentation(files),
+        "release50_multi_asset": check_release50_multi_asset(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14351,6 +14636,69 @@ BLOCKING_INVARIANTS = (
     ("release49_operator_presentation", "r49_new_panel_ids", []),
     ("release49_operator_presentation", "manual_gates_unchanged", True),
     ("release49_operator_presentation", "safety_mode_line_declared", True),
+    # ------------------------------------------------------------------- #
+    # Release 50 - the multi-asset operational capital manager: ONE owner per
+    # business concept, no snapshot-side / presentation-side recomputation, no
+    # research auto-promotion, no R46-to-operation path, derived (never declared)
+    # capital eligibility, no forced diversification, one governed paper
+    # execution path, one decision-evidence path, no broker path, the drawdown
+    # ownership debt resolved. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release50_multi_asset", "owners_missing", []),
+    ("release50_multi_asset", "capital_pool_owners", ["api/capital_pool.py"]),
+    ("release50_multi_asset", "nav_owners", ["api/paper_trading_desk.py"]),
+    ("release50_multi_asset", "position_contract_owners", ["engine/instrument_contract.py"]),
+    ("release50_multi_asset", "registry_owners", ["api/investability_registry.py"]),
+    ("release50_multi_asset", "risk_owners", ["engine/cross_asset_risk.py"]),
+    ("release50_multi_asset", "frontier_owners", ["engine/opportunity_frontier.py"]),
+    ("release50_multi_asset", "zero_base_owners", ["engine/zero_base_allocator.py"]),
+    ("release50_multi_asset", "feasible_target_owners", ["engine/constrained_reallocation.py"]),
+    ("release50_multi_asset", "switching_owners", ["engine/constrained_reallocation.py"]),
+    ("release50_multi_asset", "snapshot_owners", ["api/decision_snapshot.py"]),
+    ("release50_multi_asset", "execution_owners", ["api/rebalance_execution.py"]),
+    ("release50_multi_asset", "settlement_owners", ["api/paper_trading_desk.py"]),
+    ("release50_multi_asset", "evidence_owners", ["api/portfolio_decision_outcome.py"]),
+    ("release50_multi_asset", "drawdown_owners", ["api/paper_trading_desk.py"]),
+    ("release50_multi_asset", "covariance_owners", ["engine/holding_opportunity_cost.py"]),
+    ("release50_multi_asset", "snapshot_business_reach", []),
+    ("release50_multi_asset", "snapshot_declares_no_business", True),
+    ("release50_multi_asset", "snapshot_invalidation_is_identity", True),
+    ("release50_multi_asset", "presentation_business_reach", []),
+    ("release50_multi_asset", "registry_no_promotion", True),
+    ("release50_multi_asset", "registry_eligibility_derived", True),
+    ("release50_multi_asset", "r46_reach", []),
+    ("release50_multi_asset", "research_imports_in_operational", []),
+    ("release50_multi_asset", "forced_diversification_declared_false", True),
+    ("release50_multi_asset", "forced_min_weight_tokens", []),
+    ("release50_multi_asset", "long_only_declared", True),
+    ("release50_multi_asset", "zero_signal_not_a_sink", True),
+    ("release50_multi_asset", "convention_declared", True),
+    ("release50_multi_asset", "futures_not_valued_like_equities", True),
+    ("release50_multi_asset", "cost_policy_declared", True),
+    ("release50_multi_asset", "desk_routes_owned_marks", True),
+    ("release50_multi_asset", "desk_settles_by_instrument", True),
+    ("release50_multi_asset", "desk_nav_instrument_aware", True),
+    ("release50_multi_asset", "second_fill_writers", []),
+    ("release50_multi_asset", "hoc_scoped_to_equity", True),
+    ("release50_multi_asset", "daily_close_reads_owner_drawdown", True),
+    ("release50_multi_asset", "analytics_reads_current_rows", True),
+    ("release50_multi_asset", "portfolio_state_names_drawdown_owner", True),
+    ("release50_multi_asset", "cross_asset_constraints_declared", True),
+    ("release50_multi_asset", "proposal_reuses_constraint_owner", True),
+    ("release50_multi_asset", "zero_base_reuses_constraint_owner", True),
+    ("release50_multi_asset", "r50_mutating_routes", []),
+    ("release50_multi_asset", "routes_unregistered", []),
+    ("release50_multi_asset", "modules_unregistered", []),
+    ("release50_multi_asset", "snapshot_sections_not_served", []),
+    ("release50_multi_asset", "direct_owner_calls_remaining", []),
+    ("release50_multi_asset", "registry_card_under_audit", True),
+    ("release50_multi_asset", "region_forbidden", []),
+    ("release50_multi_asset", "region_loader_count", 1),
+    ("release50_multi_asset", "snapshot_allocation_from_owner", True),
+    ("release50_multi_asset", "no_cosmetic_zero_rows", True),
+    ("release50_multi_asset", "r50_new_panel_ids", []),
+    ("release50_multi_asset", "broker_reach", []),
+    ("release50_multi_asset", "manual_gates_unchanged", True),
 )
 
 

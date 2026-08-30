@@ -1,6 +1,190 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-30
+- **Updated by phase:** **Release 50 - Multi-Asset Operational Capital
+  Manager: ONE capital pool, ONE multi-asset NAV, ONE position contract, ONE
+  investability registry, ONE cross-asset risk state, ONE opportunity
+  frontier, ONE cross-asset constraint owner, ONE governed paper reallocation
+  path, ONE decision snapshot (single agent, no subagents, Windows PowerShell
+  only).** Built on R49 commit `3a849aff5ac4efd5a57d86ae3a6200883496af06`.
+  **`R50_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell tool-uses,
+  zero subagents (`shell_attestation.json`); the harness offered Bash and
+  background agents throughout and both were declined.
+  **The objective, restated.** The charter is asset-agnostic: equities were the
+  proving ground, never the goal. Until now the operational path could value,
+  risk, cost, propose, approve, execute and reconcile ONE instrument type - a US
+  cash equity - so every other sleeve the estate owns data for (Norgate futures
+  in nine databases, 57 FX spot pairs, the R46 lanes) was research-only by
+  construction. Release 50 makes the manager able to run capital in any of them
+  through the SAME owners, and then answers honestly which of them it may.
+  **The honest production answer: capital-eligible sleeves are STILL
+  `us_equity_fundamental_momentum_50_50_v1` + `cash_usd`.** Eleven sleeves are
+  inventoried (`api/investability_registry.py`, 13 capability flags each). All
+  nine non-equity sleeves (equity-index / rates / commodity / volatility / FX /
+  international-index / crypto futures, FX spot, event-macro) now carry
+  DATA / PIT / CURRENT_MARK / USD_VALUATION / RISK / COST / LIQUIDITY /
+  CAPACITY / POSITION_ACCOUNTING / PAPER_EXECUTION / RECONCILIATION = TRUE
+  (FX spot: LIQUIDITY declared unavailable - no owned volume; international
+  index: no operational model registered). Each one's ONE remaining blocker is
+  `NO_APPROVED_OPERATIONAL_SIGNAL`: the R46 TRUE_FORWARD tournament is still
+  TOO_EARLY / FORWARD_PENDING, R42 priced the crypto basis premium below the
+  cash control, R36/R43 FX carry is historical only. Approving one would be an
+  automatic promotion, which this release forbids (`this_module_can_promote:
+  false`, `automatic_promotion: false`; audit-enforced). Every one of the nine
+  carries its documented R50 activation attempt (`activation_attempts.json`).
+  The whole multi-asset path is proven hermetically with an injected approval:
+  rates futures receive 20 % of a $5M book beside 80 % US equities
+  (`PROPOSAL_READY`, allocation by asset class, whole contracts, collateral,
+  NAV reconciled) - scenarios B / C / L / P / Q.
+  **What exists now (one owner each).** `engine/instrument_contract.py` - the
+  ONE position contract (CASH_EQUITY / FUTURE / FX_SPOT / CASH; a future is
+  valued as notional = q x mark x point value x fx, NAV contribution = unrealised
+  variation, collateral = q x initial margin x fx as ENCUMBERED cash never an
+  outflow; a ledger row without an `instrument` block IS a US cash equity, so no
+  ledger was rewritten; ONE asset-aware execution convention
+  `NEXT_SESSION_SETTLEMENT` with equities unchanged at NEXT_CLOSE; a declared
+  per-class cost policy with provenance; `SHORT_EXPOSURE_SUPPORTED = False`;
+  cash return declared zero on every path including collateral).
+  `api/market_reference_data.py` - the owned Norgate seam (point value, margin,
+  currency, tick size, daily settlements, Forex Spot USD conversion; opens owned
+  data only, writes nothing, imports no research module; JSON fixture seam for
+  hermetic tests). `api/paper_trading_desk.py` - the ONE mark / NAV / settlement
+  owner made instrument-aware (owned-settlement mark routing, FX pairs in the
+  same store, variation-margin NAV, futures fills via `fill_cash_delta`,
+  collateral, free cash) and the ONE drawdown owner (`current_drawdown`,
+  peak includes initial capital; Daily Close forward monitor, Portfolio
+  analytics and portfolio state all read it - the drawdown ownership debt is
+  closed). `api/capital_pool.py` - ONE capital pool read model from the ONE NAV
+  (allocation by asset class incl. cash, collateral, available capital, gross /
+  net / sleeve / currency exposure). `engine|api/cross_asset_risk.py` - ONE
+  cross-asset risk state on the canonical covariance (`hoc_kernel.
+  build_covariance`), every approximation labelled. `engine|api/
+  opportunity_frontier.py` - ONE frontier with an explicit `score_basis`
+  (OPERATIONAL_MODEL_COMBINED_PERCENTILE / OPERATIONAL_SLEEVE_NORMALISED_RANK /
+  CASH_DECLARED_ZERO / NONE_RESEARCH_ONLY); expected return only when calibrated
+  (NOT_CALIBRATED today); research statistics never become expected return; a
+  zero-signal instrument is never a residual sink; no forced diversification.
+  `engine/constrained_reallocation.py` - the ONE constraint owner gains
+  ASSET_CLASS_WEIGHT_CAP / SLEEVE_WEIGHT_CAP / CURRENCY_EXPOSURE_CAP /
+  COLLATERAL_USAGE_CAP / UNIT_GRANULARITY_AT_NAV, all RESHAPING (default caps:
+  equity and cash 1.0, any non-equity class or sleeve 0.25, non-USD 0.20,
+  collateral 0.25, gross 1.0), allocation by asset class before/after, per-
+  instrument cost in the switching economics. `engine/reallocation_proposal.py`
+  - eligible frontier rows enter the candidate pool by normalised score
+  (`pool_rank`), cross-asset breaches route to the R47 repair
+  (`CT_CROSS_ASSET_CAP`), the read contract carries current / target allocation
+  by asset class and sleeve, the frontier hash binds the proposal identity.
+  `engine/zero_base_allocator.py` - the same caps in the zero-base solve.
+  `api/rebalance_execution.py` - whole-contract sizing, margin-per-unit,
+  collateral need / trim, `cash_impact` vs `collateral_change_usd`, instrument
+  blocks on desk orders, USD marks + `instrument_meta` in the frozen decision
+  evidence; both manual gates (`CONFIRM_PORTFOLIO_REBALANCE_DECISION`,
+  `CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN`) unchanged; idempotent
+  replay proven. `engine|api/portfolio_decision_outcome.py` - outcomes priced
+  through the instrument meta and FX series. HOC is scoped to the equity
+  sleeve; non-equity holdings are reviewed by the frontier.
+  **The decision snapshot.** `api/decision_snapshot.py` fingerprints (stat-only)
+  every store that can change a decision (desk ledgers and marks, corporate
+  actions, proposal / HOC / reassessment / decision / plan / outcome / DRC /
+  multi-horizon roots, the eligible market date, the store-root environment),
+  composes the operational read ONCE per identity and serves `operational-book`,
+  `daily-close`, `workflow-state`, `portfolio-state`, `constrained-reallocation`,
+  `rebalance`, `operator-presentation` and `capital-pool` from it (`_snap.
+  section(name)`); a changed identity regenerates from the owners, a 180 s
+  absolute age bound is a second safety valve, never the invalidation rule; it
+  computes no number of its own (audit-enforced). New read-only routes:
+  `decision-snapshot`, `investability-registry`, `capital-pool`,
+  `cross-asset-risk`, `opportunity-frontier`.
+  **Performance, measured before / after on the same routes and the same
+  machine** (`http_timings_before.json`, `http_timings_after_passA.json`,
+  `read_fanout_before/after.json`, `browser_acceptance.json`). Operator
+  presentation 4.38 s -> 0.02-0.11 s warm (target <= 2 s warm: MET); cold, on
+  a new identity, 3.3-4.1 s over HTTP (browser 3.28 s, post-expiry pass 4.13 s;
+  decision visible on Today 3.9 s from navigation start; target <= 3 s: MET
+  warm, MISSED by ~1 s on the first load of a new identity - the remaining cost
+  is the owners' INTERNAL fan-out behind
+  `workflow_state` (65 `read_marks`, 9 `load_operational_book`, 11
+  `load_data_freshness` per cold composition), not the snapshot; threading the
+  shared operational read into those sub-owners is the next slice, and no
+  timeout was raised). portfolio-state 1.23 -> 0.06 s, constrained-reallocation
+  4.74 -> 0.02 s, workflow-state 1.14 -> 0.04 s, rebalance 2.45 -> 0.02 s,
+  daily-close 0.66 -> 0.04 s. Heavy owner calls behind ONE Today load 45 -> 26
+  cold / 0 warm; the Portfolio Overview GET set after Today 21.6 s / 106 heavy
+  calls -> 2.0 s / 13 (cold direct deep-link 8.3 s / 39). The zero-base target
+  route (not snapshot-served) was 25.9 s before; the first R50 cut doubled it to
+  49 s because the cross-asset room test ran inside the optimiser's inner loop
+  (732k re-summations); fixed by an exact fast path (`cross_asset_relevant`:
+  every room is provably infinite for an equity-only book under the default
+  caps) plus incrementally maintained group totals - 27.6 s in-process after
+  the fix, i.e. the pre-R50 cost.
+  **UI (R49 preserved, extended only where allocation is real).** Today's
+  snapshot gains one `Allocation` row (`US Equities 95.5% · Cash 4.5%`), both
+  Overview columns show allocation by asset class, the Reallocation target shows
+  its sleeves, the registry card (`#r50-investability-card`, 12 rows, every
+  blocker named) lives ONLY under Audit & Details; nothing renders `FX 0%`.
+  Wireframe before code (`wireframe_r50.md`). Browser acceptance at 1920x1080
+  PASS (read-only, isolated Chrome profile because the shared Playwright-MCP
+  profile is locked by an earlier session's server): four Today sections, no
+  blank buttons, no Create Orders / automation control, no dialog, no
+  horizontal scroll, zero page-resource failures; the single console 404 is the
+  browser's own `/favicon.ico` fetch (no such route, pre-existing). Two raw
+  codes remain on Today (`SECTOR_WEIGHT_BREACH`, `RISK_CONTRIBUTION_BREACH`)
+  inside R49's historical-decision detail line - pre-existing rendering of
+  `portfolio_decision.reason_codes`, untouched by R50 and reported as such.
+  **Evidence.** 53 new tests (`tests/test_release50_multi_asset_operational_
+  manager.py`, scenarios A-S); broad touched-owner regression 2604 passed / 5
+  failed of which 2 are the accepted baseline and 3 were R50-caused and fixed
+  (constraint-ownership statement, the slice-5 canned owner, the stage-19.2
+  closed mechanics list) - re-runs 190 / 64 / 318 passed
+  (`targeted_test_results.json`); `scripts/audit_architecture.py --strict` green
+  with `check_release50_multi_asset` (55 blocking invariants: one owner per
+  concept, snapshot and presentation recompute nothing, no research reach, no
+  broker reach, no forced diversification, registry card under Audit, no
+  promotion path); `scripts/check_ui_js.py` 0 errors; write attribution
+  `ATTRIBUTED` under the R50 profile; `git diff --check` clean.
+  **Nothing was executed and nothing was spent.** Zero production Portfolio
+  Cycle / Daily Close / DRC runs, zero approvals, orders, fills, holdings / NAV /
+  evidence mutations, purchases, entitlement changes, model or research
+  promotions. Production research root **2177 files byte-identical**
+  (`7bf89b3b79e5bfb5`) and the operational store set **60 files
+  byte-identical** (`c5537bbcdf612fe6`) before and after the whole development
+  window (the backend was restarted only through the canonical owner,
+  `LIVE_SMOKE_OK` x3, 12 authenticated GETs).
+- **Working tree status (R50):** New: `engine/instrument_contract.py`,
+  `engine/cross_asset_risk.py`, `engine/opportunity_frontier.py`,
+  `api/market_reference_data.py`, `api/investability_registry.py`,
+  `api/capital_pool.py`, `api/cross_asset_risk.py`, `api/opportunity_frontier.py`,
+  `api/decision_snapshot.py`, `docs/RELEASE50_MULTI_ASSET_OPERATIONAL_MANAGER.md`,
+  `tests/test_release50_multi_asset_operational_manager.py`. Modified:
+  `api/paper_trading_desk.py`, `api/operational_book.py`, `api/portfolio_state.py`,
+  `api/holding_opportunity_cost.py`, `api/forward_evidence.py`,
+  `api/daily_close.py`, `api/portfolio_analytics.py`,
+  `api/reallocation_proposal.py`, `api/rebalance_execution.py`,
+  `api/portfolio_decision_outcome.py`, `api/operator_presentation.py`,
+  `api/app.py`, `api/ui/index.html`, `engine/constrained_reallocation.py`,
+  `engine/reallocation_proposal.py`, `engine/zero_base_allocator.py`,
+  `engine/portfolio_decision_outcome.py`, `engine/portfolio_reassessment.py`,
+  `scripts/audit_architecture.py`, `scripts/r33_operational_write_attribution.py`,
+  `docs/architecture/system_inventory.json`,
+  `tests/test_slice5_portfolio_state.py`,
+  `tests/test_stage19_2_failclosed_rebalance.py`, and this file. The pre-existing
+  unrelated untracked set is preserved and never staged.
+- **Next required action (R50):** Validate, run the ONE full regression, commit
+  and push from `D:\Temp\paper_trader_release50_multi_asset_operational_manager_
+  handoff` (`validate.ps1` -> `R50_VALIDATE_OK`, then
+  `operator_full_regression.ps1` -> `COMMIT_OK` against the unchanged
+  eight-failure baseline, then `commit.ps1`, then `push.ps1`, same session).
+  **Nothing changes for the operator's day:** Today still reads `HISTORICAL
+  DECISION - 2026-08-28`; after the next market close the portfolio cycle runs
+  as before, now through the frontier (equities + cash eligible) and the
+  snapshot. A non-equity sleeve enters the frontier only when its operational
+  model reaches `APPROVED_FOR_OPERATION` through the governed evidence path
+  (R46 forward maturity), never by code. The next performance slice is the
+  owners' internal fan-out behind `workflow_state` (cold Today 3.9 s -> <= 3 s).
+
+## Release 49 (superseded as the current phase; result unchanged)
+
+- **Last updated:** 2026-08-30
 - **Updated by phase:** **Release 49 - Operator Experience Rebuild: Today
   command center + Portfolio task workspace + ONE reconciled operator
   presentation + Advanced/Audit hard separation (single agent, no subagents,

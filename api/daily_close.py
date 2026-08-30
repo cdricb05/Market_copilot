@@ -1994,14 +1994,12 @@ def _forward_monitor_block(*, perf: dict, starting_capital: Optional[float],
             sdd = math.sqrt(sum((x - md_) ** 2 for x in diff) / (len(diff) - 1))
             info_ratio = round((md_ / sdd) * math.sqrt(252), 4) if sdd else None
 
-    max_dd = None
-    if navs:
-        peak, worst = navs[0], 0.0
-        for v in navs:
-            peak = max(peak, v)
-            if peak:
-                worst = min(worst, v / peak - 1.0)
-        max_dd = round(worst * 100.0, 4)
+    # Release 50 - ONE drawdown owner. This block used to run a second peak-to-trough
+    # formula whose peak started at the FIRST NAV row, while the ledger's peak starts
+    # at the initial capital: two honest numbers for one concept. The forward monitor
+    # now reads the canonical current-state ledger summary and recomputes nothing.
+    max_dd = _f(((perf or {}).get("current_summary") or (perf or {}).get("summary")
+                 or {}).get("max_drawdown_pct"))
 
     turnover = None
     if decision_history:
@@ -2028,6 +2026,8 @@ def _forward_monitor_block(*, perf: dict, starting_capital: Optional[float],
         "annualized_volatility_pct": vol_ann,
         "hit_rate_pct": hit_rate,
         "max_drawdown_pct": max_dd,
+        "max_drawdown_owner": "api.paper_trading_desk.current_drawdown",
+        "max_drawdown_basis": "CURRENT_ECONOMIC_STATE_FORWARD_PERFORMANCE_LEDGER",
         "proposed_change_total": turnover,
         # Ratios withheld below the sample floor (never a misleading 1-2 obs value).
         "sharpe_ratio": sharpe,

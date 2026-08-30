@@ -158,6 +158,8 @@ SOURCE_OWNERS = {
     "material_information": "api.material_information",
     "decision_outcomes": "api.portfolio_decision_outcome",
     "information_collection": "api.information_collection",
+    # Release 50 - the ONE capital pool (allocation by asset class, verbatim).
+    "capital_pool": "api.capital_pool",
 }
 
 
@@ -672,10 +674,24 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
 # --------------------------------------------------------------------------- #
 # Snapshot, economics, attention, outcome — every number read verbatim.
 # --------------------------------------------------------------------------- #
-def _portfolio_snapshot(wf: dict, daily_close: dict) -> dict:
+def _portfolio_snapshot(wf: dict, daily_close: dict, capital_pool: Optional[dict] = None) -> dict:
     os_ = _d(wf.get("operational_state"))
     pnl = _d(daily_close.get("pnl"))
+    cpool = _d(capital_pool)
+    # Release 50 - the allocation by asset class is the capital-pool owner's, read
+    # verbatim; only asset classes that carry weight are present (never "FX 0%").
+    allocation = [{"asset_class": k, "label": _d(cpool.get("allocation_labels")).get(k, k),
+                   "weight": _num(v)}
+                  for k, v in _d(cpool.get("allocation")).items() if _num(v) is not None]
     return {
+        "allocation": allocation,
+        "allocation_available": bool(allocation),
+        "asset_classes_present": [a["asset_class"] for a in allocation],
+        "collateral": _num(cpool.get("collateral")),
+        "available_capital": _num(cpool.get("available_capital")),
+        "gross_exposure": _num(cpool.get("gross_exposure")),
+        "non_equity_positions": _int(cpool.get("non_equity_position_count")),
+        "capital_pool_owner": cpool.get("owner") or SOURCE_OWNERS["capital_pool"],
         "book_id": os_.get("active_book_id"),
         "book_label": os_.get("active_book_name"),
         "book_status": os_.get("book_status"),
@@ -881,7 +897,8 @@ def build_operator_presentation(*, workflow: Optional[dict],
                                 decision_outcomes: Optional[dict] = None,
                                 information_collection: Optional[dict] = None,
                                 warnings: Optional[list] = None,
-                                now: Optional[datetime] = None) -> dict:
+                                now: Optional[datetime] = None,
+                                capital_pool: Optional[dict] = None) -> dict:
     """Reconcile the authoritative owner payloads into ONE operator presentation.
 
     Pure: no I/O, no owner call, no recomputation. A missing owner degrades to an
@@ -894,7 +911,7 @@ def build_operator_presentation(*, workflow: Optional[dict],
     historical = _historical_context(wf, cn)
     decision = _portfolio_decision(wf, cn, _d(decision_outcomes), historical)
     system = _system_readiness(wf, information_collection if isinstance(information_collection, dict) else None)
-    snapshot = _portfolio_snapshot(wf, dc)
+    snapshot = _portfolio_snapshot(wf, dc, capital_pool)
     summary = _decision_summary(wf, cn)
     alerts = _alerts_summary(material_information)
     outcome = _decision_outcome(decision_outcomes)
@@ -922,6 +939,7 @@ def build_operator_presentation(*, workflow: Optional[dict],
         "material_information": {"available": bool(material_information), "owner": SOURCE_OWNERS["material_information"]},
         "decision_outcomes": {"available": bool(decision_outcomes), "owner": SOURCE_OWNERS["decision_outcomes"]},
         "information_collection": {"available": bool(information_collection), "owner": SOURCE_OWNERS["information_collection"]},
+        "capital_pool": {"available": bool(capital_pool), "owner": SOURCE_OWNERS["capital_pool"]},
     }
     safety_badges: list[str] = []
     for src in (wf, cn, dc):
@@ -989,7 +1007,7 @@ def _accepts(fn: Callable, name: str) -> bool:
         return False
 
 
-def _default_loaders() -> dict[str, Callable[[], dict]]:
+def owner_loaders(*, portfolio_state: Optional[dict] = None) -> dict[str, Callable[[], dict]]:
     """The owners, composed — never forked.
 
     Every owner that accepts an injected ``portfolio_state`` receives the ONE
@@ -999,6 +1017,10 @@ def _default_loaders() -> dict[str, Callable[[], dict]]:
     ``resolve_service_lifecycle`` verdict (RUNNING / STOPPED / DEGRADED /
     NEVER_STARTED) — the same function the full collection read model uses —
     without the per-source health scan the presentation does not render.
+
+    Release 50 - the decision snapshot passes the ONE portfolio state it already
+    composed (``portfolio_state=``) and reuses these loaders for the owners it
+    fans out, so no second read-model composition exists.
     """
     # Imported lazily so the pure builder stays importable without the owners.
     from paper_trader.api import workflow_state as _ws
@@ -1012,8 +1034,11 @@ def _default_loaders() -> dict[str, Callable[[], dict]]:
     from paper_trader.api import holding_opportunity_cost as _hoc
     from paper_trader.api import event_signal_refresh as _esr
     from paper_trader.api import return_forecast as _rfc
+    from paper_trader.api import capital_pool as _cpool
 
     cache: dict[str, Any] = {}
+    if portfolio_state is not None:
+        cache["ps"] = portfolio_state
 
     def _ps() -> Optional[dict]:
         if "ps" not in cache:
@@ -1063,7 +1088,12 @@ def _default_loaders() -> dict[str, Callable[[], dict]]:
         "material_information": _material,
         "decision_outcomes": lambda: _pdo.load_portfolio_decision_outcomes(),
         "information_collection": _collection,
+        "capital_pool": lambda: _cpool.load_capital_pool(portfolio_state=_ps()),
     }
+
+
+def _default_loaders() -> dict[str, Callable[[], dict]]:
+    return owner_loaders()
 
 
 def load_operator_presentation(*, workflow: Optional[dict] = None,
@@ -1073,7 +1103,8 @@ def load_operator_presentation(*, workflow: Optional[dict] = None,
                                decision_outcomes: Optional[dict] = None,
                                information_collection: Optional[dict] = None,
                                loaders: Optional[dict] = None,
-                               now: Optional[datetime] = None) -> dict:
+                               now: Optional[datetime] = None,
+                               capital_pool: Optional[dict] = None) -> dict:
     """Compose the owners and build.
 
     READ-ONLY. Every owner is a GET-level read model; a failing owner degrades to a
@@ -1085,6 +1116,7 @@ def load_operator_presentation(*, workflow: Optional[dict] = None,
         "material_information": material_information,
         "decision_outcomes": decision_outcomes,
         "information_collection": information_collection,
+        "capital_pool": capital_pool,
     }
     warnings: list[str] = []
     missing = [k for k, v in supplied.items() if v is None]
@@ -1113,4 +1145,5 @@ def load_operator_presentation(*, workflow: Optional[dict] = None,
         material_information=supplied["material_information"],
         decision_outcomes=supplied["decision_outcomes"],
         information_collection=supplied["information_collection"],
+        capital_pool=supplied["capital_pool"],
         warnings=warnings, now=now)

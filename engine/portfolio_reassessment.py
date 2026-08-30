@@ -189,8 +189,23 @@ RELEASE_SET_BLOCKER_CODES = (GATE_IMPROVEMENT_UNMEASURABLE, GATE_BELOW_NET_HURDL
                              GATE_LIQUIDITY)
 #: Codes MOVED to the complete-target owner in Release 29.3. This kernel still
 #: publishes the underlying arithmetic (as context) but never blocks on it.
+#: Release 50 - the cross-asset limits (asset class / sleeve / currency / collateral /
+#: gross exposure) are complete-target properties too: judged ONCE by the proposal
+#: owner on the complete target, re-optimised by the Release-47 kernel, never raised
+#: here.
+GATE_CROSS_ASSET_CAP = "CROSS_ASSET_CAP_BREACH_BLOCKS_CHANGE"
+#: The four constraints Release 29.3 MOVED out of this kernel (they were blockers
+#: here on Aug-17); the ownership statement names exactly these as "deferred".
+MOVED_COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
+                                          GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET)
+#: The cross-asset limit was never a reassessment constraint: it is NATIVE to the
+#: complete-target owner (Release 50), so it is agreed with that owner but never
+#: listed as a constraint this kernel gave up.
+NATIVE_COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CROSS_ASSET_CAP,)
+#: The AGREED set (identical on both owners - audited as a literal, so it is one).
 COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
-                                    GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET)
+                                    GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET,
+                                    GATE_CROSS_ASSET_CAP)
 
 # --- Release 47 — the PER-NAME form of the same three limits ----------------- #
 #: A held name can breach the name-weight, sector-weight or risk-contribution cap on
@@ -515,12 +530,17 @@ def constraint_ownership() -> dict:
         "deferred_to_complete_target": {
             "object": "COMPLETE_TARGET",
             "owner": CONSTRAINT_OWNER_COMPLETE_TARGET,
-            "constraints": list(COMPLETE_TARGET_CONSTRAINT_CODES),
+            "constraints": list(MOVED_COMPLETE_TARGET_CONSTRAINT_CODES),
             "question": ("Does the ONE complete target the proposal owner builds satisfy "
                          "turnover, concentration, sector and risk limits?"),
             "reason": ("These are properties of the complete post-change portfolio. This "
                        "kernel can only see the retained stub, which must be renormalised "
                        "to 1.0 to be compared at all — an object nobody will ever hold."),
+            # Release 50 - the cross-asset limits (asset class / sleeve / currency /
+            # collateral / gross exposure) are judged by the same owner on the same
+            # object, but they were never this kernel's to give up: agreed, not moved.
+            "native_to_complete_target": list(NATIVE_COMPLETE_TARGET_CONSTRAINT_CODES),
+            "agreed_codes": list(COMPLETE_TARGET_CONSTRAINT_CODES),
         },
         # Release 47 — the PER-NAME form of the same three limits is deferred for the
         # same reason: capping a name and REDISTRIBUTING the released capital is an
@@ -1558,7 +1578,7 @@ __all__ = [
     "GATE_MANDATORY_EXIT", "GATE_CONCENTRATION", "GATE_SECTOR_CAP", "GATE_LIQUIDITY",
     "GATE_MANDATORY_EXIT_WITHHELD", "MANDATORY_EXIT_POLICY", "MANDATORY_EXIT_POLICY_VERSION",
     "MANDATORY_EXIT_OVERRIDES", "MANDATORY_EXIT_HARD_BLOCKERS",
-    "RELEASE_SET_BLOCKER_CODES", "COMPLETE_TARGET_CONSTRAINT_CODES",
+    "RELEASE_SET_BLOCKER_CODES", "COMPLETE_TARGET_CONSTRAINT_CODES", "GATE_CROSS_ASSET_CAP",
     "CONSTRAINT_OWNER_COMPLETE_TARGET", "constraint_ownership", "mandatory_exit_policy_block",
     "GATE_RISK_DETERIORATION", "GATE_IMPROVEMENT_UNMEASURABLE",
     "IMPROVEMENT_BASIS", "EXPECTED_RETURN_STATE",

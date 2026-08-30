@@ -378,6 +378,11 @@ def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
 
     sector_map = {o.get("ticker"): o.get("sector") for o in (plan_orders or [])}
     prev_date = _prev_common_mark_date(series, list(qty_map.keys()), as_of)
+    # Release 50 - the position contracts the ONE NAV replay already produced. A
+    # non-equity holding (a future, an FX spot) is described by its contract; a US
+    # cash equity keeps the exact pre-R50 row, plus its instrument fields.
+    contracts = {p.get("instrument_id"): p for p in (valuation.get("positions") or [])
+                 if isinstance(p, dict) and p.get("instrument_id")}
 
     rows: list[dict] = []
     for tk, q in qty_map.items():
@@ -388,10 +393,21 @@ def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
         hit = (desk._series_price_at_or_before(series.get(tk) or [], as_of)
                if as_of else None)
         price = hit[1] if hit else None
-        mv = (q * price) if price is not None else None
-        upnl = (mv - cost_basis) if (mv is not None and cost_basis is not None) else None
-        upnl_pct = (upnl / cost_basis) if (upnl is not None and cost_basis) else None
-        cw = (mv / nav) if (mv is not None and nav) else None
+        pc = contracts.get(tk) or {}
+        is_equity = (pc.get("instrument_type") or "CASH_EQUITY") == "CASH_EQUITY"
+        scale = ((pc.get("multiplier") or 1.0) * (pc.get("fx_to_usd") or 1.0)
+                 if not is_equity else 1.0)
+        if is_equity:
+            mv = (q * price) if price is not None else None
+            notional = mv
+            upnl = (mv - cost_basis) if (mv is not None and cost_basis is not None) else None
+            upnl_pct = (upnl / cost_basis) if (upnl is not None and cost_basis) else None
+        else:
+            mv = _f(pc.get("market_value_usd"))
+            notional = _f(pc.get("notional_usd"))
+            upnl = _f(pc.get("unrealized_pnl_usd"))
+            upnl_pct = ((upnl / notional) if (upnl is not None and notional) else None)
+        cw = (notional / nav) if (notional is not None and nav) else None
         tw = _f(target_weights.get(tk))
         drift = (cw - tw) if (cw is not None and tw is not None) else None
         # Daily P&L is only honest once the name was HELD through the prior close
@@ -401,11 +417,11 @@ def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
         if prev_date and price is not None and opened is not None and opened < as_of:
             ph = desk._series_price_at_or_before(series.get(tk) or [], prev_date)
             if ph is not None:
-                dpnl = q * (price - ph[1])
+                dpnl = q * (price - ph[1]) * scale
         rows.append({
             "ticker": tk,
             "name": None,               # company name not stored on the desk ledgers
-            "sector": sector_map.get(tk) or "Unknown",
+            "sector": sector_map.get(tk) or pc.get("sector") or "Unknown",
             "quantity": q,
             "average_cost": (desk._r2(avg_cost) if avg_cost is not None else None),
             "latest_price": (desk._r2(price) if price is not None else None),
@@ -420,6 +436,21 @@ def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
             "status": _holding_status(upnl_pct, drift),
             "opened_date": opened,
             "valuation_date": as_of,
+            # Release 50 - the instrument contract behind the row (verbatim).
+            "instrument_type": pc.get("instrument_type") or "CASH_EQUITY",
+            "asset_class": pc.get("asset_class") or "US_EQUITY",
+            "sleeve_id": pc.get("sleeve_id") or "us_equity_fundamental_momentum_50_50_v1",
+            "currency": pc.get("currency") or "USD",
+            "multiplier": pc.get("multiplier") or 1.0,
+            "fx_to_usd": pc.get("fx_to_usd") or 1.0,
+            "unit_type": pc.get("unit_type") or "SHARES",
+            "notional_usd": (desk._r2(notional) if notional is not None else None),
+            "collateral_usd": pc.get("collateral_usd") if not is_equity else 0.0,
+            "capital_usage_usd": (pc.get("capital_usage_usd") if not is_equity
+                                  else (desk._r2(mv) if mv is not None else None)),
+            "exposure_weight": (round(cw, 6) if cw is not None else None),
+            "entry_mark": pc.get("entry_mark"),
+            "execution_convention": pc.get("execution_convention") or "NEXT_CLOSE",
         })
     rows.sort(key=lambda r: (r["current_weight"] is None,
                              -(r["current_weight"] or 0.0), r["ticker"]))
@@ -1061,6 +1092,21 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "target_market_date": (rd.get("target_market_date")
                                or (target or {}).get("alpha_market_date")),
         "target_confirmation_status": (target or {}).get("state"),
+        # Release 50 - the ONE NAV replay's multi-asset facts, verbatim (the position
+        # contracts, collateral, free cash, futures notional / unrealised). For an
+        # equity-only book collateral is 0 and free cash equals cash.
+        "valuation_contract": {
+            "positions": list(valuation.get("positions") or []),
+            "position_contract_version": valuation.get("position_contract_version"),
+            "collateral": _f(valuation.get("collateral")),
+            "free_cash": _f(valuation.get("free_cash")),
+            "futures_notional": _f(valuation.get("futures_notional")),
+            "futures_unrealized_pnl": _f(valuation.get("futures_unrealized_pnl")),
+            "gross_exposure_usd": _f(valuation.get("gross_exposure_usd")),
+            "non_equity_position_count": valuation.get("non_equity_position_count") or 0,
+            "reporting_currency": valuation.get("reporting_currency") or "USD",
+            "owner": "api.paper_trading_desk.book_nav",
+        },
         "desk_mark_date": rd.get("desk_mark_date"),
         "desk_mark_status": rd.get("desk_mark_status") or "UNAVAILABLE",
         "desk_mark_required_date": rd.get("latest_completed_market_date"),

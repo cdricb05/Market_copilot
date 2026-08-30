@@ -492,8 +492,13 @@ def test_36_endpoint_get_only():
 
 def test_37_endpoint_read_only_schema(monkeypatch):
     canned = _load()
+    # Release 50: the route fans out from the ONE decision snapshot, which hands the
+    # owner the shared operational read (`operational=`) and memoises per identity;
+    # the canned owner accepts the hint and the memo is reset so THIS owner is served.
     monkeypatch.setattr("paper_trader.api.app._pstate.load_portfolio_state",
-                        lambda: canned)
+                        lambda **_kw: canned)
+    from paper_trader.api import decision_snapshot as _snap
+    _snap.reset()
     c = _client()
     resp = c.get("/v1/operations/portfolio-state", headers={"X-API-Key": _key()})
     assert resp.status_code == 200

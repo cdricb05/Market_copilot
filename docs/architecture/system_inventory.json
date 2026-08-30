@@ -656,6 +656,31 @@
       "prefix": "/v1/operations/operator-presentation",
       "owner": "api/operator_presentation.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/decision-snapshot",
+      "owner": "api/decision_snapshot.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/investability-registry",
+      "owner": "api/investability_registry.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/capital-pool",
+      "owner": "api/capital_pool.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/cross-asset-risk",
+      "owner": "api/cross_asset_risk.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/opportunity-frontier",
+      "owner": "api/opportunity_frontier.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3541,7 +3566,234 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Release 49. Presentation vocabulary is frozen in the module. The historical / pre-R47 session (a per-holding cap breach recorded as a manual-review blocker with no governed target) is presented as HISTORICAL DECISION with the next ELIGIBLE action (the next portfolio cycle after the next market close) - never a rerun instruction. Collection DEGRADED is presented as non-blocking unless the workflow owner names a blocker. The only executing next action is PORTFOLIO_CYCLE, carried verbatim from the Release-48 presented contract and executed through the ONE canonical UI dispatcher. Guarded by check_release49_operator_presentation."
+      "notes": "Release 49. Presentation vocabulary is frozen in the module. The historical / pre-R47 session (a per-holding cap breach recorded as a manual-review blocker with no governed target) is presented as HISTORICAL DECISION with the next ELIGIBLE action (the next portfolio cycle after the next market close) - never a rerun instruction. Collection DEGRADED is presented as non-blocking unless the workflow owner names a blocker. The only executing next action is PORTFOLIO_CYCLE, carried verbatim from the Release-48 presented contract and executed through the ONE canonical UI dispatcher. Guarded by check_release49_operator_presentation. Release 50 adds the capital-pool source (allocation by asset class, verbatim) and owner_loaders(portfolio_state=) for the decision snapshot."
+    },
+    {
+      "path": "engine/instrument_contract.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE canonical asset-agnostic POSITION CONTRACT and instrument-valuation semantics (pure): instrument descriptor (asset class, instrument type, sleeve, currency, multiplier, initial margin, tick, cost policy), value_position (market value / notional / capital usage / collateral / unrealised P&L / exposure weight), fill cash semantics by instrument type, futures entry-mark replay, exposure aggregation by asset class / sleeve / currency, the declared conservative per-class cost policy and the ONE asset-aware execution convention (NEXT_SESSION_SETTLEMENT; NEXT_CLOSE for equities, unchanged).",
+      "classification": "KEEP",
+      "target_owner": "engine/instrument_contract.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [
+        "NONE - pure stdlib"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. A row without an instrument block is a US cash equity (multiplier 1, USD, fully cash settled), so every historical ledger row values exactly as before. Futures are NEVER valued like cash equities: notional = q x mark x point value x fx; NAV contribution = unrealised variation; collateral = initial margin (encumbered cash, not an outflow). Long-only declared. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/market_reference_data.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE operational seam over the OWNED non-equity reference data and marks (Norgate Data Updater, served locally): symbol classification (continuous future / FX spot / cash equity), futures contract metadata (point value, initial margin, currency, tick, exchange), daily settlement closes and volumes in the desk mark owner's bar shape, and USD conversion from the owned Forex Spot database. Opens owned data only; acquires nothing, writes nothing, spends nothing; a JSON fixture replaces the vendor for hermetic tests.",
+      "classification": "KEEP",
+      "target_owner": "api/market_reference_data.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "norgatedata (owned local databases: Continuous Futures, Futures, Forex Spot) under a guarded import"
+      ],
+      "direct_writes": [
+        "NONE"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. Operational owner: imports no research module. The desk's ONE mark owner routes owned non-equity symbols here; this module never writes a mark store. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/investability_registry.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE operational investability registry: every sleeve that could compete for operational paper capital (US equities, cash, equity-index / rates / commodity / volatility / FX / international-index / crypto futures, FX spot, event-macro lanes) with its owners, model-approval state and evidence, point-in-time state, execution / settlement / collateral semantics, the fourteen capability flags and the DERIVED capital-eligibility verdict; for every ineligible sleeve the exact blocker and the documented R50 activation attempt.",
+      "classification": "KEEP",
+      "target_owner": "api/investability_registry.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "market_reference_data (live probe of owned data / marks / metadata)"
+      ],
+      "direct_writes": [
+        "NONE - read-only; promotes nothing"
+      ],
+      "endpoints": [
+        "/v1/operations/investability-registry"
+      ],
+      "ui_consumers": [
+        "loadInvestabilityRegistry (Portfolio > Audit & Details registry card)"
+      ],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. CAPITAL_ELIGIBLE is derived (every capability AND MODEL_APPROVED_FOR_OPERATION), never declared. Research (R46 challengers, adopted prior-release shadows) is referenced as evidence and can never make a sleeve eligible; approval is a governed manual evidence-gated model decision with no promotion code path. The approvals= argument is a hermetic injection seam only. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/capital_pool.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE multi-asset capital pool read model: composes the ONE NAV owner's facts (api.paper_trading_desk.book_nav, extended with the position contract) into starting NAV, cash, available (free) capital, invested capital, gross / net exposure, capital usage, collateral, asset-class / sleeve / currency exposure and every position in the canonical contract. Computes no valuation; writes nothing.",
+      "classification": "KEEP",
+      "target_owner": "api/capital_pool.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_state.load_portfolio_state (position contracts + valuation contract from the desk NAV replay)"
+      ],
+      "direct_writes": [
+        "NONE"
+      ],
+      "endpoints": [
+        "/v1/operations/capital-pool"
+      ],
+      "ui_consumers": [
+        "renderOperatorPresentation (Today snapshot allocation line, via the presentation's capital_pool source)"
+      ],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. There is no second operational portfolio per asset class; sub-ledgers exist only as attribution. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "engine/cross_asset_risk.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE cross-asset risk state (pure): total volatility, covariance / correlation over exposure weights (the canonical engine.holding_opportunity_cost.build_covariance, never a second covariance), marginal risk and risk contribution, gross / net exposure, asset-class / sleeve / currency exposure, concentration, liquidity / capacity, the drawdown it is handed by the canonical drawdown owner, and an ADVISORY diversification effect; every approximation labelled.",
+      "classification": "KEEP",
+      "target_owner": "engine/cross_asset_risk.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [
+        "NONE - pure"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. Never recomputes a drawdown. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/cross_asset_risk.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 composition + read owner of the cross-asset risk state: positions from the portfolio state, equity returns from api.price_panel, owned non-equity settlement returns from api.market_reference_data aligned on ONE calendar, liquidity from the scoring owner / owned contract volume, the canonical drawdown from api.paper_trading_desk.current_drawdown; runs the pure kernel once.",
+      "classification": "KEEP",
+      "target_owner": "api/cross_asset_risk.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_state.load_portfolio_state",
+        "price_panel.aligned_returns",
+        "market_reference_data.daily_bars",
+        "paper_trading_desk.current_drawdown (the ONE drawdown owner)"
+      ],
+      "direct_writes": [
+        "NONE"
+      ],
+      "endpoints": [
+        "/v1/operations/cross-asset-risk"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "engine/opportunity_frontier.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE cross-asset opportunity frontier (pure kernel): every capital-eligible opportunity (equity holdings and candidates, eligible non-equity instruments, cash) with comparable construction inputs and ONE normalised opportunity_score with an explicit score_basis (OPERATIONAL_MODEL_COMBINED_PERCENTILE / OPERATIONAL_SLEEVE_NORMALISED_RANK / CASH_DECLARED_ZERO / NONE_RESEARCH_ONLY); expected return only from a calibrated forecast, otherwise NOT_CALIBRATED; the declared comparability policy and its limitations; candidate rows in the proposal kernel's shape.",
+      "classification": "KEEP",
+      "target_owner": "engine/opportunity_frontier.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [
+        "NONE - pure"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. A research statistic never becomes an expected return here; a zero-signal instrument is never a residual capital sink (cash is). Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/opportunity_frontier.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 composition + read owner of the opportunity frontier: equity rankings from api.universe_scoring, sleeve eligibility from api.investability_registry, non-equity descriptors from the registry + owned reference data, positions + NAV from the portfolio state; runs the pure kernel once; owns the frontier REVIEW of non-equity holdings (an ineligible sleeve's position is a mandatory exit) and supplies the candidate rows the proposal owner admits.",
+      "classification": "KEEP",
+      "target_owner": "api/opportunity_frontier.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "universe_scoring.load_universe_scoring",
+        "investability_registry.load_investability_registry",
+        "portfolio_state.load_portfolio_state"
+      ],
+      "direct_writes": [
+        "NONE"
+      ],
+      "endpoints": [
+        "/v1/operations/opportunity-frontier"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. Consumed by api.reallocation_proposal.build_input_contract (frontier= / frontier_loader=). Guarded by check_release50_multi_asset."
+    },
+    {
+      "path": "api/decision_snapshot.py",
+      "system": "infrastructure",
+      "responsibility": "Release 50 the ONE read-consistent decision snapshot and the read fan-out behind every normal operator surface: an identity fingerprint over every store that can change a decision (market date, desk ledgers / marks, corporate actions, signal and research-cycle roots, proposal / decision / order-plan / outcome ledgers, the store-root environment); ONE composition of the canonical owners per identity (operational book, portfolio state, workflow state, Daily Close, decision lane, rebalance state, constrained reallocation, capital pool, material information, decision outcomes, collection lifecycle, operator presentation); a changed identity regenerates everything. Not a business-calculation owner.",
+      "classification": "KEEP",
+      "target_owner": "api/decision_snapshot.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "operational_book.load_operational_book",
+        "portfolio_state.load_portfolio_state",
+        "workflow_state.load_workflow_state",
+        "daily_close.load_daily_close",
+        "portfolio_decision.load_portfolio_decision",
+        "rebalance_execution.load_rebalance_state",
+        "reallocation_proposal.load_constrained_reallocation",
+        "capital_pool.load_capital_pool",
+        "operator_presentation.owner_loaders / build_operator_presentation"
+      ],
+      "direct_writes": [
+        "NONE - an in-process memo keyed by the snapshot identity; no file, no store"
+      ],
+      "endpoints": [
+        "/v1/operations/decision-snapshot",
+        "/v1/operational-book (served through the snapshot)",
+        "/v1/operations/daily-close (served through the snapshot)",
+        "/v1/operations/workflow-state (served through the snapshot)",
+        "/v1/operations/portfolio-state (served through the snapshot)",
+        "/v1/operations/constrained-reallocation (served through the snapshot)",
+        "/v1/operations/rebalance (served through the snapshot)",
+        "/v1/operations/operator-presentation (served through the snapshot)",
+        "/v1/operations/capital-pool (served through the snapshot)"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release50_multi_asset_operational_manager.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 50. Invalidation is IDENTITY CHANGE, never a TTL (the absolute age bound is a safety valve). Guarded by check_release50_multi_asset."
     },
     {
       "path": "api/portfolio_decision_outcome.py",

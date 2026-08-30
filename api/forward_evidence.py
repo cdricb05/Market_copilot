@@ -242,20 +242,31 @@ def _holdings(ops: dict) -> list[dict]:
         if not tk:
             continue
         out.append({
-            "ticker": str(tk).upper(),
+            "ticker": str(tk).upper() if not str(tk).startswith("&") else str(tk),
             "quantity": _f(r.get("quantity")),
             "sector": r.get("sector") or "Unknown",
             "average_cost": _f(r.get("average_cost")),
             "weight": _f(r.get("current_weight") if r.get("current_weight") is not None
                          else r.get("weight")),
             "cost_basis": _f(r.get("cost_basis")),
+            # Release 50 - a contribution is ``units x price move x point value x fx``;
+            # a US cash equity is multiplier 1 / USD, exactly as before.
+            "instrument_type": r.get("instrument_type") or "CASH_EQUITY",
+            "multiplier": _f(r.get("multiplier")) or 1.0,
+            "fx_to_usd": _f(r.get("fx_to_usd")) or 1.0,
         })
     if not out:
         for tk, q in (ob_book.get("holdings") or {}).items():
             out.append({"ticker": str(tk).upper(), "quantity": _f(q),
                         "sector": "Unknown", "average_cost": None, "weight": None,
-                        "cost_basis": None})
+                        "cost_basis": None, "instrument_type": "CASH_EQUITY",
+                        "multiplier": 1.0, "fx_to_usd": 1.0})
     return out
+
+
+def _unit_scale(h: dict) -> float:
+    """Point value x USD rate of one holding row (1.0 for a US cash equity)."""
+    return float(h.get("multiplier") or 1.0) * float(h.get("fx_to_usd") or 1.0)
 
 
 def _starting_capital(ops: dict) -> Optional[float]:
@@ -427,9 +438,9 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
         avg = h.get("average_cost")
         contrib = ret = pmv = cum_unrl = pp = None
         if qty is not None and p1 is not None and p0 is not None:
-            contrib = qty * (p1 - p0)
+            contrib = qty * (p1 - p0) * _unit_scale(h)
             ret = ((p1 / p0 - 1.0) * 100.0) if p0 else None
-            pmv = qty * p0
+            pmv = qty * p0 * _unit_scale(h)
             pp = (contrib / nav0 * 100.0) if nav0 else None
             priced += 1
             if MARK_SOURCE_CACHE_FALLBACK in (src0, src1):
@@ -441,7 +452,7 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
         else:
             missing.append(tk)
         if qty is not None and p1 is not None and avg is not None:
-            cum_unrl = qty * (p1 - avg)
+            cum_unrl = qty * (p1 - avg) * _unit_scale(h)
         positions.append({
             "ticker": tk, "sector": h["sector"], "quantity": qty,
             "prior_price": _r2(p0), "current_price": _r2(p1),
@@ -592,7 +603,7 @@ def build_attribution_history(*, desk_dir=None, ops: Optional[dict] = None,
             m1 = mark_at(ledger_series, cache_series, h["ticker"], d1)
             m0 = mark_at(ledger_series, cache_series, h["ticker"], d0)
             if h["quantity"] is not None and m1 is not None and m0 is not None:
-                contribs.append((h["ticker"], h["quantity"] * (m1[1] - m0[1])))
+                contribs.append((h["ticker"], h["quantity"] * (m1[1] - m0[1]) * _unit_scale(h)))
         contribs.sort(key=lambda t: t[1], reverse=True)
         sum_c = sum(c for _, c in contribs)
         mv = (pb["ending_nav"] - pb["beginning_nav"]

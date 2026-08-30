@@ -47,6 +47,7 @@ from paper_trader.api import paper_trading_desk as desk
 from paper_trader.api import portfolio_decision as pdec
 from paper_trader.api import portfolio_decision_outcome as pdo
 from paper_trader.api import reallocation_proposal as realloc
+from paper_trader.engine import instrument_contract as _ic
 
 PHASE = "STAGE19"
 OWNER = "api.rebalance_execution"
@@ -176,6 +177,10 @@ def _r6(x):
     return None if x is None else round(float(x), 6)
 
 
+def _r4(x):
+    return None if x is None else round(float(x), 4)
+
+
 def _safety() -> dict:
     return {
         "paper_only": True, "manual_review": True, "automation_off": True,
@@ -241,9 +246,61 @@ def _current_desk_view(desk_dir, actions_dir, corporate_actions):
     state_key = {"book_id": book["book_id"], "cash": nav_blk["cash"],
                  "holdings": {k: holdings[k] for k in sorted(holdings)},
                  "marks_date": marks_date}
+    # Release 50 - the position contracts (instrument semantics, collateral,
+    # entry marks) the ONE NAV replay already produced, verbatim.
+    contracts = {p.get("instrument_id"): p for p in (nav_blk.get("positions") or [])
+                 if isinstance(p, dict) and p.get("instrument_id")}
     return {"book": book, "holdings": holdings, "cash": nav_blk["cash"], "nav": nav_blk["nav"],
             "marks": marks, "marks_date": marks_date, "series": (marks.get("series") or {}),
-            "desk_state_hash": _stable_hash(state_key), "corporate_actions": corporate_actions}
+            "desk_state_hash": _stable_hash(state_key), "corporate_actions": corporate_actions,
+            "contracts": contracts, "collateral": nav_blk.get("collateral") or 0.0,
+            "free_cash": (nav_blk.get("free_cash") if nav_blk.get("free_cash") is not None
+                          else nav_blk["cash"]),
+            "book_fills": [f for f in fills if f.get("book_id") == book["book_id"]]}
+
+
+def _row_instrument(row: dict, contract: Optional[dict]) -> dict:
+    """The instrument descriptor of an allocation / held row: from the proposal
+    row's own instrument fields, else from the desk's position contract, else the
+    US cash equity default (the pre-R50 contract)."""
+    src = dict(row or {})
+    c = contract or {}
+    it = src.get("instrument_type") or c.get("instrument_type") or _ic.IT_CASH_EQUITY
+    if it == _ic.IT_CASH_EQUITY:
+        return _ic.equity_descriptor(str(src.get("ticker") or c.get("instrument_id")),
+                                     sector=src.get("sector"), cost_bps_per_side=COST_BPS_PER_SIDE)
+    return _ic.describe(
+        str(src.get("ticker") or c.get("instrument_id")),
+        asset_class=src.get("asset_class") or c.get("asset_class") or _ic.AC_EQUITY_INDEX_FUTURES,
+        instrument_type=it,
+        sleeve_id=src.get("sleeve_id") or c.get("sleeve_id") or "unknown_sleeve",
+        currency=src.get("currency") or c.get("currency") or "USD",
+        multiplier=float(src.get("multiplier") or c.get("multiplier") or 1.0),
+        initial_margin_per_unit=float(src.get("initial_margin_per_unit")
+                                      or ((c.get("collateral_usd") or 0.0)
+                                          / max(1.0, float(c.get("quantity") or 1.0))
+                                          / max(1e-12, float(c.get("fx_to_usd") or 1.0)))
+                                      or 0.0),
+        cost_bps_per_side=src.get("cost_bps_per_side"), sector=src.get("sector"))
+
+
+def _unit_economics(d: dict, series: dict, as_of: str) -> dict:
+    """Price, USD rate, unit notional and per-unit collateral of ONE instrument at
+    ``as_of`` from the desk's marks. A missing mark or rate is a named gap."""
+    px = _price(series, d["instrument_id"], as_of)
+    if d["instrument_type"] == _ic.IT_CASH_EQUITY:
+        fx, fx_state = 1.0, "IDENTITY"
+    else:
+        fx, fx_state = desk._fx_at(series, d["currency"], as_of)
+    if px is None or px <= 0 or fx is None:
+        return {"price": px, "fx_to_usd": fx, "fx_state": fx_state, "unit_notional": None,
+                "margin_per_unit_usd": None, "cost_rate": None}
+    un = _ic.unit_notional_usd(d, px, fx)
+    return {"price": px, "fx_to_usd": fx, "fx_state": fx_state, "unit_notional": un,
+            "margin_per_unit_usd": (float(d["initial_margin_per_unit"]) * fx
+                                    if d["instrument_type"] == _ic.IT_FUTURE else 0.0),
+            "cost_rate": (COST_RATE_PER_SIDE if d["instrument_type"] == _ic.IT_CASH_EQUITY
+                          else _ic.cost_rate_per_side(d))}
 
 
 def _price(series: dict, tk: str, as_of: str) -> Optional[float]:
@@ -311,9 +368,13 @@ def target_mark_universe(*, artifact: Optional[dict], holdings: Optional[dict] =
             target.append(tk)
     held = sorted(tk for tk, q in (holdings or {}).items() if tk and int(q or 0) != 0)
     benchmark = desk.BENCHMARK_TICKER
-    required = sorted(set(target) | set(held) | {benchmark})
+    # Release 50 - a non-USD instrument needs its currency's USD rate in the same
+    # store, so its FX pair is part of the required execution-mark universe.
+    fx_series = desk._fx_series_for(sorted(set(target) | set(held)))
+    required = sorted(set(target) | set(held) | {benchmark} | set(fx_series))
     return {"target_tickers": sorted(set(target)), "allocation_tickers": sorted(set(allocation)),
-            "held_tickers": held, "benchmark": benchmark, "required": required,
+            "held_tickers": held, "benchmark": benchmark, "fx_series": fx_series,
+            "required": required,
             "n_target": len(set(target)), "n_held": len(held), "n_required": len(required)}
 
 
@@ -450,11 +511,19 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     cash = float(view["cash"])
     held = dict(view["holdings"])
 
-    # --- target shares per name from the APPROVED proposed weight x current corrected NAV.
+    # --- target units per name from the APPROVED proposed weight x current corrected NAV.
+    #
+    # Release 50 - a target weight is an EXPOSURE weight (notional / NAV). A cash
+    # equity buys ``floor(weight x NAV / price)`` shares exactly as before; a future
+    # buys ``floor(weight x NAV / (price x point value x fx))`` whole contracts, pays
+    # only its transaction cost in cash and ENCUMBERS initial margin as collateral.
+    contracts = view.get("contracts") or {}
     rows = []
     sector_of = {}
     proposed_w = {}
     policy_w = {}          # proposed weight AFTER the explicitly supported concentration cap
+    unit_of: dict[str, dict] = {}
+    desc_of: dict[str, dict] = {}
     for a in allocs:
         tk = a.get("ticker")
         if not tk:
@@ -463,87 +532,124 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         pw = float(a.get("proposed_weight") or 0.0)
         proposed_w[tk] = pw
         policy_w[tk] = min(pw, MAX_INDIVIDUAL_WEIGHT)
-        px = _price(series, tk, as_of)
+        d = _row_instrument(a, contracts.get(tk))
+        ue = _unit_economics(d, series, as_of)
+        desc_of[tk], unit_of[tk] = d, ue
+        px, un = ue["price"], ue["unit_notional"]
         cur_sh = int(held.get(tk, 0))
-        if px is None or px <= 0:
+        if px is None or px <= 0 or un is None:
             rows.append({"ticker": tk, "action": a.get("action"), "sector": sector_of[tk],
                          "current_shares": cur_sh, "target_shares": None, "order_shares": 0,
                          "side": None, "price": None, "proposed_weight": _r6(pw),
                          "blocked": True, "block_reason": BR_NO_OWNED_MARK,
-                         "current_market_value": None, "target_market_value": None})
+                         "current_market_value": None, "target_market_value": None,
+                         "instrument_type": d["instrument_type"], "unit_type": d["unit_type"]})
             continue
         # position cap: never target more than MAX_INDIVIDUAL_WEIGHT of NAV
         capped_w = policy_w[tk]
         target_dollars = capped_w * nav
-        target_sh = int(math.floor(target_dollars / px)) if target_dollars > 0 else 0
+        target_sh = int(math.floor(target_dollars / un)) if target_dollars > 0 else 0
         rows.append({"ticker": tk, "action": a.get("action"), "sector": sector_of[tk],
                      "current_shares": cur_sh, "target_shares": target_sh,
                      "order_shares": target_sh - cur_sh, "price": _r6(px),
                      "proposed_weight": _r6(pw), "capped_weight": _r6(capped_w),
                      "blocked": False, "block_reason": None,
-                     "current_market_value": _r2(cur_sh * px),
-                     "target_market_value": _r2(target_sh * px)})
+                     "current_market_value": _r2(cur_sh * un),
+                     "target_market_value": _r2(target_sh * un),
+                     "instrument_type": d["instrument_type"], "unit_type": d["unit_type"],
+                     "unit_notional": _r6(un), "fx_to_usd": _r6(ue["fx_to_usd"]),
+                     "margin_per_unit_usd": _r2(ue["margin_per_unit_usd"]),
+                     "cost_rate": ue["cost_rate"]})
     # Names currently held but ABSENT from the proposal allocations -> full EXIT (sell all).
     alloc_tickers = {r["ticker"] for r in rows}
     for tk, cur_sh in held.items():
         if tk in alloc_tickers or int(cur_sh) == 0:
             continue
-        px = _price(series, tk, as_of)
-        sector_of[tk] = sector_of.get(tk, "Unknown")
+        d = _row_instrument({"ticker": tk}, contracts.get(tk))
+        ue = _unit_economics(d, series, as_of)
+        desc_of[tk], unit_of[tk] = d, ue
+        px, un = ue["price"], ue["unit_notional"]
+        sector_of[tk] = sector_of.get(tk) or d.get("sector") or "Unknown"
         proposed_w[tk] = 0.0
         policy_w[tk] = 0.0
         rows.append({"ticker": tk, "action": "EXIT", "sector": sector_of[tk],
                      "current_shares": int(cur_sh), "target_shares": 0,
                      "order_shares": -int(cur_sh), "price": _r6(px),
                      "proposed_weight": 0.0, "capped_weight": 0.0,
-                     "blocked": px is None, "block_reason": (BR_NO_OWNED_MARK if px is None else None),
-                     "current_market_value": _r2(int(cur_sh) * px) if px is not None else None,
-                     "target_market_value": 0.0 if px is not None else None})
+                     "blocked": un is None, "block_reason": (BR_NO_OWNED_MARK if un is None else None),
+                     "current_market_value": _r2(int(cur_sh) * un) if un is not None else None,
+                     "target_market_value": 0.0 if un is not None else None,
+                     "instrument_type": d["instrument_type"], "unit_type": d["unit_type"],
+                     "unit_notional": _r6(un) if un is not None else None,
+                     "fx_to_usd": _r6(ue["fx_to_usd"]) if ue["fx_to_usd"] is not None else None,
+                     "margin_per_unit_usd": _r2(ue["margin_per_unit_usd"]),
+                     "cost_rate": ue["cost_rate"]})
+
+    def _is_future(r) -> bool:
+        return r.get("instrument_type") == _ic.IT_FUTURE
+
+    def _un(r) -> float:
+        return float(r.get("unit_notional") or 0.0)
+
+    def _rate(r) -> float:
+        return float(r.get("cost_rate") if r.get("cost_rate") is not None else COST_RATE_PER_SIDE)
 
     # --- capital reconciliation: buys may not exceed cash + estimated sell proceeds.
+    # A future's BUY costs only its transaction cost in cash but encumbers margin,
+    # which must be covered by free cash after every fully-paid purchase.
     def _sell_proceeds(rs):
         tot = 0.0
         for r in rs_active(rs):
             if r["order_shares"] < 0:
-                gross = -r["order_shares"] * float(r["price"])
-                tot += gross - gross * COST_RATE_PER_SIDE
+                gross = -r["order_shares"] * _un(r)
+                tot += (-gross * _rate(r)) if _is_future(r) else (gross - gross * _rate(r))
         return tot
 
     def _buy_outflow(rs):
         tot = 0.0
         for r in rs_active(rs):
             if r["order_shares"] > 0:
-                gross = r["order_shares"] * float(r["price"])
-                tot += gross + gross * COST_RATE_PER_SIDE
+                gross = r["order_shares"] * _un(r)
+                tot += (gross * _rate(r)) if _is_future(r) else (gross + gross * _rate(r))
+        return tot
+
+    def _collateral_need(rs):
+        tot = 0.0
+        for r in rs_active(rs):
+            if _is_future(r) and r["order_shares"] > 0:
+                tot += r["order_shares"] * float(r.get("margin_per_unit_usd") or 0.0)
         return tot
 
     def rs_active(rs):
         return [r for r in rs if not r["blocked"] and r["order_shares"] != 0 and r["price"]]
 
-    available = cash + _sell_proceeds(rows)
+    collateral_before = float(view.get("collateral") or 0.0)
+    available = cash + _sell_proceeds(rows) - collateral_before
     # The UNTRIMMED buy requirement, captured BEFORE the capital trim: the difference
     # between it and the available capital is exactly the deterministic cash shortfall the
     # executability envelope below is allowed to absorb.
-    required_buy_outflow = _buy_outflow(rows)
+    required_buy_outflow = _buy_outflow(rows) + _collateral_need(rows)
     capital_shortfall = max(0.0, required_buy_outflow - available)
     trimmed = []
-    # deterministically trim the largest remaining BUY by one share until feasible
+    # deterministically trim the largest remaining BUY by one unit until feasible
     guard = 0
-    while _buy_outflow(rows) > available + 1e-6 and guard < 10_000_000:
+    while _buy_outflow(rows) + _collateral_need(rows) > available + 1e-6 and guard < 10_000_000:
         guard += 1
         buys = [r for r in rs_active(rows) if r["order_shares"] > 0]
         if not buys:
             break
-        buys.sort(key=lambda r: (-(r["order_shares"] * float(r["price"])), r["ticker"]))
+        buys.sort(key=lambda r: (-(r["order_shares"] * _un(r)), r["ticker"]))
         top = buys[0]
         top["order_shares"] -= 1
         top["target_shares"] = top["current_shares"] + top["order_shares"]
-        top["target_market_value"] = _r2(top["target_shares"] * float(top["price"]))
+        top["target_market_value"] = _r2(top["target_shares"] * _un(top))
         trimmed.append(top["ticker"])
 
-    # --- classify + build order list (whole-share, min-order enforced).
+    # --- classify + build order list (whole-unit, min-order enforced).
     orders, blocked, omitted = [], [], []
     gross_sells = gross_buys = est_cost = 0.0
+    cash_from_sells = cash_for_buys = 0.0
+    collateral_change = 0.0
     for r in rows:
         if r["blocked"]:
             blocked.append({"ticker": r["ticker"], "reason": r["block_reason"],
@@ -571,30 +677,50 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
                                 "supported": why in SUPPORTED_OMISSIONS})
             continue
         px = float(r["price"])
-        gross = abs(n) * px
-        cost = gross * COST_RATE_PER_SIDE
+        un = _un(r)
+        gross = abs(n) * un
+        cost = gross * _rate(r)
         est_cost += cost
         if n < 0:
             side = desk.SIDE_SELL
             gross_sells += gross
             kind = "EXIT" if r["target_shares"] == 0 else "REDUCE"
+            cash_from_sells += (-cost) if _is_future(r) else (gross - cost)
+            if _is_future(r):
+                collateral_change -= abs(n) * float(r.get("margin_per_unit_usd") or 0.0)
         else:
             side = desk.SIDE_BUY
             gross_buys += gross
             kind = "ADD" if r["current_shares"] == 0 else "INCREASE"
-        orders.append({
+            cash_for_buys += cost if _is_future(r) else (gross + cost)
+            if _is_future(r):
+                collateral_change += abs(n) * float(r.get("margin_per_unit_usd") or 0.0)
+        d = desc_of.get(r["ticker"])
+        order = {
             "ticker": r["ticker"], "side": side, "order_kind": kind,
             "quantity": int(abs(n)), "price_used_for_sizing": _r6(px),
             "price_date": as_of, "sector": r["sector"],
             "current_shares": r["current_shares"], "target_shares": r["target_shares"],
             "gross_notional": _r2(gross), "estimated_transaction_cost": round(cost, 4),
-            "current_weight": _r6((r["current_shares"] * px) / nav) if nav else None,
+            "current_weight": _r6((r["current_shares"] * un) / nav) if nav else None,
             "proposed_weight": r["proposed_weight"],
-        })
+            # Release 50 - unit semantics, verbatim (a share row reads exactly as before).
+            "unit_type": r.get("unit_type") or "SHARES",
+            "instrument_type": r.get("instrument_type") or _ic.IT_CASH_EQUITY,
+            "unit_notional_usd": _r6(un),
+            "cash_impact": _r4((-cost if _is_future(r) else -(gross + cost)) if n > 0
+                               else ((-cost) if _is_future(r) else (gross - cost))),
+            "collateral_change_usd": _r2((abs(n) * float(r.get("margin_per_unit_usd") or 0.0))
+                                         * (1 if n > 0 else -1) if _is_future(r) else 0.0),
+            "execution_convention": (d or {}).get("execution_convention") or EXECUTION_MODEL,
+        }
+        if d is not None and d["instrument_type"] != _ic.IT_CASH_EQUITY:
+            order["instrument"] = _ic.instrument_block(d, fx_to_usd=r.get("fx_to_usd"))
+        orders.append(order)
     orders.sort(key=lambda o: (0 if o["side"] == desk.SIDE_SELL else 1, o["ticker"]))
 
-    residual_cash = cash + (gross_sells - gross_sells * COST_RATE_PER_SIDE) \
-        - (gross_buys + gross_buys * COST_RATE_PER_SIDE)
+    residual_cash = cash + cash_from_sells - cash_for_buys
+    collateral_after = max(0.0, collateral_before + collateral_change)
 
     # --- before/after weights + target tracking error (one-sided active weight).
     before_w, after_w = {}, {}
@@ -603,11 +729,13 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         if not r["blocked"]:
             achieved_sh[r["ticker"]] = r["target_shares"]
     for tk in sorted(set(list(held) + list(proposed_w))):
-        px = _price(series, tk, as_of)
-        if px is None:
+        ue = unit_of.get(tk) or _unit_economics(_row_instrument({"ticker": tk}, contracts.get(tk)),
+                                                series, as_of)
+        un = ue.get("unit_notional")
+        if un is None:
             continue
-        before_w[tk] = round((int(held.get(tk, 0)) * px) / nav, 6) if nav else None
-        after_w[tk] = round((int(achieved_sh.get(tk, 0)) * px) / nav, 6) if nav else None
+        before_w[tk] = round((int(held.get(tk, 0)) * un) / nav, 6) if nav else None
+        after_w[tk] = round((int(achieved_sh.get(tk, 0)) * un) / nav, 6) if nav else None
     te = 0.0
     for tk in set(list(proposed_w) + list(after_w)):
         te += abs(float(after_w.get(tk, 0.0) or 0.0) - float(proposed_w.get(tk, 0.0)))
@@ -644,10 +772,12 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     trim_counts: dict[str, int] = {}
     for tk in trimmed:
         trim_counts[tk] = trim_counts.get(tk, 0) + 1
-    # ONE share of slack per name (floor rounding) + the transaction cost + the genuine
-    # cash shortfall. Deliberately NOT proportional to how much was trimmed: an envelope
-    # that grew with the trim would absorb its own error and could never block.
-    share_slack = sum(float(r["price"]) for r in priced_rows)
+    # ONE unit of slack per name (floor rounding; a share for an equity, a contract's
+    # notional for a future) + the transaction cost + the genuine cash shortfall.
+    # Deliberately NOT proportional to how much was trimmed: an envelope that grew with
+    # the trim would absorb its own error and could never block.
+    share_slack = sum(_un(r) if r.get("unit_notional") is not None else float(r["price"])
+                      for r in priced_rows)
     envelope_dollars = share_slack + est_cost + capital_shortfall
     executability_envelope = _r6(0.5 * envelope_dollars / nav) if nav else None
 
@@ -721,6 +851,13 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         "estimated_transaction_cost": round(est_cost, 2),
         "gross_sells": _r2(gross_sells), "gross_buys": _r2(gross_buys),
         "residual_cash": _r2(residual_cash),
+        # Release 50 - collateral accounting of the plan (0 for an equity-only plan).
+        "collateral_before": _r2(collateral_before),
+        "collateral_after": _r2(collateral_after),
+        "collateral_change": _r2(collateral_change),
+        "residual_free_cash": _r2(residual_cash - collateral_after),
+        "non_equity_order_count": sum(1 for o in orders
+                                      if o.get("instrument_type") != _ic.IT_CASH_EQUITY),
         "one_way_turnover": planned_turnover,
         "target_tracking_error": tracking_error,
         "trimmed_for_capital": sorted(set(trimmed)),
@@ -730,7 +867,12 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
                    "sector_cap_fraction": SECTOR_CAP_FRACTION,
                    "min_order_shares": MIN_ORDER_SHARES,
                    "cost_bps_per_side": COST_BPS_PER_SIDE, "whole_shares_only": True,
-                   "execution_model": EXECUTION_MODEL, "long_only": True},
+                   "whole_units_only": True,
+                   "execution_model": EXECUTION_MODEL,
+                   "execution_convention": _ic.EXECUTION_CONVENTION,
+                   "execution_convention_by_type": dict(_ic.EXECUTION_CONVENTION_BY_TYPE),
+                   "collateral_semantics": _ic.COLLATERAL_SEMANTICS[_ic.IT_FUTURE],
+                   "long_only": True},
         # --- the Stage 19.2 fail-closed contract (structured, never free text) --- #
         "order_plan_buildable": buildable,
         "blocked_tickers": blocked_tickers,
@@ -757,8 +899,9 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
             "transaction_cost": _r2(est_cost),
             "capital_shortfall": _r2(capital_shortfall),
             "nav_basis": _r2(nav)},
-        "supported_execution_mechanics": ["WHOLE_SHARES", "TRANSACTION_COST",
-                                          "AVAILABLE_CASH", "CONCENTRATION_POLICY",
+        "supported_execution_mechanics": ["WHOLE_SHARES", "WHOLE_CONTRACTS",
+                                          "TRANSACTION_COST", "AVAILABLE_CASH",
+                                          "COLLATERAL_COVERAGE", "CONCENTRATION_POLICY",
                                           "MIN_ORDER_POLICY"],
     }
     # order_plan_hash binds the entire plan + the bound proposal identity + desk state.
@@ -1212,6 +1355,13 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                       % (o["order_kind"], bound.get("proposal_id")),
             "rebalance_lineage": lineage, "created_at": created_at,
         }
+        # Release 50 - a non-equity order carries its instrument block so the ONE
+        # settlement engine fills it under its declared semantics (a share order
+        # carries none and reads exactly as before).
+        if isinstance(o.get("instrument"), dict):
+            order["instrument"] = dict(o["instrument"])
+            order["unit_type"] = o.get("unit_type")
+            order["execution_convention"] = o.get("execution_convention")
         order_events.append({"event": "ORDER_CREATED", "order": order})
         submit_events.append({"event": "ORDER_TRANSITION", "order_id": order_id,
                               "from_status": desk.ST_PROPOSED, "to_status": desk.ST_APPROVED,
@@ -1326,11 +1476,28 @@ def _freeze_decision_evidence(*, plan: dict, base: dict, bound: dict,
                       for a in (prop.get("allocations") or [])
                       if a.get("ticker") and (a.get("proposed_weight") or 0) > 0}
         prices = {}
+        instrument_meta = {}
+        contracts = view.get("contracts") or {}
+        alloc_by = {a.get("ticker"): a for a in (prop.get("allocations") or []) if a.get("ticker")}
         for tk in sorted(set(before_w) | set(after_w) | set(proposed_w)):
-            p = _price(series, tk, as_of) if as_of else None
+            d = _row_instrument(alloc_by.get(tk) or {"ticker": tk}, contracts.get(tk))
+            ue = _unit_economics(d, series, as_of) if as_of else {"price": None, "fx_to_usd": None}
+            p = ue.get("price")
             if p is not None:
-                prices[tk] = p
+                # Release 50 - USD marks for every path (mark x fx), the same basis the
+                # desk values the executed book on.
+                fx = ue.get("fx_to_usd")
+                prices[tk] = p * fx if (fx is not None and d["instrument_type"] != _ic.IT_CASH_EQUITY) else p
+            if d["instrument_type"] != _ic.IT_CASH_EQUITY:
+                from paper_trader.api import market_reference_data as _mrd
+                pair = _mrd.fx_pair_for(d["currency"]) or {}
+                instrument_meta[tk] = {"instrument_type": d["instrument_type"],
+                                       "asset_class": d["asset_class"], "currency": d["currency"],
+                                       "multiplier": d["multiplier"],
+                                       "fx_series_id": pair.get("symbol"),
+                                       "fx_direction": pair.get("direction")}
         return pdo.freeze_executed_decision(
+            instrument_meta=instrument_meta,
             proposal_hash=bound.get("proposal_hash"),
             order_plan_id=plan.get("order_plan_id"),
             eligible_market_date=bound.get("eligible_market_date"),

@@ -204,6 +204,12 @@ from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_cycle as _pcycle
 # Release 49 - the ONE reconciled operator presentation (read-only).
 from paper_trader.api import operator_presentation as _opres
+# Release 50 - the multi-asset operational capital manager owners (all read-only).
+from paper_trader.api import decision_snapshot as _snap
+from paper_trader.api import investability_registry as _invreg
+from paper_trader.api import capital_pool as _cpool
+from paper_trader.api import cross_asset_risk as _xrisk
+from paper_trader.api import opportunity_frontier as _frontier
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
@@ -5592,8 +5598,11 @@ def operational_book() -> dict:
     Alpha Paper Book #1: cash, holdings, pending paper orders, NAV (append-only
     desk-ledger replay - the one value producer), the current target readiness,
     the current workflow status and the next manual action. Honest when the book
-    is not initialized yet. Writes nothing."""
-    return _opbook.load_operational_book()
+    is not initialized yet. Writes nothing.
+
+    Release 50 - served through the ONE decision snapshot (``api.decision_snapshot``):
+    the owner runs once per snapshot identity and every consumer fans out from it."""
+    return _snap.section("operational")
 
 
 @app.get("/v1/operational-book/archive", status_code=status.HTTP_200_OK,
@@ -5665,8 +5674,10 @@ def operations_daily_close() -> dict:
     unavailability on the first mark), forward-performance history, the recorded
     daily decision, the 13 daily checks and the target-vs-actual comparison, and
     the one required next action. Evaluates every completed market day. Writes
-    nothing (no marks, no fills, no performance row, no decision row, no orders)."""
-    return _dclose.load_daily_close()
+    nothing (no marks, no fills, no performance row, no decision row, no orders).
+
+    Release 50 - served through the ONE decision snapshot (``api.decision_snapshot``)."""
+    return _snap.section("daily_close")
 
 
 @app.get("/v1/operations/daily-close/forward-evidence-readiness",
@@ -6441,8 +6452,10 @@ def operations_workflow_state() -> dict:
     dependency degrades to a ``warnings[]`` entry with HTTP 200. Slice 2 performs
     no workflow action; the future Persistent Daily Research Cycle and portfolio
     reassessment (Slice 3+) are described / routed here but not executed.
+
+    Release 50 - served through the ONE decision snapshot (``api.decision_snapshot``).
     """
-    return load_workflow_state()
+    return _snap.section("workflow")
 
 
 @app.get(
@@ -6481,7 +6494,8 @@ def operations_portfolio_state() -> dict:
     are implemented and produce it as a manual-review, no-orders, no-automation
     proposal that is never auto-approved.
     """
-    return _pstate.load_portfolio_state()
+    # Release 50 - served through the ONE decision snapshot (api.decision_snapshot).
+    return _snap.section("portfolio_state")
 
 
 @app.get(
@@ -6578,7 +6592,8 @@ def operations_constrained_reallocation() -> dict:
     no order plan, no order and no fill; it changes no holding, cash or NAV; it
     performs no broker execution, promotes no model and enables no automation.
     """
-    return _realloc.load_constrained_reallocation()
+    # Release 50 - served through the ONE decision snapshot (api.decision_snapshot).
+    return _snap.section("constrained")
 
 
 @app.get(
@@ -7066,7 +7081,8 @@ def operations_rebalance() -> dict:
     review state and no plan. Owned by ``api.rebalance_execution``; orders are created only
     via POST /v1/operations/rebalance/confirm-order-plan.
     """
-    return _rebalance.load_rebalance_state()
+    # Release 50 - served through the ONE decision snapshot (api.decision_snapshot).
+    return _snap.section("rebalance")
 
 
 class RebalanceOrderPlanConfirmRequest(BaseModel):
@@ -7471,8 +7487,84 @@ def operations_operator_presentation() -> dict:
     verdict; it never reruns, backfills or rewrites a historical session; it
     never fabricates a proposal; it runs nothing, writes nothing, creates no
     order / proposal / approval and performs no provider or prediction call
-    beyond what the composed read models already perform."""
-    return _opres.load_operator_presentation()
+    beyond what the composed read models already perform.
+
+    Release 50 - served through the ONE decision snapshot (``api.decision_snapshot``)."""
+    return _snap.section("presentation")
+
+
+@app.get(
+    "/v1/operations/decision-snapshot",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_decision_snapshot() -> dict:
+    """Release 50 - the ONE read-consistent decision snapshot (identity + references).
+
+    The identity fingerprints every store that can change a decision (market date,
+    holdings / cash / NAV / marks, the corporate-action registry, signal and
+    research-cycle roots, proposal / decision / order-plan / outcome ledgers). The
+    heavy owners run ONCE per identity; Today, Portfolio Overview, Reallocation,
+    Performance and Audit fan out from that result. A changed identity regenerates
+    everything from the canonical owners - never a stale cache. READ-ONLY; it owns
+    no business calculation."""
+    return _snap.summary()
+
+
+@app.get(
+    "/v1/operations/investability-registry",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_investability_registry() -> dict:
+    """Release 50 - the ONE operational investability registry (read-only).
+
+    Every sleeve that could compete for operational paper capital, with its owners,
+    model-approval state and evidence, point-in-time state, execution / settlement /
+    collateral semantics, the fourteen capability flags and the DERIVED
+    capital-eligibility verdict - and for every ineligible sleeve the exact blocker.
+    Promotes nothing: approval is a governed, manual, evidence-gated decision."""
+    return _invreg.load_investability_registry()
+
+
+@app.get(
+    "/v1/operations/capital-pool",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_capital_pool() -> dict:
+    """Release 50 - the ONE multi-asset capital pool (read-only): starting NAV, cash,
+    available capital, invested capital, gross / net exposure, capital usage,
+    collateral, asset-class / sleeve / currency exposure and every position in the
+    canonical contract, all from the ONE NAV owner. Served through the decision
+    snapshot."""
+    return _snap.section("capital_pool")
+
+
+@app.get(
+    "/v1/operations/cross-asset-risk",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_cross_asset_risk() -> dict:
+    """Release 50 - the ONE cross-asset risk state (read-only): total volatility,
+    covariance / correlation, marginal risk and contributions, gross / net and
+    asset-class / sleeve / currency exposure, concentration, liquidity / capacity and
+    the canonical drawdown, with every approximation labelled."""
+    return _xrisk.load_cross_asset_risk(portfolio_state=_snap.section("portfolio_state"))
+
+
+@app.get(
+    "/v1/operations/opportunity-frontier",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_opportunity_frontier() -> dict:
+    """Release 50 - the ONE cross-asset opportunity frontier (read-only): every
+    capital-eligible opportunity with comparable construction inputs and an explicit
+    score basis; ineligible instruments listed with the exact reason. Research
+    statistics never become expected return here."""
+    return _frontier.load_opportunity_frontier(portfolio_state=_snap.section("portfolio_state"))
 
 
 @app.post(

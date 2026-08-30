@@ -50,9 +50,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from paper_trader.api import market_reference_data as _mrd
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import multi_horizon_ledger as mhz_ledger
 from paper_trader.api import multi_horizon_registry as mreg
+from paper_trader.engine import instrument_contract as _ic
 from paper_trader.api.current_alpha_tournament_sync import (
     TournamentSyncBlocked,
     _classify_provider_error,
@@ -352,6 +354,108 @@ def read_marks(desk_dir=None) -> dict:
     return {"series": {}, "latest_completed_date": None, "updated_at": None, "source": None}
 
 
+# --------------------------------------------------------------------------- #
+# Release 50 - instrument awareness inside the ONE mark / NAV / settlement owner.
+#
+# A US cash equity is the pre-R50 contract and values exactly as before. An owned
+# non-equity instrument (continuous future, FX spot) is recognised by the owned
+# reference-data seam, marked through THIS store, and valued by the ONE position
+# contract (``engine.instrument_contract``): a future contributes its unrealised
+# variation to NAV and encumbers initial margin as collateral; it is never valued
+# like a share. No second mark store, no second NAV, no second settlement engine.
+# --------------------------------------------------------------------------- #
+def _is_non_equity_id(symbol: str) -> bool:
+    try:
+        return _mrd.is_owned_non_equity_symbol(symbol)
+    except Exception:  # noqa: BLE001 - classification must never break a refresh
+        return False
+
+
+def _fx_series_for(symbols) -> list[str]:
+    """The owned FX-pair series ids that value the non-USD instruments among
+    ``symbols`` (empty for a USD-only set). Degrade-safe."""
+    out: set[str] = set()
+    for s in symbols or []:
+        if not _is_non_equity_id(s):
+            continue
+        try:
+            d = _mrd.descriptor_for(s)
+            if d and d.get("currency") and d["currency"] != _ic.REPORTING_CURRENCY:
+                fid = _mrd.fx_series_id(d["currency"])
+                if fid:
+                    out.add(fid)
+        except Exception:  # noqa: BLE001
+            continue
+    return sorted(out)
+
+
+def _fx_at(series: dict, currency: str, as_of: Optional[str]) -> tuple:
+    """``(fx_to_usd, state)`` for an instrument currency at ``as_of`` from the ONE
+    mark store. USD is identity; a missing pair is a named gap, never 1.0."""
+    if not currency or str(currency).upper() == _ic.REPORTING_CURRENCY:
+        return 1.0, "IDENTITY"
+    try:
+        pair = _mrd.fx_pair_for(currency)
+    except Exception:  # noqa: BLE001
+        pair = None
+    if not pair or not pair.get("symbol"):
+        return None, "PAIR_NOT_OWNED"
+    hit = _series_price_at_or_before(series.get(pair["symbol"]) or [], as_of) if as_of else None
+    if hit is None or not hit[1]:
+        return None, "FX_MARK_MISSING"
+    rate = hit[1] if pair.get("direction") == "MULTIPLY" else 1.0 / hit[1]
+    return rate, "OK"
+
+
+def instrument_descriptors(fills: list[dict], *, book_id: Optional[str] = None) -> dict:
+    """``{instrument_id: descriptor}`` recovered from the immutable fills' embedded
+    ``instrument`` blocks (a fill without one is a US cash equity)."""
+    out: dict[str, dict] = {}
+    for f in fills or []:
+        if book_id is not None and f.get("book_id") != book_id:
+            continue
+        tk = f.get("ticker")
+        if not tk or tk in out:
+            continue
+        out[tk] = _ic.descriptor_from_row(f, cost_bps_per_side=(
+            COST_BPS_PER_SIDE if not isinstance(f.get("instrument"), dict) else None))
+    return out
+
+
+def current_drawdown(desk_dir=None, *, performance: Optional[dict] = None) -> dict:
+    """Release 50 - THE canonical CURRENT operational drawdown.
+
+    One basis: the corporate-action-corrected forward-performance ledger
+    (``current_rows`` / ``current_summary``), whose running peak starts at the book's
+    initial capital. Every normal operational surface (portfolio state, Daily Close
+    P&L, forward monitor, Portfolio analytics, the operator presentation) reads THIS
+    block. Research variants (research paper books, per-constituent 252-day
+    diagnostics) remain explicitly labelled and are never this number.
+    """
+    perf = performance if performance is not None else load_performance(desk_dir=desk_dir)
+    rows = perf.get("current_rows") or perf.get("rows") or []
+    summ = perf.get("current_summary") or perf.get("summary") or {}
+    raw = perf.get("summary") or {}
+    last = rows[-1] if rows else {}
+    return {
+        "owner": "api.paper_trading_desk.current_drawdown",
+        "basis": "CURRENT_ECONOMIC_STATE_FORWARD_PERFORMANCE_LEDGER",
+        "peak_basis": "RUNNING_PEAK_NAV_INCLUDING_INITIAL_CAPITAL",
+        "units": "PERCENT",
+        "as_of": last.get("date"),
+        "current_drawdown_pct": _f(last.get("drawdown_pct")),
+        "max_drawdown_pct": _f(summ.get("max_drawdown_pct")),
+        "n_sessions": len(rows),
+        "historical_raw_max_drawdown_pct": _f(raw.get("max_drawdown_pct")),
+        "corporate_action_correction_applied": bool(
+            (perf.get("current_economic_state") or {}).get("corporate_action_correction_applied")),
+        "research_variants_labelled": [
+            "api.current_alpha_performance (research paper books, never operational)",
+            "api.portfolio_manager (proposed-book mean 252d constituent drawdown, diagnostic)"],
+        "state": "AVAILABLE" if rows else "UNAVAILABLE",
+    }
+
+
 def marks_latest_date(marks: dict) -> Optional[str]:
     return marks.get("latest_completed_date")
 
@@ -399,13 +503,27 @@ def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
     else:
         cutoff = tdate
     dl, source = _resolve_downloader(downloader)
-    fetch = sorted(set([t.strip().upper() for t in tickers if t] + [BENCHMARK_TICKER]))
+    fetch = sorted(set([t.strip().upper() if not _is_non_equity_id(t) else t.strip()
+                        for t in tickers if t] + [BENCHMARK_TICKER]))
+    # Release 50 - a non-USD instrument needs its currency's USD rate in the SAME
+    # store, so the FX pair travels with the instrument it values. Degrade-safe.
+    fetch = sorted(set(fetch) | set(_fx_series_for(fetch)))
     prior = read_marks(desk_dir)
     series: dict[str, list] = {k: list(v) for k, v in (prior.get("series") or {}).items()}
+    sources: dict[str, str] = dict(prior.get("sources") or {})
     per_ticker, failed = [], []
     for tk in fetch:
         try:
-            payload = dl(_clean_symbol(tk), start)
+            # Release 50 - the ONE mark owner routes an owned NON-EQUITY instrument
+            # (continuous future / FX spot) to the owned reference-data seam and an
+            # equity to the owned EODHD transport. An injected or fixture downloader
+            # serves every symbol (hermetic tests), exactly as before.
+            if source == "OWNED_EODHD_LIVE" and _is_non_equity_id(tk):
+                payload = _mrd.mark_downloader(tk, start)
+                sources[tk] = "OWNED_NORGATE_SETTLEMENT"
+            else:
+                payload = dl(_clean_symbol(tk) if not _is_non_equity_id(tk) else tk, start)
+                sources[tk] = source
         except Exception as exc:  # noqa: BLE001 - sanitized taxonomy below
             enum = _classify_provider_error(exc)
             if enum in _FATAL_BLOCKS:
@@ -419,7 +537,8 @@ def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
             series[tk] = [[d, v] for d, v in bars]
         per_ticker.append({"ticker": tk, "status": "OK" if bars else "EMPTY",
                            "n_bars": len(bars),
-                           "latest_completed_date": bars[-1][0] if bars else None})
+                           "latest_completed_date": bars[-1][0] if bars else None,
+                           "source": sources.get(tk)})
     latest = None
     spy = series.get(BENCHMARK_TICKER) or []
     if spy:
@@ -438,7 +557,10 @@ def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
     store = {"phase": PHASE, "kind": "provider_cache_not_a_ledger", "source": source,
              "updated_at": _iso_now(), "reference_today": tref, "fetch_start": start,
              "completed_through": (cutoff - timedelta(days=1)).isoformat(),
-             "latest_completed_date": latest, "series": series}
+             "latest_completed_date": latest, "series": series,
+             # Release 50 - which owned transport priced each series (equity marks
+             # stay OWNED_EODHD_LIVE; owned non-equity settlements are labelled).
+             "sources": sources}
     _atomic_write_json(sdir / MARKS_FILE, store)
     return {"synced": True, "store_written": True, "source": source,
             "n_tickers": len(fetch), "n_failed": len(failed),
@@ -598,18 +720,63 @@ def book_nav(book: dict, fills: list[dict], marks: dict,
     cash, qty = book_cash_holdings(book, fills, up_to_date=latest,
                                    corporate_actions=corporate_actions)
     series = marks.get("series") or {}
+    # Release 50 - instrument semantics from the immutable fills (a fill with no
+    # ``instrument`` block is a US cash equity, valued exactly as before).
+    book_fills = [f for f in fills if f.get("book_id") == book["book_id"]]
+    desc_by = instrument_descriptors(book_fills)
+    entries = (_ic.replay_entry_marks(book_fills, up_to_date=latest)
+               if any(d["instrument_type"] == _ic.IT_FUTURE for d in desc_by.values()) else {})
     invested = 0.0
     missing = []
+    positions: list[dict] = []
+    collateral = 0.0
+    fut_notional = 0.0
+    fut_unreal = 0.0
     for tk, q in sorted(qty.items()):
         at = _series_price_at_or_before(series.get(tk) or [], latest) if latest else None
         if at is None:
             missing.append(tk)
             continue
-        invested += q * at[1]
+        d = desc_by.get(tk) or _ic.equity_descriptor(tk, cost_bps_per_side=COST_BPS_PER_SIDE)
+        if d["instrument_type"] == _ic.IT_CASH_EQUITY:
+            invested += q * at[1]
+            positions.append(_ic.value_position(d, quantity=q, mark=at[1], fx_to_usd=1.0))
+            continue
+        fx, fx_state = _fx_at(series, d["currency"], latest)
+        if fx is None:
+            missing.append(tk)
+            continue
+        entry = (entries.get(tk) or {}).get("average_entry_price")
+        pos = _ic.value_position(d, quantity=q, mark=at[1], fx_to_usd=fx, entry_mark=entry)
+        if pos["market_value_usd"] is None:
+            missing.append(tk)
+            continue
+        invested += pos["market_value_usd"]
+        collateral += pos["collateral_usd"] or 0.0
+        if d["instrument_type"] == _ic.IT_FUTURE:
+            fut_notional += pos["notional_usd"] or 0.0
+            fut_unreal += pos["unrealized_pnl_usd"] or 0.0
+        positions.append(pos)
     nav = cash + invested
+    for p in positions:
+        n = p.get("notional_usd")
+        p["exposure_weight"] = (round(n / nav, 6) if (n is not None and nav) else None)
+        cu = p.get("capital_usage_usd")
+        p["capital_usage_weight"] = (round(cu / nav, 6) if (cu is not None and nav) else None)
+    non_equity = [p for p in positions if p["instrument_type"] != _ic.IT_CASH_EQUITY]
     return {"as_of_date": latest, "cash": _r2(cash), "invested": _r2(invested),
             "nav": _r2(nav), "holdings": qty, "holdings_count": len(qty),
-            "missing_marks": missing}
+            "missing_marks": missing,
+            # Release 50 - the position contracts and the capital-pool facts every
+            # multi-asset surface reads from THIS one replay. Byte-for-byte the same
+            # cash / invested / nav for an equity-only book.
+            "positions": positions,
+            "position_contract_version": _ic.SCHEMA_VERSION,
+            "collateral": _r2(collateral), "free_cash": _r2(cash - collateral),
+            "futures_notional": _r2(fut_notional), "futures_unrealized_pnl": _r2(fut_unreal),
+            "gross_exposure_usd": _r2(sum((p.get("notional_usd") or 0.0) for p in positions)),
+            "non_equity_position_count": len(non_equity),
+            "reporting_currency": _ic.REPORTING_CURRENCY}
 
 
 # --------------------------------------------------------------------------- #
@@ -926,23 +1093,51 @@ def settle_due_orders(*, desk_dir=None, today: Optional[str] = None) -> dict:
         if hit is not None:
             fill_date, price = hit
             qty = int(o["quantity"])
-            gross = qty * price
-            cost = gross * COST_RATE_PER_SIDE
-            delta = -(gross + cost) if o["side"] == SIDE_BUY else (gross - cost)
+            # Release 50 - the fill's cash effect follows the instrument's declared
+            # semantics. A US cash equity (no ``instrument`` block) is the identical
+            # pre-R50 arithmetic; a future opens for its transaction cost only and
+            # realises ``units x (price - entry) x multiplier x fx`` on close.
+            d = _ic.descriptor_from_row(o, cost_bps_per_side=COST_BPS_PER_SIDE
+                                        if not isinstance(o.get("instrument"), dict) else None)
+            is_equity = d["instrument_type"] == _ic.IT_CASH_EQUITY
+            fx, fx_state = (1.0, "IDENTITY") if is_equity else _fx_at(series, d["currency"], fill_date)
+            if fx is None:
+                # A non-USD instrument cannot fill without its USD rate on that
+                # session; it stays SUBMITTED (never a fabricated conversion).
+                continue
+            entry_ref = None
+            if d["instrument_type"] == _ic.IT_FUTURE and o["side"] == SIDE_SELL:
+                prior = [f for f in _fills(sdir) if f.get("book_id") == o["book_id"]]
+                entry_ref = (_ic.replay_entry_marks(prior, up_to_date=fill_date)
+                             .get(o["ticker"]) or {}).get("average_entry_price")
+            econ = _ic.fill_cash_delta(
+                d, side_is_buy=(o["side"] == SIDE_BUY), units=qty, price=price,
+                fx_to_usd=fx, entry_reference_price=entry_ref,
+                cost_rate=COST_RATE_PER_SIDE if is_equity else None)
+            gross, cost, delta = econ["gross_value"], econ["transaction_cost"], econ["net_cash_delta"]
             fill = {
                 "fill_id": "fill_%s" % o["order_id"][4:],
                 "order_id": o["order_id"], "book_id": o["book_id"],
                 "ticker": o["ticker"], "side": o["side"], "quantity": qty,
                 "fill_date": fill_date, "fill_price": _r6(price),
                 "gross_value": _r2(gross), "transaction_cost": _r4(cost),
-                "cost_bps_per_side": COST_BPS_PER_SIDE,
+                "cost_bps_per_side": (COST_BPS_PER_SIDE if is_equity else d["cost_bps_per_side"]),
                 "net_cash_delta": _r4(delta),
                 "execution_model": book["execution_model"],
-                "price_source": "OWNED_EODHD_ADJUSTED_CLOSE_AS_RECORDED",
+                "price_source": ("OWNED_EODHD_ADJUSTED_CLOSE_AS_RECORDED" if is_equity
+                                 else "OWNED_NORGATE_SETTLEMENT_AS_RECORDED"),
                 "no_hindsight_guard": {"approval_date": appr,
                                        "marks_latest_at_approval": guard},
                 "immutable": True,
             }
+            if not is_equity:
+                fill["instrument"] = dict(o.get("instrument") or _ic.instrument_block(d))
+                fill["fx_to_usd"] = _r6(fx)
+                fill["fx_state"] = fx_state
+                fill["notional_usd"] = _r2(econ["notional_usd"])
+                fill["realized_pnl"] = _r4(econ["realized_pnl"])
+                fill["entry_reference_price"] = _r6(entry_ref) if entry_ref is not None else None
+                fill["execution_convention"] = d["execution_convention"]
             n_fill += 1
             fills_rows.append({"event": "PAPER_FILL", "fill": fill})
             order_events.append({"event": "ORDER_TRANSITION", "order_id": o["order_id"],
@@ -1577,6 +1772,8 @@ __all__ = [
     "load_status", "load_books", "load_orders", "load_fills", "load_journal",
     "load_timeline", "load_performance", "load_execution_preview", "load_attribution",
     "open_book", "book_cash_holdings", "book_nav",
+    # Release 50 - instrument awareness + the canonical drawdown owner.
+    "instrument_descriptors", "current_drawdown",
     # Stage 19.1 — the CURRENT-state corporate-action propagation contract.
     "AUTO_CORPORATE_ACTIONS", "RAW_LEDGER_VIEW", "current_corporate_actions", "current_fills",
 ]

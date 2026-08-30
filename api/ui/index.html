@@ -3194,7 +3194,16 @@
     #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-raw-states,
     #tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-adv-exec,
     #tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-advanced,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > #r50-investability-card,
     #tab-portfolio-manager:not([data-pm-view="audit"]) > #zb-card { display: none !important; }
+    /* Release 50 - the allocation line (present sleeves only) on the snapshot and
+       the current-vs-target columns; the registry card lives under Audit & Details. */
+    .r50-alloc { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:11px; color:var(--label); margin-top:4px; }
+    .r50-alloc b { color:var(--text); font-weight:600; }
+    #r50-investability-card table { width:100%; border-collapse:collapse; font-size:11px; }
+    #r50-investability-card th, #r50-investability-card td { text-align:left; padding:3px 6px; border-bottom:1px solid rgba(122,143,176,.18); vertical-align:top; }
+    #r50-investability-card .ok { color:var(--ok, #22c55e); }
+    #r50-investability-card .no { color:var(--label); }
     /* AUDIT & DETAILS is the intentional drill-down: the evidence, check, lineage
        and per-holding audit regions the Release-29 UX2 layer removed from the
        primary route are REACHABLE here, exactly when their loader shows them. */
@@ -5696,6 +5705,19 @@
              apply, confirm, rebalance or approve control here, and there is no client
              arithmetic — every figure is rendered verbatim from
              GET /v1/operations/zero-base-target. ============================================ -->
+        <!-- ===================== Release 50 - OPERATIONAL INVESTABILITY REGISTRY (AUDIT) =====
+             Every sleeve that could compete for operational paper capital, with the registry
+             owner's own capability verdicts and the exact blocker of every ineligible sleeve.
+             Audit & Details only: inactive / ineligible sleeves are never advertised on a
+             normal surface. Read-only; no control here can approve, promote or order.
+             Rendered verbatim from GET /v1/operations/investability-registry. ================ -->
+        <details class="card" id="r50-investability-card" style="margin-bottom:12px;">
+          <summary class="card-title" style="cursor:pointer;">Operational investability registry
+            <span class="cc-badge muted" title="Which sleeves may compete for operational paper capital, and why the rest may not.">READ ONLY</span>
+            <span class="cc-badge muted" title="Approval is a governed, manual, evidence-gated model decision; nothing here promotes.">NO MODEL PROMOTION</span>
+          </summary>
+          <div id="r50-investability-body" style="margin-top:8px;">&mdash;</div>
+        </details>
         <div class="card" id="zb-card" style="margin-bottom:12px;display:none;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span>Zero-Base Target vs Current Portfolio
@@ -28016,9 +28038,23 @@ function _r47Render(d) {
     : detail.slice(0, 6).map(function (r) { return posRow(r.ticker, r.current_weight); }).join('');
   var curCash = !nil(cur.cash_weight) ? pct(cur.cash_weight) : (nil(ob.cash) ? '—' : _obMoney(ob.cash));
   var curNav = !nil(cur.nav) ? cur.nav : ob.nav;
+  // Release 50 - the allocation by asset class of each column, verbatim from the
+  // proposal owner (current) and the capital-pool owner (fallback). Only groups
+  // that carry weight exist in the owner's map, so nothing cosmetic is rendered.
+  var ma = d.multi_asset || {};
+  var maLabels = ma.labels || {};
+  var allocLine = function (m) {
+    var keys = Object.keys(m || {});
+    if (!keys.length) return '';
+    return '<div class="r50-alloc">' + keys.map(function (k) {
+      return '<span>' + escapeHtml(maLabels[k] || words(k)) + ' <b>' + pct(m[k]) + '</b></span>';
+    }).join('') + '</div>';
+  };
+  var curAlloc = allocLine(ma.current_allocation_by_asset_class);
   var curCol = '<div class="r47-col"><div class="h"><span>Current portfolio</span><span>' + escapeHtml((d.active_book || {}).book_label || '') + '</span></div>'
     + '<div class="big">' + escapeHtml(nil(curCount) ? '—' : String(curCount)) + ' positions</div>'
     + '<div class="sub">cash ' + curCash + (nil(curNav) ? '' : ' · NAV ' + _obMoney(curNav)) + '</div>'
+    + curAlloc
     + (curRows ? '<div style="margin-top:6px;">' + curRows
         + ((held.length > 6 || detail.length > 6) ? '<div class="sub">largest six shown</div>' : '') + '</div>' : '')
     + '</div>';
@@ -28033,6 +28069,7 @@ function _r47Render(d) {
       + '<div class="big">' + escapeHtml(nil(best.position_count) ? String(tgt.length) : String(best.position_count)) + ' positions</div>'
       + '<div class="sub">cash ' + pct(best.cash_weight) + ' · one-way turnover ' + pct(trn.one_way_turnover)
       + ' · est. cost ' + (nil(trn.estimated_transaction_cost) ? '—' : _obMoney(trn.estimated_transaction_cost)) + '</div>'
+      + allocLine(ma.target_allocation_by_asset_class)
       + '<div style="margin-top:6px;">' + tgt.slice(0, 6).map(function (r) { return posRow(r.ticker, r.proposed_weight); }).join('')
       + (tgt.length > 6 ? '<div class="sub">largest six shown</div>' : '') + '</div>'
       + '<div style="margin-top:8px;"><button type="button" class="tcc-link" onclick="navigateToRoute(\'portfolio-manager/reallocation\')">View full reallocation &rarr;</button></div>'
@@ -28400,6 +28437,11 @@ function _opRenderSnapshot(p) {
     + row('Cash', _opMoney(s.cash) + ' <span class="sub">&middot; ' + _opEsc(_opNil(s.positions) ? '—' : s.positions) + ' positions' + (s.pending_orders ? ' &middot; ' + _opEsc(s.pending_orders) + ' pending' : '') + '</span>', '')
     + row('vs ' + _opEsc(s.benchmark || 'benchmark'), _opNil(s.excess_return_pct) ? '—' : _opPct(s.excess_return_pct, 2, 'pp'), _opSign(s.excess_return_pct))
     + row('Drawdown', _opNil(s.drawdown_pct) ? '—' : (_opNum(s.drawdown_pct, 2) + '%'), _opSign(s.drawdown_pct))
+    // Release 50 - the allocation by asset class, verbatim from the capital-pool
+    // owner; only asset classes that carry weight are present (never "FX 0%").
+    + (s.allocation_available ? row('Allocation', (s.allocation || []).map(function (a) {
+        return '<span>' + _opEsc(a.label || a.asset_class) + ' <b>' + _opWeight(a.weight, 1) + '</b></span>';
+      }).join(' <span class="sub">&middot;</span> '), '') : '')
     + '<button type="button" class="tcc-link" style="align-self:flex-start;margin-top:6px;" onclick="navigateToRoute(\'portfolio-manager/overview\')">Open portfolio &rarr;</button>';
 }
 
@@ -28512,12 +28554,21 @@ function _opRenderReallocationView(p) {
     var tgt = alloc.filter(function (r) { return (r.proposed_weight || 0) > 0; })
       .sort(function (a, b) { return (b.proposed_weight || 0) - (a.proposed_weight || 0); });
     var okc = (best.constraints || {}).all_ok;
+    // Release 50 - the target by asset class, verbatim from the proposal owner
+    // (present groups only). Words come from the owner's label map.
+    var tma = r47.multi_asset || {};
+    var tmaKeys = Object.keys(tma.target_allocation_by_asset_class || {});
+    var sleeveLine = tmaKeys.length
+      ? '<div class="r50-alloc" style="margin:6px 0 0;"><span class="sub">Sleeves</span>' + tmaKeys.map(function (k) {
+          return '<span>' + _opEsc((tma.labels || {})[k] || _opWords(k)) + ' <b>' + _opWeight(tma.target_allocation_by_asset_class[k], 1) + '</b></span>';
+        }).join('') + '</div>'
+      : '';
     target = '<div class="pmr-econ">'
       + _opMetric('Positions', String(_opNil(best.position_count) ? tgt.length : best.position_count), '')
       + _opMetric('Cash weight', _opWeight(best.cash_weight, 1), '')
       + _opMetric('Hard constraints', okc === true ? 'satisfied' : (okc === false ? 'breached' : '—'), '')
       + _opMetric('Constraints that reshaped', (ds.constraints_that_reshaped || []).length ? _opEsc((ds.constraints_that_reshaped || []).map(_opWords).join(', ')) : 'none', '')
-      + '</div><div style="margin-top:8px;">'
+      + '</div>' + sleeveLine + '<div style="margin-top:8px;">'
       + tgt.slice(0, 12).map(function (r) { return '<span class="cc-badge muted" style="margin:2px 4px 2px 0;">' + _opEsc(r.ticker) + ' ' + _opWeight(r.proposed_weight, 1) + '</span>'; }).join('')
       + (tgt.length > 12 ? '<span class="r47-quiet">+' + (tgt.length - 12) + ' more under Audit &amp; Details</span>' : '') + '</div>';
   } else {
@@ -28596,6 +28647,7 @@ function pmSetView(view) {
   if (note) note.textContent = _PM_VIEW_NOTE[view] || '';
   if (view === 'performance') { try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {} }
   if (view === 'reallocation') { try { if (window._opresData) _opRenderReallocationView(window._opresData); } catch (e) {} }
+  if (view === 'audit') { try { if (typeof loadInvestabilityRegistry === 'function') loadInvestabilityRegistry(); } catch (e) {} }
 }
 window.pmSetView = pmSetView;
 function pmApplyViewFromRoute(sub) {
@@ -28627,6 +28679,75 @@ function openMaterialInformationDetail() {
 }
 window.openMaterialInformationDetail = openMaterialInformationDetail;
 /* R49_REGION_END */
+
+/* R50_REGION_START */
+// ---------------------------------------------------------------------------
+// RELEASE 50 — the operational investability registry card (Portfolio › Audit &
+// Details). ONE read-only loader over GET /v1/operations/investability-registry;
+// the browser renders the registry owner's rows and verdicts verbatim. It decides
+// nothing, promotes nothing, derives nothing, and holds no write path. Inactive
+// or ineligible sleeves belong HERE, never on a normal surface.
+// ---------------------------------------------------------------------------
+window._r50Registry = null;
+window._r50RegistryInFlight = null;
+function loadInvestabilityRegistry() {
+  if (window._r50RegistryInFlight) return window._r50RegistryInFlight;
+  var host = document.getElementById('r50-investability-body');
+  if (host && !window._r50Registry) host.innerHTML = '<span class="r47-quiet">Loading the investability registry…</span>';
+  var p = _mhzGet('/v1/operations/investability-registry').then(function (d) {
+    window._r50RegistryInFlight = null;
+    window._r50Registry = d || null;
+    _r50RenderRegistry(d);
+    return d;
+  }).catch(function () { window._r50RegistryInFlight = null; _r50RenderRegistry(null); return null; });
+  window._r50RegistryInFlight = p;
+  return p;
+}
+window.loadInvestabilityRegistry = loadInvestabilityRegistry;
+
+function _r50RenderRegistry(d) {
+  var host = document.getElementById('r50-investability-body');
+  if (!host) return;
+  if (!d || !d.sleeves) {
+    host.innerHTML = '<span class="r47-quiet">The investability registry is unavailable. Nothing is assumed.</span>';
+    return;
+  }
+  var caps = ['DATA_AVAILABLE', 'MODEL_APPROVED_FOR_OPERATION', 'CURRENT_MARK_AVAILABLE', 'USD_VALUATION_SUPPORTED',
+              'RISK_SUPPORTED', 'COST_SUPPORTED', 'LIQUIDITY_SUPPORTED', 'CAPACITY_SUPPORTED',
+              'POSITION_ACCOUNTING_SUPPORTED', 'PAPER_EXECUTION_SUPPORTED', 'RECONCILIATION_SUPPORTED'];
+  var short = { DATA_AVAILABLE: 'data', MODEL_APPROVED_FOR_OPERATION: 'approved', CURRENT_MARK_AVAILABLE: 'mark',
+                USD_VALUATION_SUPPORTED: 'USD', RISK_SUPPORTED: 'risk', COST_SUPPORTED: 'cost',
+                LIQUIDITY_SUPPORTED: 'liquidity', CAPACITY_SUPPORTED: 'capacity',
+                POSITION_ACCOUNTING_SUPPORTED: 'accounting', PAPER_EXECUTION_SUPPORTED: 'execution',
+                RECONCILIATION_SUPPORTED: 'reconciliation' };
+  var rows = (d.sleeves || []).map(function (s) {
+    var c = s.capabilities || {};
+    var cells = caps.map(function (k) {
+      return '<td class="' + (c[k] ? 'ok' : 'no') + '" title="' + _opEsc(k) + '">' + (c[k] ? '&#10003;' : '&ndash;') + '</td>';
+    }).join('');
+    var att = s.r50_activation_attempt || {};
+    return '<tr><td><b>' + _opEsc(s.label || s.sleeve_id) + '</b><div class="r47-quiet">' + _opEsc(s.sleeve_id) + '</div></td>'
+      + '<td>' + _opEsc(_opWords(s.asset_class)) + '</td>'
+      + '<td>' + _opEsc(_opWords(s.model_approval_state)) + '</td>'
+      + cells
+      + '<td class="' + (s.capital_eligible ? 'ok' : 'no') + '"><b>' + (s.capital_eligible ? 'eligible' : 'not eligible') + '</b>'
+      + (s.capital_ineligible_reason ? '<div class="r47-quiet">' + _opEsc(_opWords(s.capital_ineligible_reason)) + '</div>' : '')
+      + (att.why_not ? '<div class="r47-quiet" style="max-width:420px;">' + _opEsc(att.why_not) + '</div>' : '') + '</td></tr>';
+  }).join('');
+  var head = '<tr><th>Sleeve</th><th>Asset class</th><th>Approval</th>' + caps.map(function (k) {
+    return '<th title="' + _opEsc(k) + '">' + _opEsc(short[k]) + '</th>';
+  }).join('') + '<th>Capital eligible</th></tr>';
+  var gov = d.promotion_governance || {};
+  host.innerHTML = '<div class="r47-quiet" style="margin-bottom:6px;">Capital-eligible sleeves: <b>'
+    + _opEsc((d.capital_eligible_sleeve_ids || []).join(', ') || 'none') + '</b> · non-equity eligible: <b>'
+    + _opEsc((d.non_equity_eligible_sleeve_ids || []).join(', ') || 'none') + '</b> · reference data: '
+    + _opEsc(((d.reference_data || {}).state) || '—') + '</div>'
+    + '<div style="overflow-x:auto;"><table><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>'
+    + '<div class="r47-quiet" style="margin-top:6px;">' + _opEsc(gov.how_a_sleeve_becomes_eligible || '')
+    + ' Automatic promotion: ' + (gov.automatic_promotion ? 'yes' : 'no') + '. A research verdict promotes: '
+    + (gov.research_verdict_promotes ? 'yes' : 'no') + '.</div>';
+}
+/* R50_REGION_END */
 
 
 // ---------------------------------------------------------------------------

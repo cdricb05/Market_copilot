@@ -144,7 +144,8 @@ def freeze_executed_decision(*, proposal_hash: Optional[str],
                              model_state: Optional[dict] = None,
                              provenance: Optional[dict] = None,
                              outcome_dir=None,
-                             now: Optional[datetime] = None) -> dict:
+                             now: Optional[datetime] = None,
+                             instrument_meta: Optional[dict] = None) -> dict:
     """Freeze ONE immutable decision record. Idempotent by decision identity.
 
     Called at the execution boundary, after the governed paper orders exist and
@@ -201,7 +202,8 @@ def freeze_executed_decision(*, proposal_hash: Optional[str],
                     "proposal_hash": proposal_hash,
                     "order_plan_id": order_plan_id,
                     "composition_owner": OWNER,
-                    "orders_created": int(orders_created or 0)})
+                    "orders_created": int(orders_created or 0)},
+        instrument_meta=instrument_meta)
 
     records = load_records(outcome_dir=outcome_dir)
     records.append(record)
@@ -222,17 +224,27 @@ def freeze_executed_decision(*, proposal_hash: Optional[str],
 # --------------------------------------------------------------------------- #
 # Measuring - read only
 # --------------------------------------------------------------------------- #
-def _price_history(marks: dict, tickers: set) -> dict:
+def _price_history(marks: dict, tickers: set,
+                   instrument_meta: Optional[dict] = None) -> dict:
     """``{ticker: {date: close}}`` from the desk's OWN settled mark series.
 
     The desk is the single mark owner; this reads its published series and calls no
     provider. A ticker with no series simply has no prices, and the kernel's
     coverage floor then withholds the measurement instead of inventing one.
+
+    Release 50 - a non-USD instrument's mark is translated to USD with the FX-pair
+    series the SAME store carries (``fx_series_id`` on the record's instrument
+    meta); a date without a rate has no USD price that day, never a stale one.
     """
     series = (marks or {}).get("series") or {}
+    meta = instrument_meta or {}
     out: dict[str, dict] = {}
     for tk in sorted(tickers):
         rows = series.get(tk) or []
+        m = meta.get(tk) or {}
+        fx_id = m.get("fx_series_id")
+        fx_rows = {str(r[0]): r[1] for r in (series.get(fx_id) or []) if fx_id and r and r[1]}
+        divide = bool(m.get("fx_direction") == "DIVIDE")
         hist: dict[str, float] = {}
         for row in rows:
             try:
@@ -242,9 +254,15 @@ def _price_history(marks: dict, tickers: set) -> dict:
             if d is None or v is None:
                 continue
             try:
-                hist[str(d)] = float(v)
+                px = float(v)
             except (TypeError, ValueError):
                 continue
+            if fx_id:
+                rate = fx_rows.get(str(d))
+                if not rate:
+                    continue
+                px = px / float(rate) if divide else px * float(rate)
+            hist[str(d)] = px
         if hist:
             out[tk] = hist
     return out
@@ -259,7 +277,7 @@ def measure_record(*, record: dict, marks: Optional[dict] = None,
     tickers: set = set()
     for p in paths.values():
         tickers |= set((p or {}).get("basket") or {})
-    history = _price_history(marks, tickers)
+    history = _price_history(marks, tickers, (record or {}).get("instrument_meta"))
     dates = sorted({d for series in history.values() for d in series})
     pit = kernel.point_in_time_check(
         record=record,

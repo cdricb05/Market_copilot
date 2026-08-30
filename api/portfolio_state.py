@@ -530,6 +530,25 @@ def _build_positions(operational: dict) -> list[dict]:
             "opened_date": r.get("opened_date"),
             "operational_status": r.get("status"),
             "provenance": "api.operational_book.build_holdings_detail",
+            # Release 50 - the instrument contract behind the position, verbatim from
+            # the owner (a row without one is a US cash equity, exactly as before).
+            "instrument_type": r.get("instrument_type") or "CASH_EQUITY",
+            "asset_class": r.get("asset_class") or "US_EQUITY",
+            "sleeve_id": r.get("sleeve_id") or "us_equity_fundamental_momentum_50_50_v1",
+            "currency": r.get("currency") or "USD",
+            "multiplier": _f(r.get("multiplier")) if r.get("multiplier") is not None else 1.0,
+            "fx_to_usd": _f(r.get("fx_to_usd")) if r.get("fx_to_usd") is not None else 1.0,
+            "unit_type": r.get("unit_type") or "SHARES",
+            "notional_usd": _f(r.get("notional_usd")) if r.get("notional_usd") is not None
+                            else _f(r.get("market_value")),
+            "collateral_usd": _f(r.get("collateral_usd")) or 0.0,
+            "capital_usage_usd": (_f(r.get("capital_usage_usd"))
+                                  if r.get("capital_usage_usd") is not None
+                                  else _f(r.get("market_value"))),
+            "exposure_weight": (_f(r.get("exposure_weight"))
+                                if r.get("exposure_weight") is not None
+                                else _f(r.get("current_weight"))),
+            "execution_convention": r.get("execution_convention") or "NEXT_CLOSE",
         })
     positions.sort(key=lambda p: (p["portfolio_weight"] is None,
                                   -(p["portfolio_weight"] or 0.0),
@@ -841,6 +860,10 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "cumulative_excess_vs_benchmark": _f(perf_summary.get("excess_vs_benchmark_pct_points")),
         "drawdown": _f(perf_last_cur.get("drawdown_pct")),
         "max_drawdown": _f(perf_summary.get("max_drawdown_pct")),
+        # Release 50 - ONE canonical current operational drawdown owner; this block
+        # reads the same current-economic-state ledger that owner publishes.
+        "drawdown_owner": "api.paper_trading_desk.current_drawdown",
+        "drawdown_basis": "CURRENT_ECONOMIC_STATE_FORWARD_PERFORMANCE_LEDGER",
         "benchmark_ticker": perf_last_cur.get("benchmark_ticker") or "SPY",
         "benchmark_value": _f(perf_last_cur.get("benchmark_close")),
         "benchmark_cumulative_return": _f(perf_last_cur.get("benchmark_cumulative_return_pct")),
@@ -868,6 +891,23 @@ def _compose(*, operational: dict, freshness: Optional[dict],
 
     # --- Positions (Workstream B). --------------------------------------------- #
     positions = _build_positions(operational)
+
+    # --- Release 50: the ONE multi-asset capital pool (composed, never recomputed).
+    # The desk's NAV replay already produced the position contracts and the
+    # collateral / free-cash facts; api.capital_pool aggregates them by asset class,
+    # sleeve and currency. Equity-only books read: one asset class plus cash.
+    valuation_contract = ob.get("valuation_contract") or {}
+    capital_pool = None
+    try:
+        from paper_trader.api import capital_pool as _cp
+        capital_pool = _cp.build_capital_pool(
+            book_id=active_book.get("book_id"), valuation_date=dates.get("valuation_date"),
+            nav=capital.get("nav"), cash=capital.get("cash"),
+            starting_capital=capital.get("initial_capital"),
+            positions=_cp.positions_from_state({"positions": positions}),
+            valuation_contract=valuation_contract)
+    except Exception as exc:  # noqa: BLE001 - the state must always load
+        warnings.append("Capital pool unavailable: %s" % str(exc)[:160])
 
     # --- Orders (Workstream B). ------------------------------------------------ #
     po = ob.get("pending_orders") or {}
@@ -1051,6 +1091,8 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "capital": capital,
         "corporate_actions": corporate_actions_block,
         "positions": positions,
+        "capital_pool": capital_pool,
+        "valuation_contract": valuation_contract,
         "orders": orders,
         "fills": fills_block,
         "target": target,

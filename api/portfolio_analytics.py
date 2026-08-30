@@ -82,7 +82,10 @@ def _safety() -> dict:
 # Section builders (each pure; each degrades to available: False)
 # --------------------------------------------------------------------------- #
 def _build_performance(perf: Optional[dict]) -> dict:
-    rows = list((perf or {}).get("rows") or [])
+    # Release 50 - the chart is a CURRENT-state surface, so it reads the desk's
+    # corporate-action-corrected ``current_rows`` (the ONE drawdown owner's basis),
+    # never the immutable raw rows; with an empty registry the two are identical.
+    rows = list((perf or {}).get("current_rows") or (perf or {}).get("rows") or [])
     rows = [r for r in rows if isinstance(r, dict) and r.get("date")]
     rows.sort(key=lambda r: str(r.get("date")))
     points = []
@@ -105,6 +108,10 @@ def _build_performance(perf: Optional[dict]) -> dict:
         "n_sessions": len(points),
         "points": points,
         "last": last,
+        "basis": "CURRENT_ECONOMIC_STATE_FORWARD_PERFORMANCE_LEDGER",
+        "drawdown_owner": "api.paper_trading_desk.current_drawdown",
+        "max_drawdown_pct": _f(((perf or {}).get("current_summary")
+                                or (perf or {}).get("summary") or {}).get("max_drawdown_pct")),
     }
 
 

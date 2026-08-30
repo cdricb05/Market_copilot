@@ -80,8 +80,40 @@ CT_TURNOVER_BUDGET = "TURNOVER_BUDGET_EXCEEDED"
 CT_CONCENTRATION = "CONCENTRATION_DETERIORATION_BLOCKS_CHANGE"
 CT_RISK_DETERIORATION = "RISK_DETERIORATION_BLOCKS_CHANGE"
 CT_SECTOR_CAP = "SECTOR_CAP_BREACH_BLOCKS_CHANGE"
+#: Release 50 - a cross-asset limit (asset class / sleeve / currency / collateral /
+#: gross exposure) breached by the complete target. A RESHAPING limit exactly like
+#: the sector cap: it routes the target to the Release-47 re-optimiser, and only an
+#: empty feasible set withholds the decision.
+CT_CROSS_ASSET_CAP = "CROSS_ASSET_CAP_BREACH_BLOCKS_CHANGE"
 COMPLETE_TARGET_CONSTRAINT_CODES = (CT_TURNOVER_BUDGET, CT_CONCENTRATION,
-                                    CT_RISK_DETERIORATION, CT_SECTOR_CAP)
+                                    CT_RISK_DETERIORATION, CT_SECTOR_CAP,
+                                    CT_CROSS_ASSET_CAP)
+
+#: Release 50 - instrument fields a universe / position row MAY carry. A row without
+#: them is a US cash equity, the pre-R50 contract.
+_INSTRUMENT_FIELDS = ("asset_class", "sleeve_id", "instrument_type", "currency",
+                      "multiplier", "initial_margin_per_unit", "capital_usage_ratio",
+                      "unit_notional_usd", "cost_bps_per_side", "score_basis",
+                      "execution_convention")
+_EQUITY_DEFAULTS = {"asset_class": "US_EQUITY",
+                    "sleeve_id": "us_equity_fundamental_momentum_50_50_v1",
+                    "instrument_type": "CASH_EQUITY", "currency": "USD",
+                    "multiplier": 1.0, "initial_margin_per_unit": 0.0,
+                    "capital_usage_ratio": 1.0, "unit_notional_usd": None,
+                    "cost_bps_per_side": None,
+                    "score_basis": "OPERATIONAL_MODEL_COMBINED_PERCENTILE",
+                    "execution_convention": "NEXT_CLOSE"}
+
+
+def instrument_fields(row: Optional[dict]) -> dict:
+    """The instrument contract of a universe / position / allocation row, with the
+    equity defaults for every field the row does not carry."""
+    r = row or {}
+    out = {}
+    for k in _INSTRUMENT_FIELDS:
+        v = r.get(k)
+        out[k] = v if v is not None else _EQUITY_DEFAULTS[k]
+    return out
 #: The owner that ASKS for a target but must never decide these constraints itself.
 ASK_GATE_OWNER = "engine.portfolio_reassessment"
 
@@ -196,6 +228,14 @@ def default_policy() -> dict[str, Any]:
         # --- classification / reconciliation tolerances ---------------------- #
         "material_weight_delta": 1.0e-4,                          # new: RETAIN vs INCREASE/REDUCE band
         "weight_reconcile_tol": 1.0e-6,                          # new
+        # --- Release 50: cross-asset limits (ONE value each; mirrored into the
+        # Release-47 repair kernel through constraint_policy_projection) -------- #
+        "max_gross_exposure": 1.0,
+        "asset_class_weight_caps": {"US_EQUITY": 1.0, "CASH": 1.0, "DEFAULT_NON_EQUITY": 0.25},
+        "sleeve_weight_caps": {"us_equity_fundamental_momentum_50_50_v1": 1.0, "cash_usd": 1.0,
+                               "DEFAULT_NON_EQUITY": 0.25},
+        "non_usd_currency_cap": 0.20,
+        "collateral_cap_fraction": 0.25,
     }
 
 
@@ -379,7 +419,7 @@ def _cr_candidates(*, universe_rows: list, urows: dict, held_set: set,
             continue
         out[tk] = {"ticker": tk, "sector": r.get("sector") or "Unknown",
                    "adv_dollar": _f(r.get("adv_dollar")), "rank": r.get("rank"),
-                   "score": _f(r.get("percentile"))}
+                   "score": _f(r.get("percentile")), **instrument_fields(r)}
     for tk in sorted(held_set):
         if tk in out:
             continue
@@ -391,7 +431,7 @@ def _cr_candidates(*, universe_rows: list, urows: dict, held_set: set,
         out[tk] = {"ticker": tk,
                    "sector": sector_of.get(tk) or u.get("sector") or "Unknown",
                    "adv_dollar": _f(u.get("adv_dollar")), "rank": u.get("rank"),
-                   "score": _f(pct_fn(tk))}
+                   "score": _f(pct_fn(tk)), **instrument_fields(u)}
     return [out[tk] for tk in sorted(out)]
 
 
@@ -469,10 +509,24 @@ def constraint_policy_projection(policy: dict) -> dict:
             out[k] = policy[k]
     for k in ("max_adv_participation", "max_name_risk_contribution",
               "min_position_weight", "min_cash_weight", "max_cash_weight",
-              "min_switching_net_improvement", "min_switching_turnover"):
+              "min_switching_net_improvement", "min_switching_turnover",
+              # Release 50 - the cross-asset limits keep ONE value each.
+              "max_gross_exposure", "asset_class_weight_caps", "sleeve_weight_caps",
+              "non_usd_currency_cap", "collateral_cap_fraction"):
         if k in policy:
             out[k] = policy[k]
     return out
+
+
+def _equivalent_rank(score: Optional[float], equity_rows: list) -> Optional[int]:
+    """Release 50 - where a frontier row's normalised score would sit among the
+    equity ranks: one more than the count of equity rows scoring at least as
+    well. Equity rows keep their own rank, so an equity-only pool is ordered
+    exactly as before; a frontier row is interleaved by score, never appended."""
+    if score is None:
+        return None
+    return 1 + sum(1 for r in equity_rows
+                   if _f(r.get("percentile")) is not None and _f(r.get("percentile")) >= score)
 
 
 # --------------------------------------------------------------------------- #
@@ -539,10 +593,18 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     current_mv = {p.get("ticker"): (_f(p.get("market_value")) or 0.0) for p in positions
                   if p.get("ticker")}
     sector_of = {}
+    pos_by: dict[str, dict] = {}
     for p in positions:
         tk = p.get("ticker")
         if tk:
             sector_of[tk] = p.get("sector") or (urows.get(tk) or {}).get("sector") or "Unknown"
+            pos_by[tk] = p
+    # Release 50 - instrument metadata for the cross-asset limits (equity defaults
+    # for every row that carries none, so an equity-only book is unchanged).
+    meta_rows = [dict(r, ticker=r.get("ticker")) for r in universe_rows if r.get("ticker")]
+    meta_rows += [dict(instrument_fields(p), ticker=p.get("ticker")) for p in positions
+                  if p.get("ticker") and p.get("ticker") not in urows]
+    inst_meta = _cr.candidate_meta(meta_rows)
 
     N = int(pol["target_position_count"])
     base_weight = round(min(1.0 / N, pol["max_name_weight"]), 8) if N > 0 else 0.0
@@ -565,16 +627,29 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         return _f(rev.get("current_score"))
 
     # --- candidate pool: eligible, non-held, liquid, within candidate rank --- #
+    # Release 50 - a frontier (non-equity) row carries a rank inside ITS sleeve; it
+    # is interleaved into the pool by its normalised score (equivalent rank), so the
+    # equity ordering is untouched and nothing is appended as a residual sink.
+    equity_rows = [r for r in universe_rows if not r.get("frontier_row")]
+    pool_rows = []
+    for r in universe_rows:
+        if not r.get("ticker"):
+            continue
+        if r.get("frontier_row"):
+            eq_rank = _equivalent_rank(_f(r.get("percentile")), equity_rows)
+            if eq_rank is None:
+                continue
+            pool_rows.append((eq_rank, 1, dict(r, pool_rank=eq_rank)))
+        elif r.get("rank") is not None:
+            pool_rows.append((r.get("rank"), 0, dict(r, pool_rank=r.get("rank"))))
     candidate_pool = []
-    for r in sorted((r for r in universe_rows
-                     if r.get("ticker") and r.get("rank") is not None),
-                    key=lambda r: (r.get("rank"), r.get("ticker"))):
+    for _rk, _kind, r in sorted(pool_rows, key=lambda t: (t[0], t[1], t[2].get("ticker"))):
         tk = r.get("ticker")
         if tk in held_set:
             continue
         if not r.get("eligible", True):
             continue
-        if r.get("rank") is not None and r.get("rank") > pol["candidate_rank_max"]:
+        if r.get("pool_rank") is not None and r.get("pool_rank") > pol["candidate_rank_max"]:
             continue
         adv = _f(r.get("adv_dollar"))
         if adv is not None and adv < pol["min_adv_dollar"]:
@@ -748,6 +823,9 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                     ticker=tk, action=action, reason_codes=reason_codes, delta=delta,
                     proposed=pw, held=tk in held_set, policy=pol)
             urow = urows.get(tk) or {}
+            # Release 50 - the instrument contract behind the row: from the universe /
+            # frontier row, else from the held position, else the equity defaults.
+            inst = instrument_fields(urow if urow else (pos_by.get(tk) or {}))
             allocations.append({
                 "ticker": tk,
                 "sector": sector_of.get(tk) or urow.get("sector") or "Unknown",
@@ -765,6 +843,7 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                 "replacement_relationship": replacement_relationship,
                 "reason_codes": reason_codes,
                 "held": tk in held_set,
+                **inst,
             })
         return allocations, proposed_weight
 
@@ -789,7 +868,8 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                 "turnover": tno, "signal": sig, "risk": rsk, "risk_gaps": rgaps,
                 "constraints": cons, "hard_violations": hard,
                 "limits": evaluate_complete_target_limits(
-                    turnover=tno, risk=rsk, policy=pol)}
+                    turnover=tno, risk=rsk, policy=pol,
+                    proposed_weight=pweight, instrument_meta=inst_meta)}
 
     measured = _measure()
     if measured["hard_violations"]:
@@ -831,6 +911,7 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     invested_after = sum(proposed_weight.values()) * nav
     proposed_cash = _round_money(nav - invested_after)
     proposed_holding_count = sum(1 for w in proposed_weight.values() if w > 0)
+    proposed_groups = _cr._group_weights(_positive(proposed_weight), inst_meta)
     portfolio = {
         "nav": _round_money(nav),
         "current_cash": _round_money(cash),
@@ -843,6 +924,24 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         "proposed_holding_count": proposed_holding_count,
         "target_position_count": N,
         "base_target_weight": _r(base_weight, 6),
+        # --- Release 50: the same two portfolios by asset class / sleeve ------- #
+        "current_allocation_by_asset_class": _cr.allocation_by(
+            _positive(current_weight), inst_meta, "asset_class"),
+        "proposed_allocation_by_asset_class": _cr.allocation_by(
+            _positive(proposed_weight), inst_meta, "asset_class"),
+        "current_allocation_by_sleeve": _cr.allocation_by(
+            _positive(current_weight), inst_meta, "sleeve_id"),
+        "proposed_allocation_by_sleeve": _cr.allocation_by(
+            _positive(proposed_weight), inst_meta, "sleeve_id"),
+        "asset_classes_in_target": sorted(proposed_groups["by_class"]),
+        "proposed_gross_exposure": _r(sum(proposed_weight.values()), 6),
+        "proposed_net_exposure": _r(sum(proposed_weight.values()), 6),
+        "proposed_non_usd_exposure": _r(proposed_groups["non_usd"], 6),
+        "proposed_collateral_weight": _r(proposed_groups["collateral"], 6),
+        "non_equity_position_count_in_target": sum(
+            1 for tk, w in proposed_weight.items() if w > 0
+            and (inst_meta.get(tk) or {}).get("instrument_type", "CASH_EQUITY") != "CASH_EQUITY"),
+        "forced_diversification": False,
     }
 
     # --- action counts ------------------------------------------------------- #
@@ -965,6 +1064,9 @@ def _turnover_and_cost(*, allocations: list, nav: float, policy: dict,
     gross_buys = 0.0
     gross_sells = 0.0
     two_way_weight = 0.0
+    est_cost = 0.0
+    per_instrument = False
+    cost_rate = policy["cost_rate_per_side"]
     for row in allocations:
         cc = _f(row.get("capital_change")) or 0.0
         if cc > 0:
@@ -972,9 +1074,15 @@ def _turnover_and_cost(*, allocations: list, nav: float, policy: dict,
         elif cc < 0:
             gross_sells += -cc
         two_way_weight += abs(_f(row.get("delta_weight")) or 0.0)
+        # Release 50 - a row that carries its instrument's declared cost (a future,
+        # an FX spot) is charged at that rate; every other row at the desk rate.
+        bps = _f(row.get("cost_bps_per_side"))
+        if bps is not None:
+            per_instrument = True
+            est_cost += abs(cc) * (bps / 10000.0)
+        else:
+            est_cost += abs(cc) * cost_rate
     traded_notional = gross_buys + gross_sells
-    cost_rate = policy["cost_rate_per_side"]
-    est_cost = traded_notional * cost_rate
     # Switching cost = the transaction cost attributable to REPLACE_OUT/REPLACE_IN legs.
     switch_notional = 0.0
     replace_tickers = {row["ticker"] for row in allocations
@@ -994,6 +1102,9 @@ def _turnover_and_cost(*, allocations: list, nav: float, policy: dict,
         "cost_pct_nav": _r((est_cost / nav) if nav else None, 8),
         "cost_rate_per_side": cost_rate,
         "round_trip_cost_bps": policy["round_trip_cost_bps"],
+        "per_instrument_cost_rates_applied": per_instrument,
+        "cost_basis": ("TRADED_NOTIONAL_TIMES_PER_INSTRUMENT_SIDE_RATE" if per_instrument
+                       else "TRADED_NOTIONAL_TIMES_PER_SIDE_RATE"),
     }
 
 
@@ -1219,7 +1330,8 @@ def _validate_constraints(*, allocations: list, proposed_weight: dict, sector_of
 # Complete-target portfolio limits (Release 29.3 — MOVED from the reassessment)
 # --------------------------------------------------------------------------- #
 def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
-                                    policy: dict) -> dict:
+                                    policy: dict, proposed_weight: Optional[dict] = None,
+                                    instrument_meta: Optional[dict] = None) -> dict:
     """Judge the portfolio-level limits that require knowing the COMPLETE target.
 
     Pure arithmetic over values this kernel has already computed on the complete
@@ -1273,12 +1385,57 @@ def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
                 "detail": ("The complete target's largest sector weight is %.4f against "
                            "a %.4f cap." % (sec_a, cap))})
 
+    # Release 50 - the cross-asset limits, judged on the complete target through the
+    # ONE constraint owner's own verification (never a second definition here).
+    cross_asset = None
+    if proposed_weight is not None and instrument_meta is not None:
+        pw = {tk: w for tk, w in proposed_weight.items() if (_f(w) or 0.0) > 0}
+        g = _cr._group_weights(pw, instrument_meta)
+        cpol = constraint_policy_projection(policy)
+        ca_breaches = []
+        for ac, v in sorted(g["by_class"].items()):
+            lim = _cr._asset_class_cap(dict(_cr.default_policy(), **cpol), ac)
+            if v > lim + 1e-9:
+                ca_breaches.append({"code": _cr.C_ASSET_CLASS_CAP, "asset_class": ac,
+                                    "value": _r(v, 6), "limit": _r(lim, 6)})
+        for sl, v in sorted(g["by_sleeve"].items()):
+            lim = _cr._sleeve_cap(dict(_cr.default_policy(), **cpol), sl)
+            if v > lim + 1e-9:
+                ca_breaches.append({"code": _cr.C_SLEEVE_CAP, "sleeve_id": sl,
+                                    "value": _r(v, 6), "limit": _r(lim, 6)})
+        ccy = _f(policy.get("non_usd_currency_cap"))
+        if ccy is not None and g["non_usd"] > ccy + 1e-9:
+            ca_breaches.append({"code": _cr.C_CURRENCY_CAP, "value": _r(g["non_usd"], 6),
+                                "limit": _r(ccy, 6)})
+        coll = _f(policy.get("collateral_cap_fraction"))
+        if coll is not None and g["collateral"] > coll + 1e-9:
+            ca_breaches.append({"code": _cr.C_COLLATERAL_CAP, "value": _r(g["collateral"], 6),
+                                "limit": _r(coll, 6)})
+        gross = sum(pw.values())
+        mg = _f(policy.get("max_gross_exposure"))
+        if mg is not None and gross > mg + 1e-9:
+            ca_breaches.append({"code": _cr.C_GROSS_EXPOSURE, "value": _r(gross, 6),
+                                "limit": _r(mg, 6)})
+        cross_asset = {"breaches": ca_breaches,
+                       "group_weights": {"by_class": {k: _r(v, 6) for k, v in g["by_class"].items()},
+                                         "by_sleeve": {k: _r(v, 6) for k, v in g["by_sleeve"].items()},
+                                         "non_usd": _r(g["non_usd"], 6),
+                                         "collateral": _r(g["collateral"], 6)}}
+        if ca_breaches:
+            breaches.append({
+                "code": CT_CROSS_ASSET_CAP, "object": "COMPLETE_TARGET",
+                "value": [b["code"] for b in ca_breaches],
+                "limit": "see cross_asset.breaches",
+                "detail": ("The complete target breaches %d cross-asset limit(s): %s."
+                           % (len(ca_breaches), ", ".join(b["code"] for b in ca_breaches)))})
+
     return {
         "owner": CALCULATION_OWNER,
         "object": "COMPLETE_TARGET",
         "ask_gate_owner": ASK_GATE_OWNER,
         "constraint_codes": list(COMPLETE_TARGET_CONSTRAINT_CODES),
         "evaluated_once": True,
+        "cross_asset": cross_asset,
         "one_way_turnover": _r(one_way, 6),
         "one_way_turnover_budget": _r(budget, 6),
         "concentration_before": _r(hhi_b, 6),

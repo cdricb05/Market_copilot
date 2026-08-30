@@ -763,9 +763,11 @@ def test_supported_execution_mechanics_are_closed_and_named(tmp_path):
     _sdir, _book, _art, _dec, kwargs = _aug12(tmp_path)
     _hydrate(tmp_path, kwargs, _ALL)
     plan = rb.load_rebalance_state(**kwargs)["order_plan"]
+    # Release 50 names two more closed mechanics for non-equity instruments
+    # (whole contracts; initial-margin collateral coverage). The list stays finite.
     assert plan["supported_execution_mechanics"] == [
-        "WHOLE_SHARES", "TRANSACTION_COST", "AVAILABLE_CASH", "CONCENTRATION_POLICY",
-        "MIN_ORDER_POLICY"]
+        "WHOLE_SHARES", "WHOLE_CONTRACTS", "TRANSACTION_COST", "AVAILABLE_CASH",
+        "COLLATERAL_COVERAGE", "CONCENTRATION_POLICY", "MIN_ORDER_POLICY"]
     comp = plan["envelope_components"]
     assert set(comp) == {"whole_share_slack", "transaction_cost", "capital_shortfall",
                          "nav_basis"}

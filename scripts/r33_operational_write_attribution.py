@@ -426,7 +426,28 @@ R49_MARKERS = (
 R49_SOURCE_GLOBS = ()
 R49_SOURCE_FILES = ()
 
+#: Release 50 is an OPERATIONAL release: it extends the ONE NAV / mark / settlement
+#: owner with instrument semantics and adds read-only owners (registry, capital pool,
+#: risk, frontier, snapshot). None of them owns a store, so the static lane is
+#: vacuous by design and the strict-root lane carries the weight. The markers are
+#: the strings only R50 machinery could write into an operational store - a
+#: non-equity fill, a mark store with an owned-settlement source, an instrument
+#: block on an order - and any of them appearing there is ATTRIBUTED, never
+#: excused. Development created no order, fill, approval or portfolio mutation.
+R50_MARKERS = (
+    "release50", "r50_", "R50_", "decision_snapshot", "investability_registry",
+    "capital_pool", "cross_asset_risk", "opportunity_frontier", "market_reference_data",
+    "instrument_contract", "multi_asset_position.v1", "instrument_descriptor.v1",
+    "NEXT_SESSION_SETTLEMENT", "OWNED_NORGATE_SETTLEMENT",
+    "OWNED_NORGATE_SETTLEMENT_AS_RECORDED", "VARIATION_MARGIN_UNREALISED",
+)
+R50_SOURCE_GLOBS = ()
+R50_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R50": {"markers": R50_MARKERS, "source_globs": R50_SOURCE_GLOBS,
+            "source_files": R50_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R49": {"markers": R49_MARKERS, "source_globs": R49_SOURCE_GLOBS,
             "source_files": R49_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

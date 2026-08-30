@@ -237,14 +237,24 @@ def _cr_policy_view() -> dict:
 def _positions_from_state(ps: dict) -> list[dict]:
     out = []
     for p in (ps.get("positions") or []):
-        out.append({
+        row = {
             "ticker": p.get("ticker"),
             "sector": p.get("sector") or "Unknown",
             "quantity": p.get("quantity"),
-            "current_weight": _f(p.get("portfolio_weight")),
+            # Release 50 - the EXPOSURE weight (notional / NAV); identical to the
+            # market-value weight for a cash equity.
+            "current_weight": (_f(p.get("exposure_weight"))
+                               if p.get("exposure_weight") is not None
+                               else _f(p.get("portfolio_weight"))),
             "market_value": _f(p.get("market_value")),
             "price": _f(p.get("price")),
-        })
+        }
+        # Release 50 - the instrument contract travels with the position.
+        for k in ("instrument_type", "asset_class", "sleeve_id", "currency", "multiplier",
+                  "unit_type", "notional_usd", "collateral_usd", "execution_convention"):
+            if p.get(k) is not None:
+                row[k] = p.get(k)
+        out.append(row)
     return out
 
 
@@ -305,16 +315,24 @@ def _aligned_returns(*, price_panel: dict, tickers: list, eligible: str,
 
 def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment: dict,
                          price_panel: Optional[dict] = None,
-                         policy: Optional[dict] = None) -> dict:
+                         policy: Optional[dict] = None,
+                         frontier: Optional[dict] = None) -> dict:
     """Assemble the immutable point-in-time reallocation-input contract.
 
     Everything is sourced as of the portfolio-state eligible market date. No expected
     return is ever synthesised. No future rows; no fabricated volume.
+
+    Release 50 - ``frontier`` is the ONE cross-asset opportunity frontier
+    (``api.opportunity_frontier``). Its ELIGIBLE non-equity rows join the universe
+    rows in the SAME shape (ticker / sector / rank / percentile / adv_dollar) plus
+    their instrument contract, and its non-equity holding reviews join the HOC
+    reviews. An absent or empty frontier is exactly the pre-R50 equity contract.
     """
     pol = policy or resolve_policy()
     ps = portfolio_state or {}
     sc = scoring or {}
     hoc = hoc_assessment or {}
+    fr = frontier or {}
     eligible = ((ps.get("dates") or {}).get("eligible_market_date"))
     active_book = ps.get("active_book") or {}
     active_book_id = active_book.get("book_id")
@@ -322,17 +340,38 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
     positions = _positions_from_state(ps)
     held = {p["ticker"] for p in positions if p.get("ticker")}
     universe_rows = list(sc.get("rankings") or [])
+    universe_tickers = {r.get("ticker") for r in universe_rows}
+    frontier_rows = [r for r in (fr.get("candidate_rows_for_proposal") or [])
+                     if r.get("ticker") and r.get("ticker") not in universe_tickers]
+    universe_rows = universe_rows + frontier_rows
     hoc_reviews = _hoc_reviews_from_assessment(hoc)
+    reviewed = {r.get("ticker") for r in hoc_reviews}
+    frontier_reviews = [r for r in (fr.get("non_equity_reviews") or [])
+                        if r.get("ticker") and r.get("ticker") not in reviewed]
+    hoc_reviews = hoc_reviews + frontier_reviews
     hoc_state = hoc.get("assessment_state")
     hoc_available = bool(hoc) and hoc_state in ("READY", "DEGRADED")
     hoc_gaps = ((hoc.get("data_quality") or {}).get("data_gaps")) or []
 
     aligned = {"dates": [], "series": {}}
-    if price_panel:
+    non_equity = sorted({r["ticker"] for r in frontier_rows}
+                        | {p["ticker"] for p in positions
+                           if p.get("instrument_type") not in (None, "CASH_EQUITY")})
+    if price_panel or non_equity:
         cand = _candidate_tickers(scoring=sc, held=held, policy=pol)
-        union = sorted(held | set(cand))
-        aligned = _aligned_returns(price_panel=price_panel, tickers=union,
-                                   eligible=eligible, lookback=pol["covariance_lookback"])
+        union = sorted(held | set(cand) | set(non_equity))
+        if non_equity:
+            # ONE aligned panel over equities AND owned non-equity settlements.
+            from paper_trader.api import cross_asset_risk as _car
+            pos_rows = [{"instrument_id": t, "instrument_type": ("CASH_EQUITY" if t not in non_equity
+                                                                   else "FUTURE")}
+                        for t in union]
+            aligned = _car.build_aligned_returns(
+                positions=pos_rows, price_panel=price_panel, as_of=eligible,
+                lookback=pol["covariance_lookback"])
+        else:
+            aligned = _aligned_returns(price_panel=price_panel, tickers=union,
+                                       eligible=eligible, lookback=pol["covariance_lookback"])
 
     return {
         "schema_version": INPUT_SCHEMA_VERSION,
@@ -343,6 +382,12 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "nav": (ps.get("capital") or {}).get("nav"),
         "cash": (ps.get("capital") or {}).get("cash"),
         "portfolio_state_hash": ps.get("state_hash"),
+        # Release 50 - the frontier identity this proposal was built from.
+        "frontier_hash": fr.get("frontier_hash"),
+        "frontier_eligible_non_equity_count": fr.get("eligible_non_equity_count") or 0,
+        "frontier_rows_admitted": [r["ticker"] for r in frontier_rows],
+        "registry_capital_eligible_sleeve_ids": list(
+            (fr.get("registry_identity") or {}).get("capital_eligible_sleeve_ids") or []),
         # Stage 19.1: the corporate-action registry the CURRENT holdings/NAV in this
         # contract were projected through. Bound into the proposal identity so a later
         # registration provably invalidates this proposal.
@@ -396,6 +441,20 @@ def _default_hoc_assessment_loader(*, active_book_id, eligible_market_date,
 # --------------------------------------------------------------------------- #
 # Run (build contract + kernel). Does NOT persist.
 # --------------------------------------------------------------------------- #
+def _ic_labels() -> dict:
+    """Asset-class display labels from the ONE instrument-contract owner (so a
+    surface never invents words for an asset class)."""
+    from paper_trader.engine import instrument_contract as _ic
+    return dict(_ic.ASSET_CLASS_LABELS)
+
+
+def _default_frontier_loader(*, portfolio_state, scoring) -> dict:
+    """Release 50 - the ONE cross-asset opportunity frontier, composed from the SAME
+    portfolio state and scoring this proposal uses (no second read)."""
+    from paper_trader.api import opportunity_frontier as of
+    return of.load_opportunity_frontier(portfolio_state=portfolio_state, scoring=scoring)
+
+
 def run_proposal(*, input_contract: Optional[dict] = None,
                  portfolio_state: Optional[dict] = None,
                  scoring: Optional[dict] = None,
@@ -403,10 +462,12 @@ def run_proposal(*, input_contract: Optional[dict] = None,
                  price_panel: Optional[dict] = None,
                  policy: Optional[dict] = None,
                  hoc_dir=None,
+                 frontier: Optional[dict] = None,
                  portfolio_state_loader: Optional[Callable] = None,
                  scoring_loader: Optional[Callable] = None,
                  price_panel_loader: Optional[Callable] = None,
-                 hoc_assessment_loader: Optional[Callable] = None) -> dict:
+                 hoc_assessment_loader: Optional[Callable] = None,
+                 frontier_loader: Optional[Callable] = None) -> dict:
     """Build the input contract (unless supplied) and run the pure kernel.
 
     Returns ``{"input_contract": ..., "proposal": <kernel result>}``. Read-only:
@@ -434,9 +495,15 @@ def run_proposal(*, input_contract: Optional[dict] = None,
                 pp_obj = (price_panel_loader or _default_price_panel_loader)()
             except Exception:  # noqa: BLE001
                 pp_obj = None
+        fr = frontier
+        if fr is None:
+            try:
+                fr = (frontier_loader or _default_frontier_loader)(portfolio_state=ps, scoring=sc)
+            except Exception:  # noqa: BLE001 - an unreadable frontier is the equity contract
+                fr = None
         input_contract = build_input_contract(
             portfolio_state=ps, scoring=sc, hoc_assessment=hoc or {},
-            price_panel=pp_obj, policy=pol)
+            price_panel=pp_obj, policy=pol, frontier=fr)
     result = kernel.build_proposal(input_contract=input_contract, policy=pol)
     return {"input_contract": input_contract, "proposal": result}
 
@@ -453,6 +520,8 @@ def proposal_identity(*, input_contract: dict, result: dict) -> dict:
         "universe_scoring_hash": input_contract.get("universe_scoring_hash"),
         "hoc_assessment_hash": input_contract.get("hoc_assessment_hash"),
         "allocation_policy_version": ALLOCATION_POLICY_VERSION,
+        # Release 50 - the frontier the target was built from.
+        "frontier_hash": input_contract.get("frontier_hash"),
         "proposal_hash": result.get("proposal_hash"),
     }
 
@@ -489,6 +558,11 @@ def _compact_input_contract(ic: dict) -> dict:
         "cost_policy_version": COST_POLICY_VERSION,
         "positions_count": len(ic.get("positions") or []),
         "universe_rows_count": len(ic.get("universe_rows") or []),
+        "frontier_hash": ic.get("frontier_hash"),
+        "frontier_eligible_non_equity_count": ic.get("frontier_eligible_non_equity_count"),
+        "frontier_rows_admitted": list(ic.get("frontier_rows_admitted") or []),
+        "registry_capital_eligible_sleeve_ids": list(
+            ic.get("registry_capital_eligible_sleeve_ids") or []),
     }
 
 
@@ -761,7 +835,9 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
                                   desk_dir=None, actions_dir=None,
                                   now: Optional[datetime] = None,
                                   portfolio_state_loader: Optional[Callable] = None,
-                                  include_execution: bool = True) -> dict:
+                                  include_execution: bool = True,
+                                  decision_lane: Optional[dict] = None,
+                                  rebalance: Optional[dict] = None) -> dict:
     """Release 47 read contract: the whole constraint-respecting reallocation story,
     in the order an operator has to read it.
 
@@ -783,7 +859,10 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
     # Local imports: these owners import THIS module, so importing them at module
     # scope would be circular. They are composed, never forked.
     from paper_trader.api import portfolio_decision as _pdec
-    lane = _pdec.load_portfolio_decision(
+    # Release 50 - the decision snapshot passes the lane and the rebalance state it
+    # already composed (ONE heavy read per snapshot identity); a direct call still
+    # composes them itself, exactly as before.
+    lane = decision_lane if decision_lane is not None else _pdec.load_portfolio_decision(
         portfolio_state=portfolio_state, artifact=artifact,
         decision_dir=decision_dir, reallocation_dir=reallocation_dir, now=now,
         portfolio_state_loader=portfolio_state_loader)
@@ -792,7 +871,7 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
     if include_execution:
         try:
             from paper_trader.api import rebalance_execution as _rex
-            rex = _rex.load_rebalance_state(
+            rex = rebalance if rebalance is not None else _rex.load_rebalance_state(
                 decision_dir=decision_dir, reallocation_dir=reallocation_dir,
                 desk_dir=desk_dir, actions_dir=actions_dir,
                 portfolio_state=portfolio_state,
@@ -879,6 +958,38 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
         "turnover": payload.get("turnover") or {},
         "risk": payload.get("risk") or {},
         "signal": payload.get("signal") or {},
+        # Release 50 - the same two portfolios by asset class / sleeve, verbatim from
+        # the proposal owner (only groups that carry weight; cash is the residual).
+        "multi_asset": {
+            "current_allocation_by_asset_class": (
+                (payload.get("portfolio") or {}).get("current_allocation_by_asset_class")
+                or (((portfolio_state or {}).get("capital_pool") or {}).get("allocation")) or {}),
+            "target_allocation_by_asset_class": (
+                (payload.get("portfolio") or {}).get("proposed_allocation_by_asset_class") or {}),
+            "current_allocation_by_sleeve": (
+                (payload.get("portfolio") or {}).get("current_allocation_by_sleeve") or {}),
+            "target_allocation_by_sleeve": (
+                (payload.get("portfolio") or {}).get("proposed_allocation_by_sleeve") or {}),
+            "asset_classes_in_target": (
+                (payload.get("portfolio") or {}).get("asset_classes_in_target") or []),
+            "non_equity_position_count_in_target": (
+                (payload.get("portfolio") or {}).get("non_equity_position_count_in_target")),
+            "proposed_gross_exposure": (payload.get("portfolio") or {}).get("proposed_gross_exposure"),
+            "proposed_collateral_weight": (payload.get("portfolio") or {}).get("proposed_collateral_weight"),
+            "frontier_hash": ((payload.get("input_contract") or {}).get("frontier_hash")),
+            "frontier_eligible_non_equity_count": (
+                (payload.get("input_contract") or {}).get("frontier_eligible_non_equity_count")),
+            "frontier_rows_admitted": (
+                (payload.get("input_contract") or {}).get("frontier_rows_admitted") or []),
+            "capital_eligible_sleeve_ids": (
+                (payload.get("input_contract") or {}).get("registry_capital_eligible_sleeve_ids") or []),
+            "forced_diversification": False,
+            "current_holdings_privileged": False,
+            "labels": dict(_ic_labels()),
+            "owner": "engine.reallocation_proposal via api.reallocation_proposal",
+            "frontier_owner": "api.opportunity_frontier",
+            "registry_owner": "api.investability_registry",
+        },
         # 6. the one authoritative outcome
         "outcome": payload.get("outcome"),
         "outcome_vocabulary": list(_cr.OUTCOME_VOCAB),

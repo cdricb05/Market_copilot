@@ -183,7 +183,60 @@ def default_policy() -> dict[str, Any]:
         # --- reporting -------------------------------------------------------- #
         "material_weight_delta": 1.0e-4,        # new: RETAIN vs INCREASE/REDUCE
         "min_reported_weight": 1.0e-6,          # new
+        # --- Release 50: cross-asset limits (ONE definition, owned by the
+        # constrained-reallocation kernel; mirrored here so the zero-base and the
+        # feasible target are solved under the same caps) --------------------- #
+        "max_gross_exposure": 1.0,
+        "asset_class_weight_caps": {"US_EQUITY": 1.0, "CASH": 1.0, "DEFAULT_NON_EQUITY": 0.25},
+        "sleeve_weight_caps": {"us_equity_fundamental_momentum_50_50_v1": 1.0, "cash_usd": 1.0,
+                               "DEFAULT_NON_EQUITY": 0.25},
+        "non_usd_currency_cap": 0.20,
+        "collateral_cap_fraction": 0.25,
     }
+
+
+def _meta(candidates: list) -> dict:
+    """Instrument metadata per candidate (equity defaults for rows without it),
+    read through the ONE cross-asset definition owner."""
+    from . import constrained_reallocation as _cr
+    return _cr.candidate_meta(candidates or [])
+
+
+def _xroom(tk: str, w: dict, meta: Optional[dict], policy: dict,
+           donor: Optional[str] = None, groups: Optional[dict] = None) -> float:
+    """Cross-asset room (asset class / sleeve / non-USD / collateral). Infinite
+    for a US cash equity under the default caps, so the equity solve is unchanged.
+    ``meta`` is None whenever no cross-asset limit can bind (see ``_solve_meta``),
+    and ``groups`` carries the caller's incrementally maintained group totals."""
+    if not meta:
+        return float("inf")
+    from . import constrained_reallocation as _cr
+    return _cr.cross_asset_room(tk, w, meta=meta, policy=policy,
+                                exclude_same_group_as=donor, groups=groups)
+
+
+def _solve_meta(meta: Optional[dict], policy: dict) -> Optional[dict]:
+    """The metadata the SOLVER sees: None when no cross-asset limit can bind, so
+    the equity-only solve pays nothing for Release 50 (the room is provably
+    infinite there - the gross budget already bounds the single equity class)."""
+    if not meta:
+        return None
+    from . import constrained_reallocation as _cr
+    return meta if _cr.cross_asset_relevant(meta, policy) else None
+
+
+def _groups_of(w: dict, meta: Optional[dict]) -> Optional[dict]:
+    if not meta:
+        return None
+    from . import constrained_reallocation as _cr
+    return _cr.group_weights(w, meta)
+
+
+def _groups_add(groups: Optional[dict], meta: Optional[dict], tk: str, delta: float) -> None:
+    if groups is None or not meta:
+        return
+    from . import constrained_reallocation as _cr
+    _cr.group_add(groups, meta, tk, delta)
 
 
 # --------------------------------------------------------------------------- #
@@ -243,25 +296,34 @@ def name_caps(*, candidates: list, nav: float, policy: dict) -> dict:
         adv = _f(c.get("adv_dollar"))
         if adv is not None and nav > 0:
             cap = min(cap, max(0.0, part * adv / nav))
+        # Release 50 - unit granularity: one unit larger than the name cap at this
+        # NAV means no feasible weight exists (a full-size contract on a small book).
+        unit = _f(c.get("unit_notional_usd"))
+        if unit is not None and nav > 0 and unit > float(policy["max_name_weight"]) * nav:
+            cap = 0.0
         caps[tk] = cap
     return caps
 
 
 def _linear_oracle(grad: dict, *, candidates: list, caps: dict,
-                   sector_of: dict, policy: dict) -> dict:
+                   sector_of: dict, policy: dict, meta: Optional[dict] = None) -> dict:
     """Maximise ``grad . v`` over the feasible set - the Frank-Wolfe vertex.
 
     The constraint family is laminar (name inside sector inside total budget), so
     filling greedily in descending gradient order is exactly optimal. Names whose
     gradient is not positive are left at zero: cash is free and always available,
-    so nothing is ever bought at a negative marginal utility.
+    so nothing is ever bought at a negative marginal utility. Release 50 adds the
+    cross-asset caps (asset class / sleeve / non-USD / collateral) as further
+    ceilings; the currency and collateral caps cut across the laminar family, so
+    the greedy vertex is a labelled approximation there (exact for the equity book).
     """
     order = sorted((c["ticker"] for c in candidates),
                    key=lambda tk: (-(grad.get(tk) or 0.0), tk))
     sector_cap = float(policy["sector_cap_fraction"])
-    budget = 1.0
+    budget = float(policy.get("max_gross_exposure", 1.0))
     used_sector: dict = {}
     v = {tk: 0.0 for tk in caps}
+    groups = _groups_of(v, meta)          # maintained incrementally (O(1) per take)
     for tk in order:
         if budget <= 0:
             break
@@ -269,12 +331,14 @@ def _linear_oracle(grad: dict, *, candidates: list, caps: dict,
             break
         sec = sector_of.get(tk) or "Unknown"
         room_sector = sector_cap - used_sector.get(sec, 0.0)
-        take = min(caps.get(tk, 0.0), budget, max(0.0, room_sector))
+        take = min(caps.get(tk, 0.0), budget, max(0.0, room_sector),
+                   _xroom(tk, v, meta, policy, groups=groups))
         if take <= 0:
             continue
         v[tk] = take
         budget -= take
         used_sector[sec] = used_sector.get(sec, 0.0) + take
+        _groups_add(groups, meta, tk, take)
     return v
 
 
@@ -299,7 +363,7 @@ DOWNSIDE_QUANTILE = 0.05
 
 
 def feasible_start(current: dict, *, caps: dict, sector_of: dict,
-                   policy: dict) -> dict:
+                   policy: dict, meta: Optional[dict] = None) -> dict:
     """The current portfolio projected onto the feasible set.
 
     The implementable solve starts HERE rather than at cash, because the
@@ -311,22 +375,26 @@ def feasible_start(current: dict, *, caps: dict, sector_of: dict,
     w = {tk: 0.0 for tk in caps}
     sector_used: dict = {}
     total = 0.0
+    groups = _groups_of(w, meta)          # maintained incrementally (O(1) per take)
     for tk in sorted(current, key=lambda t: (-(current.get(t) or 0.0), t)):
         if tk not in caps:
             continue          # a mandatory exit: not in the eligible universe
         sec = sector_of.get(tk) or "Unknown"
-        room = min(caps[tk], 1.0 - total,
-                   float(policy["sector_cap_fraction"]) - sector_used.get(sec, 0.0))
+        room = min(caps[tk], float(policy.get("max_gross_exposure", 1.0)) - total,
+                   float(policy["sector_cap_fraction"]) - sector_used.get(sec, 0.0),
+                   _xroom(tk, w, meta, policy, groups=groups))
         take = max(0.0, min(float(current.get(tk) or 0.0), room))
         w[tk] = take
         total += take
         sector_used[sec] = sector_used.get(sec, 0.0) + take
+        _groups_add(groups, meta, tk, take)
     return w
 
 
 def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
              cov_h: dict, cov_included: list, caps: dict, sector_of: dict,
-             policy: dict, current_weight: Optional[dict] = None) -> dict:
+             policy: dict, current_weight: Optional[dict] = None,
+             meta: Optional[dict] = None) -> dict:
     """Frank-Wolfe maximisation of the declared objective.
 
     ``current_weight`` is ``None`` for the ZERO-BASE target - the transition cost
@@ -381,9 +449,10 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
                 - delta * max(0.0, -q05) - _cost(w))
 
     if charge_cost:
-        w = feasible_start(cw, caps=caps, sector_of=sector_of, policy=policy)
+        w = feasible_start(cw, caps=caps, sector_of=sector_of, policy=policy, meta=meta)
     else:
         w = {tk: 0.0 for tk in tickers}
+    max_gross = float(policy.get("max_gross_exposure", 1.0))
 
     iterations = 0
     gap = None
@@ -407,7 +476,7 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
                 g += delta * dq
             grad[tk] = g - _cost_grad(tk, w[tk])
         v = _linear_oracle(grad, candidates=candidates, caps=caps,
-                           sector_of=sector_of, policy=policy)
+                           sector_of=sector_of, policy=policy, meta=meta)
         d = {tk: v[tk] - w[tk] for tk in tickers}
         gap = sum(grad[tk] * d[tk] for tk in tickers)
         if gap <= float(policy["convergence_tolerance"]):
@@ -493,12 +562,16 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
             sector_used[sec] = sector_used.get(sec, 0.0) + w[tk]
         invested = sum(w.values())
         sector_cap = float(policy["sector_cap_fraction"])
+        # The weight vector is fixed while the candidate moves are scored, so the
+        # cross-asset group totals are summed ONCE per iteration, not per pair.
+        groups_iter = _groups_of(w, meta)
 
-        def _room(tk: str, donor_sec: str) -> float:
+        def _room(tk: str, donor_sec: str, donor: Optional[str] = None) -> float:
             sec = sector_of.get(tk) or "Unknown"
             r = caps.get(tk, 0.0) - w[tk]
             if sec != donor_sec:
                 r = min(r, sector_cap - sector_used.get(sec, 0.0))
+            r = min(r, _xroom(tk, w, meta, policy, donor, groups=groups_iter))
             return max(0.0, r)
 
         givers = [tk for tk in tickers if w[tk] > 0]
@@ -511,7 +584,7 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
                 diff = grad[i] - grad[j]
                 if diff <= 0:
                     continue
-                t_max = min(w[j], _room(i, sec_j))
+                t_max = min(w[j], _room(i, sec_j, j))
                 if t_max <= 0:
                     continue
                 if best is None or diff > best[0]:
@@ -525,11 +598,11 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
         if cash_move and (best is None or cash_move[0] > best[0]):
             best = cash_move
         # Buying from cash is admissible too, whenever budget remains.
-        if invested < 1.0:
+        if invested < max_gross:
             for i in tickers:
                 if grad[i] <= 0:
                     continue
-                t_max = min(_room(i, "\x00"), 1.0 - invested)
+                t_max = min(_room(i, "\x00"), max_gross - invested)
                 if t_max > 0 and (best is None or grad[i] > best[0]):
                     best = (grad[i], i, None, t_max)
         if best is None or best[0] <= float(policy["convergence_tolerance"]):
@@ -739,7 +812,7 @@ def transition_path(*, current: dict, ideal: dict, mu: dict,
 # Constraint verification
 # --------------------------------------------------------------------------- #
 def verify_constraints(*, weights: dict, caps: dict, sector_of: dict,
-                       policy: dict) -> dict:
+                       policy: dict, meta: Optional[dict] = None) -> dict:
     """Check the produced weights against every declared constraint.
 
     A target that violates its own constraints must never be presented as valid,
@@ -748,9 +821,31 @@ def verify_constraints(*, weights: dict, caps: dict, sector_of: dict,
     tol = 1.0e-9
     violations: list = []
     invested = sum(weights.values())
-    if invested > 1.0 + tol:
+    max_gross = float(policy.get("max_gross_exposure", 1.0))
+    if invested > max_gross + tol:
         violations.append({"code": "GROSS_EXPOSURE_ABOVE_100_PCT",
                            "value": _r(invested, 8)})
+    # Release 50 - the cross-asset limits, verified through the ONE definition owner.
+    cross = {}
+    if meta:
+        from . import constrained_reallocation as _cr
+        g = _cr.group_weights({k: v for k, v in weights.items() if v > 0}, meta)
+        for ac, v in sorted(g["by_class"].items()):
+            if v > _cr.asset_class_cap(policy, ac) + tol:
+                violations.append({"code": "ASSET_CLASS_CAP_BREACH", "asset_class": ac,
+                                   "value": _r(v, 8)})
+        for sl, v in sorted(g["by_sleeve"].items()):
+            if v > _cr.sleeve_cap(policy, sl) + tol:
+                violations.append({"code": "SLEEVE_CAP_BREACH", "sleeve_id": sl,
+                                   "value": _r(v, 8)})
+        if g["non_usd"] > float(policy.get("non_usd_currency_cap", 1.0)) + tol:
+            violations.append({"code": "CURRENCY_CAP_BREACH", "value": _r(g["non_usd"], 8)})
+        if g["collateral"] > float(policy.get("collateral_cap_fraction", 1.0)) + tol:
+            violations.append({"code": "COLLATERAL_CAP_BREACH", "value": _r(g["collateral"], 8)})
+        cross = {"asset_class_weights": {k: _r(v, 6) for k, v in sorted(g["by_class"].items())},
+                 "sleeve_weights": {k: _r(v, 6) for k, v in sorted(g["by_sleeve"].items())},
+                 "non_usd_exposure": _r(g["non_usd"], 6),
+                 "collateral_weight": _r(g["collateral"], 6)}
     for tk, v in sorted(weights.items()):
         if v < -tol:
             violations.append({"code": "NEGATIVE_WEIGHT", "ticker": tk,
@@ -776,7 +871,10 @@ def verify_constraints(*, weights: dict, caps: dict, sector_of: dict,
         "sector_weights": {k: _r(v, 6) for k, v in sorted(sector_weight.items())},
         "max_name_weight_observed": _r(max(weights.values()) if weights else 0.0, 6),
         "checked": ["long_only", "gross_exposure<=1", "name_cap",
-                    "liquidity_participation_cap", "sector_cap"],
+                    "liquidity_participation_cap", "sector_cap",
+                    "asset_class_cap", "sleeve_cap", "non_usd_currency_cap",
+                    "collateral_cap", "unit_granularity"],
+        **cross,
     }
 
 
@@ -841,6 +939,13 @@ def build_allocation(*, input_contract: dict,
     unforecast = sorted(c["ticker"] for c in candidates if c["ticker"] not in mu)
     candidates = [c for c in candidates if c["ticker"] in mu]
     caps = name_caps(candidates=candidates, nav=nav, policy=pol)
+    # Release 50 - instrument metadata (equity defaults for rows without it).
+    meta = _meta(candidates + [dict(p, ticker=k) for k, p in
+                               ((ic.get("current_instruments") or {}).items())])
+    # The solver sees the metadata only when a cross-asset limit can bind; the
+    # equity-only solve therefore runs exactly as before Release 50 (the reports
+    # below still use the full metadata).
+    solve_meta = _solve_meta(meta, pol)
 
     # ONE covariance, from the canonical risk owner, over the union of the
     # candidate set and everything currently held - the current portfolio must be
@@ -858,10 +963,10 @@ def build_allocation(*, input_contract: dict,
 
     zb = optimise(candidates=candidates, mu=mu, sigma_forecast=sigma_f,
                   cov_h=cov_h, cov_included=cov_included, caps=caps,
-                  sector_of=sector_of, policy=pol, current_weight=None)
+                  sector_of=sector_of, policy=pol, current_weight=None, meta=solve_meta)
     impl = optimise(candidates=candidates, mu=mu, sigma_forecast=sigma_f,
                     cov_h=cov_h, cov_included=cov_included, caps=caps,
-                    sector_of=sector_of, policy=pol, current_weight=current)
+                    sector_of=sector_of, policy=pol, current_weight=current, meta=solve_meta)
 
     def _econ(w):
         return portfolio_economics(weights=w, mu=mu, sigma_forecast=sigma_f,
@@ -922,7 +1027,9 @@ def build_allocation(*, input_contract: dict,
             "rows": rows,
             "economics": _econ(zb_w),
             "constraints": verify_constraints(weights=zb_w, caps=caps,
-                                              sector_of=sector_of, policy=pol),
+                                              sector_of=sector_of, policy=pol, meta=meta),
+            "allocation_by_asset_class": _alloc_by(zb_w, meta, "asset_class"),
+            "allocation_by_sleeve": _alloc_by(zb_w, meta, "sleeve_id"),
             "optimiser": {k: zb[k] for k in
                           ("iterations", "polish_moves",
                            "frank_wolfe_gap", "converged",
@@ -940,7 +1047,9 @@ def build_allocation(*, input_contract: dict,
             "rows": impl_rows,
             "economics": _econ(impl_w),
             "constraints": verify_constraints(weights=impl_w, caps=caps,
-                                              sector_of=sector_of, policy=pol),
+                                              sector_of=sector_of, policy=pol, meta=meta),
+            "allocation_by_asset_class": _alloc_by(impl_w, meta, "asset_class"),
+            "allocation_by_sleeve": _alloc_by(impl_w, meta, "sleeve_id"),
             "optimiser": {k: impl[k] for k in
                           ("iterations", "polish_moves",
                            "frank_wolfe_gap", "converged",
@@ -952,6 +1061,14 @@ def build_allocation(*, input_contract: dict,
         "current_portfolio": {
             "weights": {k: _r(v, 6) for k, v in sorted(current.items())},
             "economics": _econ(current),
+            "allocation_by_asset_class": _alloc_by(current, meta, "asset_class"),
+        },
+        "cross_asset": {
+            "instrument_metadata_supplied": bool(any(
+                c.get("asset_class") or c.get("instrument_type") for c in candidates)),
+            "forced_diversification": False,
+            "long_only": True,
+            "caps_owner": "engine.constrained_reallocation (ONE cross-asset definition)",
         },
         "comparison": _comparison(current=current, zero_base=zb_w,
                                   implementable=impl_w, nav=nav, policy=pol,
@@ -983,6 +1100,11 @@ def build_allocation(*, input_contract: dict,
     return result
 
 
+def _alloc_by(weights: dict, meta: dict, key: str) -> dict:
+    from . import constrained_reallocation as _cr
+    return _cr.allocation_by({k: v for k, v in (weights or {}).items() if v > 0}, meta or {}, key)
+
+
 def objective_declaration(policy: dict) -> dict:
     """The exact mathematical objective, in one place, in the payload."""
     return {
@@ -1004,7 +1126,11 @@ def objective_declaration(policy: dict) -> dict:
                         "cash = 1 - sum(w) >= 0",
                         "per-name weight cap", "per-sector weight cap",
                         "liquidity participation cap on average dollar volume",
-                        "eligible universe only"],
+                        "eligible universe only",
+                        # Release 50
+                        "per-asset-class weight cap", "per-sleeve weight cap",
+                        "non-USD currency exposure cap", "futures collateral cap",
+                        "unit granularity at NAV"],
         "risk_aversion_gamma": policy["risk_aversion_gamma"],
         "uncertainty_aversion_phi": policy["uncertainty_aversion_phi"],
         "downside_aversion_delta": policy["downside_aversion_delta"],

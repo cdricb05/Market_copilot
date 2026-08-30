@@ -113,11 +113,28 @@ C_TURNOVER_BUDGET = "TURNOVER_BUDGET"
 C_MIN_POSITION = "MIN_POSITION_WEIGHT"
 C_MAX_POSITIONS = "MAX_POSITION_COUNT"
 C_CASH_BOUNDS = "CASH_BOUNDS"
+# --- Release 50: cross-asset reshaping constraints ---------------------------- #
+C_ASSET_CLASS_CAP = "ASSET_CLASS_WEIGHT_CAP"
+C_SLEEVE_CAP = "SLEEVE_WEIGHT_CAP"
+C_CURRENCY_CAP = "CURRENCY_EXPOSURE_CAP"
+C_COLLATERAL_CAP = "COLLATERAL_USAGE_CAP"
+C_UNIT_GRANULARITY = "UNIT_GRANULARITY_AT_NAV"
 RESHAPING_CONSTRAINT_CODES = (
     C_ELIGIBLE_UNIVERSE, C_LONG_ONLY, C_GROSS_EXPOSURE, C_NAME_CAP, C_SECTOR_CAP,
     C_RISK_CONTRIBUTION, C_LIQUIDITY_PARTICIPATION, C_LIQUIDITY_FLOOR,
     C_CONCENTRATION, C_TURNOVER_BUDGET, C_MIN_POSITION, C_MAX_POSITIONS,
-    C_CASH_BOUNDS)
+    C_CASH_BOUNDS,
+    C_ASSET_CLASS_CAP, C_SLEEVE_CAP, C_CURRENCY_CAP, C_COLLATERAL_CAP,
+    C_UNIT_GRANULARITY)
+
+#: Release 50 - instrument metadata a candidate row MAY carry. A row without it is
+#: a US cash equity (fully paid, USD, the pre-R50 contract), so an equity-only
+#: universe solves exactly as before.
+_DEFAULT_ASSET_CLASS = "US_EQUITY"
+_DEFAULT_SLEEVE = "us_equity_fundamental_momentum_50_50_v1"
+_DEFAULT_CURRENCY = "USD"
+_CASH_CLASS = "CASH"
+_DEFAULT_NON_EQUITY_KEY = "DEFAULT_NON_EQUITY"
 
 # --- True-blocker condition codes (the ONLY admissible blockers) ------------- #
 B_STALE_MARKET_DATA = "CRITICAL_STALE_OR_MISSING_MARKET_DATA"
@@ -214,7 +231,173 @@ def default_policy() -> dict[str, Any]:
         "min_switching_turnover": 1.0e-4,                   # new
         # Iteration bounds for the deterministic repair loops.
         "max_repair_rounds": 200,                           # new
+        # --- Release 50: cross-asset limits (all RESHAPING) ------------------- #
+        # Long-only, and the whole book's notional exposure may not exceed NAV: a
+        # future enters at its notional, so a fully-paid book plus futures stays
+        # inside 100% and every unit of margin is always covered by free cash.
+        "max_gross_exposure": 1.0,                          # R50
+        "max_net_exposure": 1.0,                            # R50 (== gross; long-only)
+        # Per asset class / per sleeve. The approved equity sleeve and cash are
+        # uncapped (1.0) so an equity-only book is unchanged; a non-equity class or
+        # sleeve is capped at a declared quarter of NAV unless declared otherwise.
+        "asset_class_weight_caps": {"US_EQUITY": 1.0, "CASH": 1.0,
+                                    _DEFAULT_NON_EQUITY_KEY: 0.25},   # R50
+        "sleeve_weight_caps": {_DEFAULT_SLEEVE: 1.0, "cash_usd": 1.0,
+                               _DEFAULT_NON_EQUITY_KEY: 0.25},        # R50
+        # Unhedged non-USD notional exposure across every instrument.
+        "non_usd_currency_cap": 0.20,                       # R50
+        # Initial margin encumbered by futures, as a share of NAV.
+        "collateral_cap_fraction": 0.25,                    # R50
     }
+
+
+def _asset_class_cap(policy: dict, asset_class: str) -> float:
+    caps = policy.get("asset_class_weight_caps") or {}
+    if asset_class in caps:
+        return float(caps[asset_class])
+    return float(caps.get(_DEFAULT_NON_EQUITY_KEY, 1.0))
+
+
+def _sleeve_cap(policy: dict, sleeve_id: str) -> float:
+    caps = policy.get("sleeve_weight_caps") or {}
+    if sleeve_id in caps:
+        return float(caps[sleeve_id])
+    return float(caps.get(_DEFAULT_NON_EQUITY_KEY, 1.0))
+
+
+def candidate_meta(candidates: list) -> dict:
+    """``{ticker: {asset_class, sleeve_id, currency, capital_usage_ratio,
+    is_future, cost_rate}}`` with the pre-R50 equity defaults for rows that carry
+    no instrument metadata."""
+    meta: dict[str, dict] = {}
+    for c in candidates or []:
+        tk = c.get("ticker")
+        if not tk:
+            continue
+        it = c.get("instrument_type") or "CASH_EQUITY"
+        ratio = _f(c.get("capital_usage_ratio"))
+        meta[tk] = {
+            "asset_class": c.get("asset_class") or _DEFAULT_ASSET_CLASS,
+            "sleeve_id": c.get("sleeve_id") or _DEFAULT_SLEEVE,
+            "currency": str(c.get("currency") or _DEFAULT_CURRENCY).upper(),
+            "instrument_type": it,
+            "is_future": it == "FUTURE",
+            "capital_usage_ratio": (ratio if ratio is not None else (0.0 if it == "FUTURE" else 1.0)),
+            "cost_rate": (_f(c.get("cost_bps_per_side")) / 10000.0
+                          if _f(c.get("cost_bps_per_side")) is not None else None),
+            "unit_notional_usd": _f(c.get("unit_notional_usd")),
+        }
+    return meta
+
+
+def _group_weights(w: dict, meta: dict) -> dict:
+    """Weight totals by asset class, sleeve, non-USD currency and futures collateral."""
+    by_class: dict[str, float] = {}
+    by_sleeve: dict[str, float] = {}
+    non_usd = 0.0
+    collateral = 0.0
+    for tk, v in w.items():
+        if v <= 0:
+            continue
+        m = meta.get(tk) or {}
+        ac = m.get("asset_class") or _DEFAULT_ASSET_CLASS
+        sl = m.get("sleeve_id") or _DEFAULT_SLEEVE
+        by_class[ac] = by_class.get(ac, 0.0) + v
+        by_sleeve[sl] = by_sleeve.get(sl, 0.0) + v
+        if (m.get("currency") or _DEFAULT_CURRENCY) != _DEFAULT_CURRENCY:
+            non_usd += v
+        if m.get("is_future"):
+            collateral += v * float(m.get("capital_usage_ratio") or 0.0)
+    return {"by_class": by_class, "by_sleeve": by_sleeve, "non_usd": non_usd,
+            "collateral": collateral}
+
+
+#: Public names for the ONE cross-asset grouping / cap definitions (the proposal
+#: kernel and the zero-base allocator reuse these; they never redefine them).
+def group_weights(w: dict, meta: dict) -> dict:
+    return _group_weights(w, meta)
+
+
+def asset_class_cap(policy: dict, asset_class: str) -> float:
+    return _asset_class_cap(policy, asset_class)
+
+
+def sleeve_cap(policy: dict, sleeve_id: str) -> float:
+    return _sleeve_cap(policy, sleeve_id)
+
+
+def cross_asset_relevant(meta: dict, policy: dict) -> bool:
+    """True when ANY cross-asset limit can bind: a non-equity, non-USD, non-default-
+    sleeve or futures candidate, or an equity-side cap below 1.0. When False every
+    room is provably infinite (the gross budget the callers already apply bounds the
+    single equity class), so a solver may skip the room test and run EXACTLY as it
+    did before Release 50 - the performance of the equity-only solve is preserved
+    by construction, not by tolerance."""
+    if _asset_class_cap(policy, _DEFAULT_ASSET_CLASS) < 1.0 or \
+            _sleeve_cap(policy, _DEFAULT_SLEEVE) < 1.0:
+        return True
+    for m in (meta or {}).values():
+        m = m or {}
+        if (m.get("asset_class") or _DEFAULT_ASSET_CLASS) != _DEFAULT_ASSET_CLASS:
+            return True
+        if (m.get("sleeve_id") or _DEFAULT_SLEEVE) != _DEFAULT_SLEEVE:
+            return True
+        if (m.get("currency") or _DEFAULT_CURRENCY) != _DEFAULT_CURRENCY:
+            return True
+        if m.get("is_future"):
+            return True
+    return False
+
+
+def empty_groups() -> dict:
+    """The group totals of an empty weight vector (for incremental maintenance)."""
+    return {"by_class": {}, "by_sleeve": {}, "non_usd": 0.0, "collateral": 0.0}
+
+
+def group_add(groups: dict, meta: dict, tk: str, delta: float) -> dict:
+    """Move ``delta`` weight of ``tk`` into the group totals - the SAME definition
+    as ``_group_weights`` applied one instrument at a time, so a solver that builds
+    a vector incrementally keeps the totals in O(1) per step instead of re-summing
+    the whole vector per candidate."""
+    if delta == 0:
+        return groups
+    m = meta.get(tk) or {}
+    ac = m.get("asset_class") or _DEFAULT_ASSET_CLASS
+    sl = m.get("sleeve_id") or _DEFAULT_SLEEVE
+    groups["by_class"][ac] = groups["by_class"].get(ac, 0.0) + delta
+    groups["by_sleeve"][sl] = groups["by_sleeve"].get(sl, 0.0) + delta
+    if (m.get("currency") or _DEFAULT_CURRENCY) != _DEFAULT_CURRENCY:
+        groups["non_usd"] += delta
+    if m.get("is_future"):
+        groups["collateral"] += delta * float(m.get("capital_usage_ratio") or 0.0)
+    return groups
+
+
+def cross_asset_room(tk: str, w: dict, *, meta: dict, policy: dict,
+                     exclude_same_group_as: Optional[str] = None,
+                     groups: Optional[dict] = None) -> float:
+    """How much MORE weight ``tk`` may take before a cross-asset limit binds
+    (asset class, sleeve, non-USD currency, futures collateral). Infinite for a
+    US cash equity under the default caps, so the equity solve is untouched.
+    ``groups`` may carry the caller's already-known group totals for ``w`` (see
+    ``group_add``); otherwise they are summed here."""
+    m = meta.get(tk) or {}
+    ac = m.get("asset_class") or _DEFAULT_ASSET_CLASS
+    sl = m.get("sleeve_id") or _DEFAULT_SLEEVE
+    donor = meta.get(exclude_same_group_as) or {} if exclude_same_group_as else {}
+    g = groups if groups is not None else _group_weights(w, meta)
+    room = float("inf")
+    if donor.get("asset_class") != ac:
+        room = min(room, _asset_class_cap(policy, ac) - g["by_class"].get(ac, 0.0))
+    if donor.get("sleeve_id") != sl:
+        room = min(room, _sleeve_cap(policy, sl) - g["by_sleeve"].get(sl, 0.0))
+    if (m.get("currency") or _DEFAULT_CURRENCY) != _DEFAULT_CURRENCY and \
+            (donor.get("currency") or _DEFAULT_CURRENCY) == _DEFAULT_CURRENCY:
+        room = min(room, float(policy.get("non_usd_currency_cap", 1.0)) - g["non_usd"])
+    ratio = float(m.get("capital_usage_ratio") or 0.0)
+    if m.get("is_future") and ratio > 0 and not donor.get("is_future"):
+        room = min(room, (float(policy.get("collateral_cap_fraction", 1.0)) - g["collateral"]) / ratio)
+    return max(0.0, room)
 
 
 # --------------------------------------------------------------------------- #
@@ -368,6 +551,41 @@ def constraint_inventory(policy: Optional[dict] = None) -> dict:
          "reshape_action": "Cash is a real asset choice; the bound reshapes how much "
                            "capital may remain unallocated.",
          "owner": CALCULATION_OWNER},
+        # --- Release 50: cross-asset limits ------------------------------------ #
+        {"code": C_ASSET_CLASS_CAP, "kind": KIND_RESHAPES,
+         "limit": dict(pol.get("asset_class_weight_caps") or {}), "limit_units": "WEIGHT",
+         "object": "PER_ASSET_CLASS",
+         "reshape_action": "An over-cap asset class is trimmed from its weakest name "
+                           "upward; the excess is redistributed outside that class "
+                           "(cash when nothing has room). Never a forced allocation.",
+         "owner": CALCULATION_OWNER},
+        {"code": C_SLEEVE_CAP, "kind": KIND_RESHAPES,
+         "limit": dict(pol.get("sleeve_weight_caps") or {}), "limit_units": "WEIGHT",
+         "object": "PER_SLEEVE",
+         "reshape_action": "An over-cap sleeve is trimmed from its weakest name upward; "
+                           "the excess is redistributed outside that sleeve.",
+         "owner": CALCULATION_OWNER},
+        {"code": C_CURRENCY_CAP, "kind": KIND_RESHAPES,
+         "limit": pol.get("non_usd_currency_cap"), "limit_units": "WEIGHT",
+         "object": "PORTFOLIO",
+         "reshape_action": "Unhedged non-USD notional above the cap is trimmed from "
+                           "the weakest non-USD name upward and redistributed.",
+         "owner": CALCULATION_OWNER},
+        {"code": C_COLLATERAL_CAP, "kind": KIND_RESHAPES,
+         "limit": pol.get("collateral_cap_fraction"), "limit_units": "SHARE_OF_NAV",
+         "object": "PORTFOLIO",
+         "reshape_action": "Futures whose initial margin would encumber more cash than "
+                           "the cap are trimmed from the weakest upward; the released "
+                           "exposure is redistributed.",
+         "owner": CALCULATION_OWNER},
+        {"code": C_UNIT_GRANULARITY, "kind": KIND_RESHAPES,
+         "limit": pol["max_name_weight"], "limit_units": "WEIGHT",
+         "object": "PER_NAME",
+         "reshape_action": "An instrument whose ONE unit is larger than the name cap at "
+                           "this NAV (a full-size contract on a small book) cannot be "
+                           "held at any feasible weight; it is skipped and the next "
+                           "feasible candidate is used.",
+         "owner": CALCULATION_OWNER},
     ]
     blockers = [
         {"code": B_STALE_MARKET_DATA, "kind": KIND_TRUE_BLOCKER,
@@ -436,7 +654,13 @@ def name_caps(*, candidates: list, nav: Optional[float],
         cap = float(policy["max_name_weight"])
         which = C_NAME_CAP
         adv = _f(c.get("adv_dollar"))
-        if adv is not None and adv < floor:
+        # Release 50 - unit granularity: one unit larger than the name cap at this
+        # NAV means NO feasible weight exists for the instrument (a $108k treasury
+        # contract on a $99k book). A reshape, never a veto of the portfolio.
+        unit = _f(c.get("unit_notional_usd"))
+        if unit is not None and navv > 0 and unit > cap * navv + _TOL:
+            cap, which = 0.0, C_UNIT_GRANULARITY
+        elif adv is not None and adv < floor:
             cap, which = 0.0, C_LIQUIDITY_FLOOR
         elif adv is not None and navv > 0:
             liq = max(0.0, part * adv / navv)
@@ -476,6 +700,17 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
     sector_of = {c["ticker"]: (c.get("sector") or "Unknown") for c in cands}
     score_of = {c["ticker"]: (_f(c.get("score")) or 0.0) for c in cands}
     caps, cap_binding = name_caps(candidates=cands, nav=nav, policy=pol)
+    # Release 50 - instrument metadata (equity defaults for rows without it) and
+    # the cross-asset room function every placement below respects.
+    meta = candidate_meta(cands)
+    # When no cross-asset limit can bind (the equity-only book under the default
+    # caps) every room is provably infinite and the solve runs exactly as before.
+    xa_relevant = cross_asset_relevant(meta, pol)
+
+    def _room(tk: str, w_now: dict, donor: Optional[str] = None) -> float:
+        if not xa_relevant:
+            return float("inf")
+        return cross_asset_room(tk, w_now, meta=meta, policy=pol, exclude_same_group_as=donor)
     #: The EFFECTIVE per-name ceiling. It starts at the declared cap and is tightened
     #: by each repair that reduces a specific name, so the redistribution step can
     #: never hand capital straight back to a position a constraint just cut. Without
@@ -557,6 +792,67 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
                   before=_r(w[tk] + take, 8), after=_r(w[tk], 8),
                   limit=_r(sector_cap, 8), released_weight=_r(take, 8))
 
+    # --- 2b. Release 50: asset-class / sleeve / currency / collateral caps ------ #
+    # Each is a normal, RESHAPING limit: the over-cap group is trimmed from its
+    # weakest name upward and the excess is redistributed outside it.
+    def _trim_group(code: str, members: list, excess: float, **kw) -> float:
+        nonlocal released
+        for tk in reversed(_order(members)):
+            if excess <= _TOL:
+                break
+            take = min(w[tk], excess)
+            if take <= 0:
+                continue
+            w[tk] -= take
+            excess -= take
+            released += take
+            eff_caps[tk] = min(eff_caps.get(tk, w[tk] + take), w[tk])
+            _note(code, ADJ_CAPPED, ticker=tk, before=_r(w[tk] + take, 8),
+                  after=_r(w[tk], 8), released_weight=_r(take, 8), **kw)
+        return excess
+
+    groups = _group_weights(w, meta)
+    for ac in sorted(groups["by_class"]):
+        cap_ac = _asset_class_cap(pol, ac)
+        total = groups["by_class"][ac]
+        if total > cap_ac + _TOL:
+            _trim_group(C_ASSET_CLASS_CAP,
+                        [t for t in w if (meta.get(t) or {}).get("asset_class", _DEFAULT_ASSET_CLASS) == ac],
+                        total - cap_ac, asset_class=ac, limit=_r(cap_ac, 8))
+    groups = _group_weights(w, meta)
+    for sl in sorted(groups["by_sleeve"]):
+        cap_sl = _sleeve_cap(pol, sl)
+        total = groups["by_sleeve"][sl]
+        if total > cap_sl + _TOL:
+            _trim_group(C_SLEEVE_CAP,
+                        [t for t in w if (meta.get(t) or {}).get("sleeve_id", _DEFAULT_SLEEVE) == sl],
+                        total - cap_sl, sleeve_id=sl, limit=_r(cap_sl, 8))
+    groups = _group_weights(w, meta)
+    ccy_cap = float(pol.get("non_usd_currency_cap", 1.0))
+    if groups["non_usd"] > ccy_cap + _TOL:
+        _trim_group(C_CURRENCY_CAP,
+                    [t for t in w if (meta.get(t) or {}).get("currency", _DEFAULT_CURRENCY) != _DEFAULT_CURRENCY],
+                    groups["non_usd"] - ccy_cap, limit=_r(ccy_cap, 8))
+    groups = _group_weights(w, meta)
+    coll_cap = float(pol.get("collateral_cap_fraction", 1.0))
+    if groups["collateral"] > coll_cap + _TOL:
+        futs = [t for t in w if (meta.get(t) or {}).get("is_future")]
+        excess_coll = groups["collateral"] - coll_cap
+        for tk in reversed(_order(futs)):
+            if excess_coll <= _TOL:
+                break
+            ratio = float((meta.get(tk) or {}).get("capital_usage_ratio") or 0.0)
+            if ratio <= 0 or w[tk] <= 0:
+                continue
+            take = min(w[tk], excess_coll / ratio)
+            w[tk] -= take
+            excess_coll -= take * ratio
+            released += take
+            eff_caps[tk] = min(eff_caps.get(tk, w[tk] + take), w[tk])
+            _note(C_COLLATERAL_CAP, ADJ_CAPPED, ticker=tk, before=_r(w[tk] + take, 8),
+                  after=_r(w[tk], 8), released_weight=_r(take, 8), limit=_r(coll_cap, 8),
+                  capital_usage_ratio=_r(ratio, 6))
+
     # --- 3. risk-contribution cap --------------------------------------------- #
     rc_cap = _f(pol.get("max_name_risk_contribution"))
     if rc_cap is not None and contrib:
@@ -593,9 +889,10 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
 
     # --- 5. gross exposure ----------------------------------------------------- #
     gross = sum(w.values())
-    if gross > 1.0 + _TOL:
+    max_gross = float(pol.get("max_gross_exposure", 1.0))
+    if gross > max_gross + _TOL:
         # Scale back from the weakest name upward; the excess simply never existed.
-        excess = gross - 1.0
+        excess = gross - max_gross
         for tk in reversed(_order([t for t in w if w[t] > 0])):
             if excess <= _TOL:
                 break
@@ -603,12 +900,12 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
             w[tk] -= take
             excess -= take
             _note(C_GROSS_EXPOSURE, ADJ_CAPPED, ticker=tk,
-                  before=_r(w[tk] + take, 8), after=_r(w[tk], 8), limit=1.0)
+                  before=_r(w[tk] + take, 8), after=_r(w[tk], 8), limit=max_gross)
 
     # --- 6. redistribute the released capital to the next-best opportunities --- #
     redistributed = _redistribute(w, released=released, order=_order(list(caps)),
                                   caps=eff_caps, sector_of=sector_of, policy=pol,
-                                  note=_note)
+                                  note=_note, room_fn=_room)
 
     # --- 7. minimum position size (dust never becomes a proposal) -------------- #
     min_w = float(pol["min_position_weight"])
@@ -621,7 +918,7 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
     # --- 8. concentration limit ------------------------------------------------ #
     w = _dilute_for_concentration(w, current=current, caps=eff_caps,
                                   sector_of=sector_of, order=_order(list(caps)),
-                                  policy=pol, note=_note)
+                                  policy=pol, note=_note, room_fn=_room)
 
     # --- 9. cash bounds -------------------------------------------------------- #
     invested = sum(w.values())
@@ -653,7 +950,8 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
         final, tb = _fit_turnover_budget(
             current=current, target=unconstrained_target, budget=float(budget),
             caps=eff_caps, sector_of=sector_of, score_of=score_of,
-            mandatory_exits=set(mandatory_exits), policy=pol, note=_note)
+            mandatory_exits=set(mandatory_exits), policy=pol, note=_note,
+            room_fn=_room)
         turnover_block.update(tb)
     turnover_block["achieved_one_way_turnover"] = _r(
         one_way_turnover(current, final), 6)
@@ -662,7 +960,7 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
 
     verification = verify_feasibility(weights=final, caps=eff_caps,
                                       sector_of=sector_of, current=current,
-                                      policy=pol)
+                                      policy=pol, meta=meta)
     feasible = bool(verification["valid"])
     blockers: list[dict] = []
     if not feasible:
@@ -706,13 +1004,46 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
         "blockers": blockers,
         "incumbency_policy": INCUMBENCY_POLICY,
         "policy": pol,
+        # Release 50 - the same target by asset class / sleeve (only groups that
+        # carry weight; cash is the residual; never a cosmetic 0% row).
+        "best_feasible_allocation_by_asset_class": allocation_by(final, meta, "asset_class"),
+        "best_feasible_allocation_by_sleeve": allocation_by(final, meta, "sleeve_id"),
+        "current_allocation_by_asset_class": allocation_by(_pos(current), meta, "asset_class"),
+        "ideal_allocation_by_asset_class": allocation_by(_pos(ideal), meta, "asset_class"),
+        "cross_asset": {
+            "instrument_metadata_supplied": any(
+                c.get("asset_class") or c.get("instrument_type") for c in cands),
+            "forced_diversification": False,
+            "long_only": True,
+            "group_weights": {k: ({kk: _r(vv, 6) for kk, vv in v.items()} if isinstance(v, dict)
+                                  else _r(v, 6)) for k, v in _group_weights(final, meta).items()},
+        },
     }
     result["solution_hash"] = stable_hash(result)
     return result
 
 
+def allocation_by(weights: dict, meta: dict, key: str) -> dict:
+    """Aggregate a weight vector by ``asset_class`` / ``sleeve_id``; the residual is
+    cash. Only groups with weight are returned."""
+    out: dict[str, float] = {}
+    total = 0.0
+    default = _DEFAULT_ASSET_CLASS if key == "asset_class" else _DEFAULT_SLEEVE
+    for tk, v in (weights or {}).items():
+        vv = _f(v) or 0.0
+        if vv <= 0:
+            continue
+        g = (meta.get(tk) or {}).get(key) or default
+        out[g] = out.get(g, 0.0) + vv
+        total += vv
+    cash = max(0.0, 1.0 - total)
+    if cash > 1e-9:
+        out[_CASH_CLASS if key == "asset_class" else "cash_usd"] = cash
+    return {k: _r(v, 6) for k, v in sorted(out.items(), key=lambda kv: (-kv[1], kv[0]))}
+
+
 def _redistribute(w: dict, *, released: float, order: list, caps: dict,
-                  sector_of: dict, policy: dict, note) -> float:
+                  sector_of: dict, policy: dict, note, room_fn=None) -> float:
     """Place released capital into the next-best eligible names that have room.
 
     Greedy in descending value order over a LAMINAR constraint family (name inside
@@ -742,8 +1073,10 @@ def _redistribute(w: dict, *, released: float, order: list, caps: dict,
         sec = sector_of.get(tk, "Unknown")
         room = min(caps.get(tk, 0.0) - held,
                    sector_cap - used_sector.get(sec, 0.0),
-                   1.0 - invested,
+                   float(policy.get("max_gross_exposure", 1.0)) - invested,
                    remaining)
+        if room_fn is not None:
+            room = min(room, room_fn(tk, w))
         if room <= _TOL:
             continue
         if held <= _TOL and room < min_w - _TOL:
@@ -766,7 +1099,7 @@ def _redistribute(w: dict, *, released: float, order: list, caps: dict,
 
 def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
                               sector_of: dict, order: list, policy: dict,
-                              note) -> dict:
+                              note, room_fn=None) -> dict:
     """Move weight from the largest positions into the next-best names until the
     concentration limit is met. Reshapes; never rejects."""
     limit = _f(policy.get("max_concentration_increase"))
@@ -797,6 +1130,8 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
             sec = sector_of.get(tk, "Unknown")
             room = min(caps.get(tk, 0.0) - w.get(tk, 0.0),
                        sector_cap - used_sector.get(sec, 0.0))
+            if room_fn is not None:
+                room = min(room, room_fn(tk, w, donor))
             if room >= step - _TOL and (w.get(tk, 0.0) > _TOL or step >= min_w):
                 recipient = tk
                 break
@@ -818,7 +1153,8 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
 
 def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
                          caps: dict, sector_of: dict, score_of: dict,
-                         mandatory_exits: set, policy: dict, note) -> tuple:
+                         mandatory_exits: set, policy: dict, note,
+                         room_fn=None) -> tuple:
     """The best feasible target INSIDE the turnover budget.
 
     Trades are split in two, and the split is the whole point:
@@ -903,7 +1239,10 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
             used_sector = sum(v for t, v in w.items()
                               if sector_of.get(t, "Unknown") == sec)
             take = min(take, caps.get(tk, 0.0) - w.get(tk, 0.0),
-                       sector_cap - used_sector, 1.0 - sum(w.values()))
+                       sector_cap - used_sector,
+                       float(policy.get("max_gross_exposure", 1.0)) - sum(w.values()))
+            if room_fn is not None:
+                take = min(take, room_fn(tk, w))
         if take <= _TOL and take >= -_TOL:
             deferred.append(dict(leg, deferred_reason=C_TURNOVER_BUDGET))
             continue
@@ -956,7 +1295,8 @@ def _weighted_score(weights: dict, score_of: dict) -> Optional[float]:
 # --------------------------------------------------------------------------- #
 def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
                        current: Optional[dict] = None,
-                       policy: Optional[dict] = None) -> dict:
+                       policy: Optional[dict] = None,
+                       meta: Optional[dict] = None) -> dict:
     """Check a target against every mandatory constraint, independently of whoever
     built it. A target that violates its own constraints must never be presented as
     feasible, so the solver's output is verified rather than trusted."""
@@ -966,9 +1306,27 @@ def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
     violations: list[dict] = []
     w = {tk: (_f(v) or 0.0) for tk, v in (weights or {}).items()}
     invested = sum(w.values())
-    if invested > 1.0 + 1.0e-9:
+    max_gross = float(pol.get("max_gross_exposure", 1.0))
+    if invested > max_gross + 1.0e-9:
         violations.append({"code": C_GROSS_EXPOSURE, "value": _r(invested, 8),
-                           "limit": 1.0})
+                           "limit": max_gross})
+    # Release 50 - the cross-asset limits, verified independently of the solver.
+    m = meta or {}
+    g = _group_weights({k: v for k, v in w.items() if v > 0}, m)
+    for ac, v in sorted(g["by_class"].items()):
+        if v > _asset_class_cap(pol, ac) + 1.0e-9:
+            violations.append({"code": C_ASSET_CLASS_CAP, "asset_class": ac,
+                               "value": _r(v, 8), "limit": _r(_asset_class_cap(pol, ac), 8)})
+    for sl, v in sorted(g["by_sleeve"].items()):
+        if v > _sleeve_cap(pol, sl) + 1.0e-9:
+            violations.append({"code": C_SLEEVE_CAP, "sleeve_id": sl,
+                               "value": _r(v, 8), "limit": _r(_sleeve_cap(pol, sl), 8)})
+    if g["non_usd"] > float(pol.get("non_usd_currency_cap", 1.0)) + 1.0e-9:
+        violations.append({"code": C_CURRENCY_CAP, "value": _r(g["non_usd"], 8),
+                           "limit": _r(float(pol.get("non_usd_currency_cap", 1.0)), 8)})
+    if g["collateral"] > float(pol.get("collateral_cap_fraction", 1.0)) + 1.0e-9:
+        violations.append({"code": C_COLLATERAL_CAP, "value": _r(g["collateral"], 8),
+                           "limit": _r(float(pol.get("collateral_cap_fraction", 1.0)), 8)})
     for tk in sorted(w):
         if w[tk] < -1.0e-9:
             violations.append({"code": C_LONG_ONLY, "ticker": tk,
@@ -1017,9 +1375,14 @@ def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
         "violations": violations,
         "checked": list(RESHAPING_CONSTRAINT_CODES),
         "gross_exposure": _r(invested, 6),
+        "net_exposure": _r(invested, 6),
         "cash_weight": _r(cash, 6),
         "position_count": live,
         "sector_weights": {k: _r(v, 6) for k, v in sorted(sector_weight.items())},
+        "asset_class_weights": {k: _r(v, 6) for k, v in sorted(g["by_class"].items())},
+        "sleeve_weights": {k: _r(v, 6) for k, v in sorted(g["by_sleeve"].items())},
+        "non_usd_exposure": _r(g["non_usd"], 6),
+        "collateral_weight": _r(g["collateral"], 6),
         "max_name_weight_observed": _r(max(w.values()) if w else 0.0, 6),
         "one_way_turnover_from_current": _r(
             one_way_turnover(current or {}, w), 6),
@@ -1087,7 +1450,17 @@ def switching_economics(*, current_weight: dict, target_weight: dict,
     one_way = 0.0 if one_way is None else one_way
     two_way = 2.0 * one_way
     cost_rate = float(pol["cost_rate_per_side"])
-    cost_weight = two_way * cost_rate
+    # Release 50 - a per-instrument cost rate when the candidate rows carry one
+    # (a rates future is not priced like a cash equity); the canonical desk rate
+    # for every row that carries none, which is the whole pre-R50 book.
+    meta = candidate_meta(candidates or [])
+    per_name = {tk: m["cost_rate"] for tk, m in meta.items() if m.get("cost_rate") is not None}
+    if per_name:
+        cost_weight = sum(abs(tgt.get(tk, 0.0) - cur.get(tk, 0.0))
+                          * float(per_name.get(tk, cost_rate))
+                          for tk in set(cur) | set(tgt))
+    else:
+        cost_weight = two_way * cost_rate
     cost_dollars = (_f(transaction_cost) if transaction_cost is not None
                     else (None if navv is None else round(cost_weight * navv, 2)))
     # The cost hurdle in score points, using the SAME conversion the Slice-6/7
@@ -1148,7 +1521,11 @@ def switching_economics(*, current_weight: dict, target_weight: dict,
         "estimated_transaction_cost_weight": _r(cost_weight, 8),
         "estimated_transaction_cost": cost_dollars,
         "cost_rate_per_side": cost_rate,
-        "cost_basis": "ABSOLUTE_WEIGHT_CHANGE_TIMES_PER_SIDE_RATE",
+        "cost_basis": ("ABSOLUTE_WEIGHT_CHANGE_TIMES_PER_INSTRUMENT_SIDE_RATE" if per_name
+                       else "ABSOLUTE_WEIGHT_CHANGE_TIMES_PER_SIDE_RATE"),
+        "per_instrument_cost_rates_applied": bool(per_name),
+        "allocation_before_by_asset_class": allocation_by(_pos(cur), meta, "asset_class"),
+        "allocation_after_by_asset_class": allocation_by(_pos(tgt), meta, "asset_class"),
         "concentration_before": _r(hhi_before, 6),
         "concentration_after": _r(hhi_after, 6),
         "concentration_delta": _r(
@@ -1320,4 +1697,8 @@ __all__ = [
     "verify_feasibility", "switching_economics", "decide_outcome",
     "build_constrained_reallocation", "one_way_turnover", "herfindahl",
     "stable_hash", "safety_block",
+    # Release 50 - cross-asset constraints.
+    "C_ASSET_CLASS_CAP", "C_SLEEVE_CAP", "C_CURRENCY_CAP", "C_COLLATERAL_CAP",
+    "C_UNIT_GRANULARITY", "candidate_meta", "cross_asset_room", "allocation_by",
+    "cross_asset_relevant", "group_add", "empty_groups",
 ]

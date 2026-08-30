@@ -321,9 +321,29 @@ def resolve_policy(policy_overrides: Optional[dict] = None) -> dict:
     return pol
 
 
+#: Release 50 - the Holding Opportunity-Cost assessment is the EQUITY sleeve's
+#: review: its universe, ranks, entry / exit buffers and replacement candidates are
+#: the approved US-equity model's. A non-equity position (a future, an FX spot) is
+#: not "outside the eligible universe" - it belongs to a different sleeve, and its
+#: review is owned by the opportunity frontier. Passing it here would make the
+#: deterioration rule read it as NOT_IN_ELIGIBLE_UNIVERSE and recommend an EXIT it
+#: never earned. It is excluded BY NAME, and the exclusion is reported.
+_EQUITY_INSTRUMENT_TYPES = (None, "", "CASH_EQUITY")
+
+
+def excluded_non_equity_positions(ps: dict) -> list[dict]:
+    return [{"ticker": p.get("ticker"), "instrument_type": p.get("instrument_type"),
+             "sleeve_id": p.get("sleeve_id"), "asset_class": p.get("asset_class"),
+             "reviewed_by": "engine.opportunity_frontier"}
+            for p in (ps.get("positions") or [])
+            if p.get("instrument_type") not in _EQUITY_INSTRUMENT_TYPES]
+
+
 def _positions_from_state(ps: dict) -> list[dict]:
     out = []
     for p in (ps.get("positions") or []):
+        if p.get("instrument_type") not in _EQUITY_INSTRUMENT_TYPES:
+            continue
         out.append({
             "ticker": p.get("ticker"),
             "sector": p.get("sector") or "Unknown",

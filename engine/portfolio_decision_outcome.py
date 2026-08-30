@@ -180,8 +180,17 @@ def freeze_decision_record(*, decision_id: str, frozen_at: str,
                            constraints_at_decision: Optional[dict] = None,
                            model_state: Optional[dict] = None,
                            provenance: Optional[dict] = None,
-                           policy: Optional[dict] = None) -> dict:
+                           policy: Optional[dict] = None,
+                           instrument_meta: Optional[dict] = None) -> dict:
     """Freeze ONE immutable portfolio-decision record with BOTH forward paths.
+
+    Release 50 - ``instrument_meta`` (``{instrument_id: {instrument_type, asset_class,
+    currency, multiplier, fx_series_id}}``) travels with the record so both paths
+    are measured on the SAME multi-asset semantics: the basket weights are
+    EXPOSURE weights, the reference prices are USD marks (mark x fx at the decision
+    session), and a future's return is its settlement return - exactly the
+    variation the desk books. Financing on collateral is the declared zero on
+    both paths; the executed path alone pays the transaction cost.
 
     ``previous_portfolio`` / ``proposed_target`` / ``executed_target`` are weight
     maps. ``reference_prices`` is the point-in-time price of every ticker either path
@@ -263,6 +272,14 @@ def freeze_decision_record(*, decision_id: str, frozen_at: str,
         "provenance": dict(provenance or {}),
         "cash_return_assumed": CASH_RETURN,
         "cash_return_policy": CASH_RETURN_POLICY,
+        "instrument_meta": {k: dict(v) for k, v in sorted((instrument_meta or {}).items())},
+        "multi_asset_semantics": {
+            "weights": "NOTIONAL_EXPOSURE_OVER_NAV",
+            "reference_prices": "USD_MARKS_AT_DECISION (mark x fx)",
+            "futures_return": "SETTLEMENT_RETURN_ON_NOTIONAL (variation margin)",
+            "collateral_financing": "DECLARED_ZERO_ON_BOTH_PATHS",
+            "transaction_cost": "EXECUTED_PATH_ONLY",
+        },
         "measurement_policy": pol,
         "counterfactual_doc": (
             "The hold basket, its reference prices and its NAV are frozen at "
