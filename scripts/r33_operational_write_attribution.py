@@ -412,7 +412,24 @@ R48_MARKERS = (
 R48_SOURCE_GLOBS = ()
 R48_SOURCE_FILES = ()
 
+#: Release 49 is a PRESENTATION release: the reconciled operator presentation owns
+#: NO store and holds NO write path, so its static lane is vacuous by design and the
+#: strict-root lane carries the weight. The markers are the strings only R49
+#: machinery could write; any of them appearing inside an operational store is
+#: attributed rather than excused. Development created no order, fill, approval,
+#: portfolio mutation or decision-history mutation.
+R49_MARKERS = (
+    "operator_presentation", "api.operator_presentation", "api/operator_presentation",
+    "operator_presentation.v1", "operator-presentation",
+    "release49", "r49_", "R49_",
+)
+R49_SOURCE_GLOBS = ()
+R49_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R49": {"markers": R49_MARKERS, "source_globs": R49_SOURCE_GLOBS,
+            "source_files": R49_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R48": {"markers": R48_MARKERS, "source_globs": R48_SOURCE_GLOBS,
             "source_files": R48_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

@@ -1,5 +1,147 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-08-30
+- **Updated by phase:** **Release 49 - Operator Experience Rebuild: Today
+  command center + Portfolio task workspace + ONE reconciled operator
+  presentation + Advanced/Audit hard separation (single agent, no subagents,
+  Windows PowerShell only).** Built on R48 commit
+  `d5733b5371c68cdee24810fef7962eb8b2d81f26`.
+  **`R49_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell tool-uses,
+  zero subagents. Every command, test, audit, hash, restart and edit ran through
+  Windows PowerShell or the file tools; browser acceptance ran read-only through
+  Playwright MCP.
+  **The defect this release removes.** R48 fixed the operating process; the
+  application still did not FEEL that simple. Live acceptance showed a 12-row
+  material-information table ahead of the portfolio decision, a Portfolio route
+  two viewports long mixing the decision with the model target snapshot, the
+  paper desk and Stage-19 machinery, six raw states competing on one screen
+  (`MANUAL_REVIEW_REQUIRED` / `PORTFOLIO CONSTRAINT BREACH` / `STATE NOT_RUN` /
+  `NO PROPOSAL YET - RUN THE DAILY RESEARCH CYCLE` / `REBALANCE_NO_PROPOSAL`),
+  a current-vs-recommended card full of dashes that told the operator to rerun
+  an immutable historical session, and 300 visible badges.
+  **The replacement, in one line:** *ONE read-only presentation owner
+  RECONCILES the authoritative states into one operator truth, Today renders
+  four sections and at most one action from it, Portfolio becomes four task
+  views, and every engineering surface lives behind Audit & Details.*
+  **`api/operator_presentation.py` is the new ONE presentation owner**
+  (`GET /v1/operations/operator-presentation`, read-only). It consumes
+  `api.workflow_state` (overall state, operator command, canonical portfolio
+  decision, decision lane, reassessment lane, operational state, evidence,
+  data gaps), the Release-47 constrained-reallocation read contract, the Daily
+  Close P&L block, the material-information feed, the decision-outcome ledger
+  and the collection lifecycle, and translates them into `system_readiness`
+  (READY / DEGRADED / BLOCKED, every degraded item saying whether it blocks the
+  decision), ONE `portfolio_decision` (CYCLE_REQUIRED / REALLOCATE / HOLD /
+  BLOCKED / AWAITING_APPROVAL / AWAITING_CONFIRMATION / AWAITING_NEXT_CLOSE /
+  OUTCOME_ACCRUING), ONE `next_action` (only PORTFOLIO_CYCLE executes, carried
+  verbatim from the R48 presented contract), `portfolio_snapshot`,
+  `decision_summary`, `alerts_summary`, `decision_outcome`, `historical_context`,
+  `safety` and `raw_states` (audit only). It RECOMPUTES NOTHING - no NAV,
+  target, decision, constraint, HOC, proposal, execution state or research
+  verdict (audit-enforced on its docstring-stripped code); an unrecognised
+  owner state fails CLOSED to BLOCKED. One portfolio-state read is shared
+  across the composed owners (12.5 s -> 4.6 s).
+  **Historical / pre-R47 reconciliation.** The live 2026-08-28 session was
+  decided under the prior workflow (seven per-holding cap breaches recorded as
+  a manual-review blocker, governed cycle complete, no target solved). The
+  owner detects this from the owners' own facts - a BLOCKED canonical decision
+  whose every blocker code lies outside the constraint inventory's declared
+  `true_blocker_codes`, on a session the governed cycle completed without a
+  target - and presents `HISTORICAL DECISION - 2026-08-28` with the next
+  ELIGIBLE action (run the portfolio cycle after the next eligible market
+  close). No date is hard-coded, no proposal is fabricated, nothing is rerun
+  (`history_rewritten: false`, `proposal_fabricated: false`,
+  `rerun_of_historical_session_instructed: false`). Collection DEGRADED is
+  stated as non-blocking (`DEGRADED - collection degraded. The portfolio
+  decision remains valid.`).
+  **Today is FOUR primary sections** rendered from that object: the system
+  band, the dominant decision (36px headline, one sentence, economics when
+  relevant, at most ONE primary action through the ONE R48 dispatcher), the
+  portfolio snapshot and a three-row attention summary with `View all material
+  information ->`. The material-information table MOVED to System - Audit
+  (`#cc-matinfo-card` inside `#sysops-panel`); the legacy Today cards
+  (`#cc-root`) and the operator command bar stay in the DOM as live write
+  targets and are hidden on Today by CSS. Measured live: primary panels 6 -> 4,
+  badges 21 -> 0, raw backend codes 7 -> 0, table rows 12 -> 0, primary content
+  1.21 -> 0.48 viewports at 1920x1080 (1.31 at 1366x768), no horizontal
+  scroll, zero console errors.
+  **Portfolio is FOUR task views on the one route** (`#portfolio-manager/
+  overview|reallocation|performance|audit`, `data-pm-view` on the tab, CSS
+  decides). Overview: current portfolio (KPI hero + book strip, model-target
+  cells demoted), the SAME reconciled decision as Today, **Current vs Best
+  Feasible Target** (the R47 card re-presented as two columns with an
+  intentional `NO CURRENT FEASIBLE TARGET` empty state - never a grid of
+  dashes - and the zero-base ideal as a one-line analytical reference), the
+  switching economics / approval / execution in words. Reallocation: Decision -
+  Changes (EXIT / REDUCE / REPLACE / ADD / INCREASE / RETAIN from the R47
+  owner's allocation rows, replacement arrows only from the owner's
+  `replacement_relationship`) - Target - Economics - Governance (REVIEW ->
+  APPROVE -> CONFIRM -> AWAIT NEXT CLOSE -> EXECUTED -> OUTCOME ACCRUING, only
+  the current step emphasised). Performance: the existing six PTC charts.
+  Audit & Details: the raw reassessment card, HOC counts + full table, addition
+  candidates, the raw proposal, the controlled rebalance, corporate-action
+  integrity, decision evidence, the 13 checks, lineage, all-holdings audit,
+  the Model Target Snapshot Review, the alpha-book plan, the Paper Trading Desk
+  (maintenance buried), the zero-base target, methodology, the raw payload and
+  the raw owner states behind the presentation. Measured live on Overview:
+  visible cards 22 -> 4, badges 300 -> 1, raw codes 4 -> 0, dashes in the
+  target card 6 -> 0, audit cards on the primary surface many -> 0, decision +
+  current-vs-feasible + economics within 1.18 viewports (was 2.02 to reach the
+  bottom of the dashes card).
+  **Safety stated once.** The global header carries the mode line; the
+  presentation carries `PAPER - MANUAL APPROVAL - AUTOMATION OFF`; badge walls
+  are gone from Today and Overview while every badge stays in the DOM and the
+  full guarantees stay under Audit.
+  **Governance boundaries unchanged and re-proven:** the Stage-18/19 double
+  manual gate (tokens unchanged, no UI control added), NEXT_CLOSE-only paper
+  execution, the R47 optimizer / hurdles / outcomes / decision-outcome ledger,
+  the R48 portfolio cycle and its ONE dispatcher (`runPortfolioCycle` x1,
+  refuses off Today), Markets, Research, R46 research (never addressable from
+  the presentation owner). No broker, no automation, no model promotion.
+  **Evidence:** 52 new targeted tests
+  (`tests/test_release49_operator_presentation.py`); 815 green across the
+  touched owners (R49, R48, R47, R29 UX2 / consolidation / 29.3, R30 read
+  models, today attention density, stage 19.3 / 20 / 22, operator action
+  integrity, 29J.1 / decision flow / clarity polish, 29J.3A / 3B, slice 7,
+  route-ownership contract); `scripts/audit_architecture.py --strict` green
+  with the new `check_release49_operator_presentation` (42 blocking
+  invariants); `scripts/check_ui_js.py` 0 errors; browser acceptance at
+  1920x1080 and 1366x768 (no horizontal scroll, no console errors, at most one
+  primary action, zero raw codes on normal surfaces); operational write
+  attribution `ATTRIBUTED` under the new R49 profile; `git diff --check` clean.
+  **Nothing was executed and nothing was spent.** Zero production Daily Close /
+  DRC / portfolio-cycle runs, zero orders, fills, approvals, portfolio
+  mutations, decision-history mutations, model promotions, $0.00. Production
+  research root **2177 files byte-identical** (`7bf89b3b79e5bfb5`) and the
+  operational store set **60 files byte-identical** (`c5537bbcdf612fe6`) before
+  and after the whole development window.
+- **Working tree status (R49):** New: `api/operator_presentation.py`,
+  `tests/test_release49_operator_presentation.py`,
+  `docs/RELEASE49_OPERATOR_EXPERIENCE.md`. Modified: `api/app.py` (one GET
+  route), `api/ui/index.html` (`#r49-styles` layer, Today command center,
+  Portfolio task views, the `/* R49_REGION_START..END */` renderer, the
+  `_r47Render` re-presentation, the header mirror, the material-information
+  table move), `scripts/audit_architecture.py` (check_release49 + 42 blocking
+  invariants), `scripts/r33_operational_write_attribution.py` (R49 profile),
+  `docs/architecture/system_inventory.json` (the new module + route ownership),
+  and this file. The pre-existing unrelated untracked set is preserved and never
+  staged.
+- **Next required action (R49):** Run ONE broad repository regression, then
+  validate, commit and push from
+  `D:\Temp\paper_trader_release49_operator_ux_rebuild_handoff`
+  (`validate.ps1` -> `R49_VALIDATE_OK`, then `operator_full_regression.ps1` ->
+  `COMMIT_OK` against the unchanged eight-failure baseline, then `commit.ps1`,
+  then `push.ps1`). **After deployment:** open Today; it reads `HISTORICAL
+  DECISION - 2026-08-28` with the next eligible action. After the next market
+  close the Today decision becomes `RUN THE PORTFOLIO CYCLE` with ONE button;
+  the R47 re-optimiser then routes the per-name breaches to PROPOSAL_READY /
+  HOLD_CURRENT_BOOK, and the Reallocation view walks REVIEW -> APPROVE ->
+  CONFIRM -> AWAIT NEXT CLOSE -> EXECUTED -> OUTCOME ACCRUING. Recovering the
+  collection worker (System - Audit) clears the DEGRADED band; it never blocked
+  the decision.
+
+## Release 48 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-08-29
 - **Updated by phase:** **Release 48 - Active Portfolio Manager Operating
   System: ONE canonical operator workflow (RUN PORTFOLIO CYCLE) + Today/

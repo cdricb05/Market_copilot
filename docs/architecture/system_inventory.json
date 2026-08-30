@@ -651,6 +651,11 @@
       "prefix": "/v1/operations/portfolio-cycle",
       "owner": "api/portfolio_cycle.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/operator-presentation",
+      "owner": "api/operator_presentation.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3505,6 +3510,38 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Release 48. Token RUN_PORTFOLIO_CYCLE. Stop vocabulary DECISION_PRESENTED / WAITING_FOR_SESSION_CLOSE / CYCLE_ALREADY_RUNNING / RECOVERY_REQUIRED / STATE_DID_NOT_ADVANCE / OWNER_REPORTED_BLOCKER - every stop names its reason and a blocked owner stops the run with the owner's own words (fail closed, nothing retried, nothing run twice). The canonical operator command (api.workflow_state.build_operator_command) PRESENTS this one action (kind PORTFOLIO_CYCLE, label 'Run the portfolio cycle') whenever a normal-path mutation is due, with the decided underlying step beside it (cycle_underlying_kind); the state-level primary_action still names the underlying owner verbatim for audit surfaces. GET /v1/operations/portfolio-cycle is read-only (plans verbatim from the decided primary action; runs nothing). Guarded by check_release48_portfolio_cycle."
+    },
+    {
+      "path": "api/operator_presentation.py",
+      "system": "infrastructure",
+      "responsibility": "Release 49 the ONE reconciled READ-ONLY operator presentation: consumes the authoritative owners (api.workflow_state overall state / operator command / canonical portfolio decision / decision lane / reassessment lane / operational state, the Release-47 constrained-reallocation read contract, the Daily Close P&L block, the material-information feed, the decision-outcome ledger and the collection lifecycle) and translates their already-decided states into one operator truth - system readiness (READY / DEGRADED / BLOCKED), ONE portfolio decision (CYCLE_REQUIRED / REALLOCATE / HOLD / BLOCKED / AWAITING_APPROVAL / AWAITING_CONFIRMATION / AWAITING_NEXT_CLOSE / OUTCOME_ACCRUING), ONE next action, the portfolio snapshot, the decision economics, the attention summary and the historical-session reconciliation. It RECOMPUTES NOTHING (no NAV, target, decision, constraint, HOC, proposal, execution state or research verdict), never reruns / backfills / rewrites a historical session and never fabricates a proposal.",
+      "classification": "KEEP",
+      "target_owner": "api/operator_presentation.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "workflow_state.load_workflow_state (the ONE decided operator state)",
+        "reallocation_proposal.load_constrained_reallocation (Release-47 outcome / feasible target / economics / approval / execution)",
+        "daily_close.load_daily_close (the P&L block)",
+        "material_information.load_material_information (what arrived, verbatim)",
+        "portfolio_decision_outcome.load_portfolio_decision_outcomes (forward evidence of executed decisions)",
+        "information_collection.load_information_collection (collection lifecycle, non-blocking)"
+      ],
+      "direct_writes": [
+        "NONE - read-only presentation; owns no store and holds no write path"
+      ],
+      "endpoints": [
+        "/v1/operations/operator-presentation"
+      ],
+      "ui_consumers": [
+        "loadOperatorPresentation",
+        "renderOperatorPresentation (Today command center, Portfolio Overview decision, Reallocation view, raw-state audit block)"
+      ],
+      "tests": [
+        "tests/test_release49_operator_presentation.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 49. Presentation vocabulary is frozen in the module. The historical / pre-R47 session (a per-holding cap breach recorded as a manual-review blocker with no governed target) is presented as HISTORICAL DECISION with the next ELIGIBLE action (the next portfolio cycle after the next market close) - never a rerun instruction. Collection DEGRADED is presented as non-blocking unless the workflow owner names a blocker. The only executing next action is PORTFOLIO_CYCLE, carried verbatim from the Release-48 presented contract and executed through the ONE canonical UI dispatcher. Guarded by check_release49_operator_presentation."
     },
     {
       "path": "api/portfolio_decision_outcome.py",

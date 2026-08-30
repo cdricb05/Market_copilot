@@ -202,6 +202,8 @@ from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_cycle as _pcycle
+# Release 49 - the ONE reconciled operator presentation (read-only).
+from paper_trader.api import operator_presentation as _opres
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
@@ -7444,6 +7446,33 @@ def operations_portfolio_cycle() -> dict:
     performs no provider or prediction call beyond what the workflow read models
     already perform."""
     return _pcycle.load_portfolio_cycle()
+
+
+@app.get(
+    "/v1/operations/operator-presentation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_operator_presentation() -> dict:
+    """Release 49 — the ONE reconciled operator presentation (read-only).
+
+    Consumes the authoritative owners (``api.workflow_state``, the Release-47
+    constrained reallocation read contract, the Daily Close P&L block, the
+    material-information feed, the decision-outcome ledger and the collection
+    lifecycle) and translates their already-decided states into ONE operator
+    truth: system readiness (READY / DEGRADED / BLOCKED), ONE portfolio decision
+    (CYCLE_REQUIRED / REALLOCATE / HOLD / BLOCKED / AWAITING_APPROVAL /
+    AWAITING_CONFIRMATION / AWAITING_NEXT_CLOSE / OUTCOME_ACCRUING), ONE next
+    action, the portfolio snapshot, the decision economics, the attention
+    summary and the historical-session reconciliation.
+
+    STRICTLY READ-ONLY and PRESENTATION-ONLY: it recomputes no NAV, target,
+    portfolio decision, constraint, HOC, proposal, execution state or research
+    verdict; it never reruns, backfills or rewrites a historical session; it
+    never fabricates a proposal; it runs nothing, writes nothing, creates no
+    order / proposal / approval and performs no provider or prediction call
+    beyond what the composed read models already perform."""
+    return _opres.load_operator_presentation()
 
 
 @app.post(

@@ -10486,6 +10486,291 @@ def check_release48_portfolio_cycle(files: list[Path]) -> dict:
     }
 
 
+R49_OWNER = "api/operator_presentation.py"
+R49_ROUTE = "/v1/operations/operator-presentation"
+#: Raw implementation vocabulary that may live in DOM data attributes, in Audit /
+#: Advanced and in developer diagnostics — never in the normal operator prose the
+#: Release-49 renderer writes.
+R49_RAW_STATE_TOKENS = (
+    "MANUAL_REVIEW_REQUIRED", "PORTFOLIO_DECISION_NO_PROPOSAL",
+    "REBALANCE_NO_PROPOSAL", "STATE_NOT_RUN", "RUN_DAILY_RESEARCH_CYCLE",
+    "CONFIRM_ALPHA_DAILY_CLOSE", "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN",
+    "CONFIRM_PORTFOLIO_REBALANCE_DECISION", "RUN_PORTFOLIO_CYCLE",
+    "REALLOCATION_PROPOSAL_NOT_RUN", "DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT",
+)
+
+
+def check_release49_operator_presentation(files: list[Path]) -> dict:
+    r"""Release 49 - ONE reconciled operator presentation + Today / Portfolio rebuild.
+
+    The release's claim is that the operator now reads ONE reconciled truth instead
+    of many raw subsystem states, that Today is a command center of at most four
+    primary sections with at most one primary action, that the Portfolio route is
+    four task views with the diagnostic machinery under Audit & Details, and that
+    all of this added NO authority anywhere. The guard proves, structurally:
+
+      (1)  ONE presentation owner exists and no second module builds one;
+      (2)  the owner's CODE (docstrings stripped) reaches no persistence, no
+           execution / approval / desk authority, no Release-46 research and no
+           business recomputation (it declares recomputes_nothing);
+      (3)  a historical session is reconciled, never rerun, backfilled or
+           rewritten, and no proposal is fabricated;
+      (4)  exactly one GET route, no mutating variant, registered in the
+           authoritative route_ownership inventory;
+      (5)  Today reads the presentation owner through ONE loader, carries exactly
+           the four primary sections, no badge wall, the legacy cards hidden and
+           the material-information table moved to System - Audit;
+      (6)  the ONE primary action dispatches through the ONE canonical Release-48
+           dispatcher and nothing else;
+      (7)  Portfolio carries the four task views; the Overview reads the
+           presentation owner; model target, paper desk, corporate-action detail,
+           raw reassessment / HOC / proposal / rebalance machinery are under
+           Audit & Details; the performance charts under Performance;
+      (8)  no grid of dashes renders for an absent target, and the normal-mode
+           renderer writes no raw implementation vocabulary;
+      (9)  no "r49-" dashboard / panel was added, and the manual gates and the
+           only executing action (the Release-48 portfolio cycle) are unchanged.
+    """
+    src = _read(Path(R49_OWNER))
+    ui = _read(UI_FILE)
+    pd_src = _read(Path("api/portfolio_decision.py"))
+    rex_src = _read(Path("api/rebalance_execution.py"))
+    pc_src = _read(Path("api/portfolio_cycle.py"))
+
+    def _code_only(text: str) -> str:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return text
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef,
+                                 ast.AsyncFunctionDef, ast.ClassDef)):
+                body = node.body
+                if body and isinstance(body[0], ast.Expr) \
+                        and isinstance(body[0].value, ast.Constant) \
+                        and isinstance(body[0].value.value, str):
+                    node.body = body[1:] or [ast.Pass()]
+        return ast.unparse(tree)
+
+    code = _code_only(src) if src.strip() else ""
+
+    # (1) one owner
+    owner_present = bool(src.strip())
+    second_owner_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R49_OWNER, "scripts/audit_architecture.py")
+        and _rel(fp).endswith(".py")
+        and "def build_operator_presentation(" in fp.read_text(encoding="utf-8",
+                                                               errors="replace"))
+    vocabulary_frozen = all(t in src for t in (
+        'PD_CYCLE_REQUIRED = "CYCLE_REQUIRED"', 'PD_REALLOCATE = "REALLOCATE"',
+        'PD_HOLD = "HOLD"', 'PD_BLOCKED = "BLOCKED"',
+        'PD_AWAITING_APPROVAL = "AWAITING_APPROVAL"',
+        'PD_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"',
+        'PD_AWAITING_NEXT_CLOSE = "AWAITING_NEXT_CLOSE"',
+        'PD_OUTCOME_ACCRUING = "OUTCOME_ACCRUING"',
+        'SYSTEM_READY = "READY"', 'SYSTEM_DEGRADED = "DEGRADED"',
+        'SYSTEM_BLOCKED = "BLOCKED"'))
+
+    # (2) presentation only — no persistence, no authority, no recomputation
+    recomputes_nothing_declared = '"recomputes_nothing": True' in src
+    # Call / import forms only: an owner NAME inside a provenance string is not a
+    # recomputation; a call into a kernel or an engine import is.
+    business_recompute_reach = sorted(t for t in (
+        "reoptimise(", "reoptimize(", "solve_feasible", "def _solve",
+        "assess_holding", "assess_portfolio", "build_proposal(",
+        "build_assessment(", "from paper_trader.engine", "import engine",
+        "compute_nav", "mark_to_market", "settle_due", "def _nav",
+        "def _target", "def _decide") if t in code)
+    persistence_reach = sorted(t for t in (
+        "open(", "json.dump(", "write_text", "mkdir", "atomic_write",
+        "Path.home") if t in code)
+    authority_reach = sorted(t for t in (
+        "run_daily_close(", "run_daily_research_cycle(", "run_portfolio_cycle(",
+        "record_decision", "paper_trading_desk", "settle_due_orders",
+        "create_order", "APPROVE_FOR_PAPER_REBALANCE",
+        "CONFIRM_PORTFOLIO_REBALANCE_DECISION",
+        "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN", "alpha_agent",
+        "prospective_tournament", "promote(", "recalibrate(") if t in code)
+    r46_reach = sorted(t for t in (
+        "r46", "R46", "alpha_agent", "prospective_tournament",
+        "research_trades", "challenger_registry") if t in code)
+    executes_only_the_cycle = (
+        "EXECUTING_NEXT_ACTION_KINDS = frozenset({NA_PORTFOLIO_CYCLE})" in src)
+
+    # (3) historical reconciliation, never a rerun
+    historical_contract_declared = all(t in src for t in (
+        '"history_rewritten": False', '"proposal_fabricated": False',
+        '"rerun_of_historical_session_instructed": False',
+        '"PRIOR_DECISION_WORKFLOW"'))
+    # Code only: the module's docstring legitimately QUOTES the legacy phrase it
+    # exists to retire; the operator prose the code emits must never carry it.
+    rerun_instruction_in_owner = "RUN THE DAILY RESEARCH CYCLE" in code.upper()
+
+    # (4) routes
+    routes = check_routes()["routes"]
+    r49_routes = [r for r in routes if r["path"].startswith(R49_ROUTE)]
+    get_routes = [r for r in r49_routes
+                  if r["path"] == R49_ROUTE and r["method"] == "GET"]
+    forbidden_routes = sorted("%s %s" % (r["method"], r["path"])
+                              for r in r49_routes if r not in get_routes)
+    try:
+        _inv = json.loads(_read("docs/architecture/system_inventory.json"))
+        _ownership = _inv.get("route_ownership", [])
+        _modules = _inv.get("modules", [])
+    except (json.JSONDecodeError, OSError):
+        _ownership, _modules = [], []
+    route_ownership_registered = len([
+        e for e in _ownership
+        if e.get("prefix") == R49_ROUTE and e.get("owner") == R49_OWNER]) == 1
+    module_registered = any(
+        m.get("path", "").replace("\\", "/") == R49_OWNER for m in _modules)
+
+    # (5) Today reads the owner; four primary sections; no badge wall; legacy hidden
+    _t0 = ui.find('<div id="tab-overview"')
+    _t1 = ui.find("<!-- end tab-overview -->")
+    today = ui[_t0:_t1] if (_t0 != -1 and _t1 > _t0) else ""
+    _c0 = today.find('<div id="today-command-center"')
+    _c1 = today.find("<!-- ===================== Phase 14-A COMMAND CENTER START")
+    tcc = today[_c0:_c1] if (_c0 != -1 and _c1 > _c0) else ""
+    today_reads_presentation_owner = (
+        'data-presentation-owner="api.operator_presentation"' in tcc)
+    today_primary_section_count = len(re.findall(
+        r'<div id="(?:today-system-band|today-decision|today-snapshot|today-attention)"',
+        tcc))
+    today_extra_section_ids = sorted(
+        m for m in re.findall(r'<div id="(today-[\w-]+)"', tcc)
+        if m not in ("today-command-center", "today-system-band", "today-decision",
+                     "today-snapshot", "today-attention"))
+    today_badge_walls = tcc.count("cc-badge")
+    _s0 = ui.find('<style id="r49-styles">')
+    _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
+    r49_css = ui[_s0:_s1] if (_s0 != -1 and _s1 > _s0) else ""
+    legacy_today_hidden = all(t in r49_css for t in (
+        'body[data-route="command-center"] #cc-root',
+        'body[data-route="command-center"] #operator-command'))
+    _sy0 = ui.find('<div class="card" id="sysops-panel"')
+    _sy1 = ui.find("<!-- One page-level safety strip", _sy0) if _sy0 != -1 else -1
+    sysops = ui[_sy0:_sy1] if (_sy0 != -1 and _sy1 > _sy0) else ""
+    material_table_off_today = ('id="cc-matinfo-card"' not in today
+                                and 'id="cc-matinfo-card"' in sysops)
+    ui_loader_count = ui.count("function loadOperatorPresentation(")
+    ui_route_count = ui.count("'/v1/operations/operator-presentation'")
+
+    # (6) the ONE primary action -> the ONE canonical dispatcher
+    _r0 = ui.find("/* R49_REGION_START */")
+    _r1 = ui.find("/* R49_REGION_END */")
+    r49_region = ui[_r0:_r1] if (_r0 != -1 and _r1 > _r0) else ""
+    primary_cta_render_count = r49_region.count('onclick="opresPrimaryAction(this)"')
+    dispatcher_use_count = r49_region.count("dispatchCanonicalPrimaryAction(btn)")
+    region_mutation_reach = sorted(t for t in (
+        "call('POST'", "fetch(", "method: 'POST'", "/execute", "/run'",
+        "orders/confirm", "rebalance/confirm", "portfolio-decision/record")
+        if t in r49_region)
+    region_native_dialogs = sorted(t for t in ("alert(", "confirm(", "prompt(")
+                                   if re.search(r"(?<![\w.])" + re.escape(t),
+                                                r49_region))
+
+    # (7) Portfolio task views + demotions
+    pm_views_present = ('id="pm-views"' in ui and all(
+        ('data-pm-view="%s"' % v) in ui
+        for v in ("overview", "reallocation", "performance", "audit")))
+    overview_reads_presentation_owner = (
+        "_opRenderDecision(p, 'pm-overview-decision'" in ui)
+    audit_demotion_css = all(t in r49_css for t in (
+        '#tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-adv-exec',
+        '#tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-advanced',
+        '#tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #reassess-card',
+        '#tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pa-decision',
+        '#tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-dag-card'))
+    _ax0 = ui.find('id="pm-adv-exec"')
+    _ax1 = ui.find("end pm-adv-exec", _ax0) if _ax0 != -1 else -1
+    _ad0 = ui.find('<details class="card" id="pm-advanced"')
+    _ad1 = ui.find('id="zb-card"', _ad0) if _ad0 != -1 else -1
+
+    def _inside(tok: str, a: int, b: int) -> bool:
+        i = ui.find(tok)
+        return a != -1 and b > a and a < i < b
+
+    model_target_under_audit = _inside('id="otr-band"', _ax0, _ax1)
+    paper_desk_under_audit = _inside('id="pd-band"', _ax0, _ax1)
+    corporate_action_under_audit = _inside('id="stage19-ca-card"', _ad0, _ad1)
+    raw_reallocation_under_audit = (_inside('id="realloc-card"', _ad0, _ad1)
+                                    and _inside('id="stage19-rebalance-card"', _ad0, _ad1)
+                                    and _inside('id="hoc-card"', _ad0, _ad1))
+    performance_under_performance_view = (
+        '#tab-portfolio-manager:not([data-pm-view="performance"]) > .card > #pdash-perf-charts'
+        in r49_css)
+    best_feasible_is_the_recommendation = (
+        "Current vs Best Feasible Target" in ui
+        and "MODEL TARGET SNAPSHOT REVIEW" in ui)
+
+    # (8) no dash grid; no raw vocabulary in the normal-mode renderer
+    _f0 = ui.find("function _r47Render(")
+    _f1 = ui.find("/* R47_REGION_END */", _f0) if _f0 != -1 else -1
+    r47_body = ui[_f0:_f1] if (_f0 != -1 and _f1 > _f0) else ""
+    empty_state_for_absent_target = "NO CURRENT FEASIBLE TARGET" in r47_body
+    dash_grid_for_absent_target = "_r47Row('Positions', cur.position_count)" in r47_body
+    raw_vocabulary_in_normal_renderer = sorted(
+        t for t in R49_RAW_STATE_TOKENS if t in r49_region or t in r47_body)
+
+    # (9) no new dashboard; gates unchanged
+    r49_new_panel_ids = [m for m in re.findall(r'id="(r49-[\w-]+)"', ui)
+                         if m != "r49-styles"]
+    manual_gates_unchanged = (
+        'CONFIRM_TOKEN = "CONFIRM_PORTFOLIO_REBALANCE_DECISION"' in pd_src
+        and "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN" in rex_src
+        and 'EXECUTE_CONFIRMATION = "RUN_PORTFOLIO_CYCLE"' in pc_src)
+    safety_mode_line_declared = (
+        'SAFETY_MODE_LINE = "PAPER · MANUAL APPROVAL · AUTOMATION OFF"' in src)
+
+    return {
+        "phase": "R49",
+        "owner_present": bool(owner_present),
+        "second_owner_modules": second_owner_modules,
+        "vocabulary_frozen": bool(vocabulary_frozen),
+        "recomputes_nothing_declared": bool(recomputes_nothing_declared),
+        "business_recompute_reach": business_recompute_reach,
+        "persistence_reach": persistence_reach,
+        "authority_reach": authority_reach,
+        "r46_reach": r46_reach,
+        "executes_only_the_cycle": bool(executes_only_the_cycle),
+        "historical_contract_declared": bool(historical_contract_declared),
+        "rerun_instruction_in_owner": bool(rerun_instruction_in_owner),
+        "get_route_count": len(get_routes),
+        "forbidden_routes": forbidden_routes,
+        "route_ownership_registered": bool(route_ownership_registered),
+        "module_registered": bool(module_registered),
+        "today_reads_presentation_owner": bool(today_reads_presentation_owner),
+        "today_primary_section_count": today_primary_section_count,
+        "today_extra_section_ids": today_extra_section_ids,
+        "today_badge_walls": today_badge_walls,
+        "legacy_today_hidden": bool(legacy_today_hidden),
+        "material_table_off_today": bool(material_table_off_today),
+        "ui_loader_count": ui_loader_count,
+        "ui_route_count": ui_route_count,
+        "primary_cta_render_count": primary_cta_render_count,
+        "dispatcher_use_count": dispatcher_use_count,
+        "region_mutation_reach": region_mutation_reach,
+        "region_native_dialogs": region_native_dialogs,
+        "pm_views_present": bool(pm_views_present),
+        "overview_reads_presentation_owner": bool(overview_reads_presentation_owner),
+        "audit_demotion_css": bool(audit_demotion_css),
+        "model_target_under_audit": bool(model_target_under_audit),
+        "paper_desk_under_audit": bool(paper_desk_under_audit),
+        "corporate_action_under_audit": bool(corporate_action_under_audit),
+        "raw_reallocation_under_audit": bool(raw_reallocation_under_audit),
+        "performance_under_performance_view": bool(performance_under_performance_view),
+        "best_feasible_is_the_recommendation": bool(best_feasible_is_the_recommendation),
+        "empty_state_for_absent_target": bool(empty_state_for_absent_target),
+        "dash_grid_for_absent_target": bool(dash_grid_for_absent_target),
+        "raw_vocabulary_in_normal_renderer": raw_vocabulary_in_normal_renderer,
+        "r49_new_panel_ids": r49_new_panel_ids,
+        "manual_gates_unchanged": bool(manual_gates_unchanged),
+        "safety_mode_line_declared": bool(safety_mode_line_declared),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -11733,6 +12018,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release47_constrained_reallocation":
             check_release47_constrained_reallocation(files),
         "release48_portfolio_cycle": check_release48_portfolio_cycle(files),
+        "release49_operator_presentation":
+            check_release49_operator_presentation(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14017,6 +14304,53 @@ BLOCKING_INVARIANTS = (
     ("release48_portfolio_cycle", "r48_new_panel_ids", []),
     ("release48_portfolio_cycle", "monthly_as_portfolio_cadence", []),
     ("release48_portfolio_cycle", "checkpoint_named_precisely", True),
+    # ------------------------------------------------------------------- #
+    # Release 49 - ONE reconciled operator presentation; Today command center;
+    # Portfolio task views; diagnostic machinery under Audit & Details; no new
+    # authority anywhere. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release49_operator_presentation", "owner_present", True),
+    ("release49_operator_presentation", "second_owner_modules", []),
+    ("release49_operator_presentation", "vocabulary_frozen", True),
+    ("release49_operator_presentation", "recomputes_nothing_declared", True),
+    ("release49_operator_presentation", "business_recompute_reach", []),
+    ("release49_operator_presentation", "persistence_reach", []),
+    ("release49_operator_presentation", "authority_reach", []),
+    ("release49_operator_presentation", "r46_reach", []),
+    ("release49_operator_presentation", "executes_only_the_cycle", True),
+    ("release49_operator_presentation", "historical_contract_declared", True),
+    ("release49_operator_presentation", "rerun_instruction_in_owner", False),
+    ("release49_operator_presentation", "get_route_count", 1),
+    ("release49_operator_presentation", "forbidden_routes", []),
+    ("release49_operator_presentation", "route_ownership_registered", True),
+    ("release49_operator_presentation", "module_registered", True),
+    ("release49_operator_presentation", "today_reads_presentation_owner", True),
+    ("release49_operator_presentation", "today_primary_section_count", 4),
+    ("release49_operator_presentation", "today_extra_section_ids", []),
+    ("release49_operator_presentation", "today_badge_walls", 0),
+    ("release49_operator_presentation", "legacy_today_hidden", True),
+    ("release49_operator_presentation", "material_table_off_today", True),
+    ("release49_operator_presentation", "ui_loader_count", 1),
+    ("release49_operator_presentation", "ui_route_count", 1),
+    ("release49_operator_presentation", "primary_cta_render_count", 1),
+    ("release49_operator_presentation", "dispatcher_use_count", 1),
+    ("release49_operator_presentation", "region_mutation_reach", []),
+    ("release49_operator_presentation", "region_native_dialogs", []),
+    ("release49_operator_presentation", "pm_views_present", True),
+    ("release49_operator_presentation", "overview_reads_presentation_owner", True),
+    ("release49_operator_presentation", "audit_demotion_css", True),
+    ("release49_operator_presentation", "model_target_under_audit", True),
+    ("release49_operator_presentation", "paper_desk_under_audit", True),
+    ("release49_operator_presentation", "corporate_action_under_audit", True),
+    ("release49_operator_presentation", "raw_reallocation_under_audit", True),
+    ("release49_operator_presentation", "performance_under_performance_view", True),
+    ("release49_operator_presentation", "best_feasible_is_the_recommendation", True),
+    ("release49_operator_presentation", "empty_state_for_absent_target", True),
+    ("release49_operator_presentation", "dash_grid_for_absent_target", False),
+    ("release49_operator_presentation", "raw_vocabulary_in_normal_renderer", []),
+    ("release49_operator_presentation", "r49_new_panel_ids", []),
+    ("release49_operator_presentation", "manual_gates_unchanged", True),
+    ("release49_operator_presentation", "safety_mode_line_declared", True),
 )
 
 

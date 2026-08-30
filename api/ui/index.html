@@ -3033,6 +3033,248 @@
       display: none;
     }
   </style>
+  <style id="r49-styles">
+    /* =====================================================================
+       RELEASE 49 — OPERATOR EXPERIENCE REBUILD.
+       Today is FOUR primary sections rendered from the ONE reconciled operator
+       presentation (api.operator_presentation): a system-status band, the
+       dominant portfolio decision with at most ONE primary action, the
+       portfolio snapshot and an attention SUMMARY. Portfolio is FOUR task
+       views (Overview · Reallocation · Performance · Audit & Details) on the
+       same route, selected by a hash sub-route and the data-pm-view attribute.
+       Same technique as every prior layer: presentation only. Every legacy id
+       stays in the DOM as a live write target; the legacy Today cards are
+       hidden on Today and the diagnostic Portfolio regions are reachable under
+       Audit & Details. Nothing here computes a value or adds a control that
+       mutates anything.
+       ===================================================================== */
+
+    /* ---------- TODAY: the command center is the ONLY primary surface -------- */
+    body[data-route="command-center"] #operator-command,
+    body[data-route="today"] #operator-command,
+    body[data-route="command-center"] #cc-root,
+    body[data-route="today"] #cc-root { display: none !important; }
+
+    #today-command-center { display: flex; flex-direction: column; gap: 14px; }
+    .tcc-band {
+      display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+      padding: 9px 16px; font-size: 12px;
+      border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      border-radius: 6px; background: rgba(255,255,255,.012);
+    }
+    .tcc-state {
+      font-size: 11px; font-weight: 800; letter-spacing: .1em; padding: 3px 10px;
+      border-radius: 4px; background: rgba(255,255,255,.06); color: var(--text-accent, #a8b8d8);
+    }
+    .tcc-state.ready { background: rgba(34,197,94,.14); color: var(--ok, #22c55e); }
+    .tcc-state.degraded { background: rgba(245,158,11,.16); color: var(--warning, #f59e0b); }
+    .tcc-state.blocked { background: rgba(239,68,68,.18); color: var(--danger, #ef4444); }
+    .tcc-item { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+    .tcc-item .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .tcc-item .v { font-weight: 700; color: var(--text-primary, #e0e0ff); font-variant-numeric: tabular-nums; }
+    .tcc-item .v.degraded { color: var(--warning, #f59e0b); }
+    .tcc-item .v.blocked { color: var(--danger, #ef4444); }
+    .tcc-note { font-size: 11px; color: var(--warning, #f59e0b); }
+    .tcc-note.blocked { color: var(--danger, #ef4444); }
+    .tcc-sp { flex: 1 1 auto; }
+    .tcc-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr); gap: 14px; align-items: stretch; }
+    .tcc-decision {
+      display: flex; flex-direction: column; gap: 12px;
+      border: 1px solid var(--cc-border, #243b63); border-left: 5px solid var(--info, #3b82f6);
+      border-radius: 10px; padding: 24px 28px;
+      background: linear-gradient(180deg, rgba(22,34,63,.55), rgba(16,26,52,.35));
+    }
+    .tcc-decision.tone-ok { border-left-color: var(--ok, #22c55e); }
+    .tcc-decision.tone-warn { border-left-color: var(--warning, #f59e0b); }
+    .tcc-decision.tone-bad { border-left-color: var(--danger, #ef4444); }
+    .tcc-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .tcc-headline { font-size: 36px; font-weight: 900; letter-spacing: .01em; line-height: 1.1; color: var(--text-primary, #e0e0ff); }
+    .tcc-decision.tone-ok .tcc-headline { color: var(--ok, #22c55e); }
+    .tcc-decision.tone-warn .tcc-headline { color: var(--warning, #f59e0b); }
+    .tcc-decision.tone-bad .tcc-headline { color: var(--danger, #ef4444); }
+    .tcc-why { font-size: 14px; line-height: 1.55; color: var(--text-accent, #a8b8d8); max-width: 980px; }
+    .tcc-econ { display: flex; gap: 26px; flex-wrap: wrap; }
+    .tcc-econ .m .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .tcc-econ .m .v { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-primary, #e0e0ff); }
+    .tcc-econ .m .s { font-size: 10.5px; color: var(--label, #7a8fb0); }
+    .tcc-blocked { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .tcc-blocked .b .k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; margin-bottom: 3px; }
+    .tcc-blocked .b .v { font-size: 12.5px; line-height: 1.5; color: var(--text-accent, #a8b8d8); }
+    .tcc-next { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .tcc-next .lab { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; }
+    .tcc-next .txt { font-size: 13px; color: var(--text-primary, #e0e0ff); }
+    .tcc-cta { font-size: 13px; font-weight: 800; letter-spacing: .02em; padding: 11px 22px; border-radius: 6px; border: 0; cursor: pointer; background: var(--info, #3b82f6); color: #fff; }
+    .tcc-cta.execute { background: var(--ok, #22c55e); color: #04210f; }
+    .tcc-cta.warn { background: var(--warning, #f59e0b); color: #1a1200; }
+    .tcc-cta:hover { filter: brightness(1.08); }
+    .tcc-cta:disabled { opacity: .5; cursor: not-allowed; }
+    .tcc-snapshot {
+      display: flex; flex-direction: column; gap: 6px;
+      border: 1px solid var(--cc-border, #243b63); border-radius: 10px; padding: 18px 20px;
+      background: var(--cc-panel, #101a34);
+    }
+    .tcc-snapshot .hd { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; }
+    .tcc-snapshot .nav .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .tcc-snapshot .nav .v { font-size: 32px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1.15; }
+    .tcc-snapshot .row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 13px; padding: 5px 0; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); font-variant-numeric: tabular-nums; }
+    .tcc-snapshot .row .k { color: var(--label, #7a8fb0); }
+    .tcc-snapshot .row .v { font-weight: 700; text-align: right; }
+    .tcc-snapshot .sub { font-size: 11px; color: var(--label, #7a8fb0); font-weight: 500; }
+    .tcc-snapshot .pos, .tcc-attn .pos { color: var(--ok, #22c55e); }
+    .tcc-snapshot .neg, .tcc-attn .neg { color: var(--danger, #ef4444); }
+    .tcc-attn { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 12px 16px; }
+    .tcc-attn .hd { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+    .tcc-attn .hd .t { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; }
+    .tcc-attn .hd .n { font-size: 12.5px; color: var(--text-accent, #a8b8d8); }
+    .tcc-attn .hd .n b { font-size: 16px; color: var(--text-primary, #e0e0ff); font-variant-numeric: tabular-nums; }
+    .tcc-attn .hd .sp { flex: 1 1 auto; }
+    .tcc-attn .items { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+    .tcc-attn .it { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 8px 11px; border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 6px; }
+    .tcc-attn .it .tk { font-size: 12px; font-weight: 800; letter-spacing: .03em; }
+    .tcc-attn .it .tk.held { color: var(--warning, #f59e0b); }
+    .tcc-attn .held-chip { font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 1px 5px; border-radius: 3px; background: rgba(245,158,11,.16); color: var(--warning, #f59e0b); margin-left: 4px; vertical-align: middle; }
+    .tcc-attn .it .d { font-size: 11.5px; color: var(--text-primary, #e0e0ff); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tcc-attn .it .r { font-size: 10.5px; color: var(--label, #7a8fb0); }
+    .tcc-empty { font-size: 12px; color: var(--label, #7a8fb0); margin-top: 8px; }
+    .tcc-link { font-size: 11.5px; font-weight: 700; color: var(--accent, #6ea8ff); background: none; border: 0; cursor: pointer; padding: 0; text-decoration: none; }
+    .tcc-link:hover { text-decoration: underline; }
+    @media (max-width: 1400px) {
+      .tcc-grid { grid-template-columns: 1fr; }
+      .tcc-headline { font-size: 30px; }
+      .tcc-attn .items { grid-template-columns: 1fr; }
+    }
+
+    /* ---------- PORTFOLIO: four task views on one route ---------------------- */
+    #tab-portfolio-manager > .card > #pm-views { order: 2; }
+    #tab-portfolio-manager > .card > #pm-overview-decision { order: 10; }
+    #tab-portfolio-manager > .card > #pm-realloc-view { order: 16; }
+    #tab-portfolio-manager > .card > #pm-overview-outcome { order: 17; }
+    #tab-portfolio-manager > .card > #pm-raw-states { order: 60; }
+    /* The global header states the operating mode once; the route strip repeated it. */
+    body[data-route="portfolio-manager"] #tab-portfolio-manager > .card > .ra-safety-strip { display: none !important; }
+    /* The current-vs-feasible card's state is its content, not a badge wall. */
+    #r47-constrained > .card-title .cc-badge { display: none !important; }
+    .pm-views { display: flex; align-items: flex-end; gap: 2px; margin: 2px 0 12px; border-bottom: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .pm-views button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--label, #7a8fb0); cursor: pointer; }
+    .pm-views button:hover { color: var(--text-primary, #e0e0ff); }
+    .pm-views button.active { color: var(--text-primary, #e0e0ff); border-bottom-color: var(--info, #3b82f6); }
+    .pm-views .sp { flex: 1 1 auto; }
+    .pm-views .mode { font-size: 10.5px; color: var(--label, #7a8fb0); padding-bottom: 8px; }
+    #pm-overview-decision { margin: 8px 0 12px; padding: 20px 24px; }
+    #pm-overview-decision .tcc-headline { font-size: 28px; }
+    /* OVERVIEW members are hidden on every other view */
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #pm-sec-current,
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #pm-current-strip,
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #pm-sec-decision,
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #pm-overview-decision,
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #r47-constrained,
+    #tab-portfolio-manager:not([data-pm-view="overview"]) > .card > #pm-overview-outcome { display: none !important; }
+    #tab-portfolio-manager:not([data-pm-view="overview"]):not([data-pm-view="performance"]) > .card > #pa-hero { display: none !important; }
+    /* REALLOCATION */
+    #tab-portfolio-manager:not([data-pm-view="reallocation"]) > .card > #pm-realloc-view { display: none !important; }
+    /* PERFORMANCE — the existing analytics owner, unchanged */
+    #tab-portfolio-manager:not([data-pm-view="performance"]) > .card > #pm-sec-perf,
+    #tab-portfolio-manager:not([data-pm-view="performance"]) > .card > #pdash-perf-charts { display: none !important; }
+    /* AUDIT & DETAILS members are hidden on every other view */
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pa-decision,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #reassess-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-dag-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #reassess-attention-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #reassess-alternatives-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-sec-evidence,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #rout-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-checks-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-sec-actions,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-dc-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-decision-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-date-warnings,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-sec-audit,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #rlin-card,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #reassess-audit,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > .card > #pm-raw-states,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-adv-exec,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > #pm-advanced,
+    #tab-portfolio-manager:not([data-pm-view="audit"]) > #zb-card { display: none !important; }
+    /* AUDIT & DETAILS is the intentional drill-down: the evidence, check, lineage
+       and per-holding audit regions the Release-29 UX2 layer removed from the
+       primary route are REACHABLE here, exactly when their loader shows them. */
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #pm-sec-evidence,
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #pm-sec-audit { display: flex !important; }
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #rout-card,
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #reassess-audit { display: block !important; }
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #pm-checks-card:not([style*="display:none"]):not([style*="display: none"]),
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #rlin-card:not([style*="display:none"]):not([style*="display: none"]),
+    #tab-portfolio-manager[data-pm-view="audit"] > .card > #reassess-alternatives-card:not([style*="display:none"]):not([style*="display: none"]) { display: block !important; }
+    #pm-raw-states { margin: 12px 0 0; }
+    #pm-raw-states summary { cursor: pointer; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    #pm-raw-states .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 4px 18px; margin-top: 8px; font-size: 11px; }
+    #pm-raw-states .kv span { color: var(--label, #7a8fb0); }
+    #pm-raw-states .kv b { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 600; }
+
+    /* ---------- Reallocation task view -------------------------------------- */
+    .pmr { display: flex; flex-direction: column; gap: 14px; margin: 6px 0 12px; }
+    .pmr-sec { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 12px 16px; }
+    .pmr-t { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; margin-bottom: 8px; }
+    .pmr-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+    .pmr-g .g-hd { font-size: 11px; font-weight: 800; letter-spacing: .08em; margin-bottom: 4px; }
+    .pmr-g.exit .g-hd { color: var(--danger, #ef4444); }
+    .pmr-g.reduce .g-hd, .pmr-g.replace .g-hd { color: var(--warning, #f59e0b); }
+    .pmr-g.add .g-hd { color: var(--info, #3b82f6); }
+    .pmr-g.increase .g-hd { color: var(--ok, #22c55e); }
+    .pmr-g.retain .g-hd { color: var(--label, #7a8fb0); }
+    .pmr-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 12px; padding: 4px 0; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); font-variant-numeric: tabular-nums; }
+    .pmr-row .tk { font-weight: 800; }
+    .pmr-row .w { color: var(--text-accent, #a8b8d8); }
+    .pmr-row .why { flex-basis: 100%; font-size: 10.5px; color: var(--label, #7a8fb0); }
+    .pmr-empty, .r47-empty { font-size: 13px; color: var(--text-accent, #a8b8d8); line-height: 1.55; }
+    .pmr-empty b, .r47-empty b { display: block; font-size: 14px; letter-spacing: .05em; color: var(--text-primary, #e0e0ff); margin-bottom: 4px; }
+    .pmr-gov { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .pmr-step { font-size: 11px; font-weight: 700; padding: 5px 11px; border-radius: 14px; border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); color: var(--label, #7a8fb0); white-space: nowrap; }
+    .pmr-step.is-current { color: #fff; background: var(--info, #3b82f6); border-color: var(--info, #3b82f6); font-size: 12px; }
+    .pmr-step.is-done { color: var(--ok, #22c55e); border-color: rgba(34,197,94,.45); }
+    .pmr-arrow { color: var(--cc-text-dim, #6a7fa0); font-size: 11px; }
+    .pmr-econ { display: flex; gap: 22px; flex-wrap: wrap; }
+    .pmr-econ .m .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .pmr-econ .m .v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .pmr-econ .m .s { font-size: 10.5px; color: var(--label, #7a8fb0); }
+
+    /* ---------- Current vs Best Feasible (the R47 card, re-presented) --------- */
+    #r47-pipeline, #r47-governance { display: block !important; grid-template-columns: none !important; }
+    .r47-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 10px; }
+    .r47-col { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 12px 14px; min-height: 120px; }
+    .r47-col.is-best { border-color: rgba(59,130,246,.45); }
+    .r47-col .h { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; margin-bottom: 6px; }
+    .r47-col .big { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+    .r47-col .sub { font-size: 11px; color: var(--label, #7a8fb0); }
+    .r47-col .pos { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+    .r47-col .pos .w { color: var(--text-accent, #a8b8d8); }
+    .r47-quiet { font-size: 12px; color: var(--label, #7a8fb0); }
+    .r47-gov { display: flex; gap: 26px; flex-wrap: wrap; font-size: 12px; }
+    .r47-gov .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .r47-gov .v { font-weight: 700; }
+    .r47-gov .s { font-size: 10.5px; color: var(--label, #7a8fb0); }
+    #r47-banner { font-weight: 600 !important; letter-spacing: 0 !important; font-size: 12px !important; }
+    #r47-constrained > .card-title { font-size: 12px; }
+    @media (max-width: 1100px) { .r47-cols { grid-template-columns: 1fr; } }
+
+    /* ---------- Portfolio: one decision, no competing instruction ------------ */
+    /* The reconciled decision block on Overview carries the state, the sentence
+       and the one action (or the routing notice to Today); the compact command
+       line would restate a raw workflow state beside it. Same element, same
+       writer, hidden on this route only. */
+    body[data-route="portfolio-manager"] #operator-command { display: none !important; }
+    /* The current-portfolio strip keeps the portfolio facts; the model-target
+       cells (a confirmed snapshot is not the recommendation) and the raw change
+       verdict live under Audit & Details. Every mirrored node keeps its writer. */
+    #pm-current-strip .kv[data-k="current-target"],
+    #pm-current-strip .kv[data-k="implementation"],
+    #pm-current-strip .kv[data-k="model-recalibration-checkpoint"],
+    #pm-current-strip .kv[data-k="change-currently-recommended"] { display: none !important; }
+    /* The model-evidence link is an Audit & Details affordance. */
+    #tab-portfolio-manager:not([data-pm-view="audit"]) #pm-open-alpha { display: none !important; }
+    /* The analytics panel states its mode through the global header, not three badges. */
+    #pdash-perf-charts > .cc-preview-hd > .cc-badge { display: none !important; }
+  </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
        window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
   <script src="/ui/pt_charts.js?cb=29j3"></script>
@@ -3426,6 +3668,37 @@
              analyses (they are review-only, non-required). No client date/priority math. -->
         <div id="today-hero" class="today-hero state-info" style="display:none;"></div>
 
+        <!-- ===================== RELEASE 49 — TODAY COMMAND CENTER =====================
+             FOUR primary sections, every value rendered VERBATIM from the ONE reconciled
+             operator presentation (GET /v1/operations/operator-presentation, owner
+             api.operator_presentation): 1 SYSTEM STATUS band, 2 PORTFOLIO DECISION
+             (dominant; at most ONE primary action, dispatched through the ONE canonical
+             dispatcher), 3 PORTFOLIO SNAPSHOT, 4 ATTENTION (a material-information
+             SUMMARY — the full event table lives under System · Audit). The browser
+             classifies nothing, computes nothing and interprets no raw workflow state:
+             the backend owner reconciled them already. The legacy Today cards below
+             (#cc-root) stay in the DOM as live write targets and are hidden on Today. -->
+        <div id="today-command-center" data-presentation-owner="api.operator_presentation">
+          <div id="today-system-band" class="tcc-band" data-system-state="">
+            <span class="tcc-state">&mdash;</span>
+            <span class="tcc-item"><span class="v">Loading the operator presentation&hellip;</span></span>
+          </div>
+          <div class="tcc-grid">
+            <div id="today-decision" class="tcc-decision tone-info" data-decision-state="">
+              <div class="tcc-eyebrow">Portfolio decision</div>
+              <div class="tcc-headline">&mdash;</div>
+              <div class="tcc-why">Loading the reconciled portfolio decision&hellip;</div>
+            </div>
+            <div id="today-snapshot" class="tcc-snapshot">
+              <div class="hd"><span>Portfolio snapshot</span></div>
+              <div class="nav"><div class="k">NAV</div><div class="v">&mdash;</div></div>
+            </div>
+          </div>
+          <div id="today-attention" class="tcc-attn">
+            <div class="hd"><span class="t">Attention</span><span class="n">Loading material information&hellip;</span></div>
+          </div>
+        </div>
+
         <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
         <div id="cc-root">
 
@@ -3528,37 +3801,10 @@
             <div id="am-activity-slot" aria-hidden="true"></div>
           </div>
 
-          <!-- ============ RELEASE 30: MATERIAL INFORMATION / CAPITAL IMPACT ============
-               The operator's FIRST question is "what did the system just hear, and what
-               did it change?", so it sits ABOVE the conclusions drawn from it rather
-               than below them. Rendered verbatim from GET /v1/operations/material-
-               information: the UI performs no classification, derives no authority and
-               computes no impact — every flag comes from the owner that decided it
-               (engine.event_fabric for authority, api.holding_opportunity_cost for the
-               holding conclusion, api.portfolio_decision for the portfolio one).
-               Compact and row-capped: Today is an operating surface, and the deep
-               signal ledger lives in Research. READ ONLY — no action, no execute
-               control, no mutation. -->
-          <div id="cc-matinfo-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
-            <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title">Material Information &mdash; Capital Impact</span>
-              <span class="cc-badge" id="matinfo-badge" title="Material-information feed state.">&mdash;</span>
-              <span class="cc-badge safe">READ ONLY</span>
-              <span class="cc-spacer" style="flex:1;"></span>
-              <span id="matinfo-counts" style="font-size:11px;color:var(--label);"></span>
-              <details class="r29-safety-fold">
-                <summary title="Full safety state for the material-information feed.">Safety</summary>
-                <span class="r29-safety-body">
-                  <span class="cc-badge safe">NO ORDERS</span>
-                  <span class="cc-badge safe">AUTOMATION OFF</span>
-                  <span class="cc-badge manual">MANUAL REVIEW</span>
-                </span>
-              </details>
-            </div>
-            <div id="matinfo-sub" style="font-size:11px;color:var(--label);margin-top:4px;">What the system heard, how it read it, and what it changed.</div>
-            <div id="matinfo-table" style="margin-top:8px;overflow-x:auto;"></div>
-            <div id="matinfo-authority" style="font-size:10px;color:var(--label);margin-top:6px;line-height:1.4;"></div>
-          </div>
+          <!-- RELEASE 49: the MATERIAL INFORMATION / CAPITAL IMPACT table (#cc-matinfo-card)
+               MOVED to System · Audit → Operating diagnostics. Today carries only the
+               attention SUMMARY (counts + top three) rendered from the reconciled
+               operator presentation; "View all material information" opens the table. -->
 
           <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
           <!-- The FIRST primary operator card. ONE canonical daily-close status from
@@ -4378,7 +4624,7 @@
            native browser dialogs.
       ============================================================================================ -->
       <!-- ===================== Phase 26 PORTFOLIO MANAGER WORKSTATION ===================== -->
-      <div id="tab-portfolio-manager" class="tab-content">
+      <div id="tab-portfolio-manager" class="tab-content" data-pm-view="overview">
         <!-- Slice 2 (Phase 29C): canonical workflow-state banner (server-rendered). -->
         <div id="wf-pm" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
         <div class="card" style="margin-bottom:12px;">
@@ -4406,6 +4652,17 @@
                 <span class="cc-badge">NO LIVE PROMOTION</span>
               </span>
             </details>
+          </div>
+          <!-- RELEASE 49 — FOUR task views on the ONE Portfolio route (hash sub-routes
+               #portfolio-manager/overview|reallocation|performance|audit). Navigation
+               only: no view runs, approves or confirms anything. -->
+          <div id="pm-views" class="pm-views" role="tablist" aria-label="Portfolio views">
+            <button type="button" class="active" data-pm-view="overview" role="tab" onclick="navigateToRoute('portfolio-manager/overview')" title="What we own, what we should own, and whether to change.">Overview</button>
+            <button type="button" data-pm-view="reallocation" role="tab" onclick="navigateToRoute('portfolio-manager/reallocation')" title="The active reallocation: decision, changes, target, economics and the governance lifecycle.">Reallocation</button>
+            <button type="button" data-pm-view="performance" role="tab" onclick="navigateToRoute('portfolio-manager/performance')" title="Performance and risk analytics of the executed paper book.">Performance</button>
+            <button type="button" data-pm-view="audit" role="tab" onclick="navigateToRoute('portfolio-manager/audit')" title="Evidence, raw proposals, the controlled rebalance, the model target snapshot, the paper desk, corporate actions, methodology and raw states.">Audit &amp; Details</button>
+            <span class="sp"></span>
+            <span class="mode" id="pm-views-note">What we own &middot; what we should own &middot; whether to change</span>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
 
@@ -4474,6 +4731,15 @@
             <span class="n">2</span><span class="t">Portfolio decision</span>
             <span class="d">Is a change recommended right now? Review only &mdash; nothing here creates an order</span>
           </div>
+          <!-- RELEASE 49 — the ONE reconciled portfolio decision on the Overview view,
+               rendered from the SAME presentation object as Today (same state, same
+               sentence, same single action). The raw reassessment card below moved to
+               Audit & Details. -->
+          <div id="pm-overview-decision" class="tcc-decision tone-info" data-decision-state="">
+            <div class="tcc-eyebrow">Portfolio decision</div>
+            <div class="tcc-headline">&mdash;</div>
+            <div class="tcc-why">Loading the reconciled portfolio decision&hellip;</div>
+          </div>
           <div class="card" id="reassess-card" style="margin:0 0 12px;border:1px solid var(--border,#2a3550);">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
               <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Active Portfolio Assessment
@@ -4535,7 +4801,7 @@
                nothing and creates nothing. -->
           <div class="card" style="margin-bottom:12px;" id="r47-constrained">
               <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                <span>Current vs Recommended Portfolio
+                <span>Current vs Best Feasible Target
                   <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Release 47 &mdash; a normal portfolio constraint reshapes the solution; it does not freeze the portfolio.">CONSTRAINT-RESPECTING</span>
                   <span class="cc-badge safe">PAPER ONLY</span>
                   <span class="cc-badge safe">PREVIEW ONLY</span>
@@ -4564,6 +4830,19 @@
               </details>
               <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. A sector cap, a name cap, a risk-contribution limit, a concentration limit, a liquidity cap or a turnover budget RESHAPES the target here; it never freezes the portfolio. Only a declared true blocker (critical stale or missing data, a point-in-time failure, unreconciled NAV, impossible liquidity, an empty feasible set, or missing manual authorization at the execution boundary) stops a decision. Nothing on this card confirms a target, assigns capital, or creates an order or fill. Portfolio mutation requires explicit manual approval and a second confirmation, both enforced by the backend.</div>
           </div>
+
+          <!-- RELEASE 49 — REALLOCATION task view: Decision · Changes (EXIT / REDUCE /
+               REPLACE / ADD / RETAIN, from the Release-47 owner's allocation rows with
+               their published replacement relationships) · Target · Economics ·
+               Governance lifecycle (only the current step emphasised). Rendered from
+               the reconciled presentation + the constrained-reallocation read model.
+               Navigation only: the manual gates stay backend endpoints. -->
+          <div id="pm-realloc-view" class="pmr" data-decision-state="">
+            <div class="pmr-sec"><div class="pmr-t">Reallocation</div><div class="pmr-empty">Loading the reconciled reallocation view&hellip;</div></div>
+          </div>
+          <!-- RELEASE 49 — DECISION OUTCOME (executed portfolio vs the frozen HOLD
+               counterfactual). Shown ONLY when measured forward evidence exists. -->
+          <div id="pm-overview-outcome" class="pmr-sec" style="display:none;margin:0 0 12px;"></div>
 
           <!-- ===================================================================
                STAGE 21 — PORTFOLIO DECISION EVIDENCE (read-only).
@@ -4625,6 +4904,12 @@
               <div id="reassess-alternatives-quiet" style="overflow-x:auto;font-size:11px;margin:0 0 10px;"></div>
               <div id="reassess-all" class="compact-scroll-region" style="max-height:420px;overflow:auto;font-size:11px;">&mdash;</div>
             </div>
+          </details>
+          <!-- RELEASE 49 — the raw owner states behind the reconciled presentation.
+               Audit & Details only; normal surfaces render the reconciled fields. -->
+          <details id="pm-raw-states">
+            <summary>Raw backend states behind the reconciled presentation &mdash; audit only</summary>
+            <div class="kv" id="pm-raw-states-body">&mdash;</div>
           </details>
 
           <!-- ===================== Phase 29J.3A PRIMARY PORTFOLIO VISUALS =====================
@@ -5726,6 +6011,35 @@
             <span>Operating diagnostics</span>
             <span class="cc-badge safe">READ ONLY</span>
             <span class="cc-badge muted" title="Moved off Today by Release 29 UX2. Same values, same owners.">MOVED FROM TODAY</span>
+          </div>
+          <!-- ============ RELEASE 30: MATERIAL INFORMATION / CAPITAL IMPACT ============
+               RELEASE 49 moved this full event table here from Today (Today keeps a
+               three-row SUMMARY rendered from the reconciled operator presentation).
+               Rendered verbatim from GET /v1/operations/material-information by the
+               SAME single loader: the UI performs no classification, derives no
+               authority and computes no impact — every flag comes from the owner that
+               decided it (engine.event_fabric for authority, api.holding_opportunity_cost
+               for the holding conclusion, api.portfolio_decision for the portfolio one).
+               READ ONLY — no action, no execute control, no mutation. -->
+          <div id="cc-matinfo-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;margin-bottom:12px;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Material Information &mdash; Capital Impact</span>
+              <span class="cc-badge" id="matinfo-badge" title="Material-information feed state.">&mdash;</span>
+              <span class="cc-badge safe">READ ONLY</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span id="matinfo-counts" style="font-size:11px;color:var(--label);"></span>
+              <details class="r29-safety-fold">
+                <summary title="Full safety state for the material-information feed.">Safety</summary>
+                <span class="r29-safety-body">
+                  <span class="cc-badge safe">NO ORDERS</span>
+                  <span class="cc-badge safe">AUTOMATION OFF</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                </span>
+              </details>
+            </div>
+            <div id="matinfo-sub" style="font-size:11px;color:var(--label);margin-top:4px;">What the system heard, how it read it, and what it changed.</div>
+            <div id="matinfo-table" style="margin-top:8px;overflow-x:auto;"></div>
+            <div id="matinfo-authority" style="font-size:10px;color:var(--label);margin-top:6px;line-height:1.4;"></div>
           </div>
           <!-- ===================== Slice 1 (Phase 29B) DATA FRESHNESS & MARKET SESSION =====================
                ONE connected read-only strip, filled by the single loadDataFreshness() loader from
@@ -8628,6 +8942,10 @@ window._switchTab = function(tabName, opts) {
     try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {}
     // Keep the compact decision bar in sync with the canonical HOC + Reallocation owners.
     try { if (typeof renderPmDecisionBar === 'function') renderPmDecisionBar(); } catch (e) {}
+    // Release 49: the task view is decided by the hash sub-route; the reconciled
+    // presentation renders the Overview decision + the Reallocation view.
+    try { if (typeof pmApplyViewFromRoute === 'function') pmApplyViewFromRoute(); } catch (e) {}
+    try { if (typeof loadOperatorPresentation === 'function') loadOperatorPresentation(); } catch (e) {}
   }
 
   // Operator Decision Flow: dedicated full-screen review experiences. Each reuses the
@@ -25054,6 +25372,8 @@ async function refreshCommandCenter(btn) {
     } catch (e) { if (window._appState) window._appState.connected = false; }
     // 2. Refresh the command-center endpoint (+ its previews).
     await loadCommandCenter();
+    // Release 49: the ONE reconciled operator presentation (Today's four sections).
+    try { if (typeof loadOperatorPresentation === 'function') loadOperatorPresentation(); } catch (e) {}
     // 3. Refresh only the currently visible detailed sections.
     var activeTab = document.querySelector('.tab-content.active');
     if (activeTab && activeTab.id === 'tab-portfolio') {
@@ -25226,7 +25546,10 @@ var _PM_SUB_TARGET = {
   '': null, 'reallocation': 'realloc-card', 'opportunity-cost': 'hoc-card',
   // Stage 20: the ACTIVE PORTFOLIO ASSESSMENT card — the review action produced by the
   // portfolio reassessment lands exactly on the decision, not the top of the tab.
-  'reassessment': 'reassess-card',
+  // Release 49: the reconciled portfolio decision on the Overview view is the
+  // surface a "review the decision / blocker" action lands on; the raw
+  // reassessment card lives under Audit & Details.
+  'reassessment': 'pm-overview-decision',
   // Operator Action Integrity: the owned-data refresh owner (Paper Trading Desk
   // band) — the canonical WAITING_FOR_OWNED_DATA fallback navigation lands
   // exactly on the owning control, never on the top of the tab.
@@ -25364,6 +25687,12 @@ function _applySubsection(base, sub) {
   if (base === 'portfolio') { try { _ptHighlightNav(sub || ''); } catch (e) {} }
   // Keep the Research & Audit workspace in sync — one section active at a time.
   if (base === 'research-audit') { try { _raApplySection(sub || ''); } catch (e) {} }
+  // Release 49: the Portfolio task view (overview / reallocation / performance / audit)
+  // is decided by the sub-route; a legacy focus lands on the view carrying its surface.
+  if (base === 'portfolio-manager') {
+    try { pmApplyViewFromRoute(sub || ''); } catch (e) {}
+    if (_PM_VIEWS.indexOf(sub || '') >= 0) return;
+  }
   if (!sub && base !== 'portfolio' && base !== 'research-audit') return;
   if (base === 'portfolio-manager' && !_PM_SUB_TARGET[sub || '']) return;
   // Focus the active workbench stage or the relevant portfolio / research section.
@@ -27127,6 +27456,7 @@ function loadOperationalBook() {
     try { _r47Load(); } catch (e) {}               // Release 47: the ONE constrained-reallocation decision
     try { loadMaterialInformation(); } catch (e) {} // Release 30: what arrived and what it changed
     try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
+    try { loadOperatorPresentation(); } catch (e) {} // Release 49: the ONE reconciled operator presentation
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadPortfolioState(); } catch (e) {}
@@ -27139,7 +27469,8 @@ function loadOperationalBook() {
     try { loadUniverseScoring(); } catch (e) {}
     try { loadReallocationProposal(); } catch (e) {}
     try { _r47Load(); } catch (e) {}
-    try { loadMaterialInformation(); } catch (e) {} return null; });
+    try { loadMaterialInformation(); } catch (e) {}
+    try { loadOperatorPresentation(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -27561,7 +27892,10 @@ window.loadReallocationProposal = loadReallocationProposal;
 function _r47Load() {
   if (window._r47InFlight) return window._r47InFlight;
   var p = _mhzGet('/v1/operations/constrained-reallocation').then(function (d) {
-    window._r47InFlight = null; window._r47Data = d; _r47Render(d); return d;
+    window._r47InFlight = null; window._r47Data = d; _r47Render(d);
+    // Release 49: the Reallocation task view reads these allocation rows verbatim.
+    try { if (window._opresData && typeof _opRenderReallocationView === 'function') _opRenderReallocationView(window._opresData); } catch (e) {}
+    return d;
   }).catch(function () {
     window._r47InFlight = null; _r47Render(null); return null;
   });
@@ -27603,136 +27937,151 @@ function _r47Row(k, v) {
 
 function _r47Render(d) {
   var banner = document.getElementById('r47-banner');
+  var paint = function (t) {
+    if (!banner) return;
+    banner.style.border = '1px solid ' + t[0]; banner.style.background = t[1]; banner.style.color = t[2];
+  };
+  var quietTone = ['rgba(122,143,176,.35)', 'rgba(122,143,176,.08)', 'var(--text-accent, #a8b8d8)'];
+  var amberTone = ['rgba(245,158,11,.55)', 'rgba(245,158,11,.10)', 'var(--warning, #f59e0b)'];
+  var greenTone = ['rgba(34,197,94,.55)', 'rgba(34,197,94,.08)', 'var(--ok, #22c55e)'];
+  var redTone = ['rgba(239,68,68,.55)', 'rgba(239,68,68,.10)', 'var(--danger, #ef4444)'];
+  var emptyState = function (title, text) {
+    return '<div class="r47-empty"><b>' + escapeHtml(title) + '</b>' + escapeHtml(text) + '</div>';
+  };
   if (!d || d.status === 'UNAVAILABLE') {
-    if (banner) {
-      banner.textContent = 'CONSTRAINT-RESPECTING REALLOCATION — the read-only decision is unavailable.';
-      banner.style.border = '1px solid rgba(245,158,11,.55)';
-      banner.style.background = 'rgba(245,158,11,.10)';
-      banner.style.color = 'var(--warning, #f59e0b)';
-    }
-    _setHtml('r47-pipeline', '—'); _setHtml('r47-economics', '—');
-    _setHtml('r47-governance', '—'); _setHtml('r47-inventory', '—');
-    _setHtml('r47-adjustments', '—');
+    if (banner) { banner.textContent = 'The constraint-respecting reallocation read model is unavailable.'; paint(amberTone); }
+    _setHtml('r47-pipeline', emptyState('NO CURRENT FEASIBLE TARGET', 'The reallocation decision could not be read. Nothing is fabricated.'));
+    _setHtml('r47-economics', '<span class="r47-quiet">Unavailable.</span>');
+    _setHtml('r47-governance', '—'); _setHtml('r47-inventory', '—'); _setHtml('r47-adjustments', '—');
     return;
   }
 
-  // --- the banner: the BACKEND headline, verbatim. The browser never decides that
-  //     a portfolio is blocked, and never writes that word itself. -------------- #
-  var outcome = d.outcome || '—';
+  // RELEASE 49 — this card is CURRENT PORTFOLIO vs BEST FEASIBLE TARGET. Every value
+  // is the Release-47 owner's, verbatim; the human framing of a session WITHOUT a
+  // target (historical / hold / true blocker) is read from the ONE reconciled operator
+  // presentation. The browser never infers an outcome from a state name, never prints
+  // a grid of dashes for an artifact that does not exist, and never fabricates a target.
+  var pres = window._opresData || null;
+  var hc = (pres && pres.historical_context) || {};
+  var outcome = d.outcome || null;
   var verdict = d.reallocation_outcome || {};
-  var tone = {border: 'rgba(59,130,246,.55)', bg: 'rgba(59,130,246,.10)', fg: 'var(--info, #3b82f6)'};
-  if (outcome === 'TRUE_BLOCKER') {
-    tone = {border: 'rgba(239,68,68,.55)', bg: 'rgba(239,68,68,.10)', fg: 'var(--danger, #ef4444)'};
-  } else if (outcome === 'HOLD_CURRENT_BOOK') {
-    tone = {border: 'rgba(34,197,94,.55)', bg: 'rgba(34,197,94,.10)', fg: 'var(--ok, #22c55e)'};
-  } else if (outcome === 'PROPOSAL_READY') {
-    tone = {border: 'rgba(245,158,11,.55)', bg: 'rgba(245,158,11,.10)', fg: 'var(--warning, #f59e0b)'};
-  }
-  if (banner) {
-    banner.style.border = '1px solid ' + tone.border;
-    banner.style.background = tone.bg;
-    banner.style.color = tone.fg;
-    var reasons = (verdict.reason_codes || []).join(', ');
-    var state = d.outcome_state ? String(d.outcome_state) : String(outcome);
-    banner.innerHTML = escapeHtml(d.headline || state)
-      + ' &middot; ' + escapeHtml(state)
-      + (reasons ? ' &middot; ' + escapeHtml(reasons) : '')
-      + ' &middot; PAPER ONLY &middot; MANUAL REVIEW &middot; NO ORDERS';
-  }
-
-  // --- the pipeline: current book -> ideal -> what constraints did -> feasible -- #
-  var cur = d.current_paper_book || {};
-  var ideal = d.ideal_target || {};
+  var feasible = d.feasible_target_exists === true;
   var best = d.best_feasible_target || {};
-  var trn = d.turnover || {};
-  var adjustments = d.constraint_adjustments || [];
-  var reshaped = d.constraints_that_reshaped || [];
-
-  var adjRows = '';
-  for (var i = 0; i < adjustments.length && i < 6; i++) {
-    var a = adjustments[i];
-    adjRows += _r47Row(String(a.constraint || '—') + (a.ticker ? ' · ' + a.ticker : ''),
-                       String(a.action || '—'));
-  }
-  if (!adjustments.length) {
-    adjRows = '<div style="color:var(--label);">No constraint changed this target.</div>';
-  } else if (adjustments.length > 6) {
-    adjRows += '<div style="color:var(--label);">+' + (adjustments.length - 6)
-      + ' more in Audit / Advanced</div>';
-  }
-
-  var pipeline =
-    _r47Panel('Current paper book',
-      _r47Row('Positions', cur.position_count)
-      + _r47Row('Cash weight', _r47Num(cur.cash_weight, 4))
-      + _r47Row('NAV', cur.nav === null || cur.nav === undefined ? '—' : cur.nav)
-      + _r47Row('Owner', cur.owner || '—'))
-    + _r47Panel('Ideal target (before constraints)',
-      _r47Row('Positions', Object.keys(ideal.weights || {}).length || '—')
-      + _r47Row('Already feasible', _r47Bool(ideal.was_feasible))
-      + _r47Row('Limits breached', (ideal.breached_limits || []).join(', ') || 'none')
-      + _r47Row('Zero-base owner', ideal.zero_base_owner || '—'))
-    + _r47Panel('Constraint adjustments',
-      _r47Row('Re-optimised', _r47Bool(d.constraint_reoptimization_applied))
-      + _r47Row('Limits that reshaped', reshaped.join(', ') || 'none')
-      + adjRows)
-    + _r47Panel('Best feasible target',
-      _r47Row('Positions', best.position_count)
-      + _r47Row('Cash weight', _r47Num(best.cash_weight, 4))
-      + _r47Row('Hard constraints OK', _r47Bool((best.constraints || {}).all_ok))
-      + _r47Row('One-way turnover', _r47Num(trn.one_way_turnover, 4))
-      + _r47Row('Est. transaction cost', trn.estimated_transaction_cost));
-  _setHtml('r47-pipeline', pipeline);
-
-  // --- switching economics: every number verbatim from the backend ------------- #
+  var alloc = best.allocations || [];
+  var cur = d.current_paper_book || {};
   var sw = d.switching_economics || {};
-  var chips = ''
-    + _r47Chip('Score before', _r47Num(sw.score_before, 4), 'Weighted combined percentile of the current book (backend).')
-    + _r47Chip('Score after', _r47Num(sw.score_after, 4), 'Weighted combined percentile of the best feasible target (backend).')
-    + _r47Chip('Improvement', _r47Num(sw.score_improvement, 4), 'Score after minus score before (backend).')
-    + _r47Chip('Cost hurdle', _r47Num(sw.score_cost_hurdle, 4), 'The modelled transition cost, expressed in the same score points (backend).')
-    + _r47Chip('Net of cost', _r47Num(sw.score_improvement_net_of_cost, 4), 'Improvement after the transition cost (backend).')
-    + _r47Chip('Switching hurdle', _r47Num(sw.switching_hurdle, 4), 'The frozen hurdle the net improvement must clear (backend policy).')
-    + _r47Chip('Clears hurdle', _r47Bool(sw.clears_switching_hurdle), 'Whether switching is worth paying for (backend decision).')
-    + _r47Chip('One-way turnover', _r47Num(sw.one_way_turnover, 4), 'Portfolio distance from the current book (backend).')
-    + _r47Chip('Est. cost', sw.estimated_transaction_cost === null || sw.estimated_transaction_cost === undefined ? '—' : sw.estimated_transaction_cost, 'Modelled transition cost in dollars (backend).')
-    + _r47Chip('Concentration', _r47Num(sw.concentration_before, 4) + ' → ' + _r47Num(sw.concentration_after, 4), 'Portfolio concentration before and after (backend).')
-    + _r47Chip('Volatility', _r47Num(sw.portfolio_volatility_before, 4) + ' → ' + _r47Num(sw.portfolio_volatility_after, 4), 'Portfolio volatility before and after (backend); blank when coverage is insufficient.')
-    + _r47Chip('Positions', String(sw.position_count_before === undefined ? '—' : sw.position_count_before) + ' → ' + String(sw.position_count_after === undefined ? '—' : sw.position_count_after), 'Position count before and after (backend).')
-    + _r47Chip('Cash weight', _r47Num(sw.cash_weight_before, 4) + ' → ' + _r47Num(sw.cash_weight_after, 4), 'Cash weight before and after (backend).')
-    + _r47Chip('Mandatory exits', (sw.mandatory_exits || []).join(', ') || 'none', 'Held names outside the eligible universe. Their exit is a constraint, not a bet.')
-    + _r47Chip('Expected return', sw.expected_return_state || '—', 'No validated forecast model exists, so a dollar expected return is never fabricated.');
-  _setHtml('r47-economics', chips);
-
-  // --- governed proposal / approval state / execution state ------------------- #
+  var trn = d.turnover || {};
+  var ideal = d.ideal_target || {};
+  var reshaped = d.constraints_that_reshaped || [];
+  var adjustments = d.constraint_adjustments || [];
   var ap = d.approval || {};
   var ex = d.execution || {};
-  var counts = [];
-  var alloc = (best.allocations || []);
-  var byAction = {};
-  for (var j = 0; j < alloc.length; j++) {
-    var act = alloc[j].action || '—';
-    byAction[act] = (byAction[act] || 0) + 1;
+  var words = function (c) {
+    var s = String(c === null || c === undefined ? '' : c).replace(/_/g, ' ').toLowerCase();
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  };
+  var pct = function (x, dg) {
+    if (x === null || x === undefined || x === '' || isNaN(x)) return '—';
+    return (Number(x) * 100).toFixed(dg === undefined ? 1 : dg) + '%';
+  };
+  var nil = function (x) { return x === null || x === undefined; };
+
+  // --- the banner: ONE human sentence ----------------------------------------- #
+  var line, toneArr;
+  if (outcome === 'PROPOSAL_READY') {
+    line = 'A best feasible target exists and clears the switching hurdle after cost — review it under Reallocation.'; toneArr = amberTone;
+  } else if (outcome === 'HOLD_CURRENT_BOOK') {
+    line = 'A best feasible target was solved and priced against the current portfolio; holding is the decision.'; toneArr = greenTone;
+  } else if (outcome === 'TRUE_BLOCKER') {
+    line = 'A true blocker stops the decision: ' + ((verdict.reason_codes || []).map(words).join(', ') || 'see the decision above') + '.'; toneArr = redTone;
+  } else if (hc.historical) {
+    line = 'No governed target was generated for the historical session ' + (hc.session_date || '') + '. Nothing is fabricated; the next eligible portfolio cycle solves a fresh target.'; toneArr = quietTone;
+  } else {
+    line = 'No current reallocation target exists for ' + (d.eligible_market_date || 'the eligible session') + '.'; toneArr = quietTone;
   }
-  for (var k in byAction) { if (byAction.hasOwnProperty(k)) counts.push(k + ' ' + byAction[k]); }
-  var gov =
-    _r47Panel('Governed proposal',
-      _r47Row('Outcome', outcome)
-      + _r47Row('Feasible target exists', _r47Bool(d.feasible_target_exists))
-      + _r47Row('Actions', counts.join(' · ') || '—')
-      + _r47Row('State', d.state || '—'))
-    + _r47Panel('Approval state',
-      _r47Row('Decision state', ap.portfolio_decision_state || '—')
-      + _r47Row('Label', ap.label || '—')
-      + _r47Row('Approvable', _r47Bool(ap.approvable))
-      + _r47Row('Manual approval', _r47Bool(ap.manual_approval_required))
-      + _r47Row('Decision path', ap.decision_path || '—'))
-    + _r47Panel('Execution state',
-      _r47Row('Rebalance state', ex.rebalance_state || '—')
-      + _r47Row('Order plan buildable', _r47Bool(ex.order_plan_buildable))
-      + _r47Row('Orders in plan', ex.n_orders === undefined ? '—' : ex.n_orders)
-      + _r47Row('Broker', 'NONE — PAPER ONLY'));
-  _setHtml('r47-governance', gov);
+  if (banner) { banner.textContent = line; paint(toneArr); }
+
+  // --- CURRENT PORTFOLIO vs BEST FEASIBLE TARGET: two columns ----------------- #
+  var held = alloc.filter(function (r) { return (r.current_weight || 0) > 0; })
+    .sort(function (a, b) { return (b.current_weight || 0) - (a.current_weight || 0); });
+  var ob = (window._obData && window._obData.operational_book) || {};
+  var detail = (ob.holdings_detail || []).slice()
+    .sort(function (a, b) { return (b.current_weight || 0) - (a.current_weight || 0); });
+  var curCount = nil(cur.position_count) ? ob.holdings_count : cur.position_count;
+  var posRow = function (tk, w) {
+    return '<div class="pos"><span>' + escapeHtml(tk || '—') + '</span><span class="w">' + pct(w) + '</span></div>';
+  };
+  var curRows = held.length
+    ? held.slice(0, 6).map(function (r) { return posRow(r.ticker, r.current_weight); }).join('')
+    : detail.slice(0, 6).map(function (r) { return posRow(r.ticker, r.current_weight); }).join('');
+  var curCash = !nil(cur.cash_weight) ? pct(cur.cash_weight) : (nil(ob.cash) ? '—' : _obMoney(ob.cash));
+  var curNav = !nil(cur.nav) ? cur.nav : ob.nav;
+  var curCol = '<div class="r47-col"><div class="h"><span>Current portfolio</span><span>' + escapeHtml((d.active_book || {}).book_label || '') + '</span></div>'
+    + '<div class="big">' + escapeHtml(nil(curCount) ? '—' : String(curCount)) + ' positions</div>'
+    + '<div class="sub">cash ' + curCash + (nil(curNav) ? '' : ' · NAV ' + _obMoney(curNav)) + '</div>'
+    + (curRows ? '<div style="margin-top:6px;">' + curRows
+        + ((held.length > 6 || detail.length > 6) ? '<div class="sub">largest six shown</div>' : '') + '</div>' : '')
+    + '</div>';
+
+  var bestCol;
+  if (feasible) {
+    var tgt = alloc.filter(function (r) { return (r.proposed_weight || 0) > 0; })
+      .sort(function (a, b) { return (b.proposed_weight || 0) - (a.proposed_weight || 0); });
+    var okc = (best.constraints || {}).all_ok;
+    bestCol = '<div class="r47-col is-best"><div class="h"><span>Best feasible target</span><span>'
+      + (okc === true ? 'constraints satisfied' : (okc === false ? 'constraint breached' : '')) + '</span></div>'
+      + '<div class="big">' + escapeHtml(nil(best.position_count) ? String(tgt.length) : String(best.position_count)) + ' positions</div>'
+      + '<div class="sub">cash ' + pct(best.cash_weight) + ' · one-way turnover ' + pct(trn.one_way_turnover)
+      + ' · est. cost ' + (nil(trn.estimated_transaction_cost) ? '—' : _obMoney(trn.estimated_transaction_cost)) + '</div>'
+      + '<div style="margin-top:6px;">' + tgt.slice(0, 6).map(function (r) { return posRow(r.ticker, r.proposed_weight); }).join('')
+      + (tgt.length > 6 ? '<div class="sub">largest six shown</div>' : '') + '</div>'
+      + '<div style="margin-top:8px;"><button type="button" class="tcc-link" onclick="navigateToRoute(\'portfolio-manager/reallocation\')">View full reallocation &rarr;</button></div>'
+      + '</div>';
+  } else {
+    var why = hc.historical
+      ? 'The latest completed session predates the governed constraint-respecting target workflow. No historical target will be fabricated; the next eligible portfolio cycle solves a fresh one.'
+      : (outcome === 'TRUE_BLOCKER'
+          ? 'A true blocker stops the decision, so no target can be trusted.'
+          : 'No governed target exists for this session yet. Nothing is fabricated.');
+    bestCol = '<div class="r47-col is-best"><div class="h"><span>Best feasible target</span></div>'
+      + emptyState('NO CURRENT FEASIBLE TARGET', why) + '</div>';
+  }
+  var idealN = Object.keys(ideal.weights || {}).length;
+  var idealLine = idealN
+    ? '<div class="r47-quiet">Zero-base ideal (analytical reference, before constraints): ' + idealN + ' positions · '
+      + (ideal.was_feasible === true ? 'already feasible'
+          : (reshaped.length ? 'reshaped by ' + escapeHtml(reshaped.map(words).join(', ')) : 'not feasible as the ideal'))
+      + '. Full detail under Audit &amp; Details.</div>'
+    : '';
+  _setHtml('r47-pipeline', '<div class="r47-cols">' + curCol + bestCol + '</div>' + idealLine);
+
+  // --- switching economics: verbatim, only when a target was actually priced --- #
+  if (feasible) {
+    var chips = ''
+      + _r47Chip('Improvement net of cost', _r47Num(sw.score_improvement_net_of_cost, 4), 'Score after minus score before, after the modelled transition cost (backend).')
+      + _r47Chip('Switching hurdle', _r47Num(sw.switching_hurdle, 4), 'The frozen hurdle the net improvement must clear (backend policy).')
+      + _r47Chip('Clears hurdle', _r47Bool(sw.clears_switching_hurdle), 'Whether switching is worth paying for (backend decision).')
+      + _r47Chip('One-way turnover', pct(sw.one_way_turnover), 'Portfolio distance from the current book (backend).')
+      + _r47Chip('Est. cost', nil(sw.estimated_transaction_cost) ? '—' : _obMoney(sw.estimated_transaction_cost), 'Modelled transition cost in dollars (backend).')
+      + _r47Chip('Concentration', _r47Num(sw.concentration_before, 4) + ' → ' + _r47Num(sw.concentration_after, 4), 'Portfolio concentration before and after (backend).')
+      + _r47Chip('Volatility', pct(sw.portfolio_volatility_before) + ' → ' + pct(sw.portfolio_volatility_after), 'Portfolio volatility before and after (backend); blank when coverage is insufficient.')
+      + _r47Chip('Positions', String(sw.position_count_before === undefined ? '—' : sw.position_count_before) + ' → ' + String(sw.position_count_after === undefined ? '—' : sw.position_count_after), 'Position count before and after (backend).')
+      + _r47Chip('Cash weight', pct(sw.cash_weight_before) + ' → ' + pct(sw.cash_weight_after), 'Cash weight before and after (backend).')
+      + _r47Chip('Mandatory exits', (sw.mandatory_exits || []).join(', ') || 'none', 'Held names outside the eligible universe. Their exit is a constraint, not a bet.')
+      + _r47Chip('Expected return', words(sw.expected_return_state) || '—', 'No validated forecast model exists, so a dollar expected return is never fabricated.');
+    _setHtml('r47-economics', chips);
+  } else {
+    _setHtml('r47-economics', '<span class="r47-quiet">No switching economics: no feasible target was priced for this session.</span>');
+  }
+
+  // --- approval + execution, in words (the raw states live under Audit) ------- #
+  var apSub = ap.approvable === true ? 'manual approval available — review under Reallocation' : 'nothing awaits approval';
+  var exTxt = ex.message || words(ex.rebalance_state) || '—';
+  var exSub = nil(ex.n_orders) ? 'no order plan' : (ex.n_orders + ' order(s) in the plan');
+  _setHtml('r47-governance', '<div class="r47-gov">'
+    + '<div><div class="k">Approval</div><div class="v">' + escapeHtml(ap.label || '—') + '</div><div class="s">' + escapeHtml(apSub) + '</div></div>'
+    + '<div><div class="k">Execution</div><div class="v">' + escapeHtml(exTxt) + '</div><div class="s">' + escapeHtml(exSub) + ' · paper only, no broker</div></div>'
+    + '</div>');
 
   // --- Audit / Advanced: the full inventory and the full adjustment ledger ----- #
   var inv = (d.constraint_inventory || {});
@@ -27785,6 +28134,499 @@ function _r47Render(d) {
 }
 window._r47Render = _r47Render;
 /* R47_REGION_END */
+
+// Release 49 — the presentation read helper. The reconciled presentation is the
+// LAST read to finish on a cold deep link (it composes the owners the rest of the
+// page is loading concurrently), so it carries a longer read budget than the
+// shared helper. Same headers, same GET, no other difference; it can only read.
+var _OPRES_READ_TIMEOUT_MS = 150000;
+function _opFetch(path) {
+  var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  var timer = ctl ? setTimeout(function () { ctl.abort(); }, _OPRES_READ_TIMEOUT_MS) : null;
+  return fetch(path, {
+    method: 'GET',
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+    signal: ctl ? ctl.signal : undefined
+  }).then(function (r) { return r.json(); })
+    .catch(function () { return null; })
+    .then(function (v) { if (timer) clearTimeout(timer); return v; });
+}
+
+/* R49_REGION_START */
+// ---------------------------------------------------------------------------
+// RELEASE 49 — the ONE reconciled operator presentation (api.operator_presentation).
+// ONE loader fetches GET /v1/operations/operator-presentation and renders EVERY normal
+// operator surface from it: the Today command center (system band, dominant decision,
+// snapshot, attention summary), the Portfolio Overview decision, the Reallocation task
+// view and the raw-state audit block. The browser formats numbers and words; it decides
+// nothing, classifies nothing, interprets no raw workflow state and derives no NAV,
+// target, decision, constraint, proposal or execution state. The ONE primary action
+// executes ONLY through dispatchCanonicalPrimaryAction (Release 48) — every other
+// action is navigation. Nothing here approves, confirms or creates an order.
+// ---------------------------------------------------------------------------
+window._opresData = null;
+window._opresInFlight = null;
+
+window._opresFailures = 0;
+function loadOperatorPresentation() {
+  if (window._opresInFlight) return window._opresInFlight;
+  var settle = function (d) {
+    window._opresInFlight = null;
+    if (d && d.portfolio_decision) {
+      window._opresFailures = 0; window._opresData = d; renderOperatorPresentation(d);
+      // The Current-vs-Best-Feasible card reads the Release-47 owner; if that read
+      // was aborted on a cold deep link, ask its ONE loader again (never a second fetch path).
+      try { if (!window._r47Data && !window._r47InFlight && typeof _r47Load === 'function') _r47Load(); } catch (e) {}
+      return d;
+    }
+    // A read that was aborted by the page's own connect flow (or a transient
+    // failure) is retried once before the surfaces say "unavailable". The last
+    // GOOD presentation is never overwritten by a failed read.
+    window._opresFailures += 1;
+    if (window._opresFailures <= 2) {
+      setTimeout(function () { try { loadOperatorPresentation(); } catch (e) {} }, 1500);
+      if (!window._opresData) return null;         // placeholders stay in place
+      return window._opresData;
+    }
+    if (!window._opresData) renderOperatorPresentation(null);
+    return null;
+  };
+  var p = _opFetch('/v1/operations/operator-presentation').then(settle).catch(function () { return settle(null); });
+  window._opresInFlight = p;
+  return p;
+}
+window.loadOperatorPresentation = loadOperatorPresentation;
+
+function _opEsc(s) { return escapeHtml(s === null || s === undefined ? '' : String(s)); }
+function _opMoney(x) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  var n = Number(x);
+  var s = '$' + (n < 0 ? -n : n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 ? '-' + s : s;
+}
+function _opPct(x, digits, unit) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  var n = Number(x);
+  return (n > 0 ? '+' : '') + n.toFixed(digits === undefined ? 2 : digits) + (unit || '%');
+}
+function _opWeight(x, digits) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) * 100).toFixed(digits === undefined ? 1 : digits) + '%';
+}
+function _opNum(x, digits) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return Number(x).toFixed(digits === undefined ? 3 : digits);
+}
+function _opSign(x) {
+  if (x === null || x === undefined || isNaN(x)) return '';
+  return Number(x) > 0 ? 'pos' : (Number(x) < 0 ? 'neg' : '');
+}
+// Presentation only: an owner's code rendered as words. Never a re-classification.
+function _opWords(code) {
+  var s = String(code === null || code === undefined ? '' : code).replace(/_/g, ' ').toLowerCase();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+}
+function _opMetric(k, v, s) {
+  return '<div class="m"><div class="k">' + _opEsc(k) + '</div><div class="v">' + v + '</div>'
+    + (s ? '<div class="s">' + _opEsc(s) + '</div>' : '') + '</div>';
+}
+function _opNil(x) { return x === null || x === undefined; }
+
+// The ONE next action. ``executeHere`` is true ONLY on Today — the sole normal-path
+// execution surface (Release 29.4): elsewhere an executing action is stated and the
+// operator is routed to Today. ``hereDest`` suppresses a CTA that would navigate to
+// the surface currently being rendered.
+function _opNextActionHtml(p, ctaId, executeHere, hereDest) {
+  var na = (p && p.next_action) || {};
+  var pd = (p && p.portfolio_decision) || {};
+  if (!na.kind || na.kind === 'NONE') return '';
+  if (!na.available) {
+    return '<div class="tcc-next"><span class="lab">Next</span><span class="txt">' + _opEsc(na.label || '') + '</span></div>';
+  }
+  if (na.executes && !executeHere) {
+    return '<div class="tcc-next"><span class="lab">Next</span><span class="txt">' + _opEsc(na.label || '') + '</span>'
+      + '<button type="button" class="tcc-link" onclick="navigateToRoute(\'command-center\')"'
+      + ' title="Navigation only — the one action is taken on Today.">Open Today to act &rarr;</button></div>';
+  }
+  if (!na.executes && hereDest && na.destination === hereDest) {
+    return '<div class="tcc-next"><span class="lab">Next</span><span class="txt">' + _opEsc(na.label || '') + ' — you are reviewing it now.</span></div>';
+  }
+  var cls = 'tcc-cta' + (na.executes ? ' execute' : (pd.tone === 'warn' ? ' warn' : ''));
+  return '<div class="tcc-next"><span class="lab">Next</span>'
+    + '<button type="button" id="' + _opEsc(ctaId) + '" class="' + cls + '" data-action-kind="' + _opEsc(na.kind) + '"'
+    + ' data-executes="' + (na.executes ? '1' : '0') + '"'
+    + ' title="' + _opEsc(na.note || na.label || '') + '" onclick="opresPrimaryAction(this)">'
+    + _opEsc(na.label || 'Continue') + '</button>'
+    + (na.executes ? '<span class="txt" style="color:var(--label);font-size:11px;">Asks for your confirmation, then stops at the governed portfolio decision.</span>' : '')
+    + '</div>';
+}
+
+// The ONE primary action. An EXECUTING kind goes through the ONE canonical dispatcher
+// (Release 48 — it obeys the presented cycle kind and refuses to execute off Today);
+// every other kind navigates to the surface where the operator reviews.
+function opresPrimaryAction(btn) {
+  var p = window._opresData;
+  var na = p && p.next_action;
+  if (!na || !na.available) return;
+  if (na.executes) { dispatchCanonicalPrimaryAction(btn); return; }
+  if (na.destination) navigateToRoute(na.destination);
+}
+window.opresPrimaryAction = opresPrimaryAction;
+
+function opresRefresh(btn) {
+  try { loadOperatorPresentation(); } catch (e) {}
+  try { if (typeof refreshCommandCenter === 'function') refreshCommandCenter(btn); } catch (e) {}
+}
+window.opresRefresh = opresRefresh;
+
+function renderOperatorPresentation(p) {
+  var tasks = [
+    function () { _opRenderTodayBand(p); },
+    function () { _opRenderDecision(p, 'today-decision', 'today-primary-cta', true, null); },
+    function () { _opRenderSnapshot(p); },
+    function () { _opRenderAttention(p); },
+    function () { _opRenderDecision(p, 'pm-overview-decision', 'pm-primary-cta', false, 'portfolio-manager/overview'); },
+    function () { _opRenderOutcome(p); },
+    function () { _opRenderReallocationView(p); },
+    function () { _opRenderRawStates(p); },
+    function () { _opRenderHeader(p); },
+    function () { if (window._r47Data && typeof _r47Render === 'function') _r47Render(window._r47Data); }
+  ];
+  for (var i = 0; i < tasks.length; i++) { try { tasks[i](); } catch (e) {} }
+}
+window.renderOperatorPresentation = renderOperatorPresentation;
+
+// The sticky header's WORKFLOW readiness text mirrors the reconciled decision
+// headline (never a raw state code); its light follows the decision tone.
+function _opRenderHeader(p) {
+  var t = document.getElementById('wf-readiness-text');
+  var l = document.getElementById('wf-readiness-light');
+  if (!t || !p) return;
+  var d = p.portfolio_decision || {};
+  if (d.headline) t.textContent = d.headline;
+  if (l) l.className = 'status-light ' + ({ ok: 'ok', warn: 'warn', bad: 'err', info: 'ok' }[d.tone] || 'neutral');
+}
+
+// 1 SYSTEM STATUS — READY / DEGRADED / BLOCKED, decided by the presentation owner.
+function _opRenderTodayBand(p) {
+  var host = document.getElementById('today-system-band');
+  if (!host) return;
+  if (!p) {
+    host.setAttribute('data-system-state', 'UNAVAILABLE');
+    host.innerHTML = '<span class="tcc-state blocked">UNAVAILABLE</span>'
+      + '<span class="tcc-item"><span class="v">The operator presentation did not load. Check the connection, then refresh.</span></span>'
+      + '<span class="tcc-sp"></span><button type="button" class="tcc-link" onclick="opresRefresh(this)">&#8635; Refresh</button>';
+    return;
+  }
+  var s = p.system_readiness || {};
+  var items = (s.items || []).map(function (it) {
+    var v = it.value;
+    if (it.key === 'nav') v = _opMoney(v);
+    else if (typeof v === 'string') v = _opWords(v);
+    var cls = (it.state === 'ok') ? '' : (' ' + _opEsc(it.state || ''));
+    return '<span class="tcc-item" title="' + _opEsc(it.detail || it.label || '') + '"><span class="k">' + _opEsc(it.label) + '</span>'
+      + '<span class="v' + cls + '">' + _opEsc(_opNil(v) ? '—' : v) + '</span></span>';
+  }).join('');
+  var note = '';
+  if (s.state === 'DEGRADED') note = '<span class="tcc-note">' + _opEsc(s.summary || '') + '</span>';
+  else if (s.state === 'BLOCKED') note = '<span class="tcc-note blocked">' + _opEsc(s.summary || '') + '</span>';
+  host.setAttribute('data-system-state', s.state || '');
+  host.innerHTML = '<span class="tcc-state ' + _opEsc(String(s.state || '').toLowerCase()) + '">' + _opEsc(s.state || '—') + '</span>'
+    + items + note + '<span class="tcc-sp"></span>'
+    + '<button type="button" class="tcc-link" onclick="opresRefresh(this)" title="Reload the operator presentation and the Today surfaces.">&#8635; Refresh</button>';
+}
+
+// 2 PORTFOLIO DECISION — one state, one sentence, decision economics, ONE action.
+function _opRenderDecision(p, hostId, ctaId, executeHere, hereDest) {
+  var host = document.getElementById(hostId);
+  if (!host) return;
+  if (!p) {
+    host.className = 'tcc-decision tone-info';
+    host.setAttribute('data-decision-state', 'UNAVAILABLE');
+    host.innerHTML = '<div class="tcc-eyebrow">Portfolio decision</div><div class="tcc-headline">Unavailable</div>'
+      + '<div class="tcc-why">The reconciled operator presentation did not load, so no decision is shown. Nothing is assumed.</div>';
+    return;
+  }
+  var d = p.portfolio_decision || {};
+  var ds = p.decision_summary || {};
+  var hc = p.historical_context || {};
+  var na = p.next_action || {};
+  host.className = 'tcc-decision tone-' + _opEsc(d.tone || 'info');
+  host.setAttribute('data-decision-state', d.state || '');
+  host.setAttribute('data-historical', hc.historical ? '1' : '0');
+  var eyebrow = hc.historical ? 'Portfolio decision · historical session'
+    : ('Portfolio decision' + (p.eligible_market_date ? ' · session ' + p.eligible_market_date : ''));
+  var econ = '';
+  if (ds.available || d.state === 'HOLD') {
+    var cells = ''
+      + _opMetric('Expected improvement', _opNum(ds.net_improvement, 3), _opNil(ds.switching_hurdle) ? '' : 'hurdle ' + _opNum(ds.switching_hurdle, 3))
+      + _opMetric('Turnover', _opWeight(ds.turnover, 1), _opNil(ds.turnover_budget) ? '' : 'budget ' + _opWeight(ds.turnover_budget, 0))
+      + _opMetric('Estimated cost', _opMoney(ds.estimated_cost), '');
+    if (!_opNil(ds.risk_before) || !_opNil(ds.risk_after)) {
+      cells += _opMetric('Risk', _opWeight(ds.risk_before, 1) + ' → ' + _opWeight(ds.risk_after, 1), 'volatility before → after');
+    }
+    if (ds.positions_changing) cells += _opMetric('Positions changing', String(ds.positions_changing), '');
+    econ = '<div class="tcc-econ">' + cells + '</div>';
+  }
+  var blocked = '';
+  if (d.blocked_detail) {
+    var bd = d.blocked_detail, bcells = '';
+    if (bd.why && bd.why !== d.explanation) bcells += '<div class="b"><div class="k">Why</div><div class="v">' + _opEsc(bd.why) + '</div></div>';
+    if (bd.cannot_trust) bcells += '<div class="b"><div class="k">What cannot be trusted</div><div class="v">' + _opEsc(bd.cannot_trust) + '</div></div>';
+    if (bd.resolves && bd.resolves !== na.label) bcells += '<div class="b"><div class="k">What resolves it</div><div class="v">' + _opEsc(bd.resolves) + '</div></div>';
+    if (bcells) blocked = '<div class="tcc-blocked">' + bcells + '</div>';
+  }
+  host.innerHTML = '<div class="tcc-eyebrow">' + _opEsc(eyebrow) + '</div>'
+    + '<div class="tcc-headline">' + _opEsc(d.headline || d.state_label || '—') + '</div>'
+    + (d.explanation ? '<div class="tcc-why">' + _opEsc(d.explanation) + '</div>' : '')
+    + econ + blocked + _opNextActionHtml(p, ctaId, executeHere, hereDest);
+}
+
+// 3 PORTFOLIO SNAPSHOT — NAV, today, cumulative, cash, positions, vs benchmark, drawdown.
+function _opRenderSnapshot(p) {
+  var host = document.getElementById('today-snapshot');
+  if (!host) return;
+  var s = (p && p.portfolio_snapshot) || {};
+  var row = function (k, v, cls) {
+    return '<div class="row"><span class="k">' + k + '</span><span class="v ' + (cls || '') + '">' + v + '</span></div>';
+  };
+  var today = s.daily_pnl_available
+    ? (_opMoney(s.daily_pnl) + (_opNil(s.daily_return_pct) ? '' : ' <span class="sub">' + _opPct(s.daily_return_pct, 2) + '</span>'))
+    : (s.daily_pnl_note ? _opEsc(s.daily_pnl_note) : 'not yet available');
+  host.innerHTML = '<div class="hd"><span>Portfolio snapshot</span><span>' + _opEsc(s.book_label || '') + (s.valuation_date ? ' &middot; ' + _opEsc(s.valuation_date) : '') + '</span></div>'
+    + '<div class="nav"><div class="k">NAV</div><div class="v">' + _opMoney(s.nav) + '</div></div>'
+    + row('Today', today, _opSign(s.daily_pnl))
+    + row('Cumulative', _opMoney(s.cumulative_pnl) + (_opNil(s.cumulative_return_pct) ? '' : ' <span class="sub">' + _opPct(s.cumulative_return_pct, 2) + '</span>'), _opSign(s.cumulative_pnl))
+    + row('Cash', _opMoney(s.cash) + ' <span class="sub">&middot; ' + _opEsc(_opNil(s.positions) ? '—' : s.positions) + ' positions' + (s.pending_orders ? ' &middot; ' + _opEsc(s.pending_orders) + ' pending' : '') + '</span>', '')
+    + row('vs ' + _opEsc(s.benchmark || 'benchmark'), _opNil(s.excess_return_pct) ? '—' : _opPct(s.excess_return_pct, 2, 'pp'), _opSign(s.excess_return_pct))
+    + row('Drawdown', _opNil(s.drawdown_pct) ? '—' : (_opNum(s.drawdown_pct, 2) + '%'), _opSign(s.drawdown_pct))
+    + '<button type="button" class="tcc-link" style="align-self:flex-start;margin-top:6px;" onclick="navigateToRoute(\'portfolio-manager/overview\')">Open portfolio &rarr;</button>';
+}
+
+// 4 ATTENTION — a SUMMARY of material information; the full table is under System · Audit.
+function _opRenderAttention(p) {
+  var host = document.getElementById('today-attention');
+  if (!host) return;
+  var a = (p && p.alerts_summary) || {};
+  var items = (a.top_items || []).map(function (it) {
+    var tk = it.ticker ? _opEsc(it.ticker) : 'Market';
+    var link = it.source_url
+      ? ' <a href="' + _opEsc(it.source_url) + '" target="_blank" rel="noopener noreferrer" class="tcc-link" title="Open the original source in a new tab. Read only.">&#8599;</a>'
+      : '';
+    return '<div class="it"><span class="tk' + (it.held ? ' held' : '') + '">' + tk + (it.held ? '<span class="held-chip">held</span>' : '') + '</span>'
+      + '<span class="d" title="' + _opEsc(it.description) + '">' + _opEsc(it.description) + link + '</span>'
+      + '<span class="r">' + _opEsc(it.relevance) + (it.timestamp ? ' &middot; ' + _opEsc(String(it.timestamp).slice(0, 10)) : '') + '</span></div>';
+  }).join('');
+  var n = _opNil(a.count) ? '—' : a.count, h = _opNil(a.portfolio_relevant_count) ? '—' : a.portfolio_relevant_count;
+  host.innerHTML = '<div class="hd"><span class="t">Attention</span>'
+    + '<span class="n"><b>' + _opEsc(n) + '</b> material events</span>'
+    + '<span class="n"><b>' + _opEsc(h) + '</b> affect current holdings'
+    + ((a.affected_holdings || []).length ? ' <span class="sub">(' + _opEsc(a.affected_holdings.join(', ')) + ')</span>' : '') + '</span>'
+    + '<span class="sp"></span>'
+    + '<button type="button" class="tcc-link" onclick="openMaterialInformationDetail()" title="Open the full material-information table under System · Audit. Read only.">View all material information &rarr;</button></div>'
+    + (items ? '<div class="items">' + items + '</div>'
+             : '<div class="tcc-empty">' + (a.available ? 'No material information for the eligible session.' : 'Material information is unavailable.') + '</div>');
+}
+
+// DECISION OUTCOME — shown only when measured forward evidence exists.
+function _opRenderOutcome(p) {
+  var host = document.getElementById('pm-overview-outcome');
+  if (!host) return;
+  var o = (p && p.decision_outcome) || {};
+  if (!o.available) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  var vc = o.verdict_counts || {};
+  host.innerHTML = '<div class="pmr-t">Decision outcome &mdash; executed portfolio vs the frozen HOLD counterfactual</div>'
+    + '<div class="pmr-econ">' + _opMetric('Incremental P&L', _opMoney(o.cumulative_incremental_pnl), 'net of transaction cost')
+    + _opMetric('Decisions measured', String(o.measured_count) + (o.pending_count ? ' · ' + o.pending_count + ' pending' : ''), '')
+    + _opMetric('Verdicts', _opEsc(Object.keys(vc).map(function (k) { return _opWords(k) + ' ' + vc[k]; }).join(' · ')), '') + '</div>'
+    + '<div class="r47-quiet" style="margin-top:6px;">Full evidence under Audit &amp; Details and Performance.</div>';
+  host.style.display = '';
+}
+
+function _opRealRow(row) {
+  var rel = row.replacement_relationship || null;
+  var pair = (rel && rel.counterparty)
+    ? (rel.role === 'REPLACE_OUT' ? ' &rarr; ' + _opEsc(rel.counterparty) : ' &larr; ' + _opEsc(rel.counterparty))
+    : '';
+  var why = (row.reason_codes || []).map(_opWords).join(', ');
+  return '<div class="pmr-row"><span class="tk">' + _opEsc(row.ticker) + pair + '</span>'
+    + '<span class="w">' + _opWeight(row.current_weight, 1) + ' &rarr; ' + _opWeight(row.proposed_weight, 1)
+    + (_opNil(row.rank) ? '' : ' &middot; rank #' + _opEsc(row.rank)) + '</span>'
+    + (why ? '<span class="why">' + _opEsc(why) + '</span>' : '') + '</div>';
+}
+
+// REALLOCATION task view — Decision · Changes · Target · Economics · Governance.
+function _opRenderReallocationView(p) {
+  var host = document.getElementById('pm-realloc-view');
+  if (!host) return;
+  if (!p) {
+    host.innerHTML = '<div class="pmr-sec"><div class="pmr-t">Reallocation</div><div class="pmr-empty">The reconciled operator presentation did not load.</div></div>';
+    return;
+  }
+  var d = p.portfolio_decision || {};
+  var ds = p.decision_summary || {};
+  var hc = p.historical_context || {};
+  var gov = d.governance || {};
+  var r47 = window._r47Data || {};
+  var best = r47.best_feasible_target || {};
+  var alloc = best.allocations || [];
+  var feasible = ds.feasible_target_exists === true;
+  host.setAttribute('data-decision-state', d.state || '');
+
+  var dec = '<div class="pmr-sec"><div class="pmr-t">Decision</div>'
+    + '<div class="tcc-headline" style="font-size:24px;">' + _opEsc(d.headline || '—') + '</div>'
+    + (d.explanation ? '<div class="tcc-why" style="margin-top:6px;">' + _opEsc(d.explanation) + '</div>' : '')
+    + _opNextActionHtml(p, 'pm-realloc-cta', false, 'portfolio-manager/reallocation') + '</div>';
+
+  var changes;
+  if (feasible && alloc.length) {
+    var outs = {};
+    alloc.forEach(function (r) { if (r.action === 'REPLACE_OUT' && r.replacement_relationship && r.replacement_relationship.counterparty) outs[r.replacement_relationship.counterparty] = 1; });
+    var groups = [
+      ['EXIT', 'exit', 'Exit', function (r) { return r.action === 'EXIT'; }],
+      ['REDUCE', 'reduce', 'Reduce', function (r) { return r.action === 'REDUCE'; }],
+      ['REPLACE', 'replace', 'Replace', function (r) { return r.action === 'REPLACE_OUT' || (r.action === 'REPLACE_IN' && !outs[r.ticker]); }],
+      ['ADD', 'add', 'Add', function (r) { return r.action === 'ADD'; }],
+      ['INCREASE', 'increase', 'Increase', function (r) { return r.action === 'INCREASE'; }],
+      ['RETAIN', 'retain', 'Retain', function (r) { return r.action === 'RETAIN'; }]
+    ];
+    var ghtml = '';
+    groups.forEach(function (g) {
+      var rows = alloc.filter(g[3]);
+      if (!rows.length) return;
+      var body = (g[0] === 'RETAIN')
+        ? '<div class="pmr-row"><span class="w">' + rows.length + ' position' + (rows.length === 1 ? '' : 's') + ' unchanged: ' + _opEsc(rows.map(function (r) { return r.ticker; }).join(', ')) + '</span></div>'
+        : rows.map(_opRealRow).join('');
+      ghtml += '<div class="pmr-g ' + g[1] + '"><div class="g-hd">' + g[2] + ' &middot; ' + rows.length + '</div>' + body + '</div>';
+    });
+    changes = '<div class="pmr-groups">' + ghtml + '</div>';
+  } else {
+    changes = '<div class="pmr-empty"><b>' + (hc.historical ? 'NO GOVERNED TARGET FOR THIS HISTORICAL SESSION' : 'NO CURRENT REALLOCATION TARGET') + '</b>'
+      + _opEsc(hc.historical ? ('No changes exist to review for ' + (hc.session_date || 'this session') + '; nothing is fabricated. ' + (hc.next_eligible_action || ''))
+          : (d.state === 'HOLD' ? 'The feasible alternative did not clear the switching hurdle after cost, so no change is proposed.'
+                                : 'No feasible target exists for the eligible session. Nothing is fabricated.')) + '</div>';
+  }
+
+  var target;
+  if (feasible) {
+    var tgt = alloc.filter(function (r) { return (r.proposed_weight || 0) > 0; })
+      .sort(function (a, b) { return (b.proposed_weight || 0) - (a.proposed_weight || 0); });
+    var okc = (best.constraints || {}).all_ok;
+    target = '<div class="pmr-econ">'
+      + _opMetric('Positions', String(_opNil(best.position_count) ? tgt.length : best.position_count), '')
+      + _opMetric('Cash weight', _opWeight(best.cash_weight, 1), '')
+      + _opMetric('Hard constraints', okc === true ? 'satisfied' : (okc === false ? 'breached' : '—'), '')
+      + _opMetric('Constraints that reshaped', (ds.constraints_that_reshaped || []).length ? _opEsc((ds.constraints_that_reshaped || []).map(_opWords).join(', ')) : 'none', '')
+      + '</div><div style="margin-top:8px;">'
+      + tgt.slice(0, 12).map(function (r) { return '<span class="cc-badge muted" style="margin:2px 4px 2px 0;">' + _opEsc(r.ticker) + ' ' + _opWeight(r.proposed_weight, 1) + '</span>'; }).join('')
+      + (tgt.length > 12 ? '<span class="r47-quiet">+' + (tgt.length - 12) + ' more under Audit &amp; Details</span>' : '') + '</div>';
+  } else {
+    target = '<div class="r47-quiet">No target to show.' + (hc.historical ? ' No historical target will be fabricated.' : '') + '</div>';
+  }
+
+  var econ;
+  if (ds.available) {
+    econ = '<div class="pmr-econ">'
+      + _opMetric('Expected improvement', _opNum(ds.net_improvement, 3), 'net of cost · hurdle ' + _opNum(ds.switching_hurdle, 3)
+          + (ds.clears_switching_hurdle === true ? ' · clears' : (ds.clears_switching_hurdle === false ? ' · does not clear' : '')))
+      + _opMetric('Turnover', _opWeight(ds.turnover, 1), 'one-way · budget ' + _opWeight(ds.turnover_budget, 0))
+      + _opMetric('Estimated cost', _opMoney(ds.estimated_cost), 'modelled transition cost')
+      + _opMetric('Risk', _opWeight(ds.risk_before, 1) + ' → ' + _opWeight(ds.risk_after, 1), 'volatility before → after')
+      + _opMetric('Concentration', _opNum(ds.concentration_before, 3) + ' → ' + _opNum(ds.concentration_after, 3), 'before → after')
+      + _opMetric('Cash', _opWeight(ds.cash_before, 1) + ' → ' + _opWeight(ds.cash_after, 1), 'before → after')
+      + _opMetric('Positions', _opEsc(_opNil(ds.positions_before) ? '—' : ds.positions_before) + ' → ' + _opEsc(_opNil(ds.positions_after) ? '—' : ds.positions_after), 'before → after')
+      + _opMetric('Expected return', _opWords(ds.expected_return_state) || '—', 'never a dollar forecast')
+      + '</div>';
+  } else {
+    econ = '<div class="r47-quiet">No switching economics: no feasible target was priced for this session.</div>';
+  }
+
+  var steps = (gov.steps || []).map(function (s, i) {
+    var cls = 'pmr-step' + (s.status === 'CURRENT' ? ' is-current' : (s.status === 'DONE' ? ' is-done' : ''));
+    return (i ? '<span class="pmr-arrow">&rarr;</span>' : '')
+      + '<span class="' + cls + '" data-step="' + _opEsc(s.step) + '" data-step-status="' + _opEsc(s.status) + '"'
+      + ' title="' + _opEsc(s.owner || '') + (s.manual ? ' · manual gate' : '') + '">' + _opEsc(s.label) + '</span>';
+  }).join('');
+  var govNote = gov.current_step ? '' : '<div class="r47-quiet" style="margin-top:8px;">No reallocation is in the governance lifecycle for this session.</div>';
+  var govLink = (d.state === 'AWAITING_CONFIRMATION' || d.state === 'AWAITING_NEXT_CLOSE' || d.state === 'OUTCOME_ACCRUING')
+    ? '<div style="margin-top:8px;"><button type="button" class="tcc-link" onclick="pmOpenAuditCard(\'stage19-rebalance-card\')">Open the order plan detail &rarr;</button></div>'
+    : '';
+  host.innerHTML = dec
+    + '<div class="pmr-sec"><div class="pmr-t">Changes</div>' + changes + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Target</div>' + target + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Economics</div>' + econ + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Governance</div><div class="pmr-gov">' + steps + '</div>' + govNote + govLink
+    + '<div class="r47-quiet" style="margin-top:8px;">' + _opEsc(gov.note || '') + '</div></div>';
+}
+
+// AUDIT — the raw owner states behind the reconciled presentation (never normal prose).
+function _opRenderRawStates(p) {
+  var host = document.getElementById('pm-raw-states-body');
+  if (!host) return;
+  var raw = (p && p.raw_states) || {};
+  var keys = Object.keys(raw).filter(function (k) { return k !== 'note'; });
+  host.innerHTML = keys.length
+    ? keys.map(function (k) { return '<div><span>' + _opEsc(k) + '</span> <b>' + _opEsc(_opNil(raw[k]) ? 'null' : raw[k]) + '</b></div>'; }).join('')
+      + '<div style="grid-column:1/-1;color:var(--label);margin-top:4px;">' + _opEsc(raw.note || '') + '</div>'
+    : '—';
+}
+
+// ---- PORTFOLIO task views (hash sub-routes on the ONE Portfolio route) --------
+var _PM_VIEWS = ['overview', 'reallocation', 'performance', 'audit'];
+var _PM_VIEW_NOTE = {
+  overview: 'What we own · what we should own · whether to change',
+  reallocation: 'Decision · changes · target · economics · governance',
+  performance: 'Read-only analytics of the executed paper book',
+  audit: 'Evidence, raw proposals, the controlled rebalance, model target, paper desk, corporate actions, methodology, raw states'
+};
+// A legacy deep-link focus lands on the view that now carries its surface.
+var _PM_FOCUS_VIEW = { 'reassessment': 'overview', 'opportunity-cost': 'audit', 'reallocation': 'reallocation', 'pd-band': 'audit' };
+function pmSetView(view) {
+  if (_PM_VIEWS.indexOf(view) < 0) view = 'overview';
+  var tab = document.getElementById('tab-portfolio-manager');
+  if (!tab) return;
+  tab.setAttribute('data-pm-view', view);
+  var btns = document.querySelectorAll('#pm-views button[data-pm-view]');
+  Array.prototype.forEach.call(btns, function (b) {
+    var on = b.getAttribute('data-pm-view') === view;
+    if (on) b.classList.add('active'); else b.classList.remove('active');
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  var note = document.getElementById('pm-views-note');
+  if (note) note.textContent = _PM_VIEW_NOTE[view] || '';
+  if (view === 'performance') { try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {} }
+  if (view === 'reallocation') { try { if (window._opresData) _opRenderReallocationView(window._opresData); } catch (e) {} }
+}
+window.pmSetView = pmSetView;
+function pmApplyViewFromRoute(sub) {
+  if (sub === undefined) {
+    var parts = String(location.hash || '').replace(/^#/, '').split('/');
+    sub = (parts[0] === 'portfolio-manager') ? (parts[1] || '') : '';
+  }
+  pmSetView((_PM_VIEWS.indexOf(sub) >= 0) ? sub : (_PM_FOCUS_VIEW[sub] || 'overview'));
+}
+window.pmApplyViewFromRoute = pmApplyViewFromRoute;
+function pmOpenAuditCard(id) {
+  navigateToRoute('portfolio-manager/audit');
+  setTimeout(function () {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var n = el.parentElement;
+    while (n) { if (n.tagName === 'DETAILS') n.open = true; n = n.parentElement; }
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); }
+  }, 160);
+}
+window.pmOpenAuditCard = pmOpenAuditCard;
+// The full material-information table lives under System · Audit → Operating diagnostics.
+function openMaterialInformationDetail() {
+  navigateToRoute('system-audit/diagnostics');
+  setTimeout(function () {
+    var el = document.getElementById('cc-matinfo-card');
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
+  }, 260);
+}
+window.openMaterialInformationDetail = openMaterialInformationDetail;
+/* R49_REGION_END */
 
 
 // ---------------------------------------------------------------------------
@@ -32394,7 +33236,12 @@ function renderWorkflowState(d) {
     } else {
       var _wfPa = d.primary_action || {};
       var _wfSev = { INFO: 'ok', SUCCESS: 'ok', ATTENTION: 'warn', BLOCKED: 'err' };
-      _wfText.textContent = _wfPa.current_task || _wfPa.headline || d.overall_state || '—';
+      // Release 49: the header mirrors the reconciled decision headline once the
+      // presentation owner has loaded; before that it shows the canonical human
+      // task sentence — never a raw state code.
+      var _wfPres = (window._opresData && window._opresData.portfolio_decision) || null;
+      _wfText.textContent = (_wfPres && _wfPres.headline) ? _wfPres.headline
+        : (d.current_task || _wfPa.current_task || d.headline || _wfPa.headline || '—');
       if (_wfLight) _wfLight.className = 'status-light ' + (_wfSev[_wfPa.severity] || 'neutral');
     }
   }
@@ -34918,8 +35765,11 @@ function renderPmCurrentPortfolio() {
     { k: 'Operational mark', v: _r29Mirror('cc-status-mark'), t: 'Operational desk valuation date of Alpha Paper Book #1.' },
     { k: 'Model recalibration checkpoint', v: _r29Mirror('cc-ob-review'), t: 'Scheduled model-recalibration checkpoint. The portfolio is reassessed by the governed Daily Research Cycle after every material signal refresh; a material event can propose action at any time.' }
   ];
+  // Release 49: every cell carries its key as a data attribute so the Overview
+  // can keep the portfolio facts (book / holdings / cash / pending / mark) and
+  // demote the model-target cells to Audit & Details by CSS. Nothing is removed.
   var html = rows.map(function (r) {
-    return '<div class="kv" title="' + escapeHtml(r.t) + '">'
+    return '<div class="kv" data-k="' + escapeHtml(String(r.k).toLowerCase().replace(/[^a-z0-9]+/g, '-')) + '" title="' + escapeHtml(r.t) + '">'
       + '<div class="k">' + escapeHtml(r.k) + '</div>'
       + '<div class="v">' + escapeHtml(r.v || '—') + '</div></div>';
   }).join('');
@@ -34938,7 +35788,7 @@ function renderPmCurrentPortfolio() {
     changeTone = '';
   }
   if (changeText) {
-    html += '<div class="kv" style="grid-column:1/-1;" title="'
+    html += '<div class="kv" data-k="change-currently-recommended" style="grid-column:1/-1;" title="'
       + escapeHtml('Canonical portfolio-change verdict, rendered verbatim from the reallocation / '
         + 'opportunity-cost owners. Review only — no order is created.')
       + '"><div class="k">Change currently recommended</div>'
