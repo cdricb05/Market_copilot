@@ -226,6 +226,33 @@ EXECUTION_CONTRACTS = {
         "confirmation_token": "CONFIRM_ALPHA_DAILY_CLOSE"},
 }
 
+# --------------------------------------------------------------------------- #
+# Release 48 — ONE OPERATOR CONCEPT FOR THE NORMAL-PATH MUTATIONS.
+#
+# The overall-state machine still decides WHICH owner must run (the Daily Close
+# or the Daily Research Cycle — the two normal-path mutations above, unchanged),
+# and every state-level ``primary_action`` still names that owner verbatim for
+# the audit/advanced surfaces and the existing contracts. What Release 48 changes
+# is the OPERATOR PRESENTATION: the canonical operator command now presents the
+# ONE concept "Run the portfolio cycle" whenever a normal-path mutation is due,
+# and the orchestration owner (``api.portfolio_cycle``) sequences the same
+# authoritative owners with their own tokens. The operator no longer carries the
+# close-before-research order in their head; the workflow owner walks it.
+#
+# The underlying decided step travels beside the presented action
+# (``cycle_underlying_kind`` / ``cycle_underlying_label``), so nothing is hidden
+# — the presentation is simplified, the decision is not.
+# --------------------------------------------------------------------------- #
+EXEC_PORTFOLIO_CYCLE = "PORTFOLIO_CYCLE"
+PORTFOLIO_CYCLE_CONFIRMATION = "RUN_PORTFOLIO_CYCLE"
+PORTFOLIO_CYCLE_OWNER = "api.portfolio_cycle"
+PORTFOLIO_CYCLE_LABEL = "Run the portfolio cycle"
+PORTFOLIO_CYCLE_EXECUTION_CONTRACT = {
+    "method": "POST", "path": "/v1/operations/portfolio-cycle/run",
+    "confirmation_field": "confirmation",
+    "confirmation_token": PORTFOLIO_CYCLE_CONFIRMATION,
+}
+
 # Release 29.4 — CLOSE VALIDITY IS NOT DECIDED HERE.
 #
 # This module used to keep a private LITERAL COPY of "which close statuses mean the
@@ -1416,8 +1443,9 @@ def build_operator_command(*, overall: str, primary: dict,
     passive = overall in _PASSIVE_STATES or not executable
 
     if executable:
-        next_text = ("Confirm to run — %s"
-                     % (primary.get("confirmation_required") or "explicit confirmation"))
+        # Release 48 — the operator confirms the ONE cycle token; the composed
+        # owners' own tokens are supplied by the orchestration owner.
+        next_text = "Confirm to run — %s" % PORTFOLIO_CYCLE_CONFIRMATION
     elif overall == WAITING_FOR_SESSION_CLOSE:
         next_text = NO_ACTION_TEXT
     elif overall in (DAILY_CYCLE_COMPLETE, DAILY_CYCLE_COMPLETE_EVIDENCE_GAP):
@@ -1433,6 +1461,17 @@ def build_operator_command(*, overall: str, primary: dict,
         if pending_orders > 0:
             supporting += (" %d paper order(s) are currently working."
                            % int(pending_orders))
+        supporting += (
+            " The portfolio cycle runs it first, continues with the Daily Research "
+            "Cycle when the workflow requires it, and stops at the governed "
+            "portfolio decision — nothing is approved or executed automatically.")
+    elif executable and kind == EXEC_DAILY_RESEARCH_CYCLE:
+        supporting = (
+            "The portfolio cycle runs the Daily Research Cycle — signal refresh, "
+            "opportunity-cost assessment, portfolio reassessment and, when one is "
+            "justified, a review-only reallocation proposal — and stops at the "
+            "governed portfolio decision. Nothing is approved or executed "
+            "automatically.")
     elif pending_orders > 0 and passive:
         supporting = ("%d paper order(s) are working and settle at the next eligible "
                       "completed close — monitoring only, no action required."
@@ -1461,12 +1500,22 @@ def build_operator_command(*, overall: str, primary: dict,
         "cycle_next_stage_label": cyc.get("next_stage_label"),
         "cycle_stage_count": len(ncycle.STAGE_SEQUENCE),
         # -- the ONE primary action (or none) ------------------------------- #
+        # Release 48: whenever a normal-path mutation is due, the operator sees
+        # ONE concept — the portfolio cycle — executed through the ONE
+        # orchestration owner. The decided underlying step travels beside it.
         "primary_action_available": executable,
-        "primary_action_label": primary.get("label") if executable else None,
-        "primary_action_code": primary.get("action_code") if executable else None,
-        "primary_action_kind": kind if executable else None,
-        "confirmation_required": (primary.get("confirmation_required")
+        "primary_action_label": PORTFOLIO_CYCLE_LABEL if executable else None,
+        "primary_action_code": ("RUN_PORTFOLIO_CYCLE" if executable else None),
+        "primary_action_kind": EXEC_PORTFOLIO_CYCLE if executable else None,
+        "confirmation_required": (PORTFOLIO_CYCLE_CONFIRMATION
                                   if executable else None),
+        "primary_action_owner": PORTFOLIO_CYCLE_OWNER if executable else None,
+        "primary_action_execution_contract": (
+            dict(PORTFOLIO_CYCLE_EXECUTION_CONTRACT) if executable else None),
+        "cycle_underlying_kind": kind if executable else None,
+        "cycle_underlying_label": primary.get("label") if executable else None,
+        "cycle_underlying_action_code": (primary.get("action_code")
+                                         if executable else None),
         "destination": primary.get("destination"),
         "focus": primary.get("focus"),
         "severity": primary.get("severity"),

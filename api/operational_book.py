@@ -1006,13 +1006,19 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     blockers.extend(str(b) for b in (rd.get("blockers") or []))
     # Phase 27B.9 — a newer/unconfirmed target on an ACTIVE book whose scheduled
     # review is not due is INFORMATIONAL, never a blocker and never urgent.
+    # Release 48 (§15) — the checkpoint is MODEL-GOVERNANCE, and is named as such.
+    # Portfolio reassessment is signal/event/session driven (it follows every
+    # material signal refresh); nothing here may imply the portfolio waits for a
+    # monthly clock.
     if (wf.get("book_active") and not review_due
             and t_state in ("READY_TO_CONFIRM", "STALE_TARGET")):
         informational.append(
             "NEXT_CYCLE_TARGET_AVAILABLE: A newer model target is available, but the "
-            "scheduled monthly review is not due until %s. The active paper holdings "
-            "remain valid; no target action is required now."
-            % (next_review_date or "the next review date"))
+            "scheduled model-governance review checkpoint is not due until %s. The "
+            "active paper holdings remain valid and the portfolio is still "
+            "reassessed after each material signal refresh; no target action is "
+            "required now."
+            % (next_review_date or "the next checkpoint date"))
     integrity = status.get("ledger_integrity") or {}
     if integrity and not integrity.get("all_intact", True):
         blockers.append("LEDGER_INTEGRITY_BROKEN: an append-only desk ledger failed its "

@@ -617,7 +617,10 @@ def test_53_no_hidden_desk_refresh_stands_between_the_close_and_research():
     # The maintenance desk refresh can never be the promoted action in either state.
     for r in (at_close, after):
         assert r["primary_action"]["execution_kind"] not in ws.MAINTENANCE_EXECUTION_KINDS
-        assert r["operator_command"]["primary_action_kind"] in (
+        # Release 48: the PRESENTED action is the one portfolio cycle; the decided
+        # underlying step remains one of the two normal-path mutations.
+        assert r["operator_command"]["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+        assert r["operator_command"]["cycle_underlying_kind"] in (
             ws.EXEC_DAILY_CLOSE, ws.EXEC_DAILY_RESEARCH_CYCLE)
 
 

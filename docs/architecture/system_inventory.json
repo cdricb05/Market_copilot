@@ -646,6 +646,11 @@
       "prefix": "/v1/operations/portfolio-decision-outcomes",
       "owner": "api/portfolio_decision_outcome.py",
       "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/portfolio-cycle",
+      "owner": "api/portfolio_cycle.py",
+      "system": "infrastructure"
     }
   ],
   "classification_legend": {
@@ -3472,6 +3477,34 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Release 47. PORTFOLIO_DECISION_ALPHA measures an EXECUTED capital decision against the portfolio it replaced. It is a different quantity from the Release-46 challenger research alpha and from the Stage-21 reassessment outcome evidence, and the three are never summed. Cash is priced at the same declared zero return on both paths. Evidence only: it promotes no model, recalibrates nothing and changes no policy."
+    },
+    {
+      "path": "api/portfolio_cycle.py",
+      "system": "infrastructure",
+      "responsibility": "Release 48 CANONICAL portfolio-cycle orchestration entrypoint: the ONE operator concept (RUN PORTFOLIO CYCLE) that sequences the EXISTING execution owners (api.daily_close then api.daily_research_cycle) exactly as the ONE workflow owner (api.workflow_state) decides between steps, and always stops at the governed portfolio decision boundary. A sequencer, not a second decision engine: it re-reads the decided workflow state between steps, invokes each composed owner AT MOST once per run with the owner's own confirmation token (attributed portfolio_cycle:<requested_by>), owns no store, holds no write path of its own, and never reviews / approves / confirms / executes a proposal, never promotes or recalibrates a model, and never touches Release-46 research.",
+      "classification": "KEEP",
+      "target_owner": "api/portfolio_cycle.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "workflow_state.load_workflow_state (the ONE decided operator state, re-read between steps)"
+      ],
+      "direct_writes": [
+        "NONE of its own; delegated writes ONLY through the existing owners: daily_close.run_daily_close (close journal / marks / NEXT_CLOSE settlement), daily_research_cycle.run_daily_research_cycle (run manifests + delegated research writes)"
+      ],
+      "endpoints": [
+        "/v1/operations/portfolio-cycle",
+        "/v1/operations/portfolio-cycle/run"
+      ],
+      "ui_consumers": [
+        "runPortfolioCycle",
+        "dispatchCanonicalPrimaryAction"
+      ],
+      "tests": [
+        "tests/test_release48_operator_workflow.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Release 48. Token RUN_PORTFOLIO_CYCLE. Stop vocabulary DECISION_PRESENTED / WAITING_FOR_SESSION_CLOSE / CYCLE_ALREADY_RUNNING / RECOVERY_REQUIRED / STATE_DID_NOT_ADVANCE / OWNER_REPORTED_BLOCKER - every stop names its reason and a blocked owner stops the run with the owner's own words (fail closed, nothing retried, nothing run twice). The canonical operator command (api.workflow_state.build_operator_command) PRESENTS this one action (kind PORTFOLIO_CYCLE, label 'Run the portfolio cycle') whenever a normal-path mutation is due, with the decided underlying step beside it (cycle_underlying_kind); the state-level primary_action still names the underlying owner verbatim for audit surfaces. GET /v1/operations/portfolio-cycle is read-only (plans verbatim from the decided primary action; runs nothing). Guarded by check_release48_portfolio_cycle."
     },
     {
       "path": "api/portfolio_decision_outcome.py",

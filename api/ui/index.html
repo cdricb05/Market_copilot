@@ -2561,6 +2561,10 @@
     #tab-portfolio-manager > .card > #pm-dag-card     { order: 12; }
     #tab-portfolio-manager > .card > #reassess-attention-card { order: 13; }
     #tab-portfolio-manager > .card > #reassess-alternatives-card { order: 14; }
+    /* RELEASE 48 — the CURRENT vs RECOMMENDED story (best feasible target,
+       constraint adjustments, switching economics, governance state) is primary
+       Portfolio content, directly under the decision. */
+    #tab-portfolio-manager > .card > #r47-constrained { order: 15; }
     /* 3 EVIDENCE */
     #tab-portfolio-manager > .card > #pm-sec-evidence { order: 20; }
     #tab-portfolio-manager > .card > #rout-card       { order: 21; }
@@ -2998,6 +3002,37 @@
       #today-market-strip { gap: 14px; }
     }
   </style>
+  <style id="r48-styles">
+    /* =====================================================================
+       RELEASE 48 — ACTIVE PORTFOLIO MANAGER OPERATING SYSTEM.
+       Today is the COMMAND CENTER: system/market status (one strip), the
+       portfolio decision, ONE primary action, compact research health.
+       Portfolio is CURRENT vs RECOMMENDED plus the governed decision path.
+       Same technique as every prior layer: presentation only — every id stays
+       in the DOM as a live write target, no state is lost, no value is
+       computed in the browser, and nothing here adds a control.
+       ===================================================================== */
+
+    /* TODAY — the continuous-collection infrastructure card is not an operator
+       decision surface. Collection health stays visible in the sticky header
+       chip (HEALTHY / DEGRADED / BLOCKING, decided by the backend owner) and
+       the full worker detail lives in System · Audit. The card and every one
+       of its ids remain live write targets on the routes that are ABOUT
+       diagnostics. */
+    body[data-route="command-center"] #evt-card,
+    body[data-route="today"] #evt-card { display: none !important; }
+
+    /* PORTFOLIO — the promoted CURRENT vs RECOMMENDED card states its mode
+       once: the route's safety strip (directly above) already carries the full
+       canonical badge set, so the card keeps its classification badge and the
+       manual-review marker and stops repeating the other six. The badges stay
+       in the DOM with their exact text. */
+    body[data-route="portfolio-manager"] #r47-constrained > .card-title .cc-badge.safe,
+    body[data-route="holding-review"] #r47-constrained > .card-title .cc-badge.safe,
+    body[data-route="proposed-portfolio"] #r47-constrained > .card-title .cc-badge.safe {
+      display: none;
+    }
+  </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
        window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
   <script src="/ui/pt_charts.js?cb=29j3"></script>
@@ -3408,6 +3443,14 @@
             <span class="cc-status-pill" id="cc-status-ready-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
             <span class="cc-status-pill" id="cc-status-conn-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
             <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Operational desk valuation date of Alpha Paper Book #1 (the current operating mark). Research dates live only in Research & Audit.">Operational mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
+            <!-- RELEASE 48 SYSTEM / MARKET STATUS strip: the eligible session, NAV and a
+                 compact research-health word join the operational mark so Today's first
+                 line answers "is the system ready" without a card wall. Every value is
+                 a VERBATIM mirror of its canonical owner (workflow-state eligible date,
+                 daily-close NAV, workflow-state evidence severity) — no UI derivation. -->
+            <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="The latest eligible completed market session, decided by engine.market_session via the canonical workflow state.">Eligible session: <span id="cc-status-elig" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
+            <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Authoritative NAV of Alpha Paper Book #1 (cash + marked holdings), computed by the canonical Daily Close / desk owners.">NAV: <span id="cc-status-nav" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
+            <span class="cc-status-pill" id="cc-status-research-pill" style="color: var(--text-accent); font-weight:600; cursor:pointer;" title="Compact research health: the canonical forward-evidence severity from the workflow state. Research detail lives on the Research page. Click to open Research." role="button" tabindex="0" onclick="navigateToRoute('research');" onkeydown="if(event.key==='Enter')navigateToRoute('research');">Research: <span id="cc-status-research" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span> <span style="color:var(--accent,#6ea8ff);">&rarr;</span></span>
             <span class="cc-spacer"></span>
             <!-- Phase OPX: consolidated operator safety chrome. ONE persistent line is the
                  visible context; the full canonical badge set (backend contracts unchanged) is
@@ -4482,6 +4525,46 @@
             <div id="reassess-attention" class="compact-scroll-region" style="max-height:300px;overflow:auto;font-size:11px;">&mdash;</div>
           </div>
 
+          <!-- RELEASE 47 &mdash; CONSTRAINT-RESPECTING REALLOCATION (read-only presentation).
+               RELEASE 48 promotes this card to the PRIMARY Portfolio surface: it is the
+               canonical CURRENT vs RECOMMENDED story — the current book, the zero-base
+               ideal (analytical reference), exactly which constraints reshaped it, the
+               BEST FEASIBLE target (the operational recommendation), the switching
+               economics, then approval + execution state. Every value is read verbatim
+               from GET /v1/operations/constrained-reallocation; the browser decides
+               nothing and creates nothing. -->
+          <div class="card" style="margin-bottom:12px;" id="r47-constrained">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Current vs Recommended Portfolio
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Release 47 &mdash; a normal portfolio constraint reshapes the solution; it does not freeze the portfolio.">CONSTRAINT-RESPECTING</span>
+                  <span class="cc-badge safe">PAPER ONLY</span>
+                  <span class="cc-badge safe">PREVIEW ONLY</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                  <span class="cc-badge safe">NO ORDERS</span>
+                  <span class="cc-badge safe">NO LIVE BROKER ORDERS</span>
+                  <span class="cc-badge safe">NO BROKER EXECUTION</span>
+                  <span class="cc-badge safe">AUTOMATION OFF</span>
+                </span>
+                <button class="btn-sm" id="r47-refresh" onclick="_r47Load()" title="Reload the read-only constrained-reallocation decision.">&#8635; Refresh</button>
+              </div>
+              <div id="r47-banner" style="border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONSTRAINT-RESPECTING REALLOCATION &mdash; loading the read-only decision&hellip;</div>
+              <div id="r47-pipeline" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
+              <div class="card-title" style="margin-top:2px;font-size:12px;">Switching economics
+                <span class="cc-badge muted" title="Current book vs the best feasible target, after transition cost. Every value is computed by the backend engine.">CURRENT vs BEST FEASIBLE</span>
+              </div>
+              <div id="r47-economics" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <div id="r47-governance" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
+              <details id="r47-inventory-detail" style="margin:0 0 4px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint inventory</summary>
+                <div id="r47-inventory" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
+              </details>
+              <details id="r47-adjustments-detail" style="margin:0 0 4px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint adjustment ledger</summary>
+                <div id="r47-adjustments" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
+              </details>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. A sector cap, a name cap, a risk-contribution limit, a concentration limit, a liquidity cap or a turnover budget RESHAPES the target here; it never freezes the portfolio. Only a declared true blocker (critical stale or missing data, a point-in-time failure, unreconciled NAV, impossible liquidity, an empty feasible set, or missing manual authorization at the execution boundary) stops a decision. Nothing on this card confirms a target, assigns capital, or creates an order or fill. Portfolio mutation requires explicit manual approval and a second confirmation, both enforced by the backend.</div>
+          </div>
+
           <!-- ===================================================================
                STAGE 21 — PORTFOLIO DECISION EVIDENCE (read-only).
                Progressive disclosure: summary, then what worked / what did not /
@@ -5128,43 +5211,9 @@
               <div id="hoc-additions" style="overflow-x:auto;font-size:11px;">&mdash;</div>
               <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms a target, assigns a weight, or creates an order. The strongest replacement is a NON-ALLOCATED comparison candidate. Recommendations, ranks, risk, costs and totals are computed by the backend engine, never in the browser.</div>
             </div>
-            <!-- RELEASE 47 &mdash; CONSTRAINT-RESPECTING REALLOCATION (read-only presentation).
-                 The DECISION story, in the order an operator has to read it: the current book,
-                 the ideal target, exactly which constraints reshaped it, the best feasible
-                 target, the switching economics, and then approval + execution state. Every
-                 value is read verbatim from GET /v1/operations/constrained-reallocation; the
-                 browser decides nothing and creates nothing. -->
-            <div class="card" style="margin-bottom:12px;" id="r47-constrained">
-              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                <span>Constraint-Respecting Reallocation
-                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Release 47 &mdash; a normal portfolio constraint reshapes the solution; it does not freeze the portfolio.">RELEASE 47</span>
-                  <span class="cc-badge safe">PAPER ONLY</span>
-                  <span class="cc-badge safe">PREVIEW ONLY</span>
-                  <span class="cc-badge manual">MANUAL REVIEW</span>
-                  <span class="cc-badge safe">NO ORDERS</span>
-                  <span class="cc-badge safe">NO LIVE BROKER ORDERS</span>
-                  <span class="cc-badge safe">NO BROKER EXECUTION</span>
-                  <span class="cc-badge safe">AUTOMATION OFF</span>
-                </span>
-                <button class="btn-sm" id="r47-refresh" onclick="_r47Load()" title="Reload the read-only constrained-reallocation decision.">&#8635; Refresh</button>
-              </div>
-              <div id="r47-banner" style="border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONSTRAINT-RESPECTING REALLOCATION &mdash; loading the read-only decision&hellip;</div>
-              <div id="r47-pipeline" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
-              <div class="card-title" style="margin-top:2px;font-size:12px;">Switching economics
-                <span class="cc-badge muted" title="Current book vs the best feasible target, after transition cost. Every value is computed by the backend engine.">CURRENT vs BEST FEASIBLE</span>
-              </div>
-              <div id="r47-economics" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
-              <div id="r47-governance" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 8px;">&mdash;</div>
-              <details id="r47-inventory-detail" style="margin:0 0 4px;">
-                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint inventory</summary>
-                <div id="r47-inventory" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
-              </details>
-              <details id="r47-adjustments-detail" style="margin:0 0 4px;">
-                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">Audit / Advanced &mdash; constraint adjustment ledger</summary>
-                <div id="r47-adjustments" style="margin-top:6px;font-size:11px;overflow-x:auto;">&mdash;</div>
-              </details>
-              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. A sector cap, a name cap, a risk-contribution limit, a concentration limit, a liquidity cap or a turnover budget RESHAPES the target here; it never freezes the portfolio. Only a declared true blocker (critical stale or missing data, a point-in-time failure, unreconciled NAV, impossible liquidity, an empty feasible set, or missing manual authorization at the execution boundary) stops a decision. Nothing on this card confirms a target, assigns capital, or creates an order or fill. Portfolio mutation requires explicit manual approval and a second confirmation, both enforced by the backend.</div>
-            </div>
+            <!-- RELEASE 48: the Constraint-Respecting Reallocation card (#r47-constrained)
+                 moved OUT of this collapsed fold onto the PRIMARY Portfolio surface
+                 (section 2 — current vs recommended). Nothing else here moved. -->
             <!-- REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (Phase 29H, Slice 7, Milestone 3) -->
             <div class="card" style="margin-bottom:12px;" id="realloc-card">
               <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -31808,6 +31857,47 @@ function runDailyResearchCycle(btn) {
 }
 window.runDailyResearchCycle = runDailyResearchCycle;
 
+// --- RELEASE 48: THE ONE PORTFOLIO-CYCLE ACTION ----------------------------- //
+// POSTs the canonical orchestration entrypoint (api.portfolio_cycle), which
+// sequences the EXISTING owners (Daily Close, then the Daily Research Cycle)
+// exactly as the workflow owner decides between steps and stops at the governed
+// portfolio decision. The browser sends ONE token and interprets NOTHING: the
+// steps taken, the stop reason and the final decision all come back from the
+// backend and the canonical loaders re-render them.
+function runPortfolioCycle(btn) {
+  if (btn && btn.disabled) return;
+  if (window._pcycleRunning) return;     // prevent duplicate submission
+  window._pcycleRunning = true;
+  var originText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'PORTFOLIO CYCLE RUNNING…'; }
+  var res = document.getElementById('drc-action-result');
+  return call('POST', '/v1/operations/portfolio-cycle/run', { confirmation: 'RUN_PORTFOLIO_CYCLE' })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+    })
+    .then(function (o) {
+      window._pcycleRunning = false;
+      if (btn) { btn.disabled = false; if (originText) btn.textContent = originText; }
+      if (res) {
+        res.style.display = 'block';
+        var b = o.body || {};
+        var steps = (b.steps_taken && b.steps_taken.length) ? b.steps_taken.join(' → ') : 'no step required';
+        res.textContent = 'Portfolio cycle: ' + (b.status || ('HTTP ' + o.status))
+          + ' · steps: ' + steps + (b.stop_detail ? (' · ' + b.stop_detail) : '');
+      }
+      return Promise.resolve()
+        .then(function () { try { return loadDailyResearchCycle(); } catch (e) {} })
+        .then(function () { try { return loadWorkflowState(); } catch (e) {} })
+        .then(function () { try { refreshCommandCenter(); } catch (e) {} });
+    })
+    .catch(function () {
+      window._pcycleRunning = false;
+      if (btn) { btn.disabled = false; if (originText) btn.textContent = originText; }
+      if (res) { res.style.display = 'block'; res.textContent = 'Could not run the portfolio cycle.'; }
+    });
+}
+window.runPortfolioCycle = runPortfolioCycle;
+
 // --- Canonical Universe Scoring (Slice 4 / Phase 29E) ----------------------- //
 // EXACTLY ONE canonical universe-scoring loader (loadUniverseScoring). It renders
 // backend-provided fields ONLY from GET /v1/research/universe-scoring. The UI does
@@ -31965,19 +32055,28 @@ function dispatchCanonicalPrimaryAction(btn) {
   var d = window._wsData;
   if (!d || !d.primary_action) return;
   var pa = d.primary_action;
+  // Release 48 — the canonical operator command PRESENTS the one portfolio-cycle
+  // action whenever a normal-path mutation is due; the dispatcher obeys the SAME
+  // presented kind so the button and the write agree. The raw state-level
+  // primary_action remains the underlying step (audit surfaces); the presented
+  // kind comes first because the operator confirmed the presented token.
+  var cmd = d.operator_command || null;
+  var kind = (cmd && cmd.primary_action_available === true && cmd.primary_action_kind)
+    ? cmd.primary_action_kind : pa.execution_kind;
   // Release 29.4 — a normal-path MUTATION is never dispatched from a secondary screen.
   // The CSS above hides the control off Today; this is the behavioural guarantee behind
   // it, so a stale DOM node or a keyboard activation still cannot start a close or a
   // research cycle from Portfolio. Off Today the operator is routed TO Today, where the
   // one canonical action lives with its full context and its confirmation token.
-  if (pa.execution_available === true && pa.execution_kind && !_wsIsTodayRoute()) {
+  if (pa.execution_available === true && kind && !_wsIsTodayRoute()) {
     navigateToRoute('command-center');
     return;
   }
-  if (pa.execution_available === true && pa.execution_kind) {
-    if (pa.execution_kind === 'DAILY_RESEARCH_CYCLE') { runDailyResearchCycle(btn); return; }
-    if (pa.execution_kind === 'DAILY_CLOSE') { runDailyClose(btn); return; }
-    if (pa.execution_kind === 'PAPER_DESK_REFRESH') { _wsExecuteOwnedDataRefresh(btn); return; }
+  if (pa.execution_available === true && kind) {
+    if (kind === 'PORTFOLIO_CYCLE') { runPortfolioCycle(btn); return; }
+    if (kind === 'DAILY_RESEARCH_CYCLE') { runDailyResearchCycle(btn); return; }
+    if (kind === 'DAILY_CLOSE') { runDailyClose(btn); return; }
+    if (kind === 'PAPER_DESK_REFRESH') { _wsExecuteOwnedDataRefresh(btn); return; }
     // Unknown executor kinds fall through to safe navigation — never a blind POST.
   }
   if (pa.destination) navigateToRoute(_wsRoute(pa.destination, pa.focus));
@@ -32252,6 +32351,20 @@ function renderOperatorCommand(d) {
     + '<div class="opc-side">' + side + '</div>'
     + cycleHtml;
   host.style.display = 'flex';
+
+  // RELEASE 48 — mirror two canonical values into the Today status strip,
+  // VERBATIM from this same payload (the ONE workflow owner): the eligible
+  // session and the compact research/evidence severity. No classification, no
+  // date arithmetic, no second derivation.
+  var _r48Elig = document.getElementById('cc-status-elig');
+  if (_r48Elig) _r48Elig.textContent = c.eligible_market_date || '—';
+  var _r48Res = document.getElementById('cc-status-research');
+  if (_r48Res) {
+    var _r48Ev = (d && d.evidence_state) || {};
+    _r48Res.textContent = _r48Ev.gap_severity
+      ? String(_r48Ev.gap_severity) + (_r48Ev.documented_gap ? ' (gap documented)' : '')
+      : '—';
+  }
 }
 window.renderOperatorCommand = renderOperatorCommand;
 
@@ -33219,8 +33332,11 @@ function _dcReadinessText(d) {
 // other close statuses render the normal headline. Presentation only: no daily-close,
 // workflow, NAV or backend change.
 function _dcIsLegacyCompat(d) {
+  // Release 48: the membership-DRIFT completion is the same compatibility-only
+  // material under a newer label — it must never be the money card's headline.
   return !!d && (d.close_status === 'REBALANCE_PROPOSAL_READY'
-    || /LEGACY MEMBERSHIP-COMPARISON/i.test(String(d.close_status_label || '') + ' ' + String(d.headline || '')));
+    || d.close_status === 'DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT'
+    || /LEGACY MEMBERSHIP[- ](COMPARISON|DIFFERENCE)/i.test(String(d.close_status_label || '') + ' ' + String(d.headline || '')));
 }
 // Operator Action Integrity (Defect 3): the canonical Daily-Close availability
 // verdict, read VERBATIM from the authoritative workflow-state payload
@@ -33389,6 +33505,8 @@ function renderDailyClose(d) {
     if (hasPnl) {
       ccK.style.display = 'flex';
       _dcSet('cc-dc-nav', _dcMoney(pnl.nav));
+      // RELEASE 48 — mirror the SAME canonical NAV into the Today status strip.
+      _dcSet('cc-status-nav', _dcMoney(pnl.nav));
       _dcSet('cc-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable (first mark)'));
       _dcSet('cc-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
       _dcSet('cc-dc-cret', _dcPct(pnl.cumulative_return_pct));

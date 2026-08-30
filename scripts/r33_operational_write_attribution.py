@@ -395,7 +395,27 @@ R47_MARKERS = (
 R47_SOURCE_GLOBS = ()
 R47_SOURCE_FILES = ()
 
+#: Release 48 is an OPERATIONAL release like R47 (the same declarations apply):
+#: the static lane is VACUOUS by design - the portfolio-cycle orchestrator's
+#: whole job is to call the operational owners - and the strict-root lane
+#: carries the weight. The orchestrator OWNS NO STORE, so the markers are the
+#: strings only R48 machinery could write; any of them appearing inside an
+#: operational store is attributed rather than excused. Delegated writes are
+#: attributed 'portfolio_cycle:<requested_by>', which is exactly what the
+#: marker set catches.
+R48_MARKERS = (
+    "portfolio_cycle", "api.portfolio_cycle", "api/portfolio_cycle",
+    "RUN_PORTFOLIO_CYCLE", "PORTFOLIO_CYCLE_COMPLETE",
+    "PORTFOLIO_CYCLE_STOPPED", "PORTFOLIO_CYCLE_CONFIRM_REQUIRED",
+    "portfolio_cycle:", "release48", "r48_", "R48_",
+)
+R48_SOURCE_GLOBS = ()
+R48_SOURCE_FILES = ()
+
 RELEASE_PROFILES = {
+    "R48": {"markers": R48_MARKERS, "source_globs": R48_SOURCE_GLOBS,
+            "source_files": R48_SOURCE_FILES,
+            "attributable_key": "r33_attributable"},
     "R47": {"markers": R47_MARKERS, "source_globs": R47_SOURCE_GLOBS,
             "source_files": R47_SOURCE_FILES,
             "attributable_key": "r33_attributable"},

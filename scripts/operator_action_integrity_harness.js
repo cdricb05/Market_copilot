@@ -76,6 +76,8 @@ const FUNCS = [
   '_wsIsTodayRoute',
   'dispatchCanonicalPrimaryAction', '_wsExecuteOwnedDataRefresh',
   'wsExecConfirmYes', 'wsExecConfirmNo', 'runDailyResearchCycle',
+  // Release 48 — the ONE portfolio-cycle action the canonical command presents.
+  'runPortfolioCycle',
   '_wsDailyCloseGate', '_wsCommandOwnsExecution', '_wsIsNoOpState',
   '_dcIsLegacyCompat', '_dcApplyHeadline',
   'renderDailyClose', 'renderDailyClosePm', 'renderDailyClosePerf',
@@ -162,6 +164,10 @@ function buildSandbox(rec, responses) {
   sandbox._DC_RUN_BTN_IDS = ['cc-dc-btn', 'dw-dc-btn', 'dc-perf-btn', 'pm-dc-btn'];
   sandbox._dcRunInFlight = false;
   sandbox._drcRunning = false;
+  // Release 48 — the portfolio-cycle runner's single-flight flag + the Today
+  // command-center refresher it calls after a run (a load, not a write).
+  sandbox._pcycleRunning = false;
+  sandbox.refreshCommandCenter = function () { rec.loads.push('command-center'); };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
   return sandbox;

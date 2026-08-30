@@ -578,9 +578,12 @@ class TestOperatorCommandContract:
         for state in ws.OVERALL_STATES:
             c = _cmd(state)
             if c["primary_action_available"]:
-                assert c["primary_action_kind"] in ws.NORMAL_PATH_EXECUTION_KINDS
-                assert c["primary_action_label"]
-                assert c["confirmation_required"]
+                # Release 48: the PRESENTED action is always the one portfolio
+                # cycle; the decided underlying step stays a normal-path mutation.
+                assert c["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+                assert c["cycle_underlying_kind"] in ws.NORMAL_PATH_EXECUTION_KINDS
+                assert c["primary_action_label"] == ws.PORTFOLIO_CYCLE_LABEL
+                assert c["confirmation_required"] == ws.PORTFOLIO_CYCLE_CONFIRMATION
             else:
                 assert c["primary_action_label"] is None
                 assert c["mutation_controls_allowed"] is False
@@ -588,7 +591,9 @@ class TestOperatorCommandContract:
     def test_25_new_eligible_close_with_pending_orders_shows_run_daily_close(self):
         c = _cmd(ws.READY_FOR_DAILY_CLOSE, pending=29)
         assert c["primary_action_available"] is True
-        assert c["primary_action_kind"] == ws.EXEC_DAILY_CLOSE
+        # Release 48: presented = the one portfolio cycle; underlying = the close.
+        assert c["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+        assert c["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
         assert "settle eligible NEXT_CLOSE paper orders" in c["supporting_text"]
         assert "29 paper order(s) are currently working." in c["supporting_text"]
 
@@ -634,8 +639,11 @@ class TestOperatorCommandContract:
 
     def test_32_waiting_for_owned_data_promotes_the_close_not_the_desk(self):
         c = _cmd(ws.WAITING_FOR_OWNED_DATA, pending=29)
-        assert c["primary_action_kind"] == ws.EXEC_DAILY_CLOSE
-        assert c["confirmation_required"] == dc.EXECUTE_CONFIRMATION
+        # Release 48: presented = the one portfolio cycle (one operator token);
+        # the decided underlying step is still the Daily Close, never the desk.
+        assert c["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+        assert c["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
+        assert c["confirmation_required"] == ws.PORTFOLIO_CYCLE_CONFIRMATION
 
     def test_33_generic_refresh_is_not_a_canonical_action(self):
         for state in ws.OVERALL_STATES:
@@ -792,13 +800,16 @@ class TestUiRenderedBehaviour:
         assert r["opc"]["cta_count"] == 1              # EXACTLY one primary action
         assert r["opc"]["dispatch_count"] == 1         # through the ONE dispatcher
         assert r["opc"]["no_action_count"] == 0
-        assert "Run the Daily Close" in r["opc"]["html"]
+        # Release 48: the presented action is the one portfolio cycle; the close
+        # remains the decided underlying step and its settlement facts still show.
+        assert "Run the portfolio cycle" in r["opc"]["html"]
         assert "settle eligible NEXT_CLOSE paper orders" in r["opc"]["html"]
 
     def test_32_right_rail_mirrors_the_command(self, report):
         assert report["waiting_session"]["right_next"]["text"] == ws.NO_ACTION_TEXT
         assert report["waiting_session"]["right_btn"]["display"] == "none"
-        assert report["ready_close"]["right_next"]["text"] == "Run the Daily Close"
+        # Release 48: the rail mirrors the command's PRESENTED label verbatim.
+        assert report["ready_close"]["right_next"]["text"] == ws.PORTFOLIO_CYCLE_LABEL
         assert report["ready_close"]["right_btn"]["display"] == ""
 
     def test_31_no_page_contradicts_the_command(self, report):
@@ -811,10 +822,14 @@ class TestUiRenderedBehaviour:
 
     def test_one_click_runs_exactly_one_canonical_close(self, report):
         r = report["ready_close"]
+        # Release 48: the one click POSTs the ONE orchestration entrypoint, which
+        # sequences the canonical close owner server-side with its own token.
         assert [p["path"] for p in r["posts_after_click"]] == [
-            "/v1/operations/daily-close/execute"]
+            "/v1/operations/portfolio-cycle/run"]
         assert len(r["posts_after_double"]) == 1
         assert "/v1/paper-desk/refresh" not in [p["path"] for p in r["posts_after_click"]]
+        assert "/v1/operations/daily-close/execute" not in [
+            p["path"] for p in r["posts_after_click"]]
 
 
 # --------------------------------------------------------------------------- #

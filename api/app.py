@@ -201,6 +201,7 @@ from paper_trader.api.current_operating_state import (
 from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api import daily_research_cycle as _drc
+from paper_trader.api import portfolio_cycle as _pcycle
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
@@ -7407,6 +7408,76 @@ def operations_daily_research_cycle_run(body: DailyResearchCycleRunRequest) -> d
         )
     return _drc.run_daily_research_cycle(confirm=body.confirmation,
                                          requested_by=body.requested_by)
+
+
+# --------------------------------------------------------------------------- #
+# Release 48 — the ONE canonical PORTFOLIO CYCLE orchestration entrypoint.
+#
+# ONE operator concept (RUN PORTFOLIO CYCLE) sequences the EXISTING execution
+# owners — api.daily_close then api.daily_research_cycle — exactly as the ONE
+# workflow owner decides between steps, and stops at the governed portfolio
+# decision. It owns no store, holds no write path of its own, never approves,
+# confirms or executes a proposal, never promotes or recalibrates a model, and
+# never touches R46 research. Each composed owner remains idempotent and runs at
+# most once per operator action.
+# --------------------------------------------------------------------------- #
+class PortfolioCycleRunRequest(BaseModel):
+    """Release 48 explicit manual portfolio-cycle confirmation body."""
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.get(
+    "/v1/operations/portfolio-cycle",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_cycle() -> dict:
+    """Release 48 read-only portfolio-cycle status: the one operator state, the
+    canonical portfolio decision, and exactly what RUN PORTFOLIO CYCLE would do
+    right now (which existing owners it would sequence, or why it would stop).
+
+    STRICTLY READ-ONLY: composes GET-level state from the ONE workflow owner
+    (``api.workflow_state``) and plans verbatim from its decided primary action.
+    It runs nothing, writes nothing, creates no order / proposal / approval, and
+    performs no provider or prediction call beyond what the workflow read models
+    already perform."""
+    return _pcycle.load_portfolio_cycle()
+
+
+@app.post(
+    "/v1/operations/portfolio-cycle/run",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_cycle_run(body: PortfolioCycleRunRequest) -> dict:
+    """Execute ONE explicit, manual PORTFOLIO CYCLE (Release 48). Requires
+    ``{"confirmation": "RUN_PORTFOLIO_CYCLE"}``; any other value returns HTTP 400.
+
+    The cycle is a SEQUENCER over the existing authoritative owners, never a
+    second execution engine: it re-reads the canonical workflow state between
+    steps and, exactly as that owner decides, runs the manual Daily Close
+    (``api.daily_close.run_daily_close`` — idempotent, ALREADY_PROCESSED on a
+    processed date) and/or the Persistent Daily Research Cycle
+    (``api.daily_research_cycle.run_daily_research_cycle`` — idempotent and
+    resumable), each AT MOST once, each with its own confirmation token supplied
+    by the orchestration owner and attributed ``portfolio_cycle:<requested_by>``.
+
+    It ALWAYS stops at the governed portfolio decision boundary: it never
+    reviews, approves or confirms a proposal, never creates an order plan, order
+    or fill, never promotes or recalibrates a model, and never touches Release-46
+    research. A blocked owner stops the run with the owner's own reason
+    (fail closed, nothing retried)."""
+    if body.confirmation != _pcycle.EXECUTE_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_pcycle.EXECUTE_CONFIRMATION}'}} to run "
+                    f"the canonical portfolio cycle."),
+        )
+    return _pcycle.run_portfolio_cycle(confirm=body.confirmation,
+                                       requested_by=body.requested_by)
 
 
 class EventSignalRefreshRunRequest(BaseModel):

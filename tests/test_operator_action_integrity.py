@@ -221,7 +221,9 @@ class TestBackendExecutionContract:
         assert r["daily_close_gate"]["passive_status"] is None
         cmd = r["operator_command"]
         assert cmd["primary_action_available"] is True
-        assert cmd["primary_action_kind"] == ws.EXEC_DAILY_CLOSE
+        # Release 48: presented = the one portfolio cycle; underlying = the close.
+        assert cmd["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+        assert cmd["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
         assert "settle eligible NEXT_CLOSE paper orders" in cmd["supporting_text"]
 
     def test_paper_desk_refresh_is_never_a_canonical_primary_action(self):
@@ -430,6 +432,10 @@ _RESPONSES = {
         "close_status": "DAILY_CLOSE_COMPLETE_HOLD",
         "forward_evidence": {"severity": "green"}},
     "/v1/operations/daily-close/progress": {},
+    # Release 48 — the ONE portfolio-cycle orchestration entrypoint.
+    "/v1/operations/portfolio-cycle/run": {
+        "status": "PORTFOLIO_CYCLE_COMPLETE",
+        "steps_taken": ["DAILY_CLOSE"], "stop_reason": "DECISION_PRESENTED"},
 }
 
 _CC_DATA = {"alpha": {"available": True, "mark_stale": False,
@@ -475,17 +481,21 @@ def _paths(posts):
 
 class TestUiBehaviourWaitingOwned:
     def test_one_primary_cta_executes_the_canonical_daily_close(self, harness_report):
-        # STAGE 19.3: the promoted post-close action is the canonical Daily Close, which
-        # composes the Paper Desk owner. The standalone desk refresh is maintenance only,
-        # so the hero must NOT offer it and the UI must POST exactly one close.
+        # STAGE 19.3: the promoted post-close action composes the Paper Desk owner
+        # through the canonical Daily Close; the standalone desk refresh is
+        # maintenance only. RELEASE 48: the operator sees the ONE portfolio-cycle
+        # action, and the click POSTs the ONE orchestration entrypoint (which
+        # sequences the same close owner server-side, with its own token).
         r = harness_report["waiting_owned"]
         assert r["opc"]["cta_count"] == 1
-        assert "Run the Daily Close" in r["opc"]["html"]
+        assert "Run the portfolio cycle" in r["opc"]["html"]
         assert "Refresh owned market data" not in r["opc"]["html"]
         assert "dispatchCanonicalPrimaryAction(this)" in r["opc"]["html"]
-        assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-close/execute"]
-        assert r["posts_after_click"][0]["body"]["confirmation"] == dcm.EXECUTE_CONFIRMATION
+        assert _paths(r["posts_after_click"]) == ["/v1/operations/portfolio-cycle/run"]
+        assert r["posts_after_click"][0]["body"] == {
+            "confirmation": ws.PORTFOLIO_CYCLE_CONFIRMATION}
         assert "/v1/paper-desk/refresh" not in _paths(r["posts_after_click"])
+        assert "/v1/operations/daily-close/execute" not in _paths(r["posts_after_click"])
         assert r["navs_after_click"] == []          # execution, not navigation
 
     def test_not_a_dead_button_and_no_double_submit(self, harness_report):
@@ -509,11 +519,13 @@ class TestUiBehaviourResearchRequired:
         # The dispatcher still routes to exactly ONE owner.
         r = harness_report["research_required"]
         assert r["opc"]["cta_count"] == 1
-        assert "Run the Daily Research Cycle" in r["opc"]["html"]
-        assert "Run the Daily Research Cycle" not in r["hero"]["html"]
-        assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-research-cycle/run"]
+        # Release 48: the presented action is the one portfolio cycle; the DRC is
+        # the decided underlying step, sequenced server-side by the orchestrator.
+        assert "Run the portfolio cycle" in r["opc"]["html"]
+        assert "Run the portfolio cycle" not in r["hero"]["html"]
+        assert _paths(r["posts_after_click"]) == ["/v1/operations/portfolio-cycle/run"]
         assert r["posts_after_click"][0]["body"] == {
-            "confirmation": drcm.EXECUTE_CONFIRMATION}
+            "confirmation": ws.PORTFOLIO_CYCLE_CONFIRMATION}
         assert "workflow-state" in r["loads_after_click"]
 
     def test_double_submit_protected(self, harness_report):
@@ -543,9 +555,12 @@ class TestUiBehaviourReadyForClose:
     def test_exactly_one_primary_daily_close_action(self, harness_report):
         r = harness_report["ready_for_close"]
         assert r["opc"]["cta_count"] == 1
-        assert "Run the Daily Close" in r["opc"]["html"]
-        assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-close/execute"]
-        assert r["posts_after_click"][0]["body"]["confirmation"] == dcm.EXECUTE_CONFIRMATION
+        # Release 48: one presented action (the portfolio cycle), one POST, one
+        # orchestration entrypoint; the close is the decided underlying step.
+        assert "Run the portfolio cycle" in r["opc"]["html"]
+        assert _paths(r["posts_after_click"]) == ["/v1/operations/portfolio-cycle/run"]
+        assert r["posts_after_click"][0]["body"] == {
+            "confirmation": ws.PORTFOLIO_CYCLE_CONFIRMATION}
 
     def test_secondary_close_controls_recede(self, harness_report):
         """STAGE 19.3: the secondary close panels no longer duplicate the write action.

@@ -1,5 +1,139 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-08-29
+- **Updated by phase:** **Release 48 - Active Portfolio Manager Operating
+  System: ONE canonical operator workflow (RUN PORTFOLIO CYCLE) + Today/
+  Portfolio simplification + governed R47 activation (single agent, no
+  subagents, Windows PowerShell only).** Built on R47 commit
+  `5ba1b2bb17d9c6651be2e69e133ab336df22e35c`.
+  **`R48_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell tool-uses,
+  zero subagents. Every command, test, audit, hash and edit ran through Windows
+  PowerShell or the file tools.
+  **The defect this release removes.** The pipeline was consolidated - one
+  workflow owner, one canonical five-stage cycle, one command bar - but the
+  OPERATOR still walked the sequence by hand: know the Daily Close comes first,
+  click it (token 1), wait, know the Daily Research Cycle comes second, click
+  it (token 2), find the decision. Two mutations, two tokens, and the
+  close-before-research order living only in the operator's head.
+  **The replacement, in one line:** *ONE operator concept - RUN PORTFOLIO
+  CYCLE - through ONE orchestration entrypoint that sequences the EXISTING
+  owners exactly as the ONE workflow owner decides between steps, and always
+  stops at the governed portfolio decision.*
+  **`api/portfolio_cycle.py` is the new ONE orchestration owner, and it is a
+  sequencer, not a second decision engine.** It re-reads
+  `api.workflow_state.load_workflow_state()` between steps and obeys the
+  decided primary action verbatim; it invokes `daily_close.run_daily_close`
+  and/or `daily_research_cycle.run_daily_research_cycle` each AT MOST once per
+  run, with each owner's own confirmation token supplied server-side and every
+  delegated write attributed `portfolio_cycle:<requested_by>`; it owns no
+  store, holds no write path, and its CODE (docstrings stripped) can reach no
+  approval token, no order plan, no desk write and no R46 research - all
+  audit-enforced. Every stop names its reason (`DECISION_PRESENTED` /
+  `WAITING_FOR_SESSION_CLOSE` / `CYCLE_ALREADY_RUNNING` / `RECOVERY_REQUIRED`
+  / `STATE_DID_NOT_ADVANCE` / `OWNER_REPORTED_BLOCKER` with the owner's own
+  words); an unrecognised state runs NOTHING (fail closed). Routes:
+  `GET /v1/operations/portfolio-cycle` (read-only: what a run would do right
+  now) and `POST /v1/operations/portfolio-cycle/run` (token
+  `RUN_PORTFOLIO_CYCLE`).
+  **The next-action owner did not move and did not fork.**
+  `api.workflow_state.build_operator_command` - the same ONE mirrored block -
+  now PRESENTS the cycle action whenever a normal-path mutation is due
+  (`primary_action_kind = PORTFOLIO_CYCLE`, label "Run the portfolio cycle",
+  one token) with the decided underlying step beside it
+  (`cycle_underlying_kind`), so the presentation is simplified while nothing is
+  hidden. The state-level `primary_action` still names the underlying owner
+  verbatim for audit surfaces; presented-only-when-decided is a blocking audit
+  invariant, so the cycle can never become a new mutation surface. The UI
+  dispatcher obeys the presented kind through the ONE canonical dispatcher and
+  still refuses to execute off Today.
+  **Today is the command center.** The status strip now answers readiness in
+  one line - operational mark, eligible session, NAV and the research/evidence
+  severity (each a VERBATIM mirror of its canonical owner; the collection chip
+  stays in the header) - above the portfolio result, the canonical portfolio
+  decision with its HOLD/REDUCE/EXIT/REPLACE/ADD summary, the book state and
+  the market strip, with at most ONE primary action. Today fits ~1.3 screens at
+  1920x1080 (was ~1.8 with a blank infrastructure card). Two demotions, nothing
+  hidden: the continuous-collection Active Manager card left Today (header chip
+  + System-Audit keep the state; every id stays a live write target), and the
+  `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` compatibility text left the money
+  card's HEADLINE for the existing collapsed legacy fold - the headline is now
+  the canonical operational close state ("Close complete · <date>").
+  **Portfolio is CURRENT vs RECOMMENDED.** The R47 card - the only surface
+  showing current book / zero-base ideal / constraint adjustments / best
+  feasible target / switching economics / approval + execution state - was
+  buried inside the collapsed `#pm-advanced` fold, roughly four screens down.
+  It is now the promoted "Current vs Recommended Portfolio" card on the primary
+  surface, directly under the decision (CSS order 15), with the ideal labelled
+  "before constraints" (analytical reference) and the FEASIBLE target as the
+  operational recommendation; its repeated safety badges fold into the route's
+  safety strip (badges stay in the DOM). The constraint inventory and the
+  adjustment ledger remain Audit/Advanced folds.
+  **Monthly semantics repaired at the read model (§15).**
+  `api.operational_book`'s informational blocker no longer says "the scheduled
+  monthly review is not due until %s" - it names the "model-governance review
+  checkpoint" and states that the portfolio is reassessed after each material
+  signal refresh. `monthly_as_portfolio_cadence` (must be empty) and
+  `checkpoint_named_precisely` are blocking audit invariants beside the
+  R46.6.2 alpha_book repair.
+  **Governance boundaries unchanged and re-proven:** proposal generation
+  automatic; portfolio approval manual (Stage-18 gate 1); order-plan
+  confirmation manual (Stage-19 gate 2); paper execution governed, idempotent,
+  NEXT_CLOSE only; no broker; no automation; model recalibration NEVER runs
+  inside the portfolio cycle (the DRC still blocks at the month boundary); R46
+  research never promoted and never addressable from the orchestrator. The R47
+  decision-outcome ledger is untouched and still empty by construction until
+  the first governed rebalance executes.
+  **Evidence:** 42 new targeted tests
+  (`tests/test_release48_operator_workflow.py`); ~1,300 green across the
+  touched owners (stage19/20/22 suites, slice2/3/6/7, R47's 83, operator action
+  integrity incl. the Node harness now driving the real `runPortfolioCycle`,
+  daily close, canonical restart + invocation-hygiene contracts) with exactly
+  the four operator-accepted `test_slice2_workflow_state` baseline failures
+  (part of the committed set of 8) and no new ones;
+  `scripts/audit_architecture.py --strict` green with the new
+  `check_release48_portfolio_cycle` (23 blocking invariants, all verified
+  non-vacuously); `scripts/check_ui_js.py` 0 errors; browser acceptance at
+  1920x1080 and 1366x768 (no horizontal scroll, no blank buttons, no console
+  errors, one primary action, legacy not primary); operational write
+  attribution `ATTRIBUTED` under the new R48 profile; `git diff --check` clean.
+  **Nothing was executed and nothing was spent.** Zero production Daily Close /
+  DRC runs, zero orders, zero fills, zero approvals, zero portfolio mutations,
+  zero model promotions, $0.00. Production research root **2177 files
+  byte-identical** (`7bf89b3b79e5bfb5`) and the EXPANDED operational store set -
+  the seven strict roots plus `portfolio_decision_outcomes` plus the desk
+  stores (holdings, cash, NAV, order/fill ledgers) - **60 files byte-identical**
+  (`c5537bbcdf612fe6`) before and after the whole development window.
+- **Working tree status (R48):** New: `api/portfolio_cycle.py`,
+  `tests/test_release48_operator_workflow.py`, `docs/RELEASE48_PORTFOLIO_CYCLE.md`.
+  Modified: `api/workflow_state.py` (the presented cycle action + constants),
+  `api/app.py` (two routes), `api/operational_book.py` (§15 wording),
+  `api/ui/index.html` (dispatcher + runPortfolioCycle + status strip + r48
+  style layer + r47-card promotion + legacy-drift demotion),
+  `scripts/audit_architecture.py` (check_release48 + 23 blocking invariants),
+  `scripts/operator_action_integrity_harness.js` (the new runner in the real-UI
+  sandbox), `scripts/r33_operational_write_attribution.py` (R48 profile),
+  `docs/architecture/system_inventory.json` (the new module),
+  `tests/test_operator_action_integrity.py`,
+  `tests/test_stage19_3_operator_workflow_atomic_close.py`,
+  `tests/test_stage22_normal_cycle.py` (updated to the presented contract), and
+  this file. The pre-existing unrelated untracked set is preserved and never
+  staged.
+- **Next required action (R48):** Run ONE broad repository regression, then
+  validate, commit and push from
+  `D:\Temp\paper_trader_release48_active_manager_os_handoff`
+  (`validate.ps1` -> `R48_VALIDATE_OK`, then `operator_full_regression.ps1` ->
+  `COMMIT_OK`, then `commit.ps1`, then `push.ps1`). **First live R48 cycle
+  after deployment:** open Today; the command bar will present ONE action. The
+  live 2026-08-28 verdict remains the persisted MANUAL_REVIEW_REQUIRED
+  constraint breach (correct - it is the immutable artifact); the next governed
+  cycle the operator runs will route the per-name breaches through the R47
+  re-optimiser to PROPOSAL_READY / HOLD_CURRENT_BOOK, and from R48 on that
+  cycle is ONE click (RUN PORTFOLIO CYCLE), then review -> approve -> confirm
+  -> await close, with the decision-outcome ledger accruing from the first
+  executed reallocation.
+
+## Release 47 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-08-28
 - **Updated by phase:** **Release 47 - Constraint-Respecting Active Reallocation
   + Governed Paper Execution + Portfolio Decision Outcome Tracking (single

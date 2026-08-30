@@ -10305,6 +10305,187 @@ def check_release47_constrained_reallocation(files: list[Path]) -> dict:
     }
 
 
+R48_ORCHESTRATOR = "api/portfolio_cycle.py"
+
+
+def check_release48_portfolio_cycle(files: list[Path]) -> dict:
+    r"""Release 48 - the ONE canonical portfolio-cycle orchestration + operator
+    presentation guard.
+
+    The release's claim is that the operator now has ONE concept (RUN PORTFOLIO
+    CYCLE) with no hidden button order, and that the concept added no new
+    authority anywhere. The guard proves, structurally:
+
+      (1)  ONE orchestration owner exists, token-gated by ONE operator token,
+           and no second module defines the run entrypoint;
+      (2)  the orchestrator DELEGATES to the two existing execution owners and
+           reads the ONE workflow owner between steps — and its CODE (docstrings
+           stripped) can reach no persistence, no desk, no approval token, no
+           execution lifecycle and no R46 research;
+      (3)  exactly one GET status route and one POST run route exist, no
+           approve/execute/confirm variant of the route was added, and both
+           routes are registered to the orchestrator in the authoritative
+           route_ownership inventory (corrective gate 2026-08-29);
+      (4)  the canonical operator command PRESENTS the one cycle action only
+           when a normal-path mutation was already decided (never a new
+           mutation surface), with the decided underlying step beside it;
+      (5)  the UI carries exactly one cycle runner, wired through the ONE
+           canonical dispatcher, which still refuses to execute off Today;
+      (6)  the CURRENT vs RECOMMENDED card is promoted on the primary Portfolio
+           surface, and no separate "R48 dashboard" was added;
+      (7)  no normal-UI wording presents the monthly model-governance
+           checkpoint as the portfolio-action cadence.
+    """
+    pc_src = _read(Path(R48_ORCHESTRATOR))
+    ws_src = _read(Path("api/workflow_state.py"))
+    ob_src = _read(Path("api/operational_book.py"))
+    ab_src = _read(Path("api/alpha_book.py"))
+    ui = _read(UI_FILE)
+
+    # -- code-only view of the orchestrator (docstrings stripped) ------------ #
+    def _code_only(src: str) -> str:
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return src
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef,
+                                 ast.AsyncFunctionDef, ast.ClassDef)):
+                body = node.body
+                if body and isinstance(body[0], ast.Expr) \
+                        and isinstance(body[0].value, ast.Constant) \
+                        and isinstance(body[0].value.value, str):
+                    node.body = body[1:] or [ast.Pass()]
+        return ast.unparse(tree)
+
+    pc_code = _code_only(pc_src)
+
+    owner_present = bool(pc_src.strip())
+    one_operator_token = 'EXECUTE_CONFIRMATION = "RUN_PORTFOLIO_CYCLE"' in pc_src
+    delegates_to_close = "run_daily_close(" in pc_code
+    delegates_to_drc = "run_daily_research_cycle(" in pc_code
+    reads_one_workflow_owner = "load_workflow_state()" in pc_code
+    max_one_invocation_each = "if step in ran:" in pc_code
+
+    persistence_reach = sorted(t for t in (
+        "open(", "json.dump(", "write_text", "mkdir", "Path.home",
+        "PAPER_TRADER_") if t in pc_code)
+    authority_reach = sorted(t for t in (
+        "rebalance_execution", "record_decision", "paper_trading_desk",
+        "settle_due_orders", "create_order", "APPROVE_FOR_PAPER_REBALANCE",
+        "CONFIRM_PORTFOLIO_REBALANCE_DECISION",
+        "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN",
+        "alpha_agent", "prospective_tournament") if t in pc_code)
+
+    second_orchestrator_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R48_ORCHESTRATOR, "scripts/audit_architecture.py")
+        and "def run_portfolio_cycle(" in fp.read_text(encoding="utf-8",
+                                                       errors="replace"))
+
+    routes = check_routes()["routes"]
+    cycle_routes = [r for r in routes
+                    if r["path"].startswith("/v1/operations/portfolio-cycle")]
+    get_status_routes = [r for r in cycle_routes
+                         if r["path"] == "/v1/operations/portfolio-cycle"
+                         and r["method"] == "GET"]
+    post_run_routes = [r for r in cycle_routes
+                       if r["path"] == "/v1/operations/portfolio-cycle/run"
+                       and r["method"] == "POST"]
+    forbidden_cycle_routes = sorted(
+        "%s %s" % (r["method"], r["path"]) for r in cycle_routes
+        if r not in get_status_routes + post_run_routes)
+
+    # -- route ownership registered in the authoritative inventory ----------- #
+    # Corrective gate (2026-08-29): the generic architecture contract
+    # (test_every_declared_route_has_an_owner) found both cycle routes absent
+    # from route_ownership. The inventory stays the authoritative contract;
+    # this invariant only proves the registration exists and covers every
+    # declared portfolio-cycle route.
+    try:
+        _inv = json.loads(_read("docs/architecture/system_inventory.json"))
+        _ownership = _inv.get("route_ownership", [])
+    except (json.JSONDecodeError, OSError):
+        _ownership = []
+    _pfx = "/v1/operations/portfolio-cycle"
+    _cycle_owner_entries = [
+        e for e in _ownership
+        if e.get("prefix") == _pfx
+        and e.get("owner") == R48_ORCHESTRATOR
+        and e.get("system") == "infrastructure"]
+    route_ownership_registered = len(_cycle_owner_entries) == 1
+    route_ownership_covers_all_cycle_routes = (
+        bool(_cycle_owner_entries)
+        and bool(cycle_routes)
+        and all(r["path"] == _pfx or r["path"].startswith(_pfx + "/")
+                for r in cycle_routes))
+
+    # -- the operator presentation (workflow owner) -------------------------- #
+    presentation_declared = all(t in ws_src for t in (
+        'EXEC_PORTFOLIO_CYCLE = "PORTFOLIO_CYCLE"',
+        'PORTFOLIO_CYCLE_CONFIRMATION = "RUN_PORTFOLIO_CYCLE"',
+        '"path": "/v1/operations/portfolio-cycle/run"'))
+    presented_only_when_decided = (
+        '"primary_action_kind": EXEC_PORTFOLIO_CYCLE if executable else None'
+        in ws_src)
+    underlying_step_travels = (
+        '"cycle_underlying_kind": kind if executable else None' in ws_src)
+
+    # -- the UI (one runner, one dispatcher, off-Today refusal kept) --------- #
+    ui_runner_count = ui.count("function runPortfolioCycle(")
+    ui_run_post_count = ui.count("'/v1/operations/portfolio-cycle/run'")
+    _disp = ui.split("function dispatchCanonicalPrimaryAction(")
+    disp_fn = _disp[1].split("\nwindow.")[0] if len(_disp) > 1 else ""
+    dispatcher_routes_cycle = ("PORTFOLIO_CYCLE" in disp_fn
+                               and "runPortfolioCycle(btn)" in disp_fn)
+    dispatcher_refuses_off_today = "_wsIsTodayRoute()" in disp_fn
+
+    # -- Portfolio surface: CURRENT vs RECOMMENDED promoted; no R48 dashboard - #
+    r47_card_promoted = ("#tab-portfolio-manager > .card > #r47-constrained"
+                         in ui)
+    r48_new_panel_ids = [m for m in re.findall(r'id="(r48-[\w-]+)"', ui)
+                         if m != "r48-styles"]
+
+    # -- monthly semantics (§15) --------------------------------------------- #
+    monthly_as_portfolio_cadence = sorted(
+        src_name for src_name, src in (("api/operational_book.py", ob_src),
+                                       ("api/alpha_book.py", ab_src))
+        if "scheduled monthly review is not due" in src)
+    checkpoint_named_precisely = (
+        "model-governance review checkpoint" in ob_src
+        and "not on a monthly clock" in ab_src)
+
+    return {
+        "phase": "R48",
+        "owner_present": bool(owner_present),
+        "one_operator_token": bool(one_operator_token),
+        "delegates_to_close": bool(delegates_to_close),
+        "delegates_to_drc": bool(delegates_to_drc),
+        "reads_one_workflow_owner": bool(reads_one_workflow_owner),
+        "max_one_invocation_each": bool(max_one_invocation_each),
+        "persistence_reach": persistence_reach,
+        "authority_reach": authority_reach,
+        "second_orchestrator_modules": second_orchestrator_modules,
+        "get_status_route_count": len(get_status_routes),
+        "post_run_route_count": len(post_run_routes),
+        "forbidden_cycle_routes": forbidden_cycle_routes,
+        "route_ownership_registered": bool(route_ownership_registered),
+        "route_ownership_covers_all_cycle_routes":
+            bool(route_ownership_covers_all_cycle_routes),
+        "presentation_declared": bool(presentation_declared),
+        "presented_only_when_decided": bool(presented_only_when_decided),
+        "underlying_step_travels": bool(underlying_step_travels),
+        "ui_runner_count": ui_runner_count,
+        "ui_run_post_count": ui_run_post_count,
+        "dispatcher_routes_cycle": bool(dispatcher_routes_cycle),
+        "dispatcher_refuses_off_today": bool(dispatcher_refuses_off_today),
+        "r47_card_promoted": bool(r47_card_promoted),
+        "r48_new_panel_ids": r48_new_panel_ids,
+        "monthly_as_portfolio_cadence": monthly_as_portfolio_cadence,
+        "checkpoint_named_precisely": bool(checkpoint_named_precisely),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -11551,6 +11732,7 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release46_prospective_alpha_tournament(files),
         "release47_constrained_reallocation":
             check_release47_constrained_reallocation(files),
+        "release48_portfolio_cycle": check_release48_portfolio_cycle(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13804,6 +13986,37 @@ BLOCKING_INVARIANTS = (
     ("release47_constrained_reallocation", "switching_hurdle_frozen", True),
     ("release47_constrained_reallocation",
      "no_fabricated_expected_return", True),
+    # ------------------------------------------------------------------- #
+    # Release 48 — ONE canonical portfolio-cycle orchestration, ONE operator
+    # concept, no new authority, no duplicate dashboard, no monthly
+    # portfolio-action semantics. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release48_portfolio_cycle", "owner_present", True),
+    ("release48_portfolio_cycle", "one_operator_token", True),
+    ("release48_portfolio_cycle", "delegates_to_close", True),
+    ("release48_portfolio_cycle", "delegates_to_drc", True),
+    ("release48_portfolio_cycle", "reads_one_workflow_owner", True),
+    ("release48_portfolio_cycle", "max_one_invocation_each", True),
+    ("release48_portfolio_cycle", "persistence_reach", []),
+    ("release48_portfolio_cycle", "authority_reach", []),
+    ("release48_portfolio_cycle", "second_orchestrator_modules", []),
+    ("release48_portfolio_cycle", "get_status_route_count", 1),
+    ("release48_portfolio_cycle", "post_run_route_count", 1),
+    ("release48_portfolio_cycle", "forbidden_cycle_routes", []),
+    ("release48_portfolio_cycle", "route_ownership_registered", True),
+    ("release48_portfolio_cycle", "route_ownership_covers_all_cycle_routes",
+     True),
+    ("release48_portfolio_cycle", "presentation_declared", True),
+    ("release48_portfolio_cycle", "presented_only_when_decided", True),
+    ("release48_portfolio_cycle", "underlying_step_travels", True),
+    ("release48_portfolio_cycle", "ui_runner_count", 1),
+    ("release48_portfolio_cycle", "ui_run_post_count", 1),
+    ("release48_portfolio_cycle", "dispatcher_routes_cycle", True),
+    ("release48_portfolio_cycle", "dispatcher_refuses_off_today", True),
+    ("release48_portfolio_cycle", "r47_card_promoted", True),
+    ("release48_portfolio_cycle", "r48_new_panel_ids", []),
+    ("release48_portfolio_cycle", "monthly_as_portfolio_cadence", []),
+    ("release48_portfolio_cycle", "checkpoint_named_precisely", True),
 )
 
 
