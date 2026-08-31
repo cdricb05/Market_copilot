@@ -56,6 +56,22 @@ def _utc(y, m, d, hh=0, mm=0):
     return dt.datetime(y, m, d, hh, mm, tzinfo=dt.timezone.utc)
 
 
+def _pin_owned_session(monkeypatch, d):
+    """Pin the owned-data freshness probe for a hermetic runtime test.
+
+    ``evaluate_emission_policy`` documents ``last_session`` as the injectable
+    seam, and the runtime reaches it through the ONE canonical probe
+    ``TC.owned_last_session`` - which in production reads the LIVE owned
+    Norgate store. A hermetic test must therefore pin BOTH the instant AND
+    this probe: with only the instant pinned, the verdict flips the moment
+    the real nightly refresh prints the pinned day's bar (observed
+    2026-08-31 - the Monday-morning suppression case became EMIT_OK_FRESH
+    once pytest ran after the evening data delivery). The wall clock and the
+    live store are never allowed to decide a pinned scenario.
+    """
+    monkeypatch.setattr(TC, "owned_last_session", lambda: d)
+
+
 @pytest.fixture()
 def sandbox(tmp_path, monkeypatch):
     """Every R46 and R52 write goes to a temp root. Production is untouched.
@@ -315,6 +331,8 @@ def test_runtime_cycle_runs_every_stage_and_writes_health(
     monkeypatch.setattr(AF, "predictions", lambda cid=None: [])
     monkeypatch.setattr(LG, "predictions", lambda cid=None: [])
     monkeypatch.setattr(RG, "load", lambda cid=None: {"challengers": []})
+    # Monday 09:00 ET with Friday the freshest OWNED bar - both pinned.
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 28))
     body = RT.research_runtime_cycle(_utc(2026, 8, 31, 13, 0),
                                      trigger="PYTEST")
     assert body["state"] in (RT.RUN_COMPLETED,
@@ -327,6 +345,15 @@ def test_runtime_cycle_runs_every_stage_and_writes_health(
     assert len(calls) == 1
     # weekday morning: the batch emission must have been suppressed
     assert calls[0]["emit_batch"] is False
+    by = {s["stage"]: s for s in body["stages"]}
+    assert by["tournament_advance"]["emit_batch_requested"] is False
+    assert (by["tournament_advance"]["emission_mode"]
+            == TC.EMIT_SUPPRESSED_DATA_PENDING)
+    # the runtime's frozen safety facts (research only, never operational)
+    assert body["calls_portfolio_cycle"] is False
+    assert body["runs_daily_close"] is False
+    assert body["promotes_models"] is False
+    assert body["backfills"] is False
     health = RT.load_health()
     assert health["runtime_state"] == body["state"]
     assert health["forward_chain_integrity"] is True
@@ -334,6 +361,57 @@ def test_runtime_cycle_runs_every_stage_and_writes_health(
         t["local_time"] for t in TC.INVOCATION_PLAN}
     runs = RT.load_runs()
     assert runs["n_runs_total"] == 1
+
+
+def test_runtime_emits_when_a_legal_emission_is_due(sandbox, monkeypatch):
+    """The other half of the pinned pair: post-refresh Monday evening with
+    Monday's OWNED bar printed - the policy grants the slot and the runtime
+    passes ``emit_batch=True`` to the one advance."""
+    calls = []
+    _stub_advance(monkeypatch, calls)
+    _stub_frontier_inputs(monkeypatch)
+    monkeypatch.setattr(AF, "predictions", lambda cid=None: [])
+    monkeypatch.setattr(LG, "predictions", lambda cid=None: [])
+    monkeypatch.setattr(RG, "load", lambda cid=None: {"challengers": []})
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 31))
+    body = RT.research_runtime_cycle(_utc(2026, 8, 31, 22, 0),
+                                     trigger="PYTEST")
+    assert len(calls) == 1
+    assert calls[0]["emit_batch"] is True
+    by = {s["stage"]: s for s in body["stages"]}
+    assert by["tournament_advance"]["emit_batch_requested"] is True
+    assert by["tournament_advance"]["emission_mode"] == TC.EMIT_OK_FRESH
+
+
+def test_runtime_verdict_is_pinned_not_wall_clock(sandbox, monkeypatch):
+    """A hermetic scenario's verdict may depend ONLY on its pinned instant
+    and pinned owned-data probe - never on when pytest happens to run.
+
+    The machine wall clock is moved to an absurd future instant; the pinned
+    Monday-morning suppression verdict must not move with it. (This is the
+    defect class that broke the runtime-cycle test on 2026-08-31: the live
+    probe made the verdict a function of the operator's pytest start time
+    relative to the nightly data refresh.)
+    """
+    calls = []
+    _stub_advance(monkeypatch, calls)
+    _stub_frontier_inputs(monkeypatch)
+    monkeypatch.setattr(AF, "predictions", lambda cid=None: [])
+    monkeypatch.setattr(LG, "predictions", lambda cid=None: [])
+    monkeypatch.setattr(RG, "load", lambda cid=None: {"challengers": []})
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 28))
+    monkeypatch.setattr(CK, "now_utc", lambda: _utc(2031, 1, 1, 12, 0))
+    body = RT.research_runtime_cycle(_utc(2026, 8, 31, 13, 0),
+                                     trigger="PYTEST")
+    assert calls[0]["emit_batch"] is False
+    by = {s["stage"]: s for s in body["stages"]}
+    assert (by["tournament_advance"]["emission_mode"]
+            == TC.EMIT_SUPPRESSED_DATA_PENDING)
+    # and the pure policy function itself is clock-free given its inputs
+    p = TC.evaluate_emission_policy(_utc(2026, 8, 31, 13, 0),
+                                    last_session=dt.date(2026, 8, 28))
+    assert p["emit"] is False
+    assert p["mode"] == TC.EMIT_SUPPRESSED_DATA_PENDING
 
 
 def test_second_concurrent_runtime_instance_is_refused(sandbox, monkeypatch):
@@ -360,6 +438,7 @@ def test_a_broken_chain_fails_the_run_closed_before_any_write(
     def must_not_run(*a, **k):
         raise AssertionError("advance ran after a failed integrity check")
     monkeypatch.setattr(AD, "advance", must_not_run)
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 28))
     monkeypatch.setattr(RT, "_chains_ok",
                         lambda: {"all_intact": False, "chains": {}})
     body = RT.research_runtime_cycle(_utc(2026, 8, 31, 13, 0),
@@ -380,6 +459,7 @@ def test_one_failing_stage_does_not_stop_the_others(sandbox, monkeypatch):
     monkeypatch.setattr(AF, "predictions", lambda cid=None: [])
     monkeypatch.setattr(LG, "predictions", lambda cid=None: [])
     monkeypatch.setattr(RG, "load", lambda cid=None: {"challengers": []})
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 28))
     body = RT.research_runtime_cycle(_utc(2026, 8, 31, 13, 0),
                                      trigger="PYTEST")
     assert body["state"] == RT.RUN_COMPLETED_WITH_FAILURES
@@ -397,6 +477,8 @@ def test_runtime_never_backdates_and_never_forces_emission(sandbox,
     monkeypatch.setattr(AF, "predictions", lambda cid=None: [])
     monkeypatch.setattr(LG, "predictions", lambda cid=None: [])
     monkeypatch.setattr(RG, "load", lambda cid=None: {"challengers": []})
+    # pinned FRESH: the policy would grant the slot, the override still wins
+    _pin_owned_session(monkeypatch, dt.date(2026, 8, 31))
     RT.research_runtime_cycle(_utc(2026, 8, 31, 22, 0), trigger="PYTEST",
                               emit_override="NEVER")
     assert calls[0]["emit_batch"] is False

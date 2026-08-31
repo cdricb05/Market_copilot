@@ -631,26 +631,35 @@ def retained_concentration(*, current_weight: dict, released: dict,
                 best, best_tk = n, tk
         return best, best_tk
 
-    def _max_sector(ws: dict) -> tuple[Optional[float], Optional[str]]:
+    def _max_sector(ws: dict) -> tuple[Optional[float], Optional[str], Optional[float]]:
+        """(max KNOWN sector share, its name, unclassified share). Track B — the
+        literal "Unknown" is a missing classification, never a sector: it can not
+        become the "largest sector" of the book (that fabricates a concentration
+        claim among names with no evidenced common factor). Its share is returned
+        separately as a data-quality figure."""
         tot = sum(v for v in ws.values() if v and v > 0)
         if tot <= 0:
-            return None, None
+            return None, None, None
         agg: dict[str, float] = {}
+        unclassified = 0.0
         for tk, v in ws.items():
             if not v or v <= 0:
                 continue
-            agg[sector_of.get(tk) or "Unknown"] = agg.get(
-                sector_of.get(tk) or "Unknown", 0.0) + v / tot
+            sec = hoc_kernel.known_sector(sector_of.get(tk))
+            if sec is None:
+                unclassified += v / tot
+            else:
+                agg[sec] = agg.get(sec, 0.0) + v / tot
         best, best_s = None, None
         for s, v in sorted(agg.items()):
             if best is None or v > best:
                 best, best_s = v, s
-        return best, best_s
+        return best, best_s, unclassified
 
     mn_b, mn_bt = _max_name(current_weight)
     mn_a, mn_at = _max_name(retained)
-    ms_b, ms_bs = _max_sector(current_weight)
-    ms_a, ms_as = _max_sector(retained)
+    ms_b, ms_bs, uncls_b = _max_sector(current_weight)
+    ms_a, ms_as, uncls_a = _max_sector(retained)
     return {
         "basis": "RETAINED_BOOK_RENORMALISED",
         "note": ("The arithmetic consequence of the recommended releases on what "
@@ -669,6 +678,10 @@ def retained_concentration(*, current_weight: dict, released: dict,
         "max_sector_before": ms_bs,
         "max_sector_weight_after_retained": _r(ms_a, 6),
         "max_sector_after_retained": ms_as,
+        # Track B — missing sector classification, reported as data quality (share
+        # of the invested weight), never aggregated into a fabricated sector.
+        "unclassified_sector_share_before": _r(uncls_b, 6),
+        "unclassified_sector_share_after_retained": _r(uncls_a, 6),
         "retained_names": len(retained),
         "retained_invested_weight": _r(tot_after, 6),
     }
@@ -1333,9 +1346,19 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
     # only lets the proposal owner build a REVIEW-ONLY target, which still faces the
     # complete-target limits and both manual gates - and if the repaired target still
     # breaches, it is withheld exactly as before.
-    if constraint_breaches and state == STATE_NO_CHANGE:
-        reason_codes.append(GATE_HELD_NAME_BREACH_REQUIRES_TARGET)
-        state = STATE_PROPOSAL_READY
+    #
+    # Track B — the ask also overrides the purely ECONOMIC gates (the same two the
+    # mandatory-exit policy overrides): a breach, like an ineligibility, is a
+    # CONSTRAINT fact, not an alpha bet, so a sub-hurdle or unmeasurable score
+    # improvement must never trap the book in a cap violation. It NEVER overrides a
+    # hard feasibility blocker (liquidity; churn withholding stays per-name
+    # upstream): infeasibility blocks, a cap reshapes.
+    if constraint_breaches and state in (STATE_NO_CHANGE, STATE_CHANGE_CANDIDATE):
+        non_economic_blockers = sorted(set(blockers) - set(MANDATORY_EXIT_OVERRIDES))
+        if not non_economic_blockers:
+            reason_codes.append(GATE_HELD_NAME_BREACH_REQUIRES_TARGET)
+            blockers = [b for b in blockers if b not in MANDATORY_EXIT_OVERRIDES]
+            state = STATE_PROPOSAL_READY
 
     # A degraded (but non-blocking) input set never silently upgrades to a proposal
     # without the operator seeing the gap; it is recorded, not hidden.

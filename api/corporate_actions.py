@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -205,6 +206,117 @@ def adjust_fills(fills: list[dict], actions: list[dict]) -> list[dict]:
                  "ex_date": ex, "ratio": r, "action_type": a.get("action_type")})
         out.append(g)
     return out
+
+
+def series_split_projection(*, dates: list, values: list, actions: list[dict]) -> dict:
+    """Track B — bring ONE daily price series onto the CURRENT (post-action) basis
+    for every registered corporate action, WITHOUT double-adjusting a series the
+    provider already back-adjusted.
+
+    Why this exists: the owned provider cache is a verbatim snapshot of what the
+    provider returned, and on 2026-08-28 the provider returned the MNST series with
+    the pre-2026-08-11 bars still on the PRE-split basis (last pre-ex close 90.36,
+    first post-ex close 45.53 — a cross-boundary factor of 0.5039 against a
+    registered 2.0 forward split). Read as returns, that splices a mechanical ~-50%
+    "loss" into return_60d, drawdown_60d, volatility and every covariance the risk
+    owners build. The generic invariant this function enforces is:
+
+        A KNOWN corporate action must never be interpreted as an economic return.
+
+    Mechanics (pure, deterministic, read-time — the stored cache is never rewritten):
+      * Actions are applied newest ex-date first, so stacked actions compose.
+      * Bars on/after the ex-date are by definition already on the post-action
+        basis (they traded there); they are never rescaled.
+      * Bars strictly before the ex-date are classified PER BAR against the bar
+        that follows them (walking backwards from the ex-date boundary): the bar
+        keeps its value or is divided by the ratio, whichever lands nearer (in log
+        space) to the already-classified neighbour. This brings an unadjusted
+        pre-ex segment onto the current basis, is an EXACT no-op on a series the
+        provider already back-adjusted (no double adjustment), and also repairs a
+        single interior bar the provider stated on the other basis (the observed
+        2026-08-06 MNST bar).
+      * A labelled approximation: a genuine one-day move larger than sqrt(ratio)
+        adjacent to a registered ex-date could be misclassified. The projection
+        only ever runs for explicitly REGISTERED actions, and the full per-action
+        trace (bars rescaled, boundary factors) is returned for audit.
+
+    Returns ``{"values", "changed", "n_bars_rescaled", "trace"}``. The input lists
+    are never mutated. A series with no bars on one side of an ex-date is
+    internally consistent on a single basis and is left untouched.
+    """
+    out = [(_f_or_none(v)) for v in (values or [])]
+    n = len(out)
+    trace: list[dict] = []
+    total_rescaled = 0
+    ordered = sorted((a for a in (actions or []) if a.get("ex_date")),
+                     key=lambda a: str(a.get("ex_date") or ""), reverse=True)
+    for a in ordered:
+        try:
+            ratio = float(a.get("ratio"))
+        except (TypeError, ValueError):
+            continue
+        if ratio <= 0 or abs(ratio - 1.0) < 1e-12:
+            continue
+        ex = str(a.get("ex_date") or "")[:10]
+        k = next((i for i, d in enumerate(dates or []) if str(d)[:10] >= ex), None)
+        base = {"action_id": a.get("action_id"), "ticker": a.get("ticker"),
+                "ex_date": ex, "ratio": ratio, "action_type": a.get("action_type")}
+        if k is None:
+            trace.append({**base, "classification": "NO_POST_EX_BARS",
+                          "n_bars_rescaled": 0,
+                          "detail": "every bar predates the ex-date; the series is "
+                                    "internally consistent on one basis"})
+            continue
+        if k == 0:
+            trace.append({**base, "classification": "NO_PRE_EX_BARS",
+                          "n_bars_rescaled": 0,
+                          "detail": "every bar is on/after the ex-date; already on "
+                                    "the post-action basis"})
+            continue
+        anchor = next((out[i] for i in range(k, n)
+                       if out[i] is not None and out[i] > 0), None)
+        if anchor is None:
+            trace.append({**base, "classification": "NO_PRICEABLE_POST_EX_BAR",
+                          "n_bars_rescaled": 0})
+            continue
+        factor_before = (out[k] / out[k - 1]
+                         if (out[k] and out[k - 1]) else None)
+        n_scaled = 0
+        for i in range(k - 1, -1, -1):
+            v = out[i]
+            if v is None or v <= 0:
+                continue
+            keep_dist = abs(math.log(v / anchor))
+            rescaled = v / ratio
+            rescale_dist = abs(math.log(rescaled / anchor))
+            if rescale_dist < keep_dist:
+                out[i] = round(rescaled, 6)
+                n_scaled += 1
+            anchor = out[i]
+        factor_after = (out[k] / out[k - 1]
+                        if (out[k] and out[k - 1]) else None)
+        total_rescaled += n_scaled
+        trace.append({
+            **base,
+            "classification": ("ALREADY_ADJUSTED" if n_scaled == 0
+                               else "PRE_EX_SEGMENT_RESCALED"),
+            "n_pre_ex_bars": k,
+            "n_bars_rescaled": n_scaled,
+            "cross_boundary_factor_before": (round(factor_before, 6)
+                                             if factor_before else None),
+            "cross_boundary_factor_after": (round(factor_after, 6)
+                                            if factor_after else None),
+        })
+    return {"values": out, "changed": total_rescaled > 0,
+            "n_bars_rescaled": total_rescaled, "trace": trace, "owner": OWNER}
+
+
+def _f_or_none(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
 
 
 # --------------------------------------------------------------------------- #
@@ -679,6 +791,8 @@ __all__ = [
     "CONFIRM_TOKEN", "CA_DIR_ENV", "split_position", "adjust_fills", "load_actions",
     "register_action", "scan_fill_mark_artifacts", "reconcile_book",
     "load_corporate_action_report",
+    # Track B — the READ-TIME price-series counterpart of adjust_fills.
+    "series_split_projection",
     # Stage 19.1 — the CURRENT-state propagation contract.
     "current_actions", "registry_fingerprint", "EMPTY_REGISTRY_FINGERPRINT",
     "project_current_performance", "staleness_vs_registry",

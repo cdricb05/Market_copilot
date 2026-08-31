@@ -334,9 +334,63 @@ def load_owned_current_panel(path: Optional[Union[str, Path]] = None) -> Optiona
     }}
 
 
+def _project_registered_corporate_actions(series: dict,
+                                          corporate_actions: Optional[list]) -> dict:
+    """Track B — apply the registered corporate-action registry to the OPERATIONAL
+    panel series, at READ time, through the ONE canonical split authority
+    (``api.corporate_actions.series_split_projection``).
+
+    The persisted panel is a verbatim provider cache and is never rewritten; this
+    is the price-series counterpart of the desk's read-time ``adjust_fills``
+    projection. A series the provider already back-adjusted is an exact no-op
+    (no double adjustment); with an empty registry nothing is touched at all.
+    Dollar volume is NOT rescaled: shares and price move inversely under a split,
+    so traded dollar volume is split-invariant.
+    """
+    from paper_trader.api import corporate_actions as ca  # lazy: avoids a cycle
+    if corporate_actions is None:
+        try:
+            corporate_actions = ca.current_actions()
+        except Exception:  # noqa: BLE001 - the panel must always load
+            corporate_actions = []
+    summary = {"owner": "api.corporate_actions", "applied": False,
+               "n_actions_registered": len(corporate_actions or []),
+               "n_series_adjusted": 0, "traces": [],
+               "invariant": "known corporate actions are never interpreted as "
+                            "economic returns"}
+    if not corporate_actions:
+        return summary
+    by_ticker: dict[str, list] = {}
+    for a in corporate_actions:
+        tk = a.get("ticker")
+        if tk:
+            by_ticker.setdefault(str(tk).upper(), []).append(a)
+    for tk, rows in sorted(by_ticker.items()):
+        s = series.get(tk)
+        if not s:
+            continue
+        proj = ca.series_split_projection(dates=s.get("dates") or [],
+                                          values=s.get("adj") or [], actions=rows)
+        summary["traces"].extend(proj["trace"])
+        if not proj["changed"]:
+            continue
+        adj = proj["values"]
+        ret: list[Optional[float]] = [None]
+        for t in range(1, len(adj)):
+            prev = adj[t - 1]
+            ret.append((adj[t] / prev - 1.0)
+                       if (prev and adj[t] is not None and prev > 0) else None)
+        series[tk] = {**s, "adj": adj, "ret": ret,
+                      "corporate_action_adjusted": True}
+        summary["n_series_adjusted"] += 1
+    summary["applied"] = summary["n_series_adjusted"] > 0
+    return summary
+
+
 def load_operational_price_panel(*, frozen_path: Optional[Union[str, Path]] = None,
                                  owned_path: Optional[Union[str, Path]] = None,
-                                 owned_panel: Optional[dict] = None) -> Optional[dict]:
+                                 owned_panel: Optional[dict] = None,
+                                 corporate_actions: Optional[list] = None) -> Optional[dict]:
     """The panel every OPERATIONAL point-in-time holding analytic reads (Stage 22.1).
 
     Per-ticker REPLACE: a ticker covered by the owned current window is served
@@ -345,17 +399,26 @@ def load_operational_price_panel(*, frozen_path: Optional[Union[str, Path]] = No
     is ever manufactured at a join. When the owned window does not exist yet this
     degrades to exactly the frozen panel — the analytics then stay honestly missing for
     uncovered names and the downstream completeness gate stays closed.
+
+    Track B: every registered corporate action is applied to the composed series as
+    a read-time projection (``corporate_actions=None`` reads the canonical registry;
+    pass ``[]`` to disable explicitly). The provider snapshot on disk is untouched;
+    the projection removes exactly the mechanical split move a back-adjust gap would
+    otherwise splice into returns, and is a no-op on already-adjusted data.
     """
     frozen = load_price_panel(frozen_path)
     owned = owned_panel if owned_panel is not None else load_owned_current_panel(owned_path)
     if not owned:
         if frozen is None:
             return None
+        series = dict(frozen["series"])
         man = dict(frozen["manifest"])
         man.update({"composition": "FROZEN_ONLY", "owned_current_available": False,
                     "owned_current_tickers": 0,
-                    "series_source": {tk: FROZEN_SOURCE_KEY for tk in frozen["series"]}})
-        return {"series": frozen["series"], "manifest": man}
+                    "series_source": {tk: FROZEN_SOURCE_KEY for tk in series}})
+        man["corporate_action_projection"] = _project_registered_corporate_actions(
+            series, corporate_actions)
+        return {"series": series, "manifest": man}
 
     series = dict((frozen or {}).get("series") or {})
     source = {tk: FROZEN_SOURCE_KEY for tk in series}
@@ -374,6 +437,8 @@ def load_operational_price_panel(*, frozen_path: Optional[Union[str, Path]] = No
         "n_tickers": len(series),
         "series_source": source,
     })
+    man["corporate_action_projection"] = _project_registered_corporate_actions(
+        series, corporate_actions)
     return {"series": series, "manifest": man}
 
 

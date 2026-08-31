@@ -99,6 +99,33 @@ EXPECTED_RETURN_STATE_UNAVAILABLE = "UNAVAILABLE"
 
 NON_ALLOCATED_LABEL = "NON_ALLOCATED_COMPARISON_CANDIDATE"
 
+# --- Track B — sector classification vocabulary ------------------------------ #
+#: The display token for a holding whose sector could not be established from any
+#: owned source. It is a DATA-QUALITY STATE, never an economic sector: names with
+#: no classification share no evidenced common industry factor, so aggregating
+#: them into one capped "Unknown" bucket fabricates a concentration claim (on
+#: 2026-08-28 it manufactured a fictitious 31.7% "sector" that breached the 25%
+#: cap and froze the workflow). Unclassified weight is therefore reported
+#: explicitly (and flagged as a data gap) but never capped as an industry; each
+#: unclassified name still faces the name-weight and risk-contribution caps.
+UNCLASSIFIED_SECTOR = "Unknown"
+#: The data-gap code raised when any held name has no resolvable sector.
+GAP_SECTOR_CLASSIFICATION_MISSING = "SECTOR_CLASSIFICATION_MISSING"
+
+
+def known_sector(*candidates) -> Optional[str]:
+    """The first KNOWN sector among ``candidates`` (None when there is none).
+
+    The string ``"Unknown"`` is treated as MISSING, not as a sector — before
+    Track B a position row carrying the literal ``"Unknown"`` was truthy and
+    silently shadowed the canonical universe-row sector that was available for
+    every affected holding.
+    """
+    for c in candidates:
+        if c and c != UNCLASSIFIED_SECTOR:
+            return c
+    return None
+
 
 # --------------------------------------------------------------------------- #
 # Policy
@@ -579,10 +606,30 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
                           if _n_cov > 0 else None)
 
     # --- concentration inputs (sector weights, HHI share) -------------------- #
-    sector_weight: dict[str, float] = {}
+    # Track B — sector is resolved ONCE per holding, before any aggregation:
+    # the position row first, then the canonical universe row (which composes the
+    # owned GICS map). The literal "Unknown" is a missing classification, never a
+    # sector, so it can neither shadow a knowable sector nor aggregate into a
+    # fabricated capped industry. Unclassified weight is reported explicitly.
+    resolved_sector: dict[str, Optional[str]] = {}
     for p in positions:
-        sec = p.get("sector") or "Unknown"
-        sector_weight[sec] = sector_weight.get(sec, 0.0) + (_f(p.get("current_weight")) or 0.0)
+        tk = p.get("ticker")
+        if tk:
+            resolved_sector[tk] = known_sector(p.get("sector"),
+                                               (urows.get(tk) or {}).get("sector"))
+    sector_weight: dict[str, float] = {}
+    unclassified_sector_weight = 0.0
+    unclassified_sector_tickers: list[str] = []
+    for p in positions:
+        w = _f(p.get("current_weight")) or 0.0
+        sec = resolved_sector.get(p.get("ticker"))
+        if sec is None:
+            unclassified_sector_weight += w
+            if p.get("ticker"):
+                unclassified_sector_tickers.append(p["ticker"])
+        else:
+            sector_weight[sec] = sector_weight.get(sec, 0.0) + w
+    unclassified_sector_tickers.sort()
     hhi = sum((_f(p.get("current_weight")) or 0.0) ** 2 for p in positions)
 
     # --- the single strongest eligible non-held comparison candidate --------- #
@@ -607,7 +654,7 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         urow = urows.get(tk) or {}
         cw = _f(p.get("current_weight"))
         mv = _f(p.get("market_value"))
-        sec = p.get("sector") or urow.get("sector") or "Unknown"
+        sec = resolved_sector.get(tk) or UNCLASSIFIED_SECTOR
 
         current_rank = urow.get("rank")
         elig_info = holding_elig.get(tk) or {}
@@ -697,7 +744,11 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         breach_codes: list[str] = []
         if cw is not None and cw > pol["max_name_weight"] + 1e-12:
             breach_codes.append("NAME_WEIGHT_BREACH")
-        if sector_weight.get(sec, 0.0) > pol["sector_cap_fraction"] + 1e-12:
+        # Track B — only a KNOWN sector can breach the sector cap. An unclassified
+        # holding is a data-quality state (reported in the portfolio summary and as
+        # a data gap), never a member of a fabricated capped industry.
+        if (sec != UNCLASSIFIED_SECTOR
+                and sector_weight.get(sec, 0.0) > pol["sector_cap_fraction"] + 1e-12):
             breach_codes.append("SECTOR_WEIGHT_BREACH")
         if (rc is not None and eff_risk_threshold is not None
                 and rc > eff_risk_threshold + 1e-12):
@@ -776,9 +827,13 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         universe_by_rank=universe_by_rank, held=held, policy=pol)
 
     # --- portfolio summary --------------------------------------------------- #
+    if unclassified_sector_tickers:
+        data_gaps.add(GAP_SECTOR_CLASSIFICATION_MISSING)
     portfolio_summary = _portfolio_summary(
         positions=positions, nav=nav, cash=cash, sector_weight=sector_weight,
-        hhi=hhi, risk=risk, policy=pol)
+        hhi=hhi, risk=risk, policy=pol,
+        unclassified_sector_weight=unclassified_sector_weight,
+        unclassified_sector_tickers=unclassified_sector_tickers)
 
     # --- recommendation counts ---------------------------------------------- #
     rec_counts = {k: 0 for k in RECOMMENDATION_VOCAB}
@@ -937,7 +992,9 @@ def _addition_candidates(*, universe_by_rank, held, policy) -> list[dict]:
     return out
 
 
-def _portfolio_summary(*, positions, nav, cash, sector_weight, hhi, risk, policy) -> dict:
+def _portfolio_summary(*, positions, nav, cash, sector_weight, hhi, risk, policy,
+                       unclassified_sector_weight: float = 0.0,
+                       unclassified_sector_tickers: Optional[list] = None) -> dict:
     invested = sum(_f(p.get("market_value")) or 0.0 for p in positions)
     max_name = None
     max_name_tk = None
@@ -946,9 +1003,13 @@ def _portfolio_summary(*, positions, nav, cash, sector_weight, hhi, risk, policy
         if w is not None and (max_name is None or w > max_name):
             max_name = w
             max_name_tk = p.get("ticker")
+    # Track B — max sector is taken over KNOWN sectors only; ``sector_weight`` no
+    # longer aggregates unclassified names, which are reported explicitly below.
     max_sector = None
     max_sector_name = None
     for sec, w in sector_weight.items():
+        if sec == UNCLASSIFIED_SECTOR:
+            continue
         if max_sector is None or w > max_sector:
             max_sector = w
             max_sector_name = sec
@@ -964,7 +1025,16 @@ def _portfolio_summary(*, positions, nav, cash, sector_weight, hhi, risk, policy
         "max_sector": max_sector_name,
         "sector_cap_fraction": policy["sector_cap_fraction"],
         "herfindahl_index": _r(hhi, 6),
-        "sector_weights": {k: _r(v, 6) for k, v in sorted(sector_weight.items())},
+        "sector_weights": {k: _r(v, 6) for k, v in sorted(sector_weight.items())
+                           if k != UNCLASSIFIED_SECTOR},
+        # Track B — the DATA-QUALITY surface for missing sector classification.
+        # Visible, never hidden; never capped as though it were one industry.
+        "unclassified_sector_weight": _r(unclassified_sector_weight, 6),
+        "unclassified_sector_tickers": list(unclassified_sector_tickers or []),
+        "unclassified_sector_policy": (
+            "UNCLASSIFIED weight is a data-quality state, not an economic sector: "
+            "it is reported and gap-flagged, while each unclassified name still "
+            "faces the name-weight and risk-contribution caps individually."),
         "portfolio_variance_daily": _r(risk.get("portfolio_variance_daily"), 10),
         "risk_contribution_state": risk.get("state"),
     }

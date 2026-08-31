@@ -119,6 +119,18 @@ C_SLEEVE_CAP = "SLEEVE_WEIGHT_CAP"
 C_CURRENCY_CAP = "CURRENCY_EXPOSURE_CAP"
 C_COLLATERAL_CAP = "COLLATERAL_USAGE_CAP"
 C_UNIT_GRANULARITY = "UNIT_GRANULARITY_AT_NAV"
+
+# --- Track B: missing sector classification ----------------------------------- #
+#: The token a candidate row carries when its sector could not be established.
+#: It is a DATA-QUALITY STATE, never an economic sector: names with no
+#: classification share no evidenced common industry factor, so the SECTOR cap
+#: neither aggregates them into one fabricated bucket nor charges them against a
+#: shared 25% budget. Each unclassified name still faces every per-name limit
+#: (name cap, liquidity, risk contribution) individually, and the unclassified
+#: weight is reported by :func:`verify_feasibility`. Kept in sync with the same
+#: literal in ``engine.holding_opportunity_cost.UNCLASSIFIED_SECTOR`` (this
+#: kernel is deliberately pure stdlib and imports nothing from the repo).
+UNCLASSIFIED_SECTOR = "Unknown"
 RESHAPING_CONSTRAINT_CODES = (
     C_ELIGIBLE_UNIVERSE, C_LONG_ONLY, C_GROSS_EXPOSURE, C_NAME_CAP, C_SECTOR_CAP,
     C_RISK_CONTRIBUTION, C_LIQUIDITY_PARTICIPATION, C_LIQUIDITY_FLOOR,
@@ -772,8 +784,12 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
     sector_cap = float(pol["sector_cap_fraction"])
     by_sector: dict[str, list] = {}
     for tk in w:
-        by_sector.setdefault(sector_of.get(tk, "Unknown"), []).append(tk)
+        by_sector.setdefault(sector_of.get(tk, UNCLASSIFIED_SECTOR), []).append(tk)
     for sec in sorted(by_sector):
+        # Track B — unclassified names form no sector: trimming them as one
+        # fabricated bucket would enforce a correlation claim nobody evidenced.
+        if sec == UNCLASSIFIED_SECTOR:
+            continue
         total = sum(w[tk] for tk in by_sector[sec])
         if total <= sector_cap + _TOL:
             continue
@@ -1070,9 +1086,12 @@ def _redistribute(w: dict, *, released: float, order: list, caps: dict,
         if held <= _TOL and max_positions > 0 and \
                 sum(1 for v in w.values() if v > _TOL) >= max_positions:
             continue
-        sec = sector_of.get(tk, "Unknown")
+        sec = sector_of.get(tk, UNCLASSIFIED_SECTOR)
+        # Track B — an unclassified name consumes no fabricated sector budget.
+        sec_room = (float("inf") if sec == UNCLASSIFIED_SECTOR
+                    else sector_cap - used_sector.get(sec, 0.0))
         room = min(caps.get(tk, 0.0) - held,
-                   sector_cap - used_sector.get(sec, 0.0),
+                   sec_room,
                    float(policy.get("max_gross_exposure", 1.0)) - invested,
                    remaining)
         if room_fn is not None:
@@ -1127,9 +1146,10 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
         for tk in order:
             if tk == donor:
                 continue
-            sec = sector_of.get(tk, "Unknown")
-            room = min(caps.get(tk, 0.0) - w.get(tk, 0.0),
-                       sector_cap - used_sector.get(sec, 0.0))
+            sec = sector_of.get(tk, UNCLASSIFIED_SECTOR)
+            sec_room = (float("inf") if sec == UNCLASSIFIED_SECTOR
+                        else sector_cap - used_sector.get(sec, 0.0))
+            room = min(caps.get(tk, 0.0) - w.get(tk, 0.0), sec_room)
             if room_fn is not None:
                 room = min(room, room_fn(tk, w, donor))
             if room >= step - _TOL and (w.get(tk, 0.0) > _TOL or step >= min_w):
@@ -1235,11 +1255,13 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
             continue
         take = math.copysign(min(abs(d), 2.0 * room_turnover), d)
         if take > 0:
-            sec = sector_of.get(tk, "Unknown")
+            sec = sector_of.get(tk, UNCLASSIFIED_SECTOR)
             used_sector = sum(v for t, v in w.items()
-                              if sector_of.get(t, "Unknown") == sec)
+                              if sector_of.get(t, UNCLASSIFIED_SECTOR) == sec)
+            sec_room = (float("inf") if sec == UNCLASSIFIED_SECTOR
+                        else sector_cap - used_sector)
             take = min(take, caps.get(tk, 0.0) - w.get(tk, 0.0),
-                       sector_cap - used_sector,
+                       sec_room,
                        float(policy.get("max_gross_exposure", 1.0)) - sum(w.values()))
             if room_fn is not None:
                 take = min(take, room_fn(tk, w))
@@ -1351,10 +1373,17 @@ def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
                                "value": _r(w[tk], 8),
                                "limit": _r(pol["min_position_weight"], 8)})
     sector_weight: dict[str, float] = {}
+    unclassified_tickers: list[str] = []
     for tk, v in w.items():
-        sec = sector_of.get(tk, "Unknown")
+        sec = sector_of.get(tk, UNCLASSIFIED_SECTOR)
         sector_weight[sec] = sector_weight.get(sec, 0.0) + v
+        if sec == UNCLASSIFIED_SECTOR and v > _TOL:
+            unclassified_tickers.append(tk)
     for sec in sorted(sector_weight):
+        # Track B — unclassified weight is a reported data-quality state, never a
+        # fabricated sector that can fail the target's feasibility.
+        if sec == UNCLASSIFIED_SECTOR:
+            continue
         if sector_weight[sec] > float(pol["sector_cap_fraction"]) + 1.0e-9:
             violations.append({"code": C_SECTOR_CAP, "sector": sec,
                                "value": _r(sector_weight[sec], 8),
@@ -1379,6 +1408,9 @@ def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
         "cash_weight": _r(cash, 6),
         "position_count": live,
         "sector_weights": {k: _r(v, 6) for k, v in sorted(sector_weight.items())},
+        "unclassified_sector_weight": _r(
+            sector_weight.get(UNCLASSIFIED_SECTOR, 0.0), 6),
+        "unclassified_sector_tickers": sorted(unclassified_tickers),
         "asset_class_weights": {k: _r(v, 6) for k, v in sorted(g["by_class"].items())},
         "sleeve_weights": {k: _r(v, 6) for k, v in sorted(g["by_sleeve"].items())},
         "non_usd_exposure": _r(g["non_usd"], 6),
@@ -1701,4 +1733,6 @@ __all__ = [
     "C_ASSET_CLASS_CAP", "C_SLEEVE_CAP", "C_CURRENCY_CAP", "C_COLLATERAL_CAP",
     "C_UNIT_GRANULARITY", "candidate_meta", "cross_asset_room", "allocation_by",
     "cross_asset_relevant", "group_add", "empty_groups",
+    # Track B - missing sector classification is data quality, not a sector.
+    "UNCLASSIFIED_SECTOR",
 ]

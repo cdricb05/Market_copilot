@@ -360,7 +360,17 @@ def _sector_weights(rows: list, weight_key: str) -> dict:
 
 
 def _max_sector_weight(sector_weights: dict) -> Optional[float]:
-    return max(sector_weights.values()) if sector_weights else None
+    """Largest KNOWN sector weight. Track B — "Unknown" is a missing
+    classification (a data-quality state), never a sector: counting it here let a
+    31.7% unclassified bucket masquerade as the book's largest "sector" and trip
+    the complete-target sector cap. Its weight is reported separately."""
+    known = [v for k, v in sector_weights.items()
+             if k != hoc_kernel.UNCLASSIFIED_SECTOR]
+    return max(known) if known else None
+
+
+def _unclassified_weight(sector_weights: dict) -> float:
+    return float(sector_weights.get(hoc_kernel.UNCLASSIFIED_SECTOR, 0.0) or 0.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -597,7 +607,10 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     for p in positions:
         tk = p.get("ticker")
         if tk:
-            sector_of[tk] = p.get("sector") or (urows.get(tk) or {}).get("sector") or "Unknown"
+            # Track B — the literal "Unknown" on a position row is MISSING data and
+            # must not shadow the canonical universe-row sector.
+            sector_of[tk] = hoc_kernel.known_sector(
+                p.get("sector"), (urows.get(tk) or {}).get("sector")) or "Unknown"
             pos_by[tk] = p
     # Release 50 - instrument metadata for the cross-asset limits (equity defaults
     # for every row that carries none, so an equity-only book is unchanged).
@@ -1228,6 +1241,10 @@ def _risk_block(*, current_weight: dict, proposed_weight: dict, sector_of: dict,
         "largest_position_after": _r(largest_after, 6),
         "sector_concentration_before": _r(max_sec_before, 6),
         "sector_concentration_after": _r(max_sec_after, 6),
+        # Track B — missing classification reported as data quality, never counted
+        # as the largest "sector" of the target.
+        "unclassified_sector_weight_before": _r(_unclassified_weight(sec_before), 6),
+        "unclassified_sector_weight_after": _r(_unclassified_weight(sec_after), 6),
         "sector_weights_before": {k: _r(v, 6) for k, v in sorted(sec_before.items())},
         "sector_weights_after": {k: _r(v, 6) for k, v in sorted(sec_after.items())},
         "portfolio_volatility_before": _r(vol_before, 6),
