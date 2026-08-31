@@ -285,10 +285,11 @@ class TestFastEvidenceCohort:
         for s in CH.ALL_SPECS:
             for h in s["horizons"]:
                 counts[h] = counts.get(h, 0) + 1
-        # the field was 5 / 9 / 21 before this release
+        # the field was 5 / 9 / 21 before this release; Release 51's FX-carry
+        # cell added one 5-day and one 20-day horizon through the same door
         assert counts[1] == 7
-        assert counts[5] == 14
-        assert counts[20] == 21
+        assert counts[5] == 15
+        assert counts[20] == 22
 
     def test_no_new_challenger_uses_a_20_day_horizon(self):
         for s in CH.R46_6_SPECS:

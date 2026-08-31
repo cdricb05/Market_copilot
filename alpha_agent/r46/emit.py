@@ -99,6 +99,8 @@ def _data_cutoff(book: dict, spec: dict):
         "_pead_announcement_return": ("SPY",),
         "_insider_cluster_buy": ("SPY",),
         "_insider_net_purchase_xs": ("SPY",),
+        # Release 51 - the FX carry cell's inputs are the FX futures curves.
+        "_fx_carry_cip": ("&6E", "&6J"),
     }.get(owner, ("SPY",))
     seen = [MD.last_session(s) for s in probe]
     seen = [d for d in seen if d is not None]

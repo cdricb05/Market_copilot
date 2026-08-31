@@ -1,6 +1,103 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-08-30
+- **Updated by phase:** **Release 51 - Non-Equity Alpha Qualification &
+  Operational Promotion Offensive (single agent, no subagents, Windows
+  PowerShell only).** Built on R50 commit
+  `b1d588e97c8d84fa1de27219fcd75e64a6d73c61`.
+  **`R51_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell tool-uses,
+  zero subagents (`shell_attestation.json`).
+  **The mission.** R50 left every non-equity sleeve behind exactly ONE
+  blocker: `NO_APPROVED_OPERATIONAL_SIGNAL` - an evidence gate. R51 attacked
+  that gate without inventing evidence: it built the ONE promotion frontier,
+  measured every sleeve's honest distance to a legitimate approval, closed
+  every gap that could be closed today, and left the project waiting ONLY
+  where genuine future outcomes are unavoidable.
+  **The honest headline: PROMOTION_READY_COUNT = 0.** The R46 tournament is
+  three sessions old (104 emitted, 3 matured, best cell holds 2 effective
+  independent observations against a floor of 24-60). No shortcut to that
+  evidence exists and none was taken. The frontier
+  (`alpha_agent/r51/promotion_frontier.py`, PURE - every input injected,
+  the score never replaces `FORWARD_EVIDENCE_GATES`) ranks the field:
+  equity-index futures ~4.8 weeks to the evidence floor at projected
+  velocity, volatility ~7.8 (its first matured VX forward observation
+  arrived in-release: -192 bps net on one decision - one row decides
+  nothing), commodities / FX / multi-asset trend ~24, event-macro and rates
+  ~40; crypto BLOCKED (R42 verdict stands, both adopted shadows retired);
+  every structural deficit named per sleeve
+  (`promotion_frontier.json`, `promotion_distance_ranking.json`).
+  **ONE new challenger frozen - the one missing family.** FX carry never
+  had a prospective clock (R36 IC 0.155 t 7.97 was historical only).
+  `r51_fx_xs_carry_cip` (cohort `R51_NON_EQUITY_PROMOTION` in
+  `alpha_agent/r46/challengers.py`, owner `_fx_carry_cip`) reads
+  covered-interest-parity carry from the OWNED dated FX futures curves via
+  the same frozen `futures_curve_carry` arithmetic the commodity cell has
+  used since R46.3 - no external rate feed; thirds across the eight CME
+  currency futures (&DX excluded); control cash; FX_FUTURES costs; horizons
+  5/20; parameters canonical (Koijen-Moskowitz-Pedersen-Vrugt /
+  Lustig-Roussanov-Verdelhan), NO sweep, ZERO new historical trials (burden
+  unchanged 353/355). Registered through the canonical door
+  (41 challengers, `retune_free`, zero prior freezes moved) and its first
+  TWO TRUE_FORWARD predictions were emitted through ONE canonical
+  `advance()` on 2026-08-30 21:49Z - entering Monday 2026-08-31's close,
+  emitted before the outcome window opened; 34 duplicate cells were
+  refused by the chain ledger exactly as designed. Six adjacent avenues
+  DECLINED with written reasons (`R51_DECLINED`: PPP value, intl
+  short-rate xs, ML futures xs, crypto revival, VX variants, micro-yield
+  purchase).
+  **Micro-contract truth (rates granularity).** No owned rates contract
+  fits the 10% name cap at the $99,383 NAV (smallest: ZF ~$106k; minimum
+  NAV ~$1.06M); CME micro yield futures are NOT in the entitlement
+  (verified against all 124 dated + 112 continuous roots) - a
+  purchase-gate question, nothing bought. Owned micros that DO exist:
+  MES $38.6k / MNQ $59k / M2K $14.9k / MYM $26.8k, MBT $7.8k / MET $245;
+  VX $16.9k is the smallest non-crypto unit
+  (`micro_contract_feasibility.json`). No risk limit was relaxed.
+  **R50 integration proven for the top five sleeves** (equity-index,
+  volatility, commodity, FX, rates) via the hermetic `approvals=` seam:
+  injected approval derives CAPITAL_ELIGIBLE (and without it stays
+  ineligible), frontier consumes the sleeve at
+  `OPERATIONAL_SLEEVE_NORMALISED_RANK`, constraint owner reshapes under
+  the quarter caps, one unit values from owned reference data, execution +
+  NAV certified by the R50 suite re-run green
+  (`r50_integration_proofs.json`). Five manual-review pre-packets written,
+  every decision `CONTINUE_OBSERVATION` (`promotion_packets/`).
+  **Cadence is the binding constraint and it is named:** every session the
+  daily cycle does not run forfeits ~34 emissions permanently; Monday
+  2026-08-31 is the FIRST month-end decision for the adopted R39/R40
+  continuation lanes and the next VX-Friday is 2026-09-04
+  (`forward_evidence_status.json`). R51 changed no scheduler.
+  **Evidence.** 20 new tests (`tests/test_release51_promotion_offensive.py`);
+  634 passed / 0 failed across R51 + all R46.x + R50 suites (three R46 test
+  files extended by the sanctioned cohort-growth pattern);
+  `audit_architecture.py --strict` exit 0. Operational stores **byte-identical**
+  (`c5537bbc...`, 60 files) before and after; the research delta is EXACTLY
+  the canonical owners' writes (registry +1 challenger, append-only ledgers
+  +2 predictions +1 outcome, rebuilt read models, lane captures), chains
+  intact, verdict CLEAN (`research_delta_verification.json`). Zero
+  production mutations, approvals, orders, fills, promotions, purchases.
+- **Working tree status (R51):** New: `alpha_agent/r51/__init__.py`,
+  `alpha_agent/r51/promotion_frontier.py`,
+  `tests/test_release51_promotion_offensive.py`,
+  `docs/RELEASE51_NON_EQUITY_PROMOTION_OFFENSIVE.md`. Modified:
+  `alpha_agent/r46/challengers.py` (R51 cohort appended; no earlier tuple
+  touched), `alpha_agent/r46/emit.py` (+1 data-cutoff probe),
+  `alpha_agent/r46/feasibility.py` (+1 probe entry),
+  `tests/test_release46_3_prospective_throughput.py`,
+  `tests/test_release46_4_pnl_offensive.py`,
+  `tests/test_release46_6_forward_economic_discrimination.py`, and this
+  file. Handoff:
+  `D:\Temp\paper_trader_release51_non_equity_promotion_offensive_handoff`.
+- **Next required action (R51):** `validate.ps1` -> `R51_VALIDATE_OK`, then
+  `operator_full_regression.ps1`, then `commit.ps1`, then `push.ps1` (same
+  session), **before Monday evening's daily cycle** so the backend runs the
+  tree that knows the FX-carry challenger. Monday's cycle after the close
+  emits the adopted R39/R40 continuation lanes' first-ever rows and matures
+  the Friday/Sunday batch's first entries.
+
+## Release 50 (superseded as the current phase; result unchanged)
+
+- **Last updated:** 2026-08-30
 - **Updated by phase:** **Release 50 - Multi-Asset Operational Capital
   Manager: ONE capital pool, ONE multi-asset NAV, ONE position contract, ONE
   investability registry, ONE cross-asset risk state, ONE opportunity

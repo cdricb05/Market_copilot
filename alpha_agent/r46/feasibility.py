@@ -83,6 +83,9 @@ _PROBE_SYMBOLS = {
     "_cot_xs_commercial": ("&ES", "&ZN", "&CL", "&GC"),
     "_credit_shock_spx": ("SPY", "HYG"),
     "_eq_xs_rev_variant": ("SPY", "AAPL", "MSFT"),
+    # Release 51 - FX carry reads the dated FX futures curves; the probe
+    # checks the tradeable continuous expressions are alive, never the signal.
+    "_fx_carry_cip": ("&6E", "&6J", "&6A"),
 }
 
 

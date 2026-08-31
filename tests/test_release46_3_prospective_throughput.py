@@ -121,10 +121,12 @@ def test_registering_the_union_preserves_every_seed_freeze(sandbox,
             assert c["cohort"] == "R46_SEED"
         else:
             assert c["frozen_at"] == FROZEN_AT_2, cid
-            # Releases 46.4, 46.5 and 46.6 register their cohorts through the
-            # same door: a later cohort never re-freezes an earlier one.
+            # Releases 46.4, 46.5, 46.6 and 51 register their cohorts
+            # through the same door: a later cohort never re-freezes an
+            # earlier one.
             assert c["cohort"] in (CH.EXPANSION_COHORT, CH.R46_4_COHORT,
-                                   CH.R46_5_COHORT, CH.R46_6_COHORT)
+                                   CH.R46_5_COHORT, CH.R46_6_COHORT,
+                                   CH.R51_COHORT)
     assert union["retune_free"] is True
     assert union["n_r46_challengers"] == len(CH.ALL_SPECS)
 
@@ -165,7 +167,7 @@ def test_no_duplicate_ids_and_no_duplicate_identity_slots():
     assert len(ids) == len(set(ids))
     assert len(ids) == (len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS)
                         + len(CH.R46_4_SPECS) + len(CH.R46_5_SPECS)
-                        + len(CH.R46_6_SPECS))
+                        + len(CH.R46_6_SPECS) + len(CH.R51_SPECS))
     slots = [(s["challenger_id"], s["challenger_version"], s["instrument"])
              for s in CH.ALL_SPECS]
     assert len(slots) == len(set(slots))
@@ -234,7 +236,9 @@ def test_expanded_emission_is_true_forward_and_idempotent(sandbox,
     # emission covers EVERY challenger-horizon cell exactly once, which is
     # what _expected_cells() measures.
     assert first["n_appended"] == _expected_cells()
-    assert _expected_cells() == 42
+    # 42 cells at R46.6; Release 51 added one FX-carry challenger with two
+    # horizon cells.
+    assert _expected_cells() == 44
     second = EM.emit(TEST_CAMPAIGN, reg, now)
     assert second["n_appended"] == 0
     assert second["n_duplicates_skipped"] == first["n_appended"]

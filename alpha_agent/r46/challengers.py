@@ -1358,8 +1358,116 @@ R46_6_SPECS = (
     ),
 )
 
+R51_COHORT = "R51_NON_EQUITY_PROMOTION"
+
+#: Release 51 - the non-equity promotion offensive freezes exactly ONE new
+#: challenger, because exactly ONE economically distinct non-equity family was
+#: missing from the field: FX carry. Every parameter below is a canonical
+#: constant declared before this rule first read a bar to be selected. No
+#: sweep ran, no cell was ranked, no winner was picked, and nothing was chosen
+#: by looking at any forward outcome. The thirds sort is the published
+#: carry-portfolio convention (Lustig-Roussanov-Verdelhan); the curve-slope
+#: carry definition is Koijen-Moskowitz-Pedersen-Vrugt, and it is the SAME
+#: frozen arithmetic the commodity curve-carry cell has used since R46.3
+#: (``marketdata.futures_curve_carry``). The horizons mirror that sibling
+#: cell's, unchanged.
+R51_CANONICAL_CONSTANTS = {
+    "statement": (
+        "declared constants, fixed before this rule read a bar to be "
+        "selected, and none of them chosen by looking at any matured forward "
+        "outcome"),
+    "fx_carry_leg_fraction": 1 / 3.0,   # thirds - the published convention
+    "fx_carry_min_pairs": MIN_FX_PAIRS,  # the seed contract's FX floor
+    "fx_carry_slope": "ln(front/next) * 12 / months_between",
+}
+K51 = R51_CANONICAL_CONSTANTS
+
+#: Declared and DECLINED, so each absence is a recorded decision rather than
+#: a hypothesis quietly dropped.
+R51_DECLINED = {
+    "fx_ppp_value_xs": (
+        "purchasing-power value needs a per-country CPI panel with declared "
+        "vintages; the owned Economic database was not audited for that in "
+        "this release and a value cell frozen on unaudited vintages would be "
+        "a PIT liability, not a challenger. Declined until the data path is "
+        "proven."),
+    "intl_short_rate_xs_carry": (
+        "an international short-rate futures cross-section (&SR3/&SO3/&LEU/"
+        "&CRA/&YIR) would express the SAME interest-differential premium the "
+        "FX carry cell trades, through rates instruments, and the adopted R40 "
+        "international rates carry shadow already continues month-end through "
+        "the R46.6.1 continuation ledger. A third expression of one premium "
+        "is a correlated copy, not independent evidence."),
+    "ml_futures_cross_section": (
+        "the futures cross-section holds ~30 markets; an ML model on 30 "
+        "observations per date is an overfitting engine, and the equity ML "
+        "cells already test the model families where the cross-section is "
+        "wide enough to support them."),
+    "crypto_funding_or_basis_revival": (
+        "R42 priced the crypto basis premium below remunerated cash "
+        "collateral on its correct control and R46.6.1 retired both adopted "
+        "crypto shadows until their venue data can accrue. No new "
+        "economically distinct crypto hypothesis exists in this release, so "
+        "nothing is resurrected."),
+    "vx_fast_or_slow_variants": (
+        "the volatility family already carries a 1-day and a 5-day carry "
+        "cell plus the adopted R39 weekly shadow, declared as ONE dependence "
+        "cluster. Multiplying expressions of one curve is forbidden by the "
+        "same rule R46.6 recorded."),
+    "micro_yield_futures_challenger": (
+        "CME micro Treasury yield futures are not in the owned Norgate "
+        "entitlement (verified against all 124 dated roots), so no PIT "
+        "history exists to freeze against. Acquiring them is a purchase-gate "
+        "question for the operator, never a research module's decision."),
+}
+
+R51_SPECS = (
+    _spec(
+        challenger_id="r51_fx_xs_carry_cip",
+        family="FX_CARRY",
+        asset_class="FX",
+        instrument="BOOK:FX_FUTURES_CARRY_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(5, 20),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="FX_FUTURES",
+        universe="the eight CME currency futures (AUD, GBP, CAD, EUR, JPY, "
+                 "MXN, NZD, CHF), each quoted USD per foreign unit; the "
+                 "dollar-index basket &DX is excluded because a basket is "
+                 "not a currency leg",
+        thesis="covered interest parity makes the FX futures curve the "
+               "market's own print of the short-rate differential: when the "
+               "front contract trades above the next, the foreign short rate "
+               "exceeds the USD rate and a long position is paid that "
+               "differential as the contract converges. Cross-sectionally, "
+               "high-carry currencies have historically outperformed "
+               "low-carry currencies - the carry premium - and the curve "
+               "slope is the exact carry definition of "
+               "Koijen-Moskowitz-Pedersen-Vrugt, read from owned dated "
+               "contracts with no external rate feed",
+        parameters={"leg_fraction": K51["fx_carry_leg_fraction"],
+                    "min_pairs": K51["fx_carry_min_pairs"],
+                    "slope": K51["fx_carry_slope"],
+                    "skip_spot_month": True},
+        signal_owner="_fx_carry_cip",
+        cohort=R51_COHORT,
+        information_family="FUTURES_CURVE",
+        dependence_cluster="FX_CARRY",
+        economic_overlap_with=("R36:fx_carry_rank_historical",
+                               "R43:fx_carry_timing_historical"),
+        overlap_note="the carry FAMILY was nominated by historical work that "
+                     "was never frozen prospectively: R36 measured a "
+                     "cross-sectional carry rank IC of 0.155 (t 7.97, "
+                     "historical only) and R43 found the premium real but "
+                     "its timing signal zero. Under the R46 contract that "
+                     "history confers NO forward credit; this challenger's "
+                     "forward clock starts at zero at its freeze instant",
+    ),
+)
+
 ALL_SPECS = (SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
-             + R46_6_SPECS)
+             + R46_6_SPECS + R51_SPECS)
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -1901,6 +2009,59 @@ def _commodity_curve_carry(spec: dict) -> dict:
     return {"state": "OK", "legs": legs, "n_scored": len(scores),
             "curves": curves, "marks": marks, "skipped": skipped,
             "cost_class_by_leg": {l["instrument"]: "COMMODITY_FUTURES"
+                                  for l in legs}}
+
+
+#: The eight CME currency futures, USD per foreign unit. &DX is a basket,
+#: not a currency leg, and is excluded by declaration.
+FX_CARRY_MARKETS = tuple(s for s in FUTURES_GROUPS["FX_FUTURES"]
+                         if s != "&DX")
+
+
+def _fx_carry_cip(spec: dict) -> dict:
+    """Front/next FX futures curve slope per currency, thirds.
+
+    Covered interest parity: for a USD-per-foreign contract the annualised
+    front/next slope IS the short-rate differential (foreign minus USD), so
+    the curve prints the carry with no external rate feed. The signal comes
+    from the dated curve through the SAME frozen arithmetic the commodity
+    curve-carry cell has used since R46.3; the tradeable expression stays the
+    continuous series, whose bars keep printing through the outcome window.
+    """
+    p = spec["parameters"]
+    ref = CK.eastern_date(CK.now_utc())
+    scores, marks, curves, skipped = {}, {}, [], []
+    for sym in FX_CARRY_MARKETS:
+        root = sym.lstrip("&")
+        cv = MD.futures_curve_carry(root, ref)
+        if cv.get("state") != "OK":
+            skipped.append({"instrument": sym, "why": cv.get("state")})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_CONTINUOUS_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        scores[sym] = float(cv["carry_annualised"])
+        curves.append({"instrument": sym, "carry": scores[sym],
+                       "front": cv["front"]["symbol"],
+                       "next": cv["next"]["symbol"],
+                       "months_between": cv["months_between"]})
+    if len(scores) < int(p["min_pairs"]):
+        return {"state": "INSUFFICIENT_PAIRS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    k = max(1, int(round(len(scores) * float(p["leg_fraction"]))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:                    # long high carry
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": "FX_FUTURES"})
+    for sym, sc in order[:k]:                     # short low carry
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": "FX_FUTURES"})
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "curves": curves, "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: "FX_FUTURES"
                                   for l in legs}}
 
 
@@ -2786,6 +2947,7 @@ def _eq_xs_rev_variant(spec: dict) -> dict:
 
 
 _OWNERS = {
+    "_fx_carry_cip": _fx_carry_cip,
     "_insider_cluster_fast": _insider_cluster_fast,
     "_cot_xs_commercial": _cot_xs_commercial,
     "_credit_shock_spx": _credit_shock_spx,
