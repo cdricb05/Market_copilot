@@ -1466,8 +1466,150 @@ R51_SPECS = (
     ),
 )
 
+R52_COHORT = "R52_PARALLEL_ALPHA_OFFENSIVE"
+
+#: Release 52 - two economically independent challengers, frozen while the
+#: persistent research runtime was being built, so evidence accrual and
+#: engineering never waited on each other. Every parameter is a canonical
+#: constant fixed before either rule read a bar to be selected: the 12-1
+#: formation is the seed contract's published-momentum convention, thirds are
+#: the published portfolio convention, 63 sessions is one business-calendar
+#: quarter, and the six-market floor mirrors the seed contract's FX floor for
+#: a small cross-section. No sweep ran, no cell was ranked, no winner was
+#: picked, and nothing was chosen by looking at any matured forward outcome.
+R52_CANONICAL_CONSTANTS = {
+    "statement": (
+        "declared constants, fixed before these rules read a bar to be "
+        "selected, and none of them chosen by looking at any matured "
+        "forward outcome"),
+    "eqidx_leg_fraction": 1 / 3.0,      # thirds - the published convention
+    "eqidx_min_markets": MIN_FX_PAIRS,  # the seed contract's small-complex floor
+    "lead_lag_lookback_days": 63,       # one business-calendar quarter
+}
+K52 = R52_CANONICAL_CONSTANTS
+
+#: Declared and DECLINED - each absence is a recorded decision, mirroring the
+#: R51 convention, so no hypothesis is quietly dropped.
+R52_DECLINED = {
+    "comdty_xs_basis_momentum": (
+        "the canonical basis-momentum factor (Boons-Prado, JF 2019) is the "
+        "twelve-month return difference between the front and second-nearby "
+        "strips, which needs a per-session historical front/next contract "
+        "identification across the whole formation window. The owned dated "
+        "database can support that reconstruction, but no frozen calculation "
+        "owner for it exists yet, and freezing a simplified proxy (an "
+        "average of point-in-time curve slopes) would be a self-invented "
+        "parameterisation, not a canonical constant. Declined until the "
+        "reconstruction owner exists and is tested."),
+    "fx_carry_x_trend_interaction": (
+        "a conditional double-sort of FX carry on FX trend would combine two "
+        "LIVE cells (r51_fx_xs_carry_cip, one day into its forward clock, "
+        "and r46_fx_xs_mom_252) into a third expression of the same two "
+        "information sets. R44 measured the combination frontier and the "
+        "answer did not depend on the weighting scheme; conditioning a "
+        "one-day-old clock before a single outcome matured adds correlated "
+        "expression, not independent information."),
+    "comdty_curve_x_trend_interaction": (
+        "same reasoning as the FX interaction: FUTURES_CURVE and "
+        "FUTURES_TREND_PRICE both already carry live cells; their "
+        "conditional combination is a correlated re-expression under the "
+        "R44 combination-frontier finding, and both parents' forward clocks "
+        "are still immature."),
+    "vix_regime_spx_timing": (
+        "signing SPX exposure by the VX term structure combines information "
+        "that already trades in two live cells (the VX carry cluster and "
+        "the credit-regime SPX timing cell, which expresses the same "
+        "risk-on/risk-off premium through a different spread). A third "
+        "regime-timing expression of SPX is a dependence-cluster clone."),
+    "ml_futures_cross_section": (
+        "unchanged from R51: ~30 markets per date is an overfitting engine; "
+        "the equity ML cells already test model families where the "
+        "cross-section supports them."),
+    "crypto_revival": (
+        "unchanged from R42/R51: no new economically distinct hypothesis; "
+        "the venue data still cannot accrue; nothing is resurrected."),
+}
+
+R52_SPECS = (
+    _spec(
+        challenger_id="r52_eqidx_xs_rel_mom_12_1",
+        family="CROSS_SECTIONAL_MOMENTUM",
+        asset_class="EQUITY_INDEX",
+        instrument="BOOK:EQIDX_XS_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="EQUITY_INDEX_FUTURES",
+        universe="the eight declared liquid equity-index futures (&ES, &NQ, "
+                 "&YM, &RTY, &EMD, &NKD, &FDAX, &FESX): US large/mid/small "
+                 "cap, tech, Japan and Europe",
+        thesis="relative 12-1 strength WITHIN the equity-index complex is a "
+               "rotation bet across size, sector tilt and geography (large "
+               "vs small, tech vs broad, US vs Japan vs Europe) - a "
+               "dollar-neutral book inside one asset class. The all-futures "
+               "cross-sectional book almost always holds the equity indices "
+               "as one bloc against other asset classes, so it rarely "
+               "expresses this rotation at all; the R51 promotion frontier "
+               "ranks equity-index futures closest to an operational "
+               "decision, which is where independent evidence is worth most",
+        parameters={"formation_days": K["momentum_formation_days"],
+                    "skip_days": K["momentum_skip_days"],
+                    "leg_fraction": K52["eqidx_leg_fraction"],
+                    "min_markets": K52["eqidx_min_markets"]},
+        signal_owner="_eqidx_xs_rel_momentum",
+        cohort=R52_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="EQIDX_XS_PRICE",
+        economic_overlap_with=("r46_fut_ts_mom_252", "r46_3_fut_xs_mom_252",
+                               "r46_spx_trend_200d"),
+        overlap_note="shares the own-price information family with the "
+                     "futures trend and cross-sectional momentum books and "
+                     "declares that overlap; the BET differs (within-complex "
+                     "relative rotation, dollar-neutral, never a bloc-level "
+                     "direction), so it carries its own dependence cluster "
+                     "and the realised-correlation layer arbitrates",
+    ),
+    _spec(
+        challenger_id="r52_rates_copper_gold_lead",
+        family="CROSS_ASSET_LEAD_LAG",
+        asset_class="RATES",
+        instrument="&ZN",
+        prediction_type="DIRECTIONAL_SINGLE_INSTRUMENT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="RATES_FUTURES",
+        universe="&ZN, signed by the one-quarter change in ln(&HG/&GC) - "
+                 "the copper/gold ratio from owned continuous futures",
+        thesis="the copper/gold ratio is a real-economy growth print: "
+               "copper is priced by industrial demand and gold by safety "
+               "demand, so a rising ratio marks improving growth and "
+               "inflation expectations that the bond market historically "
+               "reprices with a lag. Rising ratio -> short duration, "
+               "falling -> long. The information set (industrial metal "
+               "relative pricing) is disjoint from every live rates cell, "
+               "which read the yield curve itself",
+        parameters={"numerator": "&HG", "denominator": "&GC",
+                    "lookback_days": K52["lead_lag_lookback_days"],
+                    "position": "short &ZN when the ratio rose over the "
+                                "quarter, long when it fell, flat when "
+                                "exactly unchanged"},
+        signal_owner="_rates_copper_gold_lead",
+        cohort=R52_COHORT,
+        information_family="CROSS_ASSET_LEAD_LAG",
+        dependence_cluster="RATES_CROSS_ASSET",
+        economic_overlap_with=("r46_rates_curve_rv_5d",
+                               "r46_3_rates_curve_carry"),
+        overlap_note="trades the same instrument (&ZN) as the curve cells, "
+                     "so book-level correlation is possible and declared; "
+                     "the SIGNAL reads commodity relative prices, an "
+                     "information family no live rates cell consumes",
+    ),
+)
+
 ALL_SPECS = (SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
-             + R46_6_SPECS + R51_SPECS)
+             + R46_6_SPECS + R51_SPECS + R52_SPECS)
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -2063,6 +2205,94 @@ def _fx_carry_cip(spec: dict) -> dict:
             "curves": curves, "marks": marks, "skipped": skipped,
             "cost_class_by_leg": {l["instrument"]: "FX_FUTURES"
                                   for l in legs}}
+
+
+def _eqidx_xs_rel_momentum(spec: dict) -> dict:
+    """Relative 12-1 strength WITHIN the equity-index futures complex, thirds.
+
+    Release 52. Same frozen arithmetic as every momentum cell
+    (:func:`marketdata.total_return` with the seed contract's formation and
+    skip constants); the universe is the declared equity-index group, so the
+    book is a rotation across size, sector tilt and geography rather than a
+    bloc-level direction.
+    """
+    p = spec["parameters"]
+    declared = FUTURES_GROUPS["EQUITY_INDEX_FUTURES"]
+    available = set(MD.continuous_futures())
+    scores, marks, skipped = {}, {}, []
+    window = int(p["formation_days"]) + int(p["skip_days"]) + 1
+    for sym in declared:
+        if sym not in available:
+            skipped.append({"instrument": sym, "why": "NOT_IN_DATABASE"})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        if MD.has_non_positive(s, window):
+            skipped.append({"instrument": sym, "why": MD.NON_POSITIVE_PRICE})
+            continue
+        v = MD.total_return(s, int(p["formation_days"]),
+                            skip=int(p["skip_days"]))
+        if v is not None:
+            scores[sym] = v
+    if len(scores) < int(p["min_markets"]):
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    k = max(1, int(round(len(scores) * float(p["leg_fraction"]))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": "EQUITY_INDEX_FUTURES"})
+    for sym, sc in order[:k]:
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": "EQUITY_INDEX_FUTURES"})
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: "EQUITY_INDEX_FUTURES"
+                                  for l in legs}}
+
+
+def _rates_copper_gold_lead(spec: dict) -> dict:
+    """Sign &ZN by the one-quarter change in ln(copper/gold).
+
+    Release 52. The ratio of the industrial metal to the safe-haven metal is
+    a real-economy growth print the bond market historically reprices with a
+    lag: a rising ratio marks improving growth/inflation expectations, so
+    duration is shorted; a falling ratio buys it.
+    """
+    p = spec["parameters"]
+    import numpy as _np
+    hg = MD.closes(str(p["numerator"]))
+    gc = MD.closes(str(p["denominator"]))
+    zn = MD.closes("&ZN")
+    if hg is None or gc is None or zn is None:
+        return {"state": "NO_DATA", "legs": []}
+    a, b = hg.align(gc, join="inner")
+    look = int(p["lookback_days"])
+    if len(a) < look + 1:
+        return {"state": "INSUFFICIENT_HISTORY", "legs": [],
+                "n_common_sessions": int(len(a))}
+    if MD.has_non_positive(a, look + 1) or MD.has_non_positive(b, look + 1):
+        return {"state": MD.NON_POSITIVE_PRICE, "legs": []}
+    ratio_now = float(_np.log(float(a.iloc[-1]) / float(b.iloc[-1])))
+    ratio_then = float(_np.log(float(a.iloc[-1 - look])
+                               / float(b.iloc[-1 - look])))
+    delta = ratio_now - ratio_then
+    marks = {"&ZN": float(zn.iloc[-1])}
+    if delta == 0.0:
+        return {"state": "OK", "legs": [], "ratio_delta": delta,
+                "marks": marks}
+    direction = -1.0 if delta > 0 else 1.0
+    legs = [{"instrument": "&ZN", "weight": direction, "score": delta,
+             "side": "LONG" if direction > 0 else "SHORT",
+             "cost_class": "RATES_FUTURES"}]
+    return {"state": "OK", "legs": legs, "ratio_delta": delta,
+            "ratio_lookback_sessions": look,
+            "marks": marks,
+            "cost_class_by_leg": {"&ZN": "RATES_FUTURES"}}
 
 
 def _rates_macro_curve(spec: dict) -> dict:
@@ -2948,6 +3178,8 @@ def _eq_xs_rev_variant(spec: dict) -> dict:
 
 _OWNERS = {
     "_fx_carry_cip": _fx_carry_cip,
+    "_eqidx_xs_rel_momentum": _eqidx_xs_rel_momentum,
+    "_rates_copper_gold_lead": _rates_copper_gold_lead,
     "_insider_cluster_fast": _insider_cluster_fast,
     "_cot_xs_commercial": _cot_xs_commercial,
     "_credit_shock_spx": _credit_shock_spx,

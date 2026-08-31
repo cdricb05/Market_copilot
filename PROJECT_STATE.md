@@ -1,5 +1,127 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-08-31
+- **Updated by phase:** **Release 52 - Persistent Prospective Research
+  Runtime + Forward-Evidence Reliability + Parallel Alpha Throughput
+  Offensive (Track A; single agent, no subagents, Windows PowerShell
+  only).** Built on R51 commit `0fd3f965d31b84cab1d95b2812866719d1eb723c`.
+  **`R52_SHELL_POLICY_VIOLATION = FALSE`** - zero prohibited shell
+  tool-uses, zero subagents (`shell_attestation.json`).
+  **The mission.** R51 named the binding constraint: forward evidence
+  accrues only when a person runs the daily cycle, a skipped session
+  forfeits ~34 emissions PERMANENTLY, and the only scheduled task in the
+  estate (`PaperTrader-InformationCollection`) is LogonTrigger-only and
+  never runs the research advance at all - the 2026-08-25 VX decision was
+  lost exactly this way, and 2026-08-31 was the adopted R39/R40 lanes'
+  FIRST month-end decision. R52 made prospective capture durable,
+  session-aware, idempotent and fail-closed, made every lost window a
+  first-class record, and kept alpha discovery moving in parallel.
+  **ONE derived timing contract** (`alpha_agent/r52/timing_contract.py`):
+  every rule quoted from its canonical owner (r46 clock / lanes /
+  adopted_forward / marketdata); the derived slot-quality policy
+  suppresses weekday emission until the owned nightly refresh lands
+  (a morning emission would freeze yesterday's inputs into tomorrow's
+  entry slot - the ledger key makes the FIRST emission win), fails OPEN to
+  a legal stale emission at the final retry, and treats weekends as
+  duplicate-safe. The scheduler consumes the contract's invocation plan
+  and adds no rule (audit-enforced against drift).
+  **ONE runtime path** (`alpha_agent/r52/runtime.py`,
+  `research_runtime_cycle()`): chain verification BEFORE any write
+  (fail-closed `RUN_FAILED_INTEGRITY`), the ONE canonical
+  `alpha_agent.r46.advance.advance` under a NEW campaign lock
+  (`alpha_agent/r46/runlock.py` - create-exclusive, bounded wait, dead-PID
+  reclaim; DRC and scheduled runtime can no longer interleave ledger
+  writes, the R46.5 lost-update class is closed structurally), forfeiture
+  sweep, operational velocity, R51 frontier refresh, ONE health read model
+  (`GET /v1/research/runtime-health`, `api/research_runtime.py`). Stage
+  vocabulary SUCCESS / NOT_DUE / PIT_BLOCKED / DATA_BLOCKED / FORFEITED /
+  FAILED_RETRYABLE / FAILED_INTEGRITY; one lane's failure never stops
+  another.
+  **Forfeiture is first-class state** (`alpha_agent/r52/forfeiture.py`):
+  append-only chain-hashed ledger (canonical desk primitives), idempotent
+  on (lane, scope, decision_date), every row `backfill_refused: true` and
+  the append REFUSES anything else. Row #1 is the mirrored 2026-08-25 VX
+  structural loss. `velocity_ops.py` splits SCIENTIFICALLY_SLOW (calendar)
+  from OPERATIONALLY_MISSED (runtime) per week.
+  **The Windows task is INSTALLED; principal migration to S4U PENDING**:
+  `PaperTrader-ResearchRuntime`, four daily triggers (08:15 sweep / 17:45
+  primary post-data / 19:45 retry / 21:45 fail-open), StartWhenAvailable,
+  IgnoreNew, 2h limit, bounded restart; installed 2026-08-31 ~09:57 ET so
+  the month-end window was protected by automation BEFORE the close. S4U
+  denied in the unelevated session -> Interactive principal. CORRECTION
+  (operator-found bug, same day): the installer's idempotency compared only
+  action + trigger times, so a requested S4U over an existing Interactive
+  task returned R52_TASK_UNCHANGED even with -Force. Fixed: equivalence now
+  compares the FULL definition including Principal.UserId/LogonType; a
+  principal mismatch without -Force is its own blocker (explicit -Force
+  migration required); a migration registers the requested logon type ONLY
+  (no silent Interactive fallback); the task validator now REQUIRES a
+  logged-out-capable principal (S4U/Password/ServiceAccount - Interactive
+  can never be R52_TASK_VALID); handoff validate.ps1 blocks with
+  R52_RESEARCH_RUNTIME_TASK_STILL_INTERACTIVE until the operator re-runs
+  the installer with `-PreferredLogonType S4U -Force` from an ELEVATED
+  PowerShell. First live cycle RUN_COMPLETED at 13:46Z: emission correctly
+  policy-suppressed (weekday morning, Friday data), chains intact, frontier
+  PROMOTION_READY = 0. Lifecycle scripts: install / validate / run-once /
+  disable - idempotent, exit-free, delete-nothing.
+  **Parallel alpha offensive: TWO new independent challengers frozen**
+  through the canonical registry door (cohort `R52_PARALLEL_ALPHA_OFFENSIVE`,
+  50 total, 43 active, `retune_free`, zero prior freeze stamps moved, ZERO
+  new historical trials - burden unchanged 353/355):
+  `r52_eqidx_xs_rel_mom_12_1` (relative 12-1 rotation WITHIN the
+  equity-index futures complex, thirds, h20, cluster `EQIDX_XS_PRICE` -
+  aimed at the sleeve R51 ranks CLOSEST to promotion; at freeze: long
+  &NQ/&RTY/&NKD short &FDAX/&YM/&ES) and `r52_rates_copper_gold_lead`
+  (sign &ZN by the quarterly change in ln(&HG/&GC), h20, NEW information
+  family `CROSS_ASSET_LEAD_LAG`; at freeze: short &ZN). Six hypotheses
+  declared and DECLINED with written reasons (`R52_DECLINED`:
+  basis-momentum needs a front/next reconstruction owner first; FX
+  carry x trend and commodity curve x trend are combinations of LIVE cells
+  under the R44 combination-frontier finding; VIX-regime SPX timing is a
+  cluster clone; ML futures xs and crypto revival unchanged).
+  **Guards.** `check_release52_persistent_research_runtime` (24 blocking
+  strict-audit invariants, incl. `installer_compares_principal` and
+  `validator_requires_logged_out_principal`);
+  `tests/test_release52_research_runtime.py`
+  (48 tests, scenarios A-S + Part I principal idempotency driven through
+  the real PowerShell decision probe); 668+ targeted tests green across R52 + all
+  R46.x + R51 + DRC + canonical restart; strict audit exit 0;
+  `LIVE_SMOKE_OK` on the restarted backend with the new route serving.
+  Three R46 baseline files updated under the sanctioned cohort-growth
+  pattern, plus one REAL find: the R46.2/46.3/46.6-era test helpers pinned
+  data freshness to 2026-08-25, which expired over the weekend once the
+  calendar moved past the feasibility MAX_LAG - freshness now derives from
+  the canonical clock (the condition those tests actually mean).
+  **Production untouched.** Portfolio cycle never called; holdings / cash /
+  NAV / orders / fills / approvals byte-identical
+  (`operational_before/after.json`); promotions 0; purchases $0.00.
+- **Working tree status (R52):** New: `alpha_agent/r52/` (6 modules),
+  `alpha_agent/r46/runlock.py`, `api/research_runtime.py`,
+  `scripts/run_research_runtime.py`, four task lifecycle `.ps1` scripts,
+  `tests/test_release52_research_runtime.py`,
+  `docs/RELEASE52_PERSISTENT_RESEARCH_RUNTIME.md`. Modified:
+  `alpha_agent/r46/advance.py` (campaign lock; stage body in
+  `_advance_locked`), `challengers.py` (+R52 cohort, no earlier tuple
+  touched), `emit.py` / `feasibility.py` (+2 probe entries each),
+  `api/app.py` (+1 GET route), `scripts/audit_architecture.py`,
+  `docs/architecture/system_inventory.json`, five R46 test files, and this
+  file. Handoff:
+  `D:\Temp\paper_trader_release52_persistent_research_runtime_handoff`.
+- **Next required action (R52):** FIRST, from an ELEVATED PowerShell:
+  `install_research_runtime_task.ps1 -PreferredLogonType S4U -Force`
+  (migrates the task principal; until then validate.ps1 reports
+  `DO_NOT_COMMIT - R52_RESEARCH_RUNTIME_TASK_STILL_INTERACTIVE`). Then
+  `validate.ps1` -> `R52_VALIDATE_OK`, then
+  `operator_full_regression.ps1` -> `COMMIT_OK`, then `commit.ps1`, then
+  `push.ps1` (same session). The scheduled task fires tonight at 17:45 /
+  19:45 / 21:45 ET on its own - the month-end continuation emissions and
+  the first R52-challenger emissions need NO operator action; tomorrow
+  morning's 08:15 sweep scores what matured and records any forfeiture.
+  Track B (today's operational Daily Close) remains the operator's manual
+  decision, untouched by any of this.
+
+## Release 51 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-08-30
 - **Updated by phase:** **Release 51 - Non-Equity Alpha Qualification &
   Operational Promotion Offensive (single agent, no subagents, Windows

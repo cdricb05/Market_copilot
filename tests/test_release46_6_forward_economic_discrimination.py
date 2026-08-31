@@ -286,10 +286,12 @@ class TestFastEvidenceCohort:
             for h in s["horizons"]:
                 counts[h] = counts.get(h, 0) + 1
         # the field was 5 / 9 / 21 before this release; Release 51's FX-carry
-        # cell added one 5-day and one 20-day horizon through the same door
+        # cell added one 5-day and one 20-day horizon through the same door,
+        # and Release 52's two cells (equity-index rotation, copper/gold
+        # lead-lag) each added one 20-day horizon through the same door
         assert counts[1] == 7
         assert counts[5] == 15
-        assert counts[20] == 22
+        assert counts[20] == 24
 
     def test_no_new_challenger_uses_a_20_day_horizon(self):
         for s in CH.R46_6_SPECS:
@@ -642,10 +644,12 @@ class TestDailyResearchCycle:
 
     def test_the_cost_efficiency_owner_runs_before_emission(self):
         """Nothing may compute an efficiency number that has seen the batch it
-        is about to emit."""
+        is about to emit. (R52 wrapped the step in the campaign lock; the
+        stage body, and therefore the ordering contract, lives in
+        ``_advance_locked``.)"""
         import inspect
         from alpha_agent.r46 import advance as AD
-        src = inspect.getsource(AD.advance)
+        src = inspect.getsource(AD._advance_locked)
         assert src.index("cost_efficiency") < src.index('"emit_batch"') \
             if '"emit_batch"' in src else True
         assert src.index("cost_efficiency") < src.index("EM.emit")
@@ -653,13 +657,13 @@ class TestDailyResearchCycle:
     def test_scoring_still_happens_before_emission(self):
         import inspect
         from alpha_agent.r46 import advance as AD
-        src = inspect.getsource(AD.advance)
+        src = inspect.getsource(AD._advance_locked)
         assert src.index("score_matured") < src.index("EM.emit")
 
     def test_lanes_refresh_before_anything_is_scored(self):
         import inspect
         from alpha_agent.r46 import advance as AD
-        src = inspect.getsource(AD.advance)
+        src = inspect.getsource(AD._advance_locked)
         assert src.index("research_lanes") < src.index("score_matured")
 
     def test_the_advance_reports_the_lane_contract(self):

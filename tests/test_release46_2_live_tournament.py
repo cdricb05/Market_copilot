@@ -746,7 +746,11 @@ FROZEN_AT = "2026-08-25T19:00:00Z"
 
 
 def _register(sandbox_path, monkeypatch, specs=None, frozen_at=FROZEN_AT):
-    monkeypatch.setattr(EM.MD, "last_session", lambda s: dt.date(2026, 8, 25))
+    # R52 fix: freshness is derived from the canonical clock rather than a
+    # pinned 2026-08-25, which expired once the calendar moved more than the
+    # feasibility MAX_LAG past it and turned every registration DATA_STALE.
+    monkeypatch.setattr(EM.MD, "last_session",
+                        lambda s: CK.eastern_date(CK.now_utc()))
     return RG.register(TEST_CAMPAIGN, specs=specs, frozen_at=frozen_at)
 
 

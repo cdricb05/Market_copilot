@@ -72,7 +72,17 @@ def sandbox(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _fresh(monkeypatch, day=dt.date(2026, 8, 25)):
+def _fresh(monkeypatch, day=None):
+    """Stamp every probe symbol as freshly printed.
+
+    R52 fix: the original pinned 2026-08-25, which silently expired once the
+    real calendar moved more than the feasibility MAX_LAG past it - every
+    registered challenger then probed DATA_STALE and these tests failed on
+    time alone. Freshness is now derived from the canonical clock, which is
+    the condition the tests actually mean ("the data path is alive today").
+    """
+    from alpha_agent.r46 import clock as CK
+    day = day or CK.eastern_date(CK.now_utc())
     monkeypatch.setattr(MD, "last_session", lambda s: day)
 
 
@@ -126,7 +136,7 @@ def test_registering_the_union_preserves_every_seed_freeze(sandbox,
             # earlier one.
             assert c["cohort"] in (CH.EXPANSION_COHORT, CH.R46_4_COHORT,
                                    CH.R46_5_COHORT, CH.R46_6_COHORT,
-                                   CH.R51_COHORT)
+                                   CH.R51_COHORT, CH.R52_COHORT)
     assert union["retune_free"] is True
     assert union["n_r46_challengers"] == len(CH.ALL_SPECS)
 
@@ -167,7 +177,8 @@ def test_no_duplicate_ids_and_no_duplicate_identity_slots():
     assert len(ids) == len(set(ids))
     assert len(ids) == (len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS)
                         + len(CH.R46_4_SPECS) + len(CH.R46_5_SPECS)
-                        + len(CH.R46_6_SPECS) + len(CH.R51_SPECS))
+                        + len(CH.R46_6_SPECS) + len(CH.R51_SPECS)
+                        + len(CH.R52_SPECS))
     slots = [(s["challenger_id"], s["challenger_version"], s["instrument"])
              for s in CH.ALL_SPECS]
     assert len(slots) == len(set(slots))
@@ -237,8 +248,9 @@ def test_expanded_emission_is_true_forward_and_idempotent(sandbox,
     # what _expected_cells() measures.
     assert first["n_appended"] == _expected_cells()
     # 42 cells at R46.6; Release 51 added one FX-carry challenger with two
-    # horizon cells.
-    assert _expected_cells() == 44
+    # horizon cells; Release 52 added two challengers with one 20-day cell
+    # each (equity-index rotation, copper/gold lead-lag).
+    assert _expected_cells() == 46
     second = EM.emit(TEST_CAMPAIGN, reg, now)
     assert second["n_appended"] == 0
     assert second["n_duplicates_skipped"] == first["n_appended"]

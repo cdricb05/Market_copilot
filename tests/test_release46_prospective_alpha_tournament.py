@@ -759,9 +759,13 @@ def test_a_blocked_challenger_does_not_block_the_others(sandbox, monkeypatch):
     """One dead stream must not take the tournament down with it.
 
     Fully stubbed rather than provider-dependent: every symbol is fresh except
-    the VIX pair, which returns nothing at all.
+    the VIX pair, which returns nothing at all. (R52 fix: freshness derives
+    from the canonical clock; the original pinned 2026-08-25, which expired
+    once the calendar moved past the feasibility MAX_LAG and blocked EVERY
+    challenger instead of only the VIX readers.)
     """
-    fresh = dt.date(2026, 8, 25)
+    from alpha_agent.r46 import clock as CK
+    fresh = CK.eastern_date(CK.now_utc())
 
     def selective(sym):
         return None if sym in ("&VX", "$VIX") else fresh

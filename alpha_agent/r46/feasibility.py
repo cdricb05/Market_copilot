@@ -86,6 +86,11 @@ _PROBE_SYMBOLS = {
     # Release 51 - FX carry reads the dated FX futures curves; the probe
     # checks the tradeable continuous expressions are alive, never the signal.
     "_fx_carry_cip": ("&6E", "&6J", "&6A"),
+    # Release 52 - the parallel alpha offensive. Same rule as every entry
+    # above: the probe checks the declared data path is alive, never the
+    # signal, and these symbols enter no specification hash.
+    "_eqidx_xs_rel_momentum": ("&ES", "&NQ", "&RTY", "&NKD"),
+    "_rates_copper_gold_lead": ("&ZN", "&HG", "&GC"),
 }
 
 

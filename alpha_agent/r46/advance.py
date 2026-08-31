@@ -51,6 +51,7 @@ apart out loud.
 from __future__ import annotations
 
 import datetime as _dt
+import os as _os
 
 from . import CAMPAIGN_ID, artifact_body, campaign_dir, read_json, write_json
 from . import adopted_forward as AF
@@ -64,6 +65,7 @@ from . import leaderboard as LB
 from . import ledger as LG
 from . import planner as PL
 from . import registry as RG
+from . import runlock as RL
 from . import shadow as SH
 from . import velocity as VL
 
@@ -124,9 +126,42 @@ def advance(campaign_id: str = CAMPAIGN_ID, *,
             now: _dt.datetime = None,
             eligible_market_date=None,
             emit_batch: bool = True,
-            registry: dict = None) -> dict:
-    """Run ONE tournament step. Idempotent, fail-soft, research-root only."""
+            registry: dict = None,
+            lock_holder: str = None) -> dict:
+    """Run ONE tournament step. Idempotent, fail-soft, research-root only.
+
+    Release 52 - SERIALISED. The Daily Research Cycle and the scheduled
+    research runtime both call this one function; the ledgers append through
+    read-modify-write, so two concurrent steps could lose rows silently. One
+    campaign-scoped lock (:mod:`alpha_agent.r46.runlock`, bounded wait,
+    bounded stale recovery) makes the second caller wait, and a caller that
+    cannot get the lock gets a REPORTED unavailable state, never a partial
+    write.
+    """
     started = now or CK.now_utc()
+    holder = lock_holder or ("advance:pid%d" % _os.getpid())
+    try:
+        RL.acquire(holder, campaign_id)
+    except RL.AdvanceLockBusy as exc:
+        return _body(campaign_id, STATE_UNAVAILABLE, started,
+                     [{"stage": "advance_lock", "error": "AdvanceLockBusy",
+                       "detail": str(exc)[:200]}],
+                     reason="another tournament advance holds the campaign "
+                            "lock; this step was refused rather than run "
+                            "concurrently",
+                     concurrent_run_refused=True)
+    try:
+        return _advance_locked(campaign_id, started,
+                               eligible_market_date=eligible_market_date,
+                               emit_batch=emit_batch, registry=registry)
+    finally:
+        RL.release(holder, campaign_id)
+
+
+def _advance_locked(campaign_id: str, started: _dt.datetime, *,
+                    eligible_market_date=None,
+                    emit_batch: bool = True,
+                    registry: dict = None) -> dict:
     failures: list = []
 
     reg = registry if registry is not None else (

@@ -638,6 +638,11 @@
       "system": "infrastructure"
     },
     {
+      "prefix": "/v1/research/runtime-health",
+      "owner": "api/research_runtime.py",
+      "system": "infrastructure"
+    },
+    {
       "prefix": "/v1/operations/constrained-reallocation",
       "owner": "api/reallocation_proposal.py",
       "system": "infrastructure"
@@ -3411,6 +3416,30 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "A challenger reported here is NEVER activated and cannot be: FORWARD_CANDIDATE is not an order, FORWARD_CONFIRMED is not an automatic holding, alpha_agent.r46 declares promotion_allowed False on every challenger, the region carries no execute / approve / activate / allocate control, and check_release46_prospective_alpha_tournament enforces all of it across 41 blocking invariants. The canonical portfolio manager still decides, manually. The board's founding finding: five releases (R39, R40, R41, R42, R43/R45) each froze a prospective shadow registry, holding SEVEN distinct shadows between them and ZERO forward observations - two streams cannot accrue from this location (Binance publishes funding monthly with a ~24-day lag and answers HTTP 451) and nothing had called the other three's capture owner since their freeze. R46 adds no sixth registry: it adopts all seven BY REFERENCE, hashes their bytes before and after to prove they were not touched, keeps their ledgers and owners exactly where they are, and puts them on one board so the zero is visible in one place instead of spread across five campaign roots."
+    },
+    {
+      "path": "api/research_runtime.py",
+      "system": "infrastructure",
+      "classification": "KEEP",
+      "target_owner": "api/research_runtime.py",
+      "duplicate_with": [],
+      "responsibility": "Release 52 PERSISTENT RESEARCH RUNTIME health read model - the ONE authoritative view of the scheduled prospective-research runtime. Reports the last run and its per-stage states, the next expected invocation from the derived timing contract, predictions emitted / duplicates skipped / opportunities forfeited (the append-only forfeiture ledger, never backfilled), outcomes scored, per-lane lifecycle counts, forward-chain integrity, and the current R51 promotion-frontier standing including PROMOTION_READY count. It OWNS presentation only: every number is READ from the R52 runtime root artifacts written by alpha_agent/r52 owners. It computes nothing, schedules nothing, emits nothing, and can mutate nothing - operational or research.",
+      "direct_reads": [
+        "D:/Stock_Prediction_app_data/research_runtime_r52/*.json (runtime_health, runtime_runs, forfeited_opportunities, research_timing_contract)"
+      ],
+      "direct_writes": [
+        "none - pure read model. No PostgreSQL / order / fill / target / holding / cash / NAV write, no prediction, outcome or forfeiture append, no model promotion, no scheduler change, and no network call."
+      ],
+      "endpoints": [
+        "/v1/research/runtime-health"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_release52_research_runtime.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "The runtime this reports on (alpha_agent/r52/runtime.py, scheduled as PaperTrader-ResearchRuntime) is RESEARCH AUTOMATION ONLY: it advances the R46 tournament through the ONE canonical advance under a campaign lock, records forfeited opportunities append-only with backfill_refused true on every row, refreshes the R51 promotion frontier, and can never call the portfolio cycle, run a daily close, create an order, mutate a holding / cash / NAV, promote a model or activate a sleeve. PROMOTION_READY is a statement addressed to a human reviewer; check_release52_persistent_research_runtime enforces the boundary."
     },
     {
       "path": "alpha_agent/r32/",

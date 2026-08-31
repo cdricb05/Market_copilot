@@ -236,6 +236,8 @@ from paper_trader.api import mathematical_alpha_frontier as _r31_frontier
 from paper_trader.api import pnl_opportunity_frontier as _r32_frontier
 # Release 46 - prospective alpha tournament board (read-only).
 from paper_trader.api import prospective_tournament as _r46_tournament
+# Release 52 - persistent research runtime health (read-only).
+from paper_trader.api import research_runtime as _r52_runtime
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -19620,6 +19622,32 @@ def get_prospective_tournament() -> dict:
     manually, and the architecture audit enforces it.
     """
     return _r46_tournament.load_prospective_tournament()
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/research/runtime-health — Release 52 persistent research runtime
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/runtime-health",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_research_runtime_health() -> dict:
+    """Release 52 PERSISTENT RESEARCH RUNTIME health (read-only).
+
+    ONE authoritative view of the scheduled prospective-research runtime:
+    last run, next expected invocation, predictions emitted / duplicates
+    skipped / opportunities forfeited (append-only, never backfilled),
+    outcomes scored, per-lane states, forward-chain integrity, the derived
+    timing contract and the current R51 promotion frontier standing.
+
+    RESEARCH VISIBILITY ONLY. The runtime this reports on never calls the
+    portfolio cycle, never runs a daily close, never mutates a holding, an
+    order, cash or NAV, and can promote nothing - PROMOTION_READY is a
+    statement addressed to a human reviewer, enforced by the architecture
+    audit.
+    """
+    return _r52_runtime.load_runtime_health()
 
 
 # --------------------------------------------------------------------------- #

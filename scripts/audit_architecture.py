@@ -11539,6 +11539,210 @@ R46_REQUIRED_STATES = (
 )
 
 
+def check_release52_persistent_research_runtime(files: list[Path]) -> dict:
+    """Release 52 invariants - a research runtime that cannot cheat or reach.
+
+    The release's two claims: (a) prospective evidence capture is durable,
+    session-aware, idempotent and fail-closed; (b) the runtime is research
+    automation ONLY. Every invariant closes a route by which either claim
+    could silently become false:
+
+    * a second timing authority - closed by ONE derived timing contract that
+      quotes the canonical owners and by a scheduler entrypoint that owns no
+      clock rule;
+    * a backfill path - closed by a forfeiture ledger whose every row must
+      carry ``backfill_refused: true`` and whose append refuses anything
+      else;
+    * a second orchestration path - closed by exactly one
+      ``research_runtime_cycle`` definition and exactly one script that
+      registers the Windows task;
+    * concurrent writers losing rows - closed by the campaign lock inside
+      the ONE advance and the runtime instance lock;
+    * an automation reach into the operational portfolio - closed by import
+      and token bans across the whole R52 package;
+    * an automatic promotion - closed by the absence of any approval writer
+      and by the frontier refresh delegating to the pure R51 owner.
+    """
+    r52_dir = REPO_ROOT / "alpha_agent" / "r52"
+    src = {p.stem: (_read(p) or "") for p in sorted(r52_dir.glob("*.py"))}
+    all_src = "\n".join(src.values())
+    runner = _read(REPO_ROOT / "scripts/run_research_runtime.py") or ""
+    api_rm = _read(REPO_ROOT / "api/research_runtime.py") or ""
+    install_ps1 = _read(REPO_ROOT /
+                        "scripts/install_research_runtime_task.ps1") or ""
+    validate_ps1 = _read(REPO_ROOT /
+                         "scripts/validate_research_runtime_task.ps1") or ""
+    disable_ps1 = _read(REPO_ROOT /
+                        "scripts/disable_research_runtime_task.ps1") or ""
+    once_ps1 = _read(REPO_ROOT /
+                     "scripts/run_research_runtime_once.ps1") or ""
+    advance_src = _read(REPO_ROOT / "alpha_agent/r46/advance.py") or ""
+    runlock_src = _read(REPO_ROOT / "alpha_agent/r46/runlock.py") or ""
+
+    modules_missing = sorted(
+        m for m in ("__init__", "timing_contract", "forfeiture", "runtime",
+                    "frontier_refresh", "velocity_ops")
+        if m not in src or not src[m])
+
+    # (1) ONE timing contract, derived from the canonical owners.
+    one_timing_contract = (
+        "scheduler_is_not_a_timing_authority" in src.get("timing_contract", "")
+        and "from ..r46 import clock" in src.get("timing_contract", "")
+        and "from ..r46 import lanes" in src.get("timing_contract", "")
+        and "REFUSED_ALWAYS" in src.get("timing_contract", ""))
+    scheduler_owns_no_clock_rule = (
+        "17:45" not in runner and "08:15" not in runner
+        and "while True" not in runner
+        and "research_runtime_cycle" in runner)
+    scheduler_delegates_to_contract_times = all(
+        t in src.get("timing_contract", "") and t in install_ps1
+        for t in ("08:15", "17:45", "19:45", "21:45"))
+
+    # (2) ONE orchestration path.
+    one_runtime_orchestrator = (
+        all_src.count("def research_runtime_cycle") == 1
+        and runner.count("research_runtime_cycle") >= 1
+        and "def research_runtime_cycle" not in runner)
+    runtime_delegates_emission_and_scoring = (
+        "AD.advance" in src.get("runtime", "")
+        and "def emit" not in src.get("runtime", "")
+        and "def build_batch" not in src.get("runtime", "")
+        and "def score" not in src.get("runtime", ""))
+    runtime_is_locked_and_idempotent = (
+        "acquire_path" in src.get("runtime", "")
+        and "RUN_REFUSED_CONCURRENT" in src.get("runtime", "")
+        and "lock_holder" in advance_src
+        and "AdvanceLockBusy" in advance_src
+        and "def acquire_path" in runlock_src
+        and "_reclaim_if_stale" in runlock_src)
+    runtime_fails_closed_on_broken_chain = (
+        "RUN_FAILED_INTEGRITY" in src.get("runtime", "")
+        and "fail_closed" in src.get("runtime", "")
+        and "_chains_ok" in src.get("runtime", ""))
+
+    # (3) ONE forfeiture owner; no backfill path anywhere.
+    one_forfeiture_owner = (
+        "_append_ledger" in src.get("forfeiture", "")
+        and "verify_ledger" in src.get("forfeiture", "")
+        and "IDENTITY_KEY" in src.get("forfeiture", "")
+        and "backfill_refused" in src.get("forfeiture", ""))
+    forfeiture_refuses_backfill = (
+        "a forfeiture row must refuse backfill" in src.get("forfeiture", "")
+        and '"backfill_refused": True' in src.get("forfeiture", ""))
+
+    # (4) ONE promotion frontier owner; no approval writer.
+    frontier_delegates_to_r51 = (
+        "PF.build" in src.get("frontier_refresh", "")
+        and "from ..r51 import promotion_frontier" in
+        src.get("frontier_refresh", ""))
+    no_approval_writer = not any(
+        tok in all_src for tok in
+        ("record_decision", "approvals=", "APPROVED_FOR_OPERATION"))
+    no_promotion_flag_write = (
+        "model_approval_state" not in all_src.replace(
+            "``model_approval_state``", "")
+        and "capital_eligible" not in all_src.replace(
+            "``capital_eligible``", ""))
+
+    # (5) No operational reach, no broker, no portfolio-cycle POST.
+    no_operational_imports = not any(
+        tok in all_src for tok in
+        ("from paper_trader.api import daily_close",
+         "from paper_trader.api import rebalance_execution",
+         "from paper_trader.engine import normal_cycle",
+         "from paper_trader.api import portfolio_decision"))
+    no_http_reach = not any(
+        tok in (all_src + runner) for tok in
+        ("requests.", "urllib.request", "http://127.0.0.1:8001",
+         "portfolio-cycle/run"))
+    safety_flags_false = all(
+        ('"%s": False' % flag) in src.get("__init__", "")
+        for flag in ("calls_portfolio_cycle", "runs_daily_close",
+                     "creates_order", "mutates_holdings", "mutates_cash",
+                     "mutates_nav", "promotes_model", "activates_sleeve",
+                     "may_spend_money", "backfills_forward_rows",
+                     "writes_operational_store"))
+
+    # (6) ONE Windows task entrypoint; explicit lifecycle scripts.
+    ps1_files = sorted((REPO_ROOT / "scripts").glob("*.ps1"))
+    # Prior releases own their own installers (Stage 4 alpha-agent tasks,
+    # Release 29 collection). The R52 invariant is scoped to the R52 task:
+    # exactly ONE script may register PaperTrader-ResearchRuntime.
+    registering = sorted(
+        p.name for p in ps1_files
+        if "Register-ScheduledTask" in (_read(p) or "")
+        and "PaperTrader-ResearchRuntime" in (_read(p) or ""))
+    one_task_registrar = registering == ["install_research_runtime_task.ps1"]
+    install_is_explicit = (
+        "R52_TASK_UNCHANGED" in install_ps1
+        and "explicit migration" in install_ps1
+        and "StartWhenAvailable" in install_ps1
+        and "IgnoreNew" in install_ps1)
+    # The correction: task equivalence must include the principal. An
+    # existing Interactive task is NOT identical to a requested S4U task,
+    # a principal mismatch without -Force is its own specific blocker, and
+    # a migration never silently falls back to Interactive.
+    installer_compares_principal = (
+        "Principal.LogonType" in install_ps1
+        and "explicit -Force migration required" in install_ps1
+        and "BLOCKED_PRINCIPAL" in install_ps1
+        and "R52_TASK_MIGRATED" in install_ps1
+        and "requested logon type ONLY" in install_ps1)
+    validator_blocks_bad_task = (
+        "R52_SCHEDULER_INCOMPLETE" in validate_ps1
+        and "R52_TASK_INVALID" in validate_ps1
+        and "missing trigger times" in validate_ps1)
+    # Production validation must require a logged-out-capable principal:
+    # an Interactive task silently reintroduces the defect R52 closes.
+    validator_requires_logged_out_principal = (
+        "logged-out-capable" in validate_ps1
+        and "'S4U', 'Password', 'ServiceAccount'" in validate_ps1
+        and "R52_PRINCIPAL_REJECTED" in validate_ps1)
+    disable_deletes_nothing = (
+        "Disable-ScheduledTask" in disable_ps1
+        and "Unregister-ScheduledTask" not in disable_ps1
+        and "Remove-Item" not in disable_ps1)
+    one_shot_uses_same_entrypoint = "run_research_runtime.py" in once_ps1
+
+    # (7) The read model is read-only.
+    read_model_is_read_only = bool(api_rm) and not any(
+        tok in api_rm for tok in ("write_json", "_append_ledger",
+                                  "research_runtime_cycle(", "def sweep"))
+
+    return {
+        "modules_present": not modules_missing,
+        "modules_missing": modules_missing,
+        "one_timing_contract": one_timing_contract,
+        "scheduler_owns_no_clock_rule": scheduler_owns_no_clock_rule,
+        "scheduler_delegates_to_contract_times":
+            scheduler_delegates_to_contract_times,
+        "one_runtime_orchestrator": one_runtime_orchestrator,
+        "runtime_delegates_emission_and_scoring":
+            runtime_delegates_emission_and_scoring,
+        "runtime_is_locked_and_idempotent": runtime_is_locked_and_idempotent,
+        "runtime_fails_closed_on_broken_chain":
+            runtime_fails_closed_on_broken_chain,
+        "one_forfeiture_owner": one_forfeiture_owner,
+        "forfeiture_refuses_backfill": forfeiture_refuses_backfill,
+        "frontier_delegates_to_r51": frontier_delegates_to_r51,
+        "no_approval_writer": no_approval_writer,
+        "no_promotion_flag_write": no_promotion_flag_write,
+        "no_operational_imports": no_operational_imports,
+        "no_http_reach": no_http_reach,
+        "safety_flags_false": safety_flags_false,
+        "one_task_registrar": one_task_registrar,
+        "task_registrars_found": registering,
+        "install_is_explicit": install_is_explicit,
+        "installer_compares_principal": installer_compares_principal,
+        "validator_blocks_bad_task": validator_blocks_bad_task,
+        "validator_requires_logged_out_principal":
+            validator_requires_logged_out_principal,
+        "disable_deletes_nothing": disable_deletes_nothing,
+        "one_shot_uses_same_entrypoint": one_shot_uses_same_entrypoint,
+        "read_model_is_read_only": read_model_is_read_only,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -12305,6 +12509,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release49_operator_presentation":
             check_release49_operator_presentation(files),
         "release50_multi_asset": check_release50_multi_asset(files),
+        "release52_persistent_research_runtime":
+            check_release52_persistent_research_runtime(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -12951,6 +13157,55 @@ BLOCKING_INVARIANTS = (
     # the judge charges traded notional and ranks on a volatility-matched
     # control rather than on excess over cash; and ALPHA_RESULT may be PASS
     # only with a qualified verdict.
+    # --- Release 52: persistent prospective research runtime ---------------
+    # ONE derived timing contract (the scheduler consumes it and adds no
+    # rule); ONE runtime orchestration path, locked, idempotent, failing
+    # closed on a broken evidence chain; ONE append-only forfeiture owner
+    # whose every row refuses backfill; the frontier refresh delegates to the
+    # pure R51 owner and no approval writer exists; no operational import, no
+    # HTTP reach, no portfolio-cycle path; exactly one script registers the
+    # Windows task, the validator blocks an absent or malformed task, and the
+    # disable script deletes nothing.
+    ("release52_persistent_research_runtime", "modules_present", True),
+    ("release52_persistent_research_runtime", "one_timing_contract", True),
+    ("release52_persistent_research_runtime",
+     "scheduler_owns_no_clock_rule", True),
+    ("release52_persistent_research_runtime",
+     "scheduler_delegates_to_contract_times", True),
+    ("release52_persistent_research_runtime",
+     "one_runtime_orchestrator", True),
+    ("release52_persistent_research_runtime",
+     "runtime_delegates_emission_and_scoring", True),
+    ("release52_persistent_research_runtime",
+     "runtime_is_locked_and_idempotent", True),
+    ("release52_persistent_research_runtime",
+     "runtime_fails_closed_on_broken_chain", True),
+    ("release52_persistent_research_runtime", "one_forfeiture_owner", True),
+    ("release52_persistent_research_runtime",
+     "forfeiture_refuses_backfill", True),
+    ("release52_persistent_research_runtime",
+     "frontier_delegates_to_r51", True),
+    ("release52_persistent_research_runtime", "no_approval_writer", True),
+    ("release52_persistent_research_runtime",
+     "no_promotion_flag_write", True),
+    ("release52_persistent_research_runtime",
+     "no_operational_imports", True),
+    ("release52_persistent_research_runtime", "no_http_reach", True),
+    ("release52_persistent_research_runtime", "safety_flags_false", True),
+    ("release52_persistent_research_runtime", "one_task_registrar", True),
+    ("release52_persistent_research_runtime", "install_is_explicit", True),
+    ("release52_persistent_research_runtime",
+     "installer_compares_principal", True),
+    ("release52_persistent_research_runtime",
+     "validator_blocks_bad_task", True),
+    ("release52_persistent_research_runtime",
+     "validator_requires_logged_out_principal", True),
+    ("release52_persistent_research_runtime",
+     "disable_deletes_nothing", True),
+    ("release52_persistent_research_runtime",
+     "one_shot_uses_same_entrypoint", True),
+    ("release52_persistent_research_runtime",
+     "read_model_is_read_only", True),
     ("release33_predictive_edge", "modules_present", True),
     ("release33_predictive_edge", "reuses_r31_statistics", True),
     ("release33_predictive_edge", "reuses_r31_hashing", True),
