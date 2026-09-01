@@ -91,6 +91,11 @@ _PROBE_SYMBOLS = {
     # signal, and these symbols enter no specification hash.
     "_eqidx_xs_rel_momentum": ("&ES", "&NQ", "&RTY", "&NKD"),
     "_rates_copper_gold_lead": ("&ZN", "&HG", "&GC"),
+    # Release 53 - the cross-market offensive. Same rule as every entry above:
+    # the probe checks the declared data path is alive, never the signal, and
+    # these symbols enter no specification hash.
+    "_futures_xs_value": ("&ES", "&ZN", "&CL", "&GC"),
+    "_commodity_xs_skew": ("&CL", "&GC", "&HG"),
 }
 
 

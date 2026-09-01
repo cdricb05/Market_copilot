@@ -104,6 +104,9 @@ def _data_cutoff(book: dict, spec: dict):
         # Release 52 - the parallel alpha offensive.
         "_eqidx_xs_rel_momentum": ("&ES", "&NQ"),
         "_rates_copper_gold_lead": ("&ZN", "&HG", "&GC"),
+        # Release 53 - the cross-market offensive.
+        "_futures_xs_value": ("&ES", "&ZN", "&CL"),
+        "_commodity_xs_skew": ("&CL", "&GC"),
     }.get(owner, ("SPY",))
     seen = [MD.last_session(s) for s in probe]
     seen = [d for d in seen if d is not None]

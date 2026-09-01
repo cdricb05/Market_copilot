@@ -66,7 +66,7 @@ FUTURES_ASSET_CLASS_BY_ROOT = {
     "LFT": ic.AC_INTL_EQUITY_INDEX_FUTURES, "SSG": ic.AC_INTL_EQUITY_INDEX_FUTURES,
     "HTW": ic.AC_INTL_EQUITY_INDEX_FUTURES, "SNK": ic.AC_INTL_EQUITY_INDEX_FUTURES,
     "KOS": ic.AC_INTL_EQUITY_INDEX_FUTURES, "SCN": ic.AC_INTL_EQUITY_INDEX_FUTURES,
-    "MET": ic.AC_INTL_EQUITY_INDEX_FUTURES, "FTDX": ic.AC_INTL_EQUITY_INDEX_FUTURES,
+    "FTDX": ic.AC_INTL_EQUITY_INDEX_FUTURES,
     # rates
     "ZT": ic.AC_RATES_FUTURES, "ZF": ic.AC_RATES_FUTURES, "ZN": ic.AC_RATES_FUTURES,
     "TN": ic.AC_RATES_FUTURES, "ZB": ic.AC_RATES_FUTURES, "UB": ic.AC_RATES_FUTURES,
@@ -98,7 +98,11 @@ FUTURES_ASSET_CLASS_BY_ROOT = {
     "6E": ic.AC_FX_FUTURES, "6J": ic.AC_FX_FUTURES, "6M": ic.AC_FX_FUTURES,
     "6N": ic.AC_FX_FUTURES, "6S": ic.AC_FX_FUTURES, "DX": ic.AC_FX_FUTURES,
     # crypto (CME cash-settled futures)
-    "BTC": ic.AC_CRYPTO_FUTURES, "ETH": ic.AC_CRYPTO_FUTURES, "MBT": ic.AC_CRYPTO_FUTURES,
+    # MET is CME Micro Ether (the owned database names it "Micro Ether") -
+    # Release 53.1 corrected an R50 misclassification that had it as an
+    # international equity index future.
+    "BTC": ic.AC_CRYPTO_FUTURES, "ETH": ic.AC_CRYPTO_FUTURES,
+    "MBT": ic.AC_CRYPTO_FUTURES, "MET": ic.AC_CRYPTO_FUTURES,
 }
 UNCLASSIFIED_FUTURES = "UNCLASSIFIED_FUTURES"
 

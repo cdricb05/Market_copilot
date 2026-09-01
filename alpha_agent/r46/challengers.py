@@ -1608,8 +1608,159 @@ R52_SPECS = (
     ),
 )
 
+R53_COHORT = "R53_CROSS_MARKET_OFFENSIVE"
+
+#: Release 53 - two economically distinct challengers frozen while the release
+#: built the active-risk analysis and the intraday factory, so evidence accrual
+#: and engineering never wait on each other (the R52 convention). Every
+#: parameter is a canonical, literature-standard constant fixed before either
+#: rule read a bar to be selected: the five-year value window is the
+#: Asness-Moskowitz-Pedersen "Value and Momentum Everywhere" (JF 2013)
+#: definition for non-equity asset classes ("the negative of the past 5-year
+#: return", 1260 sessions), the twelve-month realized-skewness window is
+#: Fernandez-Perez / Frijns / Fuertes / Miffre (JFQA 2018), thirds are the
+#: published portfolio convention, and every floor mirrors the sibling cell
+#: that already owns it. No sweep ran, no cell was ranked, no winner was
+#: picked, and nothing was chosen by looking at any matured forward outcome.
+R53_CANONICAL_CONSTANTS = {
+    "statement": (
+        "declared constants, fixed before these rules read a bar to be "
+        "selected, and none of them chosen by looking at any matured "
+        "forward outcome"),
+    "value_formation_days": 1260,        # five years of sessions (AMP 2013)
+    "skew_window_days": 252,             # twelve months of daily returns (FFFM 2018)
+    "leg_fraction": 1 / 3.0,             # thirds - the published convention
+    "value_min_markets": MIN_FUTURES_MARKETS,  # the all-futures sibling's floor
+    "skew_min_markets": 9,               # the commodity sibling's floor
+}
+K53 = R53_CANONICAL_CONSTANTS
+
+#: Declared and DECLINED - each absence is a recorded decision, mirroring the
+#: R51/R52 convention, so no hypothesis is quietly dropped.
+R53_DECLINED = {
+    "intraday_equity_or_futures_cells": (
+        "the canonical intraday-lane owner (alpha_agent.r46.intraday) was "
+        "re-probed LIVE in this release with the operator's venue key in the "
+        "shell, during regular hours, and the lane remains DATA_BLOCKED: "
+        "Norgate serves daily bars by construction and the owned venue plan "
+        "answered HTTP 403 for current-session aggregates. An intraday "
+        "prediction frozen against data that arrives after the horizon "
+        "closes is not prospective. The R53 intraday factory freezes the "
+        "SPECIFICATIONS and the scoring contract now and emits only when a "
+        "current feed exists."),
+    "comdty_xs_basis_momentum": (
+        "unchanged from R52: the canonical Boons-Prado factor needs a "
+        "per-session historical front/next reconstruction owner that still "
+        "does not exist; a proxy would be a self-invented parameterisation."),
+    "fx_or_commodity_interaction_cells": (
+        "unchanged from R52: conditional double-sorts of live cells add "
+        "correlated expression under the R44 combination-frontier finding, "
+        "and the parents' forward clocks are still immature."),
+    "ml_futures_cross_section": (
+        "unchanged from R51/R52: ~30 markets per date is an overfitting "
+        "engine."),
+    "crypto_revival": (
+        "unchanged from R42/R51/R52: no new economically distinct "
+        "hypothesis; the venue data still cannot accrue; nothing is "
+        "resurrected."),
+    "equity_xs_value_5y": (
+        "an equity five-year-reversal cell would need the S&P membership "
+        "cross-section five years back at emission; the emission path reads "
+        "CURRENT membership, so the formation window would silently carry "
+        "survivorship. The futures complex has no membership churn, which "
+        "is why the value cell is frozen there and only there."),
+}
+
+R53_SPECS = (
+    _spec(
+        challenger_id="r53_fut_xs_value_5y",
+        family="CROSS_SECTIONAL_VALUE",
+        asset_class="MULTI_ASSET_FUTURES",
+        instrument="BOOK:FUTURES_XS_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="MULTI_ASSET_FUTURES",
+        universe="every declared liquid futures market except the volatility "
+                 "complex (the same declared list the all-futures momentum "
+                 "cell reads): equity index, rates, FX and commodity "
+                 "continuous contracts",
+        thesis="long-horizon reversal is the value premium in futures form: "
+               "Asness-Moskowitz-Pedersen (JF 2013) define value for "
+               "non-equity asset classes as the NEGATIVE of the past "
+               "five-year return, and measure it as a distinct premium that "
+               "is negatively correlated with momentum in every asset class. "
+               "The live futures cells all read short-horizon price state "
+               "(12-1 momentum, 252-day trend, curve carry); no live cell "
+               "reads the five-year window, so this is the one own-price "
+               "premium the field is missing, expressed dollar-neutral in "
+               "thirds across the same declared markets",
+        parameters={"formation_days": K53["value_formation_days"],
+                    "leg_fraction": K53["leg_fraction"],
+                    "min_markets": K53["value_min_markets"],
+                    "score": "-(total return over the past formation_days "
+                             "sessions); a market with fewer sessions of "
+                             "history is skipped, never padded"},
+        signal_owner="_futures_xs_value",
+        cohort=R53_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="FUTURES_XS_VALUE",
+        economic_overlap_with=("r46_3_fut_xs_mom_252", "r46_fut_ts_mom_252"),
+        overlap_note="shares the own-price information family and the "
+                     "declared universe with the momentum cells and declares "
+                     "that overlap; the BET is the published value premium "
+                     "(five-year reversal), which AMP measure as negatively "
+                     "correlated with the momentum premium those cells "
+                     "trade, so it carries its own dependence cluster and "
+                     "the realised-correlation layer arbitrates",
+    ),
+    _spec(
+        challenger_id="r53_comdty_xs_skew_12m",
+        family="HIGHER_MOMENT_SKEWNESS",
+        asset_class="COMMODITY",
+        instrument="BOOK:COMMODITY_XS_LS",
+        prediction_type="CROSS_SECTIONAL_LONG_SHORT",
+        horizons=(20,),
+        control=C.CONTROL_CASH,
+        benchmark="CASH",
+        cost_class="COMMODITY_FUTURES",
+        universe="the declared commodity futures markets (the same list the "
+                 "commodity momentum cell reads)",
+        thesis="commodities whose daily returns were most positively skewed "
+               "over the past year have been systematically overpriced - "
+               "investors pay for lottery-like payoffs - and the low-skew "
+               "markets have earned the premium: "
+               "Fernandez-Perez, Frijns, Fuertes and Miffre (JFQA 2018) "
+               "document it with a twelve-month daily realized-skewness "
+               "sort, long the lowest-skew third, short the highest-skew "
+               "third. Every live commodity cell reads returns or curve "
+               "slope; none reads a higher moment of the return "
+               "distribution, so the SORT KEY is new information even "
+               "though the input bars are the same owned daily closes",
+        parameters={"skew_window_days": K53["skew_window_days"],
+                    "leg_fraction": K53["leg_fraction"],
+                    "min_markets": K53["skew_min_markets"],
+                    "score": "-(realized skewness of daily percentage "
+                             "returns over skew_window_days sessions); long "
+                             "LOW skew, short HIGH skew"},
+        signal_owner="_commodity_xs_skew",
+        cohort=R53_COHORT,
+        information_family="PRICE_STATE",
+        dependence_cluster="COMMODITY_XS_SKEW",
+        economic_overlap_with=("r46_comdty_xs_mom_252",
+                               "r46_3_comdty_curve_carry"),
+        overlap_note="trades the same declared commodity markets as the "
+                     "momentum and curve-carry cells and declares that "
+                     "overlap; the sort key is the third moment of the "
+                     "return distribution, which neither sibling reads, and "
+                     "the realised-correlation layer arbitrates the "
+                     "book-level dependence",
+    ),
+)
+
 ALL_SPECS = (SEED_SPECS + EXPANSION_SPECS + R46_4_SPECS + R46_5_SPECS
-             + R46_6_SPECS + R51_SPECS + R52_SPECS)
+             + R46_6_SPECS + R51_SPECS + R52_SPECS + R53_SPECS)
 
 #: Dependence clusters and information families for the SEED cohort, declared
 #: here rather than edited into the frozen seed dicts. The expansion cohort
@@ -3176,7 +3327,105 @@ def _eq_xs_rev_variant(spec: dict) -> dict:
             "cost_class_by_leg": {l["instrument"]: "US_EQUITY" for l in legs}}
 
 
+def _thirds_futures_book(scores: dict, leg_fraction: float,
+                         min_markets: int) -> list:
+    """Dollar-neutral thirds book across futures markets, gross notional 1.0.
+    The same construction every futures cross-section cell uses; per-leg cost
+    class resolved from the declared market-structure grouping."""
+    if len(scores) < int(min_markets):
+        return []
+    k = max(1, int(round(len(scores) * float(leg_fraction))))
+    order = sorted(scores.items(), key=lambda kv: kv[1])
+    legs = []
+    for sym, sc in order[-k:]:
+        legs.append({"instrument": sym, "weight": 0.5 / k, "score": sc,
+                     "side": "LONG", "cost_class": _futures_group(sym)})
+    for sym, sc in order[:k]:
+        legs.append({"instrument": sym, "weight": -0.5 / k, "score": sc,
+                     "side": "SHORT", "cost_class": _futures_group(sym)})
+    return legs
+
+
+def _futures_xs_value(spec: dict) -> dict:
+    """AMP (2013) value for futures: the NEGATIVE of the past 5-year return,
+    thirds across the declared non-volatility futures markets."""
+    p = spec["parameters"]
+    declared = [s for grp, members in FUTURES_GROUPS.items()
+                for s in members if grp != "VOLATILITY_FUTURES"]
+    available = set(MD.continuous_futures())
+    scores, marks, skipped = {}, {}, []
+    for sym in declared:
+        if sym not in available:
+            skipped.append({"instrument": sym, "why": "NOT_IN_DATABASE"})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        if len(s) < int(p["formation_days"]) + 1:
+            skipped.append({"instrument": sym, "why": "SHORT_HISTORY",
+                            "detail": "%d sessions held, %d required"
+                                      % (len(s), int(p["formation_days"]) + 1)})
+            continue
+        if MD.has_non_positive(s, int(p["formation_days"]) + 1):
+            skipped.append({"instrument": sym, "why": MD.NON_POSITIVE_PRICE})
+            continue
+        v = MD.total_return(s, int(p["formation_days"]))
+        if v is not None:
+            scores[sym] = -float(v)      # long the LOSERS of the last 5 years
+    legs = _thirds_futures_book(scores, p["leg_fraction"], p["min_markets"])
+    if not legs:
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: l["cost_class"]
+                                  for l in legs}}
+
+
+def _commodity_xs_skew(spec: dict) -> dict:
+    """FFFM (2018) skewness: twelve-month daily realized skewness per
+    commodity, long the lowest-skew third, short the highest-skew third."""
+    p = spec["parameters"]
+    win = int(p["skew_window_days"])
+    available = set(MD.continuous_futures())
+    scores, marks, skipped = {}, {}, []
+    for sym in COMMODITY_MARKETS:
+        if sym not in available:
+            skipped.append({"instrument": sym, "why": "NOT_IN_DATABASE"})
+            continue
+        s = MD.closes(sym)
+        if s is None:
+            skipped.append({"instrument": sym, "why": "NO_BARS"})
+            continue
+        marks[sym] = float(s.iloc[-1])
+        if MD.has_non_positive(s, win + 2):
+            skipped.append({"instrument": sym, "why": MD.NON_POSITIVE_PRICE})
+            continue
+        r = s.pct_change().dropna().iloc[-win:].to_numpy(dtype=float)
+        if len(r) < win or not np.isfinite(r).all():
+            skipped.append({"instrument": sym, "why": "SHORT_HISTORY"})
+            continue
+        sd = float(np.std(r, ddof=1))
+        if sd <= 0:
+            skipped.append({"instrument": sym, "why": "DEGENERATE_RETURNS"})
+            continue
+        skew = float(np.mean(((r - float(np.mean(r))) / sd) ** 3))
+        scores[sym] = -skew              # long LOW skew, short HIGH skew
+    legs = _thirds_futures_book(scores, p["leg_fraction"], p["min_markets"])
+    if not legs:
+        return {"state": "INSUFFICIENT_MARKETS", "legs": [],
+                "n_scored": len(scores), "skipped": skipped}
+    return {"state": "OK", "legs": legs, "n_scored": len(scores),
+            "marks": marks, "skipped": skipped,
+            "cost_class_by_leg": {l["instrument"]: l["cost_class"]
+                                  for l in legs}}
+
+
 _OWNERS = {
+    "_futures_xs_value": _futures_xs_value,
+    "_commodity_xs_skew": _commodity_xs_skew,
     "_fx_carry_cip": _fx_carry_cip,
     "_eqidx_xs_rel_momentum": _eqidx_xs_rel_momentum,
     "_rates_copper_gold_lead": _rates_copper_gold_lead,

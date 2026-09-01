@@ -6,6 +6,8 @@ Functions:
     fetch_historical_prices() — Fetch daily CLOSE prices for date range from Yahoo Finance.
     fetch_market_indicator_latest() — Per-symbol history fallback for market dashboard.
     fetch_fred_latest_series() — Fetch latest FRED macro observations (urllib, no extra deps).
+    fetch_current_session_bars() — Current-session intraday OHLCV bars (Release 53.1).
+    fetch_recent_intraday_bars() — Multi-session intraday OHLCV history (Release 53.1).
 
 Design principles:
     - No database writes. Returns data only.
@@ -16,7 +18,7 @@ Design principles:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -178,6 +180,145 @@ def _extract_latest_price(ticker: str, data: Any) -> float | None:
         return None
     except Exception:
         return None
+
+
+def _extract_bar_rows(data: Any, ticker: str, interval_minutes: int) -> list[dict]:
+    """Normalize one ticker's slice of a yfinance intraday download into rows.
+
+    Each row: {"ts_utc": ISO-8601 bar START (UTC), "bar_end_utc": ISO-8601,
+    "open", "high", "low", "close": float, "volume": int|None}. NaN rows are
+    dropped. Handles both single-ticker (flat columns) and multi-ticker
+    (MultiIndex (Field, Ticker)) download shapes.
+    """
+    rows: list[dict] = []
+    if data is None or len(data) == 0:
+        return rows
+
+    def _col(field: str):
+        try:
+            col = data[field]
+        except (KeyError, TypeError):
+            return None
+        if hasattr(col, "columns"):          # multi-ticker: (Field, Ticker)
+            if ticker in col.columns:
+                return col[ticker]
+            return None
+        return col                            # single ticker: flat Series
+
+    o, h, l, c, v = (_col(f) for f in ("Open", "High", "Low", "Close", "Volume"))
+    if c is None:
+        return rows
+    from datetime import timedelta
+    for idx in data.index:
+        try:
+            close_val = float(c.loc[idx])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if close_val != close_val or close_val <= 0:   # NaN or non-positive
+            continue
+        ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        ts_utc = ts.astimezone(timezone.utc)
+
+        def _val(series):
+            if series is None:
+                return None
+            try:
+                x = float(series.loc[idx])
+                return x if x == x else None
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        vol = _val(v)
+        rows.append({
+            "ts_utc": ts_utc.isoformat().replace("+00:00", "Z"),
+            "bar_end_utc": (ts_utc + timedelta(minutes=interval_minutes)
+                            ).isoformat().replace("+00:00", "Z"),
+            "open": _val(o), "high": _val(h), "low": _val(l),
+            "close": close_val,
+            "volume": int(vol) if vol is not None else None,
+        })
+    rows.sort(key=lambda r: r["ts_utc"])
+    return rows
+
+
+def fetch_recent_intraday_bars(
+    tickers: list[str],
+    *,
+    interval_minutes: int = 5,
+    lookback_days: int = 1,
+) -> tuple[dict[str, list[dict]], list[dict], dict]:
+    """Fetch recent intraday OHLCV bars from Yahoo Finance (Release 53.1).
+
+    This is the canonical-owner extension of the existing delayed Yahoo lane
+    from "latest quote only" to "current/recent session bars". Same provider,
+    same free public entitlement class, exchange-stamped bar timestamps.
+
+    Returns (bars_by_ticker, failures, meta):
+        bars_by_ticker: {TICKER: [row, ...]} rows as in _extract_bar_rows
+        failures: [{"ticker", "reason"}]
+        meta: {"received_at_utc", "provider", "interval_minutes",
+               "lookback_days", "timestamp_semantics"}
+
+    Timestamp semantics: ``ts_utc`` is the exchange bar START; a bar is
+    COMPLETE only when ``bar_end_utc`` <= received_at_utc. Callers that stamp
+    prospective evidence must use completed bars only and must measure
+    freshness against ``bar_end_utc`` — this function reports, it never
+    asserts freshness.
+    """
+    received = datetime.now(timezone.utc)
+    meta = {
+        "received_at_utc": received.isoformat().replace("+00:00", "Z"),
+        "provider": "yahoo_finance_chart",
+        "interval_minutes": int(interval_minutes),
+        "lookback_days": int(lookback_days),
+        "timestamp_semantics": "ts_utc is the exchange bar START (tz-aware "
+                               "from provider, normalized to UTC); a bar is "
+                               "complete only when bar_end_utc <= "
+                               "received_at_utc",
+    }
+    if not tickers:
+        return {}, [], meta
+    if yfinance is None:
+        return {}, [{"ticker": t.upper(), "reason": "yfinance not installed"}
+                    for t in tickers], meta
+
+    normalized = list(dict.fromkeys(t.upper() for t in tickers))
+    ticker_to_yf = {t: _get_yfinance_symbol(t) for t in normalized}
+    yf_symbols = list(dict.fromkeys(ticker_to_yf.values()))
+    try:
+        data = yfinance.download(
+            " ".join(yf_symbols),
+            period="%dd" % int(lookback_days),
+            interval="%dm" % int(interval_minutes),
+            progress=False,
+            threads=False,
+            auto_adjust=False,
+        )
+    except Exception as exc:
+        return {}, [{"ticker": t, "reason": "Failed to fetch: %s" % str(exc)[:100]}
+                    for t in normalized], meta
+
+    bars: dict[str, list[dict]] = {}
+    failures: list[dict] = []
+    for t in normalized:
+        rows = _extract_bar_rows(data, ticker_to_yf[t], int(interval_minutes))
+        if rows:
+            bars[t] = rows
+        else:
+            failures.append({"ticker": t, "reason": "no intraday bars returned"})
+    return bars, failures, meta
+
+
+def fetch_current_session_bars(
+    tickers: list[str],
+    *,
+    interval_minutes: int = 5,
+) -> tuple[dict[str, list[dict]], list[dict], dict]:
+    """Current-session intraday bars: one-day window of fetch_recent_intraday_bars."""
+    return fetch_recent_intraday_bars(
+        tickers, interval_minutes=interval_minutes, lookback_days=1)
 
 
 def fetch_historical_prices(

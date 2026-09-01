@@ -1,5 +1,191 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-09-01
+- **Updated by phase:** **Release 53.1 - Intraday Activation &
+  Alpha-to-Capital Conversion (single agent, no subagents, Windows
+  PowerShell only).** Built with R53 over commit `949ca9d`.
+  **The mission:** convert R53's discoveries into operating capability.
+  Full narrative: `docs/RELEASE53_1_INTRADAY_ACTIVATION.md`; artifacts:
+  `D:\Stock_Prediction_app_data\active_risk_intraday_alpha_r53\r53_1_intraday_activation_v1\`
+  + `D:\Temp\paper_trader_release53_1_intraday_activation\`.
+  **Track B - THE INTRADAY FEED WALL IS DOWN.** The owned estate was
+  exhausted as demanded and held an unprobed door: the already-integrated
+  Yahoo provider class serves CURRENT-session 5-minute exchange-stamped
+  OHLCV bars. Canonical extension `engine.market_data
+  .fetch_recent_intraday_bars`; the ONE lane owner (`alpha_agent.r46
+  .intraday`) now probes yahoo bars + Tiingo IEX (~0s) + Finnhub (~30s) +
+  EODHD delayed quote (~15.8min) and carries the honest latency taxonomy
+  (REAL_TIME/NEAR_REAL_TIME/DELAYED_INTRADAY/DAILY_ONLY/NOT_ENTITLED);
+  lane = AVAILABLE_NOW. Adapter `alpha_agent/r53_1/intraday_feed.py`
+  (completed bars only, measured freshness, same-feed marks) + the eight
+  FROZEN R53 specs implemented verbatim in `r53_1/intraday_signals.py`
+  (hashes verified vs the registration record). **First TRUE_FORWARD
+  intraday predictions in project history emitted at the legal 12:00 ET
+  slot today: 36 rows (gap-cont 9 / momentum 9 / sector-RS 18; five specs
+  refused honestly), freshness 6s, 11.4s end-to-end, chains intact.**
+  Runner `scripts/run_intraday_emission.py`; purchase gate =
+  NOT_REQUIRED_OWNED_SOURCE_USABLE.
+  **Track A - collection durability finished.** ONE definition owner
+  `scripts/install_information_collection_task.ps1` (S4U, boot + 30-min
+  indefinite-repetition recovery trigger, IgnoreNew, no time limit,
+  full-definition compare, -DecisionProbe, -Force migration) + read-only
+  `validate_information_collection_task.ps1` (Interactive NEVER valid);
+  the R29 manager's Install now DELEGATES (inline registration removed);
+  audit invariant evolved to the three-script contract (strict exit 0).
+  Registration needs an ELEVATED shell = OPERATOR action; nothing was
+  installed by research code. `install_intraday_emission_task.ps1` mirrors
+  the pattern for PaperTrader-IntradayEmission (10:00/12:00/14:00 + 16:20
+  scoring; StartWhenAvailable OFF - a missed slot forfeits, never runs
+  late). GOTCHA: the audit's collection invariant counts every
+  scripts/*.ps1 whose name matches information_collection|collection_service.
+  **Track C - risk budget, not veto** (`r53_1/risk_budget.py`, SHADOW).
+  Reuses cross-asset risk maths + R53 competition seams; explicit budgets
+  (vol/unit/class/turnover/collateral) for the three a-priori policies;
+  CASE1-4 taxonomy. Measured at $99,113 NAV: &VX rho=-0.71 to the book
+  (best diversifier; short-only signal; 16.7%/unit), &MBT at 8% weight =
+  +2.8bp/day portfolio vol with 8.8bp absorbed by diversification;
+  MODERATE budgets admit &M2K+&MBT, vol budget correctly sizes out &MET;
+  CONSERVATIVE admits nothing (granularity). Ordinal percentiles labelled
+  within-sleeve; hurdle untouched.
+  **Track D - executable at ~$99k NAV** (`r53_1/executable_universe.py`).
+  OWNED micros probed from Norgate: MES/MNQ/M2K/MYM (1,842 sessions),
+  **MBT $7.9k/unit and MET $249/unit - executable under the PRODUCTION 10%
+  cap TODAY**; &M2K fits 15% shadow cap, &VX fits 20%; micro FX/metals/
+  energy/yield/VXM NOT owned - those sleeves stay unit-locked. FIXED: MET
+  was misclassified as intl-equity-index in `api.market_reference_data`
+  (owned DB names it "Micro Ether") -> AC_CRYPTO_FUTURES. ETF proxies
+  classified (GLD/SLV/FXE/FXY same-thesis; USO/UNG/IEF/TLT basis risk;
+  long-vol ETF can never express VX curve carry). Futures risk-model study
+  (dollar-vol vs notional) is SHADOW input for a future release.
+  Short capability (`r53_1/short_capability.py`): allocator C_LONG_ONLY
+  clip + frontier long-leg admission + unsigned desk quantities assume
+  long-only; risk maths + evidence rows already signed; futures short !=
+  equity short; controls declared; NOTHING activated.
+  **Latency:** decision chain 7.3s median; emission runner 11.4s measured;
+  NRT event-to-decision ~45s (fits 60s budget). The bottleneck is
+  DETECTION cadence (15-min quote poll; collector down), not the engine.
+  **Verification:** 38-test release suite green; R29/R50/R53/R47/
+  market_data green (378 in final batches); strict audit exit 0;
+  git diff --check clean; 61 production store files hashed identical
+  before/after. **Operator actions:** (1) elevated
+  `install_information_collection_task.ps1 -Force` then validator;
+  (2) elevated `install_intraday_emission_task.ps1`; (3) full regression
+  -> commit -> push. A detached watcher covers today's 14:00 slot and
+  16:21 scoring pass only.
+- **Previous phase:** **Release 53 - Active Risk, Intraday Alpha &
+  Cross-Market Capital Offensive (single agent, no subagents, Windows
+  PowerShell only).** Built on R52 commit `949ca9d`.
+  **The mission.** After the first real governed 2026-08-31 cycle (correct
+  HOLD_CURRENT_BOOK at net -0.699 pp vs the 5 pp hurdle), the bottlenecks
+  are risk appetite, true intraday alpha, and cross-market alpha that
+  deserves capital. R53 attacked all three feeding the ONE canonical
+  allocator. Full narrative: `docs/RELEASE53_ACTIVE_RISK_INTRADAY_ALPHA.md`;
+  artifacts: `D:\Stock_Prediction_app_data\active_risk_intraday_alpha_r53\`
+  + `D:\Temp\paper_trader_release53_active_risk_intraday_alpha\`.
+  **Track A - active risk appetite** (`alpha_agent/r53/risk_appetite.py`).
+  Live census: the SWITCHING HURDLE is the only control that has ever bound
+  a governed decision (closest approach 0.0242 vs 0.05, 5 observations).
+  Walk-forward policy-REGION study on the owned survivorship-free R1000
+  panel (2000-2026, PIT membership, 12-1 momentum PROXY signal - declared),
+  31 configs, every construction through the CANONICAL kernel
+  (`solve_feasible_target` -> `switching_economics` -> `decide_outcome`,
+  policy injected), dev(<2018)/validation split, no champion selected.
+  Verdicts: name cap and cooldown are DORMANT (never bind, keep as safety
+  nets); turnover budget 0.35 is inside the robust region (0.10 genuinely
+  hurts); hurdle 0.05 is mildly conservative (0.035 dominates dev, ties
+  validation); concentration does NOT robustly pay (region 20-30 names
+  stable; 8-12 zone-unstable). Three SHADOW policies frozen a priori
+  (CURRENT_CONSERVATIVE / MODERATE_ACTIVE / HIGH_ACTIVE) for PROSPECTIVE
+  comparison; production policy UNCHANGED (hash recorded).
+  **Track B - runtime truth + intraday factory.** Continuous collection has
+  been DOWN since 2026-08-28 17:53Z: at logon the relaunch hit the dead
+  worker's ~100s-old lock heartbeat, the strict reclaim (silent>900s AND
+  pid gone) refused -> exit 3, and the LogonTrigger-only task never
+  retries. CODE FIX: `acquire_service_lock_with_wait` (live holder refused
+  instantly; provably-dead holder waited out inside the takeover window;
+  worker starts through it; audit invariant extended). SCHEDULER FIX is a
+  named OPERATOR action (periodic triggers + restart-on-failure + S4U,
+  mirror the R52 installer) - R53 changed no task. R52's
+  PaperTrader-ResearchRuntime is healthy and now S4U. The canonical
+  intraday lane was re-probed LIVE with the key in shell: DATA_BLOCKED
+  (Norgate daily-only; Polygon 403 on current-session bars) - so the
+  INTRADAY FACTORY (`alpha_agent/r53/intraday_factory.py`) froze 8 specs
+  across 7 families (gap continuation/reversal, intraday momentum/reversal,
+  vol breakout, sector RS, volume confirmation, VIX lead) with the full
+  prospective machinery on the canonical desk chain-hash primitives: slot
+  clock 10:00/12:00/14:00 ET + 15min grace, TRUE_FORWARD-only ledger
+  (strict emitted<window ordering, stale>20min refused, first emission
+  wins), forfeiture rows REQUIRE backfill_refused:true, outcomes score
+  MATURED windows only (never mark-to-market), structural block vs
+  operational miss split kept. Emits the day a feed exists; emitted zero
+  today and says so. Latency (`r53/latency.py`, measured from 17 DRC
+  manifests): median cycle ~303s, worst 21.4min; bottlenecks are
+  ADVANCE_PROSPECTIVE_TOURNAMENT (~736s) and CAPTURE_FORWARD_EVIDENCE
+  (~279s) - research accrual; the DECISION CHAIN (HOC->reassess->proposal)
+  is ~7.3s median, so event-driven ~300s budget is realistic and true
+  intraday needs only the incremental path. Multi-horizon SHADOW view
+  (`r53/multi_horizon_view.py`): production percentile + 51 tactical shadow
+  rows + intraday state on one page; five aggregation architectures
+  evaluated, NONE adopted (zero matured intraday rows calibrate nothing);
+  horizons compete for capital only through the one allocator.
+  **Track C - shadow capital competition** (`r53/capital_competition.py`).
+  Hermetic, through the REAL owners (registry `approvals=` seam ->
+  frontier -> production-policy kernel), 12 scenarios. THE finding: at the
+  actual ~$99k NAV **no non-equity sleeve can receive any capital even
+  fully approved** - every contract fails UNIT_NOTIONAL_EXCEEDS_NAME_CAP_
+  AT_NAV; unit granularity binds AHEAD of the evidence gate. At $1M only
+  the FX-carry long leg (&6M) becomes executable (takes the name cap);
+  rates/volatility currently signal SHORT-ONLY, which long-only cannot
+  hold; and even eligible, the switch nets 0.027 < the 0.05 hurdle - the
+  hurdle cannot see diversification value, which is the concrete case for
+  a RISK-BUDGET primitive inside the existing constraint owner (no second
+  allocator). TWO new frozen challengers through the canonical door
+  (cohort `R53_CROSS_MARKET_OFFENSIVE`, frozen 2026-09-01T14:29:22Z,
+  retune_free, zero new historical trials, both CAN_ACCRUE):
+  `r53_fut_xs_value_5y` (AMP 2013 five-year-reversal VALUE across the
+  all-futures complex, thirds, h20 - cluster FUTURES_XS_VALUE) and
+  `r53_comdty_xs_skew_12m` (FFFM 2018 realized-skewness sort, long low
+  skew, thirds, h20 - cluster COMMODITY_XS_SKEW). Six hypotheses DECLINED
+  with written reasons (`R53_DECLINED`, incl. intraday cells - feed-blocked
+  - and crypto revival, unchanged). First emissions belong to TONIGHT's
+  17:45 scheduled runtime; no manual advance was run. Registry: 45 door
+  challengers / 52 total, chains intact, PROMOTION_READY 0.
+  **Guards.** `tests/test_release53_active_risk_intraday_alpha.py` (37
+  tests: policy untouched, prospective discipline incl. dedupe/stale/no-
+  backfill/matured-only, canonical-door registration, capital conservation,
+  short-only exclusion, no persisted approvals, lock-wait semantics, no
+  second allocator by source scan); 282 targeted tests green across R53 +
+  R46.3/.6 + R46 tournament + R46.4 + R47 safety + R29 collection + R50 +
+  R51 + R52; three R46 baseline tests updated by the sanctioned
+  cohort-growth pattern; strict audit exit 0; `git diff --check` clean.
+  **Production untouched:** stores hashed before/after byte-identical
+  (61 files, `operational_before/after.json`); policy unchanged; no
+  promotion, no orders, no scheduler change, $0.
+- **Working tree status (R53):** New: `alpha_agent/r53/` (7 modules),
+  `scripts/r53_store_hash.py`,
+  `tests/test_release53_active_risk_intraday_alpha.py`,
+  `docs/RELEASE53_ACTIVE_RISK_INTRADAY_ALPHA.md`. Modified:
+  `alpha_agent/r46/challengers.py` (+R53 cohort + 2 owners, no earlier
+  tuple touched), `alpha_agent/r46/emit.py` + `feasibility.py` (+2 probe
+  entries each), `api/information_collection.py` (+bounded-wait acquire),
+  `scripts/run_information_collection_service.py`,
+  `scripts/audit_architecture.py` (worker-delegation invariant),
+  `tests/test_release46_3_prospective_throughput.py`,
+  `tests/test_release46_4_pnl_offensive.py`,
+  `tests/test_release46_6_forward_economic_discrimination.py`, this file.
+- **Next required action (R53):** operator runs ONE full regression
+  (`operator_full_regression.ps1`), then commit + push. From an ELEVATED
+  PowerShell, re-register `PaperTrader-InformationCollection` with periodic
+  triggers / restart-on-failure / S4U (mirror the R52 installer pattern) -
+  until then collection stays down after any logoff and must be started
+  manually. Tonight's 17:45 runtime emits the R53 challengers' first
+  forward rows automatically. The intraday factory emits nothing until a
+  current intraday feed exists - acquiring one is a purchase-gate question
+  for the operator (Polygon paid tier or equivalent), never a research
+  module's decision.
+
+## Release 52 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-08-31
 - **Updated by phase:** **Release 52 - Persistent Prospective Research
   Runtime + Forward-Evidence Reliability + Parallel Alpha Throughput

@@ -287,11 +287,13 @@ class TestFastEvidenceCohort:
                 counts[h] = counts.get(h, 0) + 1
         # the field was 5 / 9 / 21 before this release; Release 51's FX-carry
         # cell added one 5-day and one 20-day horizon through the same door,
-        # and Release 52's two cells (equity-index rotation, copper/gold
-        # lead-lag) each added one 20-day horizon through the same door
+        # Release 52's two cells (equity-index rotation, copper/gold
+        # lead-lag) each added one 20-day horizon through the same door, and
+        # Release 53's two cells (all-futures 5-year value, commodity
+        # skewness) each added one 20-day horizon through the same door
         assert counts[1] == 7
         assert counts[5] == 15
-        assert counts[20] == 24
+        assert counts[20] == 26
 
     def test_no_new_challenger_uses_a_20_day_horizon(self):
         for s in CH.R46_6_SPECS:

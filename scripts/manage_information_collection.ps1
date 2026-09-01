@@ -314,31 +314,20 @@ function Wait-ForHeartbeat([int]$TimeoutSec) {
 function Install-CollectionTask() {
     $stdout = Join-Path $Repo "paper_trader_collection.stdout.log"
     $stderr = Join-Path $Repo "paper_trader_collection.stderr.log"
-    $argLine = ('"{0}" --interval-seconds 60' -f $Worker)
-    $action = New-ScheduledTaskAction -Execute $PythonExe -Argument $argLine `
-        -WorkingDirectory $Repo
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
-        -LogonType Interactive -RunLevel Limited
-    # IgnoreNew is the task-level half of the singleton guarantee; the worker's
-    # own lock file is the authoritative half.
-    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
-        -StartWhenAvailable `
-        -ExecutionTimeLimit ([TimeSpan]::Zero) `
-        -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5) `
-        -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
-
-    $existing = Get-CollectionTask
-    if ($null -ne $existing) {
-        Info "Task already present - updating in place (no duplicate is created)."
-        Set-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger `
-            -Principal $principal -Settings $settings | Out-Null
-    } else {
-        Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger `
-            -Principal $principal -Settings $settings `
-            -Description ("Paper Trader continuous information collection. " +
-                          "Collection automation ON; execution automation OFF; " +
-                          "no broker execution; manual review required.") | Out-Null
+    # Release 53.1: the task DEFINITION is owned by exactly ONE installer
+    # script (same single-owner rule as the backend restart owner). The old
+    # inline registration here produced the Interactive, logon-only task that
+    # died with the logon session on 2026-08-28 and never recovered. This
+    # manager now delegates; -Force is legal because Install is already an
+    # explicit, -Execute-gated operator action.
+    $installer = Join-Path $Repo "scripts\install_information_collection_task.ps1"
+    if (-not (Test-Path -LiteralPath $installer)) {
+        Fail "definition owner not found: $installer"
+    }
+    & $installer -Force
+    if ($global:R531CollectionTaskInstallResult -like 'BLOCKED*') {
+        Fail ("task registration blocked: $($global:R531CollectionTaskInstallResult). " +
+              "The durable S4U definition needs an ELEVATED PowerShell.")
     }
     Info "stdout log: $stdout"
     Info "stderr log: $stderr"

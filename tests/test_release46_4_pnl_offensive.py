@@ -218,10 +218,11 @@ def test_the_field_grew_without_touching_earlier_tuples():
             + len(CH.R46_4_SPECS) + len(CH.R46_5_SPECS)) == 33
     # Release 51 added one FX-carry challenger through the same door, and
     # Release 52 added two (equity-index rotation, copper/gold lead-lag).
+    # Release 53 added two more (all-futures 5-year value, commodity skewness).
     assert len(CH.ALL_SPECS) == (
         len(CH.SEED_SPECS) + len(CH.EXPANSION_SPECS) + len(CH.R46_4_SPECS)
         + len(CH.R46_5_SPECS) + len(CH.R46_6_SPECS) + len(CH.R51_SPECS)
-        + len(CH.R52_SPECS))
+        + len(CH.R52_SPECS) + len(CH.R53_SPECS))
     ids = [s["challenger_id"] for s in CH.ALL_SPECS]
     assert len(ids) == len(set(ids))
 

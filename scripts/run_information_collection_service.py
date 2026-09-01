@@ -181,18 +181,31 @@ def main(argv=None) -> int:
         log.write("start_refused", reason="COLLECTION_AUTOMATION_DISABLED")
         return 2
 
-    lock = ic.acquire_service_lock(root=root, instance_id=instance_id, pid=pid)
+    # Signals are installed BEFORE the lock wait so a service stop during the
+    # takeover-window wait is honoured promptly.
+    _install_signal_handlers()
+
+    # Release 53: a logon relaunch races the previous session's freshly-killed
+    # worker. The bounded-wait acquire keeps single-flight (a LIVE holder is
+    # refused immediately) but waits out a provably-dead holder's takeover
+    # window instead of exiting terminally - the defect that silently stopped
+    # collection from 2026-08-28 (start_refused / exit 3 / no retry trigger).
+    lock = ic.acquire_service_lock_with_wait(
+        root=root, instance_id=instance_id, pid=pid,
+        should_stop=lambda: _STOP["requested"])
     if not lock.get("acquired"):
         print("%s - %s" % (BLOCKED, lock.get("message")))
         log.write("start_refused", reason=lock.get("reason"),
-                  holder=lock.get("holder"))
+                  holder=lock.get("holder"),
+                  waited_seconds=lock.get("waited_seconds"),
+                  wait_refused_reason=lock.get("wait_refused_reason"))
         return 3
 
     ic.register_worker_start(root=root, instance_id=instance_id, pid=pid)
     log.write("worker_started", instance_id=instance_id, pid=pid,
               interval_floor_seconds=floor,
-              reclaimed=lock.get("reclaimed"))
-    _install_signal_handlers()
+              reclaimed=lock.get("reclaimed"),
+              waited_seconds=lock.get("waited_seconds"))
 
     # THE progress callback for this worker's whole life. Owned by the same
     # module that owns the heartbeat, so there is still exactly one authority

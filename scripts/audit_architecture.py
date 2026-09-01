@@ -4642,19 +4642,50 @@ def check_information_collection_ownership(files: list[Path],
         m.group(0).strip() for pat in IC_UI_FORBIDDEN_PATTERNS
         for m in re.finditer(pat, ic_region))
 
-    # (9) the worker delegates and owns no cadence.
+    # (9) the worker delegates and owns no cadence. Release 53: the lock
+    # acquire is the bounded-wait variant (same composition owner) so a logon
+    # race no longer kills collection until the next logon; either canonical
+    # acquire satisfies the delegation invariant, a local reimplementation
+    # satisfies neither.
     worker_delegates = all(t in worker for t in
-                           ("ic.run_collection_iteration(", "ic.acquire_service_lock(",
-                            "ic.heartbeat(", "ic.release_service_lock("))
+                           ("ic.run_collection_iteration(",
+                            "ic.heartbeat(", "ic.release_service_lock(")) and (
+        "ic.acquire_service_lock(" in worker
+        or "ic.acquire_service_lock_with_wait(" in worker)
     worker_reimplements_cadence = sorted(
         t for t in ("CADENCE_POLICY_BY_ID", "def resolve_window(",
                     "normal_interval_seconds =") if t in worker)
 
-    # (10) exactly one manager script, read-only by default.
+    # (10) one LIFECYCLE manager, read-only by default. Release 53.1 splits
+    # the durable task DEFINITION into its own single owner (installer) plus
+    # a read-only validator, and the manager must DELEGATE registration to
+    # the installer - so the legal script set is exactly these three, the
+    # manager may no longer register a task inline, and the validator may
+    # never register one at all. Anything else is a competing lifecycle.
+    IC_MANAGER = "scripts/manage_information_collection.ps1"
+    IC_TASK_INSTALLER = "scripts/install_information_collection_task.ps1"
+    IC_TASK_VALIDATOR = "scripts/validate_information_collection_task.ps1"
     manage_scripts = sorted(
         _rel(fp) for fp in (REPO_ROOT / "scripts").glob("*.ps1")
         if "information_collection" in fp.name.lower()
         or "collection_service" in fp.name.lower())
+    unexpected_collection_scripts = sorted(
+        s for s in manage_scripts
+        if s not in (IC_MANAGER, IC_TASK_INSTALLER, IC_TASK_VALIDATOR))
+    installer_src = _read(IC_TASK_INSTALLER)
+    validator_src = _read(IC_TASK_VALIDATOR)
+    task_definition_owner_present = (
+        "Register-ScheduledTask" in installer_src
+        and "DecisionProbe" in installer_src)
+    manager_delegates_registration = (
+        "install_information_collection_task.ps1" in manage
+        and "Register-ScheduledTask" not in manage
+        and "New-ScheduledTaskTrigger -AtLogOn" not in manage)
+    validator_is_read_only = (
+        bool(validator_src)
+        and "Register-ScheduledTask" not in validator_src
+        and "Set-ScheduledTask" not in validator_src
+        and "Start-ScheduledTask" not in validator_src)
     manage_requires_execute = ("function Require-Execute(" in manage
                                and manage.count("Require-Execute \"") >= 4)
     status_is_read_only = ("Require-Execute \"Status\"" not in manage)
@@ -4719,6 +4750,10 @@ def check_information_collection_ownership(files: list[Path],
         "worker_delegates": bool(worker_delegates),
         "worker_reimplements_cadence": worker_reimplements_cadence,
         "manage_scripts": manage_scripts,
+        "unexpected_collection_scripts": unexpected_collection_scripts,
+        "task_definition_owner_present": bool(task_definition_owner_present),
+        "manager_delegates_registration": bool(manager_delegates_registration),
+        "validator_is_read_only": bool(validator_is_read_only),
         "manage_requires_execute": bool(manage_requires_execute),
         "status_is_read_only": bool(status_is_read_only),
         "uninstall_preserves_evidence": bool(uninstall_preserves_evidence),
@@ -13013,8 +13048,14 @@ def _print_console(rep: dict) -> None:
     print(f"worker delegates: {icx['worker_delegates']}  "
           f"worker reimplements cadence (must be empty): "
           f"{icx['worker_reimplements_cadence']}")
-    print(f"manager scripts (must be exactly one): {icx['manage_scripts']}  "
-          f"mutations require -Execute: {icx['manage_requires_execute']}  "
+    print(f"collection scripts (manager+installer+validator only): "
+          f"{icx['manage_scripts']}  "
+          f"unexpected (must be empty): {icx['unexpected_collection_scripts']}  "
+          f"definition owner present: {icx['task_definition_owner_present']}  "
+          f"manager delegates registration: "
+          f"{icx['manager_delegates_registration']}  "
+          f"validator read-only: {icx['validator_is_read_only']}")
+    print(f"mutations require -Execute: {icx['manage_requires_execute']}  "
           f"Status is read-only: {icx['status_is_read_only']}  "
           f"uninstall preserves evidence: {icx['uninstall_preserves_evidence']}")
     print(f"logical-worker owner present: {icx['topology_owner_present']}  "
@@ -15279,7 +15320,10 @@ def main(argv=None) -> int:
                          + len(icx["ui_health_derivation"])
                          + (0 if icx["worker_delegates"] else 1)
                          + len(icx["worker_reimplements_cadence"])
-                         + (0 if len(icx["manage_scripts"]) == 1 else 1)
+                         + len(icx["unexpected_collection_scripts"])
+                         + (0 if icx["task_definition_owner_present"] else 1)
+                         + (0 if icx["manager_delegates_registration"] else 1)
+                         + (0 if icx["validator_is_read_only"] else 1)
                          + (0 if icx["manage_requires_execute"] else 1)
                          + (0 if icx["status_is_read_only"] else 1)
                          + (0 if icx["uninstall_preserves_evidence"] else 1)

@@ -466,6 +466,68 @@ def acquire_service_lock(*, root=None, instance_id: Optional[str] = None,
             "reclaimed": reclaimed, "lock_path": str(path)}
 
 
+def acquire_service_lock_with_wait(*, root=None,
+                                   instance_id: Optional[str] = None,
+                                   pid: Optional[int] = None,
+                                   max_wait_seconds: Optional[float] = None,
+                                   poll_seconds: float = 10.0,
+                                   should_stop=None,
+                                   _sleep=None) -> dict:
+    """Acquire the single worker slot, WAITING OUT a dead holder's takeover
+    window instead of failing terminally.
+
+    Release 53, after the 2026-08-28 outage: at a logon the Scheduled Task
+    relaunches the worker while the previous session's worker has just been
+    killed. Its lock heartbeat is seconds old, so the strict acquire refuses
+    (correctly - freshness alone cannot prove death is permanent), the task
+    exits 3, and the LogonTrigger never fires again: continuous collection
+    dies silently until the next logon. The fix is NOT to weaken the
+    single-flight rule - it is to keep the refused starter ALIVE while the
+    evidence resolves:
+
+    * holder pid provably ALIVE (or liveness undeterminable) -> refuse
+      immediately, exactly as before. Two live workers must never overlap and
+      an unknown holder fails closed.
+    * holder pid provably DEAD -> wait in bounded slices and re-attempt; the
+      strict acquire itself grants the slot once the heartbeat has been
+      silent past ``LOCK_TAKEOVER_SECONDS``. The reclaim rule is unchanged -
+      this wrapper only refuses to treat "not yet" as "never".
+
+    ``should_stop`` lets the caller honour a shutdown signal during the wait;
+    ``_sleep`` is injected by tests. Bounded: at most the takeover window
+    plus one poll interval, then one final verdict is returned.
+    """
+    import time as _time
+    sleep = _sleep or _time.sleep
+    deadline = float(max_wait_seconds if max_wait_seconds is not None
+                     else LOCK_TAKEOVER_SECONDS + poll_seconds)
+    waited = 0.0
+    attempts = 0
+    while True:
+        res = acquire_service_lock(root=root, instance_id=instance_id, pid=pid)
+        attempts += 1
+        res["acquire_attempts"] = attempts
+        res["waited_seconds"] = round(waited, 1)
+        if res.get("acquired"):
+            return res
+        holder_pid = (res.get("holder") or {}).get("pid")
+        if _pid_alive(holder_pid) is not False:
+            res["wait_refused_reason"] = (
+                "holder pid %s is alive or undeterminable; failing closed "
+                "immediately (single-flight)" % holder_pid)
+            return res
+        if callable(should_stop) and should_stop():
+            res["wait_refused_reason"] = "stop requested during lock wait"
+            return res
+        if waited >= deadline:
+            res["wait_refused_reason"] = (
+                "takeover window did not resolve within %.0fs" % deadline)
+            return res
+        step = min(float(poll_seconds), deadline - waited)
+        sleep(step)
+        waited += step
+
+
 def heartbeat(*, root=None, instance_id: str, now: Optional[datetime] = None,
               loop_count: Optional[int] = None, current_source: Any = None,
               next_wake_at: Any = None) -> dict:
@@ -2410,7 +2472,8 @@ __all__ = [
     "collection_root", "logs_root", "now_utc", "utc_iso",
     "load_service_state", "save_service_state", "set_collection_automation",
     "load_source_runtime_state", "save_source_runtime_state",
-    "acquire_service_lock", "release_service_lock", "read_service_lock",
+    "acquire_service_lock", "acquire_service_lock_with_wait",
+    "release_service_lock", "read_service_lock",
     "heartbeat", "record_progress", "ProgressReporter",
     "clear_iteration_in_flight",
     "register_worker_start", "resolve_service_lifecycle",
