@@ -1438,10 +1438,26 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
     result["reallocation_data_gaps"] = list(rp.get("reallocation_data_gaps") or [])
     # Stage 22 (Workstream E): what the proposal is BOUND to, carried verbatim so the
     # workflow owner can prove the proposal describes the CURRENT fresh assessment.
+    # Track B (decision consistency): the Release-47 OUTCOME travels the same shared
+    # path. The canonical summary decides HOLD_CURRENT_BOOK / PROPOSAL_READY /
+    # TRUE_BLOCKER and whether the proposal is approvable; before these fields were
+    # forwarded, every workflow consumer read outcome=None and re-derived "a READY
+    # proposal must be awaiting review" — which presented a governed economic HOLD
+    # as REALLOCATE / MANUAL REVIEW on 2026-08-31. The gate copies; it never decides.
     for _k in ("reallocation_bound_hoc_assessment_hash",
                "reallocation_bound_eligible_market_date",
                "reallocation_bound_active_book_id",
-               "reallocation_proposal_stale", "reallocation_proposal_stale_reason"):
+               "reallocation_proposal_stale", "reallocation_proposal_stale_reason",
+               "reallocation_proposal_withheld", "reallocation_withheld_reasons",
+               "reallocation_proposal_approvable",
+               "reallocation_corporate_actions_hash",
+               "reallocation_outcome", "reallocation_outcome_headline",
+               "reallocation_outcome_reason_codes",
+               "reallocation_constraints_reshaped",
+               "reallocation_constraint_reoptimized",
+               "reallocation_feasible_target_exists",
+               "reallocation_switching_hurdle",
+               "reallocation_clears_switching_hurdle"):
         result[_k] = rp.get(_k)
     # Slice 7 (Phase 29H) is LANDED: the reallocation proposal exists and remains
     # REVIEW ONLY — it is a research proposal that confirms no target and creates no

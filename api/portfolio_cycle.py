@@ -288,6 +288,29 @@ def load_portfolio_cycle(*, workflow: Optional[dict] = None,
             "method": "POST", "path": RUN_ROUTE,
             "confirmation_field": "confirmation",
             "confirmation_token": EXECUTE_CONFIRMATION},
+        # Track B (decision consistency §7) — client-timeout recovery, stated on the
+        # read route so an operator whose synchronous POST timed out never has to
+        # guess. The safe recovery is READ STATUS (this route): a completed run shows
+        # cycle_run_available=false / stop_reason=DECISION_PRESENTED with the
+        # canonical decision beside it. A repeated POST cannot duplicate work — both
+        # composed owners are idempotent for a processed session and a completed
+        # state stops at DECISION_PRESENTED before any owner is invoked — but a
+        # blind rerun is still the wrong recovery: read first.
+        "timeout_recovery": {
+            "safe_recovery": "GET %s" % READ_ROUTE,
+            "guidance": ("If the POST to %s timed out at the client, the backend "
+                         "run continues and completes independently. Do NOT rerun "
+                         "blindly: read this route first. cycle_run_available="
+                         "false with stop_reason=DECISION_PRESENTED means the run "
+                         "completed and the governed decision is presented in "
+                         "canonical_portfolio_decision." % RUN_ROUTE),
+            "repeated_post_is_idempotent": True,
+            "idempotency_basis": ("Each composed owner refuses/no-ops a session it "
+                                  "already processed, and a completed workflow "
+                                  "state stops the orchestrator at "
+                                  "DECISION_PRESENTED before any owner runs."),
+            "single_orchestration_path": RUN_ROUTE,
+        },
         **_operator_projection(wf),
         **_safety(False),
     }

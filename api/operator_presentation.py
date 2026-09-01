@@ -137,6 +137,7 @@ _PDS_APPROVED = "PROPOSAL_APPROVED"
 _PDS_REJECTED = "PROPOSAL_REJECTED"
 _PDS_HELD = "PROPOSAL_HELD"
 _PDS_STALE = "STALE_PROPOSAL_REVIEW_REQUIRED"
+_PDS_HOLD = "HOLD_CURRENT_BOOK"
 _RB_PLAN_REVIEW_REQUIRED = "PROPOSAL_APPROVED_ORDER_PLAN_REVIEW_REQUIRED"
 _RB_PLAN_CONFIRMED = "ORDER_PLAN_CONFIRMED_PAPER_EXECUTION_PENDING"
 _RB_EXECUTED = "PAPER_EXECUTED_RECONCILED"
@@ -541,6 +542,20 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
                               destination="system-audit/diagnostics")
         tone = "bad"
     # 3. The governed decision, read from its owners in their own precedence.
+    #    Track B (decision consistency): the constrained owner's HOLD_CURRENT_BOOK
+    #    outcome is read FIRST. It is the highest decision authority in this region
+    #    (constrained outcome -> decision lane -> composed workflow object), and a
+    #    review state any downstream surface reconstructed from "a proposal exists"
+    #    must never outrank it — on 2026-08-31 exactly that reconstruction presented
+    #    a governed economic HOLD as "REALLOCATE — 27 POSITIONS CHANGE".
+    elif cpd_state == _CPD_HOLD or outcome == _RO_HOLD or pd_state == _PDS_HOLD:
+        state = PD_HOLD
+        headline = "HOLD CURRENT PORTFOLIO"
+        explanation = cpd.get("no_proposal_reason") or (
+            "A feasible alternative exists, but the expected improvement after "
+            "transaction costs and turnover does not clear the switching hurdle.")
+        action = _next_action(NA_NONE, available=False)
+        tone = "ok"
     elif cpd_state == _CPD_REVIEW or (outcome == _RO_PROPOSAL_READY and bool(lane.get("requires_manual_review"))):
         state = PD_REALLOCATE
         headline = "REALLOCATE" + (" — %d POSITION%s CHANGE" % (changing, "" if changing == 1 else "S")
@@ -560,14 +575,6 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
         action = _next_action(NA_REVIEW_REALLOCATION, available=True,
                               destination="portfolio-manager/reallocation")
         tone = "warn"
-    elif cpd_state == _CPD_HOLD or outcome == _RO_HOLD:
-        state = PD_HOLD
-        headline = "HOLD CURRENT PORTFOLIO"
-        explanation = cpd.get("no_proposal_reason") or (
-            "A feasible alternative exists, but the expected improvement after "
-            "transaction costs and turnover does not clear the switching hurdle.")
-        action = _next_action(NA_NONE, available=False)
-        tone = "ok"
     elif cpd_state in (_CPD_NO_CHANGE, _CPD_WITHHELD) or (cpd_state == _CPD_RECORDED and pd_state == _PDS_REJECTED):
         state = PD_HOLD
         headline = "HOLD CURRENT PORTFOLIO"

@@ -1046,6 +1046,21 @@ PORTFOLIO_ATTENTION_KINDS = (ATTENTION_MUTATION, ATTENTION_REVIEW, ATTENTION_NON
 REVIEW_REASON_CONSTRAINT_BREACH = "PORTFOLIO_CONSTRAINT_BREACH"
 REVIEW_REASON_PROPOSAL = "PORTFOLIO_PROPOSAL"
 
+#: Track B (decision consistency) — canonical portfolio-decision lane states in which
+#: the governed decision is SETTLED with nothing awaiting proposal review (mirrored
+#: from api.portfolio_decision as literals so this module stays import-pure). The
+#: reassessment's ``proposal_required`` records that the UPSTREAM economic gate asked
+#: for a target; whether that target still needs a person is owned DOWNSTREAM by the
+#: decision lane, which consumes the constrained owner's outcome. On 2026-08-31 the
+#: reassessment truthfully said PROPOSAL_READY while the constrained owner concluded
+#: HOLD_CURRENT_BOOK (below the switching hurdle) — a review raised from the upstream
+#: request alone presented a taken HOLD decision as outstanding operator work.
+#: Deliberately NOT settled: PROPOSAL_APPROVED / PROPOSAL_REJECTED (the recorded-
+#: decision flow keeps its existing follow-up semantics), STALE / HELD (review stays
+#: outstanding) and NO_PROPOSAL / UNAVAILABLE (unknown fails toward review).
+_PDS_DECISION_SETTLED_STATES = frozenset({
+    "HOLD_CURRENT_BOOK", "CHANGE_CANDIDATE_WITHHELD", "NO_MATERIAL_CHANGE"})
+
 #: The canonical operator actions for each review reason. Both already exist in the
 #: reassessment owner's own vocabulary (api.portfolio_reassessment._PRESENTATION);
 #: they are mirrored here as literals so this module stays import-pure.
@@ -1070,7 +1085,8 @@ def constraint_breaches_of(blockers: Any) -> list[str]:
 def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
                         blockers: Any = None,
                         execution_active: bool = False,
-                        held_name_breaches: Any = None) -> dict[str, Any]:
+                        held_name_breaches: Any = None,
+                        decision_lane_state: Any = None) -> dict[str, Any]:
     """THE portfolio-attention verdict: MUTATION, REVIEW or NONE.
 
     Pure. Reads the reassessment owner's already-decided state and its own blocker
@@ -1081,6 +1097,16 @@ def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
     with the execution lifecycle. A hard-constraint breach is NOT a proposal — it is a
     named condition of the book the operator has to adjudicate either way — so it is
     reported regardless, exactly as ``reassessment_blocks_cycle`` is.
+
+    ``decision_lane_state`` (Track B, decision consistency) is the CANONICAL
+    portfolio-decision lane state from api.portfolio_decision — the owner that
+    consumes the constrained owner's authoritative outcome. When that owner has
+    SETTLED the question (HOLD_CURRENT_BOOK / CHANGE_CANDIDATE_WITHHELD /
+    NO_MATERIAL_CHANGE) there is no proposal review outstanding, and the upstream
+    ``proposal_required`` request must not raise one: the reassessment records that
+    a target was ASKED FOR, never whether the produced target still needs a person.
+    ``None`` / an unrecognised lane state keeps the pre-existing behaviour (fail
+    toward review). A constraint-breach review is NEVER suppressed by this.
     """
     state = str(reassessment_state or "")
     # Release 47 — a per-holding cap breach is no longer a BLOCKER (it asks for a
@@ -1091,7 +1117,9 @@ def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
     breaches = sorted(set(constraint_breaches_of(blockers))
                       | {str(b) for b in (held_name_breaches or []) if b})
     constraint_review = state in _PRS_REVIEW_REQUIRED_STATES
-    proposal_review = bool(proposal_required) and not bool(execution_active)
+    decision_settled = str(decision_lane_state or "") in _PDS_DECISION_SETTLED_STATES
+    proposal_review = (bool(proposal_required) and not bool(execution_active)
+                       and not decision_settled)
 
     if constraint_review:
         reason, action = (REVIEW_REASON_CONSTRAINT_BREACH,
@@ -1114,6 +1142,12 @@ def portfolio_attention(*, reassessment_state: Any, proposal_required: bool,
         "proposal_required": bool(proposal_required),
         "proposal_review_suppressed_by_execution": bool(
             proposal_required and execution_active),
+        # Track B — WHY no proposal review is outstanding despite an upstream
+        # ``proposal_required``: the canonical decision lane settled the question.
+        "decision_lane_state": (str(decision_lane_state)
+                                if decision_lane_state else None),
+        "proposal_review_settled_by_decision": bool(
+            proposal_required and decision_settled),
         # What a REVIEW is not. Stated on the object so no surface has to assume it.
         "creates_orders": False,
         "creates_proposal": False,
@@ -3094,19 +3128,112 @@ def load_workflow_state(
             rebalance_state=None, pending_orders=pending_orders),
         warnings, "Reassessment execution precedence") or {
             "execution_active": bool(pending_orders), "reassessment_outranked": bool(pending_orders)}
+    # --- Slice 7 (Phase 29H) reallocation-proposal state (same shared gate path;
+    #     the gate delegates to api.reallocation_proposal.load_proposal_summary). The
+    #     workflow owner only EXPOSES the proposal state as an informational review —
+    #     it never creates a proposal and never turns it into an order/close requirement.
+    #     Track B (decision consistency): read HERE — before the portfolio-attention
+    #     verdict — because the canonical decision lane below consumes these fields and
+    #     the attention verdict consumes the lane.
+    rp_available = bool((gate or {}).get("reallocation_proposal_available"))
+    rp_state = (gate or {}).get("reallocation_proposal_state") or _RP_NOT_RUN
+    rp_counts = (gate or {}).get("reallocation_action_counts") or {}
+    rp_hash = (gate or {}).get("reallocation_proposal_hash")
+    rp_gaps = (gate or {}).get("reallocation_data_gaps") or []
+
+    # --- Stage 18 (Workstream C/D/E): the SEPARATE portfolio-decision review lane.
+    #     Composed from the immutable reallocation-proposal summary (already loaded via
+    #     the shared gate path) + the durable manual decision recorded by the dedicated
+    #     owner (api.portfolio_decision). It NEVER enters OVERALL_STATES, NEVER gates the
+    #     Daily Close, and creates no order. Degrade-safe: any read failure leaves the
+    #     lane at its no-proposal default and never raises.
+    #     Track B (decision consistency): composed BEFORE the portfolio-attention
+    #     verdict, because this lane — through api.portfolio_decision, which consumes
+    #     engine.constrained_reallocation's outcome via the proposal summary — is the
+    #     canonical decision owner, and the attention verdict must consume its state
+    #     instead of re-deriving "a proposal exists, so review it" from the upstream
+    #     reassessment request. That re-derivation presented the governed 2026-08-31
+    #     HOLD_CURRENT_BOOK as MANUAL_REVIEW_REQUIRED / REALLOCATE.
+    rp_summary = {
+        "reallocation_proposal_available": rp_available,
+        "reallocation_proposal_state": rp_state,
+        "reallocation_proposal_hash": rp_hash,
+        "reallocation_proposal_id": (gate or {}).get("reallocation_proposal_id"),
+        "reallocation_action_counts": rp_counts,
+        "reallocation_proposed_holding_count": (gate or {}).get(
+            "reallocation_proposed_holding_count"),
+        "reallocation_one_way_turnover": (gate or {}).get("reallocation_one_way_turnover"),
+        "reallocation_estimated_transaction_cost": (gate or {}).get(
+            "reallocation_estimated_transaction_cost"),
+        "reallocation_score_improvement_net_of_cost": (gate or {}).get(
+            "reallocation_score_improvement_net_of_cost"),
+        "reallocation_data_gaps": rp_gaps,
+        # Release 29.3 — the complete-target withhold verdict travels with the summary so
+        # the decision owner can never present a withheld target as approvable.
+        "reallocation_proposal_withheld": bool(
+            (gate or {}).get("reallocation_proposal_withheld")
+            or rp_state == _RP_WITHHELD),
+        "reallocation_withheld_reasons": list(
+            (gate or {}).get("reallocation_withheld_reasons") or []),
+        "reallocation_proposal_stale": bool((gate or {}).get("reallocation_proposal_stale")),
+        "reallocation_proposal_stale_reason": (gate or {}).get(
+            "reallocation_proposal_stale_reason"),
+        # Release 47 — the outcome, the reshaping ledger and the switching hurdle
+        # travel with the summary, so the decision owner and every surface below it
+        # read ONE authoritative verdict instead of inferring one from a state name.
+        "reallocation_outcome": (gate or {}).get("reallocation_outcome"),
+        "reallocation_outcome_vocabulary": list(REALLOCATION_OUTCOME_VOCABULARY),
+        "reallocation_outcome_headline": (gate or {}).get(
+            "reallocation_outcome_headline"),
+        "reallocation_outcome_reason_codes": list(
+            (gate or {}).get("reallocation_outcome_reason_codes") or []),
+        "reallocation_constraints_reshaped": list(
+            (gate or {}).get("reallocation_constraints_reshaped") or []),
+        "reallocation_constraint_reoptimized": bool(
+            (gate or {}).get("reallocation_constraint_reoptimized")),
+        "reallocation_feasible_target_exists": bool(
+            (gate or {}).get("reallocation_feasible_target_exists")),
+        "reallocation_switching_hurdle": (gate or {}).get(
+            "reallocation_switching_hurdle"),
+        "reallocation_clears_switching_hurdle": (gate or {}).get(
+            "reallocation_clears_switching_hurdle"),
+        # Track B — the canonical summary's OWN approvability verdict (False under a
+        # HOLD_CURRENT_BOOK outcome), carried verbatim; None when the gate could not
+        # supply it, so a degraded read keeps the pre-existing derivation.
+        "reallocation_proposal_approvable": (gate or {}).get(
+            "reallocation_proposal_approvable"),
+    }
+    active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
+    if decision_record is None:
+        decision_record = _safe(
+            lambda: _import_portfolio_decision().load_decision_record(
+                active_book_id=active_book_id, eligible_market_date=eligible_date),
+            warnings, "Portfolio decision record")
+    portfolio_decision_lane = _safe(
+        lambda: _import_portfolio_decision().derive_decision_state(
+            has_active_book=bool(active_book_id), proposal_summary=rp_summary,
+            decision_record=decision_record),
+        warnings, "Portfolio decision lane") or {
+            "portfolio_decision_state": "PORTFOLIO_DECISION_UNAVAILABLE",
+            "requires_manual_review": False, "material": False}
+
     # Release 46.2 — the ONE portfolio-attention verdict. Both review reasons (an
     # economically justified PROPOSAL, and a hard-constraint breach requiring human
     # ADJUDICATION) are resolved here, by the single factored rule, so the overall
     # state, the primary action and the cross-surface invariant cannot disagree.
     # Before R46.2 only the proposal reason existed, and a constraint breach — which
     # proposes nothing by design — fell through every gate into DAILY_CYCLE_COMPLETE.
+    # Track B — the verdict consumes the canonical decision lane's state, so a
+    # governed decision the owner already settled (HOLD_CURRENT_BOOK / withheld /
+    # no material change) can never be re-raised as an outstanding proposal review.
     portfolio_attention_verdict = portfolio_attention(
         reassessment_state=reassessment_state,
         proposal_required=reassessment_proposal_required,
         blockers=list(reassessment_summary.get("blockers") or []),
         execution_active=bool(reassessment_execution.get("execution_active")),
         held_name_breaches=list(
-            reassessment_summary.get("held_name_constraint_breaches") or []))
+            reassessment_summary.get("held_name_constraint_breaches") or []),
+        decision_lane_state=portfolio_decision_lane.get("portfolio_decision_state"))
     attention_reason = portfolio_attention_verdict["review_reason"]
     reassessment_manual_review = bool(attention_reason == REVIEW_REASON_PROPOSAL)
     reassessment_constraint_review = bool(
@@ -3143,15 +3270,8 @@ def load_workflow_state(
     hoc_producer_owner = (gate or {}).get("opportunity_cost_producer_owner")
     hoc_claims_drc_terminal = bool((gate or {}).get("opportunity_cost_claims_drc_terminal"))
 
-    # --- Slice 7 (Phase 29H) reallocation-proposal state (same shared gate path;
-    #     the gate delegates to api.reallocation_proposal.load_proposal_summary). The
-    #     workflow owner only EXPOSES the proposal state as an informational review —
-    #     it never creates a proposal and never turns it into an order/close requirement.
-    rp_available = bool((gate or {}).get("reallocation_proposal_available"))
-    rp_state = (gate or {}).get("reallocation_proposal_state") or _RP_NOT_RUN
-    rp_counts = (gate or {}).get("reallocation_action_counts") or {}
-    rp_hash = (gate or {}).get("reallocation_proposal_hash")
-    rp_gaps = (gate or {}).get("reallocation_data_gaps") or []
+    # (The Slice-7 reallocation-proposal gate reads and the Stage-18 decision lane
+    #  are composed ABOVE the portfolio-attention verdict — see Track B note there.)
 
     # --- Evidence facts (documented gap, never fabricated). -------------------- #
     latest_snapshot_date = (forward_status or {}).get("latest_snapshot_date")
@@ -3300,7 +3420,15 @@ def load_workflow_state(
         cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available,
         reallocation_available=rp_available,
         reassessment_satisfied=reassessment_satisfied,
-        reassessment_proposal_required=reassessment_proposal_required,
+        # Track B — the queued "economically justified change" review follows the
+        # canonical decision lane, not the upstream request alone: once the lane
+        # settled the question (HOLD / withheld / no material change) there is no
+        # outstanding proposal review to queue. Execution suppression is unchanged
+        # and stays with the dedicated parameter below.
+        reassessment_proposal_required=bool(
+            reassessment_proposal_required
+            and not portfolio_attention_verdict.get(
+                "proposal_review_settled_by_decision")),
         reassessment_execution_active=bool(
             reassessment_execution.get("execution_active")))
 
@@ -3437,7 +3565,12 @@ def load_workflow_state(
                 "blockers": reassessment_summary.get("blockers") or []},
                 "attention": {"count": reassessment_summary.get("attention_count") or 0},
                 "explanation": reassessment_summary.get("explanation")},
-            execution=reassessment_execution),
+            execution=reassessment_execution,
+            # Track B — the canonical decision lane, so a PROPOSAL_READY card whose
+            # governed decision is already settled (HOLD_CURRENT_BOOK / withheld /
+            # no material change) never raises its own "review the proposed change"
+            # operator action over a decision that has been taken.
+            decision_lane=portfolio_decision_lane),
         warnings, "Portfolio reassessment presentation") or {
             "title": PRS_TITLE, "state": reassessment_state,
             "operator_state": PRS_NOT_RUN, "primary_action": None}
@@ -3515,69 +3648,9 @@ def load_workflow_state(
     model_governance["model_review_triggering_flags"] = model_review["triggering_flags"]
     model_governance["model_review_missing_evidence"] = model_review["missing_evidence"]
 
-    # --- Stage 18 (Workstream C/D/E): the SEPARATE portfolio-decision review lane.
-    #     Composed from the immutable reallocation-proposal summary (already loaded via
-    #     the shared gate path) + the durable manual decision recorded by the dedicated
-    #     owner (api.portfolio_decision). It NEVER enters OVERALL_STATES, NEVER gates the
-    #     Daily Close, and creates no order. Degrade-safe: any read failure leaves the
-    #     lane at its no-proposal default and never raises. --------------------------- #
-    rp_summary = {
-        "reallocation_proposal_available": rp_available,
-        "reallocation_proposal_state": rp_state,
-        "reallocation_proposal_hash": rp_hash,
-        "reallocation_proposal_id": (gate or {}).get("reallocation_proposal_id"),
-        "reallocation_action_counts": rp_counts,
-        "reallocation_proposed_holding_count": (gate or {}).get(
-            "reallocation_proposed_holding_count"),
-        "reallocation_one_way_turnover": (gate or {}).get("reallocation_one_way_turnover"),
-        "reallocation_estimated_transaction_cost": (gate or {}).get(
-            "reallocation_estimated_transaction_cost"),
-        "reallocation_score_improvement_net_of_cost": (gate or {}).get(
-            "reallocation_score_improvement_net_of_cost"),
-        "reallocation_data_gaps": rp_gaps,
-        # Release 29.3 — the complete-target withhold verdict travels with the summary so
-        # the decision owner can never present a withheld target as approvable.
-        "reallocation_proposal_withheld": bool(
-            (gate or {}).get("reallocation_proposal_withheld")
-            or rp_state == _RP_WITHHELD),
-        "reallocation_withheld_reasons": list(
-            (gate or {}).get("reallocation_withheld_reasons") or []),
-        "reallocation_proposal_stale": bool((gate or {}).get("reallocation_proposal_stale")),
-        "reallocation_proposal_stale_reason": (gate or {}).get(
-            "reallocation_proposal_stale_reason"),
-        # Release 47 — the outcome, the reshaping ledger and the switching hurdle
-        # travel with the summary, so the decision owner and every surface below it
-        # read ONE authoritative verdict instead of inferring one from a state name.
-        "reallocation_outcome": (gate or {}).get("reallocation_outcome"),
-        "reallocation_outcome_vocabulary": list(REALLOCATION_OUTCOME_VOCABULARY),
-        "reallocation_outcome_headline": (gate or {}).get(
-            "reallocation_outcome_headline"),
-        "reallocation_outcome_reason_codes": list(
-            (gate or {}).get("reallocation_outcome_reason_codes") or []),
-        "reallocation_constraints_reshaped": list(
-            (gate or {}).get("reallocation_constraints_reshaped") or []),
-        "reallocation_constraint_reoptimized": bool(
-            (gate or {}).get("reallocation_constraint_reoptimized")),
-        "reallocation_feasible_target_exists": bool(
-            (gate or {}).get("reallocation_feasible_target_exists")),
-        "reallocation_switching_hurdle": (gate or {}).get(
-            "reallocation_switching_hurdle"),
-        "reallocation_clears_switching_hurdle": (gate or {}).get(
-            "reallocation_clears_switching_hurdle"),
-    }
-    active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
-    if decision_record is None:
-        decision_record = _safe(
-            lambda: _import_portfolio_decision().load_decision_record(
-                active_book_id=active_book_id, eligible_market_date=eligible_date),
-            warnings, "Portfolio decision record")
-    portfolio_decision_lane = _safe(
-        lambda: _import_portfolio_decision().derive_decision_state(
-            has_active_book=bool(active_book_id), proposal_summary=rp_summary,
-            decision_record=decision_record),
-        warnings, "Portfolio decision lane") or {
-            "portfolio_decision_state": "PORTFOLIO_DECISION_UNAVAILABLE",
-            "requires_manual_review": False, "material": False}
+    # (The Stage-18 portfolio-decision lane is composed ABOVE the portfolio-attention
+    #  verdict — see the Track B note there. ``rp_summary``, ``active_book_id``,
+    #  ``decision_record`` and ``portfolio_decision_lane`` are already bound here.)
 
     # --- Stage 22 (Workstream A / G): the canonical NORMAL CYCLE. The workflow owner
     #     PROJECTS its already-decided state onto the pure cycle kernel; the kernel owns
@@ -3683,10 +3756,18 @@ def load_workflow_state(
     _mex_policy = (reassessment_summary.get("mandatory_exit_policy") or {})
     semantic_violations = check_decision_semantics(
         reallocation_operator_state=reallocation_operator_state,
-        reallocation_approvable=bool(
-            reallocation_operator_state in REALLOCATION_APPROVABLE_STATES
-            and not rp_summary.get("reallocation_proposal_withheld")
-            and not rp_summary.get("reallocation_proposal_stale")),
+        # Track B — the approvability CLAIM consumes the canonical summary's own
+        # verdict when the gate supplied it (False under a HOLD_CURRENT_BOOK
+        # outcome); the pre-existing state-name derivation remains only the
+        # degraded-gate fallback. Deriving it from "READY and not withheld/stale"
+        # alone is exactly the reconstruction invariant I8 exists to catch.
+        reallocation_approvable=(
+            bool(rp_summary.get("reallocation_proposal_approvable"))
+            if rp_summary.get("reallocation_proposal_approvable") is not None
+            else bool(
+                reallocation_operator_state in REALLOCATION_APPROVABLE_STATES
+                and not rp_summary.get("reallocation_proposal_withheld")
+                and not rp_summary.get("reallocation_proposal_stale"))),
         reassessment_state=reassessment_state,
         reassessment_proposal_required=reassessment_proposal_required,
         portfolio_decision_state=portfolio_decision_lane.get("portfolio_decision_state"),

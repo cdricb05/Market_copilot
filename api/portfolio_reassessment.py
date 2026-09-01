@@ -1088,6 +1088,19 @@ def _active_book_block(ps: dict) -> dict:
 
 #: Operator-facing headline per decision (Workstream J). ONE primary action maximum;
 #: the passive states deliberately have none.
+#: Track B (decision consistency) — canonical decision-lane states that SETTLE the
+#: portfolio question with no review outstanding, with the operator sentence each
+#: one earns. Mirrored from api.portfolio_decision as literals (import-pure).
+_DECISION_SETTLED_LANE_STATES = {
+    "HOLD_CURRENT_BOOK": ("the feasible alternative does not clear the switching "
+                          "hurdle after cost; holding the current book IS the "
+                          "decision"),
+    "CHANGE_CANDIDATE_WITHHELD": ("the complete candidate target did not clear the "
+                                  "portfolio-level limits; the change is withheld"),
+    "NO_MATERIAL_CHANGE": ("the produced proposal contains no material "
+                           "capital-allocation change; there is nothing to decide"),
+}
+
 _OPERATOR_PRESENTATION = {
     STATE_NO_CHANGE: {
         "title": "PORTFOLIO CURRENT",
@@ -1252,17 +1265,31 @@ def build_decision_scope(*, state: str, reassessment: Optional[dict]) -> dict:
 
 
 def build_presentation(*, state: str, reassessment: Optional[dict],
-                       execution: Optional[dict] = None) -> dict:
+                       execution: Optional[dict] = None,
+                       decision_lane: Optional[dict] = None) -> dict:
     """The ONE operator presentation for a reassessment state.
 
     When a Stage-19 execution is in flight the reassessment's own primary action is
     SUPPRESSED (never duplicated alongside the execution CTA) — the execution lifecycle
     keeps the operator's single primary action.
+
+    ``decision_lane`` (Track B, decision consistency) is the canonical
+    portfolio-decision lane (api.portfolio_decision), which consumes the constrained
+    owner's authoritative outcome. A reassessment honestly reports PROPOSAL_READY —
+    it ASKED for a target — but when the decision owner has already settled the
+    question (HOLD_CURRENT_BOOK / CHANGE_CANDIDATE_WITHHELD / NO_MATERIAL_CHANGE)
+    this card must not raise its own "review the proposed portfolio change" action
+    over a decision that has been taken. Suppression only; the reassessment's own
+    state, economics and artifact identity are untouched. ``None`` (older callers)
+    keeps the pre-existing behaviour exactly.
     """
     base = dict(_OPERATOR_PRESENTATION.get(state) or _OPERATOR_PRESENTATION[STATE_NOT_RUN])
     res = reassessment or {}
     dec = res.get("decision") or {}
     exe = execution or {}
+    lane_state = str((decision_lane or {}).get("portfolio_decision_state") or "")
+    decision_settled = (state == STATE_PROPOSAL_READY
+                        and lane_state in _DECISION_SETTLED_LANE_STATES)
     if exe.get("execution_active"):
         base["primary_action"] = None
         base["next_action"] = ("Complete the pending controlled paper rebalance first")
@@ -1271,6 +1298,20 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
     else:
         base["execution_precedence"] = False
         base["execution_precedence_reason"] = None
+    if decision_settled:
+        settled_label = _DECISION_SETTLED_LANE_STATES[lane_state]
+        base["primary_action"] = None
+        base["operator_state"] = "PORTFOLIO_DECISION_SETTLED"
+        base["task"] = ("The requested change was priced by the governed decision "
+                        "owner: %s" % settled_label)
+        base["next_action"] = "No action required — the governed decision stands"
+        base["severity"] = "SUCCESS"
+        base["decision_settled"] = True
+        base["settled_decision_state"] = lane_state
+        base["settled_decision_owner"] = "api.portfolio_decision"
+    else:
+        base["decision_settled"] = False
+        base["settled_decision_state"] = None
     base.update({
         "state": state,
         "explanation": res.get("explanation"),

@@ -858,6 +858,26 @@ def explain_portfolio(result_core: dict, policy: dict) -> str:
                     "concentration, sector and risk limits owned by %s."
                     % (", ".join(mex), _fmt_score(net), hurdle, n_act, _fmt_pct(turn),
                        _fmt_usd(cost), TARGET_ENGINE_OWNER))
+        # Track B (decision consistency): a breach-override target request is a
+        # CONSTRAINT fact, not an economic verdict. The generic sentence below used
+        # to claim "economically justified" for it — the stored 2026-08-31 artifact
+        # says exactly that while its own reason codes name the breach override and
+        # its net improvement sits below the hurdle. The sentence must state the
+        # true trigger; whether the change is WORTH making stays with the switching
+        # economics owned downstream (engine.constrained_reallocation).
+        if GATE_HELD_NAME_BREACH_REQUIRES_TARGET in (d.get("reason_codes") or []) \
+                and not (net is not None and net >= hurdle - 1e-12):
+            breaches = ", ".join(d.get("held_name_constraint_breaches") or []) \
+                or "a held name breaches a hard portfolio constraint"
+            return ("A complete target is requested because a held name breaches a hard "
+                    "portfolio constraint (%s) — a constraint fact, not an economic "
+                    "verdict: the expected net improvement of %s score points does not "
+                    "clear the %.3f hurdle on its own. %d actionable holding(s), %s "
+                    "estimated one-way turnover, %s estimated cost. Whether switching is "
+                    "worth its cost is decided by the constrained target's own switching "
+                    "economics; nothing is approved or executed."
+                    % (breaches, _fmt_score(net), hurdle, n_act, _fmt_pct(turn),
+                       _fmt_usd(cost)))
         return ("A portfolio change is economically justified: %d actionable holding(s), "
                 "expected net improvement %s score points against a %.3f hurdle, %s one-way "
                 "turnover at an estimated %s transaction cost. The canonical reallocation "
