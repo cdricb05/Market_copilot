@@ -41,11 +41,19 @@ TARGET_TASK_DEFINITION = {
         "working_directory": r"C:\Users\binis\paper_trader"},
     "triggers": [
         {"kind": "BOOT", "delay": "PT2M"},
-        {"kind": "PERIODIC_RECOVERY", "repetition_interval": "PT30M",
-         "duration": "indefinite",
+        {"kind": "PERIODIC_RECOVERY", "recurrence": "DAILY",
+         "repetition_interval": "PT30M", "repetition_duration": "P1D",
+         "coverage": "continuous - consecutive one-day repetition windows "
+                     "abut, so a dead worker is always within 30 minutes of "
+                     "a relaunch",
          "why": "while the worker lives, MultipleInstances=IgnoreNew makes "
                 "every firing a no-op; the moment it dies, the next firing "
-                "relaunches it within 30 minutes, logged on or not"}],
+                "relaunches it within 30 minutes, logged on or not. The "
+                "daily/P1D shape (Task Scheduler's own UI preset) replaced "
+                "a literal indefinite duration after the 2026-09-01 operator "
+                "run proved the scheduler REJECTS a serialized "
+                "TimeSpan.MaxValue (P99999999DT23H59M59S) as incorrectly "
+                "formatted or out of range"}],
     "principal": {"logon_type": "S4U", "run_level": "Limited",
                   "why": "the 2026-08-28 outage was an Interactive collector "
                          "dying with its logon session"},

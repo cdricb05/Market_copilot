@@ -26,9 +26,11 @@
   Runner `scripts/run_intraday_emission.py`; purchase gate =
   NOT_REQUIRED_OWNED_SOURCE_USABLE.
   **Track A - collection durability finished.** ONE definition owner
-  `scripts/install_information_collection_task.ps1` (S4U, boot + 30-min
-  indefinite-repetition recovery trigger, IgnoreNew, no time limit,
-  full-definition compare, -DecisionProbe, -Force migration) + read-only
+  `scripts/install_information_collection_task.ps1` (S4U, boot + daily
+  30-min/P1D repetition recovery trigger - hotfixed after Task Scheduler
+  rejected a serialized TimeSpan.MaxValue duration - IgnoreNew, no time
+  limit, full-definition compare, -DecisionProbe/-TriggerProbe/
+  -ClassifyProbe, -Force migration, honest failure classes) + read-only
   `validate_information_collection_task.ps1` (Interactive NEVER valid);
   the R29 manager's Install now DELEGATES (inline registration removed);
   audit invariant evolved to the three-script contract (strict exit 0).

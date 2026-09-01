@@ -18,11 +18,20 @@
 #     Action   : <venv python> scripts\run_information_collection_service.py
 #                --interval-seconds 60
 #     Triggers : AtStartup (2-minute delay)
-#                + ONE daily-anchored repetition trigger every 30 minutes,
-#                  indefinitely (the PERIODIC RECOVERY: while the long-lived
-#                  worker runs, MultipleInstances=IgnoreNew makes every firing
-#                  a no-op; the moment the worker dies, the next firing
-#                  relaunches it within 30 minutes, logged on or not)
+#                + ONE DAILY trigger whose repetition is every 30 minutes for
+#                  a duration of one day (the PERIODIC RECOVERY: consecutive
+#                  one-day repetition windows abut, so coverage is continuous;
+#                  while the long-lived worker runs, MultipleInstances=
+#                  IgnoreNew makes every firing a no-op; the moment the worker
+#                  dies, the next firing relaunches it within 30 minutes,
+#                  logged on or not).
+#                  WHY daily/P1D and not an "indefinite" duration: PowerShell
+#                  serializes TimeSpan.MaxValue as P99999999DT23H59M59S, which
+#                  Task Scheduler REJECTS as "incorrectly formatted or out of
+#                  range" before registration (the 2026-09-01 operator
+#                  failure). Daily + repeat-for-one-day is the scheduler's own
+#                  UI preset and always-valid XML with the same recovery
+#                  semantics.
 #     Principal: S4U (runs while logged off; no stored password)
 #     Settings : IgnoreNew, StartWhenAvailable, no execution time limit
 #                (long-lived worker), RestartCount 3 / 5 min.
@@ -40,7 +49,15 @@
 #     a FRESH install, and it says so;
 #   - -DecisionProbe <path|ABSENT> : hermetic test mode - reads an
 #     existing-task snapshot from JSON (literal ABSENT = no task), prints the
-#     decision as JSON, touches NOTHING.
+#     decision as JSON, touches NOTHING;
+#   - -TriggerProbe : hermetic test mode - builds the EXACT trigger objects
+#     registration would use (client-side only) and prints their serialized
+#     repetition interval/duration, proving the definition is in a
+#     Task-Scheduler-supported form;
+#   - -ClassifyProbe <message> [-ClassifyShell Elevated|NotElevated] :
+#     hermetic test mode for the registration-failure classifier. A failure
+#     is reported for WHAT IT IS: a definition/XML rejection is never blamed
+#     on elevation.
 #
 # SAFETY. Information-collection automation only. The worker can never create
 # an order, approve a proposal, run Daily Close, or promote a model.
@@ -61,6 +78,9 @@ param(
     [ValidateSet('S4U', 'Interactive')][string]$PreferredLogonType = 'S4U',
     [string]$EvidenceFile = '',
     [string]$DecisionProbe = '',
+    [switch]$TriggerProbe,
+    [string]$ClassifyProbe = '',
+    [ValidateSet('', 'Elevated', 'NotElevated')][string]$ClassifyShell = '',
     [switch]$Force
 )
 
@@ -80,12 +100,17 @@ function Get-R531DesiredDefinition {
         Arguments          = $arguments
         WorkingDirectory   = $WorkingDirectory
         # Trigger CONTRACT: exactly one boot trigger and exactly one
-        # time-anchored trigger carrying an indefinite repetition at the
-        # recovery cadence. Wall-clock anchor time is NOT compared (any
-        # anchor works; the repetition is what matters).
+        # time-anchored trigger carrying a CONTINUOUS repetition at the
+        # recovery cadence - either an indefinite repetition (no duration) or
+        # a daily recurrence whose one-day repetition windows abut (the shape
+        # this script registers, because a serialized TimeSpan.MaxValue
+        # duration is rejected by Task Scheduler). Wall-clock anchor time is
+        # NOT compared (any anchor works; the repetition is what matters).
         BootTriggers       = 1
         RepetitionTriggers = 1
         RepetitionInterval = ('PT{0}M' -f $RecoveryRepetitionMinutes)
+        RepetitionDuration = 'P1D'           # per DAILY recurrence; documentation
+        RepetitionShape    = 'DAILY_P1D'     # what registration produces
         Enabled            = $true
         StartWhenAvailable = $true
         MultipleInstances  = 'IgnoreNew'
@@ -97,17 +122,48 @@ function Get-R531DesiredDefinition {
     }
 }
 
+# Coverage of a repetition trigger. 'CONTINUOUS' means a dead worker is
+# always within one repetition interval of a relaunch: either the repetition
+# is indefinite (no Duration), or the trigger recurs DAILY (every 1 day) and
+# each day's repetition window lasts the full day, so consecutive windows
+# abut. Anything else leaves a recurring gap - or, with StopAtDurationEnd,
+# would KILL the long-lived worker at each window end.
+function Get-R531RepetitionCoverage([string]$Type, [string]$Interval,
+                                    [string]$Duration, $DaysInterval,
+                                    [bool]$StopAtDurationEnd = $false) {
+    if (-not $Interval) { return 'NONE' }
+    if ($StopAtDurationEnd) {
+        return 'GAP:StopAtDurationEnd would kill the running worker at each duration end'
+    }
+    if (-not $Duration) { return 'CONTINUOUS' }
+    $span = $null
+    try { $span = [System.Xml.XmlConvert]::ToTimeSpan($Duration) } catch { }
+    if ($null -eq $span) { return "GAP:unparseable repetition duration '$Duration'" }
+    $di = 1
+    if ($null -ne $DaysInterval -and [int]$DaysInterval -gt 0) { $di = [int]$DaysInterval }
+    if ($Type -match 'Daily' -and $di -eq 1 -and $span -ge (New-TimeSpan -Days 1)) {
+        return 'CONTINUOUS'
+    }
+    return "GAP:repetition stops after $Duration and the trigger does not recur every day"
+}
+
 function Get-TriggerKind($t) {
     $type = [string]$t.Type
     if ($type -match 'Boot') { return 'BOOT' }
-    $rep = ''
+    $rep = ''; $dur = ''; $di = $null; $stopEnd = $false
     if ($t.PSObject.Properties['RepetitionInterval']) {
         $rep = [string]$t.RepetitionInterval
     } elseif ($t.PSObject.Properties['Repetition'] -and $t.Repetition) {
         $rep = [string]$t.Repetition.Interval
+        $dur = [string]$t.Repetition.Duration
     }
-    if ($rep) { return "REPETITION:$rep" }
-    return "OTHER:$type"
+    if ($t.PSObject.Properties['RepetitionDuration']) { $dur = [string]$t.RepetitionDuration }
+    if ($t.PSObject.Properties['DaysInterval']) { $di = $t.DaysInterval }
+    if ($t.PSObject.Properties['StopAtDurationEnd']) { $stopEnd = [bool]$t.StopAtDurationEnd }
+    if (-not $rep) { return "OTHER:$type" }
+    $coverage = Get-R531RepetitionCoverage $type $rep $dur $di $stopEnd
+    if ($coverage -eq 'CONTINUOUS') { return "REPETITION:$rep" }
+    return "BROKEN_REPETITION:$rep ($coverage)"
 }
 
 # ---- full-definition comparison. A missing field is a mismatch. ------------ #
@@ -188,6 +244,112 @@ function Get-R531InstallDecision($existing, $desired, [bool]$ForceRequested) {
     return [PSCustomObject]@{ decision = 'BLOCKED_DEFINITION'; mismatches = $mm }
 }
 
+# ---- the ONE trigger construction (used by registration AND -TriggerProbe) - #
+function New-R531Triggers {
+    $boot = New-ScheduledTaskTrigger -AtStartup
+    $boot.Delay = 'PT2M'
+    # PERIODIC RECOVERY: Task Scheduler's own UI preset "Daily; repeat every
+    # N minutes for a duration of 1 day". Consecutive one-day windows abut,
+    # so coverage is continuous. NEVER pass TimeSpan.MaxValue as the
+    # duration: it serializes as P99999999DT23H59M59S and Task Scheduler
+    # rejects the XML as "incorrectly formatted or out of range".
+    $anchor = (Get-Date).Date.AddMinutes(5)   # 00:05; anchor time is not load-bearing
+    $repetition = (New-ScheduledTaskTrigger -Once -At $anchor `
+        -RepetitionInterval (New-TimeSpan -Minutes $RecoveryRepetitionMinutes) `
+        -RepetitionDuration (New-TimeSpan -Days 1)).Repetition
+    # PowerShell silently sets StopAtDurationEnd=true when a finite
+    # RepetitionDuration is given - that would KILL the long-lived worker at
+    # every window end. Clear it explicitly; the coverage rule refuses it.
+    $repetition.StopAtDurationEnd = $false
+    $recovery = New-ScheduledTaskTrigger -Daily -At $anchor
+    $recovery.Repetition = $repetition
+    return @($boot, $recovery)
+}
+
+function Test-R531ShellElevated {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        return ([Security.Principal.WindowsPrincipal]$id).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
+}
+
+# Honest registration-failure classification. The 2026-09-01 operator run
+# failed with a Task Scheduler XML rejection from an ELEVATED shell, and the
+# installer blamed elevation. Never again: the DEFINITION class is checked
+# FIRST, and elevation is only ever named when the shell is actually
+# unelevated.
+function Get-R531RegistrationFailureKind([string]$ErrorMessage,
+                                         [bool]$ShellIsElevated) {
+    $m = [string]$ErrorMessage
+    if ($m -match 'incorrectly formatted|out of range|missing a required element|task XML|\(\d+,\d+\):') {
+        return [PSCustomObject]@{
+            kind     = 'DEFINITION_REJECTED_BY_SCHEDULER'
+            guidance = ('Task Scheduler rejected the task DEFINITION itself: "' +
+                        $m + '". This is a defect in the generated definition, ' +
+                        'not an elevation problem - re-running elevated will not help.')
+        }
+    }
+    $accessDenied = ($m -match 'Access is denied|0x80070005|E_ACCESSDENIED')
+    if ($accessDenied -and -not $ShellIsElevated) {
+        return [PSCustomObject]@{
+            kind     = 'ELEVATION_REQUIRED'
+            guidance = ('registration was denied and this shell is NOT elevated; ' +
+                        'S4U registration needs an ELEVATED PowerShell - re-run ' +
+                        'this script from an elevated shell ("' + $m + '")')
+        }
+    }
+    if ($accessDenied) {
+        return [PSCustomObject]@{
+            kind     = 'ACCESS_DENIED_WHILE_ELEVATED'
+            guidance = ('access was denied even though this shell IS elevated - ' +
+                        'inspect the task''s existing permissions/policy; raw error: "' +
+                        $m + '"')
+        }
+    }
+    return [PSCustomObject]@{
+        kind     = 'REGISTRATION_ERROR'
+        guidance = ('Register-ScheduledTask failed: "' + $m + '"')
+    }
+}
+
+# ---- hermetic classification probe (no scheduler, no process) -------------- #
+if ($ClassifyProbe) {
+    $probeElevated = switch ($ClassifyShell) {
+        'Elevated'    { $true }
+        'NotElevated' { $false }
+        default       { Test-R531ShellElevated }
+    }
+    $k = Get-R531RegistrationFailureKind $ClassifyProbe $probeElevated
+    $global:R531CollectionTaskInstallResult = "PROBE_CLASSIFY - $($k.kind)"
+    [PSCustomObject]@{ kind = $k.kind; shell_elevated = $probeElevated
+                       guidance = $k.guidance } | ConvertTo-Json | Write-Output
+    return
+}
+
+# ---- hermetic trigger probe: build the EXACT trigger objects registration -- #
+# ---- would use and print their serialized form (client-side objects only) -- #
+if ($TriggerProbe) {
+    $tt = New-R531Triggers
+    $recRep = $tt[1].Repetition
+    $probeOut = [PSCustomObject]@{
+        boot_class           = [string]$tt[0].CimClass.CimClassName
+        boot_delay           = [string]$tt[0].Delay
+        recovery_class       = [string]$tt[1].CimClass.CimClassName
+        days_interval        = [int]$tt[1].DaysInterval
+        repetition_interval  = [string]$recRep.Interval
+        repetition_duration  = [string]$recRep.Duration
+        stop_at_duration_end = [bool]$recRep.StopAtDurationEnd
+        coverage             = (Get-R531RepetitionCoverage `
+            ([string]$tt[1].CimClass.CimClassName) ([string]$recRep.Interval) `
+            ([string]$recRep.Duration) $tt[1].DaysInterval `
+            ([bool]$recRep.StopAtDurationEnd))
+    }
+    $global:R531CollectionTaskInstallResult = "PROBE_TRIGGERS - $($probeOut.coverage)"
+    $probeOut | ConvertTo-Json | Write-Output
+    return
+}
+
 # ---- hermetic decision probe (no scheduler, no process, no file write) ----- #
 if ($DecisionProbe) {
     $probeExisting = $null
@@ -209,13 +371,19 @@ function Get-TaskSnapshot([string]$Name) {
     $i = Get-ScheduledTaskInfo -TaskName $Name
     $triggers = @()
     foreach ($tr in $t.Triggers) {
-        $rep = $null
+        $rep = $null; $dur = $null; $stopEnd = $false; $di = $null
         if ($tr.Repetition -and $tr.Repetition.Interval) { $rep = [string]$tr.Repetition.Interval }
+        if ($tr.Repetition -and $tr.Repetition.Duration) { $dur = [string]$tr.Repetition.Duration }
+        if ($tr.Repetition -and $tr.Repetition.StopAtDurationEnd) { $stopEnd = $true }
+        if ($tr.PSObject.Properties['DaysInterval'] -and $tr.DaysInterval) { $di = [int]$tr.DaysInterval }
         $triggers += [PSCustomObject]@{
             Type               = $tr.CimClass.CimClassName
             StartBoundary      = $tr.StartBoundary
             Enabled            = $tr.Enabled
             RepetitionInterval = $rep
+            RepetitionDuration = $dur
+            StopAtDurationEnd  = $stopEnd
+            DaysInterval       = $di
         }
     }
     return [PSCustomObject]@{
@@ -280,13 +448,7 @@ switch ($verdict.decision) {
 $action = New-ScheduledTaskAction -Execute $PythonExe -Argument $arguments `
     -WorkingDirectory $WorkingDirectory
 
-$bootTrigger = New-ScheduledTaskTrigger -AtStartup
-$bootTrigger.Delay = 'PT2M'
-$anchor = (Get-Date).Date.AddMinutes(5)   # 00:05 today; anchor time is not load-bearing
-$recoveryTrigger = New-ScheduledTaskTrigger -Once -At $anchor `
-    -RepetitionInterval (New-TimeSpan -Minutes $RecoveryRepetitionMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
-$triggers = @($bootTrigger, $recoveryTrigger)
+$triggers = New-R531Triggers
 
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
@@ -307,6 +469,8 @@ $logonCandidates = if ($verdict.decision -eq 'MIGRATE') {
 $registered = $null
 $logonUsed = $null
 $lastRegError = ''
+$lastRegKind = $null
+$shellElevated = Test-R531ShellElevated
 foreach ($logon in $logonCandidates) {
     try {
         $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType $logon -RunLevel Limited
@@ -316,16 +480,21 @@ foreach ($logon in $logonCandidates) {
         break
     } catch {
         $lastRegError = $_.Exception.Message.Trim()
-        Write-Output ("note: registration with LogonType=$logon failed: " + $lastRegError)
+        $lastRegKind = Get-R531RegistrationFailureKind $lastRegError $shellElevated
+        Write-Output ("note: registration with LogonType=$logon failed " +
+                      "[$($lastRegKind.kind)]: $lastRegError")
     }
 }
 if ($null -eq $registered) {
-    if ($verdict.decision -eq 'MIGRATE') {
-        Write-Blocked ("migration to LogonType=$PreferredLogonType failed ($lastRegError); " +
-                       "S4U registration requires an ELEVATED PowerShell - " +
-                       "re-run this script from an elevated shell")
+    $why = if ($null -ne $lastRegKind) {
+        "$($lastRegKind.kind) - $($lastRegKind.guidance)"
     } else {
-        Write-Blocked 'Register-ScheduledTask failed for every logon type'
+        'Register-ScheduledTask failed for every logon type'
+    }
+    if ($verdict.decision -eq 'MIGRATE') {
+        Write-Blocked ("migration to LogonType=$PreferredLogonType failed: $why")
+    } else {
+        Write-Blocked ("fresh installation failed: $why")
     }
     return
 }

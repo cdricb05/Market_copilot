@@ -25,6 +25,7 @@ import datetime as _dt
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -81,9 +82,10 @@ def _collection_snapshot(**over) -> dict:
         "Triggers": [
             {"Type": "MSFT_TaskBootTrigger", "StartBoundary": None,
              "Enabled": True, "RepetitionInterval": None},
-            {"Type": "MSFT_TaskTimeTrigger",
+            {"Type": "MSFT_TaskDailyTrigger",
              "StartBoundary": "2026-09-01T00:05:00", "Enabled": True,
-             "RepetitionInterval": "PT30M"}],
+             "DaysInterval": 1,
+             "RepetitionInterval": "PT30M", "RepetitionDuration": "P1D"}],
         "Principal": {"UserId": _user(), "LogonType": "S4U",
                       "RunLevel": "Limited"},
         "Settings": {"StartWhenAvailable": True,
@@ -101,7 +103,9 @@ def _collection_snapshot(**over) -> dict:
 class TestCollectionTaskDefinition:
     def test_fresh_install_decision(self):
         out = _run_ps(INSTALLER, "-DecisionProbe", "ABSENT")
-        assert '"decision":"INSTALL"' in "".join(out.split())
+        flat = "".join(out.split())
+        assert '"decision":"INSTALL"' in flat
+        assert '"requested_logon_type":"S4U"' in flat
 
     def test_identical_definition_is_unchanged(self, tmp_path):
         p = tmp_path / "snap.json"
@@ -132,6 +136,121 @@ class TestCollectionTaskDefinition:
         p.write_text(json.dumps(snap), encoding="utf-8")
         out = _run_ps(INSTALLER, "-DecisionProbe", str(p))
         assert "BLOCKED_DEFINITION" in out and "repetition" in out
+
+    # ---- R53.1 hotfix: the recovery trigger must be WINDOWS-VALID -------- #
+    # Task Scheduler rejected the serialized TimeSpan.MaxValue duration
+    # (P99999999DT23H59M59S) at the first operator migration.
+
+    def test_installers_never_use_timespan_maxvalue(self):
+        for script in (INSTALLER, EM_INSTALLER):
+            src = script.read_text(encoding="utf-8", errors="replace")
+            assert "::MaxValue" not in src, script.name
+
+    def test_recovery_trigger_serializes_to_a_supported_form(self):
+        out = _run_ps(INSTALLER, "-TriggerProbe")
+        probe = json.loads(out[out.index("{"):out.rindex("}") + 1])
+        assert "Boot" in probe["boot_class"]
+        assert probe["boot_delay"] == "PT2M"
+        assert "Daily" in probe["recovery_class"]
+        assert probe["days_interval"] == 1
+        assert probe["repetition_interval"] == "PT30M"
+        assert probe["stop_at_duration_end"] is False
+        assert probe["coverage"] == "CONTINUOUS"
+        dur = probe["repetition_duration"]
+        assert "99999999" not in dur
+        m = re.fullmatch(
+            r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?", dur)
+        assert m, "duration %r is not a plain ISO-8601 duration" % dur
+        seconds = (int(m.group(1) or 0) * 86400 + int(m.group(2) or 0) * 3600
+                   + int(m.group(3) or 0) * 60 + int(m.group(4) or 0))
+        assert seconds == 86400, "duration %r must cover exactly 1 day" % dur
+
+    def test_legacy_indefinite_repetition_is_still_unchanged(self, tmp_path):
+        # An already-registered indefinite repetition is ALSO continuous
+        # coverage; the comparator must not force churn onto it.
+        snap = _collection_snapshot()
+        snap["Triggers"][1] = {
+            "Type": "MSFT_TaskTimeTrigger",
+            "StartBoundary": "2026-09-01T00:05:00", "Enabled": True,
+            "RepetitionInterval": "PT30M"}
+        p = tmp_path / "snap.json"
+        p.write_text(json.dumps(snap), encoding="utf-8")
+        out = _run_ps(INSTALLER, "-DecisionProbe", str(p))
+        assert "UNCHANGED" in out
+
+    def test_finite_repetition_without_daily_recurrence_blocks(self, tmp_path):
+        # PT30M for one day on a ONCE trigger stops forever after a day.
+        snap = _collection_snapshot()
+        snap["Triggers"][1] = {
+            "Type": "MSFT_TaskTimeTrigger",
+            "StartBoundary": "2026-09-01T00:05:00", "Enabled": True,
+            "RepetitionInterval": "PT30M", "RepetitionDuration": "P1D"}
+        p = tmp_path / "snap.json"
+        p.write_text(json.dumps(snap), encoding="utf-8")
+        out = _run_ps(INSTALLER, "-DecisionProbe", str(p))
+        assert "BLOCKED_DEFINITION" in out
+        assert "repetition" in out
+
+    XML_ERR = ("The task XML contains a value which is incorrectly formatted "
+               "or out of range. (12,42):Duration:P99999999DT23H59M59S")
+
+    def test_xml_rejection_is_not_mislabeled_as_elevation(self):
+        out = _run_ps(INSTALLER, "-ClassifyProbe", self.XML_ERR,
+                      "-ClassifyShell", "Elevated")
+        assert "DEFINITION_REJECTED_BY_SCHEDULER" in out
+        assert "ELEVATION_REQUIRED" not in out
+        assert "not an elevation problem" in out
+
+    def test_access_denied_without_elevation_is_elevation_required(self):
+        out = _run_ps(INSTALLER, "-ClassifyProbe", "Access is denied.",
+                      "-ClassifyShell", "NotElevated")
+        assert "ELEVATION_REQUIRED" in out
+
+    def test_access_denied_while_elevated_is_not_blamed_on_elevation(self):
+        out = _run_ps(INSTALLER, "-ClassifyProbe", "Access is denied.",
+                      "-ClassifyShell", "Elevated")
+        assert "ACCESS_DENIED_WHILE_ELEVATED" in out
+        assert "ELEVATION_REQUIRED" not in out
+
+    def test_unknown_registration_error_surfaces_verbatim(self):
+        out = _run_ps(INSTALLER, "-ClassifyProbe",
+                      "The network path was not found XYZ123",
+                      "-ClassifyShell", "Elevated")
+        assert "REGISTRATION_ERROR" in out
+        assert "XYZ123" in out
+
+    def test_validator_accepts_corrected_trigger_design(self, tmp_path):
+        good = {"Triggers": [
+            {"Type": "MSFT_TaskBootTrigger", "Enabled": True},
+            {"Type": "MSFT_TaskDailyTrigger", "Enabled": True,
+             "DaysInterval": 1, "RepetitionInterval": "PT30M",
+             "RepetitionDuration": "P1D"}]}
+        p = tmp_path / "good.json"
+        p.write_text(json.dumps(good), encoding="utf-8")
+        out = _run_ps(VALIDATOR, "-TriggerProbe", str(p))
+        assert "R53_1_TRIGGER_CONTRACT_OK" in out
+
+        bad = {"Triggers": [
+            {"Type": "MSFT_TaskBootTrigger", "Enabled": True},
+            {"Type": "MSFT_TaskTimeTrigger", "Enabled": True,
+             "RepetitionInterval": "PT30M", "RepetitionDuration": "P1D"}]}
+        p2 = tmp_path / "bad.json"
+        p2.write_text(json.dumps(bad), encoding="utf-8")
+        out2 = _run_ps(VALIDATOR, "-TriggerProbe", str(p2))
+        assert "R53_1_TRIGGER_CONTRACT_PROBLEMS" in out2
+        assert "not continuous" in out2
+
+    def test_validator_rejects_worker_killing_stop_at_duration_end(self, tmp_path):
+        kill = {"Triggers": [
+            {"Type": "MSFT_TaskBootTrigger", "Enabled": True},
+            {"Type": "MSFT_TaskDailyTrigger", "Enabled": True,
+             "DaysInterval": 1, "RepetitionInterval": "PT30M",
+             "RepetitionDuration": "P1D", "StopAtDurationEnd": True}]}
+        p = tmp_path / "kill.json"
+        p.write_text(json.dumps(kill), encoding="utf-8")
+        out = _run_ps(VALIDATOR, "-TriggerProbe", str(p))
+        assert "R53_1_TRIGGER_CONTRACT_PROBLEMS" in out
+        assert "kill the running worker" in out
 
     def test_validator_rejects_interactive_and_accepts_s4u(self):
         rej = _run_ps(VALIDATOR, "-PrincipalProbe", "Interactive")

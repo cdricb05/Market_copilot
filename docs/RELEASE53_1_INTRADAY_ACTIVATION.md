@@ -58,10 +58,17 @@ logon-only trigger, no periodic recovery (R53 fixed the lock-side race).
 R53.1 finishes the envelope with the R52 installer pattern:
 
 * `scripts/install_information_collection_task.ps1` — the ONE definition
-  owner: S4U, boot trigger (2-min delay), a 30-minute indefinite repetition
-  as the recovery clock (IgnoreNew makes it a no-op while the worker lives),
-  no execution time limit, full-definition comparison, hermetic
-  `-DecisionProbe`, explicit `-Force` migration;
+  owner: S4U, boot trigger (2-min delay), a DAILY trigger repeating every 30
+  minutes for a one-day duration as the recovery clock (consecutive one-day
+  windows abut, so coverage is continuous; IgnoreNew makes each firing a
+  no-op while the worker lives), no execution time limit, full-definition
+  comparison, hermetic `-DecisionProbe`/`-TriggerProbe`/`-ClassifyProbe`,
+  explicit `-Force` migration. *Hotfix 2026-09-01:* the first operator
+  migration proved Task Scheduler REJECTS a serialized `TimeSpan.MaxValue`
+  repetition duration (`P99999999DT23H59M59S`) as "incorrectly formatted or
+  out of range" — the daily/P1D shape is the scheduler's own UI preset with
+  the same recovery semantics, and registration failures are now classified
+  honestly (a definition/XML rejection is never blamed on elevation);
 * `scripts/validate_information_collection_task.ps1` — read-only validator
   (Interactive NEVER validates) plus live worker/heartbeat reporting;
 * `manage_information_collection.ps1::Install-CollectionTask` now DELEGATES

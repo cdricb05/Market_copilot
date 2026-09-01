@@ -9,8 +9,13 @@
 #   - run while the operator is LOGGED OFF (S4U / Password / ServiceAccount;
 #     Interactive NEVER validates - an Interactive collector dies with the
 #     logon session, which is the exact 2026-08-28 defect);
-#   - carry the PERIODIC RECOVERY trigger (a repetition at the recovery
-#     cadence) so a dead worker is relaunched within one cadence;
+#   - carry the PERIODIC RECOVERY trigger: a repetition at the recovery
+#     cadence with CONTINUOUS coverage - either an indefinite repetition or a
+#     daily recurrence whose one-day repetition windows abut (what the R53.1
+#     installer registers; Task Scheduler rejects a serialized
+#     TimeSpan.MaxValue duration). A finite window that leaves daily gaps, or
+#     StopAtDurationEnd (which would kill the running worker), does NOT
+#     validate - the SHAPE of the trigger is free, its coverage is not;
 #   - carry a boot trigger;
 #   - keep MultipleInstances=IgnoreNew (task half of the singleton);
 #   - have NO execution time limit (the worker is long-lived by design);
@@ -22,6 +27,10 @@
 #
 # -PrincipalProbe <LogonType> : hermetic test mode. Evaluates ONLY the
 #   principal rule and returns without touching the scheduler.
+# -TriggerProbe <path> : hermetic test mode. Reads a JSON trigger set
+#   ({"Triggers":[...]} or a bare array) and evaluates ONLY the trigger
+#   contract (boot recovery + continuous periodic recovery) without touching
+#   the scheduler. Prints R53_1_TRIGGER_CONTRACT_OK / _PROBLEMS.
 #
 # Reports (no exit statements):
 #   printed token : R53_1_COLLECTION_TASK_VALID /
@@ -36,13 +45,65 @@ param(
     [string]$WorkerScript = 'C:\Users\binis\paper_trader\scripts\run_information_collection_service.py',
     [int]$RecoveryRepetitionMinutes = 30,
     [string]$ReportFile = '',
-    [string]$PrincipalProbe = ''
+    [string]$PrincipalProbe = '',
+    [string]$TriggerProbe = ''
 )
 
 $global:R531CollectionTaskValidateResult = $null
 $problems = @()
 
 $LoggedOutCapable = @('S4U', 'Password', 'ServiceAccount')
+
+# Same coverage rule as the installer: CONTINUOUS = indefinite repetition, or
+# a daily (every-1-day) recurrence whose repetition window lasts the full day
+# so consecutive windows abut. StopAtDurationEnd would kill the long-lived
+# worker at each window end and never validates.
+function Get-R531RepetitionCoverage([string]$Type, [string]$Interval,
+                                    [string]$Duration, $DaysInterval,
+                                    [bool]$StopAtDurationEnd = $false) {
+    if (-not $Interval) { return 'NONE' }
+    if ($StopAtDurationEnd) {
+        return 'GAP:StopAtDurationEnd would kill the running worker at each duration end'
+    }
+    if (-not $Duration) { return 'CONTINUOUS' }
+    $span = $null
+    try { $span = [System.Xml.XmlConvert]::ToTimeSpan($Duration) } catch { }
+    if ($null -eq $span) { return "GAP:unparseable repetition duration '$Duration'" }
+    $di = 1
+    if ($null -ne $DaysInterval -and [int]$DaysInterval -gt 0) { $di = [int]$DaysInterval }
+    if ($Type -match 'Daily' -and $di -eq 1 -and $span -ge (New-TimeSpan -Days 1)) {
+        return 'CONTINUOUS'
+    }
+    return "GAP:repetition stops after $Duration and the trigger does not recur every day"
+}
+
+# Evaluate a normalized trigger-record set against the durable contract.
+# Records carry: Type, Enabled, RepetitionInterval, RepetitionDuration,
+# DaysInterval, StopAtDurationEnd (missing fields are tolerated).
+function Get-R531TriggerFindings($records, [string]$WantInterval) {
+    $boot = 0; $recovery = 0; $probs = @()
+    foreach ($r in @($records)) {
+        $type = [string]$r.Type
+        $enabled = $true
+        if ($r.PSObject.Properties['Enabled']) { $enabled = [bool]$r.Enabled }
+        if (-not $enabled) { $probs += "a trigger of type $type is disabled" }
+        if ($type -match 'Boot') { $boot++; continue }
+        $rep = ''
+        if ($r.PSObject.Properties['RepetitionInterval']) { $rep = [string]$r.RepetitionInterval }
+        if ($rep -ne $WantInterval) { continue }
+        $dur = ''; $di = $null; $stopEnd = $false
+        if ($r.PSObject.Properties['RepetitionDuration']) { $dur = [string]$r.RepetitionDuration }
+        if ($r.PSObject.Properties['DaysInterval']) { $di = $r.DaysInterval }
+        if ($r.PSObject.Properties['StopAtDurationEnd']) { $stopEnd = [bool]$r.StopAtDurationEnd }
+        $coverage = Get-R531RepetitionCoverage $type $rep $dur $di $stopEnd
+        if ($coverage -eq 'CONTINUOUS') { $recovery++ }
+        else {
+            $probs += ("a trigger repeats every $WantInterval but its coverage is not " +
+                       "continuous ($coverage) - a dead worker could stay dead past one cadence")
+        }
+    }
+    return [PSCustomObject]@{ Boot = $boot; Recovery = $recovery; Problems = @($probs) }
+}
 
 if ($PrincipalProbe) {
     if ($LoggedOutCapable -contains $PrincipalProbe) {
@@ -51,6 +112,24 @@ if ($PrincipalProbe) {
     } else {
         $global:R531CollectionTaskValidateResult = "PROBE_REJECT - $PrincipalProbe"
         Write-Output "R53_1_PRINCIPAL_REJECTED - LogonType=$PrincipalProbe dies with the logon session; S4U required for a durable collector"
+    }
+    return
+}
+
+if ($TriggerProbe) {
+    $raw = Get-Content -Path $TriggerProbe -Raw | ConvertFrom-Json
+    $records = if ($raw.PSObject.Properties['Triggers']) { @($raw.Triggers) } else { @($raw) }
+    $f = Get-R531TriggerFindings $records ('PT{0}M' -f $RecoveryRepetitionMinutes)
+    $ok = ($f.Boot -ge 1 -and $f.Recovery -ge 1 -and @($f.Problems).Count -eq 0)
+    $global:R531CollectionTaskValidateResult = if ($ok) { 'PROBE_TRIGGERS_OK' }
+        else { 'PROBE_TRIGGERS_PROBLEMS' }
+    [PSCustomObject]@{ boot_triggers = $f.Boot; recovery_triggers = $f.Recovery
+                       problems = @($f.Problems) } | ConvertTo-Json -Depth 4 | Write-Output
+    if ($ok) {
+        Write-Output "R53_1_TRIGGER_CONTRACT_OK - boot=$($f.Boot) recovery=$($f.Recovery)"
+    } else {
+        Write-Output ("R53_1_TRIGGER_CONTRACT_PROBLEMS - boot=$($f.Boot) " +
+                      "recovery=$($f.Recovery); " + (@($f.Problems) -join '; '))
     }
     return
 }
@@ -74,14 +153,24 @@ if ($act.Execute -ne $PythonExe) { $problems += "action executes '$($act.Execute
 if ($act.Arguments -notmatch [regex]::Escape($WorkerScript)) { $problems += 'action does not run the canonical collection worker' }
 if ($t.Actions.Count -ne 1) { $problems += "task has $($t.Actions.Count) actions (expected exactly 1)" }
 
-$bootCount = 0
-$recoveryCount = 0
 $wantInterval = 'PT{0}M' -f $RecoveryRepetitionMinutes
+$trRecords = @()
 foreach ($tr in $t.Triggers) {
-    if (-not [bool]$tr.Enabled) { $problems += "a trigger of type $($tr.CimClass.CimClassName) is disabled" }
-    if ($tr.CimClass.CimClassName -match 'Boot') { $bootCount++ }
-    elseif ($tr.Repetition -and [string]$tr.Repetition.Interval -eq $wantInterval) { $recoveryCount++ }
+    $rep = $null; $dur = $null; $stopEnd = $false; $di = $null
+    if ($tr.Repetition -and $tr.Repetition.Interval) { $rep = [string]$tr.Repetition.Interval }
+    if ($tr.Repetition -and $tr.Repetition.Duration) { $dur = [string]$tr.Repetition.Duration }
+    if ($tr.Repetition -and $tr.Repetition.StopAtDurationEnd) { $stopEnd = $true }
+    if ($tr.PSObject.Properties['DaysInterval'] -and $tr.DaysInterval) { $di = [int]$tr.DaysInterval }
+    $trRecords += [PSCustomObject]@{
+        Type = [string]$tr.CimClass.CimClassName; Enabled = [bool]$tr.Enabled
+        RepetitionInterval = $rep; RepetitionDuration = $dur
+        DaysInterval = $di; StopAtDurationEnd = $stopEnd
+    }
 }
+$findings = Get-R531TriggerFindings $trRecords $wantInterval
+$bootCount = $findings.Boot
+$recoveryCount = $findings.Recovery
+$problems += @($findings.Problems)
 if ($bootCount -lt 1) { $problems += 'no boot trigger (a reboot would leave collection down until something else fires)' }
 if ($recoveryCount -lt 1) {
     $problems += ("no periodic recovery trigger repeating every $RecoveryRepetitionMinutes minutes " +
