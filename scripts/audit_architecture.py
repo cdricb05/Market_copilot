@@ -10399,7 +10399,12 @@ def check_release48_portfolio_cycle(files: list[Path]) -> dict:
     one_operator_token = 'EXECUTE_CONFIRMATION = "RUN_PORTFOLIO_CYCLE"' in pc_src
     delegates_to_close = "run_daily_close(" in pc_code
     delegates_to_drc = "run_daily_research_cycle(" in pc_code
-    reads_one_workflow_owner = "load_workflow_state()" in pc_code
+    # Release 54.2.3.1 — the orchestrator still reads the ONE workflow owner, now
+    # supplying the close owner's already-probed provider answer (the workflow is
+    # probe-free by contract, so the composition hands it the readiness verdict).
+    reads_one_workflow_owner = (
+        "load_workflow_state()" in pc_code
+        or "load_workflow_state(provider_readiness=readiness)" in pc_code)
     max_one_invocation_each = "if step in ran:" in pc_code
 
     persistence_reach = sorted(t for t in (
@@ -11749,6 +11754,89 @@ def check_release54_2_3_source_panel_recovery(files: list[Path]) -> dict:
         "workflow_projects_actionability": bool(projects_actionability),
         "ui_actionability_derivation": ui_actionability_derivation,
         "ui_reads_backend_actionability": bool(ui_reads_backend_flag),
+    }
+
+
+def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
+    """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
+
+    (a) the LIVE provider-coverage answer for an owed close has exactly ONE
+        calculation, ``provider_covers_session`` in ``api.daily_close`` (the owner
+        that probes), and no other ``api/*.py`` module defines a second one;
+    (b) ``api.workflow_state`` stays PROBE-FREE — it never runs the provider probe
+        or the readiness assessment itself — and consumes the close owner's
+        verdict verbatim through that one function;
+    (c) every composition supplies the answer: the decision snapshot loads the
+        close owner BEFORE the workflow owner and passes ``provider_readiness``
+        in; the portfolio-cycle orchestrator supplies the bounded assessment at
+        POST time; the presentation loaders share ONE daily-close read;
+    (d) the two owned-data concepts carry DISTINCT names (the persisted
+        confirmation is labelled persisted state; the provider-ready-awaiting-
+        close recovery data state exists) and the close gate echoes the coverage
+        verdict it obeyed;
+    (e) the UI never re-derives readiness — no provider-date comparison exists in
+        JavaScript, and the CTA still reads ``primary_action_available`` verbatim.
+    """
+    dc_src = _read("api/daily_close.py")
+    ws_src = _read(R5423_WORKFLOW_OWNER)
+    ds_src = _read("api/decision_snapshot.py")
+    pc_src = _read("api/portfolio_cycle.py")
+    op_src = _read("api/operator_presentation.py")
+    ui = _read(UI_FILE)
+
+    # (a) one coverage calculation, owned by the prober.
+    second_coverage_calc = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/") and _rel(fp) != "api/daily_close.py"
+        and "def provider_covers_session(" in fp.read_text(encoding="utf-8",
+                                                           errors="replace"))
+    owner_defines_coverage = ("def provider_covers_session(" in dc_src
+                              and "def assess_owned_provider_readiness(" in dc_src)
+
+    # (b) the workflow is probe-free and consumes, never recomputes.
+    workflow_probe_tokens = sorted(
+        t for t in ("_PROVIDER_PROBE", "_default_provider_probe",
+                    "assess_owned_provider_readiness(") if t in ws_src)
+    workflow_consumes_verdict = (
+        "_import_daily_close().provider_covers_session" in ws_src)
+
+    # (c) the compositions supply the answer.
+    snapshot_supplies = (
+        'provider_readiness=(daily_close or {}).get("provider_readiness")' in ds_src)
+    snapshot_orders_close_first = (
+        '_timed("daily_close"' in ds_src and '_timed("workflow"' in ds_src
+        and ds_src.index('_timed("daily_close"') < ds_src.index('_timed("workflow"'))
+    orchestrator_supplies = (
+        "assess_owned_provider_readiness()" in pc_src
+        and "load_workflow_state(provider_readiness=readiness)" in pc_src)
+    presentation_shares_one_read = (
+        "provider_readiness=dc_payload.get" in op_src
+        and "provider_covers_recovery_session" in op_src)
+
+    # (d) distinct names + an echoing gate.
+    distinct_concepts = all(t in ws_src for t in (
+        "owned_data_confirmation_is_persisted_state",
+        "PROVIDER_CONFIRMED_AWAITING_CLOSE",
+        "provider_covers_recovery_session"))
+    gate_echoes_verdict = "provider_confirms_owed_session" in ws_src
+
+    # (e) the client renders; it never compares provider dates.
+    ui_readiness_derivation = sorted(set(re.findall(
+        r"provider_latest_date\s*[<>]=?[^\n]{0,40}", ui)))
+
+    return {
+        "coverage_owner": "api.daily_close",
+        "owner_defines_coverage_and_assessment": bool(owner_defines_coverage),
+        "second_coverage_calculation": second_coverage_calc,
+        "workflow_probe_tokens": workflow_probe_tokens,
+        "workflow_consumes_close_verdict": bool(workflow_consumes_verdict),
+        "snapshot_supplies_readiness": bool(snapshot_supplies),
+        "snapshot_composes_close_before_workflow": bool(snapshot_orders_close_first),
+        "orchestrator_supplies_readiness": bool(orchestrator_supplies),
+        "presentation_shares_one_close_read": bool(presentation_shares_one_read),
+        "distinct_owned_data_concepts": bool(distinct_concepts),
+        "close_gate_echoes_coverage_verdict": bool(gate_echoes_verdict),
+        "ui_readiness_derivation": ui_readiness_derivation,
     }
 
 
@@ -13465,6 +13553,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_2_post_close_research_recovery(files),
         "release54_2_3_source_panel_recovery":
             check_release54_2_3_source_panel_recovery(files),
+        "release54_2_3_1_owned_data_readiness_authority":
+            check_release54_2_3_1_owned_data_readiness_authority(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14214,6 +14304,25 @@ def _print_console(rep: dict) -> None:
     print(f"UI actionability derivation (must be empty): "
           f"{sp['ui_actionability_derivation']}  "
           f"UI reads backend actionability: {sp['ui_reads_backend_actionability']}")
+
+    hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
+    ra = rep["release54_2_3_1_owned_data_readiness_authority"]
+    print(f"coverage owner: {ra['coverage_owner']}  defines coverage + assessment: "
+          f"{ra['owner_defines_coverage_and_assessment']}")
+    print(f"second coverage calculations (must be empty): "
+          f"{ra['second_coverage_calculation']}")
+    print(f"workflow probe tokens (must be empty): {ra['workflow_probe_tokens']}  "
+          f"workflow consumes close verdict: {ra['workflow_consumes_close_verdict']}")
+    print(f"snapshot supplies readiness: {ra['snapshot_supplies_readiness']}  "
+          f"close composed before workflow: "
+          f"{ra['snapshot_composes_close_before_workflow']}")
+    print(f"orchestrator supplies readiness: {ra['orchestrator_supplies_readiness']}  "
+          f"presentation shares one close read: "
+          f"{ra['presentation_shares_one_close_read']}")
+    print(f"distinct owned-data concepts: {ra['distinct_owned_data_concepts']}  "
+          f"close gate echoes verdict: {ra['close_gate_echoes_coverage_verdict']}")
+    print(f"UI readiness derivation (must be empty): "
+          f"{ra['ui_readiness_derivation']}")
 
     hdr("POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY (R54.2.2)")
     pr = rep["release54_2_2_post_close_research_recovery"]
@@ -16311,6 +16420,36 @@ BLOCKING_INVARIANTS = (
     ("release54_2_3_source_panel_recovery", "ui_actionability_derivation", []),
     ("release54_2_3_source_panel_recovery",
      "ui_reads_backend_actionability", True),
+    # ------------------------------------------------------------------- #
+    # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
+    # confirmation and live provider coverage are DIFFERENT concepts: the
+    # coverage calculation lives once in api.daily_close (the prober), the
+    # probe-free workflow owner consumes that verdict verbatim, every
+    # composition supplies it, and the UI never re-derives readiness. Every
+    # field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "owner_defines_coverage_and_assessment", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "second_coverage_calculation", []),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "workflow_probe_tokens", []),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "workflow_consumes_close_verdict", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "snapshot_supplies_readiness", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "snapshot_composes_close_before_workflow", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "orchestrator_supplies_readiness", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "presentation_shares_one_close_read", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "distinct_owned_data_concepts", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "close_gate_echoes_coverage_verdict", True),
+    ("release54_2_3_1_owned_data_readiness_authority",
+     "ui_readiness_derivation", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.2 - POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY.
     # ONE post-close obligation owner, ONE stale-input classification owner,

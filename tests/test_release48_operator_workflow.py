@@ -94,7 +94,10 @@ class TestContracts:
 class TestPlanNextStep:
     @pytest.mark.parametrize("overall,expected_step,expected_stop", [
         ("WAITING_FOR_SESSION_CLOSE", None, pc.STOP_WAITING_FOR_SESSION_CLOSE),
-        ("WAITING_FOR_OWNED_DATA", "DAILY_CLOSE", None),
+        # Release 54.2.3.1 — an uncovered/unprobed WAITING world is a fail-closed
+        # stop with its own named reason; a provider-covered owed close reaches the
+        # orchestrator as READY_FOR_DAILY_CLOSE (the row below).
+        ("WAITING_FOR_OWNED_DATA", None, pc.STOP_WAITING_FOR_OWNED_DATA),
         ("READY_FOR_DAILY_CLOSE", "DAILY_CLOSE", None),
         ("RESEARCH_CYCLE_REQUIRED", "DAILY_RESEARCH_CYCLE", None),
         ("RESEARCH_CYCLE_RUNNING", None, pc.STOP_CYCLE_ALREADY_RUNNING),
@@ -339,8 +342,10 @@ class TestOperatorPresentation:
     def test_41_underlying_step_is_the_decided_owner(self):
         assert self._cmd("READY_FOR_DAILY_CLOSE")["cycle_underlying_kind"] == \
             ws.EXEC_DAILY_CLOSE
-        assert self._cmd("WAITING_FOR_OWNED_DATA")["cycle_underlying_kind"] == \
-            ws.EXEC_DAILY_CLOSE
+        # Release 54.2.3.1 — WAITING_FOR_OWNED_DATA no longer promotes a mutation
+        # (the provider-covered owed close is READY_FOR_DAILY_CLOSE instead).
+        assert self._cmd("WAITING_FOR_OWNED_DATA")["cycle_underlying_kind"] is None
+        assert self._cmd("WAITING_FOR_OWNED_DATA")["primary_action_available"] is False
         assert self._cmd("RESEARCH_CYCLE_REQUIRED")["cycle_underlying_kind"] == \
             ws.EXEC_DAILY_RESEARCH_CYCLE
 

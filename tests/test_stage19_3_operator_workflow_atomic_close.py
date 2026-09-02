@@ -638,12 +638,22 @@ class TestOperatorCommandContract:
             assert c["primary_action_available"] is False
 
     def test_32_waiting_for_owned_data_promotes_the_close_not_the_desk(self):
+        # Release 54.2.3.1 SUPERSEDES the unconditional Stage-19.3 promotion: a
+        # provider-covered owed close is routed to READY_FOR_DAILY_CLOSE by the
+        # priority policy itself, so WAITING now means the close owner's live
+        # provider answer is negative or unobserved — no mutation CTA is offered.
+        # The point this test has always guarded is unchanged either way: the raw
+        # desk refresh is NEVER what a post-close state promotes.
         c = _cmd(ws.WAITING_FOR_OWNED_DATA, pending=29)
-        # Release 48: presented = the one portfolio cycle (one operator token);
-        # the decided underlying step is still the Daily Close, never the desk.
-        assert c["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
-        assert c["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
-        assert c["confirmation_required"] == ws.PORTFOLIO_CYCLE_CONFIRMATION
+        assert c["primary_action_available"] is False
+        assert c["primary_action_kind"] is None
+        assert c["mutation_controls_allowed"] is False
+        assert c["cycle_underlying_kind"] != ws.EXEC_PAPER_DESK_REFRESH
+        # …and the provider-covered close is promoted where it now lives:
+        r = _cmd(ws.READY_FOR_DAILY_CLOSE, pending=29)
+        assert r["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
+        assert r["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
+        assert r["confirmation_required"] == ws.PORTFOLIO_CYCLE_CONFIRMATION
 
     def test_33_generic_refresh_is_not_a_canonical_action(self):
         for state in ws.OVERALL_STATES:

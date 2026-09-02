@@ -715,8 +715,12 @@ class TestContract:
         assert ws.SESSION_RECOVERY_STATES == (
             "NO_CATCH_UP_REQUIRED", "CATCH_UP_REQUIRED",
             "CATCH_UP_WAITING_FOR_OWNED_DATA", "CATCH_UP_BLOCKED")
+        # Release 54.2.3.1 extends the data-state vocabulary with the provider-
+        # confirmed-but-not-yet-closed state (the normal state of every owed close
+        # between publish and close); the original three values are unchanged.
         assert ws.RECOVERY_DATA_STATES == (
-            "CONFIRMED", "UNVERIFIED_UNTIL_CLOSE_REVALIDATES", "OWNED_DATA_LAGGING")
+            "CONFIRMED", "UNVERIFIED_UNTIL_CLOSE_REVALIDATES", "OWNED_DATA_LAGGING",
+            "PROVIDER_CONFIRMED_AWAITING_CLOSE")
 
     def test_37_the_recovery_schema_exposes_every_required_field(self):
         r = _load()["session_recovery"]

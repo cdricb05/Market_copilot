@@ -477,15 +477,31 @@ def _session_recovery(wf: dict, daily_close: dict) -> dict:
     rec = _d(wf.get("session_recovery"))
     state = rec.get("recovery_state")
     session = rec.get("recovery_session")
-    provider = _d(daily_close.get("provider_readiness"))
+    provider = _d(daily_close.get("provider_readiness")) \
+        or _d(rec.get("owned_provider_coverage"))
     prov_latest = provider.get("provider_latest_date")
     prov_ready = provider.get("ready")
-    # The close owner probed for ITS expected session; its answer only settles OUR
-    # session when the published date actually reaches it. Never inferred otherwise.
-    provider_covers_session = bool(
-        session and prov_latest and str(prov_latest)[:10] >= str(session)[:10])
+    # Release 54.2.3.1 — the workflow owner now composes the close owner's provider
+    # answer into its OWN recovery verdict, so this panel reads that published
+    # verdict verbatim. The inline date comparison survives ONLY as a degrade
+    # fallback for a payload predating the reconciliation; it can no longer
+    # contradict the headline beside it, because the same verdict decided both.
+    provider_covers_session = rec.get("provider_covers_recovery_session")
+    if provider_covers_session is None:
+        # The close owner probed for ITS expected session; its answer only settles
+        # OUR session when the published date actually reaches it. Never inferred.
+        provider_covers_session = bool(
+            session and prov_latest and str(prov_latest)[:10] >= str(session)[:10])
+    provider_covers_session = bool(provider_covers_session)
     if provider_covers_session:
         owned_line, owned_state = "READY", "ok"
+    elif (prov_latest and session
+          and str(prov_latest)[:10] >= str(session)[:10]):
+        # The provider HAS published the session but the close owner's coverage
+        # verdict is still negative (an incomplete valuation / decision scope) —
+        # saying "not published" here would misname the cause.
+        owned_line, owned_state = ("PUBLISHED BUT NOT COVERABLE (market-data "
+                                   "scope incomplete)"), "blocked"
     elif prov_latest:
         owned_line, owned_state = ("NOT PUBLISHED (owned provider is current "
                                    "through %s)" % prov_latest), "blocked"
@@ -1578,10 +1594,30 @@ def owner_loaders(*, portfolio_state: Optional[dict] = None) -> dict[str, Callab
                 "lifecycle_owner": "api.information_collection.resolve_service_lifecycle",
                 "scope": "SERVICE_LIFECYCLE_ONLY"}
 
+    def _daily_close() -> Optional[dict]:
+        # Loaded once per composition: the workflow loader consumes its provider
+        # answer, and the presentation renders the same payload — ONE probe.
+        if "dc" not in cache:
+            try:
+                cache["dc"] = _dc.load_daily_close()
+            except Exception:  # noqa: BLE001 - the workflow then fails closed
+                cache["dc"] = None
+        return cache["dc"]
+
+    def _workflow() -> dict:
+        # Release 54.2.3.1 — the probe-free workflow owner receives the close
+        # owner's already-probed provider answer, exactly as the decision
+        # snapshot supplies it. A missing daily-close payload degrades to no
+        # answer, which the workflow fails closed on.
+        dc_payload = _daily_close() or {}
+        return _ws.load_workflow_state(
+            provider_readiness=dc_payload.get("provider_readiness"),
+            market_data_scope=dc_payload.get("market_data_scope"))
+
     return {
-        "workflow": lambda: _ws.load_workflow_state(),
+        "workflow": _workflow,
         "constrained": lambda: _with_ps(_rp.load_constrained_reallocation),
-        "daily_close": lambda: _dc.load_daily_close(),
+        "daily_close": lambda: _daily_close() or {},
         "material_information": _material,
         "decision_outcomes": lambda: _pdo.load_portfolio_decision_outcomes(),
         "information_collection": _collection,

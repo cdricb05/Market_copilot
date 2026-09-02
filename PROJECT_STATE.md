@@ -1,7 +1,93 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2.3 - CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY:
+- **Updated by phase:** **R54.2.3.1 - OWNED-DATA READINESS AUTHORITY
+  RECONCILIATION: remove the circular Sep-2 close blocker (single agent, no
+  subagents, Windows PowerShell only).** Built over the committed R54.2.3 head
+  `1721086f`. Full narrative:
+  `docs/RELEASE54_2_3_1_OWNED_DATA_READINESS_AUTHORITY.md`.
+  **The live contradiction (2026-09-02 ~17:36 ET):** for the owed Sep-2 close,
+  `api.daily_close` live-probed the owned provider and reported
+  `DAILY_CLOSE_DUE` / `READY` through `2026-09-02` with complete valuation
+  (26/26) and decision (199/199) scopes, while `api.workflow_state`
+  simultaneously reported `WAITING_FOR_OWNED_DATA` with blocker
+  `OWNED_DATA_NOT_CONFIRMED` ("Owned data confirms only 2026-09-01") - and the
+  SAME workflow payload carried `daily_close_gate.execution_allowed true` and
+  `portfolio_cycle_actionable true`. Today showed BLOCKED + "CATCH UP WAITING
+  FOR OWNED DATA" + an "OWNED DATA READY" badge + a green Run-the-portfolio-
+  cycle CTA at once. All backend-published; the UI derived nothing.
+  **The cause - a category error plus a designed-in mixed message:** the
+  probe-free workflow owner read the PERSISTED desk-mark confirmation date
+  (which advances only when a close runs, so it is ALWAYS one session behind
+  before every close) as if it answered "does the provider hold the owed
+  session's data?" - the question only the close owner's live probe answers,
+  and had answered READY. Requiring Sep-2 to be persisted before allowing the
+  close that persists Sep-2 is circular. Beside it, Stage 19.3's deliberate
+  promotion of an executable close inside `WAITING_FOR_OWNED_DATA` put a green
+  CTA next to a BLOCKED banner in one payload. The presentation
+  (`_session_recovery`) had been composing both owners' answers under the
+  documented philosophy "a disagreement is shown rather than resolved".
+  **The canonical contract - two concepts, two names, one calculation:**
+  `owned_data_confirmation_date` (+ `owned_data_confirmation_is_persisted_state`)
+  states what has already been PROCESSED; `owned_provider_coverage` /
+  `provider_covers_recovery_session` states what the provider can COVER now.
+  The ONE coverage calculation is `api.daily_close.provider_covers_session`
+  (the owner that probes), folding in the valuation/decision scopes when
+  supplied. For an owed session S: calendar says S is owed AND the close
+  owner's probed answer covers S -> recovery `CATCH_UP_REQUIRED` with the new
+  data state `PROVIDER_CONFIRMED_AWAITING_CLOSE`, overall
+  `READY_FOR_DAILY_CLOSE`, cycle actionable. Provider affirmatively negative
+  (behind / unavailable / failing probe / incomplete scope) OR no answer
+  observed -> fail closed: `WAITING_FOR_OWNED_DATA`, non-executable "Wait for
+  owned market data" action, `daily_close_gate.execution_allowed false`,
+  `portfolio_cycle_actionable false`, blocker naming the provider's own
+  verdict. Both directions come from ONE decision, so no surface can disagree.
+  **How the answer reaches the probe-free workflow owner:**
+  `load_workflow_state` gains `provider_readiness=` / `market_data_scope=`
+  inputs (consumed verbatim, never recomputed; the module still makes no
+  provider call). `api.decision_snapshot._compose` loads the close owner
+  BEFORE the workflow owner and passes its answer in (one probe per snapshot
+  build; the 180s snapshot age valve bounds staleness).
+  `api.portfolio_cycle` supplies the new bounded read-only
+  `api.daily_close.assess_owned_provider_readiness()` at POST time.
+  `api.operator_presentation.owner_loaders` shares ONE daily-close read, and
+  `_session_recovery` prefers the workflow's published verdict.
+  **Superseded:** Stage 19.3's unconditional close promotion in
+  `WAITING_FOR_OWNED_DATA` (the only executable residue is the never-persisted
+  bootstrap with an affirmatively covering provider); `plan_next_step` gains
+  the explicit fail-closed stop `STOP_WAITING_FOR_OWNED_DATA`;
+  `RECOVERY_DATA_STATES` extended with `PROVIDER_CONFIRMED_AWAITING_CLOSE`.
+  **Unchanged:** the Daily Close still revalidates the provider server-side
+  immediately before any write (probe -> `WAITING_FOR_MARKET_DATA` no-write;
+  unreachable marks -> `DATA_BLOCKED` no-write); one orchestration path with
+  the server binding the OLDEST owed session; no recovery route, no
+  operator-supplied date, no synthetic marks, no holiday inference, no
+  order/fill/broker reach, no automation; `engine.market_session` and the
+  `_decide_overall` ladder untouched; R54.2.1's morning-unprobed semantics
+  (`CATCH_UP_REQUIRED` / `UNVERIFIED_UNTIL_CLOSE_REVALIDATES`) preserved,
+  while an affirmative negative now waits even in the morning.
+  **LIVE READ-ONLY VERDICT (nothing written, backend never restarted):**
+  through the repaired composition over the REAL stores the owed Sep-2 close
+  resolves to `READY_FOR_DAILY_CLOSE`, blockers `[]`, recovery
+  `CATCH_UP_REQUIRED` (`PROVIDER_CONFIRMED_AWAITING_CLOSE`),
+  `portfolio_cycle_actionable true`, gate `true`, `plan_next_step DAILY_CLOSE`,
+  consistency `CONSISTENT`; Today panel "CATCH UP REQUIRED | READY | Run the
+  Portfolio Cycle" - one message. The bare probe-free control read fails
+  closed (`WAITING_FOR_OWNED_DATA`, not actionable, honest reason).
+  **Verification:** new R54.2.3.1 suite 36/36; updated-to-the-new-contract
+  suites (Stage 19.3, operator action integrity incl. the browser harness,
+  Release 48, R54.2.1 vocabulary) plus the impact perimeter (market session,
+  data freshness, daily close 27E/27F/27H/28C, session authority 29.3/29.4,
+  workflow slices, Stage 20.1/22/22.1, Release 46.2/48/49/50, Active Manager
+  R54/54.1/54.2/54.2.1/54.2.2/54.2.3, Track B, Today UX, operator decision
+  flow, architecture contracts) all passing; strict architecture audit exit 0
+  with a NEW blocking guard
+  (`check_release54_2_3_1_owned_data_readiness_authority`); `git diff --check`
+  clean. Full repository suite NOT run (risk-based perimeter;
+  `FULL_GATE_REQUIRED = NO`). NOT committed (operator gate). **The running
+  backend on 8001 still holds the pre-R54.2.3 runtime; a canonical restart is
+  required before Today reflects this release.**
+- **Previous phase:** **R54.2.3 - CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY:
   remove the real governed-research blocker, make portfolio-cycle actionability
   truthful, and adopt a risk-based validation perimeter (single agent, no
   subagents, Windows PowerShell only).** Built over the committed R54.2.2 head

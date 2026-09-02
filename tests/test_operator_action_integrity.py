@@ -124,8 +124,20 @@ def _load(**kw):
 
 
 def st_waiting_owned():
-    # Post-cutoff evening; owned desk data still ends at the prior session.
+    # Post-cutoff evening; owned desk data still ends at the prior session, and no
+    # live provider answer was composed in — Release 54.2.3.1 fails this closed
+    # (no mutation CTA until the provider answer affirms coverage).
     return _load()
+
+
+def st_catch_up_provider_ready():
+    # The SAME evening world, with api.daily_close's live provider answer composed
+    # in and covering the owed session — the priority policy routes it to
+    # READY_FOR_DAILY_CLOSE, where the canonical close is the promoted action.
+    return _load(provider_readiness={
+        "provider_name": "OWNED_EODHD_LIVE", "provider_latest_date": "2026-08-05",
+        "expected_market_date": "2026-08-05", "ready": True, "status": "READY",
+        "queried_provider": True, "blocker_code": None, "blocker_message": None})
 
 
 def st_research_required():
@@ -194,13 +206,15 @@ class TestBackendExecutionContract:
         assert st_inconsistent()["overall_state"] == ws.INCONSISTENT_STATE
 
     def test_waiting_for_owned_data_primary_executes_the_canonical_daily_close(self):
-        # STAGE 19.3 SUPERSEDES the original Defect-1 contract. The standalone Paper
-        # Desk refresh is no longer promoted here: the Daily Close COMPOSES it (owned
-        # marks -> NEXT_CLOSE settlement -> model inputs -> reassessment), so promoting
-        # the raw refresh created a SECOND post-close orchestration path for one
-        # transition. One owner, one operator action.
-        pa = st_waiting_owned()["primary_action"]
-        assert pa["action_code"] == ws.ACTION_WAIT_FOR_OWNED_DATA
+        # STAGE 19.3 SUPERSEDED the original Defect-1 contract (the desk refresh is
+        # never promoted; the Daily Close composes it). RELEASE 54.2.3.1 SUPERSEDES
+        # the unconditional promotion: with the close owner's live provider answer
+        # composed in and covering the owed session, the SAME world becomes
+        # READY_FOR_DAILY_CLOSE and the canonical close is the promoted action —
+        # while the unprobed world offers no mutation CTA at all.
+        r = st_catch_up_provider_ready()
+        assert r["overall_state"] == ws.READY_FOR_DAILY_CLOSE
+        pa = r["primary_action"]
         assert pa["label"] == "Run the Daily Close"
         assert pa["execution_available"] is True
         assert pa["manual_confirmation_required"] is True
@@ -213,10 +227,19 @@ class TestBackendExecutionContract:
         assert pa["destination"] == ws.DEST_DAILY_WORKFLOW
         # The maintenance executor must never reappear as the promoted action.
         assert pa["execution_kind"] not in ws.MAINTENANCE_EXECUTION_KINDS
+        # The unprobed world stays honest: WAIT action, nothing executable.
+        pw = st_waiting_owned()["primary_action"]
+        assert pw["action_code"] == ws.ACTION_WAIT_FOR_OWNED_DATA
+        assert pw["execution_available"] is False
+        assert pw.get("execution_kind") is None
 
     def test_waiting_for_owned_data_allows_the_daily_close(self):
-        r = st_waiting_owned()
-        # The close is the owner that advances owned marks, so its gate is OPEN here.
+        # Release 54.2.3.1 — renamed in spirit: the close is allowed exactly when
+        # the provider answer covers the owed session (the state is then
+        # READY_FOR_DAILY_CLOSE); an unprobed/uncovered WAITING world exposes NO
+        # executable close and no mutation CTA — never a BLOCKED banner beside a
+        # green button again.
+        r = st_catch_up_provider_ready()
         assert r["daily_close_gate"]["execution_allowed"] is True
         assert r["daily_close_gate"]["passive_status"] is None
         cmd = r["operator_command"]
@@ -225,6 +248,12 @@ class TestBackendExecutionContract:
         assert cmd["primary_action_kind"] == ws.EXEC_PORTFOLIO_CYCLE
         assert cmd["cycle_underlying_kind"] == ws.EXEC_DAILY_CLOSE
         assert "settle eligible NEXT_CLOSE paper orders" in cmd["supporting_text"]
+        w = st_waiting_owned()
+        assert w["daily_close_gate"]["execution_allowed"] is False
+        assert w["daily_close_gate"]["passive_badge"] == "WAITING"
+        assert w["operator_command"]["primary_action_available"] is False
+        assert w["operator_command"]["portfolio_cycle_actionable"] is False
+        assert w["operator_command"]["portfolio_cycle_blocking_reason"]
 
     def test_paper_desk_refresh_is_never_a_canonical_primary_action(self):
         # The endpoint and its execution contract survive as a MAINTENANCE capability…
@@ -450,8 +479,15 @@ def harness_report():
     if not NODE:
         pytest.skip("node is unavailable")
     states = {
-        "waiting_owned": {"ws": st_waiting_owned(), "dc": _dc_close_due_payload(),
+        # Release 54.2.3.1 — the executable evening world is the provider-covered
+        # one (READY_FOR_DAILY_CLOSE via catch-up); the unprobed WAITING world is
+        # exercised separately below and must render NO mutation CTA.
+        "waiting_owned": {"ws": st_catch_up_provider_ready(),
+                          "dc": _dc_close_due_payload(),
                           "cc": None, "responses": _RESPONSES},
+        "waiting_owned_unprobed": {"ws": st_waiting_owned(),
+                                   "dc": _dc_close_due_payload(),
+                                   "cc": None, "responses": _RESPONSES},
         "research_required": {"ws": st_research_required(),
                               "dc": _dc_close_due_payload(),
                               "cc": None, "responses": _RESPONSES},
@@ -510,6 +546,14 @@ class TestUiBehaviourWaitingOwned:
         assert r["dc"]["cc_btn"]["display"] == "none"    # no duplicate panel control
         assert _paths(r["posts_after_close_attempt"]) == [
             "/v1/operations/daily-close/execute"]
+
+    def test_unprobed_waiting_world_renders_no_mutation_cta(self, harness_report):
+        # Release 54.2.3.1 — without a provider answer the workflow fails closed:
+        # no green portfolio-cycle button may render beside the OWNED_DATA blocker.
+        r = harness_report["waiting_owned_unprobed"]
+        assert r["operator_command"]["attrs"]["data-op-action-available"] == "0"
+        assert r["opc"]["cta_count"] == 0
+        assert r["posts_after_click"] == []
 
 
 class TestUiBehaviourResearchRequired:

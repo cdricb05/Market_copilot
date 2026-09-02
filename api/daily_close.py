@@ -1337,6 +1337,96 @@ def _provider_readiness(*, expected_market_date: Optional[str], probe_result: Op
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.2.3.1 — THE ONE OWNED-PROVIDER COVERAGE CONTRACT FOR AN OWED CLOSE.
+#
+# Two different business concepts were being read through one date on 2026-09-02:
+#
+#   * the PERSISTED owned-data confirmation (the desk-mark date) answers "which
+#     completed session has already been operationally PROCESSED?" — it advances
+#     only when a Daily Close runs, so for an owed session it is ALWAYS one
+#     session behind, by construction;
+#   * PROVIDER COVERAGE answers "does the authoritative owned provider currently
+#     hold the EOD data required to process the owed session?" — the question this
+#     owner already answers with its read-only benchmark probe.
+#
+# ``api.workflow_state`` (probe-free by contract) was reinterpreting the FIRST as
+# the SECOND, and reported OWNED_DATA_NOT_CONFIRMED for a session this owner had
+# live-proven READY. These two functions are the canonical reconciliation seam:
+# the probe answer is assembled HERE (one calculation) and consumed VERBATIM by
+# the workflow composition — never recomputed from persisted marks, and never
+# decided in JavaScript.
+# --------------------------------------------------------------------------- #
+PROVIDER_COVERAGE_OWNER = "api.daily_close"
+
+
+def provider_covers_session(provider_readiness: Optional[dict], market_date: Any,
+                            *, market_data_scope: Optional[dict] = None
+                            ) -> Optional[bool]:
+    """Does the already-probed owned-provider answer cover ``market_date``?
+
+    Pure — the ONE coverage comparison (the presentation layer's inline duplicate
+    delegates its verdict to this owner's published answer). Returns:
+
+      * ``True``  — the provider's latest completed date reaches the session, and
+        every supplied market-data scope is complete;
+      * ``False`` — the provider answer is affirmative and does NOT cover it
+        (behind, unavailable, or an incomplete valuation / decision scope);
+      * ``None``  — no provider answer was observed at all (the caller fails
+        closed on its own persisted view; absence is never coverage).
+    """
+    pr = provider_readiness or {}
+    if not market_date or not pr:
+        return None
+    latest = pr.get("provider_latest_date")
+    if not (latest and str(latest)[:10] >= str(market_date)[:10]):
+        return False
+    if market_data_scope is not None:
+        if not (market_data_scope.get("complete_for_valuation")
+                and market_data_scope.get("complete_for_decision")):
+            return False
+    return True
+
+
+def assess_owned_provider_readiness(*, today: Optional[str] = None,
+                                    now: Optional[datetime] = None,
+                                    target_market_date: Optional[str] = None,
+                                    desk_dir=None,
+                                    downloader=None,
+                                    provider_probe: Optional[Callable] = None
+                                    ) -> dict:
+    """Bounded READ-ONLY provider-readiness assessment for the close this owner
+    would perform right now.
+
+    Runs the SAME benchmark probe and assembles the SAME ``provider_readiness``
+    block as the full daily-close status — without loading the operational book,
+    the gate, the engine cross-section or the performance history — so a
+    composition (the portfolio-cycle orchestrator) can supply the workflow owner
+    with this owner's answer at POST time. Writes nothing; degrades to an honest
+    ``PROVIDER_UNAVAILABLE`` block, never a stack trace."""
+    warnings: list[str] = []
+    clock = _resolve_clock(today=today, now=now,
+                           target_market_date=target_market_date)
+    expected = clock["expected_market_date"]
+    probe_result = _run_probe(expected=expected, ops={}, desk_dir=desk_dir,
+                              downloader=downloader, provider_probe=provider_probe,
+                              ref_today=clock.get("reference_today"),
+                              warnings=warnings, active=True)
+    mark_cache_date = None
+    try:
+        mark_cache_date = desk.marks_latest_date(desk.read_marks(desk_dir))
+    except Exception:  # noqa: BLE001
+        pass
+    readiness = _provider_readiness(expected_market_date=expected,
+                                    probe_result=probe_result,
+                                    mark_cache_date=mark_cache_date)
+    readiness["owner"] = PROVIDER_COVERAGE_OWNER
+    readiness["probe_performed"] = probe_result is not None
+    readiness["clock_expected_market_date"] = clock.get("clock_expected_market_date")
+    readiness["warnings"] = warnings
+    return readiness
+
+
+# --------------------------------------------------------------------------- #
 # Market-data scope (Phase 27F part 3). Two explicit scopes.
 # --------------------------------------------------------------------------- #
 def _holding_tickers(ops: dict) -> list:

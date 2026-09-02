@@ -511,6 +511,36 @@ flowchart TD
   named blocker. `recovery_session` is always the OLDEST missed session; the
   primary action, operator command and Daily-Close gate are bound to
   `action_session_market_date`. No new overall state, no recovery route.
+- **Owned-data readiness authority (R54.2.3.1, LANDED):** persisted close
+  confirmation and live provider readiness are DIFFERENT business concepts with
+  different field names. `owned_data_confirmation_date`
+  (+ `owned_data_confirmation_is_persisted_state: true`) records what has
+  already been PROCESSED — for an owed close it legitimately sits one session
+  behind until the close runs, and is never read as provider unavailability.
+  The LIVE answer — does the owned provider currently hold the owed session's
+  EOD data — belongs to `api.daily_close`: `provider_covers_session()` is the
+  ONE coverage calculation (provider latest date vs the owed session, plus the
+  valuation/decision scopes when supplied), and the bounded read-only
+  `assess_owned_provider_readiness()` produces the same `provider_readiness`
+  block as the close GET without the heavy loads. The workflow owner stays
+  PROBE-FREE: `load_workflow_state(provider_readiness=…, market_data_scope=…)`
+  consumes the verdict verbatim (the composition supplies it —
+  `api.decision_snapshot` composes the close owner BEFORE the workflow owner
+  for every GET surface; `api.portfolio_cycle` supplies the bounded assessment
+  at POST time; `operator_presentation.owner_loaders` shares one close read).
+  During a catch-up: provider covers the owed session → `CATCH_UP_REQUIRED`
+  with data state `PROVIDER_CONFIRMED_AWAITING_CLOSE` →
+  `READY_FOR_DAILY_CLOSE`, cycle actionable; provider affirmatively negative
+  (behind / unavailable / failing probe / incomplete scope) or no answer
+  observed → fail closed (`WAITING_FOR_OWNED_DATA`, non-executable wait action,
+  close gate closed, `portfolio_cycle_actionable false`, blocker naming the
+  provider's own verdict). This SUPERSEDES Stage 19.3's unconditional close
+  promotion in `WAITING_FOR_OWNED_DATA` (the only executable residue is the
+  never-persisted bootstrap under an affirmatively covering provider), removing
+  the 2026-09-02 contradiction: BLOCKED banner + "OWNED DATA READY" badge +
+  green portfolio-cycle CTA in one payload. The close still revalidates the
+  provider server-side immediately before any write. Guard:
+  `check_release54_2_3_1_owned_data_readiness_authority` (strict, blocking).
 - **Post-close governed-research obligation (R54.2.2, LANDED):**
   `build_research_obligation()` publishes the ONE post-close obligation —
   `research_obligation` (+ `research_obligation_state`,

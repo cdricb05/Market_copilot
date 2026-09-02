@@ -1474,7 +1474,7 @@
     {
       "path": "api/daily_close.py",
       "system": "operational_alpha_book",
-      "responsibility": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence R54.2.1 accepts a SERVER-decided target_market_date (never a request field): _apply_session_binding narrows clock['expected_market_date'] - already the ONE value the provider probe, the desk-mark completed_through, the model-input refresh and the idempotency key read - and REFUSES (never clamps) a binding ahead of the clock's expected completed session, writing nothing. R54.2.2 routes its own attribution block through the shared api.forward_evidence.attribution_availability contract and records stale mark legs, so the close surface and the evidence surface can never disagree about whether a decomposition may be presented. NAV, the P&L block and the recorded decision are untouched and remain valid.",
+      "responsibility": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence R54.2.1 accepts a SERVER-decided target_market_date (never a request field): _apply_session_binding narrows clock['expected_market_date'] - already the ONE value the provider probe, the desk-mark completed_through, the model-input refresh and the idempotency key read - and REFUSES (never clamps) a binding ahead of the clock's expected completed session, writing nothing. R54.2.2 routes its own attribution block through the shared api.forward_evidence.attribution_availability contract and records stale mark legs, so the close surface and the evidence surface can never disagree about whether a decomposition may be presented. NAV, the P&L block and the recorded decision are untouched and remain valid. R54.2.3.1: this module is the AUTHORITATIVE OWNER of live owned-provider readiness for an owed close - provider_covers_session (the ONE coverage comparison: provider latest date vs the owed session + the valuation/decision scopes when supplied) and the bounded read-only assess_owned_provider_readiness (the same _run_probe + _provider_readiness assembly as the close GET, without the book/gate/engine/performance loads). The probe-free workflow owner consumes that verdict verbatim through the composition (decision snapshot for GETs, portfolio_cycle at POST time); persisted desk-mark confirmation is never read as provider unavailability. Guarded by check_release54_2_3_1_owned_data_readiness_authority (strict).",
       "classification": "KEEP",
       "target_owner": "api/daily_close.py",
       "duplicate_with": [
@@ -1496,11 +1496,12 @@
         "loadDailyClose"
       ],
       "tests": [
-        "tests/test_phase28c_forward_evidence_daily_close_workflow.py"
+        "tests/test_phase28c_forward_evidence_daily_close_workflow.py",
+        "tests/test_release54_2_3_1_owned_data_readiness_authority.py"
       ],
       "migration_priority": 1,
       "risk": "high",
-      "notes": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence. World B orchestrator. Has its own 17:30 eligible-date resolver."
+      "notes": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence. World B orchestrator. Has its own 17:30 eligible-date resolver. R54.2.3.1: also owns provider_covers_session + assess_owned_provider_readiness - the single live provider-coverage authority every composed surface reads."
     },
     {
       "path": "api/daily_operating_run.py",

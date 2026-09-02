@@ -201,8 +201,14 @@ def _compose(identity: dict) -> dict:
 
     operational = _timed("operational", ob.load_operational_book)
     ps = _timed("portfolio_state", lambda: pst.load_portfolio_state(operational=operational))
-    workflow = _timed("workflow", lambda: ws.load_workflow_state(operational=operational))
+    # Release 54.2.3.1 — the Daily Close owner (which live-probes the owned provider)
+    # is composed BEFORE the workflow owner, and its provider answer is handed to the
+    # workflow verbatim. The workflow stays probe-free; the probe runs ONCE here.
     daily_close = _timed("daily_close", lambda: dc.load_daily_close(operational=operational))
+    workflow = _timed("workflow", lambda: ws.load_workflow_state(
+        operational=operational,
+        provider_readiness=(daily_close or {}).get("provider_readiness"),
+        market_data_scope=(daily_close or {}).get("market_data_scope")))
     lane = _timed("decision_lane", lambda: pdm.load_portfolio_decision(portfolio_state=ps))
     rebalance = _timed("rebalance", lambda: rex.load_rebalance_state(portfolio_state=ps))
     constrained = _timed("constrained", lambda: rp.load_constrained_reallocation(

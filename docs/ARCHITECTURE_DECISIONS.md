@@ -3189,3 +3189,47 @@ disagreement instead of resolving it.
 against the session in hand, not a queue of unfinished months. An unrecoverable September
 leaves October to proceed on its own evidence, and the Sep-1 TRUE_FORWARD snapshot gap
 stays documented, permanent and never reconstructed.
+
+### D-R54.2.3.1-1 — persisted close confirmation is not provider readiness (CONFIRMED)
+
+**Decision.** Two owned-data concepts carry distinct names and are never
+interchangeable. `owned_data_confirmation_date` (persisted; advances only when a
+close runs) answers "which session has already been processed". The live
+provider-coverage answer for an owed close belongs to `api.daily_close` — the
+owner that probes — through the single calculation `provider_covers_session`
+(provider latest date vs the owed session, plus the valuation/decision scopes
+when supplied). A persisted mark on S-1 must never, by itself, mean "S is
+unavailable": that requires S to be persisted before S can be persisted.
+
+**Evidence.** 2026-09-02 ~17:36 ET: the close owner live-proved Sep-2 `READY`
+(26/26 valuation, 199/199 decision) while the workflow reported
+`OWNED_DATA_NOT_CONFIRMED` from the Sep-1 desk mark — and the same payload
+carried `daily_close_gate.execution_allowed true` and
+`portfolio_cycle_actionable true`.
+
+### D-R54.2.3.1-2 — the probe-free workflow consumes; the composition supplies (CONFIRMED)
+
+**Decision.** `api.workflow_state` keeps its "no provider network call"
+contract. It gains `provider_readiness=` / `market_data_scope=` inputs and
+consumes the close owner's verdict verbatim (`daily_close.provider_covers_session`
+via one delegating helper). The compositions supply the answer:
+`api.decision_snapshot` composes the close owner BEFORE the workflow owner and
+threads its published blocks (one probe per snapshot build, staleness bounded
+by the existing 180-second age valve); `api.portfolio_cycle` supplies the
+bounded read-only `assess_owned_provider_readiness()` at POST time;
+`operator_presentation.owner_loaders` shares one close read. Absence of the
+answer is never coverage — the workflow fails closed on its persisted view.
+
+### D-R54.2.3.1-3 — Stage 19.3's WAITING close promotion is superseded (CONFIRMED)
+
+**Decision.** With the provider answer composed in, a provider-covered owed
+close is routed to `READY_FOR_DAILY_CLOSE` by the priority policy itself, so
+`WAITING_FOR_OWNED_DATA` only remains when the answer is affirmatively negative
+or unobserved — and it promotes no mutation: non-executable wait action, closed
+Daily-Close gate, `portfolio_cycle_actionable false`, a blocker naming the
+provider's own verdict, and `plan_next_step` stopping with
+`STOP_WAITING_FOR_OWNED_DATA`. The one executable residue is the
+never-persisted bootstrap under an affirmatively covering provider (the close
+is the only path that can bootstrap owned marks). A BLOCKED banner may never
+again share a payload with a green portfolio-cycle CTA. The server-side
+revalidation before any close write is unchanged.

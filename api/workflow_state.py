@@ -1602,7 +1602,9 @@ def build_operator_command(*, overall: str, primary: dict,
 
 
 def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
-                           latest_close_date: Any = None) -> dict[str, Any]:
+                           latest_close_date: Any = None,
+                           provider_confirms_owed_session: Optional[bool] = None
+                           ) -> dict[str, Any]:
     """Operator Action Integrity (Defect 3): the ONE canonical Daily-Close
     availability verdict for every SECONDARY close surface. Only the canonical
     READY_FOR_DAILY_CLOSE primary action may expose an executable Daily Close
@@ -1614,13 +1616,24 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
         str(eligible_date) if eligible_date else None)
     closed = _iso(_coerce_date(latest_close_date)) or (
         str(latest_close_date) if latest_close_date else None)
-    # Stage 19.3: WAITING_FOR_OWNED_DATA now ALSO promotes the canonical Daily Close
-    # (it is the owner that advances owned marks through the Paper Desk), so the close
-    # control is legitimately available in both post-close states. Every other state
-    # stays passive, and an unknown state still fails CLOSED.
-    allowed = overall in (READY_FOR_DAILY_CLOSE, WAITING_FOR_OWNED_DATA)
+    # Stage 19.3 promoted the close in WAITING_FOR_OWNED_DATA unconditionally.
+    # Release 54.2.3.1 SUPERSEDES that: a provider-covered owed close is now routed to
+    # READY_FOR_DAILY_CLOSE by the priority policy itself, so WAITING means the close
+    # owner's live provider answer is negative or unobserved — and an executable close
+    # control beside an OWNED_DATA_NOT_CONFIRMED blocker is exactly the contradiction
+    # of 2026-09-02. The close stays available in WAITING only for the one legitimate
+    # residue: the provider AFFIRMATIVELY covers the session the close would process
+    # (the never-persisted bootstrap), which is the only way to bootstrap owned marks.
+    allowed = bool(overall == READY_FOR_DAILY_CLOSE
+                   or (overall == WAITING_FOR_OWNED_DATA
+                       and provider_confirms_owed_session is True))
     if allowed:
         passive, badge = None, None
+    elif overall == WAITING_FOR_OWNED_DATA:
+        passive = ("Daily Close waiting for the owned provider to publish the "
+                   "expected completed session%s."
+                   % ((" (%s)" % elig) if elig else ""))
+        badge = "WAITING"
     elif overall in (DAILY_CYCLE_COMPLETE, DAILY_CYCLE_COMPLETE_EVIDENCE_GAP,
                      MANUAL_REVIEW_REQUIRED):
         passive = ("Daily Close complete for %s."
@@ -1651,7 +1664,11 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
         passive = "Daily Close unavailable — resolve the state inconsistency first."
         badge = "BLOCKED"
     return {"execution_allowed": allowed, "overall_state": overall,
-            "passive_status": passive, "passive_badge": badge}
+            "passive_status": passive, "passive_badge": badge,
+            # Release 54.2.3.1 — the close owner's coverage verdict this gate obeyed
+            # (True / False / None=unobserved), echoed for auditability.
+            "provider_confirms_owed_session": provider_confirms_owed_session,
+            "provider_coverage_owner": PROVIDER_COVERAGE_OWNER}
 
 
 # --------------------------------------------------------------------------- #
@@ -1705,19 +1722,58 @@ SESSION_RECOVERY_STATES = (NO_CATCH_UP_REQUIRED, CATCH_UP_REQUIRED,
 SESSION_RECOVERY_OWNER = WORKFLOW_STATE_OWNER
 SESSION_RECOVERY_CALENDAR_OWNER = SESSION_ELIGIBILITY_OWNER
 
-#: How the owned data for the recovery session stands, probe-free. The workflow owner
-#: is deliberately PROBE-FREE (it never calls the owned provider), so it reports what
-#: the persisted owned marks say and names the owner that revalidates the rest.
+#: How the owned data for the recovery session stands. The workflow owner is
+#: deliberately PROBE-FREE (it never calls the owned provider itself); it reports
+#: what the persisted owned marks say PLUS, when the composition supplies it, the
+#: Daily Close owner's already-probed provider answer — consumed verbatim, never
+#: recomputed here.
+#:
+#: Release 54.2.3.1 — the two owned-data concepts carry DIFFERENT names and are
+#: never interchangeable:
+#:   * ``owned_data_confirmation_date``  — the PERSISTED confirmation: which session
+#:     has already been operationally processed. For an owed close it is expected
+#:     to sit one session behind, by construction (it advances when the close runs).
+#:   * ``owned_provider_coverage``       — api.daily_close's live probe answer:
+#:     does the provider currently hold the EOD data the owed close needs.
+#: Before this release the projection read the FIRST as if it were the SECOND, and
+#: reported an owed Sep-2 close as OWNED_DATA_NOT_CONFIRMED while the close owner
+#: had live-proven the Sep-2 data READY. A persisted mark on S-1 must never, by
+#: itself, mean "S is unavailable" — that would require S to be persisted before S
+#: can be persisted.
 RECOVERY_DATA_CONFIRMED = "CONFIRMED"
 RECOVERY_DATA_UNVERIFIED = "UNVERIFIED_UNTIL_CLOSE_REVALIDATES"
 RECOVERY_DATA_LAGGING = "OWNED_DATA_LAGGING"
+#: The provider probe covers the owed session but the close has not persisted it
+#: yet — the NORMAL state of every owed close between publish and close. Distinct
+#: from CONFIRMED (persisted marks reach the session) on purpose.
+RECOVERY_DATA_PROVIDER_READY = "PROVIDER_CONFIRMED_AWAITING_CLOSE"
 RECOVERY_DATA_STATES = (RECOVERY_DATA_CONFIRMED, RECOVERY_DATA_UNVERIFIED,
-                        RECOVERY_DATA_LAGGING)
+                        RECOVERY_DATA_LAGGING, RECOVERY_DATA_PROVIDER_READY)
+#: The authoritative owner of the live provider-coverage answer (Release 54.2.3.1).
+PROVIDER_COVERAGE_OWNER = "api.daily_close"
 
 _RECOVERY_NEXT_RUN_CYCLE = "RUN_PORTFOLIO_CYCLE"
 _RECOVERY_NEXT_WAIT_DATA = "WAIT_FOR_OR_REFRESH_OWNED_DATA"
 _RECOVERY_NEXT_RESOLVE = "RESOLVE_NAMED_BLOCKER"
 _RECOVERY_NEXT_NONE = "NONE"
+
+
+def _provider_coverage_verdict(provider_readiness: Optional[dict], session: Any,
+                               *, market_data_scope: Optional[dict] = None
+                               ) -> Optional[bool]:
+    """The close owner's coverage comparison, consumed — never re-derived here.
+
+    Delegates to ``api.daily_close.provider_covers_session`` (the ONE calculation).
+    Degrade-safe: if the close owner cannot be imported the verdict is None
+    (unobserved), which every consumer treats as "no provider answer" — absence is
+    never coverage."""
+    if provider_readiness is None:
+        return None
+    try:
+        return _import_daily_close().provider_covers_session(
+            provider_readiness, session, market_data_scope=market_data_scope)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def build_session_recovery(*, expected_completed_market_date: Any,
@@ -1730,7 +1786,9 @@ def build_session_recovery(*, expected_completed_market_date: Any,
                            inconsistent: bool = False,
                            cycle_running: bool = False,
                            cycle_blocked: bool = False,
-                           authoritative_non_sessions: Any = None) -> dict[str, Any]:
+                           authoritative_non_sessions: Any = None,
+                           provider_readiness: Optional[dict] = None,
+                           market_data_scope: Optional[dict] = None) -> dict[str, Any]:
     """The ONE canonical missed-completed-session (catch-up) projection.
 
     Pure: every input is an already-published owner answer, the calendar
@@ -1739,6 +1797,19 @@ def build_session_recovery(*, expected_completed_market_date: Any,
 
     ``recovery_session`` is always the OLDEST missed completed session, so a two-day
     outage recovers Monday before Tuesday and can never skip straight to the newest.
+
+    Release 54.2.3.1 — ``provider_readiness`` / ``market_data_scope`` are
+    ``api.daily_close``'s already-probed answer for the close it would perform,
+    supplied by the composition (the decision snapshot, the portfolio-cycle
+    orchestrator) and consumed VERBATIM through the close owner's own
+    ``provider_covers_session``. When the provider affirmatively covers the owed
+    session, a persisted desk mark still sitting on the prior session is the
+    EXPECTED pre-close state, not provider unavailability — the recovery is
+    CATCH_UP_REQUIRED. When the provider answer is affirmatively negative
+    (behind / unavailable / incomplete coverage) the recovery WAITS even where the
+    persisted view alone would have proceeded. When no provider answer was
+    observed at all, the pre-existing persisted-view behaviour stands (fail
+    closed on the session owner's lag verdict; the close revalidates the rest).
     """
     closed = _coerce_date(latest_completed_close_date) if operational_close_valid \
         else None
@@ -1753,6 +1824,13 @@ def build_session_recovery(*, expected_completed_market_date: Any,
     recovery = calendar["oldest"]
     confirmed = _coerce_date(latest_confirmed_owned_data_date)
     rec_d = _coerce_date(recovery)
+
+    # --- Release 54.2.3.1: the close owner's coverage verdict (never recomputed). --- #
+    # The coverage target is the session the promoted close would actually process:
+    # the OLDEST owed session during a catch-up, else the expected completed session.
+    coverage_target = recovery or _iso(_coerce_date(expected_completed_market_date))
+    provider_covers = _provider_coverage_verdict(
+        provider_readiness, coverage_target, market_data_scope=market_data_scope)
 
     blockers: list[dict[str, Any]] = []
     if calendar["truncated"]:
@@ -1789,16 +1867,50 @@ def build_session_recovery(*, expected_completed_market_date: Any,
         next_action = _RECOVERY_NEXT_RESOLVE
         summary = ("%s was not closed and recovery is blocked: %s."
                    % (recovery, "; ".join(b["code"] for b in blockers)))
+    elif provider_covers is False:
+        # Release 54.2.3.1 — the close owner's probe AFFIRMATIVELY says the owed
+        # session is not coverable right now (provider behind / unavailable, or an
+        # incomplete valuation / decision scope). This outranks the persisted view
+        # in BOTH directions: it waits even where persisted marks alone would have
+        # proceeded, and it is the only answer allowed to say "unavailable".
+        state = CATCH_UP_WAITING_FOR_OWNED_DATA
+        data_state = RECOVERY_DATA_LAGGING
+        next_action = _RECOVERY_NEXT_WAIT_DATA
+        pr = provider_readiness or {}
+        summary = ("%s was not closed and %s reports the owned provider cannot cover "
+                   "it yet (%s; provider latest %s). Nothing is safe to close until "
+                   "the owned provider publishes the session."
+                   % (recovery, PROVIDER_COVERAGE_OWNER,
+                      pr.get("status") or "no readiness status",
+                      pr.get("provider_latest_date") or "unknown"))
+    elif provider_covers is True:
+        # Release 54.2.3.1 — the provider holds the owed session's EOD data. A
+        # persisted desk mark still on the prior session is the EXPECTED state of
+        # every owed close (it advances when the close runs) and is never read as
+        # provider unavailability. The close still revalidates server-side.
+        state = CATCH_UP_REQUIRED
+        data_state = (RECOVERY_DATA_CONFIRMED
+                      if (confirmed is not None and rec_d is not None
+                          and confirmed >= rec_d)
+                      else RECOVERY_DATA_PROVIDER_READY)
+        next_action = _RECOVERY_NEXT_RUN_CYCLE
+        summary = ("%s is a completed market session that was never closed, and %s "
+                   "has live-verified the owned provider holds its EOD data. Run the "
+                   "portfolio cycle: it binds that session, and the Daily Close "
+                   "revalidates the owned provider server-side before any write."
+                   % (recovery, PROVIDER_COVERAGE_OWNER))
     elif owned_data_lag:
-        # The SESSION owner itself reports that owned data has not reached the
-        # expected completed session. That is an affirmative "not published yet"
-        # answer, not an un-ingested mark, so it is stated as waiting.
+        # No provider answer was observed (probe-free composition). The SESSION
+        # owner reports the persisted owned view has not reached the expected
+        # completed session; with nothing live to say otherwise this fails closed
+        # as waiting — never as "run it anyway".
         state = CATCH_UP_WAITING_FOR_OWNED_DATA
         data_state = RECOVERY_DATA_LAGGING
         next_action = _RECOVERY_NEXT_WAIT_DATA
         summary = ("%s was not closed and %s reports owned market data has not reached "
-                   "it yet (owned data confirms %s). Nothing is safe to close until the "
-                   "owned provider publishes the session."
+                   "it yet (owned data confirms %s; no live provider answer was "
+                   "observed). Nothing is safe to close until the owned provider "
+                   "publishes the session."
                    % (recovery, SESSION_RECOVERY_CALENDAR_OWNER,
                       _iso(confirmed) or "no session"))
     else:
@@ -1832,10 +1944,22 @@ def build_session_recovery(*, expected_completed_market_date: Any,
         "expected_completed_market_date": _iso(_coerce_date(
             expected_completed_market_date)),
         "eligible_market_date": _iso(_coerce_date(eligible_market_date)),
+        # --- Release 54.2.3.1: TWO owned-data concepts, TWO names, never merged. --- #
+        # PERSISTED confirmation — which session has already been processed. For an
+        # owed close this legitimately sits one session behind until the close runs.
         "owned_data_confirmation_date": _iso(confirmed),
+        "owned_data_confirmation_is_persisted_state": True,
+        # LIVE provider coverage — api.daily_close's probe answer for the owed close,
+        # echoed verbatim (None when the composition supplied no answer).
+        "owned_provider_coverage": (dict(provider_readiness)
+                                    if isinstance(provider_readiness, dict) else None),
+        "provider_covers_recovery_session": provider_covers,
+        "provider_coverage_session": coverage_target,
+        "provider_coverage_owner": PROVIDER_COVERAGE_OWNER,
         "recovery_data_state": data_state,
         "recovery_data_state_vocabulary": list(RECOVERY_DATA_STATES),
-        "recovery_data_ready": (data_state == RECOVERY_DATA_CONFIRMED
+        "recovery_data_ready": (data_state in (RECOVERY_DATA_CONFIRMED,
+                                               RECOVERY_DATA_PROVIDER_READY)
                                 if data_state is not None else None),
         "recovery_blockers": blockers,
         "session_status": session_status,
@@ -2447,30 +2571,67 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
         # sequence: refresh the desk, then run the Daily Close. The Daily Close already
         # COMPOSES the same Paper Desk owner (desk.refresh_desk -> owned EOD marks +
         # NEXT_CLOSE settlement + performance) and then advances the model inputs and
-        # reassesses the portfolio, so it is a strict superset. The canonical primary
-        # action is therefore the Daily Close in EVERY normal post-close state; the raw
-        # desk refresh survives only as an explicit maintenance/recovery capability and
-        # is never a ``primary_action`` (asserted by ``assert_primary_action_contract``).
-        # The close revalidates provider readiness server-side and writes nothing when the
-        # owned session is genuinely unpublished — fail-closed, not manufactured.
+        # reassesses the portfolio, so it is a strict superset; the raw desk refresh
+        # survives only as an explicit maintenance/recovery capability and is never a
+        # ``primary_action`` (asserted by ``assert_primary_action_contract``).
+        #
+        # RELEASE 54.2.3.1 SUPERSEDES the unconditional Stage-19.3 promotion. The
+        # composition now supplies the close owner's live provider answer, and the
+        # priority policy already routes a provider-covered owed close to
+        # READY_FOR_DAILY_CLOSE — so reaching THIS state means the provider answer is
+        # affirmatively negative (behind / unavailable / incomplete coverage) or was
+        # not observed at all. Promoting an executable close here produced the exact
+        # contradiction of 2026-09-02: a BLOCKED banner, an OWNED_DATA_NOT_CONFIRMED
+        # blocker and a green "Run the portfolio cycle" CTA in one payload. The
+        # honest action for this state is to WAIT: no normal-path mutation CTA, the
+        # blocker names the provider's own verdict, and the close (which revalidates
+        # server-side) becomes executable the moment the provider answer turns READY.
+        # ONE exception stays executable: no owned session was EVER confirmed
+        # (bootstrap — nothing persisted yet) while the provider affirmatively covers
+        # the expected session; the close is the only path that can bootstrap marks.
+        pr = ctx.get("provider_readiness") or {}
+        covers = ctx.get("provider_covers_owed_session")
+        if covers is True:
+            return {"action_code": ACTION_WAIT_FOR_OWNED_DATA,
+                    "label": "Run the Daily Close",
+                    "explanation": (
+                        "No owned market session is persisted yet, but the owned "
+                        "provider has published the expected completed session. The "
+                        "Daily Close refreshes owned marks through the Paper Desk, "
+                        "settles eligible NEXT_CLOSE paper orders and then reassesses "
+                        "the portfolio; it revalidates the provider server-side and "
+                        "writes nothing if the session is genuinely unpublished."
+                        + ((" " + session_reason) if session_reason else "")),
+                    "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
+                    "safe_to_execute": False, "execution_available": True,
+                    "manual_confirmation_required": True, "slice3_pending": False,
+                    "confirmation_required": EXECUTION_CONTRACTS[
+                        EXEC_DAILY_CLOSE]["confirmation_token"],
+                    "execution_kind": EXEC_DAILY_CLOSE,
+                    "current_task": "Run the Daily Close for the completed market session.",
+                    "headline": "Process the latest completed market close."}
+        if covers is False:
+            wait_reason = (
+                "The owned provider cannot cover the expected completed session yet "
+                "(%s; provider latest completed date: %s). Nothing is safe to run "
+                "until the provider publishes the session; this status re-checks the "
+                "provider automatically."
+                % (pr.get("status") or "no readiness status",
+                   pr.get("provider_latest_date") or "unknown"))
+        else:
+            wait_reason = (
+                "The expected completed session is not yet confirmed by owned market "
+                "data, and no live provider answer was observed on this read. Nothing "
+                "is safe to run until owned data confirms the session."
+                + ((" " + session_reason) if session_reason else ""))
         return {"action_code": ACTION_WAIT_FOR_OWNED_DATA,
-                "label": "Run the Daily Close",
-                "explanation": (
-                    "The expected completed session is not yet confirmed by owned market "
-                    "data. The Daily Close refreshes owned marks through the Paper Desk, "
-                    "settles eligible NEXT_CLOSE paper orders and then reassesses the "
-                    "portfolio — no separate desk refresh is required. If the owned "
-                    "provider has not published the session yet the close writes nothing "
-                    "and reports that it is still waiting."
-                    + ((" " + session_reason) if session_reason else "")),
+                "label": "Wait for owned market data",
+                "explanation": wait_reason,
                 "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
-                "safe_to_execute": False, "execution_available": True,
-                "manual_confirmation_required": True, "slice3_pending": False,
-                "confirmation_required": EXECUTION_CONTRACTS[
-                    EXEC_DAILY_CLOSE]["confirmation_token"],
-                "execution_kind": EXEC_DAILY_CLOSE,
-                "current_task": "Run the Daily Close for the completed market session.",
-                "headline": "Process the latest completed market close."}
+                "safe_to_execute": True, "execution_available": False,
+                "manual_confirmation_required": False, "slice3_pending": False,
+                "current_task": "Wait for the owned provider to publish the session.",
+                "headline": "Waiting for owned market data — no action is safe yet."}
 
     if overall == RESEARCH_CYCLE_REQUIRED:
         # Stage 22 — the SAME canonical action, stated for the reason that actually
@@ -2634,9 +2795,11 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
     if overall == READY_FOR_DAILY_CLOSE:
         return {"action_code": ACTION_RUN_DAILY_CLOSE,
                 "label": "Run the Daily Close",
-                "explanation": "Research and the portfolio assessment are current for "
-                               "the latest eligible session; the operational Daily "
-                               "Close has not been completed for it.",
+                "explanation": "The operational Daily Close has not been completed "
+                               "for the session it is owed. The close refreshes owned "
+                               "marks through the Paper Desk, settles eligible "
+                               "NEXT_CLOSE paper orders and then reassesses the "
+                               "portfolio — no separate desk refresh is required.",
                 "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": False, "execution_available": True,
                 "manual_confirmation_required": True, "slice3_pending": False,
@@ -3424,8 +3587,19 @@ def load_workflow_state(
     decision_record: Optional[dict] = None,
     date_overrides: Optional[dict] = None,
     active_book_override: Any = None,
+    provider_readiness: Optional[dict] = None,
+    market_data_scope: Optional[dict] = None,
 ) -> dict[str, Any]:
     """Return the canonical workflow / operator-state contract (read-only).
+
+    Release 54.2.3.1 — ``provider_readiness`` (and optionally ``market_data_scope``)
+    is ``api.daily_close``'s already-probed owned-provider answer, supplied by the
+    COMPOSITION (the decision snapshot serves every GET surface and always passes
+    it; the portfolio-cycle orchestrator supplies it at POST time). This module
+    remains probe-free: it never calls the provider itself, it consumes the close
+    owner's verdict verbatim through ``daily_close.provider_covers_session``, and
+    when no answer is supplied it fails closed on the persisted owned view exactly
+    as before — absence of the answer is never treated as coverage.
 
     Clock: pass ``now`` (datetime) or ``reference_today`` (offline date). Every
     read model may be injected for deterministic tests; otherwise the existing
@@ -3830,8 +4004,23 @@ def load_workflow_state(
         session_status=session_status, owned_data_lag=owned_data_lag,
         inconsistent=inconsistent_inputs, cycle_running=cycle_running,
         cycle_blocked=cycle_blocked,
-        authoritative_non_sessions=session.get("authoritative_non_sessions"))
+        authoritative_non_sessions=session.get("authoritative_non_sessions"),
+        provider_readiness=provider_readiness,
+        market_data_scope=market_data_scope)
     catch_up_required = bool(session_recovery["catch_up_required"])
+    provider_covers_owed_session = session_recovery["provider_covers_recovery_session"]
+    # Release 54.2.3.1 — ONE reconciled owned-data verdict for the priority policy.
+    # During a catch-up the recovery projection has already weighed the persisted
+    # confirmation AGAINST the close owner's live provider answer, so the overall
+    # state follows ITS verdict: a provider-covered owed close proceeds
+    # (READY_FOR_DAILY_CLOSE via P3.7) and an affirmatively-uncovered one waits —
+    # in both directions, from the same single decision. Outside a catch-up the
+    # pre-existing persisted-view lag stands unchanged (fail closed).
+    if catch_up_required:
+        effective_owned_data_lag = bool(
+            session_recovery["recovery_state"] == CATCH_UP_WAITING_FOR_OWNED_DATA)
+    else:
+        effective_owned_data_lag = owned_data_lag
     #: The session the OPERATOR must act on. Normally the eligible completed session;
     #: when a catch-up obligation exists it is the OLDEST missed session, so the primary
     #: action, the operator command and the close gate all name the session the bound
@@ -3865,7 +4054,7 @@ def load_workflow_state(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
         eligible_session_closed=eligible_session_closed,
-        owned_data_lag=owned_data_lag, research_current=research_current,
+        owned_data_lag=effective_owned_data_lag, research_current=research_current,
         assessment_status=assessment_status,
         manual_review_required=manual_review_required, evidence_gap=evidence_gap,
         cycle_running=cycle_running, cycle_blocked=cycle_blocked,
@@ -3888,6 +4077,11 @@ def load_workflow_state(
         "research_true_blockers": research_obligation["true_blockers"],
         "outstanding_research_session": research_obligation[
             "outstanding_research_session"],
+        # Release 54.2.3.1 — the close owner's coverage verdict + its readiness echo,
+        # so the WAITING action states the provider's OWN answer (or its absence)
+        # instead of reinterpreting the persisted desk-mark date.
+        "provider_covers_owed_session": provider_covers_owed_session,
+        "provider_readiness": (session_recovery.get("owned_provider_coverage") or None),
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
     # Release 54.2.1 — CATCH-UP WORDING. The action, its code, its execution kind and
@@ -4047,12 +4241,31 @@ def load_workflow_state(
                              "detail": "The portfolio reassessment reached no "
                                        "portfolio-level verdict and named no cause."})
     if overall == WAITING_FOR_OWNED_DATA:
+        # Release 54.2.3.1 — the blocker states the close owner's LIVE provider
+        # answer when one was observed; the persisted desk-mark date is reported as
+        # what it is (already-processed state), never as provider unavailability.
+        _pr = session_recovery.get("owned_provider_coverage") or {}
+        if provider_covers_owed_session is False:
+            _detail = ("The owned provider cannot cover the expected completed "
+                       "session yet (%s; provider latest completed date: %s). The "
+                       "persisted confirmation date (%s) only records what has "
+                       "already been processed."
+                       % (_pr.get("status") or "no readiness status",
+                          _pr.get("provider_latest_date") or "unknown",
+                          session.get("latest_confirmed_owned_data_date") or "none"))
+        else:
+            _detail = ((session.get("reason") or "Owned market data is not "
+                        "confirmed for the expected session.")
+                       + " No live provider answer was observed on this read.")
         blockers.append({"code": "OWNED_DATA_NOT_CONFIRMED",
                          "severity": SEV_BLOCKED, "scope": BLOCKER_SCOPE_OPERATIONAL,
                          "blocks_portfolio_decision": True,
                          "invalidates_operational_close": False,
-                         "detail": session.get("reason") or "Owned market data is "
-                         "not confirmed for the expected session."})
+                         "provider_coverage_owner": PROVIDER_COVERAGE_OWNER,
+                         "provider_covers_owed_session": provider_covers_owed_session,
+                         "provider_latest_date": _pr.get("provider_latest_date"),
+                         "provider_readiness_status": _pr.get("status"),
+                         "detail": _detail})
     if close_failed:
         blockers.append({"code": "DAILY_CLOSE_FAILED",
                          "severity": SEV_BLOCKED, "scope": BLOCKER_SCOPE_OPERATIONAL,
@@ -4428,8 +4641,10 @@ def load_workflow_state(
     # Release 29.4 — SESSION AUTHORITY. The composed payload may never offer a Daily
     # Close for a session the close owner already processed, report a completed close as
     # invalid, or hide one from the evidence presentation.
-    _dc_gate = build_daily_close_gate(overall, eligible_date=action_session,
-                                      latest_close_date=latest_close_date)
+    _dc_gate = build_daily_close_gate(
+        overall, eligible_date=action_session,
+        latest_close_date=latest_close_date,
+        provider_confirms_owed_session=provider_covers_owed_session)
     session_violations = check_session_authority(
         session_status=session_status,
         eligible_market_date=eligible_date,
@@ -4563,7 +4778,14 @@ def load_workflow_state(
             "latest_eligible_completed_market_date": eligible_date,
             "session_status": session_status,
             "session_close_cutoff": session.get("close_cutoff_et"),
+            # Release 54.2.3.1 — PERSISTED confirmation (what has already been
+            # processed), named as such; the LIVE provider-coverage answer travels
+            # separately (session_recovery.owned_provider_coverage) and the two are
+            # never interchangeable.
             "owned_data_confirmation_date": session.get("latest_confirmed_owned_data_date"),
+            "owned_data_confirmation_is_persisted_state": True,
+            "provider_covers_owed_session": provider_covers_owed_session,
+            "provider_coverage_owner": PROVIDER_COVERAGE_OWNER,
         },
         "operational_state": {
             "active_book_id": (freshness.get("active_book") or {}).get("active_book_id"),

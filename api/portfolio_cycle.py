@@ -77,12 +77,17 @@ _STEP_CONFIRMATIONS = {
 #: Why a run stopped (frozen vocabulary; every stop names its reason).
 STOP_DECISION_PRESENTED = "DECISION_PRESENTED"
 STOP_WAITING_FOR_SESSION_CLOSE = "WAITING_FOR_SESSION_CLOSE"
+#: Release 54.2.3.1 — the workflow owner (with the close owner's live provider
+#: answer composed in) reports the owed session's owned data is not coverable
+#: right now; nothing is run over it and nothing is written.
+STOP_WAITING_FOR_OWNED_DATA = "WAITING_FOR_OWNED_DATA"
 STOP_CYCLE_ALREADY_RUNNING = "CYCLE_ALREADY_RUNNING"
 STOP_RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
 STOP_STATE_DID_NOT_ADVANCE = "STATE_DID_NOT_ADVANCE"
 STOP_OWNER_REPORTED_BLOCKER = "OWNER_REPORTED_BLOCKER"
 STOP_VOCABULARY = (
     STOP_DECISION_PRESENTED, STOP_WAITING_FOR_SESSION_CLOSE,
+    STOP_WAITING_FOR_OWNED_DATA,
     STOP_CYCLE_ALREADY_RUNNING, STOP_RECOVERY_REQUIRED,
     STOP_STATE_DID_NOT_ADVANCE, STOP_OWNER_REPORTED_BLOCKER)
 
@@ -123,8 +128,19 @@ def _safety(performed_write: bool) -> dict:
 
 
 def _workflow_loader_default() -> dict:
+    # Release 54.2.3.1 — the orchestrator supplies the close owner's live provider
+    # answer (the bounded read-only benchmark probe) to the probe-free workflow
+    # owner, exactly as the decision snapshot does for the GET surfaces. A failing
+    # probe degrades to an affirmative PROVIDER_UNAVAILABLE readiness block, which
+    # the workflow fails closed on; the close itself still revalidates before any
+    # write either way.
+    from paper_trader.api import daily_close as dclose
     from paper_trader.api import workflow_state as ws
-    return ws.load_workflow_state()
+    try:
+        readiness = dclose.assess_owned_provider_readiness()
+    except Exception:  # noqa: BLE001 — no answer is never treated as coverage
+        readiness = None
+    return ws.load_workflow_state(provider_readiness=readiness)
 
 
 def _close_runner_default(*, requested_by: str,
@@ -191,6 +207,17 @@ def plan_next_step(workflow: Optional[dict]) -> dict[str, Any]:
                 "stop_reason": STOP_WAITING_FOR_SESSION_CLOSE,
                 "reason": ("The current market session is still open; the latest "
                            "eligible completed session is fully processed.")}
+    if overall == "WAITING_FOR_OWNED_DATA":
+        # Release 54.2.3.1 — reached only when the primary action is NOT executable
+        # (the executable-kind branches above run first), i.e. the composed provider
+        # answer is negative or unobserved. Fail closed with the honest reason
+        # instead of falling through to "unrecognised state".
+        return {"step": None, "owner": None,
+                "stop_reason": STOP_WAITING_FOR_OWNED_DATA,
+                "reason": ("The owned provider cannot cover the owed completed "
+                           "session yet (the workflow owner composed the close "
+                           "owner's live provider answer); nothing is safe to run "
+                           "until the session is published.")}
     if overall in ("INCONSISTENT_STATE", "RESEARCH_CYCLE_BLOCKED"):
         return {"step": None, "owner": None,
                 "stop_reason": STOP_RECOVERY_REQUIRED,
