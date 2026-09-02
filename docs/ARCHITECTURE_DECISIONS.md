@@ -2786,3 +2786,81 @@ Stage-22 seam comment warned about. Historical fixtures must own their
 DRC/workflow/date inputs explicitly, and a poison-guard test
 (`test_00_fixtures_bind_every_live_store_seam`) proves no live loader can
 change the composed contract.
+
+**CONFIRMED (R54.1) — "may this become the decision?" and "should we trade?"
+are two questions, and only the first is new.** The intraday governance gate
+answers admissibility: is the live assessment complete, fresh, point-in-time
+bound and internally consistent enough to REPLACE the standing governed
+recommendation? It never answers whether to trade — that stays manual review,
+the operator approval token and the Stage-19 order-plan confirmation. Conflating
+them would have turned a read-model improvement into automation. Consequence:
+a governed CHANGE is a recommendation, and the gate has no order, approval,
+promotion, sleeve or close path at all (audit strict-blocking:
+`check_release54_1_governed_intraday_decision`).
+
+**CONFIRMED (R54.1) — the governance gate decides ADMISSIBILITY, never
+economics.** Every hurdle, transition cost, risk-before/after, concentration,
+turnover budget and outcome in a governed record is read verbatim from
+`engine.constrained_reallocation` through `api.reallocation_proposal`. A second
+place that could decide whether a switch is worth it would be a second answer
+to the portfolio question. The audit bans the calculation definitions from the
+governed lane outright, and the gate publishes `gate_decides_economics: false`.
+
+**CONFIRMED (R54.1) — a decision's identity is its EVIDENCE, not its trigger or
+its clock.** `candidate_identity_hash` covers book, session, portfolio /
+economic / corporate-action state, ranking identity, HOC, reassessment, target
+and outcome — and deliberately excludes the event-cycle run id, the wall clock
+and the materiality trigger fingerprint. Two different triggers that reach the
+same conclusion from the same evidence are the SAME decision; re-recording it
+would be churn dressed as governance. The fingerprint is still bound into the
+record as provenance an auditor needs.
+
+**CONFIRMED (R54.1) — the two owned-data statements are different facts.**
+"The book's own eligible session is owned-confirmed" gates an intraday
+decision; "the NEXT expected completed session is owned-confirmed" gates the
+operational close. The gate withholds on the first with the reused code
+`OWNED_DATA_NOT_CONFIRMED` and merely RECORDS the second
+(`expected_session_owned_data_confirmed`), because a book validly marked to its
+own closed session is a legitimate basis for an intraday decision while never
+being a licence to advance the close. Only `api.daily_close` advances the mark.
+
+**CONFIRMED (R54.1) — one owner may hold two ledger LANES; it may not hold two
+pointer indexes for one key.** Governed recommendations and manual operator
+approvals are different objects with the same (book, session) key. Sharing one
+index would make `load_decision_record` return a system record where a caller
+expects an approval, and `derive_decision_state` would then demand review of a
+question already settled. Same owner, same root, same append-only atomic
+writer, two files — and an audit invariant that the governed writer never
+touches the manual pointer.
+
+**CONFIRMED (R54.1) — "does the evidence still describe the portfolio?" is
+answered by the ECONOMIC fingerprint, never by the document hash.** The first
+implementation of the gate's portfolio-identity check compared the
+reassessment's bound `state_hash` with the live one, and the live dry run
+showed it failing on a perfectly current assessment. `state_hash` covers the
+whole portfolio-state DOCUMENT, which embeds the assessment's own output — the
+exact fabrication Stage 21 introduced `economic_state_hash` to prevent. The
+gate now delegates to `api.portfolio_reassessment.economic_currency`:
+`SUPERSEDED` is staleness, `UNVERIFIABLE` is not (it withholds a promotion as
+incomplete evidence, which is fail-closed without claiming a stale book).
+
+**PROVISIONAL (R54.1, evidence-backed) — same-session reassessment immutability
+is the remaining governance precondition.** Stage-20/21 keys the reassessment
+artifact by `(book, eligible session)` and appends a new version only when the
+ECONOMIC state changed; a same-session reassessment driven purely by NEW
+SIGNALS is `CONFLICT_REJECTED` and never persisted. That rule was written when
+the reassessment ran once a day. Under continuous collection "the prior
+artifact still describes the portfolio" stays true about the PORTFOLIO and
+becomes false about the ANSWER — and an active manager exists precisely because
+new information can change the answer while the book is unchanged. Evidence:
+2026-08-31 holds one artifact (`292f6a53...`, the DRC's) while the live cycle
+computed `ad61cb61...` with an unchanged economic fingerprint. The gate
+correctly withholds (an assessment with no immutable artifact must never be
+governed); resolving it means versioning on SIGNAL identity as well, using the
+same append-never-rewrite shape Stage 21 already uses for economic change.
+
+**CONFIRMED (R54.1) — a governed HOLD publishes no position recommendations.**
+The target priced under `HOLD_CURRENT_BOOK` is exactly the alternative the
+system decided NOT to take; emitting its legs as advice would invert the
+decision. HOLD is still a first-class governed decision — the absence of
+recommendations is the decision, not the absence of one.

@@ -1161,7 +1161,54 @@ Explicitly NOT consolidated (and why):
   False): R54.1 owns the activation, under the contract in
   `docs/RELEASE54_ACTIVE_MANAGER_OPERATING_MODEL.md`.
 
-Next (R54.1): activate near-real-time reassessment through the EXISTING
-Release-28 event cycle — cadence policy in `engine.collection_cadence`, SLA
-surfaced in `active_manager_state.live_information`, manual-review boundary
-untouched.
+## R54.1 — the governed intraday decision cycle (LANDED)
+
+The activation the R54 contract described, delivered as ONE gate rather than a
+cadence change:
+
+- **ONE intraday governance gate**, inside the canonical decision owner
+  `api.portfolio_decision`. 38 checks in nine groups decide admissibility only;
+  every hurdle, cost, risk and outcome is read verbatim from
+  `engine.constrained_reallocation`. Verdicts:
+  `GOVERNED_INTRADAY_DECISION_ELIGIBLE` / `INTRADAY_DECISION_WITHHELD` with a
+  classified reason taxonomy that REUSES the canonical codes.
+- **ONE governed decision lane** (`governed_decisions.json` +
+  `governed_index.json`) in the same owner's root, separate from the manual
+  operator lane. Append-only, idempotent on evidence identity, immutable;
+  supersession names `supersedes_decision_id` under ONE total ordering shared
+  by the gate and the read.
+- **The live cycle DELEGATES** (`GOVERNANCE_DELEGATE = "api.portfolio_decision"`)
+  and hosts no governance rule; a failing gate degrades to a warning.
+- **Active Manager State projects both lanes separately** plus the gate verdict
+  and the measured decision latency. No governance logic in JavaScript.
+- **Boundaries held:** no cadence change (`cadence_enabled` stays a declared
+  False — detection, not the ~7.3 s decision chain, is still the bottleneck, and
+  raising it waits on the measured `observation_to_governed_seconds` series); no
+  scheduler touched; no emission-slot change (the 16:20 ET trigger is the
+  declared post-close scoring pass, not a defect); manual review, approval token
+  and execution path unchanged.
+- Guarded by `check_release54_1_governed_intraday_decision` (24 strict-blocking
+  invariants) and `tests/test_release54_1_governed_intraday_decision.py` (95).
+
+**Live finding (read-only dry run, nothing written):** the gate scores 37/38 on
+the real 2026-09-01 state and withholds on ONE check —
+`CYCLE_REASSESSMENT_IS_THE_CANDIDATE`. Proven cause: the event cycle computed a
+different reassessment from newer signals, but the ECONOMIC fingerprint is
+unchanged, so Stage-21 case (a) applies and `persist_reassessment` returns
+`CONFLICT_REJECTED`; the cycle's conclusion has no immutable artifact behind it
+and must not be governed. Under continuous collection "the prior artifact still
+describes the portfolio" stays true about the PORTFOLIO and becomes false about
+the ANSWER — which is the whole premise of an active manager.
+
+Next (R54.2): version the reassessment artifact on SIGNAL identity as well as
+economic identity — extend Stage-21 case (b) so a same-session reassessment
+whose `universe_scoring_hash` / `hoc_assessment_hash` changed APPENDS a new
+immutable version instead of being rejected (append-never-rewrite, exactly as
+the economic-change path already does). That single persistence rule turns the
+gate's 37/38 into a live governed intraday decision.
+
+Then (R54.3): make `api.daily_research_cycle` persist its terminal decision
+through the SAME governed writer (`provenance=GOVERNED_DAILY_CYCLE`), so the
+governed lane becomes the single durable history of every authoritative
+recommendation and the projection step disappears. One call site, behind the
+invariants R54.1 just added.

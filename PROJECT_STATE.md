@@ -1,7 +1,84 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-01
-- **Updated by phase:** **R54 Finalization - hermetic workflow tests + live
+- **Last updated:** 2026-09-02
+- **Updated by phase:** **R54.1 - the GOVERNED INTRADAY PORTFOLIO DECISION
+  CYCLE (single agent, no subagents, Windows PowerShell only).** Built over the
+  committed R54 head `8c040ce`. Full narrative:
+  `docs/RELEASE54_1_GOVERNED_INTRADAY_DECISION.md`.
+  **The gap:** R54 proved the live chain (information -> materiality -> signal
+  refresh -> scoring -> HOC -> reassessment -> complete priced target) already
+  runs intraday, but Release 29.5 declares a decision *governed* only for a
+  validated DRC run manifest, so everything the event cycle produced stayed
+  `LIVE_PRE_DRC_SIGNAL` and the authoritative recommendation remained the
+  previous DRC decision. Safe, but not an active manager.
+  **Phase B/C - ONE gate, ONE owner:** the intraday governance gate now lives
+  inside the CANONICAL decision owner `api.portfolio_decision` (38 checks in 9
+  groups: portfolio identity 8, market/data freshness 4, ranking identity 3,
+  HOC identity 3, reassessment identity 3, target identity 4, churn/economic
+  controls 7, concurrency/supersession 4, safety 2). It decides ADMISSIBILITY only - every
+  hurdle, cost, risk number and outcome is read verbatim from
+  `engine.constrained_reallocation` via `api.reallocation_proposal`. Verdicts:
+  `GOVERNED_INTRADAY_DECISION_ELIGIBLE` / `INTRADAY_DECISION_WITHHELD`.
+  Governed decisions persist to the GOVERNED LANE of the same decision-owner
+  ledger root (`governed_decisions.json` + `governed_index.json`) - separate
+  files from the manual operator lane so a system recommendation can never be
+  returned where an operator approval is expected.
+  **Phase D - HOLD and CHANGE are BOTH decisions:** a priced
+  `HOLD_CURRENT_BOOK` is first-class (and carries no position recommendations -
+  the priced target is the alternative NOT taken); `CHANGE_RECOMMENDED` carries
+  the proposal owner's own allocation actions and `manual_review_required`.
+  Even a governed CHANGE approves nothing, orders nothing and executes nothing.
+  **Phase E - supersession:** ONE total ordering `(session, decided_at,
+  provenance rank, identity hash)` used by the gate AND the read; supersession
+  is an APPEND naming `supersedes_decision_id`; older records are immutable; a
+  newer DRC decision outranks an intraday one via the projected Release-29.5
+  contract. `candidate_identity_hash` covers EVIDENCE only (not the run id,
+  the clock or the trigger fingerprint), so identical evidence is idempotent.
+  **Phase F/G - surfaces + latency:** Active Manager State projects
+  `latest_live_intraday_assessment` (never authoritative) and
+  `latest_governed_portfolio_decision` separately, plus `intraday_governance`
+  (verdict + classified withheld reasons + failing checks) and
+  `decision_latency` measured by `api.event_signal_refresh` from persisted
+  stamps only (missing stages NAMED, never invented). No governance logic in
+  JavaScript.
+  **Two clocks preserved:** the gate withholds with `OWNED_DATA_NOT_CONFIRMED`
+  when the BOOK's own session is not owned-confirmed; the workflow's
+  forward-looking `WAITING_FOR_OWNED_DATA` for the NEXT expected session is
+  RECORDED, never cleared, never consumed as intraday evidence. Only
+  `api.daily_close` advances the operational mark.
+  **Phase H - emission slot: NOT a defect.** The 16:20 ET trigger is the
+  DECLARED post-close scoring pass (installer + runner say so; the run scores
+  matured outcomes before emission is structurally refused). Live evidence:
+  12:00 ET EMITTED 36, 14:00 ET EMITTED 36, 14:02 re-fire appended 0
+  (idempotent), 16:20 ET NOT_AN_EMISSION_SLOT. Task Ready/S4U/0 missed runs.
+  No emission-slot code change, no Scheduled Task change required.
+  **Phase I - zero base:** no second optimizer; the R47/R50 kernel's
+  `NO_INVESTMENT_PRIVILEGE_ONLY_PRICED_TRANSITION_COST` policy is BOUND into
+  every governed record and the gate withholds if it is not intact.
+  **LIVE READ-ONLY DRY RUN (nothing written) — the gate found something.** On
+  the real 2026-09-01 state the gate scores 37/38 and withholds on ONE check,
+  `CYCLE_REASSESSMENT_IS_THE_CANDIDATE`. Proven from the store + code: only ONE
+  reassessment artifact exists for 2026-08-31 (`292f6a53...`, the governed DRC
+  one); the event cycle computed a DIFFERENT reassessment (`ad61cb61...`) from
+  newer signals; the ECONOMIC fingerprint is unchanged, so Stage-21 case (a)
+  applies and `persist_reassessment` returns `CONFLICT_REJECTED` — the cycle's
+  conclusion has no immutable artifact behind it and must not be governed. This
+  is the GOVERNANCE precondition (distinct from latency): Stage-20/21 versions
+  a reassessment only on ECONOMIC change, and under continuous collection "the
+  prior artifact still describes the portfolio" stays true about the PORTFOLIO
+  while becoming false about the ANSWER. Intraday promotion therefore works
+  today AFTER an economic change and is correctly withheld for a pure-signal
+  same-session change. Fixing it changes a canonical owner's immutability
+  contract and is deliberately R54.2, not scope creep here. A first attempt at
+  this check compared raw `state_hash` and was WRONG (Stage 21's documented
+  fabrication trap: the document hash embeds the assessment's own output);
+  currency is now decided by the owner's `economic_currency` verdict.
+  **Verification:** new suite 95/95; strict audit exit 0 with 24 new BLOCKING
+  invariants (`check_release54_1_governed_intraday_decision`); git diff --check
+  clean; live validation READ-ONLY only (the backend was never restarted).
+  NOT committed (operator gate). No Daily Close / DRC / portfolio cycle /
+  approval / order / scheduler / production-store write was performed.
+- **Previous phase:** **R54 Finalization - hermetic workflow tests + live
   Active Manager State semantics (single agent, no subagents, Windows
   PowerShell only).** Follows the SUCCESSFUL live deployment of R54 Slice 1
   (canonical restart LIVE_SMOKE_OK; `/v1/operations/active-manager-state`

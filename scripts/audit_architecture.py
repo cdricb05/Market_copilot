@@ -11196,6 +11196,157 @@ def check_release54_active_manager_state(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# R54.1 — the GOVERNED INTRADAY PORTFOLIO DECISION CYCLE.
+#
+# The whole point of this release is that a live intraday assessment may become
+# the AUTHORITATIVE recommendation through exactly ONE gate, owned by the ONE
+# decision owner. The failure mode this guard exists to prevent is a second
+# intraday-governance owner appearing later — in the event cycle, in the read
+# model, in the workflow owner or in a new module — each with its own idea of
+# what "governed" means. It also pins the safety boundary the release may never
+# cross: a governed CHANGE is a RECOMMENDATION, never an approval or an order.
+# --------------------------------------------------------------------------- #
+R541_DECISION_OWNER = "api/portfolio_decision.py"
+R541_CYCLE_OWNER = "api/event_signal_refresh.py"
+#: The governance surface. Each of these must be defined EXACTLY once, in the
+#: decision owner, and nowhere else in api/ or engine/.
+R541_GATE_DEFS = (
+    "def evaluate_intraday_governance(",
+    "def record_governed_decision(",
+    "def governed_decision_ordering_key(",
+    "def build_intraday_candidate(",
+    "def load_governed_portfolio_decision(",
+)
+#: Business calculations the GATE may never define — it decides admissibility,
+#: never economics. Each already belongs to engine.constrained_reallocation.
+R541_FORBIDDEN_CALC_DEFS = (
+    "def switching_economics(", "def solve_feasible_target(",
+    "def decide_outcome(", "def herfindahl(", "def one_way_turnover(",
+    "def compute_scores(", "def build_assessment(")
+#: Execution / write / scheduler reach the governed lane may never have.
+R541_FORBIDDEN_EXECUTION_TOKENS = (
+    "submit_order", "create_order", "place_order", "record_fill",
+    "generate_orders", "confirm_orders", "settle_due_orders",
+    "confirm_order_plan", "promote_model", "promote_challenger",
+    "activate_sleeve", "run_daily_close", "refresh_desk", "broker_client",
+    "subprocess", "schtasks", "Register-ScheduledTask", "requests.", "httpx")
+#: The Phase-J withheld taxonomy. Canonical codes must be REUSED verbatim.
+R541_REQUIRED_REASON_CODES = (
+    "PORTFOLIO_IDENTITY_STALE", "MARKET_DATA_STALE",
+    "OWNED_DATA_NOT_CONFIRMED", "POINT_IN_TIME_INTEGRITY_FAILURE",
+    "RANKING_IDENTITY_MISMATCH", "HOC_IDENTITY_MISMATCH",
+    "REASSESSMENT_IDENTITY_MISMATCH", "TARGET_IDENTITY_MISMATCH",
+    "SWITCHING_ECONOMICS_INCOMPLETE", "TRUE_BLOCKER",
+    "SUPERSEDED_BY_NEWER_DECISION", "DUPLICATE_CANDIDATE",
+    "EXECUTION_PRECEDENCE", "CANDIDATE_EVIDENCE_INCOMPLETE")
+
+
+def _r541_governed_lane(src: str) -> str:
+    """The R54.1 section of the decision owner, excluding the module __all__."""
+    marker = "R54.1 - THE ONE GOVERNED INTRADAY DECISION GATE"
+    for m in (marker, marker.replace(" - ", " — ")):
+        if m in src:
+            return src.split(m, 1)[1].split("\n__all__ = [", 1)[0]
+    return ""
+
+
+def check_release54_1_governed_intraday_decision(files: list[Path]) -> dict:
+    """R54.1 invariants — ONE gate, ONE decision owner, ONE ordering.
+
+    (a) the gate, the governed writer and the supersession ordering are defined
+        exactly once, in api.portfolio_decision, and nowhere else;
+    (b) the live event cycle DELEGATES to that owner and hosts no gate;
+    (c) the governed lane defines no business calculation and has no
+        execution / order / broker / promotion / scheduler reach;
+    (d) the withheld taxonomy is declared and reuses the canonical codes,
+        OWNED_DATA_NOT_CONFIRMED among them;
+    (e) HOLD and CHANGE are both governed decisions, a governed CHANGE requires
+        manual review, and the governed lane never advances the operational
+        mark (which stays api.daily_close's alone);
+    (f) the governed lane writes ONLY its own ledger files — never the manual
+        operator-decision pointer;
+    (g) the R53.1 emission-slot contract is unchanged.
+    """
+    pd_src = _read(R541_DECISION_OWNER)
+    esr_src = _read(R541_CYCLE_OWNER)
+    ams_src = _read(R54_AMS_MODULE)
+    wf_src = _read("api/workflow_state.py")
+    lane = _r541_governed_lane(pd_src)
+
+    # (a) exactly one definition site across api/ + engine/
+    duplicate_owners: list[str] = []
+    for fp in files:
+        rel = _rel(fp).replace("\\", "/")
+        if not (rel.startswith("api/") or rel.startswith("engine/")):
+            continue
+        if rel == R541_DECISION_OWNER:
+            continue
+        body = _read(rel)
+        for d in R541_GATE_DEFS:
+            if d in body:
+                duplicate_owners.append(f"{rel}:{d}")
+
+    factory = _read("alpha_agent/r53/intraday_factory.py")
+    installer = _read("scripts/install_intraday_emission_task.ps1")
+
+    return {
+        "gate_owner_present": bool(lane.strip()),
+        "gate_defs_missing": sorted(d for d in R541_GATE_DEFS if d not in pd_src),
+        "duplicate_governance_owners": sorted(duplicate_owners),
+        "cycle_delegates_to_owner": (
+            'GOVERNANCE_DELEGATE = "api.portfolio_decision"' in esr_src),
+        "cycle_defines_gate": any(d in esr_src for d in R541_GATE_DEFS),
+        "read_model_defines_gate": any(d in ams_src for d in R541_GATE_DEFS),
+        "workflow_defines_gate": any(d in wf_src for d in R541_GATE_DEFS),
+        "forbidden_calculation_defs": sorted(
+            d for d in R541_FORBIDDEN_CALC_DEFS if d in lane),
+        "forbidden_execution_tokens": sorted(
+            t for t in R541_FORBIDDEN_EXECUTION_TOKENS if t in lane),
+        "missing_reason_codes": sorted(
+            c for c in R541_REQUIRED_REASON_CODES if c not in lane),
+        "owned_data_rule_reused_verbatim": (
+            'WR_OWNED_DATA_NOT_CONFIRMED = "OWNED_DATA_NOT_CONFIRMED"' in lane),
+        "hold_and_change_both_governed": (
+            "GD_HOLD_CURRENT_BOOK = PDS_HOLD_CURRENT_BOOK" in lane
+            and 'GD_CHANGE_RECOMMENDED = "CHANGE_RECOMMENDED"' in lane),
+        "manual_review_required_for_change": (
+            '"manual_review_required_for_change": True' in lane
+            and '"manual_review_required": bool(decision == GD_CHANGE_RECOMMENDED)'
+            in lane),
+        "governed_lane_never_advances_operational_mark": (
+            '"advances_operational_mark": False' in lane
+            and '"operational_mark_advanced_only_by": "api.daily_close"' in lane),
+        "separate_governed_ledger_files": (
+            '_GOVERNED_RECORDS_FILE = "governed_decisions.json"' in lane
+            and '_GOVERNED_INDEX_FILE = "governed_index.json"' in lane),
+        # The governed lane must use its OWN ledger files. The negative
+        # lookbehind is what distinguishes `_governed_index_path(` (correct)
+        # from the manual lane's `_index_path(` (a pointer collision that would
+        # make load_decision_record return a system record to a caller
+        # expecting an operator approval).
+        "governed_writer_touches_manual_index": bool(re.search(
+            r"(?<!_governed)_index_path\(|(?<!_governed)_records_path\(", lane)),
+        "system_token_distinct_from_approval_token": (
+            'GOVERNED_DECISION_CONFIRM_TOKEN = "CONFIRM_GOVERNED_INTRADAY_DECISION"'
+            in lane),
+        "gate_declares_it_owns_no_economics": (
+            '"gate_decides_economics": False' in lane),
+        "zero_base_policy_bound_not_redefined": (
+            "ZERO_BASE_INCUMBENCY_POLICY = _cr.INCUMBENCY_POLICY" in lane),
+        # (g) the R53.1 emission-slot contract, unchanged by this release.
+        "emission_slots_unchanged": (
+            'EMISSION_SLOTS_ET = ("10:00", "12:00", "14:00")' in factory
+            and "SLOT_GRACE_MINUTES = 15" in factory),
+        "emission_post_close_pass_declared": (
+            "post-close scoring pass" in installer
+            and "structurally refused outside a slot" in installer),
+        "automatic_approval_allowed": False,
+        "automatic_model_promotion_allowed": False,
+        "automatic_execution_allowed": False,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -12654,6 +12805,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release52_persistent_research_runtime(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
+        "release54_1_governed_intraday_decision":
+            check_release54_1_governed_intraday_decision(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13282,6 +13435,39 @@ def _print_console(rep: dict) -> None:
           f"{ams['automatic_model_promotion_allowed']}  "
           f"automatic approval allowed (must be False): {ams['automatic_approval_allowed']}  "
           f"cadence enabled (must be False): {ams['cadence_enabled']}")
+
+    hdr("GOVERNED INTRADAY DECISION CYCLE (R54.1)")
+    g = rep["release54_1_governed_intraday_decision"]
+    print(f"gate owner present: {g['gate_owner_present']}  "
+          f"gate defs missing (must be empty): {g['gate_defs_missing']}")
+    print(f"duplicate governance owners (must be empty): "
+          f"{g['duplicate_governance_owners']}")
+    print(f"cycle delegates to owner: {g['cycle_delegates_to_owner']}  "
+          f"cycle defines gate (must be False): {g['cycle_defines_gate']}  "
+          f"read model defines gate (must be False): {g['read_model_defines_gate']}  "
+          f"workflow defines gate (must be False): {g['workflow_defines_gate']}")
+    print(f"forbidden calculation defs (must be empty): "
+          f"{g['forbidden_calculation_defs']}  "
+          f"forbidden execution tokens (must be empty): "
+          f"{g['forbidden_execution_tokens']}")
+    print(f"missing withheld reason codes (must be empty): "
+          f"{g['missing_reason_codes']}  "
+          f"OWNED_DATA_NOT_CONFIRMED reused verbatim: "
+          f"{g['owned_data_rule_reused_verbatim']}")
+    print(f"HOLD and CHANGE both governed: {g['hold_and_change_both_governed']}  "
+          f"manual review required for CHANGE: "
+          f"{g['manual_review_required_for_change']}")
+    print(f"governed lane never advances operational mark: "
+          f"{g['governed_lane_never_advances_operational_mark']}  "
+          f"separate governed ledger files: {g['separate_governed_ledger_files']}  "
+          f"touches manual index (must be False): "
+          f"{g['governed_writer_touches_manual_index']}")
+    print(f"system token distinct from approval token: "
+          f"{g['system_token_distinct_from_approval_token']}  "
+          f"gate owns no economics: {g['gate_declares_it_owns_no_economics']}  "
+          f"zero-base policy bound: {g['zero_base_policy_bound_not_redefined']}")
+    print(f"R53.1 emission slots unchanged: {g['emission_slots_unchanged']}  "
+          f"post-close pass declared: {g['emission_post_close_pass_declared']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -15157,6 +15343,50 @@ BLOCKING_INVARIANTS = (
     ("release54_active_manager_state", "automatic_model_promotion_allowed", False),
     ("release54_active_manager_state", "automatic_approval_allowed", False),
     ("release54_active_manager_state", "cadence_enabled", False),
+
+    # --- R54.1 — ONE governed intraday decision gate, ONE decision owner ---- #
+    # These fail the build if a SECOND intraday-governance owner ever appears
+    # (in the event cycle, the read model, the workflow owner or a new module),
+    # if the gate grows economics of its own, if it acquires execution /
+    # approval / promotion / scheduler reach, if the withheld taxonomy loses a
+    # canonical code, or if a governed promotion could ever advance the
+    # operational close mark or write the manual operator-decision pointer.
+    ("release54_1_governed_intraday_decision", "gate_owner_present", True),
+    ("release54_1_governed_intraday_decision", "gate_defs_missing", []),
+    ("release54_1_governed_intraday_decision", "duplicate_governance_owners", []),
+    ("release54_1_governed_intraday_decision", "cycle_delegates_to_owner", True),
+    ("release54_1_governed_intraday_decision", "cycle_defines_gate", False),
+    ("release54_1_governed_intraday_decision", "read_model_defines_gate", False),
+    ("release54_1_governed_intraday_decision", "workflow_defines_gate", False),
+    ("release54_1_governed_intraday_decision", "forbidden_calculation_defs", []),
+    ("release54_1_governed_intraday_decision", "forbidden_execution_tokens", []),
+    ("release54_1_governed_intraday_decision", "missing_reason_codes", []),
+    ("release54_1_governed_intraday_decision",
+     "owned_data_rule_reused_verbatim", True),
+    ("release54_1_governed_intraday_decision",
+     "hold_and_change_both_governed", True),
+    ("release54_1_governed_intraday_decision",
+     "manual_review_required_for_change", True),
+    ("release54_1_governed_intraday_decision",
+     "governed_lane_never_advances_operational_mark", True),
+    ("release54_1_governed_intraday_decision",
+     "separate_governed_ledger_files", True),
+    ("release54_1_governed_intraday_decision",
+     "governed_writer_touches_manual_index", False),
+    ("release54_1_governed_intraday_decision",
+     "system_token_distinct_from_approval_token", True),
+    ("release54_1_governed_intraday_decision",
+     "gate_declares_it_owns_no_economics", True),
+    ("release54_1_governed_intraday_decision",
+     "zero_base_policy_bound_not_redefined", True),
+    ("release54_1_governed_intraday_decision", "emission_slots_unchanged", True),
+    ("release54_1_governed_intraday_decision",
+     "emission_post_close_pass_declared", True),
+    ("release54_1_governed_intraday_decision", "automatic_approval_allowed", False),
+    ("release54_1_governed_intraday_decision",
+     "automatic_model_promotion_allowed", False),
+    ("release54_1_governed_intraday_decision",
+     "automatic_execution_allowed", False),
 )
 
 

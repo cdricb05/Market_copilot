@@ -87,6 +87,10 @@ COMPONENTS = (
     "operational_book", "live_information", "signal_state",
     "portfolio_reassessment", "target_proposal", "research_governance",
     "execution_safety", "operator_guidance",
+    # R54.1 — the two decision lanes, permanently separate, plus the gate that
+    # is the ONLY bridge between them and the measured latency of that bridge.
+    "latest_live_intraday_assessment", "latest_governed_portfolio_decision",
+    "intraday_governance", "decision_latency",
 )
 
 #: The authoritative owner of every composed component (part of the tested
@@ -100,6 +104,10 @@ COMPONENT_OWNERS = {
     "research_governance": "api.workflow_state + api.universe_scoring + api.research_runtime",
     "execution_safety": "api.portfolio_decision + api.rebalance_execution + api.workflow_state",
     "operator_guidance": "api.workflow_state",
+    "latest_live_intraday_assessment": "api.event_signal_refresh",
+    "latest_governed_portfolio_decision": "api.portfolio_decision",
+    "intraday_governance": "api.portfolio_decision",
+    "decision_latency": "api.event_signal_refresh",
 }
 
 SAFETY_BADGES = ["READ ONLY", "PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
@@ -291,6 +299,11 @@ def _live_information_block(information_collection: Optional[dict],
             "state_note": EVENT_CYCLE_PROPOSAL_NOTE,
             "advances_governed_decision": False,
             "advances_operational_mark": False,
+            # R54.1 — what the ONE gate owner (api.portfolio_decision) concluded
+            # about THIS cycle's candidate, recorded by that owner into the
+            # cycle's own run payload at decision time.
+            "governed_decision": last_run.get("governed_decision"),
+            "stage_timestamps": last_run.get("stage_timestamps"),
         },
         "last_observation_at": last_observation_at,
         "last_material_event_at": last_material_at,
@@ -507,6 +520,142 @@ def _target_proposal_block(constrained: Optional[dict],
     }
 
 
+def _live_intraday_assessment_block(live_information: dict,
+                                    reassessment: dict) -> dict:
+    """R54.1 — the LIVE intraday assessment, alone and clearly labelled.
+
+    This is current signal state produced by ``api.event_signal_refresh``. It is
+    real, it is displayable, and it is NOT the authoritative decision: only a
+    candidate that passes the intraday governance gate owned by
+    ``api.portfolio_decision`` may become that.
+    """
+    cycle = live_information.get("last_event_cycle") or {}
+    return {
+        "available": bool(cycle.get("run_id") or cycle.get("state")),
+        "state": cycle.get("state"),
+        "at": cycle.get("generated_at"),
+        "run_id": cycle.get("run_id"),
+        "reassessment_ran": cycle.get("reassessment_ran"),
+        "proposal_built": cycle.get("proposal_built"),
+        "materiality_change_level": cycle.get("materiality_change_level"),
+        "reassessment_state": cycle.get("reassessment_state"),
+        "proposal_state": cycle.get("proposal_state"),
+        "last_material_event_at": live_information.get("last_material_event_at"),
+        "reassessment_operator_state": reassessment.get("operator_state"),
+        "provenance": "LIVE_PRE_DRC_SIGNAL",
+        "is_authoritative_decision": False,
+        "advances_governed_decision": False,
+        "advances_operational_mark": False,
+        "state_note": EVENT_CYCLE_PROPOSAL_NOTE,
+        "owner": COMPONENT_OWNERS["latest_live_intraday_assessment"],
+    }
+
+
+def _governed_decision_block(governed_decision: Optional[dict]) -> dict:
+    """R54.1 — the LATEST GOVERNED portfolio decision, verbatim from the ONE
+    decision owner. Every value here was decided by ``api.portfolio_decision``;
+    this module selects nothing and re-derives nothing."""
+    g = governed_decision or {}
+    econ = g.get("switching_economics") or {}
+    ev = g.get("evidence_provenance") or {}
+    return {
+        "available": bool(g.get("available")),
+        "decision": g.get("decision"),
+        "decision_vocabulary": g.get("decision_vocabulary"),
+        "timestamp": g.get("decided_at"),
+        "provenance": g.get("provenance"),
+        "provenance_vocabulary": g.get("provenance_vocabulary"),
+        "record_id": g.get("record_id"),
+        "eligible_market_session": g.get("eligible_market_session"),
+        "trigger": {
+            "event_cycle_run_id": ev.get("event_cycle_run_id"),
+            "event_cycle_state": ev.get("event_cycle_state"),
+            "materiality_change_level": ev.get("materiality_change_level"),
+            "materiality_trigger_fingerprint": ev.get(
+                "materiality_trigger_fingerprint"),
+        },
+        "holdings_reviewed": ev.get("hoc_holdings_reviewed"),
+        "alternatives_reviewed": len(g.get("position_recommendations") or []) or None,
+        "position_recommendations": list(g.get("position_recommendations") or []),
+        "switching_economics": {
+            "expected_net_improvement": econ.get("score_improvement_net_of_cost"),
+            "switching_hurdle": econ.get("switching_hurdle"),
+            "clears_switching_hurdle": econ.get("clears_switching_hurdle"),
+            "one_way_turnover": econ.get("one_way_turnover"),
+            "estimated_transaction_cost": econ.get("estimated_transaction_cost"),
+            "concentration_before": econ.get("concentration_before"),
+            "concentration_after": econ.get("concentration_after"),
+            "portfolio_volatility_before": econ.get("portfolio_volatility_before"),
+            "portfolio_volatility_after": econ.get("portfolio_volatility_after"),
+            "owner": "engine.constrained_reallocation",
+        },
+        "manual_review_required": g.get("manual_review_required"),
+        "supersedes_decision_id": g.get("supersedes_decision_id"),
+        "governing_evidence_identity": g.get("identity") or {},
+        "zero_base": g.get("zero_base") or {},
+        "gate": g.get("gate") or {},
+        "persisted": g.get("persisted"),
+        "approval_required_token": g.get("approval_required_token"),
+        "creates_orders": False,
+        "approves_anything": False,
+        "advances_operational_mark": False,
+        "owner": COMPONENT_OWNERS["latest_governed_portfolio_decision"],
+    }
+
+
+def _intraday_governance_block(live_information: dict,
+                               governed_decision: Optional[dict]) -> dict:
+    """R54.1 — why the latest live candidate did or did not become governed.
+
+    Read verbatim from the record the decision owner wrote into the event
+    cycle's own run payload at decision time. The operator can therefore see a
+    live signal AND the exact classified reasons it was not promoted."""
+    cycle = live_information.get("last_event_cycle") or {}
+    gd = cycle.get("governed_decision") or {}
+    return {
+        "available": bool(gd),
+        "gate_owner": "api.portfolio_decision",
+        "evaluated": gd.get("evaluated"),
+        "verdict": gd.get("verdict"),
+        "candidate_decision": gd.get("decision"),
+        "candidate_identity_hash": gd.get("candidate_identity_hash"),
+        "promoted_to_governed": bool(gd.get("recorded")),
+        "governed_record_id": gd.get("record_id"),
+        "withheld_reason_codes": list(gd.get("withheld_reason_codes") or []),
+        "failing_checks": list(gd.get("failing_checks") or []),
+        "standing_governed_decision": (governed_decision or {}).get("record_id"),
+        "manual_review_required_for_change": True,
+        "created_orders": False,
+        "approved_anything": False,
+        "advances_operational_mark": False,
+        "owner": COMPONENT_OWNERS["intraday_governance"],
+    }
+
+
+def _decision_latency_block(governed_decision: Optional[dict],
+                            live_information: dict) -> dict:
+    """R54.1 — measured, never modelled. Every value is the latency owner's
+    (``api.event_signal_refresh``) own measurement over persisted stamps; a
+    stage that persists no timestamp is NAMED, never filled in."""
+    lat = (governed_decision or {}).get("latency") or {}
+    cycle = live_information.get("last_event_cycle") or {}
+    return {
+        "available": bool(lat),
+        "measurement_owner": "api.event_signal_refresh",
+        "timestamps": lat.get("timestamps") or {},
+        "observation_to_signal_seconds": lat.get("observation_to_signal_seconds"),
+        "signal_to_reassessment_seconds": lat.get("signal_to_reassessment_seconds"),
+        "reassessment_to_governed_seconds": lat.get(
+            "reassessment_to_governed_seconds"),
+        "observation_to_governed_seconds": lat.get(
+            "observation_to_governed_seconds"),
+        "latency_measurement_complete": lat.get("latency_measurement_complete"),
+        "missing_measurements": list(lat.get("missing_measurements") or []),
+        "last_event_cycle_at": cycle.get("generated_at"),
+        "owner": COMPONENT_OWNERS["decision_latency"],
+    }
+
+
 def _research_governance_block(workflow: Optional[dict], scoring: Optional[dict],
                                runtime_health: Optional[dict]) -> dict:
     w = workflow or {}
@@ -652,6 +801,7 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                                scoring: Optional[dict] = None,
                                runtime_health: Optional[dict] = None,
                                intraday_emission: Optional[dict] = None,
+                               governed_decision: Optional[dict] = None,
                                warnings: Optional[list] = None) -> dict:
     """Compose the ONE Active Manager Operating State from the owners' payloads.
 
@@ -671,6 +821,13 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                                                      runtime_health)
     execution_safety = _execution_safety_block(constrained, rebalance, workflow)
     operator_guidance = _operator_guidance_block(workflow)
+    live_intraday = _live_intraday_assessment_block(live_information,
+                                                    reassessment_block)
+    governed_block = _governed_decision_block(governed_decision)
+    intraday_governance = _intraday_governance_block(live_information,
+                                                     governed_decision)
+    decision_latency = _decision_latency_block(governed_decision,
+                                               live_information)
     stale = _stale_components(
         operational_book=operational_book, live_information=live_information,
         signal_state=signal_state, reassessment=reassessment_block,
@@ -746,6 +903,32 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         },
         "canonical_current_decision": (
             (workflow or {}).get("canonical_portfolio_decision")),
+        # R54.1 — the ladder's missing rung, now real: the ONE gate that may
+        # promote a complete live intraday assessment into the governed lane,
+        # and the governed decision that results. Promotion updates the
+        # authoritative RECOMMENDATION only; approval and execution are
+        # unchanged, manual, and still belong to the operator.
+        "intraday_governance_gate": {
+            "owner": "api.portfolio_decision",
+            "verdict": intraday_governance.get("verdict"),
+            "promoted_to_governed": intraday_governance.get(
+                "promoted_to_governed"),
+            "withheld_reason_codes": intraday_governance.get(
+                "withheld_reason_codes"),
+            "promotion_changes_recommendation_only": True,
+            "promotion_approves_nothing": True,
+            "promotion_creates_no_order": True,
+            "promotion_advances_operational_mark": False,
+        },
+        "latest_governed_portfolio_decision": {
+            "decision": governed_block.get("decision"),
+            "provenance": governed_block.get("provenance"),
+            "at": governed_block.get("timestamp"),
+            "record_id": governed_block.get("record_id"),
+            "supersedes_decision_id": governed_block.get(
+                "supersedes_decision_id"),
+            "owner": "api.portfolio_decision",
+        },
     }
 
     return {
@@ -766,6 +949,10 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         "research_governance": research_governance,
         "execution_safety": execution_safety,
         "operator_guidance": operator_guidance,
+        "latest_live_intraday_assessment": live_intraday,
+        "latest_governed_portfolio_decision": governed_block,
+        "intraday_governance": intraday_governance,
+        "decision_latency": decision_latency,
         "stale_components": stale,
         "stale_component_count": len(stale),
         "warnings": warn,
@@ -845,6 +1032,16 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
         from paper_trader.api import research_runtime as rr
         return rr.load_intraday_emission_status()
 
+    def _governed_decision():
+        # R54.1 — the authoritative governed decision, decided entirely by the
+        # ONE decision owner. This module reads it; it never resolves, orders
+        # or supersedes a decision itself.
+        from paper_trader.api import portfolio_decision as pdec
+        ab = ((portfolio_state or {}).get("active_book") or {}).get("book_id")
+        return pdec.load_governed_portfolio_decision(
+            workflow=workflow, reassessment=reassessment,
+            proposal_summary=None, constrained=constrained, active_book_id=ab)
+
     event_refresh = _get("event_refresh", lds.get("event_refresh", _event_refresh))
     reassessment = _get("reassessment", lds.get("reassessment", _reassessment))
     scoring = _get("scoring", lds.get("scoring", _scoring))
@@ -852,6 +1049,8 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
                           lds.get("runtime_health", _runtime_health))
     intraday_emission = _get("intraday_emission",
                              lds.get("intraday_emission", _intraday_emission))
+    governed_decision = _get("governed_decision",
+                             lds.get("governed_decision", _governed_decision))
 
     return build_active_manager_state(
         workflow=workflow, portfolio_state=portfolio_state,
@@ -859,7 +1058,7 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
         rebalance=rebalance, event_refresh=event_refresh,
         reassessment=reassessment, scoring=scoring,
         runtime_health=runtime_health, intraday_emission=intraday_emission,
-        warnings=warnings)
+        governed_decision=governed_decision, warnings=warnings)
 
 
 __all__ = [

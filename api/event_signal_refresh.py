@@ -303,6 +303,26 @@ def _default_proposal_gate(reassessment):
     return prs.should_build_proposal(reassessment)
 
 
+#: R54.1 — the CANONICAL owner of the intraday governance gate and of the
+#: governed portfolio decision. This module delegates to it exactly as it
+#: delegates every calculation above; it hosts no governance logic of its own.
+GOVERNANCE_DELEGATE = "api.portfolio_decision"
+
+
+def _default_governance_fn(**kwargs):
+    """Ask the ONE decision owner whether this cycle's complete assessment may
+    become the latest governed portfolio decision — and let it record the
+    decision if, and only if, its gate passes.
+
+    This creates no order, no fill, no order plan and no approval; it never
+    advances the operational close mark; and a governed CHANGE remains a
+    RECOMMENDATION that still requires the operator's manual approval token.
+    """
+    from paper_trader.api import portfolio_decision as pdec
+    return pdec.govern_latest_intraday_assessment(
+        confirm=pdec.GOVERNED_DECISION_CONFIRM_TOKEN, **kwargs)
+
+
 # --------------------------------------------------------------------------- #
 # Market / risk state — computed by the CANONICAL price-panel owner
 # --------------------------------------------------------------------------- #
@@ -512,12 +532,108 @@ def measure_latency(*, events: list, steps: list, reassessment_at: Any = None,
 
 
 # --------------------------------------------------------------------------- #
+# R54.1 — stage timestamps and the decision-latency schema.
+#
+# This module already measures the cycle (``measure_latency``); R54.1 needs the
+# SAME measurement expressed as the named stages of the decision chain, so the
+# operator can see where the time between "the information arrived" and "the
+# governed decision was recorded" actually goes. Nothing is fabricated: a stage
+# that persisted no authoritative timestamp is reported as MISSING, and any
+# interval that depends on it is simply not computed.
+# --------------------------------------------------------------------------- #
+#: Phase-G stage name -> the persisted step whose ``finished_at`` IS that stage.
+DECISION_STAGE_STEPS = {
+    # the affected inputs (scoring among them) were recomputed by their owners
+    "signal_refresh_completed_at": "REFRESH_AFFECTED_INPUTS",
+    # ranking context complete: rank deltas measured against the prior snapshot
+    "scoring_completed_at": "MEASURE_DELTAS",
+    "hoc_completed_at": "HOLDING_OPPORTUNITY_COST",
+    "reassessment_completed_at": "PORTFOLIO_REASSESSMENT",
+    "target_completed_at": "REALLOCATION_PROPOSAL",
+}
+
+
+def _newest_stamp(stamps: Optional[list]) -> Optional[str]:
+    """The newest owner-stamped timestamp among ``stamps`` — a SELECTION over
+    values the event fabric already stamped, never a reading of this module's
+    own clock. Returns None when nothing carries a usable stamp."""
+    best, best_raw = None, None
+    for raw in (stamps or []):
+        dt = _parse_dt(raw)
+        if dt is not None and (best is None or dt > best):
+            best, best_raw = dt, str(raw)
+    return best_raw
+
+
+def stage_timestamps(steps: Optional[list]) -> dict:
+    """The persisted ``finished_at`` of each decision stage. A SELECTION over
+    the run's own recorded steps — never a reading of this module's clock."""
+    by_id = {}
+    for s in (steps or []):
+        if s.get("status") == "OK" and s.get("finished_at"):
+            by_id[str(s.get("step"))] = s.get("finished_at")
+    return {stage: by_id.get(step_id)
+            for stage, step_id in DECISION_STAGE_STEPS.items()}
+
+
+def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
+                             event_cycle_started_at: Any = None,
+                             observation_received_at: Any = None,
+                             governance_gate_completed_at: Any = None,
+                             governed_decision_persisted_at: Any = None) -> dict:
+    """Observation -> signal -> reassessment -> governed decision, measured.
+
+    Every interval is computed ONLY when both of its endpoints exist as
+    authoritative persisted timestamps. Missing endpoints are named in
+    ``missing_measurements`` and ``latency_measurement_complete`` is False —
+    a stage that does not persist a stamp is reported, never invented.
+    """
+    stamps = dict(stage_timestamps or {})
+    stamps.update({
+        "observation_received_at": observation_received_at,
+        "event_cycle_started_at": event_cycle_started_at,
+        "governance_gate_completed_at": governance_gate_completed_at,
+        "governed_decision_persisted_at": governed_decision_persisted_at,
+    })
+
+    def _delta(a: str, b: str) -> Optional[float]:
+        da, db = _parse_dt(stamps.get(a)), _parse_dt(stamps.get(b))
+        if da is None or db is None:
+            return None
+        return round((db - da).total_seconds(), 1)
+
+    intervals = {
+        "observation_to_signal_seconds": _delta("observation_received_at",
+                                                "signal_refresh_completed_at"),
+        "signal_to_reassessment_seconds": _delta("signal_refresh_completed_at",
+                                                 "reassessment_completed_at"),
+        "reassessment_to_governed_seconds": _delta("reassessment_completed_at",
+                                                   "governed_decision_persisted_at"),
+        "observation_to_governed_seconds": _delta("observation_received_at",
+                                                  "governed_decision_persisted_at"),
+    }
+    missing = sorted(k for k, v in stamps.items() if not v)
+    return {
+        "contract_id": "paper_trader.governed_decision_latency/1",
+        "owner": COMPOSITION_OWNER,
+        "timestamps": stamps,
+        **intervals,
+        "missing_measurements": missing,
+        "latency_measurement_complete": not missing,
+        "stage_step_map": dict(DECISION_STAGE_STEPS),
+        "note": ("Measured from authoritative persisted timestamps only. A "
+                 "stage that persists no timestamp is named in "
+                 "missing_measurements; no interval is ever fabricated."),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # THE cycle
 # --------------------------------------------------------------------------- #
 def run_event_signal_refresh(
         *, confirm: Optional[str] = None, requested_by: Optional[str] = None,
         fabric_dir=None, hoc_dir=None, reassessment_dir=None, reallocation_dir=None,
-        ingestion_root=None, news_root=None,
+        decision_dir=None, ingestion_root=None, news_root=None,
         portfolio_state: Optional[dict] = None, scoring: Optional[dict] = None,
         price_panel: Optional[dict] = None,
         portfolio_state_loader: Optional[Callable] = None,
@@ -534,6 +650,7 @@ def run_event_signal_refresh(
         reassessment_fn: Optional[Callable] = None,
         proposal_fn: Optional[Callable] = None,
         proposal_gate_fn: Optional[Callable] = None,
+        governance_fn: Optional[Callable] = None,
         policy_overrides: Optional[dict] = None,
         lookback_days: int = fabric.DEFAULT_LOOKBACK_DAYS,
         candidate_depth: int = 100,
@@ -849,6 +966,69 @@ def run_event_signal_refresh(
                  "calculations the arriving information invalidated, and terminates in "
                  "manual review."),
     }
+    payload["run_id"] = run_id_for(payload)
+
+    # ---- 13. GOVERNED DECISION PROMOTION (R54.1) — fully DELEGATED --------- #
+    # The cycle asks the ONE decision owner whether the complete assessment it
+    # just produced may become the latest governed portfolio decision. This
+    # module hosts no governance rule, no threshold and no decision: it passes
+    # the run's own summary and records what the owner answered. If the gate
+    # withholds, nothing is written and the cycle's own state is untouched.
+    # This step never approves, never orders, never promotes a model and never
+    # advances the operational close mark.
+    governance = None
+    if reassessment is not None:
+        gov_call = governance_fn or _default_governance_fn
+        with _step("GOVERNED_DECISION_GATE", GOVERNANCE_DELEGATE) as rec:
+            try:
+                # Hand the gate what this cycle ALREADY produced — the
+                # portfolio state and the scoring identity above all — so the
+                # governed step never re-runs a full universe scoring the cycle
+                # just completed. Everything else it reads is an artifact read.
+                scoring_identity = None
+                if sc is not None:
+                    try:
+                        from paper_trader.api import universe_scoring as _us
+                        scoring_identity = _us.canonical_identity(sc)
+                    except Exception as exc:  # noqa: BLE001
+                        warnings.append("scoring identity unavailable: %s"
+                                        % str(exc)[:160])
+                governance = gov_call(
+                    event_cycle=build_last_run_summary(payload),
+                    portfolio_state=ps, scoring_identity=scoring_identity,
+                    decision_dir=decision_dir,
+                    reallocation_dir=reallocation_dir,
+                    observation_received_at=_newest_stamp(
+                        [e.get("ingested_at") for e in admitted]))
+                rec["detail"] = "%s (recorded=%s)" % (
+                    (governance or {}).get("verdict") or "UNAVAILABLE",
+                    bool((governance or {}).get("recorded")))
+            except Exception as exc:  # noqa: BLE001 - governance never breaks the cycle
+                warnings.append("governed decision gate unavailable: %s"
+                                % str(exc)[:160])
+                rec["detail"] = "unavailable"
+    gov = governance or {}
+    payload["governed_decision"] = {
+        "owner": GOVERNANCE_DELEGATE,
+        "evaluated": governance is not None,
+        "verdict": gov.get("verdict"),
+        "recorded": bool(gov.get("recorded")),
+        "decision": ((gov.get("record") or {}).get("decision")
+                     or (gov.get("candidate") or {}).get("decision")),
+        "record_id": (gov.get("record") or {}).get("record_id"),
+        "provenance": (gov.get("record") or {}).get("provenance"),
+        "supersedes_decision_id": (gov.get("record") or {}).get(
+            "supersedes_decision_id"),
+        "withheld_reason_codes": list(
+            (gov.get("gate") or {}).get("withheld_reason_codes") or []),
+        "failing_checks": list((gov.get("gate") or {}).get("failing_checks") or []),
+        "candidate_identity_hash": (gov.get("candidate") or {}).get(
+            "candidate_identity_hash"),
+        "manual_review_required_for_change": True,
+        "created_orders": False,
+        "approved_anything": False,
+        "advances_operational_mark": False,
+    }
     _persist_run(payload, fabric_dir=fabric_dir)
     return payload
 
@@ -856,6 +1036,73 @@ def run_event_signal_refresh(
 # --------------------------------------------------------------------------- #
 # Anti-churn fingerprint persistence + run artifacts
 # --------------------------------------------------------------------------- #
+def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
+    """The store owner's OWN summary of one persisted run payload.
+
+    ``latest.json`` is a pointer; this is what the run actually recorded — its
+    terminal state together with the facts that disambiguate it, the exact
+    IDENTITIES it bound (so a governed-decision candidate can be proved against
+    them rather than assumed), and its stage clock. Built ONCE here and used
+    both by the read contract and by the cycle itself, so an in-flight cycle and
+    a later reader can never see two different summaries of the same run.
+    """
+    if not full:
+        return None
+    deltas = full.get("rank_deltas") or {}
+    hoc_sum = full.get("holding_opportunity_cost") or {}
+    prs_sum = full.get("portfolio_reassessment") or {}
+    tgt_sum = full.get("target_portfolio") or {}
+    return {
+        "run_id": full.get("run_id"),
+        "state": full.get("state"),
+        "generated_at": full.get("generated_at"),
+        "completed_at": full.get("completed_at"),
+        "reassessment_ran": full.get("reassessment_ran"),
+        "reassessment_reason": full.get("reassessment_reason"),
+        "proposal_built": full.get("proposal_built"),
+        "materiality_change_level": (full.get("materiality")
+                                     or {}).get("change_level"),
+        "trigger_count": (full.get("materiality") or {}).get("trigger_count"),
+        "calculations_refreshed": full.get("calculations_refreshed"),
+        "affected_entities": full.get("affected_entities"),
+        "held_rank_delta_rows": (len(deltas.get("rows") or [])
+                                 if deltas else None),
+        "prior_ranking_available": deltas.get("prior_available"),
+        "reassessment_state": prs_sum.get("reassessment_state"),
+        "proposal_state": tgt_sum.get("proposal_state"),
+        # --- R54.1: the run's own bound IDENTITIES + stage clock ------------ #
+        "active_book_id": full.get("active_book_id"),
+        "eligible_market_date": full.get("eligible_market_date"),
+        "portfolio_state_hash": full.get("portfolio_state_hash"),
+        "holdings": full.get("holdings"),
+        "hoc_assessment_hash": hoc_sum.get("assessment_hash"),
+        "hoc_holdings_reviewed": hoc_sum.get("holdings_reviewed"),
+        "reassessment_hash": prs_sum.get("reassessment_hash"),
+        "proposal_hash": tgt_sum.get("proposal_hash"),
+        "materiality_trigger_fingerprint": (
+            full.get("materiality") or {}).get("trigger_fingerprint"),
+        "duplicate_of_prior_trigger": (
+            full.get("materiality") or {}).get("duplicate_of_prior_trigger"),
+        "blocker_codes": [b.get("code") for b in (full.get("blockers") or [])
+                          if b.get("code")],
+        "stage_timestamps": stage_timestamps(full.get("steps")),
+        "cycle_duration_seconds": (full.get("latency")
+                                   or {}).get("cycle_duration_seconds"),
+        "oldest_event_to_reassessment_seconds": (
+            full.get("latency") or {}).get("oldest_event_to_reassessment_seconds"),
+        # R54.1 — what the governance delegate concluded for this run (never a
+        # verdict this module reached; api.portfolio_decision owns it).
+        "governed_decision": full.get("governed_decision"),
+    }
+
+
+def run_id_for(payload: Optional[dict]) -> str:
+    """The deterministic run id of one cycle payload (identity, not a clock)."""
+    return "evt_%s" % ek.sha256_text(
+        "%s|%s" % ((payload or {}).get("generated_at"),
+                   (payload or {}).get("portfolio_state_hash")))[:16]
+
+
 def _fingerprint_path(fabric_dir=None):
     return fabric.state_root(fabric_dir) / "last_trigger.json"
 
@@ -872,8 +1119,7 @@ def _write_last_fingerprint(fingerprint: str, *, fabric_dir=None) -> None:
 
 
 def _persist_run(payload: dict, *, fabric_dir=None) -> None:
-    run_id = "evt_%s" % ek.sha256_text(
-        "%s|%s" % (payload.get("generated_at"), payload.get("portfolio_state_hash")))[:16]
+    run_id = payload.get("run_id") or run_id_for(payload)
     payload["run_id"] = run_id
     root = fabric.runs_root(fabric_dir) / run_id
     fabric.save_json_artifact(root / "event_signal_refresh_status.json", payload)
@@ -923,29 +1169,7 @@ def load_event_signal_refresh_status(*, fabric_dir=None, ingestion_root=None,
             fabric.runs_root(fabric_dir) / str(latest["run_id"])
             / "event_signal_refresh_status.json") or {}
         if full.get("run_id") == latest.get("run_id"):
-            deltas = full.get("rank_deltas") or {}
-            last_run_summary = {
-                "run_id": full.get("run_id"),
-                "state": full.get("state"),
-                "generated_at": full.get("generated_at"),
-                "completed_at": full.get("completed_at"),
-                "reassessment_ran": full.get("reassessment_ran"),
-                "reassessment_reason": full.get("reassessment_reason"),
-                "proposal_built": full.get("proposal_built"),
-                "materiality_change_level": (full.get("materiality")
-                                             or {}).get("change_level"),
-                "trigger_count": (full.get("materiality")
-                                  or {}).get("trigger_count"),
-                "calculations_refreshed": full.get("calculations_refreshed"),
-                "affected_entities": full.get("affected_entities"),
-                "held_rank_delta_rows": (len(deltas.get("rows") or [])
-                                         if deltas else None),
-                "prior_ranking_available": deltas.get("prior_available"),
-                "reassessment_state": (full.get("portfolio_reassessment")
-                                       or {}).get("reassessment_state"),
-                "proposal_state": (full.get("target_portfolio")
-                                   or {}).get("proposal_state"),
-            }
+            last_run_summary = build_last_run_summary(full)
     events = view["events"]
     # The READ surface is bound to the GATE's rule, not to a second definition of
     # "material". A bar or a delayed quote may carry new information and may bear a
@@ -1006,4 +1230,7 @@ __all__ = [
     "ST_PROPOSAL_AVAILABLE", "ST_BLOCKED", "ST_NOT_RUN",
     "build_market_risk_state", "build_rank_deltas", "measure_latency",
     "run_event_signal_refresh", "load_event_signal_refresh_status",
+    # R54.1 — the decision-stage clock and the governed-decision latency schema.
+    "DECISION_STAGE_STEPS", "stage_timestamps", "measure_decision_latency",
+    "GOVERNANCE_DELEGATE",
 ]

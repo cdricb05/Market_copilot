@@ -857,3 +857,35 @@ Release-28 event cycle and the ONE collection cadence policy, never through a
 second scheduler or a second materiality vocabulary; reassessment frequency
 never loosens the Stage-20 churn controls, the R47 switching hurdle, or the
 manual-review boundary.
+
+## R54.1 boundary — ONE governance gate between the two decision lanes
+
+There are exactly TWO decision lanes and exactly ONE bridge between them.
+
+* The **live intraday lane** (`api.event_signal_refresh`, provenance
+  `LIVE_PRE_DRC_SIGNAL`) is current signal state. It is never authoritative and
+  may never become the headline.
+* The **governed lane** (`api.portfolio_decision`, provenance
+  `GOVERNED_DAILY_CYCLE` or `GOVERNED_INTRADAY`) holds the ONE authoritative
+  recommendation.
+* The bridge is the **intraday governance gate**, and it is code inside the
+  canonical decision owner. No second governance framework, no second decision
+  engine, no second economics, no second ordering. If a future slice needs a
+  governance rule, it belongs in that owner or nowhere.
+
+Permanent boundaries:
+
+* the gate decides ADMISSIBILITY only — hurdles, costs, risk, concentration,
+  turnover and outcomes stay with `engine.constrained_reallocation`;
+* HOLD and CHANGE are both governed decisions; a governed CHANGE is a
+  RECOMMENDATION and never an approval, an order plan, an order or a fill;
+* supersession uses ONE total ordering and is always an append — a governed
+  record is never rewritten, and a stale or older assessment never supersedes a
+  newer decision;
+* promotion never advances the operational close mark and never clears or
+  weakens `OWNED_DATA_NOT_CONFIRMED`;
+* latency is MEASURED from persisted stamps by the cycle owner; a stage with no
+  stamp is named, never filled in;
+* detection cadence stays governed by the ONE collection cadence policy and is
+  raised only once measured `observation_to_governed_seconds` proves detection
+  is the binding constraint.

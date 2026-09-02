@@ -163,7 +163,22 @@ in the review (selection priority 2/4), it is bounded, and a trustworthy
 operational-vs-live header is a precondition for near-real-time reassessment
 surfaces.
 
-## 7. R54.1 — the event-driven activation contract (Phase F; NOT enabled here)
+## 7. R54.1 — the event-driven activation contract (Phase F)
+
+> **STATUS: DELIVERED by R54.1** — see
+> `docs/RELEASE54_1_GOVERNED_INTRADAY_DECISION.md`. The activation landed as
+> ONE governance gate inside `api.portfolio_decision` rather than as a cadence
+> change: the trigger criteria, debounce, idempotency key, stale-data rules,
+> point-in-time binding, turnover protection, proposal-regeneration semantics
+> and the manual-review boundary below are all UNCHANGED and are now BOUND by
+> the gate. Activation steps 1, 2 and 4 (a new cadence policy, a measured
+> cadence verdict, raising detection cadence) deliberately did NOT happen:
+> detection is still the bottleneck, `cadence_enabled` remains a declared
+> False, and raising it waits on the measured `observation_to_governed_seconds`
+> series that step 3 now publishes.
+
+The contract as originally written:
+
 
 Target behaviour: **a portfolio may be REASSESSED many times per trading day;
 it is NOT automatically rebalanced because it was reassessed.**

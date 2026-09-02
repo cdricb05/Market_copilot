@@ -396,6 +396,12 @@ class TestCompositionOnly:
             "from paper_trader.api import portfolio_reassessment as prs",
             "from paper_trader.api import universe_scoring as us",
             "from paper_trader.api import research_runtime as rr",
+            # R54.1 — the governed portfolio decision is READ from the ONE
+            # decision owner. It is a read contract like the others above; this
+            # module still performs no governance logic and resolves no
+            # supersession (guarded by test_37b in the R54.1 suite and by the
+            # strict audit's read_model_defines_gate invariant).
+            "from paper_trader.api import portfolio_decision as pdec",
         )
         unexpected = [ln for ln in import_lines if ln not in allowed]
         assert unexpected == []

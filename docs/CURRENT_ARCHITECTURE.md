@@ -2934,3 +2934,83 @@ research ledger, evidence_class PROSPECTIVE_INTRADAY) that are never summed.
 Today renders these owner words verbatim; two further strict-blocking audit
 invariants (`decision_authority_declared`, `evidence_identities_distinct`)
 prevent regression.
+
+## R54.1 — the GOVERNED INTRADAY DECISION GATE (the ladder's missing rung)
+
+`api/portfolio_decision.py` — the existing canonical decision owner — is ALSO
+the ONE owner of the intraday governance gate and of the **governed decision
+lane**. Before R54.1 the complete priced answer the live event cycle produced
+could never change the authoritative recommendation, because Release 29.5
+classifies everything without a validated DRC run manifest as
+`LIVE_PRE_DRC_SIGNAL`.
+
+The gate answers ONE question — *may this intraday assessment REPLACE the prior
+governed decision as the latest authoritative recommendation?* — through 38
+checks in nine groups (portfolio identity · market/data freshness · signal
+ranking identity · HOC identity · reassessment identity · target identity ·
+churn/economic controls · concurrency/supersession · safety). It decides
+**admissibility only**: every hurdle, transaction cost, risk-before/after,
+concentration, turnover budget and outcome is read VERBATIM from
+`engine.constrained_reallocation` via `api.reallocation_proposal`. Verdicts are
+`GOVERNED_INTRADAY_DECISION_ELIGIBLE` / `INTRADAY_DECISION_WITHHELD`, and every
+refusal carries a classified code from the reused canonical taxonomy
+(`PORTFOLIO_IDENTITY_STALE`, `MARKET_DATA_STALE`, `OWNED_DATA_NOT_CONFIRMED`,
+`POINT_IN_TIME_INTEGRITY_FAILURE`, the four identity mismatches,
+`SWITCHING_ECONOMICS_INCOMPLETE`, `TRUE_BLOCKER`, `CHANGE_CANDIDATE_WITHHELD`,
+`SUPERSEDED_BY_NEWER_DECISION`, `DUPLICATE_CANDIDATE`, `EXECUTION_PRECEDENCE`,
+`CANDIDATE_EVIDENCE_INCOMPLETE`) — never a generic BLOCKED.
+
+**Both outcomes are real decisions.** A priced `HOLD_CURRENT_BOOK` is
+first-class (and carries no position recommendations — the priced target is the
+alternative NOT taken); `CHANGE_RECOMMENDED` carries the proposal owner's own
+allocation actions and requires manual review. Promotion updates the
+authoritative RECOMMENDATION and nothing else: no mutation, approval, order
+plan, order, fill, broker call, model promotion or sleeve activation, and it
+never advances the operational close mark (`api.daily_close` alone does).
+Recording requires `CONFIRM_GOVERNED_INTRADAY_DECISION` — a SYSTEM token
+distinct from the operator's `CONFIRM_PORTFOLIO_REBALANCE_DECISION`.
+
+**Supersession** is ONE total ordering `(eligible session, decided_at,
+provenance rank, identity hash)` used by the gate and the read alike; it is an
+APPEND that names `supersedes_decision_id`, and prior records are immutable. A
+newer DRC decision outranks an intraday one through the projected Release-29.5
+governed-evidence contract. `candidate_identity_hash` covers EVIDENCE only (not
+the run id, the wall clock or the materiality fingerprint), so identical
+evidence is idempotent.
+
+**Wiring.** `api.event_signal_refresh` DELEGATES to the gate exactly as it
+delegates HOC / reassessment / proposal (`GOVERNANCE_DELEGATE =
+"api.portfolio_decision"`); it hosts no governance rule, and a failing gate
+degrades to a warning without breaking the cycle. It also publishes the run's
+bound identities and stage clock (`build_last_run_summary`) and owns the
+governed-decision latency schema (`measure_decision_latency` — persisted stamps
+only; missing stages are NAMED). `api.active_manager_state` PROJECTS the two
+lanes separately (`latest_live_intraday_assessment`, never authoritative, vs
+`latest_governed_portfolio_decision`) plus `intraday_governance` and
+`decision_latency`, and performs no governance logic.
+
+Storage: `governed_decisions.json` + `governed_index.json` under the SAME
+`PAPER_TRADER_PORTFOLIO_DECISION_DIR` root — separate files from the manual
+operator lane, because a system recommendation must never be returned where an
+operator approval is expected. Guarded by
+`check_release54_1_governed_intraday_decision` (24 strict-blocking invariants;
+a duplicate governance owner anywhere in `api/` or `engine/` fails the build).
+
+**Portfolio currency is decided by the ECONOMIC fingerprint, not the document
+hash.** The gate uses `api.portfolio_reassessment.economic_currency`
+(Stage 21) rather than comparing raw `state_hash` values: `state_hash` covers
+the whole portfolio-state document, which embeds the assessment's own output,
+so comparing it would mark every fresh assessment stale the moment research
+ran. `SUPERSEDED` withholds as `PORTFOLIO_IDENTITY_STALE`; `UNVERIFIABLE`
+withholds as `CANDIDATE_EVIDENCE_INCOMPLETE` — fail-closed for a promotion,
+without fabricating staleness the owner refuses to infer.
+
+**Known precondition (evidence-backed, R54.2).** On a pure-signal, same-session
+change the gate withholds with `REASSESSMENT_IDENTITY_MISMATCH`: Stage-20/21
+appends a new reassessment version only when the ECONOMIC state changed, so an
+event cycle that reaches a different conclusion from newer signals is
+`CONFLICT_REJECTED` and never persisted — and an assessment with no immutable
+artifact must not be governed. Intraday promotion works today after an economic
+change; versioning the artifact on SIGNAL identity is the bounded next slice.
+
+Full narrative: `docs/RELEASE54_1_GOVERNED_INTRADAY_DECISION.md`.
