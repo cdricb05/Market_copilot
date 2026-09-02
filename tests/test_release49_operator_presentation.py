@@ -616,11 +616,20 @@ class TestTodayUI:
         # DIFFERENT declared owner (api.active_manager_state). It is admitted
         # here only under that exact owner declaration — any other extra
         # section still fails (mirrors check_release54_active_manager_state).
+        #
+        # R54.2.1 admits ONE more: the missed-completed-session (catch-up) banner.
+        # It is not a fifth PRIMARY section — it is hidden entirely unless the
+        # backend reports an unclosed completed session, and it renders no
+        # execution control of its own (test_54 still pins ONE CTA render site).
+        # It too is admitted only under its declared obligation owner.
         ids = re.findall(r'<div id="(today-[\w-]+)"', TCC)
-        assert ids == ["today-command-center", "today-system-band", "today-decision",
+        assert ids == ["today-command-center", "today-system-band",
+                       "today-session-recovery", "today-decision",
                        "today-snapshot", "today-attention", "today-operating-state"]
         assert ('id="today-operating-state" data-owner='
                 '"api.active_manager_state"') in TCC
+        assert ('id="today-session-recovery" data-recovery-owner='
+                '"api.workflow_state"') in TCC
 
     def test_52_no_badge_wall_and_legacy_cards_hidden_on_today(self):
         assert "cc-badge" not in TCC

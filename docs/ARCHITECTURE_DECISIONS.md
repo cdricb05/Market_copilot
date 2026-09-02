@@ -2924,3 +2924,91 @@ already binds it. This is PRE-EXISTING and R54.2 does not create it, but a
 governed intraday decision would bind a HOC hash that is not retrievable.
 Resolving it means giving `persist_assessment` the same two-axis append
 semantics (R54.3).
+
+---
+
+## Release 54.2.1 — Missed eligible session recovery
+
+### D-R54.2.1-1 — An obligation cannot be derived from a CONFIRMATION (CONFIRMED)
+
+`eligible_market_date` answers "which completed session do the owned marks
+confirm?". Owned confirmation is the persisted desk-mark date, and the desk-mark
+date only advances when a Daily Close runs. Therefore **an unclosed completed
+session can never confirm itself**, and any gate that asks "is the eligible
+session fully processed?" is asking about a session that is by construction NOT
+the one the operator missed.
+
+That is exactly what happened live. On 2026-09-02 09:01 ET, P2 answered
+truthfully — `2026-08-31` really was fully processed — while `2026-09-01` had
+never been closed, and `api.daily_close` reported `DAILY_CLOSE_DUE` /
+"SEPTEMBER 1 EOD DATA READY" in the same minute. The operator was told "No
+action required right now" with a completed session outstanding and its data
+available.
+
+**The rule:** the obligation is a CALENDAR question asked against the CLOSE
+JOURNAL — `last_closed_session` from `api.daily_close`, bounded above by the
+EXPECTED COMPLETED session from `engine.market_session`. Confirmation gates
+whether the close can succeed; it never gates whether the close is OWED.
+
+### D-R54.2.1-2 — The recovery bound is an owner answer, never a clock (CONFIRMED)
+
+`completed_sessions_after` takes both bounds as arguments and reads no clock.
+Because the upper bound is the EXPECTED COMPLETED session, today's still-forming
+session cannot be selected — the property falls out of the shape of the rule
+rather than out of a guard that could be forgotten. There is consequently no
+`today - 1` arithmetic anywhere in the recovery path, and weekends and holidays
+work through the calendar owner's existing authoritative non-session set.
+
+### D-R54.2.1-3 — Oldest first, or the recovery forfeits sessions silently (CONFIRMED)
+
+`recovery_session` is always `missed_completed_sessions[0]`. The Daily Close's
+own clock targets the LATEST expected session, so an unbound close after a
+two-day outage would process Tuesday and forfeit Monday without saying so. The
+server therefore BINDS the session: `api.portfolio_cycle` reads the workflow
+owner's `recovery_session` and passes it to `api.daily_close` as
+`target_market_date`, which narrows `clock["expected_market_date"]` — already
+the ONE value the provider probe, the desk-mark `completed_through`, the
+model-input refresh and the idempotency key all read.
+
+### D-R54.2.1-4 — A session binding may only look BACKWARD, and is refused rather than clamped (CONFIRMED)
+
+A target newer than the clock's expected completed session names a session that
+has not finished forming. Clamping it to the clock's own expectation would
+silently convert a BOUND recovery back into an UNBOUND close of a different
+session — the same class of failure as the original defect. The close therefore
+records `session_binding_rejected`, returns `AWAITING_MARKET_CLOSE`, writes
+nothing, and stops the cycle with its own words.
+
+### D-R54.2.1-5 — An un-ingested mark is not evidence that the provider lacks the session (CONFIRMED)
+
+`api.workflow_state` is deliberately probe-free. Treating "the desk marks have
+not advanced" as "the owned provider has not published" would have produced a
+deadlock in the exact live case: the marks only advance when the close runs, and
+the close is what was missed. The workflow owner therefore reports
+`UNVERIFIED_UNTIL_CLOSE_REVALIDATES` and names `api.daily_close` as the owner
+that settles it; `CATCH_UP_WAITING_FOR_OWNED_DATA` is reserved for the SESSION
+owner's affirmative owned-data verdict. This generalises the Phase-29D.1
+principle that the absence of same-day owned data is never a holiday.
+
+### D-R54.2.1-6 — Recovery is a PRIORITY change, not a new capability (CONFIRMED)
+
+Recovery introduces no overall state, no route, no orchestrator and no operator
+date field. P2 is suppressed by `catch_up_required` and P3.7 gains it as a
+disjunct, so the obligation resolves through the existing
+`READY_FOR_DAILY_CLOSE` and the existing portfolio cycle. A missed completed
+session NAMES REAL WORK, so it outranks every state that claims nothing is
+outstanding — and never an inconsistency, an unconfirmed current session, an
+in-flight cycle or a named blocker.
+
+### D-R54.2.1-7 — A raw upstream token is not a decision, and a rejected target is not a recommendation (CONFIRMED)
+
+Two surfaces were asserting authority they did not have. Audit rendered a raw
+proposal-ready artifact token beside a review-looking CTA while the governed
+decision was HOLD; the reallocation page rendered EXIT / REDUCE / ADD / INCREASE
+at full prominence for a target the switching hurdle had REJECTED. Neither is
+hidden — the analysis is what makes HOLD explainable — but both are now framed
+by the BACKEND's own verdict (`RAW / NON-AUTHORITATIVE DIAGNOSTIC STATE`,
+`REJECTED FEASIBLE ALTERNATIVE / NOT THE RECOMMENDED PORTFOLIO`) and neither may
+render an action control. Same rule for the daily P&L label: it is a
+closed-session figure, so it is named from backend session metadata and reads
+"TODAY" only when the mark really is the current calendar day.

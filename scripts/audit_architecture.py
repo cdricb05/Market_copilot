@@ -10681,10 +10681,20 @@ def check_release49_operator_presentation(files: list[Path]) -> dict:
     _r54_admitted = ('today-operating-state'
                      if 'id="today-operating-state" data-owner='
                         '"api.active_manager_state"' in today else None)
+    # R54.2.1 admits ONE more region: the missed-completed-session (catch-up) banner.
+    # It is not a fifth PRIMARY section — it is a conditional obligation notice that is
+    # hidden entirely unless the backend reports an unclosed completed session, and it
+    # renders NO execution control of its own (the one-CTA invariant below still binds
+    # at exactly 1). It is admitted only while it declares the owner that DECIDES the
+    # obligation on the node; an undeclared extra section still fails the build.
+    _r5421_admitted = ('today-session-recovery'
+                       if 'id="today-session-recovery" data-recovery-owner='
+                          '"api.workflow_state"' in tcc else None)
     today_extra_section_ids = sorted(
         m for m in re.findall(r'<div id="(today-[\w-]+)"', tcc)
         if m not in ("today-command-center", "today-system-band", "today-decision",
-                     "today-snapshot", "today-attention", _r54_admitted))
+                     "today-snapshot", "today-attention", _r54_admitted,
+                     _r5421_admitted))
     today_badge_walls = tcc.count("cc-badge")
     _s0 = ui.find('<style id="r49-styles">')
     _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
@@ -11388,6 +11398,173 @@ def _r542_evidence_components(src: str) -> str:
     """The declared ASSESSMENT_EVIDENCE_COMPONENTS tuple body, or ''."""
     m = re.search(r"ASSESSMENT_EVIDENCE_COMPONENTS = \((.*?)\)\n", src, re.S)
     return m.group(1) if m else ""
+
+
+#: R54.2.1 — MISSED ELIGIBLE SESSION RECOVERY. The owners that may hold each half of
+#: the catch-up contract, and every shape a SECOND one would take.
+R5421_CALENDAR_OWNER = "engine/market_session.py"
+R5421_RECOVERY_OWNER = "api/workflow_state.py"
+R5421_CYCLE_OWNER = "api/portfolio_cycle.py"
+R5421_CLOSE_OWNER = "api/daily_close.py"
+R5421_PRESENTATION_OWNER = "api/operator_presentation.py"
+R5421_AMS_OWNER = "api/active_manager_state.py"
+#: The catch-up state machine is defined ONCE, in the workflow owner.
+R5421_OWNER_DEFS = ("def build_session_recovery(", "CATCH_UP_REQUIRED",
+                    "CATCH_UP_WAITING_FOR_OWNED_DATA", "CATCH_UP_BLOCKED",
+                    "NO_CATCH_UP_REQUIRED", "SESSION_RECOVERY_STATES")
+#: The calendar enumeration is defined ONCE, in the market-session owner.
+R5421_CALENDAR_DEFS = ("def completed_sessions_after(", "def next_trading_day(",
+                       "MAX_MISSED_SESSIONS")
+#: A second recovery ORCHESTRATOR / write route in any form.
+R5421_FORBIDDEN_ROUTES = ("/v1/operations/daily-close/recover",
+                          "/v1/operations/daily-close/backfill",
+                          "/v1/operations/session-recovery/run",
+                          "/v1/operations/catch-up",
+                          "/v1/operations/portfolio-cycle/recover")
+R5421_FORBIDDEN_DEFS = ("def run_session_recovery(", "def recover_daily_close(",
+                        "def backfill_daily_close(", "def run_catch_up(",
+                        "def force_close_session(")
+#: Client-side recovery arithmetic / operator-supplied dates in the UI.
+R5421_FORBIDDEN_UI = ("catch_up_required =", "recovery_session =",
+                      "backfillSession", "forceCloseSession",
+                      "recoveryDateInput", "prompt(")
+
+
+def check_release54_2_1_missed_session_recovery(files: list[Path]) -> dict:
+    """R54.2.1 invariants — ONE catch-up owner, ONE orchestration path, no backfill.
+
+    (a) the missed-completed-session STATE MACHINE is defined exactly once, in
+        ``api.workflow_state``, and the CALENDAR enumeration it delegates to
+        exactly once, in ``engine.market_session`` — the two halves of the
+        obligation never merge into a third owner;
+    (b) no module outside the workflow owner defines a catch-up state, and no
+        module at all defines a second recovery orchestrator or a recovery /
+        backfill / force-close write route;
+    (c) the recovery session is bound by the SERVER: the portfolio cycle reads it
+        from the workflow owner and hands it to the close owner, which validates
+        it and REFUSES a binding it cannot honour (never clamps one);
+    (d) the projection surfaces (Active Manager State, the operator presentation)
+        DELEGATE — they republish the workflow owner's fields and compute no
+        session date of their own;
+    (e) the UI performs no recovery date arithmetic, offers no backfill /
+        force-close control, and takes no date from the operator;
+    (f) recovery adds no automation, no order path and no approval path.
+    """
+    ws_src = _read(R5421_RECOVERY_OWNER)
+    ms_src = _read(R5421_CALENDAR_OWNER)
+    pc_src = _read(R5421_CYCLE_OWNER)
+    dc_src = _read(R5421_CLOSE_OWNER)
+    op_src = _read(R5421_PRESENTATION_OWNER)
+    ams_src = _read(R5421_AMS_OWNER)
+    ui = _read(UI_FILE)
+    routes = check_routes()["routes"]
+
+    duplicate_state_owners: list[str] = []
+    duplicate_calendar_owners: list[str] = []
+    second_orchestrators: list[str] = []
+    for fp in files:
+        rel = _rel(fp).replace("\\", "/")
+        if not (rel.startswith("api/") or rel.startswith("engine/")
+                or rel.startswith("scripts/")):
+            continue
+        # THIS FILE names every forbidden symbol in order to forbid it; scanning
+        # itself would make the check permanently self-failing (the audit's own
+        # oldest trap). It owns no runtime behaviour, so it is out of scope.
+        if rel == "scripts/audit_architecture.py":
+            continue
+        body = _read(rel)
+        for d in R5421_FORBIDDEN_DEFS:
+            if d in body:
+                second_orchestrators.append(f"{rel}:{d}")
+        if rel != R5421_RECOVERY_OWNER:
+            for d in ("def build_session_recovery(",):
+                if d in body:
+                    duplicate_state_owners.append(f"{rel}:{d}")
+        if rel != R5421_CALENDAR_OWNER:
+            for d in ("def completed_sessions_after(",):
+                if d in body:
+                    duplicate_calendar_owners.append(f"{rel}:{d}")
+
+    return {
+        "phase": "R54.2.1",
+        "owner_defs_missing": sorted(d for d in R5421_OWNER_DEFS
+                                     if d not in ws_src),
+        "calendar_defs_missing": sorted(d for d in R5421_CALENDAR_DEFS
+                                        if d not in ms_src),
+        "duplicate_state_owners": sorted(duplicate_state_owners),
+        "duplicate_calendar_owners": sorted(duplicate_calendar_owners),
+        "second_recovery_orchestrators": sorted(second_orchestrators),
+        "forbidden_routes_present": sorted(
+            r for r in R5421_FORBIDDEN_ROUTES
+            if any(rt["path"] == r for rt in routes)),
+        # (a) the workflow owner DELEGATES the calendar; it never walks dates.
+        "workflow_delegates_calendar": (
+            "msession.completed_sessions_after(" in ws_src),
+        # A weekend/holiday walk is SESSION calendar arithmetic and belongs to the
+        # market-session owner alone. (``_business_days_between`` is an age-in-days
+        # helper over two given dates, not a session resolver, and is unaffected.)
+        "workflow_owns_no_calendar_walk": not any(
+            t in ws_src for t in ("def next_trading_day(",
+                                  "def previous_trading_day(",
+                                  "def walk_back_to_trading_day(",
+                                  "def completed_sessions_after(")),
+        # (b) the obligation is anchored on the CLOSE journal, not on the
+        #     owned-data-confirmed eligible date (the R54.2.1 root cause).
+        "obligation_anchored_on_close": (
+            "operational_close_valid" in ws_src
+            and "latest_completed_close_date=latest_close_date" in ws_src),
+        "priority_suppresses_wait_state": (
+            "and not catch_up_required" in ws_src),
+        "priority_promotes_close": ("if catch_up_required or not "
+                                    "eligible_session_closed:" in ws_src),
+        # (c) the SERVER binds the session; the close refuses what it cannot honour.
+        "cycle_reads_binding_from_workflow": (
+            "def recovery_binding(" in pc_src
+            and 'get("session_recovery")' in pc_src),
+        "cycle_passes_binding_to_close": (
+            "target_market_date=bound_date" in pc_src
+            or "target_market_date=target_market_date" in pc_src),
+        "close_accepts_binding": ("target_market_date" in dc_src
+                                  and "def _apply_session_binding(" in dc_src),
+        "close_refuses_forward_binding": (
+            "BINDING_REJECTED_FUTURE" in dc_src
+            and "session_binding_rejected" in dc_src),
+        "close_binding_never_clamps": ("clock[\"session_binding_rejected\"] = "
+                                       "BINDING_REJECTED_FUTURE" in dc_src),
+        "binding_is_not_a_request_field": not any(
+            t in _read("api/app.py") for t in
+            ("target_market_date: ", "target_market_date=payload",
+             "target_market_date=body")),
+        # (d) the projections delegate.
+        "ams_delegates_recovery": (
+            "def _session_recovery_block(" in ams_src
+            and '"computed_here": False' in ams_src),
+        "presentation_delegates_recovery": (
+            'wf.get("session_recovery")' in op_src),
+        "oldest_first_declared": ('"oldest_first": True' in ws_src),
+        # (e) the UI renders, it does not decide.
+        "ui_recovery_derivation": sorted(t for t in R5421_FORBIDDEN_UI if t in ui),
+        "ui_renders_backend_recovery": (
+            "function _opRenderSessionRecovery(" in ui
+            and "p.session_recovery" in ui),
+        "ui_offers_no_date_entry": not any(
+            t in ui for t in ('id="recovery-date"', "recoveryDate",
+                              'name="recovery_session"')),
+        # (f) no new authority. The recovery path may not schedule itself, create an
+        #     order or approve anything — it only decides WHICH session the one
+        #     manual cycle binds. (``next_scheduled_full_review`` is the legacy gate's
+        #     review clock and is deliberately not matched here.)
+        "recovery_adds_automation": any(
+            t in ws_src for t in ("schedule.every", "CronCreate", "register_task",
+                                  "auto_run_cycle", "def _autorun")),
+        "recovery_creates_orders": ("create_order" in ws_src
+                                    or "submit_order" in ws_src
+                                    or "create_order" in pc_src),
+        "cycle_still_approves_nothing": (
+            '"approves_proposals": False' in pc_src
+            and '"executes_rebalance": False' in pc_src
+            and '"automation": "OFF"' in pc_src),
+    }
 
 
 def check_release54_2_same_session_reassessment_versioning(
@@ -12942,6 +13119,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_1_governed_intraday_decision(files),
         "release54_2_same_session_reassessment_versioning":
             check_release54_2_same_session_reassessment_versioning(files),
+        "release54_2_1_missed_session_recovery":
+            check_release54_2_1_missed_session_recovery(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13633,6 +13812,37 @@ def _print_console(rep: dict) -> None:
           f"{v['gate_requires_persisted_reassessment']}  "
           f"cycle publishes persistence outcome: "
           f"{v['cycle_publishes_persistence_outcome']}")
+
+    hdr("MISSED ELIGIBLE SESSION RECOVERY (R54.2.1)")
+    mr = rep["release54_2_1_missed_session_recovery"]
+    print(f"owner defs missing (must be empty): {mr['owner_defs_missing']}  "
+          f"calendar defs missing (must be empty): {mr['calendar_defs_missing']}")
+    print(f"duplicate state owners (must be empty): {mr['duplicate_state_owners']}  "
+          f"duplicate calendar owners (must be empty): "
+          f"{mr['duplicate_calendar_owners']}")
+    print(f"second recovery orchestrators (must be empty): "
+          f"{mr['second_recovery_orchestrators']}  "
+          f"forbidden routes (must be empty): {mr['forbidden_routes_present']}")
+    print(f"workflow delegates calendar: {mr['workflow_delegates_calendar']}  "
+          f"owns no calendar walk: {mr['workflow_owns_no_calendar_walk']}  "
+          f"obligation anchored on close: {mr['obligation_anchored_on_close']}")
+    print(f"priority suppresses wait state: {mr['priority_suppresses_wait_state']}  "
+          f"priority promotes close: {mr['priority_promotes_close']}  "
+          f"oldest first: {mr['oldest_first_declared']}")
+    print(f"cycle reads binding: {mr['cycle_reads_binding_from_workflow']}  "
+          f"cycle passes binding: {mr['cycle_passes_binding_to_close']}  "
+          f"close accepts binding: {mr['close_accepts_binding']}")
+    print(f"close refuses forward binding: {mr['close_refuses_forward_binding']}  "
+          f"never clamps: {mr['close_binding_never_clamps']}  "
+          f"binding is not a request field: {mr['binding_is_not_a_request_field']}")
+    print(f"AMS delegates: {mr['ams_delegates_recovery']}  "
+          f"presentation delegates: {mr['presentation_delegates_recovery']}")
+    print(f"UI recovery derivation (must be empty): {mr['ui_recovery_derivation']}  "
+          f"UI renders backend recovery: {mr['ui_renders_backend_recovery']}  "
+          f"UI offers no date entry: {mr['ui_offers_no_date_entry']}")
+    print(f"adds automation (must be False): {mr['recovery_adds_automation']}  "
+          f"creates orders (must be False): {mr['recovery_creates_orders']}  "
+          f"cycle approves nothing: {mr['cycle_still_approves_nothing']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -15601,6 +15811,51 @@ BLOCKING_INVARIANTS = (
      "automatic_execution_allowed", False),
     ("release54_2_same_session_reassessment_versioning",
      "advances_operational_mark", False),
+    # ------------------------------------------------------------------- #
+    # Release 54.2.1 - MISSED ELIGIBLE SESSION RECOVERY. ONE catch-up state
+    # owner, ONE calendar owner, ONE orchestration path, a SERVER-decided
+    # session binding, and no backfill / force-close / date-entry anywhere.
+    # Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_1_missed_session_recovery", "owner_defs_missing", []),
+    ("release54_2_1_missed_session_recovery", "calendar_defs_missing", []),
+    ("release54_2_1_missed_session_recovery", "duplicate_state_owners", []),
+    ("release54_2_1_missed_session_recovery", "duplicate_calendar_owners", []),
+    ("release54_2_1_missed_session_recovery",
+     "second_recovery_orchestrators", []),
+    ("release54_2_1_missed_session_recovery", "forbidden_routes_present", []),
+    ("release54_2_1_missed_session_recovery",
+     "workflow_delegates_calendar", True),
+    ("release54_2_1_missed_session_recovery",
+     "workflow_owns_no_calendar_walk", True),
+    ("release54_2_1_missed_session_recovery",
+     "obligation_anchored_on_close", True),
+    ("release54_2_1_missed_session_recovery",
+     "priority_suppresses_wait_state", True),
+    ("release54_2_1_missed_session_recovery", "priority_promotes_close", True),
+    ("release54_2_1_missed_session_recovery", "oldest_first_declared", True),
+    ("release54_2_1_missed_session_recovery",
+     "cycle_reads_binding_from_workflow", True),
+    ("release54_2_1_missed_session_recovery",
+     "cycle_passes_binding_to_close", True),
+    ("release54_2_1_missed_session_recovery", "close_accepts_binding", True),
+    ("release54_2_1_missed_session_recovery",
+     "close_refuses_forward_binding", True),
+    ("release54_2_1_missed_session_recovery",
+     "close_binding_never_clamps", True),
+    ("release54_2_1_missed_session_recovery",
+     "binding_is_not_a_request_field", True),
+    ("release54_2_1_missed_session_recovery", "ams_delegates_recovery", True),
+    ("release54_2_1_missed_session_recovery",
+     "presentation_delegates_recovery", True),
+    ("release54_2_1_missed_session_recovery", "ui_recovery_derivation", []),
+    ("release54_2_1_missed_session_recovery",
+     "ui_renders_backend_recovery", True),
+    ("release54_2_1_missed_session_recovery", "ui_offers_no_date_entry", True),
+    ("release54_2_1_missed_session_recovery", "recovery_adds_automation", False),
+    ("release54_2_1_missed_session_recovery", "recovery_creates_orders", False),
+    ("release54_2_1_missed_session_recovery",
+     "cycle_still_approves_nothing", True),
 )
 
 

@@ -107,6 +107,16 @@ responsibilities, candidate existing modules, and migration approach.
   eligible session is confirmed only when BOTH the owned market marks AND the benchmark
   reach the expected date. This superseded the removed `likely_holiday` benchmark
   heuristic (the desk marks and the SPY benchmark share one owned provider).
+- **Two questions, two owners (R54.2.1):** `evaluate_session` answers a
+  CONFIRMATION question — *which completed session do the owned marks confirm?*
+  — and by construction cannot express an obligation for a session whose data was
+  never ingested. The OBLIGATION question — *which completed sessions have not
+  been closed?* — is calendar arithmetic and belongs here
+  (`completed_sessions_after`), bounded above by the EXPECTED COMPLETED session
+  and below by the last successfully closed session (`api.daily_close`). The
+  still-forming current session is therefore excluded by construction, and no
+  `today - 1` arithmetic exists in the system. The catch-up STATE that composes
+  the two is `api.workflow_state`'s, not this owner's.
 
 ### Workflow / Operator State
 - **Responsibility:** hold the single authoritative *combined operator
@@ -143,6 +153,19 @@ responsibilities, candidate existing modules, and migration approach.
   state is independent of async loader completion order (ownership, not timing). This
   is the DOM-side analogue of "one concept, one owner": one owner per *visible*
   interpretation, mirroring the backend one-owner-per-concept boundary.
+- **Missed-session recovery (R54.2.1, LANDED):** the catch-up STATE is composed
+  here from two owners' published answers (`engine.market_session` for the
+  calendar, `api.daily_close` for what was processed) and exposed as
+  `session_recovery`. It is a **projection, not a new authority**: it enumerates
+  no dates of its own, adds no overall state (recovery resolves through the
+  existing `READY_FOR_DAILY_CLOSE`), and adds no route. Recovery runs through the
+  ONE portfolio cycle with the session BOUND by the server —
+  `api.portfolio_cycle` reads `recovery_session` verbatim and hands it to
+  `api.daily_close` as `target_market_date`, which may only ever narrow the
+  clock's expected session and REFUSES (never clamps) a forward binding. The
+  operator supplies no date; there is no backfill, recover or force-close route.
+  `api.active_manager_state` and `api.operator_presentation` republish the
+  contract read-only and compute no session date.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

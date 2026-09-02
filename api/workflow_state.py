@@ -1619,6 +1619,204 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.2.1 — MISSED ELIGIBLE SESSION RECOVERY (the catch-up projection).
+#
+# THE DEFECT THIS REPAIRS. On 2026-09-01 the operator could not close the session:
+# the workflow correctly failed closed on OWNED_DATA_NOT_CONFIRMED. On the morning
+# of 2026-09-02 the SAME payload reported:
+#
+#     session_status                       BEFORE_SESSION_CLOSE
+#     expected_completed_market_date       2026-09-01
+#     latest_eligible_completed_market_date 2026-08-31   (owned marks confirm this)
+#     latest_completed_close_date          2026-08-31
+#     overall_state                        WAITING_FOR_SESSION_CLOSE
+#     next action                          "Wait for the market session to close"
+#
+# — while the Daily Close owner, which probes the owned provider, said
+# "SEPTEMBER 1 EOD DATA READY - RUN DAILY CLOSE". The obligation for 2026-09-01
+# was not resolved, forfeited or blocked: it silently ceased to exist when the wall
+# clock rolled forward.
+#
+# THE CAUSE, precisely. P2 asserts "the latest eligible completed session is already
+# fully processed", and it tested that against ``eligible_session_closed`` — which is
+# computed from the OWNED-DATA-CONFIRMED session (2026-08-31), not from the EXPECTED
+# completed session (2026-09-01). Owned-data confirmation only advances when a close
+# runs, so an unclosed session can never confirm itself: the very session the operator
+# missed is the one the eligible date cannot name. Every surface then repeated the
+# claim, including the operator command's "No action required right now."
+#
+# THE RULE. The obligation is a CALENDAR question against the CLOSE JOURNAL, and both
+# owners already publish their answer:
+#
+#     last_closed_session  = api.daily_close        (which session was processed)
+#     through              = engine.market_session  (expected completed session)
+#     recovery_session     = the OLDEST completed session in between
+#
+# The enumeration is delegated verbatim to ``engine.market_session`` — this module
+# performs no calendar arithmetic, holds no holiday table and never computes
+# "today - 1". The still-forming current session cannot appear, because the upper
+# bound is the EXPECTED completed session, which is never today's open one.
+# --------------------------------------------------------------------------- #
+#: The frozen catch-up vocabulary (part of the tested contract).
+NO_CATCH_UP_REQUIRED = "NO_CATCH_UP_REQUIRED"
+CATCH_UP_REQUIRED = "CATCH_UP_REQUIRED"
+CATCH_UP_WAITING_FOR_OWNED_DATA = "CATCH_UP_WAITING_FOR_OWNED_DATA"
+CATCH_UP_BLOCKED = "CATCH_UP_BLOCKED"
+SESSION_RECOVERY_STATES = (NO_CATCH_UP_REQUIRED, CATCH_UP_REQUIRED,
+                           CATCH_UP_WAITING_FOR_OWNED_DATA, CATCH_UP_BLOCKED)
+#: WHICH sessions are missed is composed here from the two owners below; the
+#: calendar enumeration itself belongs to the market-session owner.
+SESSION_RECOVERY_OWNER = WORKFLOW_STATE_OWNER
+SESSION_RECOVERY_CALENDAR_OWNER = SESSION_ELIGIBILITY_OWNER
+
+#: How the owned data for the recovery session stands, probe-free. The workflow owner
+#: is deliberately PROBE-FREE (it never calls the owned provider), so it reports what
+#: the persisted owned marks say and names the owner that revalidates the rest.
+RECOVERY_DATA_CONFIRMED = "CONFIRMED"
+RECOVERY_DATA_UNVERIFIED = "UNVERIFIED_UNTIL_CLOSE_REVALIDATES"
+RECOVERY_DATA_LAGGING = "OWNED_DATA_LAGGING"
+RECOVERY_DATA_STATES = (RECOVERY_DATA_CONFIRMED, RECOVERY_DATA_UNVERIFIED,
+                        RECOVERY_DATA_LAGGING)
+
+_RECOVERY_NEXT_RUN_CYCLE = "RUN_PORTFOLIO_CYCLE"
+_RECOVERY_NEXT_WAIT_DATA = "WAIT_FOR_OR_REFRESH_OWNED_DATA"
+_RECOVERY_NEXT_RESOLVE = "RESOLVE_NAMED_BLOCKER"
+_RECOVERY_NEXT_NONE = "NONE"
+
+
+def build_session_recovery(*, expected_completed_market_date: Any,
+                           eligible_market_date: Any,
+                           latest_completed_close_date: Any,
+                           operational_close_valid: bool,
+                           latest_confirmed_owned_data_date: Any = None,
+                           session_status: Any = None,
+                           owned_data_lag: bool = False,
+                           inconsistent: bool = False,
+                           cycle_running: bool = False,
+                           cycle_blocked: bool = False,
+                           authoritative_non_sessions: Any = None) -> dict[str, Any]:
+    """The ONE canonical missed-completed-session (catch-up) projection.
+
+    Pure: every input is an already-published owner answer, the calendar
+    enumeration is delegated to ``engine.market_session.completed_sessions_after``,
+    and nothing here reads a clock, a store or a provider.
+
+    ``recovery_session`` is always the OLDEST missed completed session, so a two-day
+    outage recovers Monday before Tuesday and can never skip straight to the newest.
+    """
+    closed = _coerce_date(latest_completed_close_date) if operational_close_valid \
+        else None
+    # A close the owner does not classify as operationally complete is NOT a closed
+    # session; falling back to the confirmed eligible date would let a failed attempt
+    # erase the obligation it failed to discharge.
+    anchor = closed or _coerce_date(eligible_market_date)
+    calendar = msession.completed_sessions_after(
+        anchor, through=expected_completed_market_date,
+        non_sessions=authoritative_non_sessions)
+    missed = list(calendar["sessions"])
+    recovery = calendar["oldest"]
+    confirmed = _coerce_date(latest_confirmed_owned_data_date)
+    rec_d = _coerce_date(recovery)
+
+    blockers: list[dict[str, Any]] = []
+    if calendar["truncated"]:
+        blockers.append({
+            "code": "MISSED_SESSION_BACKLOG_EXCEEDS_LIMIT",
+            "detail": ("More than %d completed sessions are unclosed after %s; that is "
+                       "an outage, not a missed session. Recover the oldest session "
+                       "first and re-read this state."
+                       % (msession.MAX_MISSED_SESSIONS, _iso(anchor) or "the last close")),
+            "owner": SESSION_RECOVERY_OWNER})
+    if inconsistent:
+        blockers.append({
+            "code": "STATE_INCONSISTENT",
+            "detail": ("Authoritative surfaces disagree; the named consistency "
+                       "violations must be reconciled before any session is closed."),
+            "owner": SESSION_RECOVERY_OWNER})
+    if cycle_blocked:
+        blockers.append({
+            "code": "RESEARCH_CYCLE_BLOCKED",
+            "detail": ("The Daily Research Cycle names a blocker that must be resolved "
+                       "before the cycle can run; nothing is run over it."),
+            "owner": "api.daily_research_cycle"})
+
+    if not missed:
+        state = NO_CATCH_UP_REQUIRED
+        data_state = None
+        next_action = _RECOVERY_NEXT_NONE
+        summary = ("No completed market session is unclosed. The latest completed "
+                   "session the close owner processed is %s."
+                   % (_iso(closed) or "not recorded"))
+    elif blockers:
+        state = CATCH_UP_BLOCKED
+        data_state = None
+        next_action = _RECOVERY_NEXT_RESOLVE
+        summary = ("%s was not closed and recovery is blocked: %s."
+                   % (recovery, "; ".join(b["code"] for b in blockers)))
+    elif owned_data_lag:
+        # The SESSION owner itself reports that owned data has not reached the
+        # expected completed session. That is an affirmative "not published yet"
+        # answer, not an un-ingested mark, so it is stated as waiting.
+        state = CATCH_UP_WAITING_FOR_OWNED_DATA
+        data_state = RECOVERY_DATA_LAGGING
+        next_action = _RECOVERY_NEXT_WAIT_DATA
+        summary = ("%s was not closed and %s reports owned market data has not reached "
+                   "it yet (owned data confirms %s). Nothing is safe to close until the "
+                   "owned provider publishes the session."
+                   % (recovery, SESSION_RECOVERY_CALENDAR_OWNER,
+                      _iso(confirmed) or "no session"))
+    else:
+        state = CATCH_UP_REQUIRED
+        data_state = (RECOVERY_DATA_CONFIRMED
+                      if (confirmed is not None and rec_d is not None
+                          and confirmed >= rec_d)
+                      else RECOVERY_DATA_UNVERIFIED)
+        next_action = _RECOVERY_NEXT_RUN_CYCLE
+        summary = ("%s is a completed market session that was never closed. Run the "
+                   "portfolio cycle: it binds that session, and the Daily Close "
+                   "revalidates the owned provider server-side and writes nothing if "
+                   "the session is genuinely unpublished." % recovery)
+
+    return {
+        "owner": SESSION_RECOVERY_OWNER,
+        "calendar_owner": SESSION_RECOVERY_CALENDAR_OWNER,
+        "close_owner": CLOSE_VALIDITY_OWNER,
+        "recovery_state": state,
+        "recovery_state_vocabulary": list(SESSION_RECOVERY_STATES),
+        "catch_up_required": bool(state in (CATCH_UP_REQUIRED,
+                                            CATCH_UP_WAITING_FOR_OWNED_DATA)),
+        "last_closed_session": _iso(closed),
+        "missed_completed_sessions": missed,
+        "missed_completed_session_count": len(missed),
+        "missed_session_backlog_truncated": bool(calendar["truncated"]),
+        "skipped_non_sessions": list(calendar["skipped_non_sessions"]),
+        "recovery_session": recovery,
+        "current_open_or_next_session": _iso(_coerce_date(
+            expected_completed_market_date)),
+        "expected_completed_market_date": _iso(_coerce_date(
+            expected_completed_market_date)),
+        "eligible_market_date": _iso(_coerce_date(eligible_market_date)),
+        "owned_data_confirmation_date": _iso(confirmed),
+        "recovery_data_state": data_state,
+        "recovery_data_state_vocabulary": list(RECOVERY_DATA_STATES),
+        "recovery_data_ready": (data_state == RECOVERY_DATA_CONFIRMED
+                                if data_state is not None else None),
+        "recovery_blockers": blockers,
+        "session_status": session_status,
+        "cycle_in_flight": bool(cycle_running),
+        "next_action": next_action,
+        "summary": summary,
+        "operator_supplies_no_date": True,
+        "orchestration_path": PORTFOLIO_CYCLE_EXECUTION_CONTRACT["path"],
+        "recovery_specific_route": None,
+        "oldest_first": True,
+        "note": ("Recovery runs through the ONE normal portfolio cycle bound to the "
+                 "OLDEST unclosed completed session. There is no backfill route, no "
+                 "force-close control and no operator-supplied date."),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Stage 18 — model-recalibration REVIEW derivation (separate lane). A model REVIEW
 # is raised ONLY when a signal/ranking degradation research flag is *actionable*
 # (evidence sufficient). Performance symptoms (negative excess, drawdown, cost-
@@ -1805,7 +2003,8 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     cycle_blocked: bool = False, cycle_inconsistent: bool = False,
                     cycle_complete: bool = False, hoc_current: bool = False,
                     research_cycle_due_after_close: bool = False,
-                    reassessment_blocked: bool = False) -> str:
+                    reassessment_blocked: bool = False,
+                    catch_up_required: bool = False) -> str:
     # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
     #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
     #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
@@ -1838,8 +2037,18 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     #      Precisely the three states that DO make that claim — this one and the two
     #      completion states — are the ones a required review now outranks, which is
     #      exactly the set the cross-surface invariant names.
+    #
+    #      RELEASE 54.2.1 REPAIR. ``eligible_session_closed`` is computed against the
+    #      OWNED-DATA-CONFIRMED session, and owned-data confirmation only advances when
+    #      a close runs — so an unclosed completed session can never confirm itself and
+    #      this gate happily claimed "fully processed" while 2026-09-01 had never been
+    #      closed at all. A missed completed session names REAL WORK, so it outranks
+    #      every claim that nothing is outstanding, exactly as P3.7 already does for the
+    #      session the eligible date can name. The obligation is decided by
+    #      ``build_session_recovery`` from the close journal + the market-session
+    #      calendar; nothing here recomputes a date.
     if session_status == msession.BEFORE_SESSION_CLOSE and eligible_session_closed \
-            and not manual_review_required:
+            and not manual_review_required and not catch_up_required:
         return WAITING_FOR_SESSION_CLOSE
 
     # P3 — the expected session is not confirmed by owned data (or no confirmed
@@ -1876,7 +2085,14 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     #        portfolio that is about to change. A run already IN FLIGHT (P3.5) or BLOCKED
     #        (P3.6) still outranks this — an in-progress cycle is never interrupted and a
     #        blocked one names a fix the operator must make first.
-    if not eligible_session_closed:
+    #
+    #        RELEASE 54.2.1 — the same precedence now also covers a completed session
+    #        the eligible date cannot name: a MISSED session (one the close journal
+    #        never processed, older than the expected completed session). Its canonical
+    #        next action is identical — the Daily Close, bound by the server to the
+    #        OLDEST missed session — so it resolves through this one gate rather than a
+    #        second recovery state or a second orchestrator.
+    if catch_up_required or not eligible_session_closed:
         return READY_FOR_DAILY_CLOSE
 
     # P4 — required research inputs are stale or missing → run the research cycle.
@@ -3326,6 +3542,28 @@ def load_workflow_state(
     # completed daily cycle — the whole point of the two-class distinction.
     live_pre_drc_signal_present = bool(hoc_available
                                        and not governed_research_evidence_current)
+    # Release 54.2.1 — THE MISSED-SESSION (CATCH-UP) PROJECTION, composed from the two
+    # session owners' already-published answers BEFORE the priority policy runs, so a
+    # completed session that was never closed can never be masked by a gate that claims
+    # nothing is outstanding. The calendar enumeration belongs to engine.market_session.
+    session_recovery = build_session_recovery(
+        expected_completed_market_date=expected_date,
+        eligible_market_date=eligible_date,
+        latest_completed_close_date=latest_close_date,
+        operational_close_valid=operational_close_valid,
+        latest_confirmed_owned_data_date=session.get(
+            "latest_confirmed_owned_data_date"),
+        session_status=session_status, owned_data_lag=owned_data_lag,
+        inconsistent=inconsistent_inputs, cycle_running=cycle_running,
+        cycle_blocked=cycle_blocked,
+        authoritative_non_sessions=session.get("authoritative_non_sessions"))
+    catch_up_required = bool(session_recovery["catch_up_required"])
+    #: The session the OPERATOR must act on. Normally the eligible completed session;
+    #: when a catch-up obligation exists it is the OLDEST missed session, so the primary
+    #: action, the operator command and the close gate all name the session the bound
+    #: cycle will actually process — never the one already in the close journal.
+    action_session = (session_recovery["recovery_session"] if catch_up_required
+                      else eligible_date)
     overall = _decide_overall(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
@@ -3337,16 +3575,41 @@ def load_workflow_state(
         cycle_inconsistent=cycle_inconsistent, cycle_complete=cycle_complete,
         hoc_current=hoc_available,
         research_cycle_due_after_close=research_cycle_due_after_close,
-        reassessment_blocked=reassessment_blocked)
+        reassessment_blocked=reassessment_blocked,
+        catch_up_required=catch_up_required)
 
     primary = assert_primary_action_contract(_primary_action(overall, {
-        "eligible_date": eligible_date,
+        "eligible_date": action_session,
         "research_cycle_due_after_close": research_cycle_due_after_close,
         "live_pre_drc_signal_present": live_pre_drc_signal_present,
         "reassessment_blocked": reassessment_blocked,
         "reassessment_blocker_codes": reassessment_blocker_codes,
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
+    # Release 54.2.1 — CATCH-UP WORDING. The action, its code, its execution kind and
+    # its contract are UNCHANGED (still the one canonical Daily Close inside the one
+    # portfolio cycle); only the sentence names the session honestly, so the operator
+    # is never told to close "the latest eligible session" when the server is about to
+    # bind an older one. Pure presentation over values the two session owners published.
+    if catch_up_required and primary.get("execution_kind") == EXEC_DAILY_CLOSE:
+        _n_missed = session_recovery["missed_completed_session_count"]
+        primary = assert_primary_action_contract(dict(
+            primary,
+            explanation=(
+                "%s is a COMPLETED market session that was never closed (last completed "
+                "close: %s). %s The portfolio cycle binds the oldest missed session "
+                "itself — no date is entered by hand — and the Daily Close revalidates "
+                "the owned provider server-side, writing nothing if that session is "
+                "genuinely unpublished."
+                % (session_recovery["recovery_session"],
+                   session_recovery["last_closed_session"] or "none recorded",
+                   ("%d completed sessions are unclosed; the oldest is recovered first."
+                    % _n_missed) if _n_missed > 1 else
+                   "It is the only unclosed completed session.")),
+            current_task=("Run the portfolio cycle to close the missed %s session."
+                          % session_recovery["recovery_session"]),
+            headline=("Catch up — %s was not closed."
+                      % session_recovery["recovery_session"])))
     # Stage 19.3 — when the promoted action is the Daily Close and paper orders are
     # working, the operator is told (in the SAME sentence) that the close also settles
     # them. Pure presentation over the pending count the operational owner reported.
@@ -3809,7 +4072,7 @@ def load_workflow_state(
     # Release 29.4 — SESSION AUTHORITY. The composed payload may never offer a Daily
     # Close for a session the close owner already processed, report a completed close as
     # invalid, or hide one from the evidence presentation.
-    _dc_gate = build_daily_close_gate(overall, eligible_date=eligible_date,
+    _dc_gate = build_daily_close_gate(overall, eligible_date=action_session,
                                       latest_close_date=latest_close_date)
     session_violations = check_session_authority(
         session_status=session_status,
@@ -3878,8 +4141,19 @@ def load_workflow_state(
         # "what happens after that" answer, so no surface writes its own.
         "operator_command": build_operator_command(
             overall=overall, primary=primary, pending_orders=pending_orders,
-            eligible_date=eligible_date, latest_close_date=latest_close_date,
+            eligible_date=action_session, latest_close_date=latest_close_date,
             cycle=normal_cycle),
+        # Release 54.2.1 — the ONE missed-completed-session (catch-up) projection.
+        # Every surface that must show a recovery obligation reads THIS block; none
+        # recomputes a session date, and there is no recovery-specific write route.
+        "session_recovery": session_recovery,
+        "session_recovery_owner": SESSION_RECOVERY_OWNER,
+        "session_recovery_state": session_recovery["recovery_state"],
+        "session_recovery_state_vocabulary": list(SESSION_RECOVERY_STATES),
+        "catch_up_required": catch_up_required,
+        #: The session the operator's promoted action actually works on (the eligible
+        #: completed session, or the OLDEST missed session during a catch-up).
+        "action_session_market_date": action_session,
         # Stage 22 (Workstream A): the canonical NORMAL DAILY PORTFOLIO CYCLE — the
         # ordered stages, where the operator is in them, what happens next, and the ONE
         # per-stage gate every surface obeys. There is no alternate path.

@@ -1131,14 +1131,40 @@ def _expected_session(now_et: datetime) -> tuple[date, bool, bool]:
     return es.market_date, es.cutoff_passed, es.within_trading_day
 
 
-def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None) -> dict:
+#: Release 54.2.1 — why a SESSION BINDING may narrow the clock's expectation, and the
+#: only reasons it is refused. The close targets the clock's latest EXPECTED completed
+#: session, which is correct for the normal cycle and WRONG after an outage: with
+#: Monday and Tuesday both unclosed, a Wednesday close would process Tuesday and
+#: silently forfeit Monday. The canonical workflow owner therefore hands the close the
+#: OLDEST missed session, and the close binds every date-dependent step to it (the
+#: provider readiness probe, the desk mark refresh's ``completed_through``, the owned
+#: model-input refresh and the idempotency key all already read this ONE value).
+#:
+#: The binding may only ever look BACKWARD. A target newer than the clock's expected
+#: completed session would be a session that has not finished forming, so it is
+#: refused rather than clamped — a silently-clamped date is how a bound recovery turns
+#: back into an unbound one.
+SESSION_BINDING_OWNER = "api.workflow_state"
+BINDING_REJECTED_FUTURE = "SESSION_BINDING_AHEAD_OF_EXPECTED_SESSION"
+BINDING_REJECTED_MALFORMED = "SESSION_BINDING_NOT_A_DATE"
+
+
+def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None,
+                   target_market_date: Optional[str] = None) -> dict:
     """Resolve the expected completed session + clock metadata.
 
     A deterministic ``today`` date string (no explicit ``now``) uses the legacy
     weekday-before rule (the SAME rule ``paper_trading_desk._required_mark_date``
     uses for an injected date) and treats the session as safely closed — so the
     offline harness and the alpha-target readiness stay aligned. The live path
-    (today is None) uses the real US/Eastern clock with the 17:30 ET cutoff."""
+    (today is None) uses the real US/Eastern clock with the 17:30 ET cutoff.
+
+    ``target_market_date`` (Release 54.2.1) is the SERVER-decided session binding
+    described above. It is never operator input and never a wall-clock derivation:
+    the workflow owner names the oldest missed completed session and it narrows —
+    never advances — the clock's expectation. An unusable or forward-looking binding
+    is REFUSED (``session_binding_rejected``), leaving the clock's own expectation in
+    place so the caller fails closed instead of operating on a fabricated date."""
     base = {
         "timezone": "America/New_York",
         "post_close_cutoff_et": POST_CLOSE_CUTOFF_ET.strftime("%H:%M"),
@@ -1156,7 +1182,7 @@ def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None) 
             "expected_market_date": expected.isoformat(),
             "reference_today": d.isoformat(), "clock_source": "INJECTED_DATE",
         })
-        return base
+        return _apply_session_binding(base, target_market_date)
     et = _clock_now(now).astimezone(_ET)
     expected, cutoff_passed, within_trading_day = _expected_session(et)
     base.update({
@@ -1165,13 +1191,48 @@ def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None) 
         "expected_market_date": expected.isoformat(),
         "reference_today": et.date().isoformat(), "clock_source": "LIVE_ET",
     })
-    return base
+    return _apply_session_binding(base, target_market_date)
+
+
+def _apply_session_binding(clock: dict, target_market_date: Optional[str]) -> dict:
+    """Narrow ``clock['expected_market_date']`` to a server-decided recovery session.
+
+    Pure. Records the unbound clock expectation alongside the bound one so every
+    surface can see exactly which session is being processed and why.
+    """
+    clock.setdefault("session_binding", None)
+    clock.setdefault("session_binding_owner", None)
+    clock.setdefault("session_binding_rejected", None)
+    clock.setdefault("clock_expected_market_date", clock.get("expected_market_date"))
+    if target_market_date in (None, ""):
+        return clock
+    try:
+        target = date.fromisoformat(str(target_market_date)[:10])
+    except (TypeError, ValueError):
+        clock["session_binding_rejected"] = BINDING_REJECTED_MALFORMED
+        return clock
+    unbound = clock.get("clock_expected_market_date")
+    try:
+        limit = date.fromisoformat(str(unbound)[:10]) if unbound else None
+    except (TypeError, ValueError):
+        limit = None
+    if limit is not None and target > limit:
+        # A session the clock does not yet consider complete. Refuse; never clamp.
+        clock["session_binding_rejected"] = BINDING_REJECTED_FUTURE
+        return clock
+    clock["expected_market_date"] = target.isoformat()
+    clock["session_binding"] = target.isoformat()
+    clock["session_binding_owner"] = SESSION_BINDING_OWNER
+    return clock
 
 
 def _latest_eligible_market_date(today: Optional[str] = None,
-                                 now: Optional[datetime] = None) -> str:
+                                 now: Optional[datetime] = None,
+                                 target_market_date: Optional[str] = None) -> str:
     """The latest COMPLETED owned market date the close targets (clock-resolved)."""
-    return _resolve_clock(today=today, now=now)["expected_market_date"]
+    return _resolve_clock(today=today, now=now,
+                          target_market_date=target_market_date)[
+        "expected_market_date"]
 
 
 # --------------------------------------------------------------------------- #
@@ -2537,10 +2598,15 @@ def load_daily_close(
     engine_loader: Optional[Callable] = None,
     provider_probe: Optional[Callable] = None,
     downloader=None,
+    target_market_date: Optional[str] = None,
 ) -> dict:
     """Read-only canonical daily-close status for Alpha Paper Book #1. Writes
     nothing (a live provider probe is a read); degrades to a controlled status
-    (never a stack trace)."""
+    (never a stack trace).
+
+    ``target_market_date`` (Release 54.2.1) is the SERVER-decided session binding —
+    the oldest missed completed session named by ``api.workflow_state``. It narrows
+    the clock's expected session and is never operator input."""
     warnings: list[str] = []
     sdir = desk._desk_dir(desk_dir)
     op_loader = operational_loader or _scoped_operational(desk_dir, ledger_dir)
@@ -2568,7 +2634,8 @@ def load_daily_close(
     for w in (gate.get("warnings") or []):
         warnings.append("gate: %s" % w)
 
-    clock = _resolve_clock(today=today, now=now)
+    clock = _resolve_clock(today=today, now=now,
+                           target_market_date=target_market_date)
     latest_eligible = clock["expected_market_date"]
     book_id = book["book_id"]
     last_processed = _last_processed_date(sdir, book_id)
@@ -2721,6 +2788,7 @@ def run_daily_close(
     provider_probe: Optional[Callable] = None,
     alpha_refresh_fn: Optional[Callable] = None,
     prediction_capture_fn: Optional[Callable] = None,
+    target_market_date: Optional[str] = None,
 ) -> dict:
     """Phase 28B.2 single-flight wrapper around the manual daily close: a second
     POST while a close is running returns DAILY_CLOSE_IN_PROGRESS (with the live
@@ -2756,7 +2824,8 @@ def run_daily_close(
             refresh_fn=refresh_fn, operational_loader=operational_loader,
             gate_loader=gate_loader, engine_loader=engine_loader,
             provider_probe=provider_probe, alpha_refresh_fn=alpha_refresh_fn,
-            prediction_capture_fn=prediction_capture_fn)
+            prediction_capture_fn=prediction_capture_fn,
+            target_market_date=target_market_date)
         return result
     finally:
         _progress_finalize(desk_dir, result)
@@ -2789,6 +2858,7 @@ def _run_daily_close_locked(
     provider_probe: Optional[Callable] = None,
     alpha_refresh_fn: Optional[Callable] = None,
     prediction_capture_fn: Optional[Callable] = None,
+    target_market_date: Optional[str] = None,
 ) -> dict:
     """Execute ONE explicit, manual daily close for Alpha Paper Book #1.
 
@@ -2829,8 +2899,20 @@ def _run_daily_close_locked(
         warnings.append("Operational book unavailable: %s" % str(exc)[:160])
     book = _book_state(ops)
     book_id = book["book_id"]
-    clock = _resolve_clock(today=today, now=now)
+    clock = _resolve_clock(today=today, now=now,
+                           target_market_date=target_market_date)
     latest_eligible = clock["expected_market_date"]
+    # Release 54.2.1 — a REFUSED session binding fails the run CLOSED. Continuing on
+    # the clock's own expectation would silently convert a bound recovery back into an
+    # unbound close of a different session; nothing is written and the reason is named.
+    if clock.get("session_binding_rejected"):
+        return _no_write_state(
+            AWAITING_MARKET_CLOSE, book, ops, g_loader, today, sdir,
+            latest_eligible, warnings, evaluation_date, desk_dir, clock,
+            message=("The requested session binding (%s) was refused: %s. The expected "
+                     "completed session is %s. Nothing was written."
+                     % (target_market_date, clock["session_binding_rejected"],
+                        latest_eligible)))
 
     # 2. idempotency — an already-processed date creates no duplicate mark /
     #    performance / decision row. Phase 27H self-heal: a date closed under the

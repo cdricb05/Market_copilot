@@ -739,8 +739,44 @@ def _operator_guidance_block(workflow: Optional[dict]) -> dict:
         "blocking_reasons": w.get("blockers"),
         "warnings": w.get("warnings"),
         "consistency_status": w.get("consistency_status"),
+        # Release 54.2.1 — the missed-completed-session (catch-up) obligation, read
+        # VERBATIM from the workflow owner. This module computes no session date of
+        # its own: if it did, a second catch-up owner would exist and the two could
+        # disagree about which morning the operator owes a close.
+        "session_recovery": _session_recovery_block(workflow),
         "owner": COMPONENT_OWNERS["operator_guidance"],
     }
+
+
+#: Release 54.2.1 — the recovery fields this projection republishes, in the workflow
+#: owner's OWN spelling. Delegation is the whole point: no default is invented for a
+#: missing key, and an absent workflow payload yields an explicit UNAVAILABLE row.
+_RECOVERY_FIELDS = ("recovery_state", "catch_up_required", "last_closed_session",
+                    "missed_completed_sessions", "missed_completed_session_count",
+                    "recovery_session", "current_open_or_next_session",
+                    "recovery_data_state", "recovery_data_ready",
+                    "recovery_blockers", "next_action", "summary",
+                    "recovery_state_vocabulary", "skipped_non_sessions",
+                    "operator_supplies_no_date", "orchestration_path",
+                    "recovery_specific_route", "oldest_first")
+
+
+def _session_recovery_block(workflow: Optional[dict]) -> dict:
+    """Project the workflow owner's catch-up contract read-only (no derivation)."""
+    rec = (workflow or {}).get("session_recovery")
+    if not isinstance(rec, dict) or not rec:
+        return {"available": False, "recovery_state": "UNAVAILABLE",
+                "owner": "api.workflow_state", "delegated": True,
+                "computed_here": False,
+                "detail": ("The workflow owner did not publish a session-recovery "
+                           "contract; nothing is inferred in its place.")}
+    out = {"available": True, "owner": rec.get("owner") or "api.workflow_state",
+           "calendar_owner": rec.get("calendar_owner"),
+           "close_owner": rec.get("close_owner"),
+           "delegated": True, "computed_here": False}
+    for key in _RECOVERY_FIELDS:
+        out[key] = rec.get(key)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -860,6 +896,13 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
             "operational_mark_date": operational_book.get("operational_mark_date"),
             "latest_completed_close_date": operational_book.get(
                 "latest_completed_close_date"),
+            # Release 54.2.1 — the operational clock has a THIRD fact beside the
+            # eligible session and the mark: whether a completed session is still
+            # owed. Delegated, never recomputed.
+            "session_recovery_state": (operator_guidance.get("session_recovery")
+                                       or {}).get("recovery_state"),
+            "recovery_session": (operator_guidance.get("session_recovery")
+                                 or {}).get("recovery_session"),
             "owner": COMPONENT_OWNERS["operational_book"],
         },
         "live_research": {
@@ -968,6 +1011,9 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         "research_governance": research_governance,
         "execution_safety": execution_safety,
         "operator_guidance": operator_guidance,
+        # Release 54.2.1 — promoted to the top level so a surface never has to dig
+        # for "is a completed session still owed?". Identical object, one owner.
+        "session_recovery": operator_guidance.get("session_recovery"),
         "latest_live_intraday_assessment": live_intraday,
         "latest_governed_portfolio_decision": governed_block,
         "intraday_governance": intraday_governance,

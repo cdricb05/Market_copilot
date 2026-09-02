@@ -383,6 +383,18 @@ flowchart TD
   `daily_operating_run.latest_completed_market_date` (16:00), `daily_close`
   `_expected_session`/`_resolve_clock`/`_walk_back_weekend` (17:30),
   `alpha_target.latest_completed` (via the run wrapper).
+- **Missed-session enumeration (R54.2.1, LANDED):**
+  `completed_sessions_after(last_closed, through=…, non_sessions=…)` (+
+  `next_trading_day`, `MAX_MISSED_SESSIONS = 15`) — the PURE calendar half of
+  the catch-up contract. `evaluate_session` answers a CONFIRMATION question
+  (*which completed session do the owned marks confirm?*) and therefore can
+  never express an obligation for a session whose data was never ingested; the
+  OBLIGATION question (*which completed sessions have not been closed?*) is a
+  calendar question and lives here. The caller supplies both bounds — the last
+  successfully closed session (`api.daily_close`) and the expected completed
+  session — so today's still-forming session can never appear and no
+  `today - 1` arithmetic exists anywhere. Composed (never re-derived) by
+  `api.workflow_state.build_session_recovery`.
 - **Freshness owner** `api/data_freshness.py`: read-only, cadence-aware
   (`DAILY`/`MONTHLY`/`QUARTERLY`/`EVENT_DRIVEN`/`STATIC`), frozen vocabulary
   (`FRESH`/`STALE`/`MISSING`/`FUTURE_DATED`/`INCONSISTENT`/`NOT_DUE`/
@@ -482,6 +494,28 @@ flowchart TD
   re-presented as a stale "NO ACTION TODAY" today-conclusion; the historical
   no-change result is preserved (dated) in `completed_summary`, and a stale/overdue
   assessment is reported as "reassessment is due".
+- **Missed-session recovery (R54.2.1, LANDED):** `build_session_recovery()`
+  publishes the ONE catch-up contract — `session_recovery` (+
+  `session_recovery_state`, `catch_up_required`, `action_session_market_date`)
+  — with the frozen vocabulary `NO_CATCH_UP_REQUIRED` / `CATCH_UP_REQUIRED` /
+  `CATCH_UP_WAITING_FOR_OWNED_DATA` / `CATCH_UP_BLOCKED` and the probe-free
+  owned-data axis `CONFIRMED` / `UNVERIFIED_UNTIL_CLOSE_REVALIDATES` /
+  `OWNED_DATA_LAGGING`. The obligation is anchored on the CLOSE JOURNAL
+  (`api.daily_close`), never on the owned-data-confirmed eligible date: owned
+  confirmation only advances when a close runs, so an unclosed completed session
+  can never confirm itself — the live 2026-09-01 defect, where P2 truthfully
+  answered "already fully processed" about the wrong session. P2 is now
+  suppressed by `catch_up_required` and P3.7 fires on it, so a missed completed
+  session outranks every "nothing is outstanding" claim while still yielding to
+  an inconsistency, an unconfirmed current session, an in-flight cycle and a
+  named blocker. `recovery_session` is always the OLDEST missed session; the
+  primary action, operator command and Daily-Close gate are bound to
+  `action_session_market_date`. No new overall state, no recovery route.
+- **Probe-free by construction:** this owner never calls the owned provider, so
+  it reports what the persisted marks confirm and names `api.daily_close` as the
+  owner that revalidates the rest. An un-ingested mark is a publish/ingest gap,
+  never proof the provider lacks the session (the Phase-29D.1 holiday principle,
+  generalised).
 - **Separation of concerns (D-7):** a valid completed operational close with a
   documented forward-evidence gap is ATTENTION, never an operational failure;
   research staleness never invalidates the completed close.

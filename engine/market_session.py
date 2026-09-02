@@ -122,6 +122,14 @@ def previous_trading_day(d: date) -> date:
     return walk_back_to_trading_day(d - timedelta(days=1))
 
 
+def next_trading_day(d: date) -> date:
+    """Return the nearest weekday strictly after ``d`` (weekday-only)."""
+    d += timedelta(days=1)
+    while d.weekday() >= 5:  # 5 = Sat, 6 = Sun
+        d += timedelta(days=1)
+    return d
+
+
 def _coerce_date(value: Any) -> Optional[date]:
     """Best-effort date coercion (date/datetime/ISO-string) → date, else None."""
     if value is None:
@@ -545,6 +553,77 @@ def evaluate_session(
                "owned EOD marks)." % expected.isoformat())
 
 
+# --------------------------------------------------------------------------- #
+# Release 54.2.1 — MISSED COMPLETED SESSIONS (pure calendar arithmetic).
+#
+# ``evaluate_session`` answers a CONFIRMATION question: which completed session do
+# the owned marks confirm right now. That question can never express an OBLIGATION
+# for a session whose data was never ingested, which is exactly how the 2026-09-01
+# session disappeared from the operator surfaces when the wall clock rolled into
+# 2026-09-02: the owned marks still confirmed 2026-08-31, so the eligible session
+# stayed 2026-08-31 and every surface reported it "fully processed".
+#
+# The obligation question — WHICH completed sessions have not been closed — is a
+# calendar question, and this is the calendar owner, so the arithmetic lives here.
+# It is pure: no clock is read, no store is consulted, and the caller supplies both
+# the last successfully closed session and the upper bound (the expected completed
+# session, resolved by ``resolve_expected_session`` / ``evaluate_session``). The
+# still-forming current session is therefore excluded by construction — a caller
+# cannot accidentally ask for it, because the expected session is never today's
+# open one. There is deliberately NO "today minus one" arithmetic anywhere here.
+# --------------------------------------------------------------------------- #
+#: Hard bound on how far back a catch-up enumeration may reach. A gap longer than
+#: this is not a missed session — it is an outage, and it is reported as such
+#: (``truncated``) rather than silently producing a hundred obligations.
+MAX_MISSED_SESSIONS = 15
+
+
+def completed_sessions_after(last_closed_session: Any, *, through: Any,
+                             non_sessions: Any = None,
+                             limit: int = MAX_MISSED_SESSIONS) -> dict[str, Any]:
+    """The ordered completed trading sessions strictly AFTER ``last_closed_session``
+    and at or before ``through`` (pure; weekday calendar + authoritative
+    non-sessions).
+
+    ``through`` is the caller's already-resolved EXPECTED completed session — never
+    a wall-clock date — so today's still-forming session can never appear in the
+    result. ``non_sessions`` carries the same authoritative exchange-holiday /
+    provider-confirmed non-session inputs ``evaluate_session`` accepts; those dates
+    are skipped, so weekends and holidays work without any caller arithmetic.
+
+    Returns ``{"sessions": (...ascending ISO...), "oldest": iso|None,
+    "newest": iso|None, "count": int, "truncated": bool, "skipped_non_sessions":
+    (...)}``. An unusable / absent bound yields an empty, non-truncated result:
+    absence of a bound is never an obligation.
+    """
+    start = _coerce_date(last_closed_session)
+    end = _coerce_date(through)
+    skipped_set = _norm_non_sessions(non_sessions)
+    if start is None or end is None or end <= start:
+        return {"sessions": (), "oldest": None, "newest": None, "count": 0,
+                "truncated": False, "skipped_non_sessions": ()}
+    out: list[str] = []
+    skipped: list[str] = []
+    cursor = next_trading_day(walk_back_to_trading_day(start))
+    truncated = False
+    while cursor <= end:
+        iso = cursor.isoformat()
+        if iso in skipped_set:
+            skipped.append(iso)
+        else:
+            if len(out) >= max(0, int(limit)):
+                truncated = True
+                break
+            out.append(iso)
+        cursor = next_trading_day(cursor)
+    return {"sessions": tuple(out),
+            "oldest": (out[0] if out else None),
+            "newest": (out[-1] if out else None),
+            "count": len(out),
+            "truncated": truncated,
+            "skipped_non_sessions": tuple(skipped)}
+
+
 __all__ = [
     "REGULAR_CLOSE_ET",
     "DEFAULT_CLOSE_CUTOFF_ET",
@@ -566,9 +645,12 @@ __all__ = [
     "GATE_INCONSISTENT_OWNED_DATA",
     "ExpectedSession",
     "MarketSession",
+    "MAX_MISSED_SESSIONS",
     "to_eastern",
     "walk_back_to_trading_day",
     "previous_trading_day",
+    "next_trading_day",
+    "completed_sessions_after",
     "resolve_expected_session",
     "expected_from_reference_date",
     "evaluate_session",

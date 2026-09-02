@@ -1,7 +1,106 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2 - SAME-SESSION REASSESSMENT VERSIONING: make
+- **Updated by phase:** **R54.2.1 - MISSED ELIGIBLE SESSION RECOVERY: a daily
+  operating system must not require the operator to be present during one exact
+  hour (single agent, no subagents, Windows PowerShell only).** Built over the
+  committed R54.2 head `9dbbcdb`. Full narrative:
+  `docs/RELEASE54_2_1_MISSED_SESSION_RECOVERY.md`.
+  **The defect (live, proven):** on 2026-09-01 the Daily Close correctly failed
+  closed on `OWNED_DATA_NOT_CONFIRMED`. On 2026-09-02 09:01 ET the payload read
+  `session_status BEFORE_SESSION_CLOSE`, `expected_completed_market_date
+  2026-09-01`, `latest_eligible_completed_market_date 2026-08-31`,
+  `latest_completed_close_date 2026-08-31`, `overall_state
+  WAITING_FOR_SESSION_CLOSE`, "No action required right now" - while
+  `api.daily_close`, which probes the provider, said in the same minute
+  `DAILY_CLOSE_DUE` / "SEPTEMBER 1 EOD DATA READY" /
+  `provider_latest_date 2026-09-01`. The Sep-1 obligation was not resolved,
+  forfeited or blocked: it CEASED TO EXIST when the wall clock rolled forward,
+  and no operator control could recover it. Filesystem evidence confirms no
+  Sep-1 close artifact, DRC manifest, HOC assessment, reassessment or governed
+  decision exists.
+  **The cause:** `_decide_overall` P2 asserts "the latest eligible completed
+  session is already fully processed" and tested it with
+  `eligible_session_closed`, which is computed against the OWNED-DATA-CONFIRMED
+  session. Owned-data confirmation is the persisted desk-mark date and only
+  advances when a close runs, so **an unclosed completed session can never
+  confirm itself** - P2 answered truthfully about the wrong session (Aug 31).
+  Not a market-session bug: that owner answered its own question correctly. The
+  missing concept was a CALENDAR question asked against the CLOSE JOURNAL, which
+  nobody owned.
+  **Phase A/B - one canonical rule.** `engine.market_session` gains the PURE
+  enumeration `completed_sessions_after(last_closed, through=…,
+  non_sessions=…)` (+ `next_trading_day`, `MAX_MISSED_SESSIONS=15`);
+  `api.workflow_state.build_session_recovery(...)` composes the state from the
+  two owners' published answers. `recovery_session` is ALWAYS the OLDEST missed
+  session. Today's still-forming session cannot be selected (the upper bound is
+  the EXPECTED COMPLETED session), there is no `today - 1` arithmetic anywhere,
+  and weekends/holidays work through the calendar owner's existing authoritative
+  non-session set.
+  **Phase C - four states, no new vocabulary where one existed.**
+  `NO_CATCH_UP_REQUIRED` / `CATCH_UP_REQUIRED` /
+  `CATCH_UP_WAITING_FOR_OWNED_DATA` / `CATCH_UP_BLOCKED`, plus a probe-free
+  owned-data axis (`CONFIRMED` / `UNVERIFIED_UNTIL_CLOSE_REVALIDATES` /
+  `OWNED_DATA_LAGGING`). An un-ingested mark is a publish/ingest gap, NOT proof
+  the provider lacks the session - the same principle Phase 29D.1 froze for
+  holidays. `api.operator_presentation` puts the close owner's real provider
+  answer beside the obligation so Today can say `Owned data: READY` without the
+  workflow owner ever probing.
+  **Phase D/E - ONE orchestration path, session BOUND by the server.** Recovery
+  runs through the existing `POST /v1/operations/portfolio-cycle/run`; no
+  recover/backfill/force-close route, no second orchestrator, no repair script.
+  `api.portfolio_cycle.recovery_binding()` READS `recovery_session` from the
+  workflow owner and passes `target_market_date` to `api.daily_close`, whose new
+  `_apply_session_binding()` narrows `clock["expected_market_date"]` - already
+  the ONE value the provider probe, the desk-mark `completed_through`, the
+  model-input refresh and the idempotency key all read. **The binding may only
+  look BACKWARD: a forward target is REFUSED, never clamped** (a clamped date is
+  how a bound recovery turns back into an unbound close), returning
+  `AWAITING_MARKET_CLOSE` with no write. Resume is stage-aware and idempotent by
+  construction: close done -> resume at the DRC; close+DRC done -> stop at
+  `DECISION_PRESENTED`; a processed date -> `ALREADY_PROCESSED`. A close the
+  owner does not classify as complete is NOT a closed session, so a failed
+  attempt cannot erase the obligation it failed to discharge.
+  **Phase G - priority.** P2 is suppressed by `catch_up_required` and P3.7 gains
+  it as a disjunct: a missed completed session names REAL WORK, so it outranks
+  every "nothing is outstanding" claim - but never an inconsistency, an
+  unconfirmed current session, an in-flight cycle or a named blocker. No new
+  overall state: recovery resolves through the existing
+  `READY_FOR_DAILY_CLOSE`, and the primary action / operator command / close
+  gate are all bound to `action_session_market_date`.
+  **Phase H/I/J - operator UX.** `api.active_manager_state` republishes the
+  contract read-only (`delegated: true`, `computed_here: false`). Today gains a
+  conditional `#today-session-recovery` banner rendered VERBATIM from the
+  backend (no client date math, no backfill/force-close/date entry) which adds
+  NO execution control - Today still has exactly ONE primary-action render site.
+  Four Phase-J corrections: `TODAY -$270` -> `LAST CLOSED SESSION · Aug 31,
+  2026` (backend-decided label); the best feasible target beside an
+  authoritative HOLD is framed `REJECTED FEASIBLE ALTERNATIVE / NOT THE
+  RECOMMENDED PORTFOLIO` with the analysis kept; Audit raw tokens carry
+  `RAW / NON-AUTHORITATIVE DIAGNOSTIC STATE` + the authoritative decision and
+  emit no button; `FRESH` -> `Fresh for the governed session - 2026-08-31` with
+  Session recovery as its own readiness row (no freshness CALCULATION changed).
+  **Phase L - audit.** `check_release54_2_1_missed_session_recovery` adds 25
+  BLOCKING invariants (second catch-up owner, second calendar owner, second
+  recovery orchestrator, recovery/backfill/force-close route, a binding exposed
+  as a request field, a projection computing its own session date, UI recovery
+  date math, new automation/order path).
+  **LIVE READ-ONLY VERDICT (nothing written, backend never restarted):** the
+  repaired owner run against the REAL stores with the real clock reports
+  `overall_state READY_FOR_DAILY_CLOSE`, `recovery_state CATCH_UP_REQUIRED`,
+  `recovery_session 2026-09-01`, `last_closed_session 2026-08-31`,
+  `next_action RUN_PORTFOLIO_CYCLE`, `consistency CONSISTENT`. Sep-1 owned data
+  IS available (`provider_latest_date 2026-09-01`, READY). **The running
+  backend on 8001 still holds the pre-R54.2.1 runtime, so the operator must
+  restart it (canonical script) before Today can offer the recovery.**
+  **Verification:** new suite 43/43; required regressions 560 passing (the
+  pytest tmp-dir `atexit` PermissionError on `D:\Temp\pytest-of-binis` is an
+  environment artifact, present on unmodified suites too); strict audit exit 0
+  (baseline `git archive HEAD` also exit 0); `git diff --check` clean; live
+  validation READ-ONLY only. NOT committed (operator gate). No Daily Close /
+  DRC / portfolio cycle / approval / order / fill / scheduler change /
+  production-store write was performed.
+- **Previous phase:** **R54.2 - SAME-SESSION REASSESSMENT VERSIONING: make
   new signal evidence an immutable, governable portfolio assessment (single
   agent, no subagents, Windows PowerShell only).** Built over the committed
   R54.1 head `0cff378`. Full narrative:

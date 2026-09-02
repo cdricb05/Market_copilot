@@ -1983,6 +1983,45 @@
     .today-hero.state-warn{border-left-color:var(--warning,#f59e0b);}
     .today-hero.state-danger{border-left-color:var(--danger,#ef4444);}
     .today-hero.state-info{border-left-color:var(--info,#3b82f6);}
+    /* -- Release 54.2.1: MISSED COMPLETED SESSION (catch up). Amber = work that is
+       outstanding, not an incident; it sits directly under the system band so the
+       obligation is the first thing read on the morning after a missed close. -- */
+    .tcc-recovery{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap;
+      border:1px solid var(--warning,#f59e0b);border-left:4px solid var(--warning,#f59e0b);
+      border-radius:10px;background:rgba(245,158,11,.07);padding:14px 18px;margin:0 0 12px;}
+    .tcc-recovery[data-recovery-state="CATCH_UP_BLOCKED"],
+    .tcc-recovery[data-recovery-state="CATCH_UP_WAITING_FOR_OWNED_DATA"]{
+      border-color:var(--danger,#ef4444);border-left-color:var(--danger,#ef4444);
+      background:rgba(239,68,68,.07);}
+    .tcc-recovery .rc-lead{display:flex;flex-direction:column;gap:4px;min-width:260px;flex:1 1 300px;}
+    .tcc-recovery .rc-title{font-size:16px;font-weight:800;letter-spacing:.06em;
+      text-transform:uppercase;color:var(--warning,#f59e0b);}
+    .tcc-recovery[data-recovery-state="CATCH_UP_BLOCKED"] .rc-title,
+    .tcc-recovery[data-recovery-state="CATCH_UP_WAITING_FOR_OWNED_DATA"] .rc-title{color:var(--danger,#ef4444);}
+    .tcc-recovery .rc-detail{font-size:14px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .tcc-recovery .rc-why{font-size:12px;color:var(--text-accent,#a8b8d8);line-height:1.5;max-width:78ch;}
+    .tcc-recovery .rc-facts{display:flex;gap:26px;flex-wrap:wrap;}
+    .tcc-recovery .rc-facts .k{font-size:10px;font-weight:700;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--label,#7a8fb0);}
+    .tcc-recovery .rc-facts .v{font-size:13px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .tcc-recovery .rc-facts .v.ok{color:var(--ok,#22c55e);}
+    .tcc-recovery .rc-facts .v.blocked{color:var(--danger,#ef4444);}
+    .tcc-recovery .rc-facts .v.degraded{color:var(--warning,#f59e0b);}
+    .tcc-recovery .rc-act{display:flex;flex-direction:column;gap:6px;align-items:flex-end;}
+    .tcc-recovery .rc-note{font-size:11px;color:var(--label,#7a8fb0);max-width:34ch;text-align:right;}
+    /* -- Release 54.2.1: a feasible target the switching hurdle REJECTED is never
+       presented as the recommended portfolio. -- */
+    .op-rejected-banner{border:1px solid var(--warning,#f59e0b);border-radius:8px;
+      background:rgba(245,158,11,.07);padding:9px 13px;margin:0 0 12px;}
+    .op-rejected-banner .t{font-size:11px;font-weight:800;letter-spacing:.1em;
+      text-transform:uppercase;color:var(--warning,#f59e0b);}
+    .op-rejected-banner .d{font-size:12px;color:var(--text-accent,#a8b8d8);line-height:1.5;margin-top:3px;}
+    /* -- Release 54.2.1: raw upstream tokens are diagnostics, never a decision. -- */
+    .op-raw-banner{border:1px dashed var(--cc-border,#243b63);border-radius:8px;
+      background:rgba(255,255,255,.02);padding:9px 13px;margin:0 0 10px;}
+    .op-raw-banner .t{font-size:11px;font-weight:800;letter-spacing:.1em;
+      text-transform:uppercase;color:var(--label,#7a8fb0);}
+    .op-raw-banner .d{font-size:12px;color:var(--text-accent,#a8b8d8);line-height:1.5;margin-top:3px;}
     .th-eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:10px;}
     .th-headline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
     .th-mark{font-size:30px;line-height:1;}
@@ -3714,6 +3753,16 @@
             <span class="tcc-state">&mdash;</span>
             <span class="tcc-item"><span class="v">Loading the operator presentation&hellip;</span></span>
           </div>
+          <!-- ============ RELEASE 54.2.1 — MISSED COMPLETED SESSION (CATCH UP) ============
+               Hidden unless the BACKEND says a completed market session was never closed.
+               Every value here is rendered verbatim from operator_presentation
+               .session_recovery (obligation: api.workflow_state; calendar:
+               engine.market_session; owned-provider readiness: api.daily_close). The
+               browser performs NO date arithmetic, selects no session and offers no
+               backfill or force-close control: the only action is the SAME canonical
+               portfolio cycle, and the operator never types or picks a date. -->
+          <div id="today-session-recovery" data-recovery-owner="api.workflow_state"
+               class="tcc-recovery" data-recovery-state="" style="display:none;"></div>
           <div class="tcc-grid">
             <div id="today-decision" class="tcc-decision tone-info" data-decision-state="">
               <div class="tcc-eyebrow">Portfolio decision</div>
@@ -28363,6 +28412,7 @@ window.opresRefresh = opresRefresh;
 function renderOperatorPresentation(p) {
   var tasks = [
     function () { _opRenderTodayBand(p); },
+    function () { _opRenderSessionRecovery(p); },
     function () { _opRenderDecision(p, 'today-decision', 'today-primary-cta', true, null); },
     function () { _opRenderSnapshot(p); },
     function () { _opRenderAttention(p); },
@@ -28416,6 +28466,80 @@ function _opRenderTodayBand(p) {
     + items + note + '<span class="tcc-sp"></span>'
     + '<button type="button" class="tcc-link" onclick="opresRefresh(this)" title="Reload the operator presentation and the Today surfaces.">&#8635; Refresh</button>';
 }
+
+// 1b MISSED COMPLETED SESSION (Release 54.2.1). Rendered ONLY when the backend says a
+// completed market session was never closed. Every string, date and verdict comes from
+// operator_presentation.session_recovery: this function performs NO date arithmetic,
+// chooses NO session, and exposes NO backfill / force-close control — the single action
+// is the SAME canonical portfolio cycle, dispatched through the ONE dispatcher, and the
+// operator never supplies a date. When the state is not actionable the panel states why
+// and renders no button at all.
+function _opRenderSessionRecovery(p) {
+  var host = document.getElementById('today-session-recovery');
+  if (!host) return;
+  var r = (p && p.session_recovery) || {};
+  if (!r.active) {
+    host.style.display = 'none';
+    host.setAttribute('data-recovery-state', String(r.state || ''));
+    host.innerHTML = '';
+    return;
+  }
+  var na = (p && p.next_action) || {};
+  // THE ONE CTA INVARIANT IS NOT RELAXED HERE. This banner renders NO execution
+  // control of its own: Today still has exactly one primary-action render site
+  // (_opNextActionHtml -> opresPrimaryAction), and it already carries the catch-up
+  // wording because the workflow owner specialised the primary action. The control
+  // below only moves focus to that one button — it executes nothing, and there is
+  // deliberately no backfill / force-close / date-entry control anywhere.
+  var canRun = (r.next_action_kind === 'PORTFOLIO_CYCLE') && !!(na.available && na.executes);
+  var facts = ''
+    + '<div><div class="k">Missed session</div><div class="v">'
+    + _opEsc(r.recovery_session_display || r.recovery_session || '—') + '</div></div>'
+    + '<div><div class="k">Last closed</div><div class="v">'
+    + _opEsc(r.last_closed_session || '—') + '</div></div>'
+    + '<div><div class="k">Owned data</div><div class="v ' + _opEsc(r.owned_data_state || '')
+    + '">' + _opEsc(r.owned_data_line || '—') + '</div></div>'
+    + ((r.missed_completed_session_count > 1)
+        ? '<div><div class="k">Unclosed sessions</div><div class="v">'
+          + _opEsc(r.missed_completed_session_count) + ' &middot; oldest first</div></div>'
+        : '');
+  var blockers = (r.blockers || []).map(function (b) {
+    return _opEsc((b && (b.code || b.detail)) || String(b));
+  }).join('; ');
+  host.setAttribute('data-recovery-state', String(r.state || ''));
+  host.style.display = '';
+  host.innerHTML = ''
+    + '<div class="rc-lead">'
+    +   '<div class="rc-title">' + _opEsc(r.headline || 'CATCH UP') + '</div>'
+    +   '<div class="rc-detail">' + _opEsc(r.detail || '') + '</div>'
+    +   (r.summary ? '<div class="rc-why">' + _opEsc(r.summary) + '</div>' : '')
+    +   (blockers ? '<div class="rc-why">Blocked by: ' + blockers + '</div>' : '')
+    +   '<div class="rc-facts">' + facts + '</div>'
+    + '</div>'
+    + '<div class="rc-act">'
+    +   (canRun
+          ? '<button type="button" id="today-recovery-goto" class="tcc-link"'
+            + ' data-executes="0"'
+            + ' title="Moves to the ONE portfolio-cycle action below. This button executes'
+            + ' nothing itself; the server binds the missed session and you supply no date."'
+            + ' onclick="opresFocusPrimaryAction()">' + _opEsc(r.next_action_label || 'Run the Portfolio Cycle')
+            + ' &darr;</button>'
+          : '<span class="rc-note">' + _opEsc(r.next_action_label || 'No action is currently safe') + '</span>')
+    +   '<span class="rc-note">' + (canRun
+          ? 'The same portfolio cycle as any normal day, below. No backfill, no force close, no date entry.'
+          : 'Nothing is closed until this clears. No backfill or force-close control exists.')
+    +   '</span>'
+    + '</div>';
+}
+
+// Navigation only: move to the ONE primary-action button. Executes nothing.
+function opresFocusPrimaryAction() {
+  var el = document.getElementById('today-primary-cta');
+  if (!el) return;
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { el.scrollIntoView(); }
+  try { el.focus(); } catch (e) {}
+}
+window.opresFocusPrimaryAction = opresFocusPrimaryAction;
 
 // 2 PORTFOLIO DECISION — one state, one sentence, decision economics, ONE action.
 function _opRenderDecision(p, hostId, ctaId, executeHere, hereDest) {
@@ -28474,9 +28598,16 @@ function _opRenderSnapshot(p) {
   var today = s.daily_pnl_available
     ? (_opMoney(s.daily_pnl) + (_opNil(s.daily_return_pct) ? '' : ' <span class="sub">' + _opPct(s.daily_return_pct, 2) + '</span>'))
     : (s.daily_pnl_note ? _opEsc(s.daily_pnl_note) : 'not yet available');
+  // Release 54.2.1 (Phase J.1) — the daily P&L is a CLOSED-SESSION figure and the label
+  // is decided by the backend from session metadata (valuation date vs calendar date).
+  // Calling it "Today" while the operational mark was 2026-08-31 and the wall clock read
+  // 2026-09-02 stated a fact that was not true. No date arithmetic happens here.
+  var pnlLabel = s.daily_pnl_period_label || 'Last closed session';
+  var pnlSub = (!s.daily_pnl_is_current_calendar_day && s.daily_pnl_session_display)
+    ? ' <span class="sub">&middot; ' + _opEsc(s.daily_pnl_session_display) + '</span>' : '';
   host.innerHTML = '<div class="hd"><span>Portfolio snapshot</span><span>' + _opEsc(s.book_label || '') + (s.valuation_date ? ' &middot; ' + _opEsc(s.valuation_date) : '') + '</span></div>'
     + '<div class="nav"><div class="k">NAV</div><div class="v">' + _opMoney(s.nav) + '</div></div>'
-    + row('Today', today, _opSign(s.daily_pnl))
+    + row(_opEsc(pnlLabel) + pnlSub, today, _opSign(s.daily_pnl))
     + row('Cumulative', _opMoney(s.cumulative_pnl) + (_opNil(s.cumulative_return_pct) ? '' : ' <span class="sub">' + _opPct(s.cumulative_return_pct, 2) + '</span>'), _opSign(s.cumulative_pnl))
     + row('Cash', _opMoney(s.cash) + ' <span class="sub">&middot; ' + _opEsc(_opNil(s.positions) ? '—' : s.positions) + ' positions' + (s.pending_orders ? ' &middot; ' + _opEsc(s.pending_orders) + ' pending' : '') + '</span>', '')
     + row('vs ' + _opEsc(s.benchmark || 'benchmark'), _opNil(s.excess_return_pct) ? '—' : _opPct(s.excess_return_pct, 2, 'pp'), _opSign(s.excess_return_pct))
@@ -28646,9 +28777,25 @@ function _opRenderReallocationView(p) {
   var govLink = (d.state === 'AWAITING_CONFIRMATION' || d.state === 'AWAITING_NEXT_CLOSE' || d.state === 'OUTCOME_ACCRUING')
     ? '<div style="margin-top:8px;"><button type="button" class="tcc-link" onclick="pmOpenAuditCard(\'stage19-rebalance-card\')">Open the order plan detail &rarr;</button></div>'
     : '';
+  // Release 54.2.1 (Phase J.2) — WHAT THIS TARGET IS. EXIT / REDUCE / ADD / INCREASE
+  // were rendered at full prominence while the authoritative decision was HOLD, so the
+  // best FEASIBLE alternative read as the RECOMMENDED one. The analysis stays (it is
+  // what makes HOLD explainable) and is framed by the BACKEND's own verdict — the
+  // browser classifies nothing and hides nothing.
+  var rejected = (ds.target_class === 'REJECTED_FEASIBLE_ALTERNATIVE');
+  var rejBanner = rejected
+    ? '<div class="op-rejected-banner"><div class="t">' + _opEsc(ds.target_class_label || 'REJECTED FEASIBLE ALTERNATIVE') + '</div>'
+      + '<div class="d">' + _opEsc(ds.not_recommended_banner || '') + '</div></div>'
+    : '';
+  host.setAttribute('data-target-class', ds.target_class || '');
   host.innerHTML = dec
-    + '<div class="pmr-sec"><div class="pmr-t">Changes</div>' + changes + '</div>'
-    + '<div class="pmr-sec"><div class="pmr-t">Target</div>' + target + '</div>'
+    + rejBanner
+    + '<div class="pmr-sec"><div class="pmr-t">Changes'
+    + (rejected ? ' <span class="cc-badge muted" title="These are the changes the rejected alternative would have made. They are not recommended.">NOT RECOMMENDED</span>' : '')
+    + '</div>' + changes + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Target'
+    + (rejected ? ' <span class="cc-badge muted" title="The best feasible alternative that did NOT clear the switching hurdle.">REJECTED ALTERNATIVE</span>' : '')
+    + '</div>' + target + '</div>'
     + '<div class="pmr-sec"><div class="pmr-t">Economics</div>' + econ + '</div>'
     + '<div class="pmr-sec"><div class="pmr-t">Governance</div><div class="pmr-gov">' + steps + '</div>' + govNote + govLink
     + '<div class="r47-quiet" style="margin-top:8px;">' + _opEsc(gov.note || '') + '</div></div>';
@@ -28659,11 +28806,30 @@ function _opRenderRawStates(p) {
   var host = document.getElementById('pm-raw-states-body');
   if (!host) return;
   var raw = (p && p.raw_states) || {};
-  var keys = Object.keys(raw).filter(function (k) { return k !== 'note'; });
-  host.innerHTML = keys.length
+  // Release 54.2.1 (Phase J.3) — these are RAW UPSTREAM TOKENS, never a decision. Audit
+  // rendered a raw proposal-ready token beside a review-looking CTA while the
+  // authoritative decision was HOLD CURRENT PORTFOLIO. The banner and the authoritative
+  // line come from the backend; no CTA is ever rendered from these values.
+  var _META = { note: 1, label: 1, authoritative: 1, actionable: 1, renders_cta: 1,
+                authoritative_decision_state: 1, authoritative_decision_label: 1,
+                authoritative_decision_owner: 1, manual_review_required: 1,
+                disagrees_with_authoritative_decision: 1, disagreement_note: 1 };
+  var keys = Object.keys(raw).filter(function (k) { return !_META[k]; });
+  var banner = '<div class="op-raw-banner"><div class="t">'
+    + _opEsc(raw.label || 'RAW / NON-AUTHORITATIVE DIAGNOSTIC STATE') + '</div>'
+    + '<div class="d">Upstream owner tokens, for diagnosis only. They are not a portfolio '
+    + 'decision and no action is offered from them.'
+    + (raw.authoritative_decision_label
+        ? ' The authoritative decision is <b>' + _opEsc(raw.authoritative_decision_label) + '</b>'
+          + (raw.authoritative_decision_owner ? ' (' + _opEsc(raw.authoritative_decision_owner) + ')' : '') + '.'
+        : '')
+    + (raw.disagrees_with_authoritative_decision ? ' ' + _opEsc(raw.disagreement_note || '') : '')
+    + '</div></div>';
+  host.setAttribute('data-authoritative', '0');
+  host.innerHTML = banner + (keys.length
     ? keys.map(function (k) { return '<div><span>' + _opEsc(k) + '</span> <b>' + _opEsc(_opNil(raw[k]) ? 'null' : raw[k]) + '</b></div>'; }).join('')
       + '<div style="grid-column:1/-1;color:var(--label);margin-top:4px;">' + _opEsc(raw.note || '') + '</div>'
-    : '—';
+    : '—');
 }
 
 // ---- PORTFOLIO task views (hash sub-routes on the ONE Portfolio route) --------

@@ -42,7 +42,7 @@ Read-only. No write, no provider call, no prediction call, no order, no approval
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Optional
 
 PHASE = "R49"
@@ -208,7 +208,8 @@ def _count_actions(action_counts: dict, allocations: list) -> dict:
 # System readiness — READY / DEGRADED / BLOCKED, with every degraded item saying
 # whether it blocks the portfolio decision (the owners decide; this reads).
 # --------------------------------------------------------------------------- #
-def _system_readiness(wf: dict, collection: Optional[dict]) -> dict:
+def _system_readiness(wf: dict, collection: Optional[dict],
+                      recovery: Optional[dict] = None) -> dict:
     os_ = _d(wf.get("operational_state"))
     ev = _d(wf.get("evidence_state"))
     evc = _d(wf.get("evidence_classification"))
@@ -232,14 +233,45 @@ def _system_readiness(wf: dict, collection: Optional[dict]) -> dict:
     if not workflow_available:
         blocking.append("workflow state unavailable")
 
-    item("eligible_session", "Eligible session",
-         os_.get("eligible_market_date") or wf.get("eligible_market_date"), "ok")
+    rec = _d(recovery)
+    governed_session = os_.get("eligible_market_date") or wf.get("eligible_market_date")
+    # Release 54.2.1 (Phase J.4) — FRESHNESS IS ALWAYS RELATIVE TO A SESSION. "Fresh"
+    # on its own was read as "the system is current", which is a different claim: the
+    # data can be complete for the governed 2026-08-31 session while 2026-09-01 has
+    # never been closed. The session is therefore named in the value, and the
+    # outstanding session is a row of its own rather than an absence the operator has
+    # to notice. No freshness CALCULATION changes here — only what it is called.
+    item("eligible_session", "Eligible session (governed)", governed_session, "ok",
+         ("Fresh for the governed session — %s. A newer completed session may still "
+          "be outstanding; see Session recovery." % governed_session)
+         if rec.get("active") else
+         ("Fresh for the governed session — %s." % governed_session
+          if governed_session else None))
     close_valid = bool(os_.get("operational_close_valid"))
     item("operational_mark", "Operational mark", os_.get("valuation_date"),
          "ok" if close_valid else "degraded",
          None if close_valid else "The latest operational close is not marked valid.")
     if not close_valid and workflow_available:
         degraded.append("operational close not valid")
+    if rec.get("available"):
+        _r_state = str(rec.get("state") or "")
+        item("session_recovery", "Session recovery",
+             (rec.get("recovery_session_display") or rec.get("recovery_session")
+              or "not required") if rec.get("active") else "not required",
+             ("blocked" if _r_state in ("CATCH_UP_BLOCKED",
+                                        "CATCH_UP_WAITING_FOR_OWNED_DATA")
+              else "degraded" if rec.get("active") else "ok"),
+             rec.get("summary"),
+             # A missed session is WORK, not an incident: it never blocks the
+             # portfolio decision surface, it names the one action that clears it.
+             blocks=False)
+        if _r_state == "CATCH_UP_REQUIRED":
+            degraded.append("a completed session (%s) has not been closed"
+                            % rec.get("recovery_session"))
+        elif _r_state in ("CATCH_UP_WAITING_FOR_OWNED_DATA", "CATCH_UP_BLOCKED"):
+            degraded.append("session recovery %s (%s)"
+                            % (_r_state.lower().replace("_", " "),
+                               rec.get("recovery_session")))
     item("nav", "NAV", _num(os_.get("nav")), "ok")
 
     if overall == _WF_INCONSISTENT:
@@ -311,6 +343,104 @@ def _system_readiness(wf: dict, collection: Optional[dict]) -> dict:
         "degraded_reasons": degraded,
         "degraded_blocks_portfolio_decision": False if not blocking else True,
         "portfolio_decision_remains_valid": not blocking,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Release 54.2.1 — MISSED-SESSION RECOVERY, presented.
+#
+# The obligation itself is decided by ``api.workflow_state`` and read verbatim. What
+# this owner adds is the one fact the workflow owner deliberately cannot have: it is
+# PROBE-FREE, so it can only say what the persisted owned marks confirm. The Daily
+# Close owner DOES probe the owned provider, and its payload already travels into this
+# module, so the provider's own answer is presented BESIDE the obligation instead of
+# the operator having to guess whether the missed session can actually be closed.
+#
+# Nothing is recomputed here: the obligation comes from one owner, the provider
+# readiness from the other, and a disagreement is shown rather than resolved.
+# --------------------------------------------------------------------------- #
+_RECOVERY_HEADLINES = {
+    "CATCH_UP_REQUIRED": "CATCH UP REQUIRED",
+    "CATCH_UP_WAITING_FOR_OWNED_DATA": "CATCH UP WAITING FOR OWNED DATA",
+    "CATCH_UP_BLOCKED": "CATCH UP BLOCKED",
+}
+
+
+def _month_day(iso: Any) -> Optional[str]:
+    """"2026-09-01" -> "Sep 1, 2026" (backend-owned; no client date arithmetic)."""
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+    except (TypeError, ValueError):
+        return None
+    return "%s %d, %d" % (_MONTHS[d.month - 1], d.day, d.year)
+
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _session_recovery(wf: dict, daily_close: dict) -> dict:
+    """The operator-facing catch-up panel: the workflow owner's obligation plus the
+    close owner's provider answer. Pure projection of two owners' payloads."""
+    rec = _d(wf.get("session_recovery"))
+    state = rec.get("recovery_state")
+    session = rec.get("recovery_session")
+    provider = _d(daily_close.get("provider_readiness"))
+    prov_latest = provider.get("provider_latest_date")
+    prov_ready = provider.get("ready")
+    # The close owner probed for ITS expected session; its answer only settles OUR
+    # session when the published date actually reaches it. Never inferred otherwise.
+    provider_covers_session = bool(
+        session and prov_latest and str(prov_latest)[:10] >= str(session)[:10])
+    if provider_covers_session:
+        owned_line, owned_state = "READY", "ok"
+    elif prov_latest:
+        owned_line, owned_state = ("NOT PUBLISHED (owned provider is current "
+                                   "through %s)" % prov_latest), "blocked"
+    elif rec.get("recovery_data_state") == "CONFIRMED":
+        owned_line, owned_state = "READY (already in the owned desk marks)", "ok"
+    else:
+        owned_line, owned_state = ("UNVERIFIED — the Daily Close revalidates the "
+                                   "owned provider and writes nothing if the session "
+                                   "is unpublished"), "degraded"
+    active = bool(rec.get("catch_up_required")) or state == "CATCH_UP_BLOCKED"
+    return {
+        "available": bool(rec),
+        "active": active,
+        "state": state,
+        "state_vocabulary": _l(rec.get("recovery_state_vocabulary")),
+        "headline": _RECOVERY_HEADLINES.get(str(state)) if active else None,
+        "recovery_session": session,
+        "recovery_session_display": _month_day(session),
+        "detail": (("%s was not closed." % (_month_day(session) or session))
+                   if active and session else None),
+        "missed_completed_sessions": _l(rec.get("missed_completed_sessions")),
+        "missed_completed_session_count": rec.get("missed_completed_session_count"),
+        "last_closed_session": rec.get("last_closed_session"),
+        "owned_data_line": owned_line if active else None,
+        "owned_data_state": owned_state if active else None,
+        "owned_provider_latest_date": prov_latest,
+        "owned_provider_ready_for_its_expected_session": prov_ready,
+        "provider_covers_recovery_session": provider_covers_session,
+        "blockers": _l(rec.get("recovery_blockers")),
+        "summary": rec.get("summary"),
+        # The action is the SAME canonical portfolio cycle — never a backfill or
+        # force-close control, and the operator never supplies a date.
+        "next_action_kind": (NA_PORTFOLIO_CYCLE if state == "CATCH_UP_REQUIRED"
+                             else NA_REVIEW_BLOCKER if state == "CATCH_UP_BLOCKED"
+                             else NA_WAIT if state == "CATCH_UP_WAITING_FOR_OWNED_DATA"
+                             else NA_NONE),
+        "next_action_label": ("Run the Portfolio Cycle"
+                              if state == "CATCH_UP_REQUIRED" else
+                              "No action is currently safe"
+                              if state in ("CATCH_UP_WAITING_FOR_OWNED_DATA",
+                                           "CATCH_UP_BLOCKED") else None),
+        "backfill_control_offered": False,
+        "force_close_control_offered": False,
+        "operator_supplies_no_date": True,
+        "owners": {"obligation": "api.workflow_state",
+                   "calendar": "engine.market_session",
+                   "provider_readiness": "api.daily_close"},
     }
 
 
@@ -681,6 +811,38 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
 # --------------------------------------------------------------------------- #
 # Snapshot, economics, attention, outcome — every number read verbatim.
 # --------------------------------------------------------------------------- #
+#: Release 54.2.1 (Phase J.1) — the daily P&L is ALWAYS a closed-session figure. It is
+#: the change in NAV between the last two recorded operational marks, so calling it
+#: "Today" is wrong on every morning before that session's close has run — and it was
+#: read as "today" on 2026-09-02 while the number belonged to 2026-08-31. The label is
+#: decided HERE, from backend session metadata (the valuation date the close owner
+#: recorded vs. the calendar date the session owner reports), so no client performs
+#: date arithmetic to work out what the number means.
+PNL_LABEL_TODAY = "TODAY"
+PNL_LABEL_LAST_CLOSED = "LAST CLOSED SESSION"
+
+
+def _daily_pnl_label(wf: dict, pnl: dict) -> dict:
+    valuation = pnl.get("valuation_date") or _d(wf.get("operational_state")).get(
+        "valuation_date")
+    calendar = _d(wf.get("current_session")).get("calendar_date")
+    v = str(valuation)[:10] if valuation else None
+    c = str(calendar)[:10] if calendar else None
+    is_today = bool(v and c and v == c)
+    return {
+        "daily_pnl_session_date": v,
+        "daily_pnl_session_display": _month_day(v),
+        "daily_pnl_period_label": (PNL_LABEL_TODAY if is_today
+                                   else PNL_LABEL_LAST_CLOSED if v else None),
+        "daily_pnl_period_label_short": (PNL_LABEL_TODAY if is_today
+                                         else (_month_day(v) or "").upper() or None),
+        "daily_pnl_is_current_calendar_day": is_today,
+        "daily_pnl_label_owner": OWNER,
+        "daily_pnl_label_basis": ("api.daily_close.pnl.valuation_date vs "
+                                  "api.workflow_state.current_session.calendar_date"),
+    }
+
+
 def _portfolio_snapshot(wf: dict, daily_close: dict, capital_pool: Optional[dict] = None) -> dict:
     os_ = _d(wf.get("operational_state"))
     pnl = _d(daily_close.get("pnl"))
@@ -712,6 +874,7 @@ def _portfolio_snapshot(wf: dict, daily_close: dict, capital_pool: Optional[dict
         "daily_return_pct": _num(pnl.get("daily_return_pct")),
         "daily_pnl_available": bool(pnl.get("daily_pnl_available", pnl.get("daily_pnl") is not None)),
         "daily_pnl_note": pnl.get("daily_pnl_note"),
+        **_daily_pnl_label(wf, pnl),
         "cumulative_pnl": _num(pnl.get("cumulative_pnl")),
         "cumulative_return_pct": _num(pnl.get("cumulative_return_pct")),
         "benchmark_cumulative_return_pct": _num(pnl.get("spy_cumulative_return_pct")),
@@ -752,10 +915,38 @@ def _decision_summary(wf: dict, constrained: dict) -> dict:
     if cost is None:
         cost = _num(cpd.get("expected_transaction_cost_usd"))
     replacements = counts.get("REPLACE_OUT", 0) or counts.get("REPLACE", 0)
+    # Release 54.2.1 (Phase J.2) — WHAT THIS TARGET IS. The reallocation page rendered
+    # EXIT / REDUCE / ADD / INCREASE counts at full prominence while the authoritative
+    # decision was HOLD CURRENT PORTFOLIO, so the best FEASIBLE alternative read as the
+    # RECOMMENDED one. It is not: it is the candidate the switching hurdle rejected.
+    # The analysis stays (it is exactly what makes HOLD explainable) and is framed for
+    # what it is, from the two owners' own verdicts — no count is hidden or recomputed.
+    clears = (sw.get("clears_switching_hurdle")
+              if sw.get("clears_switching_hurdle") is not None
+              else cpd.get("clears_switching_hurdle"))
+    authoritative_state = str(cpd.get("state") or "")
+    is_hold = authoritative_state in ("HOLD_CURRENT_BOOK", "NO_CHANGE",
+                                      "CHANGE_CANDIDATE_WITHHELD")
+    rejected = bool(feasible and (clears is False or is_hold))
     return {
         "available": feasible,
         "feasible_target_exists": feasible,
         "outcome": constrained.get("outcome"),
+        # --- what the operator is looking at (never a recommendation on its own) --
+        "target_class": ("REJECTED_FEASIBLE_ALTERNATIVE" if rejected
+                         else "PROPOSED_PORTFOLIO_CHANGE" if feasible
+                         else "NO_FEASIBLE_TARGET"),
+        "target_class_label": ("REJECTED FEASIBLE ALTERNATIVE" if rejected
+                               else "PROPOSED PORTFOLIO CHANGE" if feasible
+                               else "NO FEASIBLE TARGET"),
+        "is_recommended_portfolio": bool(feasible and not rejected),
+        "not_recommended_banner": ("NOT THE RECOMMENDED PORTFOLIO — the switching "
+                                   "hurdle was not cleared; the authoritative "
+                                   "decision is to hold the current portfolio."
+                                   if rejected else None),
+        "authoritative_decision_state": authoritative_state or None,
+        "authoritative_decision_owner": "api.portfolio_decision via api.workflow_state",
+        "renders_approval_cta": bool(feasible and not rejected),
         "outcome_vocabulary": list(_l(constrained.get("outcome_vocabulary"))),
         "exits": counts.get("EXIT", 0),
         "reductions": counts.get("REDUCE", 0),
@@ -770,9 +961,7 @@ def _decision_summary(wf: dict, constrained: dict) -> dict:
         "estimated_cost": cost,
         "net_improvement": net,
         "switching_hurdle": hurdle,
-        "clears_switching_hurdle": (sw.get("clears_switching_hurdle")
-                                    if sw.get("clears_switching_hurdle") is not None
-                                    else cpd.get("clears_switching_hurdle")),
+        "clears_switching_hurdle": clears,
         "score_before": _num(sw.get("score_before")),
         "score_after": _num(sw.get("score_after")),
         "risk_before": _num(sw.get("portfolio_volatility_before")),
@@ -917,7 +1106,10 @@ def build_operator_presentation(*, workflow: Optional[dict],
     warns = list(warnings or [])
     historical = _historical_context(wf, cn)
     decision = _portfolio_decision(wf, cn, _d(decision_outcomes), historical)
-    system = _system_readiness(wf, information_collection if isinstance(information_collection, dict) else None)
+    recovery = _session_recovery(wf, dc)
+    system = _system_readiness(
+        wf, information_collection if isinstance(information_collection, dict) else None,
+        recovery)
     snapshot = _portfolio_snapshot(wf, dc, capital_pool)
     summary = _decision_summary(wf, cn)
     alerts = _alerts_summary(material_information)
@@ -938,6 +1130,31 @@ def build_operator_presentation(*, workflow: Optional[dict],
         "close_status": os_.get("latest_close_status"),
         "collection_service_state": _d(_d(information_collection).get("service")).get("service_state"),
         "note": "Raw owner states, for Audit / Advanced only. Normal surfaces render the reconciled fields.",
+        # Release 54.2.1 (Phase J.3) — a raw upstream token is NOT a decision, and Audit
+        # rendered them as if it were: "PORTFOLIO PROPOSAL READY" with a "REVIEW
+        # PORTFOLIO PROPOSAL" CTA beside an authoritative decision of HOLD CURRENT
+        # PORTFOLIO. PROPOSAL_READY means "a feasible alternative was constructed", the
+        # input to the governed gate — not its verdict. These flags travel WITH the
+        # values so no surface can render them as an action.
+        "label": "RAW / NON-AUTHORITATIVE DIAGNOSTIC STATE",
+        "authoritative": False,
+        "actionable": False,
+        "renders_cta": False,
+        "authoritative_decision_state": _d(
+            wf.get("canonical_portfolio_decision")).get("state"),
+        "authoritative_decision_label": decision.get("label"),
+        "authoritative_decision_owner": SOURCE_OWNERS["workflow_state"],
+        "manual_review_required": bool(_d(wf.get("portfolio_attention")).get(
+            "review_required")),
+        "disagrees_with_authoritative_decision": bool(
+            str(_d(wf.get("reallocation_proposal_presentation")).get("state") or "")
+            .endswith("PROPOSAL_READY")
+            and not _d(wf.get("portfolio_attention")).get("review_required")),
+        "disagreement_note": (
+            "A raw PROPOSAL_READY / PROPOSAL state describes an upstream artifact, "
+            "never a governed portfolio change. When the governed decision is HOLD "
+            "and no manual review is required, no proposal review is outstanding and "
+            "no review CTA may be rendered from these values."),
     }
     sources = {
         "workflow_state": {"available": bool(wf), "owner": SOURCE_OWNERS["workflow_state"]},
@@ -964,6 +1181,10 @@ def build_operator_presentation(*, workflow: Optional[dict],
         "latest_completed_close_date": os_.get("latest_completed_close_date")
                                        or cmd.get("latest_completed_close_date"),
         "system_readiness": system,
+        # Release 54.2.1 — the missed-completed-session panel every operator surface
+        # renders verbatim. The obligation is api.workflow_state's; the provider
+        # readiness beside it is api.daily_close's; this module decides neither.
+        "session_recovery": recovery,
         "portfolio_decision": decision,
         "headline": decision["headline"],
         "explanation": decision["explanation"],

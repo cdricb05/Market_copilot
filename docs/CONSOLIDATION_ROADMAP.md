@@ -1257,3 +1257,54 @@ through the SAME governed writer (`provenance=GOVERNED_DAILY_CYCLE`), so the
 governed lane becomes the single durable history of every authoritative
 recommendation and the projection step disappears. One call site, behind the
 invariants R54.1 added.
+
+---
+
+## R54.2.1 — missed eligible session recovery (LANDED)
+
+The reliability gap the R54.2 head left open: a completed market session that
+was never closed simply stopped existing when the wall clock rolled forward.
+
+- **The obligation is a CALENDAR question against the CLOSE JOURNAL.**
+  `_decide_overall` P2 asserted "the latest eligible completed session is already
+  fully processed" and tested it with `eligible_session_closed`, which is
+  computed against the OWNED-DATA-CONFIRMED session. Owned confirmation is the
+  persisted desk-mark date and only advances when a close runs, so **an unclosed
+  completed session can never confirm itself**: on 2026-09-02 P2 answered
+  truthfully about 2026-08-31 while 2026-09-01 had never been closed, and the
+  Daily Close owner said "SEPTEMBER 1 EOD DATA READY" in the same minute.
+- **Two questions, two owners.** `engine.market_session` keeps the CONFIRMATION
+  question and gains the pure enumeration `completed_sessions_after(last_closed,
+  through=…, non_sessions=…)`; `api.workflow_state.build_session_recovery`
+  composes the catch-up STATE from it plus `api.daily_close`'s close journal.
+  `recovery_session` is always the OLDEST missed session; the still-forming
+  current session is excluded by construction and no `today - 1` arithmetic
+  exists anywhere.
+- **Four states, no invented vocabulary.** `NO_CATCH_UP_REQUIRED` /
+  `CATCH_UP_REQUIRED` / `CATCH_UP_WAITING_FOR_OWNED_DATA` / `CATCH_UP_BLOCKED`,
+  with a probe-free owned-data axis (`CONFIRMED` /
+  `UNVERIFIED_UNTIL_CLOSE_REVALIDATES` / `OWNED_DATA_LAGGING`). An un-ingested
+  mark is a publish/ingest gap, never proof the provider lacks the session —
+  the Phase-29D.1 holiday principle, generalised. `api.operator_presentation`
+  places the close owner's real provider answer beside the obligation.
+- **ONE orchestration path, session BOUND by the server.** Recovery runs through
+  the existing `POST /v1/operations/portfolio-cycle/run`.
+  `api.portfolio_cycle.recovery_binding()` reads `recovery_session` verbatim and
+  passes `target_market_date` to `api.daily_close`, whose `_apply_session_binding`
+  narrows `clock["expected_market_date"]` — already the ONE value the provider
+  probe, the desk-mark `completed_through`, the model-input refresh and the
+  idempotency key read. A forward binding is REFUSED, never clamped. No
+  recover/backfill/force-close route, no second orchestrator, no operator date.
+- **Priority, not a new state.** P2 is suppressed by `catch_up_required` and P3.7
+  fires on it, so recovery resolves through the existing `READY_FOR_DAILY_CLOSE`.
+  A missed session outranks every "nothing is outstanding" claim but never an
+  inconsistency, an unconfirmed session, an in-flight cycle or a named blocker.
+- Guarded by `check_release54_2_1_missed_session_recovery` (25 strict-blocking
+  invariants) and `tests/test_release54_2_1_missed_session_recovery.py` (43).
+
+**Live read-only verdict (nothing written, backend never restarted):** the
+repaired owner against the REAL stores reports `CATCH_UP_REQUIRED`,
+`recovery_session 2026-09-01`, `next_action RUN_PORTFOLIO_CYCLE`, payload
+`CONSISTENT`; Sep-1 owned data IS published (`provider_latest_date 2026-09-01`).
+The running 8001 backend still holds the pre-R54.2.1 runtime, so it must be
+restarted with the canonical script before Today can offer the recovery.

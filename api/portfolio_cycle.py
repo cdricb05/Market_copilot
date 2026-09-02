@@ -90,7 +90,11 @@ STOP_VOCABULARY = (
 #: owner's own words; nothing is retried and nothing is inferred from them).
 _CLOSE_BLOCKED_STATUSES = frozenset({
     "DATA_BLOCKED", "EXECUTION_ERROR", "DAILY_CLOSE_CONFIRM_REQUIRED",
-    "DAILY_CLOSE_IN_PROGRESS", "NOT_A_TRADING_DAY", "SESSION_NOT_CLOSED"})
+    "DAILY_CLOSE_IN_PROGRESS", "NOT_A_TRADING_DAY", "SESSION_NOT_CLOSED",
+    # Release 54.2.1 — the close owner's own no-write refusal, which is also how it
+    # reports a REFUSED session binding. Continuing past it would be running the
+    # cycle over a session the close owner declined to process.
+    "AWAITING_MARKET_CLOSE"})
 _DRC_BLOCKED_STATES = frozenset({"BLOCKED", "FAILED", "REFUSED"})
 
 _MAX_OWNER_INVOCATIONS = 2  # each step at most once; the vocabulary has two.
@@ -123,10 +127,12 @@ def _workflow_loader_default() -> dict:
     return ws.load_workflow_state()
 
 
-def _close_runner_default(*, requested_by: str) -> dict:
+def _close_runner_default(*, requested_by: str,
+                          target_market_date: Optional[str] = None) -> dict:
     from paper_trader.api import daily_close as dclose
     return dclose.run_daily_close(
-        confirm=_STEP_CONFIRMATIONS[STEP_DAILY_CLOSE], requested_by=requested_by)
+        confirm=_STEP_CONFIRMATIONS[STEP_DAILY_CLOSE], requested_by=requested_by,
+        target_market_date=target_market_date)
 
 
 def _drc_runner_default(*, requested_by: str) -> dict:
@@ -207,6 +213,36 @@ def plan_next_step(workflow: Optional[dict]) -> dict[str, Any]:
                        % (overall or "UNKNOWN"))}
 
 
+# --------------------------------------------------------------------------- #
+# Release 54.2.1 — THE SESSION BINDING. Recovery of a missed completed session runs
+# through THIS one cycle; there is no backfill route and no second orchestrator. The
+# cycle does not decide WHICH session that is — it reads the workflow owner's
+# ``session_recovery.recovery_session`` (always the OLDEST unclosed completed session)
+# and hands it to the close owner, which validates and binds every date-dependent step
+# to it. Without the binding a Wednesday close after a Monday+Tuesday outage would
+# process Tuesday and forfeit Monday in silence.
+#
+# The operator supplies nothing: no date field exists on the run route, and this
+# function is a pure projection of the workflow payload.
+# --------------------------------------------------------------------------- #
+def recovery_binding(workflow: Optional[dict]) -> dict[str, Any]:
+    """The server-decided session binding for this run, read from the ONE workflow
+    owner. Pure; derives no date of its own and never falls back to a clock."""
+    rec = (workflow or {}).get("session_recovery") or {}
+    required = bool(rec.get("catch_up_required"))
+    session = rec.get("recovery_session") if required else None
+    return {
+        "catch_up_required": required,
+        "recovery_state": rec.get("recovery_state"),
+        "bound_market_date": session,
+        "missed_completed_sessions": list(rec.get("missed_completed_sessions") or []),
+        "last_closed_session": rec.get("last_closed_session"),
+        "binding_owner": "api.workflow_state",
+        "operator_supplies_no_date": True,
+        "oldest_first": True,
+    }
+
+
 def _owner_blocked(step: str, result: Optional[dict]) -> Optional[str]:
     """The owner's OWN blocking status, if it reported one (else None)."""
     r = result or {}
@@ -274,12 +310,22 @@ def load_portfolio_cycle(*, workflow: Optional[dict] = None,
     elif plan["step"] == STEP_DAILY_RESEARCH_CYCLE:
         planned_steps.append({"step": STEP_DAILY_RESEARCH_CYCLE,
                               "owner": STEP_OWNERS[STEP_DAILY_RESEARCH_CYCLE]})
+    binding = recovery_binding(wf)
+    if planned_steps and binding["bound_market_date"]:
+        for s in planned_steps:
+            if s["step"] == STEP_DAILY_CLOSE:
+                s["bound_market_date"] = binding["bound_market_date"]
+                s["binding_owner"] = binding["binding_owner"]
     return {
         "phase": PHASE,
         "orchestration_owner": ORCHESTRATION_OWNER,
         "status": "PORTFOLIO_CYCLE_STATUS",
         "cycle_run_available": bool(plan["step"]),
         "planned_steps": planned_steps,
+        # Release 54.2.1 — the server-decided recovery binding this run would use.
+        # Read verbatim from api.workflow_state; the operator supplies no date and
+        # there is no recovery-specific route to call instead of this one.
+        "session_recovery": binding,
         "plan_reason": plan["reason"],
         "stop_reason": plan["stop_reason"],
         "step_vocabulary": list(STEP_VOCABULARY),
@@ -372,9 +418,26 @@ def run_portfolio_cycle(*, confirm: Optional[str] = None,
                            "owner. Review the owner's own result below." % step)
             break
         ran.add(step)
-        result = runners[step](requested_by=attributed)
+        # Release 54.2.1 — the Daily Close step is BOUND to the workflow owner's
+        # recovery session whenever one exists, so a catch-up processes the OLDEST
+        # missed session instead of whatever the close's own clock happens to expect.
+        # The binding is re-read from the freshly loaded workflow payload each pass;
+        # a runner seam that predates the parameter is called unbound (TypeError),
+        # which is exactly the normal-cycle behaviour.
+        binding = recovery_binding(wf)
+        bound_date = binding["bound_market_date"] if step == STEP_DAILY_CLOSE else None
+        if bound_date:
+            try:
+                result = runners[step](requested_by=attributed,
+                                       target_market_date=bound_date)
+            except TypeError:
+                result = runners[step](requested_by=attributed)
+        else:
+            result = runners[step](requested_by=attributed)
         summary = _step_summary(step, result)
         summary["plan_reason"] = plan["reason"]
+        summary["bound_market_date"] = bound_date
+        summary["binding_owner"] = binding["binding_owner"] if bound_date else None
         steps.append(summary)
         blocked = _owner_blocked(step, result)
         if blocked:
@@ -405,6 +468,7 @@ def run_portfolio_cycle(*, confirm: Optional[str] = None,
         "stopped_at_decision_boundary": True,
         "performed_write": performed_write,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "session_recovery": recovery_binding(wf),
         **_operator_projection(wf),
         **_safety(performed_write),
     }
@@ -418,5 +482,6 @@ __all__ = [
     "STOP_DECISION_PRESENTED", "STOP_WAITING_FOR_SESSION_CLOSE",
     "STOP_CYCLE_ALREADY_RUNNING", "STOP_RECOVERY_REQUIRED",
     "STOP_STATE_DID_NOT_ADVANCE", "STOP_OWNER_REPORTED_BLOCKER",
-    "plan_next_step", "load_portfolio_cycle", "run_portfolio_cycle",
+    "plan_next_step", "recovery_binding", "load_portfolio_cycle",
+    "run_portfolio_cycle",
 ]
