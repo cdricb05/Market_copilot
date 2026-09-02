@@ -10673,10 +10673,18 @@ def check_release49_operator_presentation(files: list[Path]) -> dict:
     today_primary_section_count = len(re.findall(
         r'<div id="(?:today-system-band|today-decision|today-snapshot|today-attention)"',
         tcc))
+    # R54 Slice 1 evolves this invariant: Today carries the four R49 presentation
+    # sections PLUS the one Active Manager operating-state region, which belongs
+    # to a DIFFERENT declared owner (api.active_manager_state) and is admitted
+    # only while it declares that owner on the node. An undeclared extra section
+    # still fails the build.
+    _r54_admitted = ('today-operating-state'
+                     if 'id="today-operating-state" data-owner='
+                        '"api.active_manager_state"' in today else None)
     today_extra_section_ids = sorted(
         m for m in re.findall(r'<div id="(today-[\w-]+)"', tcc)
         if m not in ("today-command-center", "today-system-band", "today-decision",
-                     "today-snapshot", "today-attention"))
+                     "today-snapshot", "today-attention", _r54_admitted))
     today_badge_walls = tcc.count("cc-badge")
     _s0 = ui.find('<style id="r49-styles">')
     _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
@@ -11087,6 +11095,104 @@ def check_release50_multi_asset(files: list[Path]) -> dict:
         "r50_new_panel_ids": r50_new_panel_ids,
         "broker_reach": broker_reach,
         "manual_gates_unchanged": bool(manual_gates_unchanged),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# R54 — the ONE Active Manager Operating State (composition-only) + the Today
+# operational-mark single-writer consolidation.
+# --------------------------------------------------------------------------- #
+R54_AMS_MODULE = "api/active_manager_state.py"
+R54_AMS_ROUTE = '"/v1/operations/active-manager-state"'
+#: Business-calculation definitions the composition owner may NEVER contain —
+#: each belongs to exactly one existing canonical owner.
+R54_FORBIDDEN_CALC_DEFS = (
+    "def book_nav(", "def compute_scores(", "def _percentiles(",
+    "def solve_feasible_target(", "def switching_economics(",
+    "def decide_outcome(", "def build_assessment(", "def build_proposal(",
+    "def settle_due_orders(", "def _append_ledger(", "def score_universe(",
+    "def rank_universe(", "def assess_materiality(")
+#: Execution / write / scheduler reach the read model may NEVER have.
+R54_FORBIDDEN_EXECUTION_TOKENS = (
+    "run_event_signal_refresh(", "run_reassessment(", "run_proposal(",
+    "run_daily_close(", "run_daily_research_cycle(", "run_refresh(",
+    "run_portfolio_cycle(", "run_collection_iteration(", "subprocess",
+    "schtasks", "Register-ScheduledTask", "requests.", "httpx")
+#: Client-side business/freshness computation forbidden inside the R54 UI region.
+R54_UI_FORBIDDEN_TOKENS = ("Math.", "new Date(", "Date.now(",
+                           "toLocaleString(", "reduce(")
+
+
+def check_release54_active_manager_state(files: list[Path]) -> dict:
+    """R54 invariants — ONE composed operating state, zero recomputation.
+
+    (a) api/active_manager_state.py exists, declares itself, composes the
+        Release-50 decision snapshot, and contains no business-calculation
+        definition, no execution/orchestration call, no scheduler reach and no
+        provider client;
+    (b) it is served by exactly ONE GET route and consumed by exactly ONE UI
+        loader inside a marked region that performs no client-side date /
+        freshness / decision math;
+    (c) the operational-vs-live time-state distinction is declared, and only
+        the Daily Close owner may advance the operational mark;
+    (d) the Today operational-mark pill has exactly ONE unguarded UI writer
+        (renderPortfolioState via _psOwnSet). The legacy command-center write
+        through the guard-free _ccSetText — whose fallback was the dormant
+        legacy DB book's date — must never return.
+    """
+    src = _read(R54_AMS_MODULE)
+    ui = _read(UI_FILE)
+    app_src = _read("api/app.py")
+    region = _ux2_region(ui, "/* R54_REGION_START */", "/* R54_REGION_END */")
+
+    get_route_count = len(re.findall(
+        r"@app\.get\(\s*\n?\s*" + re.escape(R54_AMS_ROUTE), app_src))
+    non_get_route = bool(re.search(
+        r"@app\.(post|put|delete|patch)\(\s*\n?\s*" + re.escape(R54_AMS_ROUTE),
+        app_src))
+
+    return {
+        "owner_present": bool(src.strip()),
+        "declares_owner": 'OWNER = "api.active_manager_state"' in src,
+        "composition_only_declared": '"recomputes_nothing": True' in src,
+        "composes_decision_snapshot": "decision_snapshot" in src,
+        "forbidden_calculation_defs": sorted(
+            d for d in R54_FORBIDDEN_CALC_DEFS if d in src),
+        "forbidden_execution_tokens": sorted(
+            t for t in R54_FORBIDDEN_EXECUTION_TOKENS if t in src),
+        "time_state_distinction_declared": (
+            '"operational_mark_advanced_only_by": "api.daily_close"' in src
+            and "TIME_STATE_STATEMENT" in src),
+        "route_get_count": get_route_count,
+        "non_get_route_present": non_get_route,
+        "ui_loader_count": ui.count("function loadActiveManagerState("),
+        "ui_fetch_count": ui.count(
+            "_opFetch('/v1/operations/active-manager-state')"),
+        "ui_region_present": bool(region),
+        "ui_region_forbidden": sorted(
+            t for t in R54_UI_FORBIDDEN_TOKENS if t in region),
+        # (d) the consolidated operational-mark pill: one unguarded writer.
+        "legacy_status_mark_writer_present": (
+            "_ccSetText('cc-status-mark'" in ui),
+        "canonical_status_mark_writer_count": ui.count(
+            "_psOwnSet('cc-status-mark'"),
+        "status_mark_guarded_early_writer_present": (
+            "_obSet('cc-status-mark'" in ui),
+        # (e) R54 finalization — the DECISION AUTHORITY LADDER is declared
+        #     (five distinct concepts with owners; a live event cycle never
+        #     advances the governed decision), and the TWO forward-evidence
+        #     identities (daily governed TRUE_FORWARD bundle vs R53.1 intraday
+        #     prospective emission) stay distinct named fields.
+        "decision_authority_declared": (
+            "DECISION_AUTHORITY_STATEMENT" in src
+            and '"advances_governed_decision": False' in src
+            and "EVENT_CYCLE_PROPOSAL_NOTE" in src),
+        "evidence_identities_distinct": (
+            '"latest_governed_true_forward_date"' in src
+            and '"latest_intraday_prospective_emission"' in src),
+        "automatic_model_promotion_allowed": False,
+        "automatic_approval_allowed": False,
+        "cadence_enabled": False,
     }
 
 
@@ -12546,6 +12652,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release50_multi_asset": check_release50_multi_asset(files),
         "release52_persistent_research_runtime":
             check_release52_persistent_research_runtime(files),
+        "release54_active_manager_state":
+            check_release54_active_manager_state(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13147,6 +13255,33 @@ def _print_console(rep: dict) -> None:
     print(f"duplicate restart implementations (must be empty): "
           f"{ih['duplicate_restart_implementations']}")
     print(f"invocation files scanned: {ih['scanned_invocation_files']}")
+
+    hdr("ACTIVE MANAGER OPERATING STATE (R54 Slice 1)")
+    ams = rep["release54_active_manager_state"]
+    print(f"owner present: {ams['owner_present']}  declares owner: {ams['declares_owner']}  "
+          f"composition-only: {ams['composition_only_declared']}  "
+          f"composes decision snapshot: {ams['composes_decision_snapshot']}")
+    print(f"forbidden calculation defs (must be empty): {ams['forbidden_calculation_defs']}  "
+          f"forbidden execution tokens (must be empty): {ams['forbidden_execution_tokens']}")
+    print(f"time-state distinction declared: {ams['time_state_distinction_declared']}  "
+          f"GET route count (must be 1): {ams['route_get_count']}  "
+          f"non-GET route present (must be False): {ams['non_get_route_present']}")
+    print(f"UI loader count (must be 1): {ams['ui_loader_count']}  "
+          f"UI fetch count (must be 1): {ams['ui_fetch_count']}  "
+          f"UI region present: {ams['ui_region_present']}  "
+          f"UI region forbidden tokens (must be empty): {ams['ui_region_forbidden']}")
+    print(f"legacy cc-status-mark writer present (must be False): "
+          f"{ams['legacy_status_mark_writer_present']}  "
+          f"canonical writer count (must be 1): {ams['canonical_status_mark_writer_count']}  "
+          f"guarded early writer present: {ams['status_mark_guarded_early_writer_present']}")
+    print(f"decision-authority ladder declared (must be True): "
+          f"{ams['decision_authority_declared']}  "
+          f"forward-evidence identities distinct (must be True): "
+          f"{ams['evidence_identities_distinct']}")
+    print(f"automatic promotion allowed (must be False): "
+          f"{ams['automatic_model_promotion_allowed']}  "
+          f"automatic approval allowed (must be False): {ams['automatic_approval_allowed']}  "
+          f"cadence enabled (must be False): {ams['cadence_enabled']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -14995,6 +15130,33 @@ BLOCKING_INVARIANTS = (
     ("release50_multi_asset", "r50_new_panel_ids", []),
     ("release50_multi_asset", "broker_reach", []),
     ("release50_multi_asset", "manual_gates_unchanged", True),
+    # --- R54 Slice 1: ONE Active Manager Operating State, zero recomputation, and
+    # the Today operational-mark pill kept single-writer. A hit here means either a
+    # second business-calculation path grew inside the composition owner, the UI
+    # grew a second loader / client-side state math, or the legacy guard-free
+    # cc-status-mark writer (whose fallback was the dormant legacy DB book's date)
+    # was reintroduced.
+    ("release54_active_manager_state", "owner_present", True),
+    ("release54_active_manager_state", "declares_owner", True),
+    ("release54_active_manager_state", "composition_only_declared", True),
+    ("release54_active_manager_state", "composes_decision_snapshot", True),
+    ("release54_active_manager_state", "forbidden_calculation_defs", []),
+    ("release54_active_manager_state", "forbidden_execution_tokens", []),
+    ("release54_active_manager_state", "time_state_distinction_declared", True),
+    ("release54_active_manager_state", "route_get_count", 1),
+    ("release54_active_manager_state", "non_get_route_present", False),
+    ("release54_active_manager_state", "ui_loader_count", 1),
+    ("release54_active_manager_state", "ui_fetch_count", 1),
+    ("release54_active_manager_state", "ui_region_present", True),
+    ("release54_active_manager_state", "ui_region_forbidden", []),
+    ("release54_active_manager_state", "legacy_status_mark_writer_present", False),
+    ("release54_active_manager_state", "canonical_status_mark_writer_count", 1),
+    ("release54_active_manager_state", "status_mark_guarded_early_writer_present", True),
+    ("release54_active_manager_state", "decision_authority_declared", True),
+    ("release54_active_manager_state", "evidence_identities_distinct", True),
+    ("release54_active_manager_state", "automatic_model_promotion_allowed", False),
+    ("release54_active_manager_state", "automatic_approval_allowed", False),
+    ("release54_active_manager_state", "cadence_enabled", False),
 )
 
 

@@ -224,7 +224,15 @@ def test_20_legacy_comparison_not_labelled_rebalance_proposal_ready():
 
 def test_21_legacy_comparison_classified_compatibility_only():
     pres = dc._PRESENTATION[dc.REBALANCE_PROPOSAL_READY]
-    assert "LEGACY MEMBERSHIP-COMPARISON" in pres["label"]
+    # Release 29.3 (42978bf) renamed the token to DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+    # and 9ee3028 restated the label so the close reports what the CLOSE observed. Assert
+    # the CLASSIFICATION this workstream exists to protect — a legacy membership
+    # difference, explicitly compatibility-only, never an approved reallocation — rather
+    # than the superseded "LEGACY MEMBERSHIP-COMPARISON" spelling.
+    assert "LEGACY MEMBERSHIP" in pres["label"]
+    assert "COMPATIBILITY ONLY" in pres["headline"]
+    assert "compatibility-only" in pres["current_task"]
+    assert "NOT an approved reallocation" in pres["next_action"]
     assert pres["primary_action_label"]           # still non-empty (compat)
     # State key + action kind preserved for historical/audit compatibility.
     assert pres["primary_action_kind"] == "REVIEW_PROPOSAL"

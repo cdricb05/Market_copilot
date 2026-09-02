@@ -841,3 +841,19 @@ market calendars, the IDEAL vs CURRENTLY EXECUTABLE target split, turnover
 budgets, stale-data fail-closed behaviour and risk-driven reduction are
 specified in `DAILY_MULTI_ASSET_GOVERNANCE.md` and declared in
 `alpha_agent/r32/governance.py`. Release 32 declares them; it runs none of them.
+
+## R54 boundary — ONE operating-state projection, two clocks, no new engine
+
+The operator-facing operating state has exactly ONE owner
+(`api.active_manager_state`), which is a composition/projection and may never
+become a calculation engine: NAV, HOC, targets, proposals, rankings and
+freshness verdicts stay with their owners. Two clocks are a permanent boundary:
+the OPERATIONAL BOOK clock (latest closed eligible session; advanced only by
+the Daily Close owner) and the LIVE/INTRADAY RESEARCH clock (observations,
+event cycles, scoring, prospective emissions). No surface may conflate them and
+no intraday observation may become an operational mark. The R54.1 target —
+near-real-time portfolio reassessment — activates through the EXISTING
+Release-28 event cycle and the ONE collection cadence policy, never through a
+second scheduler or a second materiality vocabulary; reassessment frequency
+never loosens the Stage-20 churn controls, the R47 switching hurdle, or the
+manual-review boundary.

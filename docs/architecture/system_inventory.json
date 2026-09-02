@@ -18,6 +18,26 @@
   },
   "canonical_concepts": [
     {
+      "concept": "active_manager_operating_state",
+      "authoritative_owner": "api/active_manager_state.py (R54 Slice 1 composition/read owner; ONE response answering operational book vs live/intraday research vs last reassessment vs governed target vs governance vs safety vs guidance)",
+      "current_writers": [
+        "api/active_manager_state.py"
+      ],
+      "delegating_domain_fact_owners": [
+        "api/portfolio_state.py (operational book / one NAV)",
+        "api/workflow_state.py (combined operator interpretation, guidance, freshness words)",
+        "api/information_collection.py (collection lifecycle verdict)",
+        "api/event_signal_refresh.py (live event/signal-refresh state)",
+        "api/universe_scoring.py (scoring identity)",
+        "api/portfolio_reassessment.py (Stage-20 reassessment read)",
+        "api/reallocation_proposal.py (R47 governed target/economics)",
+        "api/rebalance_execution.py (order-plan state)",
+        "api/research_runtime.py (R52 runtime health)"
+      ],
+      "notes": "R54 Slice 1: the composition may only copy owner fields verbatim, select among owner-stamped timestamps, count owner-bounded rows against an owner-published stamp, and quote each owner's own not-ready vocabulary. It keeps the OPERATIONAL clock (latest closed eligible session; advanced only by api/daily_close.py) and the LIVE/INTRADAY research clock explicitly distinct. Guarded by check_release54_active_manager_state (strict).",
+      "status": "OWNED_R54_SLICE1"
+    },
+    {
       "concept": "eligible_market_date",
       "authoritative_owner": "engine/market_session.py (Slice 1 canonical owner, built on engine/market_hours.py)",
       "current_writers": [
@@ -261,6 +281,11 @@
       "prefix": "/v1/operational-book",
       "owner": "api/operational_book.py",
       "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operations/active-manager-state",
+      "owner": "api/active_manager_state.py",
+      "system": "operator_state_composition"
     },
     {
       "prefix": "/v1/operations/daily-action-gate",
@@ -688,6 +713,104 @@
       "system": "infrastructure"
     }
   ],
+  "r54_ownership_classification": {
+    "generated_by": "R54 Slice 1 (2026-09-01) - evidence-based classification of every strict-audit multi-writer candidate; vocabulary: OPERATIONAL_CANONICAL_OWNER | RESEARCH_ONLY_CALCULATION | PROJECTION | COMPATIBILITY_WRAPPER | READ_COMPOSER | PERSISTENCE_ADAPTER | LEGACY_DEPRECATED | TRUE_DUPLICATE_OWNER",
+    "headline": "No TRUE_DUPLICATE_OWNER remains live in the operational decision path. The one genuine conflicting-writer defect found was UI-side: the legacy command-center renderer wrote the canonical cc-status-mark node through the guard-free _ccSetText with the dormant legacy DB book's date as fallback - consolidated in this slice (single writer: renderPortfolioState/_psOwnSet; audit-guarded).",
+    "concepts": {
+      "portfolio_nav_valuation": {
+        "operational_canonical_owner": "api/paper_trading_desk.py book_nav (append-only ledger replay); ONE read owner api/portfolio_state.py",
+        "classification": {
+          "api/paper_trading_desk.py": "OPERATIONAL_CANONICAL_OWNER",
+          "api/portfolio_state.py": "READ_COMPOSER",
+          "api/operational_book.py": "READ_COMPOSER",
+          "api/app.py": "READ_COMPOSER (route delegation only; dashboard_portfolio_valuation delegates to the legacy loader for the legacy surface)",
+          "api/portfolio_manager.py": "READ_COMPOSER",
+          "api/portfolio_valuation.py": "LEGACY_DEPRECATED (dormant legacy DB book; explicitly-scoped archive, never the active book)",
+          "api/daily_operating_run.py": "LEGACY_DEPRECATED (legacy one-click session for the legacy DB book; delegates its market date to engine/market_session)",
+          "api/current_alpha_book.py": "RESEARCH_ONLY_CALCULATION (frozen champion research book)",
+          "api/alpha_book.py": "PERSISTENCE_ADAPTER (operational book engine; NAV itself replayed by the desk owner)",
+          "api/alpha_target.py": "COMPATIBILITY_WRAPPER (_valuation_date reads the valuation date)",
+          "api/corporate_actions.py": "PROJECTION (Stage-19 CA preview NAV projections; never the official mark)",
+          "api/data_expansion.py": "RESEARCH_ONLY_CALCULATION (dataset evaluation vocabulary hit, not portfolio NAV)",
+          "alpha_agent/*": "RESEARCH_ONLY_CALCULATION (r35/r46/r52/r53_1/stage12/stage26/tournament shadow and research NAV series; telegram_control read-only reporting)",
+          "scripts/audit_architecture.py": "PROJECTION (audit pattern constants; produces no runtime value)"
+        }
+      },
+      "forward_evidence": {
+        "operational_canonical_owner": "api/forward_prediction_skill.py (immutable TRUE_FORWARD writer)",
+        "classification": {
+          "api/forward_prediction_skill.py": "OPERATIONAL_CANONICAL_OWNER",
+          "api/forward_evidence.py": "READ_COMPOSER (Phase-28A attribution reader)",
+          "api/daily_close.py": "READ_COMPOSER (readiness interpretation composed from the writer; no capture of its own)",
+          "api/app.py": "READ_COMPOSER (route delegation only)",
+          "alpha_agent/r46/clock.py": "RESEARCH_ONLY_CALCULATION (shadow-lane TRUE_FORWARD clock)",
+          "alpha_agent/stage26_challenger_expansion.py": "RESEARCH_ONLY_CALCULATION"
+        }
+      },
+      "target_portfolio": {
+        "operational_canonical_owner": "api/alpha_target.py (model target ledger) + api/reallocation_proposal.py over engine/reallocation_proposal.py + engine/constrained_reallocation.py (the governed R47 feasible target) - two deliberately distinct concepts",
+        "classification": {
+          "api/alpha_target.py": "OPERATIONAL_CANONICAL_OWNER",
+          "api/current_alpha_book.py": "LEGACY_DEPRECATED (frozen champion research book construction)",
+          "api/daily_action_gate.py": "COMPATIBILITY_WRAPPER (legacy rank-membership target-state mapping, explicitly scoped)",
+          "alpha_agent/shadow_portfolio.py": "RESEARCH_ONLY_CALCULATION",
+          "engine/absolute_return_research.py": "RESEARCH_ONLY_CALCULATION"
+        }
+      },
+      "workflow_state": {
+        "operational_canonical_owner": "api/workflow_state.py",
+        "classification": {
+          "api/workflow_state.py": "OPERATIONAL_CANONICAL_OWNER",
+          "api/app.py (operations_workflow_state)": "READ_COMPOSER (route delegation)",
+          "api/app.py (_build_workflow_state / _derive_workflow_stage / _canonical_daily_stage / GET /v1/review/current-workflow-state)": "LEGACY_DEPRECATED (equity-era Create-Orders cockpit stages over the legacy DB; not consumed by the current operator UI)",
+          "api/command_center.py": "LEGACY_DEPRECATED (replicates the legacy counts for the demoted legacy cards)",
+          "api/daily_workflow_dashboard.py": "LEGACY_DEPRECATED (6-stage legacy stepper)",
+          "api/daily_action_gate.py": "COMPATIBILITY_WRAPPER (legacy assessment vocabulary, explicitly scoped by Release 29.3)",
+          "api/operational_book.py (derive_lifecycle_view)": "READ_COMPOSER (book lifecycle - a distinct documented concept, not the combined interpretation)"
+        }
+      },
+      "eligible_market_session": {
+        "operational_canonical_owner": "engine/market_session.py",
+        "classification": {
+          "api/daily_close.py": "COMPATIBILITY_WRAPPER (delegates; owns only the documented 17:30 ET close-cutoff policy)",
+          "api/daily_operating_run.py": "COMPATIBILITY_WRAPPER (delegates since Slice 1; legacy surface)"
+        }
+      },
+      "universe_scoring_rankings": {
+        "operational_canonical_owner": "api/universe_scoring.py (read/composition) over api/multi_horizon_engine.py (pure kernel)",
+        "classification": {
+          "api/multi_horizon_engine.py": "OPERATIONAL_CANONICAL_OWNER (calculation kernel)",
+          "api/universe_scoring.py": "READ_COMPOSER",
+          "alpha_agent/stage24_pit_fundamental.py": "RESEARCH_ONLY_CALCULATION",
+          "scripts/audit_architecture.py": "PROJECTION (audit pattern constants)"
+        }
+      },
+      "portfolio_reassessment": {
+        "operational_canonical_owner": "api/portfolio_reassessment.py over engine/portfolio_reassessment.py",
+        "classification": {
+          "api/portfolio_reassessment.py": "OPERATIONAL_CANONICAL_OWNER",
+          "engine/portfolio_reassessment.py": "OPERATIONAL_CANONICAL_OWNER (calculation kernel)",
+          "api/workflow_state.py": "READ_COMPOSER (lane presentation; computes no economics)",
+          "api/active_manager_state.py": "READ_COMPOSER (R54 projection)"
+        }
+      },
+      "holding_opportunity_cost": {
+        "operational_canonical_owner": "api/holding_opportunity_cost.py over engine/holding_opportunity_cost.py",
+        "classification": {
+          "api/holding_opportunity_cost.py": "OPERATIONAL_CANONICAL_OWNER",
+          "engine/holding_opportunity_cost.py": "OPERATIONAL_CANONICAL_OWNER (calculation kernel)"
+        }
+      },
+      "reallocation_proposal_state": {
+        "operational_canonical_owner": "api/reallocation_proposal.py over engine/reallocation_proposal.py + engine/constrained_reallocation.py",
+        "classification": {
+          "api/reallocation_proposal.py": "OPERATIONAL_CANONICAL_OWNER",
+          "engine/reallocation_proposal.py": "OPERATIONAL_CANONICAL_OWNER (calculation kernel)",
+          "engine/constrained_reallocation.py": "OPERATIONAL_CANONICAL_OWNER (R47 constraint/economics kernel)"
+        }
+      }
+    }
+  },
   "classification_legend": {
     "KEEP": "Authoritative for its concern; retain.",
     "CONSOLIDATE": "Merge with a sibling / fold into the target owner behind tests.",
@@ -696,6 +819,34 @@
     "INVESTIGATE": "Live-wired but overlapping; confirm consumers before acting."
   },
   "modules": [
+    {
+      "path": "api/active_manager_state.py",
+      "system": "operator_state_composition",
+      "responsibility": "R54: THE one Active Manager Operating State - a read-only composition/projection over the canonical owners (operational book vs live/intraday research vs last reassessment vs governed target vs governance vs safety vs guidance), with the explicit operational-vs-live time-state distinction",
+      "classification": "KEEP",
+      "target_owner": "api/active_manager_state.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api/decision_snapshot.py sections (workflow/portfolio_state/constrained/information_collection/rebalance)",
+        "api/event_signal_refresh.py read contract",
+        "api/portfolio_reassessment.py read contract",
+        "api/universe_scoring.py canonical identity",
+        "api/research_runtime.py runtime health"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "/v1/operations/active-manager-state"
+      ],
+      "ui_consumers": [
+        "loadActiveManagerState"
+      ],
+      "tests": [
+        "tests/test_release54_active_manager_state.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Composition-only: recomputes no NAV/HOC/target/proposal/ranking/freshness verdict; never turns an intraday observation into an operational close mark; guarded by scripts/audit_architecture.py check_release54_active_manager_state."
+    },
     {
       "path": "api/alpha_book.py",
       "system": "operational_alpha_book",

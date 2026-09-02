@@ -910,6 +910,42 @@ def load_event_signal_refresh_status(*, fabric_dir=None, ingestion_root=None,
     view = fabric.load_event_fabric(fabric_dir=fabric_dir, limit=limit, anchor=eligible,
                                     ingestion_root=ingestion_root, news_root=news_root)
     latest = fabric.read_latest_run(fabric_dir=fabric_dir)
+    # R54 finalization — ``latest.json`` is a POINTER {run_id, state,
+    # generated_at, run_dir}; the run's persisted payload holds the cycle's own
+    # recorded decision facts. They are summarized HERE, by the owner of the
+    # store, so no read surface ever re-opens the run directory itself — and so
+    # the terminal token (e.g. PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW, which
+    # records artifact EXISTENCE, never a recommended change) always travels
+    # with the facts that disambiguate it.
+    last_run_summary = None
+    if latest and latest.get("run_id"):
+        full = fabric.read_json_artifact(
+            fabric.runs_root(fabric_dir) / str(latest["run_id"])
+            / "event_signal_refresh_status.json") or {}
+        if full.get("run_id") == latest.get("run_id"):
+            deltas = full.get("rank_deltas") or {}
+            last_run_summary = {
+                "run_id": full.get("run_id"),
+                "state": full.get("state"),
+                "generated_at": full.get("generated_at"),
+                "completed_at": full.get("completed_at"),
+                "reassessment_ran": full.get("reassessment_ran"),
+                "reassessment_reason": full.get("reassessment_reason"),
+                "proposal_built": full.get("proposal_built"),
+                "materiality_change_level": (full.get("materiality")
+                                             or {}).get("change_level"),
+                "trigger_count": (full.get("materiality")
+                                  or {}).get("trigger_count"),
+                "calculations_refreshed": full.get("calculations_refreshed"),
+                "affected_entities": full.get("affected_entities"),
+                "held_rank_delta_rows": (len(deltas.get("rows") or [])
+                                         if deltas else None),
+                "prior_ranking_available": deltas.get("prior_available"),
+                "reassessment_state": (full.get("portfolio_reassessment")
+                                       or {}).get("reassessment_state"),
+                "proposal_state": (full.get("target_portfolio")
+                                   or {}).get("proposal_state"),
+            }
     events = view["events"]
     # The READ surface is bound to the GATE's rule, not to a second definition of
     # "material". A bar or a delayed quote may carry new information and may bear a
@@ -931,6 +967,7 @@ def load_event_signal_refresh_status(*, fabric_dir=None, ingestion_root=None,
         "state": (latest or {}).get("state") or ST_NOT_RUN,
         "state_vocabulary": list(CYCLE_STATES),
         "last_run": latest,
+        "last_run_summary": last_run_summary,
         "eligible_market_date": eligible,
         "holdings": held,
         "event_contract": view["event_contract"],

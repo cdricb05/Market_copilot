@@ -1,7 +1,111 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-01
-- **Updated by phase:** **Release 53.1 - Intraday Activation &
+- **Updated by phase:** **R54 Finalization - hermetic workflow tests + live
+  Active Manager State semantics (single agent, no subagents, Windows
+  PowerShell only).** Follows the SUCCESSFUL live deployment of R54 Slice 1
+  (canonical restart LIVE_SMOKE_OK; `/v1/operations/active-manager-state`
+  -> 200; strip visible on the real backend). Full narrative:
+  `docs/RELEASE54_ACTIVE_MANAGER_OPERATING_MODEL.md` section 9.
+  **Part 1 - test hermeticity repaired:** the four pre-existing
+  `tests/test_slice2_workflow_state.py` failures were a fixture leak - the
+  shared `_regression()`/`_ready()` fixtures left the `research_cycle`,
+  `reassessment_summary` and `decision_record` injection seams unbound, so
+  `load_workflow_state` read the LIVE DRC store and
+  `research_cycle_due_after_close` (P4.5) rewrote the expected states once
+  the fixture session's governed run aged out. Fixtures now bind every seam;
+  `test_00_fixtures_bind_every_live_store_seam` poisons the live loaders and
+  proves identical output. 53/53. No production rule weakened.
+  **Part 2 - decision authority made explicit:** the live coexistence of
+  top-level HOLD, reassessment `PROPOSAL_READY`, event-cycle
+  `PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW` and freshness `OVERDUE` is correct
+  by design and is now self-explaining: the R54 payload projects the Track-B
+  settled-aware presentation (`operator_state PORTFOLIO_DECISION_SETTLED`,
+  settled task/next-action wording), a `decision_authority` five-rung ladder
+  (live assessment / governed reassessment / governed target / manual-review
+  candidate / approved decision, each with its owner), the event-cycle
+  disambiguators (`proposal_built`, target outcome; the token records
+  ARTIFACT existence, never a recommended change), and
+  `reassessment_freshness_detail` (OVERDUE = the LEGACY gate's scheduled
+  review date 2026-08-01 passed while the assessment is CURRENT for the
+  eligible session, age 0; live cycles never advance the governed clock).
+  Today renders the owner words verbatim (raw tokens preserved in hover).
+  **Part 3 - scoring semantics:** `api.universe_scoring` recomputes the FULL
+  universe (no partial scorer); `ranking_date` is the point-in-time DATA
+  basis, not the recompute wall-clock. New `scoring_basis`,
+  `last_full_universe_scoring`, `last_incremental_signal_refresh` (from the
+  cycle owner's new `last_run_summary` - latest.json is only a pointer), and
+  declared `not_persisted_facts` gaps.
+  **Part 4 - two forward-evidence identities:** the 16:20 ET
+  PaperTrader-IntradayEmission run was an out-of-slot watcher invocation
+  (factory refused, 0 appended); the real 18:00 UTC slot emitted 36
+  TRUE_FORWARD/PROSPECTIVE_INTRADAY research rows (ledgers 72/72/0). New
+  read surface `api.research_runtime.load_intraday_emission_status()`
+  (read-only, no mkdir); payload now carries
+  `latest_governed_true_forward_date` (daily governed bundle,
+  api.forward_prediction_skill) and `latest_intraday_prospective_emission`
+  as distinct never-summed identities; Today shows two rows.
+  **Verification:** slice2 53/53; R54 60/60; R28 76/76; R49 52/52; slices
+  5/6/7 + Stage 20 + architecture contracts + R29 collection 441 passed;
+  strict audit exit 0 (2 new blocking invariants:
+  `decision_authority_declared`, `evidence_identities_distinct`); git diff
+  --check clean; Playwright 1920x1080 browser acceptance green. NOT R54.1:
+  no cadence enabled, no scheduler touched, no decision/threshold/policy
+  changed, no production state mutated. NOT committed (operator gate).
+- **Previous phase:** **R54 Slice 1 - Active Manager Operating Model
+  Consolidation (single agent, no subagents, Windows PowerShell only).**
+  Built over commit `9a73b73` after R53.1. Full narrative + the R54.1
+  activation contract: `docs/RELEASE54_ACTIVE_MANAGER_OPERATING_MODEL.md`.
+  **Phase A - the end-to-end chain is traced from code and is LIVE:**
+  collection worker -> Release-28 event cycle (materiality-gated) -> affected
+  signal refresh -> scoring -> HOC -> Stage-20 reassessment -> gated R47
+  proposal -> manual review; the governed Class-2 decision runs only through
+  the operator's R48 portfolio cycle; detection cadence (~15-min polls), not
+  the ~7.3 s decision chain, is the latency bottleneck; `cadence_enabled:
+  False` is a declared audit policy, not a broken link.
+  **Phase B - ONE Active Manager Operating State:** new composition owner
+  `api/active_manager_state.py` (`GET /v1/operations/active-manager-state`),
+  a pure projection over the canonical owners (decision-side sections via the
+  R50 snapshot; live event/scoring/reassessment/runtime reads fresh) with the
+  explicit OPERATIONAL vs LIVE/INTRADAY time-state distinction
+  (`operational_mark_advanced_only_by: api.daily_close`), trigger provenance
+  (GOVERNED_DRC_TERMINAL vs LIVE_PRE_DRC_SIGNAL read from its owners),
+  material-events-since-reassessment (owner-bounded basis stated), and every
+  stale/missing component in its owner's own vocabulary.
+  **Phase C - Today:** ONE new loader (`loadActiveManagerState`, marked
+  R54_REGION, no client-side date/freshness/decision math) renders the
+  operating-state strip (OPERATIONAL BOOK / LIVE RESEARCH / LAST
+  REASSESSMENT + next step + stale list); R49's four sections and the ONE
+  dispatcher untouched (R49 test_51 + audit invariant evolved to admit the
+  ONE declared region).
+  **Phase D - classification register:**
+  `docs/architecture/system_inventory.json` -> `r54_ownership_classification`
+  + new canonical concept + module/route rows. Verdict: NO live
+  TRUE_DUPLICATE_OWNER in the operational decision path; equity-era cockpit
+  family explicitly LEGACY_DEPRECATED.
+  **Phase E - real consolidation:** the Today operational-mark pill
+  (`cc-status-mark`) had TWO writers - canonical `_psOwnSet` and the legacy
+  command-center's guard-free `_ccSetText` with a legacy-DB-date fallback
+  (last-writer-wins race). Legacy write REMOVED; ONE unguarded writer
+  remains; guarded by `check_release54_active_manager_state` (19 strict
+  blocking invariants) + `tests/test_release54_active_manager_state.py`.
+  **Phase F - R54.1 contract written** (trigger=the ONE materiality gate;
+  fingerprint idempotency; ONE cadence policy in
+  `engine.collection_cadence`; SLA = reassessment within one collection
+  iteration, measured via `oldest_event_to_reassessment_seconds`; churn/
+  hurdle/manual-review boundaries untouched; reassessed often, never
+  auto-rebalanced).
+  **Verification:** R54 suite 39/39; R49 52/52; slices 5/6/7 + Stage 20
+  green (354 passed batch); R29 collection 99/99; architecture contracts
+  36/36; strict audit exit 0; git diff --check clean. KNOWN PRE-EXISTING
+  (stash-A/B proven, unrelated to R54): 4 failures in
+  `tests/test_slice2_workflow_state.py` - the 2026-08-05-pinned fixture does
+  not inject DRC status, so the live research-cycle store leaks into the old
+  unit expectations on a new session day; REPAIRED by the R54 finalization
+  (hermetic fixture seams + poison guard; see the current entry).
+  **Remaining R54 work:** R54.1 event-driven activation per the contract;
+  optional later: quarantine the LEGACY_DEPRECATED cockpit family (Slice 11).
+- **Previous phase:** **Release 53.1 - Intraday Activation &
   Alpha-to-Capital Conversion (single agent, no subagents, Windows
   PowerShell only).** Built with R53 over commit `949ca9d`.
   **The mission:** convert R53's discoveries into operating capability.

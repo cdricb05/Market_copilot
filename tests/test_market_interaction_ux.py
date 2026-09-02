@@ -162,8 +162,16 @@ def test_research_bridge_status_on_research_agent_view():
     for label in ("Research warranted", "Mandate", "AlphaAgent", "Concluded", "Manual review"):
         assert label in fn, "bridge strip missing: " + label
     assert "research-audit/research-bridge" in fn  # reachable (deep-link to full bridge detail)
-    # loaded from the SAME bridge read model when the Research Agent section opens.
-    assert "'research-agent': ['loadResearchAgent', 'loadResearchBridge']" in UI
+    # Loaded from the SAME bridge read model when the Research Agent section opens.
+    # Assert the OWNERSHIP — the section's loader list declares the bridge loader —
+    # not a byte-exact list: the list legitimately grew after this tranche (27e2470
+    # added the leaderboard, 3cc02b1 the prospective tournament) and now wraps
+    # across two lines, while loadResearchBridge stayed wired exactly as intended.
+    lmap = _slice(UI, "function _raLoadSection", "loaders[sub]")
+    entry = re.search(r"'research-agent':\s*\[(.*?)\]", lmap, re.S)
+    assert entry, "the research-agent section must declare its loader list"
+    for loader in ("'loadResearchAgent'", "'loadResearchBridge'"):
+        assert loader in entry.group(1), "research-agent loader lost: " + loader
 
 
 # =========================================================================== #

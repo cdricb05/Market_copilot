@@ -206,6 +206,8 @@ from paper_trader.api import portfolio_cycle as _pcycle
 from paper_trader.api import operator_presentation as _opres
 # Release 50 - the multi-asset operational capital manager owners (all read-only).
 from paper_trader.api import decision_snapshot as _snap
+# R54 - the ONE Active Manager Operating State (read-only composition).
+from paper_trader.api import active_manager_state as _ams
 from paper_trader.api import investability_registry as _invreg
 from paper_trader.api import capital_pool as _cpool
 from paper_trader.api import cross_asset_risk as _xrisk
@@ -7493,6 +7495,34 @@ def operations_operator_presentation() -> dict:
 
     Release 50 - served through the ONE decision snapshot (``api.decision_snapshot``)."""
     return _snap.section("presentation")
+
+
+@app.get(
+    "/v1/operations/active-manager-state",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_active_manager_state() -> dict:
+    """R54 — the ONE Active Manager Operating State (read-only).
+
+    A composition/projection over the canonical owners answering, in one
+    response: the operational book state (latest closed eligible session, NAV,
+    cash, holdings), the live/intraday research state (collection lifecycle,
+    latest observation, latest material event, latest incremental event cycle,
+    latest scoring identity, latest TRUE_FORWARD emission), the last portfolio
+    reassessment (trigger provenance, holdings/alternatives evaluated, decision
+    and economics), the governed target/proposal state (Release-47 outcome,
+    switching economics, approval + execution lanes), research/model governance,
+    the execution/safety boundary, the workflow owner's operator guidance
+    verbatim, the explicit operational-vs-live time-state distinction, and every
+    stale/missing component in its owner's own words.
+
+    STRICTLY READ-ONLY and COMPOSITION-ONLY: it recomputes no NAV, HOC, target,
+    proposal, ranking, freshness verdict or recommendation; it runs nothing,
+    writes nothing, approves nothing and never turns an intraday observation
+    into an operational close mark. Decision-side sections are served through
+    the ONE Release-50 decision snapshot; live research reads run fresh."""
+    return _ams.load_active_manager_state()
 
 
 @app.get(

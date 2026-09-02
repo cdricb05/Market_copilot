@@ -259,11 +259,19 @@ def test_07_a_running_close_is_visible_with_its_stage(tmp_path):
 
 def test_08_reconnecting_reveals_the_authoritative_completed_outcome(tmp_path):
     from paper_trader.api import daily_close as DC
-    _progress_doc(tmp_path)
+    doc = _progress_doc(tmp_path)
     p = DC.load_close_progress(desk_dir=tmp_path)
     assert p["outcome"] == DC.RUN_COMPLETED
     assert p["writes_occurred"] is True
-    assert p["final_close_status"] == "REBALANCE_PROPOSAL_READY"
+    # The fixture writes the byte a PRE-Release-29.3 progress row actually carries.
+    # 42978bf split close semantics from proposal semantics and migrated the token ON
+    # READ, so the reconnecting operator is shown the ONE canonical vocabulary while the
+    # stored history keeps its original bytes. Assert that contract, both halves.
+    assert doc["final_close_status"] == DC.LEGACY_REBALANCE_PROPOSAL_READY
+    assert p["final_close_status"] == DC.CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+    on_disk = json.loads(
+        (Path(tmp_path) / DC.CLOSE_PROGRESS_FILE).read_text(encoding="utf-8"))
+    assert on_disk["final_close_status"] == DC.LEGACY_REBALANCE_PROPOSAL_READY
     assert p["completed_at"] is not None
 
 

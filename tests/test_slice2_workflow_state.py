@@ -62,17 +62,43 @@ _GATE = {"latest_completed_market_date": "2026-07-31", "outcome": "NO_ACTION_TOD
 _TR = {"dates": {"alpha_market_date": "2026-07-31"}}
 _REGRESSION_NOW = datetime(2026, 8, 5, 10, 0, tzinfo=ET)
 
+# --------------------------------------------------------------------------- #
+# HERMETICITY (R54 finalization). ``load_workflow_state`` exposes an injection
+# seam for EVERY read model; a fixture that leaves one unbound silently reads
+# the operator's LIVE store through it. These three were unbound, and the Daily
+# Research Cycle seam made the historical fixtures time-dependent: the live
+# run-manifest store answers ``governed_research_evidence_current`` for the
+# fixture's eligible session (2026-08-04), so once that session's governed run
+# aged out of the live store, ``research_cycle_due_after_close`` (P4.5) began
+# firing and rewrote the expected overall states (proven 2026-09-01). Each
+# fixture now owns its DRC / reassessment / decision inputs explicitly.
+# --------------------------------------------------------------------------- #
+_DRC_NOT_STARTED = {"state": "NOT_STARTED",
+                    "governed_research_evidence_current": False, "blockers": []}
+_DRC_COMPLETE = {"state": "COMPLETE",
+                 "governed_research_evidence_current": True, "blockers": []}
+_REAS_NOT_RUN = {"reassessment_available": False, "reassessment_state": "NOT_RUN",
+                 "proposal_required": False, "blockers": []}
+# ``decision_record=None`` means "load live"; the hermetic no-record value is {}
+# (``derive_decision_state`` normalises a falsy record to "no decision").
+_NO_DECISION_RECORD: dict = {}
+
 
 def _regression(**kw):
     args = dict(now=_REGRESSION_NOW, operational=copy.deepcopy(_OP), inputs=dict(_INPUTS),
                 daily_status=dict(_DAILY), desk_marks=copy.deepcopy(_DESK),
                 close_progress=dict(_CLOSE), forward_status=copy.deepcopy(_FWD),
-                gate=dict(_GATE), target_readiness=copy.deepcopy(_TR))
+                gate=dict(_GATE), target_readiness=copy.deepcopy(_TR),
+                research_cycle=dict(_DRC_NOT_STARTED),
+                reassessment_summary=dict(_REAS_NOT_RUN),
+                decision_record=dict(_NO_DECISION_RECORD))
     args.update(kw)
     return ws.load_workflow_state(**args)
 
 
 # Session-ready fixtures for the isolated priority-policy integration cases.
+# The governed cycle for the eligible session is COMPLETE in this world — the
+# fixture states are about what happens AFTER the session is fully processed.
 def _ready(**kw):
     op = {"operational_book": {**_OP["operational_book"],
           "current_target": {"alpha_market_date": "2026-08-04",
@@ -85,7 +111,10 @@ def _ready(**kw):
                 daily_status={"status": "DAILY_STATUS_READY", "latest_valid_mark_date": "2026-08-04"},
                 desk_marks=copy.deepcopy(_DESK), close_progress=dict(_CLOSE),
                 forward_status={**_FWD, "latest_snapshot_date": "2026-08-04"},
-                gate=gate, target_readiness={"dates": {"alpha_market_date": "2026-08-04"}})
+                gate=gate, target_readiness={"dates": {"alpha_market_date": "2026-08-04"}},
+                research_cycle=dict(_DRC_COMPLETE),
+                reassessment_summary=dict(_REAS_NOT_RUN),
+                decision_record=dict(_NO_DECISION_RECORD))
     args.update(kw)
     return ws.load_workflow_state(**args)
 
@@ -101,6 +130,36 @@ def _decide(**kw):
     base = dict(_D_DEFAULTS)
     base.update(kw)
     return ws._decide_overall(**base)
+
+
+# =========================================================================== #
+# HERMETICITY GUARD (R54 finalization) — the leak must not return.
+# =========================================================================== #
+def test_00_fixtures_bind_every_live_store_seam(monkeypatch):
+    """Poison the three live store readers the fixtures used to leak through.
+
+    A hermetic fixture binds every injection seam, so the poisoned loaders must
+    never fire: the composed contract is identical and no degrade warning
+    appears. Before this guard, the un-bound Daily Research Cycle seam made
+    test_14/16/17/18 depend on the operator's live run-manifest store.
+    """
+    base_r, base_a = _regression(), _ready()
+
+    def _poison(*_a, **_k):
+        raise RuntimeError("live store read from hermetic fixture")
+
+    monkeypatch.setattr(
+        "paper_trader.api.daily_research_cycle.load_daily_research_cycle_status", _poison)
+    monkeypatch.setattr(
+        "paper_trader.api.portfolio_reassessment.load_reassessment_summary", _poison)
+    monkeypatch.setattr(
+        "paper_trader.api.portfolio_decision.load_decision_record", _poison)
+    r, a = _regression(), _ready()
+    for before, after in ((base_r, r), (base_a, a)):
+        x, y = dict(before), dict(after)
+        x.pop("evaluated_at"), y.pop("evaluated_at")
+        assert x == y
+    assert not any("unavailable" in w for w in r["warnings"] + a["warnings"])
 
 
 # =========================================================================== #

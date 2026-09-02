@@ -2888,3 +2888,49 @@ P&L are never one number. Read surface: `GET
 /v1/research/prospective-tournament` → `shadow_pnl`, `information_lanes`;
 UI `#research/research-agent` → `#r46t-money` ("ARE WE MAKING MONEY?").
 Research only: no order, no holding, no target, no promotion, no purchase.
+
+## R54 Slice 1 — THE Active Manager Operating State (operator read side)
+
+`api/active_manager_state.py` is the ONE composed operating-state read model,
+served at `GET /v1/operations/active-manager-state` and rendered on Today by
+exactly ONE loader (`loadActiveManagerState`, marked `R54_REGION`). It is a
+PROJECTION over the canonical owners — `api.portfolio_state` (operational
+book), `api.workflow_state` (guidance + freshness words),
+`api.information_collection` (collection lifecycle), `api.event_signal_refresh`
+(live event/signal state), `api.universe_scoring` (scoring identity),
+`api.portfolio_reassessment` (Stage-20 read), `api.reallocation_proposal`
+(R47 governed target/economics), `api.rebalance_execution` (order-plan state)
+and `api.research_runtime` (R52 health) — and recomputes NOTHING. Decision-side
+sections are served through the R50 decision snapshot; live research reads run
+fresh. It keeps the OPERATIONAL clock (latest closed eligible session; advanced
+only by `api.daily_close`) and the LIVE/INTRADAY research clock explicitly
+distinct, and lists every stale/missing component in its owner's own
+vocabulary. Slice-1 consolidation: the Today operational-mark pill
+(`cc-status-mark`) now has exactly ONE unguarded UI writer
+(`renderPortfolioState`/`_psOwnSet`); the legacy guard-free command-center
+write (legacy-DB-date fallback) is removed and audit-guarded
+(`check_release54_active_manager_state`, strict-blocking). Full narrative +
+the R54.1 event-driven activation contract:
+`docs/RELEASE54_ACTIVE_MANAGER_OPERATING_MODEL.md`.
+
+R54 finalization (post-deployment): the payload additionally carries (a) the
+Track-B settled-aware reassessment presentation verbatim (`operator_state`
+PORTFOLIO_DECISION_SETTLED when the decision owner settled a PROPOSAL_READY
+ask — e.g. HOLD_CURRENT_BOOK below the switching hurdle) plus
+`reassessment_freshness_detail` (currency owner, legacy schedule owner and
+date, `current_for_eligible_session`, never advanced by live cycles); (b) a
+`decision_authority` five-rung ladder (live intraday assessment / governed
+reassessment / governed target / manual-review candidate / approved decision,
+each rung a verbatim owner value with its owner named); (c) explicit scoring
+semantics (`scoring_basis` FULL_UNIVERSE_RECOMPUTE with the point-in-time
+data-basis statement, `last_full_universe_scoring`,
+`last_incremental_signal_refresh` from the event-cycle owner's new
+`last_run_summary` — `latest.json` is only a pointer — and declared
+`not_persisted_facts`); (d) TWO distinct forward-evidence identities
+(`latest_governed_true_forward_date` from `api.forward_prediction_skill` vs
+`latest_intraday_prospective_emission` from the new read-only
+`api.research_runtime.load_intraday_emission_status()` over the R53.1
+research ledger, evidence_class PROSPECTIVE_INTRADAY) that are never summed.
+Today renders these owner words verbatim; two further strict-blocking audit
+invariants (`decision_authority_declared`, `evidence_identities_distinct`)
+prevent regression.

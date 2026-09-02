@@ -2029,6 +2029,28 @@
     .thc-link .arw{color:var(--label,#7a8fb0);font-weight:800;}
     @media (max-width:1180px){ .thc-meta{margin-left:0;width:100%;gap:24px;} }
     @media (max-width:1040px){ .thc-title{font-size:20px;} .today-hero.th-compact{padding:13px 16px;} }
+    /* -- R54: Active Manager operating-state strip (three separated clocks) -- */
+    .ams-strip{border:1px solid var(--cc-border,#243b63);border-radius:8px;margin:0 0 14px;
+      padding:12px 16px;background:linear-gradient(180deg,rgba(22,34,63,.28),rgba(16,26,52,.16));}
+    .ams-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
+    .ams-title{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--text-accent,#a8b8d8);}
+    .ams-state{font-size:12.5px;font-weight:800;color:var(--text-primary,#e0e0ff);}
+    .ams-safety{margin-left:auto;font-size:10px;color:var(--label,#7a8fb0);letter-spacing:.04em;}
+    .ams-cols{display:grid;grid-template-columns:1fr 1.15fr 1.25fr;gap:20px;}
+    .ams-col{min-width:0;}
+    .ams-col .h{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--label,#7a8fb0);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06);}
+    .ams-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;line-height:1.65;}
+    .ams-row .k{color:var(--label,#7a8fb0);white-space:nowrap;}
+    .ams-row .v{color:var(--text-primary,#e0e0ff);font-weight:600;text-align:right;min-width:0;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .ams-row .v.warn{color:var(--warning,#f59e0b);}
+    .ams-row .v.ok{color:var(--ok,#22c55e);}
+    .ams-foot{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);
+      display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;font-size:11.5px;color:var(--label,#7a8fb0);}
+    .ams-foot .nx b{color:var(--text-primary,#e0e0ff);font-weight:700;}
+    .ams-foot .stale{color:var(--warning,#f59e0b);}
+    @media (max-width:1180px){ .ams-cols{grid-template-columns:1fr;gap:12px;} }
     /* -- Consolidated safety chrome -- */
     .safety-line{font-size:11px;color:var(--label,#7a8fb0);letter-spacing:.02em;}
     .safety-line b{color:var(--text-accent,#a8b8d8);font-weight:700;}
@@ -3707,6 +3729,17 @@
             <div class="hd"><span class="t">Attention</span><span class="n">Loading material information&hellip;</span></div>
           </div>
         </div>
+
+        <!-- ===================== R54 — ACTIVE MANAGER OPERATING STATE =====================
+             THE one operating-state strip. Three explicitly separated clocks —
+             OPERATIONAL BOOK (latest closed eligible session) vs LIVE / INTRADAY
+             RESEARCH (collection, latest information, latest event cycle, latest
+             scoring) vs LAST PORTFOLIO REASSESSMENT (trigger, scope, decision,
+             economics) — rendered VERBATIM from the ONE composed read model
+             (GET /v1/operations/active-manager-state, owner api.active_manager_state).
+             The browser formats words only: no date arithmetic, no freshness verdict,
+             no NAV / decision / priority computation happens here. -->
+        <div id="today-operating-state" data-owner="api.active_manager_state" style="display:none;"></div>
 
         <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
         <div id="cc-root">
@@ -8968,6 +9001,7 @@ window._switchTab = function(tabName, opts) {
     // presentation renders the Overview decision + the Reallocation view.
     try { if (typeof pmApplyViewFromRoute === 'function') pmApplyViewFromRoute(); } catch (e) {}
     try { if (typeof loadOperatorPresentation === 'function') loadOperatorPresentation(); } catch (e) {}
+    try { if (typeof loadActiveManagerState === 'function') loadActiveManagerState(); } catch (e) {} // R54: the ONE operating state
   }
 
   // Operator Decision Flow: dedicated full-screen review experiences. Each reuses the
@@ -24890,10 +24924,15 @@ function renderCommandCenter() {
   // Phase 27B.9 — the operator header shows the OPERATIONAL desk valuation date
   // (Alpha Paper Book #1), never the research/alpha mark. Research dates live only
   // in Research & Audit and the compact Research Status strip below.
-  var _obCsHdr = (window._obData && (window._obData.canonical_state ||
-    ((window._obData.operational_book || {}).canonical_state))) || null;
-  _ccSetText('cc-status-mark', (_obCsHdr && (_obCsHdr.desk_valuation_date || _obCsHdr.valuation_date)) ||
-    (pf.as_of_market_date || '—'));
+  // R54 (Slice 1 consolidation): this LEGACY renderer no longer writes the
+  // canonical `cc-status-mark` node. That node is owned by the canonical
+  // portfolio-state renderer (_psOwnSet, api.portfolio_state) with the
+  // operational-book renderer (_obSet, api.operational_book) as its
+  // ownership-respecting early writer. The old write here used `_ccSetText`,
+  // which does NOT honour the data-ps-owned stamp, and fell back to the LEGACY
+  // DB portfolio's `as_of_market_date` — so a late legacy response could
+  // overwrite the operational mark with the dormant legacy book's date. The
+  // operational mark now has exactly one owner chain and no legacy fallback.
   // Header prediction state — reported (configured target) only; never probed here.
   try { if (typeof renderPredictionHeader === 'function') renderPredictionHeader(sys.prediction_tunnel); } catch (e) {}
   // Phase 15-A: market-date alignment summary card + global badge (read-only).
@@ -25396,6 +25435,8 @@ async function refreshCommandCenter(btn) {
     await loadCommandCenter();
     // Release 49: the ONE reconciled operator presentation (Today's four sections).
     try { if (typeof loadOperatorPresentation === 'function') loadOperatorPresentation(); } catch (e) {}
+    // R54: the ONE Active Manager operating state (three separated clocks).
+    try { if (typeof loadActiveManagerState === 'function') loadActiveManagerState(); } catch (e) {}
     // 3. Refresh only the currently visible detailed sections.
     var activeTab = document.querySelector('.tab-content.active');
     if (activeTab && activeTab.id === 'tab-portfolio') {
@@ -27479,6 +27520,7 @@ function loadOperationalBook() {
     try { loadMaterialInformation(); } catch (e) {} // Release 30: what arrived and what it changed
     try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
     try { loadOperatorPresentation(); } catch (e) {} // Release 49: the ONE reconciled operator presentation
+    try { loadActiveManagerState(); } catch (e) {}   // R54: the ONE Active Manager operating state
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadPortfolioState(); } catch (e) {}
@@ -27492,7 +27534,8 @@ function loadOperationalBook() {
     try { loadReallocationProposal(); } catch (e) {}
     try { _r47Load(); } catch (e) {}
     try { loadMaterialInformation(); } catch (e) {}
-    try { loadOperatorPresentation(); } catch (e) {} return null; });
+    try { loadOperatorPresentation(); } catch (e) {}
+    try { loadActiveManagerState(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -28312,6 +28355,7 @@ window.opresPrimaryAction = opresPrimaryAction;
 
 function opresRefresh(btn) {
   try { loadOperatorPresentation(); } catch (e) {}
+  try { if (typeof loadActiveManagerState === 'function') loadActiveManagerState(); } catch (e) {} // R54
   try { if (typeof refreshCommandCenter === 'function') refreshCommandCenter(btn); } catch (e) {}
 }
 window.opresRefresh = opresRefresh;
@@ -28679,6 +28723,162 @@ function openMaterialInformationDetail() {
 }
 window.openMaterialInformationDetail = openMaterialInformationDetail;
 /* R49_REGION_END */
+
+/* R54_REGION_START */
+// ---------------------------------------------------------------------------
+// R54 — ACTIVE MANAGER OPERATING STATE (api.active_manager_state).
+// ONE loader fetches GET /v1/operations/active-manager-state and renders the
+// Today operating-state strip: OPERATIONAL BOOK vs LIVE / INTRADAY RESEARCH vs
+// LAST PORTFOLIO REASSESSMENT, plus the workflow owner's own next step and the
+// stale-component list in each owner's own words. Every value is VERBATIM from
+// the composed backend owners: this region performs no date arithmetic, no
+// freshness verdict and no NAV / decision / priority computation of any kind.
+// ---------------------------------------------------------------------------
+window._amsData = null;
+window._amsInFlight = null;
+
+function loadActiveManagerState() {
+  if (window._amsInFlight) return window._amsInFlight;
+  var settle = function (d) {
+    window._amsInFlight = null;
+    if (d && d.time_state) { window._amsData = d; renderActiveManagerState(d); return d; }
+    if (!window._amsData) renderActiveManagerState(null);
+    return null;
+  };
+  var p = _opFetch('/v1/operations/active-manager-state').then(settle).catch(function () { return settle(null); });
+  window._amsInFlight = p;
+  return p;
+}
+window.loadActiveManagerState = loadActiveManagerState;
+
+// Display trim of an owner-stamped ISO timestamp (string formatting ONLY —
+// the stamp itself always comes from a backend owner, never a browser clock).
+function _amsTs(v) {
+  var s = String(v == null ? '' : v);
+  if (!s) return '—';
+  if (s.length <= 10) return s;
+  var z = (s.indexOf('+00:00') !== -1 || s.charAt(s.length - 1) === 'Z') ? ' UTC' : '';
+  return s.slice(0, 10) + ' ' + s.slice(11, 16) + z;
+}
+function _amsRow(k, v, cls, title) {
+  return '<div class="ams-row"' + (title ? ' title="' + _opEsc(title) + '"' : '') + '>'
+    + '<span class="k">' + _opEsc(k) + '</span>'
+    + '<span class="v' + (cls ? ' ' + cls : '') + '">' + v + '</span></div>';
+}
+
+function renderActiveManagerState(d) {
+  var host = document.getElementById('today-operating-state');
+  if (!host) return;
+  if (!d) { host.style.display = 'none'; return; }
+  var ob = d.operational_book || {};
+  var li = d.live_information || {};
+  var sg = d.signal_state || {};
+  var rs = d.portfolio_reassessment || {};
+  var tp = d.target_proposal || {};
+  var gd = d.operator_guidance || {};
+  var lc = li.last_event_cycle || {};
+  var na = (gd.next_action || {});
+  var stale = d.stale_components || [];
+
+  var col1 = '<div class="ams-col"><div class="h">Operational book · last closed session</div>'
+    + _amsRow('Eligible session', _opEsc(ob.eligible_market_session || '—'))
+    + _amsRow('Operational mark', _opEsc(ob.operational_mark_date || '—'))
+    + _amsRow('NAV', _opMoney(ob.nav))
+    + _amsRow('Cash', _opMoney(ob.cash))
+    + _amsRow('Holdings', _opEsc(ob.holdings_count == null ? '—' : String(ob.holdings_count)))
+    + _amsRow('Book consistency', _opEsc(_opWords(ob.book_freshness) || '—'),
+              ob.book_freshness === 'CONSISTENT' ? 'ok' : '')
+    + '</div>';
+
+  // R54 finalization — every phrase below is a backend owner's own word:
+  // the event-cycle note, the scoring scope/basis and the two forward-evidence
+  // identities all arrive composed; this renderer only places them.
+  var sb = sg.scoring_basis || {};
+  var ie = sg.latest_intraday_prospective_emission || null;
+  var ieLast = (ie && ie.last_emission) || {};
+  var col2 = '<div class="ams-col"><div class="h">Live / intraday research state</div>'
+    + _amsRow('Collection', _opEsc(_opWords(li.collection_service_state) || '—')
+        + (li.worker_activity ? ' · ' + _opEsc(_opWords(li.worker_activity)) : ''),
+        li.collection_running ? 'ok' : 'warn')
+    + _amsRow('Last information', _opEsc(_amsTs(li.last_observation_at)))
+    + _amsRow('Last material event', _opEsc(_amsTs(li.last_material_event_at)))
+    + _amsRow('Last event cycle', _opEsc(_opWords(lc.state) || '—')
+        + (lc.generated_at ? ' · ' + _opEsc(_amsTs(lc.generated_at)) : ''),
+        '', lc.state_note || '')
+    + _amsRow('Latest scoring', _opEsc(sg.last_scoring_ranking_date || '—')
+        + (sg.scored_universe_count != null ? ' · ' + _opEsc(String(sg.scored_universe_count)) + ' scored' : '')
+        + (sb.scope ? ' · ' + _opEsc(_opWords(sb.scope)) : ''),
+        '', sb.basis || '')
+    + _amsRow('Governed TRUE_FORWARD (daily)',
+        _opEsc(sg.latest_governed_true_forward_date || sg.last_prediction_emission_date || '—'),
+        '', 'Owner: ' + (sg.governed_true_forward_owner || ''))
+    + _amsRow('Intraday prospective (research)',
+        ie ? (_opEsc(_opWords(ie.state) || '—')
+              + (ieLast.slot_utc ? ' · ' + _opEsc(_amsTs(ieLast.slot_utc)) : ''))
+           : '—',
+        '', ie ? ('Evidence class: ' + (ie.evidence_class || '') + ' — distinct from the daily governed TRUE_FORWARD bundle (owner: ' + (ie.daily_governed_bundle_owner || '') + ')') : '')
+    + '</div>';
+
+  var trig = rs.reassessment_trigger || {};
+  // The settled-aware operator state (api.portfolio_reassessment
+  // .build_presentation, Track B) outranks the raw kernel token for display;
+  // the raw token stays in the hover title so nothing is hidden.
+  var col3 = '<div class="ams-col"><div class="h">Last portfolio reassessment</div>'
+    + _amsRow('State', _opEsc(_opWords(rs.operator_state || rs.state) || '—'), '',
+        rs.operator_state && rs.state && rs.operator_state !== rs.state
+          ? ('Raw reassessment state: ' + rs.state + '. ' + (rs.operator_task || ''))
+          : (rs.operator_task || ''))
+    + (rs.operator_next_action
+        ? _amsRow('Owner guidance', _opEsc(rs.operator_next_action), '',
+                  rs.operator_task || '')
+        : '')
+    + _amsRow('When', _opEsc(_amsTs(rs.last_reassessment_at) !== '—'
+        ? _amsTs(rs.last_reassessment_at) : (rs.reassessment_session || '—')))
+    + _amsRow('Produced by', _opEsc(_opWords(trig.artifact_class) || '—'))
+    + _amsRow('Holdings reviewed', _opEsc(rs.holdings_evaluated == null ? '—' : String(rs.holdings_evaluated))
+        + (rs.alternatives_evaluated != null ? ' · ' + _opEsc(String(rs.alternatives_evaluated)) + ' alternatives' : ''))
+    + _amsRow('Net improvement vs hurdle', _opNum(rs.expected_net_improvement, 3)
+        + ' / ' + _opNum(rs.net_improvement_hurdle, 3))
+    + _amsRow('Governed target', _opEsc(_opWords(tp.target_state) || '—'))
+    + _amsRow('Material info since', _opEsc(li.material_events_since_last_reassessment == null
+        ? '—' : String(li.material_events_since_last_reassessment) + ' event(s)'),
+        li.material_events_since_last_reassessment > 0 ? 'warn' : '')
+    + '</div>';
+
+  var staleTxt = '';
+  if (stale.length) {
+    // Each stale entry's hover title carries the owner's self-explaining
+    // detail (e.g. why OVERDUE can coexist with a session-current assessment).
+    staleTxt = '<span class="stale">Stale / missing: ' + stale.map(function (s) {
+      return '<span title="' + _opEsc(s.detail || '') + '">'
+        + _opEsc(_opWords(s.component)) + ' (' + _opEsc(s.owner_state || '') + ')</span>';
+    }).join(', ') + '</span>';
+  }
+  var da = d.decision_authority || {};
+  var cpd = da.canonical_current_decision || gd.canonical_portfolio_decision || {};
+  var decTxt = (cpd && (cpd.headline || cpd.state))
+    ? '<span class="nx" title="' + _opEsc(da.statement || '') + '">Decision: <b>'
+      + _opEsc(cpd.headline || _opWords(cpd.state)) + '</b></span>'
+    : '';
+  var foot = '<div class="ams-foot">'
+    + decTxt
+    + '<span class="nx">Next: <b>' + _opEsc(na.label || gd.current_task || '—') + '</b></span>'
+    + staleTxt
+    + '<span>' + _opEsc(String((d.safety || {}).safety_badges ? (d.safety.safety_badges || []).join(' · ') : '')) + '</span>'
+    + '</div>';
+
+  host.className = 'ams-strip';
+  host.innerHTML = '<div class="ams-head">'
+    + '<span class="ams-title">Active manager state</span>'
+    + '<span class="ams-state">' + _opEsc(_opWords(gd.overall_state) || '—') + '</span>'
+    + '<span class="ams-safety" title="' + _opEsc((d.time_state || {}).statement || '') + '">'
+    + 'Operational vs live research clocks are kept separate · owner: api.active_manager_state</span>'
+    + '</div>'
+    + '<div class="ams-cols">' + col1 + col2 + col3 + '</div>'
+    + foot;
+  host.style.display = '';
+}
+/* R54_REGION_END */
 
 /* R50_REGION_START */
 // ---------------------------------------------------------------------------

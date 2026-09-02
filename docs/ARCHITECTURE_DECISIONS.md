@@ -2735,3 +2735,54 @@ flip.
 The from-scratch TCN scaled 2–8x through the identical protocol collapses
 (Zone-B t 2.07 -> −0.03); a compute-escalation request that survives this
 measurement must argue against it explicitly.
+
+**CONFIRMED (R54 Slice 1) — the operating state is a projection with two
+clocks, and a composition owner may never grow a calculation.**
+`api.active_manager_state` is the ONE operator-facing operating-state read
+model. It may copy owner fields verbatim, select among owner-stamped
+timestamps, count owner-bounded rows against an owner-published stamp, and
+quote each owner's own not-ready vocabulary — nothing else. The OPERATIONAL
+clock (latest closed eligible session; advanced only by `api.daily_close`) and
+the LIVE/INTRADAY research clock are never conflated, and an intraday
+observation never becomes an operational mark. Enforced by
+`check_release54_active_manager_state` (strict-blocking: no calculation defs,
+no execution/scheduler reach, GET-only route, ONE UI loader in a scanned
+region with no client-side state math).
+
+**CONFIRMED (R54 Slice 1) — a canonical UI node has ONE unguarded writer.**
+The Today operational-mark pill was written both by the canonical
+portfolio-state renderer (ownership-stamped) and by the legacy command-center
+renderer through the guard-free `_ccSetText`, whose fallback was the dormant
+legacy DB book's date — a last-writer-wins race that could display a legacy
+date as the operational mark. The legacy write is removed; the audit fails the
+build if any `_ccSetText('cc-status-mark'…)` returns. The general rule stands:
+every canonical node is either written by its one owner or written through a
+setter that refuses owned nodes.
+
+**CONFIRMED (R54 finalization) — a state token travels with the owner facts
+that disambiguate it, and the UI never authors decision language.**
+Live deployment showed one payload simultaneously (and correctly) reporting
+`PROPOSAL_READY`, `PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW`, a governed
+`HOLD_CURRENT_BOOK` target and an `OVERDUE` freshness badge. Each token was
+true in its owner's vocabulary; rendered bare, together they read as a
+contradiction. The rule: a terminal token that records ARTIFACT EXISTENCE
+(the event cycle's `PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW`) must be published
+with the owner's recorded facts behind it (`last_run_summary`: what ran, what
+was built, the target's own outcome); a raw kernel state that a downstream
+owner has settled must be published with the settled presentation
+(`PORTFOLIO_DECISION_SETTLED`); a freshness verdict must carry the inputs of
+the owner that classified it (`reassessment_freshness_detail`). The UI
+renders these owner words verbatim — it never branches on decision tokens and
+never composes its own interpretation (audit strict-blocking:
+`decision_authority_declared`, `evidence_identities_distinct`; test guards in
+`tests/test_release54_active_manager_state.py`).
+
+**CONFIRMED (R54 finalization) — hermetic tests bind EVERY injection seam.**
+Four slice-2 workflow tests failed on a new session day because the shared
+fixtures left the `research_cycle` / `reassessment_summary` /
+`decision_record` seams unbound, so a "hermetic" scenario silently read the
+operator's LIVE Daily Research Cycle store — the exact failure mode the
+Stage-22 seam comment warned about. Historical fixtures must own their
+DRC/workflow/date inputs explicitly, and a poison-guard test
+(`test_00_fixtures_bind_every_live_store_seam`) proves no live loader can
+change the composed contract.

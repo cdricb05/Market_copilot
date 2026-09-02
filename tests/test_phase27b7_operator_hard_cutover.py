@@ -178,7 +178,16 @@ class TestRequiredContent:
         assert 'id="cc-ob-panel"' in region          # canonical operational state
         assert 'id="cc-ob-headline"' in region        # one operational headline
         assert 'id="cc-ob-workflow"' in region        # compact 5-step workflow
-        assert 'id="cc-research-strip"' in region      # research status link (non-overriding)
+        # Release 29 UX2 (98c5908) MOVED the research-status strip off Today: research
+        # context may never sit beside — or override — the operational next action. The
+        # canonical owner test (test_release29_ux2_simplification::
+        # test_b3_diagnostics_left_today_for_system_audit) asserts its absence here and
+        # its presence in System · Audit, so assert that same rule from this side rather
+        # than resurrecting a duplicate strip on the command centre.
+        assert 'id="cc-research-strip"' not in region
+        assert static_html.count('id="cc-research-strip"') == 1
+        assert (static_html.index('id="cc-research-strip"')
+                > static_html.index('id="tab-audit-advanced"'))
 
     def test_daily_workflow_is_operational_five_step_only(self, static_html):
         start, end = _ROUTES["daily-workflow"]

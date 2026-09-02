@@ -1134,3 +1134,34 @@ campaign id, and the same judge and budgets unchanged.
 - Release 31's equity-selection search was NOT rerun. It is inherited as the
   control with its frozen verdict, because more mining of the same information
   adds to the multiple-testing denominator and adds no knowledge.
+
+## R54 Slice 1 — Active Manager Operating State (LANDED) + Slice 1 consolidation
+
+Consolidated:
+- ONE composed operating-state read model (`api.active_manager_state`,
+  `GET /v1/operations/active-manager-state`) over the existing canonical
+  owners; ONE Today loader; the explicit operational-vs-live time-state
+  distinction; stale/missing components stated in each owner's own vocabulary.
+- The Today operational-mark pill (`cc-status-mark`): the legacy guard-free
+  command-center writer (fallback = the dormant legacy DB book's date) is
+  removed; `renderPortfolioState`/`_psOwnSet` is the ONE unguarded writer;
+  strict-audit-guarded against reintroduction.
+- Phase-D classification register:
+  `docs/architecture/system_inventory.json` → `r54_ownership_classification`
+  (no TRUE_DUPLICATE_OWNER live in the operational decision path; the
+  equity-era cockpit family is explicitly LEGACY_DEPRECATED).
+
+Explicitly NOT consolidated (and why):
+- The legacy cockpit surfaces (`command_center`, `daily_workflow_dashboard`,
+  `current_operating_state`, `daily_operating_run`,
+  `/v1/review/current-workflow-state`) stay as classified LEGACY_DEPRECATED:
+  they serve demoted views, their removal is a contract change belonging to the
+  quarantine slice (Slice 11), and they no longer write any canonical node.
+- No reassessment cadence was enabled (`cadence_enabled` stays a declared
+  False): R54.1 owns the activation, under the contract in
+  `docs/RELEASE54_ACTIVE_MANAGER_OPERATING_MODEL.md`.
+
+Next (R54.1): activate near-real-time reassessment through the EXISTING
+Release-28 event cycle — cadence policy in `engine.collection_cadence`, SLA
+surfaced in `active_manager_state.live_information`, manual-review boundary
+untouched.

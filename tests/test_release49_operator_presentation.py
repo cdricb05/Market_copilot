@@ -611,9 +611,16 @@ class TestTodayUI:
         assert "try { loadOperatorPresentation(); } catch (e) {}" in UI
 
     def test_51_today_has_exactly_four_primary_sections(self):
+        # R54 Slice 1 deliberately adds ONE further region after the four R49
+        # sections: the Active Manager operating-state strip, owned by a
+        # DIFFERENT declared owner (api.active_manager_state). It is admitted
+        # here only under that exact owner declaration — any other extra
+        # section still fails (mirrors check_release54_active_manager_state).
         ids = re.findall(r'<div id="(today-[\w-]+)"', TCC)
         assert ids == ["today-command-center", "today-system-band", "today-decision",
-                       "today-snapshot", "today-attention"]
+                       "today-snapshot", "today-attention", "today-operating-state"]
+        assert ('id="today-operating-state" data-owner='
+                '"api.active_manager_state"') in TCC
 
     def test_52_no_badge_wall_and_legacy_cards_hidden_on_today(self):
         assert "cc-badge" not in TCC
