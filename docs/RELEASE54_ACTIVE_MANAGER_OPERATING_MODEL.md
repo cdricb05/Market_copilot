@@ -176,6 +176,15 @@ surfaces.
 > detection is still the bottleneck, `cadence_enabled` remains a declared
 > False, and raising it waits on the measured `observation_to_governed_seconds`
 > series that step 3 now publishes.
+>
+> **R54.2 completed the precondition** — see
+> `docs/RELEASE54_2_SAME_SESSION_REASSESSMENT_VERSIONING.md`. "A portfolio may
+> be reassessed many times per trading day" needs the STORE to hold many
+> assessments per session, and Stage-20/21 appended a version only on ECONOMIC
+> change. `api.portfolio_reassessment` now versions on ASSESSMENT EVIDENCE too
+> (`CREATED_ASSESSMENT_VERSION`, append-never-rewrite), the churn input no
+> longer reads the session it is assessing, and the governance gate additionally
+> requires that a live conclusion actually became an immutable artifact.
 
 The contract as originally written:
 

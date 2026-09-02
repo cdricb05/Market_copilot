@@ -2844,6 +2844,9 @@ gate now delegates to `api.portfolio_reassessment.economic_currency`:
 `SUPERSEDED` is staleness, `UNVERIFIABLE` is not (it withholds a promotion as
 incomplete evidence, which is fail-closed without claiming a stale book).
 
+**RESOLVED BY R54.2 — see the entries below.** The provisional statement that
+follows is retained verbatim as the evidence that motivated the change.
+
 **PROVISIONAL (R54.1, evidence-backed) — same-session reassessment immutability
 is the remaining governance precondition.** Stage-20/21 keys the reassessment
 artifact by `(book, eligible session)` and appends a new version only when the
@@ -2864,3 +2867,60 @@ The target priced under `HOLD_CURRENT_BOOK` is exactly the alternative the
 system decided NOT to take; emitting its legs as advice would invert the
 decision. HOLD is still a first-class governed decision — the absence of
 recommendations is the decision, not the absence of one.
+
+**CONFIRMED (R54.2) — an unchanged portfolio does not mean an unchanged
+assessment.** These are two independent facts about one session and they now
+have two independent fingerprints: `economic_state_hash` (Stage 21) answers
+"has the PORTFOLIO changed?", and `assessment_evidence_hash` (R54.2) answers
+"has the EVIDENCE about it changed?". A materially different assessment of an
+economically unchanged book is a NEW point-in-time conclusion and is APPENDED as
+an immutable version (`CREATED_ASSESSMENT_VERSION`); the prior artifact is never
+rewritten. This is the same append-never-rewrite shape Stage 21 introduced for
+economic change, extended to the axis continuous management actually moves.
+
+**CONFIRMED (R54.2) — an assessment's identity is its BOUND EVIDENCE, and the
+document-wide portfolio hash is not part of it.** `assessment_evidence_hash`
+covers the ranking, opportunity-cost, corporate-action, holdings-snapshot,
+model and policy identities plus a `declared_inputs_fingerprint` for input
+freshness. It deliberately excludes `portfolio_state_hash` — the Stage-21 trap,
+since that hash embeds this owner's own output and would manufacture a version
+on every cycle — `economic_state_hash` (the other axis) and `reassessment_hash`
+(the conclusion). It also excludes wall clock, run id and materiality trigger
+fingerprint: two triggers reaching the same conclusion from the same evidence
+are ONE assessment, and versioning them twice is evidence noise, not evidence.
+
+**CONFIRMED (R54.2) — identical evidence with a different conclusion is an
+INCONSISTENCY, never a version.** Because `reassessment_hash` covers the whole
+result including `provenance`, two runs can differ in that hash while having
+reached an identical conclusion; `decision_fingerprint` (the result minus
+`provenance` and `reassessment_hash`) is what separates "the same assessment,
+re-run" (idempotent) from "identical evidence produced a different answer"
+(`CONFLICT_REJECTED`, the entire residue of the Stage-20 rule and still
+protecting immutability).
+
+**CONFIRMED (R54.2) — a session's authoritative recommendation is its LAST
+version, and it votes once.** The append-only history keeps every version, but
+every reader that answers "what did we recommend at session X" — churn control,
+forward attribution, Stage-21 outcome observations — consumes
+`authoritative_history_rows`. Additionally, the churn input EXCLUDES the session
+being assessed: a reassessment has never seen its own recommendation (its row is
+written afterwards), and letting a later version read an earlier one's row would
+make the cooldown self-blocking within the session, so the system could not
+repeat at 11:10 what it concluded at 09:45.
+
+**CONFIRMED (R54.2) — an unpersisted conclusion is never governable.** The
+R54.1 gate's `CYCLE_REASSESSMENT_IS_THE_CANDIDATE` check now requires, in
+addition to the hash comparison it already made, that the cycle's conclusion
+became an immutable artifact. Versioning made persistence correct; it did not
+become an exemption. Refused writes stay visible as refused writes through the
+cycle's published `reassessment_persistence_status`.
+
+**OPEN (R54.2, evidence-backed) — the holding-opportunity-cost store has the
+same shape of gap.** `api.holding_opportunity_cost.persist_assessment` still
+returns `CONFLICT_REJECTED` for a same-session assessment with different
+evidence, so the live HOC assessment has no artifact on disk while the persisted
+reallocation proposal — which has superseded on changed inputs since Slice 7 —
+already binds it. This is PRE-EXISTING and R54.2 does not create it, but a
+governed intraday decision would bind a HOC hash that is not retrievable.
+Resolving it means giving `persist_assessment` the same two-axis append
+semantics (R54.3).

@@ -264,15 +264,54 @@ def test_03_changed_rank_snapshot_creates_a_new_assessment(tmp_path):
     ib = PRS.artifact_identity(input_contract=run_b["input_contract"],
                                result=run_b["reassessment"])
     assert ia["universe_scoring_hash"] != ib["universe_scoring_hash"]
-    PRS.persist_reassessment(result=run_a["reassessment"],
-                             input_contract=run_a["input_contract"],
+    first = PRS.persist_reassessment(result=run_a["reassessment"],
+                                     input_contract=run_a["input_contract"],
+                                     reassessment_dir=tmp_path)
+    before = (Path(tmp_path) / "artifacts" / ("%s.json" % first["artifact_id"])).read_text(
+        encoding="utf-8")
+    second = PRS.persist_reassessment(result=run_b["reassessment"],
+                                      input_contract=run_b["input_contract"],
+                                      reassessment_dir=tmp_path)
+    # Release 54.2 — the economic portfolio is unchanged but the ASSESSMENT EVIDENCE
+    # moved (new ranking + new opportunity cost), so this is a NEW point-in-time
+    # conclusion and a new immutable VERSION is appended. Before R54.2 this was
+    # refused as a conflict, which stranded continuous intraday management on the
+    # first artifact of the session.
+    assert second["status"] == "CREATED_ASSESSMENT_VERSION"
+    assert second["persisted"] is True and second["conflict"] is False
+    assert second["assessment_evidence_changed"] is True
+    assert second["economic_state_changed"] is False
+    assert second["superseded_artifact_id"] == first["artifact_id"]
+    assert second["artifact_id"] != first["artifact_id"]
+    # The earlier artifact is NEVER overwritten and stays readable by its exact id.
+    assert (Path(tmp_path) / "artifacts"
+            / ("%s.json" % first["artifact_id"])).read_text(encoding="utf-8") == before
+    older = PRS.load_artifact_by_id(reassessment_id=first["artifact_id"],
+                                    reassessment_dir=tmp_path)
+    assert older["identity"]["universe_scoring_hash"] == ia["universe_scoring_hash"]
+    newest = PRS.load_latest_artifact(active_book_id=BOOK, eligible_market_date=DATE,
+                                      reassessment_dir=tmp_path)
+    assert newest["reassessment_id"] == second["artifact_id"]
+
+
+def test_03b_identical_evidence_with_a_different_conclusion_is_still_a_conflict(tmp_path):
+    """Release 54.2 case 4 — versioning relaxes NOTHING about inconsistency."""
+    run = _run()
+    PRS.persist_reassessment(result=run["reassessment"],
+                             input_contract=run["input_contract"],
                              reassessment_dir=tmp_path)
-    conflict = PRS.persist_reassessment(result=run_b["reassessment"],
-                                        input_contract=run_b["input_contract"],
+    # Same evidence, same economic state, but a different recorded conclusion.
+    mutated = json.loads(json.dumps(run["reassessment"]))
+    mutated["decision"] = dict(mutated.get("decision") or {},
+                               expected_net_improvement=0.4242)
+    mutated["reassessment_hash"] = "forced_different_hash"
+    conflict = PRS.persist_reassessment(result=mutated,
+                                        input_contract=run["input_contract"],
                                         reassessment_dir=tmp_path)
-    # An immutable artifact is NEVER overwritten for the same (book, date).
-    assert conflict["status"] == "CONFLICT_REJECTED" and conflict["conflict"] is True
-    assert conflict["persisted"] is False
+    assert conflict["status"] == "CONFLICT_REJECTED"
+    assert conflict["conflict"] is True and conflict["persisted"] is False
+    assert conflict["assessment_evidence_changed"] is False
+    assert len(list((Path(tmp_path) / "artifacts").glob("*.json"))) == 1
 
 
 def test_04_changed_holdings_create_a_new_assessment():

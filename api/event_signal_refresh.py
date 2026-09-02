@@ -135,10 +135,22 @@ def _summarize_reassessment(result: Optional[dict]) -> Optional[dict]:
     if not r:
         return None
     d = r.get("decision") or {}
+    # R54.2 — WHICH immutable artifact this cycle's conclusion resolved to, straight
+    # from the canonical persistence owner. The cycle asserts nothing about it: a
+    # refused write stays visible as a refused write.
+    p = (result or {}).get("persistence") or {}
+    ident = p.get("identity") or {}
     return {
         "calculation_owner": r.get("calculation_owner"),
         "reassessment_state": r.get("reassessment_state"),
         "reassessment_hash": r.get("reassessment_hash"),
+        "reassessment_id": p.get("artifact_id"),
+        "persistence_status": p.get("status"),
+        "persisted": p.get("persisted"),
+        "assessment_evidence_hash": ident.get("assessment_evidence_hash"),
+        "assessment_evidence_changed": p.get("assessment_evidence_changed"),
+        "economic_state_changed": p.get("economic_state_changed"),
+        "supersedes_reassessment_id": p.get("superseded_artifact_id"),
         "explanation": r.get("explanation") or r.get("summary_text"),
         "blockers": d.get("blockers"),
         "actionable_holdings": d.get("actionable_holdings"),
@@ -1078,6 +1090,15 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         "hoc_assessment_hash": hoc_sum.get("assessment_hash"),
         "hoc_holdings_reviewed": hoc_sum.get("holdings_reviewed"),
         "reassessment_hash": prs_sum.get("reassessment_hash"),
+        # R54.2 — the IMMUTABLE artifact this run's conclusion became. A refused
+        # write leaves ``reassessment_persisted`` False and no id, which is exactly
+        # what must keep the governance gate withholding.
+        "reassessment_id": prs_sum.get("reassessment_id"),
+        "reassessment_persistence_status": prs_sum.get("persistence_status"),
+        "reassessment_persisted": prs_sum.get("persisted"),
+        "assessment_evidence_hash": prs_sum.get("assessment_evidence_hash"),
+        "assessment_evidence_changed": prs_sum.get("assessment_evidence_changed"),
+        "supersedes_reassessment_id": prs_sum.get("supersedes_reassessment_id"),
         "proposal_hash": tgt_sum.get("proposal_hash"),
         "materiality_trigger_fingerprint": (
             full.get("materiality") or {}).get("trigger_fingerprint"),

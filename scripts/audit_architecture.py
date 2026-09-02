@@ -11347,6 +11347,139 @@ def check_release54_1_governed_intraday_decision(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 54.2 — same-session reassessment versioning.
+# --------------------------------------------------------------------------- #
+R542_REASSESSMENT_OWNER = "api/portfolio_reassessment.py"
+#: The versioning surface. Each must be defined EXACTLY once, in the ONE
+#: reassessment owner, and nowhere else in api/ or engine/.
+R542_OWNER_DEFS = (
+    "def persist_reassessment(",
+    "def assessment_evidence_identity(",
+    "def assessment_evidence_hash(",
+    "def decision_fingerprint(",
+    "def authoritative_history_rows(",
+    "def load_artifact_versions(",
+    "def load_artifact_by_id(",
+)
+#: The four persistence outcomes, named once and returned by the owner.
+R542_PERSIST_OUTCOMES = (
+    'PERSIST_CREATED = "CREATED"',
+    'PERSIST_REUSED = "REUSED_EXISTING"',
+    'PERSIST_ECONOMIC_VERSION = "CREATED_NEW_VERSION"',
+    'PERSIST_ASSESSMENT_VERSION = "CREATED_ASSESSMENT_VERSION"',
+    'PERSIST_CONFLICT = "CONFLICT_REJECTED"',
+    'PERSIST_INCONSISTENT = "REJECTED_INCONSISTENT_IDENTITY"',
+)
+#: Identity components the ASSESSMENT-EVIDENCE hash may never contain. The first
+#: two are the Stage-21 trap (a document-wide hash that embeds this owner's own
+#: output, and the separate economic axis); the third is the conclusion, not the
+#: evidence that produced it.
+R542_FORBIDDEN_EVIDENCE_COMPONENTS = (
+    "portfolio_state_hash", "economic_state_hash", "reassessment_hash")
+#: A parallel intraday-only history would split the one reassessment record.
+R542_FORBIDDEN_PARALLEL_STORES = (
+    "intraday_reassessment_dir", "INTRADAY_REASSESSMENT_DIR",
+    "event_reassessment_dir", "live_reassessment_dir",
+    "_INTRADAY_INDEX_FILE", "intraday_reassessments")
+
+
+def _r542_evidence_components(src: str) -> str:
+    """The declared ASSESSMENT_EVIDENCE_COMPONENTS tuple body, or ''."""
+    m = re.search(r"ASSESSMENT_EVIDENCE_COMPONENTS = \((.*?)\)\n", src, re.S)
+    return m.group(1) if m else ""
+
+
+def check_release54_2_same_session_reassessment_versioning(
+        files: list[Path]) -> dict:
+    """R54.2 invariants — ONE reassessment store, ONE writer, append-only.
+
+    (a) the persistence writer, the assessment-evidence identity, the decision
+        fingerprint, the authoritative-history reducer and the version reads are
+        each defined exactly once, in api.portfolio_reassessment;
+    (b) exactly ONE module writes the reassessment index, and it appends to a
+        version chain rather than replacing it — no artifact is ever deleted,
+        truncated or rewritten;
+    (c) the assessment-evidence identity is EVIDENCE ONLY: it never contains the
+        document-wide portfolio_state_hash (which embeds this owner's own
+        output), the separate economic axis, or the conclusion itself;
+    (d) all four persistence outcomes are named and the inconsistency guard
+        exists, so an impossible identity fails closed instead of versioning;
+    (e) there is no second reassessment store and no intraday-only parallel
+        history — the daily cycle and the event cycle share one chain;
+    (f) the R54.1 governance gate still requires the cycle's conclusion to have
+        been PERSISTED; versioning may not become an exemption.
+    """
+    prs_src = _read(R542_REASSESSMENT_OWNER)
+    pd_src = _read(R541_DECISION_OWNER)
+    esr_src = _read(R541_CYCLE_OWNER)
+    components = _r542_evidence_components(prs_src)
+
+    duplicate_owners: list[str] = []
+    index_writers: list[str] = []
+    parallel_stores: list[str] = []
+    for fp in files:
+        rel = _rel(fp).replace("\\", "/")
+        if not (rel.startswith("api/") or rel.startswith("engine/")):
+            continue
+        body = _read(rel)
+        if "_atomic_write_json(_index_path(reassessment_dir)" in body:
+            index_writers.append(rel)
+        for token in R542_FORBIDDEN_PARALLEL_STORES:
+            if token in body:
+                parallel_stores.append(f"{rel}:{token}")
+        if rel == R542_REASSESSMENT_OWNER:
+            continue
+        for d in R542_OWNER_DEFS:
+            if d in body:
+                duplicate_owners.append(f"{rel}:{d}")
+
+    return {
+        "owner_defs_missing": sorted(
+            d for d in R542_OWNER_DEFS if d not in prs_src),
+        "duplicate_versioning_owners": sorted(duplicate_owners),
+        "index_writers": sorted(index_writers),
+        "single_index_writer": index_writers == [R542_REASSESSMENT_OWNER],
+        "parallel_reassessment_stores": sorted(parallel_stores),
+        "version_chain_is_appended": (
+            "prior_versions + [entry]" in prs_src),
+        "owner_deletes_an_artifact": bool(
+            "rmtree" in prs_src or "os.remove(" in prs_src
+            or prs_src.count("unlink(") != 1),
+        "persist_outcomes_missing": sorted(
+            o for o in R542_PERSIST_OUTCOMES if o not in prs_src),
+        "inconsistent_identity_guard_present": (
+            "def _session_identity_conflicts(" in prs_src
+            and "PERSIST_INCONSISTENT" in prs_src),
+        "artifact_id_collision_guard_present": (
+            "def _unique_artifact_id(" in prs_src),
+        "evidence_identity_declared": bool(components.strip()),
+        "forbidden_evidence_components": sorted(
+            c for c in R542_FORBIDDEN_EVIDENCE_COMPONENTS
+            if '"%s"' % c in components),
+        "legacy_artifact_recomputed_not_rewritten": (
+            "def _existing_assessment_identity(" in prs_src),
+        "authoritative_rows_used_by_churn": (
+            "authoritative_history_rows(" in prs_src
+            and "exclude_eligible_market_date" in prs_src),
+        "outcome_owner_uses_authoritative_rows": (
+            "authoritative_history_rows(" in _read("api/reassessment_outcomes.py")),
+        "both_producers_delegate": (
+            "run_and_persist" in esr_src
+            and "run_and_persist" in _read("api/daily_research_cycle.py")
+            and "def persist_reassessment(" not in esr_src),
+        "gate_requires_persisted_reassessment": (
+            'reassessment_persisted' in pd_src
+            and "persisted_ok" in pd_src),
+        "cycle_publishes_persistence_outcome": (
+            '"reassessment_persistence_status"' in esr_src
+            and '"reassessment_persisted"' in esr_src),
+        "automatic_approval_allowed": False,
+        "automatic_execution_allowed": False,
+        "advances_operational_mark": False,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -12807,6 +12940,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
             check_release54_1_governed_intraday_decision(files),
+        "release54_2_same_session_reassessment_versioning":
+            check_release54_2_same_session_reassessment_versioning(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13468,6 +13603,36 @@ def _print_console(rep: dict) -> None:
           f"zero-base policy bound: {g['zero_base_policy_bound_not_redefined']}")
     print(f"R53.1 emission slots unchanged: {g['emission_slots_unchanged']}  "
           f"post-close pass declared: {g['emission_post_close_pass_declared']}")
+
+    hdr("SAME-SESSION REASSESSMENT VERSIONING (R54.2)")
+    v = rep["release54_2_same_session_reassessment_versioning"]
+    print(f"owner defs missing (must be empty): {v['owner_defs_missing']}  "
+          f"duplicate versioning owners (must be empty): "
+          f"{v['duplicate_versioning_owners']}")
+    print(f"single index writer: {v['single_index_writer']} {v['index_writers']}  "
+          f"parallel stores (must be empty): "
+          f"{v['parallel_reassessment_stores']}")
+    print(f"version chain appended: {v['version_chain_is_appended']}  "
+          f"owner deletes an artifact (must be False): "
+          f"{v['owner_deletes_an_artifact']}")
+    print(f"persist outcomes missing (must be empty): "
+          f"{v['persist_outcomes_missing']}  "
+          f"inconsistent-identity guard: "
+          f"{v['inconsistent_identity_guard_present']}  "
+          f"id-collision guard: {v['artifact_id_collision_guard_present']}")
+    print(f"evidence identity declared: {v['evidence_identity_declared']}  "
+          f"forbidden evidence components (must be empty): "
+          f"{v['forbidden_evidence_components']}")
+    print(f"legacy artifact recomputed not rewritten: "
+          f"{v['legacy_artifact_recomputed_not_rewritten']}  "
+          f"authoritative rows used by churn: "
+          f"{v['authoritative_rows_used_by_churn']}  "
+          f"outcome owner uses them: {v['outcome_owner_uses_authoritative_rows']}")
+    print(f"both producers delegate: {v['both_producers_delegate']}  "
+          f"gate requires persisted reassessment: "
+          f"{v['gate_requires_persisted_reassessment']}  "
+          f"cycle publishes persistence outcome: "
+          f"{v['cycle_publishes_persistence_outcome']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -15387,6 +15552,55 @@ BLOCKING_INVARIANTS = (
      "automatic_model_promotion_allowed", False),
     ("release54_1_governed_intraday_decision",
      "automatic_execution_allowed", False),
+
+    # Release 54.2 — SAME-SESSION REASSESSMENT VERSIONING. The build fails if a
+    # second reassessment store, a second persistence writer or a second
+    # identity calculator appears, if a version could OVERWRITE rather than
+    # append, if the assessment-evidence identity is contaminated with the
+    # document-wide portfolio hash (the Stage-21 trap), the economic axis or the
+    # conclusion itself, if an impossible identity could be persisted, if an
+    # intraday-only parallel history appears, or if versioning became an
+    # exemption from the R54.1 governance gate.
+    ("release54_2_same_session_reassessment_versioning",
+     "owner_defs_missing", []),
+    ("release54_2_same_session_reassessment_versioning",
+     "duplicate_versioning_owners", []),
+    ("release54_2_same_session_reassessment_versioning",
+     "single_index_writer", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "parallel_reassessment_stores", []),
+    ("release54_2_same_session_reassessment_versioning",
+     "version_chain_is_appended", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "owner_deletes_an_artifact", False),
+    ("release54_2_same_session_reassessment_versioning",
+     "persist_outcomes_missing", []),
+    ("release54_2_same_session_reassessment_versioning",
+     "inconsistent_identity_guard_present", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "artifact_id_collision_guard_present", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "evidence_identity_declared", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "forbidden_evidence_components", []),
+    ("release54_2_same_session_reassessment_versioning",
+     "legacy_artifact_recomputed_not_rewritten", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "authoritative_rows_used_by_churn", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "outcome_owner_uses_authoritative_rows", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "both_producers_delegate", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "gate_requires_persisted_reassessment", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "cycle_publishes_persistence_outcome", True),
+    ("release54_2_same_session_reassessment_versioning",
+     "automatic_approval_allowed", False),
+    ("release54_2_same_session_reassessment_versioning",
+     "automatic_execution_allowed", False),
+    ("release54_2_same_session_reassessment_versioning",
+     "advances_operational_mark", False),
 )
 
 

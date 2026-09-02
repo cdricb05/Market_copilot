@@ -1200,15 +1200,60 @@ and must not be governed. Under continuous collection "the prior artifact still
 describes the portfolio" stays true about the PORTFOLIO and becomes false about
 the ANSWER — which is the whole premise of an active manager.
 
-Next (R54.2): version the reassessment artifact on SIGNAL identity as well as
-economic identity — extend Stage-21 case (b) so a same-session reassessment
-whose `universe_scoring_hash` / `hoc_assessment_hash` changed APPENDS a new
-immutable version instead of being rejected (append-never-rewrite, exactly as
-the economic-change path already does). That single persistence rule turns the
-gate's 37/38 into a live governed intraday decision.
+## R54.2 — same-session reassessment versioning (LANDED)
 
-Then (R54.3): make `api.daily_research_cycle` persist its terminal decision
+The persistence rule that closed R54.1's 37/38, made correct rather than lenient:
+
+- **A third identity, in the ONE reassessment owner.**
+  `assessment_evidence_hash` (11 canonical bound-evidence components including a
+  `declared_inputs_fingerprint` for freshness) answers "has the EVIDENCE
+  changed?" beside Stage-21's `economic_state_hash` ("has the PORTFOLIO
+  changed?"), with `decision_fingerprint` (the result minus `provenance` and
+  `reassessment_hash`) answering "has the ANSWER changed?". The evidence
+  identity excludes `portfolio_state_hash` (the Stage-21 trap), the economic
+  axis, the conclusion, and all provenance (clock / run id / trigger
+  fingerprint) — so a poll can never manufacture a version.
+- **Four persistence outcomes, append-only.** `REUSED_EXISTING`,
+  **`CREATED_ASSESSMENT_VERSION`** (the new case), `CREATED_NEW_VERSION`
+  (Stage 21, unchanged) and `CONFLICT_REJECTED` (same evidence, DIFFERENT
+  conclusion — the residue of the old rule), plus
+  `REJECTED_INCONSISTENT_IDENTITY` when an artifact's own parts disagree about
+  the session or the book. Nothing is ever rewritten; a collision guard enforces
+  that at the write; a pre-R54.2 index entry is recomputed, not rewritten.
+- **ONE history.** The DRC and the event cycle append to the same chain through
+  `run_and_persist`; `load_artifact_versions` exposes it and
+  `load_artifact_by_id` keeps an older id resolving to its exact artifact.
+- **No double counting and no self-blocking churn.**
+  `authoritative_history_rows` gives one authoritative row per session for the
+  churn input, `build_attribution` and `api.reassessment_outcomes`, and
+  `recent_change_rows` excludes the session being assessed.
+- **The R54.1 gate was TIGHTENED.** Still 38 checks;
+  `CYCLE_REASSESSMENT_IS_THE_CANDIDATE` now also requires that the cycle's
+  conclusion became an immutable artifact, and the cycle publishes the
+  persistence outcome so a refused write stays visible.
+- Guarded by `check_release54_2_same_session_reassessment_versioning` (20
+  strict-blocking invariants) and
+  `tests/test_release54_2_same_session_reassessment_versioning.py` (55),
+  including a hermetic end-to-end 38/38 proof driven by the real persistence
+  owner.
+
+**Live read-only verdict (nothing written):** on the real 2026-08-31 state the
+economic fingerprint is unchanged and the ONE changed evidence component is
+`hoc_assessment_hash` (`6de5ece4…` persisted vs `9efb688d…` live), so the
+verdict is `CREATED_ASSESSMENT_VERSION` — the live cycle's reassessment would be
+appended as version 2 and the withheld check would pass.
+
+Next (R54.3): give `api.holding_opportunity_cost.persist_assessment` the same
+two-axis append semantics. It still `CONFLICT_REJECTED`s a same-session
+assessment with different evidence, so the live HOC assessment has no artifact
+on disk while the persisted reallocation proposal already binds it —
+PRE-EXISTING (the proposal owner has superseded on changed inputs since Slice 7)
+and not created by R54.2, but a governed intraday decision would bind a HOC hash
+that is not retrievable. It is a separate slice because it changes a second
+canonical owner's immutability contract and its own required regression.
+
+Then (R54.4): make `api.daily_research_cycle` persist its terminal decision
 through the SAME governed writer (`provenance=GOVERNED_DAILY_CYCLE`), so the
 governed lane becomes the single durable history of every authoritative
 recommendation and the projection step disappears. One call site, behind the
-invariants R54.1 just added.
+invariants R54.1 added.

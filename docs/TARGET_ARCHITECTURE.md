@@ -889,3 +889,34 @@ Permanent boundaries:
 * detection cadence stays governed by the ONE collection cadence policy and is
   raised only once measured `observation_to_governed_seconds` proves detection
   is the binding constraint.
+
+## R54.2 boundary — ONE reassessment history, versioned on EVIDENCE
+
+A session may hold MANY immutable assessments and exactly ONE history.
+
+* `api.portfolio_reassessment` stays the ONE reassessment owner, the ONE store
+  and the ONE persistence writer. The Daily Research Cycle and the live event
+  cycle both append to the same chain; there is no "intraday reassessment store"
+  and no "DRC reassessment store". Provenance may distinguish producers; the
+  history may not be split.
+* Versioning is decided on TWO independent axes — the ECONOMIC portfolio
+  (`economic_state_hash`) and the ASSESSMENT EVIDENCE
+  (`assessment_evidence_hash`) — and never on the document-wide
+  `portfolio_state_hash`, which embeds this owner's own output. A future slice
+  that needs a new versioning trigger extends the evidence identity in that
+  owner or nowhere.
+* Versioning is always an APPEND. No artifact is ever rewritten, truncated or
+  deleted; an explicit-id read always resolves the exact artifact it names;
+  latest-state readers resolve the newest version through ONE ordering.
+* Evidence identity may never absorb provenance. Wall clock, run id and
+  materiality trigger fingerprint stay OUT, so a poll cannot manufacture a
+  version and a re-derivation of identical evidence stays idempotent.
+* Identical evidence with a different conclusion stays an INCONSISTENCY, not a
+  version, and an artifact whose own parts disagree about the session or the
+  book is never written.
+* A session's authoritative recommendation is its LAST version and votes ONCE.
+  Every reader answering "what did we recommend at session X" — churn control,
+  forward attribution, outcome observation — consumes the authoritative rows,
+  and the churn input never reads the session it is assessing.
+* An UNPERSISTED conclusion is never governable. Versioning makes persistence
+  correct; it never becomes an exemption from the R54.1 gate.

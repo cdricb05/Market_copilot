@@ -1,7 +1,83 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.1 - the GOVERNED INTRADAY PORTFOLIO DECISION
+- **Updated by phase:** **R54.2 - SAME-SESSION REASSESSMENT VERSIONING: make
+  new signal evidence an immutable, governable portfolio assessment (single
+  agent, no subagents, Windows PowerShell only).** Built over the committed
+  R54.1 head `0cff378`. Full narrative:
+  `docs/RELEASE54_2_SAME_SESSION_REASSESSMENT_VERSIONING.md`.
+  **The blocker:** R54.1's live gate scored 37/38 and withheld on
+  `CYCLE_REASSESSMENT_IS_THE_CANDIDATE`, because Stage-20/21 versions a
+  reassessment only on ECONOMIC change. Under continuous collection "the prior
+  artifact still describes the portfolio" stays true about the PORTFOLIO while
+  becoming false about the ANSWER, so a same-session reassessment built from
+  newer ranking/HOC evidence was refused with `CONFLICT_REJECTED` and the live
+  conclusion had no immutable artifact behind it.
+  **Phase A/B - the third identity.** `api.portfolio_reassessment` now
+  publishes `assessment_evidence_hash` (11 canonical bound-evidence components,
+  including a `declared_inputs_fingerprint` for freshness) beside Stage-21's
+  `economic_state_hash`, plus `decision_fingerprint` (the result minus
+  `provenance` and `reassessment_hash`). The evidence identity DELIBERATELY
+  excludes `portfolio_state_hash` (the Stage-21 trap - it embeds this owner's
+  own output, so it would manufacture a version on every cycle),
+  `economic_state_hash` (the other axis) and `reassessment_hash` (the
+  conclusion), and excludes wall clock / run id / trigger fingerprint so two
+  triggers from identical evidence stay ONE assessment.
+  **Phase C/D - four outcomes, append-only.** `REUSED_EXISTING` (same economic
+  state + same evidence + same conclusion), **`CREATED_ASSESSMENT_VERSION`**
+  (same economic state, materially different evidence - the new case),
+  `CREATED_NEW_VERSION` (economic change, Stage 21 preserved exactly) and
+  `CONFLICT_REJECTED` (same evidence, DIFFERENT conclusion - the entire residue
+  of the old rule, still protecting immutability). A new
+  `REJECTED_INCONSISTENT_IDENTITY` fails closed when an artifact's own parts
+  disagree about the session or the book. No artifact is ever rewritten; a
+  collision guard enforces that at the write rather than assuming it from the
+  id scheme. A pre-R54.2 index entry is RECOMPUTED from what it already
+  persisted, so history becomes comparable without a byte changing (verified
+  live: `d03a4d45...` both ways).
+  **Phase F/G - no evidence noise, no self-blocking churn.** Versions are
+  created only when canonical evidence moved; a duplicate trigger,
+  non-material information, an identical re-derivation or pure
+  `portfolio_state_hash` drift all create nothing. One new reducer
+  `authoritative_history_rows` gives ONE authoritative row per (book, session)
+  and is used by the churn input, forward attribution and the Stage-21 outcome
+  observations, so a session reassessed three times never counts three times.
+  `recent_change_rows` also EXCLUDES the session being assessed - a
+  reassessment has never seen its own recommendation, and letting version 2
+  read version 1's row would make the 5-session cooldown self-blocking within
+  the session. `load_reassessment_history` still returns the FULL append-only
+  record and now reports authoritative vs superseded counts.
+  **Phase E - the gate was TIGHTENED, not weakened.** Still 38 checks in 9
+  groups. `CYCLE_REASSESSMENT_IS_THE_CANDIDATE` keeps its hash comparison and
+  now ALSO requires that the cycle's conclusion became an immutable artifact;
+  the cycle publishes `reassessment_id` / `reassessment_persistence_status` /
+  `reassessment_persisted` so a refused write stays visible as a refused write.
+  Hermetic end-to-end proof: version 2 persisted by the real owner, identities
+  taken from its own `proposal_binding`, gate returns 38/38 ELIGIBLE.
+  **Phase I/K - one history, one owner.** The DRC and the event cycle share the
+  ONE append-only chain; there is no intraday-only store.
+  `check_release54_2_same_session_reassessment_versioning` adds 20 BLOCKING
+  invariants (second store, second writer, second identity calculator,
+  overwrite-instead-of-append, artifact deletion, contaminated evidence
+  identity, missing guards, a producer that stops delegating, a gate that stops
+  requiring persistence).
+  **LIVE READ-ONLY VERDICT (nothing written):** against the real 2026-08-31
+  state the economic fingerprint is unchanged and the ONE changed evidence
+  component is `hoc_assessment_hash` (`6de5ece4...` persisted vs `9efb688d...`
+  live), so the R54.2 verdict is `CREATED_ASSESSMENT_VERSION` - the live
+  cycle's reassessment would be appended as version 2 and the 37/38 closes.
+  **Known residual (R54.3):** `api.holding_opportunity_cost.persist_assessment`
+  still CONFLICT_REJECTs a same-session assessment with different evidence, so
+  the live HOC `9efb688d...` has no artifact on disk while the persisted
+  reallocation proposal ALREADY binds it - a PRE-EXISTING gap R54.2 does not
+  create, deliberately not folded in because it changes a second canonical
+  owner's immutability contract and its own required regression.
+  **Verification:** new suite 55/55; required regressions 246 + 245 + 446 all
+  passing; strict audit exit 0; git diff --check clean; live validation
+  READ-ONLY only (backend never restarted). NOT committed (operator gate). No
+  Daily Close / DRC / portfolio cycle / approval / order / fill / scheduler
+  change / production-store write was performed.
+- **Previous phase:** **R54.1 - the GOVERNED INTRADAY PORTFOLIO DECISION
   CYCLE (single agent, no subagents, Windows PowerShell only).** Built over the
   committed R54 head `8c040ce`. Full narrative:
   `docs/RELEASE54_1_GOVERNED_INTRADAY_DECISION.md`.
@@ -76,9 +152,11 @@
   **Verification:** new suite 95/95; strict audit exit 0 with 24 new BLOCKING
   invariants (`check_release54_1_governed_intraday_decision`); git diff --check
   clean; live validation READ-ONLY only (the backend was never restarted).
-  NOT committed (operator gate). No Daily Close / DRC / portfolio cycle /
-  approval / order / scheduler / production-store write was performed.
-- **Previous phase:** **R54 Finalization - hermetic workflow tests + live
+  No Daily Close / DRC / portfolio cycle / approval / order / scheduler /
+  production-store write was performed. Subsequently COMMITTED by the operator
+  as `0cff378`; R54.2 closed the precondition it documented - see the head
+  entry.
+- **Phase before that:** **R54 Finalization - hermetic workflow tests + live
   Active Manager State semantics (single agent, no subagents, Windows
   PowerShell only).** Follows the SUCCESSFUL live deployment of R54 Slice 1
   (canonical restart LIVE_SMOKE_OK; `/v1/operations/active-manager-state`

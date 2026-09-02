@@ -112,8 +112,17 @@ def _safety() -> dict:
 # Default source loaders (all injectable seams for hermetic tests)
 # --------------------------------------------------------------------------- #
 def _default_history_loader(*, active_book_id: Optional[str] = None) -> list:
+    """The Stage-20 history, reduced to ONE authoritative row per session.
+
+    Release 54.2 — a session can now hold several immutable assessments, and only
+    the last one is what the system concluded about it. Observing every version
+    would count the same recommendation once per intraday reassessment and inflate
+    the forward-outcome evidence this owner exists to keep honest. Superseded
+    versions remain on disk; they are simply not observed twice.
+    """
     from paper_trader.api import portfolio_reassessment as prs
-    return prs.load_history(active_book_id=active_book_id)
+    return prs.authoritative_history_rows(
+        prs.load_history(active_book_id=active_book_id))
 
 
 def _default_evidence_loader(desk_dir=None) -> dict:

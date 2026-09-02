@@ -3005,12 +3005,75 @@ ran. `SUPERSEDED` withholds as `PORTFOLIO_IDENTITY_STALE`; `UNVERIFIABLE`
 withholds as `CANDIDATE_EVIDENCE_INCOMPLETE` — fail-closed for a promotion,
 without fabricating staleness the owner refuses to infer.
 
-**Known precondition (evidence-backed, R54.2).** On a pure-signal, same-session
-change the gate withholds with `REASSESSMENT_IDENTITY_MISMATCH`: Stage-20/21
-appends a new reassessment version only when the ECONOMIC state changed, so an
-event cycle that reaches a different conclusion from newer signals is
-`CONFLICT_REJECTED` and never persisted — and an assessment with no immutable
-artifact must not be governed. Intraday promotion works today after an economic
-change; versioning the artifact on SIGNAL identity is the bounded next slice.
-
 Full narrative: `docs/RELEASE54_1_GOVERNED_INTRADAY_DECISION.md`.
+
+## R54.2 — SAME-SESSION REASSESSMENT VERSIONING (the governance precondition)
+
+R54.1's gate withheld on a pure-signal, same-session change because Stage-20/21
+appended a new reassessment version only when the ECONOMIC state changed: an
+event cycle reaching a different conclusion from newer signals was
+`CONFLICT_REJECTED` and never persisted, and an assessment with no immutable
+artifact must not be governed. R54.2 makes the PERSISTENCE correct rather than
+the gate lenient.
+
+`api/portfolio_reassessment.py` remains the ONE reassessment owner, the ONE
+store and the ONE writer, and now separates three questions:
+
+| Axis | Question | Fingerprint |
+|---|---|---|
+| Economic | Has the PORTFOLIO changed? | `economic_state_hash` (Stage 21) |
+| Assessment evidence | Has the EVIDENCE about it changed? | `assessment_evidence_hash` (R54.2) |
+| Conclusion | Has the ANSWER changed? | `decision_fingerprint` (R54.2) |
+
+`ASSESSMENT_EVIDENCE_COMPONENTS` binds the ranking, opportunity-cost,
+corporate-action, holdings-snapshot, model and policy identities plus
+`declared_inputs_fingerprint` (the freshness picture the assessment saw). It
+deliberately EXCLUDES `portfolio_state_hash` — the Stage-21 trap, since the
+document hash embeds this owner's own output — `economic_state_hash` (the other
+axis) and `reassessment_hash` (the conclusion), and excludes wall clock, run id
+and trigger fingerprint so identical evidence stays ONE assessment.
+
+`persist_reassessment` therefore has four outcomes, plus a fail-closed guard:
+`REUSED_EXISTING` (same state, same evidence, same conclusion),
+**`CREATED_ASSESSMENT_VERSION`** (same economic state, materially different
+evidence — APPENDED as a new immutable version), `CREATED_NEW_VERSION`
+(economic change, Stage 21 unchanged), `CONFLICT_REJECTED` (same evidence,
+DIFFERENT conclusion) and `REJECTED_INCONSISTENT_IDENTITY` (the artifact's own
+parts disagree about the session or the book). No artifact is ever rewritten; a
+collision guard enforces that at the write. An index entry written before R54.2
+is RECOMPUTED from what it already persisted, so history is comparable without
+being rewritten.
+
+Reads: `load_latest_artifact` (newest version, or the newest bound to a given
+economic state), `load_artifact_versions` (the whole append-only chain) and
+`load_artifact_by_id` (the artifact FILE, so an older id stays immutable).
+
+**No double counting.** `authoritative_history_rows` reduces the append-only
+history to ONE authoritative row per (book, session) and is consumed by the
+churn input, `build_attribution` and `api.reassessment_outcomes`.
+`recent_change_rows` additionally EXCLUDES the session being assessed — a
+reassessment has never seen its own recommendation, and letting a later version
+read an earlier one's row would make the cooldown self-blocking within the
+session. `load_reassessment_history` still returns every row and reports
+`authoritative_row_count` / `superseded_row_count`.
+
+**Governance wiring.** `api.event_signal_refresh` publishes what the persistence
+owner answered (`reassessment_id`, `reassessment_persistence_status`,
+`reassessment_persisted`, `assessment_evidence_hash`,
+`supersedes_reassessment_id`); `api.active_manager_state` projects the same on
+the still-non-authoritative live lane; and the gate's
+`CYCLE_REASSESSMENT_IS_THE_CANDIDATE` check now requires a PERSISTED artifact in
+addition to the hash match it already enforced. Still 38 checks in 9 groups —
+tightened, never relaxed. Guarded by
+`check_release54_2_same_session_reassessment_versioning` (20 strict-blocking
+invariants: no second store, no second writer, no second identity calculator, no
+overwrite, no artifact deletion, no intraday-only history, no contaminated
+evidence identity).
+
+**Known residual (R54.3).** `api.holding_opportunity_cost.persist_assessment`
+still `CONFLICT_REJECTED`s a same-session assessment with different evidence, so
+the live HOC assessment has no artifact on disk while the persisted reallocation
+proposal (which has superseded on changed inputs since Slice 7) already binds
+it. Pre-existing; R54.2 does not create it.
+
+Full narrative: `docs/RELEASE54_2_SAME_SESSION_REASSESSMENT_VERSIONING.md`.

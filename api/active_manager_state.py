@@ -296,6 +296,18 @@ def _live_information_block(information_collection: Optional[dict],
                 last_run.get("proposal_state")
                 or (last_run.get("target_portfolio")
                     or {}).get("proposal_state")),
+            # R54.2 — WHICH immutable reassessment artifact this cycle's
+            # conclusion became. A refused write leaves ``persisted`` False and
+            # no id, and the operator sees that rather than a bare hash with no
+            # evidence behind it.
+            "reassessment_hash": (
+                last_run.get("reassessment_hash")
+                or (last_run.get("portfolio_reassessment")
+                    or {}).get("reassessment_hash")),
+            "reassessment_id": last_run.get("reassessment_id"),
+            "reassessment_persisted": last_run.get("reassessment_persisted"),
+            "reassessment_persistence_status": last_run.get(
+                "reassessment_persistence_status"),
             "state_note": EVENT_CYCLE_PROPOSAL_NOTE,
             "advances_governed_decision": False,
             "advances_operational_mark": False,
@@ -540,6 +552,13 @@ def _live_intraday_assessment_block(live_information: dict,
         "materiality_change_level": cycle.get("materiality_change_level"),
         "reassessment_state": cycle.get("reassessment_state"),
         "proposal_state": cycle.get("proposal_state"),
+        # R54.2 — the immutable artifact behind this live conclusion, projected
+        # verbatim from the cycle owner. Never re-derived here.
+        "reassessment_hash": cycle.get("reassessment_hash"),
+        "reassessment_id": cycle.get("reassessment_id"),
+        "reassessment_persisted": cycle.get("reassessment_persisted"),
+        "reassessment_persistence_status": cycle.get(
+            "reassessment_persistence_status"),
         "last_material_event_at": live_information.get("last_material_event_at"),
         "reassessment_operator_state": reassessment.get("operator_state"),
         "provenance": "LIVE_PRE_DRC_SIGNAL",

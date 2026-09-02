@@ -1377,11 +1377,21 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
         "api.portfolio_reassessment", "reassessment hash %s" % ra_hash,
         WR_REASSESSMENT_IDENTITY))
     cycle_ra = _eq_when_known((event_cycle or {}).get("reassessment_hash"), ra_hash)
+    # R54.2 — the cycle's conclusion must ALSO have become an immutable artifact.
+    # A refused write (CONFLICT_REJECTED / REJECTED_INCONSISTENT_IDENTITY) leaves a
+    # live conclusion with no evidence standing behind it, and an unpersisted
+    # assessment is never governable however current it looks. This TIGHTENS the
+    # rule inside the same check; it does not relax the hash comparison.
+    ran = (event_cycle or {}).get("reassessment_ran")
+    persisted = (event_cycle or {}).get("reassessment_persisted")
+    persisted_ok = not (bool(ran) and persisted is False)
     checks.append(_check(
         "REASSESSMENT_IDENTITY", "CYCLE_REASSESSMENT_IS_THE_CANDIDATE",
-        cycle_ra is not False, "api.event_signal_refresh",
-        "cycle %s vs candidate %s"
-        % ((event_cycle or {}).get("reassessment_hash"), ra_hash),
+        cycle_ra is not False and persisted_ok, "api.event_signal_refresh",
+        "cycle %s vs candidate %s (persistence=%s, artifact=%s)"
+        % ((event_cycle or {}).get("reassessment_hash"), ra_hash,
+           (event_cycle or {}).get("reassessment_persistence_status"),
+           (event_cycle or {}).get("reassessment_id")),
         WR_REASSESSMENT_IDENTITY))
     checks.append(_check(
         "REASSESSMENT_IDENTITY", "MATERIALITY_TRIGGER_BOUND",
