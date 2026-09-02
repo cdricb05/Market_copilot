@@ -3157,3 +3157,63 @@ proposal (which has superseded on changed inputs since Slice 7) already binds
 it. Pre-existing; R54.2 does not create it.
 
 Full narrative: `docs/RELEASE54_2_SAME_SESSION_REASSESSMENT_VERSIONING.md`.
+## R54.2.3 — CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY (the maintenance owner)
+
+R54.2.2 correctly reported that governed research for 2026-09-01 was blocked by
+`momentum_monthly`, and named the missing prerequisite in its own operator action:
+`REFRESH_OWNED_SOURCE_PANEL_THEN_RUN_RESEARCH_MONTHLY_INPUT_EMITTER`. R54.2.3 builds
+that prerequisite.
+
+**What was stale, and why.** ONE artifact — the owned survivorship-free daily panel
+`russell1000_cp_daily.npz` (owner `research.phase24_daily_panel`), `last_date
+2026-08-05`. Nothing in the running system was responsible for advancing it: the
+acquisition `build_daily_panel_from_norgate` is a ONE-TIME build (a no-op once the NPZ
+exists, unbounded "to latest" when forced), and `api.monthly_momentum_emitter`
+deliberately "NEVER triggers a panel refresh" because an uncontrolled full rebuild on
+the daily cycle would be worse than blocking. So the panel advanced exactly once, on the
+day a human ran it, and every new month became a permanent blocker. This is a MISSING
+ORCHESTRATION OWNER, not a scheduler, provider, entitlement or persistence failure.
+
+**The point-in-time contract.** `mom_6_1` for month bucket *m* is
+`close[m-1]/close[m-7]-1` on month-end total-return closes, so the 2026-09 feature is
+`close[2026-08-31]/close[2026-02-28]-1` — momentum information through the Aug-31 close
+only. Membership, ADV, realized vol and eligibility are as-of the session, and the
+emitter requires `market_as_of_date == the eligible session`. The required panel cutoff
+is therefore EXACTLY the eligible session and never later; an unbounded rebuild run a day
+later would produce a future-dated panel that the emitter correctly rejects.
+
+**The bounded refresh (panel owner).** `refresh_daily_panel_as_of(as_of)` — the ONE
+bounded entry point on the EXISTING panel owner. `end_date=as_of` binds BOTH the price
+series and the index-constituent series (binding only prices would write a later
+membership decision onto a historical date); the assembled calendar is truncated again;
+the universe is still the Current & Past watchlist so delisted names are retained and the
+membership mask stays point-in-time; promotion is atomic; and the quality contract fails
+closed on `SOURCE_PANEL_INCOMPLETE`, `SOURCE_PANEL_FUTURE_DATED` or
+`HISTORICAL_UNIVERSE_COVERAGE_FAILED` before anything is replaced.
+
+**The policy (bridge).** `api.monthly_momentum_emitter.inspect_source_panel` now returns
+`USE_EXISTING` (covered), `REFRESH_BOUNDED` (behind, refresh available, cutoff = the
+eligible session) or `BLOCK` (behind with no refresh available, ahead, or unverifiable).
+`production_emitter` performs at most ONE refresh per emission attempt and then
+RE-INSPECTS the manifest on disk, so the decision to emit rests on the panel the refresh
+actually produced. A future-dated panel is never repaired by rebuilding backwards.
+
+**One verdict, two readers.** The live contradiction — a green "Run the portfolio cycle"
+beside "governed research cannot run yet: momentum_monthly" — was a BACKEND truth defect,
+not UI logic (the UI already rendered `primary_action_available` and inferred nothing).
+`build_execution_plan` asked only "is an emitter wired?"; `classify_input_recovery` also
+knew `source_panel_covered false`. The monthly owner now publishes ONE verdict,
+`can_cover_eligible_session`, and both read it: the plan is blocked exactly when the input
+cannot be produced, which blocks the cycle, which withholds the CTA.
+
+**Data quality.** `research_input_quality` on the cycle status carries one backend-decided
+state per stage — source panel, monthly input, price/score refresh — so no surface does
+date arithmetic or source classification of its own.
+
+**Result.** Sep-1 is safely recoverable (Outcome A), proven hermetically: the bounded
+refresh reaches `2026-09-01` in 93.6s with 6,706 trading days, 3,076 securities, 0 rows
+later than the cutoff and 1,459 retained inactive names; the unchanged Phase-25
+mathematics then emits `month_label 2026-09` / `market_as_of_date 2026-09-01` / 1,008
+names. The Sep-1 TRUE_FORWARD snapshot gap remains permanent and is never reconstructed.
+
+Full narrative: `docs/RELEASE54_2_3_CONTROLLED_MONTHLY_RESEARCH_INPUT_RECOVERY.md`.

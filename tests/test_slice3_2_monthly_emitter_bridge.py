@@ -45,7 +45,8 @@ MOM_COLS = ["ticker", "mom_6_1", "is_member", "adv_dollar", "realized_vol_63d",
 # --------------------------------------------------------------------------- #
 # Fixture environment + injected subprocess runner (never a real subprocess).
 # --------------------------------------------------------------------------- #
-def _fixture_cfg(tmp_path, *, panel_last=D, timeout=60, missing=None, work=None):
+def _fixture_cfg(tmp_path, *, panel_last=D, timeout=60, missing=None, work=None,
+                 panel_refresh=None):
     """A fake AVAILABLE emitter environment under tmp_path (unless a piece is omitted)."""
     missing = set(missing or ())
     repo = tmp_path / "repo"
@@ -66,11 +67,14 @@ def _fixture_cfg(tmp_path, *, panel_last=D, timeout=60, missing=None, work=None)
     if "manifest" not in missing:
         manifest.write_text(json.dumps({"first_date": "2000-01-03",
                                         "last_date": panel_last}), encoding="utf-8")
-    return mme.resolve_config({
+    over = {
         "repo": (str(tmp_path / "no_repo") if "repo" in missing else str(repo)),
         "python": str(python), "panel_npz": str(panel),
         "panel_manifest": str(manifest),
-        "work_dir": str(work or (tmp_path / "work")), "timeout_seconds": timeout})
+        "work_dir": str(work or (tmp_path / "work")), "timeout_seconds": timeout}
+    if panel_refresh is not None:
+        over["panel_refresh_enabled"] = panel_refresh
+    return mme.resolve_config(over)
 
 
 def _make_runner(*, calls=None, month="2026-08", asof=D, rows=None, cols=None,
@@ -218,21 +222,43 @@ def test_11_current_panel_skips_provider(tmp_path):
     cfg = _fixture_cfg(tmp_path, panel_last=D)
     panel = mme.inspect_source_panel(cfg, eligible=D)
     assert panel["action"] == "USE_EXISTING" and panel["covered"] is True
-    assert panel["refresh_required"] is False and panel["refresh_supported"] is False
+    # A covered panel needs no refresh at all; an INCREMENTAL extension of the existing
+    # NPZ is still unsupported (Release 54.2.3 added a bounded as-of REBUILD, not that).
+    assert panel["refresh_required"] is False and panel["incremental_supported"] is False
 
 
 # =========================================================================== #
 # SOURCE-PANEL POLICY (12–13)
 # =========================================================================== #
-def test_12_stale_panel_requires_refresh_but_is_unsupported(tmp_path):
+def test_12_stale_panel_selects_the_bounded_refresh(tmp_path):
+    """RELEASE 54.2.3 — a panel behind the session is no longer a wall.
+
+    It used to be BLOCK, because nothing could advance the panel. The controlled
+    bounded refresh now can, so the honest answer is "refresh, bounded to THIS
+    session" — and the cutoff offered is the eligible session, never "latest".
+    """
     cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31")
     panel = mme.inspect_source_panel(cfg, eligible=D)
+    assert panel["action"] == "REFRESH_BOUNDED"
+    assert panel["status"] == "MONTHLY_PANEL_BEHIND_ELIGIBLE"   # unchanged spelling
+    assert panel["panel_state"] == mme.PANEL_STALE
+    assert panel["refresh_required"] is True and panel["refresh_supported"] is True
+    assert panel["refresh_as_of"] == D and panel["refresh_bounded_to_session"] is True
+    assert panel["incremental_supported"] is False
+
+
+def test_12b_stale_panel_still_blocks_when_the_refresh_is_unavailable(tmp_path):
+    """The pre-54.2.3 contract, preserved exactly where it still applies."""
+    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31", panel_refresh=False)
+    panel = mme.inspect_source_panel(cfg, eligible=D)
     assert panel["action"] == "BLOCK" and panel["status"] == "MONTHLY_PANEL_BEHIND_ELIGIBLE"
-    assert panel["refresh_required"] is True and panel["incremental_supported"] is False
+    assert panel["refresh_required"] is True and panel["refresh_supported"] is False
+    # The panel-owner VERDICT is published by status(), not by the raw inspection.
+    assert panel.get("can_cover_eligible_session") is None
 
 
-def test_13_unsupported_incremental_blocks_emission(tmp_path):
-    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31")
+def test_13_a_behind_panel_blocks_emission_when_no_refresh_is_available(tmp_path):
+    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31", panel_refresh=False)
     calls = {"n": 0}
     with pytest.raises(mme.MonthlyEmitterHold) as ei:
         mme.production_emitter(month="2026-08", eligible=D, config=cfg,
@@ -437,9 +463,15 @@ def test_28_no_cache_clear_after_failure(tmp_path, monkeypatch):
 
 
 def test_28b_panel_behind_maps_to_blocked_data_hold(tmp_path):
+    """An UNRECOVERABLE behind-panel is still an honest BLOCKED, never a FAILED.
+
+    Release 54.2.3 note: a behind panel is only unrecoverable when the controlled
+    bounded refresh cannot run. That is what this fixture pins; the recoverable case
+    is covered by the bounded-refresh tests below.
+    """
     inputs = tmp_path / "inputs"
     _seed_mom(inputs, "2026-07", "2026-07-31")
-    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31")
+    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31", panel_refresh=False)
     r = mmi.emit_if_due(eligible=D, inputs_dir=str(inputs),
                         emitter_fn=_bound(cfg, _make_runner()))
     assert r["status"] == mmi.S_UNAVAILABLE  # honest BLOCKED, not FAILED
@@ -669,7 +701,10 @@ def test_34_workstream_k_due_month_emitted_in_one_cycle(tmp_path):
 def test_35_cycle_blocked_when_emitter_holds(tmp_path):
     inputs_dir = tmp_path / "inputs"
     _seed_mom(inputs_dir, "2026-07", "2026-07-31")
-    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31")  # panel behind -> DATA_HOLD
+    # Panel behind AND the bounded refresh unavailable -> an honest DATA_HOLD. (With the
+    # refresh available the cycle recovers instead; that path is proven in the R54.2.3
+    # suite, which drives the refresh through its own injected runner.)
+    cfg = _fixture_cfg(tmp_path, panel_last="2026-07-31", panel_refresh=False)
 
     def monthly_fn(*, eligible):
         return mmi.emit_if_due(eligible=eligible, inputs_dir=str(inputs_dir),

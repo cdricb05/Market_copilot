@@ -1487,6 +1487,13 @@ def build_operator_command(*, overall: str, primary: dict,
     executable = bool(primary.get("execution_available")
                       and kind in NORMAL_PATH_EXECUTION_KINDS)
     passive = overall in _PASSIVE_STATES or not executable
+    # Release 54.2.3 — the blocking reason travels WITH the withheld action. When the
+    # portfolio cycle is not actionable the operator surfaces must be able to say WHY
+    # without inspecting the state machine, and without inventing a reason of their own.
+    blocking_reason = None
+    if not executable:
+        blocking_reason = (primary.get("headline") or primary.get("current_task")
+                           or str(overall).replace("_", " "))
 
     if executable:
         # Release 48 — the operator confirms the ONE cycle token; the composed
@@ -1562,6 +1569,23 @@ def build_operator_command(*, overall: str, primary: dict,
         "cycle_underlying_label": primary.get("label") if executable else None,
         "cycle_underlying_action_code": (primary.get("action_code")
                                          if executable else None),
+        # -- Release 54.2.3: the PORTFOLIO-CYCLE ACTIONABILITY CONTRACT ------ #
+        # Named aliases of the SAME already-decided verdict above, so no surface has to
+        # infer actionability from an action code, a state name or a date. They are a
+        # projection, not a second calculation: whenever these disagree with
+        # ``primary_action_available`` the bug is here, not in the caller.
+        #
+        # ``portfolio_cycle_safe_to_execute`` answers "does the backend affirm this cycle
+        # can run right now?". It is deliberately NOT the primary action's older
+        # ``safe_to_execute`` flag, which answers a different question ("may this run
+        # without an explicit confirmation token?") and is False for every normal-path
+        # mutation precisely because they all require one.
+        "portfolio_cycle_actionable": executable,
+        "portfolio_cycle_safe_to_execute": executable,
+        "portfolio_cycle_action_code": ("RUN_PORTFOLIO_CYCLE" if executable else None),
+        "portfolio_cycle_action_label": (PORTFOLIO_CYCLE_LABEL if executable else None),
+        "portfolio_cycle_blocking_reason": blocking_reason,
+        "portfolio_cycle_actionability_owner": WORKFLOW_STATE_OWNER,
         "destination": primary.get("destination"),
         "focus": primary.get("focus"),
         "severity": primary.get("severity"),

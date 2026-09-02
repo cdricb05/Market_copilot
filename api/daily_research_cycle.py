@@ -623,8 +623,17 @@ UNIVERSE_ID = "phase8v_combined_eodhd_price_fundamentals_universe"
 # the proven refresh-owner registry. Distinguishes current / required-stale /
 # slower-due / missing / inconsistent / future-dated / non-blocking / unsupported.
 # --------------------------------------------------------------------------- #
-def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = False
-                         ) -> dict:
+def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = False,
+                         monthly_owner: Optional[dict] = None) -> dict:
+    """Release 54.2.3 — ``monthly_owner`` (when the caller has observed it) supplies the
+    monthly owner's OWN verdict on whether the frozen monthly input can be produced for
+    this session. Before this release the plan asked only "is an emitter wired?", so a
+    wired emitter whose source panel was behind the session was still planned as an
+    automatic refresh: the cycle was offered as executable, the emitter then refused, and
+    the operator was shown a green control for work the system already knew could not
+    run. When the block is absent (the hermetic run path) the prior behaviour stands and
+    the emitter still blocks honestly at execution time."""
+    producible = _monthly_producible(monthly_owner)
     rows = freshness.get("source_freshness") or []
     eligible = freshness.get("eligible_market_date")
     steps: list[dict] = []
@@ -685,6 +694,8 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
         required_stale.append(sid)
         auto = bool(spec["auto_refreshable"]) or (
             sid == "momentum_monthly" and monthly_emitter_available)
+        if sid == "momentum_monthly" and auto and producible is False:
+            auto = False
         step = {
             "step_id": STEP_REFRESH_INPUTS, "source_id": sid,
             "display_name": r.get("display_name"), "status": status,
@@ -694,16 +705,39 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
             "blocking_scope": "signal_refresh+true_forward",
             "dependencies": ["owned_daily_prices", "desk_marks"],
         }
+        if sid == "momentum_monthly" and auto and monthly_owner is not None \
+                and monthly_owner.get("source_panel_covered") is False:
+            # The prerequisite maintenance the cycle performs FOR ITSELF inside this one
+            # step. It is never a separate operator action, route or button.
+            step["prerequisite_maintenance"] = "BOUNDED_SOURCE_PANEL_REFRESH"
+            step["prerequisite_owner"] = monthly_owner.get("panel_owner")
+            step["prerequisite_bound_to_session"] = eligible
         if not auto:
             step["operator_provider_blocker"] = spec.get("missing_implementation",
                                                           "OPERATOR_ACTION_REQUIRED")
+            if sid == "momentum_monthly":
+                if producible is False:
+                    # The emitter IS wired; the owned source panel is what cannot be
+                    # brought to this session. Naming the emitter here would send the
+                    # operator after the wrong thing.
+                    detail = ("The frozen monthly momentum input is due but its owned "
+                              "source panel cannot be brought to the eligible session "
+                              "(%s). It is never approximated intramonth and never built "
+                              "from later data."
+                              % ((monthly_owner or {}).get("source_panel_state")
+                                 or "source-panel state not reported"))
+                else:
+                    detail = ("The frozen monthly momentum input is due but no safe "
+                              "automatic emitter is available; it is never approximated "
+                              "intramonth.")
+            else:
+                detail = r.get("operator_action")
             blockers.append({
                 "code": "UNSUPPORTED_AUTOMATIC_REFRESH", "source_id": sid,
                 "missing_implementation": spec.get("missing_implementation"),
-                "detail": ("The frozen monthly momentum input is due but no safe "
-                           "automatic emitter is available; it is never approximated "
-                           "intramonth.") if sid == "momentum_monthly"
-                          else r.get("operator_action")})
+                "source_panel_state": ((monthly_owner or {}).get("source_panel_state")
+                                       if sid == "momentum_monthly" else None),
+                "detail": detail})
         steps.append(step)
 
     plan_blocked = bool(blockers) or bool(inconsistent) or bool(future_dated) \
@@ -766,10 +800,13 @@ INPUT_RECOVERY_STATES = (RECOVERY_SAFE_PIT, RECOVERY_CURRENT_REFRESH,
 #: This module — the ONE owner of the classification above.
 INPUT_RECOVERY_OWNER = "api.daily_research_cycle"
 
-#: The monthly source panel does not cover the eligible session, and Phase 24
-#: supports no safe incremental extension: a CONTROLLED owned-panel refresh is
-#: required, which the daily cycle deliberately never performs.
+#: The monthly source panel does not cover the eligible session AND cannot be brought
+#: to it (the controlled bounded refresh is unavailable, or the panel is future-dated /
+#: unverifiable — neither of which is ever repaired by rebuilding).
 MONTHLY_PANEL_BEHIND = "MONTHLY_SOURCE_PANEL_BEHIND_ELIGIBLE_SESSION"
+#: Release 54.2.3 — the panel is behind the session but ONE controlled refresh bounded
+#: to that session advances it, so the governed cycle recovers the input itself.
+MONTHLY_PANEL_REFRESHABLE = "MONTHLY_SOURCE_PANEL_REFRESHABLE_BOUNDED_TO_SESSION"
 #: The daily price/score refresh cannot cross a month boundary until the frozen
 #: monthly momentum input for the new month exists (api.alpha_target's own
 #: R_MONTH_BOUNDARY refusal — the frozen mom_6_1 contract is never approximated).
@@ -848,19 +885,46 @@ def classify_input_recovery(*, source_id: str, plan: dict,
                     "operator_action": (mo.get("missing_implementation")
                                         or MONTHLY_EMITTER_ACTION)}
         if covered is False:
+            # RELEASE 54.2.3 — the CONTROLLED owned-panel refresh that R54.2.2 named as
+            # the missing prerequisite now exists, bounded to the eligible session by the
+            # panel owner itself. When it is available this input is no longer a blocker
+            # the operator must clear by hand: the governed cycle performs the refresh for
+            # itself inside its own monthly step. When it is NOT available (the refresh is
+            # disabled, the emitter environment is gone, or the panel is future-dated /
+            # unverifiable — neither of which is ever repaired by rebuilding) the honest
+            # answer is unchanged and it stays a named blocker.
+            if _monthly_producible(mo):
+                return {**out, "classification": RECOVERY_SAFE_PIT,
+                        "recoverable_now": True, "point_in_time_safe": True,
+                        "blocks_governed_research": False,
+                        "code": MONTHLY_PANEL_REFRESHABLE,
+                        "source_panel_date": mo.get("source_panel_date"),
+                        "source_panel_state": mo.get("source_panel_state"),
+                        "prerequisite_maintenance": "BOUNDED_SOURCE_PANEL_REFRESH",
+                        "reason": ("The owned survivorship-free daily panel covers only "
+                                   "%s, behind the session %s, and ONE controlled refresh "
+                                   "bounded to %s advances it. The cycle performs that "
+                                   "refresh itself; no observation later than the session "
+                                   "is read, delisted names are retained and membership "
+                                   "stays point-in-time."
+                                   % (mo.get("source_panel_date") or "an earlier date",
+                                      eligible or "the eligible session",
+                                      eligible or "that session")),
+                        "operator_action": None}
             return {**out, "classification": RECOVERY_TRUE_BLOCKER,
                     "recoverable_now": False, "point_in_time_safe": True,
                     "blocks_governed_research": True,
                     "code": MONTHLY_PANEL_BEHIND,
                     "source_panel_date": mo.get("source_panel_date"),
-                    "reason": ("The owned survivorship-free daily panel covers only %s, "
-                               "behind the session %s. Phase 24 supports no safe "
-                               "incremental extension, so the new month's frozen input "
-                               "cannot be emitted until a CONTROLLED owned-panel refresh "
-                               "bounded to that session has run. It is never approximated "
-                               "intramonth and never built from later data."
+                    "source_panel_state": mo.get("source_panel_state"),
+                    "reason": ("The owned survivorship-free daily panel covers only %s "
+                               "and cannot be brought to the session %s (%s), so the new "
+                               "month's frozen input cannot be emitted. It is never "
+                               "approximated intramonth and never built from later data."
                                % (mo.get("source_panel_date") or "an earlier date",
-                                  eligible or "the eligible session")),
+                                  eligible or "the eligible session",
+                                  mo.get("source_panel_state")
+                                  or "source-panel state not reported")),
                     "operator_action": "REFRESH_OWNED_SOURCE_PANEL_THEN_"
                                        + MONTHLY_EMITTER_ACTION}
         return {**out, "classification": RECOVERY_SAFE_PIT,
@@ -883,17 +947,26 @@ def classify_input_recovery(*, source_id: str, plan: dict,
         req_month = str(mo.get("required_month") or (str(eligible)[:7] if eligible else ""))
         month_boundary = bool(mo and req_month and cur_month and req_month != cur_month)
         if month_boundary:
+            # Release 54.2.3 — the dependency decides whether this is an OBLIGATION the
+            # cycle discharges in order, or a wall. When the frozen monthly input can be
+            # produced for this session, the cycle emits it first and then refreshes the
+            # price/score state in the SAME run, so this input does not block governed
+            # research even though it is not independently recoverable.
+            dep_ready = bool(_monthly_producible(mo))
             return {**out, "classification": RECOVERY_CURRENT_REFRESH,
                     "recoverable_now": False, "point_in_time_safe": True,
-                    "blocks_governed_research": True,
+                    "blocks_governed_research": not dep_ready,
                     "depends_on": ["momentum_monthly"],
+                    "dependency_recoverable_now": dep_ready,
                     "code": PRICE_SCORE_MONTH_BOUNDARY,
                     "reason": ("The owned price/score inputs are reproducible point-in-"
                                "time for %s, but the completed session is in a new month "
                                "(%s) versus the frozen monthly input month (%s). The "
                                "target owner refuses to cross that boundary until the new "
-                               "month's frozen input exists."
-                               % (eligible or "the eligible session", req_month, cur_month)),
+                               "month's frozen input exists.%s"
+                               % (eligible or "the eligible session", req_month, cur_month,
+                                  (" The cycle emits that input first, in the same run."
+                                   if dep_ready else ""))),
                     "operator_action": None}
         return {**out, "classification": RECOVERY_SAFE_PIT,
                 "recoverable_now": True, "point_in_time_safe": True,
@@ -1319,6 +1392,14 @@ def _monthly_owner_status(freshness: dict, facts: dict, monthly_available: bool,
         "source_panel_date": None,
         "source_panel_covered": None,
         "incremental_supported": False,
+        # Release 54.2.3 — whether the panel owner can be advanced to the eligible
+        # session by ONE controlled refresh bounded to it. None = not observed (the
+        # hermetic run-path block never reads the production panel).
+        "source_panel_state": None,
+        "source_panel_refresh_supported": None,
+        "source_panel_refresh_bounded_to_session": None,
+        "source_panel_refresh_as_of": None,
+        "source_panel_can_cover_session": None,
     }
     if monthly_available:
         fn = emitter_status_fn or _default_monthly_emitter_status
@@ -1328,8 +1409,46 @@ def _monthly_owner_status(freshness: dict, facts: dict, monthly_available: bool,
             block["emitter_status"] = ("AVAILABLE" if st.get("available") else "UNAVAILABLE")
             block["source_panel_date"] = sp.get("panel_last_date")
             block["source_panel_covered"] = sp.get("covered")
+            block["source_panel_state"] = sp.get("panel_state")
+            block["source_panel_refresh_as_of"] = sp.get("refresh_as_of")
+            # The bounded refresh is only a real capability when the emitter environment
+            # itself is available; an unavailable environment can refresh nothing.
+            supported = bool(st.get("panel_refresh_supported")) and bool(st.get("available"))
+            block["source_panel_refresh_supported"] = supported
+            block["source_panel_refresh_bounded_to_session"] = bool(
+                st.get("panel_refresh_bounded_to_session")) and supported
+            # The panel owner's OWN verdict, read verbatim; this module never re-derives
+            # "can the panel cover the session" from dates of its own.
+            can = sp.get("can_cover_eligible_session")
+            block["source_panel_can_cover_session"] = (
+                bool(can) and bool(st.get("available")) if can is not None else None)
             block["config"] = st.get("config")
     return block
+
+
+def _monthly_producible(monthly_owner: Optional[dict]) -> Optional[bool]:
+    """Can the frozen monthly input be produced for the eligible session RIGHT NOW?
+
+    ONE predicate, decided from the monthly owner's own block, so the execution plan and
+    the stale-input classification can never disagree about it (before Release 54.2.3 the
+    plan asked only "is an emitter wired?" while the classification also knew the source
+    panel was behind — and the operator was offered a cycle that could not run).
+
+    True  — the panel covers the session, or ONE bounded refresh can advance it to the
+            session.
+    False — the panel is behind and no bounded refresh is available, or it is ahead of /
+            unverifiable for the session (neither is ever repaired by rebuilding).
+    None  — not observed (the hermetic run path); the caller keeps its prior behaviour and
+            the emitter still blocks honestly if it cannot produce.
+    """
+    mo = monthly_owner or {}
+    verdict = mo.get("source_panel_can_cover_session")
+    if verdict is not None:
+        return bool(verdict)
+    # A block written before this field existed (or by an injected fake) still answers
+    # through the coverage it does report; absent that, the answer is "not observed".
+    covered = mo.get("source_panel_covered")
+    return None if covered is None else bool(covered)
 
 
 # --------------------------------------------------------------------------- #
@@ -1432,6 +1551,94 @@ def _facts(freshness: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.2.3 — RESEARCH-INPUT DATA QUALITY (Phase L).
+#
+# The monthly chain has three stages — owned source panel -> frozen monthly input ->
+# daily price/score refresh — and each has a small, closed set of honest states. They
+# were previously only implicit, spread across the emitter's panel policy, the monthly
+# adapter's status vocabulary and the target owner's month-boundary refusal, so every
+# consumer that wanted to say "why is research not current" had to re-derive them from
+# dates. This block states them ONCE, in the vocabulary those owners already use.
+# --------------------------------------------------------------------------- #
+#: Canonical monthly-input states (the adapter's own vocabulary, plus the two conditions
+#: only this module can see: nothing persisted at all, and a permanently unrecoverable
+#: month).
+MONTHLY_INPUT_MISSING = "MONTHLY_INPUT_MISSING"
+MONTHLY_INPUT_CURRENT = "MONTHLY_INPUT_CURRENT"
+MONTHLY_INPUT_DUE = "MONTHLY_INPUT_DUE"
+MONTHLY_INPUT_FUTURE_DATED = "MONTHLY_INPUT_FUTURE_DATED"
+MONTHLY_INPUT_UNRECOVERABLE = "MONTHLY_INPUT_UNRECOVERABLE"
+MONTHLY_INPUT_STATES = (MONTHLY_INPUT_MISSING, MONTHLY_INPUT_CURRENT, MONTHLY_INPUT_DUE,
+                        MONTHLY_INPUT_FUTURE_DATED, MONTHLY_INPUT_UNRECOVERABLE)
+#: Canonical price/score refresh states.
+PRICE_REFRESH_READY = "PRICE_REFRESH_READY"
+PRICE_REFRESH_WAITING_ON_MONTHLY = "PRICE_REFRESH_WAITING_ON_MONTHLY"
+PRICE_REFRESH_STATES = (PRICE_REFRESH_READY, PRICE_REFRESH_WAITING_ON_MONTHLY)
+
+
+def _research_input_quality(monthly_owner: Optional[dict],
+                            plan: Optional[dict]) -> Optional[dict]:
+    """The canonical per-stage data-quality states for the monthly research chain.
+
+    Pure projection of the owner blocks already computed above — it reads no file,
+    calls no emitter and re-derives no date."""
+    if monthly_owner is None:
+        return None
+    mo = monthly_owner
+    cur_month = mo.get("current_month")
+    req_month = mo.get("required_month")
+    producible = _monthly_producible(mo)
+
+    panel_state = mo.get("source_panel_state")
+    if panel_state is None and mo.get("source_panel_covered") is True:
+        panel_state = "SOURCE_PANEL_CURRENT"
+
+    if cur_month is None:
+        monthly_state = MONTHLY_INPUT_MISSING
+    elif req_month and cur_month > req_month:
+        monthly_state = MONTHLY_INPUT_FUTURE_DATED
+    elif not mo.get("due"):
+        monthly_state = MONTHLY_INPUT_CURRENT
+    elif producible is False:
+        monthly_state = MONTHLY_INPUT_UNRECOVERABLE
+    else:
+        monthly_state = MONTHLY_INPUT_DUE
+
+    price_due = "price_score_refresh" in set((plan or {}).get("required_stale_inputs") or [])
+    month_boundary = bool(req_month and cur_month and req_month != cur_month)
+    if price_due and month_boundary:
+        price_state = PRICE_REFRESH_WAITING_ON_MONTHLY
+    else:
+        price_state = PRICE_REFRESH_READY
+
+    return {
+        "owner": INPUT_RECOVERY_OWNER,
+        "panel_owner": mo.get("panel_owner"),
+        "monthly_owner": mo.get("owner"),
+        "source_panel_state": panel_state,
+        "source_panel_date": mo.get("source_panel_date"),
+        "source_panel_refresh_supported": mo.get("source_panel_refresh_supported"),
+        "source_panel_refresh_as_of": mo.get("source_panel_refresh_as_of"),
+        "monthly_input_state": monthly_state,
+        "monthly_input_month": cur_month,
+        "monthly_input_required_month": req_month,
+        "price_refresh_state": price_state,
+        "price_refresh_depends_on": (["momentum_monthly"] if month_boundary else []),
+        "source_panel_state_vocabulary": list(_source_panel_state_vocabulary()),
+        "monthly_input_state_vocabulary": list(MONTHLY_INPUT_STATES),
+        "price_refresh_state_vocabulary": list(PRICE_REFRESH_STATES),
+        "derived_by_backend": True,
+    }
+
+
+def _source_panel_state_vocabulary() -> tuple:
+    """The panel-state vocabulary, READ from the owner that defines it. Never copied
+    here — a private literal copy is exactly how two spellings start to drift."""
+    from paper_trader.api import monthly_momentum_emitter as mme
+    return tuple(mme.SOURCE_PANEL_STATES)
+
+
+# --------------------------------------------------------------------------- #
 # Canonical run/status contract builder (Workstream C).
 # --------------------------------------------------------------------------- #
 def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
@@ -1522,6 +1729,10 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
             if plan else None),
         "stale_input_classification_owner": INPUT_RECOVERY_OWNER,
         "input_recovery_state_vocabulary": list(INPUT_RECOVERY_STATES),
+        # Release 54.2.3 — the canonical research-input DATA-QUALITY block. One
+        # backend-decided state per stage of the monthly chain, so no surface performs
+        # date arithmetic or source classification of its own.
+        "research_input_quality": _research_input_quality(monthly_owner, plan),
         "input_results": (plan or {}).get("refresh_results")
         if plan else None,
         "input_contract_hash": facts.get("input_contract_hash"),
@@ -2078,10 +2289,14 @@ def load_daily_research_cycle_status(
             warnings.append(w)
 
     facts = _facts(freshness)
-    plan = build_execution_plan(freshness,
-                                monthly_emitter_available=monthly_emitter_available)
+    # Release 54.2.3 — the monthly OWNER block is built FIRST so the execution plan can
+    # be built from what that owner actually reports about the source panel, instead of
+    # from the coarse "an emitter is wired" bool. One evidence set, one verdict.
     monthly_owner = _monthly_owner_status(freshness, facts, monthly_emitter_available,
                                           warnings)
+    plan = build_execution_plan(freshness,
+                                monthly_emitter_available=monthly_emitter_available,
+                                monthly_owner=monthly_owner)
 
     # Reflect the latest persisted run for this eligible session, if any.
     prior = None
@@ -3142,6 +3357,11 @@ __all__ = [
     "RECOVERY_SAFE_PIT", "RECOVERY_CURRENT_REFRESH", "RECOVERY_SLOW_MOVING",
     "RECOVERY_UNRECOVERABLE", "RECOVERY_TRUE_BLOCKER", "INPUT_RECOVERY_STATES",
     "INPUT_RECOVERY_OWNER", "MONTHLY_PANEL_BEHIND", "PRICE_SCORE_MONTH_BOUNDARY",
+    # Release 54.2.3 — bounded source-panel recovery + the data-quality vocabulary.
+    "MONTHLY_PANEL_REFRESHABLE",
+    "MONTHLY_INPUT_MISSING", "MONTHLY_INPUT_CURRENT", "MONTHLY_INPUT_DUE",
+    "MONTHLY_INPUT_FUTURE_DATED", "MONTHLY_INPUT_UNRECOVERABLE", "MONTHLY_INPUT_STATES",
+    "PRICE_REFRESH_READY", "PRICE_REFRESH_WAITING_ON_MONTHLY", "PRICE_REFRESH_STATES",
     "classify_input_recovery", "classify_stale_inputs",
     "build_execution_plan", "evaluate_alignment", "compute_idempotency_key",
     "load_daily_research_cycle_status", "load_status", "run_daily_research_cycle",

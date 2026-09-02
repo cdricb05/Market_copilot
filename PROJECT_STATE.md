@@ -1,7 +1,119 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2.2 - POST-CLOSE RESEARCH RECOVERY: a completed
+- **Updated by phase:** **R54.2.3 - CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY:
+  remove the real governed-research blocker, make portfolio-cycle actionability
+  truthful, and adopt a risk-based validation perimeter (single agent, no
+  subagents, Windows PowerShell only).** Built over the committed R54.2.2 head
+  `dfe8eedb`. Full narrative:
+  `docs/RELEASE54_2_3_CONTROLLED_MONTHLY_RESEARCH_INPUT_RECOVERY.md`.
+  **What was actually stale (one artifact, one owner):** the owned
+  survivorship-free daily panel
+  `D:\Stock_Prediction_app_data\phase24_cache\daily_panel\russell1000_cp_daily.npz`
+  (owner `research.phase24_daily_panel`), `last_date 2026-08-05`, 3,076
+  securities, 6,687 trading days.
+  **Why it stopped - the systemic cause:** NO owner was responsible for advancing
+  it. The acquisition is a ONE-TIME research build (`build_daily_panel_from_norgate`
+  returns early once the NPZ exists, and pulls unbounded "to latest" when forced),
+  and `api.monthly_momentum_emitter` stated it "NEVER triggers a panel refresh".
+  So the panel advanced exactly once, on the day a human ran it, and every new
+  month became a permanent blocker clearable only by a hidden manual step. Not a
+  scheduler failure, provider outage, entitlement issue or persistence bug.
+  **Provider coverage (measured, read-only):** owned Norgate NDU v1.0.74 has daily
+  bars AND point-in-time index membership through `2026-09-01` for the Russell
+  1000 Current & Past universe (3,597 symbols); measured pull ~64 symbols/second.
+  **The point-in-time cutoff September requires:** `mom_6_1` for the 2026-09
+  bucket is `close[2026-08-31]/close[2026-02-28]-1`, so the momentum number sees
+  information only through the Aug-31 close; membership, ADV, vol and eligibility
+  are as-of the session, and the emitter requires
+  `market_as_of_date == the eligible session`. The required panel cutoff is
+  therefore EXACTLY `2026-09-01` and never later - which is why an unbounded
+  rebuild is wrong, not merely wasteful.
+  **The repair:** ONE bounded entry point on the EXISTING panel owner,
+  `refresh_daily_panel_as_of(as_of)` - `end_date` bound on BOTH the price and the
+  index-constituent series, post-assembly truncation, Current & Past universe
+  (delisted retained), atomic promotion, and a fail-closed quality contract
+  (`SOURCE_PANEL_INCOMPLETE` / `SOURCE_PANEL_FUTURE_DATED` /
+  `HISTORICAL_UNIVERSE_COVERAGE_FAILED`). `api.monthly_momentum_emitter` owns only
+  the POLICY: a panel BEHIND the session selects `REFRESH_BOUNDED` with the cutoff
+  taken INTERNALLY from the eligible session, performs at most one refresh per
+  emission attempt, and re-inspects the manifest on disk before emitting. A
+  FUTURE-dated or unverifiable panel still BLOCKS and is never rebuilt backwards.
+  **Proven hermetically (scratch paths; production panel never touched):** the
+  bounded refresh reaches `last_date 2026-09-01`, 6,706 trading days (+19
+  sessions), 3,076 securities, 521 missing, coverage 0.5406, **0 rows later than
+  the cutoff**, 1,459 retained inactive names, 1,015 members on the last day, in
+  **93.6s**. The unchanged Phase-25 mathematics then emits `month_label 2026-09`,
+  `market_as_of_date 2026-09-01`, 1,008 names, 0 null `mom_6_1`, 0 duplicates -
+  and the first ticker's value recomputes exactly from
+  `close[2026-08-31]/close[2026-02-28]-1`. **Sep-1 governed research is safely
+  recoverable (Outcome A).**
+  **The contradictory green CTA was a BACKEND truth defect, not UI logic:** the UI
+  already read `primary_action_available` and inferred nothing; the backend
+  published `true`. Two derivations of one fact disagreed -
+  `build_execution_plan` asked only "is an emitter wired?" (yes) while
+  `classify_input_recovery` also knew `source_panel_covered false` (TRUE_BLOCKER),
+  so the same payload said "run the portfolio cycle" and "cannot run yet:
+  momentum_monthly". Now the monthly owner publishes ONE verdict,
+  `can_cover_eligible_session`, and both read it. Canonical rule: the portfolio
+  cycle is actionable exactly when the decided primary action is an executable
+  normal-path mutation; an input the owner knows cannot be produced blocks the
+  plan, which blocks the cycle, which withholds the CTA.
+  `build_operator_command` publishes `portfolio_cycle_actionable` /
+  `_safe_to_execute` / `_action_code` / `_action_label` / `_blocking_reason` as
+  ALIASES of `primary_action_available` - a projection, never a second engine.
+  **Data-quality vocabulary (backend-decided, UI reads it):** source panel
+  (`SOURCE_PANEL_CURRENT|STALE|REFRESHING|INCOMPLETE`,
+  `MONTHLY_PANEL_FUTURE_DATED`, `MONTHLY_PANEL_COVERAGE_UNVERIFIABLE`,
+  `HISTORICAL_UNIVERSE_COVERAGE_FAILED`), monthly input
+  (`MONTHLY_INPUT_MISSING|CURRENT|DUE|FUTURE_DATED|UNRECOVERABLE`) and price
+  refresh (`PRICE_REFRESH_READY|WAITING_ON_MONTHLY`), published as
+  `research_input_quality`.
+  **Unchanged and untouched:** the Sep-1 TRUE_FORWARD snapshot gap is permanent,
+  is never reconstructed, and does not invalidate the close. No new route, button,
+  workflow, date picker or second orchestration path: the operator still runs ONE
+  `POST /v1/operations/portfolio-cycle/run`, and the prerequisite maintenance
+  happens inside the monthly step the cycle already had.
+  **LIVE SAFETY:** investigation was READ-ONLY (authenticated GETs plus filesystem
+  reads); every behavioural proof used scratch or `tmp_path` stores. No backend
+  restart, Daily Close, Daily Research Cycle, portfolio cycle, production monthly
+  emission, production panel refresh, approval, order, fill, model promotion or
+  sleeve activation was performed. **The running backend on 8001 still holds the
+  R54.2.2 runtime; a canonical restart is required before Today reflects this
+  release.**
+  **LIVE READ-ONLY VERDICT (nothing written, backend never restarted):** the
+  repaired owners run against the REAL stores with the production emitter wiring
+  report `momentum_monthly` = `SAFE_RECOVERABLE_POINT_IN_TIME`
+  (`MONTHLY_SOURCE_PANEL_REFRESHABLE_BOUNDED_TO_SESSION`, refresh as-of
+  `2026-09-01`), `true_blockers []`, cycle `NOT_STARTED` / executable,
+  `overall_state RESEARCH_CYCLE_REQUIRED`, `research_obligation_state
+  RESEARCH_OBLIGATION_OUTSTANDING`, `portfolio_cycle_actionable true` with
+  `blocking_reason null`, `consistency CONSISTENT`. With the emitter UNWIRED the
+  same owners fail closed: cycle `BLOCKED`, `overall_state
+  RESEARCH_CYCLE_BLOCKED`, `portfolio_cycle_actionable false`,
+  `blocking_reason "Governed research blocked for 2026-09-01 - Frozen monthly
+  momentum input."` Both directions verified.
+  **Operational note:** the FIRST Daily Research Cycle of a new month now includes
+  a ~94s bounded panel refresh before the Phase-25 emission, so that one run takes
+  roughly 2-3 minutes longer than a normal day. The refresh timeout is 1800s, the
+  emission timeout 900s and the DRC lock staleness 45 minutes, so nothing is
+  tightened by it.
+  **Verification:** new R54.2.3 suite 49/49; scoped impact perimeter (28 suites
+  covering the source panel, data freshness, monthly input/emitter, alpha target,
+  DRC, workflow state, portfolio cycle, operator presentation, Active Manager
+  State, Today UX, R54.2.1/54.2.2 and Stage 22) **1,449 passing**; the remaining
+  `build_operator_command` consumer suites re-run as a safety net for the additive
+  keys; strict architecture audit exit 0 with a NEW guard
+  (`check_release54_2_3_source_panel_recovery`); `git diff --check` clean; the
+  pytest tmp-dir `atexit` PermissionError on `D:\Temp\pytest-of-binis` remains an
+  environment artifact. Full repository suite NOT run (risk-based perimeter;
+  `FULL_GATE_REQUIRED = NO`). NOT committed (operator gate).
+  **Out-of-repo change:** `research/phase24_daily_panel.py` in the external owned
+  research repo `C:\Users\binis\Stock_Prediction_app_push` (HEAD `1fa4ea1`) gains
+  `refresh_daily_panel_as_of` + an `end_date` bound on `_pull_symbol`. That repo is
+  NOT under this repository's version control and was already dirty from earlier
+  research campaigns; this is the only file this release touched there.
+- **Previous phase:** **R54.2.2 - POST-CLOSE RESEARCH RECOVERY: a completed
   Daily Close does not settle the governed research owed for that session, plus
   CLOSE-ATTRIBUTION INTEGRITY (single agent, no subagents, Windows PowerShell
   only).** Built over the committed R54.2.1 head `36153c1`. Full narrative:

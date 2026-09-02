@@ -273,12 +273,25 @@ responsibilities, candidate existing modules, and migration approach.
   mathematics, `api.monthly_momentum_emitter` owns the isolated subprocess emission +
   output validation, `api.monthly_momentum_input` owns validation + idempotent atomic
   promotion, `api.daily_research_cycle` owns orchestration, `api.universe_scoring` owns
-  scoring interpretation. No second monthly formula exists in Paper Trader. Source-panel
-  policy: no refresh when the owned panel covers the eligible session; an explicit
-  DATA_HOLD blocker (never an uncontrolled full rebuild) when it is behind, because
-  Phase 24 supports no safe incremental extension. When momentum_monthly is due, ONE
-  `RUN DAILY RESEARCH CYCLE` action emits, promotes, clears the scoring cache and
-  continues the same run — no separate command / button / restart / file operation.
+  scoring interpretation. No second monthly formula exists in Paper Trader. When
+  momentum_monthly is due, ONE `RUN DAILY RESEARCH CYCLE` action emits, promotes, clears
+  the scoring cache and continues the same run — no separate command / button / restart /
+  file operation.
+- **Bounded source-panel refresh (Release 54.2.3):** the source-panel policy is no longer
+  "never refresh". The panel owner exposes ONE bounded entry point,
+  `refresh_daily_panel_as_of(as_of)`, and the bridge owns the POLICY around it: a panel
+  that COVERS the eligible session is used as-is (no provider call); a panel BEHIND it
+  selects exactly ONE refresh bounded to that session, with the cutoff taken internally
+  from the eligible session and never from a caller, route or operator control; a panel
+  AHEAD of it, or one whose coverage cannot be verified, still BLOCKS and is never
+  rebuilt backwards (that would discard observations a later session legitimately holds).
+  The refresh binds the cutoff on BOTH the price and the index-constituent series,
+  truncates again after assembly, retains delisted names through the Current & Past
+  universe, promotes atomically, and fails closed on a short calendar, a future-dated row
+  or lost historical names. This exists because nothing previously owned the maintenance:
+  the acquisition is a one-time build and the bridge refused to trigger it, so every new
+  month became a permanent blocker. Prerequisite maintenance now happens INSIDE the
+  monthly step the cycle already had — there is still no second workflow, route or button.
 
 ### Model Registry and Champion/Challenger Governance
 - **Responsibility:** hold champion + challenger models, run gated evaluation,

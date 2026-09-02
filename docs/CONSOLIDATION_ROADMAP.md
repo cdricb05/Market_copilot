@@ -1364,3 +1364,22 @@ readiness DEGRADED with "The operational book remains valid." The repaired
 attribution reproduces the Sep-1 NAV move exactly (residual 0.00). The running
 8001 backend still holds the pre-R54.2.2 runtime and must be restarted with the
 canonical script before Today can show the outstanding governed research.
+## Release 54.2.3 — the source-panel maintenance owner (LANDED)
+
+The consolidation this slice closes is an OWNERSHIP GAP, not a duplication: the owned
+source panel had a producer and a reader but no owner responsible for keeping it current,
+so a one-time research artifact silently became a hard operational dependency.
+
+- ONE bounded entry point on the EXISTING panel owner
+  (`research.phase24_daily_panel.refresh_daily_panel_as_of`). No second panel writer, no
+  recovery script, no manual backfill API, no UI date picker, no second panel store.
+- The POLICY (when a refresh is due, which cutoff binds it, what a failure means) belongs
+  to `api.monthly_momentum_emitter`, which already owned the source-panel decision.
+- ONE predicate, `api.daily_research_cycle._monthly_producible`, reads the monthly owner's
+  own verdict so the execution plan and the stale-input classification can no longer
+  disagree about whether the frozen monthly input can be produced.
+- The portfolio-cycle actionability contract is published as named ALIASES of
+  `primary_action_available` in `build_operator_command` — a projection, never a second
+  action-state engine.
+- Still exactly one orchestration path: `POST /v1/operations/portfolio-cycle/run`.
+  Prerequisite maintenance happens inside the monthly refresh step that already existed.

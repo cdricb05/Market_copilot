@@ -3120,3 +3120,72 @@ operator is told, and both attribution surfaces obey it: winners, losers and
 sector rows are withheld, and the UI states `ATTRIBUTION UNAVAILABLE — NAV
 RECONCILIATION FAILED`. Total P&L validity and decomposition availability are
 separate questions with separate owners, so NAV and P&L stay visible.
+### D-R54.2.3-1 — the owned source panel has a MAINTENANCE OWNER (CONFIRMED)
+
+**Decision.** The owned survivorship-free daily panel is advanced by ONE bounded entry
+point on its existing owner, `research.phase24_daily_panel.refresh_daily_panel_as_of`,
+driven by `api.monthly_momentum_emitter` when — and only when — the panel is behind the
+eligible research session.
+
+**Evidence.** The panel sat at `2026-08-05` from the day it was built. The acquisition
+returns early once the NPZ exists and pulls unbounded "to latest" when forced; the only
+operational consumer stated it never triggers a refresh. No scheduler failed, no provider
+was down, no entitlement lapsed: no owner existed. A repair that only advanced the panel
+once would have reproduced the same blocker in October.
+
+**Why not a recovery script or a manual route.** Both would put the maintenance outside
+the governed cycle, where its point-in-time cutoff would be chosen by a human at an
+arbitrary later date. The cutoff must be a property of the session being researched.
+
+### D-R54.2.3-2 — the refresh cutoff is the ELIGIBLE SESSION, never "latest" (CONFIRMED)
+
+**Decision.** Every bounded refresh is bound to the eligible research session, internally.
+No caller, route, payload field or UI control may supply it. `end_date` binds both the
+price series and the index-constituent series, and the assembled calendar is truncated
+again after assembly.
+
+**Evidence.** The frozen monthly artifact carries `market_as_of_date = the panel's last
+trading date`, and the emitter requires it to equal the eligible session. A rebuild "to
+latest" run on 2026-09-03 would produce a 2026-09-02 panel, which is future data for a
+2026-09-01 research session — correctly rejected as `MONTHLY_PANEL_FUTURE_DATED`. Binding
+only prices would be worse than useless: it would write a later index-membership decision
+onto a historical date while appearing point-in-time safe.
+
+**Corollary (CONFIRMED).** A FUTURE-dated panel is never repaired by rebuilding backwards.
+Doing so would discard observations a later session legitimately holds. It stays a
+blocker.
+
+### D-R54.2.3-3 — "can this input be produced?" has ONE owner and ONE answer (CONFIRMED)
+
+**Decision.** The monthly owner publishes `can_cover_eligible_session`; both the execution
+plan and the stale-input recoverability classification read it. Neither derives it.
+
+**Evidence.** The live 2026-09-02 payload said, in the same response,
+`primary_action RUN_DAILY_RESEARCH_CYCLE` with `execution_available true` AND
+`research_obligation_state RESEARCH_OBLIGATION_BLOCKED` with a `TRUE_BLOCKER`. The plan
+asked "is an emitter wired?" (yes); the classifier also knew `source_panel_covered false`.
+Two derivations of one fact, from the same evidence, disagreeing on the operator's screen.
+
+### D-R54.2.3-4 — portfolio-cycle actionability is a PROJECTION, not a second engine (CONFIRMED)
+
+**Decision.** `portfolio_cycle_actionable`, `portfolio_cycle_safe_to_execute`,
+`portfolio_cycle_action_code`, `portfolio_cycle_action_label` and
+`portfolio_cycle_blocking_reason` are named aliases of the already-decided
+`primary_action_available`. When they disagree with it, the bug is in the projection.
+
+**Note on vocabulary.** The primary action's older `safe_to_execute` flag answers a
+DIFFERENT question — "may this run without an explicit confirmation token?" — and is
+`False` for every normal-path mutation by design. It was never the actionability gate and
+is not repurposed. The withheld-action reason travels with the withheld action so no
+surface has to invent one.
+
+**Evidence.** The misleading green CTA was rendered faithfully from a backend flag that
+was true. The UI derived nothing; fixing it in JavaScript would have hidden a real
+disagreement instead of resolving it.
+
+### D-R54.2.3-5 — a historical gap never freezes later sessions (CONFIRMED)
+
+**Decision.** Monthly due-ness is `eligible_month > current_input_month` — a comparison
+against the session in hand, not a queue of unfinished months. An unrecoverable September
+leaves October to proceed on its own evidence, and the Sep-1 TRUE_FORWARD snapshot gap
+stays documented, permanent and never reconstructed.

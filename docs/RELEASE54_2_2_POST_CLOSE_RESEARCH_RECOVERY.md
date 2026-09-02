@@ -74,6 +74,14 @@ session never is either. Close precedence is structural, not clock-based.
 
 ## 3. The root cause of the Sep-1 research gap (one thing)
 
+> **Superseded by Release 54.2.3 (2026-09-02).** Point 1 below was true at this release:
+> nothing could advance the owned source panel, so a behind-panel was a true blocker.
+> R54.2.3 gives the panel owner a bounded, point-in-time as-of refresh and makes the
+> governed cycle perform it for itself, so `momentum_monthly` became
+> `SAFE_RECOVERABLE_POINT_IN_TIME` and Sep-1 governed research became recoverable. The
+> rest of this section — the dependency chain and the permanent TRUE_FORWARD gap — still
+> stands. See `docs/RELEASE54_2_3_CONTROLLED_MONTHLY_RESEARCH_INPUT_RECOVERY.md`.
+
 Proven from the owners themselves, read-only:
 
 1. The owned Phase-24 survivorship-free daily panel's `last_date` is **2026-08-05**.

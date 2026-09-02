@@ -11574,6 +11574,34 @@ def check_release54_2_1_missed_session_recovery(files: list[Path]) -> dict:
     }
 
 
+#: R54.2.3 — CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY.
+#:
+#: The panel is written by the RESEARCH owner alone; the bridge owns only the POLICY
+#: (when a refresh is due, which cutoff binds it, what a failure means); the cycle owner
+#: reads ONE producibility verdict rather than deriving a second one; and actionability
+#: stays a projection of the already-decided primary action.
+R5423_BRIDGE_OWNER = "api/monthly_momentum_emitter.py"
+R5423_CYCLE_OWNER = "api/daily_research_cycle.py"
+R5423_WORKFLOW_OWNER = "api/workflow_state.py"
+#: The bounded-refresh policy is defined ONCE, in the bridge.
+R5423_REFRESH_DEFS = ("def build_refresh_command(", "def refresh_source_panel(",
+                      "REFRESH_DRIVER_SRC", "SOURCE_PANEL_STATES")
+#: A SECOND panel writer, a manual recovery route, or an operator-chosen cutoff.
+R5423_FORBIDDEN_DEFS = ("def refresh_daily_panel(", "def rebuild_source_panel(",
+                        "def build_daily_panel(", "def run_panel_refresh(",
+                        "def backfill_source_panel(")
+R5423_FORBIDDEN_ROUTES = ("/v1/operations/source-panel/refresh",
+                          "/v1/operations/source-panel/run",
+                          "/v1/operations/monthly-emitter/run",
+                          "/v1/operations/research-inputs/refresh",
+                          "/v1/operations/panel-refresh")
+#: An operator-supplied cutoff in any request/UI shape.
+R5423_FORBIDDEN_DATE_FIELDS = ("panel_refresh_date", "refresh_as_of", "as_of_override",
+                               "panelRefreshDate", "sourcePanelDate")
+#: Client-side actionability derivation the UI must never perform.
+R5423_FORBIDDEN_UI = ("source_panel_covered", "panel_last_date <", "monthly_input_state =",
+                      "portfolio_cycle_actionable =")
+
 #: R54.2.2 — POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY. The owners that
 #: may hold each half, and every shape a SECOND one would take.
 R5422_OBLIGATION_OWNER = "api/workflow_state.py"
@@ -11607,6 +11635,121 @@ R5422_FORBIDDEN_DEFS = ("def run_research_backfill(", "def backfill_research_cyc
 #: Client-side obligation arithmetic / operator-supplied research dates in the UI.
 R5422_FORBIDDEN_UI = ("research_obligation_state =", "outstanding_research_session =",
                       "backfillResearch", "forceResearchCycle", "researchDateInput")
+
+
+def check_release54_2_3_source_panel_recovery(files: list[Path]) -> dict:
+    """R54.2.3 invariants — ONE panel writer, ONE refresh policy, ONE verdict.
+
+    (a) the bounded source-panel refresh POLICY is defined exactly once, in the
+        emitter bridge, and no operational ``api/*.py`` module defines a second
+        panel builder / refresher / backfiller;
+    (b) the bridge still computes NO mathematics (no numpy/pandas) and drives the
+        panel OWNER's own bounded entry point through an explicit argv array;
+    (c) the refresh cutoff is the ELIGIBLE SESSION and is never a request field, a
+        route parameter or a UI control — there is no manual panel-refresh route;
+    (d) a FUTURE-dated panel is still BLOCKED, never rebuilt backwards;
+    (e) the cycle owner reads the monthly owner's single producibility verdict
+        (``can_cover_eligible_session``) instead of deriving a second one, and
+        publishes the canonical data-quality vocabulary; and
+    (f) portfolio-cycle actionability is a PROJECTION of ``primary_action_available``
+        in the workflow owner, and the UI derives none of it.
+    """
+    bridge = _read(R5423_BRIDGE_OWNER)
+    cycle = _read(R5423_CYCLE_OWNER)
+    workflow = _read(R5423_WORKFLOW_OWNER)
+    ui = _read(UI_FILE)
+    app_src = _read(APP_MODULE)
+
+    # (a) the refresh policy lives once, in the bridge.
+    policy_defs = {tok: (tok in bridge) for tok in R5423_REFRESH_DEFS}
+    missing_policy = sorted(k for k, v in policy_defs.items() if not v)
+
+    second_panel_writer: list[str] = []
+    for fp in files:
+        rel = _rel(fp)
+        parts = rel.split("/")
+        if len(parts) != 2 or parts[0] != "api":
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        # A module that WRITES an NPZ, or defines a panel builder of its own.
+        if "np.savez" in text or "savez_compressed" in text:
+            second_panel_writer.append(rel)
+            continue
+        if rel == R5423_BRIDGE_OWNER:
+            continue
+        for tok in R5423_FORBIDDEN_DEFS:
+            if tok in text:
+                second_panel_writer.append(rel)
+                break
+    second_panel_writer = sorted(set(second_panel_writer))
+
+    # A second copy of the refresh POLICY outside the bridge.
+    second_refresh_policy = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/") and _rel(fp) != R5423_BRIDGE_OWNER
+        and "def refresh_source_panel(" in fp.read_text(encoding="utf-8",
+                                                        errors="replace"))
+
+    # (b) still pure-stdlib, still an explicit argv array.
+    numeric_imports = sorted(t for t in ("import numpy", "import pandas",
+                                         "from numpy", "from pandas") if t in bridge)
+    drives_panel_owner = "refresh_daily_panel_as_of" in bridge
+    refresh_uses_argv = ("def build_refresh_command(" in bridge
+                         and "shell=True" not in bridge)
+
+    # (c) the cutoff is internal: bound to the eligible session, never a field.
+    cutoff_is_session = ("as_of=eligible" in bridge or "as_of=elig" in bridge)
+    operator_date_fields = sorted(
+        t for t in R5423_FORBIDDEN_DATE_FIELDS if (t in app_src or t in ui))
+    routes = check_routes()["routes"]
+    declared = {(r["path"] or "") for r in routes}
+    forbidden_routes = sorted(p for p in R5423_FORBIDDEN_ROUTES
+                              if p in declared or p in app_src)
+
+    # (d) a future-dated panel is never repaired by rebuilding.
+    future_still_blocks = ("PANEL_FUTURE_DATED" in bridge
+                           and "_PANEL_BLOCK, status=PANEL_FUTURE_DATED" in bridge)
+
+    # (e) ONE producibility verdict, read by the cycle owner.
+    verdict_defined_in_bridge = "can_cover_eligible_session" in bridge
+    cycle_reads_verdict = ("source_panel_can_cover_session" in cycle
+                           and "def _monthly_producible(" in cycle)
+    cycle_publishes_quality = ("research_input_quality" in cycle
+                               and "MONTHLY_INPUT_STATES" in cycle
+                               and "PRICE_REFRESH_STATES" in cycle)
+    # The panel vocabulary is READ from its owner, never copied into the cycle.
+    cycle_copies_panel_vocab = "SOURCE_PANEL_STATES = (" in cycle
+
+    # (f) actionability is a projection, not a second engine.
+    projects_actionability = all(
+        t in workflow for t in ("portfolio_cycle_actionable",
+                                "portfolio_cycle_safe_to_execute",
+                                "portfolio_cycle_blocking_reason"))
+    ui_actionability_derivation = sorted(t for t in R5423_FORBIDDEN_UI if t in ui)
+    ui_reads_backend_flag = "c.primary_action_available === true" in ui
+
+    return {
+        "bridge_owner": R5423_BRIDGE_OWNER,
+        "refresh_policy_defined_in_bridge": (missing_policy == []),
+        "missing_refresh_policy_defs": missing_policy,
+        "second_panel_writer": second_panel_writer,
+        "second_refresh_policy": second_refresh_policy,
+        "bridge_pure_stdlib": (numeric_imports == []),
+        "bridge_numeric_imports": numeric_imports,
+        "bridge_drives_panel_owner": bool(drives_panel_owner),
+        "refresh_uses_argv_array": bool(refresh_uses_argv),
+        "cutoff_bound_to_eligible_session": bool(cutoff_is_session),
+        "operator_supplied_date_fields": operator_date_fields,
+        "forbidden_panel_routes": forbidden_routes,
+        "future_dated_panel_still_blocks": bool(future_still_blocks),
+        "verdict_defined_in_panel_owner": bool(verdict_defined_in_bridge),
+        "cycle_reads_single_verdict": bool(cycle_reads_verdict),
+        "cycle_publishes_data_quality": bool(cycle_publishes_quality),
+        "cycle_copies_panel_vocabulary": bool(cycle_copies_panel_vocab),
+        "workflow_projects_actionability": bool(projects_actionability),
+        "ui_actionability_derivation": ui_actionability_derivation,
+        "ui_reads_backend_actionability": bool(ui_reads_backend_flag),
+    }
 
 
 def check_release54_2_2_post_close_research_recovery(files: list[Path]) -> dict:
@@ -13320,6 +13463,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_1_missed_session_recovery(files),
         "release54_2_2_post_close_research_recovery":
             check_release54_2_2_post_close_research_recovery(files),
+        "release54_2_3_source_panel_recovery":
+            check_release54_2_3_source_panel_recovery(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14042,6 +14187,33 @@ def _print_console(rep: dict) -> None:
     print(f"adds automation (must be False): {mr['recovery_adds_automation']}  "
           f"creates orders (must be False): {mr['recovery_creates_orders']}  "
           f"cycle approves nothing: {mr['cycle_still_approves_nothing']}")
+
+    hdr("CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY (R54.2.3)")
+    sp = rep["release54_2_3_source_panel_recovery"]
+    print(f"refresh policy defined once in the bridge: "
+          f"{sp['refresh_policy_defined_in_bridge']}  "
+          f"missing defs (must be empty): {sp['missing_refresh_policy_defs']}")
+    print(f"second panel writers (must be empty): {sp['second_panel_writer']}  "
+          f"second refresh policies (must be empty): {sp['second_refresh_policy']}")
+    print(f"bridge pure stdlib: {sp['bridge_pure_stdlib']}  "
+          f"drives the panel owner: {sp['bridge_drives_panel_owner']}  "
+          f"argv array: {sp['refresh_uses_argv_array']}")
+    print(f"cutoff bound to the eligible session: "
+          f"{sp['cutoff_bound_to_eligible_session']}  "
+          f"operator date fields (must be empty): "
+          f"{sp['operator_supplied_date_fields']}")
+    print(f"forbidden panel routes (must be empty): {sp['forbidden_panel_routes']}  "
+          f"future-dated panel still blocks: {sp['future_dated_panel_still_blocks']}")
+    print(f"one producibility verdict: {sp['verdict_defined_in_panel_owner']}  "
+          f"cycle reads it: {sp['cycle_reads_single_verdict']}  "
+          f"cycle copies panel vocabulary (must be False): "
+          f"{sp['cycle_copies_panel_vocabulary']}")
+    print(f"cycle publishes data quality: {sp['cycle_publishes_data_quality']}  "
+          f"workflow projects actionability: "
+          f"{sp['workflow_projects_actionability']}")
+    print(f"UI actionability derivation (must be empty): "
+          f"{sp['ui_actionability_derivation']}  "
+          f"UI reads backend actionability: {sp['ui_reads_backend_actionability']}")
 
     hdr("POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY (R54.2.2)")
     pr = rep["release54_2_2_post_close_research_recovery"]
@@ -16105,6 +16277,40 @@ BLOCKING_INVARIANTS = (
     ("release54_2_1_missed_session_recovery",
      "cycle_still_approves_nothing", True),
 
+    # ------------------------------------------------------------------- #
+    # Release 54.2.3 - CONTROLLED MONTHLY RESEARCH-INPUT RECOVERY.
+    # ONE panel writer (the research owner), ONE bounded-refresh policy (the
+    # bridge), a cutoff that is always the eligible session and never an operator
+    # input, a future-dated panel that still blocks, ONE producibility verdict
+    # read by the cycle owner, and actionability that stays a projection of the
+    # already-decided primary action. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_3_source_panel_recovery",
+     "refresh_policy_defined_in_bridge", True),
+    ("release54_2_3_source_panel_recovery", "missing_refresh_policy_defs", []),
+    ("release54_2_3_source_panel_recovery", "second_panel_writer", []),
+    ("release54_2_3_source_panel_recovery", "second_refresh_policy", []),
+    ("release54_2_3_source_panel_recovery", "bridge_pure_stdlib", True),
+    ("release54_2_3_source_panel_recovery", "bridge_numeric_imports", []),
+    ("release54_2_3_source_panel_recovery", "bridge_drives_panel_owner", True),
+    ("release54_2_3_source_panel_recovery", "refresh_uses_argv_array", True),
+    ("release54_2_3_source_panel_recovery",
+     "cutoff_bound_to_eligible_session", True),
+    ("release54_2_3_source_panel_recovery", "operator_supplied_date_fields", []),
+    ("release54_2_3_source_panel_recovery", "forbidden_panel_routes", []),
+    ("release54_2_3_source_panel_recovery",
+     "future_dated_panel_still_blocks", True),
+    ("release54_2_3_source_panel_recovery",
+     "verdict_defined_in_panel_owner", True),
+    ("release54_2_3_source_panel_recovery", "cycle_reads_single_verdict", True),
+    ("release54_2_3_source_panel_recovery", "cycle_publishes_data_quality", True),
+    ("release54_2_3_source_panel_recovery",
+     "cycle_copies_panel_vocabulary", False),
+    ("release54_2_3_source_panel_recovery",
+     "workflow_projects_actionability", True),
+    ("release54_2_3_source_panel_recovery", "ui_actionability_derivation", []),
+    ("release54_2_3_source_panel_recovery",
+     "ui_reads_backend_actionability", True),
     # ------------------------------------------------------------------- #
     # Release 54.2.2 - POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY.
     # ONE post-close obligation owner, ONE stale-input classification owner,
