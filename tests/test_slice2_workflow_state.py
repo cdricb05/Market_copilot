@@ -218,10 +218,23 @@ def test_07_08_09_10_safety_flags_declare_no_side_effects():
 # =========================================================================== #
 # SESSION PRIORITY (required tests 11–19)
 # =========================================================================== #
-def test_11_before_session_close_waits():
+def test_11_before_session_close_waits_only_when_nothing_is_outstanding():
+    # The gate's own claim is "the latest eligible completed session is already fully
+    # processed", so it holds only while that is true.
     assert _decide(session_status=msession.BEFORE_SESSION_CLOSE,
                    eligible_session_closed=True) == ws.WAITING_FOR_SESSION_CLOSE
-    assert _regression()["overall_state"] == ws.WAITING_FOR_SESSION_CLOSE
+    # RELEASE 54.2.2 — a completed close is ONE STAGE of the daily cycle. While the
+    # governed research for that same closed session is still owed, the claim above is
+    # false, so the gate must not make it. (R54.2.1 established the same rule for a
+    # session that was never closed at all.)
+    assert _decide(session_status=msession.BEFORE_SESSION_CLOSE,
+                   eligible_session_closed=True,
+                   research_obligation_outstanding=True) != ws.WAITING_FOR_SESSION_CLOSE
+    # The regression fixture's own inputs are stale and its governed cycle has not run,
+    # so the outstanding research is what the operator is told about.
+    r = _regression()
+    assert r["overall_state"] == ws.RESEARCH_CYCLE_REQUIRED
+    assert r["research_obligation_state"] == ws.RESEARCH_OBLIGATION_OUTSTANDING
 
 
 def test_12_expected_complete_owned_data_missing():
@@ -424,13 +437,19 @@ def test_35_automatic_model_promotion_remains_false():
 # PRIMARY ACTION (required tests 36–41)
 # =========================================================================== #
 def test_36_exactly_one_primary_action():
+    # R54.2.2: the fixture's outstanding governed research is now the ONE primary
+    # action, instead of being queued behind "wait for the session to close".
     pa = _regression()["primary_action"]
-    assert isinstance(pa, dict) and pa["action_code"] == ws.ACTION_WAIT_FOR_SESSION_CLOSE
+    assert isinstance(pa, dict) and pa["action_code"] == ws.ACTION_RUN_RESEARCH_CYCLE
 
 
 def test_37_additional_required_actions_in_queued():
-    q = {a["action_code"] for a in _regression()["queued_actions"]}
-    assert ws.ACTION_RUN_RESEARCH_CYCLE in q          # research stale
+    r = _regression()
+    q = {a["action_code"] for a in r["queued_actions"]}
+    # The research cycle is the PRIMARY action here, so it is deliberately not also
+    # queued (the queue never repeats the primary action).
+    assert r["primary_action"]["action_code"] == ws.ACTION_RUN_RESEARCH_CYCLE
+    assert ws.ACTION_RUN_RESEARCH_CYCLE not in q
     assert ws.ACTION_RUN_PORTFOLIO_REASSESSMENT in q  # assessment overdue
 
 
@@ -449,7 +468,12 @@ def test_39_destination_is_valid_ui_route():
 
 
 def test_40_read_only_descriptive_actions_not_marked_executed():
-    r = _regression()  # WAIT_FOR_SESSION_CLOSE
+    # A WAIT state names nothing to run, so it must never be marked executable. The
+    # regression fixture no longer reaches that state (R54.2.2), so the invariant is
+    # asserted where it belongs: on the wait state itself.
+    r = _ready(now=_REGRESSION_NOW, reference_today=None)
+    assert r["overall_state"] == ws.WAITING_FOR_SESSION_CLOSE
+    assert r["primary_action"]["action_code"] == ws.ACTION_WAIT_FOR_SESSION_CLOSE
     assert r["primary_action"]["execution_available"] is False
 
 

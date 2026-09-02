@@ -208,8 +208,44 @@ def _count_actions(action_counts: dict, allocations: list) -> dict:
 # System readiness — READY / DEGRADED / BLOCKED, with every degraded item saying
 # whether it blocks the portfolio decision (the owners decide; this reads).
 # --------------------------------------------------------------------------- #
+def _blocker_text(b: Any, *, short: bool = False) -> str:
+    """One human sentence for a workflow blocker row — never a dict repr.
+
+    Release 54.2.2. The readiness summary is read by a person; a Python literal is
+    not a reason. Prefers the owner's own ``detail`` sentence, names the source it
+    applies to, and falls back to the code alone rather than to ``str(dict)``.
+    ``short`` drops the detail, for the one-line summary that joins three of these.
+    """
+    row = _d(b) if isinstance(b, dict) else None
+    if row is None:
+        return str(b)
+    code = str(row.get("code") or "").strip()
+    src = str(row.get("source_id") or "").strip()
+    detail = str(row.get("detail") or "").strip()
+    head = ("%s (%s)" % (code, src)) if (code and src) else (code or src)
+    if short:
+        return head or (detail.split(".")[0] if detail else "unspecified blocker")
+    if head and detail:
+        return "%s — %s" % (head, detail)
+    return head or detail or "unspecified blocker"
+
+
+def _reason_line(reasons: list, *, limit: int = 3, each: int = 90) -> str:
+    """The one-line readiness summary: the first few reasons, each trimmed to its
+    leading clause. The full sentences stay in ``blocking_reasons`` /
+    ``degraded_reasons``, which is where a reader goes for the whole story — a
+    summary that carries three paragraphs is not a summary (Release 54.2.2)."""
+    out = []
+    for r in list(reasons)[:limit]:
+        s = str(r).strip()
+        head = s.split(" — ")[0].strip() if " — " in s else s
+        out.append(head if len(head) <= each else (head[:each - 1].rstrip() + "…"))
+    return "; ".join(out)
+
+
 def _system_readiness(wf: dict, collection: Optional[dict],
-                      recovery: Optional[dict] = None) -> dict:
+                      recovery: Optional[dict] = None,
+                      obligation: Optional[dict] = None) -> dict:
     os_ = _d(wf.get("operational_state"))
     ev = _d(wf.get("evidence_state"))
     evc = _d(wf.get("evidence_classification"))
@@ -272,12 +308,56 @@ def _system_readiness(wf: dict, collection: Optional[dict],
             degraded.append("session recovery %s (%s)"
                             % (_r_state.lower().replace("_", " "),
                                rec.get("recovery_session")))
+    # Release 54.2.2 — the GOVERNED RESEARCH clock, as its own row. The operational
+    # close and the governed research cycle are different questions about the same
+    # session, and the readiness list previously answered only the first. Like the
+    # recovery row, outstanding governed research is WORK, not an incident: it never
+    # blocks the portfolio-decision surface and it never invalidates the book.
+    ob = _d(obligation)
+    if ob.get("available"):
+        # ``_governed_research`` publishes the workflow owner's obligation under
+        # ``state``; the raw workflow block spells it ``research_obligation_state``.
+        # Both are accepted so this row is correct whichever is handed in.
+        _o_state = str(ob.get("state") or ob.get("research_obligation_state") or "")
+        _o_session = ob.get("outstanding_research_session")
+        item("governed_research", "Governed research",
+             (_o_session or "outstanding") if _o_session else "current",
+             ("blocked" if _o_state == "RESEARCH_OBLIGATION_BLOCKED"
+              else "degraded" if _o_state in ("RESEARCH_OBLIGATION_OUTSTANDING",
+                                              "RESEARCH_OBLIGATION_EVIDENCE_GAP")
+              else "ok"),
+             ob.get("summary"), blocks=False)
+        if _o_state == "RESEARCH_OBLIGATION_OUTSTANDING":
+            degraded.append("governed research for %s has not run" % _o_session)
+        elif _o_state == "RESEARCH_OBLIGATION_BLOCKED":
+            degraded.append("governed research for %s is blocked by a named input"
+                            % _o_session)
+        elif _o_state == "RESEARCH_OBLIGATION_EVIDENCE_GAP":
+            degraded.append("governed research for %s is a documented gap" % _o_session)
     item("nav", "NAV", _num(os_.get("nav")), "ok")
 
     if overall == _WF_INCONSISTENT:
         blocking.append("authoritative surfaces disagree")
+    # Release 54.2.2 — READ THE OWNER'S SEVERITY; DO NOT INVENT ONE.
+    #
+    # This loop used to be ``blocking.append(str(b))`` over every workflow blocker.
+    # Two consequences, both visible to the operator on 2026-09-02: the whole service
+    # was declared BLOCKED because two RESEARCH inputs were stale — beside warnings
+    # from the same payload stating in plain English that the completed close remained
+    # valid — and the reason was rendered as a Python dict repr,
+    # "{'code': 'RESEARCH_INPUT_STALE', 'source_id': 'momentum_monthly'}".
+    #
+    # The workflow owner now states each blocker's severity, scope and whether it
+    # blocks the portfolio decision. A row that does not block it is ATTENTION on its
+    # own lane, never a red service-wide banner, and every row is rendered as its code
+    # plus the owner's sentence. Degrade-safe: a row with no severity (an older
+    # payload) keeps the previous blocking behaviour.
     for b in blockers:
-        blocking.append(str(b))
+        row = _d(b) if isinstance(b, dict) else {}
+        sev = row.get("severity")
+        non_blocking = bool(row) and (row.get("blocks_portfolio_decision") is False
+                                      and sev in (None, "ATTENTION", "INFO"))
+        (degraded if non_blocking else blocking).append(_blocker_text(b))
     if bool(gaps.get("has_blocking_gap")):
         blocking.append("blocking data gap: %s"
                         % ", ".join(str(t) for t in _l(gaps.get("affected_tickers"))))
@@ -328,10 +408,16 @@ def _system_readiness(wf: dict, collection: Optional[dict],
     else:
         state = SYSTEM_READY
     if state == SYSTEM_BLOCKED:
-        summary = "Blocked — " + "; ".join(blocking[:3])
+        summary = "Blocked — " + _reason_line(blocking)
     elif state == SYSTEM_DEGRADED:
-        summary = ("Degraded — " + "; ".join(degraded[:3])
-                   + ". The portfolio decision remains valid.")
+        # Release 54.2.2 — a DEGRADED service whose operational book is valid says so.
+        # "The portfolio decision remains valid" was the right sentence for a stale
+        # collection lane and the wrong one for an incomplete governed-research lane,
+        # where the honest claim is about the BOOK, not the decision.
+        summary = ("Degraded — " + _reason_line(degraded)
+                   + (". The operational book remains valid."
+                      if bool(os_.get("operational_close_valid"))
+                      else ". The portfolio decision remains valid."))
     else:
         summary = "Ready"
     return {
@@ -343,6 +429,12 @@ def _system_readiness(wf: dict, collection: Optional[dict],
         "degraded_reasons": degraded,
         "degraded_blocks_portfolio_decision": False if not blocking else True,
         "portfolio_decision_remains_valid": not blocking,
+        # Release 54.2.2 — stated separately, because they are separate questions and
+        # the operator was reading one as the other. Both come from their owners.
+        "operational_book_valid": bool(os_.get("operational_close_valid")),
+        "governed_research_current": bool(ob.get("governed_research_current"))
+        if ob.get("available") else None,
+        "severity_owner": wf.get("blocker_severity_owner") or "api.workflow_state",
     }
 
 
@@ -1067,6 +1159,177 @@ def _decision_outcome(outcomes: Optional[dict]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 54.2.2 — GOVERNED RESEARCH, presented (Phase J).
+#
+# Today showed "Wait for the market session to close" while a completed session's
+# governed research had never run, and simultaneously painted the whole service red
+# because two research inputs were stale. Both halves were wrong in the same way:
+# the operational lane and the governed-research lane were being read as one thing.
+#
+# This block states them as three plain lines the operator can act on — the book,
+# the governed research, and the forward-evidence gap — plus the ONE next action.
+# Every value is the workflow owner's; this owner only decides how to say it.
+# --------------------------------------------------------------------------- #
+def _usd(x: Any) -> str:
+    """Backend-formatted USD. The client performs no arithmetic and no formatting."""
+    v = _num(x)
+    return "n/a" if v is None else ("$%s" % format(round(v, 2), ",.2f"))
+
+
+_GR_NEXT_RESUME = "RESUME_PORTFOLIO_CYCLE"
+_GR_NEXT_RESOLVE = "RESOLVE_NAMED_RESEARCH_BLOCKER"
+_GR_NEXT_MONITOR = "MONITOR_RUNNING_CYCLE"
+_GR_NEXT_NONE = "NONE"
+
+
+def _governed_research(wf: dict, daily_close: dict) -> dict:
+    ob = _d(wf.get("research_obligation"))
+    os_ = _d(wf.get("operational_state"))
+    ev = _d(wf.get("evidence_state"))
+    dc = _d(daily_close)
+    if not ob:
+        return {"available": False, "active": False,
+                "owner": "api.workflow_state", "computed_here": False,
+                "detail": ("The workflow owner did not publish a post-close research "
+                           "obligation; nothing is inferred in its place.")}
+    state = str(ob.get("research_obligation_state") or "")
+    session = ob.get("outstanding_research_session")
+    closed = ob.get("latest_closed_session")
+    close_valid = bool(os_.get("operational_close_valid"))
+    blockers = _l(ob.get("true_blockers"))
+    stale_ids = [str(s) for s in _l(ob.get("stale_input_ids"))]
+
+    # Line 1 — the operational book. It is VALID or it is not; a research lane never
+    # decides that, and this line says so explicitly.
+    book_line = ("%s close complete — NAV %s — VALID"
+                 % (_month_day(closed) or (closed or "the latest session"),
+                    _usd(_num(os_.get("nav")))) if close_valid else
+                 "The latest operational close is not marked valid.")
+    # Line 2 — the governed research for that same session.
+    if state == "NO_RESEARCH_OBLIGATION":
+        research_line = ("%s governed research complete"
+                         % (_month_day(ob.get("latest_governed_research_session"))
+                            or "Latest session"))
+    elif state == "RESEARCH_OBLIGATION_EVIDENCE_GAP":
+        research_line = ("%s governed research cannot be reconstructed — documented gap"
+                         % (_month_day(session) or session))
+    else:
+        research_line = ("%s incomplete — %d research input%s require%s resolution"
+                         % (_month_day(session) or session, len(stale_ids),
+                            "" if len(stale_ids) == 1 else "s",
+                            "s" if len(stale_ids) == 1 else ""))
+    # Line 3 — the forward-evidence gap, which is a THIRD thing again: historical,
+    # unrecoverable, and explicitly not a reason to distrust the close.
+    fe_gap = bool(ev.get("documented_gap")) or bool(
+        _d(dc.get("forward_evidence")).get("status") == "FORWARD_EVIDENCE_BLOCKED")
+    fe_line = None
+    if fe_gap:
+        _fe = _d(dc.get("forward_evidence"))
+        fe_line = ("%s historical snapshot gap documented — %s — does not invalidate "
+                   "the close"
+                   % (_month_day(_fe.get("market_date") or closed)
+                      or (closed or "the closed session"),
+                      "not recoverable"
+                      if str(_fe.get("recovery_classification") or "")
+                      == "EVIDENCE_GAP_MUST_REMAIN" else "attention only"))
+
+    if state == "RESEARCH_OBLIGATION_OUTSTANDING":
+        nxt, next_label = _GR_NEXT_RESUME, "Resume the portfolio cycle"
+        if str(ob.get("next_action") or "") == "MONITOR_RUNNING_CYCLE":
+            nxt, next_label = _GR_NEXT_MONITOR, "A cycle run is already in progress"
+    elif state == "RESEARCH_OBLIGATION_BLOCKED":
+        nxt = _GR_NEXT_RESOLVE
+        _named = ", ".join(str(_d(b).get("source_id") or "") for b in blockers) \
+            or "the named research blocker"
+        next_label = "Resolve %s, then resume the portfolio cycle" % _named
+    elif state == "RESEARCH_OBLIGATION_EVIDENCE_GAP":
+        nxt, next_label = _GR_NEXT_NONE, "No safe recovery exists — the gap is documented"
+    else:
+        nxt, next_label = _GR_NEXT_NONE, None
+    return {
+        "available": True,
+        "active": bool(ob.get("obligation_outstanding")),
+        "owner": "api.workflow_state",
+        "classification_owner": ob.get("classification_owner"),
+        "computed_here": False,
+        "state": state,
+        "state_vocabulary": _l(ob.get("state_vocabulary")),
+        "outstanding_research_session": session,
+        "outstanding_research_session_display": _month_day(session),
+        "operational_book_line": book_line,
+        "operational_book_valid": close_valid,
+        "governed_research_line": research_line,
+        "forward_evidence_line": fe_line,
+        "forward_evidence_gap": fe_gap,
+        "forward_evidence_gap_invalidates_close": False,
+        "latest_closed_session": closed,
+        "latest_governed_research_session": ob.get("latest_governed_research_session"),
+        "latest_governed_decision_session": ob.get("latest_governed_decision_session"),
+        "decision_rests_on_governed_research": ob.get(
+            "decision_rests_on_governed_research"),
+        "stale_input_ids": stale_ids,
+        "input_classification": _l(ob.get("input_classification")),
+        "safely_recoverable_input_ids": _l(ob.get("safely_recoverable_input_ids")),
+        "true_blockers": blockers,
+        "next_action_kind": nxt,
+        "next_action_label": next_label,
+        "summary": ob.get("summary"),
+        # This panel offers no execute control of its own: recovery resumes through
+        # the ONE portfolio cycle, and there is no research backfill button.
+        "backfill_control_offered": False,
+        "research_specific_route": None,
+        "operator_supplies_no_date": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Release 54.2.2 — ATTRIBUTION AVAILABILITY, presented (Phase M).
+#
+# On 2026-09-01 every holding was published with pnl_contribution 0.0 while the
+# recorded NAV had moved -$1,206.59, and the surface showed those zeros as a
+# decomposition. "Every holding contributed nothing" is a claim about the market;
+# "this decomposition could not be computed" is a claim about the data, and only
+# the second one was true. The reconciliation owner now decides which of the two
+# the operator is told, and NAV / P&L keep their own owner and stay visible.
+# --------------------------------------------------------------------------- #
+ATTRIBUTION_UNAVAILABLE_HEADLINE = "ATTRIBUTION UNAVAILABLE — NAV RECONCILIATION FAILED"
+
+
+def _attribution(daily_close: dict) -> dict:
+    a = _d(_d(daily_close).get("attribution"))
+    if not a:
+        return {"available": False, "reconciles": None,
+                "owner": SOURCE_OWNERS.get("daily_close", "api.daily_close"),
+                "headline": None, "detail": None,
+                "shows_zero_contributors": False}
+    reconciles = a.get("reconciles")
+    available = bool(a.get("available"))
+    return {
+        "available": available,
+        "decomposition_trustworthy": bool(a.get("decomposition_trustworthy", available)),
+        "reconciles": bool(reconciles) if reconciles is not None else None,
+        "status": a.get("attribution_status"),
+        "attribution_date": a.get("attribution_date"),
+        "prior_date": a.get("prior_date"),
+        "residual": _num(a.get("reconciliation_residual")),
+        "position_contribution_sum": _num(a.get("position_contribution_sum")),
+        "market_movement_pnl": _num(a.get("market_movement_pnl")),
+        "stale_mark_tickers": _l(_d(a.get("mark_source")).get("stale_mark_tickers")),
+        "headline": (None if available else ATTRIBUTION_UNAVAILABLE_HEADLINE),
+        "detail": (None if available else (
+            a.get("unavailable_reason") or a.get("reconciliation_diagnostic"))),
+        "diagnostic": a.get("reconciliation_diagnostic"),
+        "diagnostic_location": "system-audit/diagnostics",
+        # The two facts the operator must not confuse. Total P&L validity belongs to
+        # the NAV owner; only the DECOMPOSITION is withheld here.
+        "total_pnl_remains_valid": True,
+        "total_pnl_owner": "api.daily_close",
+        "shows_zero_contributors": False,
+        "owner": "api.forward_evidence (reconciliation contract)",
+    }
+
+
 def _research_health(wf: dict) -> dict:
     ev = _d(wf.get("evidence_state"))
     mrev = _d(wf.get("model_review"))
@@ -1107,9 +1370,11 @@ def build_operator_presentation(*, workflow: Optional[dict],
     historical = _historical_context(wf, cn)
     decision = _portfolio_decision(wf, cn, _d(decision_outcomes), historical)
     recovery = _session_recovery(wf, dc)
+    governed_research = _governed_research(wf, dc)
+    attribution = _attribution(dc)
     system = _system_readiness(
         wf, information_collection if isinstance(information_collection, dict) else None,
-        recovery)
+        recovery, governed_research)
     snapshot = _portfolio_snapshot(wf, dc, capital_pool)
     summary = _decision_summary(wf, cn)
     alerts = _alerts_summary(material_information)
@@ -1185,6 +1450,10 @@ def build_operator_presentation(*, workflow: Optional[dict],
         # renders verbatim. The obligation is api.workflow_state's; the provider
         # readiness beside it is api.daily_close's; this module decides neither.
         "session_recovery": recovery,
+        # Release 54.2.2 — the post-close governed-research panel, and the
+        # attribution availability verdict every P&L surface obeys.
+        "governed_research": governed_research,
+        "attribution": attribution,
         "portfolio_decision": decision,
         "headline": decision["headline"],
         "explanation": decision["explanation"],

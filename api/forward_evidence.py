@@ -191,6 +191,11 @@ def resolve_mark_sources(desk_dir=None, *, marks_loader: Optional[Callable] = No
     return ledger, cache
 
 
+def _exact(hit: Optional[tuple], as_of: str) -> bool:
+    """Did this resolution land on the REQUESTED close date, or an earlier one?"""
+    return bool(hit is not None and str(hit[0])[:10] == str(as_of)[:10])
+
+
 def mark_at(ledger_series: dict, cache_series: dict, ticker: str,
             as_of: Optional[str]) -> Optional[tuple]:
     """Resolve the completed close for (ticker, as_of): the immutable ledger FIRST
@@ -199,16 +204,95 @@ def mark_at(ledger_series: dict, cache_series: dict, ticker: str,
 
     ``desk._series_price_at_or_before`` keeps the strictly-greatest date <= as_of,
     so even a hypothetical duplicate date resolves to one canonical value
-    deterministically (never an unstable-ordering pick)."""
+    deterministically (never an unstable-ordering pick).
+
+    RELEASE 54.2.2 — DATE EXACTNESS DECIDES WHICH SOURCE WINS.
+
+    "Greatest date <= as_of" is the right rule for a date the market did not
+    trade, and the wrong one for a date the market DID trade and this store never
+    received. Both look identical from inside this function, and on 2026-09-01
+    that difference produced a decomposition that was entirely fictitious: the
+    immutable TRUE_FORWARD price ledger stops at 2026-08-31 (its capture was
+    blocked, a documented gap), so every one of the 25 holdings resolved BOTH legs
+    to the 2026-08-31 close, reported price_return_pct 0.0 and pnl_contribution
+    0.0, and the block still declared 25/25 priced with coverage complete — while
+    the recorded NAV had moved -$1,206.59.
+
+    The desk mark cache DID hold the exact 2026-09-01 closes (the Daily Close
+    wrote them), and this function's own docstring already describes the cache as
+    the flagged fallback "for dates the ledger predates" — it simply never reached
+    it, because a stale ledger hit is still a hit.
+
+    So: an EXACT ledger hit always wins (Phase 8.1B is untouched — a re-adjusted
+    cache price can never displace a recorded prior close for the same date). Only
+    when the ledger has NO row for the requested date does an EXACT cache row take
+    precedence over the ledger's earlier one. When neither store has the date, the
+    earlier ledger mark is still returned, and the caller is told it is stale.
+    """
     if not as_of:
         return None
-    hit = desk._series_price_at_or_before(ledger_series.get(ticker) or [], as_of)
-    if hit is not None:
-        return (hit[0], hit[1], MARK_SOURCE_LEDGER)
-    hit = desk._series_price_at_or_before(cache_series.get(ticker) or [], as_of)
-    if hit is not None:
-        return (hit[0], hit[1], MARK_SOURCE_CACHE_FALLBACK)
+    led = desk._series_price_at_or_before(ledger_series.get(ticker) or [], as_of)
+    if _exact(led, as_of):
+        return (led[0], led[1], MARK_SOURCE_LEDGER)
+    cac = desk._series_price_at_or_before(cache_series.get(ticker) or [], as_of)
+    if _exact(cac, as_of):
+        return (cac[0], cac[1], MARK_SOURCE_CACHE_FALLBACK)
+    if led is not None:
+        return (led[0], led[1], MARK_SOURCE_LEDGER)
+    if cac is not None:
+        return (cac[0], cac[1], MARK_SOURCE_CACHE_FALLBACK)
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Release 54.2.2 — THE ATTRIBUTION AVAILABILITY CONTRACT (one owner, two callers).
+#
+# ``available: True`` used to mean only "at least one position could be priced",
+# so a block whose residual was the entire day's P&L was still published as a
+# trusted decomposition, with a diagnostic buried beside it. A decomposition that
+# does not reproduce the NAV move is not a decomposition; presenting it as one is
+# worse than presenting nothing, because zero contributions read as "nothing
+# happened" rather than "this could not be computed".
+#
+# Both attribution builders (api.forward_evidence.build_daily_attribution and the
+# Daily Close's own block) call THIS function, so the rule has exactly one owner
+# and the two surfaces can never disagree about whether the numbers may be shown.
+# It classifies only; it computes no P&L and reads no store.
+# --------------------------------------------------------------------------- #
+ATTRIB_UNRECONCILED = "ATTRIBUTION_UNRECONCILED"
+#: A leg resolved to a close date EARLIER than the one requested — the store has no
+#: mark for the session being decomposed.
+ATTRIB_STALE_LEG = "MARK_DATE_NOT_AVAILABLE_FOR_REQUESTED_SESSION"
+
+
+def attribution_availability(*, reconciles: bool, priced: int, total: int,
+                             stale_legs: Optional[list] = None,
+                             diagnostic: Optional[str] = None) -> dict:
+    """Whether a computed decomposition may be PRESENTED as a decomposition."""
+    stale = sorted(set(stale_legs or []))
+    complete = bool(total and priced == total)
+    if priced == 0:
+        return {"available": False, "status": ATTRIB_COVERAGE_INCOMPLETE,
+                "decomposition_trustworthy": False, "stale_mark_tickers": stale,
+                "unavailable_reason": ("No position could be priced for the two "
+                                       "dates, so no decomposition exists.")}
+    if not reconciles:
+        # The MORE SPECIFIC cause keeps its own status: incomplete coverage already
+        # names the missing tickers (MARKS_MISSING), and calling that "unreconciled"
+        # would replace a precise answer with a general one. ATTRIB_UNRECONCILED is
+        # for the case this release found — full coverage, and the numbers still do
+        # not reproduce the NAV move.
+        return {"available": False,
+                "status": (ATTRIB_COVERAGE_INCOMPLETE if not complete
+                           else ATTRIB_UNRECONCILED),
+                "decomposition_trustworthy": False, "stale_mark_tickers": stale,
+                "unavailable_reason": (
+                    diagnostic or "The position contributions do not reproduce the "
+                                  "recorded NAV move within tolerance.")}
+    return {"available": True,
+            "status": ATTRIB_READY if complete else ATTRIB_COVERAGE_INCOMPLETE,
+            "decomposition_trustworthy": True, "stale_mark_tickers": stale,
+            "unavailable_reason": None}
 
 
 def _perf_rows(desk_dir, perf_loader: Optional[Callable]) -> tuple[list[dict], dict]:
@@ -348,11 +432,23 @@ def _portfolio_block(rows: list[dict], i: int, starting_capital: Optional[float]
 
 def _reconcile_diagnostic(*, reconciles: bool, residual: Optional[float],
                           coverage_complete: bool, missing: list, mixed: list,
-                          fallbacks: list, d0: Optional[str], d1: Optional[str]) -> Optional[str]:
+                          fallbacks: list, d0: Optional[str], d1: Optional[str],
+                          stale: Optional[list] = None) -> Optional[str]:
     """A SPECIFIC, actionable reason whenever attribution does NOT reconcile — never
     a silent reconciles=false (WS4/WS7). The failure modes are distinct and ranked."""
     if reconciles:
         return None
+    # Release 54.2.2 — ranked FIRST, because it explains every other symptom. A leg
+    # that resolved to an earlier close than the session being decomposed is not a
+    # missing mark (the ticker priced) and not a source mix (both legs may be the
+    # ledger): it is the same close counted twice, which reads as a zero move.
+    if stale:
+        return ("MARK_DATE_NOT_AVAILABLE_FOR_REQUESTED_SESSION: %s resolved a leg to a "
+                "close EARLIER than the session being decomposed (%s / %s), so the "
+                "contribution compares a price with itself. The per-position mark store "
+                "has no completed close for that session; capture it before this "
+                "decomposition can be trusted."
+                % (", ".join(sorted(stale)[:8]), d0, d1))
     if not coverage_complete and missing:
         return ("MARKS_MISSING: no completed close in the immutable ledger (or the cache "
                 "fallback) for %s on %s or %s, so those positions cannot be decomposed."
@@ -426,6 +522,7 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
     missing: list[str] = []
     fallback_tickers: list[str] = []
     mixed_source_tickers: list[str] = []
+    stale_leg_tickers: list[str] = []
     priced = 0
     for h in sorted(holds, key=lambda x: x["ticker"]):
         tk, qty = h["ticker"], h["quantity"]
@@ -435,6 +532,11 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
         p0 = m0[1] if m0 else None
         src1 = m1[2] if m1 else None
         src0 = m0[2] if m0 else None
+        # Release 54.2.2 — a leg that resolved to an EARLIER close than the date it
+        # was asked for is recorded as such. Without this the same close was silently
+        # used on both sides of the difference and a real NAV move decomposed to zero.
+        stale1 = bool(m1 and d1 and not _exact(m1, d1))
+        stale0 = bool(m0 and d0 and not _exact(m0, d0))
         avg = h.get("average_cost")
         contrib = ret = pmv = cum_unrl = pp = None
         if qty is not None and p1 is not None and p0 is not None:
@@ -443,6 +545,8 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
             pmv = qty * p0 * _unit_scale(h)
             pp = (contrib / nav0 * 100.0) if nav0 else None
             priced += 1
+            if stale1 or stale0:
+                stale_leg_tickers.append(tk)
             if MARK_SOURCE_CACHE_FALLBACK in (src0, src1):
                 fallback_tickers.append(tk)
             if src0 != src1:
@@ -459,6 +563,7 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
             "prior_mark_date": (m0[0] if m0 else None),
             "current_mark_date": (m1[0] if m1 else None),
             "prior_mark_source": src0, "current_mark_source": src1,
+            "prior_mark_is_stale": stale0, "current_mark_is_stale": stale1,
             "prior_market_value": _r2(pmv),
             "pnl_contribution": _r2(contrib),
             "daily_return_pct": _r4(ret),
@@ -508,7 +613,11 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
     recon_diag = _reconcile_diagnostic(
         reconciles=reconciles, residual=residual, coverage_complete=(priced == total),
         missing=missing, mixed=mixed_source_tickers, fallbacks=fallback_tickers,
-        d0=d0, d1=d1)
+        d0=d0, d1=d1, stale=stale_leg_tickers)
+    # Release 54.2.2 — one owner decides whether the numbers may be PRESENTED.
+    avail = attribution_availability(
+        reconciles=reconciles, priced=priced, total=total,
+        stale_legs=stale_leg_tickers, diagnostic=recon_diag)
 
     # sector aggregation (known contributions only)
     sec: dict[str, dict] = {}
@@ -538,18 +647,24 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
     winners = ranked[:3]
     losers = [p for p in ranked[::-1] if p["pnl_contribution"] < 0][:3]
 
-    status = ATTRIB_READY if coverage["complete"] else ATTRIB_COVERAGE_INCOMPLETE
+    # An UNRECONCILED block still reports its own numbers so the diagnostic can be
+    # inspected under Audit, but ``available`` and ``decomposition_trustworthy`` are
+    # False and the ranked winners/losers are withheld — a "top contributor" derived
+    # from a decomposition that does not reproduce the NAV move is not a fact.
+    trustworthy = bool(avail["decomposition_trustworthy"])
     return {
         **base,
-        "status": status,
-        "available": True,
+        "status": avail["status"],
+        "available": avail["available"],
+        "decomposition_trustworthy": trustworthy,
+        "unavailable_reason": avail["unavailable_reason"],
         "market_date": d1,
         "prior_market_date": d0,
         "portfolio": portfolio,
         "holdings": positions,
-        "sectors": sectors,
-        "winners": winners,
-        "losers": losers,
+        "sectors": sectors if trustworthy else [],
+        "winners": winners if trustworthy else [],
+        "losers": losers if trustworthy else [],
         "coverage": coverage,
         "mark_source": {
             "primary": MARK_SOURCE_LEDGER,
@@ -559,6 +674,8 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
             "fallback": MARK_SOURCE_CACHE_FALLBACK,
             "cache_fallback_tickers": sorted(fallback_tickers),
             "mixed_source_tickers": sorted(mixed_source_tickers),
+            "stale_mark_tickers": sorted(set(stale_leg_tickers)),
+            "exact_date_required": True,
         },
         "reconciliation": {
             "position_contribution_sum": _r2(sum_contrib),
@@ -1214,6 +1331,7 @@ __all__ = [
     "INSUFFICIENT_FORWARD_SAMPLE", "FORWARD_SAMPLE_SUFFICIENT",
     "ATTRIB_READY", "ATTRIB_NO_PRIOR", "ATTRIB_INSUFFICIENT",
     "ATTRIB_COVERAGE_INCOMPLETE", "ATTRIB_DATE_NOT_FOUND",
+    "ATTRIB_UNRECONCILED", "ATTRIB_STALE_LEG", "attribution_availability",
     "MARK_SOURCE_LEDGER", "MARK_SOURCE_CACHE_FALLBACK",
     "resolve_mark_sources", "mark_at",
     "build_daily_attribution", "build_attribution_history", "build_why_pnl_moved",

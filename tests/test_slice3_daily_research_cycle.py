@@ -269,9 +269,22 @@ def _status(tmp, *, reference_today="2026-08-05", now=None, **kw):
 # =========================================================================== #
 # PLANNING (required 1–10)
 # =========================================================================== #
-def test_01_session_open_returns_waiting_for_session_close(tmp_path):
+def test_01_session_open_waits_only_when_no_eligible_session_is_workable(tmp_path):
+    # RELEASE 54.2.2. This gate used to answer "has TODAY's session closed?", which is
+    # not the question the cycle is bound to: the cycle works on the ELIGIBLE COMPLETED
+    # session, and an open market is no reason to hide governed research still owed for
+    # a session that finished yesterday. Close precedence is unaffected — the eligible
+    # session is the OWNED-DATA-CONFIRMED one, which only advances when a close runs.
     s = _status(tmp_path, reference_today=None, now=datetime(2026, 8, 5, 10, 0, tzinfo=ET))
-    assert s["state"] == drc.WAITING_FOR_SESSION_CLOSE and s["executable"] is False
+    assert s["eligible_market_date"] == "2026-08-04"
+    assert s["state"] == drc.NOT_STARTED and s["executable"] is True
+    # With no confirmed owned data there is no eligible completed session to work on,
+    # so the gate still refuses (its precedence over WAITING_FOR_OWNED_DATA while the
+    # market is open is unchanged) and the cycle stays non-executable.
+    s2 = _status(tmp_path, reference_today=None,
+                 now=datetime(2026, 8, 5, 10, 0, tzinfo=ET),
+                 operational=_op(desk=None, nav=None), inputs=_inputs())
+    assert s2["state"] == drc.WAITING_FOR_SESSION_CLOSE and s2["executable"] is False
 
 
 def test_02_owned_data_missing_returns_waiting_for_owned_data(tmp_path):
@@ -771,9 +784,16 @@ def test_64_67_valid_token_wires_to_owner(monkeypatch):
     assert resp.json()["state"] == drc.COMPLETE
 
 
-def test_65_66_run_before_close_or_no_owned_data_writes_nothing(tmp_path):
-    r_before, _ = _run(tmp_path, now=datetime(2026, 8, 5, 10, 0, tzinfo=ET))
+def test_65_66_run_without_a_workable_eligible_session_writes_nothing(tmp_path):
+    # RELEASE 54.2.2 — the refusal is scoped to what it is actually protecting. With no
+    # confirmed owned data there is no eligible completed session, so the run persists
+    # NOTHING. (An open market alone no longer refuses: see test_01. The cycle is bound
+    # to the eligible completed session, whose research it may legitimately produce
+    # while the next session is still forming.)
+    r_before, _ = _run(tmp_path, now=datetime(2026, 8, 5, 10, 0, tzinfo=ET),
+                       operational=_op(desk=None, nav=None), inputs=_inputs())
     assert r_before["state"] == drc.WAITING_FOR_SESSION_CLOSE
+    assert r_before.get("performed_write") is not True
     assert not list((tmp_path / "runs").glob("*.json"))  # nothing persisted
 
 

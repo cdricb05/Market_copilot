@@ -126,6 +126,18 @@ SEV_BLOCKED = "BLOCKED"
 SEV_ERROR = "ERROR"
 ACTION_SEVERITIES = (SEV_INFO, SEV_SUCCESS, SEV_ATTENTION, SEV_BLOCKED, SEV_ERROR)
 
+# Release 54.2.2 — WHICH LANE A BLOCKER BELONGS TO. Every ``blockers`` row now
+# states its scope and severity, so a presentation surface never has to guess
+# whether a condition is an operational incident or an incomplete research lane.
+# Backend decides; the UI reads. (See the blocker construction in
+# ``load_workflow_state``.)
+BLOCKER_SCOPE_OPERATIONAL = "OPERATIONAL"
+BLOCKER_SCOPE_GOVERNED_RESEARCH = "GOVERNED_RESEARCH"
+BLOCKER_SCOPE_PORTFOLIO_DECISION = "PORTFOLIO_DECISION"
+BLOCKER_SCOPES = (BLOCKER_SCOPE_OPERATIONAL, BLOCKER_SCOPE_GOVERNED_RESEARCH,
+                  BLOCKER_SCOPE_PORTFOLIO_DECISION)
+BLOCKER_SEVERITY_OWNER = "api.workflow_state"
+
 # Cross-surface consistency vocabulary (shared with data_freshness Slice 1).
 CONSISTENT = "CONSISTENT"
 INCONSISTENT = "INCONSISTENT"
@@ -1817,6 +1829,195 @@ def build_session_recovery(*, expected_completed_market_date: Any,
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.2.2 — THE POST-CLOSE GOVERNED-RESEARCH OBLIGATION.
+#
+# WHY THIS EXISTS. R54.2.1 taught the workflow owner to remember a completed
+# session that was never CLOSED. The Sep-1 recovery then worked — and immediately
+# exposed the same defect one stage further down the cycle: once the close
+# completed, the SAME P2 gate claimed the session was "already fully processed"
+# and returned WAITING_FOR_SESSION_CLOSE for the next open session, while the very
+# same payload reported research_cycle_required=true, two stale research inputs,
+# no governed Daily Research Cycle manifest for the closed session, and a portfolio
+# decision resting on a LIVE_PRE_DRC signal artifact rather than governed evidence.
+#
+# "Fully processed" was only ever tested as ``eligible_session_closed`` — the CLOSE.
+# A completed close is one stage of the daily cycle, not the whole of it, so the
+# outstanding governed research for that same completed session vanished behind the
+# next session's open bell. That is the defect this projection closes.
+#
+# THREE CLOCKS, NOT ONE. The operational close, the governed research and the
+# governed portfolio decision advance independently and may legitimately differ.
+# This block states all three, so no surface has to infer one from another.
+#
+# EVERY VALUE IS READ. The close session comes from api.daily_close, the governed
+# research session and the stale-input classification from api.daily_research_cycle,
+# the decision session from the canonical decision lane. Nothing is recomputed here.
+# --------------------------------------------------------------------------- #
+#: The frozen obligation vocabulary (part of the tested contract).
+NO_RESEARCH_OBLIGATION = "NO_RESEARCH_OBLIGATION"
+RESEARCH_OBLIGATION_OUTSTANDING = "RESEARCH_OBLIGATION_OUTSTANDING"
+RESEARCH_OBLIGATION_BLOCKED = "RESEARCH_OBLIGATION_BLOCKED"
+RESEARCH_OBLIGATION_EVIDENCE_GAP = "RESEARCH_OBLIGATION_EVIDENCE_GAP"
+RESEARCH_OBLIGATION_STATES = (NO_RESEARCH_OBLIGATION, RESEARCH_OBLIGATION_OUTSTANDING,
+                              RESEARCH_OBLIGATION_BLOCKED,
+                              RESEARCH_OBLIGATION_EVIDENCE_GAP)
+#: Composed here; the classification it composes belongs to the cycle owner.
+RESEARCH_OBLIGATION_OWNER = WORKFLOW_STATE_OWNER
+RESEARCH_INPUT_CLASSIFICATION_OWNER = "api.daily_research_cycle"
+#: The governed-research obligation NEVER invalidates a completed operational close.
+#: The two are different questions and this constant is asserted by the tests.
+RESEARCH_OBLIGATION_INVALIDATES_CLOSE = False
+
+_OBLIGATION_NEXT_RUN_CYCLE = "RUN_PORTFOLIO_CYCLE"
+_OBLIGATION_NEXT_RESOLVE = "RESOLVE_NAMED_RESEARCH_BLOCKER"
+_OBLIGATION_NEXT_MONITOR = "MONITOR_RUNNING_CYCLE"
+_OBLIGATION_NEXT_NONE = "NONE"
+
+
+def build_research_obligation(*, latest_completed_close_date: Any,
+                              operational_close_valid: bool,
+                              eligible_market_date: Any,
+                              governed_research_session: Any = None,
+                              governed_research_current: bool = False,
+                              governed_decision_session: Any = None,
+                              decision_state: Any = None,
+                              research_current: bool = True,
+                              research_cycle_due_after_close: bool = False,
+                              stale_input_ids: Optional[list] = None,
+                              input_classification: Optional[dict] = None,
+                              cycle_running: bool = False,
+                              cycle_blocked: bool = False,
+                              cycle_inconsistent: bool = False,
+                              catch_up_required: bool = False,
+                              evidence_gap: bool = False) -> dict[str, Any]:
+    """The ONE post-close governed-research obligation projection.
+
+    Pure: a function of the already-published owner answers. It runs no cycle,
+    refreshes no input and reclassifies nothing.
+    """
+    closed = _coerce_date(latest_completed_close_date) if operational_close_valid else None
+    # The cycle owner's ``governed_research_evidence_current`` flag is always ABOUT the
+    # eligible completed session, so when it says yes but publishes no date of its own
+    # (an older or partial status contract), the eligible session is the session it
+    # means. Falling through to None instead would report a completed cycle as missing.
+    researched = (_coerce_date(governed_research_session)
+                  or _coerce_date(eligible_market_date)) \
+        if governed_research_current else None
+    decided = _coerce_date(governed_decision_session)
+    cls = dict(input_classification or {})
+    stale = sorted(str(s) for s in (stale_input_ids or []))
+    true_blockers = list(cls.get("true_blockers") or [])
+    safely_recoverable = list(cls.get("safely_recoverable_input_ids") or [])
+    unrecoverable = list(cls.get("unrecoverable_gap_ids") or [])
+
+    # The obligation is anchored on the CLOSE JOURNAL's completed session — the one
+    # session that demonstrably finished its operational stage — never on the wall
+    # clock and never on the still-forming session.
+    research_done_for_close = bool(
+        closed is not None and researched is not None and researched >= closed)
+    outstanding_session = None
+    if closed is not None and not research_done_for_close:
+        outstanding_session = _iso(closed)
+
+    # A missed CLOSE outranks a missed research cycle by construction: the close is
+    # what produces the marks the research is computed against, so while a catch-up
+    # is required the research obligation is not yet the operator's next question.
+    has_work = bool(outstanding_session and not catch_up_required
+                    and (not research_current or research_cycle_due_after_close
+                         or not governed_research_current))
+
+    if not has_work:
+        state = NO_RESEARCH_OBLIGATION
+        next_action = _OBLIGATION_NEXT_NONE
+        summary = (
+            "Governed research is current for the completed close at %s."
+            % (_iso(closed) or "the latest session") if research_done_for_close else
+            "No completed operational close is outstanding for governed research.")
+    elif cycle_running:
+        state = RESEARCH_OBLIGATION_OUTSTANDING
+        next_action = _OBLIGATION_NEXT_MONITOR
+        summary = ("A Daily Research Cycle run is in progress for %s; it is never "
+                   "started twice." % outstanding_session)
+    elif cycle_inconsistent:
+        state = RESEARCH_OBLIGATION_BLOCKED
+        next_action = _OBLIGATION_NEXT_RESOLVE
+        summary = ("Governed research for %s cannot proceed: the cycle owner reports an "
+                   "inconsistent state that a safe idempotent recovery must clear."
+                   % outstanding_session)
+    elif true_blockers or cycle_blocked:
+        state = RESEARCH_OBLIGATION_BLOCKED
+        next_action = _OBLIGATION_NEXT_RESOLVE
+        named = ", ".join(str(b.get("source_id") or b.get("code"))
+                          for b in true_blockers) or "a named cycle blocker"
+        summary = ("Governed research for %s is outstanding and cannot run yet: %s. "
+                   "The completed operational close remains valid."
+                   % (outstanding_session, named))
+    elif unrecoverable and not safely_recoverable:
+        # Nothing can be rebuilt honestly for this session any more. That is a
+        # documented gap, not work — it must never become a permanent nag.
+        state = RESEARCH_OBLIGATION_EVIDENCE_GAP
+        next_action = _OBLIGATION_NEXT_NONE
+        summary = ("Governed research for %s can no longer be reconstructed point-in-"
+                   "time (%s); the gap is documented and never fabricated."
+                   % (outstanding_session, ", ".join(unrecoverable)))
+    else:
+        state = RESEARCH_OBLIGATION_OUTSTANDING
+        next_action = _OBLIGATION_NEXT_RUN_CYCLE
+        summary = ("The Daily Close for %s is complete but its governed research has "
+                   "not run. Resume the portfolio cycle — it does not repeat the close."
+                   % outstanding_session)
+
+    # WHAT SUPPRESSES "nothing to do". Real work (OUTSTANDING) and a named fix
+    # (BLOCKED) both do; a documented unrecoverable gap does NOT, because there is
+    # nothing the operator can do about it and a permanent banner is not information.
+    obligation_outstanding = state in (RESEARCH_OBLIGATION_OUTSTANDING,
+                                       RESEARCH_OBLIGATION_BLOCKED)
+    return {
+        "research_obligation_state": state,
+        "state_vocabulary": list(RESEARCH_OBLIGATION_STATES),
+        "owner": RESEARCH_OBLIGATION_OWNER,
+        "classification_owner": RESEARCH_INPUT_CLASSIFICATION_OWNER,
+        "obligation_outstanding": obligation_outstanding,
+        # --- the three independent clocks ---------------------------------- #
+        "latest_closed_session": _iso(closed),
+        "latest_governed_research_session": _iso(researched),
+        "latest_governed_decision_session": _iso(decided),
+        "outstanding_research_session": outstanding_session,
+        "eligible_market_date": _iso(_coerce_date(eligible_market_date)),
+        "operational_close_valid": bool(operational_close_valid),
+        "governed_research_current": bool(governed_research_current),
+        "governed_decision_state": decision_state,
+        # A decision that exists is not the same as a decision built on governed
+        # evidence; the two are stated separately and never merged.
+        "decision_rests_on_governed_research": bool(
+            decided is not None and governed_research_current
+            and researched is not None and decided <= researched),
+        # --- the inputs, classified by their owner ------------------------- #
+        "stale_input_ids": stale,
+        "input_classification": cls.get("inputs") or [],
+        "safely_recoverable_input_ids": safely_recoverable,
+        "unrecoverable_gap_ids": unrecoverable,
+        "true_blockers": true_blockers,
+        "safe_work_remains": bool(cls.get("safe_work_remains")),
+        # --- what happens next --------------------------------------------- #
+        "next_action": next_action,
+        "summary": summary,
+        "orchestration_path": PORTFOLIO_CYCLE_EXECUTION_CONTRACT["path"],
+        "research_specific_route": None,
+        "operator_supplies_no_date": True,
+        "repeats_the_completed_close": False,
+        # --- what the obligation explicitly does NOT mean ------------------- #
+        "invalidates_operational_close": RESEARCH_OBLIGATION_INVALIDATES_CLOSE,
+        "documented_forward_evidence_gap": bool(evidence_gap),
+        "forward_evidence_gap_invalidates_close": False,
+        "note": ("A completed operational close and a completed governed research "
+                 "cycle are different questions about the same session. Research "
+                 "staleness never invalidates the book, and a documented "
+                 "forward-evidence gap never invalidates the close."),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Stage 18 — model-recalibration REVIEW derivation (separate lane). A model REVIEW
 # is raised ONLY when a signal/ranking degradation research flag is *actionable*
 # (evidence sufficient). Performance symptoms (negative excess, drawdown, cost-
@@ -2004,7 +2205,8 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     cycle_complete: bool = False, hoc_current: bool = False,
                     research_cycle_due_after_close: bool = False,
                     reassessment_blocked: bool = False,
-                    catch_up_required: bool = False) -> str:
+                    catch_up_required: bool = False,
+                    research_obligation_outstanding: bool = False) -> str:
     # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
     #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
     #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
@@ -2047,8 +2249,26 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     #      session the eligible date can name. The obligation is decided by
     #      ``build_session_recovery`` from the close journal + the market-session
     #      calendar; nothing here recomputes a date.
+    #
+    #      RELEASE 54.2.2 REPAIR. The R54.2.1 repair taught this gate about a session
+    #      that was never CLOSED. It said nothing about a session that WAS closed and
+    #      whose governed research never ran — and "fully processed" is still only
+    #      tested here as ``eligible_session_closed``, i.e. the close alone. So the
+    #      morning after the Sep-1 catch-up succeeded, this gate returned
+    #      WAITING_FOR_SESSION_CLOSE for the open Sep-2 session while the same payload
+    #      carried research_cycle_required=true, two stale research inputs, no governed
+    #      Daily Research Cycle manifest for Sep-1, and a portfolio decision built on a
+    #      LIVE_PRE_DRC signal artifact instead of governed evidence.
+    #
+    #      A completed close is ONE STAGE of the daily cycle, not the whole of it. The
+    #      obligation is decided by ``build_research_obligation`` from the close journal
+    #      and the cycle owner's own manifest; nothing here re-derives it. Like every
+    #      other suppressor of this gate it only names REAL work: an outstanding or
+    #      BLOCKED governed cycle. A documented unrecoverable evidence gap does NOT
+    #      suppress it, because there is nothing left for the operator to do.
     if session_status == msession.BEFORE_SESSION_CLOSE and eligible_session_closed \
-            and not manual_review_required and not catch_up_required:
+            and not manual_review_required and not catch_up_required \
+            and not research_obligation_outstanding:
         return WAITING_FOR_SESSION_CLOSE
 
     # P3 — the expected session is not confirmed by owned data (or no confirmed
@@ -2320,18 +2540,48 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                     "current_task": "Resolve the named portfolio-reassessment blocker.",
                     "headline": ("Portfolio reassessment blocked for %s — no portfolio "
                                  "verdict was reached." % (elig or "the eligible session"))}
+        # Release 54.2.2 — NAME THE ACTUAL BLOCKER. The sentence below used to offer an
+        # EXAMPLE ("e.g. the frozen monthly momentum input...") and point the operator at
+        # another screen to find the real one. The cycle owner already classifies every
+        # stale input and names its cause and its operator action, so that answer is
+        # carried here verbatim instead of paraphrased.
+        tb = list(ctx.get("research_true_blockers") or [])
+        out_session = ctx.get("outstanding_research_session")
+        if tb:
+            first = tb[0] if isinstance(tb[0], dict) else {"source_id": str(tb[0])}
+            # Name the blocker the way the OPERATOR knows it. The cycle owner ships a
+            # display_name with every blocker; the source_id is its internal key and is
+            # only the fallback, so the sentence reads "Frozen monthly momentum input"
+            # rather than "momentum_monthly" — without this module knowing what any
+            # particular source IS.
+            named = ", ".join(str((b or {}).get("display_name")
+                                  or (b or {}).get("source_id") or b) for b in tb)
+            act = first.get("operator_action")
+            explanation = (
+                "The Daily Close for %s is complete and the book remains valid, but its "
+                "GOVERNED research cannot run: %s. %s%s"
+                % (out_session or (elig or "the eligible session"), named,
+                   first.get("reason") or "",
+                   (" Required action: %s." % act) if act else ""))
+            headline = ("Governed research blocked for %s — %s."
+                        % (out_session or (elig or "the eligible session"), named))
+            task = ("Blocked on %s. Resolve it, then resume the portfolio cycle."
+                    % named)
+        else:
+            explanation = ("The Daily Research Cycle is blocked: a required research "
+                           "input cannot be refreshed automatically. The exact source "
+                           "and required action are named in the cycle status; the "
+                           "frozen monthly input is never approximated.")
+            headline = "Daily Research Cycle is blocked — resolve the named input."
+            task = "Resolve the named Daily Research Cycle blocker."
         return {"action_code": ACTION_RESOLVE_RESEARCH_BLOCKER,
                 "label": "Resolve the Daily Research Cycle blocker",
-                "explanation": "The Daily Research Cycle is blocked (a required research "
-                               "input cannot be refreshed automatically — e.g. the frozen "
-                               "monthly momentum input is due and has no safe emitter). "
-                               "The exact source and required action are named in the "
-                               "cycle status; the monthly input is never approximated.",
+                "explanation": explanation,
                 "severity": SEV_BLOCKED, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": True, "execution_available": False,
                 "manual_confirmation_required": False, "slice3_pending": False,
-                "current_task": "Resolve the named Daily Research Cycle blocker.",
-                "headline": "Daily Research Cycle is blocked — resolve the named input."}
+                "current_task": task,
+                "headline": headline}
 
     if overall == PORTFOLIO_REASSESSMENT_REQUIRED:
         # Phase 29G.1 hard cutover: Slice 3 (the Daily Research Cycle) and Slice 6 (the
@@ -3564,6 +3814,29 @@ def load_workflow_state(
     #: cycle will actually process — never the one already in the close journal.
     action_session = (session_recovery["recovery_session"] if catch_up_required
                       else eligible_date)
+    # Release 54.2.2 — THE POST-CLOSE GOVERNED-RESEARCH OBLIGATION, composed from the
+    # close journal + the cycle owner's manifest + the cycle owner's own stale-input
+    # classification, BEFORE the priority policy runs. A completed close never erases
+    # the governed research still owed for that same session.
+    stale_input_classification = (research_cycle or {}).get("stale_input_classification") or {}
+    research_obligation = build_research_obligation(
+        latest_completed_close_date=latest_close_date,
+        operational_close_valid=operational_close_valid,
+        eligible_market_date=eligible_date,
+        governed_research_session=(research_cycle or {}).get("eligible_market_date"),
+        governed_research_current=governed_research_evidence_current,
+        governed_decision_session=(portfolio_decision_lane or {}).get(
+            "eligible_market_date") or reassessment_summary.get("reassessment_date"),
+        decision_state=(portfolio_decision_lane or {}).get("portfolio_decision_state"),
+        research_current=research_current,
+        research_cycle_due_after_close=research_cycle_due_after_close,
+        stale_input_ids=stale_source_ids,
+        input_classification=stale_input_classification,
+        cycle_running=cycle_running, cycle_blocked=cycle_blocked,
+        cycle_inconsistent=cycle_inconsistent,
+        catch_up_required=catch_up_required, evidence_gap=evidence_gap)
+    research_obligation_outstanding = bool(
+        research_obligation["obligation_outstanding"])
     overall = _decide_overall(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
@@ -3576,7 +3849,8 @@ def load_workflow_state(
         hoc_current=hoc_available,
         research_cycle_due_after_close=research_cycle_due_after_close,
         reassessment_blocked=reassessment_blocked,
-        catch_up_required=catch_up_required)
+        catch_up_required=catch_up_required,
+        research_obligation_outstanding=research_obligation_outstanding)
 
     primary = assert_primary_action_contract(_primary_action(overall, {
         "eligible_date": action_session,
@@ -3584,6 +3858,12 @@ def load_workflow_state(
         "live_pre_drc_signal_present": live_pre_drc_signal_present,
         "reassessment_blocked": reassessment_blocked,
         "reassessment_blocker_codes": reassessment_blocker_codes,
+        # Release 54.2.2 — the cycle owner's named research blockers + the session the
+        # obligation is outstanding for, so the blocked-cycle action names the REAL
+        # cause instead of an example of one.
+        "research_true_blockers": research_obligation["true_blockers"],
+        "outstanding_research_session": research_obligation[
+            "outstanding_research_session"],
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
     # Release 54.2.1 — CATCH-UP WORDING. The action, its code, its execution kind and
@@ -3703,10 +3983,18 @@ def load_workflow_state(
         # a "the assessment has not run" / NOT_STARTED message.
         for b in drc_blockers:
             blockers.append({**b, "surface": "daily_research_cycle",
+                             "severity": SEV_BLOCKED,
+                             "scope": BLOCKER_SCOPE_GOVERNED_RESEARCH,
+                             "blocks_portfolio_decision": True,
+                             "invalidates_operational_close": False,
                              "recovery_required": True})
         if not drc_blockers:
             blockers.append({"code": "DAILY_RESEARCH_CYCLE_INCONSISTENT",
                              "surface": "daily_research_cycle", "recovery_required": True,
+                             "severity": SEV_BLOCKED,
+                             "scope": BLOCKER_SCOPE_GOVERNED_RESEARCH,
+                             "blocks_portfolio_decision": True,
+                             "invalidates_operational_close": False,
                              "detail": "The Daily Research Cycle status is INCONSISTENT; a "
                                        "safe idempotent recovery is required."})
     if reassessment_blocked:
@@ -3718,26 +4006,70 @@ def load_workflow_state(
             row = dict(b) if isinstance(b, dict) else {"code": str(b)}
             blockers.append({**row, "surface": "portfolio_reassessment",
                              "reassessment_state": reassessment_state,
+                             "severity": SEV_BLOCKED,
+                             "scope": BLOCKER_SCOPE_PORTFOLIO_DECISION,
                              "blocks_portfolio_decision": True,
+                             "invalidates_operational_close": False,
                              "recovery_required": True})
         if not reassessment_blockers:
             blockers.append({"code": "PORTFOLIO_REASSESSMENT_%s" % reassessment_state,
                              "surface": "portfolio_reassessment",
                              "reassessment_state": reassessment_state,
+                             "severity": SEV_BLOCKED,
+                             "scope": BLOCKER_SCOPE_PORTFOLIO_DECISION,
                              "blocks_portfolio_decision": True,
+                             "invalidates_operational_close": False,
                              "recovery_required": True,
                              "detail": "The portfolio reassessment reached no "
                                        "portfolio-level verdict and named no cause."})
     if overall == WAITING_FOR_OWNED_DATA:
         blockers.append({"code": "OWNED_DATA_NOT_CONFIRMED",
+                         "severity": SEV_BLOCKED, "scope": BLOCKER_SCOPE_OPERATIONAL,
+                         "blocks_portfolio_decision": True,
+                         "invalidates_operational_close": False,
                          "detail": session.get("reason") or "Owned market data is "
                          "not confirmed for the expected session."})
     if close_failed:
         blockers.append({"code": "DAILY_CLOSE_FAILED",
+                         "severity": SEV_BLOCKED, "scope": BLOCKER_SCOPE_OPERATIONAL,
+                         "blocks_portfolio_decision": True,
+                         "invalidates_operational_close": True,
                          "detail": "The operational Daily Close reported %s."
                          % close_status})
+    # Release 54.2.2 — A STALE RESEARCH INPUT IS NOT A SYSTEM BLOCKER.
+    #
+    # These rows were emitted bare — a code and a source id, nothing else — and the
+    # presentation owner, having no severity to read, escalated every one of them to
+    # a red service-wide BLOCKED banner and rendered the dict's Python repr as the
+    # reason. The operator therefore saw the whole service declared blocked, in
+    # machine punctuation, by the same payload whose warnings said in plain English
+    # that the completed close remained valid.
+    #
+    # The workflow owner decides severity, because it is the owner that knows what
+    # the condition means. A stale research input is ATTENTION on the GOVERNED
+    # RESEARCH lane: it withholds governed evidence, it does not invalidate the book
+    # and it does not block the portfolio-decision surface. A true blocker named by
+    # the cycle owner's classification is still ATTENTION here for the same reason —
+    # it names a repair, not an incident — and carries that classification verbatim.
+    _cls_by_id = {str(r.get("source_id")): r
+                  for r in (stale_input_classification.get("inputs") or [])}
     for sid in stale_source_ids:
-        blockers.append({"code": "RESEARCH_INPUT_STALE", "source_id": sid})
+        row = _cls_by_id.get(sid) or {}
+        blockers.append({
+            "code": "RESEARCH_INPUT_STALE", "source_id": sid,
+            "surface": "research_inputs",
+            "severity": SEV_ATTENTION,
+            "scope": BLOCKER_SCOPE_GOVERNED_RESEARCH,
+            "blocks_portfolio_decision": False,
+            "invalidates_operational_close": False,
+            "owner": row.get("authoritative_owner"),
+            "classification": row.get("classification"),
+            "classification_owner": RESEARCH_INPUT_CLASSIFICATION_OWNER,
+            "recoverable_now": row.get("recoverable_now"),
+            "operator_action": row.get("operator_action"),
+            "detail": row.get("reason") or (
+                "The research input '%s' is not current for the eligible session. "
+                "The completed operational close remains valid." % sid)})
 
     if operational_close_valid and (research_cycle_required
                                     or assessment_status in _ASSESS_NEEDS_ACTION):
@@ -4154,6 +4486,20 @@ def load_workflow_state(
         #: The session the operator's promoted action actually works on (the eligible
         #: completed session, or the OLDEST missed session during a catch-up).
         "action_session_market_date": action_session,
+        # Release 54.2.2 — the ONE post-close governed-research obligation, with the
+        # three independent clocks (close / governed research / governed decision) and
+        # the cycle owner's stale-input recoverability classification carried verbatim.
+        # Every surface that must show outstanding governed research reads THIS block.
+        "research_obligation": research_obligation,
+        "research_obligation_owner": RESEARCH_OBLIGATION_OWNER,
+        "research_obligation_state": research_obligation["research_obligation_state"],
+        "research_obligation_state_vocabulary": list(RESEARCH_OBLIGATION_STATES),
+        "outstanding_research_session": research_obligation[
+            "outstanding_research_session"],
+        "stale_input_classification": stale_input_classification,
+        "stale_input_classification_owner": RESEARCH_INPUT_CLASSIFICATION_OWNER,
+        "blocker_severity_owner": BLOCKER_SEVERITY_OWNER,
+        "blocker_scope_vocabulary": list(BLOCKER_SCOPES),
         # Stage 22 (Workstream A): the canonical NORMAL DAILY PORTFOLIO CYCLE — the
         # ordered stages, where the operator is in them, what happens next, and the ONE
         # per-stage gate every surface obeys. There is no alternate path.

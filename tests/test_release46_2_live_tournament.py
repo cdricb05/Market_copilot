@@ -1217,9 +1217,31 @@ def test_an_open_session_no_longer_erases_yesterdays_completed_cycle(tmp_path):
     assert s["executable"] is False
 
 
-def test_the_session_wait_still_stands_when_no_run_was_ever_completed(tmp_path):
+def test_an_eligible_session_whose_cycle_never_ran_is_recoverable(tmp_path):
+    """R54.2.2 — the case R46.2's repair did NOT cover.
+
+    R46.2 stopped an open session from ERASING a completed run, and this test used to
+    assert the complement: with no run at all, the open session still won and the state
+    was WAITING_FOR_SESSION_CLOSE. That answer was wrong for the one scenario it
+    described. The cycle is bound to the ELIGIBLE COMPLETED session, so "no run exists
+    for a session that closed and whose owned data is confirmed" is outstanding
+    governed research, not a reason to wait — and while that answer stood, the ONE
+    canonical portfolio cycle could not resume at the Daily Research Cycle at all.
+
+    The guard R46.2 actually wanted is kept below: lifting the clock is NOT a blanket
+    permission — with no eligible completed session to work on, the wait still stands.
+    """
     s = DRC.load_daily_research_cycle_status(drc_dir=str(tmp_path),
                                              freshness=_drc_freshness())
+    assert s["state"] == DRC.NOT_STARTED
+    assert s["eligible_market_date"] == _DRC_D
+    assert s["executable"] is True
+
+
+def test_the_session_wait_still_stands_when_there_is_nothing_eligible_to_recover(tmp_path):
+    """The narrowness guard: today's open session is still not the cycle's subject."""
+    s = DRC.load_daily_research_cycle_status(drc_dir=str(tmp_path),
+                                             freshness=_drc_freshness(owned=False))
     assert s["state"] == DRC.WAITING_FOR_SESSION_CLOSE
     assert s["executable"] is False
 

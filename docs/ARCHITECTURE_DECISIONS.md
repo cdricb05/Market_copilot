@@ -3012,3 +3012,111 @@ by the BACKEND's own verdict (`RAW / NON-AUTHORITATIVE DIAGNOSTIC STATE`,
 render an action control. Same rule for the daily P&L label: it is a
 closed-session figure, so it is named from backend session metadata and reads
 "TODAY" only when the mark really is the current calendar day.
+### D-R54.2.2-1 — A completed close is one STAGE of the daily cycle, not the whole of it (CONFIRMED)
+
+`_decide_overall` P2 asserts "the latest eligible completed session is already
+fully processed" and tested that claim with `eligible_session_closed` alone. The
+close is one stage; the governed research cycle, the reassessment and the governed
+decision are others. After the 2026-09-01 catch-up succeeded, P2 therefore
+returned `WAITING_FOR_SESSION_CLOSE` for the open Sep-2 session while the same
+payload named two stale research inputs and no governed manifest for Sep-1. The
+obligation is now decided by `build_research_obligation` from the close journal
+and the cycle owner's manifest, and it suppresses P2 while it names real work
+(OUTSTANDING) or a real fix (BLOCKED) — never for a documented
+`RESEARCH_OBLIGATION_EVIDENCE_GAP`, because a permanent banner about something the
+operator cannot act on is not information.
+
+### D-R54.2.2-2 — Three clocks, stated as three clocks (CONFIRMED)
+
+The operational close, the governed research cycle and the governed portfolio
+decision advance independently and may legitimately differ. Reading one as the
+other is what let a decision built on a `LIVE_PRE_DRC_SIGNAL` artifact be
+presented as the governed verdict for a session whose cycle never ran.
+`latest_closed_session`, `latest_governed_research_session` and
+`latest_governed_decision_session` are published separately, together with
+`decision_rests_on_governed_research`, which states the difference explicitly
+rather than leaving it to be inferred.
+
+### D-R54.2.2-3 — "Stale" is not a verdict; recoverability is a classification, and it belongs to the cycle owner (CONFIRMED)
+
+A monthly input may be legitimately older than the session, a daily input may be
+exactly reproducible point-in-time, and a third may need a controlled out-of-cycle
+operation the daily cycle deliberately never performs. Collapsing those into one
+word is what produced a red banner over a valid book.
+`api.daily_research_cycle.classify_stale_inputs` owns the classification because
+that module already owns the refresh-owner registry and the monthly source-panel
+coverage; `api.workflow_state` READS it and classifies nothing. On 2026-09-01 the
+honest answer was `momentum_monthly = TRUE_BLOCKER`
+(`MONTHLY_SOURCE_PANEL_BEHIND_ELIGIBLE_SESSION`, owned panel at 2026-08-05) and
+`price_score_refresh = CURRENT_REFRESH_REQUIRED` (blocked by the month-boundary
+dependency on the first) — not "two things are broken".
+
+### D-R54.2.2-4 — The pre-run gate asks about the eligible session, never the wall clock (CONFIRMED)
+
+`api.daily_research_cycle._pre_run_state` refused the cycle whenever the market
+was open, for the status read AND the run path, so a completed close whose
+governed research had never run could not be recovered by any control. R46.2 had
+already written the rule — "the state describes THE ELIGIBLE SESSION's cycle, not
+the wall clock" — but scoped its repair to a COMPLETED prior run, which is exactly
+the case a missed cycle does not have. Lifting the gate weakens no ordering: the
+eligible session is the owned-data-CONFIRMED completed session, which only
+advances when a close runs, so an unclosed session can never be eligible and
+today's forming session never is.
+
+Consequently `WAITING_FOR_SESSION_CLOSE`, as a STATUS answer, now means "there is
+no eligible completed session to work on" rather than "the wall clock says wait".
+Two suites (R46.2, Slice 3.1) asserted the older sentence for a session that HAD
+closed with its research still owed; both now assert the recovery and keep the
+no-eligible-session wait, so the lift is not a blanket permission. The RUN path
+still refuses to start a cycle that is not the eligible session's, and a completed
+cycle is still reflected rather than re-offered.
+
+### D-R54.2.2-5 — The backend decides severity; the presentation reads it (CONFIRMED)
+
+`api.operator_presentation` escalated every `blockers` row to a red service-wide
+`BLOCKED` and rendered the reason as a Python dict repr
+(`"{'code': 'RESEARCH_INPUT_STALE', 'source_id': 'momentum_monthly'}"`) — beside
+warnings from the same payload stating in plain English that the completed close
+remained valid. Severity is a judgement about what a condition MEANS, so it
+belongs to the owner that knows: every row now carries `severity`, `scope`
+(`OPERATIONAL` / `GOVERNED_RESEARCH` / `PORTFOLIO_DECISION`),
+`blocks_portfolio_decision` and `invalidates_operational_close`. A research-only
+condition is DEGRADED with "The operational book remains valid."
+
+The same rule governs the WORDS: the blocked-cycle explanation used to name the
+frozen monthly momentum input as an EXAMPLE (`e.g. ...`) in a path holding no
+blocker, so it would have said "monthly momentum" for a blocker that was something
+else. `true_blockers` now carries `display_name` beside `source_id`, and the
+workflow owner names the real cause the way the operator knows it while
+hard-coding no source of its own. And an action the system already knows cannot
+execute is not offered: with a TRUE blocker present `RUN_DAILY_RESEARCH_CYCLE`
+leaves the queue entirely, replaced by `RESOLVE_RESEARCH_CYCLE_BLOCKER` as the
+primary action — the obligation is carried by `research_obligation`, never by a
+dead control.
+
+### D-R54.2.2-6 — A mark for the wrong date is not a mark (CONFIRMED)
+
+Attribution resolved per-position prices with "greatest close date <= as_of",
+which is correct for a date the market did not trade and wrong for a date the
+market DID trade and the store never received. Both look identical inside the
+resolver. On 2026-09-01 the immutable TRUE_FORWARD price ledger stopped at
+2026-08-31 (its capture was blocked, a documented gap), so all 25 holdings
+resolved BOTH legs to the Aug-31 close, reported 0.0 contributions, and the block
+still published `available: true` with 25/25 coverage against a recorded NAV move
+of -$1,206.59. Date exactness now decides which source wins — an EXACT ledger hit
+always wins, so Phase 8.1B stands; only a NON-exact ledger hit yields to an exact
+cache row — and a leg that resolves to an earlier close is recorded and ranked
+first in the diagnostic. This is a READER repair: no ledger row, NAV row, close
+row or TRUE_FORWARD snapshot is rewritten.
+
+### D-R54.2.2-7 — An unreconciled decomposition is unavailable, not a decomposition (CONFIRMED)
+
+`available` used to mean "at least one position priced", so a block whose residual
+was the entire day's P&L was published as a trusted decomposition. "Every holding
+contributed nothing" is a claim about the market; "this could not be computed" is
+a claim about the data, and only the second was true. One owner
+(`api.forward_evidence.attribution_availability`) now decides which of the two the
+operator is told, and both attribution surfaces obey it: winners, losers and
+sector rows are withheld, and the UI states `ATTRIBUTION UNAVAILABLE — NAV
+RECONCILIATION FAILED`. Total P&L validity and decomposition availability are
+separate questions with separate owners, so NAV and P&L stay visible.

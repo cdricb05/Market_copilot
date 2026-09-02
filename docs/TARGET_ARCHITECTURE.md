@@ -166,6 +166,29 @@ responsibilities, candidate existing modules, and migration approach.
   operator supplies no date; there is no backfill, recover or force-close route.
   `api.active_manager_state` and `api.operator_presentation` republish the
   contract read-only and compute no session date.
+- **Post-close research obligation (R54.2.2, LANDED): THREE CLOCKS, NOT ONE.** The
+  operational close, the governed research cycle and the governed portfolio
+  decision advance independently and may legitimately differ. A completed close for
+  session S does not mean governed research ran for S; a live intraday event does
+  not mean S's research may be fabricated; and a still-open S+1 is no reason for
+  unfinished, legitimate S work to disappear. `build_research_obligation` composes
+  those three clocks here — again a **projection, not a new authority**: it adds no
+  route, no orchestrator and no overall state (recovery resolves through the
+  existing `RESEARCH_CYCLE_REQUIRED` / `RESEARCH_CYCLE_BLOCKED`), and the
+  recoverability of each stale input is READ from
+  `api.daily_research_cycle.classify_stale_inputs`, which owns that classification.
+  The obligation outranks every "nothing is outstanding" claim while it names real
+  work or a real fix, and stands down to a documented gap when point-in-time
+  reconstruction is genuinely impossible. **Blocker severity is decided here and
+  READ by the presentation owner**, so an incomplete research lane can never render
+  as an invalid book.
+- **Attribution availability (R54.2.2):** whether a per-position decomposition may
+  be PRESENTED is one rule with one owner
+  (`api.forward_evidence.attribution_availability`), obeyed by both attribution
+  surfaces. A decomposition that does not reproduce the recorded NAV move is
+  UNAVAILABLE — never "every holding contributed $0" — and mark resolution requires
+  the EXACT session date before it will accept a source. Total P&L validity and
+  decomposition availability are separate questions with separate owners.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

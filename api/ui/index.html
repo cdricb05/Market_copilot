@@ -3763,6 +3763,17 @@
                portfolio cycle, and the operator never types or picks a date. -->
           <div id="today-session-recovery" data-recovery-owner="api.workflow_state"
                class="tcc-recovery" data-recovery-state="" style="display:none;"></div>
+          <!-- ============ RELEASE 54.2.2 — POST-CLOSE GOVERNED RESEARCH ============
+               Hidden unless the BACKEND says governed research is still owed for a
+               session whose operational close is complete. Every line is rendered
+               verbatim from operator_presentation.governed_research (obligation:
+               api.workflow_state; input classification: api.daily_research_cycle).
+               The browser performs NO date arithmetic and NO priority ordering, and
+               this panel exposes NO research backfill control: the only action is the
+               SAME canonical portfolio cycle, which resumes at the Daily Research
+               Cycle without repeating the completed close. -->
+          <div id="today-governed-research" data-research-owner="api.workflow_state"
+               class="tcc-recovery" data-research-state="" style="display:none;"></div>
           <div class="tcc-grid">
             <div id="today-decision" class="tcc-decision tone-info" data-decision-state="">
               <div class="tcc-eyebrow">Portfolio decision</div>
@@ -28413,6 +28424,7 @@ function renderOperatorPresentation(p) {
   var tasks = [
     function () { _opRenderTodayBand(p); },
     function () { _opRenderSessionRecovery(p); },
+    function () { _opRenderGovernedResearch(p); },
     function () { _opRenderDecision(p, 'today-decision', 'today-primary-cta', true, null); },
     function () { _opRenderSnapshot(p); },
     function () { _opRenderAttention(p); },
@@ -28529,6 +28541,65 @@ function _opRenderSessionRecovery(p) {
           ? 'The same portfolio cycle as any normal day, below. No backfill, no force close, no date entry.'
           : 'Nothing is closed until this clears. No backfill or force-close control exists.')
     +   '</span>'
+    + '</div>';
+}
+
+// 1c POST-CLOSE GOVERNED RESEARCH (Release 54.2.2). Rendered ONLY when the backend
+// says governed research is still owed for a session whose operational close is
+// complete. The three lines below are the backend's own sentences — the operational
+// book, the governed research and the forward-evidence gap — so the operator can see
+// at a glance that a VALID book and an INCOMPLETE research lane are two different
+// facts. No date arithmetic, no ordering, no backfill control: the single action is
+// the SAME canonical portfolio cycle, which the server resumes at the right stage.
+function _opRenderGovernedResearch(p) {
+  var host = document.getElementById('today-governed-research');
+  if (!host) return;
+  var g = (p && p.governed_research) || {};
+  if (!g.active) {
+    host.style.display = 'none';
+    host.setAttribute('data-research-state', String(g.state || ''));
+    host.innerHTML = '';
+    return;
+  }
+  var na = (p && p.next_action) || {};
+  // Same invariant as the recovery banner: Today keeps exactly ONE primary-action
+  // render site. This control only moves focus to it and executes nothing.
+  var canRun = (g.next_action_kind === 'RESUME_PORTFOLIO_CYCLE') && !!(na.available && na.executes);
+  var lines = ''
+    + '<div><div class="k">Operational book</div><div class="v">'
+    + _opEsc(g.operational_book_line || '—') + '</div></div>'
+    + '<div><div class="k">Governed research</div><div class="v">'
+    + _opEsc(g.governed_research_line || '—') + '</div></div>'
+    + (g.forward_evidence_line
+        ? '<div><div class="k">TRUE_FORWARD</div><div class="v">'
+          + _opEsc(g.forward_evidence_line) + '</div></div>'
+        : '');
+  var blockers = (g.true_blockers || []).map(function (b) {
+    return _opEsc((b && (b.source_id || b.code)) || String(b));
+  }).join('; ');
+  host.setAttribute('data-research-state', String(g.state || ''));
+  host.style.display = '';
+  host.innerHTML = ''
+    + '<div class="rc-lead">'
+    +   '<div class="rc-title">GOVERNED RESEARCH OUTSTANDING &middot; '
+    +     _opEsc(g.outstanding_research_session_display || g.outstanding_research_session || '')
+    +   '</div>'
+    +   (g.summary ? '<div class="rc-detail">' + _opEsc(g.summary) + '</div>' : '')
+    +   (blockers ? '<div class="rc-why">Blocked by: ' + blockers + '</div>' : '')
+    +   '<div class="rc-facts">' + lines + '</div>'
+    + '</div>'
+    + '<div class="rc-act">'
+    +   (canRun
+          ? '<button type="button" id="today-research-goto" class="tcc-link"'
+            + ' data-executes="0"'
+            + ' title="Moves to the ONE portfolio-cycle action below. This button executes'
+            + ' nothing itself; the server resumes at the outstanding stage and does not'
+            + ' repeat the completed close."'
+            + ' onclick="opresFocusPrimaryAction()">' + _opEsc(g.next_action_label || 'Resume the portfolio cycle')
+            + ' &darr;</button>'
+          : '<span class="rc-note">' + _opEsc(g.next_action_label || 'No safe recovery exists') + '</span>')
+    +   '<span class="rc-note">The completed operational close remains valid. No research'
+    +     ' backfill control exists and no evidence is fabricated.</span>'
     + '</div>';
 }
 
@@ -35176,6 +35247,29 @@ function renderDailyClosePerf(d) {
       var body = contribRows(at.winners, 'Winners') + contribRows(at.losers, 'Losers') +
         contribRows(at.sector_contributions, 'By sector');
       var atb = document.getElementById('dc-attr-tables'); if (atb) atb.innerHTML = body;
+      attrWrap.style.display = '';
+    } else if (at && at.attribution_status) {
+      // RELEASE 54.2.2 — AN UNRECONCILED DECOMPOSITION IS STATED, NOT HIDDEN AND NOT
+      // SHOWN. Before this release the block published available=true whenever any
+      // position priced, so on 2026-09-01 the operator was shown 25 holdings each
+      // contributing $0.00 while the recorded NAV had moved -$1,206.59. The
+      // reconciliation owner (api.forward_evidence) now decides availability; the
+      // browser renders that verdict verbatim and computes nothing. NAV and P&L keep
+      // their own owner and remain visible above — only the DECOMPOSITION is withheld.
+      _dcSet('dc-attr-begin', _dcMoney(at.beginning_nav));
+      _dcSet('dc-attr-end', _dcMoney(at.ending_nav));
+      _dcSet('dc-attr-move', _dcMoney(at.market_movement_pnl));
+      _dcSet('dc-attr-cost', _dcMoney(at.execution_cost_charged_today));
+      _dcSet('dc-attr-excess', _fePp(at.excess_return_pct));
+      var anu = document.getElementById('dc-attr-note');
+      if (anu) anu.textContent = 'ATTRIBUTION UNAVAILABLE — NAV RECONCILIATION FAILED. '
+        + (at.unavailable_reason || at.reconciliation_diagnostic || '')
+        + ' Total NAV and P&L above remain valid; only the per-position decomposition'
+        + ' is withheld.';
+      var atbu = document.getElementById('dc-attr-tables');
+      if (atbu) atbu.innerHTML = '<div class="cc-badge" style="color:var(--warn,#d97706);'
+        + 'border-color:var(--warn,#d97706);">ATTRIBUTION UNAVAILABLE &mdash; '
+        + 'NAV RECONCILIATION FAILED</div>';
       attrWrap.style.display = '';
     } else attrWrap.style.display = 'none';
   }

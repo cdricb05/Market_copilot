@@ -333,16 +333,21 @@ def test_25_to_31_all_surfaces_use_canonical_holding_opportunity_cost(harness):
 
 
 def test_30_right_rail_uses_canonical_holding_opportunity_cost(harness):
-    # Operator Decision Flow contract change: the right rail answers "do I need to do
-    # something right now?". For the canonical MONITOR / no-immediate-action state
-    # (gate NO_ACTION_TODAY, action_required False, current session still open) the
-    # next-action is an explicit "no action required right now"; the market-session wait
-    # is demoted to secondary context (never an urgent Review CTA). The HOC state
-    # (NOT_RUN, never "NO ACTION TODAY") and the factual completed close remain the
-    # canonical right-rail safety facts.
+    # Operator Decision Flow contract: the right rail answers "do I need to do something
+    # right now?", and it answers it with the BACKEND's primary action — it derives
+    # nothing. R54.2.2 changed the answer for this fixture, not the contract: the gate
+    # says NO_ACTION_TODAY and the session is still open, but the eligible completed
+    # session's GOVERNED research never ran and is blocked on a named input, so there
+    # IS something to do and "No action required right now." was false comfort. The
+    # named cause is shown, never a bare code and never an urgent Review CTA. The HOC
+    # state (NOT_RUN, never "NO ACTION TODAY") and the factual completed close remain
+    # the canonical right-rail safety facts.
     c = harness["orders"]["ws_then_gate"]["canonical"]
-    assert c["right-next-action"] == "No action required right now."   # no immediate action
-    assert "session to close" in c["right-current-task"].lower()       # secondary explanation kept
+    assert c["right-next-action"] == "Resolve the Daily Research Cycle blocker"
+    assert c["right-next-action"] == c["right-primary-action-btn"]   # backend-owned
+    task = c["right-current-task"]
+    assert "monthly momentum input" in task.lower()    # the REAL cause is named
+    assert "{" not in task and "'" not in task         # never a dict/code repr
     assert c["right-dag-badge"] == "NOT_RUN"           # HOC state, never "NO ACTION TODAY"
     assert c["right-dc-badge"].startswith("VALID")     # factual completed close
 
@@ -438,11 +443,25 @@ def test_56_slice6_reassessment_routes_to_daily_research_cycle():
     # Holding Opportunity-Cost engine) are IMPLEMENTED. The portfolio reassessment is
     # produced BY the Daily Research Cycle (the sole execution path); there is NO
     # separate reassessment execution control and NO "not yet implemented" placeholder.
+    #
+    # R54.2.2 — WHAT THE QUEUE MAY OFFER. This fixture's cycle is BLOCKED on a TRUE
+    # blocker (no monthly-momentum emitter for the new month). The queue used to carry
+    # RUN_DAILY_RESEARCH_CYCLE with execution_available=True and safe_to_execute=False
+    # while the overall state said "wait for the session to close" and the cycle owner
+    # itself refused to run — an action offered that could not execute. The system must
+    # not do that, and it must not lose the obligation either: the research work is now
+    # the PRIMARY action (the queue never repeats the primary action) and the outstanding
+    # session and its named cause are carried in the obligation.
     r = _regression()
     q_by_code = {q["action_code"]: q for q in r["queued_actions"]}
-    assert ws.ACTION_RUN_RESEARCH_CYCLE in q_by_code
+    assert r["primary_action"]["action_code"] == ws.ACTION_RESOLVE_RESEARCH_BLOCKER
+    assert ws.ACTION_RUN_RESEARCH_CYCLE not in q_by_code   # never offered while unsafe
+    ob = r["research_obligation"]
+    assert ob["research_obligation_state"] == ws.RESEARCH_OBLIGATION_BLOCKED
+    assert ob["outstanding_research_session"] == "2026-08-04"
+    assert [b["source_id"] for b in ob["true_blockers"]] == ["momentum_monthly"]
+
     assert ws.ACTION_RUN_PORTFOLIO_REASSESSMENT in q_by_code
-    assert q_by_code[ws.ACTION_RUN_RESEARCH_CYCLE]["execution_available"] is True
     rea = q_by_code[ws.ACTION_RUN_PORTFOLIO_REASSESSMENT]
     # Descriptive/routing only — NOT a separate execution control.
     assert rea["execution_available"] is False
@@ -464,8 +483,19 @@ def test_58_raw_gate_vocabulary_retained():
 # Regression overall-state (contract anchor)
 # =========================================================================== #
 def test_regression_overall_state_and_consistency():
+    # R54.2.2 — THE ANCHOR MOVED BECAUSE THE FIXTURE WAS NEVER "FULLY PROCESSED".
+    #
+    # This fixture is a CLOSED prior session (2026-08-04, close done) with stale
+    # research inputs and no governed cycle, while the next session is open. P2 tested
+    # "already fully processed" as the CLOSE alone, so the outstanding governed research
+    # disappeared behind the open bell and the anchor read WAITING_FOR_SESSION_CLOSE.
+    # A completed close is ONE STAGE of the cycle: the unfinished prior-session research
+    # obligation outranks waiting for the next session to close.
     r = _regression()
-    assert r["overall_state"] == ws.WAITING_FOR_SESSION_CLOSE
-    assert r["primary_action"]["action_code"] == ws.ACTION_WAIT_FOR_SESSION_CLOSE
+    assert r["overall_state"] == ws.RESEARCH_CYCLE_BLOCKED
+    assert r["primary_action"]["action_code"] == ws.ACTION_RESOLVE_RESEARCH_BLOCKER
+    # The completed close is NOT invalidated by the research condition.
+    assert r["research_obligation"]["operational_close_valid"] is True
+    assert r["research_obligation"]["invalidates_operational_close"] is False
     assert r["portfolio_assessment_state"]["assessment_status"] == ws.ASSESS_OVERDUE
     assert r["consistency_status"] == ws.CONSISTENT

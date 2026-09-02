@@ -1308,3 +1308,59 @@ repaired owner against the REAL stores reports `CATCH_UP_REQUIRED`,
 `CONSISTENT`; Sep-1 owned data IS published (`provider_latest_date 2026-09-01`).
 The running 8001 backend still holds the pre-R54.2.1 runtime, so it must be
 restarted with the canonical script before Today can offer the recovery.
+## R54.2.2 — post-close research recovery + attribution integrity (LANDED)
+
+**Why.** R54.2.1's catch-up recovered the missed 2026-09-01 close, and the moment
+it completed the SAME P2 gate claimed the session was "already fully processed"
+and returned `WAITING_FOR_SESSION_CLOSE` for the still-open Sep-2 session — while
+the same payload reported `research_cycle_required true`, two stale research
+inputs, `governed_research_evidence_current false`, no DRC run manifest for Sep-1
+and a portfolio decision resting on a `LIVE_PRE_DRC_SIGNAL` artifact. "Fully
+processed" was only ever tested as `eligible_session_closed`: a completed close is
+ONE STAGE of the daily cycle, so the governed research still owed for that session
+disappeared behind the next open bell. The governed research lane had in fact been
+stalled since 2026-08-05 while the operational lane closed daily.
+
+- **The obligation has ONE owner.** `api.workflow_state.build_research_obligation`
+  publishes `research_obligation` with the frozen vocabulary
+  `NO_RESEARCH_OBLIGATION` / `RESEARCH_OBLIGATION_OUTSTANDING` /
+  `RESEARCH_OBLIGATION_BLOCKED` / `RESEARCH_OBLIGATION_EVIDENCE_GAP` and the three
+  independent clocks (`latest_closed_session`,
+  `latest_governed_research_session`, `latest_governed_decision_session`).
+- **The classification has ONE owner.**
+  `api.daily_research_cycle.classify_stale_inputs` decides
+  `SAFE_RECOVERABLE_POINT_IN_TIME` / `CURRENT_REFRESH_REQUIRED` /
+  `SLOW_MOVING_VALID_BUT_OLDER` / `UNRECOVERABLE_HISTORICAL_GAP` / `TRUE_BLOCKER`
+  from its own refresh-owner registry and the production source-panel coverage.
+  "Stale" is never treated as a verdict.
+- **The second wall-clock gate is closed.** `_pre_run_state` refused the cycle
+  from the wall clock for BOTH the status read and the run path. It is now scoped
+  to the ELIGIBLE session; R46.2's completed-run reflection is byte-identical.
+- **Priority, not a new state.** P2 is suppressed by an OUTSTANDING or BLOCKED
+  obligation (never by a documented `EVIDENCE_GAP` — that names no action), so
+  recovery resolves through the existing `RESEARCH_CYCLE_REQUIRED` /
+  `RESEARCH_CYCLE_BLOCKED` and the SAME `POST /v1/operations/portfolio-cycle/run`,
+  which does not repeat the completed close. No backfill route, no force-cycle
+  control, no operator-supplied date.
+- **Severity is backend-decided.** Every `blockers` row carries `severity`,
+  `scope` and `blocks_portfolio_decision`; `api.operator_presentation` reads them
+  instead of escalating each to a red service-wide BLOCKED rendered as a Python
+  dict repr.
+- **Attribution fails closed.** `api.forward_evidence.mark_at` now requires the
+  EXACT session date before accepting a source (an exact ledger hit still always
+  wins, so Phase 8.1B is untouched), a stale leg is recorded and ranked first in
+  the diagnostic, and one shared `attribution_availability` makes a
+  non-reconciling decomposition UNAVAILABLE rather than "every holding
+  contributed $0". No historical row, NAV or TRUE_FORWARD snapshot is rewritten.
+- Guarded by `check_release54_2_2_post_close_research_recovery` (32
+  strict-blocking invariants) and
+  `tests/test_release54_2_2_post_close_research_recovery.py` (55).
+
+**Live read-only verdict (nothing written, backend never restarted):** the
+repaired owner against the REAL stores reports `RESEARCH_CYCLE_BLOCKED`,
+`RESEARCH_OBLIGATION_BLOCKED`, `outstanding_research_session 2026-09-01`, blocked
+by `momentum_monthly` (owned Phase-24 panel at 2026-08-05), payload `CONSISTENT`,
+readiness DEGRADED with "The operational book remains valid." The repaired
+attribution reproduces the Sep-1 NAV move exactly (residual 0.00). The running
+8001 backend still holds the pre-R54.2.2 runtime and must be restarted with the
+canonical script before Today can show the outstanding governed research.

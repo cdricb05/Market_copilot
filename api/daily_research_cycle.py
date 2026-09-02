@@ -727,6 +727,265 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.2.2 — STALE-INPUT RECOVERABILITY CLASSIFICATION.
+#
+# WHY THIS OWNER. "Stale" is not a verdict. A monthly input may be legitimately
+# older than the session, a daily input may be exactly reproducible point-in-time
+# from owned marks, and a third may need a controlled out-of-cycle operation that
+# the daily cycle deliberately does not perform. Those three are different
+# operator situations with different honest answers, and before this release the
+# workflow surface collapsed all of them into one word.
+#
+# The classification belongs HERE because this module already owns the
+# refresh-owner registry (which authoritative owner refreshes each input, at what
+# cadence, and whether a safe automatic path exists) and the monthly-owner block
+# (which reports the production source-panel coverage). ``api.workflow_state``
+# READS this and classifies nothing of its own.
+#
+# Pure: a function of the execution plan + the monthly-owner block + the freshness
+# rows. It performs no refresh, calls no emitter, runs no subprocess and writes
+# nothing.
+# --------------------------------------------------------------------------- #
+#: A recoverable input whose point-in-time state for the eligible session can be
+#: rebuilt from owned evidence that its owner bounds to that session.
+RECOVERY_SAFE_PIT = "SAFE_RECOVERABLE_POINT_IN_TIME"
+#: Reproducible in principle, but its owner refuses until a named dependency is
+#: satisfied first — so it is NOT independently recoverable right now.
+RECOVERY_CURRENT_REFRESH = "CURRENT_REFRESH_REQUIRED"
+#: A slower-cadence input that is legitimately older than the session and does not
+#: block the governed cycle. Older is not wrong.
+RECOVERY_SLOW_MOVING = "SLOW_MOVING_VALID_BUT_OLDER"
+#: The point-in-time state for this session can no longer be rebuilt honestly. It
+#: is documented and never fabricated.
+RECOVERY_UNRECOVERABLE = "UNRECOVERABLE_HISTORICAL_GAP"
+#: A named condition the operator must repair before the governed cycle can run.
+RECOVERY_TRUE_BLOCKER = "TRUE_BLOCKER"
+INPUT_RECOVERY_STATES = (RECOVERY_SAFE_PIT, RECOVERY_CURRENT_REFRESH,
+                         RECOVERY_SLOW_MOVING, RECOVERY_UNRECOVERABLE,
+                         RECOVERY_TRUE_BLOCKER)
+#: This module — the ONE owner of the classification above.
+INPUT_RECOVERY_OWNER = "api.daily_research_cycle"
+
+#: The monthly source panel does not cover the eligible session, and Phase 24
+#: supports no safe incremental extension: a CONTROLLED owned-panel refresh is
+#: required, which the daily cycle deliberately never performs.
+MONTHLY_PANEL_BEHIND = "MONTHLY_SOURCE_PANEL_BEHIND_ELIGIBLE_SESSION"
+#: The daily price/score refresh cannot cross a month boundary until the frozen
+#: monthly momentum input for the new month exists (api.alpha_target's own
+#: R_MONTH_BOUNDARY refusal — the frozen mom_6_1 contract is never approximated).
+PRICE_SCORE_MONTH_BOUNDARY = "BLOCKED_BY_MONTH_BOUNDARY_DEPENDENCY"
+
+
+def _plan_step(plan: dict, source_id: str) -> dict:
+    for st in (plan.get("refresh_steps") or []):
+        if st.get("source_id") == source_id:
+            return st
+    return {}
+
+
+def _freshness_row(freshness: Optional[dict], source_id: str) -> dict:
+    for r in ((freshness or {}).get("source_freshness") or []):
+        if r.get("source_id") == source_id:
+            return r
+    return {}
+
+
+def classify_input_recovery(*, source_id: str, plan: dict,
+                            monthly_owner: Optional[dict] = None,
+                            freshness: Optional[dict] = None) -> dict:
+    """Classify ONE stale research input's point-in-time recoverability.
+
+    Returns the frozen classification plus the evidence it was decided from, the
+    authoritative owner, and the operator action that clears it. Never guesses:
+    an input with no declared refresh owner is a TRUE_BLOCKER, not an assumption.
+    """
+    spec = _REFRESH_OWNERS.get(source_id) or {}
+    step = _plan_step(plan, source_id)
+    row = _freshness_row(freshness, source_id)
+    eligible = plan.get("eligible_market_date")
+    mo = monthly_owner or {}
+    out: dict[str, Any] = {
+        "source_id": source_id,
+        "display_name": step.get("display_name") or row.get("display_name"),
+        "authoritative_owner": spec.get("owner") or row.get("authoritative_owner"),
+        "cadence": spec.get("cadence") or row.get("cadence"),
+        "last_valid_date": row.get("as_of_date"),
+        "required_date": eligible,
+        "classification_owner": INPUT_RECOVERY_OWNER,
+        "depends_on": [],
+    }
+
+    if not out["authoritative_owner"]:
+        return {**out, "classification": RECOVERY_TRUE_BLOCKER,
+                "recoverable_now": False, "point_in_time_safe": False,
+                "blocks_governed_research": True,
+                "code": "NO_REFRESH_OWNER",
+                "reason": ("No authoritative owner refreshes %s; the governed cycle "
+                           "will not invent one." % source_id),
+                "operator_action": "DECLARE_A_REFRESH_OWNER"}
+
+    if source_id == "momentum_monthly":
+        # The frozen monthly momentum contract. Its production emitter is
+        # point-in-time-safe BY CONSTRUCTION: api.monthly_momentum_emitter's source-
+        # panel policy REFUSES a panel dated ahead of the eligible session
+        # (MONTHLY_PANEL_FUTURE_DATED), so a run started on a later calendar day
+        # cannot see data the session did not have. What it cannot do is extend the
+        # owned survivorship-free panel — Phase 24 supports no safe incremental
+        # extension — so a panel BEHIND the session is a true blocker, not a gap the
+        # cycle may paper over by approximating the month intramonth.
+        available = bool(mo.get("available"))
+        covered = mo.get("source_panel_covered")
+        if not available:
+            return {**out, "classification": RECOVERY_TRUE_BLOCKER,
+                    "recoverable_now": False, "point_in_time_safe": True,
+                    "blocks_governed_research": True,
+                    "code": "MONTHLY_EMITTER_UNAVAILABLE",
+                    "reason": ("The frozen monthly momentum input is due for %s and no "
+                               "monthly-momentum emitter is available to produce it. The "
+                               "frozen mom_6_1 contract is never approximated intramonth."
+                               % (mo.get("required_month")
+                                  or (str(eligible)[:7] if eligible else "the new month"))),
+                    "operator_action": (mo.get("missing_implementation")
+                                        or MONTHLY_EMITTER_ACTION)}
+        if covered is False:
+            return {**out, "classification": RECOVERY_TRUE_BLOCKER,
+                    "recoverable_now": False, "point_in_time_safe": True,
+                    "blocks_governed_research": True,
+                    "code": MONTHLY_PANEL_BEHIND,
+                    "source_panel_date": mo.get("source_panel_date"),
+                    "reason": ("The owned survivorship-free daily panel covers only %s, "
+                               "behind the session %s. Phase 24 supports no safe "
+                               "incremental extension, so the new month's frozen input "
+                               "cannot be emitted until a CONTROLLED owned-panel refresh "
+                               "bounded to that session has run. It is never approximated "
+                               "intramonth and never built from later data."
+                               % (mo.get("source_panel_date") or "an earlier date",
+                                  eligible or "the eligible session")),
+                    "operator_action": "REFRESH_OWNED_SOURCE_PANEL_THEN_"
+                                       + MONTHLY_EMITTER_ACTION}
+        return {**out, "classification": RECOVERY_SAFE_PIT,
+                "recoverable_now": True, "point_in_time_safe": True,
+                "blocks_governed_research": False,
+                "code": "MONTHLY_EMITTER_READY",
+                "source_panel_date": mo.get("source_panel_date"),
+                "reason": ("The owned panel covers the eligible session and the emitter "
+                           "refuses any panel dated ahead of it, so the frozen monthly "
+                           "input is reproducible point-in-time."),
+                "operator_action": None}
+
+    if source_id == "price_score_refresh":
+        # api.alpha_target.run_refresh is bound by the cycle to ``completed_through =
+        # the eligible session``, so it prices from owned bars for that session only.
+        # Its OWN month-boundary rule (R_MONTH_BOUNDARY) refuses to advance into a new
+        # month until the frozen monthly input for that month exists, so while the
+        # monthly input is due this is NOT independently recoverable.
+        cur_month = str(mo.get("current_month") or "")
+        req_month = str(mo.get("required_month") or (str(eligible)[:7] if eligible else ""))
+        month_boundary = bool(mo and req_month and cur_month and req_month != cur_month)
+        if month_boundary:
+            return {**out, "classification": RECOVERY_CURRENT_REFRESH,
+                    "recoverable_now": False, "point_in_time_safe": True,
+                    "blocks_governed_research": True,
+                    "depends_on": ["momentum_monthly"],
+                    "code": PRICE_SCORE_MONTH_BOUNDARY,
+                    "reason": ("The owned price/score inputs are reproducible point-in-"
+                               "time for %s, but the completed session is in a new month "
+                               "(%s) versus the frozen monthly input month (%s). The "
+                               "target owner refuses to cross that boundary until the new "
+                               "month's frozen input exists."
+                               % (eligible or "the eligible session", req_month, cur_month)),
+                    "operator_action": None}
+        return {**out, "classification": RECOVERY_SAFE_PIT,
+                "recoverable_now": True, "point_in_time_safe": True,
+                "blocks_governed_research": False,
+                "code": "PRICE_SCORE_REFRESHABLE",
+                "reason": ("The Daily Research Cycle refreshes this through its owner "
+                           "bounded to the eligible session (completed_through=%s), so it "
+                           "is rebuilt from owned bars for that session only."
+                           % (eligible or "the eligible session")),
+                "operator_action": None}
+
+    if spec.get("prepared_downstream_by"):
+        return {**out, "classification": RECOVERY_SAFE_PIT,
+                "recoverable_now": True, "point_in_time_safe": True,
+                "blocks_governed_research": False,
+                "code": "PREPARED_DOWNSTREAM",
+                "reason": ("This is an OUTPUT the cycle prepares at step %s, not a "
+                           "pre-scoring input to refresh." % spec["prepared_downstream_by"]),
+                "operator_action": None}
+
+    if spec.get("cadence") in (df.MONTHLY, df.QUARTERLY) or \
+            row.get("cadence") in (df.MONTHLY, df.QUARTERLY):
+        return {**out, "classification": RECOVERY_SLOW_MOVING,
+                "recoverable_now": False, "point_in_time_safe": True,
+                "blocks_governed_research": False,
+                "code": "SLOWER_CADENCE_INPUT",
+                "reason": ("A %s-cadence input is legitimately older than the daily "
+                           "session; older is not wrong."
+                           % str(spec.get("cadence") or row.get("cadence")).lower()),
+                "operator_action": None}
+
+    if spec.get("auto_refreshable"):
+        return {**out, "classification": RECOVERY_SAFE_PIT,
+                "recoverable_now": True, "point_in_time_safe": True,
+                "blocks_governed_research": False,
+                "code": "OWNER_REFRESHES_BOUND_TO_SESSION",
+                "reason": ("Its authoritative owner refreshes it bound to the eligible "
+                           "session."),
+                "operator_action": None}
+
+    return {**out, "classification": RECOVERY_TRUE_BLOCKER,
+            "recoverable_now": False, "point_in_time_safe": True,
+            "blocks_governed_research": True,
+            "code": "UNSUPPORTED_AUTOMATIC_REFRESH",
+            "reason": ("No safe automatic refresh path exists for %s." % source_id),
+            "operator_action": spec.get("missing_implementation")
+                               or "OPERATOR_ACTION_REQUIRED"}
+
+
+def classify_stale_inputs(*, plan: dict, monthly_owner: Optional[dict] = None,
+                          freshness: Optional[dict] = None) -> dict:
+    """The classification of EVERY currently stale/due research input, plus the
+    aggregates the workflow owner reads. Pure; refreshes nothing."""
+    ids = list(plan.get("required_stale_inputs") or [])
+    for sid in (plan.get("slower_inputs_due") or []):
+        if sid not in ids:
+            ids.append(sid)
+    rows = [classify_input_recovery(source_id=sid, plan=plan,
+                                    monthly_owner=monthly_owner, freshness=freshness)
+            for sid in sorted(ids)]
+    by = lambda c: sorted(r["source_id"] for r in rows if r["classification"] == c)  # noqa: E731
+    # ``display_name`` travels WITH the blocker: the workflow owner has to name the
+    # cause to the operator, and "momentum_monthly" is this module's identifier while
+    # "Frozen monthly momentum input" is the thing the operator recognises. Carrying it
+    # here keeps the human name a property of the canonical blocker payload rather than
+    # prose duplicated (and drifting) in the consumer.
+    true_blockers = [
+        {"source_id": r["source_id"], "display_name": r.get("display_name"),
+         "code": r.get("code"),
+         "reason": r.get("reason"), "operator_action": r.get("operator_action"),
+         "owner": r.get("authoritative_owner")}
+        for r in rows if r["classification"] == RECOVERY_TRUE_BLOCKER]
+    return {
+        "owner": INPUT_RECOVERY_OWNER,
+        "eligible_market_date": plan.get("eligible_market_date"),
+        "state_vocabulary": list(INPUT_RECOVERY_STATES),
+        "inputs": rows,
+        "stale_input_ids": sorted(ids),
+        "safely_recoverable_input_ids": by(RECOVERY_SAFE_PIT),
+        "current_refresh_required_input_ids": by(RECOVERY_CURRENT_REFRESH),
+        "slow_moving_input_ids": by(RECOVERY_SLOW_MOVING),
+        "unrecoverable_gap_ids": by(RECOVERY_UNRECOVERABLE),
+        "true_blocker_input_ids": by(RECOVERY_TRUE_BLOCKER),
+        "true_blockers": true_blockers,
+        # Is there any input the cycle can legitimately advance right now?
+        "safe_work_remains": bool(by(RECOVERY_SAFE_PIT)),
+        "blocked_by_true_blocker": bool(true_blockers),
+        "fabricates_nothing": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Date-alignment gate (Workstream F). Re-reads the freshness contract (post-refresh
 # in the run path) and requires the REQUIRED research inputs to be satisfied and
 # consistent before scoring / evidence capture. Unknown is not fresh.
@@ -1254,6 +1513,15 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "step_results": step_results,
         "input_plan": plan,
         "monthly_owner": monthly_owner,
+        # Release 54.2.2 — the recoverability classification of every stale/due
+        # research input, decided HERE (the refresh-owner registry + the monthly
+        # source-panel coverage this module already reports). api.workflow_state
+        # reads it; it classifies nothing of its own.
+        "stale_input_classification": (
+            classify_stale_inputs(plan=plan, monthly_owner=monthly_owner)
+            if plan else None),
+        "stale_input_classification_owner": INPUT_RECOVERY_OWNER,
+        "input_recovery_state_vocabulary": list(INPUT_RECOVERY_STATES),
         "input_results": (plan or {}).get("refresh_results")
         if plan else None,
         "input_contract_hash": facts.get("input_contract_hash"),
@@ -1699,13 +1967,40 @@ def _extract_research_agent(built: Optional[dict], eligible: Optional[str]) -> d
 # Pre-run gate (Workstream Q). Session / owned-data / consistency readiness — no
 # writes, no seam calls, ephemeral (not persisted).
 # --------------------------------------------------------------------------- #
-def _pre_run_state(facts: dict) -> Optional[str]:
+def _pre_run_state(facts: dict, *, eligible_cycle_complete: bool = False
+                   ) -> Optional[str]:
     if facts["consistency_status"] == df.INCONSISTENT:
         return INCONSISTENT
     if facts["session_status"] == msession.INCONSISTENT_FUTURE_DATA:
         return INCONSISTENT
     if facts["session_status"] == msession.BEFORE_SESSION_CLOSE:
-        return WAITING_FOR_SESSION_CLOSE
+        # RELEASE 54.2.2 — THE SECOND WALL-CLOCK GATE.
+        #
+        # This branch asks "has TODAY's session closed?", but the cycle is bound to
+        # the ELIGIBLE COMPLETED session, not to today. R46.2 already found that and
+        # repaired ONE case of it (a COMPLETED prior run is reflected rather than
+        # erased by the clock), recording the rule in its own words: "The state
+        # describes THE ELIGIBLE SESSION's cycle, not the wall clock."
+        #
+        # The case it did NOT cover is the one that matters after a missed cycle:
+        # there is NO prior run for the eligible session. On 2026-09-02 the Sep-1
+        # close had completed, Sep-1 owned data was confirmed, and Sep-1 governed
+        # research had never run — and this gate answered WAITING_FOR_SESSION_CLOSE
+        # to both the status read AND the run path, so the ONE canonical cycle could
+        # not resume at the Daily Research Cycle and the outstanding governed work
+        # simply disappeared behind the next open session.
+        #
+        # Close precedence is NOT weakened by lifting it: ``facts["eligible"]`` is the
+        # OWNED-DATA-CONFIRMED completed session, and owned confirmation only advances
+        # when a close runs, so a session that has not been closed can never be
+        # eligible here. Today's still-forming session is likewise never eligible.
+        # A cycle already COMPLETE for the eligible session keeps waiting exactly as
+        # before, so the R46.2 reflection branch downstream is untouched.
+        if not (facts["owned_data_confirmed"] and facts["eligible"]):
+            return WAITING_FOR_SESSION_CLOSE
+        if eligible_cycle_complete:
+            return WAITING_FOR_SESSION_CLOSE
+        return None
     if (facts["session_status"] in (msession.WAITING_FOR_OWNED_DATA,
                                     msession.NO_CONFIRMED_DATA)
             or not facts["owned_data_confirmed"] or not facts["eligible"]):
@@ -1795,7 +2090,9 @@ def load_daily_research_cycle_status(
         if idx and idx.get("run_id"):
             prior = _load_run(idx["run_id"], drc_dir)
 
-    pre = _pre_run_state(facts)
+    pre = _pre_run_state(
+        facts,
+        eligible_cycle_complete=bool(prior and prior.get("state") in _COMPLETED))
     # Release 46.2 repair — A COMPLETED RUN IS NOT ERASED BY THE CLOCK.
     #
     # ``_pre_run_state`` answers "may a cycle be RUN right now?", and while today's
@@ -2057,7 +2354,16 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         fr, facts, monthly_available, warnings, emitter_status_fn=lambda _e: None)
 
     # --- Pre-run gates: no writes, nothing persisted. ------------------------- #
-    pre = _pre_run_state(facts)
+    # Release 54.2.2 — the gate is asked about the ELIGIBLE session, so it needs to
+    # know whether that session's cycle already completed. Reading the run index is a
+    # pure read of this module's own store (the idempotency block below re-reads it
+    # and remains the single authority on reuse/resume).
+    _pre_idx = _load_index(drc_dir).get(facts["eligible"]) or {} if facts["eligible"] else {}
+    _pre_prior = _load_run(_pre_idx.get("run_id"), drc_dir) if _pre_idx.get("run_id") else None
+    pre = _pre_run_state(
+        facts,
+        eligible_cycle_complete=bool(_pre_prior
+                                     and _pre_prior.get("state") in _COMPLETED))
     if pre is not None:
         return _contract(state=pre, facts=facts, plan=plan, warnings=warnings,
                          started_at=started_at, executable=False,
@@ -2833,6 +3139,10 @@ __all__ = [
     "MONTHLY_EMITTER_ACTION", "STRATEGY_ID", "STRATEGY_VERSION", "UNIVERSE_ID",
     "MANIFEST_CONTRACT_INCOMPLETE", "MANIFEST_PERSISTENCE_UNVERIFIED",
     "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST",
+    "RECOVERY_SAFE_PIT", "RECOVERY_CURRENT_REFRESH", "RECOVERY_SLOW_MOVING",
+    "RECOVERY_UNRECOVERABLE", "RECOVERY_TRUE_BLOCKER", "INPUT_RECOVERY_STATES",
+    "INPUT_RECOVERY_OWNER", "MONTHLY_PANEL_BEHIND", "PRICE_SCORE_MONTH_BOUNDARY",
+    "classify_input_recovery", "classify_stale_inputs",
     "build_execution_plan", "evaluate_alignment", "compute_idempotency_key",
     "load_daily_research_cycle_status", "load_status", "run_daily_research_cycle",
 ]

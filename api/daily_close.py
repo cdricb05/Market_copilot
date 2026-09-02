@@ -1883,6 +1883,7 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
     priced = 0
     fallback_tickers: list[str] = []
     mixed_source_tickers: list[str] = []
+    stale_leg_tickers: list[str] = []
     for tk, h in sorted(holdings.items()):
         qty = h.get("quantity")
         m1 = fe.mark_at(ledger_series, cache_series, tk, d1)
@@ -1891,12 +1892,19 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
         p0 = m0[1] if m0 else None
         src1 = m1[2] if m1 else None
         src0 = m0[2] if m0 else None
+        # Release 54.2.2 — see api.forward_evidence.mark_at: a leg resolved to an
+        # EARLIER close than the requested session is recorded, never silently used
+        # on both sides of the difference.
+        stale1 = bool(m1 and d1 and not fe._exact(m1, d1))
+        stale0 = bool(m0 and d0 and not fe._exact(m0, d0))
         contrib = None
         ret = None
         if qty is not None and p1 is not None and p0 is not None:
             contrib = qty * (p1 - p0)
             ret = (p1 / p0 - 1.0) if p0 else None
             priced += 1
+            if stale1 or stale0:
+                stale_leg_tickers.append(tk)
             if fe.MARK_SOURCE_CACHE_FALLBACK in (src0, src1):
                 fallback_tickers.append(tk)
             if src0 != src1:
@@ -1907,6 +1915,7 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
             "prior_mark_date": (m0[0] if m0 else None),
             "current_mark_date": (m1[0] if m1 else None),
             "prior_mark_source": src0, "current_mark_source": src1,
+            "prior_mark_is_stale": stale0, "current_mark_is_stale": stale1,
             "price_return_pct": (round(ret * 100.0, 4) if ret is not None else None),
             "pnl_contribution": _r2(contrib),
             "weight": h.get("weight"),
@@ -1953,9 +1962,23 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
         reconciles=reconciles, residual=residual,
         coverage_complete=(priced == len(positions)),
         missing=[p["ticker"] for p in positions if p["pnl_contribution"] is None],
-        mixed=mixed_source_tickers, fallbacks=fallback_tickers, d0=d0, d1=d1)
+        mixed=mixed_source_tickers, fallbacks=fallback_tickers, d0=d0, d1=d1,
+        stale=stale_leg_tickers)
+    # Release 54.2.2 — the SHARED availability contract (api.forward_evidence owns
+    # it, both attribution surfaces obey it). A block whose contributions do not
+    # reproduce the recorded NAV move is UNAVAILABLE, not "every holding contributed
+    # $0" — and its winners/losers are withheld, because a ranked contributor drawn
+    # from an unreconciled decomposition is not a fact. NAV, P&L and the recorded
+    # decision are untouched: they have their own owner and remain valid.
+    avail = fe.attribution_availability(
+        reconciles=reconciles, priced=priced, total=len(positions),
+        stale_legs=stale_leg_tickers, diagnostic=recon_diag)
+    _trustworthy = bool(avail["decomposition_trustworthy"])
     return {
-        "available": True,
+        "available": avail["available"],
+        "attribution_status": avail["status"],
+        "decomposition_trustworthy": _trustworthy,
+        "unavailable_reason": avail["unavailable_reason"],
         "attribution_date": d1,
         "prior_date": d0,
         "beginning_nav": _r2(nav0),
@@ -1967,6 +1990,8 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
             "primary": fe.MARK_SOURCE_LEDGER,
             "cache_fallback_tickers": sorted(fallback_tickers),
             "mixed_source_tickers": sorted(mixed_source_tickers),
+            "stale_mark_tickers": sorted(set(stale_leg_tickers)),
+            "exact_date_required": True,
         },
         "reconciliation_diagnostic": recon_diag,
         "gross_return_pct": (round(port_daily, 4) if port_daily is not None else None),
@@ -1978,9 +2003,9 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
         "priced_position_count": priced,
         "total_position_count": len(positions),
         "position_contributions": positions,
-        "sector_contributions": sector_rows,
-        "winners": winners,
-        "losers": losers,
+        "sector_contributions": sector_rows if _trustworthy else [],
+        "winners": winners if _trustworthy else [],
+        "losers": losers if _trustworthy else [],
         "position_contribution_sum": _r2(sum_contrib),
         "reconciliation_residual": _r2(residual),
         "reconciles": reconciles,

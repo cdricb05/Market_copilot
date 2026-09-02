@@ -586,9 +586,32 @@ def test_33_the_blocked_decision_names_its_cause_and_points_back_at_the_cycle():
     assert a["execution_available"] is False
     assert a["severity"] == ws.SEV_BLOCKED
     assert "no change" in a["explanation"].lower()
-    # The monthly-emitter blocker keeps its own wording.
-    b = ws._primary_action(ws.RESEARCH_CYCLE_BLOCKED, {"eligible_date": ELIG})
+    # R54.2.2 — THE BLOCKER IS NAMED FROM THE CANONICAL PAYLOAD, NEVER FROM AN EXAMPLE.
+    #
+    # This assertion used to pass against a sentence that named "the frozen monthly
+    # momentum input" as an ILLUSTRATION ("e.g. ...") in a context carrying no blocker
+    # at all — prose that would have said "monthly momentum" for a blocker that was
+    # something else entirely. The cycle owner classifies every stale input and ships
+    # its display_name, cause and operator action, so the explanation names the REAL
+    # one and generic workflow logic hard-codes no source.
+    b = ws._primary_action(ws.RESEARCH_CYCLE_BLOCKED, {
+        "eligible_date": ELIG, "outstanding_research_session": ELIG,
+        "research_true_blockers": [
+            {"source_id": "momentum_monthly",
+             "display_name": "Frozen monthly momentum input",
+             "code": "MONTHLY_EMITTER_UNAVAILABLE",
+             "reason": "The frozen monthly momentum input is due and has no safe emitter.",
+             "operator_action": "RUN_RESEARCH_MONTHLY_INPUT_EMITTER",
+             "owner": "api.monthly_momentum_input"}]})
     assert "monthly momentum input" in b["explanation"]
+    assert "RUN_RESEARCH_MONTHLY_INPUT_EMITTER" in b["explanation"]
+    assert "momentum_monthly" not in b["current_task"]      # the human name, not the key
+    assert "monthly momentum input" in b["current_task"].lower()
+    # With NO blocker payload the sentence stays honest: it names no source it cannot
+    # prove, and points at the owner that can.
+    c = ws._primary_action(ws.RESEARCH_CYCLE_BLOCKED, {"eligible_date": ELIG})
+    assert "e.g." not in c["explanation"]
+    assert "named in the cycle status" in c["explanation"]
 
 
 def test_34_the_suspended_cycle_offers_no_mutation_and_no_rebalance():

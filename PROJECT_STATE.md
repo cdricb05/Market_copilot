@@ -1,7 +1,98 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2.1 - MISSED ELIGIBLE SESSION RECOVERY: a daily
+- **Updated by phase:** **R54.2.2 - POST-CLOSE RESEARCH RECOVERY: a completed
+  Daily Close does not settle the governed research owed for that session, plus
+  CLOSE-ATTRIBUTION INTEGRITY (single agent, no subagents, Windows PowerShell
+  only).** Built over the committed R54.2.1 head `36153c1`. Full narrative:
+  `docs/RELEASE54_2_2_POST_CLOSE_RESEARCH_RECOVERY.md`.
+  **The defect (live, proven):** the Sep-1 catch-up worked - close journal, NAV
+  and operational mark all read `2026-09-01`, `session_recovery
+  NO_CATCH_UP_REQUIRED`. The moment it completed, the SAME P2 gate claimed the
+  session was "fully processed" and returned `WAITING_FOR_SESSION_CLOSE` for the
+  still-open Sep-2 session, while the same payload reported
+  `research_cycle_required true`, `stale_source_ids [momentum_monthly,
+  price_score_refresh]`, `governed_research_evidence_current false`,
+  `governed_manifest_run_id null` and an `opportunity_cost_artifact_class
+  LIVE_PRE_DRC_SIGNAL`. "Fully processed" was only ever tested as
+  `eligible_session_closed` - the CLOSE. A completed close is ONE STAGE of the
+  daily cycle, so the governed research still owed for that session vanished
+  behind the next open bell. The governed research lane had in fact been stalled
+  since `2026-08-05` while the operational lane closed daily, and the operator
+  was never told.
+  **The second owner with the same bug:** `api.daily_research_cycle._pre_run_state`
+  returned `WAITING_FOR_SESSION_CLOSE` from the wall clock for BOTH the status
+  read and the RUN path, so even a correctly-named action could not have run.
+  R46.2 had already recorded the rule in its own words - "the state describes THE
+  ELIGIBLE SESSION's cycle, not the wall clock" - but scoped the repair to a
+  COMPLETED prior run. The case with no prior run is exactly the missed one.
+  **The root cause of the whole Sep-1 research gap (one thing, proven):** the
+  owned Phase-24 survivorship-free daily panel is stuck at `2026-08-05`, so the
+  September frozen monthly momentum input cannot be emitted
+  (`MONTHLY_PANEL_BEHIND_ELIGIBLE`); `alpha_target.run_refresh` therefore refuses
+  to cross the month boundary (`R_MONTH_BOUNDARY`), so `price_score_refresh`
+  cannot advance past `2026-08-31`; and the TRUE_FORWARD capture is blocked for
+  the same reason (`gap_kind RESEARCH_MONTHLY_INPUT_REQUIRED`). The close owner
+  said all of this plainly; the workflow owner said "wait".
+  **The repair:** `api.workflow_state.build_research_obligation` is the ONE
+  post-close governed-research obligation (`NO_RESEARCH_OBLIGATION` /
+  `RESEARCH_OBLIGATION_OUTSTANDING` / `RESEARCH_OBLIGATION_BLOCKED` /
+  `RESEARCH_OBLIGATION_EVIDENCE_GAP`) with the three independent clocks
+  (`latest_closed_session`, `latest_governed_research_session`,
+  `latest_governed_decision_session`); it composes
+  `api.daily_research_cycle.classify_stale_inputs`, the ONE stale-input
+  recoverability classifier (`SAFE_RECOVERABLE_POINT_IN_TIME` /
+  `CURRENT_REFRESH_REQUIRED` / `SLOW_MOVING_VALID_BUT_OLDER` /
+  `UNRECOVERABLE_HISTORICAL_GAP` / `TRUE_BLOCKER`). P2 is suppressed by an
+  outstanding or blocked obligation (never by a documented unrecoverable gap -
+  that is not work). Recovery resumes through the SAME
+  `POST /v1/operations/portfolio-cycle/run`, which does not repeat the completed
+  close; there is no backfill route, no force-cycle control and no operator date.
+  **Severity is now decided by the backend:** every `blockers` row carries
+  `severity` / `scope` / `blocks_portfolio_decision`, and
+  `api.operator_presentation` reads them instead of escalating each one to a red
+  service-wide `BLOCKED` and rendering the reason as a Python dict repr
+  (`"{'code': 'RESEARCH_INPUT_STALE', ...}"`). A research-only condition is now
+  DEGRADED with "The operational book remains valid."
+  **Close-attribution integrity (Phase K/L, repaired):** the Sep-1 decomposition
+  reported every one of 25 holdings at `price_return_pct 0.0` /
+  `pnl_contribution 0.0`, `reconciles false`, residual `-1206.59`, and still
+  published `available true` with 25/25 coverage. Root cause, proven from the
+  stores: `forward_prediction_prices.json` (the immutable TRUE_FORWARD price
+  ledger, whose capture was blocked) has a max date of `2026-08-31` and ZERO
+  Sep-1 rows, while `desk_marks.json` holds Sep-1 for all 34 tickers and
+  `forward_performance.json` holds the Sep-1 NAV row. `mark_at` asked the ledger
+  first with "greatest date <= as_of", got a real price for the WRONG DATE, and
+  never reached the exact-date cache row its own docstring describes. **NAV and
+  per-position marks were coming from different sources.** The fix is a READER
+  fix: an EXACT ledger hit still always wins (Phase 8.1B untouched); only a
+  NON-exact ledger hit yields to an exact cache row; a leg that resolves to an
+  earlier close is recorded (`prior/current_mark_is_stale`) and ranked first in
+  the diagnostic; and one shared `api.forward_evidence.attribution_availability`
+  makes a non-reconciling decomposition UNAVAILABLE (winners/losers/sectors
+  withheld) rather than "every holding contributed $0". Replayed READ-ONLY on the
+  real Sep-1 stores: residual **0.00**, `market_movement -1206.59`, 25/25 priced,
+  both mark dates correct. **No historical row, NAV or TRUE_FORWARD snapshot was
+  rewritten.**
+  **LIVE READ-ONLY VERDICT (nothing written, backend never restarted):** the
+  repaired owner run against the REAL stores reports `overall_state
+  RESEARCH_CYCLE_BLOCKED`, `research_obligation_state
+  RESEARCH_OBLIGATION_BLOCKED`, `outstanding_research_session 2026-09-01`,
+  `latest_governed_research_session null`,
+  `decision_rests_on_governed_research false`, `consistency CONSISTENT`, and the
+  readiness surface reads DEGRADED (not BLOCKED) with "The operational book
+  remains valid." **The running backend on 8001 still holds the pre-R54.2.2
+  runtime, so the operator must restart it (canonical script) before Today can
+  show the outstanding governed research.**
+  **Verification:** new suite 55/55; required regressions 716 passing;
+  attribution / corporate-action / presentation suites 275 passing (the pytest
+  tmp-dir `atexit` PermissionError on `D:\Temp\pytest-of-binis` is an environment
+  artifact, present on unmodified suites too); strict audit exit 0;
+  `git diff --check` clean; live validation READ-ONLY only. NOT committed
+  (operator gate). No Daily Close / DRC / portfolio cycle / monthly emitter /
+  approval / order / fill / scheduler change / production-store write was
+  performed.
+- **Previous phase:** **R54.2.1 - MISSED ELIGIBLE SESSION RECOVERY: a daily
   operating system must not require the operator to be present during one exact
   hour (single agent, no subagents, Windows PowerShell only).** Built over the
   committed R54.2 head `9dbbcdb`. Full narrative:

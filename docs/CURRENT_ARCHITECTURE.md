@@ -511,6 +511,33 @@ flowchart TD
   named blocker. `recovery_session` is always the OLDEST missed session; the
   primary action, operator command and Daily-Close gate are bound to
   `action_session_market_date`. No new overall state, no recovery route.
+- **Post-close governed-research obligation (R54.2.2, LANDED):**
+  `build_research_obligation()` publishes the ONE post-close obligation —
+  `research_obligation` (+ `research_obligation_state`,
+  `outstanding_research_session`, `stale_input_classification`) — with the frozen
+  vocabulary `NO_RESEARCH_OBLIGATION` / `RESEARCH_OBLIGATION_OUTSTANDING` /
+  `RESEARCH_OBLIGATION_BLOCKED` / `RESEARCH_OBLIGATION_EVIDENCE_GAP`, and the
+  THREE INDEPENDENT CLOCKS `latest_closed_session` /
+  `latest_governed_research_session` / `latest_governed_decision_session` (plus
+  `decision_rests_on_governed_research`). R54.2.1 taught P2 about a session that
+  was never CLOSED; this teaches it that a completed close is ONE STAGE of the
+  cycle. "Fully processed" was still only tested as `eligible_session_closed`, so
+  after the 2026-09-01 catch-up succeeded the gate returned
+  `WAITING_FOR_SESSION_CLOSE` for the open Sep-2 session while the same payload
+  reported two stale research inputs and no governed DRC manifest for Sep-1. P2
+  is now also suppressed by an OUTSTANDING or BLOCKED obligation — never by a
+  documented `EVIDENCE_GAP`, which names nothing the operator can do. The
+  recoverability of each stale input is READ from
+  `api.daily_research_cycle.classify_stale_inputs` (see below); this owner
+  classifies none of its own. Recovery resumes through the SAME portfolio cycle,
+  which does not repeat the completed close; `research_specific_route` is `null`.
+- **Blocker severity is decided here (R54.2.2):** every `blockers` row carries
+  `severity`, `scope` (`OPERATIONAL` / `GOVERNED_RESEARCH` /
+  `PORTFOLIO_DECISION`), `blocks_portfolio_decision` and
+  `invalidates_operational_close`. A stale research input is ATTENTION on the
+  governed-research lane and never invalidates the book. Before this, the rows
+  were bare and `api.operator_presentation` escalated every one of them to a red
+  service-wide BLOCKED banner rendered as a Python dict repr.
 - **Probe-free by construction:** this owner never calls the owned provider, so
   it reports what the persisted marks confirm and names `api.daily_close` as the
   owner that revalidates the rest. An un-ingested mark is a publish/ingest gap,
@@ -578,6 +605,25 @@ flowchart TD
   audit contract. Read-only status plans deterministically; execution is token-gated
   (`RUN_DAILY_RESEARCH_CYCLE`) and every provider/write boundary is an injectable
   seam.
+- **The pre-run gate is SESSION-scoped, not clock-scoped (R54.2.2):**
+  `_pre_run_state` returned `WAITING_FOR_SESSION_CLOSE` whenever the market was
+  open — for the status read AND the run path — so a completed close whose governed
+  research had never run could not be recovered at all. R46.2 had already recorded
+  the rule ("the state describes THE ELIGIBLE SESSION's cycle, not the wall clock")
+  but scoped its repair to a COMPLETED prior run. The gate now yields when a
+  CONFIRMED eligible completed session exists whose cycle has not completed;
+  `eligible_cycle_complete=True` keeps the R46.2 reflection branch byte-identical.
+  Close precedence is unaffected: the eligible session is the owned-data-CONFIRMED
+  one, which only advances when a close runs, so an unclosed session can never be
+  eligible and today's forming session never is.
+- **Stale-input recoverability classification (R54.2.2, LANDED):**
+  `classify_stale_inputs()` / `classify_input_recovery()` are the ONE classifier —
+  `SAFE_RECOVERABLE_POINT_IN_TIME` / `CURRENT_REFRESH_REQUIRED` /
+  `SLOW_MOVING_VALID_BUT_OLDER` / `UNRECOVERABLE_HISTORICAL_GAP` / `TRUE_BLOCKER` —
+  decided from the refresh-owner registry plus the monthly-owner block's production
+  source-panel coverage. It is published as `stale_input_classification` and READ by
+  `api.workflow_state`; "stale" is never treated as a verdict. It performs no
+  refresh, calls no emitter and writes nothing.
 - **Idempotency / concurrency / resume:** key = `sha256(eligible date | active book
   | strategy version | universe | input-contract hash)`; completed runs are reused,
   safe incomplete runs resume, a conflicting concurrent contract is `INCONSISTENT`,

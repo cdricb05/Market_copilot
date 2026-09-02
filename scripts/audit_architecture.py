@@ -10690,11 +10690,18 @@ def check_release49_operator_presentation(files: list[Path]) -> dict:
     _r5421_admitted = ('today-session-recovery'
                        if 'id="today-session-recovery" data-recovery-owner='
                           '"api.workflow_state"' in tcc else None)
+    # R54.2.2 admits ONE more on exactly the same terms: the post-close governed-
+    # research obligation notice. Hidden unless the backend reports governed research
+    # still owed for a completed close, it renders NO execution control of its own,
+    # and it is admitted only while it declares the owner that DECIDES the obligation.
+    _r5422_admitted = ('today-governed-research'
+                       if 'id="today-governed-research" data-research-owner='
+                          '"api.workflow_state"' in tcc else None)
     today_extra_section_ids = sorted(
         m for m in re.findall(r'<div id="(today-[\w-]+)"', tcc)
         if m not in ("today-command-center", "today-system-band", "today-decision",
                      "today-snapshot", "today-attention", _r54_admitted,
-                     _r5421_admitted))
+                     _r5421_admitted, _r5422_admitted))
     today_badge_walls = tcc.count("cc-badge")
     _s0 = ui.find('<style id="r49-styles">')
     _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
@@ -11564,6 +11571,196 @@ def check_release54_2_1_missed_session_recovery(files: list[Path]) -> dict:
             '"approves_proposals": False' in pc_src
             and '"executes_rebalance": False' in pc_src
             and '"automation": "OFF"' in pc_src),
+    }
+
+
+#: R54.2.2 — POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY. The owners that
+#: may hold each half, and every shape a SECOND one would take.
+R5422_OBLIGATION_OWNER = "api/workflow_state.py"
+R5422_CLASSIFICATION_OWNER = "api/daily_research_cycle.py"
+R5422_CYCLE_OWNER = "api/portfolio_cycle.py"
+R5422_PRESENTATION_OWNER = "api/operator_presentation.py"
+R5422_AMS_OWNER = "api/active_manager_state.py"
+R5422_ATTRIBUTION_OWNER = "api/forward_evidence.py"
+R5422_CLOSE_OWNER = "api/daily_close.py"
+#: The post-close obligation state machine is defined ONCE, in the workflow owner.
+R5422_OBLIGATION_DEFS = ("def build_research_obligation(",
+                         "RESEARCH_OBLIGATION_OUTSTANDING",
+                         "RESEARCH_OBLIGATION_BLOCKED",
+                         "RESEARCH_OBLIGATION_EVIDENCE_GAP",
+                         "NO_RESEARCH_OBLIGATION", "RESEARCH_OBLIGATION_STATES")
+#: The stale-input recoverability classification is defined ONCE, in the cycle owner.
+R5422_CLASSIFICATION_DEFS = ("def classify_input_recovery(", "def classify_stale_inputs(",
+                             "SAFE_RECOVERABLE_POINT_IN_TIME", "TRUE_BLOCKER",
+                             "UNRECOVERABLE_HISTORICAL_GAP", "INPUT_RECOVERY_STATES")
+#: A second post-close research orchestrator / backfill write route in any form.
+R5422_FORBIDDEN_ROUTES = ("/v1/operations/daily-research-cycle/backfill",
+                          "/v1/operations/research-recovery",
+                          "/v1/operations/research/backfill",
+                          "/v1/operations/monthly-input/run",
+                          "/v1/operations/portfolio-cycle/research-only")
+R5422_FORBIDDEN_DEFS = ("def run_research_backfill(", "def backfill_research_cycle(",
+                        "def recover_research_session(",
+                        "def run_post_close_recovery(",
+                        "def rewrite_attribution_history(",
+                        "def backfill_true_forward(")
+#: Client-side obligation arithmetic / operator-supplied research dates in the UI.
+R5422_FORBIDDEN_UI = ("research_obligation_state =", "outstanding_research_session =",
+                      "backfillResearch", "forceResearchCycle", "researchDateInput")
+
+
+def check_release54_2_2_post_close_research_recovery(files: list[Path]) -> dict:
+    """R54.2.2 invariants — ONE post-close obligation owner, ONE classification
+    owner, ONE orchestration path, and attribution that fails closed.
+
+    (a) the POST-CLOSE GOVERNED-RESEARCH obligation is decided exactly once, in
+        ``api.workflow_state``, and the STALE-INPUT RECOVERABILITY classification
+        it composes exactly once, in ``api.daily_research_cycle``;
+    (b) no module defines a second post-close research orchestrator, and none
+        defines a research-backfill / force-cycle / history-rewrite write route;
+    (c) the outstanding obligation OUTRANKS the "wait for the next session close"
+        claim in the ONE priority policy, and recovery resumes through the ONE
+        portfolio cycle without repeating the completed close;
+    (d) the projections (Active Manager State, the operator presentation) DELEGATE
+        — they republish the owner's fields and decide no obligation of their own;
+    (e) the workflow owner DECIDES each blocker's severity and the presentation
+        READS it: a research-only condition never renders a service-wide BLOCKED
+        banner, and no reason is rendered as a Python dict repr;
+    (f) attribution FAILS CLOSED — a decomposition that does not reproduce the
+        recorded NAV move is UNAVAILABLE, its mark resolution requires the exact
+        session date, and no historical row is ever rewritten.
+    """
+    ws_src = _read(R5422_OBLIGATION_OWNER)
+    drc_src = _read(R5422_CLASSIFICATION_OWNER)
+    pc_src = _read(R5422_CYCLE_OWNER)
+    op_src = _read(R5422_PRESENTATION_OWNER)
+    ams_src = _read(R5422_AMS_OWNER)
+    fe_src = _read(R5422_ATTRIBUTION_OWNER)
+    dc_src = _read(R5422_CLOSE_OWNER)
+    ui = _read("api/ui/index.html")
+
+    # A second definition anywhere else. This audit script names every forbidden
+    # symbol as a literal, so scanning it would match its own constants; it is
+    # excluded exactly as the R54.2.1 check excludes itself.
+    second_obligation: list[str] = []
+    second_classification: list[str] = []
+    second_orchestrator: list[str] = []
+    forbidden_routes: list[str] = []
+    for p in files:
+        rel = p.as_posix()
+        if rel.endswith("scripts/audit_architecture.py"):
+            continue
+        src = _read(rel)
+        if not src:
+            continue
+        # ``files`` carries ABSOLUTE paths, so the owner is matched by suffix.
+        if not rel.endswith(R5422_OBLIGATION_OWNER) \
+                and "def build_research_obligation(" in src:
+            second_obligation.append(rel)
+        if not rel.endswith(R5422_CLASSIFICATION_OWNER) and (
+                "def classify_input_recovery(" in src
+                or "def classify_stale_inputs(" in src):
+            second_classification.append(rel)
+        if any(t in src for t in R5422_FORBIDDEN_DEFS):
+            second_orchestrator.append(rel)
+        if any(t in src for t in R5422_FORBIDDEN_ROUTES):
+            forbidden_routes.append(rel)
+
+    return {
+        # (a) one owner per concept.
+        "obligation_owner_defines_state_machine": all(
+            t in ws_src for t in R5422_OBLIGATION_DEFS),
+        "classification_owner_defines_vocabulary": all(
+            t in drc_src for t in R5422_CLASSIFICATION_DEFS),
+        "workflow_reads_classification": (
+            'get("stale_input_classification")' in ws_src),
+        "workflow_owns_no_classification": not any(
+            t in ws_src for t in ("def classify_input_recovery(",
+                                  "def classify_stale_inputs(")),
+        # (b) no second orchestrator, no backfill route.
+        "second_obligation_owner": sorted(second_obligation),
+        "second_classification_owner": sorted(second_classification),
+        "second_research_orchestrator": sorted(second_orchestrator),
+        "forbidden_research_routes": sorted(forbidden_routes),
+        # (c) the obligation outranks "nothing to do", through the ONE policy.
+        "obligation_suppresses_wait_gate": (
+            "research_obligation_outstanding: bool = False" in ws_src
+            and "and not research_obligation_outstanding" in ws_src),
+        "cycle_resumes_without_repeating_close": (
+            'kind == "DAILY_RESEARCH_CYCLE"' in pc_src
+            and "_MAX_OWNER_INVOCATIONS" in pc_src),
+        "cycle_path_unchanged": ('RUN_ROUTE = "/v1/operations/portfolio-cycle/run"'
+                                 in pc_src),
+        "obligation_declares_no_second_route": (
+            '"research_specific_route": None' in ws_src),
+        "obligation_never_repeats_close": (
+            '"repeats_the_completed_close": False' in ws_src),
+        # The DRC pre-run gate asks about the ELIGIBLE session, not the wall clock.
+        "drc_gate_is_session_scoped": (
+            "eligible_cycle_complete" in drc_src
+            and 'facts["session_status"] == msession.BEFORE_SESSION_CLOSE' in drc_src),
+        # (d) the projections delegate.
+        "ams_delegates_obligation": (
+            "def _research_obligation_block(" in ams_src
+            and '"computed_here": False' in ams_src),
+        "presentation_delegates_obligation": (
+            'wf.get("research_obligation")' in op_src),
+        # (e) severity is decided by the owner and read by the presentation.
+        "workflow_states_blocker_severity": (
+            "BLOCKER_SCOPE_GOVERNED_RESEARCH" in ws_src
+            and '"severity": SEV_ATTENTION' in ws_src),
+        "research_stale_never_blocks_decision": (
+            '"code": "RESEARCH_INPUT_STALE"' in ws_src
+            and '"blocks_portfolio_decision": False' in ws_src),
+        "presentation_reads_severity": (
+            'row.get("severity")' in op_src
+            and 'row.get("blocks_portfolio_decision") is False' in op_src),
+        # The old escalation was a bare ``for b in blockers: blocking.append(str(b))``.
+        # Matched as CODE (leading indentation), so the comment that records why it
+        # was removed does not trip the check.
+        "presentation_renders_no_dict_repr": (
+            "def _blocker_text(" in op_src
+            and "\n        blocking.append(str(b))" not in op_src),
+        # (f) attribution fails closed and rewrites nothing.
+        "attribution_availability_has_one_owner": (
+            "def attribution_availability(" in fe_src
+            and "ATTRIB_UNRECONCILED" in fe_src),
+        "close_uses_shared_availability": (
+            "fe.attribution_availability(" in dc_src),
+        "attribution_requires_exact_date": (
+            "def _exact(" in fe_src and '"exact_date_required": True' in fe_src),
+        "attribution_flags_stale_legs": (
+            "stale_leg_tickers" in fe_src and "stale_leg_tickers" in dc_src),
+        # A non-reconciling decomposition must be UNAVAILABLE. Matched on the
+        # classifier's own branch (the specific COVERAGE_INCOMPLETE cause keeps its
+        # own status; the general one is ATTRIB_UNRECONCILED).
+        "unreconciled_is_unavailable": (
+            "if not reconciles:" in fe_src
+            and 'else ATTRIB_UNRECONCILED)' in fe_src
+            and '"decomposition_trustworthy": False' in fe_src),
+        "attribution_rewrites_no_history": not any(
+            t in fe_src or t in dc_src for t in
+            ("def rewrite_attribution_history(", "_atomic_write_json(_sdir",
+             "def backfill_true_forward(")),
+        "ui_states_unavailable_attribution": (
+            "ATTRIBUTION UNAVAILABLE" in ui),
+        # (g) the UI renders, it does not decide.
+        "ui_obligation_derivation": sorted(t for t in R5422_FORBIDDEN_UI if t in ui),
+        "ui_renders_backend_obligation": (
+            "function _opRenderGovernedResearch(" in ui
+            and "p.governed_research" in ui),
+        "ui_offers_no_research_backfill": not any(
+            t in ui for t in ('id="research-backfill"', "runResearchBackfill",
+                              'name="research_session"')),
+        # (h) no new authority.
+        "research_recovery_adds_automation": any(
+            t in ws_src for t in ("schedule.every", "CronCreate", "register_task",
+                                  "auto_run_cycle", "def _autorun")),
+        "research_recovery_creates_orders": ("create_order" in ws_src
+                                             or "submit_order" in ws_src),
+        "monthly_contract_not_weakened": (
+            "never approximated intramonth" in drc_src
+            or "never approximates" in drc_src),
     }
 
 
@@ -13121,6 +13318,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_same_session_reassessment_versioning(files),
         "release54_2_1_missed_session_recovery":
             check_release54_2_1_missed_session_recovery(files),
+        "release54_2_2_post_close_research_recovery":
+            check_release54_2_2_post_close_research_recovery(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -13843,6 +14042,55 @@ def _print_console(rep: dict) -> None:
     print(f"adds automation (must be False): {mr['recovery_adds_automation']}  "
           f"creates orders (must be False): {mr['recovery_creates_orders']}  "
           f"cycle approves nothing: {mr['cycle_still_approves_nothing']}")
+
+    hdr("POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY (R54.2.2)")
+    pr = rep["release54_2_2_post_close_research_recovery"]
+    print(f"obligation owner defines state machine: "
+          f"{pr['obligation_owner_defines_state_machine']}  "
+          f"classification owner defines vocabulary: "
+          f"{pr['classification_owner_defines_vocabulary']}")
+    print(f"workflow reads classification: {pr['workflow_reads_classification']}  "
+          f"workflow owns no classification: {pr['workflow_owns_no_classification']}")
+    print(f"second obligation owners (must be empty): {pr['second_obligation_owner']}  "
+          f"second classification owners (must be empty): "
+          f"{pr['second_classification_owner']}")
+    print(f"second research orchestrators (must be empty): "
+          f"{pr['second_research_orchestrator']}  "
+          f"forbidden research routes (must be empty): "
+          f"{pr['forbidden_research_routes']}")
+    print(f"obligation suppresses wait gate: {pr['obligation_suppresses_wait_gate']}  "
+          f"cycle resumes without repeating close: "
+          f"{pr['cycle_resumes_without_repeating_close']}  "
+          f"cycle path unchanged: {pr['cycle_path_unchanged']}")
+    print(f"no second route declared: {pr['obligation_declares_no_second_route']}  "
+          f"never repeats close: {pr['obligation_never_repeats_close']}  "
+          f"DRC gate is session scoped: {pr['drc_gate_is_session_scoped']}")
+    print(f"AMS delegates obligation: {pr['ams_delegates_obligation']}  "
+          f"presentation delegates obligation: "
+          f"{pr['presentation_delegates_obligation']}")
+    print(f"workflow states blocker severity: {pr['workflow_states_blocker_severity']}  "
+          f"stale research never blocks decision: "
+          f"{pr['research_stale_never_blocks_decision']}")
+    print(f"presentation reads severity: {pr['presentation_reads_severity']}  "
+          f"renders no dict repr: {pr['presentation_renders_no_dict_repr']}")
+    print(f"attribution availability one owner: "
+          f"{pr['attribution_availability_has_one_owner']}  "
+          f"close uses shared availability: {pr['close_uses_shared_availability']}")
+    print(f"attribution requires exact date: {pr['attribution_requires_exact_date']}  "
+          f"flags stale legs: {pr['attribution_flags_stale_legs']}  "
+          f"unreconciled is unavailable: {pr['unreconciled_is_unavailable']}")
+    print(f"rewrites no history: {pr['attribution_rewrites_no_history']}  "
+          f"UI states unavailable attribution: "
+          f"{pr['ui_states_unavailable_attribution']}")
+    print(f"UI obligation derivation (must be empty): "
+          f"{pr['ui_obligation_derivation']}  "
+          f"UI renders backend obligation: {pr['ui_renders_backend_obligation']}  "
+          f"UI offers no research backfill: {pr['ui_offers_no_research_backfill']}")
+    print(f"adds automation (must be False): "
+          f"{pr['research_recovery_adds_automation']}  "
+          f"creates orders (must be False): "
+          f"{pr['research_recovery_creates_orders']}  "
+          f"monthly contract not weakened: {pr['monthly_contract_not_weakened']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -15856,6 +16104,80 @@ BLOCKING_INVARIANTS = (
     ("release54_2_1_missed_session_recovery", "recovery_creates_orders", False),
     ("release54_2_1_missed_session_recovery",
      "cycle_still_approves_nothing", True),
+
+    # ------------------------------------------------------------------- #
+    # Release 54.2.2 - POST-CLOSE RESEARCH RECOVERY + ATTRIBUTION INTEGRITY.
+    # ONE post-close obligation owner, ONE stale-input classification owner,
+    # ONE orchestration path that never repeats a completed close, severity
+    # decided by the backend and read by the UI, and attribution that fails
+    # closed instead of publishing an unreconciled decomposition. Every field
+    # below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_2_post_close_research_recovery",
+     "obligation_owner_defines_state_machine", True),
+    ("release54_2_2_post_close_research_recovery",
+     "classification_owner_defines_vocabulary", True),
+    ("release54_2_2_post_close_research_recovery",
+     "workflow_reads_classification", True),
+    ("release54_2_2_post_close_research_recovery",
+     "workflow_owns_no_classification", True),
+    ("release54_2_2_post_close_research_recovery",
+     "second_obligation_owner", []),
+    ("release54_2_2_post_close_research_recovery",
+     "second_classification_owner", []),
+    ("release54_2_2_post_close_research_recovery",
+     "second_research_orchestrator", []),
+    ("release54_2_2_post_close_research_recovery",
+     "forbidden_research_routes", []),
+    ("release54_2_2_post_close_research_recovery",
+     "obligation_suppresses_wait_gate", True),
+    ("release54_2_2_post_close_research_recovery",
+     "cycle_resumes_without_repeating_close", True),
+    ("release54_2_2_post_close_research_recovery", "cycle_path_unchanged", True),
+    ("release54_2_2_post_close_research_recovery",
+     "obligation_declares_no_second_route", True),
+    ("release54_2_2_post_close_research_recovery",
+     "obligation_never_repeats_close", True),
+    ("release54_2_2_post_close_research_recovery",
+     "drc_gate_is_session_scoped", True),
+    ("release54_2_2_post_close_research_recovery",
+     "ams_delegates_obligation", True),
+    ("release54_2_2_post_close_research_recovery",
+     "presentation_delegates_obligation", True),
+    ("release54_2_2_post_close_research_recovery",
+     "workflow_states_blocker_severity", True),
+    ("release54_2_2_post_close_research_recovery",
+     "research_stale_never_blocks_decision", True),
+    ("release54_2_2_post_close_research_recovery",
+     "presentation_reads_severity", True),
+    ("release54_2_2_post_close_research_recovery",
+     "presentation_renders_no_dict_repr", True),
+    ("release54_2_2_post_close_research_recovery",
+     "attribution_availability_has_one_owner", True),
+    ("release54_2_2_post_close_research_recovery",
+     "close_uses_shared_availability", True),
+    ("release54_2_2_post_close_research_recovery",
+     "attribution_requires_exact_date", True),
+    ("release54_2_2_post_close_research_recovery",
+     "attribution_flags_stale_legs", True),
+    ("release54_2_2_post_close_research_recovery",
+     "unreconciled_is_unavailable", True),
+    ("release54_2_2_post_close_research_recovery",
+     "attribution_rewrites_no_history", True),
+    ("release54_2_2_post_close_research_recovery",
+     "ui_states_unavailable_attribution", True),
+    ("release54_2_2_post_close_research_recovery",
+     "ui_obligation_derivation", []),
+    ("release54_2_2_post_close_research_recovery",
+     "ui_renders_backend_obligation", True),
+    ("release54_2_2_post_close_research_recovery",
+     "ui_offers_no_research_backfill", True),
+    ("release54_2_2_post_close_research_recovery",
+     "research_recovery_adds_automation", False),
+    ("release54_2_2_post_close_research_recovery",
+     "research_recovery_creates_orders", False),
+    ("release54_2_2_post_close_research_recovery",
+     "monthly_contract_not_weakened", True),
 )
 
 

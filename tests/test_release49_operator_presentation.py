@@ -622,13 +622,21 @@ class TestTodayUI:
         # backend reports an unclosed completed session, and it renders no
         # execution control of its own (test_54 still pins ONE CTA render site).
         # It too is admitted only under its declared obligation owner.
+        #
+        # R54.2.2 admits ONE more on identical terms: the post-close governed-research
+        # notice. Hidden unless the backend reports governed research still owed for a
+        # completed close, it renders no execution control of its own, and it declares
+        # the owner that DECIDES the obligation on the node.
         ids = re.findall(r'<div id="(today-[\w-]+)"', TCC)
         assert ids == ["today-command-center", "today-system-band",
-                       "today-session-recovery", "today-decision",
-                       "today-snapshot", "today-attention", "today-operating-state"]
+                       "today-session-recovery", "today-governed-research",
+                       "today-decision", "today-snapshot", "today-attention",
+                       "today-operating-state"]
         assert ('id="today-operating-state" data-owner='
                 '"api.active_manager_state"') in TCC
         assert ('id="today-session-recovery" data-recovery-owner='
+                '"api.workflow_state"') in TCC
+        assert ('id="today-governed-research" data-research-owner='
                 '"api.workflow_state"') in TCC
 
     def test_52_no_badge_wall_and_legacy_cards_hidden_on_today(self):

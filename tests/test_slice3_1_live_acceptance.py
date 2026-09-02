@@ -108,8 +108,23 @@ def _wf(*, now=NOW_AFTER_CUTOFF_D, op=None, inputs=None, desk=None,
 # =========================================================================== #
 # SESSION (1–8)
 # =========================================================================== #
-def test_s1_before_cutoff_waits_for_session_close(tmp_path):
+def test_s1_before_cutoff_the_cycle_is_bound_to_the_eligible_session(tmp_path):
+    # R54.2.2. Before the cutoff on D, D-1 has closed and its owned data is confirmed,
+    # and no governed cycle has ever run for it. The clock is not the subject: the
+    # cycle belongs to D-1 (never to the still-forming D), so the outstanding governed
+    # research is recoverable rather than hidden behind "wait for the session to close".
     s = _drc_status(tmp_path, now=NOW_BEFORE_CUTOFF_D)
+    assert s["eligible_market_date"] == D1        # never D, the open session
+    assert s["state"] == drc.NOT_STARTED and s["executable"] is True
+
+
+def test_s1b_before_cutoff_waits_when_nothing_is_eligible(tmp_path):
+    # ...and the pre-close wait still stands when there is no eligible completed
+    # session to recover, so lifting the clock is not a blanket permission.
+    s = _drc_status(tmp_path, now=NOW_BEFORE_CUTOFF_D,
+                    op=_op(desk=None, nav=None),
+                    desk={"series": {}, "latest_completed_date": None})
+    assert s["eligible_market_date"] is None
     assert s["state"] == drc.WAITING_FOR_SESSION_CLOSE and s["executable"] is False
 
 

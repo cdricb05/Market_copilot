@@ -744,6 +744,11 @@ def _operator_guidance_block(workflow: Optional[dict]) -> dict:
         # its own: if it did, a second catch-up owner would exist and the two could
         # disagree about which morning the operator owes a close.
         "session_recovery": _session_recovery_block(workflow),
+        # Release 54.2.2 — the post-close governed-research obligation, read VERBATIM
+        # from the same workflow owner. A completed close does not settle it, and this
+        # module does not decide it: a second opinion about whether governed research
+        # is owed would be a second workflow owner.
+        "research_obligation": _research_obligation_block(workflow),
         "owner": COMPONENT_OWNERS["operator_guidance"],
     }
 
@@ -776,6 +781,40 @@ def _session_recovery_block(workflow: Optional[dict]) -> dict:
            "delegated": True, "computed_here": False}
     for key in _RECOVERY_FIELDS:
         out[key] = rec.get(key)
+    return out
+
+
+#: Release 54.2.2 — the post-close governed-research obligation fields this projection
+#: republishes, in the workflow owner's OWN spelling. Same delegation rule as the
+#: recovery block above: nothing is defaulted, nothing is recomputed.
+_OBLIGATION_FIELDS = (
+    "research_obligation_state", "state_vocabulary", "obligation_outstanding",
+    "latest_closed_session", "latest_governed_research_session",
+    "latest_governed_decision_session", "outstanding_research_session",
+    "operational_close_valid", "governed_research_current",
+    "governed_decision_state", "decision_rests_on_governed_research",
+    "stale_input_ids", "input_classification", "safely_recoverable_input_ids",
+    "unrecoverable_gap_ids", "true_blockers", "safe_work_remains",
+    "next_action", "summary", "orchestration_path", "research_specific_route",
+    "operator_supplies_no_date", "repeats_the_completed_close",
+    "invalidates_operational_close", "documented_forward_evidence_gap",
+    "forward_evidence_gap_invalidates_close")
+
+
+def _research_obligation_block(workflow: Optional[dict]) -> dict:
+    """Project the workflow owner's post-close research obligation read-only."""
+    ob = (workflow or {}).get("research_obligation")
+    if not isinstance(ob, dict) or not ob:
+        return {"available": False, "research_obligation_state": "UNAVAILABLE",
+                "owner": "api.workflow_state", "delegated": True,
+                "computed_here": False,
+                "detail": ("The workflow owner did not publish a post-close research "
+                           "obligation; nothing is inferred in its place.")}
+    out = {"available": True, "owner": ob.get("owner") or "api.workflow_state",
+           "classification_owner": ob.get("classification_owner"),
+           "delegated": True, "computed_here": False}
+    for key in _OBLIGATION_FIELDS:
+        out[key] = ob.get(key)
     return out
 
 
@@ -905,6 +944,36 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                                  or {}).get("recovery_session"),
             "owner": COMPONENT_OWNERS["operational_book"],
         },
+        # Release 54.2.2 — THE THREE CLOCKS STATED AS THREE CLOCKS. The operational
+        # close, the governed research cycle and the governed portfolio decision
+        # advance independently and may legitimately differ; before this release a
+        # completed close was read as though it settled all three. Every value is the
+        # workflow owner's, republished — none is computed here.
+        "governed_research": {
+            "research_obligation_state": (operator_guidance.get("research_obligation")
+                                          or {}).get("research_obligation_state"),
+            "latest_closed_session": (operator_guidance.get("research_obligation")
+                                      or {}).get("latest_closed_session"),
+            "latest_governed_research_session": (
+                operator_guidance.get("research_obligation")
+                or {}).get("latest_governed_research_session"),
+            "latest_governed_decision_session": (
+                operator_guidance.get("research_obligation")
+                or {}).get("latest_governed_decision_session"),
+            "outstanding_research_session": (
+                operator_guidance.get("research_obligation")
+                or {}).get("outstanding_research_session"),
+            "governed_research_current": (operator_guidance.get("research_obligation")
+                                          or {}).get("governed_research_current"),
+            "decision_rests_on_governed_research": (
+                operator_guidance.get("research_obligation")
+                or {}).get("decision_rests_on_governed_research"),
+            "invalidates_operational_close": (
+                operator_guidance.get("research_obligation")
+                or {}).get("invalidates_operational_close"),
+            "owner": "api.workflow_state",
+            "computed_here": False,
+        },
         "live_research": {
             "last_observation_at": live_information.get("last_observation_at"),
             "last_material_event_at": live_information.get("last_material_event_at"),
@@ -1014,6 +1083,9 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         # Release 54.2.1 — promoted to the top level so a surface never has to dig
         # for "is a completed session still owed?". Identical object, one owner.
         "session_recovery": operator_guidance.get("session_recovery"),
+        # Release 54.2.2 — promoted for the same reason: a surface must never have to
+        # dig for "is governed research still owed for the session we closed?".
+        "research_obligation": operator_guidance.get("research_obligation"),
         "latest_live_intraday_assessment": live_intraday,
         "latest_governed_portfolio_decision": governed_block,
         "intraday_governance": intraday_governance,
