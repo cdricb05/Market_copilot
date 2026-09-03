@@ -265,12 +265,15 @@ def _real_owner_seams(world: dict, roots: dict) -> dict:
                                    hoc_dir=hoc_dir or roots["hoc"])
 
     def reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,
-                        reassessment_dir=None, hoc_dir=None):
+                        reassessment_dir=None, hoc_dir=None, hoc_binding=None):
+        # R54.3 — the replay threads the opportunity-cost owner's OWN binding
+        # through, exactly as the live cycle does, so a replayed reassessment
+        # records the same provable dependency the live one would.
         from paper_trader.api import portfolio_reassessment as prs
         return prs.run_and_persist(
             portfolio_state=ps, scoring=scoring, hoc_assessment=hoc_assessment,
             freshness=freshness, reassessment_dir=reassessment_dir or roots["reassess"],
-            hoc_dir=hoc_dir or roots["hoc"])
+            hoc_dir=hoc_dir or roots["hoc"], hoc_binding=hoc_binding)
 
     def proposal_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
                     hoc_dir=None):

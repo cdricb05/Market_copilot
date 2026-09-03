@@ -1007,3 +1007,36 @@ A session may hold MANY immutable assessments and exactly ONE history.
   full-review clock are three concepts with three names, and a projection
   (corporate-action reconciliation, outcome-history rows) always names its
   scope and version identity.
+
+## R54.3 boundary - one opportunity-cost store, three identities, a provable dependency
+
+* The Holding Opportunity-Cost store has exactly ONE writer
+  (`api.holding_opportunity_cost`), ONE root and ONE artifact-id scheme. No
+  parallel intraday HOC store may exist.
+* An opportunity-cost assessment has THREE independent identities, named with
+  the SAME words the portfolio reassessment already uses (one vocabulary, two
+  stores): the ECONOMIC portfolio (`economic_state_hash`), the ASSESSMENT
+  EVIDENCE (`assessment_evidence_hash`) and the CONCLUSION
+  (`decision_fingerprint`).
+* The evidence identity is derived ONLY from inputs the kernel demonstrably
+  consumes, and never from provenance. The exclusion list is DECLARED
+  (`EVIDENCE_EXCLUDED_PROVENANCE`) so it is testable: no wall clock, no
+  request/run/event-cycle/scheduler id, no persistence timestamp, no
+  materiality fingerprint, no document-wide portfolio hash, no economic hash and
+  no self-referential assessment hash.
+* Same-session versions are APPENDED, never overwritten. Every version that was
+  ever authoritative stays byte-identical and exactly retrievable by its own id
+  forever; the by-id read resolves the artifact FILE, never the index pointer.
+* Identical evidence that yields a DIFFERENT conclusion is a determinism
+  failure, not a version, and fails closed. An artifact whose own parts disagree
+  about its session or book is never written at all.
+* Anything that CLAIMS to depend on an opportunity-cost assessment - a
+  reassessment, a proposal, a governed decision - binds the EXACT persisted
+  version. "Same session" and "the latest" are never sufficient.
+* A governance gate may never accept a hash that was computed but never
+  persisted. Retrievability is PROVEN by the artifact's owner and handed to the
+  gate as a fact; the gate itself stays pure and opens no store. Absence of the
+  proof is inadmissible and withholds.
+* Multiple same-session assessment versions are multiple ASSESSMENTS. They never
+  count as multiple turnover events or executed decisions; churn and cooldown
+  stay one row per economic session, in the reassessment owner.

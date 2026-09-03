@@ -1,7 +1,57 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R54.2.4 - REALLOCATION PROPOSAL COHERENCE +
+- **Updated by phase:** **R54.3 - SAME-SESSION HOC EVIDENCE VERSIONING +
+  RETRIEVABLE GOVERNANCE BINDING (single agent, no subagents, Windows
+  PowerShell only).** Built over the committed R54.2.4 head `3d2d311`. Full
+  narrative: `docs/RELEASE54_3_SAME_SESSION_HOC_EVIDENCE_VERSIONING.md`.
+  **The live defect (measured read-only, Sep 2-3):** the Holding
+  Opportunity-Cost store indexed exactly ONE artifact per (book, eligible
+  session), so every intraday cycle after the session's first computed a real
+  assessment that `persist_assessment` refused as `CONFLICT_REJECTED`. On
+  2026-09-02 three cycles ran: 23:32 persisted `hoc_..._702c599ee5b3`; the
+  01:33 and 02:33 cycles both produced `a162fca969c9...`, which was **never
+  persisted and never retrievable** - and the R54.2 reassessment version
+  `prs_..._029df5cdcda5` (23:51:50Z) had already bound that transient hash as
+  its HOC dependency. The event cycle published no HOC persistence field at
+  all, so nothing downstream could even detect it. A governance gate must never
+  accept an ephemeral hash as immutable evidence, so the governed intraday
+  decision was structurally unreachable. **The repair (append-only; no
+  historical artifact rewritten, no economics changed):** the HOC store now
+  separates the SAME THREE identities R54.2 established for the portfolio
+  reassessment, in the same vocabulary - ECONOMIC (`economic_state_hash`),
+  EVIDENCE (`assessment_evidence_hash` over 12 declared components, with
+  `EVIDENCE_EXCLUDED_PROVENANCE` naming every clock / run id / event-cycle id /
+  persistence stamp it may never contain) and CONCLUSION
+  (`decision_fingerprint`). Five outcomes: `REUSED_EXISTING` /
+  `CREATED_ASSESSMENT_VERSION` / `CREATED_NEW_VERSION` / `CONFLICT_REJECTED`
+  (identical evidence, different answer - still fail-closed) /
+  `REJECTED_INCONSISTENT_IDENTITY`. `load_artifact_versions` +
+  `load_artifact_by_id` make every version exactly retrievable forever.
+  `artifact_binding` / `resolve_binding` are the ONE downstream contract: the
+  reassessment, the proposal lineage and the governed candidate each record the
+  EXACT `hoc_artifact_id`, the event cycle publishes `hoc_persisted` /
+  `hoc_persistence_status`, and the gate gained SEVEN checks (38 -> 45) plus the
+  reason codes `HOC_ARTIFACT_NOT_PERSISTED` / `HOC_ARTIFACT_IDENTITY_MISMATCH`
+  (six of the seven fail with one of those two new codes; the seventh,
+  `HOC_EVIDENCE_IDENTITY_BOUND`, reuses the existing `HOC_IDENTITY_MISMATCH`).
+  The gate stays PURE - retrievability is proven by the artifact's owner and
+  handed in as a fact. **Live read-only verdict (backend NOT restarted, still
+  on the R54.2.4 runtime):** the current cycle's dependency resolves
+  `hoc_persisted=False, retrievable=False` and the gate now WITHHOLDS 30/45
+  with `HOC_ARTIFACT_NOT_PERSISTED` - the correct fail-closed answer for a
+  dependency that genuinely does not exist. Replaying the REAL production
+  artifact into a temp store proves the fix: it stays byte-identical and
+  exactly retrievable, an identical rerun is still `REUSED_EXISTING`, and the
+  assessment the live system has been refusing persists as
+  `CREATED_ASSESSMENT_VERSION` and then resolves as fully governable. Guard:
+  `check_release54_3_hoc_evidence_versioning` (18 blocking fields) +
+  `tests/test_release54_3_same_session_hoc_versioning.py` (61 tests). The
+  Slice-6 `test_52` legacy expectation was deliberately replaced (a second
+  assessment differing ONLY in the document-wide `portfolio_state_hash` is
+  `REUSED_EXISTING`, not a conflict - the Stage-21 trap), with the genuine
+  determinism conflict pinned separately in `test_52b`.
+- **Prior phase:** **R54.2.4 - REALLOCATION PROPOSAL COHERENCE +
   CURRENT-DECISION PRESENTATION + FIRST-CLASS INTRADAY REASSESSMENT VISIBILITY
   (single agent, no subagents, Windows PowerShell only).** Built over the
   committed R54.2.3.2 head `e5dc8c6f9`. Full narrative:
@@ -44,10 +94,10 @@
   CAT/CVS/DDOG) concluded HOLD, governance ELIGIBLE (no persisted gate verdict
   on the cycle payload), supersedes standing decision NO; the stale strip
   prints the truthful scheduled-review label. R54.3 (same-session HOC
-  evidence versioning) remains the dedicated next slice. Guard:
+  evidence versioning) closed the gap this phase named. Guard:
   `check_release54_2_4_reallocation_coherence` (15 blocking fields) +
   `tests/test_release54_2_4_reallocation_coherence.py` (51 tests).
-- **Prior phase:** **R54.2.3.2 - AUTHORITATIVE DECISION / PROPOSAL
+- **Earlier phase:** **R54.2.3.2 - AUTHORITATIVE DECISION / PROPOSAL
   SUPERSESSION RECONCILIATION (single agent, no subagents, Windows PowerShell
   only).** Built over the committed R54.2.3.1 head `b8133c58d`. Full narrative:
   `docs/RELEASE54_2_3_2_DECISION_PROPOSAL_SUPERSESSION.md`.

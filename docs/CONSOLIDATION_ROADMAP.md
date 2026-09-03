@@ -1418,3 +1418,23 @@ number moved and no gate changed:
 
 R54.3 (same-session HOC evidence versioning) and R54.4 remain the next slices,
 unchanged.
+
+## R54.3 - same-session HOC evidence versioning + retrievable governance binding (LANDED)
+
+- Extends the ONE canonical opportunity-cost owner so multiple legitimate
+  same-session assessments coexist immutably: three identity axes, five
+  persistence outcomes, an append-only version chain and an exact by-id read.
+  No new HOC engine, writer, store, intraday framework or governance framework.
+- Closes the gap R54.2.4 named: before this slice a persisted reassessment could
+  bind an opportunity-cost hash that had never become an artifact, so the
+  governed intraday decision was structurally unreachable and had to fail closed.
+- Downstream exact binding through `artifact_binding` / `resolve_binding`
+  (the io lives in the artifact's owner; the R54.1 gate stays pure), seven new
+  gate checks (38 -> 45) and two new withheld reason codes.
+- Legacy compatibility is explicit and tested against the REAL production
+  artifact: readable, exactly retrievable, comparable by recomputation, and
+  never rewritten.
+- Guarded by `check_release54_3_hoc_evidence_versioning` (18 strict-blocking
+  invariants) and `tests/test_release54_3_same_session_hoc_versioning.py` (61).
+
+R54.4 remains the next slice, unchanged.

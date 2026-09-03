@@ -231,6 +231,243 @@ def _f(x: Any) -> Optional[float]:
 
 
 # --------------------------------------------------------------------------- #
+# Release 54.3 — THE THREE HOC IDENTITY AXES
+#
+# Slice 6 asked ONE identity question — "is this the same assessment?" — answered
+# it with ``assessment_hash``, and indexed exactly ONE artifact per (book,
+# eligible session). Anything else arriving the same session was CONFLICT_REJECTED.
+# That was safe (an immutable artifact was never overwritten) and correct for a
+# once-a-day governed cycle.
+#
+# Continuous intraday management breaks it. The book can be economically identical
+# all session — same holdings, same cash, same NAV — while the evidence behind the
+# opportunity-cost conclusion moves: a newer ranking, a newer owned price window, a
+# prior-rank snapshot that only just became available. That is a NEW point-in-time
+# assessment of an unchanged portfolio, and refusing it stranded the system on the
+# first artifact of the session: every later cycle computed a real HOC result that
+# existed only in memory, and every reassessment built on it bound an
+# ``hoc_assessment_hash`` nobody could ever retrieve. A governance gate must never
+# accept an ephemeral hash as immutable evidence, so the governed intraday decision
+# could not be reached at all.
+#
+# R54.3 separates the three questions Release 54.2 already separated for the
+# portfolio reassessment, using the SAME words — one vocabulary, not two:
+#
+#   1. ECONOMIC IDENTITY   "which portfolio is this about?"  economic_state_hash
+#   2. EVIDENCE IDENTITY   "which observations produced it?" assessment_evidence_hash
+#   3. CONCLUSION IDENTITY "what did it conclude?"           decision_fingerprint
+#
+# The evidence identity binds CANONICAL BOUND EVIDENCE ONLY — every component is an
+# input the kernel demonstrably consumes. It deliberately EXCLUDES:
+#   * ``portfolio_state_hash``  — the Stage-21 trap: that document-wide hash embeds
+#     this assessment's own output (via api.daily_action_gate), so it drifts the
+#     moment the artifact is written and would make every rerun look different;
+#   * ``economic_state_hash``   — that is the OTHER axis, compared separately;
+#   * ``assessment_hash``       — the CONCLUSION, not the evidence behind it, and
+#     self-referential besides;
+#   * wall clock, request id, run id, event-cycle id, scheduler invocation id, the
+#     materiality trigger fingerprint and the persistence timestamp — provenance,
+#     never identity. Two triggers reaching the same conclusion from the same
+#     evidence are ONE assessment; versioning them twice is evidence noise, which
+#     is exactly what a poll-driven cycle generates.
+# --------------------------------------------------------------------------- #
+ASSESSMENT_EVIDENCE_IDENTITY_VERSION = (
+    "holding_opportunity_cost.assessment_evidence_identity.v1")
+
+#: The bound-evidence components that make one assessment of an unchanged
+#: portfolio materially different from another. Each is either already published
+#: by the Slice-6 input contract or is a deterministic fingerprint of a raw kernel
+#: input that the contract carries — R54.3 introduces no new evidence SOURCE.
+ASSESSMENT_EVIDENCE_COMPONENTS = (
+    "universe_scoring_hash",
+    "universe_input_contract_hash",
+    "scoring_ranking_date",
+    "corporate_actions_hash",
+    "holdings_snapshot_fingerprint",
+    "market_data_fingerprint",
+    "previous_ranking_fingerprint",
+    "prior_signal_fingerprint",
+    "policy_fingerprint",
+    "decision_policy_version",
+    "cost_policy_version",
+    "inputs_as_of_eligible_date",
+)
+
+#: Provenance that must NEVER reach the evidence hash. Named explicitly so the
+#: exclusion is testable rather than merely intended.
+EVIDENCE_EXCLUDED_PROVENANCE = (
+    "generated_at", "persisted_at", "now", "wall_clock", "request_id", "run_id",
+    "drc_run_id", "event_cycle_id", "scheduler_invocation_id",
+    "materiality_trigger_fingerprint", "materiality_event_timestamp",
+    "portfolio_state_hash", "economic_state_hash", "assessment_hash",
+    "artifact_id",
+)
+
+
+def holdings_snapshot_fingerprint(input_contract: Optional[dict]) -> Optional[str]:
+    """WHAT was held, at what weight and value, as ONE fingerprint.
+
+    The kernel reads every one of these fields (weights drive concentration, HHI,
+    risk contributions and the name-cap breach; market value drives days-to-
+    liquidate), so a change in any of them is genuinely different evidence. It is
+    a SAFETY NET on the evidence axis rather than the economic axis: when the
+    state owner publishes no ``economic_state_hash`` (a legacy artifact, a
+    hermetic caller), a real holdings change still creates a VERSION instead of
+    being mistaken for identical evidence with a different answer.
+    """
+    ic = input_contract or {}
+    pre = ic.get("holdings_snapshot_fingerprint")
+    if pre:
+        return pre
+    rows = ic.get("positions")
+    if not rows:
+        return None
+    return kernel.stable_hash([
+        {"ticker": p.get("ticker"), "sector": p.get("sector"),
+         "quantity": p.get("quantity"), "current_weight": p.get("current_weight"),
+         "market_value": p.get("market_value"), "price": p.get("price")}
+        for p in sorted(rows, key=lambda p: str(p.get("ticker") or ""))])
+
+
+def market_data_fingerprint(input_contract: Optional[dict]) -> Optional[str]:
+    """The OWNED market window this assessment actually saw, as ONE fingerprint.
+
+    Trailing closes, median dollar volume and the aligned return matrix determine
+    trailing return, realised volatility, max drawdown, days-to-liquidate and the
+    covariance risk contributions. A newer owned window is therefore materially
+    different evidence about an unchanged portfolio — the single most common
+    reason a same-session intraday assessment legitimately differs. Nothing here
+    is a clock: the fingerprint covers the DATA, and an unchanged window
+    reproduces the identical value however many times it is read.
+    """
+    ic = input_contract or {}
+    pre = ic.get("market_data_fingerprint")
+    if pre:
+        return pre
+    trailing = ic.get("trailing_prices") or {}
+    mdv = ic.get("median_dollar_volume") or {}
+    aligned = ic.get("aligned_returns") or {}
+    if not (trailing or mdv or aligned):
+        return None
+    return kernel.stable_hash({
+        "trailing": {tk: {"dates": (trailing.get(tk) or {}).get("dates"),
+                          "adj": (trailing.get(tk) or {}).get("adj"),
+                          "ret": (trailing.get(tk) or {}).get("ret")}
+                     for tk in sorted(trailing)},
+        "median_dollar_volume": {tk: mdv.get(tk) for tk in sorted(mdv)},
+        "aligned_dates": aligned.get("dates"),
+        "aligned_series": {tk: (aligned.get("series") or {}).get(tk)
+                           for tk in sorted(aligned.get("series") or {})},
+    })
+
+
+def previous_ranking_fingerprint(input_contract: Optional[dict]) -> Optional[str]:
+    """The point-in-time PRIOR-rank snapshot, as ONE fingerprint.
+
+    Rank CHANGE is what the deterioration rule reads, so a prior snapshot that
+    became available (or resolved to a different session) changes what the
+    assessment is entitled to conclude. Its availability state and source date
+    are part of the same fact and travel with it.
+    """
+    ic = input_contract or {}
+    pre = ic.get("previous_ranking_fingerprint")
+    if pre:
+        return pre
+    prev = ic.get("previous_ranking")
+    state = ic.get("previous_ranking_state")
+    src = ic.get("previous_ranking_source_date")
+    if prev is None and state is None and src is None:
+        return None
+    return kernel.stable_hash({
+        "state": state, "source_date": src,
+        "ranks": ({k: prev[k] for k in sorted(prev)} if isinstance(prev, dict)
+                  else prev)})
+
+
+def prior_signal_fingerprint(input_contract: Optional[dict]) -> Optional[str]:
+    """The prior-signal inputs the kernel was handed, as ONE fingerprint."""
+    ic = input_contract or {}
+    pre = ic.get("prior_signal_fingerprint")
+    if pre:
+        return pre
+    sig = ic.get("prior_signal")
+    if not sig:
+        return None
+    return kernel.stable_hash(sig)
+
+
+def policy_fingerprint(input_contract: Optional[dict] = None,
+                       result: Optional[dict] = None) -> Optional[str]:
+    """The RESOLVED decision/cost policy this assessment was run under.
+
+    The frozen ``decision_policy_version`` / ``cost_policy_version`` labels are
+    already separate components; this covers the resolved NUMERIC policy (entry
+    rank, exit buffer, sector cap, name cap, liquidity floor, cost rate), because
+    a construction constant moving silently changes every recommendation. It is
+    read from the assessment the kernel itself published, which is exactly what a
+    persisted artifact carries — so a historical artifact stays comparable.
+    """
+    ic = input_contract or {}
+    pre = ic.get("policy_fingerprint")
+    if pre:
+        return pre
+    pol = (result or {}).get("policy")
+    if not pol:
+        return None
+    return kernel.stable_hash(pol)
+
+
+def assessment_evidence_identity(*, input_contract: Optional[dict] = None,
+                                 result: Optional[dict] = None) -> dict:
+    """The evidence identity of ONE opportunity-cost assessment.
+
+    Accepts a FULL or a COMPACTED input contract — both publish the same component
+    names (the compacted one carries the fingerprints precomputed at write time),
+    so a historical artifact stays comparable without a single byte of it being
+    rewritten.
+    """
+    ic = input_contract or {}
+    return {
+        "universe_scoring_hash": ic.get("universe_scoring_hash"),
+        "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
+        "scoring_ranking_date": ic.get("scoring_ranking_date"),
+        "corporate_actions_hash": ic.get("corporate_actions_hash"),
+        "holdings_snapshot_fingerprint": holdings_snapshot_fingerprint(ic),
+        "market_data_fingerprint": market_data_fingerprint(ic),
+        "previous_ranking_fingerprint": previous_ranking_fingerprint(ic),
+        "prior_signal_fingerprint": prior_signal_fingerprint(ic),
+        "policy_fingerprint": policy_fingerprint(ic, result),
+        "decision_policy_version": DECISION_POLICY_VERSION,
+        "cost_policy_version": COST_POLICY_VERSION,
+        "inputs_as_of_eligible_date": ic.get("inputs_as_of_eligible_date"),
+    }
+
+
+def assessment_evidence_hash(evidence: Optional[dict]) -> str:
+    ev = evidence or {}
+    return kernel.stable_hash({"schema": ASSESSMENT_EVIDENCE_IDENTITY_VERSION,
+                               **{k: ev.get(k)
+                                  for k in ASSESSMENT_EVIDENCE_COMPONENTS}})
+
+
+def decision_fingerprint(result: Optional[dict]) -> Optional[str]:
+    """The CONCLUSION alone, stripped of provenance.
+
+    ``assessment_hash`` covers the whole kernel result INCLUDING ``provenance``,
+    which carries ``portfolio_state_hash`` — so two runs can differ in that hash
+    while having reached an identical conclusion from identical evidence.
+    Comparing the conclusion directly is what separates "the same assessment,
+    re-run" from "identical evidence produced a DIFFERENT answer", and only the
+    second is a genuine conflict.
+    """
+    res = result or {}
+    if not res:
+        return None
+    return kernel.stable_hash({k: v for k, v in res.items()
+                               if k not in ("provenance", "assessment_hash")})
+
+
+# --------------------------------------------------------------------------- #
 # Artifact identity (Workstream H)
 # --------------------------------------------------------------------------- #
 def artifact_identity(*, input_contract: dict, result: dict) -> dict:
@@ -238,12 +475,25 @@ def artifact_identity(*, input_contract: dict, result: dict) -> dict:
         "eligible_market_date": input_contract.get("eligible_market_date"),
         "active_book_id": input_contract.get("active_book_id"),
         "portfolio_state_hash": input_contract.get("portfolio_state_hash"),
+        # Stage 21 (Workstream 0E) — the ECONOMIC fingerprint of the portfolio this
+        # assessment describes. R54.3's economic axis; NEVER ``portfolio_state_hash``
+        # above, which embeds this assessment's own output.
+        "economic_state_hash": input_contract.get("economic_state_hash"),
         # Stage 19.1 — the corporate-action registry the holdings/NAV this assessment
         # consumed were projected through.
         "corporate_actions_hash": input_contract.get("corporate_actions_hash"),
         "universe_scoring_hash": input_contract.get("universe_scoring_hash"),
         "decision_policy_version": DECISION_POLICY_VERSION,
         "assessment_hash": result.get("assessment_hash"),
+        # Release 54.3 — the two identities that decide same-session versioning.
+        # ``assessment_evidence_hash`` answers "is this the same ASSESSMENT?" and
+        # ``decision_fingerprint`` answers "is this the same CONCLUSION?"; the
+        # economic axis stays ``economic_state_hash`` above.
+        "assessment_evidence_identity_version": ASSESSMENT_EVIDENCE_IDENTITY_VERSION,
+        "assessment_evidence_hash": assessment_evidence_hash(
+            assessment_evidence_identity(input_contract=input_contract,
+                                         result=result)),
+        "decision_fingerprint": decision_fingerprint(result),
     }
 
 
@@ -258,7 +508,7 @@ def _index_key(active_book_id: Optional[str], eligible_market_date: Optional[str
     return "%s|%s" % (active_book_id or "?", eligible_market_date or "?")
 
 
-def _compact_input_contract(ic: dict) -> dict:
+def _compact_input_contract(ic: dict, result: Optional[dict] = None) -> dict:
     return {
         "schema_version": INPUT_SCHEMA_VERSION,
         "eligible_market_date": ic.get("eligible_market_date"),
@@ -266,10 +516,14 @@ def _compact_input_contract(ic: dict) -> dict:
         "active_book_label": ic.get("active_book_label"),
         "valuation_date": ic.get("valuation_date"),
         "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        # Stage 21 (Workstream 0E) — persist BOTH sides of the currency comparison.
+        "economic_state_hash": ic.get("economic_state_hash"),
+        "economic_identity_version": ic.get("economic_identity_version"),
         "corporate_actions_hash": ic.get("corporate_actions_hash"),
         "universe_scoring_hash": ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
         "scoring_input_fingerprints": ic.get("scoring_input_fingerprints"),
+        "scoring_ranking_date": ic.get("scoring_ranking_date"),
         "cost_policy_version": COST_POLICY_VERSION,
         "decision_policy_version": DECISION_POLICY_VERSION,
         "positions_count": len(ic.get("positions") or []),
@@ -278,6 +532,15 @@ def _compact_input_contract(ic: dict) -> dict:
         "previous_ranking_reason": ic.get("previous_ranking_reason"),
         "previous_ranking_source_date": ic.get("previous_ranking_source_date"),
         "inputs_as_of_eligible_date": ic.get("inputs_as_of_eligible_date"),
+        # Release 54.3 — the raw kernel inputs are far too large to persist whole,
+        # so their DETERMINISTIC fingerprints are persisted instead. This is what
+        # lets the NEXT persist decide the version question, and lets an auditor
+        # re-derive the evidence identity, from the compacted contract alone.
+        "holdings_snapshot_fingerprint": holdings_snapshot_fingerprint(ic),
+        "market_data_fingerprint": market_data_fingerprint(ic),
+        "previous_ranking_fingerprint": previous_ranking_fingerprint(ic),
+        "prior_signal_fingerprint": prior_signal_fingerprint(ic),
+        "policy_fingerprint": policy_fingerprint(ic, result),
     }
 
 
@@ -634,18 +897,138 @@ def run_assessment(*, input_contract: Optional[dict] = None,
 
 
 # --------------------------------------------------------------------------- #
-# Persist (immutable artifact) — Workstream H
+# Persist (immutable artifact) — Workstream H / Release 54.3 version chain
 # --------------------------------------------------------------------------- #
+#: Release 54.3 — the persistence outcomes, named once and spelled exactly as the
+#: portfolio-reassessment owner spells them (R54.2). ``CREATED_ASSESSMENT_VERSION``
+#: is the new one: the SAME economic portfolio, assessed again from materially
+#: different evidence.
+PERSIST_CREATED = "CREATED"
+PERSIST_REUSED = "REUSED_EXISTING"
+PERSIST_ECONOMIC_VERSION = "CREATED_NEW_VERSION"
+PERSIST_ASSESSMENT_VERSION = "CREATED_ASSESSMENT_VERSION"
+PERSIST_CONFLICT = "CONFLICT_REJECTED"
+PERSIST_INCONSISTENT = "REJECTED_INCONSISTENT_IDENTITY"
+PERSIST_NOT_PERSISTED = "NOT_PERSISTED"
+PERSIST_STATUS_VOCAB = (PERSIST_CREATED, PERSIST_REUSED, PERSIST_ECONOMIC_VERSION,
+                        PERSIST_ASSESSMENT_VERSION, PERSIST_CONFLICT,
+                        PERSIST_INCONSISTENT, PERSIST_NOT_PERSISTED)
+#: The outcomes that leave an exact, retrievable immutable artifact behind.
+PERSIST_SUCCESS_STATUSES = (PERSIST_CREATED, PERSIST_REUSED,
+                            PERSIST_ECONOMIC_VERSION, PERSIST_ASSESSMENT_VERSION)
+
+
+def _read_indexed_artifact(entry: Optional[dict], hoc_dir=None) -> Optional[dict]:
+    if not entry:
+        return None
+    art = _load_json(Path(entry.get("path"))) if entry.get("path") else None
+    if art is None and entry.get("artifact_id"):
+        art = _load_json(_artifacts_dir(hoc_dir) / ("%s.json" % entry.get("artifact_id")))
+    return art if isinstance(art, dict) else None
+
+
+def _existing_assessment_identity(existing: Optional[dict], hoc_dir=None) -> tuple:
+    """``(assessment_evidence_hash, decision_fingerprint)`` of the indexed artifact.
+
+    An index entry written before R54.3 carries neither. Rather than reinterpreting
+    such an artifact — or rewriting it — both values are RECOMPUTED from what it
+    already persisted: its own identity, its own compacted input contract and its
+    own result. A historical artifact therefore becomes comparable without a single
+    byte of it changing. What cannot be derived stays ``None``, and ``None`` is
+    never treated as a match.
+    """
+    if not existing:
+        return None, None
+    ev_hash = existing.get("assessment_evidence_hash")
+    fingerprint = existing.get("decision_fingerprint")
+    if ev_hash and fingerprint:
+        return ev_hash, fingerprint
+    art = _read_indexed_artifact(existing, hoc_dir) or {}
+    ident = art.get("identity") or {}
+    if not ev_hash:
+        ev_hash = ident.get("assessment_evidence_hash")
+    if not ev_hash:
+        ic = art.get("input_contract") or {}
+        if ic or ident:
+            merged = {**ident, **{k: v for k, v in ic.items() if v is not None}}
+            ev_hash = assessment_evidence_hash(assessment_evidence_identity(
+                input_contract=merged, result=art.get("assessment")))
+    if not fingerprint:
+        fingerprint = (ident.get("decision_fingerprint")
+                       or decision_fingerprint(art.get("assessment")))
+    return ev_hash, fingerprint
+
+
+def _session_identity_conflicts(*, identity: dict, input_contract: dict,
+                                result: dict) -> list[str]:
+    """Point-in-time self-consistency (R54.3 Phase C case 5). An artifact whose own
+    parts disagree about WHICH session or WHICH book it describes is impossible
+    evidence and is never written — versioning relaxes no point-in-time rule."""
+    ic = input_contract or {}
+    res = result or {}
+    elig = identity.get("eligible_market_date")
+    book = identity.get("active_book_id")
+    out: list[str] = []
+
+    def _clash(label, a, b):
+        if a is not None and b is not None and a != b:
+            out.append("%s (%s != %s)" % (label, a, b))
+
+    _clash("IDENTITY_VS_RESULT_SESSION", elig, res.get("eligible_market_date"))
+    _clash("IDENTITY_VS_CONTRACT_SESSION", elig, ic.get("eligible_market_date"))
+    _clash("IDENTITY_VS_RESULT_BOOK", book, res.get("active_book_id"))
+    _clash("IDENTITY_VS_CONTRACT_BOOK", book, ic.get("active_book_id"))
+    return out
+
+
+def _unique_artifact_id(aid: str, identity: dict, hoc_dir=None) -> str:
+    """Never let a new VERSION land on an existing artifact's path.
+
+    ``artifact_id_for`` embeds ``assessment_hash``, so a collision means the two
+    versions produced an identical kernel result — but if their identities differ
+    the older file must still not be rewritten. Immutability is enforced here
+    rather than assumed from the id scheme, and the suffix is DETERMINISTIC (the
+    evidence hash), never a clock or a random token.
+    """
+    path = _artifacts_dir(hoc_dir) / ("%s.json" % aid)
+    if not path.exists():
+        return aid
+    prior = _load_json(path) or {}
+    if (prior.get("identity") or {}) == identity:
+        return aid
+    return "%s_%s" % (aid, (identity.get("assessment_evidence_hash") or "v")[:8])
+
+
 def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
                        now: Optional[datetime] = None,
                        produced_by: Any = None, drc_run_id: Any = None) -> dict:
     """Persist a completed production assessment as an immutable artifact.
 
-    Idempotent: an identical re-run (same identity incl. assessment_hash) reuses the
-    existing artifact. A CONFLICTING artifact (same book+date but different
-    portfolio/universe/assessment hash) is REJECTED — the immutable artifact is never
-    overwritten. Only production READY / DEGRADED assessments are persisted; BLOCKED /
-    NO_ACTIVE_BOOK are not (nothing durable to record).
+    Release 54.3 — FIVE outcomes, decided on the three independent identity axes
+    (the ECONOMIC portfolio, the ASSESSMENT EVIDENCE about it, and the CONCLUSION):
+
+      1. same economic state + same evidence + same conclusion
+         -> ``REUSED_EXISTING``. Idempotent: no second artifact. Re-running a
+            cycle from unchanged evidence is not a new assessment.
+      2. same economic state + materially DIFFERENT assessment evidence
+         -> ``CREATED_ASSESSMENT_VERSION``. A NEW immutable version is APPENDED.
+            The portfolio being economically unchanged does not mean the
+            opportunity-cost assessment is unchanged, and refusing this is what
+            stranded continuous intraday management on the session's first
+            artifact and left every later reassessment binding an unretrievable
+            hash.
+      3. the ECONOMIC state itself changed (holdings / cash / NAV / corporate
+         actions) -> ``CREATED_NEW_VERSION``.
+      4. same economic state + same evidence + a DIFFERENT conclusion
+         -> ``CONFLICT_REJECTED``. Identical evidence yielding a different answer
+            is not a new assessment, it is a determinism failure; the immutable
+            artifact is never overwritten and the caller must resolve it.
+      5. the artifact's own parts disagree about the session or the book
+         -> ``REJECTED_INCONSISTENT_IDENTITY``. Impossible evidence, never written.
+
+    Only production READY / DEGRADED assessments are persisted; BLOCKED /
+    NO_ACTIVE_BOOK are not (nothing durable to record). NO artifact is EVER
+    rewritten, in any outcome.
 
     Release 29.5 — ``produced_by`` / ``drc_run_id`` record WHO produced this artifact
     (see ``build_provenance``). They are written on CREATION only: reuse returns the
@@ -656,29 +1039,85 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
     """
     state = result.get("assessment_state")
     if state not in (STATE_READY, STATE_DEGRADED):
-        return {"status": "NOT_PERSISTED", "reason": "STATE_%s_NOT_PERSISTABLE" % state,
-                "artifact_id": None, "persisted": False, "reused": False, "conflict": False}
+        return {"status": PERSIST_NOT_PERSISTED,
+                "reason": "STATE_%s_NOT_PERSISTABLE" % state,
+                "artifact_id": None, "persisted": False, "reused": False,
+                "conflict": False, "economic_state_changed": False,
+                "assessment_evidence_changed": False}
 
     identity = artifact_identity(input_contract=input_contract, result=result)
+    conflicts = _session_identity_conflicts(identity=identity,
+                                            input_contract=input_contract,
+                                            result=result)
+    if conflicts:
+        return {"status": PERSIST_INCONSISTENT, "artifact_id": None,
+                "persisted": False, "reused": False, "conflict": True,
+                "economic_state_changed": False,
+                "assessment_evidence_changed": False,
+                "identity_conflicts": conflicts,
+                "reason": "The assessment's own parts disagree about the session or "
+                          "the book it describes: %s. Impossible evidence is never "
+                          "persisted." % "; ".join(conflicts),
+                "identity": identity}
+
     aid = artifact_id_for(identity)
     key = _index_key(identity["active_book_id"], identity["eligible_market_date"])
     index = _load_json(_index_path(hoc_dir)) or {}
+    if not isinstance(index, dict):
+        index = {}
     existing = index.get(key)
 
-    if existing:
-        if existing.get("assessment_hash") == identity["assessment_hash"]:
-            return {"status": "REUSED_EXISTING", "artifact_id": existing.get("artifact_id"),
-                    "path": existing.get("path"), "persisted": True, "reused": True,
-                    "conflict": False, "identity": identity}
-        # Same book+date, different content -> a conflicting contract. Never overwrite.
-        return {"status": "CONFLICT_REJECTED", "artifact_id": aid,
+    # EXACT idempotency first, and independently of every other axis: the same
+    # kernel result is the same assessment, whatever a legacy index entry can or
+    # cannot tell us about the evidence behind it.
+    if existing and existing.get("assessment_hash") == identity["assessment_hash"]:
+        return {"status": PERSIST_REUSED, "artifact_id": existing.get("artifact_id"),
+                "path": existing.get("path"), "persisted": True, "reused": True,
+                "conflict": False, "economic_state_changed": False,
+                "assessment_evidence_changed": False, "identity": identity}
+
+    new_econ = identity.get("economic_state_hash")
+    prior_econ = existing.get("economic_state_hash") if existing else None
+    economic_state_changed = bool(existing and new_econ and prior_econ
+                                  and new_econ != prior_econ)
+
+    prior_evidence_hash, prior_fingerprint = _existing_assessment_identity(
+        existing, hoc_dir)
+    new_evidence_hash = identity.get("assessment_evidence_hash")
+    new_fingerprint = identity.get("decision_fingerprint")
+    assessment_evidence_changed = bool(
+        existing and not economic_state_changed
+        and new_evidence_hash and prior_evidence_hash
+        and new_evidence_hash != prior_evidence_hash)
+
+    if existing and not economic_state_changed and not assessment_evidence_changed:
+        # Same portfolio, same evidence. Either it is the same conclusion — a
+        # re-run whose only difference is the document-wide state hash, which
+        # embeds this assessment's own output (the Stage-21 trap) — or identical
+        # evidence produced a different answer, which is a determinism failure and
+        # never a version.
+        if (new_fingerprint and prior_fingerprint
+                and new_fingerprint == prior_fingerprint):
+            return {"status": PERSIST_REUSED,
+                    "artifact_id": existing.get("artifact_id"),
+                    "path": existing.get("path"), "persisted": True,
+                    "reused": True, "conflict": False,
+                    "economic_state_changed": False,
+                    "assessment_evidence_changed": False, "identity": identity}
+        return {"status": PERSIST_CONFLICT, "artifact_id": aid,
                 "existing_artifact_id": existing.get("artifact_id"),
                 "existing_assessment_hash": existing.get("assessment_hash"),
                 "persisted": False, "reused": False, "conflict": True,
-                "reason": "An immutable artifact already exists for this book+eligible date "
-                          "with a different input/assessment hash; not overwritten.",
+                "economic_state_changed": False,
+                "assessment_evidence_changed": False,
+                "reason": "An immutable opportunity-cost artifact already exists for "
+                          "this book + eligible date, bound to the SAME economic state "
+                          "and the SAME assessment evidence, but recording a different "
+                          "conclusion; it was not overwritten.",
                 "identity": identity}
 
+    if existing:
+        aid = _unique_artifact_id(aid, identity, hoc_dir)
     payload = {
         "artifact_id": aid,
         "schema_version": SCHEMA_VERSION,
@@ -687,37 +1126,225 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
         PROVENANCE_KEY: build_provenance(producer_owner=produced_by,
                                          drc_run_id=drc_run_id),
         "identity": identity,
-        "input_contract": _compact_input_contract(input_contract),
+        "input_contract": _compact_input_contract(input_contract, result),
         "assessment": result,
     }
     path = _artifacts_dir(hoc_dir) / ("%s.json" % aid)
     _atomic_write_json(path, payload)
+    entry = {"artifact_id": aid, "path": str(path),
+             "assessment_hash": identity["assessment_hash"],
+             "portfolio_state_hash": identity["portfolio_state_hash"],
+             "economic_state_hash": identity.get("economic_state_hash"),
+             # Release 54.3 — indexed so the NEXT persist decides the version
+             # question without reopening every artifact of the session.
+             "assessment_evidence_hash": identity.get("assessment_evidence_hash"),
+             "decision_fingerprint": identity.get("decision_fingerprint"),
+             "universe_scoring_hash": identity["universe_scoring_hash"],
+             "decision_policy_version": identity["decision_policy_version"],
+             "eligible_market_date": identity["eligible_market_date"],
+             "active_book_id": identity["active_book_id"],
+             "supersedes_artifact_id": ((existing or {}).get("artifact_id")
+                                        if existing else None),
+             "generated_at": payload["generated_at"]}
     # Update the index AFTER the artifact write (interrupted-write recoverable: an
-    # unindexed artifact is simply re-created on the next identical run).
-    index[key] = {"artifact_id": aid, "path": str(path),
-                  "assessment_hash": identity["assessment_hash"],
-                  "portfolio_state_hash": identity["portfolio_state_hash"],
-                  "universe_scoring_hash": identity["universe_scoring_hash"],
-                  "decision_policy_version": identity["decision_policy_version"],
-                  "eligible_market_date": identity["eligible_market_date"],
-                  "active_book_id": identity["active_book_id"],
-                  "generated_at": payload["generated_at"]}
+    # unindexed artifact is simply re-created on the next identical run). The newest
+    # version sits at the top level — backward compatible for every existing reader —
+    # and the full append-only chain is preserved under ``versions`` so a superseded
+    # artifact stays discoverable and is never rewritten.
+    prior_versions = list((existing or {}).get("versions") or [])
+    if existing and not prior_versions:
+        prior_versions = [{k: v for k, v in existing.items() if k != "versions"}]
+    index[key] = {**entry, "versions": prior_versions + [entry]}
     _atomic_write_json(_index_path(hoc_dir), index)
-    return {"status": "CREATED", "artifact_id": aid, "path": str(path),
-            "persisted": True, "reused": False, "conflict": False, "identity": identity}
+    if economic_state_changed:
+        status = PERSIST_ECONOMIC_VERSION
+    elif assessment_evidence_changed:
+        status = PERSIST_ASSESSMENT_VERSION
+    else:
+        status = PERSIST_CREATED
+    return {"status": status, "artifact_id": aid, "path": str(path),
+            "persisted": True, "reused": False, "conflict": False,
+            "economic_state_changed": economic_state_changed,
+            "assessment_evidence_changed": assessment_evidence_changed,
+            "version_index": len(index[key]["versions"]),
+            "prior_assessment_evidence_hash": prior_evidence_hash,
+            "superseded_artifact_id": ((existing or {}).get("artifact_id")
+                                       if existing else None),
+            "identity": identity}
 
 
 def load_latest_artifact(*, active_book_id: Optional[str],
-                         eligible_market_date: Optional[str], hoc_dir=None) -> Optional[dict]:
-    """Load the persisted artifact for an exact (active book, eligible date), or None."""
+                         eligible_market_date: Optional[str], hoc_dir=None,
+                         economic_state_hash: Optional[str] = None) -> Optional[dict]:
+    """Load the persisted artifact for an exact (active book, eligible date), or None.
+
+    Release 54.3: when ``economic_state_hash`` is supplied the lookup resolves the
+    NEWEST version bound to exactly that economic state, so a session that produced
+    more than one version (because the portfolio genuinely changed mid-session)
+    resolves the CURRENT-state assessment rather than the first one written that
+    day. With no hint, the newest version wins. Superseded versions stay on disk
+    and stay readable; nothing is rewritten.
+    """
     index = _load_json(_index_path(hoc_dir)) or {}
+    if not isinstance(index, dict):
+        return None
     entry = index.get(_index_key(active_book_id, eligible_market_date))
     if not entry:
         return None
-    art = _load_json(Path(entry.get("path"))) if entry.get("path") else None
-    if art is None:
-        art = _load_json(_artifacts_dir(hoc_dir) / ("%s.json" % entry.get("artifact_id")))
-    return art
+    if economic_state_hash:
+        versions = list(entry.get("versions") or [entry])
+        for v in reversed(versions):
+            if v.get("economic_state_hash") == economic_state_hash:
+                art = _read_indexed_artifact(v, hoc_dir)
+                if art is not None:
+                    return art
+    return _read_indexed_artifact(entry, hoc_dir)
+
+
+def load_artifact_versions(*, active_book_id: Optional[str],
+                           eligible_market_date: Optional[str],
+                           hoc_dir=None) -> list[dict]:
+    """The append-only version chain for ONE (book, session), oldest first.
+
+    Release 54.3 — a session may now hold more than one immutable opportunity-cost
+    assessment. The chain is the audit surface: every version that was ever
+    authoritative, in the order it became so. The LAST entry is the current one.
+    """
+    index = _load_json(_index_path(hoc_dir)) or {}
+    if not isinstance(index, dict):
+        return []
+    entry = index.get(_index_key(active_book_id, eligible_market_date))
+    if not entry:
+        return []
+    versions = list(entry.get("versions") or [])
+    return versions or [{k: v for k, v in entry.items() if k != "versions"}]
+
+
+def load_artifact_by_id(*, artifact_id: str, active_book_id: Optional[str] = None,
+                        eligible_market_date: Optional[str] = None,
+                        hoc_dir=None) -> Optional[dict]:
+    """Load ONE historical artifact by its exact id.
+
+    Release 54.3 — an explicit-id read is immutable by construction: it resolves
+    the artifact FILE itself and never the index pointer, so a caller holding an
+    older ``hoc_artifact_id`` keeps receiving exactly the assessment it referenced,
+    however many later versions the session acquired. This is the read the
+    governance gate's retrievability proof depends on.
+    """
+    if not artifact_id:
+        return None
+    art = _load_json(_artifacts_dir(hoc_dir) / ("%s.json" % artifact_id))
+    if isinstance(art, dict):
+        return art
+    for v in load_artifact_versions(active_book_id=active_book_id,
+                                    eligible_market_date=eligible_market_date,
+                                    hoc_dir=hoc_dir):
+        if v.get("artifact_id") == artifact_id:
+            return _read_indexed_artifact(v, hoc_dir)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Release 54.3 — THE DOWNSTREAM BINDING CONTRACT
+#
+# Everything that claims to depend on an opportunity-cost assessment — a portfolio
+# reassessment, a reallocation proposal, a governed portfolio decision — must bind
+# the EXACT persisted version, not "the same session" and not "the latest". This
+# owner publishes that binding once, and it is copied verbatim downstream.
+# --------------------------------------------------------------------------- #
+BINDING_SCHEMA_VERSION = "holding_opportunity_cost.binding.v1"
+
+
+def artifact_binding(persistence: Optional[dict] = None,
+                     artifact: Optional[dict] = None) -> dict:
+    """The exact-version binding a downstream consumer must record.
+
+    Composed from THIS owner's own persistence outcome (preferred) or from a
+    persisted artifact document. ``hoc_persisted`` is the load-bearing field: it
+    is True only when the write left an exact, retrievable immutable artifact
+    behind. A refused write stays visible AS a refused write — this function
+    never repairs, defaults or infers one.
+    """
+    p = persistence or {}
+    art = artifact or {}
+    ident = (art.get("identity") or {}) if art else ((p.get("identity") or {}))
+    status = p.get("status") if p else (PERSIST_REUSED if art else None)
+    return {
+        "schema_version": BINDING_SCHEMA_VERSION,
+        "hoc_owner": COMPOSITION_OWNER,
+        "hoc_artifact_id": (p.get("artifact_id") or art.get("artifact_id")),
+        "hoc_assessment_hash": ident.get("assessment_hash"),
+        "hoc_assessment_evidence_hash": ident.get("assessment_evidence_hash"),
+        "hoc_decision_fingerprint": ident.get("decision_fingerprint"),
+        "hoc_economic_state_hash": ident.get("economic_state_hash"),
+        "hoc_eligible_market_date": ident.get("eligible_market_date"),
+        "hoc_active_book_id": ident.get("active_book_id"),
+        "hoc_persistence_status": status,
+        "hoc_persisted": bool(status in PERSIST_SUCCESS_STATUSES),
+        "hoc_assessment_evidence_changed": p.get("assessment_evidence_changed"),
+        "hoc_economic_state_changed": p.get("economic_state_changed"),
+        "hoc_supersedes_artifact_id": p.get("superseded_artifact_id"),
+        "hoc_version_index": p.get("version_index"),
+    }
+
+
+def resolve_binding(*, binding: Optional[dict] = None,
+                    persistence: Optional[dict] = None,
+                    active_book_id: Optional[str] = None,
+                    eligible_market_date: Optional[str] = None,
+                    hoc_dir=None) -> dict:
+    """PROVE that a claimed binding names an artifact that actually exists on disk.
+
+    This is the io half of the contract, and it lives here because this module is
+    the ONE owner of the artifact store. It reads the exact artifact by id and
+    reports what it found; it decides no governance and repairs nothing. The
+    governance gate stays pure and consumes ``hoc_artifact_retrievable`` /
+    ``hoc_artifact_identity_matches`` as facts.
+    """
+    b = dict(binding or artifact_binding(persistence))
+    aid = b.get("hoc_artifact_id")
+    art = None
+    if aid:
+        art = load_artifact_by_id(artifact_id=aid, active_book_id=active_book_id,
+                                  eligible_market_date=eligible_market_date,
+                                  hoc_dir=hoc_dir)
+    ident = (art or {}).get("identity") or {}
+    found = art is not None
+    claimed_hash = b.get("hoc_assessment_hash")
+    stored_hash = ident.get("assessment_hash")
+    hash_ok = (found and claimed_hash is not None and stored_hash is not None
+               and str(claimed_hash) == str(stored_hash))
+    book_ok = _eq_or_unknown(b.get("hoc_active_book_id") or active_book_id,
+                             ident.get("active_book_id"))
+    session_ok = _eq_or_unknown(
+        b.get("hoc_eligible_market_date") or eligible_market_date,
+        ident.get("eligible_market_date"))
+    claimed_ev = b.get("hoc_assessment_evidence_hash")
+    stored_ev = ident.get("assessment_evidence_hash")
+    evidence_ok = (found and (claimed_ev is None or stored_ev is None
+                              or str(claimed_ev) == str(stored_ev)))
+    b.update({
+        "hoc_artifact_retrievable": bool(found),
+        "hoc_artifact_identity_matches": bool(hash_ok and book_ok and session_ok),
+        "hoc_artifact_evidence_matches": bool(evidence_ok),
+        "hoc_stored_assessment_hash": stored_hash,
+        "hoc_stored_assessment_evidence_hash": stored_ev,
+        "hoc_binding_resolved_by": COMPOSITION_OWNER,
+        "hoc_binding_detail": (
+            "no artifact id was claimed" if not aid else
+            "artifact %s is not retrievable from the immutable store" % aid
+            if not found else
+            "artifact %s retrieved; assessment hash %s" % (aid, "matches"
+                                                           if hash_ok else "MISMATCH")),
+    })
+    return b
+
+
+def _eq_or_unknown(a: Any, b: Any) -> bool:
+    """True when the two agree OR when either side is unknown (not comparable)."""
+    if a is None or b is None:
+        return True
+    return str(a) == str(b)
 
 
 def run_and_persist(*, portfolio_state: Optional[dict] = None,
@@ -735,6 +1362,11 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
     Called by BOTH canonical producers (``api.daily_research_cycle`` and
     ``api.event_signal_refresh``); ``produced_by`` / ``drc_run_id`` is how they identify
     themselves so the persisted artifact states what it is.
+
+    Release 54.3 — the return additionally carries ``binding``: the EXACT persisted
+    version every downstream consumer must record. Composing it here, at the one
+    point where the assessment and its persistence outcome are both in hand, is
+    what stops a caller inventing its own idea of "which HOC this was".
     """
     run = run_assessment(
         portfolio_state=portfolio_state, scoring=scoring, price_panel=price_panel,
@@ -746,7 +1378,7 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
                                  input_contract=run["input_contract"], hoc_dir=hoc_dir,
                                  now=now, produced_by=produced_by, drc_run_id=drc_run_id)
     return {"input_contract": run["input_contract"], "assessment": run["assessment"],
-            "persistence": persist}
+            "persistence": persist, "binding": artifact_binding(persist)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1037,6 +1669,15 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
         # fresh assessment look superseded. The ECONOMIC fingerprint above is the one
         # honest answer to "does this still describe the portfolio?".
         "opportunity_cost_artifact_id": art.get("artifact_id"),
+        # Release 54.3 — the two same-session versioning identities, read verbatim
+        # from the immutable artifact (recomputed for a pre-R54.3 artifact rather
+        # than rewritten into it). A consumer binds the EXACT version with these.
+        "opportunity_cost_assessment_evidence_hash": (
+            ident.get("assessment_evidence_hash")
+            or ic.get("assessment_evidence_hash")),
+        "opportunity_cost_decision_fingerprint": ident.get("decision_fingerprint"),
+        "opportunity_cost_assessment_evidence_identity_version": (
+            ident.get("assessment_evidence_identity_version")),
         "opportunity_cost_holding_count": len(a.get("holding_reviews") or []),
         # Release 29.5 (Workstream provenance) — WHAT THIS ARTIFACT CLAIMS TO BE, so a
         # consumer never has to infer governance from the artifact merely existing. The

@@ -586,6 +586,24 @@ def _gov_ps(**kw) -> dict:
     return d
 
 
+#: R54.3 — the exact opportunity-cost artifact a governed candidate must name and
+#: be able to retrieve.
+GOV_HOC_ARTIFACT_ID = "hoc_2026-08-31_alpha_paper_book_1_HOC1"
+
+
+def _gov_hocb(**kw) -> dict:
+    """A RESOLVED opportunity-cost binding: written AND proven readable back."""
+    d = {"hoc_owner": "api.holding_opportunity_cost",
+         "hoc_artifact_id": GOV_HOC_ARTIFACT_ID, "hoc_assessment_hash": "HOC1",
+         "hoc_assessment_evidence_hash": "HOCEV1",
+         "hoc_eligible_market_date": SESSION, "hoc_active_book_id": BOOK,
+         "hoc_persistence_status": "CREATED", "hoc_persisted": True,
+         "hoc_artifact_retrievable": True, "hoc_artifact_identity_matches": True,
+         "hoc_binding_detail": "artifact retrieved; assessment hash matches"}
+    d.update(kw)
+    return d
+
+
 def _gov_cycle(**kw) -> dict:
     d = {"run_id": "evt_bbbb2222", "state": esr.ST_PROPOSAL_AVAILABLE,
          "generated_at": "2026-09-01T17:40:00+00:00",
@@ -595,6 +613,12 @@ def _gov_cycle(**kw) -> dict:
          "active_book_id": BOOK, "eligible_market_date": SESSION,
          "portfolio_state_hash": "ESH1", "holdings": list(HELD),
          "hoc_assessment_hash": "HOC1", "hoc_holdings_reviewed": 25,
+         # R54.3 — the immutable opportunity-cost artifact this run's assessment
+         # became. The gate refuses to govern a dependency that only ever existed
+         # in memory, so a promotable cycle must publish the persistence proof.
+         "hoc_artifact_id": GOV_HOC_ARTIFACT_ID, "hoc_persisted": True,
+         "hoc_persistence_status": "CREATED",
+         "hoc_assessment_evidence_hash": "HOCEV1",
          "reassessment_hash": "RA2", "proposal_hash": "PR1",
          # R54.2 — the immutable artifact this run's conclusion became.
          "reassessment_id": "ra_2026-08-31_2",
@@ -627,6 +651,9 @@ def _gov_reas(*, ra_hash="RA2", rid="ra_2026-08-31_2", **kw) -> dict:
          "proposal_binding": {
              "reassessment_id": rid, "reassessment_hash": ra_hash,
              "hoc_assessment_hash": "HOC1", "universe_scoring_hash": "US1",
+             # R54.3 — the reassessment's own record of the persisted HOC version.
+             "hoc_artifact_id": GOV_HOC_ARTIFACT_ID,
+             "hoc_assessment_evidence_hash": "HOCEV1", "hoc_persisted": True,
              "universe_input_contract_hash": "UIC1",
              "portfolio_state_hash": "PSH1", "corporate_actions_hash": "CA1",
              "eligible_market_date": SESSION, "active_book_id": BOOK},
@@ -710,7 +737,7 @@ def _gov_sc(**kw) -> dict:
 
 
 def _gate(*, ps=None, cycle=None, reas=None, summ=None, con=None, wf=None,
-          sc=None, current_governed=None, now=T1):
+          sc=None, hocb=None, current_governed=None, now=T1):
     ps = ps if ps is not None else _gov_ps()
     cycle = cycle if cycle is not None else _gov_cycle()
     reas = reas if reas is not None else _gov_reas()
@@ -721,7 +748,8 @@ def _gate(*, ps=None, cycle=None, reas=None, summ=None, con=None, wf=None,
     cand = pdec.build_intraday_candidate(
         portfolio_state=ps, event_cycle=cycle, reassessment=reas,
         proposal_summary=summ, constrained=con, workflow=wf,
-        scoring_identity=sc, now=now)
+        scoring_identity=sc,
+        hoc_binding=hocb if hocb is not None else _gov_hocb(), now=now)
     return cand, pdec.evaluate_intraday_governance(
         candidate=cand, portfolio_state=ps, event_cycle=cycle, reassessment=reas,
         proposal_summary=summ, constrained=con, workflow=wf, scoring_identity=sc,
@@ -766,19 +794,30 @@ class TestGovernanceIntegration:
         assert PRS.PERSIST_ASSESSMENT_VERSION in chk["detail"]
         assert cand["identity"]["reassessment_hash"] == "RA2"
 
-    def test_32_a_hermetic_valid_candidate_reaches_38_of_38(self):
+    def test_32_a_hermetic_valid_candidate_passes_every_check(self):
+        """R54.3 raised the mandatory condition count from 38 to 45: the gate now
+        also proves the opportunity-cost dependency was PERSISTED and is exactly
+        RETRIEVABLE, rather than trusting a hash that may name nothing. The
+        expectation is stated as "every check passes", so a future release that
+        adds a condition strengthens this test instead of breaking it."""
         _, gate = _gate()
-        assert gate["checks_total"] == 38
-        assert gate["checks_passed"] == 38, gate["failing_checks"]
+        assert gate["checks_total"] == 45
+        assert gate["checks_passed"] == gate["checks_total"], gate["failing_checks"]
         assert gate["verdict"] == pdec.GATE_ELIGIBLE
         assert gate["withheld_reason_codes"] == []
 
     def test_32b_the_real_persisted_version_flows_end_to_end_into_the_gate(
             self, tmp_path):
-        """From the REAL persistence owner to 38/38. Version 1 is the daily
-        cycle's; version 2 is the intraday one; every identity the gate checks
-        comes from the owner's own ``proposal_binding`` for that exact artifact
-        — nothing about the chain is asserted from a literal."""
+        """From the REAL persistence owner to a fully passed gate. Version 1 is
+        the daily cycle's; version 2 is the intraday one; every identity the gate
+        checks comes from the owner's own ``proposal_binding`` for that exact
+        artifact — nothing about the chain is asserted from a literal.
+
+        R54.3 adds one more link the gate insists on: the opportunity-cost
+        dependency must itself be a retrievable artifact. That axis has its own
+        end-to-end proof in ``test_release54_3_same_session_hoc_versioning``; here
+        it is supplied as a resolved binding so this test keeps its subject.
+        """
         ps = _pstate(ca_fp="CA1")
         v1 = _persist(tmp_path, _run(ps=ps, hoc=_hoc(ca_hash="CA1")))
         run2 = _run(ps=ps, hoc=_hoc(ca_hash="CA1", assessment_hash="HOC_B"))
@@ -796,20 +835,23 @@ class TestGovernanceIntegration:
         reas = _gov_reas(ra_hash=binding["reassessment_hash"],
                          rid=v2["artifact_id"])
         reas["proposal_binding"] = binding
+        hoc_aid = "hoc_%s_%s_%s" % (SESSION, BOOK, binding["hoc_assessment_hash"])
         cycle = _gov_cycle(
             reassessment_hash=binding["reassessment_hash"],
             reassessment_id=v2["artifact_id"],
             supersedes_reassessment_id=v1["artifact_id"],
-            hoc_assessment_hash=binding["hoc_assessment_hash"])
+            hoc_assessment_hash=binding["hoc_assessment_hash"],
+            hoc_artifact_id=hoc_aid)
         summ = _gov_summ(
             reallocation_bound_hoc_assessment_hash=binding["hoc_assessment_hash"],
             reallocation_corporate_actions_hash=binding["corporate_actions_hash"])
         sc = _gov_sc(
             input_contract_hash=binding["universe_input_contract_hash"])
+        hocb = _gov_hocb(hoc_artifact_id=hoc_aid,
+                         hoc_assessment_hash=binding["hoc_assessment_hash"])
 
-        cand, gate = _gate(reas=reas, cycle=cycle, summ=summ, sc=sc)
-        assert gate["checks_passed"] == gate["checks_total"] == 38, \
-            gate["failing_checks"]
+        cand, gate = _gate(reas=reas, cycle=cycle, summ=summ, sc=sc, hocb=hocb)
+        assert gate["checks_passed"] == gate["checks_total"], gate["failing_checks"]
         assert gate["verdict"] == pdec.GATE_ELIGIBLE
         assert cand["identity"]["reassessment_id"] == v2["artifact_id"]
         # ...and version 1 is still exactly where it was.

@@ -3330,3 +3330,63 @@ membership/scoreability check no longer shares the word "eligibility" with the
 HOC retention rule, and a session-current assessment whose LEGACY
 scheduled-review clock passed prints "Scheduled full review due", never
 "Portfolio reassessment (OVERDUE)".
+
+### D-R54.3-1 - an opportunity-cost assessment has three independent identities (CONFIRMED)
+
+**Decision.** `api.holding_opportunity_cost` separates the ECONOMIC portfolio
+(`economic_state_hash`), the ASSESSMENT EVIDENCE (`assessment_evidence_hash`,
+over twelve declared components) and the CONCLUSION (`decision_fingerprint`) -
+the same three axes, spelled with the same words, that R54.2 established for the
+portfolio reassessment. One vocabulary, two stores, no third owner.
+
+**Evidence.** Slice 6 asked one identity question and indexed one artifact per
+(book, eligible session). On 2026-09-02 three intraday cycles ran: the 23:32
+cycle persisted `hoc_..._702c599ee5b3`; the 01:33 and 02:33 cycles both
+produced `a162fca969c9...`, which `persist_assessment` refused as
+CONFLICT_REJECTED and which therefore never existed as retrievable evidence.
+
+**Consequence.** The evidence identity binds only inputs the kernel demonstrably
+consumes and excludes provenance by a DECLARED list
+(`EVIDENCE_EXCLUDED_PROVENANCE`) so the exclusion is testable. The
+document-wide `portfolio_state_hash` is excluded as the Stage-21 trap: it
+embeds this assessment's own output, so a rerun differing only in it is
+REUSED_EXISTING, not a conflict. The Slice-6 `test_52` expectation was
+deliberately replaced to say so, and the genuine determinism conflict is pinned
+separately.
+
+### D-R54.3-2 - same-session versions are appended; only a determinism failure is a conflict (CONFIRMED)
+
+**Decision.** Five persistence outcomes: REUSED_EXISTING (same economics, same
+evidence, same conclusion), CREATED_ASSESSMENT_VERSION (same economics,
+materially different evidence), CREATED_NEW_VERSION (the economic state itself
+moved), CONFLICT_REJECTED (identical evidence, DIFFERENT conclusion) and
+REJECTED_INCONSISTENT_IDENTITY (the artifact's own parts disagree about its
+session or book). Exact idempotency is tested FIRST and independently of every
+other axis.
+
+**Consequence.** No artifact is ever rewritten, in any outcome. Every version
+that was ever authoritative stays byte-identical and exactly retrievable by its
+own id; the by-id read resolves the artifact FILE, never the index pointer.
+Artifact ids stay deterministic (no clock, no UUID) and immutability is enforced
+rather than assumed from the id scheme. A pre-R54.3 artifact is made comparable
+by RECOMPUTING its identities from what it already persisted - never by
+rewriting it and never by fabricating evidence it did not record.
+
+### D-R54.3-3 - governance may never stand on a dependency it cannot retrieve (CONFIRMED)
+
+**Decision.** Anything claiming to depend on an opportunity-cost assessment binds
+the EXACT persisted version (`hoc_artifact_id` + `hoc_assessment_evidence_hash`
++ `hoc_persisted`); "same session" and "the latest" are never sufficient. The
+governed intraday gate gained seven checks (38 -> 45) and the reason codes
+HOC_ARTIFACT_NOT_PERSISTED and HOC_ARTIFACT_IDENTITY_MISMATCH - six of the seven
+fail with one of those two new codes, and the seventh
+(HOC_EVIDENCE_IDENTITY_BOUND, which binds the new evidence axis) reuses the
+existing HOC_IDENTITY_MISMATCH.
+
+**Consequence.** Retrievability is io, so it is PROVEN by the artifact's own
+owner (`resolve_binding`) and handed to the gate as a fact; the gate stays pure
+and opens no store. Absence of that proof is inadmissible - each persistence fact
+is compared to `True` explicitly - because for "does this artifact exist?" the
+only honest answers are a proof and a refusal. The event cycle publishes the
+persistence outcome it obtained, and a refused write stays visible AS a refused
+write rather than being smoothed over.

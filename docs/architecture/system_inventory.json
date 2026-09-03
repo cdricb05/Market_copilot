@@ -1763,11 +1763,12 @@
       ],
       "tests": [
         "tests/test_release28_event_driven_manager.py",
-        "tests/test_release54_1_governed_intraday_decision.py"
+        "tests/test_release54_1_governed_intraday_decision.py",
+        "tests/test_release54_3_same_session_hoc_versioning.py"
       ],
       "migration_priority": 0,
       "risk": "MEDIUM",
-      "notes": "The INCREMENTAL dependency refresh; api.daily_research_cycle is the FULL refresh of the same graph through the same owners. Hosts no second calculation. Token-gated; creates no order, confirms no target, approves no proposal, promotes no model and arms no scheduler."
+      "notes": "The INCREMENTAL dependency refresh; api.daily_research_cycle is the FULL refresh of the same graph through the same owners. Hosts no second calculation. Token-gated; creates no order, confirms no target, approves no proposal, promotes no model and arms no scheduler. Release 54.3 — persists the opportunity-cost assessment BEFORE reassessing and hands the resulting binding forward rather than letting the next stage re-derive it; the run summary publishes hoc_artifact_id, hoc_persisted, hoc_persistence_status, hoc_assessment_evidence_hash, supersedes_hoc_artifact_id and hoc_version_index, so a refused write stays visible AS a refused write to every downstream consumer."
     },
     {
       "path": "api/execution_lineage.py",
@@ -1886,11 +1887,12 @@
         "loadHoldingOpportunityCost"
       ],
       "tests": [
-        "tests/test_slice6_holding_opportunity_cost.py"
+        "tests/test_slice6_holding_opportunity_cost.py",
+        "tests/test_release54_3_same_session_hoc_versioning.py"
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE composition/read/persistence owner over the pure engine.holding_opportunity_cost kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run); there is deliberately NO separate manual opportunity-cost execution endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_assessment_summary for its opportunity_cost_* compatibility fields. Preview-first, paper-only, review-only: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. Its assessment feeds the Reallocation Proposal engine (Slice 7, LANDED). The Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains planned."
+      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE composition/read/persistence owner over the pure engine.holding_opportunity_cost kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run); there is deliberately NO separate manual opportunity-cost execution endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_assessment_summary for its opportunity_cost_* compatibility fields. Preview-first, paper-only, review-only: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. Its assessment feeds the Reallocation Proposal engine (Slice 7, LANDED). The Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains planned. Release 54.3 — SAME-SESSION EVIDENCE VERSIONING. The store separates the same THREE identities R54.2 established for the portfolio reassessment, in the same vocabulary: ECONOMIC (economic_state_hash), ASSESSMENT EVIDENCE (assessment_evidence_hash over 12 declared components, with EVIDENCE_EXCLUDED_PROVENANCE naming every clock / run id / event-cycle id / persistence stamp that may never enter it) and CONCLUSION (decision_fingerprint). Five persistence outcomes — REUSED_EXISTING, CREATED_ASSESSMENT_VERSION, CREATED_NEW_VERSION, CONFLICT_REJECTED (identical evidence, different answer — fail-closed) and REJECTED_INCONSISTENT_IDENTITY — over an APPEND-ONLY version chain; load_artifact_versions exposes the chain and load_artifact_by_id resolves the artifact FILE (never the index pointer), so every version that was ever authoritative stays byte-identical and exactly retrievable. artifact_binding / resolve_binding are the ONE downstream binding contract: this module owns the store, so it owns the io that PROVES an artifact is retrievable, and the governance gate consumes that as a fact. A pre-R54.3 artifact is made comparable by RECOMPUTING its identities from what it already persisted — never rewritten, never fabricated."
     },
     {
       "path": "api/information_collection.py",
@@ -2309,11 +2311,12 @@
       "tests": [
         "tests/test_release54_1_governed_intraday_decision.py",
         "tests/test_stage18_portfolio_decision.py",
-        "tests/test_release54_2_3_2_decision_supersession.py"
+        "tests/test_release54_2_3_2_decision_supersession.py",
+        "tests/test_release54_3_same_session_hoc_versioning.py"
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Stage 18 (Active Portfolio Manager). Closes the decision gap between the review-only reallocation proposal and any future paper order: the operator can now durably APPROVE/REJECT/HOLD the exact immutable proposal, and the Today hero distinguishes OPERATIONAL close / PORTFOLIO decision / MODEL governance as three independent lanes. The record endpoint requires the explicit confirmation token CONFIRM_PORTFOLIO_REBALANCE_DECISION and binds to the server-side current proposal (a stale expected_proposal_hash is refused). The actual paper-order WRITE + NEXT_CLOSE execution + reconciliation remain the EXISTING paper-desk owner and are a separate future controlled slice; this module deliberately creates no order/fill. Review-only, preview-first, paper-only, manual review mandatory; cadence disabled; no broker; no automation. Guarded by tests/test_stage18_portfolio_decision.py. R54.1: the governed lane is guarded by scripts/audit_architecture.py::check_release54_1_governed_intraday_decision (24 BLOCKING invariants) - one gate, one owner, one ordering; no second economics engine; no execution / approval / promotion / scheduler reach. R54.2.3.2: the supersession/authority contract is guarded by scripts/audit_architecture.py::check_release54_2_3_2_decision_supersession (16 BLOCKING invariants) - one calculation, refusing write path, rendering reads, no UI derivation, no new route."
+      "notes": "Stage 18 (Active Portfolio Manager). Closes the decision gap between the review-only reallocation proposal and any future paper order: the operator can now durably APPROVE/REJECT/HOLD the exact immutable proposal, and the Today hero distinguishes OPERATIONAL close / PORTFOLIO decision / MODEL governance as three independent lanes. The record endpoint requires the explicit confirmation token CONFIRM_PORTFOLIO_REBALANCE_DECISION and binds to the server-side current proposal (a stale expected_proposal_hash is refused). The actual paper-order WRITE + NEXT_CLOSE execution + reconciliation remain the EXISTING paper-desk owner and are a separate future controlled slice; this module deliberately creates no order/fill. Review-only, preview-first, paper-only, manual review mandatory; cadence disabled; no broker; no automation. Guarded by tests/test_stage18_portfolio_decision.py. R54.1: the governed lane is guarded by scripts/audit_architecture.py::check_release54_1_governed_intraday_decision (24 BLOCKING invariants) - one gate, one owner, one ordering; no second economics engine; no execution / approval / promotion / scheduler reach. R54.2.3.2: the supersession/authority contract is guarded by scripts/audit_architecture.py::check_release54_2_3_2_decision_supersession (16 BLOCKING invariants) - one calculation, refusing write path, rendering reads, no UI derivation, no new route. Release 54.3 — the governed intraday gate proves its opportunity-cost dependency is PRODUCIBLE as evidence: seven new checks (38 -> 45), six of them failing with the new codes HOC_ARTIFACT_NOT_PERSISTED and HOC_ARTIFACT_IDENTITY_MISMATCH and the seventh (HOC_EVIDENCE_IDENTITY_BOUND) reusing the existing HOC_IDENTITY_MISMATCH. Absence is inadmissible — each persistence fact is compared to True explicitly, so an unproven dependency withholds. The gate stays PURE: retrievability is resolved by api.holding_opportunity_cost.resolve_binding and handed in through build_intraday_candidate's hoc_binding."
     },
     {
       "path": "api/portfolio_manager.py",
@@ -2374,11 +2377,12 @@
         "loadPortfolioReassessment"
       ],
       "tests": [
-        "tests/test_stage20_active_reassessment.py"
+        "tests/test_stage20_active_reassessment.py",
+        "tests/test_release54_3_same_session_hoc_versioning.py"
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the REASSESS_PORTFOLIO step, which runs after ASSESS_HOLDING_OPPORTUNITY_COST and now GATES BUILD_REALLOCATION_PROPOSAL — the target engine runs only on PROPOSAL_READY. There is deliberately NO separate manual reassessment endpoint, NO scheduler and NO cadence: the reassessment is system ORCHESTRATION, never automatic execution. The Stage-18 manual approval and the Stage-19 order-plan confirmation remain mandatory and untouched. While a Stage-19 execution is pending, execution_precedence suppresses the reassessment's own primary action so a fresh proposal can never overwrite, obscure or compete with the in-flight execution lifecycle. Reassessment history is append-only and NEVER back-filled: eligible sessions before Stage 20 landed have no row and that gap is reported honestly. Guarded by check_portfolio_reassessment_ownership; inventory drift zero."
+      "notes": "The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the REASSESS_PORTFOLIO step, which runs after ASSESS_HOLDING_OPPORTUNITY_COST and now GATES BUILD_REALLOCATION_PROPOSAL — the target engine runs only on PROPOSAL_READY. There is deliberately NO separate manual reassessment endpoint, NO scheduler and NO cadence: the reassessment is system ORCHESTRATION, never automatic execution. The Stage-18 manual approval and the Stage-19 order-plan confirmation remain mandatory and untouched. While a Stage-19 execution is pending, execution_precedence suppresses the reassessment's own primary action so a fresh proposal can never overwrite, obscure or compete with the in-flight execution lifecycle. Reassessment history is append-only and NEVER back-filled: eligible sessions before Stage 20 landed have no row and that gap is reported honestly. Guarded by check_portfolio_reassessment_ownership; inventory drift zero. Release 54.3 — binds the EXACT persisted opportunity-cost version. resolve_hoc_binding delegates to api.holding_opportunity_cost's by-id lookup and accepts the binding ONLY when the retrieved artifact's assessment_hash equals the hash of the assessment actually consumed; the input contract, the artifact identity, the compacted contract and proposal_binding all record hoc_artifact_id / hoc_assessment_evidence_hash / hoc_persisted. Before R54.3 a persisted reassessment could name an opportunity-cost hash that had never become an artifact."
     },
     {
       "path": "api/portfolio_state.py",

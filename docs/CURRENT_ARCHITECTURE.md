@@ -598,6 +598,32 @@ flowchart TD
   outcome-history rows expose their reassessment-version identity (projection
   only); legacy bands carry `data-flow-class` chips. Guard:
   `check_release54_2_4_reallocation_coherence` (strict, blocking).
+- **Same-session HOC evidence versioning + retrievable binding (R54.3,
+  LANDED):** `api.holding_opportunity_cost` separates the SAME three identities
+  R54.2 established for the reassessment, in the SAME vocabulary — ECONOMIC
+  (`economic_state_hash`), EVIDENCE (`assessment_evidence_hash` over 12 declared
+  components; `EVIDENCE_EXCLUDED_PROVENANCE` names every clock / run id /
+  event-cycle id / persistence stamp that may never enter it) and CONCLUSION
+  (`decision_fingerprint`). Five persistence outcomes — `REUSED_EXISTING`,
+  `CREATED_ASSESSMENT_VERSION`, `CREATED_NEW_VERSION`, `CONFLICT_REJECTED`
+  (identical evidence, different answer — still fail-closed) and
+  `REJECTED_INCONSISTENT_IDENTITY` — with an append-only version chain
+  (`prior_versions + [entry]`), `load_artifact_versions` and a by-id
+  `load_artifact_by_id` that resolves the artifact FILE, never the index
+  pointer. Before R54.3 the store held one artifact per (book, session), so
+  every intraday cycle after the first computed a real assessment that was
+  refused persistence — and the R54.2 reassessment chain had already bound one
+  of those transient hashes as its dependency. `artifact_binding` /
+  `resolve_binding` are the ONE downstream contract (the io lives in the
+  artifact's owner, so the gate stays pure): the reassessment, the proposal
+  lineage, the governed candidate and the event-cycle summary each record the
+  EXACT `hoc_artifact_id` + `hoc_persisted`, and the R54.1 gate gained seven
+  checks (38 → 45) — six of them failing with the new codes
+  `HOC_ARTIFACT_NOT_PERSISTED` / `HOC_ARTIFACT_IDENTITY_MISMATCH`, the seventh
+  (`HOC_EVIDENCE_IDENTITY_BOUND`) reusing the existing `HOC_IDENTITY_MISMATCH`. Absence is inadmissible: each persistence
+  fact is compared to `True` explicitly, so an unproven dependency withholds.
+  No historical artifact is rewritten and no missing evidence is fabricated.
+  Guard: `check_release54_3_hoc_evidence_versioning` (strict, blocking).
 - **Post-close governed-research obligation (R54.2.2, LANDED):**
   `build_research_obligation()` publishes the ONE post-close obligation —
   `research_obligation` (+ `research_obligation_state`,

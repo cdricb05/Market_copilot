@@ -1165,6 +1165,13 @@ WR_OWNED_DATA_NOT_CONFIRMED = "OWNED_DATA_NOT_CONFIRMED"
 WR_POINT_IN_TIME = "POINT_IN_TIME_INTEGRITY_FAILURE"
 WR_RANKING_IDENTITY = "RANKING_IDENTITY_MISMATCH"
 WR_HOC_IDENTITY = "HOC_IDENTITY_MISMATCH"
+#: Release 54.3 — the opportunity-cost assessment this candidate depends on was
+#: computed but never became an immutable artifact. A hash that cannot be produced
+#: as evidence is not evidence, so a governed decision may never stand on it.
+WR_HOC_NOT_PERSISTED = "HOC_ARTIFACT_NOT_PERSISTED"
+#: Release 54.3 — an artifact IS named, but what the store holds under that id is
+#: not the assessment this candidate claims (different hash, book or session).
+WR_HOC_ARTIFACT_MISMATCH = "HOC_ARTIFACT_IDENTITY_MISMATCH"
 WR_REASSESSMENT_IDENTITY = "REASSESSMENT_IDENTITY_MISMATCH"
 WR_TARGET_IDENTITY = "TARGET_IDENTITY_MISMATCH"
 WR_SWITCHING_ECONOMICS = "SWITCHING_ECONOMICS_INCOMPLETE"
@@ -1180,7 +1187,8 @@ WR_EVIDENCE_INCOMPLETE = "CANDIDATE_EVIDENCE_INCOMPLETE"
 WITHHELD_REASON_VOCAB = (
     WR_NO_ACTIVE_BOOK, WR_PORTFOLIO_IDENTITY_STALE, WR_MARKET_DATA_STALE,
     WR_OWNED_DATA_NOT_CONFIRMED, WR_POINT_IN_TIME, WR_RANKING_IDENTITY,
-    WR_HOC_IDENTITY, WR_REASSESSMENT_IDENTITY, WR_TARGET_IDENTITY,
+    WR_HOC_IDENTITY, WR_HOC_NOT_PERSISTED, WR_HOC_ARTIFACT_MISMATCH,
+    WR_REASSESSMENT_IDENTITY, WR_TARGET_IDENTITY,
     WR_SWITCHING_ECONOMICS, WR_TRUE_BLOCKER, WR_CHANGE_WITHHELD,
     WR_SUPERSEDED, WR_DUPLICATE, WR_EXECUTION_PRECEDENCE,
     WR_EVIDENCE_INCOMPLETE)
@@ -1303,6 +1311,7 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
                              constrained: Optional[dict] = None,
                              scoring_identity: Optional[dict] = None,
                              workflow: Optional[dict] = None,
+                             hoc_binding: Optional[dict] = None,
                              observation_received_at: Any = None,
                              now: Optional[datetime] = None) -> dict:
     """Assemble ONE governed-decision candidate out of the owners' own payloads.
@@ -1311,6 +1320,14 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
     it; nothing is derived, averaged, defaulted or re-decided. ``event_cycle`` is
     ``api.event_signal_refresh``'s ``last_run_summary`` (the store owner's own
     summary of its persisted run payload).
+
+    Release 54.3 — ``hoc_binding`` is
+    ``api.holding_opportunity_cost.resolve_binding``'s answer to "does the exact
+    opportunity-cost artifact this evidence claims actually exist on disk?". The io
+    belongs to the artifact's owner; this function only records the answer, and the
+    gate only reads it. When no binding is supplied the retrievability fields
+    resolve to False and the gate fails closed, which is the correct behaviour for
+    a dependency nobody was able to prove.
     """
     ps = portfolio_state or {}
     ev = event_cycle or {}
@@ -1340,6 +1357,24 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
     econ = con.get("switching_economics") or {}
     outcome = con.get("outcome") or summ.get("reallocation_outcome")
 
+    # R54.3 — the opportunity-cost binding. Preference order is the strongest
+    # available proof first: an explicitly RESOLVED binding (the owner actually
+    # opened the artifact), then the cycle's own published persistence outcome,
+    # then the reassessment's recorded dependency. Nothing is defaulted to True.
+    hb = dict(hoc_binding or {})
+    if not hb:
+        hb = dict((event_cycle or {}).get("hoc_binding") or {})
+    hoc_artifact_id = (hb.get("hoc_artifact_id") or ev.get("hoc_artifact_id")
+                       or prov.get("hoc_artifact_id"))
+    hoc_persisted = hb.get("hoc_persisted")
+    if hoc_persisted is None:
+        hoc_persisted = (event_cycle or {}).get("hoc_persisted")
+    if hoc_persisted is None:
+        hoc_persisted = prov.get("hoc_persisted")
+    hoc_evidence_hash = (hb.get("hoc_assessment_evidence_hash")
+                         or (event_cycle or {}).get("hoc_assessment_evidence_hash")
+                         or prov.get("hoc_assessment_evidence_hash"))
+
     identity = {
         "active_book_id": active_book_id,
         "eligible_market_session": eligible,
@@ -1358,6 +1393,12 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
         "ranking_basis_date": sc.get("ranking_date"),
         "hoc_assessment_hash": (ev.get("hoc_assessment_hash")
                                 or prov.get("hoc_assessment_hash")),
+        # R54.3 — the EXACT immutable opportunity-cost version this decision
+        # stands on. It is part of IDENTITY (not merely evidence) because a
+        # governed decision built on a different HOC version is a different
+        # decision, however identical everything downstream of it looks.
+        "hoc_artifact_id": hoc_artifact_id,
+        "hoc_assessment_evidence_hash": hoc_evidence_hash,
         "reassessment_id": rs.get("reassessment_id") or prov.get("reassessment_id"),
         "reassessment_hash": (rs.get("reassessment_hash")
                               or prov.get("reassessment_hash")),
@@ -1423,6 +1464,20 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
             "reassessment_ran": ev.get("reassessment_ran"),
             "proposal_built": ev.get("proposal_built"),
             "hoc_holdings_reviewed": ev.get("hoc_holdings_reviewed"),
+            # R54.3 — the retrievability facts, resolved by the artifact's own
+            # owner. The gate reads them; it opens no store of its own.
+            "hoc_persisted": hoc_persisted,
+            "hoc_persistence_status": (hb.get("hoc_persistence_status")
+                                       or ev.get("hoc_persistence_status")
+                                       or (event_cycle or {}).get(
+                                           "hoc_persistence_status")),
+            "hoc_artifact_retrievable": hb.get("hoc_artifact_retrievable"),
+            "hoc_artifact_identity_matches": hb.get("hoc_artifact_identity_matches"),
+            "hoc_binding_detail": hb.get("hoc_binding_detail"),
+            "hoc_binding_owner": (hb.get("hoc_binding_resolved_by")
+                                  or hb.get("hoc_owner")),
+            "reassessment_bound_hoc_artifact_id": prov.get("hoc_artifact_id"),
+            "reassessment_bound_hoc_persisted": prov.get("hoc_persisted"),
             "cycle_holdings": ev.get("holdings"),
             "cycle_portfolio_state_hash": ev.get("portfolio_state_hash"),
             "cycle_blocker_codes": ev.get("blocker_codes") or [],
@@ -1707,6 +1762,68 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
         "HOC_IDENTITY", "EVERY_HOLDING_ASSESSED", all_reviewed,
         "api.holding_opportunity_cost",
         "%s of %d holdings reviewed" % (reviewed, len(held_now)), WR_HOC_IDENTITY))
+
+    # Release 54.3 — THE OPPORTUNITY-COST DEPENDENCY MUST BE PRODUCIBLE AS EVIDENCE.
+    #
+    # Everything above compares HASHES. A hash proves two payloads agree; it proves
+    # nothing about whether either still EXISTS. Before R54.3 that was the whole
+    # gap: the opportunity-cost owner refused a second same-session write, so every
+    # intraday cycle after the first computed a perfectly real assessment that lived
+    # only in memory, the reassessment persisted its transient hash as a dependency,
+    # and these checks passed on a chain whose first link could never be retrieved.
+    # A governed decision that cannot produce its own evidence is not governed.
+    #
+    # Absence is inadmissible here, deliberately. "Not comparable" is admissible for
+    # a binding that MIGHT legitimately be unknown; it is not admissible for the
+    # question "does this artifact exist?", where the only honest answers are a
+    # proof and a refusal.
+    hoc_artifact_id = ident.get("hoc_artifact_id")
+    checks.append(_check(
+        "HOC_IDENTITY", "HOC_ARTIFACT_ID_BOUND", bool(hoc_artifact_id),
+        "api.holding_opportunity_cost",
+        "artifact id %s (persistence=%s)" % (hoc_artifact_id or "NONE",
+                                             ev.get("hoc_persistence_status")),
+        WR_HOC_NOT_PERSISTED))
+    checks.append(_check(
+        "HOC_IDENTITY", "HOC_ASSESSMENT_WAS_PERSISTED",
+        ev.get("hoc_persisted") is True, "api.holding_opportunity_cost",
+        "persistence status %s; persisted=%s"
+        % (ev.get("hoc_persistence_status") or "UNRECORDED", ev.get("hoc_persisted")),
+        WR_HOC_NOT_PERSISTED))
+    checks.append(_check(
+        "HOC_IDENTITY", "HOC_ARTIFACT_RETRIEVABLE",
+        ev.get("hoc_artifact_retrievable") is True,
+        "api.holding_opportunity_cost.resolve_binding",
+        ev.get("hoc_binding_detail") or "no retrievability proof was supplied",
+        WR_HOC_NOT_PERSISTED))
+    checks.append(_check(
+        "HOC_IDENTITY", "HOC_ARTIFACT_IDENTITY_MATCHES",
+        ev.get("hoc_artifact_identity_matches") is True,
+        "api.holding_opportunity_cost.resolve_binding",
+        "stored artifact must carry the claimed assessment hash, book and session "
+        "(%s)" % (ev.get("hoc_binding_detail") or "unproven"),
+        WR_HOC_ARTIFACT_MISMATCH))
+    # The reassessment is the link that CLAIMS the dependency, so its recorded
+    # binding must be the same artifact this candidate stands on.
+    reas_hoc = ev.get("reassessment_bound_hoc_artifact_id")
+    reas_hoc_ok = _eq_when_known(reas_hoc, hoc_artifact_id)
+    checks.append(_check(
+        "HOC_IDENTITY", "REASSESSMENT_BOUND_TO_THE_SAME_HOC_ARTIFACT",
+        reas_hoc_ok is not False, "api.portfolio_reassessment",
+        "reassessment bound %s vs candidate %s" % (reas_hoc, hoc_artifact_id),
+        WR_HOC_ARTIFACT_MISMATCH))
+    checks.append(_check(
+        "HOC_IDENTITY", "REASSESSMENT_DEPENDENCY_IS_NOT_TRANSIENT",
+        ev.get("reassessment_bound_hoc_persisted") is not False,
+        "api.portfolio_reassessment",
+        "the reassessment recorded hoc_persisted=%s"
+        % ev.get("reassessment_bound_hoc_persisted"), WR_HOC_NOT_PERSISTED))
+    hoc_ev_hash = ident.get("hoc_assessment_evidence_hash")
+    checks.append(_check(
+        "HOC_IDENTITY", "HOC_EVIDENCE_IDENTITY_BOUND", bool(hoc_ev_hash),
+        "api.holding_opportunity_cost",
+        "assessment evidence hash %s" % (hoc_ev_hash or "NONE"),
+        WR_HOC_IDENTITY))
 
     # --- E. PORTFOLIO REASSESSMENT IDENTITY --------------------------------- #
     ra_hash = ident.get("reassessment_hash")
@@ -2151,8 +2268,9 @@ def govern_latest_intraday_assessment(
         workflow: Optional[dict] = None,
         scoring_identity: Optional[dict] = None,
         rebalance: Optional[dict] = None,
+        hoc_binding: Optional[dict] = None,
         observation_received_at: Any = None,
-        decision_dir=None, reallocation_dir=None,
+        decision_dir=None, reallocation_dir=None, hoc_dir=None,
         loaders: Optional[dict] = None,
         now: Optional[datetime] = None) -> dict:
     """Build the candidate, run the gate, and persist ONLY if it passes.
@@ -2218,10 +2336,41 @@ def govern_latest_intraday_assessment(
     con = _get("constrained", constrained, _load_constrained)
     sc = _get("scoring_identity", scoring_identity, _load_scoring_identity)
 
+    def _load_hoc_binding():
+        """R54.3 — PROVE the opportunity-cost dependency exists, through its owner.
+
+        The gate is pure, so the one read that can answer "is this artifact
+        retrievable?" happens here and is handed to it as a fact. The lookup is by
+        EXACT id — never "latest for the session" — so an older candidate can never
+        be validated by a newer artifact that merely happens to share its session.
+        """
+        from paper_trader.api import holding_opportunity_cost as hocm
+        claimed = {
+            "hoc_artifact_id": ((ev or {}).get("hoc_artifact_id")
+                                or ((rs or {}).get("proposal_binding") or {}).get(
+                                    "hoc_artifact_id")),
+            "hoc_assessment_hash": (ev or {}).get("hoc_assessment_hash"),
+            "hoc_assessment_evidence_hash": (ev or {}).get(
+                "hoc_assessment_evidence_hash"),
+            "hoc_persistence_status": (ev or {}).get("hoc_persistence_status"),
+            "hoc_persisted": (ev or {}).get("hoc_persisted"),
+            "hoc_active_book_id": ((ps or {}).get("active_book") or {}).get("book_id"),
+            "hoc_eligible_market_date": ((ps or {}).get("dates") or {}).get(
+                "eligible_market_date"),
+        }
+        return hocm.resolve_binding(
+            binding=claimed,
+            active_book_id=claimed["hoc_active_book_id"],
+            eligible_market_date=claimed["hoc_eligible_market_date"],
+            hoc_dir=hoc_dir)
+
+    hb = _get("hoc_binding", hoc_binding, _load_hoc_binding)
+
     candidate = build_intraday_candidate(
         portfolio_state=ps, event_cycle=ev, reassessment=rs,
         proposal_summary=summ, constrained=con, scoring_identity=sc,
-        workflow=wf, observation_received_at=observation_received_at, now=now)
+        workflow=wf, hoc_binding=hb,
+        observation_received_at=observation_received_at, now=now)
     # The STANDING authority is the later of the persisted governed record and
     # the projected DRC-governed decision, under the ONE ordering — the same
     # resolution the read performs. Comparing against only the persisted record

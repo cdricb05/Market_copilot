@@ -487,17 +487,26 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
                          freshness: Optional[dict] = None,
                          recent_change_history: Optional[list] = None,
                          corporate_action_stale: Optional[dict] = None,
+                         hoc_binding: Optional[dict] = None,
                          policy: Optional[dict] = None) -> dict:
     """Assemble the immutable point-in-time reassessment-input contract.
 
     Everything is sourced as of the portfolio-state eligible market date. No expected
     return is ever synthesised, no rank is recomputed and no switching cost is re-derived
     — the per-holding analytics come verbatim from the Slice-6 assessment.
+
+    Release 54.3 — ``hoc_binding`` is the opportunity-cost owner's OWN statement of
+    which immutable artifact this assessment became (see
+    ``api.holding_opportunity_cost.artifact_binding``). It is recorded verbatim and
+    never inferred: when the caller supplies none, the binding fields resolve to
+    ``None`` / ``False`` and the reassessment honestly records that it cannot prove
+    its dependency was persisted.
     """
     pol = policy or resolve_policy()
     ps = portfolio_state or {}
     sc = scoring or {}
     hoc = hoc_assessment or {}
+    hoc_binding = dict(hoc_binding or {})
     eligible = (ps.get("dates") or {}).get("eligible_market_date")
     active_book = ps.get("active_book") or {}
     reviews = list(hoc.get("holding_reviews") or [])
@@ -533,6 +542,20 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "hoc_eligible_market_date": hoc.get("eligible_market_date"),
         "hoc_portfolio_state_hash": ((hoc.get("provenance") or {}).get("portfolio_state_hash")),
         "hoc_decision_policy_version": (hoc.get("policy") or {}).get("policy_version"),
+        # Release 54.3 — WHICH IMMUTABLE HOC ARTIFACT this reassessment depends on,
+        # copied verbatim from the opportunity-cost owner's own binding block. Before
+        # R54.3 only the hash above was recorded, and a same-session assessment whose
+        # write had been refused left that hash naming nothing retrievable: the
+        # reassessment persisted a dependency that could never be produced as
+        # evidence. ``hoc_persisted`` is the load-bearing field — a refused write
+        # stays visible AS a refused write and is never repaired here.
+        "hoc_artifact_id": hoc_binding.get("hoc_artifact_id"),
+        "hoc_assessment_evidence_hash": hoc_binding.get(
+            "hoc_assessment_evidence_hash"),
+        "hoc_decision_fingerprint": hoc_binding.get("hoc_decision_fingerprint"),
+        "hoc_persistence_status": hoc_binding.get("hoc_persistence_status"),
+        "hoc_persisted": hoc_binding.get("hoc_persisted"),
+        "hoc_binding_owner": hoc_binding.get("hoc_owner"),
         "hoc_data_gaps": ((hoc.get("data_quality") or {}).get("data_gaps")) or [],
         "hoc_recommendation_counts": hoc.get("recommendation_counts") or {},
         "allocation_policy_version": _allocation_policy_version(),
@@ -588,6 +611,62 @@ def _default_hoc_assessment_loader(*, active_book_id, eligible_market_date,
                                    eligible_market_date=eligible_market_date,
                                    hoc_dir=hoc_dir)
     return (art or {}).get("assessment") or {}
+
+
+def resolve_hoc_binding(*, hoc_assessment: Optional[dict],
+                        active_book_id: Optional[str] = None,
+                        eligible_market_date: Optional[str] = None,
+                        hoc_dir=None) -> dict:
+    """Release 54.3 — which IMMUTABLE opportunity-cost artifact is this assessment?
+
+    Delegates wholly to the opportunity-cost owner: this module reads the store
+    through that owner's own by-id lookup and composes nothing of its own. The
+    binding is accepted ONLY when the retrieved artifact's ``assessment_hash``
+    equals the hash of the assessment actually consumed — which is precisely the
+    R54.3 failure mode. Before R54.3 a same-session assessment whose write had
+    been refused still reached the kernel, and the reassessment recorded its
+    transient hash as though it named durable evidence; now the mismatch is
+    reported as ``hoc_persisted: False`` with the artifact that WAS found named,
+    so the governance gate can fail closed on a fact instead of an assumption.
+    """
+    used_hash = (hoc_assessment or {}).get("assessment_hash")
+    try:
+        from paper_trader.api import holding_opportunity_cost as hocm
+        art = hocm.load_latest_artifact(active_book_id=active_book_id,
+                                        eligible_market_date=eligible_market_date,
+                                        hoc_dir=hoc_dir)
+        stored = ((art or {}).get("identity") or {}).get("assessment_hash")
+        if art is not None and used_hash and stored and str(used_hash) == str(stored):
+            return hocm.resolve_binding(binding=hocm.artifact_binding(artifact=art),
+                                        active_book_id=active_book_id,
+                                        eligible_market_date=eligible_market_date,
+                                        hoc_dir=hoc_dir)
+        return {
+            "schema_version": hocm.BINDING_SCHEMA_VERSION,
+            "hoc_owner": hocm.COMPOSITION_OWNER,
+            "hoc_artifact_id": None,
+            "hoc_assessment_hash": used_hash,
+            "hoc_assessment_evidence_hash": None,
+            "hoc_decision_fingerprint": None,
+            "hoc_eligible_market_date": eligible_market_date,
+            "hoc_active_book_id": active_book_id,
+            "hoc_persistence_status": None,
+            "hoc_persisted": False,
+            "hoc_artifact_retrievable": False,
+            "hoc_artifact_identity_matches": False,
+            "hoc_latest_stored_assessment_hash": stored,
+            "hoc_binding_detail": (
+                "no opportunity-cost artifact is persisted for this book and session"
+                if art is None else
+                "the assessment consumed (%s) is NOT the persisted artifact (%s); its "
+                "evidence exists only transiently" % (str(used_hash)[:16],
+                                                      str(stored)[:16])),
+        }
+    except Exception as exc:  # noqa: BLE001 — a binding read never crashes a run
+        return {"hoc_artifact_id": None, "hoc_assessment_hash": used_hash,
+                "hoc_persisted": False, "hoc_artifact_retrievable": False,
+                "hoc_artifact_identity_matches": False,
+                "hoc_binding_detail": "binding unresolvable: %s" % str(exc)[:120]}
 
 
 def hoc_corporate_actions_hash(hoc_assessment: Optional[dict]) -> Optional[str]:
@@ -671,6 +750,7 @@ def run_reassessment(*, input_contract: Optional[dict] = None,
                      recent_change_history: Optional[list] = None,
                      policy: Optional[dict] = None,
                      hoc_dir=None, reassessment_dir=None,
+                     hoc_binding: Optional[dict] = None,
                      portfolio_state_loader: Optional[Callable] = None,
                      scoring_loader: Optional[Callable] = None,
                      freshness_loader: Optional[Callable] = None,
@@ -695,10 +775,18 @@ def run_reassessment(*, input_contract: Optional[dict] = None,
             recent_change_rows(reassessment_dir=reassessment_dir,
                                active_book_id=book_id, policy=pol,
                                exclude_eligible_market_date=eligible)
+        # R54.3 — the EXACT immutable opportunity-cost artifact this reassessment
+        # depends on. Supplied by the caller that just persisted it (the event
+        # cycle / the governed daily cycle), else resolved from the store through
+        # the opportunity-cost owner's own by-id lookup.
+        if hoc_binding is None:
+            hoc_binding = resolve_hoc_binding(
+                hoc_assessment=hoc or {}, active_book_id=book_id,
+                eligible_market_date=eligible, hoc_dir=hoc_dir)
         input_contract = build_input_contract(
             portfolio_state=ps or {}, scoring=sc or {}, hoc_assessment=hoc or {},
             freshness=fr, recent_change_history=hist, corporate_action_stale=stale,
-            policy=pol)
+            hoc_binding=hoc_binding, policy=pol)
     result = kernel.build_reassessment(input_contract=input_contract, policy=pol)
     return {"input_contract": input_contract, "reassessment": result}
 
@@ -839,6 +927,16 @@ def artifact_identity(*, input_contract: dict, result: dict) -> dict:
         "corporate_actions_hash": input_contract.get("corporate_actions_hash"),
         "holdings_snapshot_hash": input_contract.get("holdings_snapshot_hash"),
         "hoc_assessment_hash": input_contract.get("hoc_assessment_hash"),
+        # Release 54.3 — the EXACT persisted opportunity-cost version this
+        # reassessment binds. It is recorded in the identity (so an auditor can
+        # retrieve the dependency) but deliberately NOT in
+        # ``ASSESSMENT_EVIDENCE_COMPONENTS``: the artifact id embeds
+        # ``hoc_assessment_hash``, which is already an evidence component, so
+        # binding it twice would version the same fact twice.
+        "hoc_artifact_id": input_contract.get("hoc_artifact_id"),
+        "hoc_assessment_evidence_hash": input_contract.get(
+            "hoc_assessment_evidence_hash"),
+        "hoc_persisted": input_contract.get("hoc_persisted"),
         "model_identity": input_contract.get("model_identity") or {},
         "hoc_decision_policy_version": input_contract.get("hoc_decision_policy_version"),
         "allocation_policy_version": input_contract.get("allocation_policy_version"),
@@ -895,6 +993,14 @@ def _compact_input_contract(ic: dict) -> dict:
         "hoc_assessment_hash": ic.get("hoc_assessment_hash"),
         "hoc_assessment_state": ic.get("hoc_assessment_state"),
         "hoc_decision_policy_version": ic.get("hoc_decision_policy_version"),
+        # Release 54.3 — the EXACT immutable opportunity-cost artifact this
+        # reassessment depends on, persisted so the dependency stays provable long
+        # after the run that produced it.
+        "hoc_artifact_id": ic.get("hoc_artifact_id"),
+        "hoc_assessment_evidence_hash": ic.get("hoc_assessment_evidence_hash"),
+        "hoc_decision_fingerprint": ic.get("hoc_decision_fingerprint"),
+        "hoc_persistence_status": ic.get("hoc_persistence_status"),
+        "hoc_persisted": ic.get("hoc_persisted"),
         "allocation_policy_version": ic.get("allocation_policy_version"),
         "reassessment_policy_version": REASSESSMENT_POLICY_VERSION,
         "churn_policy_version": CHURN_POLICY_VERSION,
@@ -1253,6 +1359,7 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
                     recent_change_history: Optional[list] = None,
                     policy: Optional[dict] = None, hoc_dir=None,
                     reassessment_dir=None, now: Optional[datetime] = None,
+                    hoc_binding: Optional[dict] = None,
                     portfolio_state_loader: Optional[Callable] = None,
                     scoring_loader: Optional[Callable] = None,
                     freshness_loader: Optional[Callable] = None,
@@ -1261,7 +1368,7 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
     run = run_reassessment(
         portfolio_state=portfolio_state, scoring=scoring, hoc_assessment=hoc_assessment,
         freshness=freshness, recent_change_history=recent_change_history, policy=policy,
-        hoc_dir=hoc_dir, reassessment_dir=reassessment_dir,
+        hoc_dir=hoc_dir, reassessment_dir=reassessment_dir, hoc_binding=hoc_binding,
         portfolio_state_loader=portfolio_state_loader, scoring_loader=scoring_loader,
         freshness_loader=freshness_loader, hoc_assessment_loader=hoc_assessment_loader)
     persist = persist_reassessment(result=run["reassessment"],
@@ -1322,6 +1429,19 @@ def proposal_binding(*, reassessment: Optional[dict], artifact: Optional[dict] =
         "hoc_assessment_hash": prov.get("hoc_assessment_hash") or ic.get("hoc_assessment_hash"),
         "hoc_decision_policy_version": prov.get("hoc_decision_policy_version")
         or ic.get("hoc_decision_policy_version"),
+        # Release 54.3 — the proposal inherits the reassessment's EXACT
+        # opportunity-cost lineage, so a governed decision built on the proposal
+        # can still name (and retrieve) the immutable assessment underneath it.
+        "hoc_artifact_id": ((artifact or {}).get("identity") or {}).get(
+            "hoc_artifact_id") or ic.get("hoc_artifact_id"),
+        "hoc_assessment_evidence_hash": (
+            ((artifact or {}).get("identity") or {}).get(
+                "hoc_assessment_evidence_hash")
+            or ic.get("hoc_assessment_evidence_hash")),
+        "hoc_persisted": (((artifact or {}).get("identity") or {}).get("hoc_persisted")
+                          if ((artifact or {}).get("identity") or {}).get(
+                              "hoc_persisted") is not None
+                          else ic.get("hoc_persisted")),
         "universe_scoring_hash": prov.get("universe_scoring_hash")
         or ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": prov.get("universe_input_contract_hash")

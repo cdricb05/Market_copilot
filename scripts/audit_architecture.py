@@ -11373,14 +11373,32 @@ def check_release54_1_governed_intraday_decision(files: list[Path]) -> dict:
 # Release 54.2 — same-session reassessment versioning.
 # --------------------------------------------------------------------------- #
 R542_REASSESSMENT_OWNER = "api/portfolio_reassessment.py"
-#: The versioning surface. Each must be defined EXACTLY once, in the ONE
-#: reassessment owner, and nowhere else in api/ or engine/.
+#: Release 54.3 — the SECOND store that legitimately versions same-session
+#: evidence. R54.3 deliberately reuses R54.2's vocabulary rather than inventing a
+#: parallel one, so the shared identity words below are expected in BOTH owners
+#: and in no third module. Each owner still versions only its OWN store: the
+#: store-specific persist entry points stay unique, and that is what this rule
+#: actually protects.
+R543_HOC_OWNER = "api/holding_opportunity_cost.py"
+R542_VERSIONING_OWNERS = (R542_REASSESSMENT_OWNER, R543_HOC_OWNER)
+#: The versioning surface. Each must be defined EXACTLY once in the ONE
+#: reassessment owner; the shared-vocabulary members may ALSO appear in the one
+#: opportunity-cost owner (R54.3) and nowhere else in api/ or engine/.
 R542_OWNER_DEFS = (
     "def persist_reassessment(",
     "def assessment_evidence_identity(",
     "def assessment_evidence_hash(",
     "def decision_fingerprint(",
     "def authoritative_history_rows(",
+    "def load_artifact_versions(",
+    "def load_artifact_by_id(",
+)
+#: The identity vocabulary R54.3 shares by design. Everything NOT in this set is
+#: reassessment-exclusive and a second definition anywhere is still a violation.
+R542_SHARED_IDENTITY_DEFS = (
+    "def assessment_evidence_identity(",
+    "def assessment_evidence_hash(",
+    "def decision_fingerprint(",
     "def load_artifact_versions(",
     "def load_artifact_by_id(",
 )
@@ -11996,6 +12014,181 @@ def check_release54_2_4_reallocation_coherence(files: list[Path]) -> dict:
     }
 
 
+#: Release 54.3 — same-session HOC evidence versioning + retrievable binding.
+R543_HOC_STORE_ENV = "PAPER_TRADER_HOC_DIR"
+#: Provenance that must never contaminate the HOC assessment-evidence identity.
+R543_FORBIDDEN_EVIDENCE_COMPONENTS = (
+    "portfolio_state_hash", "economic_state_hash", "assessment_hash",
+    "generated_at", "run_id", "event_cycle_id", "persisted_at",
+    "materiality_trigger_fingerprint",
+)
+#: The five persistence outcomes, spelled exactly as R54.2 spells them.
+R543_PERSIST_OUTCOMES = (
+    'PERSIST_CREATED = "CREATED"',
+    'PERSIST_REUSED = "REUSED_EXISTING"',
+    'PERSIST_ECONOMIC_VERSION = "CREATED_NEW_VERSION"',
+    'PERSIST_ASSESSMENT_VERSION = "CREATED_ASSESSMENT_VERSION"',
+    'PERSIST_CONFLICT = "CONFLICT_REJECTED"',
+    'PERSIST_INCONSISTENT = "REJECTED_INCONSISTENT_IDENTITY"',
+)
+#: The governance checks that make the HOC dependency PRODUCIBLE as evidence.
+#: SEVEN checks, which is why the gate moves 38 -> 45. Six of them fail with one
+#: of R54.3's two NEW reason codes; the seventh (HOC_EVIDENCE_IDENTITY_BOUND)
+#: binds the new evidence axis and reuses the existing HOC_IDENTITY_MISMATCH
+#: code. Counting only the checks that carry a new code is what produced the
+#: "six new checks (38 -> 45)" arithmetic error - all seven are enforced here.
+R543_GATE_CHECKS = (
+    "HOC_ARTIFACT_ID_BOUND",
+    "HOC_ASSESSMENT_WAS_PERSISTED",
+    "HOC_ARTIFACT_RETRIEVABLE",
+    "HOC_ARTIFACT_IDENTITY_MATCHES",
+    "REASSESSMENT_BOUND_TO_THE_SAME_HOC_ARTIFACT",
+    "REASSESSMENT_DEPENDENCY_IS_NOT_TRANSIENT",
+    "HOC_EVIDENCE_IDENTITY_BOUND",
+)
+
+
+def check_release54_3_hoc_evidence_versioning(files: list[Path]) -> dict:
+    """R54.3 invariants — one HOC store, append-only versions, provable binding.
+
+    (a) ONE writer and ONE store: ``persist_assessment`` and the HOC artifact-id
+        scheme exist only in ``api.holding_opportunity_cost``; no second module
+        writes its index, and no parallel intraday HOC root appears;
+    (b) a version is APPENDED, never overwritten — the chain is built as
+        ``prior_versions + [entry]`` and the owner deletes nothing;
+    (c) the assessment-evidence identity is free of the Stage-21 trap, the
+        economic axis, the conclusion itself, and every clock / run id / event
+        id, and the exclusion list is DECLARED so it is testable;
+    (d) the five persistence outcomes are named, and named the same way R54.2
+        names them (one vocabulary, two stores);
+    (e) governance cannot accept an unpersisted or unretrievable dependency: the
+        gate carries all seven R54.3 checks and its own reason codes, and it stays
+        PURE (retrievability is resolved by the artifact's owner, never by the
+        gate opening a store);
+    (f) the reassessment and the proposal each record the EXACT artifact id, and
+        the event cycle publishes the persistence outcome it obtained;
+    (g) the UI never derives HOC persistence state for itself.
+    """
+    hoc_src = _read(R543_HOC_OWNER)
+    prs_src = _read(R542_REASSESSMENT_OWNER)
+    pdec_src = _read("api/portfolio_decision.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    ui = _read(UI_FILE)
+
+    # (a) one writer, one store.
+    second_writers: list[str] = []
+    parallel_roots: list[str] = []
+    for fp in files:
+        rel = _rel(fp).replace("\\", "/")
+        if not (rel.startswith("api/") or rel.startswith("engine/")):
+            continue
+        body = _read(rel)
+        for token in ("INTRADAY_HOC_DIR", "intraday_hoc_dir",
+                      "PAPER_TRADER_HOC_INTRADAY_DIR"):
+            if token in body:
+                parallel_roots.append(f"{rel}:{token}")
+        if rel == R543_HOC_OWNER:
+            continue
+        if '"hoc_%s_%s_%s"' in body:
+            second_writers.append(f"{rel}:mints_hoc_artifact_ids")
+        if "hoc.persist_assessment" in body or (
+                "holding_opportunity_cost.persist_assessment" in body):
+            second_writers.append(f"{rel}:calls_persist_directly")
+
+    # (b) append-only.
+    appends_version_chain = "prior_versions + [entry]" in hoc_src
+    owner_deletes_an_artifact = bool("rmtree" in hoc_src
+                                     or "unlink(" in hoc_src
+                                     or ".remove(str(" in hoc_src)
+
+    # (c) evidence identity purity. Read the DECLARED component tuple, which is
+    # what the hash is actually built from.
+    comp_block = ""
+    if "ASSESSMENT_EVIDENCE_COMPONENTS = (" in hoc_src:
+        comp_block = hoc_src.split("ASSESSMENT_EVIDENCE_COMPONENTS = (")[1].split(
+            ")")[0]
+    contaminated = sorted(c for c in R543_FORBIDDEN_EVIDENCE_COMPONENTS
+                          if c in comp_block)
+    exclusions_declared = "EVIDENCE_EXCLUDED_PROVENANCE = (" in hoc_src
+
+    # (d) outcome vocabulary, shared with R54.2.
+    outcomes_missing = sorted(o for o in R543_PERSIST_OUTCOMES
+                              if o not in hoc_src)
+    inconsistent_identity_guard = "def _session_identity_conflicts(" in hoc_src
+
+    # (e) governance: fail-closed and PURE.
+    gate_checks_missing = sorted(c for c in R543_GATE_CHECKS
+                                 if f'"{c}"' not in pdec_src)
+    reason_codes_declared = (
+        'WR_HOC_NOT_PERSISTED = "HOC_ARTIFACT_NOT_PERSISTED"' in pdec_src
+        and 'WR_HOC_ARTIFACT_MISMATCH = "HOC_ARTIFACT_IDENTITY_MISMATCH"'
+        in pdec_src
+        and "WR_HOC_NOT_PERSISTED, WR_HOC_ARTIFACT_MISMATCH" in pdec_src)
+    gate_body = ""
+    if "def evaluate_intraday_governance" in pdec_src:
+        gate_body = pdec_src.split("def evaluate_intraday_governance")[1].split(
+            "\ndef governed_decision_ordering_key")[0]
+    gate_opens_a_store = sorted(set(
+        t for t in ("load_artifact_by_id", "load_latest_artifact", "read_text",
+                    "json.load", "open(")
+        if t in gate_body))
+    # The persistence facts must be PROVEN, not defaulted: each is compared to
+    # True explicitly, so a missing binding fails closed.
+    gate_fails_closed = all(
+        f'ev.get("{f}") is True' in pdec_src
+        for f in ("hoc_persisted", "hoc_artifact_retrievable",
+                  "hoc_artifact_identity_matches"))
+    binding_resolver_owned = ("def resolve_binding(" in hoc_src
+                              and "def artifact_binding(" in hoc_src)
+
+    # (f) downstream exact binding + cycle publication.
+    reassessment_binds_artifact = (
+        '"hoc_artifact_id": hoc_binding.get("hoc_artifact_id")' in prs_src
+        and '"hoc_artifact_id": ic.get("hoc_artifact_id")' in prs_src
+        and "def resolve_hoc_binding(" in prs_src)
+    proposal_binds_artifact = (
+        prs_src.count('"hoc_artifact_id"') >= 3
+        and "def proposal_binding(" in prs_src)
+    cycle_publishes_persistence = all(
+        f'"{k}"' in esr_src for k in (
+            "hoc_artifact_id", "hoc_persisted", "hoc_persistence_status",
+            "hoc_assessment_evidence_hash"))
+    cycle_persists_before_reassessment = False
+    if 'with _step("HOLDING_OPPORTUNITY_COST"' in esr_src:
+        after = esr_src.split('with _step("HOLDING_OPPORTUNITY_COST"')[1]
+        head = after.split('with _step("PORTFOLIO_REASSESSMENT"')
+        cycle_persists_before_reassessment = (
+            len(head) == 2 and "hoc_result" in head[0]
+            and "hoc_binding=" in head[1][:800])
+
+    # (g) the UI derives no persistence state of its own.
+    ui_derives_persistence = sorted(set(
+        re.findall(r"hoc_persist\w*\s*[!=]==?", ui)
+        + re.findall(r"hoc_artifact_id\s*[!=]==?", ui)))
+
+    return {
+        "second_hoc_writer": sorted(set(second_writers)),
+        "parallel_hoc_stores": sorted(set(parallel_roots)),
+        "appends_version_chain": bool(appends_version_chain),
+        "owner_deletes_an_artifact": owner_deletes_an_artifact,
+        "evidence_identity_contaminated": contaminated,
+        "evidence_exclusions_declared": bool(exclusions_declared),
+        "persist_outcomes_missing": outcomes_missing,
+        "inconsistent_identity_guard_present": bool(inconsistent_identity_guard),
+        "gate_checks_missing": gate_checks_missing,
+        "gate_reason_codes_declared": bool(reason_codes_declared),
+        "gate_opens_a_store": gate_opens_a_store,
+        "gate_fails_closed_on_absent_binding": bool(gate_fails_closed),
+        "binding_resolver_owned_by_hoc": bool(binding_resolver_owned),
+        "reassessment_binds_exact_artifact": bool(reassessment_binds_artifact),
+        "proposal_binds_exact_artifact": bool(proposal_binds_artifact),
+        "cycle_publishes_hoc_persistence": bool(cycle_publishes_persistence),
+        "cycle_persists_hoc_before_reassessment": bool(
+            cycle_persists_before_reassessment),
+        "ui_derives_hoc_persistence": ui_derives_persistence,
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -12275,8 +12468,15 @@ def check_release54_2_same_session_reassessment_versioning(
         if rel == R542_REASSESSMENT_OWNER:
             continue
         for d in R542_OWNER_DEFS:
-            if d in body:
-                duplicate_owners.append(f"{rel}:{d}")
+            if d not in body:
+                continue
+            # R54.3 — the opportunity-cost owner versions its OWN store using the
+            # SAME identity vocabulary on purpose (one set of words, two stores).
+            # A reassessment-exclusive definition appearing there is still a
+            # violation, and so is either word appearing in any third module.
+            if rel == R543_HOC_OWNER and d in R542_SHARED_IDENTITY_DEFS:
+                continue
+            duplicate_owners.append(f"{rel}:{d}")
 
     return {
         "owner_defs_missing": sorted(
@@ -13798,6 +13998,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_3_2_decision_supersession(files),
         "release54_2_4_reallocation_coherence":
             check_release54_2_4_reallocation_coherence(files),
+        "release54_3_hoc_evidence_versioning":
+            check_release54_3_hoc_evidence_versioning(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14601,6 +14803,33 @@ def _print_console(rep: dict) -> None:
           f"eligibility vocabulary split: "
           f"{rc['eligibility_vocabulary_split']}  legacy controls classified: "
           f"{rc['legacy_controls_classified']}")
+
+    hdr("SAME-SESSION HOC EVIDENCE VERSIONING (R54.3)")
+    hv = rep["release54_3_hoc_evidence_versioning"]
+    print(f"second HOC writers (must be empty): {hv['second_hoc_writer']}  "
+          f"parallel HOC stores (must be empty): {hv['parallel_hoc_stores']}")
+    print(f"appends version chain: {hv['appends_version_chain']}  owner deletes "
+          f"an artifact (must be False): {hv['owner_deletes_an_artifact']}")
+    print(f"evidence identity contaminated (must be empty): "
+          f"{hv['evidence_identity_contaminated']}  exclusions declared: "
+          f"{hv['evidence_exclusions_declared']}")
+    print(f"persist outcomes missing (must be empty): "
+          f"{hv['persist_outcomes_missing']}  inconsistent-identity guard: "
+          f"{hv['inconsistent_identity_guard_present']}")
+    print(f"gate checks missing (must be empty): {hv['gate_checks_missing']}  "
+          f"reason codes declared: {hv['gate_reason_codes_declared']}")
+    print(f"gate opens a store (must be empty): {hv['gate_opens_a_store']}  "
+          f"gate fails closed on absent binding: "
+          f"{hv['gate_fails_closed_on_absent_binding']}  binding resolver owned "
+          f"by HOC: {hv['binding_resolver_owned_by_hoc']}")
+    print(f"reassessment binds exact artifact: "
+          f"{hv['reassessment_binds_exact_artifact']}  proposal binds exact "
+          f"artifact: {hv['proposal_binds_exact_artifact']}")
+    print(f"cycle publishes HOC persistence: "
+          f"{hv['cycle_publishes_hoc_persistence']}  persists before "
+          f"reassessment: {hv['cycle_persists_hoc_before_reassessment']}  UI "
+          f"derives persistence (must be empty): "
+          f"{hv['ui_derives_hoc_persistence']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -16794,6 +17023,47 @@ BLOCKING_INVARIANTS = (
      "eligibility_vocabulary_split", True),
     ("release54_2_4_reallocation_coherence",
      "legacy_controls_classified", True),
+    # ------------------------------------------------------------------- #
+    # Release 54.3 - SAME-SESSION HOC EVIDENCE VERSIONING + RETRIEVABLE
+    # GOVERNANCE BINDING. The build fails if a second opportunity-cost writer
+    # or store appears, if a version could OVERWRITE rather than append, if the
+    # assessment-evidence identity is contaminated with the document-wide
+    # portfolio hash (the Stage-21 trap), the economic axis, the conclusion or
+    # any clock / run id / event id, if the persistence vocabulary drifts from
+    # R54.2's, if governance could accept a dependency that was never persisted
+    # or cannot be retrieved, if the pure gate starts opening a store of its
+    # own, if a reassessment or proposal stops recording the EXACT artifact, if
+    # the cycle stops publishing the persistence outcome it obtained or stops
+    # persisting before reassessing, or if the UI starts deriving persistence
+    # state for itself. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_3_hoc_evidence_versioning", "second_hoc_writer", []),
+    ("release54_3_hoc_evidence_versioning", "parallel_hoc_stores", []),
+    ("release54_3_hoc_evidence_versioning", "appends_version_chain", True),
+    ("release54_3_hoc_evidence_versioning", "owner_deletes_an_artifact", False),
+    ("release54_3_hoc_evidence_versioning",
+     "evidence_identity_contaminated", []),
+    ("release54_3_hoc_evidence_versioning",
+     "evidence_exclusions_declared", True),
+    ("release54_3_hoc_evidence_versioning", "persist_outcomes_missing", []),
+    ("release54_3_hoc_evidence_versioning",
+     "inconsistent_identity_guard_present", True),
+    ("release54_3_hoc_evidence_versioning", "gate_checks_missing", []),
+    ("release54_3_hoc_evidence_versioning", "gate_reason_codes_declared", True),
+    ("release54_3_hoc_evidence_versioning", "gate_opens_a_store", []),
+    ("release54_3_hoc_evidence_versioning",
+     "gate_fails_closed_on_absent_binding", True),
+    ("release54_3_hoc_evidence_versioning",
+     "binding_resolver_owned_by_hoc", True),
+    ("release54_3_hoc_evidence_versioning",
+     "reassessment_binds_exact_artifact", True),
+    ("release54_3_hoc_evidence_versioning",
+     "proposal_binds_exact_artifact", True),
+    ("release54_3_hoc_evidence_versioning",
+     "cycle_publishes_hoc_persistence", True),
+    ("release54_3_hoc_evidence_versioning",
+     "cycle_persists_hoc_before_reassessment", True),
+    ("release54_3_hoc_evidence_versioning", "ui_derives_hoc_persistence", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

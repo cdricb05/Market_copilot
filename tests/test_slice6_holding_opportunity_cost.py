@@ -519,11 +519,47 @@ def test_51_identical_artifact_reuse(tmp_path):
 
 
 def test_52_conflicting_artifact_rejection(tmp_path):
+    """Release 54.3 replaced the Slice-6 expectation this test used to pin.
+
+    It previously asserted that a second same-session assessment differing ONLY in
+    ``portfolio_state_hash`` was CONFLICT_REJECTED. That document-wide hash embeds
+    the assessment's own output (via api.daily_action_gate), so it drifts the moment
+    an artifact is written — the Stage-21 trap. Refusing on it is what stranded every
+    intraday cycle after the first on an unretrievable in-memory assessment.
+
+    The scenario is unchanged and still pinned; only the correct answer moved. Same
+    economic portfolio, same evidence, same conclusion -> REUSED_EXISTING. A GENUINE
+    conflict — identical evidence producing a DIFFERENT conclusion — is pinned below
+    and still fails closed, so the immutability guarantee is not relaxed.
+    """
     hoc.run_and_persist(portfolio_state=_ps(state_hash="H1"), scoring=_scoring(), hoc_dir=str(tmp_path))
-    conflict = hoc.run_and_persist(portfolio_state=_ps(state_hash="H2"), scoring=_scoring(),
-                                   hoc_dir=str(tmp_path))
-    assert conflict["persistence"]["status"] == "CONFLICT_REJECTED"
-    assert conflict["persistence"]["conflict"] is True
+    again = hoc.run_and_persist(portfolio_state=_ps(state_hash="H2"), scoring=_scoring(),
+                                hoc_dir=str(tmp_path))
+    assert again["persistence"]["status"] == "REUSED_EXISTING"
+    assert again["persistence"]["conflict"] is False
+    # ONE artifact on disk: a drifting document hash creates no version.
+    assert len(list((tmp_path / "artifacts").glob("hoc_*.json"))) == 1
+
+
+def test_52b_identical_evidence_different_conclusion_is_still_rejected(tmp_path):
+    """The real conflict — a determinism failure — is never persisted."""
+    first = hoc.run_and_persist(portfolio_state=_ps(), scoring=_scoring(),
+                                hoc_dir=str(tmp_path))
+    run = hoc.run_assessment(portfolio_state=_ps(), scoring=_scoring())
+    tampered = dict(run["assessment"])
+    tampered["recommendation_counts"] = {**(tampered.get("recommendation_counts") or {}),
+                                         "EXIT": 99}
+    tampered["assessment_hash"] = "DIFFERENT_ANSWER_SAME_EVIDENCE"
+    conflict = hoc.persist_assessment(result=tampered,
+                                      input_contract=run["input_contract"],
+                                      hoc_dir=str(tmp_path))
+    assert conflict["status"] == "CONFLICT_REJECTED"
+    assert conflict["conflict"] is True
+    assert conflict["persisted"] is False
+    # The original artifact is untouched and still the indexed one.
+    assert hoc.load_latest_artifact(
+        active_book_id="alpha_paper_book_1", eligible_market_date="2026-08-05",
+        hoc_dir=str(tmp_path))["artifact_id"] == first["persistence"]["artifact_id"]
 
 
 def test_53_interrupted_write_recovery(tmp_path):

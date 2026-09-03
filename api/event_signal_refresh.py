@@ -118,6 +118,13 @@ def _summarize_hoc(result: Optional[dict]) -> Optional[dict]:
     a = (result or {}).get("assessment") or {}
     if not a:
         return None
+    # R54.3 — WHICH immutable artifact this cycle's assessment became, straight from
+    # the canonical persistence owner's own binding block. The cycle asserts nothing
+    # about it: a refused write stays visible as a refused write, because an
+    # assessment that exists only in memory is not evidence a governed decision may
+    # ever stand on.
+    p = (result or {}).get("persistence") or {}
+    b = (result or {}).get("binding") or {}
     return {
         "calculation_owner": a.get("calculation_owner"),
         "assessment_state": a.get("assessment_state"),
@@ -127,6 +134,16 @@ def _summarize_hoc(result: Optional[dict]) -> Optional[dict]:
         "recommendation_vocabulary": a.get("recommendation_vocabulary"),
         "holdings_reviewed": len(a.get("holding_reviews") or []),
         "addition_candidates": len(a.get("addition_candidates") or []),
+        "artifact_id": b.get("hoc_artifact_id") or p.get("artifact_id"),
+        "persistence_status": b.get("hoc_persistence_status") or p.get("status"),
+        "persisted": b.get("hoc_persisted"),
+        "assessment_evidence_hash": b.get("hoc_assessment_evidence_hash"),
+        "decision_fingerprint": b.get("hoc_decision_fingerprint"),
+        "assessment_evidence_changed": p.get("assessment_evidence_changed"),
+        "economic_state_changed": p.get("economic_state_changed"),
+        "supersedes_artifact_id": p.get("superseded_artifact_id"),
+        "version_index": p.get("version_index"),
+        "binding": dict(b) or None,
     }
 
 
@@ -282,13 +299,13 @@ def _default_hoc_fn(*, scoring=None, hoc_dir=None):
 
 
 def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,
-                             reassessment_dir=None, hoc_dir=None):
+                             reassessment_dir=None, hoc_dir=None, hoc_binding=None):
     """The canonical Portfolio Reassessment owner (the economic-change gate) — the SAME
     entry point the Daily Research Cycle uses."""
     from paper_trader.api import portfolio_reassessment as prs
     return prs.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
                                freshness=freshness, reassessment_dir=reassessment_dir,
-                               hoc_dir=hoc_dir)
+                               hoc_dir=hoc_dir, hoc_binding=hoc_binding)
 
 
 def _default_proposal_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
@@ -876,6 +893,7 @@ def run_event_signal_refresh(
 
     # ---- 11-12. reassess when warranted, and record WHY ------------------- #
     hoc_result = None
+    hoc_binding: dict = {}
     reassessment = None
     proposal = None
     reassessment_at = None
@@ -895,11 +913,19 @@ def run_event_signal_refresh(
         with _step("HOLDING_OPPORTUNITY_COST",
                    CANONICAL_CALCULATION_DELEGATES[ek.CALC_HOLDING_OPPORTUNITY_COST]) as rec:
             hoc_result = hoc_call(scoring=sc, hoc_dir=hoc_dir)
-            rec["detail"] = "assessment built by the canonical owner"
+            # R54.3 — the opportunity-cost owner PERSISTS inside this step, and its
+            # own binding block is the cycle's proof of which immutable artifact
+            # resulted. The step records the outcome verbatim: a refused write is
+            # reported as a refused write and never smoothed over, because every
+            # stage after this one is about to claim a dependency on it.
+            hoc_binding = dict((hoc_result or {}).get("binding") or {})
+            rec["detail"] = "assessment built by the canonical owner; persistence=%s" % (
+                hoc_binding.get("hoc_persistence_status") or "UNRECORDED")
         with _step("PORTFOLIO_REASSESSMENT",
                    CANONICAL_CALCULATION_DELEGATES[ek.CALC_PORTFOLIO_REASSESSMENT]) as rec:
             reassessment = reassess_call(
                 scoring=sc, hoc_assessment=(hoc_result or {}).get("assessment"),
+                hoc_binding=(hoc_binding or None),
                 freshness=None, reassessment_dir=reassessment_dir, hoc_dir=hoc_dir)
             reassessment_at = _now_iso()
             rec["detail"] = str(
@@ -1010,6 +1036,11 @@ def run_event_signal_refresh(
                     portfolio_state=ps, scoring_identity=scoring_identity,
                     decision_dir=decision_dir,
                     reallocation_dir=reallocation_dir,
+                    # R54.3 — the cycle just persisted the opportunity-cost
+                    # assessment, so it hands the gate the store root it wrote to.
+                    # Without this a hermetic run would prove retrievability
+                    # against the operator's real artifact store.
+                    hoc_dir=hoc_dir,
                     observation_received_at=_newest_stamp(
                         [e.get("ingested_at") for e in admitted]))
                 rec["detail"] = "%s (recorded=%s)" % (
@@ -1089,6 +1120,20 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         "holdings": full.get("holdings"),
         "hoc_assessment_hash": hoc_sum.get("assessment_hash"),
         "hoc_holdings_reviewed": hoc_sum.get("holdings_reviewed"),
+        # R54.3 — the IMMUTABLE opportunity-cost artifact this run's assessment
+        # became. Before R54.3 the cycle published the hash alone, so a same-session
+        # assessment whose write had been refused was indistinguishable on the wire
+        # from one that had been persisted, and every downstream consumer inherited a
+        # dependency it could not retrieve. ``hoc_persisted`` False is what must keep
+        # the governance gate withholding.
+        "hoc_artifact_id": hoc_sum.get("artifact_id"),
+        "hoc_persistence_status": hoc_sum.get("persistence_status"),
+        "hoc_persisted": hoc_sum.get("persisted"),
+        "hoc_assessment_evidence_hash": hoc_sum.get("assessment_evidence_hash"),
+        "hoc_assessment_evidence_changed": hoc_sum.get("assessment_evidence_changed"),
+        "hoc_economic_state_changed": hoc_sum.get("economic_state_changed"),
+        "supersedes_hoc_artifact_id": hoc_sum.get("supersedes_artifact_id"),
+        "hoc_version_index": hoc_sum.get("version_index"),
         "reassessment_hash": prs_sum.get("reassessment_hash"),
         # R54.2 — the IMMUTABLE artifact this run's conclusion became. A refused
         # write leaves ``reassessment_persisted`` False and no id, which is exactly

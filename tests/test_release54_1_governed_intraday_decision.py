@@ -48,6 +48,29 @@ AMS_SRC = (REPO / "api" / "active_manager_state.py").read_text(
 BOOK = "alpha_paper_book_1"
 SESSION = "2026-08-31"
 HELD = ["T%02d" % i for i in range(25)]
+#: R54.3 — the exact immutable opportunity-cost artifact a governed candidate must
+#: name and be able to retrieve.
+HOC_ARTIFACT_ID = "hoc_2026-08-31_alpha_paper_book_1_HOC1"
+
+
+def _hocb(**kw) -> dict:
+    """A RESOLVED opportunity-cost binding: the artifact was written AND the owner
+    proved it can be read back. R54.3 makes this mandatory evidence."""
+    d = {
+        "hoc_owner": "api.holding_opportunity_cost",
+        "hoc_artifact_id": HOC_ARTIFACT_ID,
+        "hoc_assessment_hash": "HOC1",
+        "hoc_assessment_evidence_hash": "HOCEV1",
+        "hoc_eligible_market_date": SESSION,
+        "hoc_active_book_id": BOOK,
+        "hoc_persistence_status": "CREATED",
+        "hoc_persisted": True,
+        "hoc_artifact_retrievable": True,
+        "hoc_artifact_identity_matches": True,
+        "hoc_binding_detail": "artifact retrieved; assessment hash matches",
+    }
+    d.update(kw)
+    return d
 
 
 def _governed_lane_source() -> str:
@@ -90,6 +113,13 @@ def _cycle(**kw) -> dict:
         "holdings": list(HELD),
         "hoc_assessment_hash": "HOC1",
         "hoc_holdings_reviewed": 25,
+        # R54.3 — the cycle now publishes WHICH immutable opportunity-cost artifact
+        # its assessment became. The gate refuses to govern a dependency that was
+        # only ever in memory, so a passing candidate must carry the proof.
+        "hoc_artifact_id": HOC_ARTIFACT_ID,
+        "hoc_persisted": True,
+        "hoc_persistence_status": "CREATED",
+        "hoc_assessment_evidence_hash": "HOCEV1",
         "reassessment_hash": "RA1",
         "proposal_hash": "PR1",
         "materiality_trigger_fingerprint": "FP1",
@@ -126,6 +156,12 @@ def _reas(**kw) -> dict:
             "reassessment_id": "ra_2026-08-31_1",
             "reassessment_hash": "RA1",
             "hoc_assessment_hash": "HOC1",
+            # R54.3 — the reassessment's own record of WHICH persisted HOC
+            # artifact it depends on. The gate cross-checks it against the
+            # candidate so a proposal can never inherit a different lineage.
+            "hoc_artifact_id": HOC_ARTIFACT_ID,
+            "hoc_assessment_evidence_hash": "HOCEV1",
+            "hoc_persisted": True,
             "universe_scoring_hash": "US1",
             "universe_input_contract_hash": "UIC1",
             "portfolio_state_hash": "PSH1",
@@ -252,7 +288,7 @@ T2 = datetime(2026, 9, 1, 19, 5, 0, tzinfo=timezone.utc)
 
 
 def _candidate(*, ps=None, cycle=None, reas=None, summ=None, con=None,
-               wf=None, sc=None, now=T1, **kw) -> dict:
+               wf=None, sc=None, hocb=None, now=T1, **kw) -> dict:
     return pdec.build_intraday_candidate(
         portfolio_state=ps if ps is not None else _ps(),
         event_cycle=cycle if cycle is not None else _cycle(),
@@ -261,14 +297,15 @@ def _candidate(*, ps=None, cycle=None, reas=None, summ=None, con=None,
         constrained=con if con is not None else _con(),
         workflow=wf if wf is not None else _wf(),
         scoring_identity=sc if sc is not None else _sc(),
+        hoc_binding=hocb if hocb is not None else _hocb(),
         observation_received_at=kw.pop("observation_received_at",
                                        "2026-09-01T17:36:00+00:00"),
         now=now, **kw)
 
 
 def _gate(*, candidate=None, ps=None, cycle=None, reas=None, summ=None,
-          con=None, wf=None, sc=None, rebalance=None, current_governed=None,
-          now=T1):
+          con=None, wf=None, sc=None, hocb=None, rebalance=None,
+          current_governed=None, now=T1):
     ps = ps if ps is not None else _ps()
     cycle = cycle if cycle is not None else _cycle()
     reas = reas if reas is not None else _reas()
@@ -277,7 +314,8 @@ def _gate(*, candidate=None, ps=None, cycle=None, reas=None, summ=None,
     wf = wf if wf is not None else _wf()
     sc = sc if sc is not None else _sc()
     cand = candidate if candidate is not None else _candidate(
-        ps=ps, cycle=cycle, reas=reas, summ=summ, con=con, wf=wf, sc=sc, now=now)
+        ps=ps, cycle=cycle, reas=reas, summ=summ, con=con, wf=wf, sc=sc,
+        hocb=hocb, now=now)
     return cand, pdec.evaluate_intraday_governance(
         candidate=cand, portfolio_state=ps, event_cycle=cycle,
         reassessment=reas, proposal_summary=summ, constrained=con, workflow=wf,
