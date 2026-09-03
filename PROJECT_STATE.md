@@ -1,7 +1,105 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R54.4 - ONE GOVERNED PORTFOLIO DECISION WRITER: DAILY
+- **Updated by phase:** **R55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE +
+  OPERATOR CLARITY (single agent, no subagents, Windows PowerShell only).**
+  Built over the committed R54.4 head `c0df3b1`. Full narrative:
+  `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`. An OPERATIONAL-
+  ACCEPTANCE + PRESENTATION slice: it creates no portfolio engine, decision
+  owner, scheduler, reassessment framework, NAV calculation, freshness
+  calculation or workflow framework, and the live backend was never restarted.
+  **The defect (proven read-only against the live Sep-3 payloads):** the system
+  was behaving correctly and the OPERATOR EXPERIENCE was not. Today published
+  six correct facts (governed decision, last reassessment, latest intraday
+  reassessment, two clocks, session-close status, a legacy review clock) and no
+  stated conclusion, so the operator performed the composition the backend
+  should have performed. Worse, a LEGACY clock was presented as an operator
+  problem: `api.operational_book` owns a MONTHLY scheduled-review checkpoint and
+  has declared since R46.6 that it is the floor for MODEL RECALIBRATION and
+  explicitly NOT the governing portfolio cadence
+  (`review_is_the_governing_portfolio_cadence: false`), but
+  `api.daily_action_gate` forwarded the DATE and dropped the SCOPE, and
+  `api.workflow_state.classify_assessment` ranked `review_overdue` ABOVE the
+  actual currency test. A reassessment that was current for the eligible session
+  (`assessment_age_sessions = 0`) was therefore classified OVERDUE because a
+  2026-08-01 recalibration checkpoint had passed, and
+  `api.active_manager_state` put it on the operator's STALE / MISSING list -
+  a second clock competing with the canonical portfolio-reassessment clock, and
+  winning. Two further gaps: `_decision_latency_block` read latency only from a
+  governed intraday PROMOTION record, so a cycle that ran and concluded HOLD
+  reported `available: false` while four real persisted stage timestamps sat on
+  the same payload; and eleven internal `OVERALL_STATES` were the operator's
+  only vocabulary for "what do I do now".
+  **The repair (five bounded changes, each inside the owner that already owns
+  the concept):** (1) `api.daily_action_gate` FORWARDS the clock owner's own
+  scope declaration verbatim (`scheduled_review_scope`, `_review_scope`,
+  `REVIEW_SCOPE_FIELDS`); an owner that declared nothing yields all-None and
+  silence is never read as a repair. (2) `classify_assessment` gained
+  `schedule_governs_portfolio_cadence`; only an EXPLICIT `False` demotes the
+  schedule, `review_due` / `review_overdue` are still returned (the
+  recalibration obligation is SCOPED, never hidden), and the verdict carries
+  `status_decided_by` so the authority boundary travels in the payload. On the
+  exact live dates the status moves `OVERDUE -> CURRENT`; a genuinely older
+  assessment is still STALE, a future-dated one still INCONSISTENT, an absent
+  one still MISSING. (3) ONE OPERATOR ACTION CONTRACT in `api.workflow_state`:
+  seven frozen codes (`BLOCKED`, `WAIT_FOR_OWNED_DATA`, `RUN_PORTFOLIO_CYCLE`,
+  `RESUME_RESEARCH_CYCLE`, `REVIEW_PORTFOLIO_PROPOSAL`,
+  `WAIT_FOR_SESSION_CLOSE`, `MONITOR_PORTFOLIO`), ONE published priority order,
+  and a TOTAL map from the eleven overall states. `build_operator_action` is a
+  PROJECTION - `_decide_overall` remains the ONE priority owner and is
+  untouched; the function consults no date, no session status and no clock
+  (guarded by a body grep); it applies exactly ONE refinement (a post-close
+  governed-research obligation RESUMES rather than restarts, read verbatim from
+  `build_research_obligation`); it FAILS CLOSED to BLOCKED on a state it does
+  not know; and its execution fields are COPIES of the canonical operator
+  command, so it can enable no control the command has not authorised.
+  (4) THREE OPERATOR ANSWERS composed once in `api.active_manager_state`
+  (`operator_answer`): the current authoritative decision, what changed since
+  it, and the one thing to do now - with the GOVERNED lane and the LIVE /
+  INTRADAY RESEARCH lane permanently distinct (`is_authoritative: false` on the
+  research lane, promotion only when the backend says the gate promoted it), and
+  the two facts operators misread stated explicitly (zero affected holdings is a
+  NORMAL outcome; the live lane never becomes the governed decision).
+  Operator-facing Eastern times come from the CLOCK OWNER
+  (`engine.market_session.format_operator_timestamp`, added beside
+  `to_eastern`); no surface and no browser converts a timezone, and a missing
+  stamp yields None, never "now". (5) TWO COMPONENT SURFACES: the operator's
+  `stale_components` and an AUDIT-ONLY `advisory_components`; the legacy row is
+  demoted only when BOTH of the currency owner's own facts hold, and nothing is
+  deleted (raw token, truthful R54.2.4 label, self-explaining detail and a
+  quoted demotion reason all travel with it). Latency now delegates to
+  `api.event_signal_refresh.measure_decision_latency` over the persisted stage
+  stamps when no governed record carries one - the projection module performs no
+  timestamp arithmetic at all - and a ten-row `build_acceptance_contract` proves
+  the chain end to end, reporting MISSING where an owner persisted nothing.
+  Guard: `check_release55_active_manager_acceptance` (32 blocking fields) +
+  `tests/test_release55_active_manager_operational_acceptance.py` (85 tests).
+  **Live read-only verification (backend NOT restarted, still the R54.4
+  runtime):** on the real 2026-09-03 payloads the classifier moves
+  `OVERDUE -> CURRENT` while retaining `review_overdue = True`; the operator
+  stale list goes 1 -> 0 rows with the row moving to
+  `AUDIT_ADVANCED_ADVISORY` (`is_operator_problem: false`); latency, previously
+  `available: false`, measures observation -> signal 2013.6 s and signal ->
+  reassessment 8.5 s with the governed endpoints correctly MISSING; the one
+  operator action resolves to `WAIT_FOR_SESSION_CLOSE` (rank 5 of 7, passive);
+  and the acceptance contract reports 9/10 PRESENT. Browser-validated at
+  1920x1080: the three answers lead the page and fit the first screen with no
+  scrolling, the diagnostics sit in a collapsed Advanced disclosure, there is
+  ONE navigation-only button, no blank buttons, no `alert()`/`confirm()`, no run
+  ids / artifact ids / hashes / UTC on the primary surface, and the safety
+  badges are visible.
+  **The one genuine remaining blocker, found by this reconnaissance and NOT
+  fixed here:** the intraday governance gate records NO verdict on a
+  non-promoting cycle (`intraday_governance.evaluated = null`), so
+  `governance_state: ELIGIBLE` is the composition owner's honest INFERENCE
+  rather than the gate's word. Operationally the Sep-3 outcome was correct (the
+  candidate's evidence identity matched the standing decision, so no promotion
+  was possible), but "the gate declined to promote" and "the gate never ran" are
+  different facts and only the second is provable today. That is a
+  decision-lane PERSISTENCE change owned by `api.portfolio_decision`, not a
+  presentation change; R55 makes it visible and unambiguous
+  (`acceptance.GOVERNANCE = MISSING`) instead of silently absent.
+- **Prior phase:** **R54.4 - ONE GOVERNED PORTFOLIO DECISION WRITER: DAILY
   DRC + INTRADAY AUTHORITY CONSOLIDATION (single agent, no subagents, Windows
   PowerShell only).** Built over the committed R54.3 head `e563146`. Full
   narrative: `docs/RELEASE54_4_SINGLE_GOVERNED_DECISION_WRITER.md`.

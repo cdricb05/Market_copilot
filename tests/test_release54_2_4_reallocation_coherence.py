@@ -414,7 +414,16 @@ class TestEligibilityVocabulary:
 class TestFreshnessLabels:
     @staticmethod
     def _stale_rows(freshness_detail):
-        return ams._stale_components(
+        """The OPERATOR stale/missing list.
+
+        Release 55 split the return into ``(stale, advisory)``: a row the
+        currency owner attributes to the LEGACY scheduled-review checkpoint
+        clock moves to the audit-only advisory surface. These R54.2.4 fixtures
+        deliberately supply no R55 scope declaration, so the row stays on the
+        operator surface here — the documented fail-safe (silence is never read
+        as a repair), and exactly what these two tests still pin.
+        """
+        stale, _advisory = ams._stale_components(
             operational_book={"available": True},
             live_information={"available": True, "collection_running": True},
             signal_state={"available": True,
@@ -425,6 +434,7 @@ class TestFreshnessLabels:
             target_proposal={"available": True},
             research_governance={"available": True,
                                  "research_runtime": {"state": "OK"}})
+        return stale
 
     def test_20_fresh_reassessment_not_labelled_overdue(self):
         rows = self._stale_rows({"current_for_eligible_session": True,

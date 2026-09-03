@@ -3205,6 +3205,110 @@
       .tcc-attn .items { grid-template-columns: 1fr; }
     }
 
+    /* ---------- RELEASE 55: THE THREE OPERATOR ANSWERS ---------------------- *
+     * The first screen answers three questions and nothing else:
+     *   1  what is the current authoritative portfolio decision?
+     *   2  what has changed since that decision?
+     *   3  what should the operator do now?
+     * Answer 1 is the GOVERNED lane; answer 2 is the RESEARCH lane and carries a
+     * permanent badge saying so; answer 3 is the ONE operator action. Run ids,
+     * artifact ids, hashes, UTC stamps, internal owner names and the three-clock
+     * strip all live below, inside the collapsed Advanced details.
+     * ---------------------------------------------------------------------- */
+    /* Hidden via the inline style on the node (the convention every other Today
+       panel uses), NOT here: a stylesheet `display:none` would survive the
+       renderer's `style.display = ''` and the panel would render invisibly. */
+    #today-operator-answer { margin: 0 0 14px; }
+    .r55-grid {
+      display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px; align-items: stretch;
+    }
+    .r55-card {
+      display: flex; flex-direction: column; gap: 10px; min-width: 0;
+      border: 1px solid var(--cc-border, #243b63); border-radius: 10px;
+      padding: 18px 22px; background: var(--cc-panel, #101a34);
+    }
+    .r55-card.lane-governed {
+      border-left: 5px solid var(--ok, #22c55e);
+      background: linear-gradient(180deg, rgba(22,34,63,.55), rgba(16,26,52,.35));
+    }
+    .r55-card.lane-governed.tone-warn { border-left-color: var(--warning, #f59e0b); }
+    .r55-card.lane-governed.tone-bad { border-left-color: var(--danger, #ef4444); }
+    .r55-card.lane-research { border-left: 5px solid var(--label, #7a8fb0); }
+    .r55-card.lane-action { border-left: 5px solid var(--info, #3b82f6); }
+    .r55-card.lane-action.tone-warn { border-left-color: var(--warning, #f59e0b); }
+    .r55-card.lane-action.tone-bad { border-left-color: var(--danger, #ef4444); }
+    .r55-card.lane-action.tone-ok { border-left-color: var(--ok, #22c55e); }
+    .r55-q {
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      font-size: 10px; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--label, #7a8fb0);
+    }
+    .r55-q .n {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 17px; height: 17px; border-radius: 50%; font-size: 10px;
+      background: rgba(255,255,255,.07); color: var(--text-accent, #a8b8d8);
+    }
+    .r55-badge {
+      font-size: 8.5px; font-weight: 800; letter-spacing: .07em; padding: 2px 6px;
+      border-radius: 3px; white-space: nowrap;
+    }
+    .r55-badge.governed { background: rgba(34,197,94,.16); color: var(--ok, #22c55e); }
+    .r55-badge.research { background: rgba(122,143,176,.16); color: var(--label, #7a8fb0); }
+    .r55-badge.safety { background: rgba(255,255,255,.06); color: var(--text-accent, #a8b8d8); }
+    .r55-answer {
+      font-size: 27px; font-weight: 900; line-height: 1.12; letter-spacing: .01em;
+      color: var(--text-primary, #e0e0ff);
+    }
+    .r55-card.lane-governed .r55-answer { color: var(--ok, #22c55e); }
+    .r55-card.lane-governed.tone-warn .r55-answer { color: var(--warning, #f59e0b); }
+    .r55-card.lane-governed.tone-bad .r55-answer { color: var(--danger, #ef4444); }
+    .r55-card.lane-action .r55-answer { font-size: 22px; }
+    .r55-card.lane-research .r55-answer { font-size: 22px; }
+    .r55-why { font-size: 12.5px; line-height: 1.55; color: var(--text-accent, #a8b8d8); }
+    .r55-quiet { font-size: 11px; line-height: 1.5; color: var(--label, #7a8fb0); }
+    .r55-facts {
+      display: flex; flex-direction: column; gap: 4px; margin-top: auto;
+      padding-top: 10px; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+    }
+    .r55-facts .f { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 12px; }
+    .r55-facts .f .k { color: var(--label, #7a8fb0); }
+    .r55-facts .f .v { font-weight: 700; text-align: right; color: var(--text-primary, #e0e0ff); font-variant-numeric: tabular-nums; }
+    .r55-facts .f .v.muted { font-weight: 500; color: var(--text-accent, #a8b8d8); }
+    .r55-cta-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .r55-safety { display: flex; gap: 5px; flex-wrap: wrap; }
+    /* The Advanced disclosure: every clock, lane, identity and advisory. */
+    #today-advanced { margin: 0 0 14px; }
+    #today-advanced > summary {
+      cursor: pointer; list-style: none; user-select: none;
+      font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+      color: var(--label, #7a8fb0); padding: 7px 0;
+    }
+    #today-advanced > summary::-webkit-details-marker { display: none; }
+    #today-advanced > summary:hover { color: var(--text-accent, #a8b8d8); }
+    #today-advanced > summary .caret { color: var(--accent, #6ea8ff); margin-right: 5px; }
+    .r55-advisory {
+      border: 1px dashed var(--cc-border-soft, rgba(122,143,176,.22));
+      border-radius: 8px; padding: 10px 14px; margin: 0 0 12px;
+    }
+    .r55-advisory .h {
+      font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--label, #7a8fb0); margin-bottom: 5px;
+    }
+    .r55-advisory .row { font-size: 11.5px; line-height: 1.55; color: var(--text-accent, #a8b8d8); padding: 3px 0; }
+    .r55-advisory .row .tok { font-weight: 700; color: var(--label, #7a8fb0); }
+    .r55-accept { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
+    .r55-accept .r { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 6px; padding: 7px 10px; min-width: 0; }
+    .r55-accept .r .k { font-size: 9.5px; font-weight: 800; letter-spacing: .07em; color: var(--label, #7a8fb0); }
+    .r55-accept .r .s { font-size: 12px; font-weight: 800; }
+    .r55-accept .r .s.present { color: var(--ok, #22c55e); }
+    .r55-accept .r .s.missing { color: var(--warning, #f59e0b); }
+    .r55-accept .r .o { font-size: 10px; color: var(--label, #7a8fb0); overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 1400px) {
+      .r55-grid { grid-template-columns: 1fr; }
+      .r55-answer { font-size: 24px; }
+    }
+
     /* ---------- PORTFOLIO: four task views on one route ---------------------- */
     #tab-portfolio-manager > .card > #pm-views { order: 2; }
     #tab-portfolio-manager > .card > #pm-overview-decision { order: 10; }
@@ -3738,6 +3842,24 @@
              analyses (they are review-only, non-required). No client date/priority math. -->
         <div id="today-hero" class="today-hero state-info" style="display:none;"></div>
 
+        <!-- ============ RELEASE 55 — THE THREE OPERATOR ANSWERS ============
+             THE first screen. Three questions, three answers, in this order:
+               1 WHAT IS THE CURRENT AUTHORITATIVE PORTFOLIO DECISION?
+               2 WHAT HAS CHANGED SINCE THAT DECISION?
+               3 WHAT SHOULD THE OPERATOR DO NOW?
+             Every word is rendered VERBATIM from the ONE composed answer block
+             (GET /v1/operations/active-manager-state -> operator_answer, owner
+             api.active_manager_state). The browser selects no authority, orders
+             no action, converts no timezone and computes nothing: the composition
+             owner already answered, and the ONE operator action comes from the ONE
+             priority owner (api.workflow_state._decide_overall).
+             The GOVERNED lane (answer 1) and the LIVE / INTRADAY RESEARCH lane
+             (answer 2) are permanently distinct and permanently labelled, so the
+             research lane can never masquerade as the governed decision.
+             Hidden entirely when the backend publishes no operator_answer. -->
+        <div id="today-operator-answer" data-owner="api.active_manager_state"
+             data-answer-owner="operator_answer" style="display:none;"></div>
+
         <!-- ===================== RELEASE 49 — TODAY COMMAND CENTER =====================
              FOUR primary sections, every value rendered VERBATIM from the ONE reconciled
              operator presentation (GET /v1/operations/operator-presentation, owner
@@ -3798,8 +3920,18 @@
              economics) — rendered VERBATIM from the ONE composed read model
              (GET /v1/operations/active-manager-state, owner api.active_manager_state).
              The browser formats words only: no date arithmetic, no freshness verdict,
-             no NAV / decision / priority computation happens here. -->
-        <div id="today-operating-state" data-owner="api.active_manager_state" style="display:none;"></div>
+             no NAV / decision / priority computation happens here.
+
+             RELEASE 55 — this strip is DIAGNOSTIC DETAIL, so it moves inside the
+             Today AUDIT / ADVANCED disclosure below the three operator answers.
+             Nothing is removed: every clock, lane, identity, latency measurement,
+             advisory row and acceptance row is here in full, one click away. -->
+        <details id="today-advanced" data-owner="api.active_manager_state">
+          <summary><span class="caret">&#9656;</span>Advanced details &mdash; clocks, decision lanes, identities, latency, acceptance and audit advisories</summary>
+          <div id="today-advisory" class="r55-advisory" style="display:none;"></div>
+          <div id="today-operating-state" data-owner="api.active_manager_state" style="display:none;"></div>
+          <div id="today-acceptance" style="display:none;"></div>
+        </details>
 
         <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
         <div id="cc-root">
@@ -29190,6 +29322,12 @@ function renderActiveManagerState(d) {
   // R54.2.4 (Defect 7) — LANE B: the latest live/intraday reassessment card,
   // built by _amsLaneBHtml (its own R54_2_4 region) VERBATIM from the backend
   // lane block. Nothing about it is decided in the browser.
+  // R55 — the THREE operator answers render FIRST (their own region), and the
+  // audit-only advisory + acceptance rows render inside the Advanced disclosure.
+  try { if (typeof _r55RenderOperatorAnswer === 'function') _r55RenderOperatorAnswer(d); } catch (e) {}
+  try { if (typeof _r55RenderAdvisory === 'function') _r55RenderAdvisory(d); } catch (e2) {}
+  try { if (typeof _r55RenderAcceptance === 'function') _r55RenderAcceptance(d); } catch (e3) {}
+
   var laneHtml = (typeof _amsLaneBHtml === 'function') ? _amsLaneBHtml(d) : '';
   host.className = 'ams-strip';
   host.innerHTML = '<div class="ams-head">'
@@ -29255,6 +29393,248 @@ function _amsLaneBHtml(d) {
 }
 window._amsLaneBHtml = _amsLaneBHtml;
 /* R54_2_4_REGION_END */
+
+/* R55_REGION_START */
+// ---------------------------------------------------------------------------
+// RELEASE 55 — THE THREE OPERATOR ANSWERS (+ the Advanced audit surface).
+//
+// WHAT THIS REGION MAY DO: escape a backend string, place it in the DOM, and
+// pick a CSS tone from a token the BACKEND chose. Nothing else.
+//
+// WHAT IT MAY NEVER DO: select which decision is authoritative, decide what
+// changed, order or choose an operator action, convert a timezone, compare two
+// timestamps or hashes, or count anything. Every one of those already has an
+// owner: api.portfolio_decision (the decision), api.event_signal_refresh (the
+// live lane), api.workflow_state._decide_overall (the priority),
+// engine.market_session (the Eastern clock). The composed answers arrive under
+// ``operator_answer`` and are rendered verbatim.
+//
+// The panel stays hidden when the backend publishes no ``operator_answer``, so
+// an older runtime degrades to exactly the pre-R55 Today page.
+// ---------------------------------------------------------------------------
+function _r55Chip(cls, text, title) {
+  return '<span class="r55-badge ' + cls + '"'
+    + (title ? ' title="' + _opEsc(title) + '"' : '') + '>' + _opEsc(text) + '</span>';
+}
+function _r55Fact(k, v, cls) {
+  if (v === null || v === undefined || v === '') return '';
+  return '<div class="f"><span class="k">' + _opEsc(k) + '</span>'
+    + '<span class="v' + (cls ? ' ' + cls : '') + '">' + _opEsc(v) + '</span></div>';
+}
+// Tone is a LOOKUP over a backend token, never a judgement made here.
+var _R55_ACTION_TONE = {
+  MONITOR_PORTFOLIO: 'tone-ok',
+  WAIT_FOR_SESSION_CLOSE: 'tone-ok',
+  WAIT_FOR_OWNED_DATA: 'tone-warn',
+  RUN_PORTFOLIO_CYCLE: 'tone-warn',
+  RESUME_RESEARCH_CYCLE: 'tone-warn',
+  REVIEW_PORTFOLIO_PROPOSAL: 'tone-warn',
+  BLOCKED: 'tone-bad'
+};
+var _R55_DECISION_TONE = {
+  NO_CHANGE: '', HOLD_CURRENT_BOOK: '', DECISION_RECORDED: '',
+  PROPOSAL_REVIEW_REQUIRED: 'tone-warn', CHANGE_CANDIDATE_WITHHELD: 'tone-warn',
+  NOT_RUN: 'tone-warn', BLOCKED: 'tone-bad'
+};
+// The route each action sends the operator to. A LOOKUP over the backend's own
+// destination token; the backend still supplies the destination and this map is
+// only the fallback label, never a second routing decision.
+var _R55_ACTION_ROUTE_LABEL = {
+  'command-center': 'Open Today',
+  'portfolio-manager': 'Open Portfolio',
+  'daily-workflow': 'Open Daily workflow',
+  'research-audit': 'Open Research & Audit',
+  'portfolio': 'Open Portfolio',
+  'multi-horizon': 'Open Model & target'
+};
+
+function _r55RenderOperatorAnswer(d) {
+  var host = document.getElementById('today-operator-answer');
+  if (!host) return;
+  var a = d && d.operator_answer;
+  if (!a || !a.current_decision) { host.style.display = 'none'; return; }
+  var dec = a.current_decision || {};
+  var chg = a.what_changed_since || {};
+  var act = a.what_to_do_now || {};
+  var qs = a.questions || [];
+
+  // ---- ANSWER 1 — the current authoritative governed decision ------------- //
+  var decTone = _R55_DECISION_TONE[dec.decision_state];
+  if (decTone === undefined) decTone = '';
+  var decHead = dec.headline || _opWords(dec.decision) || 'NO GOVERNED DECISION';
+  var c1 = '<div class="r55-card lane-governed ' + decTone + '"'
+    + ' data-answer="CURRENT_DECISION"'
+    + ' data-decision-state="' + _opEsc(dec.decision_state || '') + '"'
+    + ' data-provenance="' + _opEsc(dec.provenance || '') + '">'
+    + '<div class="r55-q"><span class="n">1</span>'
+    +   _opEsc(qs[0] || 'CURRENT DECISION')
+    +   _r55Chip('governed', 'AUTHORITATIVE',
+                 'The governed portfolio decision. Owner: ' + (dec.authority_owner || ''))
+    + '</div>'
+    + '<div class="r55-answer">' + _opEsc(decHead) + '</div>'
+    + (dec.explanation ? '<div class="r55-why">' + _opEsc(dec.explanation) + '</div>' : '')
+    + '<div class="r55-facts">'
+    +   _r55Fact('Session', dec.session_display || dec.session)
+    +   _r55Fact('Decided', dec.decided_at_display)
+    +   _r55Fact('Produced by', _opWords(dec.provenance), 'muted')
+    +   _r55Fact('Operational mark', dec.operational_mark_display || dec.operational_mark_date)
+    +   _r55Fact('NAV', _opMoney(dec.nav))
+    + '</div>'
+    + '</div>';
+
+  // ---- ANSWER 2 — what changed since, from the RESEARCH lane -------------- //
+  // The badge is permanent: this lane is never the governed decision unless the
+  // backend itself says the gate promoted it.
+  var laneBadge = chg.changes_the_authoritative_decision
+    ? _r55Chip('governed', 'PROMOTED TO GOVERNED', chg.why_this_is_not_the_decision || '')
+    : _r55Chip('research', 'RESEARCH LANE · NOT THE GOVERNED DECISION',
+               chg.why_this_is_not_the_decision || '');
+  var evN = (chg.material_events_evaluated === null || chg.material_events_evaluated === undefined)
+    ? null : String(chg.material_events_evaluated);
+  var affN = (chg.affected_current_holdings_count === null
+              || chg.affected_current_holdings_count === undefined)
+    ? null : String(chg.affected_current_holdings_count);
+  var chgHead = evN
+    ? (evN + ' material event' + (evN === '1' ? '' : 's') + ' evaluated')
+    : 'No material information recorded';
+  var c2 = '<div class="r55-card lane-research" data-answer="WHAT_CHANGED"'
+    + ' data-lane="' + _opEsc(chg.lane || '') + '"'
+    + ' data-authoritative="' + (chg.is_authoritative ? '1' : '0') + '"'
+    + ' data-governance-state="' + _opEsc(chg.governance_state || '') + '">'
+    + '<div class="r55-q"><span class="n">2</span>'
+    +   _opEsc(qs[1] || 'WHAT CHANGED SINCE') + laneBadge
+    + '</div>'
+    + '<div class="r55-answer">' + _opEsc(chgHead) + '</div>'
+    + (affN !== null
+        ? ('<div class="r55-why">' + _opEsc(affN) + ' directly affect'
+           + (affN === '1' ? 's' : '') + ' a current holding.</div>')
+        : '')
+    + (chg.why_non_held_events_matter
+        ? '<div class="r55-quiet">' + _opEsc(chg.why_non_held_events_matter) + '</div>'
+        : '')
+    + '<div class="r55-facts">'
+    +   _r55Fact('Latest reassessment', chg.latest_reassessment_display)
+    +   _r55Fact('It concluded', _opWords(chg.latest_reassessment_conclusion))
+    +   _r55Fact('Triggered by', _opWords(chg.latest_reassessment_trigger), 'muted')
+    +   _r55Fact('Standing decision',
+                 chg.supersedes_standing_decision ? 'Superseded' : 'Unchanged')
+    + '</div>'
+    + '</div>';
+
+  // ---- ANSWER 3 — the ONE operator action -------------------------------- //
+  var actTone = _R55_ACTION_TONE[act.action];
+  if (actTone === undefined) actTone = '';
+  var actHead = act.requires_operator_work ? (act.action_label || '') : 'NO ACTION NOW';
+  // Navigation only. The ONE execution surface remains the canonical operator
+  // command bar; this panel never renders an execute or confirm control.
+  var goHtml = '';
+  if (act.destination) {
+    var lbl = _R55_ACTION_ROUTE_LABEL[act.destination] || ('Open ' + act.destination);
+    var rt = (window._wsRoute ? window._wsRoute(act.destination, act.focus) : act.destination)
+      || act.destination;
+    goHtml = '<button class="tcc-link" type="button"'
+      + ' title="Navigation only &mdash; opens the page. It runs nothing, approves nothing and creates no order."'
+      + ' onclick="navigateToRoute(\'' + _opEsc(rt) + '\')">' + _opEsc(lbl) + ' &rarr;</button>';
+  }
+  var c3 = '<div class="r55-card lane-action ' + actTone + '"'
+    + ' data-answer="WHAT_TO_DO_NOW"'
+    + ' data-operator-action="' + _opEsc(act.action || '') + '"'
+    + ' data-requires-work="' + (act.requires_operator_work ? '1' : '0') + '">'
+    + '<div class="r55-q"><span class="n">3</span>'
+    +   _opEsc(qs[2] || 'WHAT YOU NEED TO DO')
+    +   _r55Chip('safety', 'ONE ACTION',
+                 'One operator action, chosen by the one priority owner: '
+                 + (act.priority_owner || ''))
+    + '</div>'
+    + '<div class="r55-answer">' + _opEsc(actHead) + '</div>'
+    + (act.action_detail ? '<div class="r55-why">' + _opEsc(act.action_detail) + '</div>' : '')
+    + (act.after_text ? '<div class="r55-quiet">' + _opEsc(act.after_text) + '</div>' : '')
+    + (goHtml ? ('<div class="r55-cta-row">' + goHtml + '</div>') : '')
+    + '<div class="r55-facts">'
+    +   '<div class="r55-safety">'
+    +     _r55Chip('safety', 'PAPER ONLY') + _r55Chip('safety', 'NO ORDERS')
+    +     _r55Chip('safety', 'MANUAL REVIEW') + _r55Chip('safety', 'AUTOMATION OFF')
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+
+  host.setAttribute('data-operator-action', act.action || '');
+  host.setAttribute('data-decision-state', dec.decision_state || '');
+  host.innerHTML = '<div class="r55-grid">' + c1 + c2 + c3 + '</div>';
+  host.style.display = '';
+}
+window._r55RenderOperatorAnswer = _r55RenderOperatorAnswer;
+
+// ---- AUDIT / ADVANCED: the advisory rows the operator surface does NOT show //
+// A row here is TRUE and is explicitly NOT an operator problem (the backend set
+// is_operator_problem=false). Nothing is deleted and nothing is hidden: the
+// legacy scheduled-review checkpoint lives here, with the owner's own reason.
+function _r55RenderAdvisory(d) {
+  var host = document.getElementById('today-advisory');
+  if (!host) return;
+  var rows = (d && d.advisory_components) || [];
+  if (!rows.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  var body = rows.map(function (r) {
+    return '<div class="row" data-advisory-component="' + _opEsc(r.component || '') + '"'
+      + ' data-operator-problem="0">'
+      + '<span class="tok">' + _opEsc(_opWords(r.component)) + ' ('
+      + _opEsc(r.owner_state || '') + ')</span> &mdash; '
+      + _opEsc(r.display_label || r.detail || '')
+      + (r.advisory_reason
+          ? ('<div class="r55-quiet">' + _opEsc(r.advisory_reason) + '</div>')
+          : '')
+      + '</div>';
+  }).join('');
+  host.innerHTML = '<div class="h">Compatibility advisories &mdash; true, retained, and not an operator problem</div>'
+    + body;
+  host.style.display = '';
+}
+window._r55RenderAdvisory = _r55RenderAdvisory;
+
+// ---- AUDIT / ADVANCED: the ACCEPTANCE contract ---------------------------- //
+// One row per stage of the chain with the owner that decided it. PRESENT /
+// MISSING is the backend's verdict; a MISSING row is shown as MISSING and is
+// never filled in from a neighbouring stage.
+function _r55RenderAcceptance(d) {
+  var host = document.getElementById('today-acceptance');
+  if (!host) return;
+  var acc = d && d.acceptance;
+  if (!acc || !acc.rows || !acc.rows.length) { host.style.display = 'none'; return; }
+  var lat = (d && d.decision_latency) || {};
+  var cells = acc.rows.map(function (r) {
+    var cls = (r.status === 'PRESENT') ? 'present' : 'missing';
+    return '<div class="r" data-acceptance-row="' + _opEsc(r.row || '') + '"'
+      + ' data-acceptance-status="' + _opEsc(r.status || '') + '">'
+      + '<div class="k">' + _opEsc(_opWords(r.row)) + '</div>'
+      + '<div class="s ' + cls + '">' + _opEsc(r.status) + '</div>'
+      + '<div class="o" title="' + _opEsc(r.owner || '') + '">' + _opEsc(r.owner || '') + '</div>'
+      + '</div>';
+  }).join('');
+  var latRows = ''
+    + _r55Fact('Observation → signal', _opNum(lat.observation_to_signal_seconds, 1))
+    + _r55Fact('Signal → reassessment', _opNum(lat.signal_to_reassessment_seconds, 1))
+    + _r55Fact('Reassessment → governed', _opNum(lat.reassessment_to_governed_seconds, 1))
+    + _r55Fact('Observation → governed', _opNum(lat.observation_to_governed_seconds, 1));
+  var missing = (lat.missing_measurements || []).join(', ');
+  host.innerHTML = ''
+    + '<div class="r55-advisory" style="border-style:solid;">'
+    +   '<div class="h">Active manager acceptance &mdash; '
+    +     _opEsc(String(acc.present_count)) + ' of ' + _opEsc(String(acc.rows.length))
+    +     ' present &middot; owner ' + _opEsc(acc.owner || '') + '</div>'
+    +   '<div class="r55-accept">' + cells + '</div>'
+    +   '<div class="h" style="margin-top:10px;">Measured decision latency (seconds)'
+    +     (lat.measurement_basis ? (' &middot; ' + _opEsc(_opWords(lat.measurement_basis))) : '')
+    +   '</div>'
+    +   '<div class="r55-facts" style="border-top:0;padding-top:0;">' + latRows + '</div>'
+    +   (missing
+        ? ('<div class="r55-quiet">Not measured (no persisted timestamp): '
+           + _opEsc(missing) + '. A missing stamp is reported, never invented.</div>')
+        : '')
+    + '</div>';
+  host.style.display = '';
+}
+window._r55RenderAcceptance = _r55RenderAcceptance;
+/* R55_REGION_END */
 
 /* R50_REGION_START */
 // ---------------------------------------------------------------------------

@@ -93,6 +93,129 @@ OVERALL_STATES = (
     DAILY_CYCLE_COMPLETE,
 )
 
+# --------------------------------------------------------------------------- #
+# RELEASE 55 — THE ONE OPERATOR ACTION CONTRACT.
+#
+# WHY THIS EXISTS. Eleven internal overall states are the right vocabulary for
+# the state machine and the wrong vocabulary for a human. To answer "what should
+# I do now?" the operator had to hold the difference between an operational
+# close, a governed research cycle, a governed decision, a live intraday
+# reassessment and a legacy review checkpoint in their head simultaneously.
+#
+# WHAT THIS IS NOT. This is NOT a second priority engine. ``_decide_overall``
+# remains the ONE authoritative priority order (P1 .. P9) and is not touched
+# here: this contract is a DETERMINISTIC PROJECTION of the state that policy
+# already selected, into the seven things an operator can actually do. Every
+# refinement below reads an obligation an owner already published; none of them
+# re-orders anything, and no surface (the UI included) may derive one of its own.
+#
+# THE SEVEN OPERATOR ACTIONS
+#   MONITOR_PORTFOLIO       the session is processed, the portfolio is current,
+#                           nothing is required.
+#   REVIEW_PORTFOLIO_PROPOSAL a governed change recommendation exists and manual
+#                           review is required.
+#   RUN_PORTFOLIO_CYCLE     a completed eligible session needs the normal
+#                           close/research processing and owned data is ready.
+#   WAIT_FOR_OWNED_DATA     a completed eligible session exists but canonical
+#                           owned-data readiness is not confirmed.
+#   RESUME_RESEARCH_CYCLE   the operational close is valid and governed research
+#                           is still owed; it can safely resume without
+#                           repeating the close.
+#   WAIT_FOR_SESSION_CLOSE  the portfolio is current and the current eligible
+#                           session is still open.
+#   BLOCKED                 a genuine blocker prevents safe progression.
+# --------------------------------------------------------------------------- #
+OP_ACTION_MONITOR = "MONITOR_PORTFOLIO"
+OP_ACTION_REVIEW_PROPOSAL = "REVIEW_PORTFOLIO_PROPOSAL"
+OP_ACTION_RUN_CYCLE = "RUN_PORTFOLIO_CYCLE"
+OP_ACTION_WAIT_OWNED_DATA = "WAIT_FOR_OWNED_DATA"
+OP_ACTION_RESUME_RESEARCH = "RESUME_RESEARCH_CYCLE"
+OP_ACTION_WAIT_SESSION_CLOSE = "WAIT_FOR_SESSION_CLOSE"
+OP_ACTION_BLOCKED = "BLOCKED"
+
+#: THE authoritative operator-action priority order, most urgent first. It is a
+#: PROJECTION of ``_decide_overall``'s policy, published so a surface can assert
+#: the ordering it renders instead of inventing one. Rank 0 is most urgent.
+OPERATOR_ACTION_PRIORITY = (
+    OP_ACTION_BLOCKED,              # P1 / P3.6 / P6 — nothing else is safe
+    OP_ACTION_WAIT_OWNED_DATA,      # P3   — no confirmed owned session to work on
+    OP_ACTION_RUN_CYCLE,            # P3.7 / P4 / P5 — a session needs processing
+    OP_ACTION_RESUME_RESEARCH,      # P4.5 — the close stands, research is owed
+    OP_ACTION_REVIEW_PROPOSAL,      # P7   — a required manual review
+    OP_ACTION_WAIT_SESSION_CLOSE,   # P2   — nothing outstanding, session open
+    OP_ACTION_MONITOR,              # P8 / P9 — terminal: fully processed
+)
+OPERATOR_ACTIONS = tuple(OPERATOR_ACTION_PRIORITY)
+
+#: overall_state -> operator action. Total over ``OVERALL_STATES``: every state
+#: maps, so no state can fall through to an invented action. Two states are
+#: refined further in ``build_operator_action`` from an owner's own obligation.
+OPERATOR_ACTION_BY_OVERALL = {
+    INCONSISTENT_STATE: OP_ACTION_BLOCKED,
+    RESEARCH_CYCLE_BLOCKED: OP_ACTION_BLOCKED,
+    WAITING_FOR_OWNED_DATA: OP_ACTION_WAIT_OWNED_DATA,
+    READY_FOR_DAILY_CLOSE: OP_ACTION_RUN_CYCLE,
+    # RESEARCH_CYCLE_REQUIRED splits: a post-close governed-research obligation
+    # RESUMES the cycle; anything else runs it from the top.
+    RESEARCH_CYCLE_REQUIRED: OP_ACTION_RUN_CYCLE,
+    PORTFOLIO_REASSESSMENT_REQUIRED: OP_ACTION_RUN_CYCLE,
+    # A cycle already in flight is work in progress, not a new instruction: the
+    # operator watches it. It is never presented as "run the cycle" again.
+    RESEARCH_CYCLE_RUNNING: OP_ACTION_MONITOR,
+    MANUAL_REVIEW_REQUIRED: OP_ACTION_REVIEW_PROPOSAL,
+    WAITING_FOR_SESSION_CLOSE: OP_ACTION_WAIT_SESSION_CLOSE,
+    DAILY_CYCLE_COMPLETE: OP_ACTION_MONITOR,
+    DAILY_CYCLE_COMPLETE_EVIDENCE_GAP: OP_ACTION_MONITOR,
+}
+
+#: Plain-English operator copy per action. The backend owns the words so no
+#: surface writes its own conclusion into them.
+OPERATOR_ACTION_COPY = {
+    OP_ACTION_MONITOR: {
+        "label": "No action now",
+        "detail": ("The latest eligible session is fully processed and the "
+                   "portfolio is current. Continue monitoring."),
+    },
+    OP_ACTION_REVIEW_PROPOSAL: {
+        "label": "Review the portfolio proposal",
+        "detail": ("A governed change recommendation exists and requires manual "
+                   "review. Reviewing approves nothing and creates no order."),
+    },
+    OP_ACTION_RUN_CYCLE: {
+        "label": "Run the portfolio cycle",
+        "detail": ("A completed eligible session needs the normal cycle. The "
+                   "cycle owner sequences the close and the research cycle in "
+                   "the one correct order; you supply no date."),
+    },
+    OP_ACTION_WAIT_OWNED_DATA: {
+        "label": "Wait for owned market data",
+        "detail": ("A completed eligible session exists but canonical "
+                   "owned-data readiness is not confirmed. Nothing is safe to "
+                   "run until the owned provider publishes the session."),
+    },
+    OP_ACTION_RESUME_RESEARCH: {
+        "label": "Resume the research cycle",
+        "detail": ("The operational close is valid and governed research is "
+                   "still owed for that session. The same portfolio cycle "
+                   "resumes at the research stage without repeating the close."),
+    },
+    OP_ACTION_WAIT_SESSION_CLOSE: {
+        "label": "Wait for the session to close",
+        "detail": ("The portfolio is current for the latest eligible session "
+                   "and the current session is still open."),
+    },
+    OP_ACTION_BLOCKED: {
+        "label": "Resolve the blocker",
+        "detail": ("A named blocker prevents safe progression. Resolve it "
+                   "before operating; no mutation is offered while it stands."),
+    },
+}
+
+#: The actions that assert "nothing is outstanding". A surface must never print
+#: one of these beside an unresolved required review or blocker.
+OPERATOR_ACTION_PASSIVE = frozenset({
+    OP_ACTION_MONITOR, OP_ACTION_WAIT_SESSION_CLOSE, OP_ACTION_WAIT_OWNED_DATA})
+
 # Daily Research Cycle state mirror (a FROZEN subset of api.daily_research_cycle's
 # tested vocabulary). Kept as literals so this module stays importable/pure without
 # api.daily_research_cycle; the production path reads the real status via
@@ -104,6 +227,14 @@ _DRC_RUNNING_STATES = frozenset({
 _DRC_BLOCKED_STATES = frozenset({"BLOCKED", "FAILED"})
 _DRC_COMPLETE_STATES = frozenset({"COMPLETE", "COMPLETE_WITH_EVIDENCE_GAP"})
 _DRC_EXECUTE_TOKEN = "RUN_DAILY_RESEARCH_CYCLE"
+
+# Release 55 — the two clocks that can move an assessment status, named.
+#: The canonical PORTFOLIO-ASSESSMENT currency owner (this module's classifier).
+ASSESSMENT_CURRENCY_OWNER = "api.workflow_state.classify_assessment"
+#: The LEGACY monthly scheduled-review checkpoint clock. It is the floor for the
+#: third operating cycle (model recalibration) and never the portfolio cadence.
+SCHEDULE_CLOCK_OWNER = "api.operational_book (scheduled-review checkpoint clock)"
+SCHEDULE_CLOCK_SCOPE = "SCHEDULED_MODEL_RECALIBRATION_CHECKPOINT"
 
 # Frozen assessment-currency vocabulary (Workstream D / decision currency F).
 ASSESS_CURRENT = "CURRENT"
@@ -371,12 +502,40 @@ def _safe(loader: Callable, warnings: list, label: str) -> Any:
 # --------------------------------------------------------------------------- #
 def classify_assessment(*, assessment_date: Any, eligible_date: Any,
                         current_reference_date: Any, next_review_date: Any,
-                        review_due: bool) -> dict[str, Any]:
+                        review_due: bool,
+                        schedule_governs_portfolio_cadence: Any = None
+                        ) -> dict[str, Any]:
     """Classify how current the latest portfolio assessment is.
 
     Returns ``status`` (frozen vocabulary), ``review_overdue`` and
     ``current_for_eligible_session``. Precedence: MISSING > INCONSISTENT >
     OVERDUE > STALE > DUE > CURRENT.
+
+    RELEASE 55 — WHOSE CLOCK DECIDES THIS STATUS.
+
+    ``next_review_date`` is the MONTHLY scheduled-review checkpoint owned by
+    ``api.operational_book`` and forwarded by ``api.daily_action_gate``. That
+    owner declares (Release 46.6) that the date is the floor for the THIRD
+    canonical operating cycle — model recalibration — and explicitly NOT the
+    cadence at which the portfolio is reassessed
+    (``review_is_the_governing_portfolio_cadence: False``;
+    ``portfolio_reassessment_cadence: AFTER_EVERY_MATERIAL_SIGNAL_REFRESH``).
+
+    Nothing consumed that declaration, and ``review_overdue`` outranked the
+    actual currency test, so on 2026-09-03 a reassessment that was current for
+    the eligible session (``assessment_age_sessions=0``) was classified OVERDUE
+    purely because a 2026-08-01 recalibration checkpoint had passed. The Today
+    page printed that as a stale/missing operator problem while the
+    authoritative reassessment was current — a SECOND clock competing with the
+    canonical portfolio-reassessment clock.
+
+    When the caller supplies the owner's explicit ``False``, the schedule stops
+    deciding the PORTFOLIO-ASSESSMENT status: ``review_due`` / ``review_overdue``
+    are still returned as facts (the recalibration obligation is never hidden,
+    only correctly scoped), and the status is decided by assessment currency
+    alone. Any other value — including ``None`` for a caller that cannot see the
+    declaration — keeps the pre-R55 behaviour exactly, so silence is never read
+    as a repair.
     """
     a = _coerce_date(assessment_date)
     elig = _coerce_date(eligible_date)
@@ -387,16 +546,18 @@ def classify_assessment(*, assessment_date: Any, eligible_date: Any,
     review_due_flag = bool(review_due) or bool(
         nr is not None and ref is not None and ref >= nr)
     current_for_eligible = bool(a is not None and elig is not None and a == elig)
+    # Only an EXPLICIT False from the clock's owner demotes the schedule.
+    schedule_decides = schedule_governs_portfolio_cadence is not False
 
     if a is None:
         status = ASSESS_MISSING
     elif elig is not None and a > elig:
         status = ASSESS_INCONSISTENT
-    elif review_overdue:
+    elif review_overdue and schedule_decides:
         status = ASSESS_OVERDUE
     elif elig is not None and a < elig:
         status = ASSESS_STALE
-    elif review_due_flag:
+    elif review_due_flag and schedule_decides:
         status = ASSESS_DUE
     else:
         status = ASSESS_CURRENT
@@ -404,7 +565,16 @@ def classify_assessment(*, assessment_date: Any, eligible_date: Any,
     return {"status": status, "review_overdue": review_overdue,
             "review_due": review_due_flag,
             "current_for_eligible_session": current_for_eligible,
-            "assessment_age_sessions": _business_days_between(a, elig)}
+            "assessment_age_sessions": _business_days_between(a, elig),
+            # R55 — the authority boundary travels with the verdict.
+            "schedule_governs_portfolio_cadence": (
+                schedule_governs_portfolio_cadence),
+            "schedule_decided_status": bool(
+                schedule_decides and status in (ASSESS_OVERDUE, ASSESS_DUE)),
+            "status_decided_by": (
+                SCHEDULE_CLOCK_OWNER
+                if (schedule_decides and status in (ASSESS_OVERDUE, ASSESS_DUE))
+                else ASSESSMENT_CURRENCY_OWNER)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1635,6 +1805,107 @@ def build_operator_command(*, overall: str, primary: dict,
         "note": ("One canonical operator command. Every page mirrors this block and "
                  "renders at most one normal-path workflow action; recovery and "
                  "diagnostic controls live in a separate collapsed area."),
+    }
+
+
+def build_operator_action(*, overall: str, command: Optional[dict] = None,
+                          research_obligation: Optional[dict] = None,
+                          session_recovery: Optional[dict] = None,
+                          blockers: Optional[list] = None,
+                          manual_review_required: Any = None
+                          ) -> dict[str, Any]:
+    """Release 55 — THE ONE operator action, projected from the decided state.
+
+    ``overall`` has already been selected by ``_decide_overall``, the ONE
+    authoritative priority order. This function does not re-run that policy, does
+    not consult a date, and does not compare two candidate actions: it maps the
+    decided state through ``OPERATOR_ACTION_BY_OVERALL`` and applies exactly one
+    refinement, which reads an obligation an owner already published:
+
+        RESEARCH_CYCLE_REQUIRED + an outstanding POST-CLOSE governed-research
+        obligation  ->  RESUME_RESEARCH_CYCLE (the close stands; the same cycle
+        resumes at the research stage) instead of RUN_PORTFOLIO_CYCLE.
+
+    An ``overall`` outside ``OVERALL_STATES`` fails CLOSED to BLOCKED rather than
+    inventing a reassuring action for a state this contract does not know.
+
+    ``executes`` / ``confirmation_required`` / ``execution_contract`` are copied
+    from the canonical operator command, which remains the ONE execution
+    authority: this contract adds no execution path and can enable no control.
+    """
+    cmd = command or {}
+    ob = research_obligation or {}
+    rec = session_recovery or {}
+
+    known = str(overall) in OVERALL_STATES
+    action = OPERATOR_ACTION_BY_OVERALL.get(str(overall))
+    fell_closed = not (known and action)
+    if fell_closed:
+        action = OP_ACTION_BLOCKED
+
+    # The ONE refinement: a post-close research obligation RESUMES rather than
+    # restarts. Decided by the obligation owner (build_research_obligation), read
+    # here verbatim — this module classifies no input and repeats no close.
+    resumable = bool(str(overall) == RESEARCH_CYCLE_REQUIRED
+                     and ob.get("obligation_outstanding")
+                     and ob.get("operational_close_valid")
+                     and not ob.get("repeats_the_completed_close")
+                     and not rec.get("catch_up_required"))
+    if resumable:
+        action = OP_ACTION_RESUME_RESEARCH
+
+    copy = OPERATOR_ACTION_COPY[action]
+    # Blockers are the workflow owner's own rows; the reason is quoted, never
+    # composed from a state name when a real blocker names itself.
+    rows = [b for b in (blockers or []) if isinstance(b, dict)]
+    reason = None
+    if action == OP_ACTION_BLOCKED and rows:
+        reason = rows[0].get("detail") or rows[0].get("label") or rows[0].get("code")
+    if reason is None:
+        reason = cmd.get("why") or cmd.get("task") or copy["detail"]
+
+    executes = bool(cmd.get("primary_action_available"))
+    return {
+        "contract_id": "paper_trader.operator_action/1",
+        "owner": WORKFLOW_STATE_OWNER,
+        "priority_owner": "api.workflow_state._decide_overall",
+        "action": action,
+        "action_label": copy["label"],
+        "action_detail": copy["detail"],
+        "why": reason,
+        "overall_state": overall,
+        "action_vocabulary": list(OPERATOR_ACTIONS),
+        # Rank 0 is most urgent. Published so a surface can ASSERT the ordering
+        # it renders instead of deriving one; it never selects an action.
+        "priority_rank": OPERATOR_ACTION_PRIORITY.index(action),
+        "priority_order": list(OPERATOR_ACTION_PRIORITY),
+        "is_passive": action in OPERATOR_ACTION_PASSIVE,
+        "requires_operator_work": action not in OPERATOR_ACTION_PASSIVE,
+        # Execution stays with the ONE command owner; these are copies.
+        "executes": executes,
+        "execution_label": cmd.get("primary_action_label"),
+        "execution_kind": cmd.get("primary_action_kind"),
+        "execution_owner": cmd.get("primary_action_owner"),
+        "execution_contract": cmd.get("primary_action_execution_contract"),
+        "confirmation_required": cmd.get("confirmation_required"),
+        "destination": cmd.get("destination"),
+        "focus": cmd.get("focus"),
+        "severity": cmd.get("severity"),
+        "blocking_reason": cmd.get("portfolio_cycle_blocking_reason"),
+        # Explicit provenance for the two refinements/fail-closed paths.
+        "resumes_research_without_repeating_close": resumable,
+        "failed_closed_on_unknown_state": fell_closed,
+        "manual_review_required": manual_review_required,
+        # Safety, restated where the operator reads the instruction.
+        "creates_orders": False,
+        "approves_anything": False,
+        "advances_operational_mark": False,
+        "automation_enabled": False,
+        "derived_in_ui": False,
+        "note": ("ONE operator action, projected from the ONE priority order. "
+                 "No surface may derive, re-order or override it, and it enables "
+                 "no control the canonical operator command has not already "
+                 "authorised."),
     }
 
 
@@ -3817,12 +4088,20 @@ def load_workflow_state(
     next_review_date = (gate or {}).get("next_scheduled_full_review")
     gate_review_due = bool((gate or {}).get("scheduled_review_due"))
     gate_target_state = (gate or {}).get("target_state")
+    # Release 55 — the scheduled-review clock's OWN scope declaration, forwarded
+    # by api.daily_action_gate from api.operational_book. Read verbatim; an absent
+    # declaration stays None, which preserves the pre-R55 classification exactly.
+    review_scope = (gate or {}).get("scheduled_review_scope") or {}
+    schedule_governs_portfolio_cadence = review_scope.get(
+        "review_is_the_governing_portfolio_cadence")
 
-    ac = classify_assessment(assessment_date=latest_assessment_date,
-                             eligible_date=eligible_date,
-                             current_reference_date=current_reference_date,
-                             next_review_date=next_review_date,
-                             review_due=gate_review_due)
+    ac = classify_assessment(
+        assessment_date=latest_assessment_date,
+        eligible_date=eligible_date,
+        current_reference_date=current_reference_date,
+        next_review_date=next_review_date,
+        review_due=gate_review_due,
+        schedule_governs_portfolio_cadence=schedule_governs_portfolio_cadence)
     assessment_status = ac["status"]
 
     # Release 29.3: manual review is required when the CANONICAL portfolio-decision
@@ -4817,6 +5096,19 @@ def load_workflow_state(
     seen: set[str] = set()
     uniq_warnings = [w for w in warnings if not (w in seen or seen.add(w))]
 
+    # Release 55 — the ONE operator command, then the ONE operator action
+    # projected from it. The command is built once and referenced twice so the
+    # two blocks can never describe different executions.
+    operator_command = build_operator_command(
+        overall=overall, primary=primary, pending_orders=pending_orders,
+        eligible_date=action_session, latest_close_date=latest_close_date,
+        cycle=normal_cycle)
+    operator_action = build_operator_action(
+        overall=overall, command=operator_command,
+        research_obligation=research_obligation,
+        session_recovery=session_recovery, blockers=blockers,
+        manual_review_required=manual_review_required)
+
     return {
         "status": "OK",
         "phase": PHASE,
@@ -4845,10 +5137,17 @@ def load_workflow_state(
         # Stage 19.3 (Workstream F): the ONE operator command every page mirrors.
         # Stage 22 (Workstream G): it also carries the canonical cycle position and the
         # "what happens after that" answer, so no surface writes its own.
-        "operator_command": build_operator_command(
-            overall=overall, primary=primary, pending_orders=pending_orders,
-            eligible_date=action_session, latest_close_date=latest_close_date,
-            cycle=normal_cycle),
+        "operator_command": operator_command,
+        # Release 55 — THE ONE OPERATOR ACTION CONTRACT. A deterministic
+        # projection of the already-decided overall state into the seven things
+        # an operator can do, with the authoritative priority order published
+        # beside it. No surface may derive, re-order or override it, and it adds
+        # no execution path of its own.
+        "operator_action": operator_action,
+        "operator_action_owner": WORKFLOW_STATE_OWNER,
+        "operator_action_code": operator_action["action"],
+        "operator_action_vocabulary": list(OPERATOR_ACTIONS),
+        "operator_action_priority_order": list(OPERATOR_ACTION_PRIORITY),
         # Release 54.2.1 — the ONE missed-completed-session (catch-up) projection.
         # Every surface that must show a recovery obligation reads THIS block; none
         # recomputes a session date, and there is no recovery-specific write route.
@@ -5030,6 +5329,23 @@ def load_workflow_state(
             "review_overdue": ac["review_overdue"],
             "assessment_age_sessions": ac["assessment_age_sessions"],
             "assessment_status": assessment_status,
+            # Release 55 — WHICH CLOCK DECIDED ``assessment_status``, and what the
+            # scheduled-review date actually governs. ``review_overdue`` stays
+            # published (the recalibration checkpoint is never hidden) but it can
+            # no longer be mistaken for the portfolio-reassessment cadence.
+            "assessment_status_decided_by": ac["status_decided_by"],
+            "assessment_currency_owner": ASSESSMENT_CURRENCY_OWNER,
+            "schedule_decided_assessment_status": ac["schedule_decided_status"],
+            "scheduled_review_governs_portfolio_cadence": ac[
+                "schedule_governs_portfolio_cadence"],
+            "scheduled_review_scope": review_scope.get("review_scope"),
+            "scheduled_review_scope_owner": review_scope.get("scope_owner"),
+            "scheduled_review_scope_note": review_scope.get("review_scope_note"),
+            "scheduled_review_is_compatibility_only": bool(
+                review_scope.get("review_is_the_governing_portfolio_cadence")
+                is False),
+            "portfolio_reassessment_cadence": review_scope.get(
+                "portfolio_reassessment_cadence"),
             "gate_target_state": gate_target_state,
             # --- the ONE canonical portfolio verdict (read verbatim from its owners) --- #
             "portfolio_reassessment_state": reassessment_state,
@@ -5232,5 +5548,14 @@ __all__ = [
     "COS_NO_ACTIVE_BOOK", "COS_UNAVAILABLE", "CANONICAL_OPERATOR_STATES",
     "MODEL_HEALTHY", "MODEL_RECALIBRATION_REVIEW", "MODEL_REVIEW_STATES",
     "ACTION_REVIEW_PROPOSED_PORTFOLIO",
+    # Release 55 — the ONE operator action contract and the two assessment clocks.
+    "OP_ACTION_MONITOR", "OP_ACTION_REVIEW_PROPOSAL", "OP_ACTION_RUN_CYCLE",
+    "OP_ACTION_WAIT_OWNED_DATA", "OP_ACTION_RESUME_RESEARCH",
+    "OP_ACTION_WAIT_SESSION_CLOSE", "OP_ACTION_BLOCKED",
+    "OPERATOR_ACTIONS", "OPERATOR_ACTION_PRIORITY",
+    "OPERATOR_ACTION_BY_OVERALL", "OPERATOR_ACTION_COPY",
+    "OPERATOR_ACTION_PASSIVE", "build_operator_action",
+    "ASSESSMENT_CURRENCY_OWNER", "SCHEDULE_CLOCK_OWNER", "SCHEDULE_CLOCK_SCOPE",
+    "build_operator_command",
     "_derive_model_review", "_build_today_hero",
 ]

@@ -763,6 +763,47 @@ def _target_sector_weights(target: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Release 55 — THE SCHEDULED-REVIEW SCOPE, FORWARDED NOT DECIDED.
+#
+# ``next_scheduled_full_review`` is the MONTHLY model-recalibration checkpoint
+# owned by ``api.operational_book`` (Phase 27B.9, scoped by Release 46.6). That
+# owner already publishes what the date means:
+#
+#     review_scope                              SCHEDULED_MODEL_RECALIBRATION_CHECKPOINT
+#     review_is_the_governing_portfolio_cadence  False
+#     portfolio_reassessment_cadence             AFTER_EVERY_MATERIAL_SIGNAL_REFRESH
+#
+# Before R55 this gate republished the DATE and dropped the SCOPE, so every
+# downstream consumer had to guess which of the three canonical operating cycles
+# the date belonged to — and ``api.workflow_state`` guessed the wrong one. The
+# helper below copies the owner's declaration verbatim and NEVER invents one: an
+# unstated scope stays UNSTATED, and a consumer that cannot see an explicit
+# ``False`` must keep its legacy behaviour rather than assume a repair.
+# --------------------------------------------------------------------------- #
+#: The keys forwarded verbatim from the review clock's own owner.
+REVIEW_SCOPE_FIELDS = (
+    "review_scope", "review_cadence", "review_is_the_governing_portfolio_cadence",
+    "portfolio_reassessment_cadence", "portfolio_reassessment_owner",
+    "review_scope_note",
+)
+REVIEW_SCOPE_OWNER = "api.operational_book"
+
+
+def _review_scope(scope: Optional[dict]) -> dict:
+    """The review clock's own scope declaration, copied field by field.
+
+    ``available`` is False when the owner published no declaration; every field
+    is then None and no consumer may read a repair into the silence.
+    """
+    src = scope if isinstance(scope, dict) else {}
+    out = {"available": bool(src), "scope_owner": REVIEW_SCOPE_OWNER,
+           "decided_here": False}
+    for key in REVIEW_SCOPE_FIELDS:
+        out[key] = src.get(key)
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # The pure daily action gate (no I/O; fully deterministic; unit-testable)
 # --------------------------------------------------------------------------- #
 def evaluate_daily_action_gate(
@@ -775,6 +816,7 @@ def evaluate_daily_action_gate(
     target_count: Optional[int] = None,
     next_scheduled_full_review: Optional[str] = None,
     scheduled_review_due: bool = False,
+    scheduled_review_scope: Optional[dict] = None,
     data_ready: bool = True,
     risk_ready: bool = True,
     orders_pending: int = 0,
@@ -1053,6 +1095,16 @@ def evaluate_daily_action_gate(
         "latest_completed_market_date": latest_completed_market_date,
         "next_scheduled_full_review": next_scheduled_full_review,
         "scheduled_review_due": bool(scheduled_review_due),
+        # Release 55 — WHAT THIS CLOCK IS, forwarded VERBATIM from the clock's own
+        # owner (api.operational_book, Release 46.6). This gate keeps publishing the
+        # scheduled-review date for compatibility, but it no longer publishes it
+        # WITHOUT its scope: on 2026-09-03 the workflow owner read this date as the
+        # portfolio-assessment cadence and classified a session-current reassessment
+        # OVERDUE, which the Today page then printed as an operator problem. The
+        # owner already declares this is the MODEL-RECALIBRATION floor and NOT the
+        # governing portfolio cadence; the declaration now travels with the date so
+        # no consumer has to assume. Nothing is decided here.
+        "scheduled_review_scope": _review_scope(scheduled_review_scope),
         "outcome": outcome,
         "outcome_label": pres["label"],
         "target_state": target_state,
@@ -1294,6 +1346,10 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
                        and not orders_pending)
     next_review = cs.get("next_review_date")
     scheduled_review_due = bool(cs.get("review_due"))
+    # Release 55 — the review clock's DATE and its SCOPE are read from the SAME
+    # owner block, so they can never travel apart again.
+    review_scope_src = {k: cs.get(k) for k in REVIEW_SCOPE_FIELDS
+                        if cs.get(k) is not None}
     desk_mark_date = cs.get("desk_valuation_date") or cs.get("valuation_date")
     target_count = int(cs.get("target_count") or ob_book.get("target_count") or 0)
 
@@ -1332,6 +1388,7 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
         holdings=holdings, target=target, ranked_current=ranked_current,
         eligibility=eligibility, risk_events=risk_events, target_count=target_count,
         next_scheduled_full_review=next_review, scheduled_review_due=scheduled_review_due,
+        scheduled_review_scope=review_scope_src,
         data_ready=data_ready, risk_ready=risk_ready, orders_pending=orders_pending,
         book_active=book_active, evaluation_date=(today or date.today().isoformat()),
         latest_completed_market_date=(market_date or desk_mark_date))
@@ -1355,6 +1412,9 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
         "desk_mark_date": desk_mark_date,
         "book_valuation_date": cs.get("valuation_date") or desk_mark_date,
         "next_scheduled_full_review": next_review,
+        # Release 55 — the scheduled-review date never appears in an operational
+        # date bundle again without the owner's statement of what cycle it governs.
+        "next_scheduled_full_review_scope": result["scheduled_review_scope"],
     }
     # --- Slice 6 (Phase 29G) Holding Opportunity-Cost compatibility summary ------ #
     # The gate DELEGATES to the canonical opportunity-cost summary (never computes it).
@@ -1520,5 +1580,7 @@ __all__ = [
     "PROPOSAL_REVIEW_LABEL",
     "CANONICAL_DECISION_OWNER", "LEGACY_COMPARISON_TITLE", "LEGACY_COMPARISON_HEADLINE",
     "DECISION_AUTHORITY_NONE", "build_legacy_membership_comparison_presentation",
+    # Release 55 — the scheduled-review scope, forwarded from its own owner.
+    "REVIEW_SCOPE_FIELDS", "REVIEW_SCOPE_OWNER",
     "evaluate_daily_action_gate", "load_daily_action_gate",
 ]

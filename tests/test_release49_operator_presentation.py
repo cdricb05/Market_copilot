@@ -627,13 +627,40 @@ class TestTodayUI:
         # notice. Hidden unless the backend reports governed research still owed for a
         # completed close, it renders no execution control of its own, and it declares
         # the owner that DECIDES the obligation on the node.
+        #
+        # RELEASE 55 admits TWO more, both AUDIT-ONLY and both under the SAME
+        # already-declared owner (api.active_manager_state): today-advisory and
+        # today-acceptance. Neither is a primary section — they live inside the
+        # collapsed Today Advanced disclosure with the R54 operating-state strip
+        # and never appear on the normal operator surface. R55's own primary
+        # region (today-operator-answer) sits ABOVE the command center and so is
+        # outside this TCC scope; test_51b pins it. Any other extra section still
+        # fails the build.
         ids = re.findall(r'<div id="(today-[\w-]+)"', TCC)
         assert ids == ["today-command-center", "today-system-band",
                        "today-session-recovery", "today-governed-research",
                        "today-decision", "today-snapshot", "today-attention",
-                       "today-operating-state"]
+                       "today-advisory", "today-operating-state",
+                       "today-acceptance"]
         assert ('id="today-operating-state" data-owner='
                 '"api.active_manager_state"') in TCC
+        # The three diagnostic nodes are inside the Advanced disclosure.
+        adv = TCC.find('<details id="today-advanced"')
+        adv_end = TCC.find("</details>", adv)
+        assert adv > 0
+        for hosted in ('id="today-advisory"', 'id="today-acceptance"',
+                       'id="today-operating-state"'):
+            assert adv < TCC.find(hosted) < adv_end, hosted
+
+    def test_51b_r55_operator_answer_is_declared_and_comes_first(self):
+        """R55's primary region precedes the command center and declares its
+        owner. It renders no execution control of its own."""
+        assert ('id="today-operator-answer" data-owner='
+                '"api.active_manager_state"') in TODAY
+        ans = TODAY.find('<div id="today-operator-answer"')
+        cc = TODAY.find('<div id="today-command-center"')
+        assert 0 <= ans < cc
+        assert TODAY.count('id="today-operator-answer"') == 1
         assert ('id="today-session-recovery" data-recovery-owner='
                 '"api.workflow_state"') in TCC
         assert ('id="today-governed-research" data-research-owner='

@@ -3141,9 +3141,24 @@ def check_operator_atomic_close_ownership(files: list[Path]) -> dict:
                              if r["path"] == "/v1/paper-desk/refresh" and r["method"] == "POST")
 
     # (4) ONE operator-command contract, backend-owned, mirrored by every surface.
-    command_contract_present = all(t in ws_src for t in (
-        "def build_operator_command(", '"operator_command": build_operator_command(',
-        "primary_action_available", "mutation_controls_allowed", "NO_ACTION_TEXT"))
+    # Release 55 — the invariant is the OWNERSHIP, not one line's formatting:
+    # the command is built by the ONE owner function, exactly once, and is
+    # published under the canonical ``operator_command`` key. R55 binds the
+    # result to a name so the R55 operator-action contract can be projected from
+    # the SAME object (two blocks that describe different executions would be a
+    # defect), which is why an inline-call literal is no longer required. What
+    # IS still required: exactly one construction site in the owner, and no
+    # second construction anywhere (``second_command_owner_modules`` below).
+    _cmd_builds = ws_src.count("build_operator_command(") - ws_src.count(
+        "def build_operator_command(")
+    command_contract_present = bool(
+        all(t in ws_src for t in (
+            "def build_operator_command(", '"operator_command"',
+            "primary_action_available", "mutation_controls_allowed",
+            "NO_ACTION_TEXT"))
+        and _cmd_builds == 1
+        and re.search(r'"operator_command":\s*(build_operator_command\(|operator_command,)',
+                      ws_src))
     second_command_owner_modules = sorted(
         _rel(fp) for fp in files
         if _rel(fp) not in (WS_OWNER_FILE, "scripts/audit_architecture.py")
@@ -10702,11 +10717,30 @@ def check_release49_operator_presentation(files: list[Path]) -> dict:
     _r5422_admitted = ('today-governed-research'
                        if 'id="today-governed-research" data-research-owner='
                           '"api.workflow_state"' in tcc else None)
+    # Release 55 admits TWO more, and only inside the collapsed Today Advanced
+    # disclosure: the compatibility-advisory list and the acceptance contract.
+    # Neither is a primary section and neither may appear on the normal operator
+    # surface, so they are admitted ONLY while they sit between the
+    # <details id="today-advanced"> markers owned by api.active_manager_state.
+    # (R55's own PRIMARY region, today-operator-answer, sits above the command
+    # center and is therefore outside this scope entirely; the R49/R55 suites
+    # pin its position and its owner declaration.)
+    _adv_open = tcc.find('<details id="today-advanced"'
+                         ' data-owner="api.active_manager_state"')
+    _adv_close = tcc.find("</details>", _adv_open) if _adv_open >= 0 else -1
+
+    def _r55_admitted(node_id: str):
+        at = tcc.find('<div id="%s"' % node_id)
+        return node_id if (0 <= _adv_open < at < _adv_close) else None
+
+    _r55_advisory = _r55_admitted("today-advisory")
+    _r55_acceptance = _r55_admitted("today-acceptance")
     today_extra_section_ids = sorted(
         m for m in re.findall(r'<div id="(today-[\w-]+)"', tcc)
         if m not in ("today-command-center", "today-system-band", "today-decision",
                      "today-snapshot", "today-attention", _r54_admitted,
-                     _r5421_admitted, _r5422_admitted))
+                     _r5421_admitted, _r5422_admitted,
+                     _r55_advisory, _r55_acceptance))
     today_badge_walls = tcc.count("cc-badge")
     _s0 = ui.find('<style id="r49-styles">')
     _s1 = ui.find("</style>", _s0) if _s0 != -1 else -1
@@ -12382,6 +12416,255 @@ def check_release54_4_single_governed_decision_writer(files: list[Path]) -> dict
         "daily_gate_opens_a_store": daily_gate_opens_a_store,
         "manifest_rewritten_with_decision": manifest_rewritten_with_decision,
         "ui_derives_producer_authority": ui_derives_producer,
+    }
+
+
+#: Release 55 — the seven operator actions. One vocabulary, one priority order.
+R55_OPERATOR_ACTIONS = (
+    "MONITOR_PORTFOLIO", "REVIEW_PORTFOLIO_PROPOSAL", "RUN_PORTFOLIO_CYCLE",
+    "WAIT_FOR_OWNED_DATA", "RESUME_RESEARCH_CYCLE", "WAIT_FOR_SESSION_CLOSE",
+    "BLOCKED",
+)
+#: The ten acceptance rows, spelled exactly as the composition owner spells them.
+R55_ACCEPTANCE_ROWS = (
+    "COLLECTION", "SIGNAL", "SCORING", "HOC", "REASSESSMENT", "GOVERNANCE",
+    "GOVERNED_DECISION", "OPERATIONAL_BOOK", "NEXT_ACTION", "LATENCY",
+)
+#: The R55 UI region may format and place. Any of these is a derivation.
+R55_UI_FORBIDDEN = (
+    "new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.",
+    "toLocaleString", "toLocaleTimeString", "getTimezoneOffset",
+    "dispatchCanonicalPrimaryAction", "_hash ==", "_hash !=",
+)
+
+
+def check_release55_active_manager_acceptance(files: list[Path]) -> dict:
+    """R55 invariants — one operator action, three answers, one assessment clock.
+
+    (a) the operator-action contract has ONE owner, a frozen seven-code
+        vocabulary, one published priority order, a TOTAL map over the internal
+        overall states, and it fails CLOSED on a state it does not know;
+    (b) it re-runs no priority policy: its body reaches for no date, no session
+        status and no clock, and the priority owner stays ``_decide_overall``;
+    (c) the scheduled-review SCOPE is declared by the clock's own owner
+        (api.operational_book), FORWARDED by api.daily_action_gate, and CONSUMED
+        by api.workflow_state — no second module decides what the date governs,
+        and an unstated scope preserves the legacy classification;
+    (d) the composition owner publishes TWO component surfaces (the operator's
+        stale/missing list and the audit-only advisory list) and demotes the
+        legacy row only on the currency owner's own facts;
+    (e) the three operator answers are composed ONCE, the governed lane and the
+        research lane stay named and distinct, and the Eastern spelling of an
+        owner's stamp belongs to the clock owner (engine.market_session);
+    (f) decision latency is MEASURED by its owner over persisted stamps — the
+        projection module performs no timestamp arithmetic of its own;
+    (g) the acceptance contract has ONE definition and ten named rows;
+    (h) the UI renders the answers verbatim, derives nothing, holds no execution
+        or approval control, and keeps the diagnostics inside the Today Advanced
+        disclosure.
+    """
+    ws_src = _read("api/workflow_state.py")
+    ams_src = _read("api/active_manager_state.py")
+    dag_src = _read("api/daily_action_gate.py")
+    ob_src = _read("api/operational_book.py")
+    ms_src = _read("engine/market_session.py")
+    ui = _read(UI_FILE)
+
+    # (a) ONE operator-action owner with a frozen vocabulary + priority order.
+    action_owner_defines = all(t in ws_src for t in (
+        "def build_operator_action(",
+        "OPERATOR_ACTION_PRIORITY = (", "OPERATOR_ACTION_BY_OVERALL = {",
+        "OPERATOR_ACTIONS = tuple(OPERATOR_ACTION_PRIORITY)",
+        '"operator_action": operator_action',
+        '"priority_owner": "api.workflow_state._decide_overall"'))
+    missing_actions = sorted(a for a in R55_OPERATOR_ACTIONS
+                             if '"%s"' % a not in ws_src)
+    second_action_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/workflow_state.py", "scripts/audit_architecture.py")
+        and "def build_operator_action(" in fp.read_text(encoding="utf-8",
+                                                         errors="replace"))
+    fails_closed_on_unknown = all(t in ws_src for t in (
+        "fell_closed = not (known and action)", "action = OP_ACTION_BLOCKED",
+        '"failed_closed_on_unknown_state": fell_closed'))
+
+    # (b) the projection re-runs no policy. Scan the FUNCTION BODY, not the
+    # docstring: the docstring must be free to NAME the priority owner.
+    _a_start = ws_src.find("def build_operator_action(")
+    _a_end = ws_src.find("\ndef ", _a_start + 1) if _a_start >= 0 else -1
+    action_body = ws_src[_a_start:_a_end] if 0 <= _a_start < _a_end else ""
+    _doc_open = action_body.find('"""')
+    _doc_close = action_body.find('"""', _doc_open + 3)
+    action_code = (action_body[:_doc_open] + action_body[_doc_close + 3:]
+                   if 0 <= _doc_open < _doc_close else action_body)
+    action_reruns_policy = sorted(set(
+        t for t in ("_decide_overall(", "session_status", "eligible_date",
+                    "_coerce_date", "date.today", "datetime.")
+        if t in action_code))
+
+    # (c) ONE scope owner; forwarded, then consumed. Nobody else decides.
+    scope_declared_by_clock_owner = (
+        '"review_scope": "SCHEDULED_MODEL_RECALIBRATION_CHECKPOINT"' in ob_src
+        and '"review_is_the_governing_portfolio_cadence": False' in ob_src)
+    second_scope_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/operational_book.py",
+                            "scripts/audit_architecture.py")
+        and '"review_is_the_governing_portfolio_cadence": False'
+        in fp.read_text(encoding="utf-8", errors="replace"))
+    gate_forwards_scope = all(t in dag_src for t in (
+        "REVIEW_SCOPE_FIELDS", 'REVIEW_SCOPE_OWNER = "api.operational_book"',
+        "def _review_scope(", '"scheduled_review_scope": _review_scope(',
+        '"decided_here": False'))
+    workflow_consumes_scope = all(t in ws_src for t in (
+        'review_scope = (gate or {}).get("scheduled_review_scope")',
+        "schedule_governs_portfolio_cadence=schedule_governs_portfolio_cadence",
+        "schedule_governs_portfolio_cadence is not False",
+        '"assessment_status_decided_by"'))
+    # The demotion must require an EXPLICIT False; silence keeps the legacy path.
+    silence_is_not_a_repair = "schedule_governs_portfolio_cadence is not False" in ws_src
+
+    # (d) two component surfaces; the demotion rests on the owner's own facts.
+    two_surfaces = all(t in ams_src for t in (
+        'STALE_SURFACE = "OPERATOR_STALE_MISSING"',
+        'ADVISORY_SURFACE = "AUDIT_ADVANCED_ADVISORY"',
+        '"advisory_components": advisory',
+        '"is_operator_problem"', "LEGACY_SCHEDULE_ADVISORY_REASON"))
+    demotion_needs_owner_facts = all(t in ams_src for t in (
+        'fd.get("current_for_eligible_session") is True',
+        'fd.get("review_overdue")',
+        'fd.get("schedule_decided_status") is True',
+        'fd.get("schedule_is_compatibility_only") is True'))
+    # Nothing may be deleted: the truthful R54.2.4 label survives the demotion.
+    advisory_retains_label = ("Scheduled full review due" in ams_src
+                              and '"display_label": display_label' in ams_src)
+
+    # (e) ONE answer composition; the two lanes stay distinct; ONE clock owner.
+    answers_composed_once = all(t in ams_src for t in (
+        "def _operator_answer_block(", "OPERATOR_ANSWER_QUESTIONS = (",
+        '"operator_answer": operator_answer', '"lanes_are_distinct": True'))
+    second_answer_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/active_manager_state.py",
+                            "scripts/audit_architecture.py")
+        and "def _operator_answer_block(" in fp.read_text(encoding="utf-8",
+                                                          errors="replace"))
+    research_lane_never_authoritative = all(t in ams_src for t in (
+        '"why_this_is_not_the_decision"',
+        '"changes_the_authoritative_decision": bool(',
+        'lane.get("promoted_to_governed")'))
+    clock_owner_formats = ("def format_operator_timestamp(" in ms_src
+                           and "msession.format_operator_timestamp" in ams_src)
+    second_clock_formatter = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("engine/market_session.py",
+                            "scripts/audit_architecture.py")
+        and "def format_operator_timestamp(" in fp.read_text(encoding="utf-8",
+                                                             errors="replace"))
+
+    # (f) latency is MEASURED by its owner; the projection does no arithmetic.
+    _l_start = ams_src.find("def _decision_latency_block(")
+    _l_end = ams_src.find("\ndef ", _l_start + 1) if _l_start >= 0 else -1
+    latency_body = ams_src[_l_start:_l_end] if 0 <= _l_start < _l_end else ""
+    latency_delegates = ("esr.measure_decision_latency" in ams_src
+                         and "_measure_latency(" in latency_body
+                         and '"computed_here": False' in latency_body)
+    latency_arithmetic = sorted(set(
+        t for t in ("total_seconds", "fromisoformat", "timedelta(", "- da",
+                    "datetime.now")
+        if t in latency_body))
+
+    # (g) ONE acceptance contract with the ten named rows.
+    acceptance_owned_once = ("def build_acceptance_contract(" in ams_src
+                             and 'ACCEPTANCE_PRESENT = "PRESENT"' in ams_src
+                             and 'ACCEPTANCE_MISSING = "MISSING"' in ams_src)
+    missing_acceptance_rows = sorted(r for r in R55_ACCEPTANCE_ROWS
+                                     if '"%s"' % r not in ams_src)
+    second_acceptance_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/active_manager_state.py",
+                            "scripts/audit_architecture.py")
+        and "def build_acceptance_contract(" in fp.read_text(encoding="utf-8",
+                                                             errors="replace"))
+
+    # (h) the UI renders verbatim and derives nothing.
+    _u_start = ui.find("/* R55_REGION_START */")
+    _u_end = ui.find("/* R55_REGION_END */")
+    r55_region = ui[_u_start:_u_end] if 0 <= _u_start < _u_end else ""
+    ui_renders_answers = all(t in r55_region for t in (
+        "d.operator_answer", "a.current_decision", "a.what_changed_since",
+        "a.what_to_do_now", "dec.headline", "act.action_label",
+        "chg.latest_reassessment_conclusion"))
+    ui_r55_derivation = sorted(set(t for t in R55_UI_FORBIDDEN
+                                   if t in r55_region))
+    ui_names_the_research_lane = "RESEARCH LANE" in r55_region
+    # The three answers lead the page; the diagnostics sit in the disclosure.
+    _ans_at = ui.find('<div id="today-operator-answer"')
+    _cc_at = ui.find('<div id="today-command-center"')
+    answers_lead_the_page = 0 <= _ans_at < _cc_at
+    _adv_at = ui.find('<details id="today-advanced"')
+    _adv_end = ui.find("</details>", _adv_at) if _adv_at >= 0 else -1
+    diagnostics_in_advanced = all(
+        0 <= _adv_at < ui.find('<div id="%s"' % node) < _adv_end
+        for node in ("today-advisory", "today-operating-state",
+                     "today-acceptance"))
+    ui_answer_container_count = ui.count('id="today-operator-answer"')
+
+    # The read-only acceptance reporter must never grow a write path or a
+    # lifecycle path. Scan the EXECUTABLE code, not the module docstring: the
+    # docstring must stay free to NAME the canonical restart owner in its safety
+    # note (banning the word would ban the documentation, not the behaviour).
+    script_src = _read("scripts/r55_operator_acceptance.py")
+    script_code = script_src
+    _d0 = script_code.find('r"""')
+    if _d0 >= 0:
+        _d1 = script_code.find('"""', _d0 + 4)
+        if _d1 > _d0:
+            script_code = script_code[:_d0] + script_code[_d1 + 3:]
+    script_present = bool(script_src.strip()) and (
+        "def build_acceptance_contract" not in script_src)
+    script_forbidden = sorted(set(
+        t for t in ('method="POST"', "requests.post", "urlopen(req, data",
+                    "restart_paper_trader_backend", "subprocess",
+                    "os.remove", "shutil.rmtree", "Popen(")
+        if t in script_code))
+    script_reads_one_route = script_src.count('ROUTE = "/v1/operations/'
+                                              'active-manager-state"') == 1
+
+    return {
+        "action_owner_defines_contract": bool(action_owner_defines),
+        "missing_operator_actions": missing_actions,
+        "second_operator_action_owner": second_action_owner,
+        "action_fails_closed_on_unknown_state": bool(fails_closed_on_unknown),
+        "action_reruns_priority_policy": action_reruns_policy,
+        "scope_declared_by_clock_owner": bool(scope_declared_by_clock_owner),
+        "second_review_scope_owner": second_scope_owner,
+        "gate_forwards_review_scope": bool(gate_forwards_scope),
+        "workflow_consumes_review_scope": bool(workflow_consumes_scope),
+        "silence_is_not_a_repair": bool(silence_is_not_a_repair),
+        "two_component_surfaces": bool(two_surfaces),
+        "demotion_requires_owner_facts": bool(demotion_needs_owner_facts),
+        "advisory_retains_truthful_label": bool(advisory_retains_label),
+        "answers_composed_once": bool(answers_composed_once),
+        "second_operator_answer_owner": second_answer_owner,
+        "research_lane_never_authoritative": bool(
+            research_lane_never_authoritative),
+        "clock_owner_formats_operator_time": bool(clock_owner_formats),
+        "second_operator_clock_formatter": second_clock_formatter,
+        "latency_delegates_to_owner": bool(latency_delegates),
+        "latency_arithmetic_in_projection": latency_arithmetic,
+        "acceptance_owned_once": bool(acceptance_owned_once),
+        "missing_acceptance_rows": missing_acceptance_rows,
+        "second_acceptance_owner": second_acceptance_owner,
+        "ui_renders_the_three_answers": bool(ui_renders_answers),
+        "ui_r55_derivation": ui_r55_derivation,
+        "ui_names_the_research_lane": bool(ui_names_the_research_lane),
+        "answers_lead_the_page": bool(answers_lead_the_page),
+        "diagnostics_in_advanced_disclosure": bool(diagnostics_in_advanced),
+        "ui_answer_container_count": ui_answer_container_count,
+        "acceptance_script_present": bool(script_present),
+        "acceptance_script_forbidden_calls": script_forbidden,
+        "acceptance_script_reads_one_route": bool(script_reads_one_route),
     }
 
 
@@ -14198,6 +14481,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_3_hoc_evidence_versioning(files),
         "release54_4_single_governed_decision_writer":
             check_release54_4_single_governed_decision_writer(files),
+        "release55_active_manager_acceptance":
+            check_release55_active_manager_acceptance(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -15057,6 +15342,50 @@ def _print_console(rep: dict) -> None:
     print(f"manifest rewritten with decision (must be False): "
           f"{gw['manifest_rewritten_with_decision']}  UI derives producer "
           f"authority (must be empty): {gw['ui_derives_producer_authority']}")
+
+    hdr("ACTIVE MANAGER OPERATIONAL ACCEPTANCE + OPERATOR CLARITY (R55)")
+    r55 = rep["release55_active_manager_acceptance"]
+    print(f"action owner defines contract: {r55['action_owner_defines_contract']}  "
+          f"missing operator actions (must be empty): "
+          f"{r55['missing_operator_actions']}")
+    print(f"second action owners (must be empty): "
+          f"{r55['second_operator_action_owner']}  fails closed on unknown state: "
+          f"{r55['action_fails_closed_on_unknown_state']}")
+    print(f"action reruns priority policy (must be empty): "
+          f"{r55['action_reruns_priority_policy']}")
+    print(f"review scope declared by clock owner: "
+          f"{r55['scope_declared_by_clock_owner']}  second scope owners (must be "
+          f"empty): {r55['second_review_scope_owner']}")
+    print(f"gate forwards scope: {r55['gate_forwards_review_scope']}  workflow "
+          f"consumes scope: {r55['workflow_consumes_review_scope']}  silence is "
+          f"not a repair: {r55['silence_is_not_a_repair']}")
+    print(f"two component surfaces: {r55['two_component_surfaces']}  demotion "
+          f"requires owner facts: {r55['demotion_requires_owner_facts']}  "
+          f"advisory retains truthful label: "
+          f"{r55['advisory_retains_truthful_label']}")
+    print(f"answers composed once: {r55['answers_composed_once']}  second answer "
+          f"owners (must be empty): {r55['second_operator_answer_owner']}  "
+          f"research lane never authoritative: "
+          f"{r55['research_lane_never_authoritative']}")
+    print(f"clock owner formats operator time: "
+          f"{r55['clock_owner_formats_operator_time']}  second formatters (must "
+          f"be empty): {r55['second_operator_clock_formatter']}")
+    print(f"latency delegates to owner: {r55['latency_delegates_to_owner']}  "
+          f"latency arithmetic in projection (must be empty): "
+          f"{r55['latency_arithmetic_in_projection']}")
+    print(f"acceptance owned once: {r55['acceptance_owned_once']}  missing rows "
+          f"(must be empty): {r55['missing_acceptance_rows']}  second acceptance "
+          f"owners (must be empty): {r55['second_acceptance_owner']}")
+    print(f"UI renders the three answers: {r55['ui_renders_the_three_answers']}  "
+          f"UI derivation (must be empty): {r55['ui_r55_derivation']}  names the "
+          f"research lane: {r55['ui_names_the_research_lane']}")
+    print(f"answers lead the page: {r55['answers_lead_the_page']}  diagnostics in "
+          f"Advanced: {r55['diagnostics_in_advanced_disclosure']}  answer "
+          f"containers (must be 1): {r55['ui_answer_container_count']}")
+    print(f"acceptance script present: {r55['acceptance_script_present']}  "
+          f"forbidden calls (must be empty): "
+          f"{r55['acceptance_script_forbidden_calls']}  reads one route: "
+          f"{r55['acceptance_script_reads_one_route']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -17335,6 +17664,63 @@ BLOCKING_INVARIANTS = (
      "manifest_rewritten_with_decision", False),
     ("release54_4_single_governed_decision_writer",
      "ui_derives_producer_authority", []),
+    # ------------------------------------------------------------------- #
+    # Release 55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE + OPERATOR CLARITY.
+    # ONE operator action projected from the ONE priority order; ONE owner for
+    # the scheduled-review scope, forwarded and consumed rather than guessed;
+    # the legacy checkpoint clock demoted to an audit advisory on the currency
+    # owner's own facts and never deleted; THREE composed operator answers with
+    # the governed and research lanes permanently distinct; latency measured by
+    # its owner over persisted stamps; a ten-row acceptance contract; and a UI
+    # that formats and places but decides nothing. Every field below BLOCKS
+    # strict mode.
+    # ------------------------------------------------------------------- #
+    ("release55_active_manager_acceptance",
+     "action_owner_defines_contract", True),
+    ("release55_active_manager_acceptance", "missing_operator_actions", []),
+    ("release55_active_manager_acceptance", "second_operator_action_owner", []),
+    ("release55_active_manager_acceptance",
+     "action_fails_closed_on_unknown_state", True),
+    ("release55_active_manager_acceptance", "action_reruns_priority_policy", []),
+    ("release55_active_manager_acceptance",
+     "scope_declared_by_clock_owner", True),
+    ("release55_active_manager_acceptance", "second_review_scope_owner", []),
+    ("release55_active_manager_acceptance", "gate_forwards_review_scope", True),
+    ("release55_active_manager_acceptance",
+     "workflow_consumes_review_scope", True),
+    ("release55_active_manager_acceptance", "silence_is_not_a_repair", True),
+    ("release55_active_manager_acceptance", "two_component_surfaces", True),
+    ("release55_active_manager_acceptance",
+     "demotion_requires_owner_facts", True),
+    ("release55_active_manager_acceptance",
+     "advisory_retains_truthful_label", True),
+    ("release55_active_manager_acceptance", "answers_composed_once", True),
+    ("release55_active_manager_acceptance", "second_operator_answer_owner", []),
+    ("release55_active_manager_acceptance",
+     "research_lane_never_authoritative", True),
+    ("release55_active_manager_acceptance",
+     "clock_owner_formats_operator_time", True),
+    ("release55_active_manager_acceptance",
+     "second_operator_clock_formatter", []),
+    ("release55_active_manager_acceptance", "latency_delegates_to_owner", True),
+    ("release55_active_manager_acceptance",
+     "latency_arithmetic_in_projection", []),
+    ("release55_active_manager_acceptance", "acceptance_owned_once", True),
+    ("release55_active_manager_acceptance", "missing_acceptance_rows", []),
+    ("release55_active_manager_acceptance", "second_acceptance_owner", []),
+    ("release55_active_manager_acceptance",
+     "ui_renders_the_three_answers", True),
+    ("release55_active_manager_acceptance", "ui_r55_derivation", []),
+    ("release55_active_manager_acceptance", "ui_names_the_research_lane", True),
+    ("release55_active_manager_acceptance", "answers_lead_the_page", True),
+    ("release55_active_manager_acceptance",
+     "diagnostics_in_advanced_disclosure", True),
+    ("release55_active_manager_acceptance", "ui_answer_container_count", 1),
+    ("release55_active_manager_acceptance", "acceptance_script_present", True),
+    ("release55_active_manager_acceptance",
+     "acceptance_script_forbidden_calls", []),
+    ("release55_active_manager_acceptance",
+     "acceptance_script_reads_one_route", True),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

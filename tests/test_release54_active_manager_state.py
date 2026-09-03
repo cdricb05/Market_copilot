@@ -402,6 +402,12 @@ class TestCompositionOnly:
             # supersession (guarded by test_37b in the R54.1 suite and by the
             # strict audit's read_model_defines_gate invariant).
             "from paper_trader.api import portfolio_decision as pdec",
+            # R55 — the OPERATOR-FACING Eastern spelling of an owner's stamp is
+            # delegated to the module that already owns the Eastern clock
+            # (engine.market_session.format_operator_timestamp). This module
+            # converts no timezone and reads no clock of its own; a missing
+            # owner degrades to None, never to a guessed local time.
+            "from paper_trader.engine import market_session as msession",
         )
         unexpected = [ln for ln in import_lines if ln not in allowed]
         assert unexpected == []

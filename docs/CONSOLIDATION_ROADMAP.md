@@ -1468,7 +1468,51 @@ unchanged.
   `tests/test_release54_4_single_governed_decision_writer.py` (51, including two
   negative probes proving the guard fails when violated).
 
-Next: the operational-book cutover - letting an approved governed CHANGE be
-named BY ID by the Stage-19 order plan that implements it, so the
+## R55 - active manager operational acceptance + operator clarity (LANDED)
+
+- Consolidates the OPERATOR SURFACE over the R54 composition. Adds no engine, no
+  decision owner, no scheduler, no reassessment framework, no NAV or freshness
+  calculation and no workflow framework; every new function is a projection of
+  an already-decided state or a delegation to the owner of the concept.
+- Removes the last COMPETING CLOCK in the assessment lane. The monthly
+  scheduled-review checkpoint belongs to `api.operational_book`, which has
+  declared since R46.6 that it governs MODEL RECALIBRATION and not the portfolio
+  cadence. `api.daily_action_gate` now FORWARDS that declaration beside the date
+  (`scheduled_review_scope`) and `classify_assessment` consumes it, so a
+  recalibration checkpoint can no longer classify a session-current reassessment
+  OVERDUE. Proven on the live 2026-09-03 payload: `OVERDUE -> CURRENT`, with
+  `review_due` / `review_overdue` still published and correctly scoped.
+- ONE OPERATOR ACTION CONTRACT (`build_operator_action`): seven frozen codes,
+  one published priority order, a TOTAL map from the eleven `OVERALL_STATES`.
+  `_decide_overall` remains the ONE priority owner; the projection re-runs no
+  policy, fails CLOSED to `BLOCKED` on an unknown state, and copies its
+  execution fields from the canonical operator command.
+- THREE OPERATOR ANSWERS composed once (`operator_answer`), with the governed
+  lane and the live/intraday research lane permanently distinct. Operator-facing
+  Eastern times move to the CLOCK OWNER
+  (`engine.market_session.format_operator_timestamp`); no surface converts a
+  timezone.
+- TWO COMPONENT SURFACES: the operator's `stale_components` and an AUDIT-ONLY
+  `advisory_components`. The legacy row is demoted, never deleted - the raw
+  token, the truthful label, the detail and a quoted reason all survive.
+- Decision latency is now MEASURED on cycles that ran but were not promoted, by
+  delegating to `api.event_signal_refresh.measure_decision_latency` over the
+  persisted stage stamps; the projection performs no timestamp arithmetic.
+- A ten-row `build_acceptance_contract` proves the chain end to end and reports
+  MISSING where an owner persisted nothing, surfaced by the read-only
+  `scripts/r55_operator_acceptance.py`.
+- Guarded by `check_release55_active_manager_acceptance` (32 strict-blocking
+  invariants) and
+  `tests/test_release55_active_manager_operational_acceptance.py` (85).
+
+Next: the intraday governance gate must PERSIST a verdict on a non-promoting
+cycle. R55's reconnaissance proved it currently records none
+(`intraday_governance.evaluated = null`), so "the gate declined to promote" and
+"the gate never ran" are indistinguishable. That is a decision-lane persistence
+change owned by `api.portfolio_decision`; R55 makes the gap visible
+(`acceptance.GOVERNANCE = MISSING`) rather than silent.
+
+After that: the operational-book cutover - letting an approved governed CHANGE
+be named BY ID by the Stage-19 order plan that implements it, so the
 decision -> execution lineage becomes end-to-end provable. Execution itself
 remains manual, preview-first and separately authorised.

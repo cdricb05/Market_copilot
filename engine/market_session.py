@@ -106,6 +106,44 @@ def to_eastern(dt: datetime) -> datetime:
     return _mh.to_eastern(dt)
 
 
+def format_operator_timestamp(value: Any, *, with_date: bool = True
+                              ) -> Optional[str]:
+    """Release 55 — an owner-stamped instant, spelled for a human operator.
+
+    The operator reads the market in Eastern time; the stores record UTC. Before
+    R55 every operator surface printed the raw UTC stamp, so reading "what
+    happened since the decision?" meant a mental timezone conversion. The
+    formatting lives HERE because this module already owns the Eastern clock
+    (``to_eastern``) — no surface, and no browser, converts a timezone of its own.
+
+    Returns e.g. ``"Sep 3, 12:26 PM ET"`` (or ``"12:26 PM ET"`` when
+    ``with_date`` is False), a bare ISO date unchanged when ``value`` carries no
+    time, and None when ``value`` is absent or unparseable. Never substitutes
+    "now" for a missing stamp.
+    """
+    if value in (None, ""):
+        return None
+    raw = str(value).strip()
+    if len(raw) == 10:  # a market DATE, not an instant — never given a clock time
+        try:
+            d = date.fromisoformat(raw)
+        except ValueError:
+            return None
+        # Built by parts, not by strftime day/hour padding: "%-d" is not
+        # portable to Windows and "%d" would print "Sep 03".
+        return "%s %d, %d" % (d.strftime("%b"), d.day, d.year)
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    et = to_eastern(dt)
+    clock = "%d:%02d %s ET" % (((et.hour % 12) or 12), et.minute,
+                               "AM" if et.hour < 12 else "PM")
+    if not with_date:
+        return clock
+    return "%s %d, %s" % (et.strftime("%b"), et.day, clock)
+
+
 def walk_back_to_trading_day(d: date) -> date:
     """Return ``d`` moved back to the nearest weekday (Mon–Fri) at or before it.
 
@@ -647,6 +685,8 @@ __all__ = [
     "MarketSession",
     "MAX_MISSED_SESSIONS",
     "to_eastern",
+    # Release 55 — the operator-facing Eastern spelling of an owner's stamp.
+    "format_operator_timestamp",
     "walk_back_to_trading_day",
     "previous_trading_day",
     "next_trading_day",

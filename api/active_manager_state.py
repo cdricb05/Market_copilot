@@ -156,6 +156,37 @@ EVENT_CYCLE_PROPOSAL_NOTE = (
     "outcome states whether the change clears the switching hurdle, and the "
     "governed decision belongs to api.portfolio_decision.")
 
+# --------------------------------------------------------------------------- #
+# RELEASE 55 — the two component surfaces, and why a row moves between them.
+# --------------------------------------------------------------------------- #
+#: The operator's STALE / MISSING list. A row here asserts a real problem.
+STALE_SURFACE = "OPERATOR_STALE_MISSING"
+#: The AUDIT / ADVANCED advisory list. True, retained, and NOT a problem.
+ADVISORY_SURFACE = "AUDIT_ADVANCED_ADVISORY"
+
+#: Why the legacy scheduled-review row is advisory rather than an operator
+#: problem. Quoted on the audit surface so the demotion is self-explaining and
+#: can never be mistaken for a hidden blocker.
+LEGACY_SCHEDULE_ADVISORY_REASON = (
+    "The portfolio reassessment IS current for the eligible session. The only "
+    "thing that moved its status off CURRENT is the LEGACY monthly "
+    "scheduled-review checkpoint clock, whose own owner (api.operational_book) "
+    "declares it is the floor for MODEL RECALIBRATION and explicitly not the "
+    "governing portfolio-reassessment cadence "
+    "(review_is_the_governing_portfolio_cadence=False). A legacy clock that the "
+    "authoritative current reassessment contradicts is a compatibility "
+    "observation, not an operator problem, so it is retained here in full and "
+    "kept off the normal operator surface.")
+
+#: The THREE questions the operator's first screen must answer, in order. The
+#: composed answers travel under these exact keys so no surface invents a fourth
+#: question or reorders the three.
+OPERATOR_ANSWER_QUESTIONS = (
+    "WHAT IS THE CURRENT AUTHORITATIVE PORTFOLIO DECISION?",
+    "WHAT HAS CHANGED SINCE THAT DECISION?",
+    "WHAT SHOULD THE OPERATOR DO NOW?",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
@@ -493,6 +524,23 @@ def _reassessment_block(reassessment: Optional[dict], workflow: Optional[dict],
             "schedule_owner": ("api.daily_action_gate "
                                "(legacy scheduled-review clock)"),
             "advanced_by_live_event_cycles": False,
+            # Release 55 — the AUTHORITY BOUNDARY between the two clocks, carried
+            # verbatim from the currency owner. ``schedule_decided_status`` is the
+            # one field a surface needs to know whether a non-CURRENT token names
+            # a real portfolio obligation or only the model-recalibration
+            # checkpoint. Absent (pre-R55 payload) means "not stated", never "no".
+            "status_decided_by": pas.get("assessment_status_decided_by"),
+            "schedule_decided_status": pas.get(
+                "schedule_decided_assessment_status"),
+            "schedule_governs_portfolio_cadence": pas.get(
+                "scheduled_review_governs_portfolio_cadence"),
+            "schedule_scope": pas.get("scheduled_review_scope"),
+            "schedule_scope_owner": pas.get("scheduled_review_scope_owner"),
+            "schedule_scope_note": pas.get("scheduled_review_scope_note"),
+            "schedule_is_compatibility_only": pas.get(
+                "scheduled_review_is_compatibility_only"),
+            "portfolio_reassessment_cadence": pas.get(
+                "portfolio_reassessment_cadence"),
         },
         "proposal_required": dec.get("proposal_required"),
         "workflow_lane_state": lane.get("state") or lane.get("operator_state"),
@@ -801,16 +849,73 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
     }
 
 
+def _measure_latency(**kwargs) -> Optional[dict]:
+    """Call the LATENCY OWNER's own measurement function.
+
+    Release 55 delegates rather than subtracting timestamps here: the intervals,
+    the missing-endpoint naming and the completeness verdict all stay with
+    ``api.event_signal_refresh.measure_decision_latency``. An unavailable owner
+    module degrades to None and the block reports MISSING, exactly as it would
+    for an unstamped stage.
+    """
+    try:
+        from paper_trader.api import event_signal_refresh as esr
+        return esr.measure_decision_latency(**kwargs)
+    except Exception:  # noqa: BLE001 — a missing owner is MISSING, never invented
+        return None
+
+
 def _decision_latency_block(governed_decision: Optional[dict],
                             live_information: dict) -> dict:
     """R54.1 — measured, never modelled. Every value is the latency owner's
     (``api.event_signal_refresh``) own measurement over persisted stamps; a
-    stage that persists no timestamp is NAMED, never filled in."""
+    stage that persists no timestamp is NAMED, never filled in.
+
+    RELEASE 55 — MEASURE THE CHAIN THAT ACTUALLY RAN.
+
+    Before R55 this block read the latency record that a GOVERNED INTRADAY
+    PROMOTION carries. That record exists only when the R54.1 gate promoted a
+    cycle, so on 2026-09-03 — twenty material events, a full-universe rescore, a
+    completed opportunity-cost assessment and a completed reassessment, none of
+    it promoted because the conclusion was HOLD — the whole block reported
+    ``available: false`` and the operator could not see where any of the time
+    went, even though ``api.event_signal_refresh`` had persisted four real stage
+    timestamps on the very same payload.
+
+    The repair adds no measurement of its own: when no governed record carries a
+    latency, this block asks the SAME owner function to measure the SAME
+    persisted stamps. The governed endpoint is genuinely absent in that case, so
+    ``reassessment_to_governed_seconds`` and ``observation_to_governed_seconds``
+    stay None and ``governed_decision_persisted_at`` is named in
+    ``missing_measurements``. Nothing is manufactured; a promoted cycle's own
+    record still wins outright.
+    """
     lat = (governed_decision or {}).get("latency") or {}
     cycle = live_information.get("last_event_cycle") or {}
+    basis = "GOVERNED_DECISION_LATENCY_RECORD"
+    if not lat:
+        stamps = cycle.get("stage_timestamps") or {}
+        # The observation stamp is the event fabric's own; the newest material
+        # observation the live block already SELECTED (never a clock read here).
+        observed = (live_information.get("last_material_event_at")
+                    or live_information.get("last_observation_at"))
+        if stamps or observed:
+            measured = _measure_latency(
+                stage_timestamps=stamps,
+                event_cycle_started_at=cycle.get("generated_at"),
+                observation_received_at=observed,
+                governance_gate_completed_at=None,
+                governed_decision_persisted_at=None)
+            if measured:
+                lat = measured
+                basis = "LIVE_EVENT_CYCLE_STAGE_TIMESTAMPS"
     return {
         "available": bool(lat),
         "measurement_owner": "api.event_signal_refresh",
+        "measurement_basis": basis if lat else None,
+        "measurement_basis_vocabulary": [
+            "GOVERNED_DECISION_LATENCY_RECORD",
+            "LIVE_EVENT_CYCLE_STAGE_TIMESTAMPS"],
         "timestamps": lat.get("timestamps") or {},
         "observation_to_signal_seconds": lat.get("observation_to_signal_seconds"),
         "signal_to_reassessment_seconds": lat.get("signal_to_reassessment_seconds"),
@@ -821,6 +926,7 @@ def _decision_latency_block(governed_decision: Optional[dict],
         "latency_measurement_complete": lat.get("latency_measurement_complete"),
         "missing_measurements": list(lat.get("missing_measurements") or []),
         "last_event_cycle_at": cycle.get("generated_at"),
+        "computed_here": False,
         "owner": COMPONENT_OWNERS["decision_latency"],
     }
 
@@ -883,6 +989,10 @@ def _operator_guidance_block(workflow: Optional[dict]) -> dict:
         "headline": w.get("headline"),
         "next_action": primary,
         "operator_command": w.get("operator_command"),
+        # Release 55 — the ONE operator action contract, projected verbatim from
+        # its owner (api.workflow_state.build_operator_action). Absent on a
+        # pre-R55 workflow payload; nothing is substituted in its place.
+        "operator_action": w.get("operator_action"),
         "portfolio_attention": w.get("portfolio_attention"),
         "canonical_portfolio_decision": w.get("canonical_portfolio_decision"),
         "queued_actions": w.get("queued_actions"),
@@ -978,19 +1088,49 @@ _ASSESS_NEEDS_ACTION = frozenset({"STALE", "DUE", "OVERDUE", "MISSING"})
 
 def _stale_components(*, operational_book: dict, live_information: dict,
                       signal_state: dict, reassessment: dict,
-                      target_proposal: dict, research_governance: dict) -> list:
+                      target_proposal: dict, research_governance: dict) -> tuple:
+    """Return ``(stale_components, advisory_components)``.
+
+    RELEASE 55 — WHAT BELONGS ON A NORMAL OPERATOR SURFACE.
+
+    ``stale_components`` is the operator's STALE / MISSING list: a row here
+    asserts that something the operator depends on is not in the state it should
+    be in. ``advisory_components`` is the AUDIT-ONLY list: a compatibility
+    observation that is TRUE but is not an operator problem, retained in full so
+    nothing is hidden and no history is rewritten.
+
+    The R55 defect this split repairs: a portfolio reassessment that was current
+    for the eligible session (age 0 sessions) appeared in the STALE / MISSING
+    list because the LEGACY monthly scheduled-review checkpoint clock had
+    passed. That clock's own owner declares it governs model recalibration, not
+    the portfolio cadence, so the row was never an operator problem — and a
+    legacy clock contradicted by the authoritative current reassessment must
+    never compete with it on a normal surface.
+    """
     out: list[dict] = []
+    advisory: list[dict] = []
 
     def _add(component: str, owner_state: Any, detail: Any = None,
-             display_label: Any = None):
+             display_label: Any = None, *, advisory_only: bool = False,
+             advisory_reason: Any = None):
         # R54.2.4 — ``display_label`` is what a normal surface PRINTS; the raw
         # owner_state token stays beside it for Audit. When absent, surfaces
         # fall back to "<component> (<owner_state>)" exactly as before.
-        out.append({"component": component,
-                    "owner": COMPONENT_OWNERS.get(component),
-                    "owner_state": owner_state,
-                    "display_label": display_label,
-                    "detail": detail})
+        row = {"component": component,
+               "owner": COMPONENT_OWNERS.get(component),
+               "owner_state": owner_state,
+               "display_label": display_label,
+               "detail": detail}
+        if advisory_only:
+            row["advisory_only"] = True
+            row["advisory_reason"] = advisory_reason
+            row["is_operator_problem"] = False
+            row["surface"] = ADVISORY_SURFACE
+            advisory.append(row)
+        else:
+            row["is_operator_problem"] = True
+            row["surface"] = STALE_SURFACE
+            out.append(row)
 
     if not operational_book.get("available"):
         _add("operational_book", "MISSING")
@@ -1034,8 +1174,30 @@ def _stale_components(*, operational_book: dict, live_information: dict,
                            "api.daily_action_gate clock; the portfolio "
                            "reassessment itself is current for the eligible "
                            "session")
+            # RELEASE 55 — R54.2.4 made the label truthful; it left the row in the
+            # operator's STALE / MISSING list, so a truthful sentence still read as
+            # a problem. The row is DEMOTED to the audit-only advisory list when,
+            # and only when, BOTH of the currency owner's own facts hold:
+            #
+            #   * the assessment is current for the eligible session, and
+            #   * the ONLY thing that moved the token off CURRENT was the legacy
+            #     schedule, which its owner declares does not govern the
+            #     portfolio cadence (``schedule_decided_status`` is True, or the
+            #     owner stated ``schedule_is_compatibility_only``).
+            #
+            # A genuinely STALE / MISSING / INCONSISTENT assessment, or a token
+            # this module cannot attribute to the legacy clock, still lands in the
+            # operator list unchanged: silence is never read as a repair.
+            legacy_only = bool(
+                fd.get("current_for_eligible_session") is True
+                and fd.get("review_overdue")
+                and (fd.get("schedule_decided_status") is True
+                     or fd.get("schedule_is_compatibility_only") is True))
             _add("portfolio_reassessment", reassessment.get("reassessment_freshness"),
-                 "; ".join(parts), display_label=display)
+                 "; ".join(parts), display_label=display,
+                 advisory_only=legacy_only,
+                 advisory_reason=(LEGACY_SCHEDULE_ADVISORY_REASON
+                                  if legacy_only else None))
     if not target_proposal.get("available"):
         _add("target_proposal", "MISSING")
     if not research_governance.get("available"):
@@ -1046,7 +1208,324 @@ def _stale_components(*, operational_book: dict, live_information: dict,
              (research_governance.get("research_runtime") or {}).get("state")
              or "RESEARCH_RUNTIME_UNKNOWN",
              "R52 research runtime health")
-    return out
+    return out, advisory
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE 55 — THE THREE OPERATOR ANSWERS.
+#
+# The operator's first screen must answer three questions and nothing else:
+#
+#   1  WHAT IS THE CURRENT AUTHORITATIVE PORTFOLIO DECISION?
+#   2  WHAT HAS CHANGED SINCE THAT DECISION?
+#   3  WHAT SHOULD THE OPERATOR DO NOW?
+#
+# Before R55 the Today page published the raw material instead of the answers,
+# and the operator had to reconcile the governed decision, the last portfolio
+# reassessment, the latest live/intraday reassessment, two clocks, the
+# session-close status and a legacy review clock to work out which of the three
+# they were even looking at.
+#
+# This block composes the answers ONCE, here, from facts the owners already
+# decided. It resolves no economics, selects no authority, orders nothing and
+# writes nothing: answer 1 is the decision owner's own verdict, answer 2 is the
+# live lane's own record, answer 3 is the workflow owner's own operator action.
+# Every identity (run id, artifact id, hash, UTC stamp, owner name) stays in the
+# payload for Audit / Advanced — the answers are what a NORMAL surface prints.
+# --------------------------------------------------------------------------- #
+def _operator_display_time(value: Any, *, with_date: bool = True):
+    """The Eastern-time spelling of an owner's stamp, from the CLOCK OWNER.
+
+    ``engine.market_session.format_operator_timestamp`` owns the Eastern clock;
+    this module neither converts a timezone nor reads one. An unavailable owner
+    or an unparseable stamp degrades to None, and the surface then shows the raw
+    identity from Audit rather than a guessed local time.
+    """
+    try:
+        from paper_trader.engine import market_session as msession
+        return msession.format_operator_timestamp(value, with_date=with_date)
+    except Exception:  # noqa: BLE001 — a missing clock owner prints nothing
+        return None
+
+
+def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
+                           lane: dict, live_information: dict,
+                           operational_book: dict,
+                           operator_guidance: dict) -> dict:
+    canon = canonical or {}
+    action = operator_guidance.get("operator_action") or {}
+    cmd = operator_guidance.get("operator_command") or {}
+
+    # ---- ANSWER 1 — the current authoritative decision -------------------- #
+    # The headline is the decision owner's own sentence. When the governed lane
+    # published no decision at all this stays UNAVAILABLE rather than borrowing
+    # the research lane's conclusion.
+    decision_available = bool(governed.get("available") or canon)
+    decision = {
+        "question": OPERATOR_ANSWER_QUESTIONS[0],
+        "available": decision_available,
+        "headline": canon.get("headline"),
+        "explanation": canon.get("explanation") or canon.get("no_proposal_reason"),
+        "decision": governed.get("decision") or canon.get("state"),
+        "decision_state": canon.get("state"),
+        "session": (governed.get("eligible_market_session")
+                    or canon.get("eligible_market_date")),
+        "session_display": _operator_display_time(
+            governed.get("eligible_market_session")
+            or canon.get("eligible_market_date")),
+        "decided_at": governed.get("timestamp"),
+        "decided_at_display": _operator_display_time(governed.get("timestamp")),
+        "provenance": governed.get("provenance"),
+        "record_id": governed.get("record_id"),
+        "persisted": governed.get("persisted"),
+        "manual_review_required": governed.get("manual_review_required"),
+        # The operational facts the decision was taken against — the book's own.
+        "operational_mark_date": operational_book.get("operational_mark_date"),
+        "operational_mark_display": _operator_display_time(
+            operational_book.get("operational_mark_date")),
+        "nav": operational_book.get("nav"),
+        "is_authoritative": True,
+        "authority_owner": COMPONENT_OWNERS["latest_governed_portfolio_decision"],
+        "presentation_owner": "api.workflow_state.build_canonical_portfolio_decision",
+    }
+
+    # ---- ANSWER 2 — what changed since that decision ---------------------- #
+    # The live/intraday lane's OWN record. The two facts an operator most often
+    # misreads are stated explicitly: a reassessment that concluded HOLD is not a
+    # decision, and material information about names the book does not hold is a
+    # legitimate reason to re-underwrite the portfolio, not an anomaly.
+    events = live_information.get("material_event_count")
+    affected = list(lane.get("affected_holdings") or [])
+    changed = {
+        "question": OPERATOR_ANSWER_QUESTIONS[1],
+        "available": bool(lane.get("available")),
+        "material_events_evaluated": events,
+        "material_events_since_decision": live_information.get(
+            "material_events_since_last_reassessment"),
+        "affected_current_holdings": affected,
+        "affected_current_holdings_count": len(affected),
+        "last_material_event_at": lane.get("last_material_event_at"),
+        "last_material_event_display": _operator_display_time(
+            lane.get("last_material_event_at")),
+        "latest_reassessment_at": lane.get("at"),
+        "latest_reassessment_display": _operator_display_time(lane.get("at")),
+        "latest_reassessment_trigger": lane.get("trigger"),
+        "latest_reassessment_conclusion": lane.get("candidate_conclusion"),
+        "scoring_basis_date": lane.get("scoring_basis_date"),
+        "scoring_basis_display": _operator_display_time(
+            lane.get("scoring_basis_date")),
+        "governance_state": lane.get("governance_state"),
+        "supersedes_standing_decision": lane.get("supersedes_standing_decision"),
+        "changes_the_authoritative_decision": bool(
+            lane.get("promoted_to_governed")),
+        "lane": lane.get("lane"),
+        "lane_label": lane.get("lane_label"),
+        "is_authoritative": False,
+        "why_non_held_events_matter": (
+            "Material information about an asset the book does not hold can "
+            "still change the opportunity cost of what it does hold, so it "
+            "legitimately triggers a portfolio reassessment. Zero affected "
+            "holdings is a normal outcome, not a failure."),
+        "why_this_is_not_the_decision": (
+            "This is the live research lane. It re-underwrites the portfolio "
+            "continuously and never becomes the authoritative decision unless "
+            "the governance gate promotes it."),
+        "owner": lane.get("owner"),
+    }
+
+    # ---- ANSWER 3 — what the operator should do now ----------------------- #
+    do_now = {
+        "question": OPERATOR_ANSWER_QUESTIONS[2],
+        "available": bool(action),
+        "action": action.get("action"),
+        "action_label": action.get("action_label"),
+        "action_detail": action.get("action_detail"),
+        "why": action.get("why"),
+        "requires_operator_work": action.get("requires_operator_work"),
+        "executes": action.get("executes"),
+        "execution_label": action.get("execution_label"),
+        "confirmation_required": action.get("confirmation_required"),
+        "destination": action.get("destination"),
+        "focus": action.get("focus"),
+        "severity": action.get("severity"),
+        "blocking_reason": action.get("blocking_reason"),
+        "priority_rank": action.get("priority_rank"),
+        "action_vocabulary": action.get("action_vocabulary"),
+        "supporting_text": cmd.get("supporting_text"),
+        "after_text": cmd.get("after_text"),
+        "creates_orders": False,
+        "approves_anything": False,
+        "automation_enabled": False,
+        "owner": action.get("owner"),
+        "priority_owner": action.get("priority_owner"),
+    }
+
+    return {
+        "schema_version": "operator_answer.v1",
+        "questions": list(OPERATOR_ANSWER_QUESTIONS),
+        "current_decision": decision,
+        "what_changed_since": changed,
+        "what_to_do_now": do_now,
+        # The two lanes stay named and stay separate on the operator's own
+        # screen: the research lane can never masquerade as the governed answer.
+        "lanes_are_distinct": True,
+        "governed_lane_owner": COMPONENT_OWNERS[
+            "latest_governed_portfolio_decision"],
+        "research_lane_owner": COMPONENT_OWNERS["latest_live_intraday_assessment"],
+        "identities_live_in_audit": True,
+        "composed_here": True,
+        "recomputes_nothing": True,
+        "owner": OWNER,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE 55 — THE ACTIVE MANAGER ACCEPTANCE CONTRACT.
+#
+# A deterministic, read-only checklist over the composed state: one row per
+# stage of the chain, each quoting the owner that decided it. It exists so an
+# operator (or a release gate) can prove the Active Manager ran end to end
+# without opening nine surfaces, and so a MISSING fact is reported as MISSING
+# instead of being inferred from a neighbouring one.
+#
+# It is a pure function of an already-composed payload: no loader, no owner
+# call, no arithmetic, no verdict of its own beyond PRESENT / MISSING.
+# --------------------------------------------------------------------------- #
+ACCEPTANCE_ROWS = (
+    "COLLECTION", "SIGNAL", "SCORING", "HOC", "REASSESSMENT", "GOVERNANCE",
+    "GOVERNED_DECISION", "OPERATIONAL_BOOK", "NEXT_ACTION", "LATENCY",
+)
+ACCEPTANCE_PRESENT = "PRESENT"
+ACCEPTANCE_MISSING = "MISSING"
+
+
+def build_acceptance_contract(state: Optional[dict]) -> dict:
+    """The R55 read-only acceptance view over a composed active-manager state.
+
+    ``state`` is the payload ``build_active_manager_state`` returns (or the same
+    JSON fetched from the route). Every row's ``value`` is copied; ``status`` is
+    PRESENT only when the row's own key fact exists. Nothing is manufactured: a
+    stage that persisted nothing stays MISSING and says which owner owed it.
+    """
+    s = state or {}
+    ob = s.get("operational_book") or {}
+    li = s.get("live_information") or {}
+    sg = s.get("signal_state") or {}
+    rs = s.get("portfolio_reassessment") or {}
+    lane = s.get("live_reassessment_lane") or {}
+    gov = s.get("intraday_governance") or {}
+    gd = s.get("latest_governed_portfolio_decision") or {}
+    lat = s.get("decision_latency") or {}
+    guid = s.get("operator_guidance") or {}
+    action = guid.get("operator_action") or {}
+    cycle = li.get("last_event_cycle") or {}
+    stamps = cycle.get("stage_timestamps") or {}
+    owners = s.get("component_owners") or dict(COMPONENT_OWNERS)
+
+    def _row(row: str, key_fact: Any, owner: Any, **values) -> dict:
+        return {"row": row,
+                "status": (ACCEPTANCE_PRESENT if key_fact not in (None, "", [])
+                           else ACCEPTANCE_MISSING),
+                "owner": owner, **values}
+
+    rows = [
+        _row("COLLECTION", li.get("last_observation_at"),
+             owners.get("live_information"),
+             service_state=li.get("collection_service_state"),
+             running=li.get("collection_running"),
+             last_observation_at=li.get("last_observation_at"),
+             worker_activity=li.get("worker_activity")),
+        _row("SIGNAL", li.get("last_material_event_at"),
+             owners.get("live_information"),
+             last_material_event_at=li.get("last_material_event_at"),
+             material_event_count=li.get("material_event_count"),
+             last_signal_refresh_at=sg.get("last_signal_refresh_at"),
+             last_signal_refresh_state=sg.get("last_signal_refresh_state")),
+        _row("SCORING", sg.get("last_scoring_ranking_date"),
+             owners.get("signal_state"),
+             scoring_basis_date=sg.get("last_scoring_ranking_date"),
+             scope=(sg.get("scoring_basis") or {}).get("scope"),
+             scored_universe_count=sg.get("scored_universe_count"),
+             ranking_snapshot_id=sg.get("ranking_snapshot_id"),
+             scoring_status=sg.get("scoring_status")),
+        _row("HOC", (rs.get("hoc_summary") or {}).get("assessment_hash"),
+             "api.holding_opportunity_cost",
+             state=(rs.get("hoc_summary") or {}).get("state"),
+             assessment_hash=(rs.get("hoc_summary") or {}).get("assessment_hash"),
+             completed_at=lane.get("hoc_completed_at") or stamps.get(
+                 "hoc_completed_at")),
+        _row("REASSESSMENT", rs.get("reassessment_id"),
+             owners.get("portfolio_reassessment"),
+             reassessment_id=rs.get("reassessment_id"),
+             reassessment_hash=rs.get("reassessment_hash"),
+             session=rs.get("reassessment_session"),
+             at=rs.get("last_reassessment_at"),
+             result=rs.get("current_decision"),
+             latest_live_conclusion=lane.get("candidate_conclusion"),
+             latest_live_persisted=lane.get("reassessment_persisted"),
+             latest_live_persistence_status=lane.get(
+                 "reassessment_persistence_status")),
+        _row("GOVERNANCE", gov.get("verdict"), owners.get("intraday_governance"),
+             gate_evaluated=gov.get("evaluated"),
+             verdict=gov.get("verdict"),
+             lane_governance_state=lane.get("governance_state"),
+             promoted_to_governed=lane.get("promoted_to_governed"),
+             withheld_reason_codes=list(gov.get("withheld_reason_codes") or []),
+             failing_checks=list(gov.get("failing_checks") or [])),
+        _row("GOVERNED_DECISION", gd.get("decision"),
+             owners.get("latest_governed_portfolio_decision"),
+             decision=gd.get("decision"), provenance=gd.get("provenance"),
+             session=gd.get("eligible_market_session"),
+             record_id=gd.get("record_id"), decided_at=gd.get("timestamp"),
+             persisted=gd.get("persisted"),
+             supersedes_decision_id=gd.get("supersedes_decision_id")),
+        _row("OPERATIONAL_BOOK", ob.get("operational_mark_date"),
+             owners.get("operational_book"),
+             latest_completed_close_date=ob.get("latest_completed_close_date"),
+             operational_mark_date=ob.get("operational_mark_date"),
+             eligible_market_session=ob.get("eligible_market_session"),
+             nav=ob.get("nav"), cash=ob.get("cash"),
+             holdings_count=ob.get("holdings_count"),
+             close_valid=ob.get("operational_close_valid")),
+        _row("NEXT_ACTION", action.get("action"), owners.get("operator_guidance"),
+             action=action.get("action"), label=action.get("action_label"),
+             overall_state=guid.get("overall_state"),
+             requires_operator_work=action.get("requires_operator_work"),
+             priority_rank=action.get("priority_rank"),
+             executes=action.get("executes")),
+        _row("LATENCY", lat.get("observation_to_signal_seconds"),
+             lat.get("measurement_owner") or owners.get("decision_latency"),
+             measurement_basis=lat.get("measurement_basis"),
+             observation_to_signal_seconds=lat.get(
+                 "observation_to_signal_seconds"),
+             signal_to_reassessment_seconds=lat.get(
+                 "signal_to_reassessment_seconds"),
+             reassessment_to_governed_seconds=lat.get(
+                 "reassessment_to_governed_seconds"),
+             observation_to_governed_seconds=lat.get(
+                 "observation_to_governed_seconds"),
+             measurement_complete=lat.get("latency_measurement_complete"),
+             missing_measurements=list(lat.get("missing_measurements") or [])),
+    ]
+    missing = [r["row"] for r in rows if r["status"] == ACCEPTANCE_MISSING]
+    return {
+        "schema_version": "active_manager_acceptance.v1",
+        "phase": "R55",
+        "owner": OWNER,
+        "row_vocabulary": list(ACCEPTANCE_ROWS),
+        "status_vocabulary": [ACCEPTANCE_PRESENT, ACCEPTANCE_MISSING],
+        "rows": rows,
+        "present_count": len(rows) - len(missing),
+        "missing_rows": missing,
+        "complete": not missing,
+        "generated_at": s.get("generated_at"),
+        "read_only": True,
+        "recomputes_nothing": True,
+        "manufactures_no_timestamp": True,
+        "note": ("Deterministic acceptance view over the composed state. A row "
+                 "is MISSING when its owner persisted nothing; a missing fact "
+                 "is never inferred from a neighbouring stage."),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1093,10 +1572,18 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         governed_decision=governed_block)
     decision_latency = _decision_latency_block(governed_decision,
                                                live_information)
-    stale = _stale_components(
+    # R55 — the operator's STALE / MISSING list and the AUDIT-ONLY advisory list
+    # are now two lists, because they answer two different questions.
+    stale, advisory = _stale_components(
         operational_book=operational_book, live_information=live_information,
         signal_state=signal_state, reassessment=reassessment_block,
         target_proposal=target_proposal, research_governance=research_governance)
+    # R55 — the THREE operator answers, composed once from the owners above.
+    operator_answer = _operator_answer_block(
+        governed=governed_block,
+        canonical=(workflow or {}).get("canonical_portfolio_decision"),
+        lane=live_reassessment_lane, live_information=live_information,
+        operational_book=operational_book, operator_guidance=operator_guidance)
 
     time_state = {
         "distinct": True,
@@ -1238,7 +1725,7 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         },
     }
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
         "owner": OWNER,
@@ -1246,6 +1733,9 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         "generated_at": _now_iso(),
         "components": list(COMPONENTS),
         "component_owners": dict(COMPONENT_OWNERS),
+        # Release 55 — THE THREE OPERATOR ANSWERS, first in the payload because
+        # they are first on the screen. Everything below them is the evidence.
+        "operator_answer": operator_answer,
         "time_state": time_state,
         "decision_authority": decision_authority,
         "operational_book": operational_book,
@@ -1273,6 +1763,13 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         "decision_latency": decision_latency,
         "stale_components": stale,
         "stale_component_count": len(stale),
+        # Release 55 — the AUDIT / ADVANCED advisory list: observations that are
+        # TRUE and are NOT operator problems. Retained in full (nothing deleted,
+        # no history rewritten) and kept off the normal operator surface.
+        "advisory_components": advisory,
+        "advisory_component_count": len(advisory),
+        "component_surfaces": {"stale": STALE_SURFACE,
+                               "advisory": ADVISORY_SURFACE},
         "warnings": warn,
         "read_only": True,
         "business_calculation_owner": False,
@@ -1286,6 +1783,10 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                      "a disagreeing surface means this module has a bug."),
         },
     }
+    # Release 55 — the acceptance contract is a pure function of the payload
+    # above, so it is attached LAST and can never influence what it reports.
+    payload["acceptance"] = build_acceptance_contract(payload)
+    return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -1383,5 +1884,10 @@ __all__ = [
     "PHASE", "OWNER", "SCHEMA_VERSION", "ROUTE", "COMPONENTS",
     "COMPONENT_OWNERS", "SAFETY_BADGES", "TIME_STATE_STATEMENT",
     "DECISION_AUTHORITY_STATEMENT", "EVENT_CYCLE_PROPOSAL_NOTE",
+    # Release 55 — the two component surfaces, the three operator answers and
+    # the deterministic acceptance contract.
+    "STALE_SURFACE", "ADVISORY_SURFACE", "LEGACY_SCHEDULE_ADVISORY_REASON",
+    "OPERATOR_ANSWER_QUESTIONS", "ACCEPTANCE_ROWS", "ACCEPTANCE_PRESENT",
+    "ACCEPTANCE_MISSING", "build_acceptance_contract",
     "build_active_manager_state", "load_active_manager_state",
 ]

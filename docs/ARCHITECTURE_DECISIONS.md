@@ -3453,3 +3453,90 @@ governance. The intraday DECISION-WORD mapping is deliberately NOT unified with
 the daily one: the daily producer may conclude `CURRENT_NO_CHANGE` for a
 session, while an intraday "nothing to do" is the absence of a new authoritative
 answer, not a new one.
+
+## Release 55 — Active manager operational acceptance + operator clarity
+
+### D-R55-1 — a clock may only decide what its OWNER says it governs (CONFIRMED)
+
+**Decision.** A date is not self-describing. Whenever one module publishes a
+date that another module classifies against, the publishing owner's statement of
+**what the date governs** must travel with it, and the consumer must obey that
+statement rather than infer one.
+
+**Evidence.** `api.operational_book` has declared since R46.6 that its monthly
+`next_review_date` is the floor for MODEL RECALIBRATION and explicitly not the
+governing portfolio cadence
+(`review_is_the_governing_portfolio_cadence: false`). `api.daily_action_gate`
+forwarded the date and dropped the declaration; `classify_assessment` then
+ranked `review_overdue` above the actual currency test. On 2026-09-03 a
+reassessment that was current for the eligible session
+(`assessment_age_sessions = 0`) was classified `OVERDUE` because a 2026-08-01
+recalibration checkpoint had passed, and the Today page printed it as an
+operator problem.
+
+**Consequence.** `scheduled_review_scope` now travels with the date, read from
+the SAME owner block so the two can never separate again, and
+`classify_assessment` consumes it. The demotion requires an **explicit `False`**:
+`None` and `True` preserve the pre-R55 ladder exactly, because a consumer that
+cannot see a declaration must keep its existing behaviour rather than read a
+repair into silence. The recalibration obligation is never hidden — `review_due`
+and `review_overdue` are still published, correctly scoped, and the verdict
+carries `status_decided_by` so the boundary is provable from the payload.
+
+> **The boundary.** The portfolio-reassessment currency clock
+> (`api.workflow_state.classify_assessment`) advances with the eligible market
+> session and is authoritative. The scheduled-review checkpoint clock
+> (`api.operational_book`) is the model-recalibration floor and may never decide
+> a portfolio-assessment status, raise an operator obligation, or appear on a
+> normal operator surface.
+
+### D-R55-2 — a TRUE statement is not automatically an OPERATOR statement (CONFIRMED)
+
+**Decision.** The operator's STALE / MISSING list asserts *something you depend
+on is not in the state it should be in*. A row that is factually true but
+asserts no such thing does not belong there. Presentation surfaces therefore
+have TWO component lists, not one: `stale_components` (a real operator problem)
+and `advisory_components` (`is_operator_problem: false`, audit-only).
+
+**Consequence.** R54.2.4 had already made the legacy checkpoint row's LABEL
+truthful and left the ROW on the operator surface, so a truthful sentence still
+read as a problem. R55 demotes the row — and demotion is not deletion: the raw
+owner token, the truthful label, the self-explaining detail and a quoted reason
+for the demotion all travel with the advisory row, and a row whose non-current
+token cannot be attributed to the legacy clock stays on the operator surface
+unchanged. This is a general rule for every future compatibility observation,
+not a special case for one clock.
+
+### D-R55-3 — the operator vocabulary is a PROJECTION of the priority order (CONFIRMED)
+
+**Decision.** Eleven internal `OVERALL_STATES` are the right vocabulary for the
+state machine and the wrong one for a human, but the answer is a projection, not
+a second engine. `build_operator_action` maps the state `_decide_overall`
+already selected onto seven operator actions with one published priority order.
+
+**Consequence.** The projection consults no date, no session status and no clock
+(guarded by a body grep, so a future edit that reaches for one fails the build);
+it applies exactly ONE refinement, itself read verbatim from an owner
+(`build_research_obligation`); it FAILS CLOSED to `BLOCKED` on a state it does
+not recognise, because a state this contract does not know must never receive a
+reassuring instruction; and its execution fields are COPIES of the canonical
+operator command, so the contract can enable no control the command has not
+already authorised. No surface — the UI included — may derive, re-order or
+override it.
+
+### D-R55-4 — a measurement that exists must be reported (CONFIRMED)
+
+**Decision.** Latency is measured from persisted stamps by the stamping owner.
+When no governed promotion record carries a latency, the projection asks the
+SAME owner function (`api.event_signal_refresh.measure_decision_latency`) to
+measure the SAME persisted stage timestamps, rather than reporting the whole
+measurement unavailable.
+
+**Consequence.** A cycle that ran, rescored the universe, assessed opportunity
+cost and reassessed the portfolio — and correctly concluded HOLD — is now
+measurable end to end. The genuinely absent endpoints stay absent: with no
+governed decision persisted, `reassessment_to_governed_seconds` and
+`observation_to_governed_seconds` are `None` and
+`governed_decision_persisted_at` is named in `missing_measurements`. **Missing
+stays MISSING**; no interval that depends on an unpersisted stamp is ever
+computed, and the projection module performs no timestamp arithmetic of its own.

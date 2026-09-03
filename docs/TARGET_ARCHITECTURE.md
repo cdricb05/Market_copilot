@@ -189,6 +189,40 @@ responsibilities, candidate existing modules, and migration approach.
   UNAVAILABLE — never "every holding contributed $0" — and mark resolution requires
   the EXACT session date before it will accept a source. Total P&L validity and
   decomposition availability are separate questions with separate owners.
+- **One operator action (R55, LANDED):** the operator-facing vocabulary is a
+  **projection of the priority order, never a second engine**. `_decide_overall`
+  stays the ONE authority; `build_operator_action` maps the state it already
+  selected onto seven frozen codes with one published priority order and a TOTAL
+  map from the eleven `OVERALL_STATES`. The projection reaches for no date, no
+  session status and no clock; it applies exactly one owner-published refinement
+  (a post-close research obligation RESUMES rather than restarts); it FAILS
+  CLOSED to `BLOCKED` on a state it does not recognise; and its execution fields
+  are copies of the canonical operator command, so it can enable no control the
+  command has not authorised. **Target rule: no surface — the UI included — may
+  derive, re-order or override the operator action.**
+- **One clock per question (R55, LANDED):** a module that publishes a date must
+  publish what that date GOVERNS, and a consumer must obey that statement rather
+  than infer one. The monthly scheduled-review checkpoint
+  (`api.operational_book`) is the MODEL-RECALIBRATION floor and may never decide
+  a portfolio-assessment status; the portfolio-reassessment currency clock
+  (`api.workflow_state.classify_assessment`) advances with the eligible market
+  session and is authoritative. `api.daily_action_gate` forwards the scope beside
+  the date; the consumer demotes the schedule only on an explicit `False`, so
+  silence is never read as a repair. **Target rule: where two clocks disagree,
+  name both owners in the payload and let the authoritative one decide.**
+- **Two component surfaces (R55, LANDED):** a factually true observation that
+  asserts no operator obligation belongs on the AUDIT surface, not the operator's
+  stale/missing list. Presentation owners publish `stale_components` (a real
+  problem) and `advisory_components` (`is_operator_problem: false`), and
+  demotion is never deletion — the raw owner token, the truthful label, the
+  detail and a quoted reason all survive the move.
+- **Acceptance is a first-class read (R55, LANDED):** the composed operating
+  state carries its own deterministic acceptance view — one row per stage of the
+  chain, each quoting the owner that decided it, PRESENT only when that owner's
+  key fact exists. **Target rule: a stage that persisted nothing is reported
+  MISSING and is never inferred from a neighbouring stage**, so a gap in the
+  chain (today: the intraday governance gate's absent verdict) is visible rather
+  than silently filled in.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

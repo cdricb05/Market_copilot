@@ -3171,6 +3171,87 @@ Today renders these owner words verbatim; two further strict-blocking audit
 invariants (`decision_authority_declared`, `evidence_identities_distinct`)
 prevent regression.
 
+## R55 — ONE OPERATOR ACTION, THREE OPERATOR ANSWERS, ONE ASSESSMENT CLOCK
+
+An operational-acceptance + presentation slice over the R54 composition. It adds
+no engine, no decision owner, no scheduler and no calculation.
+
+**The one operator action** (`api.workflow_state`). Seven frozen codes —
+`BLOCKED`, `WAIT_FOR_OWNED_DATA`, `RUN_PORTFOLIO_CYCLE`,
+`RESUME_RESEARCH_CYCLE`, `REVIEW_PORTFOLIO_PROPOSAL`, `WAIT_FOR_SESSION_CLOSE`,
+`MONITOR_PORTFOLIO` — with ONE published priority order
+(`OPERATOR_ACTION_PRIORITY`) and a TOTAL map (`OPERATOR_ACTION_BY_OVERALL`) from
+the eleven `OVERALL_STATES`. `build_operator_action` is a PROJECTION of the
+state `_decide_overall` already selected: it re-runs no policy, reaches for no
+date/session/clock, applies exactly ONE refinement (a post-close governed-
+research obligation RESUMES rather than restarts, read verbatim from
+`build_research_obligation`), FAILS CLOSED to `BLOCKED` on an unknown state, and
+copies its execution fields from the canonical operator command so it can enable
+no control the command has not authorised. Published as `operator_action`;
+projected by `api.active_manager_state` and rendered verbatim by the UI.
+
+**The three operator answers** (`api.active_manager_state.operator_answer`).
+The Today first screen answers exactly three questions — *what is the current
+authoritative portfolio decision?*, *what has changed since it?*, *what should
+the operator do now?* — composed once from the owners' own values. The GOVERNED
+lane (answer 1) and the LIVE / INTRADAY RESEARCH lane (answer 2) stay
+permanently distinct: answer 2 carries `is_authoritative: false` and
+`changes_the_authoritative_decision`, true only when the backend says the gate
+promoted the cycle, so the research lane can never masquerade as the governed
+decision. Two habitually misread facts are stated in the payload: material
+information about a NON-HELD asset legitimately triggers reassessment (zero
+affected holdings is a normal outcome), and the live lane is not a decision.
+Run ids, artifact ids, hashes, UTC stamps and internal owner names stay in
+Audit / Advanced. Operator-facing Eastern times come from the CLOCK OWNER,
+`engine.market_session.format_operator_timestamp` (beside `to_eastern`) — no
+surface and no browser converts a timezone, and a missing stamp yields `None`.
+
+**One portfolio-assessment clock.** The MONTHLY scheduled-review checkpoint is
+owned by `api.operational_book`, which declares (R46.6) that it is the floor for
+MODEL RECALIBRATION and **not** the governing portfolio cadence.
+`api.daily_action_gate` now FORWARDS that declaration verbatim beside the date
+(`scheduled_review_scope`), and `classify_assessment` consumes it: only an
+EXPLICIT `False` stops the schedule deciding the PORTFOLIO-ASSESSMENT status.
+`review_due` / `review_overdue` are still published — the recalibration
+obligation is SCOPED, never hidden — and the verdict carries
+`status_decided_by`, so the authority boundary travels in the payload. An
+unstated scope preserves the pre-R55 ladder exactly: silence is never read as a
+repair.
+
+> **Authority boundary.** The portfolio-reassessment currency clock
+> (`api.workflow_state.classify_assessment`) advances with the eligible market
+> session. The scheduled-review checkpoint clock (`api.operational_book`) is the
+> model-recalibration floor and may never decide a portfolio-assessment status,
+> raise an operator obligation, or appear on a normal operator surface. Where
+> they disagree the reassessment clock is authoritative.
+
+**Two component surfaces.** `_stale_components` returns
+`(stale_components, advisory_components)`. The first is the operator's STALE /
+MISSING list (a real problem); the second is AUDIT-ONLY — true, retained in
+full, `is_operator_problem: false`. The legacy checkpoint row is demoted only
+when BOTH of the currency owner's own facts hold, and nothing is deleted: the
+raw owner token, the truthful R54.2.4 display label, the self-explaining detail
+and a quoted demotion reason all travel with the advisory row.
+
+**Measured latency and the acceptance contract.** `_decision_latency_block`
+delegates to `api.event_signal_refresh.measure_decision_latency` over the
+persisted stage timestamps whenever no governed record carries a latency (a
+promoted cycle's own record still wins); the projection module performs no
+timestamp arithmetic at all. `build_acceptance_contract(state)` is a pure
+function of the composed payload — ten named rows (`COLLECTION`, `SIGNAL`,
+`SCORING`, `HOC`, `REASSESSMENT`, `GOVERNANCE`, `GOVERNED_DECISION`,
+`OPERATIONAL_BOOK`, `NEXT_ACTION`, `LATENCY`), each quoting the owner that
+decided it, `PRESENT` only when that owner's key fact exists. A stage that
+persisted nothing is `MISSING` and is never inferred from a neighbouring stage.
+`scripts/r55_operator_acceptance.py` renders it read-only over the live route.
+
+Today layout: `#today-operator-answer` leads the page; the R54 three-clock
+strip, Lane B, the advisory list and the acceptance rows live inside the
+collapsed `#today-advanced` disclosure. Guard:
+`check_release55_active_manager_acceptance` (32 strict-blocking fields) +
+`tests/test_release55_active_manager_operational_acceptance.py`. Full narrative:
+`docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`.
+
 ## R54.1 — the GOVERNED INTRADAY DECISION GATE (the ladder's missing rung)
 
 `api/portfolio_decision.py` — the existing canonical decision owner — is ALSO
