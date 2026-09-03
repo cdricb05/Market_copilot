@@ -571,6 +571,33 @@ flowchart TD
   "REALLOCATE — 28 POSITIONS CHANGE beside 'No change is proposed'"
   contradiction impossible at the payload level. Guard:
   `check_release54_2_3_2_decision_supersession` (strict, blocking).
+- **Economic-scope coherence + intraday visibility (R54.2.4, LANDED):** three
+  NAMED economic scopes — `CURRENT_GOVERNED_DECISION` (what the authoritative
+  decision does to capital; a governed HOLD's zeros are definitional),
+  `COMPLETE_TARGET_PROPOSAL` (the binding zero-base transition priced by
+  `engine.constrained_reallocation`) and `HOC_RELEASE_SET_ESTIMATE` (the
+  pre-proposal non-binding release-set estimate,
+  `PRE_PROPOSAL_RELEASE_SET_ESTIMATE`) — with ONE current-decision economics
+  builder (`api.operator_presentation._current_decision_economics`,
+  `decision_summary.current_decision`). The Today hero renders ONLY the
+  current-decision block; `portfolio_decision.positions_changing` is
+  decision-scoped (0 for every non-change state); a superseded/rejected
+  analysis is demoted into an explicit history-only block with the
+  `proposal_history` facts (id / created / superseded-at / by / reason). The
+  proposal kernel drops non-held rows repaired inside `material_weight_delta`
+  (no 0.0%→0.0% change rows). Vocabulary: gate check "Universe membership /
+  scoreability" vs the "HOC retention rule"; AMS stale rows carry a truthful
+  `display_label` for the legacy scheduled-review clock. LANE B:
+  `api.active_manager_state.live_reassessment_lane` (new component) is the
+  first-class live/intraday answer (trigger, material events, affected
+  holdings, candidate conclusion, governance
+  GOVERNED/WITHHELD/ELIGIBLE/NOT_REQUIRED with exact withheld reasons,
+  supersedes-standing only on a recorded governed promotion), rendered
+  verbatim by its own UI region. `reconcile_book` declares
+  `DESK_BOOK_RECONCILIATION_PROJECTION` (`is_authoritative_nav = False`);
+  outcome-history rows expose their reassessment-version identity (projection
+  only); legacy bands carry `data-flow-class` chips. Guard:
+  `check_release54_2_4_reallocation_coherence` (strict, blocking).
 - **Post-close governed-research obligation (R54.2.2, LANDED):**
   `build_research_obligation()` publishes the ONE post-close obligation —
   `research_obligation` (+ `research_obligation_state`,

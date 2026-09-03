@@ -403,7 +403,11 @@ def _reoptimised_action(*, ticker: str, action: str, reason_codes: list,
         # A REPLACE_OUT keeps its counterparty semantics; anything else is an EXIT.
         return (action if action == ACT_REPLACE_OUT else ACT_EXIT), codes
     if proposed <= band and not held:
-        return ACT_EXIT, codes
+        # R54.2.4 — a non-held name repaired to (materially) nothing changes
+        # nothing: there is no action to label and no row to keep. Labelling it
+        # EXIT once produced 0.0% -> 0.0% rows inside the Exit bucket. ``None``
+        # tells the caller to drop the row.
+        return None, codes
     if not held:
         return (action if action in (ACT_ADD, ACT_REPLACE_IN) else ACT_ADD), codes
     if delta > band:
@@ -790,6 +794,7 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         all_tickers = sorted(held_set | set(selected.keys()) | set(override or {}))
         allocations: list[dict] = []
         proposed_weight: dict[str, float] = {}
+        band = float(pol["material_weight_delta"])
         for tk in all_tickers:
             cw = current_weight.get(tk, 0.0)
             sel = selected.get(tk)
@@ -800,6 +805,15 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
             else:
                 pw = 0.0
             proposed_weight[tk] = pw
+            # R54.2.4 — a name that is NOT held and receives (after constraint
+            # repair) a weight inside the material band is a candidate that was
+            # considered and not selected: it holds nothing and gets nothing. A
+            # row for it can only ever be classified as a change it does not
+            # make (a 0.0% -> 0.0% "EXIT"/"ADD"), so no allocation row exists
+            # for it. Its zero weight stays in ``proposed_weight`` so every
+            # measurement is unchanged.
+            if tk not in held_set and pw <= band and cw <= band:
+                continue
             delta = round(pw - cw, 8)
             cmv = current_mv.get(tk, 0.0) if tk in held_set else 0.0
             pmv = _round_money(pw * nav)
@@ -835,6 +849,10 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                 action, reason_codes = _reoptimised_action(
                     ticker=tk, action=action, reason_codes=reason_codes, delta=delta,
                     proposed=pw, held=tk in held_set, policy=pol)
+                if action is None:
+                    # No material change for a non-held name: no row (see the
+                    # band guard above; this is the classifier's own answer).
+                    continue
             urow = urows.get(tk) or {}
             # Release 50 - the instrument contract behind the row: from the universe /
             # frontier row, else from the held position, else the equity defaults.

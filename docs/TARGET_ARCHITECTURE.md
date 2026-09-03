@@ -979,3 +979,31 @@ A session may hold MANY immutable assessments and exactly ONE history.
   and the churn input never reads the session it is assessing.
 * An UNPERSISTED conclusion is never governable. Versioning makes persistence
   correct; it never becomes an exemption from the R54.1 gate.
+
+## R54.2.4 boundary — named economic scopes, one current-decision projection, two visible lanes
+
+* Every economics block a surface renders carries exactly ONE named scope from
+  the frozen vocabulary owned by `api.operator_presentation`:
+  `CURRENT_GOVERNED_DECISION`, `COMPLETE_TARGET_PROPOSAL`,
+  `HOC_RELEASE_SET_ESTIMATE`. A decision hero renders only the
+  current-decision scope; an artifact's numbers render only under an explicit
+  alternative/history label. No surface mixes scopes on one card.
+* The CURRENT-DECISION economics have ONE builder
+  (`operator_presentation._current_decision_economics`). A governed HOLD's
+  zeros are the decision's definitional semantics — never a computed estimate
+  and never another owner's number — and no second module may define the
+  builder.
+* Material change has ONE tolerance (`material_weight_delta`, the proposal
+  kernel's). A row inside the band is never labelled a change; a non-held name
+  repaired to nothing produces no row at all. Display precision must always
+  support the labelled action.
+* Today keeps TWO visible lanes: the governed portfolio decision (Lane A) and
+  the latest live/intraday reassessment (Lane B,
+  `active_manager_state.live_reassessment_lane` — a composed projection, not a
+  new owner). Lane B states its governance verdict verbatim and can claim
+  supersession of the standing decision ONLY on a recorded governed promotion.
+* Operator vocabulary is truthful and disjoint: universe
+  membership/scoreability, the HOC retention rule, and the legacy scheduled
+  full-review clock are three concepts with three names, and a projection
+  (corporate-action reconciliation, outcome-history rows) always names its
+  scope and version identity.

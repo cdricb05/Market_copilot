@@ -3280,3 +3280,53 @@ composed `decision_authority` selector (workflow payload, echoed by the Active
 Manager State) answers current_authoritative_decision_id / session / type,
 current_reviewable_proposal_id, superseded_proposal_ids and supersession_reason
 from the same one calculation.
+
+### D-R54.2.4-1 — every published economics block carries exactly one named scope (CONFIRMED)
+
+**Decision.** Three economic scopes exist and are named once, in
+`api.operator_presentation` (`ECONOMICS_SCOPE_VOCABULARY`):
+`CURRENT_GOVERNED_DECISION` — what the authoritative decision actually does to
+capital (a governed HOLD's zero turnover / zero cost / zero positions changing
+are DEFINITIONAL semantics of the decision, decided in the ONE presentation
+owner, never a recomputation of any artifact's number);
+`COMPLETE_TARGET_PROPOSAL` — the complete zero-base transition priced once by
+`engine.constrained_reallocation` (the binding switching-hurdle verdict); and
+`HOC_RELEASE_SET_ESTIMATE` — the pre-proposal, non-binding release-set
+estimate the reassessment kernel already stamps
+(`PRE_PROPOSAL_RELEASE_SET_ESTIMATE`). A decision hero may render ONLY the
+current-decision scope; an alternative's numbers render only under an explicit
+alternative/history label.
+
+**Evidence.** 2026-09-02: the Today hero rendered the SUPERSEDED proposal's
++0.056 / 35% / $85.69 / 28-changing under "HOLD CURRENT PORTFOLIO", and the
++0.018 / 23.5% / $57.46 release-set estimate appeared beside them with no
+scope names. No calculation was wrong; the scopes were unnamed and mixed.
+
+### D-R54.2.4-2 — a row that changes nothing is not a change (CONFIRMED)
+
+**Decision.** The ONE material-change tolerance is the proposal kernel's
+`material_weight_delta`. A non-held name whose repaired weight lies inside the
+band produces NO allocation row (`_reoptimised_action` returns `None`; the
+zero weight stays in `proposed_weight` so every measurement is unchanged) —
+never a 0.0%→0.0% EXIT/ADD. Display rounding never hides a real delta: when
+two genuinely different weights collide at 1 decimal the UI shows 2. Changed
+positions are counted from the owner-published non-RETAIN action counts; a
+REPLACE pair counts exactly two capital changes.
+
+### D-R54.2.4-3 — the live/intraday lane is first-class and never masquerades as authority (CONFIRMED)
+
+**Decision.** Today separates LANE A (the governed portfolio decision) from
+LANE B (`api.active_manager_state.live_reassessment_lane`) — one composed
+projection answering: when the near-real-time manager ran, what triggered it,
+what changed, what it concluded (HOLD / CHANGE / PROPOSAL_AVAILABLE /
+INFORMATION_NOT_MATERIAL), whether governance passed (GOVERNED / WITHHELD /
+ELIGIBLE / NOT_REQUIRED) with the exact withheld reasons verbatim, and whether
+it supersedes the standing decision — True ONLY on a recorded governed
+promotion (the R54.2.3.2 rule echoed; a withheld or non-governed result never
+looks authoritative). The lane re-evaluates nothing: it projects the event
+cycle's own payload, the R54.1 gate record written into it, and the
+reassessment head. Operator vocabulary repairs ride the same slice: the gate's
+membership/scoreability check no longer shares the word "eligibility" with the
+HOC retention rule, and a session-current assessment whose LEGACY
+scheduled-review clock passed prints "Scheduled full review due", never
+"Portfolio reassessment (OVERDUE)".

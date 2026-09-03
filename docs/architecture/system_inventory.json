@@ -867,11 +867,12 @@
       ],
       "tests": [
         "tests/test_release54_1_governed_intraday_decision.py",
-        "tests/test_release54_active_manager_state.py"
+        "tests/test_release54_active_manager_state.py",
+        "tests/test_release54_2_4_reallocation_coherence.py"
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Composition-only: recomputes no NAV/HOC/target/proposal/ranking/freshness verdict; never turns an intraday observation into an operational close mark; guarded by scripts/audit_architecture.py check_release54_active_manager_state."
+      "notes": "Composition-only: recomputes no NAV/HOC/target/proposal/ranking/freshness verdict; never turns an intraday observation into an operational close mark; guarded by scripts/audit_architecture.py check_release54_active_manager_state. R54.2.4: adds the live_reassessment_lane component (LANE B - the first-class live/intraday reassessment answer: trigger, material events, affected holdings, candidate conclusion, governance GOVERNED/WITHHELD/ELIGIBLE/NOT_REQUIRED with exact withheld reasons verbatim, supersedes-standing only on a recorded governed promotion) and the truthful stale-component display_label (a session-current assessment whose LEGACY api.daily_action_gate scheduled-review clock passed prints 'Scheduled full review due', never 'Portfolio reassessment (OVERDUE)'); guarded by check_release54_2_4_reallocation_coherence."
     },
     {
       "path": "api/alpha_book.py",
@@ -3782,11 +3783,12 @@
         "renderOperatorPresentation (Today command center, Portfolio Overview decision, Reallocation view, raw-state audit block)"
       ],
       "tests": [
-        "tests/test_release49_operator_presentation.py"
+        "tests/test_release49_operator_presentation.py",
+        "tests/test_release54_2_4_reallocation_coherence.py"
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Release 49. Presentation vocabulary is frozen in the module. The historical / pre-R47 session (a per-holding cap breach recorded as a manual-review blocker with no governed target) is presented as HISTORICAL DECISION with the next ELIGIBLE action (the next portfolio cycle after the next market close) - never a rerun instruction. Collection DEGRADED is presented as non-blocking unless the workflow owner names a blocker. The only executing next action is PORTFOLIO_CYCLE, carried verbatim from the Release-48 presented contract and executed through the ONE canonical UI dispatcher. Guarded by check_release49_operator_presentation. Release 50 adds the capital-pool source (allocation by asset class, verbatim) and owner_loaders(portfolio_state=) for the decision snapshot."
+      "notes": "Release 49. Presentation vocabulary is frozen in the module. The historical / pre-R47 session (a per-holding cap breach recorded as a manual-review blocker with no governed target) is presented as HISTORICAL DECISION with the next ELIGIBLE action (the next portfolio cycle after the next market close) - never a rerun instruction. Collection DEGRADED is presented as non-blocking unless the workflow owner names a blocker. The only executing next action is PORTFOLIO_CYCLE, carried verbatim from the Release-48 presented contract and executed through the ONE canonical UI dispatcher. Guarded by check_release49_operator_presentation. Release 50 adds the capital-pool source (allocation by asset class, verbatim) and owner_loaders(portfolio_state=) for the decision snapshot. R54.2.4: this module ALSO names the three economic scopes ONCE (CURRENT_GOVERNED_DECISION / COMPLETE_TARGET_PROPOSAL / HOC_RELEASE_SET_ESTIMATE) and builds the ONE current-decision economics block (decision_summary.current_decision; a governed HOLD's zero turnover / zero cost / zero positions changing are the decision's DEFINITIONAL semantics, never a recomputation); portfolio_decision.positions_changing is decision-scoped (0 for every non-change state); decision_summary.proposal_history presents the superseded proposal as history (id / created / superseded-at / by / reason, all verbatim from the R54.2.3.2 verdict). Guarded by check_release54_2_4_reallocation_coherence."
     },
     {
       "path": "engine/instrument_contract.py",

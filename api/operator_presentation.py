@@ -124,6 +124,44 @@ STEP_DONE, STEP_CURRENT, STEP_UPCOMING = "DONE", "CURRENT", "UPCOMING"
 
 SAFETY_MODE_LINE = "PAPER · MANUAL APPROVAL · AUTOMATION OFF"
 
+# --------------------------------------------------------------------------- #
+# R54.2.4 — THE THREE ECONOMIC SCOPES, named once and rendered with their name.
+# On 2026-09-02 the Today hero rendered a governed HOLD CURRENT PORTFOLIO beside
+# "TURNOVER 35% · $85.69 · 28 POSITIONS CHANGING" — the economics of the
+# SUPERSEDED complete-target proposal, presented as though they described the
+# HOLD. The numbers were never wrong; they belonged to a different scope. Every
+# economics block this module publishes now carries exactly one of these scopes,
+# and the CURRENT-DECISION scope is the only one a decision hero may render.
+# --------------------------------------------------------------------------- #
+ECON_SCOPE_CURRENT_DECISION = "CURRENT_GOVERNED_DECISION"
+ECON_SCOPE_COMPLETE_TARGET = "COMPLETE_TARGET_PROPOSAL"
+ECON_SCOPE_HOC_RELEASE_SET = "HOC_RELEASE_SET_ESTIMATE"
+ECONOMICS_SCOPE_VOCABULARY = (ECON_SCOPE_CURRENT_DECISION,
+                              ECON_SCOPE_COMPLETE_TARGET,
+                              ECON_SCOPE_HOC_RELEASE_SET)
+ECONOMICS_SCOPE_LABELS = {
+    ECON_SCOPE_CURRENT_DECISION: (
+        "Current governed decision — what the authoritative decision actually "
+        "does to capital"),
+    ECON_SCOPE_COMPLETE_TARGET: (
+        "Complete-target proposal — the full zero-base transition priced by "
+        "engine.constrained_reallocation (binding switching-hurdle verdict)"),
+    ECON_SCOPE_HOC_RELEASE_SET: (
+        "HOC release-set estimate — pre-proposal, non-binding economics of the "
+        "actionable holding subset (engine.portfolio_reassessment)"),
+}
+
+#: The current-decision economics of a decision that changes nothing. These are
+#: DEFINITIONAL facts of a HOLD / NO-CHANGE / REJECTED / SUPERSEDED verdict —
+#: a decision to hold trades nothing — not a computation of any owner's number.
+_HOLD_DECISION_ECONOMICS = {
+    "turnover": 0.0,
+    "estimated_cost": 0.0,
+    "positions_changing": 0,
+    "capital_change": "NONE",
+    "target": "CURRENT_BOOK",
+}
+
 #: Owner state strings this module READS (never writes, never re-derives). They are
 #: named here once so a renamed owner constant fails loudly in the tests.
 _CPD_NOT_RUN = "NOT_RUN"
@@ -894,6 +932,14 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
                               destination="system-audit/diagnostics")
         tone = "bad"
 
+    # R54.2.4 — ``positions_changing`` on THIS object describes the DECISION, not
+    # any artifact: a HOLD / no-change / blocked decision changes zero positions
+    # by definition, whatever counts a considered (rejected or superseded)
+    # alternative carries. The alternative's own counts stay on the scoped
+    # decision_summary alternative block.
+    decision_changing = (changing if state in (
+        PD_REALLOCATE, PD_AWAITING_APPROVAL, PD_AWAITING_CONFIRMATION,
+        PD_AWAITING_NEXT_CLOSE) else 0)
     return {
         "state": state,
         "state_vocabulary": list(PORTFOLIO_DECISION_VOCABULARY),
@@ -906,7 +952,8 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
         "next_action": action,
         "blocked_detail": blocked_detail,
         "reason_codes": reason_codes,
-        "positions_changing": changing,
+        "positions_changing": decision_changing,
+        "positions_changing_scope": ECON_SCOPE_CURRENT_DECISION,
         "governance": _governance(state),
         "manual_review_only": True,
         "creates_orders": False,
@@ -1004,7 +1051,112 @@ def _portfolio_snapshot(wf: dict, daily_close: dict, capital_pool: Optional[dict
     }
 
 
-def _decision_summary(wf: dict, constrained: dict) -> dict:
+def _current_decision_economics(decision: dict, *, turnover, cost, changing,
+                                net, hurdle) -> dict:
+    """R54.2.4 — the economics OF THE AUTHORITATIVE DECISION, one place.
+
+    A governed HOLD trades nothing: zero turnover, zero cost, zero positions
+    changing, target = the current book. Those zeros are the decision's own
+    definitional semantics (no owner's number is recomputed). While a proposal
+    is genuinely under review / approved-and-executing, the pending change's
+    own numbers describe the current decision work, scoped as exactly that.
+    """
+    state = str(_d(decision).get("state") or "")
+    base = {
+        "owner": OWNER,
+        "scope": ECON_SCOPE_CURRENT_DECISION,
+        "scope_label": ECONOMICS_SCOPE_LABELS[ECON_SCOPE_CURRENT_DECISION],
+        "scope_vocabulary": list(ECONOMICS_SCOPE_VOCABULARY),
+        "decision_state": state or None,
+        "decided_by": "api.portfolio_decision via api.workflow_state",
+        "definitional_zeros_note": (
+            "For a decision that changes nothing (HOLD), zero turnover / zero "
+            "cost / zero positions changing are the decision's definition, not "
+            "a computed estimate."),
+    }
+    if state == PD_HOLD:
+        return {**base, "available": True, "decision": "HOLD",
+                **_HOLD_DECISION_ECONOMICS,
+                "net_improvement": None,
+                "net_improvement_note": (
+                    "No change is made, so no improvement is claimed; the "
+                    "considered alternative's improvement lives on the "
+                    "alternative block, never here."),
+                "guidance": "Monitor portfolio"}
+    if state in (PD_REALLOCATE, PD_AWAITING_APPROVAL):
+        return {**base, "available": True, "decision": "CHANGE_UNDER_REVIEW",
+                "turnover": turnover, "estimated_cost": cost,
+                "positions_changing": changing,
+                "capital_change": "PROPOSED_PENDING_MANUAL_REVIEW",
+                "target": "PROPOSED_TARGET",
+                "net_improvement": net, "switching_hurdle": hurdle,
+                "guidance": "Review the reallocation proposal"}
+    if state in (PD_AWAITING_CONFIRMATION, PD_AWAITING_NEXT_CLOSE):
+        return {**base, "available": True, "decision": "APPROVED_CHANGE_IN_EXECUTION",
+                "turnover": turnover, "estimated_cost": cost,
+                "positions_changing": changing,
+                "capital_change": "APPROVED_PENDING_EXECUTION",
+                "target": "APPROVED_TARGET",
+                "net_improvement": net, "switching_hurdle": hurdle,
+                "guidance": "Complete the manual order-plan gates"}
+    if state == PD_OUTCOME_ACCRUING:
+        return {**base, "available": True, "decision": "EXECUTED",
+                **_HOLD_DECISION_ECONOMICS,
+                "net_improvement": None,
+                "guidance": "Outcome evidence accrues at each completed close"}
+    return {**base, "available": False, "decision": None,
+            "guidance": None,
+            "note": ("No governed decision economics exist for state %r; nothing "
+                     "is fabricated." % (state or None))}
+
+
+def _proposal_history(wf: dict, constrained: dict, lane: dict,
+                      superseded: bool, superseded_by) -> Optional[dict]:
+    """R54.2.4 (Defect 9) — the superseded proposal presented as HISTORY, with its
+    identity, original economics, creation/supersession times and reason. Every
+    value is an owner's own; nothing here revives, deletes or rewrites it."""
+    if not superseded:
+        return None
+    sup = _d(lane.get("supersession")) or _d(constrained.get("supersession"))
+    hist = _d(lane.get("superseded_proposal"))
+    rpp = _d(wf.get("reallocation_proposal_presentation"))
+    art = _d(constrained.get("artifact"))
+    by = _d(superseded_by)
+    return {
+        "history_only": True,
+        "label": "SUPERSEDED PROPOSAL — HISTORY ONLY",
+        "not_current": True,
+        "not_approvable": True,
+        "not_an_action_plan": True,
+        "proposal_id": hist.get("proposal_id") or sup.get("proposal_id")
+                       or lane.get("proposal_id") or art.get("proposal_id"),
+        "proposal_hash": hist.get("proposal_hash") or sup.get("proposal_hash")
+                         or lane.get("proposal_hash"),
+        "proposal_session": (sup.get("proposal_session")
+                             or constrained.get("eligible_market_date")
+                             or _d(wf.get("canonical_portfolio_decision")).get(
+                                 "eligible_market_date")),
+        "created_at": (rpp.get("reallocation_proposal_generated_at")
+                       or art.get("generated_at")),
+        "original_economics": {
+            "scope": ECON_SCOPE_COMPLETE_TARGET,
+            "one_way_turnover": hist.get("one_way_turnover"),
+            "estimated_transaction_cost": hist.get("estimated_transaction_cost"),
+            "score_improvement_net_of_cost": hist.get(
+                "score_improvement_net_of_cost"),
+            "action_counts": _d(hist.get("action_counts")),
+        },
+        "superseded_at": by.get("decided_at"),
+        "superseded_by_decision": by.get("decision"),
+        "superseded_by_artifact_id": by.get("artifact_id"),
+        "superseded_by_session": by.get("session"),
+        "supersession_reason": sup.get("reason"),
+        "supersession_owner": sup.get("owner") or "api.portfolio_decision",
+    }
+
+
+def _decision_summary(wf: dict, constrained: dict,
+                      decision: Optional[dict] = None) -> dict:
     cpd = _d(wf.get("canonical_portfolio_decision"))
     lane = _d(wf.get("portfolio_decision_state"))
     best = _d(constrained.get("best_feasible_target"))
@@ -1049,7 +1201,24 @@ def _decision_summary(wf: dict, constrained: dict) -> dict:
                       or lane.get("proposal_superseded"))
     superseded_by = (cpd.get("superseded_by") or constrained.get("superseded_by")
                      or lane.get("superseded_by") or None)
+    current = _current_decision_economics(
+        decision or {}, turnover=turnover, cost=cost,
+        changing=sum(v for k, v in counts.items() if k != "RETAIN"),
+        net=net, hurdle=hurdle)
     return {
+        # ------------------------------------------------------------------- #
+        # R54.2.4 — the economics below the supersession block describe the
+        # COMPLETE-TARGET PROPOSAL (the alternative), never the current
+        # decision. The current decision's own economics are the
+        # ``current_decision`` block, and a decision hero renders THAT.
+        # ------------------------------------------------------------------- #
+        "current_decision": current,
+        "economics_scope": ECON_SCOPE_COMPLETE_TARGET,
+        "economics_scope_label": ECONOMICS_SCOPE_LABELS[ECON_SCOPE_COMPLETE_TARGET],
+        "economics_scope_vocabulary": list(ECONOMICS_SCOPE_VOCABULARY),
+        "is_current_decision_economics": False,
+        "proposal_history": _proposal_history(wf, constrained, lane,
+                                              superseded, superseded_by),
         "superseded": superseded,
         "superseded_by": superseded_by,
         "superseded_banner": (
@@ -1415,7 +1584,7 @@ def build_operator_presentation(*, workflow: Optional[dict],
         wf, information_collection if isinstance(information_collection, dict) else None,
         recovery, governed_research)
     snapshot = _portfolio_snapshot(wf, dc, capital_pool)
-    summary = _decision_summary(wf, cn)
+    summary = _decision_summary(wf, cn, decision)
     alerts = _alerts_summary(material_information)
     outcome = _decision_outcome(decision_outcomes)
     cmd = _d(wf.get("operator_command"))

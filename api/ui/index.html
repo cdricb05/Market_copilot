@@ -5294,6 +5294,10 @@
         <div class="card" id="otr-band" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">MODEL TARGET SNAPSHOT REVIEW
+              <!-- R54.2.4 (Defect 10) — operator-flow classification: this band is
+                   NOT part of the canonical Portfolio Cycle -> governed decision ->
+                   proposal review flow. It stays for the legacy model-target lane. -->
+              <span class="cc-badge muted" data-flow-class="LEGACY_COMPATIBILITY" title="Not the canonical next action. The normal operator flow is Portfolio Cycle → governed portfolio decision → proposal review when one exists.">LEGACY COMPATIBILITY</span>
               <span class="cc-badge" id="otr-state">Loading&hellip;</span></span>
             <button class="btn-sm" id="otr-refresh-view" onclick="loadAlphaTargetReview()" title="Reload the read-only operational target review. Writes nothing.">&#8635; Refresh View</button>
           </div>
@@ -5377,6 +5381,8 @@
         <div class="card" id="ab-band" style="margin-top:14px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">ALPHA BOOK IMPLEMENTATION PLAN
+              <!-- R54.2.4 (Defect 10) — operator-flow classification. -->
+              <span class="cc-badge muted" data-flow-class="LEGACY_COMPATIBILITY" title="Not the canonical next action. The normal operator flow is Portfolio Cycle → governed portfolio decision → proposal review when one exists.">LEGACY COMPATIBILITY</span>
               <span class="cc-badge muted" id="ab-state">&mdash;</span></span>
             <button class="btn-sm" id="ab-refresh-view" onclick="loadAlphaBook()" title="Reload the read-only alpha-book view. Writes nothing.">&#8635; Refresh View</button>
           </div>
@@ -5438,6 +5444,10 @@
         <div class="card" id="pd-band" style="margin-top:14px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">PAPER TRADING DESK
+              <!-- R54.2.4 (Defect 10) — operator-flow classification: desk ledgers,
+                   owned-data refresh and recovery live here; the canonical daily flow
+                   does not require any button in this band. -->
+              <span class="cc-badge muted" data-flow-class="MAINTENANCE_RECOVERY" title="Maintenance / recovery and desk diagnostics. Not the canonical next action.">MAINTENANCE / RECOVERY</span>
               <span class="cc-badge muted" id="pd-book-name">NO PAPER BOOK YET</span>
               <span class="cc-badge" id="pd-status">&mdash;</span></span>
             <button class="btn-sm" id="pd-refresh-view" onclick="loadPaperDesk()" title="Reload the read-only paper-desk view. Writes nothing.">&#8635; Refresh View</button>
@@ -28630,19 +28640,30 @@ function _opRenderDecision(p, hostId, ctaId, executeHere, hereDest) {
   host.className = 'tcc-decision tone-' + _opEsc(d.tone || 'info');
   host.setAttribute('data-decision-state', d.state || '');
   host.setAttribute('data-historical', hc.historical ? '1' : '0');
-  var eyebrow = hc.historical ? 'Portfolio decision · historical session'
-    : ('Portfolio decision' + (p.eligible_market_date ? ' · session ' + p.eligible_market_date : ''));
+  var eyebrow = hc.historical ? 'Governed portfolio decision · historical session'
+    : ('Governed portfolio decision' + (p.eligible_market_date ? ' · session ' + p.eligible_market_date : ''));
+  // R54.2.4 — the hero renders CURRENT-DECISION economics ONLY (backend-scoped
+  // block; the browser decides nothing). A governed HOLD shows its definitional
+  // zeros; the considered alternative's numbers NEVER appear on this card — they
+  // live, clearly labelled, on the Reallocation page's own scoped blocks.
   var econ = '';
-  if (ds.available || d.state === 'HOLD') {
+  var cde = ds.current_decision || {};
+  if (cde.available) {
     var cells = ''
-      + _opMetric('Expected improvement', _opNum(ds.net_improvement, 3), _opNil(ds.switching_hurdle) ? '' : 'hurdle ' + _opNum(ds.switching_hurdle, 3))
-      + _opMetric('Turnover', _opWeight(ds.turnover, 1), _opNil(ds.turnover_budget) ? '' : 'budget ' + _opWeight(ds.turnover_budget, 0))
-      + _opMetric('Estimated cost', _opMoney(ds.estimated_cost), '');
-    if (!_opNil(ds.risk_before) || !_opNil(ds.risk_after)) {
-      cells += _opMetric('Risk', _opWeight(ds.risk_before, 1) + ' → ' + _opWeight(ds.risk_after, 1), 'volatility before → after');
+      + _opMetric('Current-decision turnover', _opWeight(cde.turnover, 1), '')
+      + _opMetric('Current-decision cost', _opMoney(cde.estimated_cost), '')
+      + _opMetric('Positions changing', _opNil(cde.positions_changing) ? '—' : String(cde.positions_changing), '');
+    if (!_opNil(cde.net_improvement)) {
+      cells += _opMetric('Expected improvement', _opNum(cde.net_improvement, 3),
+        _opNil(cde.switching_hurdle) ? '' : 'hurdle ' + _opNum(cde.switching_hurdle, 3));
     }
-    if (ds.positions_changing) cells += _opMetric('Positions changing', String(ds.positions_changing), '');
-    econ = '<div class="tcc-econ">' + cells + '</div>';
+    if (cde.guidance) cells += _opMetric('Guidance', _opEsc(cde.guidance), '');
+    econ = '<div class="tcc-econ" data-econ-scope="' + _opEsc(cde.scope || '') + '">' + cells + '</div>';
+    if (d.state === 'HOLD' && (ds.feasible_target_exists || ds.superseded)) {
+      econ += '<div class="r47-quiet" style="margin-top:6px;">'
+        + _opEsc(ds.target_class_label || 'Alternative considered — not selected')
+        + ' · <button type="button" class="tcc-link" onclick="navigateToRoute(\'portfolio-manager/reallocation\')">View under Reallocation &rarr;</button></div>';
+    }
   }
   var blocked = '';
   if (d.blocked_detail) {
@@ -28737,8 +28758,19 @@ function _opRealRow(row) {
     ? (rel.role === 'REPLACE_OUT' ? ' &rarr; ' + _opEsc(rel.counterparty) : ' &larr; ' + _opEsc(rel.counterparty))
     : '';
   var why = (row.reason_codes || []).map(_opWords).join(', ');
+  // R54.2.4 (Defect 4) — never let display rounding hide a real change: when the
+  // 1-decimal renderings of a genuinely different pair collide (e.g. 3.96% ->
+  // 4.0% both shown "4.0%"), show two decimals so the labelled action (from the
+  // owner's full-precision band) is visibly supported. Pure formatting; the
+  // action label itself is the backend's.
+  var dp = 1;
+  if (!_opNil(row.current_weight) && !_opNil(row.proposed_weight)
+      && row.current_weight !== row.proposed_weight
+      && _opWeight(row.current_weight, 1) === _opWeight(row.proposed_weight, 1)) {
+    dp = 2;
+  }
   return '<div class="pmr-row"><span class="tk">' + _opEsc(row.ticker) + pair + '</span>'
-    + '<span class="w">' + _opWeight(row.current_weight, 1) + ' &rarr; ' + _opWeight(row.proposed_weight, 1)
+    + '<span class="w">' + _opWeight(row.current_weight, dp) + ' &rarr; ' + _opWeight(row.proposed_weight, dp)
     + (_opNil(row.rank) ? '' : ' &middot; rank #' + _opEsc(row.rank)) + '</span>'
     + (why ? '<span class="why">' + _opEsc(why) + '</span>' : '') + '</div>';
 }
@@ -28854,20 +28886,64 @@ function _opRenderReallocationView(p) {
   // what makes HOLD explainable) and is framed by the BACKEND's own verdict — the
   // browser classifies nothing and hides nothing.
   var rejected = (ds.target_class === 'REJECTED_FEASIBLE_ALTERNATIVE');
-  var rejBanner = rejected
-    ? '<div class="op-rejected-banner"><div class="t">' + _opEsc(ds.target_class_label || 'REJECTED FEASIBLE ALTERNATIVE') + '</div>'
-      + '<div class="d">' + _opEsc(ds.not_recommended_banner || '') + '</div></div>'
-    : '';
+  // R54.2.4 — SUPERSEDED and REJECTED are both backend verdicts (target_class);
+  // either way the analysis below is NOT a current change plan and is demoted
+  // into a collapsed, explicitly-labelled history/research block. The browser
+  // classifies nothing: it switches presentation on the owner's own class.
+  var superseded2 = (ds.target_class === 'SUPERSEDED_HISTORY_ONLY');
+  var notCurrent = rejected || superseded2;
+  var rejBanner = '';
+  if (superseded2) {
+    var ph = ds.proposal_history || {};
+    var phFacts = '';
+    if (ph.proposal_id || ph.superseded_at) {
+      phFacts = '<div class="d" style="margin-top:4px;">'
+        + 'Proposal ' + _opEsc(String(ph.proposal_id || '—'))
+        + (ph.proposal_session ? ' · session ' + _opEsc(ph.proposal_session) : '')
+        + (ph.created_at ? ' · created ' + _opEsc(String(ph.created_at).replace('T', ' ').slice(0, 16)) + 'Z' : '')
+        + (ph.superseded_at ? ' · superseded ' + _opEsc(String(ph.superseded_at).replace('T', ' ').slice(0, 16)) + 'Z' : '')
+        + (ph.superseded_by_decision ? ' by ' + _opEsc(ph.superseded_by_decision) : '')
+        + (ph.superseded_by_artifact_id ? ' (' + _opEsc(ph.superseded_by_artifact_id) + ')' : '')
+        + (ph.supersession_reason ? ' · reason: ' + _opEsc(_opWords(ph.supersession_reason)) : '')
+        + '</div>';
+    }
+    rejBanner = '<div class="op-rejected-banner" data-superseded="1"><div class="t">SUPERSEDED PROPOSAL — HISTORY ONLY</div>'
+      + '<div class="d">' + _opEsc(ds.superseded_banner || 'A newer authoritative decision stands; this proposal is history only.') + '</div>'
+      + '<div style="margin-top:6px;">'
+      + '<span class="cc-badge muted">NOT CURRENT</span> '
+      + '<span class="cc-badge muted">NOT APPROVABLE</span> '
+      + '<span class="cc-badge muted">NOT AN ACTION PLAN</span> '
+      + '<span class="cc-badge muted">HISTORICAL / RESEARCH ONLY</span></div>'
+      + phFacts + '</div>';
+  } else if (rejected) {
+    rejBanner = '<div class="op-rejected-banner"><div class="t">' + _opEsc(ds.target_class_label || 'REJECTED FEASIBLE ALTERNATIVE') + '</div>'
+      + '<div class="d">' + _opEsc(ds.not_recommended_banner || '') + '</div></div>';
+  }
+  var scopeLine = '<div class="r47-quiet" style="margin:2px 0 6px;">Scope: '
+    + _opEsc(ds.economics_scope_label || 'Complete-target proposal') + '</div>';
+  var analysis = ''
+    + '<div class="pmr-sec"><div class="pmr-t">Changes'
+    + (superseded2 ? ' <span class="cc-badge muted" title="The changes the superseded proposal would have made. History only.">SUPERSEDED — HISTORY ONLY</span>'
+       : (rejected ? ' <span class="cc-badge muted" title="These are the changes the rejected alternative would have made. They are not recommended.">NOT RECOMMENDED</span>' : ''))
+    + '</div>' + changes + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Target'
+    + (superseded2 ? ' <span class="cc-badge muted" title="The superseded proposal&#39;s target. History only.">SUPERSEDED — HISTORY ONLY</span>'
+       : (rejected ? ' <span class="cc-badge muted" title="The best feasible alternative that did NOT clear the switching hurdle.">REJECTED ALTERNATIVE</span>' : ''))
+    + '</div>' + target + '</div>'
+    + '<div class="pmr-sec"><div class="pmr-t">Economics</div>' + scopeLine + econ + '</div>';
+  if (notCurrent) {
+    // Demoted: an operator opening Reallocation under a HOLD/superseded decision
+    // sees the decision and the banner, and must explicitly expand the analysis.
+    analysis = '<details class="pmr-sec" data-history-only="1">'
+      + '<summary style="cursor:pointer;font-weight:700;">'
+      + (superseded2 ? 'What was considered — superseded proposal (historical / research only)'
+                     : 'What was considered — rejected alternative (research context)')
+      + '</summary>' + analysis + '</details>';
+  }
   host.setAttribute('data-target-class', ds.target_class || '');
   host.innerHTML = dec
     + rejBanner
-    + '<div class="pmr-sec"><div class="pmr-t">Changes'
-    + (rejected ? ' <span class="cc-badge muted" title="These are the changes the rejected alternative would have made. They are not recommended.">NOT RECOMMENDED</span>' : '')
-    + '</div>' + changes + '</div>'
-    + '<div class="pmr-sec"><div class="pmr-t">Target'
-    + (rejected ? ' <span class="cc-badge muted" title="The best feasible alternative that did NOT clear the switching hurdle.">REJECTED ALTERNATIVE</span>' : '')
-    + '</div>' + target + '</div>'
-    + '<div class="pmr-sec"><div class="pmr-t">Economics</div>' + econ + '</div>'
+    + analysis
     + '<div class="pmr-sec"><div class="pmr-t">Governance</div><div class="pmr-gov">' + steps + '</div>' + govNote + govLink
     + '<div class="r47-quiet" style="margin-top:8px;">' + _opEsc(gov.note || '') + '</div></div>';
 }
@@ -29085,10 +29161,17 @@ function renderActiveManagerState(d) {
   var staleTxt = '';
   if (stale.length) {
     // Each stale entry's hover title carries the owner's self-explaining
-    // detail (e.g. why OVERDUE can coexist with a session-current assessment).
+    // detail. R54.2.4 (Defect 6): when the backend supplies a truthful
+    // display_label (e.g. "Scheduled full review due" for a session-current
+    // assessment whose LEGACY review clock passed), it is rendered VERBATIM
+    // instead of the raw token pair — a fresh reassessment is never printed
+    // "Portfolio reassessment (OVERDUE)".
     staleTxt = '<span class="stale">Stale / missing: ' + stale.map(function (s) {
       return '<span title="' + _opEsc(s.detail || '') + '">'
-        + _opEsc(_opWords(s.component)) + ' (' + _opEsc(s.owner_state || '') + ')</span>';
+        + (s.display_label
+            ? _opEsc(s.display_label)
+            : _opEsc(_opWords(s.component)) + ' (' + _opEsc(s.owner_state || '') + ')')
+        + '</span>';
     }).join(', ') + '</span>';
   }
   var da = d.decision_authority || {};
@@ -29104,6 +29187,10 @@ function renderActiveManagerState(d) {
     + '<span>' + _opEsc(String((d.safety || {}).safety_badges ? (d.safety.safety_badges || []).join(' · ') : '')) + '</span>'
     + '</div>';
 
+  // R54.2.4 (Defect 7) — LANE B: the latest live/intraday reassessment card,
+  // built by _amsLaneBHtml (its own R54_2_4 region) VERBATIM from the backend
+  // lane block. Nothing about it is decided in the browser.
+  var laneHtml = (typeof _amsLaneBHtml === 'function') ? _amsLaneBHtml(d) : '';
   host.className = 'ams-strip';
   host.innerHTML = '<div class="ams-head">'
     + '<span class="ams-title">Active manager state</span>'
@@ -29112,10 +29199,62 @@ function renderActiveManagerState(d) {
     + 'Operational vs live research clocks are kept separate · owner: api.active_manager_state</span>'
     + '</div>'
     + '<div class="ams-cols">' + col1 + col2 + col3 + '</div>'
+    + laneHtml
     + foot;
   host.style.display = '';
 }
 /* R54_REGION_END */
+
+/* R54_2_4_REGION_START */
+// ---------------------------------------------------------------------------
+// R54.2.4 — LANE B: the latest LIVE / INTRADAY reassessment as one first-class
+// card on Today. Every word is the backend lane block's own (composed by
+// api.active_manager_state from the owners' recorded facts); this function
+// formats and escapes, and decides no conclusion, no governance verdict and
+// no supersession of its own.
+// ---------------------------------------------------------------------------
+function _amsLaneBHtml(d) {
+  var lane = (d && d.live_reassessment_lane) || {};
+  if (!lane.available) return '';
+  var rows = ''
+    + _amsRow('Ran', _opEsc(_amsTs(lane.at)) + (lane.run_id ? ' · ' + _opEsc(lane.run_id) : ''))
+    + _amsRow('Trigger', _opEsc(_opWords(lane.trigger) || '—'), '', lane.trigger_owner || '')
+    + _amsRow('Material events', _opEsc(lane.material_event_count == null ? '—' : String(lane.material_event_count))
+        + ((lane.affected_holdings || []).length ? ' · affects ' + _opEsc(lane.affected_holdings.join(', ')) : ''))
+    + _amsRow('Scoring basis', _opEsc(lane.scoring_basis_date || '—'))
+    + _amsRow('Reassessment artifact', _opEsc(lane.reassessment_id
+        ? (String(lane.reassessment_id).slice(-14) + (lane.reassessment_persisted === false ? ' · NOT PERSISTED' : ''))
+        : (lane.candidate_conclusion === 'INFORMATION_NOT_MATERIAL' ? 'none required' : '—')),
+        '', lane.reassessment_persistence_status || '')
+    + _amsRow('Concluded', _opEsc(_opWords(lane.candidate_conclusion) || '—'), '', lane.note || '')
+    + (lane.economics
+        ? _amsRow('Economics (' + _opEsc(_opWords(lane.economics.scope)) + ')',
+            _opNum(lane.economics.expected_net_improvement, 3) + ' / '
+            + _opNum(lane.economics.net_improvement_hurdle, 3), '', lane.economics.scope_note || '')
+        : '')
+    + _amsRow('Governance', _opEsc(_opWords(lane.governance_state) || '—'),
+        (lane.governance_state === 'GOVERNED' ? '' : (lane.governance_state === 'WITHHELD' ? 'warn' : '')),
+        lane.governance_note || '')
+    + ((lane.governance_withheld_reason_codes || []).length
+        ? _amsRow('Withheld because', _opEsc(lane.governance_withheld_reason_codes.map(_opWords).join('; ')), 'warn')
+        : '')
+    + _amsRow('Supersedes standing decision', lane.supersedes_standing_decision ? 'YES' : 'NO',
+        '', 'Standing: ' + (lane.standing_governed_decision_id || '—'))
+    + _amsRow('Manual review available', lane.manual_review_available ? 'YES' : 'NO');
+  return '<div class="ams-lane-b" data-lane="LIVE_INTRADAY_REASSESSMENT"'
+    + ' data-governance-state="' + _opEsc(lane.governance_state || '') + '"'
+    + ' data-authoritative="' + (lane.is_authoritative_decision ? '1' : '0') + '"'
+    + ' style="border-top:1px solid var(--cc-border,#243b63);padding:8px 0 2px;margin-top:8px;">'
+    + '<div class="h" style="font-weight:700;font-size:11px;letter-spacing:.4px;">'
+    + _opEsc(lane.lane_label || 'LATEST LIVE / INTRADAY REASSESSMENT')
+    + ' <span class="cc-badge muted" title="' + _opEsc(lane.note || '') + '">'
+    + (lane.is_authoritative_decision ? 'GOVERNED' : 'RESEARCH LANE — NOT THE GOVERNED DECISION')
+    + '</span></div>'
+    + '<div class="ams-cols" style="margin-top:4px;"><div class="ams-col">' + rows + '</div></div>'
+    + '</div>';
+}
+window._amsLaneBHtml = _amsLaneBHtml;
+/* R54_2_4_REGION_END */
 
 /* R50_REGION_START */
 // ---------------------------------------------------------------------------
@@ -29471,6 +29610,12 @@ function renderCorporateActionIntegrity(d) {
   if (rec) {
     html += '<div style="border:1px solid var(--border,#333);border-radius:8px;padding:8px;margin-top:4px;">'
       + '<div style="font-weight:700;margin-bottom:4px;">BEFORE &rarr; AFTER economic reconciliation (preview)</div>'
+      // R54.2.4 (Defect 11) — scope, from the backend: these NAV figures are a
+      // DESK-BOOK projection and legitimately differ from the authoritative
+      // operational NAV. Rendered verbatim; nothing is re-derived here.
+      + '<div class="cc-na-note" style="font-size:10px;margin-bottom:6px;">'
+      + escapeHtml(rec.nav_scope_label || 'Desk-book reconciliation preview — never the authoritative operational NAV')
+      + ' &middot; Authoritative NAV owner: ' + escapeHtml(rec.authoritative_nav_owner || 'api.operational_book') + '</div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
       + chip('NAV before', '$' + rec.before.nav, 'muted') + chip('NAV after', '$' + rec.after.nav, 'safe')
       + chip('Phantom removed', '$' + rec.phantom_nav_removed, 'manual')
@@ -30983,7 +31128,17 @@ function renderPortfolioReassessment(d) {
     return '<div class="va-kpi"><div class="lab">' + escapeHtml(k.label) + '</div>'
       + '<div class="val">' + k.value + '</div>'
       + '<div class="sub" style="white-space:normal;">' + (k.sub || '') + '</div></div>';
-  }).join(''));
+  }).join('')
+  // R54.2.4 (Defect 3) — the SCOPE of these numbers, from the owner's own basis
+  // token: they are the HOC RELEASE-SET estimate (pre-proposal, non-binding),
+  // never the complete-target proposal's switching economics. Two legitimate
+  // scopes; each is named where it renders.
+  + (dec.expected_turnover_basis
+      ? '<div class="cc-na-note" style="font-size:10px;flex-basis:100%;margin-top:4px;">Scope: HOC release-set estimate ('
+        + escapeHtml(String(dec.expected_turnover_basis)) + ' · non-binding, pre-proposal). '
+        + 'The complete-target proposal owns the binding switching economics ('
+        + escapeHtml(String(dec.complete_target_constraint_owner || 'engine.reallocation_proposal')) + ').</div>'
+      : ''));
 
   // ONE operator action, or an honest "no action required". While a Stage-19 execution is
   // in flight the backend suppresses the action and we render the precedence note instead
@@ -31256,11 +31411,21 @@ function renderOutcomeHistory(h) {
     return;
   }
   var rows = (h.rows || []).map(function (r) {
+    // R54.2.4 (Defect 12) — the assessment-version identity, from the backend
+    // projection: rows sharing every visible axis can be distinct immutable
+    // evidence from different same-session reassessment versions.
+    var ver = r.assessment_version || '—';
+    var verCell = r.repeated_across_assessment_versions
+      ? '<td class="mono" title="One of ' + escapeHtml(String(r.same_axis_version_count))
+        + ' reassessment versions of the same recommendation (' + escapeHtml(String(r.assessment_version_axis || '')) + ').">'
+        + escapeHtml(ver) + ' <span class="cc-badge muted">v×' + escapeHtml(String(r.same_axis_version_count)) + '</span></td>'
+      : '<td class="mono">' + escapeHtml(ver) + '</td>';
     return '<tr><td class="mono">' + escapeHtml(r.eligible_market_date || '?') + '</td>'
       + '<td class="mono">' + escapeHtml(r.ticker || '?') + '</td>'
       + '<td>' + escapeHtml(r.recommendation || '?') + '</td>'
       + '<td class="mono">' + escapeHtml(r.replacement_ticker || '—') + '</td>'
       + '<td>' + escapeHtml(String(r.horizon_eligible_closes || '?')) + '</td>'
+      + verCell
       + '<td>' + _routPct(r.incumbent_forward_return) + '</td>'
       + '<td>' + _routPct(r.replacement_forward_return) + '</td>'
       + '<td>' + _routPct(r.realized_spread) + '</td>'
@@ -31269,9 +31434,12 @@ function renderOutcomeHistory(h) {
       + '</span></td></tr>';
   }).join('');
   _setHtml('rout-history',
-    '<table class="pt-table" style="font-size:10px;width:100%;"><thead><tr>'
+    (h.version_axis_note
+      ? '<div class="cc-na-note" style="font-size:10px;margin-bottom:4px;">' + escapeHtml(h.version_axis_note) + '</div>'
+      : '')
+    + '<table class="pt-table" style="font-size:10px;width:100%;"><thead><tr>'
     + '<th>Session</th><th>Holding</th><th>Recommendation</th><th>Replacement</th>'
-    + '<th>Horizon</th><th>Incumbent</th><th>Replacement</th><th>Spread</th>'
+    + '<th>Horizon</th><th>Assessment version</th><th>Incumbent</th><th>Replacement</th><th>Spread</th>'
     + '<th>Governance</th><th>Impact basis</th></tr></thead><tbody>' + rows
     + '</tbody></table>');
 }

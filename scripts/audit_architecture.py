@@ -11872,6 +11872,130 @@ def check_release54_2_3_2_decision_supersession(files: list[Path]) -> dict:
     }
 
 
+def check_release54_2_4_reallocation_coherence(files: list[Path]) -> dict:
+    """R54.2.4 invariants — economic-scope coherence + first-class intraday lane.
+
+    (a) the presentation owner names the three economic scopes ONCE and builds
+        the CURRENT-DECISION economics block in one place (a governed HOLD's
+        zeros are definitional, decided by the ONE presentation owner);
+    (b) the Today hero renders the current-decision block, never the unscoped
+        complete-target proposal metrics of the old defect;
+    (c) a superseded proposal's analysis is demoted into an explicit
+        history-only block on the Reallocation page;
+    (d) the live/intraday reassessment lane is composed ONCE
+        (api.active_manager_state) and the UI renders it verbatim — no
+        governance state, conclusion or supersession is derived in JS;
+    (e) the stale-components row carries the truthful display label for a
+        session-current assessment whose LEGACY scheduled-review clock passed;
+    (f) outcome-history rows expose the reassessment-version identity
+        (projection only, nothing deleted);
+    (g) the corporate-action reconciliation declares itself a desk-book
+        projection, never the authoritative NAV;
+    (h) the membership/scoreability check and the HOC retention rule no longer
+        share the word "eligibility" on operator surfaces.
+    """
+    op_src = _read("api/operator_presentation.py")
+    ams_src = _read("api/active_manager_state.py")
+    ro_src = _read("api/reassessment_outcomes.py")
+    ca_src = _read("api/corporate_actions.py")
+    dag_src = _read("api/daily_action_gate.py")
+    prs_src = _read("engine/portfolio_reassessment.py")
+    ui = _read(UI_FILE)
+
+    # (a) one scope vocabulary + one current-decision economics builder.
+    scopes_defined = all(t in op_src for t in (
+        'ECON_SCOPE_CURRENT_DECISION = "CURRENT_GOVERNED_DECISION"',
+        'ECON_SCOPE_COMPLETE_TARGET = "COMPLETE_TARGET_PROPOSAL"',
+        'ECON_SCOPE_HOC_RELEASE_SET = "HOC_RELEASE_SET_ESTIMATE"',
+        "_HOLD_DECISION_ECONOMICS = {",
+        "def _current_decision_economics(",
+        '"current_decision": current',
+        '"positions_changing_scope": ECON_SCOPE_CURRENT_DECISION'))
+    second_current_decision = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/")
+        and _rel(fp) != "api/operator_presentation.py"
+        and "def _current_decision_economics(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    history_block = ("def _proposal_history(" in op_src
+                     and '"proposal_history": _proposal_history' in op_src)
+
+    # (b) the hero renders the scoped block; the old unscoped render is gone.
+    hero_renders_current = ("ds.current_decision" in ui
+                            and "_opMetric('Current-decision turnover'" in ui)
+    hero_unscoped_proposal_econ = bool(
+        "_opMetric('Expected improvement', _opNum(ds.net_improvement, 3), "
+        "_opNil(ds.switching_hurdle)" in ui)
+
+    # (c) history demotion on the reallocation page.
+    realloc_history_demotion = ('data-history-only="1"' in ui
+                                and "SUPERSEDED PROPOSAL — HISTORY ONLY" in ui)
+
+    # (d) ONE live-lane composition; UI renders it verbatim.
+    ams_defines_lane = ("def _live_reassessment_lane_block(" in ams_src
+                        and '"live_reassessment_lane": live_reassessment_lane'
+                        in ams_src)
+    second_lane_definition = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/")
+        and _rel(fp) != "api/active_manager_state.py"
+        and "def _live_reassessment_lane_block(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    ui_renders_lane = ("live_reassessment_lane" in ui
+                       and "lane.governance_state" in ui
+                       and "lane.candidate_conclusion" in ui
+                       and "lane.supersedes_standing_decision" in ui)
+    lane_start = ui.find("/* R54_2_4_REGION_START */")
+    lane_end = ui.find("/* R54_2_4_REGION_END */")
+    lane_region = ui[lane_start:lane_end] if 0 <= lane_start < lane_end else ""
+    ui_lane_derivation = sorted(set(
+        re.findall(r"reassessment_hash\s*[!=]==?", lane_region)
+        + re.findall(r"Math\.\w+\(", lane_region)
+        + re.findall(r"\.reduce\(", lane_region)))
+
+    # (e) truthful freshness labelling.
+    stale_display_label = ("Scheduled full review due" in ams_src
+                           and '"display_label": display_label' in ams_src
+                           and "s.display_label" in ui)
+
+    # (f) outcome-history version identity, projection only.
+    outcome_versions = ("def _annotate_assessment_versions(" in ro_src
+                        and '"repeated_across_assessment_versions"' in ro_src
+                        and "Assessment version" in ui)
+
+    # (g) CA reconciliation scope.
+    ca_scope = ('"is_authoritative_nav": False' in ca_src
+                and '"nav_scope": "DESK_BOOK_RECONCILIATION_PROJECTION"'
+                in ca_src and "rec.nav_scope_label" in ui)
+
+    # (h) eligibility vocabulary split.
+    vocabulary_split = (
+        'CHECK_ELIGIBILITY: "Universe membership / scoreability"' in dag_src
+        and "HOC retention rule" in prs_src
+        and "no longer meets the eligibility rule" not in prs_src
+        and "no longer meet the eligibility rule" not in prs_src)
+
+    legacy_classified = ui.count('data-flow-class="') >= 3
+
+    return {
+        "presentation_defines_scoped_economics": bool(scopes_defined),
+        "second_current_decision_calculation": second_current_decision,
+        "proposal_history_block_present": bool(history_block),
+        "hero_renders_current_decision": bool(hero_renders_current),
+        "hero_unscoped_proposal_econ_present": hero_unscoped_proposal_econ,
+        "realloc_history_demotion_present": bool(realloc_history_demotion),
+        "ams_defines_live_lane": bool(ams_defines_lane),
+        "second_live_lane_definition": second_lane_definition,
+        "ui_renders_live_lane": bool(ui_renders_lane),
+        "ui_lane_governance_derivation": ui_lane_derivation,
+        "stale_display_label_owned": bool(stale_display_label),
+        "outcome_history_version_identity": bool(outcome_versions),
+        "ca_projection_scope_declared": bool(ca_scope),
+        "eligibility_vocabulary_split": bool(vocabulary_split),
+        "legacy_controls_classified": bool(legacy_classified),
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -13672,6 +13796,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_3_1_owned_data_readiness_authority(files),
         "release54_2_3_2_decision_supersession":
             check_release54_2_3_2_decision_supersession(files),
+        "release54_2_4_reallocation_coherence":
+            check_release54_2_4_reallocation_coherence(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14449,6 +14575,32 @@ def _print_console(rep: dict) -> None:
           f"UI supersession derivation (must be empty): "
           f"{dsup['ui_supersession_derivation']}  forbidden routes (must be "
           f"empty): {dsup['forbidden_supersession_routes']}")
+
+    hdr("REALLOCATION COHERENCE + INTRADAY VISIBILITY (R54.2.4)")
+    rc = rep["release54_2_4_reallocation_coherence"]
+    print(f"presentation defines scoped economics: "
+          f"{rc['presentation_defines_scoped_economics']}  second "
+          f"current-decision calculations (must be empty): "
+          f"{rc['second_current_decision_calculation']}")
+    print(f"proposal history block present: "
+          f"{rc['proposal_history_block_present']}  hero renders "
+          f"current decision: {rc['hero_renders_current_decision']}  hero "
+          f"unscoped proposal econ (must be False): "
+          f"{rc['hero_unscoped_proposal_econ_present']}")
+    print(f"realloc history demotion present: "
+          f"{rc['realloc_history_demotion_present']}")
+    print(f"AMS defines live lane: {rc['ams_defines_live_lane']}  second lane "
+          f"definitions (must be empty): {rc['second_live_lane_definition']}")
+    print(f"UI renders live lane: {rc['ui_renders_live_lane']}  UI lane "
+          f"governance derivation (must be empty): "
+          f"{rc['ui_lane_governance_derivation']}")
+    print(f"stale display label owned: {rc['stale_display_label_owned']}  "
+          f"outcome-history version identity: "
+          f"{rc['outcome_history_version_identity']}")
+    print(f"CA projection scope declared: {rc['ca_projection_scope_declared']}  "
+          f"eligibility vocabulary split: "
+          f"{rc['eligibility_vocabulary_split']}  legacy controls classified: "
+          f"{rc['legacy_controls_classified']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -16605,6 +16757,43 @@ BLOCKING_INVARIANTS = (
      "ui_supersession_derivation", []),
     ("release54_2_3_2_decision_supersession",
      "forbidden_supersession_routes", []),
+    # ------------------------------------------------------------------- #
+    # Release 54.2.4 - REALLOCATION COHERENCE + INTRADAY VISIBILITY. The three
+    # economic scopes are named once; a governed HOLD renders only its own
+    # current-decision economics; a superseded proposal is demoted to explicit
+    # history; the live/intraday lane is composed once and rendered verbatim.
+    # Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_4_reallocation_coherence",
+     "presentation_defines_scoped_economics", True),
+    ("release54_2_4_reallocation_coherence",
+     "second_current_decision_calculation", []),
+    ("release54_2_4_reallocation_coherence",
+     "proposal_history_block_present", True),
+    ("release54_2_4_reallocation_coherence",
+     "hero_renders_current_decision", True),
+    ("release54_2_4_reallocation_coherence",
+     "hero_unscoped_proposal_econ_present", False),
+    ("release54_2_4_reallocation_coherence",
+     "realloc_history_demotion_present", True),
+    ("release54_2_4_reallocation_coherence",
+     "ams_defines_live_lane", True),
+    ("release54_2_4_reallocation_coherence",
+     "second_live_lane_definition", []),
+    ("release54_2_4_reallocation_coherence",
+     "ui_renders_live_lane", True),
+    ("release54_2_4_reallocation_coherence",
+     "ui_lane_governance_derivation", []),
+    ("release54_2_4_reallocation_coherence",
+     "stale_display_label_owned", True),
+    ("release54_2_4_reallocation_coherence",
+     "outcome_history_version_identity", True),
+    ("release54_2_4_reallocation_coherence",
+     "ca_projection_scope_declared", True),
+    ("release54_2_4_reallocation_coherence",
+     "eligibility_vocabulary_split", True),
+    ("release54_2_4_reallocation_coherence",
+     "legacy_controls_classified", True),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

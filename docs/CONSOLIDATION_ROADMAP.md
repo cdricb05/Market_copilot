@@ -1383,3 +1383,38 @@ so a one-time research artifact silently became a hard operational dependency.
   action-state engine.
 - Still exactly one orchestration path: `POST /v1/operations/portfolio-cycle/run`.
   Prerequisite maintenance happens inside the monthly refresh step that already existed.
+
+## Release 54.2.4 - reallocation coherence + current-decision presentation + intraday visibility (LANDED)
+
+This slice consolidates NAMING and PROJECTION, not calculation - no economic
+number moved and no gate changed:
+
+- THREE named economic scopes, declared once in `api.operator_presentation`
+  (`CURRENT_GOVERNED_DECISION` / `COMPLETE_TARGET_PROPOSAL` /
+  `HOC_RELEASE_SET_ESTIMATE`), with ONE current-decision economics builder
+  (`_current_decision_economics`). A governed HOLD renders its definitional
+  zeros; the considered alternative's numbers render only under an explicit
+  alternative/history label. No second builder may exist (strict audit).
+- The superseded-proposal analysis is DEMOTED to an explicit history-only
+  block on the Reallocation page, with the new `proposal_history` facts (id,
+  created, superseded-at/by, reason) read verbatim from the R54.2.3.2 verdict.
+- ONE material-change tolerance (`material_weight_delta`): a non-held name
+  repaired inside the band produces NO allocation row; the UI raises display
+  precision when 1-decimal rounding would hide a real delta.
+- Vocabulary split: "Universe membership / scoreability" (gate) vs "HOC
+  retention rule" (reassessment); AMS stale rows carry a truthful
+  `display_label` for the legacy scheduled-review clock (a session-current
+  assessment is never printed OVERDUE).
+- LANE B: `api.active_manager_state.live_reassessment_lane` - ONE composed
+  projection of the live/intraday result (trigger, material events, affected
+  holdings, candidate conclusion, governance state with exact withheld
+  reasons, supersedes-standing only on a recorded governed promotion). No new
+  owner, no route, no re-evaluation.
+- Scope labels on the desk-book corporate-action reconciliation
+  (`DESK_BOOK_RECONCILIATION_PROJECTION`, never the authoritative NAV) and a
+  reassessment-version identity column on outcome history (projection only).
+- Guarded by `check_release54_2_4_reallocation_coherence` (15 strict-blocking
+  invariants) and `tests/test_release54_2_4_reallocation_coherence.py` (51).
+
+R54.3 (same-session HOC evidence versioning) and R54.4 remain the next slices,
+unchanged.

@@ -1,7 +1,53 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2.3.2 - AUTHORITATIVE DECISION / PROPOSAL
+- **Last updated:** 2026-09-03
+- **Updated by phase:** **R54.2.4 - REALLOCATION PROPOSAL COHERENCE +
+  CURRENT-DECISION PRESENTATION + FIRST-CLASS INTRADAY REASSESSMENT VISIBILITY
+  (single agent, no subagents, Windows PowerShell only).** Built over the
+  committed R54.2.3.2 head `e5dc8c6f9`. Full narrative:
+  `docs/RELEASE54_2_4_REALLOCATION_COHERENCE_AND_INTRADAY_VISIBILITY.md`.
+  **The live defect set (Sep 2-3):** the governed HOLD hero still rendered the
+  SUPERSEDED proposal's economics (0.056 / 35% / $85.69 / 28 changing); the
+  Reallocation page looked like an active change plan; the HOC release-set
+  estimate (+0.018 / 23.5% / $57.46) and the complete-target proposal
+  (+0.056 / 35% / $85.69) rendered without scope names; zero-delta repaired
+  rows could classify as changes; "eligible" meant two rules on one screen; a
+  session-current reassessment printed OVERDUE (the LEGACY
+  api.daily_action_gate scheduled-review clock); the live event pipeline had no
+  first-class Today lane. **The repairs (all presentation/classification; no
+  economics changed, no gate weakened, no history rewritten):** THREE named
+  economic scopes (`CURRENT_GOVERNED_DECISION` / `COMPLETE_TARGET_PROPOSAL` /
+  `HOC_RELEASE_SET_ESTIMATE`) with ONE current-decision economics builder in
+  `api.operator_presentation` (`decision_summary.current_decision`; a governed
+  HOLD's zeros are DEFINITIONAL); the hero renders only that block;
+  `portfolio_decision.positions_changing` is decision-scoped (0 for every
+  non-change state); the Reallocation page demotes a superseded/rejected
+  analysis into an explicit history-only `<details>` with the new
+  `proposal_history` block (id, created 23:38:15Z, superseded 23:51:50Z by
+  CURRENT_NO_CHANGE, reason); the proposal kernel drops non-held rows repaired
+  inside `material_weight_delta` (no more 0.0%->0.0% EXIT/ADD rows) and the UI
+  shows 2-decimal precision when rounding would hide a real delta; the gate
+  check is renamed "Universe membership / scoreability" and HOC sentences say
+  "HOC retention rule"; `active_manager_state` stale rows carry a truthful
+  `display_label` ("Scheduled full review due - legacy clock"); LANE B
+  (`live_reassessment_lane`, new AMS component) gives the first-class
+  live/intraday answer (run id, trigger, material events, affected holdings,
+  candidate conclusion, scope-labelled economics, governance
+  GOVERNED/WITHHELD/ELIGIBLE/NOT_REQUIRED with exact withheld reasons,
+  supersedes-standing YES only on a recorded governed promotion);
+  `reconcile_book` declares DESK_BOOK_RECONCILIATION_PROJECTION (never the
+  authoritative NAV); outcome-history rows expose their reassessment-version
+  identity (projection only); legacy bands carry `data-flow-class` chips
+  (LEGACY COMPATIBILITY / MAINTENANCE-RECOVERY). **Live read-only verdict:**
+  Lane A HOLD with zeros + scoped alternative + complete history block; Lane B
+  `evt_7dece2a4e47fe608` (01:33Z, MATERIAL_SIGNAL_CHANGED, 14 events,
+  CAT/CVS/DDOG) concluded HOLD, governance ELIGIBLE (no persisted gate verdict
+  on the cycle payload), supersedes standing decision NO; the stale strip
+  prints the truthful scheduled-review label. R54.3 (same-session HOC
+  evidence versioning) remains the dedicated next slice. Guard:
+  `check_release54_2_4_reallocation_coherence` (15 blocking fields) +
+  `tests/test_release54_2_4_reallocation_coherence.py` (51 tests).
+- **Prior phase:** **R54.2.3.2 - AUTHORITATIVE DECISION / PROPOSAL
   SUPERSESSION RECONCILIATION (single agent, no subagents, Windows PowerShell
   only).** Built over the committed R54.2.3.1 head `b8133c58d`. Full narrative:
   `docs/RELEASE54_2_3_2_DECISION_PROPOSAL_SUPERSESSION.md`.

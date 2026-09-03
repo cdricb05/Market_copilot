@@ -380,10 +380,47 @@ def load_reassessment_outcomes(*, outcome_dir=None, desk_dir=None,
     }
 
 
+def _annotate_assessment_versions(rows: list[dict]) -> list[dict]:
+    """R54.2.4 (Defect 12) — PROJECTION-ONLY version annotation.
+
+    Since R54.2 a session can hold several immutable reassessment versions, so
+    two persisted observations can share every visible axis (session, ticker,
+    recommendation, replacement, horizon) while being DIFFERENT evidence — they
+    differ by ``reassessment_id`` / ``reassessment_hash``. The table that hides
+    that axis shows "repeated" rows. Each projected row therefore names its
+    assessment version and how many sibling versions exist for the same visible
+    axis. Nothing on disk is deduplicated, deleted or rewritten.
+    """
+    def _axis(r: dict) -> tuple:
+        return (r.get("active_book_id"), r.get("eligible_market_date"),
+                r.get("ticker"), r.get("recommendation"),
+                r.get("replacement_ticker"), r.get("horizon_eligible_closes"))
+
+    versions_by_axis: dict[tuple, list] = {}
+    for r in rows:
+        v = r.get("reassessment_hash") or r.get("reassessment_id")
+        versions_by_axis.setdefault(_axis(r), []).append(v)
+    out = []
+    for r in rows:
+        vs = versions_by_axis.get(_axis(r), [])
+        distinct = sorted({str(v) for v in vs if v})
+        rid = str(r.get("reassessment_id") or "")
+        rhash = str(r.get("reassessment_hash") or "")
+        out.append({
+            **r,
+            "assessment_version": (rhash[:12] or rid[-12:] or None),
+            "assessment_version_axis": "reassessment_id / reassessment_hash",
+            "same_axis_version_count": len(distinct) or (1 if vs else 0),
+            "repeated_across_assessment_versions": len(distinct) > 1,
+        })
+    return out
+
+
 def load_outcome_history(*, outcome_dir=None, active_book_id: Optional[str] = None,
                          limit: int = 500, now: Optional[datetime] = None) -> dict:
     """The full, append-only outcome observation history (audit surface)."""
-    rows = load_observations(outcome_dir=outcome_dir, active_book_id=active_book_id)
+    rows = _annotate_assessment_versions(
+        load_observations(outcome_dir=outcome_dir, active_book_id=active_book_id))
     return {
         "phase": PHASE, "owner": OWNER, "schema_version": SCHEMA_VERSION,
         "status": "OK", "generated_at": _now_iso(now),
@@ -391,6 +428,11 @@ def load_outcome_history(*, outcome_dir=None, active_book_id: Optional[str] = No
         "rows": rows[-limit:] if limit else rows,
         "row_count": len(rows),
         "append_only": True, "backfilled": False,
+        "version_axis_note": (
+            "Rows that look identical can be distinct immutable evidence from "
+            "different same-session reassessment versions (R54.2); the "
+            "assessment_version column is the differentiating identity. "
+            "History is never deleted to shorten the table."),
         "historical_gap_note": _HISTORICAL_GAP_NOTE,
         **_safety(),
     }

@@ -1085,6 +1085,10 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
         "superseded": bool(payload.get("superseded")),
         "supersession": payload.get("supersession"),
         "superseded_by": payload.get("superseded_by"),
+        # R54.2.4 — the immutable artifact meta (id, generated_at), republished
+        # verbatim so the proposal-history presentation can state WHEN the
+        # superseded proposal was created without a second artifact read.
+        "artifact": payload.get("artifact"),
         "feasible_target_exists": verdict.get("feasible_target_exists"),
         # 7. approval, 8. execution
         "approval": {

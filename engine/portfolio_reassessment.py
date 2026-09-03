@@ -591,13 +591,18 @@ def mandatory_exit_policy_block(*, mandatory_exits: list, hard_blockers: list,
         "authorizes_sell_only_plan": False,
         "requires_complete_target": True,
         "manual_review_required": True,
+        # R54.2.4 (Defect 5) — this is the HOC RETENTION RULE (rank deterioration
+        # beyond the retention band), NOT universe membership / scoreability.
+        # The old wording "eligibility rule" collided with the gate's
+        # membership/scoreability check and produced two contradictory uses of
+        # "eligible" on one screen. Rule and logic are unchanged; only the name.
         "statement": (
-            "No eligibility exit is outstanding." if not mandatory_exits else
-            ("%s no longer meet the eligibility rule. Exiting them is required IF a "
+            "No retention-rule exit is outstanding." if not mandatory_exits else
+            ("%s no longer meet the HOC retention rule. Exiting them is required IF a "
              "reallocation proceeds; it is executed only inside an approved complete "
              "target, never as a standalone sell. The portfolio-level economic gates "
              "do not withhold them." % ", ".join(mandatory_exits)) if cleared else
-            ("%s no longer meet the eligibility rule. Exiting them is required IF a "
+            ("%s no longer meet the HOC retention rule. Exiting them is required IF a "
              "reallocation proceeds, but a hard feasibility blocker (%s) withholds the "
              "reallocation, so no exit is executable today and a human adjudicates."
              % (", ".join(mandatory_exits), ", ".join(hard_blockers) or "none"))),
@@ -752,7 +757,7 @@ def explain_holding(review: dict, *, universe_size: Optional[int], policy: dict,
         # REALLOCATION PROCEEDS. It is never an executable standalone obligation, so
         # this sentence must never read "must exit now" / "required exit" while the
         # portfolio verdict is monitor / no proposal.
-        return ("EXIT — %s is rank %s (%s) and no longer meets the eligibility rule "
+        return ("EXIT — %s is rank %s (%s) and no longer meets the HOC retention rule "
                 "(%s). Exiting it is required IF a reallocation proceeds; it is carried "
                 "out only inside an approved complete target, never as a standalone "
                 "sell, and it is not an expected-return forecast."
@@ -842,16 +847,16 @@ def explain_portfolio(result_core: dict, policy: dict) -> str:
                 "%s estimated one-way turnover, %s estimated cost — withheld by %s."
                 % (n_act, _fmt_score(net), hurdle, _fmt_pct(turn), _fmt_usd(cost), blockers))
         if mex:
-            base += (" %s no longer meet the eligibility rule; exiting them is required IF "
+            base += (" %s no longer meet the HOC retention rule; exiting them is required IF "
                      "a reallocation proceeds, and it is not executable while the "
                      "reallocation itself is withheld." % ", ".join(mex))
         return base
     if state == STATE_PROPOSAL_READY:
         if mex and GATE_MANDATORY_EXIT in (d.get("reason_codes") or []):
-            return ("%s no longer meet the eligibility rule, so a complete target is "
+            return ("%s no longer meet the HOC retention rule, so a complete target is "
                     "requested even though the expected net improvement of %s score points "
-                    "does not clear the %.3f economic hurdle on its own: an ineligible name "
-                    "is a constraint breach, not an alpha bet. %d actionable holding(s), %s "
+                    "does not clear the %.3f economic hurdle on its own: a name past the "
+                    "retention band is a constraint breach, not an alpha bet. %d actionable holding(s), %s "
                     "estimated one-way turnover, %s estimated cost. The canonical "
                     "reallocation proposal is built for MANUAL REVIEW — nothing is approved "
                     "or executed, and the complete target must still satisfy the turnover, "

@@ -627,6 +627,15 @@ def reconcile_book(*, book: dict, fills: list[dict], marks: dict, actions: list[
         "cost_basis_invariant": abs(after["cost_basis_total"] - before["cost_basis_total"]) <= 1e-4,
         "phantom_nav_removed": round(after["nav"] - before["nav"], 4),
         "per_name_delta": per_name_delta,
+        # R54.2.4 (Defect 11) — WHAT THESE NAV FIGURES ARE. This reconciliation
+        # is a read-time PROJECTION over the DESK book fold; its before/after
+        # NAVs legitimately differ from the authoritative operational NAV
+        # (different scope, not a defect) and must never be read as it.
+        "nav_scope": "DESK_BOOK_RECONCILIATION_PROJECTION",
+        "nav_scope_label": ("Desk-book reconciliation preview — a corporate-action "
+                            "projection, never the authoritative operational NAV"),
+        "is_authoritative_nav": False,
+        "authoritative_nav_owner": "api.operational_book (via api.workflow_state)",
         "note": ("BEFORE marks a split name's raw (pre-split) share count against the "
                  "back-adjusted mark (the phantom loss). AFTER scales the pre-ex-date "
                  "shares by the split ratio; cash and total cost basis are invariant."),

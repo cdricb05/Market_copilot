@@ -184,7 +184,11 @@ ALL_CHECK_CODES = (CHECK_DATA_FRESHNESS, CHECK_TARGET_ALIGNMENT, CHECK_ELIGIBILI
 CHECK_LABELS = {
     CHECK_DATA_FRESHNESS: "Data freshness",
     CHECK_TARGET_ALIGNMENT: "Target vs actual alignment",
-    CHECK_ELIGIBILITY: "Holding eligibility",
+    # R54.2.4 (Defect 5) — this check tests SCOREABILITY + CURRENT UNIVERSE
+    # MEMBERSHIP, nothing else. It was labelled "Holding eligibility", which
+    # collided head-on with the HOC RETENTION RULE ("KEYS no longer meets the
+    # eligibility rule") — two different concepts sharing one operator word.
+    CHECK_ELIGIBILITY: "Universe membership / scoreability",
     CHECK_UNIVERSE_MEMBERSHIP: "Current universe membership",
     CHECK_LIQUIDITY: "Liquidity",
     CHECK_POSITION_WEIGHT_LIMIT: "Position-weight limit",
@@ -526,11 +530,15 @@ def _build_checks(*, holdings: dict, target: dict, removed: set, eligibility: di
     elif ineligible:
         checks.append(_mk_check(CHECK_ELIGIBILITY, CHK_TRIGGERED, as_of=market_date,
                       source=src_model,
-                      summary="%d held name(s) are no longer eligible." % len(ineligible),
+                      summary=("%d held name(s) are no longer scoreable current "
+                               "universe members." % len(ineligible)),
                       affected=ineligible))
     else:
         checks.append(_mk_check(CHECK_ELIGIBILITY, CHK_PASS, as_of=market_date,
-                      source=src_model, summary="All holdings remain eligible (scoreable, current members)."))
+                      source=src_model,
+                      summary=("All holdings remain scoreable, current universe "
+                               "members. (This is universe membership, not the "
+                               "HOC retention rule.)")))
 
     # 4. CURRENT_UNIVERSE_MEMBERSHIP
     mem_affected = sorted({r["ticker"] for r in proposed_removals

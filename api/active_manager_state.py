@@ -91,6 +91,9 @@ COMPONENTS = (
     # is the ONLY bridge between them and the measured latency of that bridge.
     "latest_live_intraday_assessment", "latest_governed_portfolio_decision",
     "intraday_governance", "decision_latency",
+    # R54.2.4 — LANE B: the live/intraday reassessment as one first-class,
+    # self-explaining answer (composed from the components above; no new owner).
+    "live_reassessment_lane",
 )
 
 #: The authoritative owner of every composed component (part of the tested
@@ -108,6 +111,7 @@ COMPONENT_OWNERS = {
     "latest_governed_portfolio_decision": "api.portfolio_decision",
     "intraday_governance": "api.portfolio_decision",
     "decision_latency": "api.event_signal_refresh",
+    "live_reassessment_lane": "api.active_manager_state",
 }
 
 SAFETY_BADGES = ["READ ONLY", "PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
@@ -651,6 +655,152 @@ def _intraday_governance_block(live_information: dict,
     }
 
 
+# --------------------------------------------------------------------------- #
+# R54.2.4 (Defects 7 + 8) — LANE B: the latest LIVE / INTRADAY reassessment as a
+# first-class, self-explaining operator answer. ONE composed projection over the
+# owners' already-recorded facts (the event cycle's own run payload, the R54.1
+# gate verdict the decision owner wrote into it, and the reassessment head) —
+# nothing here re-evaluates the gate, re-scores anything, or advances authority.
+# --------------------------------------------------------------------------- #
+LANE_CONCLUSION_HOLD = "HOLD"
+LANE_CONCLUSION_CHANGE = "CHANGE"
+LANE_CONCLUSION_PROPOSAL_AVAILABLE = "PROPOSAL_AVAILABLE"
+LANE_CONCLUSION_NOT_MATERIAL = "INFORMATION_NOT_MATERIAL"
+LANE_CONCLUSION_UNKNOWN = "UNKNOWN"
+LANE_CONCLUSION_VOCAB = (LANE_CONCLUSION_HOLD, LANE_CONCLUSION_CHANGE,
+                         LANE_CONCLUSION_PROPOSAL_AVAILABLE,
+                         LANE_CONCLUSION_NOT_MATERIAL, LANE_CONCLUSION_UNKNOWN)
+
+LANE_GOV_GOVERNED = "GOVERNED"
+LANE_GOV_WITHHELD = "WITHHELD"
+LANE_GOV_ELIGIBLE = "ELIGIBLE"
+LANE_GOV_NOT_REQUIRED = "NOT_REQUIRED"
+LANE_GOV_UNKNOWN = "UNKNOWN"
+LANE_GOVERNANCE_VOCAB = (LANE_GOV_GOVERNED, LANE_GOV_WITHHELD, LANE_GOV_ELIGIBLE,
+                         LANE_GOV_NOT_REQUIRED, LANE_GOV_UNKNOWN)
+
+
+def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
+                                  reassessment: dict, workflow: Optional[dict],
+                                  governed_decision: Optional[dict]) -> dict:
+    cycle = live_information.get("last_event_cycle") or {}
+    gd = cycle.get("governed_decision") or {}
+    cycle_state = str(cycle.get("state") or "")
+    reassess_state = str(cycle.get("reassessment_state") or "")
+
+    # WHAT the live run concluded — from the cycle owner's own recorded tokens.
+    if cycle_state == "INFORMATION_NOT_MATERIAL":
+        conclusion = LANE_CONCLUSION_NOT_MATERIAL
+    elif reassess_state == "CURRENT_NO_CHANGE":
+        conclusion = LANE_CONCLUSION_HOLD
+    elif reassess_state == "PROPOSAL_READY":
+        conclusion = (LANE_CONCLUSION_PROPOSAL_AVAILABLE
+                      if cycle.get("proposal_built")
+                      else LANE_CONCLUSION_CHANGE)
+    else:
+        conclusion = LANE_CONCLUSION_UNKNOWN
+
+    # WHETHER governance passed — from the R54.1 gate record the decision owner
+    # wrote into this cycle's run payload. Never re-evaluated here.
+    if conclusion == LANE_CONCLUSION_NOT_MATERIAL or not cycle.get(
+            "reassessment_ran"):
+        governance = LANE_GOV_NOT_REQUIRED
+        governance_note = ("No reassessment candidate was produced, so no "
+                           "intraday governance verdict was required.")
+    elif gd.get("recorded"):
+        governance = LANE_GOV_GOVERNED
+        governance_note = ("The intraday gate promoted this candidate to a "
+                           "governed decision (record %s)."
+                           % gd.get("record_id"))
+    elif gd.get("evaluated"):
+        governance = LANE_GOV_WITHHELD
+        governance_note = ("The intraday gate evaluated this candidate and "
+                           "withheld governance; the exact reasons are listed "
+                           "verbatim.")
+    elif cycle.get("reassessment_ran"):
+        governance = LANE_GOV_ELIGIBLE
+        governance_note = ("A reassessment candidate exists; no persisted gate "
+                           "verdict is recorded on this cycle's payload.")
+    else:
+        governance = LANE_GOV_UNKNOWN
+        governance_note = "The cycle payload records no governance facts."
+
+    promoted = bool(gd.get("recorded"))
+    attention = ((workflow or {}).get("portfolio_attention") or {})
+
+    # The lane's own economics: the reassessment head's release-set estimate,
+    # and ONLY when it is provably this cycle's artifact (ids match). Scope is
+    # named; a non-matching head yields an honest None, never a borrowed number.
+    same_artifact = bool(
+        cycle.get("reassessment_id")
+        and cycle.get("reassessment_id") == reassessment.get("reassessment_id"))
+    economics = ({
+        "scope": "HOC_RELEASE_SET_ESTIMATE",
+        "scope_note": ("Pre-proposal, non-binding release-set estimate from the "
+                       "reassessment artifact this cycle produced."),
+        "expected_net_improvement": reassessment.get("expected_net_improvement"),
+        "net_improvement_hurdle": reassessment.get("net_improvement_hurdle"),
+        "expected_one_way_turnover": reassessment.get("expected_one_way_turnover"),
+        "expected_transaction_cost_usd": reassessment.get(
+            "expected_transaction_cost_usd"),
+        "owner": "engine.portfolio_reassessment via api.portfolio_reassessment",
+    } if same_artifact else None)
+
+    return {
+        "available": bool(cycle.get("run_id") or cycle_state),
+        "lane": "LIVE_INTRADAY_REASSESSMENT",
+        "lane_label": "LATEST LIVE / INTRADAY REASSESSMENT",
+        "provenance": "LIVE_PRE_DRC_SIGNAL",
+        "run_id": cycle.get("run_id"),
+        "at": cycle.get("generated_at"),
+        "trigger": cycle.get("materiality_change_level"),
+        "trigger_owner": "engine.event_materiality via api.event_signal_refresh",
+        "material_event_count": live_information.get("material_event_count"),
+        "material_events_since_last_reassessment": live_information.get(
+            "material_events_since_last_reassessment"),
+        "affected_holdings": live_information.get("affected_current_holdings"),
+        "last_material_event_at": live_information.get("last_material_event_at"),
+        "scoring_basis_date": signal_state.get("last_scoring_ranking_date"),
+        "hoc_completed_at": (cycle.get("stage_timestamps")
+                             or {}).get("hoc_completed_at"),
+        "reassessment_id": cycle.get("reassessment_id"),
+        "reassessment_hash": cycle.get("reassessment_hash"),
+        "reassessment_persisted": cycle.get("reassessment_persisted"),
+        "reassessment_persistence_status": cycle.get(
+            "reassessment_persistence_status"),
+        "candidate_conclusion": conclusion,
+        "candidate_conclusion_vocabulary": list(LANE_CONCLUSION_VOCAB),
+        "economics": economics,
+        "governance_state": governance,
+        "governance_state_vocabulary": list(LANE_GOVERNANCE_VOCAB),
+        "governance_note": governance_note,
+        "governance_withheld_reason_codes": list(
+            gd.get("withheld_reason_codes") or []),
+        "governance_failing_checks": list(gd.get("failing_checks") or []),
+        "governed_record_id": gd.get("record_id"),
+        "promoted_to_governed": promoted,
+        # A live result WITHOUT a recorded governed promotion never supersedes
+        # the standing decision — the R54.2.3.2 authority rule, echoed.
+        "supersedes_standing_decision": promoted,
+        "standing_governed_decision_id": (governed_decision or {}).get(
+            "record_id"),
+        "manual_review_available": bool(attention.get("review_required")),
+        "is_authoritative_decision": promoted,
+        "advances_operational_mark": False,
+        "creates_orders": False,
+        "approves_anything": False,
+        "gate_owner": "api.portfolio_decision",
+        "owner": OWNER,
+        "composed_from": ["api.event_signal_refresh",
+                          "api.portfolio_decision (gate record on the cycle "
+                          "payload)", "api.portfolio_reassessment"],
+        "note": ("Lane B — the live/intraday research lane. It never outranks "
+                 "the governed portfolio decision (Lane A) unless the R54.1 "
+                 "gate recorded a governed promotion, and it never creates an "
+                 "order or an approval."),
+    }
+
+
 def _decision_latency_block(governed_decision: Optional[dict],
                             live_information: dict) -> dict:
     """R54.1 — measured, never modelled. Every value is the latency owner's
@@ -831,10 +981,15 @@ def _stale_components(*, operational_book: dict, live_information: dict,
                       target_proposal: dict, research_governance: dict) -> list:
     out: list[dict] = []
 
-    def _add(component: str, owner_state: Any, detail: Any = None):
+    def _add(component: str, owner_state: Any, detail: Any = None,
+             display_label: Any = None):
+        # R54.2.4 — ``display_label`` is what a normal surface PRINTS; the raw
+        # owner_state token stays beside it for Audit. When absent, surfaces
+        # fall back to "<component> (<owner_state>)" exactly as before.
         out.append({"component": component,
                     "owner": COMPONENT_OWNERS.get(component),
                     "owner_state": owner_state,
+                    "display_label": display_label,
                     "detail": detail})
 
     if not operational_book.get("available"):
@@ -867,8 +1022,20 @@ def _stale_components(*, operational_book: dict, live_information: dict,
                 parts.append("scheduled review date %s has passed (legacy "
                              "api.daily_action_gate clock)"
                              % fd.get("next_scheduled_review_date"))
+            # R54.2.4 (Defect 6) — a reassessment that IS current for the
+            # eligible session must never be printed "Portfolio reassessment
+            # (OVERDUE)": the OVERDUE token records only that the LEGACY
+            # scheduled-review clock (api.daily_action_gate) has passed. The
+            # obligation stays visible, under its truthful name.
+            display = None
+            if (fd.get("current_for_eligible_session") is True
+                    and fd.get("review_overdue")):
+                display = ("Scheduled full review due — legacy "
+                           "api.daily_action_gate clock; the portfolio "
+                           "reassessment itself is current for the eligible "
+                           "session")
             _add("portfolio_reassessment", reassessment.get("reassessment_freshness"),
-                 "; ".join(parts))
+                 "; ".join(parts), display_label=display)
     if not target_proposal.get("available"):
         _add("target_proposal", "MISSING")
     if not research_governance.get("available"):
@@ -920,6 +1087,10 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
     governed_block = _governed_decision_block(governed_decision)
     intraday_governance = _intraday_governance_block(live_information,
                                                      governed_decision)
+    live_reassessment_lane = _live_reassessment_lane_block(
+        live_information=live_information, signal_state=signal_state,
+        reassessment=reassessment_block, workflow=workflow,
+        governed_decision=governed_block)
     decision_latency = _decision_latency_block(governed_decision,
                                                live_information)
     stale = _stale_components(
@@ -1092,6 +1263,11 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         # dig for "is governed research still owed for the session we closed?".
         "research_obligation": operator_guidance.get("research_obligation"),
         "latest_live_intraday_assessment": live_intraday,
+        # R54.2.4 — LANE B: the first-class live/intraday reassessment answer
+        # (when, why, what changed, what it concluded, whether governance
+        # passed, the exact withheld reason, and whether it supersedes the
+        # standing decision). Composed once HERE; the UI renders it verbatim.
+        "live_reassessment_lane": live_reassessment_lane,
         "latest_governed_portfolio_decision": governed_block,
         "intraday_governance": intraday_governance,
         "decision_latency": decision_latency,
