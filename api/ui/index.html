@@ -29360,11 +29360,15 @@ function _amsLaneBHtml(d) {
     + _amsRow('Material events', _opEsc(lane.material_event_count == null ? '—' : String(lane.material_event_count))
         + ((lane.affected_holdings || []).length ? ' · affects ' + _opEsc(lane.affected_holdings.join(', ')) : ''))
     + _amsRow('Scoring basis', _opEsc(lane.scoring_basis_date || '—'))
+    // R55.1 — a cycle the backend recorded as having run NO reassessment shows
+    // the owner's sentence, never an artifact dash and never a conclusion.
     + _amsRow('Reassessment artifact', _opEsc(lane.reassessment_id
         ? (String(lane.reassessment_id).slice(-14) + (lane.reassessment_persisted === false ? ' · NOT PERSISTED' : ''))
-        : (lane.candidate_conclusion === 'INFORMATION_NOT_MATERIAL' ? 'none required' : '—')),
+        : (lane.reassessment_ran === false ? 'none required' : '—')),
         '', lane.reassessment_persistence_status || '')
-    + _amsRow('Concluded', _opEsc(_opWords(lane.candidate_conclusion) || '—'), '', lane.note || '')
+    + (lane.reassessment_ran === false
+        ? _amsRow('Reassessment', _opEsc(lane.reassessment_summary || 'No new portfolio reassessment was required'), '', lane.headline || '')
+        : _amsRow('Concluded', _opEsc(_opWords(lane.candidate_conclusion) || '—'), '', lane.note || ''))
     + (lane.economics
         ? _amsRow('Economics (' + _opEsc(_opWords(lane.economics.scope)) + ')',
             _opNum(lane.economics.expected_net_improvement, 3) + ' / '
@@ -29505,6 +29509,11 @@ function _r55RenderOperatorAnswer(d) {
     +   _opEsc(qs[1] || 'WHAT CHANGED SINCE') + laneBadge
     + '</div>'
     + '<div class="r55-answer">' + _opEsc(chgHead) + '</div>'
+    // R55.1 — the composition owner's own sentence for what the latest cycle
+    // WAS. Rendered verbatim; the browser interprets no cycle state.
+    + (chg.headline
+        ? '<div class="r55-why">' + _opEsc(chg.headline) + '.</div>'
+        : '')
     + (affN !== null
         ? ('<div class="r55-why">' + _opEsc(affN) + ' directly affect'
            + (affN === '1' ? 's' : '') + ' a current holding.</div>')
@@ -29512,12 +29521,24 @@ function _r55RenderOperatorAnswer(d) {
     + (chg.why_non_held_events_matter
         ? '<div class="r55-quiet">' + _opEsc(chg.why_non_held_events_matter) + '</div>'
         : '')
-    + '<div class="r55-facts">'
-    +   _r55Fact('Latest reassessment', chg.latest_reassessment_display)
-    +   _r55Fact('It concluded', _opWords(chg.latest_reassessment_conclusion))
+    // R55.1 — the backend states whether a reassessment happened; the browser
+    // never derives it. When none ran, the owner's own sentence is rendered
+    // instead of a reassessment time and an UNKNOWN conclusion.
+    // Only an EXPLICIT false takes the no-op branch: a pre-R55.1 payload that
+    // publishes no flag keeps the previous rendering rather than silently
+    // claiming no reassessment ran.
+    + '<div class="r55-facts" data-reassessment-ran="'
+    +   (chg.reassessment_ran === false ? '0'
+        : (chg.reassessment_ran === true ? '1' : '')) + '">'
+    +   (chg.reassessment_ran === false
+        ? (_r55Fact('Latest signal refresh', chg.latest_cycle_display)
+           + _r55Fact('Reassessment', chg.reassessment_summary || '', 'muted'))
+        : (_r55Fact('Latest reassessment', chg.latest_reassessment_display)
+           + _r55Fact('It concluded', _opWords(chg.latest_reassessment_conclusion))))
     +   _r55Fact('Triggered by', _opWords(chg.latest_reassessment_trigger), 'muted')
     +   _r55Fact('Standing decision',
-                 chg.supersedes_standing_decision ? 'Superseded' : 'Unchanged')
+                 chg.supersedes_standing_decision ? 'Superseded'
+                   : (chg.governed_summary || 'Unchanged'))
     + '</div>'
     + '</div>';
 
@@ -29603,11 +29624,18 @@ function _r55RenderAcceptance(d) {
   var lat = (d && d.decision_latency) || {};
   var cells = acc.rows.map(function (r) {
     var cls = (r.status === 'PRESENT') ? 'present' : 'missing';
+    // R55.1 — the GOVERNANCE row carries the owner's terminal disposition and
+    // the reason it holds. Rendered verbatim; nothing is inferred here.
+    var note = r.reason_detail || r.persistence_detail || '';
+    var sub = r.disposition || r.persistence_status || '';
     return '<div class="r" data-acceptance-row="' + _opEsc(r.row || '') + '"'
-      + ' data-acceptance-status="' + _opEsc(r.status || '') + '">'
+      + ' data-acceptance-status="' + _opEsc(r.status || '') + '"'
+      + (r.disposition ? (' data-disposition="' + _opEsc(r.disposition) + '"') : '')
+      + (note ? (' title="' + _opEsc(note) + '"') : '') + '>'
       + '<div class="k">' + _opEsc(_opWords(r.row)) + '</div>'
       + '<div class="s ' + cls + '">' + _opEsc(r.status) + '</div>'
-      + '<div class="o" title="' + _opEsc(r.owner || '') + '">' + _opEsc(r.owner || '') + '</div>'
+      + '<div class="o" title="' + _opEsc(r.owner || '') + '">'
+      +   _opEsc(sub ? _opWords(sub) : (r.owner || '')) + '</div>'
       + '</div>';
   }).join('');
   var latRows = ''
@@ -29616,6 +29644,8 @@ function _r55RenderAcceptance(d) {
     + _r55Fact('Reassessment → governed', _opNum(lat.reassessment_to_governed_seconds, 1))
     + _r55Fact('Observation → governed', _opNum(lat.observation_to_governed_seconds, 1));
   var missing = (lat.missing_measurements || []).join(', ');
+  // R55.1 — a stage the backend proved this cycle never needed is NOT missing.
+  var notReq = (lat.not_required_measurements || []).join(', ');
   host.innerHTML = ''
     + '<div class="r55-advisory" style="border-style:solid;">'
     +   '<div class="h">Active manager acceptance &mdash; '
@@ -29626,6 +29656,11 @@ function _r55RenderAcceptance(d) {
     +     (lat.measurement_basis ? (' &middot; ' + _opEsc(_opWords(lat.measurement_basis))) : '')
     +   '</div>'
     +   '<div class="r55-facts" style="border-top:0;padding-top:0;">' + latRows + '</div>'
+    +   (notReq
+        ? ('<div class="r55-quiet">Not required on this cycle (the stage did '
+           + 'not need to run): ' + _opEsc(notReq)
+           + '. An unexecuted stage is never reported as zero.</div>')
+        : '')
     +   (missing
         ? ('<div class="r55-quiet">Not measured (no persisted timestamp): '
            + _opEsc(missing) + '. A missing stamp is reported, never invented.</div>')

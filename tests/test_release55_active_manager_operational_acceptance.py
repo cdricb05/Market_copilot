@@ -771,7 +771,14 @@ def test_acceptance_reports_present_when_the_owner_persisted_the_fact():
             "current_decision": "CURRENT_NO_CHANGE",
             "hoc_summary": {"state": "READY", "assessment_hash": "702c599e"}},
         "live_reassessment_lane": _lane(),
-        "intraday_governance": {"verdict": "GOVERNED", "evaluated": True},
+        # R55.1 — the GOVERNANCE row's key fact is now the governance OWNER's
+        # TERMINAL DISPOSITION, not a bare verdict string. A gate that promoted
+        # a candidate publishes both, so this fixture carries both.
+        "intraday_governance": {"verdict": "GOVERNED", "evaluated": True,
+                                "disposition": "PROMOTED", "terminal": True,
+                                "required": True,
+                                "reason": "CANDIDATE_PROMOTED_TO_GOVERNED_DECISION",
+                                "disposition_owner": "api.portfolio_decision"},
         "latest_governed_portfolio_decision": _governed(),
         "operational_book": {"operational_mark_date": LIVE_SESSION,
                              "nav": 97934.33, "holdings_count": 25},

@@ -12668,6 +12668,199 @@ def check_release55_active_manager_acceptance(files: list[Path]) -> dict:
     }
 
 
+#: R55.1 — the five terminal governance dispositions. NOT_REQUIRED is a valid
+#: terminal answer; INCOMPLETE is the only one acceptance may report MISSING for.
+R55_1_DISPOSITIONS = (
+    "NOT_REQUIRED_NO_NEW_INFORMATION", "EVALUATED_NO_PROMOTION", "WITHHELD",
+    "PROMOTED", "INCOMPLETE",
+)
+#: The provable causes a disposition may cite. One code per cause, never a shrug.
+R55_1_REASONS = (
+    "NO_REASSESSMENT_CANDIDATE_PRODUCED", "CANDIDATE_PROMOTED_TO_GOVERNED_DECISION",
+    "GATE_WITHHELD_CANDIDATE", "GATE_EVALUATED_AND_DID_NOT_PROMOTE",
+    "GATE_NOT_INVOKED_AFTER_REASSESSMENT", "GATE_INVOKED_WITHOUT_RECORDED_VERDICT",
+    "NO_EVENT_CYCLE_RECORDED", "CYCLE_RECORDS_NO_TERMINAL_GOVERNANCE_FACTS",
+)
+
+
+def check_release55_1_intraday_governance_completion(files: list[Path]) -> dict:
+    """R55.1 invariants — one governance authority, terminal dispositions, and a
+    no-op that reads as a no-op.
+
+    (a) the TERMINAL GOVERNANCE DISPOSITION is owned by ``api.portfolio_decision``
+        alone: one classifier, a frozen five-token vocabulary, a named reason for
+        every outcome, and no second module defines either;
+    (b) the classifier CLASSIFIES: it writes nothing, opens no store, creates no
+        governed row, evaluates no gate rule and reads no clock — so acceptance can
+        never be turned green by writing a decision;
+    (c) it fails CLOSED: only an explicit ``reassessment_ran is False`` in a
+        no-candidate cycle state yields NOT_REQUIRED, BLOCKED is never excused, and
+        INCOMPLETE is excluded from the terminal set;
+    (d) the presentation owner holds no governance rule of its own — it maps the
+        owner's disposition to a display word and consumes the reason verbatim;
+    (e) NO-OP SEMANTICS: a cycle that ran no reassessment is named
+        NO_REASSESSMENT_REQUIRED, never UNKNOWN, and the backend composes the
+        operator sentences;
+    (f) LATENCY is stage-aware: NOT_REQUIRED and MISSING are separate, and no
+        unexecuted stage is ever zero-filled;
+    (g) PERSISTENCE is self-describing: a legacy projection is named as one, is
+        still retrievable through the owner, and nothing is backfilled;
+    (h) the UI reads the backend's flag and sentences and derives no cycle
+        semantics of its own.
+    """
+    pd_src = _read("api/portfolio_decision.py")
+    ams_src = _read("api/active_manager_state.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    ui = _read(UI_FILE)
+
+    # (a) ONE disposition owner with a frozen vocabulary.
+    disposition_owned_once = all(t in pd_src for t in (
+        "def classify_intraday_governance(",
+        "GOVERNANCE_DISPOSITION_VOCAB = (",
+        "GOVERNANCE_TERMINAL_DISPOSITIONS = (",
+        "INTRADAY_GATE_INVOCATION_CONTRACT = (",
+        '"owner": GOVERNANCE_GATE_OWNER'))
+    missing_dispositions = sorted(d for d in R55_1_DISPOSITIONS
+                                  if '"%s"' % d not in pd_src)
+    missing_reasons = sorted(r for r in R55_1_REASONS if '"%s"' % r not in pd_src)
+    second_disposition_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/portfolio_decision.py",
+                            "scripts/audit_architecture.py")
+        and "def classify_intraday_governance(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+
+    # (b) it classifies and nothing more. Scan the BODY, not the docstring.
+    _c0 = pd_src.find("def classify_intraday_governance(")
+    _c1 = pd_src.find("\ndef ", _c0 + 1) if _c0 >= 0 else -1
+    body = pd_src[_c0:_c1] if 0 <= _c0 < _c1 else ""
+    _d0 = body.find('"""')
+    _d1 = body.find('"""', _d0 + 3)
+    code = body[:_d0] + body[_d1 + 3:] if 0 <= _d0 < _d1 else body
+    classifier_side_effects = sorted(set(
+        t for t in ("record_governed_decision(", "_atomic_write_json(", "open(",
+                    "evaluate_intraday_governance(", "build_intraday_candidate(",
+                    "datetime.now", "_now(", "hurdle", "threshold")
+        if t in code))
+    declares_no_write = all(t in body for t in ('"writes_nothing": True',
+                                                '"creates_no_governed_row": True',
+                                                '"decided_here": False'))
+
+    # (c) fail-closed. An explicit False, a shared state list, and BLOCKED out.
+    fails_closed = ("ran is False" in code
+                    and "_no_candidate_cycle_states()" in code
+                    and "GOV_DISP_INCOMPLETE" in code)
+    blocked_never_excused = ("ST_BLOCKED" not in
+                             esr_src[esr_src.find("NO_CANDIDATE_CYCLE_STATES = ("):
+                                     esr_src.find("NO_CANDIDATE_CYCLE_STATES = (") + 220])
+    incomplete_is_not_terminal = (
+        "GOVERNANCE_TERMINAL_DISPOSITIONS = (" in pd_src
+        and "GOV_DISP_INCOMPLETE" not in pd_src[
+            pd_src.find("GOVERNANCE_TERMINAL_DISPOSITIONS = ("):
+            pd_src.find("GOVERNANCE_TERMINAL_DISPOSITIONS = (") + 260])
+    # The cycle owner alone lists the no-candidate states; the gate owner reads them.
+    one_no_candidate_state_list = (
+        "NO_CANDIDATE_CYCLE_STATES = (" in esr_src
+        and "NO_CANDIDATE_CYCLE_STATES = (" not in pd_src
+        and "esr.NO_CANDIDATE_CYCLE_STATES" in pd_src)
+
+    # (d) the presentation owner renames; it does not decide.
+    _l0 = ams_src.find("def _live_reassessment_lane_block(")
+    _l1 = ams_src.find("\ndef ", _l0 + 1) if _l0 >= 0 else -1
+    lane_body = ams_src[_l0:_l1] if 0 <= _l0 < _l1 else ""
+    lane_delegates_governance = (
+        "GOVERNANCE_DISPOSITION_TO_LANE.get(" in lane_body
+        and "_classify_governance(cycle)" in lane_body)
+    lane_reinfers_governance = sorted(set(
+        t for t in ('governance = LANE_GOV_NOT_REQUIRED',
+                    'governance = LANE_GOV_ELIGIBLE',
+                    'governance = LANE_GOV_WITHHELD',
+                    'governance = LANE_GOV_GOVERNED')
+        if t in lane_body))
+    every_disposition_maps = all(
+        '"%s":' % d in ams_src[ams_src.find("GOVERNANCE_DISPOSITION_TO_LANE = {"):
+                               ams_src.find("GOVERNANCE_DISPOSITION_TO_LANE = {") + 420]
+        for d in R55_1_DISPOSITIONS)
+
+    # (e) no-op semantics, composed by the backend.
+    no_op_named = all(t in ams_src for t in (
+        'LANE_CONCLUSION_NO_REASSESSMENT = "NO_REASSESSMENT_REQUIRED"',
+        "LANE_NO_REASSESSMENT_CONCLUSIONS = (",
+        "def _lane_headline(", "def _lane_reassessment_summary(",
+        "def _lane_governed_summary(", '"reassessment_ran": reassessment_ran_here'))
+    # A cycle with no reassessment publishes no reassessment time or conclusion.
+    answer_gates_on_ran = all(t in ams_src for t in (
+        '"latest_reassessment_at": lane.get("at") if ran else None',
+        '"latest_reassessment_conclusion": conclusion if ran else None'))
+
+    # (f) stage-aware latency, owned by the latency owner.
+    latency_stage_aware = all(t in esr_src for t in (
+        "def stages_not_required(", "not_required_stages",
+        'LAT_NOT_REQUIRED = "NOT_REQUIRED"', "interval_dispositions",
+        '"never_zero_fills_an_unexecuted_stage": True'))
+    second_stage_excuser = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/event_signal_refresh.py",
+                            "scripts/audit_architecture.py")
+        and "def stages_not_required(" in fp.read_text(encoding="utf-8",
+                                                       errors="replace"))
+    projection_excuses_nothing = "def _stages_not_required(" in ams_src and (
+        "esr.stages_not_required(" in ams_src)
+
+    # (g) persistence is self-describing and never backfilled.
+    persistence_self_describing = all(t in pd_src for t in (
+        "def classify_decision_persistence(",
+        'DECISION_PERSISTENCE_LEDGER_ROW = "LEDGER_ROW"',
+        'DECISION_PERSISTENCE_LEGACY_PROJECTION = "LEGACY_COMPATIBILITY_PROJECTION"',
+        '"retrievable_through_owner"', '"backfilled": False',
+        '"history_rewritten": False'))
+    second_persistence_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/portfolio_decision.py",
+                            "scripts/audit_architecture.py")
+        and "def classify_decision_persistence(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+
+    # (h) the UI reads the flag; it interprets no cycle state.
+    ui_reads_the_flag = all(t in ui for t in (
+        "chg.reassessment_ran", "lane.reassessment_ran === false",
+        "chg.reassessment_summary", "chg.governed_summary",
+        "lane.reassessment_summary", "data-reassessment-ran="))
+    ui_interprets_cycle_state = sorted(set(
+        t for t in ("=== 'NO_NEW_INFORMATION'", "=== 'REASSESSED_NO_CHANGE'",
+                    "=== 'DUPLICATE_TRIGGER_SUPPRESSED'",
+                    "=== 'INFORMATION_NOT_MATERIAL'")
+        if t in ui))
+    ui_shows_not_required_apart = ("not_required_measurements" in ui
+                                   and "data-disposition=" in ui)
+
+    return {
+        "disposition_owned_once": bool(disposition_owned_once),
+        "missing_dispositions": missing_dispositions,
+        "missing_disposition_reasons": missing_reasons,
+        "second_disposition_owner": second_disposition_owner,
+        "classifier_side_effects": classifier_side_effects,
+        "classifier_declares_no_write": bool(declares_no_write),
+        "disposition_fails_closed": bool(fails_closed),
+        "blocked_cycle_never_excused": bool(blocked_never_excused),
+        "incomplete_is_not_terminal": bool(incomplete_is_not_terminal),
+        "one_no_candidate_state_list": bool(one_no_candidate_state_list),
+        "lane_delegates_governance": bool(lane_delegates_governance),
+        "lane_reinfers_governance": lane_reinfers_governance,
+        "every_disposition_maps_to_a_lane_word": bool(every_disposition_maps),
+        "no_op_conclusion_is_named": bool(no_op_named),
+        "answer_gates_on_reassessment_ran": bool(answer_gates_on_ran),
+        "latency_is_stage_aware": bool(latency_stage_aware),
+        "second_stage_excuser": second_stage_excuser,
+        "projection_excuses_no_stage": bool(projection_excuses_nothing),
+        "persistence_self_describing": bool(persistence_self_describing),
+        "second_persistence_owner": second_persistence_owner,
+        "ui_reads_the_reassessment_flag": bool(ui_reads_the_flag),
+        "ui_interprets_cycle_state": ui_interprets_cycle_state,
+        "ui_separates_not_required_from_missing": bool(ui_shows_not_required_apart),
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -14483,6 +14676,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_4_single_governed_decision_writer(files),
         "release55_active_manager_acceptance":
             check_release55_active_manager_acceptance(files),
+        "release55_1_intraday_governance_completion":
+            check_release55_1_intraday_governance_completion(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -15386,6 +15581,35 @@ def _print_console(rep: dict) -> None:
           f"forbidden calls (must be empty): "
           f"{r55['acceptance_script_forbidden_calls']}  reads one route: "
           f"{r55['acceptance_script_reads_one_route']}")
+
+    hdr("INTRADAY GOVERNANCE COMPLETION + NO-OP SEMANTICS (R55.1)")
+    g1 = rep["release55_1_intraday_governance_completion"]
+    print(f"disposition owned once: {g1['disposition_owned_once']}  missing "
+          f"dispositions (must be empty): {g1['missing_dispositions']}  missing "
+          f"reasons (must be empty): {g1['missing_disposition_reasons']}")
+    print(f"second disposition owners (must be empty): "
+          f"{g1['second_disposition_owner']}  classifier side effects (must be "
+          f"empty): {g1['classifier_side_effects']}  declares no write: "
+          f"{g1['classifier_declares_no_write']}")
+    print(f"fails closed: {g1['disposition_fails_closed']}  BLOCKED never "
+          f"excused: {g1['blocked_cycle_never_excused']}  INCOMPLETE is not "
+          f"terminal: {g1['incomplete_is_not_terminal']}  one state list: "
+          f"{g1['one_no_candidate_state_list']}")
+    print(f"lane delegates governance: {g1['lane_delegates_governance']}  lane "
+          f"re-infers (must be empty): {g1['lane_reinfers_governance']}  every "
+          f"disposition maps: {g1['every_disposition_maps_to_a_lane_word']}")
+    print(f"no-op conclusion is named: {g1['no_op_conclusion_is_named']}  answer "
+          f"gates on reassessment_ran: {g1['answer_gates_on_reassessment_ran']}")
+    print(f"latency stage-aware: {g1['latency_is_stage_aware']}  second stage "
+          f"excusers (must be empty): {g1['second_stage_excuser']}  projection "
+          f"excuses no stage: {g1['projection_excuses_no_stage']}")
+    print(f"persistence self-describing: {g1['persistence_self_describing']}  "
+          f"second persistence owners (must be empty): "
+          f"{g1['second_persistence_owner']}")
+    print(f"UI reads the reassessment flag: "
+          f"{g1['ui_reads_the_reassessment_flag']}  UI interprets cycle state "
+          f"(must be empty): {g1['ui_interprets_cycle_state']}  separates "
+          f"NOT_REQUIRED: {g1['ui_separates_not_required_from_missing']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -17721,6 +17945,59 @@ BLOCKING_INVARIANTS = (
      "acceptance_script_forbidden_calls", []),
     ("release55_active_manager_acceptance",
      "acceptance_script_reads_one_route", True),
+    # ------------------------------------------------------------------- #
+    # Release 55.1 - INTRADAY GOVERNANCE COMPLETION + NO-OP SEMANTICS.
+    # ONE governance authority issues a TERMINAL DISPOSITION for every event
+    # cycle. NOT_REQUIRED is a valid terminal answer; MISSING means the system
+    # cannot prove what happened, and stays fail-closed. A cycle that ran no
+    # reassessment is named as one and never presented as UNKNOWN. No second
+    # gate, writer, ledger or event path is introduced. Every field below
+    # BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release55_1_intraday_governance_completion",
+     "disposition_owned_once", True),
+    ("release55_1_intraday_governance_completion", "missing_dispositions", []),
+    ("release55_1_intraday_governance_completion",
+     "missing_disposition_reasons", []),
+    ("release55_1_intraday_governance_completion",
+     "second_disposition_owner", []),
+    ("release55_1_intraday_governance_completion",
+     "classifier_side_effects", []),
+    ("release55_1_intraday_governance_completion",
+     "classifier_declares_no_write", True),
+    ("release55_1_intraday_governance_completion",
+     "disposition_fails_closed", True),
+    ("release55_1_intraday_governance_completion",
+     "blocked_cycle_never_excused", True),
+    ("release55_1_intraday_governance_completion",
+     "incomplete_is_not_terminal", True),
+    ("release55_1_intraday_governance_completion",
+     "one_no_candidate_state_list", True),
+    ("release55_1_intraday_governance_completion",
+     "lane_delegates_governance", True),
+    ("release55_1_intraday_governance_completion",
+     "lane_reinfers_governance", []),
+    ("release55_1_intraday_governance_completion",
+     "every_disposition_maps_to_a_lane_word", True),
+    ("release55_1_intraday_governance_completion",
+     "no_op_conclusion_is_named", True),
+    ("release55_1_intraday_governance_completion",
+     "answer_gates_on_reassessment_ran", True),
+    ("release55_1_intraday_governance_completion",
+     "latency_is_stage_aware", True),
+    ("release55_1_intraday_governance_completion", "second_stage_excuser", []),
+    ("release55_1_intraday_governance_completion",
+     "projection_excuses_no_stage", True),
+    ("release55_1_intraday_governance_completion",
+     "persistence_self_describing", True),
+    ("release55_1_intraday_governance_completion",
+     "second_persistence_owner", []),
+    ("release55_1_intraday_governance_completion",
+     "ui_reads_the_reassessment_flag", True),
+    ("release55_1_intraday_governance_completion",
+     "ui_interprets_cycle_state", []),
+    ("release55_1_intraday_governance_completion",
+     "ui_separates_not_required_from_missing", True),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

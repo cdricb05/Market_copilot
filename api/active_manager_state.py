@@ -350,6 +350,11 @@ def _live_information_block(information_collection: Optional[dict],
             # about THIS cycle's candidate, recorded by that owner into the
             # cycle's own run payload at decision time.
             "governed_decision": last_run.get("governed_decision"),
+            # R55.1 — the cycle owner's proof of whether it REACHED the gate.
+            # Without it, "the gate declined" and "the gate was never called"
+            # are the same absence, and the operator cannot tell a completed
+            # chain from a broken one.
+            "governance_gate_invoked": last_run.get("governance_gate_invoked"),
             "stage_timestamps": last_run.get("stage_timestamps"),
         },
         "last_observation_at": last_observation_at,
@@ -666,6 +671,18 @@ def _governed_decision_block(governed_decision: Optional[dict]) -> dict:
         "zero_base": g.get("zero_base") or {},
         "gate": g.get("gate") or {},
         "persisted": g.get("persisted"),
+        # R55.1 — the decision owner's own account of HOW the decision is held.
+        # ``persisted: false`` beside a real record_id was truthful but read as a
+        # contradiction; these say which of the two live states it is, and that
+        # the decision is retrievable through the canonical owner either way.
+        "persistence_status": g.get("persistence_status"),
+        "persistence_status_vocabulary": list(
+            g.get("persistence_status_vocabulary") or []),
+        "persistence_detail": g.get("persistence_detail"),
+        "is_ledger_row": g.get("is_ledger_row"),
+        "retrievable_through_owner": g.get("retrievable_through_owner"),
+        "retrievability_owner": g.get("retrievability_owner"),
+        "backfilled": g.get("backfilled"),
         "approval_required_token": g.get("approval_required_token"),
         "creates_orders": False,
         "approves_anything": False,
@@ -674,17 +691,54 @@ def _governed_decision_block(governed_decision: Optional[dict]) -> dict:
     }
 
 
+def _classify_governance(cycle: Optional[dict]) -> dict:
+    """Ask the GOVERNANCE OWNER for this cycle's terminal disposition.
+
+    Release 55.1 delegates rather than inferring here: whether a governance
+    verdict was required, and what it was, is ``api.portfolio_decision``'s
+    question. An unavailable owner degrades to an empty dict, which leaves the
+    disposition unproven and acceptance MISSING — fail-closed, never fail-open.
+    """
+    try:
+        from paper_trader.api import portfolio_decision as pdec
+        return pdec.classify_intraday_governance(event_cycle=cycle or {}) or {}
+    except Exception:  # noqa: BLE001 — an unreadable owner proves nothing
+        return {}
+
+
 def _intraday_governance_block(live_information: dict,
                                governed_decision: Optional[dict]) -> dict:
     """R54.1 — why the latest live candidate did or did not become governed.
 
     Read verbatim from the record the decision owner wrote into the event
     cycle's own run payload at decision time. The operator can therefore see a
-    live signal AND the exact classified reasons it was not promoted."""
+    live signal AND the exact classified reasons it was not promoted.
+
+    RELEASE 55.1 — the block now also carries that owner's TERMINAL DISPOSITION
+    for the cycle. Before it did, a cycle that correctly required no verdict was
+    indistinguishable from one whose gate never ran: both surfaced as an absent
+    verdict, and acceptance called both MISSING.
+    """
     cycle = live_information.get("last_event_cycle") or {}
     gd = cycle.get("governed_decision") or {}
+    disp = _classify_governance(cycle)
     return {
-        "available": bool(gd),
+        # R55.1 — a proven terminal disposition IS an available governance
+        # answer, even when the gate correctly never needed to run.
+        "available": bool(gd) or bool(disp.get("terminal")),
+        "disposition": disp.get("disposition"),
+        "disposition_vocabulary": list(disp.get("disposition_vocabulary") or []),
+        "terminal": disp.get("terminal"),
+        "required": disp.get("required"),
+        "reason": disp.get("reason"),
+        "reason_detail": disp.get("reason_detail"),
+        "gate_invoked_by_cycle": disp.get("gate_invoked_by_cycle"),
+        "event_cycle_run_id": disp.get("event_cycle_run_id"),
+        "event_cycle_state": disp.get("event_cycle_state"),
+        "candidate_reassessment_id": disp.get("candidate_reassessment_id"),
+        "disposition_at": disp.get("at"),
+        "disposition_owner": disp.get("owner"),
+        "invocation_contract": disp.get("invocation_contract"),
         "gate_owner": "api.portfolio_decision",
         "evaluated": gd.get("evaluated"),
         "verdict": gd.get("verdict"),
@@ -714,18 +768,103 @@ LANE_CONCLUSION_HOLD = "HOLD"
 LANE_CONCLUSION_CHANGE = "CHANGE"
 LANE_CONCLUSION_PROPOSAL_AVAILABLE = "PROPOSAL_AVAILABLE"
 LANE_CONCLUSION_NOT_MATERIAL = "INFORMATION_NOT_MATERIAL"
+#: R55.1 — the signal refresh completed and the materiality gate concluded no
+#: portfolio reassessment was needed. A successful terminal no-op with a real
+#: name. Before this token such a cycle fell through to UNKNOWN, so a healthy
+#: no-op was displayed as "Latest reassessment -> UNKNOWN": a reassessment that
+#: never ran, presented as one whose conclusion could not be read.
+LANE_CONCLUSION_NO_REASSESSMENT = "NO_REASSESSMENT_REQUIRED"
 LANE_CONCLUSION_UNKNOWN = "UNKNOWN"
 LANE_CONCLUSION_VOCAB = (LANE_CONCLUSION_HOLD, LANE_CONCLUSION_CHANGE,
                          LANE_CONCLUSION_PROPOSAL_AVAILABLE,
-                         LANE_CONCLUSION_NOT_MATERIAL, LANE_CONCLUSION_UNKNOWN)
+                         LANE_CONCLUSION_NOT_MATERIAL,
+                         LANE_CONCLUSION_NO_REASSESSMENT,
+                         LANE_CONCLUSION_UNKNOWN)
+
+#: The conclusions that mean NO NEW PORTFOLIO REASSESSMENT EXISTS for this
+#: cycle. Nothing downstream may present a reassessment conclusion for them.
+LANE_NO_REASSESSMENT_CONCLUSIONS = (LANE_CONCLUSION_NOT_MATERIAL,
+                                    LANE_CONCLUSION_NO_REASSESSMENT)
 
 LANE_GOV_GOVERNED = "GOVERNED"
 LANE_GOV_WITHHELD = "WITHHELD"
 LANE_GOV_ELIGIBLE = "ELIGIBLE"
 LANE_GOV_NOT_REQUIRED = "NOT_REQUIRED"
+#: R55.1 — the gate ran and concluded no promotion was warranted. Distinct from
+#: ELIGIBLE, which now means only "a candidate exists and the gate has not
+#: spoken" — an unproven state, never a successful one.
+LANE_GOV_EVALUATED_NO_PROMOTION = "EVALUATED_NO_PROMOTION"
 LANE_GOV_UNKNOWN = "UNKNOWN"
 LANE_GOVERNANCE_VOCAB = (LANE_GOV_GOVERNED, LANE_GOV_WITHHELD, LANE_GOV_ELIGIBLE,
-                         LANE_GOV_NOT_REQUIRED, LANE_GOV_UNKNOWN)
+                         LANE_GOV_NOT_REQUIRED, LANE_GOV_EVALUATED_NO_PROMOTION,
+                         LANE_GOV_UNKNOWN)
+
+#: R55.1 — the ONE map from the governance owner's terminal disposition to this
+#: lane's display vocabulary. The lane no longer decides its own governance
+#: word: ``api.portfolio_decision`` decides, and this only renames.
+GOVERNANCE_DISPOSITION_TO_LANE = {
+    "PROMOTED": LANE_GOV_GOVERNED,
+    "WITHHELD": LANE_GOV_WITHHELD,
+    "EVALUATED_NO_PROMOTION": LANE_GOV_EVALUATED_NO_PROMOTION,
+    "NOT_REQUIRED_NO_NEW_INFORMATION": LANE_GOV_NOT_REQUIRED,
+    "INCOMPLETE": LANE_GOV_UNKNOWN,
+}
+
+
+# --------------------------------------------------------------------------- #
+# R55.1 — THE OPERATOR SENTENCES FOR LANE B, composed by the backend.
+#
+# The UI must not decide whether a reassessment occurred, nor what a cycle
+# state means. It renders these three strings. Each is a total function of the
+# owner tokens above, so a state nobody anticipated still produces an honest
+# sentence rather than a blank or an invented one.
+# --------------------------------------------------------------------------- #
+_LANE_HEADLINES = {
+    LANE_CONCLUSION_NO_REASSESSMENT: "Latest signal refresh: no new information",
+    LANE_CONCLUSION_NOT_MATERIAL: (
+        "Latest signal refresh: new information, not material to the portfolio"),
+    LANE_CONCLUSION_HOLD: "Latest live reassessment: no portfolio change",
+    LANE_CONCLUSION_CHANGE: "Latest live reassessment: change indicated",
+    LANE_CONCLUSION_PROPOSAL_AVAILABLE: (
+        "Latest live reassessment: target portfolio built for manual review"),
+}
+
+_LANE_REASSESSMENT_SUMMARIES = {
+    LANE_CONCLUSION_NO_REASSESSMENT: "No new portfolio reassessment was required",
+    LANE_CONCLUSION_NOT_MATERIAL: "No new portfolio reassessment was required",
+    LANE_CONCLUSION_HOLD: "A portfolio reassessment ran and concluded no change",
+    LANE_CONCLUSION_CHANGE: "A portfolio reassessment ran and indicated a change",
+    LANE_CONCLUSION_PROPOSAL_AVAILABLE: (
+        "A portfolio reassessment ran and produced a target for manual review"),
+}
+
+
+def _lane_headline(conclusion: str, cycle_state: Any) -> str:
+    """One sentence naming what the latest live cycle actually was."""
+    known = _LANE_HEADLINES.get(conclusion)
+    if known:
+        return known
+    return ("Latest live cycle: outcome could not be read (%s)"
+            % (cycle_state or "no state recorded"))
+
+
+def _lane_reassessment_summary(conclusion: str, ran: bool) -> str:
+    """One sentence about the REASSESSMENT — never a conclusion for a
+    reassessment that did not run."""
+    known = _LANE_REASSESSMENT_SUMMARIES.get(conclusion)
+    if known:
+        return known
+    return ("A portfolio reassessment ran but its conclusion was not recorded"
+            if ran else
+            "Whether a portfolio reassessment was required could not be read")
+
+
+def _lane_governed_summary(promoted: bool, record_id: Any) -> str:
+    """One sentence about the GOVERNED decision's standing after this cycle."""
+    if promoted:
+        return ("This cycle became the latest governed portfolio decision (%s)"
+                % (record_id or "record id not recorded"))
+    return "Standing governed decision unchanged"
 
 
 def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
@@ -737,8 +876,16 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
     reassess_state = str(cycle.get("reassessment_state") or "")
 
     # WHAT the live run concluded — from the cycle owner's own recorded tokens.
+    #
+    # R55.1 — a cycle that the owner recorded as having run NO reassessment can
+    # never carry a reassessment conclusion. It is named for what it is, and
+    # never falls through to UNKNOWN: "no new information" is an answer, and
+    # UNKNOWN must stay reserved for a cycle whose outcome cannot be read.
+    ran = cycle.get("reassessment_ran")
     if cycle_state == "INFORMATION_NOT_MATERIAL":
         conclusion = LANE_CONCLUSION_NOT_MATERIAL
+    elif ran is False:
+        conclusion = LANE_CONCLUSION_NO_REASSESSMENT
     elif reassess_state == "CURRENT_NO_CHANGE":
         conclusion = LANE_CONCLUSION_HOLD
     elif reassess_state == "PROPOSAL_READY":
@@ -747,31 +894,20 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
                       else LANE_CONCLUSION_CHANGE)
     else:
         conclusion = LANE_CONCLUSION_UNKNOWN
+    reassessment_ran_here = conclusion not in LANE_NO_REASSESSMENT_CONCLUSIONS
 
-    # WHETHER governance passed — from the R54.1 gate record the decision owner
-    # wrote into this cycle's run payload. Never re-evaluated here.
-    if conclusion == LANE_CONCLUSION_NOT_MATERIAL or not cycle.get(
-            "reassessment_ran"):
-        governance = LANE_GOV_NOT_REQUIRED
-        governance_note = ("No reassessment candidate was produced, so no "
-                           "intraday governance verdict was required.")
-    elif gd.get("recorded"):
-        governance = LANE_GOV_GOVERNED
-        governance_note = ("The intraday gate promoted this candidate to a "
-                           "governed decision (record %s)."
-                           % gd.get("record_id"))
-    elif gd.get("evaluated"):
-        governance = LANE_GOV_WITHHELD
-        governance_note = ("The intraday gate evaluated this candidate and "
-                           "withheld governance; the exact reasons are listed "
-                           "verbatim.")
-    elif cycle.get("reassessment_ran"):
-        governance = LANE_GOV_ELIGIBLE
-        governance_note = ("A reassessment candidate exists; no persisted gate "
-                           "verdict is recorded on this cycle's payload.")
-    else:
-        governance = LANE_GOV_UNKNOWN
-        governance_note = "The cycle payload records no governance facts."
+    # WHETHER governance passed — R55.1 asks the GOVERNANCE OWNER for its
+    # terminal disposition and only renames it for display. This lane holds no
+    # governance rule of its own: before R55.1 it inferred NOT_REQUIRED here,
+    # which is the right answer reached by the wrong module, and it had no way
+    # at all to express "the gate ran and did not promote".
+    disposition = _classify_governance(cycle)
+    governance = GOVERNANCE_DISPOSITION_TO_LANE.get(
+        disposition.get("disposition"), LANE_GOV_UNKNOWN)
+    governance_note = (disposition.get("reason_detail")
+                       or "The cycle payload records no governance facts.")
+    if governance == LANE_GOV_GOVERNED and gd.get("record_id"):
+        governance_note = "%s Record %s." % (governance_note, gd.get("record_id"))
 
     promoted = bool(gd.get("recorded"))
     attention = ((workflow or {}).get("portfolio_attention") or {})
@@ -818,10 +954,29 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
             "reassessment_persistence_status"),
         "candidate_conclusion": conclusion,
         "candidate_conclusion_vocabulary": list(LANE_CONCLUSION_VOCAB),
+        # R55.1 — THE backend's answer to "did a portfolio reassessment happen
+        # on this cycle?". The UI reads this flag; it never derives the answer
+        # from a state token, a missing hash or an empty conclusion.
+        "reassessment_ran": reassessment_ran_here,
+        "reassessment_ran_owner": "api.event_signal_refresh (materiality gate)",
+        # R55.1 — the three sentences the operator surface renders VERBATIM.
+        # Composed here, by the owner of the composition, so the presentation
+        # layer performs no interpretation of its own.
+        "headline": _lane_headline(conclusion, cycle_state),
+        "reassessment_summary": _lane_reassessment_summary(
+            conclusion, reassessment_ran_here),
+        "governed_summary": _lane_governed_summary(promoted, gd.get("record_id")),
         "economics": economics,
         "governance_state": governance,
         "governance_state_vocabulary": list(LANE_GOVERNANCE_VOCAB),
         "governance_note": governance_note,
+        # R55.1 — the governance owner's own terminal disposition, carried
+        # verbatim beside the lane's display rename of it.
+        "governance_disposition": disposition.get("disposition"),
+        "governance_disposition_terminal": disposition.get("terminal"),
+        "governance_required": disposition.get("required"),
+        "governance_reason": disposition.get("reason"),
+        "governance_disposition_owner": disposition.get("owner"),
         "governance_withheld_reason_codes": list(
             gd.get("withheld_reason_codes") or []),
         "governance_failing_checks": list(gd.get("failing_checks") or []),
@@ -847,6 +1002,20 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
                  "gate recorded a governed promotion, and it never creates an "
                  "order or an approval."),
     }
+
+
+def _stages_not_required(cycle: Optional[dict]) -> list:
+    """Ask the CYCLE OWNER which decision-chain stages it legitimately skipped.
+
+    Release 55.1 refuses to decide this here: only ``api.event_signal_refresh``
+    ran the materiality gate, so only it can say a stage was not required. An
+    unavailable owner excuses nothing, so every unstamped stage stays MISSING.
+    """
+    try:
+        from paper_trader.api import event_signal_refresh as esr
+        return list(esr.stages_not_required(cycle or {}) or [])
+    except Exception:  # noqa: BLE001 — an unreadable owner excuses nothing
+        return []
 
 
 def _measure_latency(**kwargs) -> Optional[dict]:
@@ -905,7 +1074,11 @@ def _decision_latency_block(governed_decision: Optional[dict],
                 event_cycle_started_at=cycle.get("generated_at"),
                 observation_received_at=observed,
                 governance_gate_completed_at=None,
-                governed_decision_persisted_at=None)
+                governed_decision_persisted_at=None,
+                # R55.1 — the CYCLE owner names which stages it legitimately
+                # never ran, so a correct terminal no-op is not reported as a
+                # broken chain. Only the owner may excuse a stage.
+                not_required_stages=_stages_not_required(cycle))
             if measured:
                 lat = measured
                 basis = "LIVE_EVENT_CYCLE_STAGE_TIMESTAMPS"
@@ -925,6 +1098,14 @@ def _decision_latency_block(governed_decision: Optional[dict],
             "observation_to_governed_seconds"),
         "latency_measurement_complete": lat.get("latency_measurement_complete"),
         "missing_measurements": list(lat.get("missing_measurements") or []),
+        # R55.1 — NOT_REQUIRED is not MISSING. A stage an owner proved this
+        # cycle never needed is named separately and never zero-filled.
+        "not_required_measurements": list(
+            lat.get("not_required_measurements") or []),
+        "stage_dispositions": lat.get("stage_dispositions") or {},
+        "interval_dispositions": lat.get("interval_dispositions") or {},
+        "disposition_vocabulary": list(lat.get("disposition_vocabulary") or []),
+        "never_zero_fills_an_unexecuted_stage": True,
         "last_event_cycle_at": cycle.get("generated_at"),
         "computed_here": False,
         "owner": COMPONENT_OWNERS["decision_latency"],
@@ -1278,6 +1459,13 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
         "provenance": governed.get("provenance"),
         "record_id": governed.get("record_id"),
         "persisted": governed.get("persisted"),
+        # R55.1 — how the decision is HELD, in the decision owner's own words,
+        # so ``persisted: false`` beside a real record id can never again read
+        # as a contradiction on any surface.
+        "persistence_status": governed.get("persistence_status"),
+        "persistence_detail": governed.get("persistence_detail"),
+        "is_ledger_row": governed.get("is_ledger_row"),
+        "retrievable_through_owner": governed.get("retrievable_through_owner"),
         "manual_review_required": governed.get("manual_review_required"),
         # The operational facts the decision was taken against — the book's own.
         "operational_mark_date": operational_book.get("operational_mark_date"),
@@ -1296,6 +1484,16 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
     # legitimate reason to re-underwrite the portfolio, not an anomaly.
     events = live_information.get("material_event_count")
     affected = list(lane.get("affected_holdings") or [])
+    # R55.1 — DID A REASSESSMENT RUN? The lane owner answers; this composition
+    # only falls back to the conclusion vocabulary when an older payload omits
+    # the flag. Everything reassessment-shaped below is gated on this, so a
+    # cycle that ran no reassessment can never present a reassessment time or a
+    # reassessment conclusion — which is how "NO_NEW_INFORMATION" used to reach
+    # the operator as "Latest reassessment ... Conclusion: UNKNOWN".
+    conclusion = lane.get("candidate_conclusion")
+    ran = (bool(lane.get("reassessment_ran"))
+           if lane.get("reassessment_ran") is not None
+           else conclusion not in LANE_NO_REASSESSMENT_CONCLUSIONS)
     changed = {
         "question": OPERATOR_ANSWER_QUESTIONS[1],
         "available": bool(lane.get("available")),
@@ -1307,10 +1505,19 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
         "last_material_event_at": lane.get("last_material_event_at"),
         "last_material_event_display": _operator_display_time(
             lane.get("last_material_event_at")),
-        "latest_reassessment_at": lane.get("at"),
-        "latest_reassessment_display": _operator_display_time(lane.get("at")),
+        # The CYCLE's own clock, named for what it is. A signal refresh that
+        # produced no reassessment still has a time; a reassessment does not.
+        "latest_cycle_at": lane.get("at"),
+        "latest_cycle_display": _operator_display_time(lane.get("at")),
+        "reassessment_ran": ran,
+        "headline": lane.get("headline"),
+        "reassessment_summary": lane.get("reassessment_summary"),
+        "governed_summary": lane.get("governed_summary"),
+        "latest_reassessment_at": lane.get("at") if ran else None,
+        "latest_reassessment_display": (_operator_display_time(lane.get("at"))
+                                        if ran else None),
         "latest_reassessment_trigger": lane.get("trigger"),
-        "latest_reassessment_conclusion": lane.get("candidate_conclusion"),
+        "latest_reassessment_conclusion": conclusion if ran else None,
         "scoring_basis_date": lane.get("scoring_basis_date"),
         "scoring_basis_display": _operator_display_time(
             lane.get("scoring_basis_date")),
@@ -1462,11 +1669,32 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              at=rs.get("last_reassessment_at"),
              result=rs.get("current_decision"),
              latest_live_conclusion=lane.get("candidate_conclusion"),
+             # R55.1 — did a reassessment run on the latest live cycle at all?
+             # The row states it, so no reader has to infer it from a token.
+             latest_live_reassessment_ran=lane.get("reassessment_ran"),
+             latest_live_summary=lane.get("reassessment_summary"),
              latest_live_persisted=lane.get("reassessment_persisted"),
              latest_live_persistence_status=lane.get(
                  "reassessment_persistence_status")),
-        _row("GOVERNANCE", gov.get("verdict"), owners.get("intraday_governance"),
+        # R55.1 — GOVERNANCE is PRESENT when the governance OWNER proves a
+        # terminal disposition, which includes proving that no verdict was
+        # required. It stays MISSING for an INCOMPLETE cycle: MISSING means the
+        # system cannot prove what happened, and that remains fail-closed.
+        _row("GOVERNANCE",
+             gov.get("disposition") if gov.get("terminal") else None,
+             gov.get("disposition_owner") or owners.get("intraday_governance"),
+             disposition=gov.get("disposition"),
+             terminal=gov.get("terminal"),
+             required=gov.get("required"),
              gate_evaluated=gov.get("evaluated"),
+             gate_invoked_by_cycle=gov.get("gate_invoked_by_cycle"),
+             reason=gov.get("reason"),
+             reason_detail=gov.get("reason_detail"),
+             event_cycle_run_id=gov.get("event_cycle_run_id"),
+             event_cycle_state=gov.get("event_cycle_state"),
+             candidate_reassessment_id=gov.get("candidate_reassessment_id"),
+             promotion_decision_id=gov.get("governed_record_id"),
+             at=gov.get("disposition_at"),
              verdict=gov.get("verdict"),
              lane_governance_state=lane.get("governance_state"),
              promoted_to_governed=lane.get("promoted_to_governed"),
@@ -1478,6 +1706,12 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              session=gd.get("eligible_market_session"),
              record_id=gd.get("record_id"), decided_at=gd.get("timestamp"),
              persisted=gd.get("persisted"),
+             # R55.1 — self-describing persistence: a legacy projection is not
+             # a ledger row, and both are retrievable through the one owner.
+             persistence_status=gd.get("persistence_status"),
+             persistence_detail=gd.get("persistence_detail"),
+             is_ledger_row=gd.get("is_ledger_row"),
+             retrievable_through_owner=gd.get("retrievable_through_owner"),
              supersedes_decision_id=gd.get("supersedes_decision_id")),
         _row("OPERATIONAL_BOOK", ob.get("operational_mark_date"),
              owners.get("operational_book"),
@@ -1505,7 +1739,12 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              observation_to_governed_seconds=lat.get(
                  "observation_to_governed_seconds"),
              measurement_complete=lat.get("latency_measurement_complete"),
-             missing_measurements=list(lat.get("missing_measurements") or [])),
+             missing_measurements=list(lat.get("missing_measurements") or []),
+             # R55.1 — stages an owner proved this cycle never needed. Named
+             # apart from MISSING so a correct no-op does not read as a fault.
+             not_required_measurements=list(
+                 lat.get("not_required_measurements") or []),
+             interval_dispositions=lat.get("interval_dispositions") or {}),
     ]
     missing = [r["row"] for r in rows if r["status"] == ACCEPTANCE_MISSING]
     return {
@@ -1889,5 +2128,9 @@ __all__ = [
     "STALE_SURFACE", "ADVISORY_SURFACE", "LEGACY_SCHEDULE_ADVISORY_REASON",
     "OPERATOR_ANSWER_QUESTIONS", "ACCEPTANCE_ROWS", "ACCEPTANCE_PRESENT",
     "ACCEPTANCE_MISSING", "build_acceptance_contract",
+    # Release 55.1 — no-op semantics + the owner-issued governance disposition.
+    "LANE_CONCLUSION_NO_REASSESSMENT", "LANE_NO_REASSESSMENT_CONCLUSIONS",
+    "LANE_CONCLUSION_VOCAB", "LANE_GOVERNANCE_VOCAB",
+    "LANE_GOV_EVALUATED_NO_PROMOTION", "GOVERNANCE_DISPOSITION_TO_LANE",
     "build_active_manager_state", "load_active_manager_state",
 ]

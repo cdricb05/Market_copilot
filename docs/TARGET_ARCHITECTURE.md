@@ -223,6 +223,28 @@ responsibilities, candidate existing modules, and migration approach.
   MISSING and is never inferred from a neighbouring stage**, so a gap in the
   chain (today: the intraday governance gate's absent verdict) is visible rather
   than silently filled in.
+- **Every stage ends in an owner-issued terminal disposition (R55.1, LANDED):**
+  a stage that legitimately did not need to run must SAY SO, in the words of the
+  owner that owns the question. **Target rule: NOT_REQUIRED is a valid terminal
+  answer and MISSING means the system cannot prove what happened** — the two are
+  never merged, and "the step succeeded by not being needed" is never expressed
+  as an absence. Only the owner of a stage may excuse that stage; a consumer
+  that cannot reach the owner excuses nothing.
+- **A skipped stage is named, never zero (R55.1, LANDED):** measurement over a
+  chain reports each endpoint as MEASURED, NOT_REQUIRED or MISSING. An
+  unexecuted stage is never converted to zero, and only an UNSTAMPED endpoint
+  may be excused — a stage that recorded a timestamp is measured on its own
+  evidence whatever a caller claims about it.
+- **A no-op is a named outcome (R55.1, LANDED):** UNKNOWN is reserved for an
+  outcome that genuinely cannot be read. A cycle whose owner recorded that it
+  ran no work carries its own token, and the backend composes the operator
+  sentence. **Target rule: a surface never derives whether a stage ran**, and a
+  stage that did not run never publishes that stage's timestamp or conclusion.
+- **Persistence is self-describing (R55.1, LANDED):** a record's storage state
+  is named (`LEDGER_ROW`, `LEGACY_COMPATIBILITY_PROJECTION`, `ABSENT`) and
+  retrievability is derived from the canonical owner's own read, never from a
+  file probe or a browser. A boolean like `persisted: false` beside a real
+  identifier is not a contract — it is an ambiguity.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

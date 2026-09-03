@@ -83,6 +83,11 @@ def _fmt(value) -> str:
         return "yes" if value else "no"
     if isinstance(value, (list, tuple)):
         return ", ".join(str(v) for v in value) if value else "-"
+    # R55.1 — an operator report never prints a raw dict repr. A mapping (the
+    # per-stage / per-interval latency dispositions) reads as key=value pairs.
+    if isinstance(value, dict):
+        return ("; ".join("%s=%s" % (k, _fmt(v)) for k, v in value.items())
+                if value else "-")
     return str(value)
 
 
@@ -111,16 +116,34 @@ def _print_answers(state: dict) -> None:
     print("       session %s | decided %s | produced by %s"
           % (_fmt(dec.get("session_display") or dec.get("session")),
              _fmt(dec.get("decided_at_display")), _fmt(dec.get("provenance"))))
-    print("       persisted in the governed ledger: %s"
-          % _fmt(dec.get("persisted")))
+    # R55.1 — a bare "persisted: no" beside a real record id read as a defect.
+    # Print the decision owner's own persistence status and, when it is not a
+    # ledger row, the sentence that says why that is truthful.
+    if dec.get("persistence_status"):
+        print("       held as: %s | retrievable through the owner: %s"
+              % (_fmt(dec.get("persistence_status")),
+                 _fmt(dec.get("retrievable_through_owner"))))
+        if dec.get("is_ledger_row") is False and dec.get("persistence_detail"):
+            print("         %s" % _fmt(dec.get("persistence_detail")))
+    else:
+        print("       persisted in the governed ledger: %s"
+              % _fmt(dec.get("persisted")))
     print()
     print("  2  WHAT CHANGED SINCE")
     print("       %s material event(s) evaluated | %s directly affect a holding"
           % (_fmt(chg.get("material_events_evaluated")),
              _fmt(chg.get("affected_current_holdings_count"))))
-    print("       latest reassessment %s -> %s"
-          % (_fmt(chg.get("latest_reassessment_display")),
-             _fmt(chg.get("latest_reassessment_conclusion"))))
+    # R55.1 — never print a reassessment time or conclusion for a cycle the
+    # backend recorded as having run no reassessment. The backend's own
+    # sentences are printed instead; this script interprets nothing.
+    if chg.get("reassessment_ran") is False:
+        print("       %s" % _fmt(chg.get("headline")))
+        print("       %s" % _fmt(chg.get("reassessment_summary")))
+        print("       %s" % _fmt(chg.get("governed_summary")))
+    else:
+        print("       latest reassessment %s -> %s"
+              % (_fmt(chg.get("latest_reassessment_display")),
+                 _fmt(chg.get("latest_reassessment_conclusion"))))
     print("       research lane | supersedes standing decision: %s"
           % _fmt(chg.get("supersedes_standing_decision")))
     print()

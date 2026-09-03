@@ -337,6 +337,19 @@ def _default_proposal_gate(reassessment):
 #: delegates every calculation above; it hosts no governance logic of its own.
 GOVERNANCE_DELEGATE = "api.portfolio_decision"
 
+#: R55.1 — the step id under which this cycle invokes the governance delegate.
+#: Named once so the run's own step list PROVES whether the gate was reached,
+#: instead of a reader inferring invocation from the absence of a verdict.
+GOVERNANCE_GATE_STEP = "GOVERNED_DECISION_GATE"
+
+#: R55.1 — the cycle states that terminate BEFORE a portfolio reassessment
+#: candidate can exist. They are successful terminal no-ops, not failures: the
+#: materiality gate answered "the portfolio question does not need asking", so
+#: no opportunity-cost, reassessment, target or governance stage was required.
+#: ``BLOCKED`` is deliberately absent — a blocked cycle proves nothing.
+NO_CANDIDATE_CYCLE_STATES = (ST_NO_NEW_INFORMATION, ST_INFORMATION_NOT_MATERIAL,
+                             ST_DUPLICATE_TRIGGER_SUPPRESSED)
+
 
 def _default_governance_fn(**kwargs):
     """Ask the ONE decision owner whether this cycle's complete assessment may
@@ -605,17 +618,77 @@ def stage_timestamps(steps: Optional[list]) -> dict:
             for stage, step_id in DECISION_STAGE_STEPS.items()}
 
 
+#: R55.1 — the two endpoint stamps each measured interval needs. Declared once
+#: so an interval's disposition (MEASURED / NOT_REQUIRED / MISSING) is derived
+#: from the SAME endpoint map that computes it, never restated by a reader.
+LATENCY_INTERVAL_ENDPOINTS = {
+    "observation_to_signal_seconds": ("observation_received_at",
+                                      "signal_refresh_completed_at"),
+    "signal_to_reassessment_seconds": ("signal_refresh_completed_at",
+                                       "reassessment_completed_at"),
+    "reassessment_to_governed_seconds": ("reassessment_completed_at",
+                                         "governed_decision_persisted_at"),
+    "observation_to_governed_seconds": ("observation_received_at",
+                                        "governed_decision_persisted_at"),
+}
+
+#: R55.1 — the three dispositions a stage or interval can hold. MEASURED is a
+#: real number; NOT_REQUIRED means an owner proved the stage legitimately did
+#: not run; MISSING means the system cannot prove what happened. NOT_REQUIRED
+#: is never a number and never zero.
+LAT_MEASURED = "MEASURED"
+LAT_NOT_REQUIRED = "NOT_REQUIRED"
+LAT_MISSING = "MISSING"
+LATENCY_DISPOSITION_VOCAB = (LAT_MEASURED, LAT_NOT_REQUIRED, LAT_MISSING)
+
+
+def stages_not_required(event_cycle: Optional[dict]) -> list:
+    """R55.1 — which decision-chain stages THIS cycle legitimately did not run.
+
+    The cycle owner is the only module that can answer this: it ran the
+    materiality gate and recorded the outcome. A cycle that terminated in a
+    no-candidate state (``NO_CANDIDATE_CYCLE_STATES``) with its own
+    ``reassessment_ran`` recorded as an explicit ``False`` required no
+    opportunity-cost, reassessment, target or governance stage at all. A cycle
+    that DID reassess but whose proposal gate declined to build a target
+    required no target stage — and still required governance.
+
+    Fail-closed: anything the cycle did not explicitly record yields an empty
+    list, so an unproven stage stays MISSING rather than being excused. Pure;
+    reads no store and stamps nothing.
+    """
+    c = event_cycle or {}
+    state = str(c.get("state") or "")
+    ran = c.get("reassessment_ran")
+    if state in NO_CANDIDATE_CYCLE_STATES and ran is False:
+        return ["hoc_completed_at", "reassessment_completed_at",
+                "target_completed_at", "governance_gate_completed_at",
+                "governed_decision_persisted_at"]
+    if ran is True and c.get("proposal_built") is False:
+        return ["target_completed_at"]
+    return []
+
+
 def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
                              event_cycle_started_at: Any = None,
                              observation_received_at: Any = None,
                              governance_gate_completed_at: Any = None,
-                             governed_decision_persisted_at: Any = None) -> dict:
+                             governed_decision_persisted_at: Any = None,
+                             not_required_stages: Optional[list] = None) -> dict:
     """Observation -> signal -> reassessment -> governed decision, measured.
 
     Every interval is computed ONLY when both of its endpoints exist as
-    authoritative persisted timestamps. Missing endpoints are named in
-    ``missing_measurements`` and ``latency_measurement_complete`` is False —
-    a stage that does not persist a stamp is reported, never invented.
+    authoritative persisted timestamps. No interval is ever fabricated and an
+    unexecuted stage is NEVER converted to zero seconds.
+
+    RELEASE 55.1 — STAGE-AWARE. Before this release every unstamped endpoint
+    was reported as MISSING, so a cycle that correctly terminated at
+    NO_NEW_INFORMATION — HOC, reassessment, target and governance all
+    legitimately skipped — looked exactly like a chain that had broken. The
+    caller now passes ``not_required_stages``: the set an OWNER has proved was
+    not required (see :func:`stages_not_required`). Those endpoints are
+    reported NOT_REQUIRED and do not defeat completeness; every other unstamped
+    endpoint remains MISSING and still does.
     """
     stamps = dict(stage_timestamps or {})
     stamps.update({
@@ -624,6 +697,10 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
         "governance_gate_completed_at": governance_gate_completed_at,
         "governed_decision_persisted_at": governed_decision_persisted_at,
     })
+    # Only an UNSTAMPED endpoint can be excused: a stage that actually recorded
+    # a timestamp is measured on its evidence, whatever the caller claimed.
+    excused = {k for k in (not_required_stages or [])
+               if k in stamps and not stamps.get(k)}
 
     def _delta(a: str, b: str) -> Optional[float]:
         da, db = _parse_dt(stamps.get(a)), _parse_dt(stamps.get(b))
@@ -631,28 +708,41 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
             return None
         return round((db - da).total_seconds(), 1)
 
-    intervals = {
-        "observation_to_signal_seconds": _delta("observation_received_at",
-                                                "signal_refresh_completed_at"),
-        "signal_to_reassessment_seconds": _delta("signal_refresh_completed_at",
-                                                 "reassessment_completed_at"),
-        "reassessment_to_governed_seconds": _delta("reassessment_completed_at",
-                                                   "governed_decision_persisted_at"),
-        "observation_to_governed_seconds": _delta("observation_received_at",
-                                                  "governed_decision_persisted_at"),
-    }
-    missing = sorted(k for k, v in stamps.items() if not v)
+    intervals = {name: _delta(*ends)
+                 for name, ends in LATENCY_INTERVAL_ENDPOINTS.items()}
+
+    def _interval_disposition(name: str) -> str:
+        if intervals.get(name) is not None:
+            return LAT_MEASURED
+        unmet = [e for e in LATENCY_INTERVAL_ENDPOINTS[name] if not stamps.get(e)]
+        return (LAT_NOT_REQUIRED if unmet and all(e in excused for e in unmet)
+                else LAT_MISSING)
+
+    stage_dispositions = {
+        k: (LAT_MEASURED if stamps.get(k)
+            else (LAT_NOT_REQUIRED if k in excused else LAT_MISSING))
+        for k in stamps}
+    interval_dispositions = {name: _interval_disposition(name)
+                             for name in LATENCY_INTERVAL_ENDPOINTS}
+    missing = sorted(k for k, v in stamps.items() if not v and k not in excused)
     return {
         "contract_id": "paper_trader.governed_decision_latency/1",
         "owner": COMPOSITION_OWNER,
         "timestamps": stamps,
         **intervals,
         "missing_measurements": missing,
+        "not_required_measurements": sorted(excused),
+        "stage_dispositions": stage_dispositions,
+        "interval_dispositions": interval_dispositions,
+        "disposition_vocabulary": list(LATENCY_DISPOSITION_VOCAB),
         "latency_measurement_complete": not missing,
         "stage_step_map": dict(DECISION_STAGE_STEPS),
-        "note": ("Measured from authoritative persisted timestamps only. A "
-                 "stage that persists no timestamp is named in "
-                 "missing_measurements; no interval is ever fabricated."),
+        "never_zero_fills_an_unexecuted_stage": True,
+        "note": ("Measured from authoritative persisted timestamps only. An "
+                 "endpoint an owner proved was not required is NOT_REQUIRED; "
+                 "any other unstamped endpoint is MISSING and keeps the "
+                 "measurement incomplete. No interval is ever fabricated and "
+                 "an unexecuted stage is never reported as zero seconds."),
     }
 
 
@@ -1017,7 +1107,7 @@ def run_event_signal_refresh(
     governance = None
     if reassessment is not None:
         gov_call = governance_fn or _default_governance_fn
-        with _step("GOVERNED_DECISION_GATE", GOVERNANCE_DELEGATE) as rec:
+        with _step(GOVERNANCE_GATE_STEP, GOVERNANCE_DELEGATE) as rec:
             try:
                 # Hand the gate what this cycle ALREADY produced — the
                 # portfolio state and the scoring identity above all — so the
@@ -1159,6 +1249,15 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         # R54.1 — what the governance delegate concluded for this run (never a
         # verdict this module reached; api.portfolio_decision owns it).
         "governed_decision": full.get("governed_decision"),
+        # R55.1 — whether this cycle REACHED the governance delegate at all.
+        # The run's own step list is the proof. It separates the two causes a
+        # reader could otherwise only guess between: "the gate ran and declined
+        # to promote" and "the gate was never invoked". A run recorded by a
+        # runtime older than R54.1 has no such step, and says so here rather
+        # than presenting as a gate that stayed silent.
+        "governance_gate_invoked": any(
+            str(s.get("step")) == GOVERNANCE_GATE_STEP
+            for s in (full.get("steps") or [])),
     }
 
 
@@ -1299,4 +1398,8 @@ __all__ = [
     # R54.1 — the decision-stage clock and the governed-decision latency schema.
     "DECISION_STAGE_STEPS", "stage_timestamps", "measure_decision_latency",
     "GOVERNANCE_DELEGATE",
+    # R55.1 — stage-aware latency + the gate-invocation proof.
+    "GOVERNANCE_GATE_STEP", "NO_CANDIDATE_CYCLE_STATES", "stages_not_required",
+    "LATENCY_INTERVAL_ENDPOINTS", "LATENCY_DISPOSITION_VOCAB",
+    "LAT_MEASURED", "LAT_NOT_REQUIRED", "LAT_MISSING",
 ]

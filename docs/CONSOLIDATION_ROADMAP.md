@@ -1505,12 +1505,46 @@ unchanged.
   invariants) and
   `tests/test_release55_active_manager_operational_acceptance.py` (85).
 
-Next: the intraday governance gate must PERSIST a verdict on a non-promoting
-cycle. R55's reconnaissance proved it currently records none
-(`intraday_governance.evaluated = null`), so "the gate declined to promote" and
-"the gate never ran" are indistinguishable. That is a decision-lane persistence
-change owned by `api.portfolio_decision`; R55 makes the gap visible
-(`acceptance.GOVERNANCE = MISSING`) rather than silent.
+## R55.1 - intraday governance completion + no-op semantic clarity (LANDED)
+
+Closes R55's named gap. `api.portfolio_decision` REMAINS the one governance
+authority; no second gate, decision writer, ledger, scheduler or event path was
+created.
+
+- `classify_intraday_governance` issues ONE terminal disposition per event cycle
+  from a frozen five-token vocabulary (`NOT_REQUIRED_NO_NEW_INFORMATION`,
+  `EVALUATED_NO_PROMOTION`, `WITHHELD`, `PROMOTED`, `INCOMPLETE`) over facts the
+  gate and the cycle owner already recorded. It writes nothing, opens no store,
+  runs no gate rule, reads no clock and creates no governed row.
+- **NOT_REQUIRED is a valid terminal answer; MISSING means the system cannot
+  prove what happened.** Acceptance is PRESENT for the four terminal
+  dispositions and stays fail-closed on INCOMPLETE.
+- Fail-closed: only an explicit `reassessment_ran is False` in a no-candidate
+  state excuses the gate, `BLOCKED` never does, and a reassessment without a
+  verdict names WHICH cause applies - `GATE_NOT_INVOKED_AFTER_REASSESSMENT` or
+  `GATE_INVOKED_WITHOUT_RECORDED_VERDICT` - proved by the cycle owner's own
+  `governance_gate_invoked`, derived from the run's step list.
+- No-op semantics: a cycle that ran no reassessment is `NO_REASSESSMENT_REQUIRED`,
+  never `UNKNOWN`, and never publishes a reassessment timestamp or conclusion.
+  The backend composes the operator sentences; the UI derives nothing.
+- `measure_decision_latency` is stage-aware: NOT_REQUIRED and MISSING are
+  separate, only an unstamped endpoint is excusable, and no unexecuted stage is
+  ever zero-filled.
+- `classify_decision_persistence` names `LEDGER_ROW` /
+  `LEGACY_COMPATIBILITY_PROJECTION` / `ABSENT` with retrievability derived from
+  the canonical owner. Nothing backfilled; no history rewritten.
+- Guarded by `check_release55_1_intraday_governance_completion` (23
+  strict-blocking invariants) and
+  `tests/test_release55_1_intraday_governance_completion.py` (58).
+
+Next (an OPERATOR action, not a code change): restart the information-collection
+worker. It has been running a PRE-R54.1 snapshot of `api.event_signal_refresh`
+since 2026-09-01 14:12:09 - the gate commit `0cff378` landed 9h34m later - so it
+cannot invoke the governance gate at all, and every persisted cycle today lacks
+`governed_decision`, `stage_timestamps`, `reassessment_id` and the
+`GOVERNED_DECISION_GATE` step. R55.1 makes that provable and named rather than
+an unexplained blank. The backend is current; the DAILY governed path is
+unaffected.
 
 After that: the operational-book cutover - letting an approved governed CHANGE
 be named BY ID by the Stage-19 order plan that implements it, so the

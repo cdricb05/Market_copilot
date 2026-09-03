@@ -3540,3 +3540,86 @@ governed decision persisted, `reassessment_to_governed_seconds` and
 `governed_decision_persisted_at` is named in `missing_measurements`. **Missing
 stays MISSING**; no interval that depends on an unpersisted stamp is ever
 computed, and the projection module performs no timestamp arithmetic of its own.
+
+### D-R55.1-1 — NOT_REQUIRED is an ANSWER; MISSING is an admission (CONFIRMED)
+
+**Decision.** Every event cycle relevant to governance ends in an owner-issued
+**terminal disposition**, and `NOT_REQUIRED_NO_NEW_INFORMATION` is one of them.
+`MISSING` is reserved for the case where the system cannot prove what happened.
+The two are never merged, and a stage that succeeded *by not being needed* is
+never expressed as an absence.
+
+**Evidence.** R55 reported `GOVERNANCE = MISSING` on a chain that had completed
+correctly. `api.event_signal_refresh` invokes the R54.1 gate if and only if the
+cycle produced a reassessment candidate, so a cycle terminating at
+`NO_NEW_INFORMATION` required no verdict — but four distinct situations ("no
+candidate existed", "the gate ran and did not promote", "the gate was never
+invoked", "the gate recorded nothing") all reached the operator as one absence.
+
+**Consequence.** Acceptance is `PRESENT` for the four terminal dispositions and
+fail-closed `MISSING` on `INCOMPLETE`. Only an explicit `reassessment_ran is
+False` in a no-candidate state yields `NOT_REQUIRED`; `BLOCKED` is never
+excused; and an unproven cycle names WHICH provable cause applies rather than
+shrugging. **No governed decision row is ever written to make an acceptance row
+green** — the classifier declares `writes_nothing` and `creates_no_governed_row`
+on every path, and the audit bans a write, a store open, a gate call, a clock
+read and a threshold from its body.
+
+### D-R55.1-2 — the module that owns the QUESTION issues the answer (CONFIRMED)
+
+**Decision.** The terminal governance disposition is issued by
+`api.portfolio_decision` — the module that owns the gate — as a pure classifier
+over facts the gate and the cycle owner already recorded. A presentation owner
+may rename that answer for display; it may not reach it.
+
+**Evidence.** Before R55.1, `api.active_manager_state` inferred
+`governance_state: NOT_REQUIRED` from "no reassessment ran". The answer was
+correct and the authorship was wrong: a presentation layer had quietly become a
+governance authority, and — being one by accident rather than design — it had no
+vocabulary at all for "the gate evaluated and did not promote". Wrong ownership
+is not harmless when the answer happens to be right; it is a defect waiting for
+the first case the borrower did not anticipate.
+
+**Consequence.** `GOVERNANCE_DISPOSITION_TO_LANE` is a rename table, guarded by
+an invariant that the lane re-derives no governance word from cycle facts.
+Symmetrically, only the CYCLE owner may declare which stages a cycle
+legitimately skipped (`stages_not_required`), because only it ran the materiality
+gate. A consumer that cannot reach the owner excuses nothing.
+
+### D-R55.1-3 — UNKNOWN is reserved for the genuinely unreadable (CONFIRMED)
+
+**Decision.** A terminal state a system reaches on purpose gets its own name. A
+cycle whose owner recorded that it ran no reassessment is
+`NO_REASSESSMENT_REQUIRED`, and it publishes no reassessment timestamp and no
+reassessment conclusion. The backend composes the operator sentence; no surface
+derives whether a stage ran.
+
+**Evidence.** The live lane enumerated three conclusions and fell through to
+`UNKNOWN` for everything else, so a healthy `NO_NEW_INFORMATION` cycle rendered
+as "Latest reassessment → UNKNOWN" — a reassessment that never ran, presented as
+one whose conclusion could not be read, stamped with the *cycle's* clock. A
+catch-all fallback quietly converts "this did not happen" into "this failed".
+
+**Consequence.** The three concepts stay separately named and separately owned:
+the latest signal/event cycle, the latest actual portfolio reassessment, and the
+current authoritative governed decision. The cycle keeps its clock under its own
+name (`latest_cycle_at`).
+
+### D-R55.1-4 — a boolean is not a persistence contract (CONFIRMED)
+
+**Decision.** How a record is held is a NAMED state —
+`LEDGER_ROW`, `LEGACY_COMPATIBILITY_PROJECTION`, `ABSENT` — and retrievability
+is derived from the canonical owner's own read, never from a file probe, a UI or
+a browser.
+
+**Evidence.** `persisted: false` sat beside a real `record_id` and read as a
+contradiction. It was truthful: the Sep-2 governed close ran ~16 hours before
+R54.4's writer existed, so it is served by the documented read-time legacy
+projection. A single boolean could not distinguish "not a ledger row" from "not
+retrievable", and the ambiguity looked exactly like a defect.
+
+**Consequence.** The projection stays a compatibility shim, suppressed the
+moment a real row exists for that session. **Nothing is backfilled and no
+history is rewritten** — `backfilled: False` and `history_rewritten: False` are
+asserted on every path — and the first real ledger row is written by the next
+governed cycle, not by a repair.

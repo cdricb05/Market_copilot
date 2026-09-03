@@ -3252,6 +3252,57 @@ collapsed `#today-advanced` disclosure. Guard:
 `tests/test_release55_active_manager_operational_acceptance.py`. Full narrative:
 `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`.
 
+## R55.1 — A TERMINAL GOVERNANCE DISPOSITION FOR EVERY EVENT CYCLE
+
+`api/portfolio_decision.py` remains the ONE governance authority and owns
+`classify_intraday_governance(event_cycle=...)`: a pure classification of facts
+the gate and the cycle owner already recorded, issuing exactly one **terminal
+disposition** per cycle from a frozen vocabulary —
+`NOT_REQUIRED_NO_NEW_INFORMATION`, `EVALUATED_NO_PROMOTION`, `WITHHELD`,
+`PROMOTED`, `INCOMPLETE`. It writes nothing, opens no store, runs no gate rule,
+reads no clock and creates no governed row; R55.1 adds no second gate, decision
+writer, ledger, scheduler or event path.
+
+The distinction it exists to draw: **`NOT_REQUIRED` is a valid terminal
+governance answer; `MISSING` means the system cannot prove what happened.**
+`api.event_signal_refresh` calls the R54.1 gate if and only if the cycle
+produced a reassessment candidate (`INTRADAY_GATE_INVOCATION_CONTRACT`), so a
+cycle terminating at `NO_NEW_INFORMATION` / `INFORMATION_NOT_MATERIAL` /
+`DUPLICATE_TRIGGER_SUPPRESSED` required no verdict, and its absence is the
+contract being honoured. Acceptance reports `GOVERNANCE = PRESENT` for the four
+terminal dispositions and stays fail-closed (`MISSING`) on `INCOMPLETE`.
+
+Fail-closed by construction. Only an explicit `reassessment_ran is False` in a
+no-candidate state yields `NOT_REQUIRED`; `BLOCKED` is deliberately absent from
+`NO_CANDIDATE_CYCLE_STATES`; the state list lives once, in the cycle owner, and
+the gate owner reads it. A cycle that reassessed without a verdict is
+`INCOMPLETE` and names WHICH provable cause applies —
+`GATE_NOT_INVOKED_AFTER_REASSESSMENT` or
+`GATE_INVOKED_WITHOUT_RECORDED_VERDICT` — proved by the cycle owner's own
+`governance_gate_invoked`, derived from the run's step list.
+
+Three concepts stay separately named and separately owned: the **latest signal /
+event cycle** (`api.event_signal_refresh`), the **latest actual portfolio
+reassessment** (`api.portfolio_reassessment`) and the **current authoritative
+governed decision** (`api.portfolio_decision`). A cycle that ran no reassessment
+is named `NO_REASSESSMENT_REQUIRED`, never `UNKNOWN`, and the composition owner
+publishes `reassessment_ran` plus the three sentences the surfaces render
+verbatim (`headline`, `reassessment_summary`, `governed_summary`). The UI reads
+that flag; it performs no cycle-state interpretation of its own.
+
+`api.event_signal_refresh.measure_decision_latency` is stage-aware: the cycle
+owner's `stages_not_required` names what legitimately never ran, so
+`NOT_REQUIRED` and `MISSING` are separate lists with per-stage and per-interval
+dispositions, only an UNSTAMPED endpoint can be excused, and no unexecuted stage
+is ever reported as zero seconds. `classify_decision_persistence` names how the
+governed decision is held — `LEDGER_ROW`, `LEGACY_COMPATIBILITY_PROJECTION` or
+`ABSENT` — with `retrievable_through_owner` derived from the canonical owner's
+own read, never from a UI or a file probe, and asserts `backfilled: False`.
+
+Guard: `check_release55_1_intraday_governance_completion` (23 strict-blocking
+fields) + `tests/test_release55_1_intraday_governance_completion.py`. Full
+narrative: `docs/RELEASE55_1_INTRADAY_GOVERNANCE_COMPLETION.md`.
+
 ## R54.1 — the GOVERNED INTRADAY DECISION GATE (the ladder's missing rung)
 
 `api/portfolio_decision.py` — the existing canonical decision owner — is ALSO

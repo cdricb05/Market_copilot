@@ -1,7 +1,64 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE +
+- **Updated by phase:** **R55.1 - INTRADAY GOVERNANCE COMPLETION + NO-OP
+  SEMANTIC CLARITY (single agent, no subagents, Windows PowerShell only).**
+  Built over the committed R55 head `acdfb77`. Full narrative:
+  `docs/RELEASE55_1_INTRADAY_GOVERNANCE_COMPLETION.md`. A COMPLETION +
+  SEMANTICS slice: no new engine, gate, decision writer, ledger, scheduler,
+  cadence or event path, and the live backend was never restarted.
+  **The defect:** R55's acceptance contract reported `GOVERNANCE = MISSING` on a
+  chain that had completed correctly. `api.event_signal_refresh` invokes the
+  R54.1 gate IF AND ONLY IF the cycle produced a reassessment candidate, so a
+  cycle that terminated at `NO_NEW_INFORMATION` required no verdict - but
+  nothing said so, and four different situations ("no candidate existed", "the
+  gate ran and did not promote", "the gate was never invoked", "the gate
+  recorded nothing") all reached the operator as the SAME absence.
+  `api.active_manager_state` inferred `NOT_REQUIRED` itself: the right answer
+  reached by the wrong module, with no vocabulary at all for "evaluated, not
+  promoted". Two further defects travelled with it. A healthy no-op cycle fell
+  through the lane's conclusion ladder to `UNKNOWN`, so `NO_NEW_INFORMATION`
+  displayed as "Latest reassessment -> UNKNOWN" - a reassessment that never ran,
+  shown as one whose conclusion could not be read, stamped with the CYCLE's
+  clock. And `persisted: false` sat beside a real `record_id`: truthful, because
+  the Sep-2 close ran ~16 hours BEFORE R54.4's writer existed and is served by
+  the documented read-time legacy projection, but nothing said which of the two
+  live states it was.
+  **The repair.** `api.portfolio_decision` REMAINS the one governance authority
+  and gains a PURE CLASSIFIER, `classify_intraday_governance`, over facts the
+  gate and the cycle owner already recorded. It issues ONE terminal disposition
+  per cycle from a frozen five-token vocabulary
+  (`NOT_REQUIRED_NO_NEW_INFORMATION`, `EVALUATED_NO_PROMOTION`, `WITHHELD`,
+  `PROMOTED`, `INCOMPLETE`), writes nothing, opens no store, evaluates no gate
+  rule, reads no clock and creates no governed row. **NOT_REQUIRED is a valid
+  terminal disposition; MISSING means the system cannot prove what happened**,
+  and acceptance stays fail-closed on `INCOMPLETE`. Fail-closed by construction:
+  only an EXPLICIT `reassessment_ran is False` in a no-candidate state yields
+  NOT_REQUIRED, `BLOCKED` is never excused, and a reassessment without a verdict
+  is INCOMPLETE naming WHICH provable cause applies - the cycle owner now
+  publishes `governance_gate_invoked` from its own step list, so "never invoked"
+  and "invoked but silent" are different facts. The lane names a no-op
+  `NO_REASSESSMENT_REQUIRED` and the backend composes the three sentences the
+  surfaces render verbatim; `measure_decision_latency` became stage-aware so
+  NOT_REQUIRED is never MISSING and never zero; and
+  `classify_decision_persistence` names `LEDGER_ROW` /
+  `LEGACY_COMPATIBILITY_PROJECTION` / `ABSENT` with retrievability derived from
+  the canonical owner. Nothing was backfilled and no history was rewritten.
+  **Live result (read-only):** acceptance 9/10 -> **10/10**, truthfully - the
+  same code still returns `GOVERNANCE = MISSING` for a cycle that reassessed
+  without a verdict. Gates: 58 R55.1 tests, `--strict` exit 0 with 23 new
+  blocking invariants, `git diff --check` clean.
+  **The one genuine remaining blocker:** the information-collection worker
+  (PID started 2026-09-01 14:12:09) is executing a PRE-R54.1 snapshot of
+  `api.event_signal_refresh` held in memory - the R54.1 gate commit `0cff378`
+  landed 2026-09-01 23:46:16, **9h34m later** - so it cannot invoke the gate at
+  all. Every persisted cycle today lacks `governed_decision`,
+  `stage_timestamps`, `reassessment_id` and the `GOVERNED_DECISION_GATE` step.
+  That is a runtime-staleness condition repaired by an operator worker restart,
+  not by code; R55.1 makes it provable and NAMED rather than an unexplained
+  blank. The backend (started 2026-09-03 13:56) is current, so the DAILY
+  governed path is unaffected.
+- **Prior phase:** **R55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE +
   OPERATOR CLARITY (single agent, no subagents, Windows PowerShell only).**
   Built over the committed R54.4 head `c0df3b1`. Full narrative:
   `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`. An OPERATIONAL-
@@ -99,6 +156,9 @@
   decision-lane PERSISTENCE change owned by `api.portfolio_decision`, not a
   presentation change; R55 makes it visible and unambiguous
   (`acceptance.GOVERNANCE = MISSING`) instead of silently absent.
+  **(Resolved by R55.1**, which proved the gate is never INVOKED on the current
+  runtime rather than invoked-and-silent, and gave the governance owner a
+  terminal disposition for every cycle.**)**
 - **Prior phase:** **R54.4 - ONE GOVERNED PORTFOLIO DECISION WRITER: DAILY
   DRC + INTRADAY AUTHORITY CONSOLIDATION (single agent, no subagents, Windows
   PowerShell only).** Built over the committed R54.3 head `e563146`. Full

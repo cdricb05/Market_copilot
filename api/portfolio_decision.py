@@ -2608,6 +2608,274 @@ see :func:`load_governed_portfolio_decision`. No history is rewritten and no
 historical row is fabricated.
 """
 
+# --------------------------------------------------------------------------- #
+# RELEASE 55.1 — THE TERMINAL INTRADAY GOVERNANCE DISPOSITION.
+#
+# Every event cycle relevant to governance must end with an OWNER-ISSUED
+# terminal disposition. Before this release the gate recorded a verdict only
+# when it was actually invoked, and every other outcome — including the correct
+# and extremely common one, "no candidate existed, so no verdict was required" —
+# reached the operator as an absence. The acceptance contract could not tell
+# "the gate declined to promote" from "the gate never ran", so it reported
+# GOVERNANCE MISSING on a chain that had in fact completed successfully.
+#
+# This classifier lives in the ONE governance authority because the question it
+# answers — WAS A GOVERNANCE VERDICT REQUIRED, AND WHAT WAS IT — is this
+# module's question. It is a pure classification of facts the gate and the
+# cycle owner ALREADY recorded. It runs no gate, reaches no verdict of its own,
+# writes nothing, opens no store, creates no ledger and manufactures no
+# timestamp. NOT_REQUIRED is a valid terminal disposition; it is never turned
+# into a fake evaluation, and no governed row is ever written to make an
+# acceptance row green.
+# --------------------------------------------------------------------------- #
+#: A governance verdict was not required: the cycle terminated before a
+#: portfolio reassessment candidate could exist. A successful terminal no-op.
+GOV_DISP_NOT_REQUIRED = "NOT_REQUIRED_NO_NEW_INFORMATION"
+#: The gate evaluated a real candidate and concluded no promotion was warranted.
+GOV_DISP_EVALUATED_NO_PROMOTION = "EVALUATED_NO_PROMOTION"
+#: The gate evaluated a candidate and withheld it; the exact reasons travel.
+GOV_DISP_WITHHELD = "WITHHELD"
+#: The gate promoted the candidate to a governed decision through the ONE writer.
+GOV_DISP_PROMOTED = "PROMOTED"
+#: The system cannot prove what happened. Never inferred away, never excused.
+GOV_DISP_INCOMPLETE = "INCOMPLETE"
+
+GOVERNANCE_DISPOSITION_VOCAB = (
+    GOV_DISP_NOT_REQUIRED, GOV_DISP_EVALUATED_NO_PROMOTION, GOV_DISP_WITHHELD,
+    GOV_DISP_PROMOTED, GOV_DISP_INCOMPLETE,
+)
+
+#: The four dispositions that PROVE what happened. INCOMPLETE deliberately is
+#: not among them: acceptance stays fail-closed on an unproven cycle.
+GOVERNANCE_TERMINAL_DISPOSITIONS = (
+    GOV_DISP_NOT_REQUIRED, GOV_DISP_EVALUATED_NO_PROMOTION, GOV_DISP_WITHHELD,
+    GOV_DISP_PROMOTED,
+)
+
+#: Why the disposition is what it is. One code per provable cause.
+GOV_REASON_NO_CANDIDATE = "NO_REASSESSMENT_CANDIDATE_PRODUCED"
+GOV_REASON_PROMOTED = "CANDIDATE_PROMOTED_TO_GOVERNED_DECISION"
+GOV_REASON_WITHHELD = "GATE_WITHHELD_CANDIDATE"
+GOV_REASON_NO_PROMOTION = "GATE_EVALUATED_AND_DID_NOT_PROMOTE"
+GOV_REASON_GATE_NOT_INVOKED = "GATE_NOT_INVOKED_AFTER_REASSESSMENT"
+GOV_REASON_GATE_SILENT = "GATE_INVOKED_WITHOUT_RECORDED_VERDICT"
+GOV_REASON_NO_CYCLE = "NO_EVENT_CYCLE_RECORDED"
+GOV_REASON_UNPROVEN = "CYCLE_RECORDS_NO_TERMINAL_GOVERNANCE_FACTS"
+
+GOVERNANCE_REASON_VOCAB = (
+    GOV_REASON_NO_CANDIDATE, GOV_REASON_PROMOTED, GOV_REASON_WITHHELD,
+    GOV_REASON_NO_PROMOTION, GOV_REASON_GATE_NOT_INVOKED, GOV_REASON_GATE_SILENT,
+    GOV_REASON_NO_CYCLE, GOV_REASON_UNPROVEN,
+)
+
+#: The gate's own invocation rule, stated once here by the module that owns it.
+#: ``api.event_signal_refresh`` calls the gate if and only if the cycle produced
+#: a reassessment candidate, so "no candidate" is a governance answer, not a gap.
+INTRADAY_GATE_INVOCATION_CONTRACT = (
+    "api.event_signal_refresh invokes the R54.1 governed-decision gate if and "
+    "only if the event cycle produced a portfolio reassessment candidate. A "
+    "cycle that terminated at NO_NEW_INFORMATION, INFORMATION_NOT_MATERIAL or "
+    "DUPLICATE_TRIGGER_SUPPRESSED therefore required no governance verdict, and "
+    "its absence is the contract being honoured rather than a stage that failed."
+)
+
+_GOV_REASON_DETAIL = {
+    GOV_REASON_NO_CANDIDATE: (
+        "The materiality gate concluded the portfolio question did not need "
+        "asking, so no reassessment candidate existed for governance to rule on."),
+    GOV_REASON_PROMOTED: (
+        "The gate admitted the candidate and the ONE governed writer persisted "
+        "it as the latest governed portfolio decision."),
+    GOV_REASON_WITHHELD: (
+        "The gate evaluated the candidate and withheld governance; the failing "
+        "checks and reason codes are carried verbatim."),
+    GOV_REASON_NO_PROMOTION: (
+        "The gate evaluated the candidate and did not promote it. The standing "
+        "governed decision remains authoritative."),
+    GOV_REASON_GATE_NOT_INVOKED: (
+        "This cycle produced a reassessment candidate but never reached the "
+        "governance gate, so no verdict exists to report. The chain is "
+        "incomplete: what the gate would have concluded is unproven."),
+    GOV_REASON_GATE_SILENT: (
+        "This cycle reached the governance gate but recorded no verdict, so "
+        "what the gate concluded is unproven."),
+    GOV_REASON_NO_CYCLE: (
+        "No event cycle is recorded, so there is nothing to govern and nothing "
+        "to prove."),
+    GOV_REASON_UNPROVEN: (
+        "The cycle records no terminal governance facts, so whether a verdict "
+        "was required cannot be established."),
+}
+
+
+def classify_intraday_governance(*, event_cycle: Optional[dict]) -> dict:
+    """THE terminal governance disposition of ONE event cycle.
+
+    Pure classification of what the gate and the cycle owner already recorded:
+    the gate's own verdict block (written by :func:`govern_latest_intraday_
+    assessment` into the cycle payload) and the cycle owner's own
+    ``state`` / ``reassessment_ran`` / ``governance_gate_invoked`` facts.
+
+    Fail-closed by construction. Only two things can yield a NOT_REQUIRED
+    disposition — a cycle state in which no candidate can exist AND an explicit
+    ``reassessment_ran is False``. Everything unproven is INCOMPLETE, which
+    acceptance reports as MISSING. This function writes nothing, evaluates no
+    gate rule, and stamps no clock.
+    """
+    cyc = event_cycle or {}
+    gd = cyc.get("governed_decision") or {}
+    state = str(cyc.get("state") or "") or None
+    ran = cyc.get("reassessment_ran")
+    invoked = cyc.get("governance_gate_invoked")
+    has_cycle = bool(cyc.get("run_id") or state)
+
+    # The gate's own recorded verdict always wins: it is the owner speaking.
+    withheld = list(gd.get("withheld_reason_codes") or [])
+    failing = list(gd.get("failing_checks") or [])
+    if gd.get("recorded"):
+        disposition, reason = GOV_DISP_PROMOTED, GOV_REASON_PROMOTED
+    elif gd.get("evaluated"):
+        if withheld or failing:
+            disposition, reason = GOV_DISP_WITHHELD, GOV_REASON_WITHHELD
+        else:
+            disposition, reason = (GOV_DISP_EVALUATED_NO_PROMOTION,
+                                   GOV_REASON_NO_PROMOTION)
+    elif not has_cycle:
+        disposition, reason = GOV_DISP_INCOMPLETE, GOV_REASON_NO_CYCLE
+    elif state in _no_candidate_cycle_states() and ran is False:
+        disposition, reason = GOV_DISP_NOT_REQUIRED, GOV_REASON_NO_CANDIDATE
+    elif ran is True:
+        # A candidate existed, so a verdict WAS required. Name which of the two
+        # provable causes left it absent, rather than reporting a bare gap.
+        reason = (GOV_REASON_GATE_SILENT if invoked
+                  else GOV_REASON_GATE_NOT_INVOKED)
+        disposition = GOV_DISP_INCOMPLETE
+    else:
+        disposition, reason = GOV_DISP_INCOMPLETE, GOV_REASON_UNPROVEN
+
+    required = (None if disposition == GOV_DISP_INCOMPLETE
+                and reason in (GOV_REASON_NO_CYCLE, GOV_REASON_UNPROVEN)
+                else disposition != GOV_DISP_NOT_REQUIRED)
+    return {
+        "schema_version": "intraday_governance_disposition.v1",
+        "phase": "R55.1",
+        "owner": GOVERNANCE_GATE_OWNER,
+        "gate_version": GOVERNANCE_GATE_VERSION,
+        "disposition": disposition,
+        "disposition_vocabulary": list(GOVERNANCE_DISPOSITION_VOCAB),
+        "terminal_dispositions": list(GOVERNANCE_TERMINAL_DISPOSITIONS),
+        "terminal": disposition in GOVERNANCE_TERMINAL_DISPOSITIONS,
+        "required": required,
+        "evaluated": bool(gd.get("evaluated")),
+        "gate_invoked_by_cycle": invoked,
+        "reason": reason,
+        "reason_vocabulary": list(GOVERNANCE_REASON_VOCAB),
+        "reason_detail": _GOV_REASON_DETAIL.get(reason),
+        "event_cycle_run_id": cyc.get("run_id"),
+        "event_cycle_state": state,
+        "reassessment_ran": ran,
+        "candidate_reassessment_id": cyc.get("reassessment_id"),
+        "candidate_reassessment_hash": cyc.get("reassessment_hash"),
+        "candidate_identity_hash": gd.get("candidate_identity_hash"),
+        "candidate_decision": gd.get("decision"),
+        "verdict": gd.get("verdict"),
+        "promoted_to_governed": bool(gd.get("recorded")),
+        "promotion_decision_id": gd.get("record_id"),
+        "withheld_reason_codes": withheld,
+        "failing_checks": failing,
+        # Only a stamp an owner actually recorded. Never manufactured, and
+        # deliberately absent for a cycle that required no verdict.
+        "at": (cyc.get("generated_at")
+               if disposition in GOVERNANCE_TERMINAL_DISPOSITIONS else None),
+        "invocation_contract": INTRADAY_GATE_INVOCATION_CONTRACT,
+        "decided_here": False,
+        "classifies_only": True,
+        "recomputes_nothing": True,
+        "writes_nothing": True,
+        "creates_no_governed_row": True,
+        "safety": _governed_safety(),
+    }
+
+
+def _no_candidate_cycle_states() -> tuple:
+    """The cycle owner's OWN list of states in which no candidate can exist.
+
+    Read from ``api.event_signal_refresh`` so the two modules can never drift
+    into disagreeing about what a terminal no-op cycle is. A missing owner
+    degrades to an empty tuple, which makes every cycle unproven — fail-closed,
+    never fail-open.
+    """
+    try:
+        from paper_trader.api import event_signal_refresh as esr
+        return tuple(esr.NO_CANDIDATE_CYCLE_STATES)
+    except Exception:  # noqa: BLE001 — an unreadable owner proves nothing
+        return ()
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE 55.1 — HOW THE AUTHORITATIVE GOVERNED DECISION IS HELD.
+#
+# ``persisted`` alone was reported next to a real ``record_id``, which read as a
+# contradiction. It was in fact truthful: a session that closed BEFORE R54.4
+# has no ledger row and is served by the read-time legacy projection. These
+# tokens make the same fact self-describing, and separate "is a ledger row"
+# from "is retrievable through the canonical owner right now".
+# --------------------------------------------------------------------------- #
+#: A real row in the ONE governed ledger, written by the ONE governed writer.
+DECISION_PERSISTENCE_LEDGER_ROW = "LEDGER_ROW"
+#: Retrievable and authoritative, but reconstructed at read time from the
+#: Release-29.5 governed-evidence contract because the session predates R54.4.
+DECISION_PERSISTENCE_LEGACY_PROJECTION = "LEGACY_COMPATIBILITY_PROJECTION"
+#: No governed decision at all.
+DECISION_PERSISTENCE_ABSENT = "ABSENT"
+DECISION_PERSISTENCE_VOCAB = (DECISION_PERSISTENCE_LEDGER_ROW,
+                              DECISION_PERSISTENCE_LEGACY_PROJECTION,
+                              DECISION_PERSISTENCE_ABSENT)
+
+_PERSISTENCE_DETAIL = {
+    DECISION_PERSISTENCE_LEDGER_ROW: (
+        "A row in the one governed decision ledger, written by the one governed "
+        "writer in api.portfolio_decision."),
+    DECISION_PERSISTENCE_LEGACY_PROJECTION: (
+        "Authoritative and retrievable, but not a ledger row: this session "
+        "completed before R54.4 made the daily cycle delegate its governed "
+        "write, so the decision is reconstructed at read time from the "
+        "Release-29.5 governed-evidence contract. History is not rewritten and "
+        "the row is never backfilled; the next governed cycle writes a real one."),
+    DECISION_PERSISTENCE_ABSENT: "No governed portfolio decision exists.",
+}
+
+
+def classify_decision_persistence(*, record: Optional[dict],
+                                  available: Optional[bool] = None) -> dict:
+    """How the authoritative governed decision is currently held.
+
+    Pure classification of the record this module just resolved. Retrievability
+    is derived from the canonical owner's own read — never from a UI, a browser
+    or a file probe by a caller.
+    """
+    rec = record or {}
+    has = bool(rec.get("decision")) if available is None else bool(available)
+    if not has:
+        status = DECISION_PERSISTENCE_ABSENT
+    elif rec.get("legacy_compatibility_projection") or rec.get("projected"):
+        status = DECISION_PERSISTENCE_LEGACY_PROJECTION
+    else:
+        status = DECISION_PERSISTENCE_LEDGER_ROW
+    return {
+        "persistence_status": status,
+        "persistence_status_vocabulary": list(DECISION_PERSISTENCE_VOCAB),
+        "persistence_detail": _PERSISTENCE_DETAIL.get(status),
+        "is_ledger_row": status == DECISION_PERSISTENCE_LEDGER_ROW,
+        # The decision IS retrievable through this owner in both live states;
+        # only ABSENT is not. This is what "persisted" was being misread as.
+        "retrievable_through_owner": status != DECISION_PERSISTENCE_ABSENT,
+        "retrievability_owner": GOVERNANCE_GATE_OWNER,
+        "backfilled": False,
+        "history_rewritten": False,
+    }
+
+
 #: The daily producer's contract version, recorded on every daily row.
 DAILY_PRODUCER_CONTRACT_VERSION = "daily_cycle_decision_producer.v1"
 
@@ -3388,6 +3656,11 @@ def load_governed_portfolio_decision(*, workflow: Optional[dict] = None,
         "zero_base": dict((latest or {}).get("zero_base") or {}),
         "gate": dict((latest or {}).get("gate") or {}),
         "persisted": bool((latest or {}).get("persisted", True)),
+        # R55.1 — ``persisted: false`` beside a real record_id read as a defect.
+        # It is truthful, and this says WHY in the owner's own words: whether the
+        # decision is a ledger row or the read-time legacy projection, and that
+        # it is retrievable through this owner either way.
+        **classify_decision_persistence(record=latest, available=bool(latest)),
         "persisted_record_present": bool(persisted),
         "projected_daily_cycle_present": bool(projected),
         # R54.4 — true when a real daily ledger row retired the legacy
@@ -3542,4 +3815,12 @@ __all__ = [
     "DAILY_PRODUCER_CONTRACT_VERSION", "DAILY_TERMINAL_COMPLETE_STATES",
     "WR_DAILY_MANIFEST_NOT_GOVERNED", "DAILY_GATE_ELIGIBLE",
     "DAILY_GATE_WITHHELD",
+    # R55.1 — the terminal governance disposition + how the decision is held.
+    "GOV_DISP_NOT_REQUIRED", "GOV_DISP_EVALUATED_NO_PROMOTION",
+    "GOV_DISP_WITHHELD", "GOV_DISP_PROMOTED", "GOV_DISP_INCOMPLETE",
+    "GOVERNANCE_DISPOSITION_VOCAB", "GOVERNANCE_TERMINAL_DISPOSITIONS",
+    "GOVERNANCE_REASON_VOCAB", "INTRADAY_GATE_INVOCATION_CONTRACT",
+    "classify_intraday_governance", "classify_decision_persistence",
+    "DECISION_PERSISTENCE_VOCAB", "DECISION_PERSISTENCE_LEDGER_ROW",
+    "DECISION_PERSISTENCE_LEGACY_PROJECTION", "DECISION_PERSISTENCE_ABSENT",
 ]
