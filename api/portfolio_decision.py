@@ -1122,11 +1122,23 @@ DECISION_PROVENANCE_VOCAB = (PROV_GOVERNED_DAILY_CYCLE, PROV_GOVERNED_INTRADAY,
 #: identical decision timestamp): the session-terminal governed cycle outranks an
 #: intraday promotion. It never reorders decisions that differ in time.
 _PROVENANCE_RANK = {PROV_GOVERNED_DAILY_CYCLE: 2, PROV_GOVERNED_INTRADAY: 1}
+#: R54.4 — the operator-facing name of each PRODUCER. A surface states which
+#: lane produced the standing decision; it never infers authority from the lane.
+_PRODUCER_LABELS = {PROV_GOVERNED_DAILY_CYCLE: "Daily DRC",
+                    PROV_GOVERNED_INTRADAY: "Governed intraday event"}
 
 # --- Gate verdicts ---------------------------------------------------------- #
 GATE_ELIGIBLE = "GOVERNED_INTRADAY_DECISION_ELIGIBLE"
 GATE_WITHHELD = "INTRADAY_DECISION_WITHHELD"
-GATE_VERDICT_VOCAB = (GATE_ELIGIBLE, GATE_WITHHELD)
+#: R54.4 — the DAILY producer's own verdict words. The two gates ask different
+#: questions of different evidence, so a daily row must not be stamped with the
+#: intraday verdict literal: a reader inspecting a governed record has to be able
+#: to see WHICH gate admitted it. The eligibility BOOLEAN is the shared contract
+#: the writer actually enforces; these are the honest labels beside it.
+DAILY_GATE_ELIGIBLE = "GOVERNED_DAILY_DECISION_ELIGIBLE"
+DAILY_GATE_WITHHELD = "DAILY_DECISION_WITHHELD"
+GATE_VERDICT_VOCAB = (GATE_ELIGIBLE, GATE_WITHHELD,
+                      DAILY_GATE_ELIGIBLE, DAILY_GATE_WITHHELD)
 
 # --- The two governed decisions. BOTH are real decisions. ------------------- #
 #: A complete feasible alternative was priced and is not worth what switching
@@ -1184,6 +1196,12 @@ WR_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"
 WR_DUPLICATE = "DUPLICATE_CANDIDATE"
 WR_EXECUTION_PRECEDENCE = "EXECUTION_PRECEDENCE"
 WR_EVIDENCE_INCOMPLETE = "CANDIDATE_EVIDENCE_INCOMPLETE"
+#: Release 54.4 — the DAILY producer's own admissibility failure: the Daily
+#: Research Cycle manifest this candidate claims is absent, non-terminal, or is
+#: not the governed manifest of record for that session (Release 29.5). It is a
+#: distinct concept from every intraday code above — reusing one of those would
+#: describe an intraday condition that was never evaluated.
+WR_DAILY_MANIFEST_NOT_GOVERNED = "DAILY_MANIFEST_NOT_GOVERNED"
 WITHHELD_REASON_VOCAB = (
     WR_NO_ACTIVE_BOOK, WR_PORTFOLIO_IDENTITY_STALE, WR_MARKET_DATA_STALE,
     WR_OWNED_DATA_NOT_CONFIRMED, WR_POINT_IN_TIME, WR_RANKING_IDENTITY,
@@ -1191,7 +1209,7 @@ WITHHELD_REASON_VOCAB = (
     WR_REASSESSMENT_IDENTITY, WR_TARGET_IDENTITY,
     WR_SWITCHING_ECONOMICS, WR_TRUE_BLOCKER, WR_CHANGE_WITHHELD,
     WR_SUPERSEDED, WR_DUPLICATE, WR_EXECUTION_PRECEDENCE,
-    WR_EVIDENCE_INCOMPLETE)
+    WR_EVIDENCE_INCOMPLETE, WR_DAILY_MANIFEST_NOT_GOVERNED)
 
 #: The governed lane of this owner's ledger (see the module note above).
 _GOVERNED_RECORDS_FILE = "governed_decisions.json"
@@ -1302,6 +1320,127 @@ def _eq_when_known(a: Any, b: Any) -> Optional[bool]:
 
 
 # --------------------------------------------------------------------------- #
+# R54.4 — the ONE governed-decision IDENTITY and DECISION-WORD contract.
+#
+# Both producers (the session-terminal Daily Research Cycle and the live
+# intraday event cycle) describe the same business concept, so they must spell
+# its identity and its conclusion the SAME way. These helpers are the single
+# spelling: two producers that observed the same evidence therefore compute the
+# same ``candidate_identity_hash`` and the same decision word by construction,
+# which is what makes the writer's duplicate-detection meaningful across lanes.
+# --------------------------------------------------------------------------- #
+def _merge_reassessment_provenance(reassessment: Optional[dict]) -> dict:
+    """The reassessment owner's OWN published identity map for its evidence.
+
+    ``proposal_binding`` is authoritative ("the provenance a proposal generated
+    by this reassessment MUST carry"); the artifact identity and the free
+    provenance block are read only where it is silent. Nothing is derived.
+    """
+    rs = reassessment or {}
+    prov = dict(rs.get("proposal_binding") or {})
+    for fallback in ((rs.get("artifact") or {}).get("identity") or {},
+                     rs.get("provenance") or {}):
+        for k, v in (fallback or {}).items():
+            if prov.get(k) is None and v is not None:
+                prov[k] = v
+    return prov
+
+
+def _governed_identity(*, portfolio_state: Optional[dict],
+                       event_cycle: Optional[dict],
+                       reassessment: Optional[dict],
+                       proposal_summary: Optional[dict],
+                       provenance_map: dict,
+                       scoring_identity: Optional[dict],
+                       outcome: Any,
+                       hoc_artifact_id: Any,
+                       hoc_evidence_hash: Any) -> dict:
+    """THE evidence identity of a governed portfolio decision.
+
+    Covers the EVIDENCE only. It deliberately excludes every producer-specific
+    accident — the event cycle's run id, the DRC run id, wall clocks and the
+    materiality trigger fingerprint — because two producers that reach the same
+    conclusion from the same evidence made the SAME decision, and re-deciding it
+    would be churn dressed as governance. ``event_cycle`` is simply absent for
+    the daily producer; each field then falls through to the same owner the
+    intraday path would have used as its fallback.
+    """
+    ps = portfolio_state or {}
+    ev = event_cycle or {}
+    rs = reassessment or {}
+    summ = proposal_summary or {}
+    prov = provenance_map or {}
+    sc = scoring_identity or {}
+    return {
+        "active_book_id": ((ps.get("active_book") or {}).get("book_id")
+                           or ev.get("active_book_id")),
+        "eligible_market_session": ((ps.get("dates") or {}).get(
+            "eligible_market_date") or ev.get("eligible_market_date")),
+        # The hashes the EVIDENCE was built against — the reassessment owner's
+        # own bound portfolio-state hash and the hash the producer bound — NOT a
+        # re-read of the live state. The gate's job is precisely to prove those
+        # still describe the portfolio that exists now.
+        "portfolio_state_hash": (prov.get("portfolio_state_hash")
+                                 or ps.get("state_hash")),
+        # R54.4 — the reassessment's OWN bound economic identity is the final
+        # fallback, so a producer that performs no live portfolio read (the
+        # daily one) still records the same economic axis the intraday producer
+        # would have. Without it the two lanes could describe identical evidence
+        # with different identities and fail to collapse to one decision.
+        "economic_state_hash": (ev.get("portfolio_state_hash")
+                                or ps.get("economic_state_hash")
+                                or prov.get("economic_state_hash")),
+        "corporate_actions_hash": (summ.get("reallocation_corporate_actions_hash")
+                                   or prov.get("corporate_actions_hash")),
+        "universe_scoring_hash": prov.get("universe_scoring_hash"),
+        "universe_input_contract_hash": prov.get("universe_input_contract_hash"),
+        "ranking_basis_date": sc.get("ranking_date"),
+        "hoc_assessment_hash": (ev.get("hoc_assessment_hash")
+                                or prov.get("hoc_assessment_hash")),
+        # R54.3 — the EXACT immutable opportunity-cost version this decision
+        # stands on. It is part of IDENTITY (not merely evidence) because a
+        # governed decision built on a different HOC version is a different
+        # decision, however identical everything downstream of it looks.
+        "hoc_artifact_id": hoc_artifact_id,
+        "hoc_assessment_evidence_hash": hoc_evidence_hash,
+        "reassessment_id": rs.get("reassessment_id") or prov.get("reassessment_id"),
+        "reassessment_hash": (rs.get("reassessment_hash")
+                              or prov.get("reassessment_hash")),
+        "proposal_id": summ.get("reallocation_proposal_id"),
+        "proposal_hash": summ.get("reallocation_proposal_hash"),
+        "target_outcome": outcome,
+    }
+
+
+def _reassessment_state_word(reassessment: Optional[dict]) -> Optional[str]:
+    """The reassessment owner's own verdict word, wherever it published it."""
+    rs = reassessment or {}
+    inner = rs.get("reassessment")
+    return (rs.get("state") or rs.get("reassessment_state") or rs.get("decision")
+            or (inner.get("reassessment_state") if isinstance(inner, dict)
+                else None))
+
+
+def _governed_decision_word(*, reassessment_state: Any,
+                            outcome: Any) -> Optional[str]:
+    """The ONE mapping from the owners' own words to a governed decision word.
+
+    ``CURRENT_NO_CHANGE`` is the reassessment owner's conclusion that the
+    current portfolio remains the best use of capital and NO proposal was
+    requested; it outranks the target outcome because in that case there is no
+    target to speak for. Otherwise the target owner's own R47 outcome decides.
+    ``None`` means "not a conclusive portfolio answer" — never a default.
+    """
+    if str(reassessment_state or "") == "CURRENT_NO_CHANGE":
+        return GD_NO_CHANGE
+    if outcome == _OUTCOME_PROPOSAL_READY:
+        return GD_CHANGE_RECOMMENDED
+    if outcome == _OUTCOME_HOLD:
+        return GD_HOLD_CURRENT_BOOK
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # The CANDIDATE — assembled from owner payloads, never computed here
 # --------------------------------------------------------------------------- #
 def build_intraday_candidate(*, portfolio_state: Optional[dict],
@@ -1346,13 +1485,9 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
     # ``proposal_binding`` is the reassessment owner's OWN published identity map
     # — "the provenance a proposal generated by this reassessment MUST carry".
     # It is the authoritative source here; the artifact identity and the free
-    # provenance block are read only where it is silent.
-    prov = dict(rs.get("proposal_binding") or {})
-    for fallback in ((rs.get("artifact") or {}).get("identity") or {},
-                     rs.get("provenance") or {}):
-        for k, v in fallback.items():
-            if prov.get(k) is None and v is not None:
-                prov[k] = v
+    # provenance block are read only where it is silent. R54.4 — ONE spelling,
+    # shared verbatim with the daily producer.
+    prov = _merge_reassessment_provenance(rs)
 
     econ = con.get("switching_economics") or {}
     outcome = con.get("outcome") or summ.get("reallocation_outcome")
@@ -1375,39 +1510,21 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
                          or (event_cycle or {}).get("hoc_assessment_evidence_hash")
                          or prov.get("hoc_assessment_evidence_hash"))
 
-    identity = {
-        "active_book_id": active_book_id,
-        "eligible_market_session": eligible,
-        # The hashes the EVIDENCE was built against — the reassessment owner's
-        # own bound portfolio-state hash and the hash the event cycle bound —
-        # NOT a re-read of the live state. The gate's job is precisely to prove
-        # those still describe the portfolio that exists now.
-        "portfolio_state_hash": (prov.get("portfolio_state_hash")
-                                 or ps.get("state_hash")),
-        "economic_state_hash": (ev.get("portfolio_state_hash")
-                                or ps.get("economic_state_hash")),
-        "corporate_actions_hash": (summ.get("reallocation_corporate_actions_hash")
-                                   or prov.get("corporate_actions_hash")),
-        "universe_scoring_hash": prov.get("universe_scoring_hash"),
-        "universe_input_contract_hash": prov.get("universe_input_contract_hash"),
-        "ranking_basis_date": sc.get("ranking_date"),
-        "hoc_assessment_hash": (ev.get("hoc_assessment_hash")
-                                or prov.get("hoc_assessment_hash")),
-        # R54.3 — the EXACT immutable opportunity-cost version this decision
-        # stands on. It is part of IDENTITY (not merely evidence) because a
-        # governed decision built on a different HOC version is a different
-        # decision, however identical everything downstream of it looks.
-        "hoc_artifact_id": hoc_artifact_id,
-        "hoc_assessment_evidence_hash": hoc_evidence_hash,
-        "reassessment_id": rs.get("reassessment_id") or prov.get("reassessment_id"),
-        "reassessment_hash": (rs.get("reassessment_hash")
-                              or prov.get("reassessment_hash")),
-        "proposal_id": summ.get("reallocation_proposal_id"),
-        "proposal_hash": summ.get("reallocation_proposal_hash"),
-        "target_outcome": outcome,
-    }
+    # R54.4 — the ONE evidence-identity contract, shared verbatim with the daily
+    # producer so identical evidence yields an identical hash in either lane.
+    identity = _governed_identity(
+        portfolio_state=ps, event_cycle=ev, reassessment=rs,
+        proposal_summary=summ, provenance_map=prov, scoring_identity=sc,
+        outcome=outcome, hoc_artifact_id=hoc_artifact_id,
+        hoc_evidence_hash=hoc_evidence_hash)
     ident_hash = candidate_identity_hash(identity)
 
+    # The INTRADAY producer contract deliberately promotes only on a PRICED R47
+    # outcome. It does NOT map the reassessment owner's CURRENT_NO_CHANGE word to
+    # a governed decision: intraday "nothing to do" is the absence of a new
+    # authoritative answer, not a new one. Concluding CURRENT_NO_CHANGE for a
+    # SESSION is the session-terminal daily producer's prerogative — see
+    # ``_governed_decision_word`` and ``build_daily_cycle_candidate``.
     if outcome == _OUTCOME_PROPOSAL_READY:
         decision = GD_CHANGE_RECOMMENDED
     elif outcome == _OUTCOME_HOLD:
@@ -2108,6 +2225,41 @@ def load_governed_decision_record(*, active_book_id: Optional[str] = None,
         return None
 
 
+def load_persisted_daily_decision(*, active_book_id: Optional[str],
+                                  eligible_market_session: Optional[str],
+                                  decision_dir=None) -> Optional[dict]:
+    """R54.4 — the persisted DAILY governed row for one book and session.
+
+    Answers exactly one question: "did the daily producer already write a real
+    ledger row for this session?". It is what retires the legacy read-time
+    projection. Pure reader; never raises, never writes; ``None`` when the
+    session predates R54.4 or the daily write was withheld.
+    """
+    if not eligible_market_session:
+        return None
+    want = str(eligible_market_session)[:10]
+    try:
+        records = _load_json(_governed_records_path(decision_dir)) or []
+        if not isinstance(records, list):
+            return None
+        hits = [
+            r for r in records
+            if r.get("provenance") == PROV_GOVERNED_DAILY_CYCLE
+            and str(r.get("eligible_market_session")
+                    or (r.get("identity") or {}).get(
+                        "eligible_market_session") or "")[:10] == want
+            and (active_book_id is None
+                 or str(r.get("active_book_id")
+                        or (r.get("identity") or {}).get("active_book_id")
+                        or "") == str(active_book_id))
+        ]
+        if not hits:
+            return None
+        return max(hits, key=governed_decision_ordering_key)
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
+
+
 def record_governed_decision(*, candidate: dict, gate: dict,
                              provenance: str = PROV_GOVERNED_INTRADAY,
                              confirm: Optional[str] = None,
@@ -2115,8 +2267,15 @@ def record_governed_decision(*, candidate: dict, gate: dict,
                              now: Optional[datetime] = None) -> dict:
     """Append ONE governed portfolio decision. Writes nothing else, ever.
 
+    R54.4 — this is the SINGLE writer for BOTH producers. The daily
+    session-terminal cycle and the live intraday cycle each run their own
+    admissibility gate and then persist here; ``provenance`` is the only thing
+    that distinguishes their rows. There is no second writer, ledger or ordering.
+
     Fail-closed and idempotent:
-      * the gate must have returned ``GOVERNED_INTRADAY_DECISION_ELIGIBLE``;
+      * the gate must have declared the candidate eligible (the intraday gate's
+        ``GOVERNED_INTRADAY_DECISION_ELIGIBLE`` or the daily gate's
+        ``GOVERNED_DAILY_DECISION_ELIGIBLE``);
       * ``confirm`` must equal :data:`GOVERNED_DECISION_CONFIRM_TOKEN` (a system
         token, deliberately NOT the operator approval token);
       * a candidate whose evidence identity already stands is REUSED, never
@@ -2142,7 +2301,9 @@ def record_governed_decision(*, candidate: dict, gate: dict,
                 "message": "provenance must be one of %s"
                            % (GOVERNED_PROVENANCE_VOCAB,)}
     if not (gate or {}).get("eligible"):
-        return {**base, "status": GATE_WITHHELD,
+        # Echo the refusing gate's OWN verdict word so a daily refusal is not
+        # reported with the intraday literal.
+        return {**base, "status": (gate or {}).get("verdict") or GATE_WITHHELD,
                 "withheld_reasons": list((gate or {}).get("withheld_reasons") or []),
                 "withheld_reason_codes": list(
                     (gate or {}).get("withheld_reason_codes") or []),
@@ -2412,6 +2573,645 @@ def govern_latest_intraday_assessment(
     }
 
 
+# =========================================================================== #
+# R54.4 — THE DAILY PRODUCER CONTRACT
+# =========================================================================== #
+r"""Why the Daily Research Cycle stopped being its own decision owner.
+
+Before R54.4 there was ONE business concept — the governed portfolio decision —
+with TWO persistence realities:
+
+  * INTRADAY decisions were APPENDED, by this module, to an immutable governed
+    ledger with an identity hash, a supersession lineage and a gate record.
+  * The DAILY session-terminal decision was never written down at all. It lived
+    only inside ``api.daily_research_cycle``'s run manifest and was RE-DERIVED
+    at every single read by ``project_governed_daily_cycle_decision`` from three
+    separately mutable inputs (the workflow's research-cycle state, the current
+    reassessment and the current proposal summary).
+
+That asymmetry is the defect. A decision that is recomputed on read is not a
+decision the system ever MADE — it is a decision the system keeps re-making,
+and it silently changes retroactively whenever any upstream input moves. It has
+no record id, so nothing can name it in ``supersedes_decision_id``; the intraday
+writer had to rebuild the projection just to discover what it was superseding.
+
+R54.4 makes the daily cycle a PRODUCER, exactly like the intraday cycle: it
+computes the research and the evidence, then DELEGATES the governed write to
+this module. Producer is not authority. There is now one writer
+(:func:`record_governed_decision`), one ledger, one ordering and one history,
+and ``provenance`` records which lane produced each row.
+
+The projection survives ONLY as a read-only LEGACY compatibility shim for
+sessions that completed before this release and therefore have no ledger row.
+It is suppressed the moment a persisted daily record exists for that session —
+see :func:`load_governed_portfolio_decision`. No history is rewritten and no
+historical row is fabricated.
+"""
+
+#: The daily producer's contract version, recorded on every daily row.
+DAILY_PRODUCER_CONTRACT_VERSION = "daily_cycle_decision_producer.v1"
+
+#: ``api.daily_research_cycle``'s OWN terminal-complete words, reused verbatim.
+#: Only a manifest in one of these states is governed evidence (Release 29.5).
+DAILY_TERMINAL_COMPLETE_STATES = ("COMPLETE", "COMPLETE_WITH_EVIDENCE_GAP")
+
+
+def build_daily_cycle_candidate(*, portfolio_state: Optional[dict],
+                                drc_manifest: Optional[dict],
+                                reassessment: Optional[dict],
+                                proposal_summary: Optional[dict],
+                                constrained: Optional[dict] = None,
+                                scoring_identity: Optional[dict] = None,
+                                hoc_binding: Optional[dict] = None,
+                                now: Optional[datetime] = None) -> dict:
+    """Assemble ONE governed-decision candidate from the DAILY producer's output.
+
+    Pure and io-free, and deliberately the same shape the intraday producer
+    emits: it shares the identity contract (:func:`_governed_identity`) and the
+    decision-word contract (:func:`_governed_decision_word`) verbatim, so the
+    same evidence observed by either lane yields the same
+    ``candidate_identity_hash`` and the same conclusion. That is what lets the
+    ONE writer recognise a daily and an intraday candidate as the SAME decision
+    instead of appending two authorities for one session.
+
+    ``drc_manifest`` is ``api.daily_research_cycle``'s own run record — the
+    producer hands over its evidence rather than this module reaching into the
+    research store, so the read path gains no dependency on the cycle owner.
+    """
+    ps = portfolio_state or {}
+    man = drc_manifest or {}
+    rs = reassessment or {}
+    summ = proposal_summary or {}
+    con = constrained or {}
+    prov = _merge_reassessment_provenance(rs)
+    hb = dict(hoc_binding or {})
+
+    outcome = con.get("outcome") or summ.get("reallocation_outcome")
+    rs_state = _reassessment_state_word(rs) or man.get(
+        "portfolio_reassessment_state")
+    decision = _governed_decision_word(reassessment_state=rs_state,
+                                       outcome=outcome)
+
+    # R54.3 parity — the EXACT immutable opportunity-cost version. Strongest
+    # available proof first; nothing is defaulted to present.
+    hoc_artifact_id = (hb.get("hoc_artifact_id")
+                       or man.get("opportunity_cost_artifact_id")
+                       or prov.get("hoc_artifact_id"))
+    hoc_evidence_hash = (hb.get("hoc_assessment_evidence_hash")
+                         or prov.get("hoc_assessment_evidence_hash"))
+    hoc_persisted = hb.get("hoc_persisted")
+    if hoc_persisted is None:
+        hoc_persisted = prov.get("hoc_persisted")
+
+    identity = _governed_identity(
+        portfolio_state=ps, event_cycle=None, reassessment=rs,
+        proposal_summary=summ, provenance_map=prov,
+        scoring_identity=scoring_identity, outcome=outcome,
+        hoc_artifact_id=hoc_artifact_id, hoc_evidence_hash=hoc_evidence_hash)
+    # A session-terminal daily decision belongs to the SESSION AND BOOK THE RUN
+    # WAS FOR, which the manifest recorded — not to whatever session a live
+    # portfolio-state read happens to be on when the write is made. The manifest
+    # is therefore the anchor of record here, and the live state is the fallback.
+    # (In the normal case they are the same two facts; when they are not, the
+    # run's own session is the honest answer and the evidence checks below prove
+    # the reassessment belongs to it.)
+    if man.get("active_book_id"):
+        identity["active_book_id"] = man.get("active_book_id")
+    if man.get("eligible_market_date"):
+        identity["eligible_market_session"] = man.get("eligible_market_date")
+    if identity.get("hoc_assessment_hash") is None:
+        identity["hoc_assessment_hash"] = man.get(
+            "opportunity_cost_assessment_hash")
+    if identity.get("reassessment_hash") is None:
+        identity["reassessment_hash"] = man.get("portfolio_reassessment_hash")
+    if identity.get("reassessment_id") is None:
+        identity["reassessment_id"] = man.get("portfolio_reassessment_id")
+    # R54.2.3.2 parity, and the reason the DAILY producer reads the MANIFEST
+    # rather than the live proposal key: an UNREQUESTED proposal's hash and
+    # outcome must never enter the governed identity. The manifest is the run's
+    # own record of which proposal (if any) it built; whatever artifact happens
+    # to sit at the live key may belong to an entirely different cycle, and
+    # binding it here would launder a stale target into a decision that never
+    # asked for one. A CURRENT_NO_CHANGE decision requested no target at all.
+    man_proposal_hash = man.get("reallocation_proposal_hash") or None
+    man_proposal_id = man.get("reallocation_proposal_id") or None
+    binds_proposal = decision in (GD_CHANGE_RECOMMENDED, GD_HOLD_CURRENT_BOOK)
+    identity["proposal_hash"] = man_proposal_hash if binds_proposal else None
+    identity["proposal_id"] = man_proposal_id if binds_proposal else None
+    identity["target_outcome"] = outcome if binds_proposal else None
+    ident_hash = candidate_identity_hash(identity)
+
+    book = identity.get("active_book_id")
+    eligible = identity.get("eligible_market_session")
+
+    # Position-level recommendations are the proposal owner's OWN actions,
+    # verbatim. A governed HOLD / CURRENT_NO_CHANGE carries none: in the first
+    # case the priced target is precisely the one the system declined, and in
+    # the second no target was ever requested.
+    recommendations: list[dict] = []
+    if decision == GD_CHANGE_RECOMMENDED:
+        for a in ((con.get("best_feasible_target") or {}).get("allocations") or []):
+            act = a.get("action")
+            if act in ("HOLD", None):
+                continue
+            recommendations.append({
+                "ticker": a.get("ticker"),
+                "recommendation": act,
+                "current_weight": a.get("current_weight"),
+                "proposed_weight": a.get("proposed_weight"),
+                "delta_weight": a.get("delta_weight"),
+                "capital_change": a.get("capital_change"),
+                "owner": "api.reallocation_proposal",
+            })
+
+    # The decision instant is the EVIDENCE's own stamp, never this process's
+    # wall clock: no arbitrary clock race may decide capital authority.
+    decided_at = ((rs.get("artifact") or {}).get("generated_at")
+                  if isinstance(rs.get("artifact"), dict) else None)
+    decided_at = decided_at or man.get("completed_at") or _now_iso(now)
+
+    return {
+        "owner": GOVERNANCE_GATE_OWNER,
+        "gate_version": GOVERNANCE_GATE_VERSION,
+        "producer_contract_version": DAILY_PRODUCER_CONTRACT_VERSION,
+        "candidate_identity_hash": ident_hash,
+        "candidate_id": "gcand_%s_%s_%s" % (eligible or "nodate",
+                                            book or "book", ident_hash[:12]),
+        "identity": identity,
+        "decision": decision,
+        "decision_vocabulary": list(GOVERNED_DECISION_VOCAB),
+        "position_recommendations": recommendations,
+        "position_recommendation_vocabulary": list(POSITION_RECOMMENDATION_VOCAB),
+        "position_recommendation_note": (
+            "A governed HOLD or CURRENT_NO_CHANGE carries no position "
+            "recommendations." if decision != GD_CHANGE_RECOMMENDED else
+            "Read verbatim from the proposal owner's own allocation actions."),
+        "switching_economics": dict(con.get("switching_economics") or {}),
+        "evidence": {
+            "daily_cycle_run_id": man.get("run_id"),
+            "daily_cycle_state": man.get("state"),
+            "daily_cycle_completed_at": man.get("completed_at"),
+            "daily_cycle_session_contract_hash": man.get("session_contract_hash"),
+            "daily_cycle_input_contract_hash": man.get("input_contract_hash"),
+            "manifest_reassessment_id": man.get("portfolio_reassessment_id"),
+            "manifest_reassessment_hash": man.get("portfolio_reassessment_hash"),
+            "manifest_reassessment_state": man.get("portfolio_reassessment_state"),
+            "manifest_proposal_id": man.get("reallocation_proposal_id"),
+            "manifest_proposal_hash": man.get("reallocation_proposal_hash"),
+            "manifest_proposal_state": man.get("reallocation_proposal_state"),
+            "manifest_hoc_artifact_id": man.get("opportunity_cost_artifact_id"),
+            "manifest_hoc_assessment_hash": man.get(
+                "opportunity_cost_assessment_hash"),
+            "hoc_persisted": hoc_persisted,
+            "hoc_artifact_retrievable": hb.get("hoc_artifact_retrievable"),
+            "hoc_artifact_identity_matches": hb.get("hoc_artifact_identity_matches"),
+            "hoc_binding_detail": hb.get("hoc_binding_detail"),
+            "hoc_binding_owner": (hb.get("hoc_binding_resolved_by")
+                                  or hb.get("hoc_owner")),
+            "reassessment_state": rs_state,
+            "proposal_data_gaps": list(summ.get("reallocation_data_gaps") or []),
+            "governed_daily_cycle_evidence_current": bool(
+                str(man.get("state") or "") in DAILY_TERMINAL_COMPLETE_STATES),
+            "producer_owner": "api.daily_research_cycle",
+        },
+        "zero_base": {
+            "incumbency_policy": ZERO_BASE_INCUMBENCY_POLICY,
+            "current_holdings_privileged": bool(
+                (con.get("multi_asset") or {}).get("current_holdings_privileged")),
+            "ideal_target_owner": ((con.get("ideal_target") or {})
+                                   .get("zero_base_owner")),
+            "target_engine_owner": con.get("calculation_owner"),
+            "note": ("The target owner answers the zero-base question; a held "
+                     "name's ONLY advantage is the priced transition cost."),
+        },
+        # The daily lane measures no intraday latency: there is no observation
+        # -> decision race to measure. The field is named, never invented.
+        "latency_inputs": {"measurement_owner": "api.daily_research_cycle",
+                           "intraday_latency_applicable": False},
+        "decided_at": decided_at,
+        "provenance": PROV_GOVERNED_DAILY_CYCLE,
+        "manual_review_required": bool(decision == GD_CHANGE_RECOMMENDED),
+        "safety": _governed_safety(),
+    }
+
+
+def evaluate_daily_cycle_governance(*, candidate: Optional[dict],
+                                    drc_manifest: Optional[dict],
+                                    portfolio_state: Optional[dict] = None,
+                                    reassessment: Optional[dict] = None,
+                                    proposal_summary: Optional[dict] = None,
+                                    constrained: Optional[dict] = None,
+                                    current_governed: Optional[dict] = None
+                                    ) -> dict:
+    """The DAILY admissibility gate. Same machinery, same vocabulary, same
+    verdict shape as the intraday gate — a different QUESTION.
+
+    The intraday gate asks "is this live reassessment complete, fresh and bound
+    tightly enough to replace the standing recommendation?". The daily gate asks
+    the session-terminal question instead: "is this a VALIDATED terminal-COMPLETE
+    Daily-Research-Cycle manifest whose bound reassessment and opportunity-cost
+    artifacts actually exist and actually belong to it?".
+
+    It is not a second governance framework: it decides ADMISSIBILITY only,
+    computes no economics, and reuses the canonical withheld taxonomy. It is
+    fail-closed — anything it cannot prove withholds the write.
+    """
+    cand = candidate or {}
+    man = drc_manifest or {}
+    ident = cand.get("identity") or {}
+    rs = reassessment or {}
+    summ = proposal_summary or {}
+    con = constrained or {}
+    ev = cand.get("evidence") or {}
+    checks: list[dict] = []
+
+    # --- The governed manifest of record --------------------------------- #
+    state = str(man.get("state") or "")
+    checks.append(_check(
+        "DAILY_MANIFEST", "MANIFEST_PRESENT", bool(man),
+        "api.daily_research_cycle",
+        "manifest %s" % (man.get("run_id") or "NONE"),
+        WR_DAILY_MANIFEST_NOT_GOVERNED))
+    checks.append(_check(
+        "DAILY_MANIFEST", "MANIFEST_TERMINAL_COMPLETE",
+        state in DAILY_TERMINAL_COMPLETE_STATES, "api.daily_research_cycle",
+        "manifest state = %s (terminal-complete = %s)"
+        % (state or "NONE", list(DAILY_TERMINAL_COMPLETE_STATES)),
+        WR_DAILY_MANIFEST_NOT_GOVERNED))
+    checks.append(_check(
+        "DAILY_MANIFEST", "MANIFEST_RUN_IDENTIFIED", bool(man.get("run_id")),
+        "api.daily_research_cycle", "run_id = %s" % (man.get("run_id") or "NONE"),
+        WR_DAILY_MANIFEST_NOT_GOVERNED))
+    # The candidate is anchored to the manifest's session, so comparing the two
+    # would be tautological. The binding that actually has to hold is the
+    # CROSS-OWNER one: the reassessment this decision stands on must belong to
+    # the session the run was for.
+    checks.append(_check(
+        "DAILY_MANIFEST", "MANIFEST_SESSION_MATCHES_EVIDENCE",
+        _eq_when_known(str(man.get("eligible_market_date") or "")[:10] or None,
+                       str(rs.get("eligible_market_date") or "")[:10]
+                       or None) is not False,
+        "api.portfolio_reassessment",
+        "manifest session %s vs reassessment session %s"
+        % (man.get("eligible_market_date"), rs.get("eligible_market_date")),
+        WR_DAILY_MANIFEST_NOT_GOVERNED))
+    checks.append(_check(
+        "DAILY_MANIFEST", "MANIFEST_BOOK_MATCHES_CANDIDATE",
+        _eq_when_known(man.get("active_book_id"),
+                       ident.get("active_book_id")) is not False,
+        "api.daily_research_cycle",
+        "manifest book %s vs candidate %s"
+        % (man.get("active_book_id"), ident.get("active_book_id")),
+        WR_PORTFOLIO_IDENTITY_STALE))
+
+    # --- Portfolio identity ---------------------------------------------- #
+    checks.append(_check(
+        "PORTFOLIO_IDENTITY", "ACTIVE_BOOK_PRESENT",
+        bool(ident.get("active_book_id")), "api.portfolio_state",
+        "active book = %s" % (ident.get("active_book_id") or "NONE"),
+        WR_NO_ACTIVE_BOOK))
+    checks.append(_check(
+        "PORTFOLIO_IDENTITY", "ELIGIBLE_SESSION_PRESENT",
+        bool(ident.get("eligible_market_session")), "api.portfolio_state",
+        "eligible session = %s"
+        % (ident.get("eligible_market_session") or "NONE"),
+        WR_EVIDENCE_INCOMPLETE))
+
+    # --- The reassessment this decision stands on ------------------------- #
+    checks.append(_check(
+        "EVIDENCE", "REASSESSMENT_BOUND",
+        bool(ident.get("reassessment_hash")) and bool(ident.get("reassessment_id")),
+        "api.portfolio_reassessment",
+        "reassessment %s / %s" % (ident.get("reassessment_id"),
+                                  ident.get("reassessment_hash")),
+        WR_REASSESSMENT_IDENTITY))
+    checks.append(_check(
+        "EVIDENCE", "REASSESSMENT_MATCHES_MANIFEST",
+        _eq_when_known(man.get("portfolio_reassessment_hash"),
+                       ident.get("reassessment_hash")) is not False,
+        "api.daily_research_cycle",
+        "manifest reassessment %s vs candidate %s"
+        % (man.get("portfolio_reassessment_hash"),
+           ident.get("reassessment_hash")),
+        WR_REASSESSMENT_IDENTITY))
+
+    # --- R54.3 parity: the EXACT opportunity-cost artifact ---------------- #
+    checks.append(_check(
+        "EVIDENCE", "HOC_ARTIFACT_BOUND", bool(ident.get("hoc_artifact_id")),
+        "api.holding_opportunity_cost",
+        "hoc artifact = %s" % (ident.get("hoc_artifact_id") or "NONE"),
+        WR_HOC_NOT_PERSISTED))
+    checks.append(_check(
+        "EVIDENCE", "HOC_ARTIFACT_RETRIEVABLE",
+        ev.get("hoc_artifact_retrievable") is True,
+        "api.holding_opportunity_cost.resolve_binding",
+        "retrievable = %s (%s)" % (ev.get("hoc_artifact_retrievable"),
+                                   ev.get("hoc_binding_detail") or "no detail"),
+        WR_HOC_NOT_PERSISTED))
+    checks.append(_check(
+        "EVIDENCE", "HOC_ARTIFACT_IDENTITY_MATCHES",
+        ev.get("hoc_artifact_identity_matches") is not False,
+        "api.holding_opportunity_cost.resolve_binding",
+        "identity matches = %s" % (ev.get("hoc_artifact_identity_matches"),),
+        WR_HOC_ARTIFACT_MISMATCH))
+    checks.append(_check(
+        "EVIDENCE", "HOC_MATCHES_MANIFEST",
+        _eq_when_known(man.get("opportunity_cost_assessment_hash"),
+                       ident.get("hoc_assessment_hash")) is not False,
+        "api.daily_research_cycle",
+        "manifest hoc %s vs candidate %s"
+        % (man.get("opportunity_cost_assessment_hash"),
+           ident.get("hoc_assessment_hash")),
+        WR_HOC_IDENTITY))
+
+    # --- The conclusion --------------------------------------------------- #
+    decision = cand.get("decision")
+    checks.append(_check(
+        "DECISION", "DECISION_IS_CONCLUSIVE",
+        decision in GOVERNED_DECISION_VOCAB, GOVERNANCE_GATE_OWNER,
+        "decision = %s" % (decision or "NONE"), WR_EVIDENCE_INCOMPLETE))
+    outcome = ident.get("target_outcome")
+    checks.append(_check(
+        "DECISION", "NOT_A_TRUE_BLOCKER", outcome != _OUTCOME_TRUE_BLOCKER,
+        "engine.constrained_reallocation", "target outcome = %s" % (outcome,),
+        WR_TRUE_BLOCKER))
+    # A CHANGE must name the exact proposal it recommends; a HOLD or
+    # CURRENT_NO_CHANGE must bind none — binding a stale artifact to a decision
+    # that did not ask for one is precisely how R54.2.3.2's defect was launched.
+    if decision == GD_CHANGE_RECOMMENDED:
+        # A CHANGE must name a proposal, and it must be THIS RUN's proposal.
+        proposal_ok = (bool(ident.get("proposal_hash"))
+                       and _eq_when_known(man.get("reallocation_proposal_hash"),
+                                          ident.get("proposal_hash")) is not False)
+        detail = ("CHANGE binds proposal %s (manifest %s)"
+                  % (ident.get("proposal_hash"),
+                     man.get("reallocation_proposal_hash")))
+    elif decision == GD_HOLD_CURRENT_BOOK:
+        # A HOLD priced a feasible alternative and declined it, so a bound
+        # proposal is legitimate — but it must still be the run's own.
+        proposal_ok = _eq_when_known(man.get("reallocation_proposal_hash") or None,
+                                     ident.get("proposal_hash")) is not False
+        detail = ("HOLD binds the priced-and-declined proposal %s (manifest %s)"
+                  % (ident.get("proposal_hash"),
+                     man.get("reallocation_proposal_hash")))
+    else:
+        # CURRENT_NO_CHANGE requested no target; binding one would launder a
+        # stale artifact into a decision that never asked for it.
+        proposal_ok = not ident.get("proposal_hash")
+        detail = ("%s binds no proposal (bound = %s)"
+                  % (decision, ident.get("proposal_hash")))
+    checks.append(_check(
+        "DECISION", "PROPOSAL_BINDING_CONSISTENT", proposal_ok,
+        "api.reallocation_proposal", detail, WR_TARGET_IDENTITY))
+
+    # --- Supersession: never overwrite a newer authority ------------------ #
+    standing = current_governed or {}
+    dup = bool(standing and standing.get("candidate_identity_hash")
+               == cand.get("candidate_identity_hash"))
+    outranks = True
+    if standing and standing.get("decision") and not dup:
+        outranks = (governed_decision_ordering_key(cand)
+                    > governed_decision_ordering_key(standing))
+    checks.append(_check(
+        "SUPERSESSION", "STRICTLY_OUTRANKS_STANDING_DECISION",
+        dup or outranks, GOVERNANCE_GATE_OWNER,
+        "standing = %s @ %s (duplicate = %s)"
+        % (standing.get("record_id"), standing.get("decided_at"), dup),
+        WR_SUPERSEDED))
+
+    # --- Structural safety ------------------------------------------------ #
+    safety = cand.get("safety") or {}
+    checks.append(_check(
+        "SAFETY", "CHANGE_IS_RECOMMENDATION_ONLY",
+        (decision != GD_CHANGE_RECOMMENDED
+         or bool(cand.get("manual_review_required"))),
+        GOVERNANCE_GATE_OWNER, "a governed CHANGE is a recommendation only",
+        WR_EVIDENCE_INCOMPLETE))
+    checks.append(_check(
+        "SAFETY", "NO_AUTOMATION_NO_APPROVAL_NO_PROMOTION",
+        not (safety.get("automation_enabled") or safety.get("broker_enabled")
+             or safety.get("approved_anything")
+             or safety.get("automatic_approval_allowed")
+             or safety.get("promoted_model")
+             or safety.get("activated_sleeve")),
+        GOVERNANCE_GATE_OWNER, "structural safety intact", WR_EVIDENCE_INCOMPLETE))
+
+    failed = [c for c in checks if not c["passed"]]
+    reasons: list[dict] = []
+    seen: set = set()
+    for c in failed:
+        code = c.get("reason_code") or WR_EVIDENCE_INCOMPLETE
+        if code in seen:
+            continue
+        seen.add(code)
+        reasons.append({"code": code, "check": c["check"], "group": c["group"],
+                        "owner": c["owner"], "detail": c["detail"]})
+
+    eligible_verdict = not failed
+    return {
+        "owner": GOVERNANCE_GATE_OWNER,
+        "gate_version": GOVERNANCE_GATE_VERSION,
+        "producer_contract_version": DAILY_PRODUCER_CONTRACT_VERSION,
+        "producer": PROV_GOVERNED_DAILY_CYCLE,
+        "verdict": (DAILY_GATE_ELIGIBLE if eligible_verdict
+                    else DAILY_GATE_WITHHELD),
+        "verdict_vocabulary": list(GATE_VERDICT_VOCAB),
+        "eligible": eligible_verdict,
+        "candidate_id": cand.get("candidate_id"),
+        "candidate_identity_hash": cand.get("candidate_identity_hash"),
+        "candidate_decision": decision,
+        "duplicate_of_standing_decision": dup,
+        "withheld_reasons": reasons,
+        "withheld_reason_codes": [r["code"] for r in reasons],
+        "withheld_reason_vocabulary": list(WITHHELD_REASON_VOCAB),
+        "failing_checks": [c["check"] for c in failed],
+        "checks": checks,
+        "checks_passed": len(checks) - len(failed),
+        "checks_total": len(checks),
+        "evaluated_at": _now_iso(None),
+        "economics_owner": "engine.constrained_reallocation",
+        "gate_decides_economics": False,
+        "safety": _governed_safety(),
+    }
+
+
+def govern_daily_cycle_decision(*, confirm: Optional[str] = None,
+                                drc_manifest: Optional[dict] = None,
+                                portfolio_state: Optional[dict] = None,
+                                reassessment: Optional[dict] = None,
+                                proposal_summary: Optional[dict] = None,
+                                constrained: Optional[dict] = None,
+                                scoring_identity: Optional[dict] = None,
+                                hoc_binding: Optional[dict] = None,
+                                decision_dir=None, reallocation_dir=None,
+                                hoc_dir=None, reassessment_dir=None,
+                                loaders: Optional[dict] = None,
+                                now: Optional[datetime] = None) -> dict:
+    """THE call ``api.daily_research_cycle`` delegates its governed write to.
+
+    Mirror image of :func:`govern_latest_intraday_assessment`: build the
+    candidate, run the DAILY gate, and persist through the ONE writer only if it
+    passes. Every owner read is an injectable seam, and a failure in any single
+    owner degrades to a WITHHELD verdict rather than a crash or a fabricated
+    decision.
+
+    It performs no approval, creates no order/fill/order-plan, promotes no
+    model, activates no sleeve, runs no close and advances no operational mark.
+    """
+    if confirm != GOVERNED_DECISION_CONFIRM_TOKEN:
+        return {"owner": GOVERNANCE_GATE_OWNER, "recorded": False,
+                "status": "GOVERNED_DECISION_CONFIRMATION_REQUIRED",
+                "confirm_required_token": GOVERNED_DECISION_CONFIRM_TOKEN,
+                "safety": _governed_safety()}
+
+    lds = dict(loaders or {})
+    warnings: list[str] = []
+
+    def _get(name: str, supplied: Any, default_fn: Callable) -> Any:
+        if supplied is not None:
+            return supplied
+        fn = lds.get(name, default_fn)
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - one owner failing never crashes
+            warnings.append("%s unavailable: %s" % (name, str(exc)[:160]))
+            return None
+
+    # The DAILY producer deliberately does NOT re-read live portfolio state.
+    # Its evidence is the terminal manifest plus the immutable reassessment the
+    # run bound; the anchors come from the manifest and the identity hashes come
+    # from the reassessment's own binding. Re-reading the live document here
+    # would make a session-terminal decision depend on whatever the portfolio
+    # looks like at write time — and, in a hermetic run, would reach a
+    # production store the caller had explicitly pinned away from.
+    ps = portfolio_state
+    man = drc_manifest or {}
+
+    def _book() -> Any:
+        return (((ps or {}).get("active_book") or {}).get("book_id")
+                or man.get("active_book_id"))
+
+    def _session() -> Any:
+        return (((ps or {}).get("dates") or {}).get("eligible_market_date")
+                or man.get("eligible_market_date"))
+
+    def _anchor() -> dict:
+        """The book + session this run decided for, taken from its manifest.
+
+        Handed to the owner reads below so they resolve THIS session's artifacts
+        without each independently re-loading the live portfolio-state document
+        (a full desk-ledger replay). That read is both expensive and, in a
+        hermetic run, a fall-through to exactly the production store the caller
+        pinned away from. Whatever the reads return is still validated against
+        the manifest by the gate, so the anchor grants nothing.
+        """
+        return {"active_book": {"book_id": _book()},
+                "dates": {"eligible_market_date": _session()}}
+
+    def _load_reassessment():
+        # The reassessment store is an injectable seam: a hermetic caller that
+        # passes a research root must never fall through to the production one.
+        from paper_trader.api import portfolio_reassessment as prs
+        return prs.load_portfolio_reassessment(
+            portfolio_state=ps if ps is not None else _anchor(),
+            reassessment_dir=reassessment_dir)
+
+    def _load_summary():
+        return realloc.load_proposal_summary(
+            active_book_id=_book(), eligible_market_date=_session(),
+            reallocation_dir=reallocation_dir)
+
+    def _load_constrained():
+        return realloc.load_constrained_reallocation(
+            portfolio_state=ps if ps is not None else _anchor(),
+            reallocation_dir=reallocation_dir, decision_dir=decision_dir)
+
+    rs = _get("reassessment", reassessment, _load_reassessment)
+    summ = _get("proposal_summary", proposal_summary, _load_summary)
+    # Transition economics belong to a PROPOSAL. A run whose manifest names none
+    # built no target, so there is nothing to price and the (expensive) target
+    # read is not performed — a CURRENT_NO_CHANGE decision must not carry, or
+    # wait for, the economics of a transition that was never proposed.
+    _built_a_proposal = bool(man.get("reallocation_proposal_hash")
+                             or man.get("reallocation_proposal_id"))
+    if constrained is not None or "constrained" in lds or _built_a_proposal:
+        con = _get("constrained", constrained, _load_constrained)
+    else:
+        con = None
+    # Like the portfolio state above, the scoring identity is HANDED OVER by the
+    # producer (the run computed it) and never re-derived here: rebuilding it
+    # would re-run the scoring engine against the canonical universe store —
+    # slow in production, and in a hermetic run a read of exactly the store the
+    # caller pinned away from. A producer that supplies none records none.
+    sc = scoring_identity
+
+    def _load_hoc_binding():
+        """R54.3 parity — PROVE the opportunity-cost dependency through its owner.
+
+        Lookup is by EXACT id, never "latest for the session", so a stale
+        candidate can never be validated by a newer artifact that merely shares
+        its session.
+        """
+        from paper_trader.api import holding_opportunity_cost as hocm
+        prov = _merge_reassessment_provenance(rs)
+        claimed = {
+            "hoc_artifact_id": (man.get("opportunity_cost_artifact_id")
+                                or prov.get("hoc_artifact_id")),
+            "hoc_assessment_hash": (man.get("opportunity_cost_assessment_hash")
+                                    or prov.get("hoc_assessment_hash")),
+            "hoc_assessment_evidence_hash": prov.get(
+                "hoc_assessment_evidence_hash"),
+            "hoc_persisted": prov.get("hoc_persisted"),
+            "hoc_active_book_id": _book(),
+            "hoc_eligible_market_date": _session(),
+        }
+        return hocm.resolve_binding(
+            binding=claimed, active_book_id=claimed["hoc_active_book_id"],
+            eligible_market_date=claimed["hoc_eligible_market_date"],
+            hoc_dir=hoc_dir)
+
+    hb = _get("hoc_binding", hoc_binding, _load_hoc_binding)
+
+    candidate = build_daily_cycle_candidate(
+        portfolio_state=ps, drc_manifest=man, reassessment=rs,
+        proposal_summary=summ, constrained=con, scoring_identity=sc,
+        hoc_binding=hb, now=now)
+    # The STANDING authority is the persisted ledger — the ONE history. The
+    # legacy projection is NOT consulted here: it describes a session that was
+    # never written, and this call is precisely what writes one.
+    standing = load_governed_decision_record(
+        active_book_id=(candidate.get("identity") or {}).get("active_book_id"),
+        decision_dir=decision_dir)
+    gate = evaluate_daily_cycle_governance(
+        candidate=candidate, drc_manifest=man, portfolio_state=ps,
+        reassessment=rs, proposal_summary=summ, constrained=con,
+        current_governed=standing)
+
+    persisted = None
+    if gate.get("eligible"):
+        persisted = record_governed_decision(
+            candidate=candidate, gate=gate,
+            provenance=PROV_GOVERNED_DAILY_CYCLE,
+            confirm=GOVERNED_DECISION_CONFIRM_TOKEN,
+            decision_dir=decision_dir, now=now)
+    return {
+        "owner": GOVERNANCE_GATE_OWNER,
+        "gate_version": GOVERNANCE_GATE_VERSION,
+        "producer": PROV_GOVERNED_DAILY_CYCLE,
+        "producer_contract_version": DAILY_PRODUCER_CONTRACT_VERSION,
+        "verdict": gate.get("verdict"),
+        "eligible": bool(gate.get("eligible")),
+        "recorded": bool((persisted or {}).get("recorded")),
+        "record": (persisted or {}).get("record"),
+        "persist_status": (persisted or {}).get("status"),
+        "candidate": candidate,
+        "gate": gate,
+        "standing_decision_id": (standing or {}).get("record_id"),
+        "warnings": warnings,
+        "safety": _governed_safety(),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # The governed READ — which recommendation is authoritative RIGHT NOW
 # --------------------------------------------------------------------------- #
@@ -2420,14 +3220,21 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
                                           proposal_summary: Optional[dict],
                                           constrained: Optional[dict] = None
                                           ) -> Optional[dict]:
-    """The DRC-governed decision, PROJECTED into the governed-decision shape.
+    """LEGACY READ-ONLY compatibility projection (see R54.4).
 
-    Release 29.5 already declares when a decision is governed by the Daily
-    Research Cycle (``governed_research_evidence_current`` — a validated run
-    manifest). That decision is not written into this lane's ledger, so it is
-    projected here — verbatim, marked ``persisted: False`` — purely so the ONE
-    ordering function can compare it with an intraday promotion. Nothing is
-    decided, re-derived or written.
+    Release 29.5 declares when a decision is governed by the Daily Research
+    Cycle (``governed_research_evidence_current`` — a validated run manifest).
+    Before R54.4 that decision was never written into this lane's ledger, so it
+    had to be projected here — verbatim, marked ``persisted: False`` — purely so
+    the ONE ordering function could compare it with an intraday promotion.
+
+    Since R54.4 the daily cycle DELEGATES its governed write to this module
+    (:func:`govern_daily_cycle_decision`), so a session run under the current
+    runtime has a real ledger row. This projection therefore exists only to keep
+    sessions that completed BEFORE R54.4 readable, and
+    :func:`load_governed_portfolio_decision` suppresses it as soon as a
+    persisted daily record exists for the same book and session. It writes
+    nothing, fabricates no historical row and rewrites no history.
     """
     wf = workflow or {}
     rcs = wf.get("research_cycle_state") or {}
@@ -2468,18 +3275,15 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
             "governed_provenance": PROV_GOVERNED_DAILY_CYCLE,
         })
     outcome = con.get("outcome") or summ.get("reallocation_outcome")
-    if str(rs_state or "") == "CURRENT_NO_CHANGE":
-        decision = GD_NO_CHANGE
-    elif sup.get("superseded"):
+    if sup.get("superseded") and str(rs_state or "") != "CURRENT_NO_CHANGE":
         # The standing proposal is not this assessment's; its outcome projects
         # nothing. Fail closed rather than fabricate a decision word.
         decision = None
-    elif outcome == _OUTCOME_PROPOSAL_READY:
-        decision = GD_CHANGE_RECOMMENDED
-    elif outcome == _OUTCOME_HOLD:
-        decision = GD_HOLD_CURRENT_BOOK
     else:
-        decision = None
+        # R54.4 — the SAME decision-word contract the daily producer writes with,
+        # so the legacy projection and a persisted daily row can never disagree.
+        decision = _governed_decision_word(reassessment_state=rs_state,
+                                           outcome=outcome)
     stamp = (rs.get("artifact") or {}).get("generated_at")
     book_id = ((rs.get("active_book") or {}).get("book_id")
                or (rs.get("proposal_binding") or {}).get("active_book_id"))
@@ -2513,9 +3317,13 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
         "governed_manifest_run_id": rcs.get("governed_manifest_run_id"),
         "persisted": False,
         "projected": True,
-        "projection_note": ("Projected from the Release-29.5 governed-evidence "
-                            "contract so the ONE ordering function can compare "
-                            "it with an intraday promotion. Not a ledger row."),
+        # R54.4 — this row is a READ-ONLY legacy shim, not a ledger row. It is
+        # retired for any session the daily producer has since written.
+        "legacy_compatibility_projection": True,
+        "projection_note": ("LEGACY (pre-R54.4): projected from the Release-29.5 "
+                            "governed-evidence contract for a session whose daily "
+                            "cycle never delegated a governed write. Not a ledger "
+                            "row; suppressed once a persisted daily record exists."),
         "manual_review_required": bool(decision == GD_CHANGE_RECOMMENDED),
         "safety": _governed_safety(),
     }
@@ -2539,6 +3347,22 @@ def load_governed_portfolio_decision(*, workflow: Optional[dict] = None,
     projected = project_governed_daily_cycle_decision(
         workflow=workflow, reassessment=reassessment,
         proposal_summary=proposal_summary, constrained=constrained)
+    # R54.4 — the legacy projection is a compatibility shim for sessions that
+    # completed before the daily cycle delegated its write. The moment a real
+    # daily ledger row exists for that book and session, the row IS the decision
+    # and the projection is retired: two descriptions of one decision must never
+    # both be candidates for authority.
+    projection_suppressed = False
+    if projected and projected.get("decision"):
+        pid = projected.get("identity") or {}
+        row = load_persisted_daily_decision(
+            active_book_id=(projected.get("active_book_id")
+                            or pid.get("active_book_id")),
+            eligible_market_session=projected.get("eligible_market_session"),
+            decision_dir=decision_dir)
+        if row:
+            projection_suppressed = True
+            projected = None
     candidates = [r for r in (persisted, projected) if r and r.get("decision")]
     latest = (max(candidates, key=governed_decision_ordering_key)
               if candidates else None)
@@ -2566,6 +3390,13 @@ def load_governed_portfolio_decision(*, workflow: Optional[dict] = None,
         "persisted": bool((latest or {}).get("persisted", True)),
         "persisted_record_present": bool(persisted),
         "projected_daily_cycle_present": bool(projected),
+        # R54.4 — true when a real daily ledger row retired the legacy
+        # projection for that session (the forward-going state).
+        "legacy_daily_projection_suppressed": projection_suppressed,
+        "legacy_projection_note": (
+            "The daily cycle delegates its governed write since R54.4; the "
+            "read-time projection survives only for sessions completed before "
+            "that release and is suppressed once a ledger row exists."),
         "live_signal_is_never_authoritative": True,
         "non_governed_provenance": PROV_LIVE_PRE_DRC_SIGNAL,
         "approval_required_token": CONFIRM_TOKEN,
@@ -2584,6 +3415,23 @@ DECISION_AUTHORITY_ORDER = (
     "A governed intraday decision participates only through the R54.1 gate + the "
     "one ordering function; a non-governed / governance-withheld intraday research "
     "result never supersedes an authoritative governed decision.",
+    # R54.4 — DAILY and INTRADAY are PRODUCERS of one governed decision, never
+    # competing authorities. Both write through the same writer and are ordered
+    # by the same key: (eligible session, decided_at, provenance rank, identity
+    # hash). Neither lane wins by being a lane.
+    "4. producer (DAILY_DRC vs INTRADAY_EVENT) is provenance, never authority: "
+    "both are ordered by (eligible session, decision timestamp, provenance rank, "
+    "identity hash) under the ONE ordering function.",
+    "5. on an EXACT tie of session AND decision timestamp, the session-terminal "
+    "GOVERNED_DAILY_CYCLE outranks a GOVERNED_INTRADAY promotion, because the "
+    "session-terminal cycle's evidence base strictly contains the intraday "
+    "cycle's (full scoring refresh, opportunity cost, reassessment, proposal and "
+    "forward evidence, versus a bounded event-driven reassessment). This is a "
+    "deterministic TIE-BREAK only; it never reorders decisions that differ in "
+    "time, so a later intraday decision still outranks an earlier daily one.",
+    "6. identical evidence identity in either lane is the SAME decision: it is "
+    "reused, never appended twice, so a daily and an intraday producer can never "
+    "create two authorities for one body of evidence.",
 )
 
 
@@ -2642,6 +3490,12 @@ def resolve_decision_authority(*, assessment: Optional[dict],
         "current_authoritative_session": authority_session,
         "current_authoritative_decision_type": authority_type,
         "current_authoritative_decision_owner": authority_owner,
+        # R54.4 — WHICH PRODUCER produced the standing decision. Provenance is
+        # reported truthfully and is never authority: the ordering above decides
+        # that. Read verbatim from the governed lane; never re-derived here.
+        "current_authoritative_decision_producer": gov.get("provenance"),
+        "producer_vocabulary": list(GOVERNED_PROVENANCE_VOCAB),
+        "producer_label": _PRODUCER_LABELS.get(gov.get("provenance")),
         "current_reviewable_proposal_id": (
             summ.get("reallocation_proposal_id") if reviewable else None),
         "superseded_proposal_ids": superseded_ids,
@@ -2681,4 +3535,11 @@ __all__ = [
     "governed_decision_ordering_key", "project_governed_daily_cycle_decision",
     "load_governed_portfolio_decision", "candidate_identity_hash",
     "govern_latest_intraday_assessment", "ZERO_BASE_INCUMBENCY_POLICY",
+    # R54.4 — the DAILY producer contract + the ledger reader that retires the
+    # legacy read-time projection.
+    "build_daily_cycle_candidate", "evaluate_daily_cycle_governance",
+    "govern_daily_cycle_decision", "load_persisted_daily_decision",
+    "DAILY_PRODUCER_CONTRACT_VERSION", "DAILY_TERMINAL_COMPLETE_STATES",
+    "WR_DAILY_MANIFEST_NOT_GOVERNED", "DAILY_GATE_ELIGIBLE",
+    "DAILY_GATE_WITHHELD",
 ]

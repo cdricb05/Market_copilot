@@ -3390,3 +3390,66 @@ is compared to `True` explicitly - because for "does this artifact exist?" the
 only honest answers are a proof and a refusal. The event cycle publishes the
 persistence outcome it obtained, and a refused write stays visible AS a refused
 write rather than being smoothed over.
+
+### D-R54.4-1 - a decision that is recomputed on read was never made (CONFIRMED)
+
+**Decision.** A governed portfolio decision must be an APPENDED, immutable
+ledger row. Deriving it at read time from mutable upstream inputs is not
+persistence, and the Daily Research Cycle may no longer leave its
+session-terminal conclusion to be re-projected. It DELEGATES the write to
+`api.portfolio_decision` and is a PRODUCER, never an owner.
+
+**Evidence.** Read-only against production on 2026-09-03:
+`D:\Stock_Prediction_app_data\portfolio_decisions\` contained only the MANUAL
+`decisions.json` lane (last written 2026-08-12); `governed_decisions.json` did
+not exist. The standing governed decision was therefore 100% projection, while
+the manifest `drc_2026-09-02_15abfb01856f` (COMPLETE) carried a real terminal
+`CURRENT_NO_CHANGE` conclusion that existed nowhere as a record.
+
+**Consequence.** Three defects close at once: the standing decision stops
+changing retroactively when an upstream input moves; it gains a `record_id` that
+a later decision can name in `supersedes_decision_id`; and the intraday writer
+stops having to rebuild the daily projection just to learn what it is
+superseding. The pre-R54.4 projection survives ONLY as a declared read-only
+legacy shim, retired per session by `load_persisted_daily_decision`. Nothing is
+back-filled: fabricating a historical ledger row for a session that never wrote
+one would be the same lie in the opposite direction.
+
+### D-R54.4-2 - producer is provenance, never authority (CONFIRMED)
+
+**Decision.** DAILY_DRC and INTRADAY_EVENT are two PRODUCERS of one concept.
+Neither lane wins by being a lane. Both write through the ONE writer and are
+ordered by the ONE key `(eligible session, decided_at, provenance rank, identity
+hash)`. `decided_at` is the EVIDENCE's own stamp - the reassessment artifact's
+`generated_at`, falling back to the manifest's `completed_at` - never the
+writing process's wall clock.
+
+**Consequence.** The pre-existing DAILY-over-INTRADAY rank is PRESERVED but
+demoted in status to what it always mathematically was: a deterministic
+tie-break for an exact collision of session AND timestamp, justified because the
+session-terminal evidence base strictly CONTAINS the intraday one (full scoring
+refresh, opportunity cost, reassessment, proposal, forward evidence versus a
+bounded event-driven reassessment). It never reorders decisions that differ in
+time, so a later intraday decision still outranks an earlier daily one. No
+arbitrary clock race can decide capital authority. Surfaces report the producer
+truthfully (`current_authoritative_decision_producer`, `producer_label`) and
+separately from authority; the UI compares no provenance of its own.
+
+### D-R54.4-3 - identical evidence in either lane is ONE decision (CONFIRMED)
+
+**Decision.** Both producers share ONE identity contract (`_governed_identity`)
+and ONE conclusion contract (`_governed_decision_word`), so the same evidence
+observed by either lane computes the same `candidate_identity_hash` and the same
+decision word BY CONSTRUCTION.
+
+**Consequence.** The writer's existing duplicate-detection becomes meaningful
+ACROSS lanes: a daily run that reproduces an intraday decision's exact evidence
+identity returns `REUSED_EXISTING` instead of appending a rival authority. This
+is what makes "one authority per body of evidence" a structural property rather
+than a convention. The identity deliberately excludes both run ids and every
+wall clock, because two producers that reach the same conclusion from the same
+evidence made the same decision - re-deciding it would be churn dressed as
+governance. The intraday DECISION-WORD mapping is deliberately NOT unified with
+the daily one: the daily producer may conclude `CURRENT_NO_CHANGE` for a
+session, while an intraday "nothing to do" is the absence of a new authoritative
+answer, not a new one.

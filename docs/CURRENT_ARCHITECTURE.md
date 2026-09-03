@@ -624,6 +624,49 @@ flowchart TD
   fact is compared to `True` explicitly, so an unproven dependency withholds.
   No historical artifact is rewritten and no missing evidence is fabricated.
   Guard: `check_release54_3_hoc_evidence_versioning` (strict, blocking).
+- **One governed portfolio decision writer (R54.4, LANDED):** the governed
+  portfolio decision is ONE concept with ONE writer, ONE ledger, ONE ordering
+  and TWO producers. Before R54.4 the intraday lane APPENDED immutable rows
+  while the session-terminal DAILY decision was never written at all — it lived
+  inside the DRC run manifest and was RE-DERIVED on every read by
+  `project_governed_daily_cycle_decision` from three separately mutable inputs.
+  Production proof: `portfolio_decisions/` held only the MANUAL `decisions.json`
+  lane; `governed_decisions.json` did not exist, so the standing governed
+  decision was 100% projection — recomputed, retroactively mutable, with no
+  record id to name in a lineage, and rebuilt by the intraday writer itself just
+  to discover what it was superseding. `api.daily_research_cycle` is now a
+  PRODUCER: after its manifest is durably persisted and read-back verified it
+  calls `_delegate_governed_decision` → `pdec.govern_daily_cycle_decision`,
+  which builds a candidate (`build_daily_cycle_candidate`), runs the DAILY gate
+  (`evaluate_daily_cycle_governance`, 19 checks asking the session-terminal
+  question — validated terminal-COMPLETE manifest, bound reassessment, exact
+  retrievable HOC artifact, consistent proposal binding — with the one new code
+  `DAILY_MANIFEST_NOT_GOVERNED` and every other code reused verbatim) and
+  persists through the SAME `record_governed_decision` under
+  `provenance=GOVERNED_DAILY_CYCLE`. Both producers share ONE identity contract
+  (`_governed_identity`, 16 evidence fields, excluding every run id and wall
+  clock) and ONE conclusion contract (`_governed_decision_word`), so identical
+  evidence in either lane yields the same `candidate_identity_hash` and is
+  REUSED rather than appended twice — daily and intraday can never create two
+  authorities for one body of evidence. `decided_at` is the evidence's own
+  stamp, never the writer's clock. `DECISION_AUTHORITY_ORDER` now states that
+  producer is provenance and NEVER authority, that DAILY-over-INTRADAY is a
+  deterministic EXACT-TIE break only (the session-terminal evidence base
+  strictly contains the intraday one) which never reorders decisions differing
+  in time, and that identical evidence identity is the same decision.
+  `resolve_decision_authority` reports
+  `current_authoritative_decision_producer` + `producer_label` ("Daily DRC" /
+  "Governed intraday event") truthfully and separately from authority. LEGACY:
+  the read-time projection survives ONLY as a declared read-only shim
+  (`legacy_compatibility_projection`) for pre-R54.4 sessions and is retired per
+  session by `load_persisted_daily_decision`
+  (`legacy_daily_projection_suppressed`); no history is rewritten and no
+  historical row is fabricated. The delegation is one-way (the decision names
+  the run; the manifest is never rewritten), governance never breaks research (a
+  decision failure is a warning on a still-COMPLETE run), and the daily lane has
+  no order / fill / broker / promotion / close / scheduler reach at all. Daily
+  Close was NOT merged and is unchanged. Guard:
+  `check_release54_4_single_governed_decision_writer` (18 blocking fields).
 - **Post-close governed-research obligation (R54.2.2, LANDED):**
   `build_research_obligation()` publishes the ONE post-close obligation —
   `research_obligation` (+ `research_obligation_state`,

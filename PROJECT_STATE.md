@@ -1,7 +1,104 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R54.3 - SAME-SESSION HOC EVIDENCE VERSIONING +
+- **Updated by phase:** **R54.4 - ONE GOVERNED PORTFOLIO DECISION WRITER: DAILY
+  DRC + INTRADAY AUTHORITY CONSOLIDATION (single agent, no subagents, Windows
+  PowerShell only).** Built over the committed R54.3 head `e563146`. Full
+  narrative: `docs/RELEASE54_4_SINGLE_GOVERNED_DECISION_WRITER.md`.
+  **The defect (proven read-only against the production stores, Sep 3):** the
+  governed portfolio decision is ONE business concept that had TWO persistence
+  realities. An intraday decision was APPENDED to an immutable ledger with an
+  identity hash and a supersession lineage; the session-terminal DAILY decision
+  was **never written at all**. It lived only inside the Daily Research Cycle
+  run manifest and was RE-DERIVED on every read by
+  `project_governed_daily_cycle_decision` from three separately mutable inputs
+  (the workflow's `research_cycle_state`, the current reassessment, the current
+  proposal summary). Production evidence: `portfolio_decisions/` held only
+  `decisions.json` (the MANUAL operator lane, last written 2026-08-12) -
+  **`governed_decisions.json` did not exist**, so 100% of the standing governed
+  decision was projection. The DRC manifest `drc_2026-09-02_15abfb01856f`
+  (COMPLETE) carried a real terminal conclusion,
+  `portfolio_reassessment_decision = CURRENT_NO_CHANGE` with
+  `reallocation_proposal_state = NOT_REQUIRED`, that existed nowhere as a
+  decision record. Three consequences: a decision recomputed on read is not a
+  decision the system ever MADE (it changes retroactively whenever an upstream
+  input moves); it has no record id, so nothing can name it in a lineage; and
+  the intraday writer had to REBUILD the projection just to discover what it
+  was superseding - the clearest possible signature of parallel ownership.
+  **The repair (append-only, forward-going, no history rewritten):** the Daily
+  Research Cycle becomes a PRODUCER and DELEGATES its governed write to the ONE
+  owner. New daily producer contract inside `api.portfolio_decision`:
+  `build_daily_cycle_candidate` / `evaluate_daily_cycle_governance` (19 checks,
+  the session-terminal question, one new code
+  `DAILY_MANIFEST_NOT_GOVERNED`, every other code reused verbatim) /
+  `govern_daily_cycle_decision`, all persisting through the SAME
+  `record_governed_decision` writer under `provenance=GOVERNED_DAILY_CYCLE`.
+  Both producers now share ONE identity contract (`_governed_identity`) and ONE
+  conclusion contract (`_governed_decision_word`), so identical evidence in
+  either lane collapses to the SAME `candidate_identity_hash` and the writer
+  recognises it as a duplicate instead of appending a rival authority.
+  `DECISION_AUTHORITY_ORDER` gained three explicit clauses: producer is
+  provenance and never authority; the DAILY-over-INTRADAY precedence is a
+  deterministic EXACT-TIE break only (justified because the session-terminal
+  evidence base strictly contains the intraday one) and never reorders
+  decisions that differ in time; identical evidence identity is the same
+  decision. `decided_at` is the EVIDENCE's own stamp, never the writer's wall
+  clock. The pre-R54.4 read-time projection survives ONLY as a declared
+  read-only legacy shim and is RETIRED per session by the new
+  `load_persisted_daily_decision` (`legacy_daily_projection_suppressed`).
+  Delegation happens only AFTER the manifest is durable and read-back verified,
+  and is one-way: the decision row names the run, the manifest is never
+  rewritten to name the decision. Governance never breaks research (a decision
+  failure is a warning on a still-COMPLETE run); research never loosens
+  governance (the gate fails closed). Daily Close was NOT merged and is
+  unchanged. Guard: `check_release54_4_single_governed_decision_writer` (18
+  blocking fields) + `tests/test_release54_4_single_governed_decision_writer.py`
+  (51 tests, including two NEGATIVE probes that prove the guard actually fails
+  when the producer stops delegating or a second writer appears).
+  **Live read-only verification (backend NOT restarted, still on
+  the R54.3 runtime):** replaying the REAL production manifest
+  `drc_2026-09-02_15abfb01856f` through the new daily producer yields the
+  correct word `CURRENT_NO_CHANGE` and WITHHOLDS 17/19 on
+  `HOC_ARTIFACT_NOT_PERSISTED` / `HOC_ARTIFACT_IDENTITY_MISMATCH` - the same
+  R54.3 dependency that genuinely does not exist in the store, so fail-closed is
+  the correct answer. Re-running with the artifact that DOES exist
+  (`hoc_..._702c599ee5b3`, retrievability proven by its own owner) passes 19/19
+  and persists `gdec_2026-09-02_alpha_paper_book_1_fbefad7bccb6` -
+  `CURRENT_NO_CHANGE`, `GOVERNED_DAILY_CYCLE`, `decided_at` = the reassessment
+  artifact's own stamp `23:51:50.475243Z`, `proposal_hash`/`target_outcome` NULL,
+  manual review not required - with an identical replay returning
+  `REUSED_EXISTING` on a one-row ledger, Lane A reading it as `Daily DRC`, and
+  the production decision root unchanged (`decisions.json`, `index.json`).
+  **Two real defects were found BY that live replay and fixed:** (1) the daily
+  candidate sourced its proposal identity from the LIVE reallocation key, so
+  production's stale proposal from an earlier event cycle leaked into a
+  `CURRENT_NO_CHANGE` identity - exactly the R54.2.3.2 laundering defect; the
+  manifest is now the authority on which proposal the run built, and an
+  unrequested proposal's hash and outcome never enter the identity; (2) the
+  daily lane recorded no `economic_state_hash` at all (it performs no live
+  portfolio read), so identical evidence would not have collapsed across lanes -
+  the reassessment's own bound economic identity is now the shared fallback.
+  (3) the delegation reached PRODUCTION stores from hermetic runs - it default-
+  loaded portfolio state, rebuilt universe scoring, and let the reassessment /
+  target reads each re-load the live portfolio-state document (a full desk-ledger
+  replay), costing ~11s per cycle and taking the DRC suite to 5 minutes; the
+  daily producer now performs NO live portfolio read, anchors book/session to
+  the manifest, receives the run's OWN scoring identity from the producer, and
+  skips the target read entirely when the manifest names no proposal (~2.6s, no
+  production store touched, and the gate still validates every read against the
+  manifest). Two smaller live findings were also corrected: the gate's manifest-vs-candidate
+  session check became tautological once the candidate was anchored to the
+  manifest, so it now performs the CROSS-OWNER comparison that actually has to
+  hold (manifest session vs the REASSESSMENT's session); and the daily gate was
+  stamping rows with the INTRADAY verdict literal, so the daily producer gained
+  its own verdict words (`GOVERNED_DAILY_DECISION_ELIGIBLE` /
+  `DAILY_DECISION_WITHHELD`) in the same vocabulary, with the intraday words
+  unchanged and the writer echoing the refusing gate's own word.
+  One pre-existing audit rule was corrected in place:
+  `projection_prefers_assessment_decision` pinned a source LITERAL that the
+  legitimate de-duplication moved, so it now pins the CONCEPT (one owner of the
+  preference, actually consumed by the projection).
+- **Prior phase:** **R54.3 - SAME-SESSION HOC EVIDENCE VERSIONING +
   RETRIEVABLE GOVERNANCE BINDING (single agent, no subagents, Windows
   PowerShell only).** Built over the committed R54.2.4 head `3d2d311`. Full
   narrative: `docs/RELEASE54_3_SAME_SESSION_HOC_EVIDENCE_VERSIONING.md`.
@@ -51,7 +148,7 @@
   assessment differing ONLY in the document-wide `portfolio_state_hash` is
   `REUSED_EXISTING`, not a conflict - the Stage-21 trap), with the genuine
   determinism conflict pinned separately in `test_52b`.
-- **Prior phase:** **R54.2.4 - REALLOCATION PROPOSAL COHERENCE +
+- **Earlier phase:** **R54.2.4 - REALLOCATION PROPOSAL COHERENCE +
   CURRENT-DECISION PRESENTATION + FIRST-CLASS INTRADAY REASSESSMENT VISIBILITY
   (single agent, no subagents, Windows PowerShell only).** Built over the
   committed R54.2.3.2 head `e5dc8c6f9`. Full narrative:

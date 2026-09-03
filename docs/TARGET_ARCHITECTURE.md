@@ -949,6 +949,43 @@ Permanent boundaries:
   raised only once measured `observation_to_governed_seconds` proves detection
   is the binding constraint.
 
+## R54.4 boundary — ONE governed-decision writer, TWO producers
+
+The governed portfolio decision is ONE business concept, and a producer is never
+an authority.
+
+* `api.portfolio_decision` is the ONE writer (`record_governed_decision`), the
+  ONE ledger (`governed_decisions.json` + `governed_index.json`) and the ONE
+  ordering (`governed_decision_ordering_key`). A second writer, a second store,
+  a second index or a second ordering anywhere in `api/` or `engine/` is a build
+  failure.
+* There are exactly TWO producers — the session-terminal Daily Research Cycle
+  (`GOVERNED_DAILY_CYCLE`) and the live intraday event cycle
+  (`GOVERNED_INTRADAY`). Each owns its own evidence and its own admissibility
+  gate; neither owns persistence, ordering, supersession or authority. A future
+  producer (a weekly cycle, a manual re-run, a recovery path) adds a provenance
+  value and a gate — never a store.
+* A governed decision may never be DERIVED AT READ TIME from mutable upstream
+  inputs. A conclusion that is recomputed on read is not a decision the system
+  made: it changes retroactively, it has no record id, and nothing can name it
+  in a lineage. Read paths resolve rows; they never re-decide.
+* Both producers share ONE identity contract and ONE conclusion contract, so
+  identical evidence in either lane is recognised as the SAME decision and
+  reused. Identity covers evidence only and may never absorb a run id or a wall
+  clock; `decided_at` is the evidence's own stamp, so no clock race can decide
+  capital authority.
+* Producer precedence exists ONLY as a deterministic tie-break for an exact
+  collision of session AND timestamp. It may never be widened into "daily always
+  wins" or "intraday always wins".
+* Legacy compatibility is read-only and explicit. A projection that stands in
+  for an unwritten historical decision must declare itself as such and must be
+  retired the moment a real row exists. History is never rewritten, and a
+  historical row is never fabricated.
+* The separation from execution is absolute: a governed decision — from either
+  producer — creates no order, fill, order plan or approval, advances no
+  operational mark, and never runs the close. `api.daily_close` remains a
+  separate owner and workflow.
+
 ## R54.2 boundary — ONE reassessment history, versioned on EVIDENCE
 
 A session may hold MANY immutable assessments and exactly ONE history.

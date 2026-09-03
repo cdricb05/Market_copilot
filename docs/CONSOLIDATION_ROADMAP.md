@@ -1437,4 +1437,38 @@ unchanged.
 - Guarded by `check_release54_3_hoc_evidence_versioning` (18 strict-blocking
   invariants) and `tests/test_release54_3_same_session_hoc_versioning.py` (61).
 
-R54.4 remains the next slice, unchanged.
+## R54.4 - one governed portfolio decision writer (LANDED)
+
+- Consolidates the DAILY and INTRADAY decision paths onto ONE writer, ONE
+  ledger, ONE ordering and ONE history. No new decision framework, no new store,
+  no new engine, no new route.
+- Closes the last parallel-ownership gap in the decision lane: the intraday lane
+  APPENDED immutable rows while the session-terminal DAILY decision was never
+  written at all - it was RE-DERIVED on every read from three separately mutable
+  inputs. Proven read-only against production: `governed_decisions.json` did not
+  exist, so the standing governed decision was 100% projection.
+- `api.daily_research_cycle` becomes a PRODUCER and delegates its governed write
+  (`_delegate_governed_decision` -> `pdec.govern_daily_cycle_decision`) only
+  after its manifest is durably persisted and read-back verified. The handoff is
+  one-way: the decision row names the run; the manifest is never rewritten.
+- New daily producer contract inside the canonical owner:
+  `build_daily_cycle_candidate`, `evaluate_daily_cycle_governance` (19 checks,
+  one new code `DAILY_MANIFEST_NOT_GOVERNED`, every other code reused verbatim)
+  and `govern_daily_cycle_decision`, all persisting through the SAME
+  `record_governed_decision`.
+- Both producers share ONE identity contract (`_governed_identity`) and ONE
+  conclusion contract (`_governed_decision_word`), so identical evidence in
+  either lane collapses to one authority by construction.
+- The pre-R54.4 read-time projection survives ONLY as a declared read-only
+  legacy shim, retired per session by `load_persisted_daily_decision`. No
+  history is rewritten and no historical row is fabricated; the migration is
+  forward-going.
+- Guarded by `check_release54_4_single_governed_decision_writer` (18
+  strict-blocking invariants) and
+  `tests/test_release54_4_single_governed_decision_writer.py` (51, including two
+  negative probes proving the guard fails when violated).
+
+Next: the operational-book cutover - letting an approved governed CHANGE be
+named BY ID by the Stage-19 order plan that implements it, so the
+decision -> execution lineage becomes end-to-end provable. Execution itself
+remains manual, preview-first and separately authorised.

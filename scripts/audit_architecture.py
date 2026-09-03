@@ -11849,10 +11849,18 @@ def check_release54_2_3_2_decision_supersession(files: list[Path]) -> dict:
         "REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)" in ws_src)
 
     # (e) the governed projection prefers the assessment's own word.
+    #     R54.4 — that preference is now owned by ONE shared decision-word
+    #     contract which BOTH the daily producer and the legacy projection
+    #     consume, so this rule pins the CONCEPT (a single owner of the
+    #     preference, actually consumed by the projection) instead of a literal
+    #     that a legitimate de-duplication would move.
     projection_from_assessment = (
         'GD_NO_CHANGE = "CURRENT_NO_CHANGE"' in pd_src
         and "GD_NO_CHANGE)" in pd_src
-        and 'if str(rs_state or "") == "CURRENT_NO_CHANGE":' in pd_src)
+        and "def _governed_decision_word(" in pd_src
+        and 'if str(reassessment_state or "") == "CURRENT_NO_CHANGE":' in pd_src
+        and pd_src.count("        return GD_NO_CHANGE") == 1
+        and "_governed_decision_word(reassessment_state=rs_state," in pd_src)
 
     # (f) the presentation renders verbatim and gates the hero fallback.
     presentation_renders = (
@@ -12186,6 +12194,194 @@ def check_release54_3_hoc_evidence_versioning(files: list[Path]) -> dict:
         "cycle_persists_hoc_before_reassessment": bool(
             cycle_persists_before_reassessment),
         "ui_derives_hoc_persistence": ui_derives_persistence,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# R54.4 — ONE GOVERNED PORTFOLIO DECISION WRITER.
+#
+# One business concept (the governed portfolio decision) had two persistence
+# realities: intraday decisions were APPENDED to an immutable ledger, while the
+# session-terminal DAILY decision was never written at all and was re-derived on
+# every read from the research manifest. This guard exists to stop that
+# asymmetry returning in either direction: a second writer, a second store, a
+# second ordering, or a producer that quietly becomes an authority again.
+# --------------------------------------------------------------------------- #
+R544_DECISION_OWNER = "api/portfolio_decision.py"
+R544_DAILY_PRODUCER = "api/daily_research_cycle.py"
+#: The governed-decision WRITE + DAILY-PRODUCER surface. Each must be defined
+#: EXACTLY once, in the decision owner, and nowhere else in api/ or engine/.
+R544_WRITER_DEFS = (
+    "def record_governed_decision(",
+    "def govern_daily_cycle_decision(",
+    "def build_daily_cycle_candidate(",
+    "def evaluate_daily_cycle_governance(",
+    "def load_persisted_daily_decision(",
+    "def governed_decision_ordering_key(",
+)
+#: A second governed-decision store or index would mean two histories.
+R544_STORE_TOKENS = ("governed_decisions.json", "governed_index.json",
+                     "_GOVERNED_RECORDS_FILE", "_GOVERNED_INDEX_FILE")
+#: Concepts a PRODUCER may never own. Naming any of these in the daily producer
+#: would mean the Daily Research Cycle had become a decision owner again.
+R544_PRODUCER_FORBIDDEN = (
+    "def record_governed_decision(", "def governed_decision_ordering_key(",
+    "def load_governed_decision_record(", "def candidate_identity_hash(",
+    "def assess_proposal_supersession(", "def evaluate_intraday_governance(",
+    "GOVERNED_DECISION_VOCAB = ", "_PROVENANCE_RANK = ")
+
+
+def _r544_daily_lane(src: str) -> str:
+    """The R54.4 daily-producer section of the decision owner."""
+    marker = "R54.4 - THE DAILY PRODUCER CONTRACT"
+    for m in (marker, marker.replace(" - ", " — ")):
+        if m in src:
+            return src.split(m, 1)[1].split(
+                "\n# The governed READ", 1)[0]
+    return ""
+
+
+def check_release54_4_single_governed_decision_writer(files: list[Path]) -> dict:
+    """R54.4 invariants — ONE writer, ONE ledger, ONE ordering, two producers.
+
+    (a) the governed-decision writer, the daily producer contract and the
+        ordering are defined exactly once, in ``api.portfolio_decision``;
+    (b) there is exactly ONE governed-decision store + index, named only by the
+        decision owner — no second history anywhere in api/ or engine/;
+    (c) the Daily Research Cycle DELEGATES: it names the decision owner, calls
+        the delegation entry point, and defines no writer, store, ordering,
+        identity hash or supersession of its own;
+    (d) BOTH producers write through the same writer, distinguished only by
+        ``provenance``; producer is never authority;
+    (e) the legacy read-time projection is declared legacy and is RETIRED by a
+        persisted daily row (it never competes with a real ledger row);
+    (f) the daily lane decides admissibility only — no economics, and no
+        execution / order / broker / promotion / close / scheduler reach;
+    (g) R54.3 parity: the daily gate fails closed on an unpersisted or
+        unretrievable opportunity-cost dependency;
+    (h) the daily producer never rewrites its persisted manifest to embed the
+        decision — lineage points one way, from the decision to the run;
+    (i) the UI derives no producer, authority or supersession of its own.
+    """
+    pd_src = _read(R544_DECISION_OWNER)
+    drc_src = _read(R544_DAILY_PRODUCER)
+    ui = _read(UI_FILE)
+    lane = _r544_daily_lane(pd_src)
+
+    # (a) + (b) exactly one definition site / one store across api/ + engine/.
+    duplicate_writers: list[str] = []
+    second_stores: list[str] = []
+    for fp in files:
+        rel = _rel(fp).replace("\\", "/")
+        if not (rel.startswith("api/") or rel.startswith("engine/")):
+            continue
+        if rel == R544_DECISION_OWNER:
+            continue
+        body = _read(rel)
+        for d in R544_WRITER_DEFS:
+            if d in body:
+                duplicate_writers.append(f"{rel}:{d}")
+        for t in R544_STORE_TOKENS:
+            if t in body:
+                second_stores.append(f"{rel}:{t}")
+    writer_defs_missing = sorted(d for d in R544_WRITER_DEFS if d not in pd_src)
+
+    # (c) the daily producer delegates and owns nothing decisional.
+    producer_delegates = (
+        '_DECISION_OWNER = "api.portfolio_decision"' in drc_src
+        and "def _delegate_governed_decision(" in drc_src
+        and "pdec.govern_daily_cycle_decision(" in drc_src
+        and 'rec["governed_portfolio_decision"] = delegated' in drc_src)
+    producer_owns_decision_concepts = sorted(
+        t for t in R544_PRODUCER_FORBIDDEN if t in drc_src)
+    # The handoff happens only after the manifest is durable.
+    delegates_after_persist = False
+    if "def _delegate_governed_decision(" in drc_src:
+        delegates_after_persist = (
+            'if str(manifest.get("state") or "") not in _COMPLETED:' in drc_src)
+
+    # (d) both producers, one writer.
+    daily_uses_one_writer = (
+        "provenance=PROV_GOVERNED_DAILY_CYCLE," in pd_src
+        and "provenance=PROV_GOVERNED_INTRADAY," in pd_src
+        and pd_src.count("def record_governed_decision(") == 1)
+    producer_is_not_authority = (
+        "producer (DAILY_DRC vs INTRADAY_EVENT) is provenance, never authority"
+        in pd_src
+        and '"current_authoritative_decision_producer": gov.get("provenance")'
+        in pd_src)
+    # ONE identity contract and ONE decision-word contract, defined once and
+    # consumed by BOTH producers — that is what makes identical evidence in
+    # either lane collapse to the same decision instead of two authorities.
+    shared_identity_contract = (
+        "def _governed_identity(" in pd_src
+        and pd_src.count("_governed_identity(") >= 3
+        and "identity = _governed_identity(" in lane
+        and "def _governed_decision_word(" in pd_src
+        and "_governed_decision_word(" in lane)
+
+    # (e) the legacy projection is legacy, and a real row retires it.
+    projection_is_legacy = (
+        '"legacy_compatibility_projection": True' in pd_src
+        and "LEGACY READ-ONLY compatibility projection" in pd_src)
+    projection_suppressed_by_row = (
+        "projection_suppressed = True" in pd_src
+        and "load_persisted_daily_decision(" in pd_src
+        and '"legacy_daily_projection_suppressed": projection_suppressed'
+        in pd_src)
+
+    # (f) admissibility only; no execution reach in the daily lane.
+    lane_execution_reach = sorted(set(
+        t for t in R541_FORBIDDEN_EXECUTION_TOKENS if t in lane))
+    lane_defines_economics = sorted(set(
+        d for d in R541_FORBIDDEN_CALC_DEFS if d in lane))
+    daily_reason_code_declared = (
+        'WR_DAILY_MANIFEST_NOT_GOVERNED = "DAILY_MANIFEST_NOT_GOVERNED"' in pd_src
+        and "WR_EVIDENCE_INCOMPLETE, WR_DAILY_MANIFEST_NOT_GOVERNED" in pd_src)
+
+    # (g) R54.3 parity in the daily gate.
+    daily_gate_fails_closed = (
+        'ev.get("hoc_artifact_retrievable") is True' in lane
+        and 'ev.get("hoc_artifact_identity_matches") is not False' in lane
+        and "WR_HOC_NOT_PERSISTED" in lane
+        and "WR_HOC_ARTIFACT_MISMATCH" in lane)
+    daily_gate_opens_a_store = sorted(set(
+        t for t in ("load_artifact_by_id", "load_latest_artifact", "read_text",
+                    "json.load", "open(")
+        if t in (lane.split("def evaluate_daily_cycle_governance")[1].split(
+            "\ndef govern_daily_cycle_decision")[0]
+            if "def evaluate_daily_cycle_governance" in lane else "")))
+
+    # (h) the manifest is never rewritten to name the decision.
+    manifest_rewritten_with_decision = bool(
+        "_save_run(rec" in drc_src.split("governed_portfolio_decision")[-1])
+
+    # (i) the UI derives no producer/authority of its own.
+    ui_derives_producer = sorted(set(
+        re.findall(r"GOVERNED_DAILY_CYCLE\s*[!=]==?", ui)
+        + re.findall(r"GOVERNED_INTRADAY\s*[!=]==?", ui)
+        + re.findall(r"provenance\s*[!=]==?\s*[\"']GOVERNED", ui)))
+
+    return {
+        "decision_writer_owner": "api.portfolio_decision",
+        "writer_defs_missing": writer_defs_missing,
+        "duplicate_governed_decision_writers": sorted(set(duplicate_writers)),
+        "second_governed_decision_store": sorted(set(second_stores)),
+        "daily_producer_delegates": bool(producer_delegates),
+        "daily_producer_owns_decision_concepts": producer_owns_decision_concepts,
+        "delegates_only_after_durable_manifest": bool(delegates_after_persist),
+        "both_producers_use_one_writer": bool(daily_uses_one_writer),
+        "producer_is_not_authority": bool(producer_is_not_authority),
+        "shared_identity_contract": bool(shared_identity_contract),
+        "projection_declared_legacy": bool(projection_is_legacy),
+        "projection_retired_by_persisted_row": bool(projection_suppressed_by_row),
+        "daily_lane_execution_reach": lane_execution_reach,
+        "daily_lane_defines_economics": lane_defines_economics,
+        "daily_reason_code_declared": bool(daily_reason_code_declared),
+        "daily_gate_fails_closed_on_hoc": bool(daily_gate_fails_closed),
+        "daily_gate_opens_a_store": daily_gate_opens_a_store,
+        "manifest_rewritten_with_decision": manifest_rewritten_with_decision,
+        "ui_derives_producer_authority": ui_derives_producer,
     }
 
 
@@ -14000,6 +14196,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_4_reallocation_coherence(files),
         "release54_3_hoc_evidence_versioning":
             check_release54_3_hoc_evidence_versioning(files),
+        "release54_4_single_governed_decision_writer":
+            check_release54_4_single_governed_decision_writer(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14830,6 +15028,35 @@ def _print_console(rep: dict) -> None:
           f"reassessment: {hv['cycle_persists_hoc_before_reassessment']}  UI "
           f"derives persistence (must be empty): "
           f"{hv['ui_derives_hoc_persistence']}")
+
+    hdr("ONE GOVERNED PORTFOLIO DECISION WRITER (R54.4)")
+    gw = rep["release54_4_single_governed_decision_writer"]
+    print(f"decision writer owner: {gw['decision_writer_owner']}  writer defs "
+          f"missing (must be empty): {gw['writer_defs_missing']}")
+    print(f"duplicate governed-decision writers (must be empty): "
+          f"{gw['duplicate_governed_decision_writers']}")
+    print(f"second governed-decision store (must be empty): "
+          f"{gw['second_governed_decision_store']}")
+    print(f"daily producer delegates: {gw['daily_producer_delegates']}  owns "
+          f"decision concepts (must be empty): "
+          f"{gw['daily_producer_owns_decision_concepts']}  delegates only after "
+          f"durable manifest: {gw['delegates_only_after_durable_manifest']}")
+    print(f"both producers use one writer: {gw['both_producers_use_one_writer']}  "
+          f"producer is not authority: {gw['producer_is_not_authority']}  shared "
+          f"identity contract: {gw['shared_identity_contract']}")
+    print(f"projection declared legacy: {gw['projection_declared_legacy']}  "
+          f"retired by persisted row: "
+          f"{gw['projection_retired_by_persisted_row']}")
+    print(f"daily lane execution reach (must be empty): "
+          f"{gw['daily_lane_execution_reach']}  defines economics (must be "
+          f"empty): {gw['daily_lane_defines_economics']}  reason code declared: "
+          f"{gw['daily_reason_code_declared']}")
+    print(f"daily gate fails closed on HOC: "
+          f"{gw['daily_gate_fails_closed_on_hoc']}  daily gate opens a store "
+          f"(must be empty): {gw['daily_gate_opens_a_store']}")
+    print(f"manifest rewritten with decision (must be False): "
+          f"{gw['manifest_rewritten_with_decision']}  UI derives producer "
+          f"authority (must be empty): {gw['ui_derives_producer_authority']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -17064,6 +17291,50 @@ BLOCKING_INVARIANTS = (
     ("release54_3_hoc_evidence_versioning",
      "cycle_persists_hoc_before_reassessment", True),
     ("release54_3_hoc_evidence_versioning", "ui_derives_hoc_persistence", []),
+    # ------------------------------------------------------------------- #
+    # Release 54.4 - ONE GOVERNED PORTFOLIO DECISION WRITER. The governed
+    # portfolio decision is ONE business concept with ONE writer, ONE ledger and
+    # ONE ordering. DAILY_DRC and INTRADAY_EVENT are PRODUCERS distinguished only
+    # by provenance; the Daily Research Cycle delegates its write and owns no
+    # decision concept; the pre-R54.4 read-time projection survives only as a
+    # legacy shim that a real ledger row retires. Every field below BLOCKS
+    # strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_4_single_governed_decision_writer", "writer_defs_missing", []),
+    ("release54_4_single_governed_decision_writer",
+     "duplicate_governed_decision_writers", []),
+    ("release54_4_single_governed_decision_writer",
+     "second_governed_decision_store", []),
+    ("release54_4_single_governed_decision_writer",
+     "daily_producer_delegates", True),
+    ("release54_4_single_governed_decision_writer",
+     "daily_producer_owns_decision_concepts", []),
+    ("release54_4_single_governed_decision_writer",
+     "delegates_only_after_durable_manifest", True),
+    ("release54_4_single_governed_decision_writer",
+     "both_producers_use_one_writer", True),
+    ("release54_4_single_governed_decision_writer",
+     "producer_is_not_authority", True),
+    ("release54_4_single_governed_decision_writer",
+     "shared_identity_contract", True),
+    ("release54_4_single_governed_decision_writer",
+     "projection_declared_legacy", True),
+    ("release54_4_single_governed_decision_writer",
+     "projection_retired_by_persisted_row", True),
+    ("release54_4_single_governed_decision_writer",
+     "daily_lane_execution_reach", []),
+    ("release54_4_single_governed_decision_writer",
+     "daily_lane_defines_economics", []),
+    ("release54_4_single_governed_decision_writer",
+     "daily_reason_code_declared", True),
+    ("release54_4_single_governed_decision_writer",
+     "daily_gate_fails_closed_on_hoc", True),
+    ("release54_4_single_governed_decision_writer",
+     "daily_gate_opens_a_store", []),
+    ("release54_4_single_governed_decision_writer",
+     "manifest_rewritten_with_decision", False),
+    ("release54_4_single_governed_decision_writer",
+     "ui_derives_producer_authority", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

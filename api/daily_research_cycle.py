@@ -106,6 +106,11 @@ _RUNNING = frozenset({PLANNING, REFRESHING_REQUIRED_INPUTS, VALIDATING_INPUT_ALI
 # Completion states that carry usable research outputs.
 _COMPLETED = frozenset({COMPLETE, COMPLETE_WITH_EVIDENCE_GAP})
 
+#: R54.4 — the ONE owner of a governed portfolio decision. This cycle produces
+#: the evidence and DELEGATES the decision write; it is not a decision owner and
+#: defines no decision store, index, ordering or supersession of its own.
+_DECISION_OWNER = "api.portfolio_decision"
+
 # Frozen inconsistency / persistence reason codes (Phase 29G.3 — Workstream B/C).
 #   * A terminal COMPLETE run whose manifest cannot be validated or durably read back is
 #     NEVER returned as COMPLETE; it is downgraded to INCONSISTENT with these codes while
@@ -531,6 +536,103 @@ def _default_downstream_probe(*, active_book_id: Any, eligible: Any, hoc_dir=Non
         "drc_run_id": summ.get("opportunity_cost_drc_run_id"),
         "provenance": summ.get("opportunity_cost_provenance"),
     }
+
+
+# --------------------------------------------------------------------------- #
+# R54.4 — the GOVERNED-DECISION DELEGATION.
+#
+# This cycle is a PRODUCER of a governed portfolio decision, never its owner.
+# Before R54.4 the session-terminal conclusion existed only inside the manifest
+# below and was RE-DERIVED on every read; it had no record id, so nothing could
+# name it in a supersession lineage. It now delegates the write to the ONE
+# decision owner (``api.portfolio_decision``), which appends it to the ONE
+# governed ledger the intraday lane already writes to.
+#
+# Everything about the handoff is deliberately weak-coupled and fail-open FOR
+# THE RESEARCH: governance is downstream of research, so a governance failure
+# is reported as a warning and never invalidates a completed research run. The
+# converse is fail-CLOSED: the decision owner's gate refuses anything it cannot
+# prove, so a degraded handoff records no decision rather than a wrong one.
+# --------------------------------------------------------------------------- #
+def _delegate_governed_decision(*, manifest: dict, drc_dir=None,
+                                reassess_subdir=None, realloc_subdir=None,
+                                hoc_subdir=None, scoring: Optional[dict] = None,
+                                governed_decision_fn: Optional[Callable] = None
+                                ) -> tuple:
+    """Hand the terminal manifest to the canonical decision owner.
+
+    Returns ``(report_block, warnings)``. The block is REPORTED on this run's
+    contract for operator feedback; it is not the decision's home. The decision
+    itself lives in the governed ledger and is read from there — this cycle
+    persists no decision of its own and rewrites no manifest.
+    """
+    if str(manifest.get("state") or "") not in _COMPLETED:
+        return ({"delegated": False, "owner": _DECISION_OWNER,
+                 "reason": "Run is not terminal-COMPLETE; no governed decision "
+                           "is produced by a non-terminal research run."}, [])
+
+    # Hermetic seam: when the caller pinned a research root, every store this
+    # delegation touches stays under it. Production (``drc_dir is None``) uses
+    # each owner's own canonical root.
+    decision_subdir = (str(Path(drc_dir) / "portfolio_decisions")
+                       if drc_dir else None)
+
+    def _default_fn():
+        from paper_trader.api import portfolio_decision as pdec
+        return pdec.govern_daily_cycle_decision(
+            confirm=pdec.GOVERNED_DECISION_CONFIRM_TOKEN,
+            drc_manifest=manifest, decision_dir=decision_subdir,
+            reallocation_dir=realloc_subdir, hoc_dir=hoc_subdir,
+            reassessment_dir=reassess_subdir,
+            # The run's OWN scoring identity, handed over rather than rebuilt.
+            # The producer already computed this; letting the decision owner
+            # re-derive it would re-run the scoring engine against the canonical
+            # universe store — slow, and in a hermetic run a read of exactly the
+            # production data the caller pinned away from.
+            scoring_identity=(scoring if isinstance(scoring, dict)
+                              and scoring.get("available") else None))
+
+    warnings: list[str] = []
+    try:
+        out = (governed_decision_fn or _default_fn)() or {}
+    except Exception as exc:  # noqa: BLE001 - governance never breaks research
+        warnings.append("The governed portfolio decision could not be recorded "
+                        "(%s); the research outputs remain valid and the "
+                        "standing decision is unchanged." % str(exc)[:160])
+        return ({"delegated": True, "owner": _DECISION_OWNER, "recorded": False,
+                 "error": str(exc)[:200]}, warnings)
+
+    if not out.get("recorded"):
+        warnings.append("The governed portfolio decision was withheld by the "
+                        "decision owner's gate (%s); the research outputs remain "
+                        "valid and the standing decision is unchanged."
+                        % (", ".join(out.get("gate", {}).get(
+                            "withheld_reason_codes") or []) or out.get("verdict")))
+    return ({
+        "delegated": True,
+        "owner": _DECISION_OWNER,
+        "decision_owner_is_authority": True,
+        "producer": "api.daily_research_cycle",
+        "verdict": out.get("verdict"),
+        "eligible": out.get("eligible"),
+        "recorded": bool(out.get("recorded")),
+        "persist_status": out.get("persist_status"),
+        "decision": (out.get("record") or {}).get("decision"),
+        "decision_record_id": (out.get("record") or {}).get("record_id"),
+        "decided_at": (out.get("record") or {}).get("decided_at"),
+        "supersedes_decision_id": (out.get("record") or {}).get(
+            "supersedes_decision_id"),
+        "manual_review_required": (out.get("record") or {}).get(
+            "manual_review_required"),
+        "withheld_reason_codes": list((out.get("gate") or {}).get(
+            "withheld_reason_codes") or []),
+        "checks_passed": (out.get("gate") or {}).get("checks_passed"),
+        "checks_total": (out.get("gate") or {}).get("checks_total"),
+        "read_the_decision_from": _DECISION_OWNER,
+        "note": ("This cycle PRODUCES the evidence; the governed decision is "
+                 "owned, ordered and persisted by the decision owner. This "
+                 "block is a report, not the decision's home."),
+    }, warnings)
 
 
 # Required manifest fields for a TERMINAL-COMPLETE run (Workstream B rule 2). A COMPLETE
@@ -2528,6 +2630,7 @@ def run_daily_research_cycle(
     reallocation_proposal_fn: Optional[Callable] = None,
     research_agent_fn: Optional[Callable] = None,
     tournament_fn: Optional[Callable] = None,
+    governed_decision_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
@@ -2565,6 +2668,7 @@ def run_daily_research_cycle(
             reassessment_fn=reassessment_fn,
             reallocation_proposal_fn=reallocation_proposal_fn,
             research_agent_fn=research_agent_fn, tournament_fn=tournament_fn,
+            governed_decision_fn=governed_decision_fn,
             refresh_confirm_token=refresh_confirm_token,
             operational=operational, inputs=inputs, daily_status=daily_status,
             desk_marks=desk_marks, close_progress=close_progress,
@@ -2579,7 +2683,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
                 evidence_registry, assessment_loader, holding_opp_cost_fn,
                 reassessment_fn, reallocation_proposal_fn, research_agent_fn,
-                tournament_fn,
+                tournament_fn, governed_decision_fn,
                 refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
@@ -3348,14 +3452,29 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                             "complete." % (evidence.get("captured_snapshot_count"),
                                            evidence.get("required_snapshot_count")))
         _clear_lock(drc_dir)
-        return _persist(final, alignment=alignment, scoring=scoring, target=target,
-                        evidence=evidence, assessment=assessment,
-                        holding_opp_cost=holding_opp,
-                        portfolio_reassessment=reassessment,
-                        reallocation_proposal=reallocation,
-                        research_agent=research_agent,
-                        prospective_tournament=prospective_tournament,
-                        completed_at=_now_iso())
+        rec = _persist(final, alignment=alignment, scoring=scoring, target=target,
+                       evidence=evidence, assessment=assessment,
+                       holding_opp_cost=holding_opp,
+                       portfolio_reassessment=reassessment,
+                       reallocation_proposal=reallocation,
+                       research_agent=research_agent,
+                       prospective_tournament=prospective_tournament,
+                       completed_at=_now_iso())
+        # R54.4 — DELEGATE the governed portfolio decision. This cycle produces
+        # the research and the evidence; it is NOT a portfolio-decision owner and
+        # no longer leaves its terminal conclusion to be re-derived at read time.
+        # The handoff happens only AFTER the manifest is durably persisted and
+        # read-back verified, because a manifest that is not durable is not
+        # governed evidence. It is append-only: the decision row names this run,
+        # the manifest is never rewritten to name the decision.
+        delegated, gd_warnings = _delegate_governed_decision(
+            manifest=rec, drc_dir=drc_dir, reassess_subdir=reassess_subdir,
+            realloc_subdir=realloc_subdir, hoc_subdir=hoc_subdir,
+            scoring=scoring, governed_decision_fn=governed_decision_fn)
+        rec["governed_portfolio_decision"] = delegated
+        if gd_warnings:
+            rec["warnings"] = list(rec.get("warnings") or []) + gd_warnings
+        return rec
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])
         step_results.append(_step("UNCAUGHT", S_FAILED, error_code="UNCAUGHT_EXCEPTION",
