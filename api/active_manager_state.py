@@ -1034,6 +1034,11 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         },
         "canonical_current_decision": (
             (workflow or {}).get("canonical_portfolio_decision")),
+        # R54.2.3.2 — THE canonical decision-authority selector, echoed verbatim
+        # from its owner (api.portfolio_decision via api.workflow_state): which
+        # decision is authoritative right now, which proposal (if any) is
+        # currently reviewable, and what was superseded.
+        "authoritative_selector": (workflow or {}).get("decision_authority"),
         # R54.1 — the ladder's missing rung, now real: the ONE gate that may
         # promote a complete live intraday assessment into the governed lane,
         # and the governed decision that results. Promotion updates the

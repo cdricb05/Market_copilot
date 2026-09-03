@@ -1,7 +1,80 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-02
-- **Updated by phase:** **R54.2.3.1 - OWNED-DATA READINESS AUTHORITY
+- **Updated by phase:** **R54.2.3.2 - AUTHORITATIVE DECISION / PROPOSAL
+  SUPERSESSION RECONCILIATION (single agent, no subagents, Windows PowerShell
+  only).** Built over the committed R54.2.3.1 head `b8133c58d`. Full narrative:
+  `docs/RELEASE54_2_3_2_DECISION_PROPOSAL_SUPERSESSION.md`.
+  **The live contradiction (2026-09-02 ~23:51Z, after the Sep-2 Portfolio Cycle
+  completed):** the governed DRC `drc_2026-09-02_15abfb01856f` concluded
+  `CURRENT_NO_CHANGE` at 23:51:50Z (reassessment `prs_..._029df5cdcda5`, which
+  the R54.2 version chain records as superseding the 23:38 v1; the manifest
+  recorded the reallocation step `NOT_REQUIRED`) - while the live EVENT cycle's
+  23:38 proposal `reap_2026-09-02_..._dcf85725a02e` (28 changes / 35% / $85.69,
+  built from the superseded v1 evidence) remained the proposal-index head.
+  Every "current proposal" read keys on that head, so the decision lane derived
+  `PROPOSAL_REVIEW_REQUIRED`, the CPD ranked it above `CURRENT_NO_CHANGE`,
+  Today rendered "REALLOCATE - 28 POSITIONS CHANGE" + a live Review CTA over
+  its own "No change is proposed" narrative, the governed projection published
+  `CHANGE_RECOMMENDED` stamped with the NO-CHANGE assessment's own timestamp,
+  and `record_decision` would have ACCEPTED an approval. The Release-29.3
+  binding invariant could not fire: it compares via the assessment's
+  `proposal_binding`, which a NO-CHANGE assessment does not publish.
+  **The canonical authority rule (ONE calculation, in the ONE decision owner
+  `api.portfolio_decision`):** newer governed completed-session decision >
+  older governed decision > any older proposal awaiting manual review; a
+  governed intraday decision participates only through the existing R54.1
+  gate/ordering; a NON-governed / governance-withheld intraday result NEVER
+  supersedes. `assess_proposal_supersession` (pure, fail-closed both ways),
+  `load_decision_supersession` (bounded: reassessment head pointer + authority
+  proof from the governed DRC manifest via the new compact
+  `daily_research_cycle.load_governed_manifest_reference`, or a persisted
+  R54.1 governed record binding the head hash), and the canonical selector
+  `resolve_decision_authority` (current_authoritative_decision_id/session/type,
+  current_reviewable_proposal_id, superseded_proposal_ids, supersession_reason).
+  **Consumption (verdict travels; never recomputed):** realloc read state
+  `SUPERSEDED_BY_NEWER_DECISION` (history message, approvable/executable
+  False); lane state `PROPOSAL_SUPERSEDED_BY_NEWER_DECISION` outranks
+  review/hold/withhold AND a recorded decision, quiets current-work economics
+  and moves the numbers to an explicit `superseded_proposal` history block;
+  `record_decision` refuses server-side naming the newer decision/session/id
+  (recomputed on the live endpoint path); the governed projection derives its
+  word from the governed ASSESSMENT first (`GD_NO_CHANGE` joins the governed
+  vocabulary; a superseded proposal's hash never enters the governed identity);
+  the workflow consumes the ONE calculation (hoisted R29.5 governed flag),
+  publishes `REALLOCATION_PROPOSAL_SUPERSEDED`, composes the
+  `decision_authority` selector block and asserts the new semantic invariant
+  `NO_CHANGE_DECISION_WITH_REVIEWABLE_PROPOSAL`; the presentation gates the
+  Today-hero count fallback and frames the target `SUPERSEDED_HISTORY_ONLY`;
+  AMS echoes `decision_authority.authoritative_selector`; the UI renders the
+  new states verbatim and still decides nothing.
+  **Hermetic seam rule:** the default production-store resolution runs on
+  production-default reads (the live routes) or when the caller supplies the
+  sibling store roots (`reassessment_dir`/`drc_dir`); a hermetic caller that
+  redirected only the proposal store keeps its constructed world (the Stage-22
+  `actions_dir` precedent applied to the new stores).
+  **Immutability:** no artifact/record was modified or deleted; supersession is
+  a read-composition verdict; the superseded proposal stays visible in Audit
+  with the superseding decision/session/reason.
+  **LIVE READ-ONLY VERDICT (nothing written, backend never restarted):** the
+  repaired composition over the real stores yields CPD `NO_CHANGE`, lane
+  `SUPERSEDED`, RPS "SUPERSEDED - HISTORY ONLY", consistency `CONSISTENT`,
+  Today hero `HOLD CURRENT PORTFOLIO` / 0 changing / no CTA, realloc read
+  SUPERSEDED, approval refused naming
+  `prs_2026-09-02_alpha_paper_book_1_029df5cdcda5`, governed read
+  `CURRENT_NO_CHANGE - GOVERNED_DAILY_CYCLE - 23:51:50Z`. Direction guards
+  proven live: non-governed / blocked / older-session assessments never
+  supersede; a requested-and-bound proposal stays reviewable.
+  **Verification:** new suite `test_release54_2_3_2_decision_supersession.py`
+  26/26; 30-suite impact perimeter (decision/proposal/reassessment owners,
+  Stage 19.x/20.x/22.x, R47/29.3/48/49/50, R54 family, Track B, Today UX,
+  operator flows, architecture contracts) passing; strict audit exit 0 with the
+  NEW blocking guard `check_release54_2_3_2_decision_supersession`;
+  `git diff --check` clean. Full repository suite NOT run
+  (`FULL_GATE_REQUIRED = NO`). NOT committed (operator gate). **The running
+  backend on 8001 still holds the pre-R54.2.3.x runtime; a canonical restart is
+  required before Today reflects this release.**
+- **Previous phase:** **R54.2.3.1 - OWNED-DATA READINESS AUTHORITY
   RECONCILIATION: remove the circular Sep-2 close blocker (single agent, no
   subagents, Windows PowerShell only).** Built over the committed R54.2.3 head
   `1721086f`. Full narrative:

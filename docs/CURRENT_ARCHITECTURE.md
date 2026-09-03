@@ -541,6 +541,36 @@ flowchart TD
   green portfolio-cycle CTA in one payload. The close still revalidates the
   provider server-side immediately before any write. Guard:
   `check_release54_2_3_1_owned_data_readiness_authority` (strict, blocking).
+- **Decision / proposal supersession authority (R54.2.3.2, LANDED):** a NEWER
+  authoritative governed decision supersedes an older manual-review proposal —
+  decided ONCE by `api.portfolio_decision.assess_proposal_supersession` (pure,
+  fail-closed both ways) with its bounded loader `load_decision_supersession`
+  (reassessment store head via
+  `portfolio_reassessment.load_latest_assessment_pointer` + decision authority
+  proven by the governed DRC manifest —
+  `daily_research_cycle.load_governed_manifest_reference` binding the head's
+  reassessment hash — or a persisted R54.1 governed record) and the canonical
+  selector `resolve_decision_authority`
+  (current_authoritative_decision_id/session/type,
+  current_reviewable_proposal_id, superseded_proposal_ids, supersession_reason;
+  surfaced as the workflow's `decision_authority` block and AMS's
+  `authoritative_selector`). Authority order: newer governed completed-session
+  decision > older governed decision > older proposal awaiting review; a
+  NON-governed / governance-withheld intraday result NEVER supersedes (the
+  R54.1 direction, unchanged). A superseded proposal is IMMUTABLE HISTORY:
+  realloc read state `SUPERSEDED_BY_NEWER_DECISION`, lane state
+  `PROPOSAL_SUPERSEDED_BY_NEWER_DECISION` (outranks review/hold/withhold and a
+  recorded decision; current-work economics quieted into an explicit
+  `superseded_proposal` history block), workflow operator state
+  `REALLOCATION_PROPOSAL_SUPERSEDED` (never approvable), `record_decision`
+  refuses server-side naming the newer decision, the governed daily-cycle
+  projection derives its word from the governed ASSESSMENT first
+  (`GD_NO_CHANGE`; a superseded proposal's hash never enters the governed
+  identity), and the semantic invariant
+  `NO_CHANGE_DECISION_WITH_REVIEWABLE_PROPOSAL` makes the 2026-09-02
+  "REALLOCATE — 28 POSITIONS CHANGE beside 'No change is proposed'"
+  contradiction impossible at the payload level. Guard:
+  `check_release54_2_3_2_decision_supersession` (strict, blocking).
 - **Post-close governed-research obligation (R54.2.2, LANDED):**
   `build_research_obligation()` publishes the ONE post-close obligation —
   `research_obligation` (+ `research_obligation_state`,

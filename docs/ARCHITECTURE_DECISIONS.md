@@ -3233,3 +3233,50 @@ never-persisted bootstrap under an affirmatively covering provider (the close
 is the only path that can bootstrap owned marks). A BLOCKED banner may never
 again share a payload with a green portfolio-cycle CTA. The server-side
 revalidation before any close write is unchanged.
+
+### D-R54.2.3.2-1 — a newer authoritative decision supersedes an older proposal (CONFIRMED)
+
+**Decision.** The authority order is explicit and owned by
+`api.portfolio_decision`: newer governed completed-session decision > older
+governed completed-session decision > any older proposal awaiting manual
+review. The comparison exists ONCE (`assess_proposal_supersession`, pure,
+fail-closed in both directions); "current proposal" is no longer merely "the
+newest artifact at the (book, session) index key". A superseded proposal
+remains immutable, history-visible evidence and is never again current,
+reviewable as outstanding work, or approvable — `record_decision` refuses it
+server-side, naming the superseding decision, session and artifact id.
+
+**Evidence.** 2026-09-02 23:51Z: the governed DRC manifest
+(`drc_2026-09-02_15abfb01856f`) bound reassessment `prs_..._029df5cdcda5`
+(CURRENT_NO_CHANGE; reallocation step `NOT_REQUIRED`) while the live event
+cycle's 23:38 proposal `reap_..._dcf85725a02e` (28 changes, built from the
+version-chain-superseded v1 evidence) stayed the index head — Today rendered
+"REALLOCATE — 28 POSITIONS CHANGE" and a live Review CTA over "No change is
+proposed", and the approval endpoint would have accepted it.
+
+### D-R54.2.3.2-2 — decision authority must be proven, never inferred from the store head (CONFIRMED)
+
+**Decision.** The R54.2 reassessment version-chain head is the newest
+ASSESSMENT of its session, but only a decision with AUTHORITY supersedes:
+either the governed DRC manifest for the session binds the head's reassessment
+hash (`load_governed_manifest_reference`, a compact pure read), or a persisted
+R54.1 governed record binds it. A non-governed or governance-withheld intraday
+research result — however fresh — never tears down a governed proposal
+(`ASSESSMENT_AUTHORITY_UNPROVEN` → not superseded), and blocked/inconclusive
+assessment states never supersede anything. Absence of an answer changes
+nothing in either direction.
+
+### D-R54.2.3.2-3 — the governed projection speaks the assessment's own word (CONFIRMED)
+
+**Decision.** `project_governed_daily_cycle_decision` derives the governed
+decision word from the governed ASSESSMENT first: CURRENT_NO_CHANGE projects
+`GD_NO_CHANGE` (the reassessment owner's own vocabulary, reused — a real
+decision with no manual-review obligation), and a superseded proposal's outcome
+and hash never enter the governed identity. Before this, the projection read
+its word from the standing proposal artifact, which published
+`CHANGE_RECOMMENDED` stamped with the NO-CHANGE assessment's own timestamp —
+laundering a stale artifact into the authoritative recommendation. The
+composed `decision_authority` selector (workflow payload, echoed by the Active
+Manager State) answers current_authoritative_decision_id / session / type,
+current_reviewable_proposal_id, superseded_proposal_ids and supersession_reason
+from the same one calculation.

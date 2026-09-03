@@ -70,8 +70,17 @@ STATE_UNAVAILABLE = "UNAVAILABLE"
 #: registry state than the current portfolio. Review-only, never approvable, never
 #: executable; the Daily Research Cycle must produce a fresh proposal.
 STATE_STALE = "STALE_CORPORATE_ACTION_REVIEW_REQUIRED"
+#: R54.2.3.2 — a NEWER authoritative governed decision stands and does not request or
+#: endorse this proposal (the live 2026-09-02 pattern: a 23:38Z event-cycle proposal
+#: outlived the 23:51Z governed CURRENT_NO_CHANGE conclusion whose manifest recorded
+#: the proposal step NOT_REQUIRED). History-visible, immutable — and never current,
+#: never reviewable as outstanding work, never approvable. The verdict is computed by
+#: the ONE calculation in api.portfolio_decision.assess_proposal_supersession; this
+#: module renders it and decides nothing.
+STATE_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"
 READ_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_WITHHELD,
-                    STATE_NO_ACTIVE_BOOK, STATE_NOT_RUN, STATE_UNAVAILABLE, STATE_STALE)
+                    STATE_NO_ACTIVE_BOOK, STATE_NOT_RUN, STATE_UNAVAILABLE, STATE_STALE,
+                    STATE_SUPERSEDED)
 #: The ONLY read-layer states in which a proposal may be reviewed / approved.
 APPROVABLE_READ_STATES = (STATE_READY, STATE_DEGRADED)
 
@@ -687,7 +696,8 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                   active_book: dict, artifact: Optional[dict], message: str,
                   policy: dict, proposal: Optional[dict],
                   input_contract: Optional[dict],
-                  staleness: Optional[dict] = None) -> dict:
+                  staleness: Optional[dict] = None,
+                  supersession: Optional[dict] = None) -> dict:
     p = proposal or {}
     art_meta = None
     if artifact:
@@ -698,16 +708,26 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                     "immutable": True,
                     "root_env": REALLOC_DIR_ENV}
     stale = bool((staleness or {}).get("stale"))
+    superseded = bool((supersession or {}).get("superseded"))
     return {
         # Stage 19.1 — the explicit approvability contract every surface renders.
         "stale": stale,
         "staleness": staleness,
+        # R54.2.3.2 — the decision-supersession verdict, rendered verbatim from the
+        # ONE calculation in api.portfolio_decision. A superseded proposal is
+        # history: state SUPERSEDED_BY_NEWER_DECISION keeps it out of
+        # APPROVABLE_READ_STATES, so approvable/executable below go False.
+        "superseded": superseded,
+        "supersession": supersession,
+        "superseded_by": (supersession or {}).get("superseded_by"),
         # Release 47 narrows both: a proposal is offered for approval only when the
         # kernel's own outcome is PROPOSAL_READY. HOLD_CURRENT_BOOK is a decision the
         # system has already taken, not outstanding operator work.
-        "approvable": ((not stale) and state in APPROVABLE_READ_STATES
+        "approvable": ((not stale) and (not superseded)
+                       and state in APPROVABLE_READ_STATES
                        and bool(p.get("approvable", True))),
-        "executable": ((not stale) and state in APPROVABLE_READ_STATES
+        "executable": ((not stale) and (not superseded)
+                       and state in APPROVABLE_READ_STATES
                        and bool(p.get("approvable", True))),
         # Release 29.3 — the complete-target limit verdict, rendered verbatim.
         "complete_target_limits": p.get("complete_target_limits") or {},
@@ -762,6 +782,8 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
 
 def load_reallocation_proposal(*, portfolio_state: Optional[dict] = None,
                                artifact: Optional[dict] = None, reallocation_dir=None,
+                               reassessment_dir=None, drc_dir=None, decision_dir=None,
+                               supersession: Optional[dict] = None,
                                now: Optional[datetime] = None,
                                portfolio_state_loader: Optional[Callable] = None) -> dict:
     """The read contract for the endpoint. READ-ONLY: it NEVER runs the engine — it
@@ -817,13 +839,62 @@ def load_reallocation_proposal(*, portfolio_state: Optional[dict] = None,
                      "proposal against the corrected portfolio state."),
             policy=proposal.get("policy") or resolve_policy(), proposal=proposal,
             input_contract=art.get("input_contract"), staleness=staleness)
+    # R54.2.3.2 — a NEWER authoritative governed decision supersedes a standing
+    # proposal. Resolved by the ONE calculation in the canonical decision owner
+    # (lazy import: that owner imports this module at module scope). The default
+    # resolution runs on the PRODUCTION-DEFAULT read (the live route) or when the
+    # caller explicitly supplies the sibling store roots; a hermetic caller that
+    # redirected ONLY the proposal store keeps its constructed world untouched
+    # (it injects ``supersession`` or the sibling dirs to exercise the verdict).
+    # Degrade-safe: an unresolvable verdict leaves the read exactly as it was.
+    sup = supersession
+    resolve_default = (reallocation_dir is None or reassessment_dir is not None
+                       or drc_dir is not None or decision_dir is not None)
+    if sup is None and resolve_default:
+        try:
+            from paper_trader.api import portfolio_decision as _pdec
+            sup = _pdec.load_decision_supersession(
+                active_book_id=book_id,
+                proposal_summary={
+                    "reallocation_proposal_available": True,
+                    "reallocation_proposal_id": art.get("proposal_id"),
+                    "reallocation_proposal_hash": (
+                        (art.get("identity") or {}).get("proposal_hash")
+                        or proposal.get("proposal_hash")),
+                    "reallocation_bound_eligible_market_date": (
+                        (art.get("identity") or {}).get("eligible_market_date")
+                        or eligible),
+                    "reallocation_bound_hoc_assessment_hash": (
+                        (art.get("identity") or {}).get("hoc_assessment_hash")),
+                    "reallocation_proposal_generated_at": art.get("generated_at"),
+                },
+                reassessment_dir=reassessment_dir, drc_dir=drc_dir,
+                decision_dir=decision_dir)
+        except Exception:  # noqa: BLE001 - a read must never crash
+            sup = None
+    if sup and sup.get("superseded"):
+        by = sup.get("superseded_by") or {}
+        return _read_payload(
+            state=STATE_SUPERSEDED, generated_at=generated_at, eligible=eligible,
+            active_book=active_book, artifact=art,
+            message=("This reallocation proposal was SUPERSEDED by a newer "
+                     "authoritative decision (%s for session %s). It remains "
+                     "visible as immutable history and cannot be reviewed as "
+                     "current or approved. There is no outstanding reallocation "
+                     "to act on."
+                     % (by.get("decision") or "governed decision",
+                        by.get("session") or "?")),
+            policy=proposal.get("policy") or resolve_policy(), proposal=proposal,
+            input_contract=art.get("input_contract"), staleness=staleness,
+            supersession=sup)
     return _read_payload(
         state=proposal.get("proposal_state") or STATE_READY, generated_at=generated_at,
         eligible=eligible, active_book=active_book, artifact=art,
         message="Current reallocation proposal for the active book / eligible session. "
                 "Manual review required — review only, no orders.",
         policy=proposal.get("policy") or resolve_policy(), proposal=proposal,
-        input_contract=art.get("input_contract"), staleness=staleness)
+        input_contract=art.get("input_contract"), staleness=staleness,
+        supersession=sup)
 
 
 # --------------------------------------------------------------------------- #
@@ -833,6 +904,8 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
                                   artifact: Optional[dict] = None,
                                   reallocation_dir=None, decision_dir=None,
                                   desk_dir=None, actions_dir=None,
+                                  reassessment_dir=None, drc_dir=None,
+                                  supersession: Optional[dict] = None,
                                   now: Optional[datetime] = None,
                                   portfolio_state_loader: Optional[Callable] = None,
                                   include_execution: bool = True,
@@ -853,8 +926,9 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
     """
     payload = load_reallocation_proposal(
         portfolio_state=portfolio_state, artifact=artifact,
-        reallocation_dir=reallocation_dir, now=now,
-        portfolio_state_loader=portfolio_state_loader)
+        reallocation_dir=reallocation_dir, reassessment_dir=reassessment_dir,
+        drc_dir=drc_dir, decision_dir=decision_dir, supersession=supersession,
+        now=now, portfolio_state_loader=portfolio_state_loader)
 
     # Local imports: these owners import THIS module, so importing them at module
     # scope would be circular. They are composed, never forked.
@@ -862,10 +936,15 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
     # Release 50 - the decision snapshot passes the lane and the rebalance state it
     # already composed (ONE heavy read per snapshot identity); a direct call still
     # composes them itself, exactly as before.
+    # R54.2.3.2 - the read payload above already resolved the supersession verdict;
+    # it is handed to the lane so the two can never disagree on one composition.
     lane = decision_lane if decision_lane is not None else _pdec.load_portfolio_decision(
         portfolio_state=portfolio_state, artifact=artifact,
-        decision_dir=decision_dir, reallocation_dir=reallocation_dir, now=now,
-        portfolio_state_loader=portfolio_state_loader)
+        decision_dir=decision_dir, reallocation_dir=reallocation_dir,
+        reassessment_dir=reassessment_dir, drc_dir=drc_dir,
+        supersession=(payload.get("supersession")
+                      if supersession is None else supersession),
+        now=now, portfolio_state_loader=portfolio_state_loader)
 
     execution = None
     if include_execution:
@@ -899,13 +978,18 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
     # states that - and only that. It never invents an outcome: `outcome` stays None
     # and `outcome_state` names why, so nothing downstream can mistake "not run" for
     # a decision.
-    headline = verdict.get("headline") or {
-        STATE_NOT_RUN: "NO PROPOSAL YET - RUN THE DAILY RESEARCH CYCLE",
-        STATE_NO_ACTIVE_BOOK: "NO ACTIVE PAPER BOOK",
-        STATE_UNAVAILABLE: "CONSTRAINED REALLOCATION UNAVAILABLE",
-        STATE_STALE: "PROPOSAL SUPERSEDED - FRESH REVIEW REQUIRED",
-        STATE_BLOCKED: "PORTFOLIO DECISION BLOCKED",
-    }.get(payload.get("state"), "CONSTRAINT-RESPECTING REALLOCATION")
+    # R54.2.3.2 — a SUPERSEDED payload state must not render the kernel's own
+    # PROPOSAL_READY headline: the newer authoritative decision is the story.
+    if payload.get("state") == STATE_SUPERSEDED:
+        headline = "PROPOSAL SUPERSEDED - NEWER DECISION STANDS (HISTORY ONLY)"
+    else:
+        headline = verdict.get("headline") or {
+            STATE_NOT_RUN: "NO PROPOSAL YET - RUN THE DAILY RESEARCH CYCLE",
+            STATE_NO_ACTIVE_BOOK: "NO ACTIVE PAPER BOOK",
+            STATE_UNAVAILABLE: "CONSTRAINED REALLOCATION UNAVAILABLE",
+            STATE_STALE: "PROPOSAL SUPERSEDED - FRESH REVIEW REQUIRED",
+            STATE_BLOCKED: "PORTFOLIO DECISION BLOCKED",
+        }.get(payload.get("state"), "CONSTRAINT-RESPECTING REALLOCATION")
     return {
         "phase": "R47",
         "owner": COMPOSITION_OWNER,
@@ -997,6 +1081,10 @@ def load_constrained_reallocation(*, portfolio_state: Optional[dict] = None,
                           else None),
         "reallocation_outcome": verdict,
         "headline": headline,
+        # R54.2.3.2 — the decision-supersession verdict, verbatim.
+        "superseded": bool(payload.get("superseded")),
+        "supersession": payload.get("supersession"),
+        "superseded_by": payload.get("superseded_by"),
         "feasible_target_exists": verdict.get("feasible_target_exists"),
         # 7. approval, 8. execution
         "approval": {
@@ -1030,6 +1118,7 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         "reallocation_proposal_state": STATE_NOT_RUN,
         "reallocation_proposal_hash": None,
         "reallocation_proposal_id": None,
+        "reallocation_proposal_generated_at": None,
         "reallocation_action_counts": {a: 0 for a in ACTION_VOCAB},
         "reallocation_score_improvement": None,
         "reallocation_score_improvement_net_of_cost": None,
@@ -1086,6 +1175,9 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
                                         else p.get("proposal_state")),
         "reallocation_proposal_hash": p.get("proposal_hash"),
         "reallocation_proposal_id": art.get("proposal_id"),
+        # R54.2.3.2 — when the artifact was produced, so the decision-supersession
+        # direction proof never has to re-open the artifact file.
+        "reallocation_proposal_generated_at": art.get("generated_at"),
         # Release 29.3 — a withheld complete target is visible but never approvable.
         "reallocation_proposal_withheld": bool(
             p.get("proposal_state") == STATE_WITHHELD),

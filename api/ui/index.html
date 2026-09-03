@@ -29525,15 +29525,22 @@ function renderReallocationProposal(d) {
   // --- concise Command Center / Daily Workflow status -----------------------
   var stateCls = { READY: 'safe', DEGRADED: 'manual', BLOCKED: 'danger',
                    NOT_RUN: 'muted', NO_ACTIVE_BOOK: 'manual', UNAVAILABLE: 'manual',
-                   STALE_CORPORATE_ACTION_REVIEW_REQUIRED: 'danger' }[state] || 'muted';
+                   STALE_CORPORATE_ACTION_REVIEW_REQUIRED: 'danger',
+                   SUPERSEDED_BY_NEWER_DECISION: 'muted' }[state] || 'muted';
   // Stage 19.1 — the backend decides approvability/staleness; the page only renders it.
   var isStale = !!d.stale;
+  // R54.2.3.2 — the backend decides decision supersession too; rendered verbatim.
+  var isSuperseded = !!d.superseded || state === 'SUPERSEDED_BY_NEWER_DECISION';
   var conciseHeadline, conciseExpl;
   if (isStale) {
     conciseHeadline = 'Proposal superseded — a corporate action was registered since it was produced.';
     conciseExpl = 'It targets holdings that no longer describe the current portfolio, so '
       + 'it cannot be approved and cannot create an order plan. Run the Daily Research '
       + 'Cycle to produce a fresh proposal against the corrected portfolio state.';
+  } else if (isSuperseded) {
+    conciseHeadline = 'Proposal superseded — a newer authoritative decision stands.';
+    conciseExpl = d.message || 'The proposal remains visible as immutable history only; '
+      + 'it cannot be reviewed as current or approved.';
   } else if (hasProposal && (state === 'READY' || state === 'DEGRADED')) {
     conciseHeadline = 'Proposal ready — manual review required ('
       + (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—')
@@ -29576,6 +29583,12 @@ function renderReallocationProposal(d) {
   if (isStale) {
     chips.push(chip('Approvable', 'NO — SUPERSEDED', 'danger'));
     chips.push(chip('Reason', (d.staleness || {}).reason || 'CORPORATE_ACTION_REGISTERED', 'danger'));
+  }
+  if (isSuperseded) {
+    chips.push(chip('Approvable', 'NO — SUPERSEDED', 'manual'));
+    chips.push(chip('Superseded by', ((d.superseded_by || {}).decision || 'NEWER DECISION')
+      + ' · ' + ((d.superseded_by || {}).session || '—'), 'manual'));
+    chips.push(chip('History', 'IMMUTABLE — HISTORY ONLY', 'muted'));
   }
   chips.push(chip('Source HOC', hocHash ? String(hocHash).slice(0, 12) : '—', 'muted'));
   chips.push(chip('Proposal', d.proposal_hash ? String(d.proposal_hash).slice(0, 12) : '—', 'muted'));

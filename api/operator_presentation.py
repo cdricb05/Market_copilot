@@ -138,6 +138,8 @@ _PDS_REJECTED = "PROPOSAL_REJECTED"
 _PDS_HELD = "PROPOSAL_HELD"
 _PDS_STALE = "STALE_PROPOSAL_REVIEW_REQUIRED"
 _PDS_HOLD = "HOLD_CURRENT_BOOK"
+#: R54.2.3.2 — a newer authoritative decision superseded the proposal (history only).
+_PDS_SUPERSEDED = "PROPOSAL_SUPERSEDED_BY_NEWER_DECISION"
 _RB_PLAN_REVIEW_REQUIRED = "PROPOSAL_APPROVED_ORDER_PLAN_REVIEW_REQUIRED"
 _RB_PLAN_CONFIRMED = "ORDER_PLAN_CONFIRMED_PAPER_EXECUTION_PENDING"
 _RB_EXECUTED = "PAPER_EXECUTED_RECONCILED"
@@ -693,7 +695,12 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
     outcome = constrained.get("outcome")
     pending = _int(os_.get("pending_orders")) or _int(exec_prec.get("pending_orders"))
     session = cpd.get("eligible_market_date") or os_.get("eligible_market_date")
+    # R54.2.3.2 — a SUPERSEDED proposal's rows are history, never the current change:
+    # counting its published allocations back in through the fallback would resurrect
+    # the "REALLOCATE — 28 POSITIONS CHANGE" hero the supersession just retired.
+    _superseded = bool(pd_state == _PDS_SUPERSEDED or cpd.get("proposal_superseded"))
     counts = _count_actions(_d(_d(lane.get("materiality")).get("action_counts")),
+                            [] if _superseded else
                             _l(_d(constrained.get("best_feasible_target")).get("allocations")))
     changing = sum(v for k, v in counts.items() if k != "RETAIN")
 
@@ -1036,25 +1043,41 @@ def _decision_summary(wf: dict, constrained: dict) -> dict:
     is_hold = authoritative_state in ("HOLD_CURRENT_BOOK", "NO_CHANGE",
                                       "CHANGE_CANDIDATE_WITHHELD")
     rejected = bool(feasible and (clears is False or is_hold))
+    # R54.2.3.2 — the decision-supersession verdict, read verbatim (never derived
+    # here): the analysis stays visible as history, framed as exactly that.
+    superseded = bool(cpd.get("proposal_superseded") or constrained.get("superseded")
+                      or lane.get("proposal_superseded"))
+    superseded_by = (cpd.get("superseded_by") or constrained.get("superseded_by")
+                     or lane.get("superseded_by") or None)
     return {
+        "superseded": superseded,
+        "superseded_by": superseded_by,
+        "superseded_banner": (
+            ("SUPERSEDED — a newer authoritative decision (%s for %s) stands; "
+             "this proposal is history only and cannot be reviewed or approved."
+             % ((superseded_by or {}).get("decision") or "governed decision",
+                (superseded_by or {}).get("session") or "a later session"))
+            if superseded else None),
         "available": feasible,
         "feasible_target_exists": feasible,
         "outcome": constrained.get("outcome"),
         # --- what the operator is looking at (never a recommendation on its own) --
-        "target_class": ("REJECTED_FEASIBLE_ALTERNATIVE" if rejected
+        "target_class": ("SUPERSEDED_HISTORY_ONLY" if superseded
+                         else "REJECTED_FEASIBLE_ALTERNATIVE" if rejected
                          else "PROPOSED_PORTFOLIO_CHANGE" if feasible
                          else "NO_FEASIBLE_TARGET"),
-        "target_class_label": ("REJECTED FEASIBLE ALTERNATIVE" if rejected
+        "target_class_label": ("SUPERSEDED — HISTORY ONLY" if superseded
+                               else "REJECTED FEASIBLE ALTERNATIVE" if rejected
                                else "PROPOSED PORTFOLIO CHANGE" if feasible
                                else "NO FEASIBLE TARGET"),
-        "is_recommended_portfolio": bool(feasible and not rejected),
+        "is_recommended_portfolio": bool(feasible and not rejected and not superseded),
         "not_recommended_banner": ("NOT THE RECOMMENDED PORTFOLIO — the switching "
                                    "hurdle was not cleared; the authoritative "
                                    "decision is to hold the current portfolio."
                                    if rejected else None),
         "authoritative_decision_state": authoritative_state or None,
         "authoritative_decision_owner": "api.portfolio_decision via api.workflow_state",
-        "renders_approval_cta": bool(feasible and not rejected),
+        "renders_approval_cta": bool(feasible and not rejected and not superseded),
         "outcome_vocabulary": list(_l(constrained.get("outcome_vocabulary"))),
         "exits": counts.get("EXIT", 0),
         "reductions": counts.get("REDUCE", 0),

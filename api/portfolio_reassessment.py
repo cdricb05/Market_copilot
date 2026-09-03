@@ -1945,6 +1945,10 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "reason_codes": [],
         "explanation": None,
         "hoc_assessment_hash": None,
+        # R54.2.3.2 — the assessment's OWN evidence identity (see below).
+        "assessment_hoc_assessment_hash": None,
+        "assessment_generated_at": None,
+        "assessment_artifact_id": None,
         "mandatory_exit_tickers": [],
         "mandatory_exit_policy": {},
         "constraint_ownership": {},
@@ -2000,6 +2004,19 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "hoc_assessment_hash": (art.get("reassessment") or {}).get(
             "proposal_binding", {}).get("hoc_assessment_hash") or (
                 (art.get("proposal_binding") or {}).get("hoc_assessment_hash")),
+        # R54.2.3.2 — the assessment's OWN evidence identity, published regardless of
+        # whether a proposal was requested. ``hoc_assessment_hash`` above is the
+        # PROPOSAL BINDING (absent by design on a CURRENT_NO_CHANGE assessment because
+        # no proposal is requested), which is exactly why the decision-supersession
+        # comparison must never rely on it: the live 2026-09-02 payload published
+        # ``hoc_assessment_hash: null`` for the authoritative NO-CHANGE assessment and
+        # the proposal-binding invariant could not fire. These three fields carry the
+        # artifact's own identity so a standing proposal can be compared against the
+        # assessment that stands, whatever that assessment decided.
+        "assessment_hoc_assessment_hash": (art.get("identity") or {}).get(
+            "hoc_assessment_hash"),
+        "assessment_generated_at": art.get("generated_at"),
+        "assessment_artifact_id": art.get("reassessment_id"),
         "mandatory_exit_tickers": dec.get("mandatory_exit_tickers") or [],
         "mandatory_exit_policy": dec.get("mandatory_exit_policy") or {},
         "constraint_ownership": dec.get("constraint_ownership") or {},
@@ -2010,6 +2027,41 @@ def load_reassessment_summary(*, active_book_id: Optional[str] = None,
         "policy_version": REASSESSMENT_POLICY_VERSION,
         "owner": COMPOSITION_OWNER,
     }
+
+
+def load_latest_assessment_pointer(*, active_book_id: Optional[str],
+                                   reassessment_dir=None) -> Optional[dict]:
+    """R54.2.3.2 — the store's newest assessment pointer for a book, ANY session.
+
+    PURE INDEX READ (no artifact file, no engine, no provider): scans the index keys
+    ``"<book>|<date>"`` for the book, takes the LATEST eligible session, and returns a
+    copy of that head entry (the R54.2 version-chain head — the authoritative
+    conclusion of its session) with ``eligible_market_date`` guaranteed present.
+    ``None`` when the book has no assessment or the index cannot be read. This is the
+    seam the decision-supersession loader uses to ask "what is the newest assessment
+    of record for this book?" — it decides nothing itself.
+    """
+    if not active_book_id:
+        return None
+    try:
+        index = _load_json(_index_path(reassessment_dir)) or {}
+        best_date, best_entry = None, None
+        prefix = "%s|" % active_book_id
+        for key, entry in index.items():
+            if not (isinstance(key, str) and key.startswith(prefix)):
+                continue
+            date = key[len(prefix):]
+            if best_date is None or date > best_date:
+                best_date, best_entry = date, entry
+        if best_entry is None:
+            return None
+        out = dict(best_entry)
+        out.setdefault("eligible_market_date", best_date)
+        out.setdefault("active_book_id", active_book_id)
+        out.pop("versions", None)  # the head is the pointer; the chain stays on disk
+        return out
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -2190,6 +2242,7 @@ __all__ = [
     "run_and_persist", "should_build_proposal", "proposal_binding", "proposal_is_current_for",
     "execution_precedence", "build_presentation", "load_portfolio_reassessment",
     "load_reassessment_summary", "load_reassessment_history", "load_history",
+    "load_latest_assessment_pointer",
     "recent_change_rows", "build_attribution", "build_decision_scope",
     "economic_currency", "hoc_corporate_actions_hash",
     # Release 54.2 — same-session assessment versioning.

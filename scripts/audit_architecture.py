@@ -11757,6 +11757,121 @@ def check_release54_2_3_source_panel_recovery(files: list[Path]) -> dict:
     }
 
 
+def check_release54_2_3_2_decision_supersession(files: list[Path]) -> dict:
+    """R54.2.3.2 invariants — a newer authoritative decision supersedes an older
+    manual-review proposal, decided ONCE by the canonical decision owner.
+
+    (a) the supersession comparison has exactly ONE calculation
+        (``assess_proposal_supersession`` in ``api.portfolio_decision``, with its
+        bounded loader ``load_decision_supersession`` and the canonical authority
+        selector ``resolve_decision_authority``), and no other ``api/*.py`` module
+        defines a second one;
+    (b) the decision owner refuses to record ANY decision on a superseded proposal
+        server-side (the endpoint path resolves the verdict on the call), and the
+        superseded lane state exists in the frozen vocabulary;
+    (c) the proposal read owner renders the verdict (``SUPERSEDED_BY_NEWER_DECISION``
+        read state; delegated resolution) and computes no comparison of its own;
+    (d) the workflow owner consumes the verdict (assessment view built from the
+        canonical reassessment summary + the Release-29.5 governed flag), publishes
+        the RPS_SUPERSEDED operator state, composes the decision-authority selector,
+        and asserts the NO_CHANGE-vs-reviewable-proposal contradiction as a semantic
+        invariant;
+    (e) the governed daily-cycle projection derives its decision word from the
+        governed ASSESSMENT first (``GD_NO_CHANGE``) and never from a superseded
+        proposal's outcome;
+    (f) the presentation renders the verdict verbatim (no derivation), and the
+        superseded proposal's allocation rows never re-enter the Today hero count;
+    (g) the UI performs no supersession comparison of its own and renders the new
+        states; no new recovery/supersession route exists.
+    """
+    pd_src = _read("api/portfolio_decision.py")
+    rp_src = _read("api/reallocation_proposal.py")
+    ws_src = _read(R5423_WORKFLOW_OWNER)
+    op_src = _read("api/operator_presentation.py")
+    ams_src = _read("api/active_manager_state.py")
+    app_src = _read("api/app.py")
+    ui = _read(UI_FILE)
+
+    # (a) one calculation, one loader, one selector — all owned by the decision owner.
+    owner_defines = all(t in pd_src for t in (
+        "def assess_proposal_supersession(", "def load_decision_supersession(",
+        "def resolve_decision_authority(",
+        'PDS_SUPERSEDED = "PROPOSAL_SUPERSEDED_BY_NEWER_DECISION"'))
+    second_calculation = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/") and _rel(fp) != "api/portfolio_decision.py"
+        and "def assess_proposal_supersession(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+
+    # (b) the write path fails closed and names the newer decision.
+    record_refuses = (
+        "load_decision_supersession(" in pd_src
+        and "This proposal was superseded by a newer authoritative" in pd_src
+        and '"status": PDS_SUPERSEDED' in pd_src)
+    lane_state_in_vocab = "PDS_SUPERSEDED, PDS_UNAVAILABLE)" in pd_src
+
+    # (c) the proposal read owner delegates and renders.
+    realloc_renders = all(t in rp_src for t in (
+        'STATE_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"',
+        "load_decision_supersession(", "STATE_SUPERSEDED)"))
+    realloc_second_comparison = bool(
+        "def assess_proposal_supersession(" in rp_src)
+
+    # (d) the workflow consumes and asserts.
+    workflow_consumes = (
+        "_import_portfolio_decision().assess_proposal_supersession(" in ws_src
+        and '_RP_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"' in ws_src
+        and 'RPS_SUPERSEDED = "REALLOCATION_PROPOSAL_SUPERSEDED"' in ws_src)
+    workflow_selector = (
+        "_import_portfolio_decision().resolve_decision_authority(" in ws_src
+        and '"decision_authority": decision_authority' in ws_src)
+    workflow_invariant = (
+        '"NO_CHANGE_DECISION_WITH_REVIEWABLE_PROPOSAL"' in ws_src)
+    superseded_never_approvable = (
+        "REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)" in ws_src)
+
+    # (e) the governed projection prefers the assessment's own word.
+    projection_from_assessment = (
+        'GD_NO_CHANGE = "CURRENT_NO_CHANGE"' in pd_src
+        and "GD_NO_CHANGE)" in pd_src
+        and 'if str(rs_state or "") == "CURRENT_NO_CHANGE":' in pd_src)
+
+    # (f) the presentation renders verbatim and gates the hero fallback.
+    presentation_renders = (
+        '_PDS_SUPERSEDED = "PROPOSAL_SUPERSEDED_BY_NEWER_DECISION"' in op_src
+        and "[] if _superseded else" in op_src
+        and "def assess_proposal_supersession(" not in op_src)
+    ams_echoes_selector = '"authoritative_selector"' in ams_src
+
+    # (g) the UI renders; it never compares evidence hashes or decides supersession.
+    ui_renders_states = "SUPERSEDED_BY_NEWER_DECISION" in ui
+    ui_supersession_derivation = sorted(set(
+        re.findall(r"hoc_assessment_hash\s*[!=]==?[^\n]{0,40}", ui)
+        + re.findall(r"reassessment_hash\s*[!=]==?[^\n]{0,40}", ui)))
+    forbidden_supersession_routes = sorted(set(
+        re.findall(r"@app\.post\(\s*[\"'][^\"']*supersed[^\"']*[\"']", app_src)))
+
+    return {
+        "supersession_owner": "api.portfolio_decision",
+        "owner_defines_calculation_loader_selector": bool(owner_defines),
+        "second_supersession_calculation": second_calculation,
+        "record_decision_refuses_superseded": bool(record_refuses),
+        "lane_state_in_vocabulary": bool(lane_state_in_vocab),
+        "realloc_read_renders_verdict": bool(realloc_renders),
+        "realloc_second_comparison": bool(realloc_second_comparison),
+        "workflow_consumes_verdict": bool(workflow_consumes),
+        "workflow_composes_authority_selector": bool(workflow_selector),
+        "workflow_asserts_no_change_invariant": bool(workflow_invariant),
+        "superseded_never_approvable": bool(superseded_never_approvable),
+        "projection_prefers_assessment_decision": bool(projection_from_assessment),
+        "presentation_renders_verbatim": bool(presentation_renders),
+        "ams_echoes_selector": bool(ams_echoes_selector),
+        "ui_renders_superseded_states": bool(ui_renders_states),
+        "ui_supersession_derivation": ui_supersession_derivation,
+        "forbidden_supersession_routes": forbidden_supersession_routes,
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -13555,6 +13670,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release54_2_3_source_panel_recovery(files),
         "release54_2_3_1_owned_data_readiness_authority":
             check_release54_2_3_1_owned_data_readiness_authority(files),
+        "release54_2_3_2_decision_supersession":
+            check_release54_2_3_2_decision_supersession(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -14304,6 +14421,34 @@ def _print_console(rep: dict) -> None:
     print(f"UI actionability derivation (must be empty): "
           f"{sp['ui_actionability_derivation']}  "
           f"UI reads backend actionability: {sp['ui_reads_backend_actionability']}")
+
+    hdr("DECISION / PROPOSAL SUPERSESSION AUTHORITY (R54.2.3.2)")
+    dsup = rep["release54_2_3_2_decision_supersession"]
+    print(f"supersession owner: {dsup['supersession_owner']}  defines calculation "
+          f"+ loader + selector: "
+          f"{dsup['owner_defines_calculation_loader_selector']}")
+    print(f"second supersession calculations (must be empty): "
+          f"{dsup['second_supersession_calculation']}")
+    print(f"record_decision refuses superseded: "
+          f"{dsup['record_decision_refuses_superseded']}  lane state in "
+          f"vocabulary: {dsup['lane_state_in_vocabulary']}")
+    print(f"realloc read renders verdict: {dsup['realloc_read_renders_verdict']}  "
+          f"realloc second comparison (must be False): "
+          f"{dsup['realloc_second_comparison']}")
+    print(f"workflow consumes verdict: {dsup['workflow_consumes_verdict']}  "
+          f"composes authority selector: "
+          f"{dsup['workflow_composes_authority_selector']}  asserts NO_CHANGE "
+          f"invariant: {dsup['workflow_asserts_no_change_invariant']}")
+    print(f"superseded never approvable: {dsup['superseded_never_approvable']}  "
+          f"projection prefers assessment decision: "
+          f"{dsup['projection_prefers_assessment_decision']}")
+    print(f"presentation renders verbatim: "
+          f"{dsup['presentation_renders_verbatim']}  AMS echoes selector: "
+          f"{dsup['ams_echoes_selector']}")
+    print(f"UI renders superseded states: {dsup['ui_renders_superseded_states']}  "
+          f"UI supersession derivation (must be empty): "
+          f"{dsup['ui_supersession_derivation']}  forbidden routes (must be "
+          f"empty): {dsup['forbidden_supersession_routes']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -16420,6 +16565,46 @@ BLOCKING_INVARIANTS = (
     ("release54_2_3_source_panel_recovery", "ui_actionability_derivation", []),
     ("release54_2_3_source_panel_recovery",
      "ui_reads_backend_actionability", True),
+    # ------------------------------------------------------------------- #
+    # Release 54.2.3.2 - DECISION / PROPOSAL SUPERSESSION AUTHORITY. A newer
+    # authoritative governed decision supersedes an older manual-review
+    # proposal: the comparison lives ONCE in api.portfolio_decision, the write
+    # path refuses superseded proposals server-side, every read renders the
+    # verdict verbatim, and no surface (UI included) derives one of its own.
+    # Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release54_2_3_2_decision_supersession",
+     "owner_defines_calculation_loader_selector", True),
+    ("release54_2_3_2_decision_supersession",
+     "second_supersession_calculation", []),
+    ("release54_2_3_2_decision_supersession",
+     "record_decision_refuses_superseded", True),
+    ("release54_2_3_2_decision_supersession",
+     "lane_state_in_vocabulary", True),
+    ("release54_2_3_2_decision_supersession",
+     "realloc_read_renders_verdict", True),
+    ("release54_2_3_2_decision_supersession",
+     "realloc_second_comparison", False),
+    ("release54_2_3_2_decision_supersession",
+     "workflow_consumes_verdict", True),
+    ("release54_2_3_2_decision_supersession",
+     "workflow_composes_authority_selector", True),
+    ("release54_2_3_2_decision_supersession",
+     "workflow_asserts_no_change_invariant", True),
+    ("release54_2_3_2_decision_supersession",
+     "superseded_never_approvable", True),
+    ("release54_2_3_2_decision_supersession",
+     "projection_prefers_assessment_decision", True),
+    ("release54_2_3_2_decision_supersession",
+     "presentation_renders_verbatim", True),
+    ("release54_2_3_2_decision_supersession",
+     "ams_echoes_selector", True),
+    ("release54_2_3_2_decision_supersession",
+     "ui_renders_superseded_states", True),
+    ("release54_2_3_2_decision_supersession",
+     "ui_supersession_derivation", []),
+    ("release54_2_3_2_decision_supersession",
+     "forbidden_supersession_routes", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

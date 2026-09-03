@@ -468,8 +468,14 @@ RPS_BLOCKED = "REALLOCATION_PROPOSAL_BLOCKED"
 RPS_WITHHELD = "REALLOCATION_PROPOSAL_WITHHELD"
 RPS_NO_ACTIVE_BOOK = "REALLOCATION_PROPOSAL_NO_ACTIVE_BOOK"
 RPS_UNAVAILABLE = "REALLOCATION_PROPOSAL_UNAVAILABLE"
+#: R54.2.3.2 — a NEWER authoritative governed decision stands and does not request
+#: or endorse the persisted proposal. History-visible, never reviewable as current,
+#: never approvable. Decided by api.portfolio_decision.assess_proposal_supersession
+#: (the ONE calculation); this module renders the verdict and decides nothing.
+RPS_SUPERSEDED = "REALLOCATION_PROPOSAL_SUPERSEDED"
 REALLOCATION_OPERATOR_STATES = (RPS_NOT_RUN, RPS_READY, RPS_DEGRADED, RPS_BLOCKED,
-                                RPS_WITHHELD, RPS_NO_ACTIVE_BOOK, RPS_UNAVAILABLE)
+                                RPS_WITHHELD, RPS_NO_ACTIVE_BOOK, RPS_UNAVAILABLE,
+                                RPS_SUPERSEDED)
 #: The ONLY reallocation operator states in which a proposal may be reviewed/approved.
 REALLOCATION_APPROVABLE_STATES = (RPS_READY, RPS_DEGRADED)
 # Reallocation read-summary states (mirror of api.reallocation_proposal READ_STATE_VOCAB).
@@ -480,6 +486,7 @@ _RP_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
 _RP_NOT_RUN = "NOT_RUN"
 _RP_UNAVAILABLE = "UNAVAILABLE"
 _RP_WITHHELD = "WITHHELD"
+_RP_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"
 
 # HOC read-summary states (mirror of api.holding_opportunity_cost READ_STATE_VOCAB) —
 # kept as literals so this module stays importable/pure without importing the owner.
@@ -737,6 +744,8 @@ _RP_STATE_MAP = {
     _RP_NOT_RUN: (RPS_NOT_RUN, "NOT_RUN", SEV_INFO),
     _RP_WITHHELD: (RPS_WITHHELD, "WITHHELD — PORTFOLIO LIMITS", SEV_ATTENTION),
     _RP_UNAVAILABLE: (RPS_UNAVAILABLE, "UNAVAILABLE", SEV_ATTENTION),
+    # R54.2.3.2 — history-only; a newer authoritative decision stands.
+    _RP_SUPERSEDED: (RPS_SUPERSEDED, "SUPERSEDED — HISTORY ONLY", SEV_INFO),
 }
 
 
@@ -756,7 +765,9 @@ def build_reallocation_proposal_presentation(
         one_way_turnover: Any = None, estimated_transaction_cost: Any = None,
         data_gaps: Optional[list] = None,
         cycle_complete: bool = False, cycle_run_id: Any = None,
-        reassessment_state: Any = None) -> dict[str, Any]:
+        reassessment_state: Any = None,
+        superseded_by_decision: Any = None,
+        superseded_by_session: Any = None) -> dict[str, Any]:
     """Slice 7 (Phase 29H) reallocation-proposal presentation, rendered VERBATIM by the
     UI (like the HOC presentation). Review-only, manual-review: it exposes the proposal
     state as INFORMATION and NEVER as an order/apply/confirm requirement. It never gates
@@ -793,7 +804,21 @@ def build_reallocation_proposal_presentation(
     ra_state = str(reassessment_state) if reassessment_state else None
     gate_withheld = bool(cycle_complete and ra_state in _RP_GATE_DID_NOT_CLEAR)
 
-    if not has_proposal and gate_withheld:
+    if rp_state == _RP_SUPERSEDED:
+        # R54.2.3.2 — the standing artifact was superseded by a newer authoritative
+        # decision. Say exactly that; never render it as reviewable work.
+        headline = ("The persisted reallocation proposal was SUPERSEDED by the "
+                    "newer authoritative decision (%s for %s). It remains "
+                    "visible as history only."
+                    % (superseded_by_decision or "governed decision",
+                       superseded_by_session or date_txt or "this session"))
+        explanation = ("A newer governed decision answered the portfolio question, "
+                       "so this proposal is no longer current, reviewable or "
+                       "approvable. Its immutable artifact is unchanged and stays "
+                       "in the audit history. There is no outstanding reallocation "
+                       "action.")
+        summary_label = "SUPERSEDED — HISTORY ONLY"
+    elif not has_proposal and gate_withheld:
         headline = ("The Daily Research Cycle for %s COMPLETED and produced no "
                     "reallocation proposal: the portfolio-level economic gate "
                     "did not clear (%s)." % (date_txt or "this session",
@@ -867,11 +892,23 @@ def build_reallocation_proposal_presentation(
         "reassessment_state": ra_state,
         "economic_gate_withheld_the_proposal": gate_withheld,
         "running_the_cycle_again_would_change_nothing": gate_withheld,
-        "outstanding_action": ("MANUAL_PORTFOLIO_CONSTRAINT_REVIEW"
+        # R54.2.3.2 — the decision-supersession verdict, rendered verbatim. A
+        # superseded proposal leaves NOTHING outstanding: the newer decision is
+        # the story, and re-running the cycle would change nothing.
+        "superseded": bool(rp_state == _RP_SUPERSEDED),
+        "superseded_by_decision": (superseded_by_decision
+                                   if rp_state == _RP_SUPERSEDED else None),
+        "superseded_by_session": (superseded_by_session
+                                  if rp_state == _RP_SUPERSEDED else None),
+        "outstanding_action": ("NO_OUTSTANDING_ACTION_NEWER_DECISION_STANDS"
+                               if rp_state == _RP_SUPERSEDED else
+                               "MANUAL_PORTFOLIO_CONSTRAINT_REVIEW"
                                if gate_withheld else
                                ("RUN_DAILY_RESEARCH_CYCLE" if not has_proposal
                                 else "REVIEW_THE_PROPOSAL")),
-        "outstanding_action_owner": (PRS_CANONICAL_OWNER if gate_withheld
+        "outstanding_action_owner": ("api.portfolio_decision"
+                                     if rp_state == _RP_SUPERSEDED else
+                                     PRS_CANONICAL_OWNER if gate_withheld
                                      else RP_CANONICAL_OWNER),
     }
 
@@ -3140,6 +3177,11 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
         "proposal_hash": lane.get("proposal_hash"),
         "decision_state": pd_state,
         "decision_owner": "api.portfolio_decision",
+        # R54.2.3.2 — the decision-over-proposal supersession verdict, verbatim
+        # from the canonical decision lane (never re-derived here).
+        "proposal_superseded": bool(lane.get("proposal_superseded")),
+        "proposal_supersession": lane.get("supersession"),
+        "superseded_by": lane.get("superseded_by"),
         "withheld_reasons": reasons,
         # --- Release 47 — rendered verbatim from the proposal owner --------- #
         "reallocation_outcome": reallocation_outcome,
@@ -3207,6 +3249,10 @@ SEMANTIC_VIOLATION_CODES = (
     "PROPOSAL_NOT_BOUND_TO_CURRENT_REASSESSMENT",
     "WITHHELD_PROPOSAL_EXPOSED_AS_APPROVABLE",
     "MANDATORY_EXIT_PRESENTED_AS_EXECUTABLE_OBLIGATION",
+    # R54.2.3.2 — the live 2026-09-02 contradiction, expressed as an invariant: a
+    # CURRENT_NO_CHANGE decision of record can never be composed beside a proposal
+    # still presented as reviewable or approvable.
+    "NO_CHANGE_DECISION_WITH_REVIEWABLE_PROPOSAL",
 )
 
 #: Release 29.4 — SESSION-AUTHORITY violation codes. These compare the market-session
@@ -3409,6 +3455,24 @@ def check_decision_semantics(*, reallocation_operator_state: Any,
             "value_proposal_bound_hoc_assessment": proposal_bound_reassessment_hash,
             "value_reassessment_bound_hoc_assessment": current_reassessment_hash,
             "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_reassessment"],
+            "surface": "workflow_state"})
+
+    # I9 (R54.2.3.2). A NO-CHANGE decision of record can never be composed beside a
+    # proposal still presented as reviewable/approvable. On 2026-09-02 the governed
+    # CURRENT_NO_CHANGE conclusion (23:51Z) stood while a stale event-cycle proposal
+    # (23:38Z) kept the decision lane at PROPOSAL_REVIEW_REQUIRED — Today rendered
+    # "REALLOCATE — 28 POSITIONS CHANGE" over "No change is proposed".
+    if reassessment_state == "CURRENT_NO_CHANGE" and (
+            portfolio_decision_requires_review or reallocation_approvable
+            or portfolio_decision_approvable):
+        violations.append({
+            "code": "NO_CHANGE_DECISION_WITH_REVIEWABLE_PROPOSAL",
+            "concept": "portfolio_decision",
+            "value_reassessment": reassessment_state,
+            "value_portfolio_decision": portfolio_decision_state,
+            "value_reallocation_state": reallocation_operator_state,
+            "authoritative_owners": ["api.portfolio_reassessment",
+                                     "api.portfolio_decision"],
             "surface": "workflow_state"})
 
     # I5. A WITHHELD complete target is never approvable.
@@ -3867,6 +3931,54 @@ def load_workflow_state(
         "reallocation_proposal_approvable": (gate or {}).get(
             "reallocation_proposal_approvable"),
     }
+    # --- R54.2.3.2 — DECISION-OVER-PROPOSAL SUPERSESSION (Track B continued). ------ #
+    # The Release-29.5 governed-evidence verdict is resolved HERE (hoisted; the same
+    # expression the research-cycle region reuses below) because the supersession
+    # comparison needs it BEFORE the decision lane is derived. The governed answer
+    # belongs to the cycle owner (the run manifest); this module reads it, never
+    # re-derives it.
+    drc_contract_observable = bool(
+        isinstance(research_cycle, dict) and research_cycle.get("state"))
+    governed_research_evidence_current = bool(
+        research_cycle.get("governed_research_evidence_current", cycle_complete)
+        if drc_contract_observable else False)
+    # The authoritative-assessment view for the ONE supersession calculation: the
+    # reassessment store head this composition already loaded, plus the governed
+    # verdict above as its decision authority. The calculation itself lives in the
+    # canonical decision owner and is consumed verbatim — on 2026-09-02 a live
+    # event-cycle proposal (23:38Z) outlived the governed CURRENT_NO_CHANGE
+    # conclusion (23:51Z, manifest: proposal NOT_REQUIRED) and every surface
+    # presented it as reviewable beside "No change is proposed".
+    proposal_supersession = _safe(
+        lambda: _import_portfolio_decision().assess_proposal_supersession(
+            proposal_summary=rp_summary,
+            assessment={
+                "available": bool(reassessment_summary.get("reassessment_available")),
+                "decision": reassessment_state,
+                "eligible_market_date": (
+                    reassessment_summary.get("reassessment_date") or eligible_date),
+                "reassessment_hash": reassessment_summary.get("reassessment_hash"),
+                "artifact_id": (reassessment_summary.get("assessment_artifact_id")
+                                or reassessment_summary.get("reassessment_id")),
+                "generated_at": reassessment_summary.get("assessment_generated_at"),
+                "hoc_assessment_hash": reassessment_summary.get(
+                    "assessment_hoc_assessment_hash"),
+                "is_governed": (True if governed_research_evidence_current
+                                else None),
+                "governed_manifest_run_id": (research_cycle or {}).get(
+                    "governed_manifest_run_id"),
+                "governed_provenance": ("GOVERNED_DAILY_CYCLE"
+                                        if governed_research_evidence_current
+                                        else None),
+            }),
+        warnings, "Proposal supersession verdict") or {"superseded": False}
+    proposal_superseded = bool(proposal_supersession.get("superseded"))
+    rp_summary["reallocation_proposal_superseded"] = proposal_superseded
+    rp_summary["reallocation_proposal_supersession"] = proposal_supersession
+    if proposal_superseded:
+        rp_state = _RP_SUPERSEDED
+        rp_summary["reallocation_proposal_state"] = _RP_SUPERSEDED
+        rp_summary["reallocation_proposal_approvable"] = False
     active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
     if decision_record is None:
         decision_record = _safe(
@@ -3973,14 +4085,9 @@ def load_workflow_state(
     # re-derived from the artifact — this module classifies no provenance of its own.
     # Degrade-safe: when the DRC contract is not observable, the old artifact-existence
     # rule still applies, so an unreadable cycle status can never fabricate a requirement.
-    drc_contract_observable = bool(
-        isinstance(research_cycle, dict) and research_cycle.get("state"))
-    # The explicit contract field when the cycle owner publishes it; otherwise its
-    # manifest-backed COMPLETE state, which is the same answer stated less precisely. The
-    # fallback keeps an older/partial status contract behaving exactly as before.
-    governed_research_evidence_current = bool(
-        research_cycle.get("governed_research_evidence_current", cycle_complete)
-        if drc_contract_observable else False)
+    # R54.2.3.2 — ``drc_contract_observable`` and ``governed_research_evidence_current``
+    # are now resolved ONCE, hoisted above the decision lane (the supersession
+    # comparison consumes them); the values used here are those same values.
     research_cycle_due_after_close = bool(
         eligible_session_closed
         and ((hoc_contract_observable and not hoc_available)
@@ -4377,7 +4484,13 @@ def load_workflow_state(
         # be presented as a cycle that has not run.
         cycle_complete=cycle_complete,
         cycle_run_id=(research_cycle or {}).get("run_id"),
-        reassessment_state=reassessment_state)
+        reassessment_state=reassessment_state,
+        # R54.2.3.2 - the supersession verdict, decided once above; the card
+        # renders which decision stands and that the artifact is history only.
+        superseded_by_decision=((proposal_supersession.get("superseded_by") or {})
+                                .get("decision")),
+        superseded_by_session=((proposal_supersession.get("superseded_by") or {})
+                               .get("session")))
     reallocation_operator_state = reallocation_proposal_presentation["canonical_operator_state"]
     # Stage 20: the ACTIVE PORTFOLIO ASSESSMENT presentation. Built by the canonical
     # reassessment owner (never here) so the operator wording, the single action and the
@@ -4581,6 +4694,28 @@ def load_workflow_state(
         attention_count=reassessment_summary.get("attention_count"),
         eligible_date=eligible_date,
         governed_research_evidence_current=governed_research_evidence_current)
+
+    # R54.2.3.2 — THE canonical decision-authority selector (owned by the decision
+    # owner; this composition supplies the already-resolved views and adds nothing).
+    decision_authority = _safe(
+        lambda: _import_portfolio_decision().resolve_decision_authority(
+            assessment={
+                "available": bool(reassessment_summary.get("reassessment_available")),
+                "decision": reassessment_state,
+                "eligible_market_date": (
+                    reassessment_summary.get("reassessment_date") or eligible_date),
+                "artifact_id": (reassessment_summary.get("assessment_artifact_id")
+                                or reassessment_summary.get("reassessment_id")),
+                "governed_manifest_run_id": (research_cycle or {}).get(
+                    "governed_manifest_run_id"),
+                "is_governed": (True if governed_research_evidence_current
+                                else None),
+            },
+            proposal_summary=rp_summary,
+            supersession=proposal_supersession,
+            decision_record=decision_record),
+        warnings, "Decision authority selector") or {
+            "owner": "api.portfolio_decision", "authority_provable": False}
 
     # --- Release 29.3: SEMANTIC decision-integrity invariants. ------------------ #
     # Every field below is read verbatim from its canonical owner; the check compares
@@ -4958,6 +5093,11 @@ def load_workflow_state(
         "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,
         "canonical_portfolio_decision": canonical_portfolio_decision,
+        # R54.2.3.2 — THE canonical decision-authority selector: which decision is
+        # authoritative right now, which proposal (if any) is currently reviewable,
+        # and what was superseded. Owned by api.portfolio_decision; composed here
+        # from the already-resolved owner views (no second calculation).
+        "decision_authority": decision_authority,
         "consistency_status": consistency_status,
         "consistency_violations": consistency_violations,
         "safety": {

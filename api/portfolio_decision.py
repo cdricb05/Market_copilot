@@ -89,11 +89,20 @@ PDS_CHANGE_WITHHELD = "CHANGE_CANDIDATE_WITHHELD"
 #: "a constraint blocked us" state, nor outstanding operator work. Not approvable:
 #: rebalancing anyway would be trading because a day passed.
 PDS_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
+#: R54.2.3.2 — a NEWER authoritative governed decision (a later session's governed
+#: verdict, or the same session's authoritative assessment concluding from newer
+#: evidence) stands, and it does not request/endorse this proposal. The proposal
+#: remains immutable, history-visible evidence; it is no longer current, no longer
+#: reviewable as outstanding work, and NEVER approvable. This is distinct from
+#: PDS_STALE (the proposal changed under the operator mid-review — re-review it):
+#: there is nothing to re-review here, because the newer decision already answered
+#: the portfolio question.
+PDS_SUPERSEDED = "PROPOSAL_SUPERSEDED_BY_NEWER_DECISION"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
     PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
-    PDS_HOLD_CURRENT_BOOK, PDS_UNAVAILABLE)
+    PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_UNAVAILABLE)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
@@ -202,6 +211,208 @@ def assess_materiality(proposal_summary: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# R54.2.3.2 — PROPOSAL SUPERSESSION BY A NEWER AUTHORITATIVE DECISION.
+#
+# The live 2026-09-02 defect: a live event cycle produced a 28-change proposal at
+# 23:38Z from reassessment evidence that the governed Daily Research Cycle then
+# SUPERSEDED at 23:51Z with an authoritative CURRENT_NO_CHANGE conclusion (manifest
+# drc_2026-09-02_15abfb01856f: reallocation_proposal_state NOT_REQUIRED). The
+# reassessment store recorded the version supersession; the proposal index still
+# pointed at the stale artifact, and every "current proposal" read presented it as
+# reviewable/approvable — REALLOCATE — 28 POSITIONS CHANGE beside "No change is
+# proposed". The authority rule this block owns:
+#
+#     newer governed completed-session decision
+#         > older governed completed-session decision
+#         > any older proposal awaiting manual review
+#
+# and a NON-governed / governance-withheld intraday research result NEVER supersedes
+# a governed decision (that is the R54.1 direction, unchanged). There is exactly ONE
+# supersession calculation, and it lives here in the canonical decision owner.
+# --------------------------------------------------------------------------- #
+SUPERSESSION_OWNER = OWNER
+#: The assessment decisions that are CONCLUSIVE portfolio verdicts able to supersede
+#: a standing proposal. Blocked / not-run / manual-adjudication states are questions,
+#: not decisions, and never tear down reviewable work (fail-closed toward review).
+SUPERSEDING_ASSESSMENT_DECISIONS = ("CURRENT_NO_CHANGE", "PROPOSAL_READY")
+# Supersession reason codes (`superseded` True) / non-supersession reasons (False).
+SUP_NEWER_SESSION_DECISION = "NEWER_SESSION_GOVERNED_DECISION"
+SUP_NO_CHANGE_DECISION = "SESSION_DECISION_IS_NO_CHANGE"
+SUP_NEWER_EVIDENCE_REQUESTED_FRESH_PROPOSAL = "NEWER_EVIDENCE_REQUESTED_FRESH_PROPOSAL"
+SUP_NOT_SUPERSEDED_CURRENT = "PROPOSAL_BOUND_TO_STANDING_ASSESSMENT"
+SUP_NO_PROPOSAL = "NO_PROPOSAL_TO_SUPERSEDE"
+SUP_NO_ASSESSMENT = "NO_AUTHORITATIVE_ASSESSMENT_OBSERVED"
+SUP_AUTHORITY_UNPROVEN = "ASSESSMENT_AUTHORITY_UNPROVEN"
+SUP_ASSESSMENT_NOT_CONCLUSIVE = "ASSESSMENT_DECISION_NOT_CONCLUSIVE"
+SUP_ASSESSMENT_OLDER = "ASSESSMENT_OLDER_THAN_PROPOSAL"
+SUP_DIRECTION_UNPROVEN = "SUPERSESSION_DIRECTION_UNPROVEN"
+
+
+def assess_proposal_supersession(*, proposal_summary: Optional[dict],
+                                 assessment: Optional[dict]) -> dict:
+    """THE one supersession calculation: is the current proposal outranked by a
+    newer authoritative decision? Pure; no io; fail-closed in BOTH directions.
+
+    ``assessment`` is the AUTHORITATIVE assessment view the caller resolved (the
+    reassessment store's version-chain head, plus proof of decision authority):
+    ``available / decision / eligible_market_date / reassessment_hash /
+    artifact_id / generated_at / hoc_assessment_hash (the assessment's OWN
+    evidence) / is_governed / governed_manifest_run_id / governed_provenance``.
+
+    ``superseded`` becomes True ONLY when every link is proven:
+      * a proposal exists;
+      * an authoritative assessment exists AND ``is_governed`` is True — a
+        non-governed or governance-withheld intraday result never supersedes;
+      * the assessment's decision is a conclusive verdict
+        (:data:`SUPERSEDING_ASSESSMENT_DECISIONS`);
+      * the direction is newer-onto-older: a LATER session always supersedes; the
+        SAME session supersedes when its authoritative conclusion is
+        CURRENT_NO_CHANGE (the session's decision requests no proposal), or when
+        it requested a proposal from provably different evidence and is not older
+        than the standing artifact. An assessment for an EARLIER session never
+        supersedes anything.
+    Anything unprovable → NOT superseded (the standing review keeps its status).
+    """
+    summ = proposal_summary or {}
+    a = assessment or {}
+    base = {
+        "owner": SUPERSESSION_OWNER,
+        "superseded": False,
+        "reason": None,
+        "proposal_id": summ.get("reallocation_proposal_id"),
+        "proposal_hash": summ.get("reallocation_proposal_hash"),
+        "proposal_session": summ.get("reallocation_bound_eligible_market_date"),
+        "proposal_bound_hoc_assessment_hash": summ.get(
+            "reallocation_bound_hoc_assessment_hash"),
+        "superseded_by": None,
+    }
+    if not summ.get("reallocation_proposal_available"):
+        return {**base, "reason": SUP_NO_PROPOSAL}
+    if not a or not a.get("decision"):
+        return {**base, "reason": SUP_NO_ASSESSMENT}
+    if a.get("is_governed") is not True:
+        return {**base, "reason": SUP_AUTHORITY_UNPROVEN}
+    decision = str(a.get("decision"))
+    if decision not in SUPERSEDING_ASSESSMENT_DECISIONS:
+        return {**base, "reason": SUP_ASSESSMENT_NOT_CONCLUSIVE,
+                "assessment_decision": decision}
+
+    superseded_by = {
+        "kind": "GOVERNED_ASSESSMENT",
+        "decision": decision,
+        "artifact_id": a.get("artifact_id"),
+        "reassessment_hash": a.get("reassessment_hash"),
+        "session": (str(a.get("eligible_market_date"))[:10]
+                    if a.get("eligible_market_date") else None),
+        "decided_at": a.get("generated_at"),
+        "governed_manifest_run_id": a.get("governed_manifest_run_id"),
+        "governed_provenance": a.get("governed_provenance"),
+        "owner": "api.portfolio_reassessment (adjudicated by the governed manifest "
+                 "/ governed decision lane)",
+    }
+    a_session = superseded_by["session"]
+    p_session = (str(base["proposal_session"])[:10]
+                 if base["proposal_session"] else None)
+    if a_session and p_session and a_session < p_session:
+        return {**base, "reason": SUP_ASSESSMENT_OLDER}
+    if a_session and p_session and a_session > p_session:
+        return {**base, "superseded": True, "reason": SUP_NEWER_SESSION_DECISION,
+                "superseded_by": superseded_by}
+    # Same session (or a session side unknown — treated as the same-session
+    # comparison, which requires an evidence/decision proof to supersede).
+    if decision == "CURRENT_NO_CHANGE":
+        # The session's authoritative conclusion requests NO proposal; whatever
+        # artifact stands at the proposal key is not endorsed by the decision of
+        # record. Timestamps are not required: the store head IS the session's
+        # authoritative conclusion by the R54.2 version-chain contract.
+        return {**base, "superseded": True, "reason": SUP_NO_CHANGE_DECISION,
+                "superseded_by": superseded_by}
+    # decision == PROPOSAL_READY: the assessment requested a proposal. If the
+    # standing proposal is bound to the SAME evidence, it IS the requested one.
+    own = a.get("hoc_assessment_hash")
+    bound = base["proposal_bound_hoc_assessment_hash"]
+    if own is None or bound is None:
+        return {**base, "reason": SUP_DIRECTION_UNPROVEN}
+    if str(own) == str(bound):
+        return {**base, "reason": SUP_NOT_SUPERSEDED_CURRENT}
+    # Different evidence requested a FRESH proposal. Supersede only when the
+    # assessment is not provably OLDER than the standing artifact (an unpersisted
+    # or refused newer assessment must never be outranked by inference).
+    a_at = str(a.get("generated_at") or "")
+    p_at = str(summ.get("reallocation_proposal_generated_at") or "")
+    if a_at and p_at and a_at < p_at:
+        return {**base, "reason": SUP_ASSESSMENT_OLDER}
+    return {**base, "superseded": True,
+            "reason": SUP_NEWER_EVIDENCE_REQUESTED_FRESH_PROPOSAL,
+            "superseded_by": superseded_by}
+
+
+def load_decision_supersession(*, active_book_id: Optional[str],
+                               proposal_summary: Optional[dict],
+                               reassessment_dir=None, drc_dir=None,
+                               decision_dir=None,
+                               assessment: Optional[dict] = None) -> dict:
+    """Resolve the authoritative-assessment view from the stores and run THE one
+    supersession calculation. Bounded, read-only, degrade-safe.
+
+    Reads (all small immutable-store reads; no engine, no provider, no write):
+      1. the reassessment store's newest pointer for the book (R54.2 head);
+      2. the governed Daily-Research-Cycle manifest for that session — decision
+         authority proof #1 (``governed`` and it binds the head's hash);
+      3. the persisted governed intraday decision record — authority proof #2
+         (an R54.1 gate-passed record binding the head's hash).
+    A hermetic caller supplies ``assessment`` (or the explicit dirs) and never
+    touches a production store. Unresolvable authority → NOT superseded.
+    """
+    if assessment is None:
+        ptr = None
+        try:
+            from paper_trader.api import portfolio_reassessment as _prs
+            ptr = _prs.load_latest_assessment_pointer(
+                active_book_id=active_book_id, reassessment_dir=reassessment_dir)
+        except Exception:  # noqa: BLE001 - a read must never crash the caller
+            ptr = None
+        if ptr:
+            session = ptr.get("eligible_market_date")
+            head_hash = ptr.get("reassessment_hash")
+            is_governed, run_id, provenance = None, None, None
+            try:
+                from paper_trader.api import daily_research_cycle as _drc
+                ref = _drc.load_governed_manifest_reference(
+                    eligible_market_date=session, drc_dir=drc_dir)
+            except Exception:  # noqa: BLE001
+                ref = None
+            if ref and ref.get("governed") and head_hash \
+                    and str(ref.get("portfolio_reassessment_hash")) == str(head_hash):
+                is_governed = True
+                run_id = ref.get("run_id")
+                provenance = PROV_GOVERNED_DAILY_CYCLE
+            else:
+                gov = load_governed_decision_record(
+                    active_book_id=active_book_id, decision_dir=decision_dir)
+                if gov and head_hash and str(
+                        (gov.get("identity") or {}).get("reassessment_hash")) \
+                        == str(head_hash):
+                    is_governed = True
+                    run_id = gov.get("record_id")
+                    provenance = gov.get("provenance")
+            assessment = {
+                "available": True,
+                "decision": ptr.get("decision"),
+                "eligible_market_date": session,
+                "reassessment_hash": head_hash,
+                "artifact_id": ptr.get("artifact_id"),
+                "generated_at": ptr.get("generated_at"),
+                "hoc_assessment_hash": ptr.get("hoc_assessment_hash"),
+                "is_governed": is_governed,
+                "governed_manifest_run_id": run_id,
+                "governed_provenance": provenance,
+            }
+    return assess_proposal_supersession(proposal_summary=proposal_summary,
+                                        assessment=assessment)
+
+
+# --------------------------------------------------------------------------- #
 # Binding — the exact immutable identity a decision is recorded against
 # --------------------------------------------------------------------------- #
 def _binding_from_artifact(artifact: dict) -> dict:
@@ -266,6 +477,8 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     proposal_summary: Optional[dict] = None,
                     actor: Optional[str] = None,
                     decision_dir=None, reallocation_dir=None,
+                    reassessment_dir=None, drc_dir=None,
+                    supersession: Optional[dict] = None,
                     now: Optional[datetime] = None,
                     portfolio_state: Optional[dict] = None,
                     portfolio_state_loader: Optional[Callable] = None) -> dict:
@@ -298,6 +511,9 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 "confirm_required_token": CONFIRM_TOKEN}
 
     # Resolve the current immutable proposal artifact for the active book + eligible date.
+    # R54.2.3.2 — remember whether THIS call resolved the proposal itself (the live
+    # endpoint path): that is the path that must recompute supersession server-side.
+    _server_resolved_proposal = artifact is None
     if artifact is None:
         if active_book_id is None or eligible_market_date is None:
             try:
@@ -326,6 +542,39 @@ def record_decision(*, decision: str, confirm: Optional[str],
         active_book_id=binding.get("active_book_id"),
         eligible_market_date=binding.get("eligible_market_date"),
         artifact=artifact, reallocation_dir=reallocation_dir)
+    # R54.2.3.2 fail-closed guard — SERVER-ENFORCED: a proposal superseded by a newer
+    # authoritative governed decision can never be approved (or rejected/held — there
+    # is no current decision to record on it). On the live endpoint path (this call
+    # resolved the proposal itself) — or when the caller supplies the sibling store
+    # roots — the verdict is recomputed HERE by the ONE calculation, so a direct
+    # endpoint call can never slip past a browser-side rendering. A hermetic caller
+    # that injected its whole world is judged on the verdict that world carries.
+    sup = supersession
+    if sup is None and (summ.get("reallocation_proposal_supersession") is not None
+                        or summ.get("reallocation_proposal_superseded") is not None):
+        sup = (summ.get("reallocation_proposal_supersession")
+               or {"superseded": bool(summ.get("reallocation_proposal_superseded"))})
+    if sup is None and (_server_resolved_proposal or reassessment_dir is not None
+                        or drc_dir is not None):
+        sup = load_decision_supersession(
+            active_book_id=binding.get("active_book_id"),
+            proposal_summary=summ, reassessment_dir=reassessment_dir,
+            drc_dir=drc_dir, decision_dir=decision_dir)
+    if sup and sup.get("superseded"):
+        by = sup.get("superseded_by") or {}
+        return {**base, "status": PDS_SUPERSEDED,
+                "message": ("This proposal was superseded by a newer authoritative "
+                            "decision (%s for session %s, %s). It remains visible "
+                            "as history and can no longer be reviewed as current "
+                            "or approved. No decision was recorded."
+                            % (by.get("decision") or "governed decision",
+                               by.get("session") or "?",
+                               by.get("artifact_id")
+                               or by.get("governed_manifest_run_id") or "id n/a")),
+                "supersession": dict(sup),
+                "superseded_by": by,
+                "current_proposal_hash": current_hash, "binding": binding}
+
     # Release 29.3 fail-closed guard: a complete target the proposal owner WITHHELD can
     # never be approved. It is reviewable evidence of a rejected change, not a proposal.
     if summ.get("reallocation_proposal_withheld"):
@@ -459,6 +708,7 @@ _STATE_META = {
     PDS_STALE: ("Proposal superseded — fresh review required", "ATTENTION"),
     PDS_CHANGE_WITHHELD: ("Portfolio change withheld", "ATTENTION"),
     PDS_HOLD_CURRENT_BOOK: ("Hold the current book", "SUCCESS"),
+    PDS_SUPERSEDED: ("Proposal superseded by a newer decision", "INFO"),
     PDS_UNAVAILABLE: ("Portfolio-decision state unavailable", "ATTENTION"),
 }
 _DECISION_TO_STATE = {DECISION_APPROVE: PDS_APPROVED, DECISION_REJECT: PDS_REJECTED,
@@ -477,6 +727,12 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
     # Stage 19.1: a proposal produced before a registered corporate action is stale
     # regardless of any recorded decision — it describes holdings that no longer exist.
     ca_stale = bool(summ.get("reallocation_proposal_stale"))
+    # R54.2.3.2: a NEWER authoritative governed decision supersedes the proposal.
+    # The verdict is computed ONCE by assess_proposal_supersession and travels with
+    # the summary; this derivation consumes it and re-decides nothing.
+    supersession = dict(summ.get("reallocation_proposal_supersession") or {})
+    superseded = bool(summ.get("reallocation_proposal_superseded")
+                      or supersession.get("superseded"))
     # Release 29.3: the complete-target owner withheld the change. A withheld target is
     # reviewable evidence, never an approvable proposal, so it can never reach the
     # manual-review branch below. Fail closed: it outranks materiality.
@@ -494,6 +750,12 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         state = PDS_NO_PROPOSAL
     elif ca_stale:
         state = PDS_STALE
+    elif superseded:
+        # R54.2.3.2 — outranks review, hold, withhold AND a recorded decision: a
+        # newer authoritative decision has answered the portfolio question, so the
+        # proposal (and any decision recorded on it) is history, never current
+        # outstanding work. The records themselves stay immutable and visible.
+        state = PDS_SUPERSEDED
     elif withheld:
         state = PDS_CHANGE_WITHHELD
     elif not materiality["material"]:
@@ -512,30 +774,64 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
 
     label, severity = _STATE_META[state]
     requires_review = state in (PDS_REVIEW_REQUIRED, PDS_STALE, PDS_HELD)
+    # R54.2.3.2 — a superseded proposal's economics are HISTORY, never current
+    # decision work. The top-level fields a surface reads as "the current
+    # proposal's turnover/cost/improvement" go quiet (the immutable artifact and
+    # the supersession block keep the numbers), and the published materiality
+    # reflects CURRENT outstanding work: none.
+    if superseded:
+        published_materiality = {
+            **materiality, "material": False, "action_counts": {},
+            "membership_change_count": 0, "resize_change_count": 0,
+            "superseded_note": ("The proposal's own action counts remain on its "
+                                "immutable artifact and in the supersession "
+                                "block; a newer authoritative decision stands, "
+                                "so there is no current change to act on."),
+        }
+    else:
+        published_materiality = materiality
     return {
         "portfolio_decision_state": state,
         "portfolio_decision_state_vocabulary": list(DECISION_STATE_VOCAB),
         "label": label,
         "severity": severity,
         "requires_manual_review": requires_review,
-        "material": materiality["material"],
-        "materiality": materiality,
+        "material": published_materiality["material"],
+        "materiality": published_materiality,
         "proposal_available": available,
         "proposal_hash": current_hash,
         "proposal_id": summ.get("reallocation_proposal_id"),
         "proposal_state": summ.get("reallocation_proposal_state"),
-        "proposed_holding_count": summ.get("reallocation_proposed_holding_count"),
-        "one_way_turnover": summ.get("reallocation_one_way_turnover"),
-        "estimated_transaction_cost": summ.get("reallocation_estimated_transaction_cost"),
-        "score_improvement_net_of_cost": summ.get(
-            "reallocation_score_improvement_net_of_cost"),
+        "proposed_holding_count": (None if superseded else summ.get(
+            "reallocation_proposed_holding_count")),
+        "one_way_turnover": (None if superseded else summ.get(
+            "reallocation_one_way_turnover")),
+        "estimated_transaction_cost": (None if superseded else summ.get(
+            "reallocation_estimated_transaction_cost")),
+        "score_improvement_net_of_cost": (None if superseded else summ.get(
+            "reallocation_score_improvement_net_of_cost")),
+        # R54.2.3.2 — the supersession verdict, rendered verbatim everywhere.
+        "proposal_superseded": superseded,
+        "supersession": (supersession or None),
+        "superseded_by": supersession.get("superseded_by"),
+        "superseded_proposal": ({
+            "proposal_id": summ.get("reallocation_proposal_id"),
+            "proposal_hash": current_hash,
+            "one_way_turnover": summ.get("reallocation_one_way_turnover"),
+            "estimated_transaction_cost": summ.get(
+                "reallocation_estimated_transaction_cost"),
+            "score_improvement_net_of_cost": summ.get(
+                "reallocation_score_improvement_net_of_cost"),
+            "action_counts": dict(materiality.get("action_counts") or {}),
+            "history_only": True,
+        } if superseded else None),
         "data_gaps": summ.get("reallocation_data_gaps") or [],
         "decision": (decision_record or {}).get("decision"),
         "decision_bound_proposal_hash": (decision_record or {}).get("proposal_hash"),
         "decision_recorded_at": (decision_record or {}).get("recorded_at"),
         "decision_is_current": bool(decision_record
                                     and decision_record.get("proposal_hash") == current_hash
-                                    and not ca_stale),
+                                    and not ca_stale and not superseded),
         # Stage 19.1 — the explicit approvability contract (backend-enforced; the UI
         # renders it and never decides it).
         "corporate_action_stale": ca_stale,
@@ -560,7 +856,8 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         "switching_hurdle": summ.get("reallocation_switching_hurdle"),
         "clears_switching_hurdle": summ.get("reallocation_clears_switching_hurdle"),
         "approvable": bool(available and materiality["material"] and not ca_stale
-                           and not withheld and not hold_current_book),
+                           and not superseded and not withheld
+                           and not hold_current_book),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),
@@ -661,11 +958,22 @@ def _safety() -> dict:
     }
 
 
+def _safe_supersession(**kwargs) -> Optional[dict]:
+    """R54.2.3.2 — degrade-safe wrapper: an unreadable store never crashes a read
+    and never fabricates a verdict (None means 'no verdict resolved')."""
+    try:
+        return load_decision_supersession(**kwargs)
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
+
+
 def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
                             proposal_summary: Optional[dict] = None,
                             artifact: Optional[dict] = None,
                             decision_record: Optional[dict] = None,
                             decision_dir=None, reallocation_dir=None,
+                            reassessment_dir=None, drc_dir=None,
+                            supersession: Optional[dict] = None,
                             now: Optional[datetime] = None,
                             portfolio_state_loader: Optional[Callable] = None) -> dict:
     """The read contract. READ-ONLY: reads the immutable proposal summary + the latest
@@ -686,6 +994,7 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
     active_book_id = ab.get("book_id")
     eligible = ((ps or {}).get("dates") or {}).get("eligible_market_date")
 
+    _loaded_summary_default = proposal_summary is None and reallocation_dir is None
     if proposal_summary is None:
         proposal_summary = realloc.load_proposal_summary(
             active_book_id=active_book_id, eligible_market_date=eligible,
@@ -694,6 +1003,28 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
         decision_record = load_decision_record(
             active_book_id=active_book_id, eligible_market_date=eligible,
             decision_dir=decision_dir)
+
+    # R54.2.3.2 — resolve the supersession verdict ONCE (unless the composition or a
+    # hermetic caller already supplied it via ``supersession`` or summary fields) and
+    # attach it to the summary the lane derivation consumes, so this read can never
+    # present a proposal a newer authoritative decision has superseded as current.
+    # The default resolution runs on the PRODUCTION-DEFAULT read (the live GET
+    # path) or when the caller supplied the sibling store roots; an injected
+    # hermetic summary/world without verdict fields stays a constructed world.
+    if proposal_summary.get("reallocation_proposal_superseded") is None \
+            and "reallocation_proposal_supersession" not in proposal_summary:
+        sup = supersession
+        if sup is None and (_loaded_summary_default or reassessment_dir is not None
+                            or drc_dir is not None):
+            sup = _safe_supersession(
+                active_book_id=active_book_id, proposal_summary=proposal_summary,
+                reassessment_dir=reassessment_dir, drc_dir=drc_dir,
+                decision_dir=decision_dir)
+        if sup is not None:
+            proposal_summary = {**proposal_summary,
+                                "reallocation_proposal_superseded": bool(
+                                    sup.get("superseded")),
+                                "reallocation_proposal_supersession": dict(sup)}
 
     lane = derive_decision_state(has_active_book=bool(active_book_id),
                                  proposal_summary=proposal_summary,
@@ -805,7 +1136,14 @@ GD_HOLD_CURRENT_BOOK = PDS_HOLD_CURRENT_BOOK
 #: A complete feasible target clears the switching hurdle. This updates the
 #: authoritative RECOMMENDATION; it approves and executes nothing.
 GD_CHANGE_RECOMMENDED = "CHANGE_RECOMMENDED"
-GOVERNED_DECISION_VOCAB = (GD_HOLD_CURRENT_BOOK, GD_CHANGE_RECOMMENDED)
+#: R54.2.3.2 — the reassessment owner's own word, reused (never re-spelled): the
+#: governed cycle concluded the current portfolio remains the best use of capital
+#: and requested NO proposal. It is a real decision (distinct from HOLD_CURRENT_BOOK,
+#: where a feasible alternative WAS priced and rejected on its economics) and it
+#: carries no manual-review obligation.
+GD_NO_CHANGE = "CURRENT_NO_CHANGE"
+GOVERNED_DECISION_VOCAB = (GD_HOLD_CURRENT_BOOK, GD_CHANGE_RECOMMENDED,
+                           GD_NO_CHANGE)
 
 #: Position-level recommendation words, read verbatim from the proposal owner's
 #: own action vocabulary. This module maps nothing and invents nothing.
@@ -1949,8 +2287,45 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
     rs = reassessment or {}
     summ = proposal_summary or {}
     con = constrained or {}
+    # R54.2.3.2 — the projected decision is the GOVERNED ASSESSMENT'S OWN verdict
+    # first. Before this fix the decision word was read from the standing proposal's
+    # outcome, so on 2026-09-02 the projection stamped the governed CURRENT_NO_CHANGE
+    # assessment's own timestamp (23:51:50Z) onto CHANGE_RECOMMENDED taken from a
+    # stale event-cycle proposal the governed manifest recorded as NOT_REQUIRED.
+    # The proposal outcome is consulted ONLY when the assessment requested it and
+    # the standing proposal is bound to that assessment's evidence — proven by the
+    # ONE supersession calculation, never re-derived here.
+    rs_state = (rs.get("state") or rs.get("reassessment_state")
+                or ((rs.get("reassessment") or {}).get("reassessment_state")
+                    if isinstance(rs.get("reassessment"), dict) else None))
+    rs_ident = ((rs.get("artifact") or {}).get("identity")
+                if isinstance(rs.get("artifact"), dict) else None) or {}
+    sup = assess_proposal_supersession(
+        proposal_summary=summ,
+        assessment={
+            "available": True,
+            "decision": rs_state,
+            "eligible_market_date": rs.get("eligible_market_date"),
+            "reassessment_hash": rs.get("reassessment_hash"),
+            "artifact_id": (rs.get("artifact") or {}).get("reassessment_id")
+            if isinstance(rs.get("artifact"), dict) else None,
+            "generated_at": (rs.get("artifact") or {}).get("generated_at")
+            if isinstance(rs.get("artifact"), dict) else None,
+            "hoc_assessment_hash": rs_ident.get("hoc_assessment_hash"),
+            # The projection exists only under governed_research_evidence_current,
+            # so the assessment it projects IS the governed evidence.
+            "is_governed": True,
+            "governed_manifest_run_id": rcs.get("governed_manifest_run_id"),
+            "governed_provenance": PROV_GOVERNED_DAILY_CYCLE,
+        })
     outcome = con.get("outcome") or summ.get("reallocation_outcome")
-    if outcome == _OUTCOME_PROPOSAL_READY:
+    if str(rs_state or "") == "CURRENT_NO_CHANGE":
+        decision = GD_NO_CHANGE
+    elif sup.get("superseded"):
+        # The standing proposal is not this assessment's; its outcome projects
+        # nothing. Fail closed rather than fabricate a decision word.
+        decision = None
+    elif outcome == _OUTCOME_PROPOSAL_READY:
         decision = GD_CHANGE_RECOMMENDED
     elif outcome == _OUTCOME_HOLD:
         decision = GD_HOLD_CURRENT_BOOK
@@ -1959,14 +2334,20 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
     stamp = (rs.get("artifact") or {}).get("generated_at")
     book_id = ((rs.get("active_book") or {}).get("book_id")
                or (rs.get("proposal_binding") or {}).get("active_book_id"))
+    # R54.2.3.2 — a superseded (or unrequested) proposal's hash/outcome never
+    # enter the governed identity: the manifest recorded no proposal for this
+    # decision, and binding a stale artifact here would launder it back in.
+    binds_proposal = bool(decision in (GD_CHANGE_RECOMMENDED, GD_HOLD_CURRENT_BOOK)
+                          and not sup.get("superseded"))
     ident = {
         "active_book_id": book_id,
         "eligible_market_session": rs.get("eligible_market_date"),
         "reassessment_hash": rs.get("reassessment_hash"),
-        "proposal_hash": (summ.get("reallocation_proposal_hash")
-                          or (wf.get("portfolio_decision_state")
-                              or {}).get("proposal_hash")),
-        "target_outcome": outcome,
+        "proposal_hash": ((summ.get("reallocation_proposal_hash")
+                           or (wf.get("portfolio_decision_state")
+                               or {}).get("proposal_hash"))
+                          if binds_proposal else None),
+        "target_outcome": outcome if binds_proposal else None,
     }
     return {
         "record_id": "drc_governed_%s" % (rcs.get("governed_manifest_run_id")
@@ -2043,6 +2424,88 @@ def load_governed_portfolio_decision(*, workflow: Optional[dict] = None,
     }
 
 
+# --------------------------------------------------------------------------- #
+# R54.2.3.2 — THE canonical decision-authority selector (Phase B).
+# --------------------------------------------------------------------------- #
+#: The one explicit authority order, stated once and echoed verbatim by surfaces.
+DECISION_AUTHORITY_ORDER = (
+    "1. newer governed completed-session decision",
+    "2. older governed completed-session decision",
+    "3. older proposal awaiting manual review",
+    "A governed intraday decision participates only through the R54.1 gate + the "
+    "one ordering function; a non-governed / governance-withheld intraday research "
+    "result never supersedes an authoritative governed decision.",
+)
+
+
+def resolve_decision_authority(*, assessment: Optional[dict],
+                               proposal_summary: Optional[dict],
+                               supersession: Optional[dict] = None,
+                               governed_decision: Optional[dict] = None,
+                               decision_record: Optional[dict] = None) -> dict:
+    """Answer, from already-resolved owner views, WHICH decision is authoritative
+    right now and WHICH proposal (if any) is currently reviewable. Pure; no io;
+    computes no economics and re-decides nothing — the supersession verdict is the
+    ONE calculation's output, passed in verbatim.
+
+    ``assessment`` is the same authoritative-assessment view the supersession
+    calculation consumed. ``governed_decision`` (optional) is the resolved
+    :func:`load_governed_portfolio_decision` answer; when it is newer than the
+    assessment under the one ordering it is the authority.
+    """
+    a = assessment or {}
+    summ = proposal_summary or {}
+    sup = supersession or {}
+    gov = governed_decision or {}
+    superseded = bool(sup.get("superseded")
+                      or summ.get("reallocation_proposal_superseded"))
+
+    # The authoritative decision: the governed lane's resolved answer when it is
+    # available; else the governed assessment of record; else nothing provable.
+    authority_id, authority_session, authority_type, authority_owner = (
+        None, None, None, None)
+    if gov.get("available") and gov.get("decision"):
+        authority_id = gov.get("record_id")
+        authority_session = gov.get("eligible_market_session")
+        authority_type = gov.get("decision")
+        authority_owner = gov.get("owner") or GOVERNANCE_GATE_OWNER
+    elif a.get("is_governed") is True and a.get("decision"):
+        authority_id = a.get("artifact_id") or a.get("governed_manifest_run_id")
+        authority_session = (str(a.get("eligible_market_date"))[:10]
+                             if a.get("eligible_market_date") else None)
+        authority_type = a.get("decision")
+        authority_owner = "api.portfolio_reassessment (governed manifest)"
+
+    reviewable = bool(
+        summ.get("reallocation_proposal_available")
+        and not superseded
+        and not summ.get("reallocation_proposal_stale")
+        and not summ.get("reallocation_proposal_withheld")
+        and summ.get("reallocation_outcome") != _OUTCOME_HOLD
+        and (summ.get("reallocation_proposal_approvable")
+             in (True, None)))
+    superseded_ids = [pid for pid in (
+        (sup.get("proposal_id") if superseded else None),) if pid]
+    return {
+        "owner": OWNER,
+        "authority_order": list(DECISION_AUTHORITY_ORDER),
+        "current_authoritative_decision_id": authority_id,
+        "current_authoritative_session": authority_session,
+        "current_authoritative_decision_type": authority_type,
+        "current_authoritative_decision_owner": authority_owner,
+        "current_reviewable_proposal_id": (
+            summ.get("reallocation_proposal_id") if reviewable else None),
+        "superseded_proposal_ids": superseded_ids,
+        "supersession_reason": (sup.get("reason") if superseded else None),
+        "superseded_by": (sup.get("superseded_by") if superseded else None),
+        "decision_record_present": bool(decision_record),
+        "authority_provable": bool(authority_id),
+        "note": ("No governed decision was observable on this read; the standing "
+                 "review state is unchanged (fail-closed)."
+                 if not authority_id else None),
+    }
+
+
 __all__ = [
     "PHASE", "OWNER", "DECISION_APPROVE", "DECISION_REJECT", "DECISION_HOLD",
     "DECISION_VOCAB", "CONFIRM_TOKEN", "DECISION_STATE_VOCAB",
@@ -2052,6 +2515,10 @@ __all__ = [
     "PDS_UNAVAILABLE", "assess_materiality", "record_decision", "load_decision_record",
     "derive_decision_state", "build_order_plan_preview", "load_portfolio_decision",
     "DECISION_DIR_ENV",
+    # --- R54.2.3.2 — decision-over-proposal supersession + authority selector --- #
+    "PDS_SUPERSEDED", "SUPERSESSION_OWNER", "SUPERSEDING_ASSESSMENT_DECISIONS",
+    "assess_proposal_supersession", "load_decision_supersession",
+    "resolve_decision_authority", "DECISION_AUTHORITY_ORDER", "GD_NO_CHANGE",
     # --- R54.1 governed intraday decision lane (this module is the ONE owner) --- #
     "GOVERNANCE_GATE_VERSION", "GOVERNANCE_GATE_OWNER",
     "PROV_GOVERNED_DAILY_CYCLE", "PROV_GOVERNED_INTRADAY",

@@ -376,6 +376,44 @@ def _load_index(drc_dir=None) -> dict:
     return _read_json(_drc_dir(drc_dir) / _INDEX_FILE) or {}
 
 
+def load_governed_manifest_reference(*, eligible_market_date: Optional[str],
+                                     drc_dir=None) -> Optional[dict]:
+    """R54.2.3.2 — the governed manifest's DECISION REFERENCES for one session.
+
+    COMPACT PURE FILE READ (index entry + one run manifest; no step execution, no
+    engine, no provider): returns which immutable reassessment / proposal the
+    governed Daily Research Cycle for ``eligible_market_date`` bound, so a consumer
+    can prove whether an artifact IS the governed evidence of its session. ``None``
+    when no manifest exists or it cannot be read. Only a terminal-COMPLETE manifest
+    is returned as governed (`Release 29.5: the manifest is the only thing that can
+    make governed evidence current`).
+    """
+    if not eligible_market_date:
+        return None
+    try:
+        entry = (_load_index(drc_dir) or {}).get(str(eligible_market_date)[:10])
+        if not entry:
+            return None
+        run = _load_run(entry.get("run_id"), drc_dir=drc_dir) or {}
+        state = run.get("state") or entry.get("state")
+        return {
+            "run_id": entry.get("run_id"),
+            "state": state,
+            "governed": bool(state in _COMPLETED),
+            "eligible_market_date": str(eligible_market_date)[:10],
+            "portfolio_reassessment_id": run.get("portfolio_reassessment_id"),
+            "portfolio_reassessment_hash": run.get("portfolio_reassessment_hash"),
+            "portfolio_reassessment_state": run.get("portfolio_reassessment_state"),
+            "reallocation_proposal_id": run.get("reallocation_proposal_id"),
+            "reallocation_proposal_hash": run.get("reallocation_proposal_hash"),
+            "reallocation_proposal_state": run.get("reallocation_proposal_state"),
+            "completed_at": run.get("completed_at"),
+            "owner": "api.daily_research_cycle",
+        }
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
+
+
 def _update_index(*, eligible_date: str, idempotency_key: str,
                   input_contract_hash: str, run_id: str, state: str,
                   drc_dir=None) -> None:
