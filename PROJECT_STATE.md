@@ -1,7 +1,107 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-04
-- **Updated by phase:** **R57 - ALPHA DISCOVERY OFFENSIVE (single agent, no
+- **Updated by phase:** **R58 - ORTHOGONAL ALPHA OFFENSIVE (single agent, no
+  subagents, Windows PowerShell only, isolated worktree
+  `D:\paper_trader_r58_orthogonal_alpha` on branch
+  `r58-orthogonal-alpha-offensive`, built over `76f3279`).** NOT COMMITTED, not
+  pushed, not merged, not deployed. Live system READ ONLY throughout: no
+  restart, no collection run, no scheduled-task change, no mutation endpoint;
+  the live checkout is unchanged at `54cecf7` with zero tracked modifications.
+  Full narrative: `docs/RELEASE58_ORTHOGONAL_ALPHA_OFFENSIVE.md`; protocol:
+  `research/r58/R58_RESEARCH_PROTOCOL.json` (pre-registered BEFORE any
+  experiment; four amendments, all made before any score was computed, are
+  disclosed inside it).
+  **Verdict: PROSPECTIVE_ALPHA_CANDIDATES_FROZEN.** 11/11 judged families
+  `NO_ALPHA_EVIDENCE`, 2 `DATA_HOLD_COVERAGE`, 0 survive BH q=0.10 (best
+  lockbox p 0.0732 against a rank-1 threshold of 0.00769).
+  **The substrate is the release's main asset: PANEL-F**, the first join of the
+  R57 Norgate S&P 500 Current & Past price panel to the owned SEC EDGAR
+  companyfacts store through the RESOLVED CIK bridge - **885 symbols, 237
+  DELISTED, 842 CIKs, 88.8% of PIT member-days in 2010 rising to 98.7% in
+  2026**, with availability = the real SEC `filed` date and restatements
+  resolved as of t. Stage 24 discarded 575,008 non-annual flow facts; R58 uses
+  them through a `YTD_DIFF` construction (`A + YTD_curr - YTD_prior`), which is
+  what makes freshness (median observation age 74 days) and CHANGE signals
+  possible at all. Four reader defects were found and fixed against real
+  filings BEFORE any experiment: stale synonym ladder, YTD telescoping,
+  quarter-back prior anchor, 52/53-week tolerance.
+  **R58's central hypothesis is REJECTED.** Fundamental-only did NOT beat the
+  champion: the incumbent 50/50 shape earned **+7.17%/yr net excess in the
+  untouched 43-month lockbox** while A1/A2/A3 earned -1.15% / -0.29% / -1.10%
+  after being POSITIVE (+2.9 / +3.0 / +3.9%) through six validation years - the
+  same sign-flip instability R57 measured in price factors, now demonstrated
+  for fundamentals on honest PIT data. Post-hoc attribution: momentum alone was
+  -0.57% / -2.09% / **+8.08%**, so B0's win IS the momentum leg in the one
+  window momentum worked (R57's rejected E1). The live TRUE_FORWARD ledger
+  (25 matured sessions; h20 n=8) still says the opposite - fundamental buy side
+  +4.4pp, momentum sell side INVERTED +8.6pp - and R58 reports the
+  disagreement rather than resolving it in favour of the preferred number.
+  **Component attribution (Track 7): FCF/assets is the piece whose sign never
+  flips (+0.57 / +2.26 / +0.83%); the accrual leg is the piece that does
+  (+0.47 / +3.88 / -1.10%).** Every FCF-weighted construction stays positive in
+  all three layers; every accrual-weighted one goes negative in the lockbox.
+  Magnitudes stay below the 1.5% materiality floor.
+  **C4 R&D intensity - Stage 24's only FDR survivor - is a SECTOR BET.**
+  Coverage-blocked (43% of the universe) so it received no verdict; its
+  within-coverage diagnostic looked extraordinary (+2.63 / +5.27 / **+11.86%**,
+  sign-consistent, both lockbox halves positive, 1.8% turnover) and its lockbox
+  excess collapses to **-0.22% (t -0.06)** when the largest sector is excluded.
+  The book is 57.6% Information Technology; this is the AI capex cycle wearing
+  a factor's name.
+  **C5 post-filing drift** (pure information-timestamp signal, no accounting
+  number) was NEGATIVE in every layer at 48% monthly turnover - the drift
+  hypothesis is contradicted, not merely unsupported. **C1 profitability
+  acceleration** produced the best judged BUY side (+5.72%/yr, t 1.90) but was
+  validation-negative. **C3 working-capital build** is a genuine SELL-side
+  signal (bottom decile -6.03%/yr) with a weak buy side, reported separately as
+  the protocol requires.
+  **Cross-asset conditioning helped without rescuing:** B4 (momentum weighted
+  only in a PIT RISK-ON regime from the R57 futures panel) earned +2.87% where
+  A1 earned -1.15%, then failed neighbour-sign and BH. FRED/ALFRED confirmed
+  genuinely PIT (149,234 vintage records, 12 series) but per-series vintage
+  starts make it an overlay, not a conditioner at every decision date.
+  **Calibration: `CALIBRATION_NOT_ATTEMPTED_NO_QUALIFIED_SIGNAL`,
+  `expected_return_state = NOT_CALIBRATED`** - zero families cleared their gate,
+  so nothing was fitted; R57 already measured that calibration cannot repair
+  unstable ordering.
+  **The operational fundamental leg's own source panel is disqualified as
+  evidence** (object of study only): 38,725 rows over 545 tickers of which
+  **17,503 (45.2%) are stamped on one pseudo date 2016-06-23 with 17,236 exact
+  duplicates**, 544 of 545 tickers still present in the final month (one exit
+  in ten years), last rebalance 2026-05-22 - so the live leg's scores cannot be
+  fresher than that.
+  **FOUR immutable forward challengers frozen** at eligible session 2026-09-03
+  with zero forward observations and back-fill forbidden:
+  `R58_SHORT_VOLUME_PRESSURE_V1`, `R58_DISCLOSURE_INTENSITY_V1`,
+  `R58_FUND_MOMENTUM_VETO_V1` (**post-hoc selection explicitly disclosed** - it
+  failed the coverage gate historically and is the campaign's most sign-stable,
+  sector-robust shape, which is a judgement made after seeing the lockbox), and
+  `R58_FCF_PURE_V1` (CONTROL). **Four families REFUSED rather than described**,
+  most importantly INSIDER_FILING `FIELD_UNPOPULATED`: the challenger was
+  written, computed, returned an EMPTY book, and was refused because
+  `acquired_disposed` is populated on 195 of 28,002 records (0.7%).
+  **Capital: next $1,000 and next $10,000 stay CASH** (or the incumbent book,
+  unchanged); zero qualified competitors; governed lane
+  `MANUAL_REVIEW_REQUIRED_NO_ECONOMIC_PROOF` unchanged. **Data purchase gate:
+  NO DATASET RECOMMENDED.** PIT sector history `DO_NOT_BUY_YET` (a better
+  normaliser cannot repair a sign flip; reopen when a family is sign-stable and
+  fails ONLY on sector concentration). Form 4 transaction detail
+  `NO_PURCHASE_REQUIRED_BUILD_INSTEAD` - **the highest-value information action
+  R58 found costs $0**: the filings are collected across 2,386 tickers with
+  excellent timestamps, only the transaction table is unparsed.
+  New disclosed research root:
+  `D:\Stock_Prediction_app_data\r58_orthogonal_alpha`. R56 and R57 evidence
+  verified `R56_AND_R57_EVIDENCE_UNMODIFIED` by SHA-256 AND by modification
+  times predating R58's protocol registration. 30/30 R58 tests pass; strict
+  architecture audit exits 0 with zero inventory drift; `git diff --check`
+  clean. **Pre-existing failure found, not caused by R58:**
+  `test_release57_alpha_discovery.py::TestR56Immutability::test_all_six_records_hash_verify`
+  hits the known git-worktree editable-install trap (`import paper_trader`
+  resolves to the live `C:` checkout at `54cecf7`, which predates R56's
+  `engine.shadow_portfolio_evidence`); the other 25 R57 tests pass and R58's
+  own tests import only `alpha_agent.r58`.
+- **Prior phase:** **R57 - ALPHA DISCOVERY OFFENSIVE (single agent, no
   subagents, Windows PowerShell only, branch `r57-alpha-discovery-offensive`
   created IN PLACE at `54cecf7` carrying the uncommitted R56 tree - R56 was
   never committed and committing is forbidden, so the expected "worktree from

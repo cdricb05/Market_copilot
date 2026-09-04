@@ -1,0 +1,314 @@
+{
+ "schema_version": "r58-research-protocol/1",
+ "release": "R58",
+ "campaign_id": "r58_orthogonal_alpha_v1",
+ "registered_at": "2026-09-04T19:00:10+00:00",
+ "registered_before_any_experiment_ran": true,
+ "registration_rule": "Every layer boundary, family, variant grid, eligibility rule, cost, statistic, gate and threshold in this document was written BEFORE any R58 score, portfolio, validation number or lockbox number was computed. Nothing in this file may be edited after a lockbox result has been observed. A hypothesis that occurs to the researcher after seeing results must be registered as R58_PROTOCOL_V2 with an explicit disclosure of what had already been seen.",
+
+ "question": "R57 proved the PRICE information set is exhausted for stable cross-sectional equity edges (12/12 NO_ALPHA_EVIDENCE). R58 asks a different question: does the FUNDAMENTAL leg of the operational champion carry real, survivorship-safe, point-in-time skill that the momentum leg is destroying, and does any CHANGE-IN-INFORMATION signal built from owned SEC point-in-time facts survive an untouched lockbox?",
+
+ "what_r58_is_not": [
+  "not another price-factor zoo: no new momentum, reversal, low-risk, 52-week-high, liquidity or futures-trend family is registered",
+  "not a re-run of R57 with new lookbacks",
+  "not a re-run of Stage 24: Stage 24 measured the PIT fundamental panel on ONE full sample with no lockbox and its own gates; R58 prosecutes it under R57's discovery/validation/untouched-lockbox discipline, on the Norgate survivorship-safe price panel, with a NEXT_CLOSE portfolio judge, symmetric costs and campaign-level FDR"
+ ],
+
+ "evidence_ladder": {
+  "NO_ALPHA_EVIDENCE": "failed a pre-registered gate",
+  "HISTORICAL_ALPHA_CANDIDATE": "cleared every historical gate on the untouched lockbox",
+  "FORWARD_PENDING_ALPHA_CANDIDATE": "frozen as an immutable forward challenger, zero matured observations",
+  "FORWARD_EVIDENCED_ALPHA": "matured forward observations exist and are positive but below the confirmation floor",
+  "FORWARD_CONFIRMED_ALPHA": "forward evidence clears the pre-registered confirmation floor; ONLY this may be called FOUND ALPHA"
+ },
+
+ "data": {
+  "equity_price_panel": {
+   "source": "R57 cached panel sp500_pit_panel_v1 (Norgate US Equities + Delisted, licensed local), READ ONLY, re-used byte-identical",
+   "universe": "S&P 500 Current & Past, 1897 securities, PIT membership via norgatedata.index_constituent_timeseries; today's membership is NEVER applied backwards",
+   "price_basis": "TOTALRETURN adjusted close for returns; UNADJUSTED close x volume for the price and dollar-volume floors",
+   "window": "2004-06-01 .. 2026-09-03",
+   "calendar": "SPY trading sessions",
+   "reuse_justification": "identical substrate to R57 so an R58 fundamental family and an R57 price family are directly comparable; rebuilding would risk a different panel"
+  },
+  "pit_fundamental_store": {
+   "source": "owned SEC EDGAR companyfacts XBRL index sec_companyfacts_stage24.sqlite (D:\\Stock_Prediction_app_data\\stage24_pit_fundamental_alpha\\_index), opened IMMUTABLE, READ ONLY",
+   "size": "1,615,843 facts, 846 distinct CIKs materialised, filed 2009-04-15 .. 2026-07-31, period_end 2005-12-31 .. 2026-07-04",
+   "availability_rule": "a fact is usable at decision session t if and only if its SEC filed date <= the calendar date of session t. Entry is NEXT_CLOSE (position effective at close t+1), so every position is taken at least one session after the information was public.",
+   "restatement_rule": "for each (cik, concept, period_start, period_end) the observation used at t is the one with the LATEST filed <= t. A restatement filed after t is invisible at t. This is what an investor could actually see.",
+   "period_semantics_measured": "cash-flow-statement concepts are reported YTD-cumulative in 10-Q (89 / 180 / 272 / 364 day durations); income-statement concepts additionally carry genuine 3-month facts; balance-sheet concepts are INSTANT (period_start null).",
+   "ttm_rule": "TTM(concept, cik, t) = anchor annual fact A (duration 350..380d, latest period_end, latest filed <= t). If a YTD fact Y exists with period_start == A.period_end + 1 day, period_end > A.period_end and duration < 350d, and a prior-year YTD fact P exists with period_start == A.period_start and |P.duration - Y.duration| <= 10 days, then TTM = A + Y - P (path YTD_DIFF); otherwise TTM = A (path ANNUAL). The path taken is recorded per observation.",
+   "ttm_amendments_before_any_experiment": [
+    "The YTD length tolerance was registered at 5 days and corrected to 10 BEFORE any R58 score, portfolio or statistic was computed, during a unit-level correctness check of the reader against one company's raw facts. A 52/53-week filer's year-on-year YTD periods differ by up to a week (Apple Q3 YTD is 272 days one year and 279 the next), so 5 days silently refused the YTD_DIFF path for every such filer and returned a stale annual figure instead. 10 days admits the true match and cannot confuse a 90-day quarter with a 181-day half.",
+    "Three further reader defects were found and fixed in the same pre-experiment check, all of which would have corrupted every fundamental family: (a) a concept synonym ladder that returned the FIRST tag with any value kept serving a tag the filer abandoned years earlier - the freshest anchor now wins, ties broken by ladder order; (b) full-year facts also live in the YTD store, so an older anchor telescoped forward (A_prior + FY - FY_prior == FY) and made every year-on-year change identically zero - full-year durations are now excluded from the YTD extension; (c) many filers publish a genuine 'twelve months ended <quarter date>' fact, so the adjacent annual entry is one QUARTER back, not one year - the prior anchor is now chosen as the annual period end closest to one year before, within 120 days, and is never freshened with the current year's YTD.",
+    "All four corrections are data-reader correctness, not threshold tuning: no score, portfolio, layer statistic or gate had been computed when they were made."
+   ],
+   "lagged_ttm_rule": "TTM_PRIOR uses the annual anchor one fiscal year before A, built by the identical rule, still with filed <= t. Change signals are TTM - TTM_PRIOR; both terms are visible at t.",
+   "instant_rule": "for INSTANT concepts the value at t is the one with the greatest period_end among facts with filed <= t, taking the latest filed for that period_end.",
+   "new_in_r58": "Stage 24 rejected 575,008 non-annual flow facts and used ANNUAL durations only. R58 uses the quarterly/YTD facts through the YTD_DIFF rule, which is what makes freshness and CHANGE signals possible at all."
+  },
+  "identity_bridge": {
+   "source": "owned historical_identity.sqlite (alpha_agent identity layer), READ ONLY",
+   "content": "securities 1895 (662 current, 1233 delisted), cik_map 1895 rows of which 1128 RESOLVED, 671 UNRESOLVED, 95 AMBIGUOUS, 1 CONFLICT",
+   "join_rule": "Norgate panel symbol -> securities.norgate_symbol -> cik_map.cik where status='RESOLVED' and active=1 -> companyfacts CIK (zero-padding normalised). AMBIGUOUS and CONFLICT mappings are NOT used."
+  },
+  "cross_asset_panel": {
+   "source": "R57 cached futures_panel_v1 (Norgate Continuous Futures), READ ONLY, re-used",
+   "role": "PIT-by-construction cross-asset regime variables. Market prices carry their own timestamps and need no vintage handling.",
+   "pnl_basis": "daily dollar P&L per contract = delta(back-adjusted close) x point value; percent arithmetic on back-adjusted series is FORBIDDEN"
+  },
+  "macro_vintage_store": {
+   "source": "owned alpha_agent MACRO_OBSERVATION normalized records, READ ONLY",
+   "pit_status": "fred_alfred records carry a true ALFRED vintage (available_at = realtime_start, point_in_time_vintage true) and ARE point-in-time; bea and bls records carry available_at = null with RELEASE_LAG_UNKNOWN and are NOT point-in-time",
+   "usage_rule": "only fred_alfred series may be used, only with available_at <= decision date, and only from the first date at which a vintage exists for that series. A series with no vintage at t fails CLOSED (the conditioning variable is unavailable, the family is not scored) and is NEVER back-filled from a later vintage.",
+   "role": "secondary cross-asset conditioner; the futures panel is primary because its history is longer and needs no vintage rule"
+  },
+  "excluded_information_with_reasons": {
+   "frozen_phase10l_panel": "the operational fundamental leg's own source panel is EXCLUDED as evidence: measured in R58 to be a 545-name current-snapshot universe (540 of 545 tickers still present in the final month, 1 exit in ten years) and 17,503 of its 38,725 rows are exact duplicates of 267 tickers stamped on a single pseudo rebalance date 2016-06-23. It is used only as the object of study (what the live leg IS), never as the evidence that the leg works.",
+   "news_event": "owned history begins 2026-07-27 (28 day-partitions) - PROSPECTIVE_ONLY, no backtest permitted",
+   "earnings_event": "owned history begins 2026-02-03 (15 day-partitions) - PROSPECTIVE_ONLY",
+   "filing_event_feed": "owned normalized FILING_EVENT history begins 2025-11-24 - PROSPECTIVE_ONLY. NOTE: the SEC companyfacts filed dates ARE deep history and are used instead for the historical filing-drift family.",
+   "insider_filing": "owned history begins 2025-11-19 - PROSPECTIVE_ONLY",
+   "short_volume": "owned history begins 2026-07-23 (24 day-partitions) - PROSPECTIVE_ONLY",
+   "corporate_action": "owned normalized history begins 2026-07-06 - PROSPECTIVE_ONLY",
+   "bea_bls_macro": "available_at null, RELEASE_LAG_UNKNOWN - TIMESTAMP_INSUFFICIENT, may not be back-tested at any horizon",
+   "analyst_estimates": "no owned survivorship-safe PIT estimate history (Stage 13C OOS failure, Intrinio DO_NOT_BUY); reopen condition unmet",
+   "point_in_time_sector": "no owned PIT GICS history. Sector-neutral normalisation of the fundamental legs is therefore NOT reproducible; R58 reproduces composite_RAW, not composite_SN, and says so in every verdict."
+  }
+ },
+
+ "panel_f": {
+  "name": "r58_pit_fundamental_panel_v1",
+  "definition": "the intersection of the Norgate S&P 500 Current & Past price panel and the owned SEC companyfacts store through the RESOLVED CIK bridge",
+  "measured_before_registration": {
+   "joinable_symbols": 885,
+   "joinable_current": 648,
+   "joinable_delisted": 237,
+   "distinct_ciks": 842,
+   "sp500_member_day_coverage_2010_plus": 0.937,
+   "coverage_by_year": {"2010": 0.888, "2014": 0.899, "2018": 0.942, "2022": 0.972, "2026": 0.987}
+  },
+  "declared_limitation": "coverage rises monotonically from 0.888 (2010) to 0.987 (2026). That drift is not random: a security that died early is less likely to have been CIK-resolved and materialised. R58 therefore carries residual survivorship exposure through COVERAGE, not through the universe, and the pre-registered coverage-bias diagnostic below measures it instead of asserting it away.",
+  "coverage_bias_diagnostic": {
+   "required": true,
+   "definition": "at every decision date, the equal-weight forward return of PIT-index members that are COVERED by PANEL-F minus the equal-weight forward return of eligible members that are NOT covered, annualised, with a Newey-West t",
+   "publication_rule": "this number is published in the release document whatever it says; if the covered set out-earns the uncovered set materially, every long-only excess reported by R58 is read as an upper bound and the release says so"
+  }
+ },
+
+ "partition": {
+  "layers": {
+   "HISTORICAL_IN_SAMPLE": "2011-07-01 .. 2017-12-31",
+   "HISTORICAL_VALIDATION": "2018-01-01 .. 2022-12-31",
+   "HISTORICAL_FINAL_OOS": "2023-01-01 .. 2026-09-03"
+  },
+  "start_justification": "SEC facts are filed from 2009-04-15; an annual anchor plus a prior-year anchor plus the TTM differencing terms need roughly two years of filing history, so the first honest formation is mid-2011.",
+  "lockbox_is_latest_block": true,
+  "embargo_rule": "ceil(horizon_sessions / cadence_sessions) = 1 decision date is dropped from the END of the earlier layer at each boundary; embargoed dates belong to NO layer",
+  "lockbox_discipline": "one variant per family is selected on VALIDATION alone; the selection artifact is written and its timestamp recorded BEFORE any lockbox evaluation runs; each family's lockbox is evaluated exactly once",
+  "no_test_set_tuning": "no parameter, threshold, universe rule, cost or construction may be altered after any lockbox number is seen"
+ },
+
+ "conventions": {
+  "equity_decision_cadence_sessions": 21,
+  "equity_horizon_sessions": 21,
+  "entry_convention": "NEXT_CLOSE: signal uses information available through decision close t; position effective at close t+1; forward window [t+1, t+1+21]",
+  "equity_cost_bps_per_side": 12.5,
+  "equity_cost_rule": "one-way turnover sum|dw| x rate, charged to the strategy AND to the benchmark symmetrically",
+  "r58_eligibility": "PIT S&P 500 member at t AND unadjusted close >= $5 AND trailing 63-session median dollar volume >= $10M AND >= 260 prior sessions AND the symbol carries a PANEL-F core fundamental record at t (total assets available AND at least one TTM flow available with filed <= t)",
+  "benchmark": "equal-weight of the R58 eligible universe defined immediately above, same cadence, same costs. ONE benchmark for every equity family so families are comparable to each other.",
+  "portfolio": "long-only equal-weight top-50 by family score",
+  "unscored_names": "a name the family cannot score is not selectable but REMAINS in the benchmark; a family that scores fewer than 60% of the eligible universe on more than 10% of decision dates is DATA_HOLD and is not judged",
+  "delisting_treatment": "a name whose series ends inside the forward window exits at its last available total-return close; the missing tail earns zero and no price is ever fabricated"
+ },
+
+ "families": {
+  "note": "13 FDR-counted families in three groups, plus one diagnostic reference that is explicitly NOT an alpha claim and does NOT consume FDR budget. Every family's variant grid is fixed here.",
+
+  "group_A_fundamental_rescue": {
+   "A1_fund_composite_raw": {
+    "economics": "the operational champion's fundamental leg, reproduced honestly: cash generation relative to assets is good, and earnings that are not backed by cash (accruals) are bad (Sloan 1996).",
+    "score": "z(+ (cfo_ttm - capex_ttm) / assets) * w1 + z(- (ni_ttm - (cfo_ttm - capex_ttm)) / assets) * w2, cross-sectional z within the eligible set at t, winsorised at 1%/99%",
+    "primary_variant": "w1=1.0, w2=1.0",
+    "grid": [[1.0, 1.0], [2.0, 1.0], [1.0, 2.0]],
+    "requires": "assets, cfo_ttm, capex_ttm, ni_ttm"
+   },
+   "A2_fund_fcf_only": {
+    "economics": "free cash flow to assets alone. Stage 24 measured this leg as carrying the composite's rank IC (t 2.23) while failing on spread; R58 asks whether it survives a lockbox.",
+    "score": "z((cfo_ttm - capex_ttm) / assets)",
+    "primary_variant": "ttm",
+    "grid": ["ttm", "annual_only", "ttm_5yr_stability_scaled"]
+   },
+   "A3_fund_accruals_only": {
+    "economics": "the accrual leg alone. Stage 24 measured rank IC t 0.29 on the full sample; the hypothesis under test is that this leg contributes nothing and dilutes A2.",
+    "score": "z(- (ni_ttm - (cfo_ttm - capex_ttm)) / assets)",
+    "primary_variant": "ttm",
+    "grid": ["ttm", "annual_only", "balance_sheet_accruals"]
+   },
+   "A4_fund_composite_ttm_fresh": {
+    "economics": "same construct as A1 but insisting on the FRESHEST possible fundamental (YTD_DIFF path preferred, annual-only observations older than 400 days dropped). Tests whether the live leg's staleness, not its content, is the problem.",
+    "score": "A1 score computed only on names whose fundamental observation is <= 400 days old at t",
+    "primary_variant": "max_age_400d",
+    "grid": ["max_age_400d", "max_age_270d", "max_age_550d"]
+   }
+  },
+
+  "group_B_blend_and_momentum_gating": {
+   "B0_blend_50_50_DIAGNOSTIC": {
+    "role": "DIAGNOSTIC REFERENCE ONLY - the incumbent champion's shape (0.5 fundamental + 0.5 momentum). It is reported at every layer and is NOT an R58 alpha claim, does NOT enter the FDR family set, and may never be described with alpha vocabulary.",
+    "score": "0.5 * z(A1 score) + 0.5 * z(126-session total return skipping the last 21 sessions)"
+   },
+   "B2_blend_75_25": {
+    "economics": "if the fundamental leg carries the skill and momentum dilutes it, a fundamental-heavy blend should beat the 50/50 incumbent.",
+    "score": "w * z(A1) + (1-w) * z(mom_126_21)",
+    "primary_variant": "w=0.75",
+    "grid": [0.75, 0.85, 0.65]
+   },
+   "B3_mom_gated_fund": {
+    "economics": "momentum as a VETO rather than a continuous 50% vote: fundamentals choose, momentum only removes names in visible price distress.",
+    "score": "A1 score, with any name whose mom_126_21 rank is in the bottom quintile of the eligible set at t set to -inf (not selectable)",
+    "primary_variant": "veto_bottom_quintile",
+    "grid": ["veto_bottom_quintile", "veto_bottom_decile", "veto_bottom_tercile"]
+   },
+   "B4_regime_conditional_mom": {
+    "economics": "momentum earns its weight only in the regime where trend-following works; outside it the fundamental leg stands alone.",
+    "score": "0.5*z(A1) + 0.5*z(mom_126_21) when the pre-registered RISK_ON regime holds at t, else z(A1) alone",
+    "regime_definition": "RISK_ON at t iff the equal-risk cross-market futures portfolio's trailing 126-session return is positive AND the trailing 21-session realised volatility of the S&P 500 index future is below its own trailing 252-session median. Both terms use only data <= t.",
+    "primary_variant": "futures_riskon",
+    "grid": ["futures_riskon", "vol_only", "trend_only"]
+   },
+   "B5_fund_hold_band": {
+    "economics": "turnover control on the fundamental signal: hold a name until it leaves the top K_out, so the signal is not paid away in costs.",
+    "score": "A1 score with a hold band: a held name is retained while its rank <= K_out",
+    "primary_variant": "K_out=100",
+    "grid": [100, 75, 150]
+   }
+  },
+
+  "group_C_information_change": {
+   "note": "the class R57 never tested: CHANGE in information rather than LEVEL of price. Every member is built from owned SEC facts with real filed dates.",
+   "C1_profitability_acceleration": {
+    "economics": "the market underreacts to the direction in which operating profitability is moving, not to its level.",
+    "score": "z( opinc_ttm/assets - opinc_ttm_prior/assets_prior )",
+    "primary_variant": "yoy",
+    "grid": ["yoy", "yoy_scaled_by_vol", "two_year"]
+   },
+   "C2_accrual_deterioration_change": {
+    "economics": "a company whose accruals are WORSENING is deteriorating in earnings quality even if its level is unremarkable.",
+    "score": "z( -( accruals_ttm/assets - accruals_ttm_prior/assets_prior ) )",
+    "primary_variant": "yoy",
+    "grid": ["yoy", "two_year", "scaled_by_assets_growth"]
+   },
+   "C3_working_capital_build": {
+    "economics": "inventory and receivables growing faster than sales is the classic early signal of unsold product and pulled-forward revenue.",
+    "score": "z( -( (inventory+receivables)/revenue_ttm - (inventory_prior+receivables_prior)/revenue_ttm_prior ) )",
+    "primary_variant": "yoy",
+    "grid": ["yoy", "inventory_only", "receivables_only"]
+   },
+   "C4_rnd_intensity": {
+    "economics": "R&D is expensed but is an intangible investment; the market undervalues it. This is the ONLY hypothesis of Stage 24's eight that survived FDR at q=0.10, and it has never faced a lockbox.",
+    "score": "z( rnd_ttm / assets ), names without an R&D fact are UNSCORED (not zero)",
+    "primary_variant": "level",
+    "grid": ["level", "change_yoy", "level_scaled_by_sales"]
+   },
+   "C5_filing_event_drift": {
+    "economics": "post-filing drift: the market digests a periodic report over weeks. A pure information-TIMESTAMP signal - it uses no accounting number at all, only the SEC filed date and the price reaction to it.",
+    "score": "for the most recent 10-K/10-Q filed on or before t, the name's cumulative return over the [filed, filed+5 sessions] window minus the eligible-universe mean over the same window, decayed by exp(-(sessions since filed)/21); names with no filing in the last 90 sessions are UNSCORED",
+    "primary_variant": "react5_decay21",
+    "grid": ["react5_decay21", "react3_decay21", "react5_decay42"]
+   }
+  }
+ },
+
+ "variant_grid_amendment_before_any_experiment": {
+  "made_at": "2026-09-04, before any R58 score, portfolio, layer statistic or gate was computed",
+  "what_changed": "the single-feature families A2, A3, C1, C2, C3 and C4 now share ONE uniform transform grid instead of six bespoke ones: level (the feature at t), avg3 (its mean over the last 12 decision slots, at least 8 observed), stab (the level divided by its own trailing dispersion). The registered grids for A1, A4, B2, B3, B4, B5 and C5 are UNCHANGED.",
+  "why": "the originally registered neighbours named quantities the owned store cannot produce without inventing data - an annual-only cube that discards the YTD facts, a two-year lag the panel does not carry, a balance-sheet accrual needing a depreciation concept outside the pre-registered ladder. Substituting one uniform, computable, economically meaningful grid is both honest and strictly more comparable across families than six different bespoke ones.",
+  "grid": {"level": "z(x_t)", "avg3": "z(mean_{last 12 slots} x)", "stab": "z(x_t / trailing_sd(x))"},
+  "no_result_seen": true
+ },
+
+ "coverage_blocked_family_rule": {
+  "registered_before_any_experiment": true,
+  "rule": "a family that fails the pre-registered coverage-stability gate (>= 60% of the eligible universe scored on >= 90% of lockbox decision dates) is DATA_HOLD_COVERAGE and receives NO alpha verdict under the primary judge. It is NOT quietly rejected and NOT quietly promoted.",
+  "diagnostic_permitted": "such a family MAY additionally be reported as a clearly labelled within-coverage diagnostic against a benchmark restricted to the names it can score. That diagnostic is descriptive, consumes no FDR budget, and may never be called alpha.",
+  "why_registered_now": "PANEL-F coverage was measured before any family was scored: R&D is reported by roughly 40% of the eligible universe, so C4 is expected to hit this rule. Deciding how to treat it BEFORE seeing its number is the entire point."
+ },
+
+ "fdr_family_set": ["A1", "A2", "A3", "A4", "B2", "B3", "B4", "B5", "C1", "C2", "C3", "C4", "C5"],
+ "diagnostic_not_fdr_counted": ["B0"],
+
+ "statistics": {
+  "equity_primary_metric": "annualised net excess return of the long-only equal-weight top-50 portfolio over the R58 equal-weight eligible-universe benchmark, both after 12.5bp/side costs",
+  "test": "one-sided Newey-West t on period excess returns with lag = ceil(horizon/cadence) - 1",
+  "multiple_testing": "Benjamini-Hochberg FDR at q = 0.10 across ALL 13 FDR-counted lockbox primary tests of this campaign. The denominator is fixed at 13 by this document, before any lockbox evaluation.",
+  "prior_search_burden_disclosure": "this repository's cumulative prosecuted-hypothesis burden is ~302 through R57. R58's families are pre-registered ex ante and are not survivors of a wider silent scan, which is the condition under which family-level FDR is defensible. The burden is restated in every R58 verdict.",
+  "effective_observations_floor": "36 lockbox decision periods at cadence 21 / horizon 21. A result on fewer is reported as INSUFFICIENT_SAMPLE regardless of magnitude.",
+  "buy_sell_decomposition_required": "for every family and every layer: top-decile excess (BUY side), bottom-decile excess (SELL side), Spearman rank IC, and decile monotonicity. A family strong on the SELL side and weak on the BUY side may NOT be reported with one blended score."
+ },
+
+ "gates": {
+  "inherited_from_r57_deliberately": "the materiality, risk and robustness thresholds are R57's, unchanged. Reusing the previous campaign's published thresholds is the least arbitrary available choice and makes an R58 fundamental family directly comparable to an R57 price family.",
+  "economic_materiality": "lockbox annualised net excess >= +1.5%/yr versus the R58 EW eligible-universe benchmark",
+  "risk": "lockbox max drawdown of the strategy's period-return NAV no worse than 1.5x the benchmark's over the same window",
+  "robustness_all_required": [
+   "validation and lockbox primary metrics share a sign",
+   "the lockbox split into two contiguous halves: neither half's net primary metric below -0.5%/yr",
+   "the selected variant's +/-1 grid neighbours share the validation sign",
+   "excluding the largest GICS sector at each decision date leaves the lockbox primary metric's sign unchanged",
+   "one-way turnover <= 40%/month",
+   "coverage stability: the family scores >= 60% of the eligible universe on >= 90% of lockbox decision dates"
+  ],
+  "verdict_rule": "HISTORICAL_ALPHA_CANDIDATE requires ALL of: the effective-observations floor, BH survival at q=0.10, economic materiality, the risk gate, and every robustness gate. Failing any single gate yields the named rejection and NO_ALPHA_EVIDENCE.",
+  "challenger_freeze_rule": "every HISTORICAL_ALPHA_CANDIDATE is frozen as an immutable R58 forward challenger at the next completed session with weights, cash, decision timestamp, eligible session, universe identity, input hashes, spec hash, cost/construction policy and git identity. Forward evidence starts strictly after inception. No backfill, ever."
+ },
+
+ "calibration_track": {
+  "rule": "score -> expected-return calibration is attempted ONLY for a family that has already cleared its historical OOS signal gate. R57 measured that calibration cannot repair unstable ordering, so calibrating a rejected family is forbidden.",
+  "methods_permitted": ["monotonic decile bins", "isotonic with shrinkage", "linear shrinkage to zero"],
+  "benchmark": "a ZERO forecast. If zero wins on lockbox MAE, the published state is NOT_CALIBRATED.",
+  "no_survivor_rule": "if no family clears its gate, R58 publishes CALIBRATION_NOT_ATTEMPTED_NO_QUALIFIED_SIGNAL and explicitly does NOT repeat R57's measured failure."
+ },
+
+ "cross_asset_track": {
+  "question": "not 'is there alpha in futures' (R57 answered that) but 'does cross-asset information CONDITION an equity signal'",
+  "primary_test": "B4 versus A1 on the identical universe, judge and costs: the conditioning earns its place only if B4's lockbox primary metric exceeds A1's AND B4 independently passes its own gates",
+  "prohibition": "no post-hoc regime label. The regime variable is defined in this document and computed only from data <= t.",
+  "secondary": "fred_alfred PIT-vintage series may be reported as a descriptive overlay; they may not define a tradable regime for a judged family unless a vintage exists at every decision date of every layer"
+ },
+
+ "prospective_track": {
+  "rule": "an information family whose owned history is too short to backtest is NOT abandoned and is NOT back-filled. Its signal specification is frozen TODAY as an immutable forward challenger and the evidence clock starts.",
+  "freeze_requirements": ["hypothesis", "economic rationale", "exact signal formula", "universe and eligibility", "ranking and weights", "cash policy", "cost policy", "benchmark", "decision timestamp (UTC)", "eligible session", "input record counts and hashes", "spec hash", "git identity", "explicit statement that zero forward observations exist at freeze"],
+  "count_discipline": "prefer 3-6 genuinely orthogonal hypotheses. Freezing dozens is spraying, not research.",
+  "honesty_rule": "a challenger may only be frozen if its signal can actually be COMPUTED today from owned data; a specification with no computable cross-section is a wish, not a challenger."
+ },
+
+ "capital_frontier": {
+  "eligibility": "only a candidate that passed its historical gates may compete for capital",
+  "competitors": ["the incumbent operational strategy", "SPY", "CASH"],
+  "questions_required": ["if every dollar were cash, does this deserve any capital", "where should the next $1,000 go", "where should the next $10,000 go"],
+  "safety": "research only; no capital is moved, no order, no fill, no proposal is written to any operational store"
+ },
+
+ "data_purchase_gate": {
+  "rule": "no dataset may be recommended for purchase unless all twelve questions are answered affirmatively and on the record",
+  "questions": ["which hypothesis is blocked", "why is the information orthogonal to owned data", "what free/owned proxy was tested first", "what did the proxy show", "is historical PIT integrity available", "are inactive/delisted securities covered", "what effective sample becomes available", "what experiment would we run", "what constitutes success", "what constitutes rejection", "what does it cost", "is expected research value high enough"]
+ },
+
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "activates_sleeve": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "live_repo_read_only": "C:\\Users\\binis\\paper_trader and C:\\Users\\binis\\.paper_trader are READ ONLY for the whole campaign",
+  "backend_untouched": "no restart, no information-collection run, no scheduled-task change, no mutation endpoint",
+  "research_root": "D:\\Stock_Prediction_app_data\\r58_orthogonal_alpha (new, R58-owned, disclosed)",
+  "r46_r56_r57_evidence": "read-only; the R56 shadow-portfolio records and R57 artifacts are verified hash-identical after the campaign and are never rewritten"
+ }
+}
