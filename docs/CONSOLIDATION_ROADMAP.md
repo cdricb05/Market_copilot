@@ -1505,6 +1505,38 @@ unchanged.
   invariants) and
   `tests/test_release55_active_manager_operational_acceptance.py` (85).
 
+## R55.2.2 - governed daily decision persistence closure (LANDED)
+
+The first genuinely post-R54.4 daily cycle (2026-09-03) completed, concluded
+`CURRENT_NO_CHANGE`, and left NO governed ledger row — while acceptance reported
+COMPLETE, because the projection covering the gap wore the same word as a
+legitimate pre-cutover one. A correctness repair plus an acceptance-strictness
+change: no new engine, workflow, decision owner, ledger, store, route or
+scheduler; no cadence, economics, allocation or safety-boundary change; no
+production history written; nothing restarted. Narrative:
+`docs/RELEASE55_2_2_GOVERNED_DAILY_DECISION_PERSISTENCE.md`.
+
+- **The gate was right every time.** Replaying the real manifest:
+  `DAILY_DECISION_WITHHELD` 18/19, `HOC_ARTIFACT_IDENTITY_MISMATCH`. The daily
+  producer was claiming evidence the store could not produce.
+- **Two owner-seam fixes.** A `REUSED_EXISTING` opportunity-cost outcome reports
+  the STORED artifact's identity (the recomputation named beside it, nothing
+  written, nothing rewritten); and `api.daily_research_cycle` consumes that
+  binding — in its manifest and as `hoc_binding` to the reassessment — exactly as
+  `api.event_signal_refresh` has since R54.3.
+- **The cutover is recorded provenance, never a clock.** The producer declares
+  its delegation (`daily_cycle_governed_delegation.v1`); pre-declaration
+  manifests resolve against the recorded boundary (`c0df3b1`, first delegating
+  session 2026-09-03).
+- **A missing post-cutover row is a named defect.**
+  `POST_CUTOVER_NOT_PERSISTED` + blocker `GOVERNED_DAILY_DECISION_NOT_PERSISTED`;
+  the acceptance contract gains BLOCKERS (a row that is PRESENT and still not
+  acceptable) and `complete` accounts for them.
+- **Sep-3 is preserved, not backfilled** (`HISTORICAL_GAP_PRESERVED`).
+- Behind `tests/test_release55_2_2_governed_daily_decision_persistence.py` (56)
+  and `check_release55_2_2_governed_daily_decision_persistence` (27 blocking
+  invariants).
+
 ## R55.2.1 - runtime alignment reconciliation, legacy decision continuity, worker presence (LANDED)
 
 Three surfaces reported an ABSENCE THEY HAD NOT ESTABLISHED. Each is repaired at

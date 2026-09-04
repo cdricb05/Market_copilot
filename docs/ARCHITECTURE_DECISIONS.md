@@ -3783,3 +3783,98 @@ wrote it. Fail-closed cuts both ways: unreadable metadata may neither invent a
 worker nor hide one, so a proven violation is never softened, and a snapshot that
 WAS authoritative and contradicts live runtime state is reported as
 `INCONSISTENT_TOPOLOGY` rather than resolved toward the comfortable answer.
+
+### D-R55.2.2-1 — a persistence outcome names the artifact the store HOLDS (CONFIRMED)
+
+**Decision.** An idempotent write reports the identity of the artifact present
+after the call, never the identity of a document it declined to write. A
+re-derivation is named beside it rather than hidden.
+
+**Evidence.** `holding_opportunity_cost.persist_assessment` reached
+`REUSED_EXISTING` for 2026-09-03 — same economic state, same assessment
+evidence, same conclusion — and returned `"identity": identity`, the identity of
+the **discarded** recomputation, together with the **existing** artifact's id.
+`artifact_binding` therefore published `hoc_artifact_id
+hoc_2026-09-03_..._f5f4a5643109` beside `hoc_assessment_hash a7ecdbe5…`, while
+the artifact itself carries `f5f4a564…`. Every consumer inherited the mismatch,
+and R54.3's exact-artifact check refused the governed write: 18/19,
+`HOC_ARTIFACT_IDENTITY_MISMATCH`.
+
+**Consequence.** Reuse is still a pure no-write path and no artifact is ever
+rewritten; only what the outcome *reports* changed. The document-wide
+`assessment_hash` legitimately differs across re-runs because it embeds the
+assessment's own output (the Stage-21 trap R54.3 already documented) — which is
+exactly why the durable identity, not the transient one, is what a binding may
+carry.
+
+### D-R55.2.2-2 — a binding contract binds every producer (CONFIRMED)
+
+**Decision.** When an owner publishes a binding, every producer of that evidence
+consumes it, and the architecture audit asserts each one does.
+
+**Evidence.** R54.3 built the seam — `run_and_persist` returns `binding`,
+`portfolio_reassessment.run_and_persist` accepts `hoc_binding` — and wired it
+into `api.event_signal_refresh` only. `api.daily_research_cycle` kept composing
+its own binding from `assessment["assessment_hash"]` + `persistence["artifact_
+id"]`, and passed no `hoc_binding` at all, so the reassessment re-resolved one,
+found the consumed document was not the persisted artifact, and honestly recorded
+`hoc_persisted: false`. R54.4 then made the daily cycle delegate to a gate that
+enforces precisely that binding, and the write was refused every time.
+
+**Consequence.** A half-wired seam is not a seam. The audit now asserts
+`daily_consumes_binding`, `daily_hands_binding_to_reassessment` and
+`intraday_still_consumes_binding` together, so neither producer can drift out of
+the contract alone.
+
+### D-R55.2.2-3 — a compatibility fallback carries its EXPECTATION (CONFIRMED)
+
+**Decision.** A read-time projection states whether a durable record was
+expected. The expectation is decided from recorded provenance — the producer's
+own declaration, or a recorded release boundary — never from a wall clock.
+
+**Evidence.** The 2026-09-03 projection and a genuine pre-R54.4 one were
+byte-identical in shape, both labelled `LEGACY_COMPATIBILITY_PROJECTION`, so
+acceptance reported `R55_ACCEPTANCE_COMPLETE` for a session whose governed write
+had failed — and the printed explanation asserted, falsely, that the session
+predated the canonical writer. R54.4 landed 2026-09-03T16:14:04Z; that cycle
+started 2026-09-04T01:59:33Z.
+
+**Consequence.** `POST_CUTOVER_NOT_PERSISTED` is a distinct status with the
+blocker `GOVERNED_DAILY_DECISION_NOT_PERSISTED`. The daily producer declares its
+delegation on every manifest it persists — a statement about the PRODUCER'S
+CONTRACT, known before the handoff, so R54.4's append-only rule is untouched —
+and pre-declaration manifests resolve against the recorded boundary. An undatable
+session is treated as PRE-cutover, because inventing an expectation would turn
+unknown history into a fabricated defect.
+
+### D-R55.2.2-4 — PRESENT and unacceptable are different answers (CONFIRMED)
+
+**Decision.** An acceptance view may report a fact that is present and still not
+acceptable, as a named BLOCKER owned by the owner of that fact. Rows keep their
+PRESENT/MISSING meaning; `complete` accounts for blockers too.
+
+**Evidence.** The `GOVERNED_DECISION` row was PRESENT — the decision was
+genuinely reached — while its ledger row was missing, and a two-valued contract
+had no way to say so.
+
+**Consequence.** MISSING still means "its owner persisted nothing"; a blocker
+means "its owner says this is held in a way the contract does not accept". The
+acceptance view invents no blocker code, and the operator report refuses a served
+contract from a runtime that cannot express one, recomposing locally from the
+same payload rather than trusting a verdict that could not see the defect.
+
+### D-R55.2.2-5 — the Sep-3 gap is preserved, not repaired (CONFIRMED)
+
+**Decision.** `HISTORICAL_GAP_PRESERVED`. No governed row is written for a
+session whose governed write failed in the past.
+
+**Evidence.** The decision is real and readable; the row is absent because the
+gate correctly refused it. Writing one now would stamp `decided_at` at an instant
+when nothing was recorded, and would erase the only evidence that the write
+failed — on the very session that exposed the defect.
+
+**Consequence.** Principle 11 and R54.4 §11 hold. The classification says so in
+the owner's own words (`is_ledger_row: false`, `backfilled: false`,
+`history_rewritten: false`), the audit asserts `backfill_routes == []`, and the
+repair is forward-going: the next governed cycle writes a real row and the
+projection retires itself for that session.

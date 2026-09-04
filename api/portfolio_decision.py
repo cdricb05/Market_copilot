@@ -2836,11 +2836,73 @@ DECISION_PERSISTENCE_LEDGER_ROW = "LEDGER_ROW"
 #: Retrievable and authoritative, but reconstructed at read time from the
 #: Release-29.5 governed-evidence contract because the session predates R54.4.
 DECISION_PERSISTENCE_LEGACY_PROJECTION = "LEGACY_COMPATIBILITY_PROJECTION"
+#: R55.2.2 — retrievable, authoritative, and NOT a ledger row for a session whose
+#: daily cycle ran under the DELEGATING producer contract. The decision was
+#: genuinely reached; the governed write did not complete. Distinguished from the
+#: legitimate legacy projection above because this one is a real defect.
+DECISION_PERSISTENCE_UNPERSISTED = "POST_CUTOVER_NOT_PERSISTED"
 #: No governed decision at all.
 DECISION_PERSISTENCE_ABSENT = "ABSENT"
 DECISION_PERSISTENCE_VOCAB = (DECISION_PERSISTENCE_LEDGER_ROW,
                               DECISION_PERSISTENCE_LEGACY_PROJECTION,
+                              DECISION_PERSISTENCE_UNPERSISTED,
                               DECISION_PERSISTENCE_ABSENT)
+
+#: R55.2.2 — the ONE blocker code a post-cutover unpersisted governed daily
+#: decision raises. Named here, by the decision owner, so no surface invents it.
+GOVERNED_DAILY_NOT_PERSISTED_BLOCKER = "GOVERNED_DAILY_DECISION_NOT_PERSISTED"
+
+# --------------------------------------------------------------------------- #
+# R55.2.2 — THE CUTOVER, stated as recorded provenance rather than a clock read.
+#
+# A session is POST-CUTOVER when its own daily manifest declares that the
+# producer delegates its governed terminal decision
+# (``research_cycle_state.governed_decision_delegation``, written by
+# ``api.daily_research_cycle`` since R55.2.2). That declaration is authoritative
+# and needs no fallback.
+#
+# Manifests persisted BEFORE that declaration existed cannot answer for
+# themselves, so exactly one recorded fact resolves them: the release at which
+# the daily producer began delegating, and the first eligible market session
+# whose cycle ran after it. Both are historical facts of this repository — commit
+# c0df3b1 (R54.4) landed 2026-09-03T16:14:04Z, the 2026-09-02 cycle completed
+# 2026-09-02T23:51:52Z under the previous contract, and the 2026-09-03 cycle
+# started 2026-09-04T01:59:33Z under the new one. The boundary is therefore
+# fixed, auditable and independent of "today"; it never moves, and it becomes
+# inert once no readable session predates the declaration.
+# --------------------------------------------------------------------------- #
+GOVERNED_DAILY_WRITE_CUTOVER_RELEASE = "c0df3b1"
+GOVERNED_DAILY_WRITE_CUTOVER_SESSION = "2026-09-03"
+GOVERNED_DAILY_WRITE_CUTOVER_BASIS = (
+    "PRODUCER_DECLARATION (the manifest's own governed_decision_delegation), "
+    "falling back for pre-declaration manifests to the recorded release "
+    "boundary: R54.4 / %s, first delegating session %s."
+    % (GOVERNED_DAILY_WRITE_CUTOVER_RELEASE, GOVERNED_DAILY_WRITE_CUTOVER_SESSION))
+
+
+def governed_daily_write_expected(*, eligible_market_session: Optional[str] = None,
+                                  delegation: Optional[dict] = None) -> dict:
+    """Was this session's daily cycle EXPECTED to write a governed ledger row?
+
+    Pure; no io; no clock. The producer's own declaration decides it when the
+    manifest carries one, and the recorded release boundary resolves manifests
+    written before the declaration existed. A session that cannot be dated at all
+    is treated as PRE-cutover — the conservative answer, because inventing an
+    expectation would turn unknown history into a fabricated defect.
+    """
+    if isinstance(delegation, dict) and delegation.get("delegates_terminal_decision"):
+        return {"expected_ledger_row": True,
+                "cutover_basis": "PRODUCER_DECLARATION",
+                "producer_declaration": dict(delegation)}
+    session = str(eligible_market_session)[:10] if eligible_market_session else None
+    if session:
+        return {"expected_ledger_row": session >= GOVERNED_DAILY_WRITE_CUTOVER_SESSION,
+                "cutover_basis": "RECORDED_RELEASE_BOUNDARY",
+                "cutover_release": GOVERNED_DAILY_WRITE_CUTOVER_RELEASE,
+                "cutover_session": GOVERNED_DAILY_WRITE_CUTOVER_SESSION}
+    return {"expected_ledger_row": False, "cutover_basis": "SESSION_UNKNOWN",
+            "cutover_session": GOVERNED_DAILY_WRITE_CUTOVER_SESSION}
+
 
 _PERSISTENCE_DETAIL = {
     DECISION_PERSISTENCE_LEDGER_ROW: (
@@ -2852,6 +2914,12 @@ _PERSISTENCE_DETAIL = {
         "write, so the decision is reconstructed at read time from the "
         "Release-29.5 governed-evidence contract. History is not rewritten and "
         "the row is never backfilled; the next governed cycle writes a real one."),
+    DECISION_PERSISTENCE_UNPERSISTED: (
+        "Authoritative and retrievable, but NOT a ledger row for a session whose "
+        "daily cycle ran under the delegating producer contract, so a governed "
+        "row was expected. The decision was genuinely reached; the governed "
+        "write did not complete. The gap is PRESERVED, never backfilled — the "
+        "repair is that the next governed cycle writes a real row."),
     DECISION_PERSISTENCE_ABSENT: "No governed portfolio decision exists.",
 }
 
@@ -2863,26 +2931,48 @@ def classify_decision_persistence(*, record: Optional[dict],
     Pure classification of the record this module just resolved. Retrievability
     is derived from the canonical owner's own read — never from a UI, a browser
     or a file probe by a caller.
+
+    R55.2.2 — a read-time projection is no longer one thing. For a session that
+    predates the delegating producer it is a legitimate compatibility shim; for
+    one that ran under it, the same shape is a missing governed write, and
+    reporting both as ``LEGACY_COMPATIBILITY_PROJECTION`` is exactly what let a
+    genuinely new session pass acceptance while its ledger row was absent.
     """
     rec = record or {}
     has = bool(rec.get("decision")) if available is None else bool(available)
+    projected = bool(rec.get("legacy_compatibility_projection")
+                     or rec.get("projected"))
+    expectation = governed_daily_write_expected(
+        eligible_market_session=rec.get("eligible_market_session"),
+        delegation=rec.get("producer_governed_write_delegation"))
     if not has:
         status = DECISION_PERSISTENCE_ABSENT
-    elif rec.get("legacy_compatibility_projection") or rec.get("projected"):
-        status = DECISION_PERSISTENCE_LEGACY_PROJECTION
-    else:
+    elif not projected:
         status = DECISION_PERSISTENCE_LEDGER_ROW
+    elif expectation["expected_ledger_row"]:
+        status = DECISION_PERSISTENCE_UNPERSISTED
+    else:
+        status = DECISION_PERSISTENCE_LEGACY_PROJECTION
     return {
         "persistence_status": status,
         "persistence_status_vocabulary": list(DECISION_PERSISTENCE_VOCAB),
         "persistence_detail": _PERSISTENCE_DETAIL.get(status),
         "is_ledger_row": status == DECISION_PERSISTENCE_LEDGER_ROW,
-        # The decision IS retrievable through this owner in both live states;
-        # only ABSENT is not. This is what "persisted" was being misread as.
+        # The decision IS retrievable through this owner in every state but
+        # ABSENT. This is what "persisted" was being misread as.
         "retrievable_through_owner": status != DECISION_PERSISTENCE_ABSENT,
         "retrievability_owner": GOVERNANCE_GATE_OWNER,
         "backfilled": False,
         "history_rewritten": False,
+        # R55.2.2 — the cutover answer, published beside the status so every
+        # surface reads ONE owner's verdict instead of re-deriving it.
+        "expected_ledger_row": bool(has and expectation["expected_ledger_row"]),
+        "cutover_basis": expectation.get("cutover_basis"),
+        "cutover_contract": GOVERNED_DAILY_WRITE_CUTOVER_BASIS,
+        "persistence_blocker": (GOVERNED_DAILY_NOT_PERSISTED_BLOCKER
+                                if status == DECISION_PERSISTENCE_UNPERSISTED
+                                else None),
+        "historical_gap_preserved": status == DECISION_PERSISTENCE_UNPERSISTED,
     }
 
 
@@ -3595,13 +3685,23 @@ def project_governed_daily_cycle_decision(*, workflow: Optional[dict],
         "governed_manifest_run_id": rcs.get("governed_manifest_run_id"),
         "persisted": False,
         "projected": True,
-        # R54.4 — this row is a READ-ONLY legacy shim, not a ledger row. It is
-        # retired for any session the daily producer has since written.
+        # R54.4 — this row is a READ-ONLY shim, not a ledger row. It is retired
+        # for any session the daily producer has since written.
         "legacy_compatibility_projection": True,
-        "projection_note": ("LEGACY (pre-R54.4): projected from the Release-29.5 "
-                            "governed-evidence contract for a session whose daily "
-                            "cycle never delegated a governed write. Not a ledger "
-                            "row; suppressed once a persisted daily record exists."),
+        # R55.2.2 — the PRODUCER'S OWN declaration, carried verbatim from the
+        # manifest that this projection describes. It is what tells
+        # ``classify_decision_persistence`` whether the absence of a ledger row
+        # is legitimate history or a missing governed write, so the two are never
+        # again reported with one word.
+        "producer_governed_write_delegation": rcs.get(
+            "governed_decision_delegation"),
+        "projection_note": ("Projected from the Release-29.5 governed-evidence "
+                            "contract for a session with no governed ledger row. "
+                            "Legitimate for a session that predates the "
+                            "delegating producer; a missing governed write for "
+                            "one that ran under it. Not a ledger row, never "
+                            "backfilled, and suppressed once a persisted daily "
+                            "record exists."),
         "manual_review_required": bool(decision == GD_CHANGE_RECOMMENDED),
         "safety": _governed_safety(),
     }
@@ -3833,4 +3933,8 @@ __all__ = [
     "classify_intraday_governance", "classify_decision_persistence",
     "DECISION_PERSISTENCE_VOCAB", "DECISION_PERSISTENCE_LEDGER_ROW",
     "DECISION_PERSISTENCE_LEGACY_PROJECTION", "DECISION_PERSISTENCE_ABSENT",
+    # R55.2.2 — the post-cutover persistence contract.
+    "DECISION_PERSISTENCE_UNPERSISTED", "GOVERNED_DAILY_NOT_PERSISTED_BLOCKER",
+    "GOVERNED_DAILY_WRITE_CUTOVER_RELEASE", "GOVERNED_DAILY_WRITE_CUTOVER_SESSION",
+    "GOVERNED_DAILY_WRITE_CUTOVER_BASIS", "governed_daily_write_expected",
 ]

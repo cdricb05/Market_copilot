@@ -68,11 +68,25 @@ def _fetch(base_url: str, timeout: float = 30.0) -> dict:
 
 
 def _acceptance(state: dict) -> tuple:
-    """The acceptance contract + how it was obtained. ONE owner either way."""
+    """The acceptance contract + how it was obtained. ONE owner either way.
+
+    R55.2.2 — a backend serving a PRE-R55.2.2 contract cannot report the
+    governed-decision persistence blocker, because that contract had no blocker
+    concept at all. Accepting its verdict would let exactly the defect this
+    release closes pass unnoticed on a stale runtime, so when the payload's
+    decision owner names a blocker the served contract cannot express, the
+    contract is recomposed locally from the same payload. Nothing is invented:
+    the blocker is still the decision owner's own verdict, read from the state.
+    """
     served = state.get("acceptance")
-    if isinstance(served, dict) and served.get("rows"):
-        return served, "SERVED_BY_THE_BACKEND"
     from paper_trader.api import active_manager_state as ams
+    if isinstance(served, dict) and served.get("rows"):
+        gd = state.get("latest_governed_portfolio_decision") or {}
+        if "blocker_codes" in served or not gd.get("persistence_blocker"):
+            return served, "SERVED_BY_THE_BACKEND"
+        return (ams.build_acceptance_contract(state),
+                "RECOMPOSED_LOCALLY (the served contract predates the "
+                "governed-decision persistence blocker)")
     return ams.build_acceptance_contract(state), "COMPOSED_LOCALLY_FROM_THE_PAYLOAD"
 
 
@@ -175,10 +189,82 @@ def _print_acceptance(acc: dict, source: str) -> None:
                 continue
             print("      %-34s %s" % (key, _fmt(value)))
     print()
-    print("  present %s/%s | missing: %s"
+    print("  present %s/%s | missing: %s | blockers: %s"
           % (acc.get("present_count"), len(acc.get("rows") or []),
-             _fmt(acc.get("missing_rows"))))
+             _fmt(acc.get("missing_rows")), _fmt(acc.get("blocker_codes"))))
     print()
+
+
+def _print_governed_persistence(state: dict, acc: dict) -> None:
+    """R55.2.2 — DID THE GOVERNED DAILY DECISION ACTUALLY PERSIST?
+
+    The one question the previous acceptance could not answer. It is printed in
+    full, in the decision owner's own words, because the difference between a
+    legitimate historical projection and a missing governed write is invisible
+    unless both the persistence status AND the expectation are stated together.
+    """
+    gd = state.get("latest_governed_portfolio_decision") or {}
+    print(_rule())
+    print("GOVERNED DAILY DECISION PERSISTENCE")
+    print(_rule())
+    if not gd.get("decision"):
+        print("  No governed portfolio decision is available to classify.")
+        print()
+        return
+    print("  session               %s" % _fmt(gd.get("eligible_market_session")))
+    print("  decision              %s" % _fmt(gd.get("decision")))
+    print("  provenance            %s" % _fmt(gd.get("provenance")))
+    print("  record id             %s" % _fmt(gd.get("record_id")))
+    print("  persistence status    %s" % _fmt(gd.get("persistence_status")))
+    print("  is a ledger row       %s" % _fmt(gd.get("is_ledger_row")))
+    print("  exact retrieval       %s" % _fmt(gd.get("retrievable_through_owner")))
+    print("  retrieval owner       %s" % _fmt(gd.get("retrievability_owner")))
+    print("  expected to persist   %s" % _fmt(gd.get("expected_ledger_row")))
+    print("  cutover basis         %s" % _fmt(gd.get("cutover_basis")))
+    print("  backfilled            %s" % _fmt(gd.get("backfilled")))
+    print("  historical gap kept   %s" % _fmt(gd.get("historical_gap_preserved")))
+    detail = gd.get("persistence_detail")
+    if detail:
+        print("  detail")
+        for line in _wrap(str(detail)):
+            print("      %s" % line)
+    blocker = gd.get("persistence_blocker")
+    print()
+    if blocker:
+        print("  WHY ACCEPTANCE FAILS")
+        print("      %s" % blocker)
+        print("      This session's daily cycle ran under the delegating")
+        print("      producer contract, so a governed ledger row was expected.")
+        print("      The decision stands and is readable; the governed write is")
+        print("      missing. History is NOT backfilled - the next governed")
+        print("      cycle writes a real row.")
+    elif acc.get("missing_rows"):
+        print("  WHY ACCEPTANCE FAILS")
+        print("      Rows with nothing persisted: %s"
+              % _fmt(acc.get("missing_rows")))
+    else:
+        print("  WHY ACCEPTANCE PASSES")
+        if gd.get("is_ledger_row"):
+            print("      The governed decision is a real ledger row in the one")
+            print("      governed ledger, retrievable by exact identity.")
+        else:
+            print("      This session predates the delegating producer, so a")
+            print("      read-time compatibility projection is legitimate and")
+            print("      no ledger row was ever expected.")
+    print()
+
+
+def _wrap(text: str, width: int = 68) -> list:
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = ("%s %s" % (cur, w)).strip()
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def _print_runtime_alignment(state: dict) -> None:
@@ -278,14 +364,24 @@ def main(argv=None) -> int:
     print()
     _print_answers(state)
     _print_acceptance(acc, source)
+    _print_governed_persistence(state, acc)
     _print_runtime_alignment(state)
     _print_advisories(state)
 
     if acc.get("complete"):
         print("R55_ACCEPTANCE_COMPLETE")
         return 0
-    print("R55_ACCEPTANCE_INCOMPLETE - missing: %s"
-          % ", ".join(acc.get("missing_rows") or []))
+    # R55.2.2 — a blocker is reported as a blocker, never folded into "missing".
+    # A present-but-unpersisted governed decision is a different fault from a
+    # stage that produced nothing, and the operator is told which one it is.
+    reasons = []
+    if acc.get("missing_rows"):
+        reasons.append("missing: %s" % ", ".join(acc.get("missing_rows") or []))
+    if acc.get("blocker_codes"):
+        reasons.append("blockers: %s"
+                       % ", ".join(str(c) for c in acc.get("blocker_codes")))
+    print("R55_ACCEPTANCE_INCOMPLETE - %s"
+          % " | ".join(reasons or ["no reason reported"]))
     return 2
 
 

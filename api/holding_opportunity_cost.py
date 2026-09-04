@@ -981,6 +981,39 @@ def _session_identity_conflicts(*, identity: dict, input_contract: dict,
     return out
 
 
+#: Release 55.2.2 — the identity fields an index entry can supply on its own when
+#: the artifact document itself is unreadable. Deliberately the subset the index
+#: has always written; nothing here is derived, defaulted or invented.
+_INDEXED_IDENTITY_FIELDS = (
+    "eligible_market_date", "active_book_id", "portfolio_state_hash",
+    "economic_state_hash", "universe_scoring_hash", "decision_policy_version",
+    "assessment_hash", "assessment_evidence_hash", "decision_fingerprint")
+
+
+def _stored_artifact_identity(existing: Optional[dict], hoc_dir=None):
+    """R55.2.2 — the identity of the artifact the store ALREADY HOLDS.
+
+    A REUSE outcome means the caller's freshly computed document was NOT written:
+    the durable evidence is the artifact that was already there. Returning the
+    recomputation's identity instead paired the EXISTING ``artifact_id`` with a
+    hash that artifact does not carry, and every downstream consumer of
+    :func:`artifact_binding` inherited that mismatch — which is precisely what
+    the R54.3 exact-artifact governance check then refused. The document is
+    authoritative; the index entry is the fallback for a file that cannot be
+    read. ``None`` when neither can answer, and ``None`` is never a match.
+    """
+    if not existing:
+        return None
+    art = _read_indexed_artifact(existing, hoc_dir) or {}
+    ident = art.get("identity")
+    if isinstance(ident, dict) and ident.get("assessment_hash"):
+        return dict(ident)
+    if existing.get("assessment_hash"):
+        return {k: existing.get(k) for k in _INDEXED_IDENTITY_FIELDS
+                if existing.get(k) is not None}
+    return None
+
+
 def _unique_artifact_id(aid: str, identity: dict, hoc_dir=None) -> str:
     """Never let a new VERSION land on an existing artifact's path.
 
@@ -999,6 +1032,32 @@ def _unique_artifact_id(aid: str, identity: dict, hoc_dir=None) -> str:
     return "%s_%s" % (aid, (identity.get("assessment_evidence_hash") or "v")[:8])
 
 
+def _reuse_outcome(existing: dict, identity: dict, hoc_dir=None) -> dict:
+    """THE reuse result. One spelling for both reuse paths (R55.2.2).
+
+    ``identity`` describes the document that was NOT written; the outcome
+    therefore reports the identity of the artifact that IS held, and keeps the
+    recomputation visible beside it rather than discarding it silently. When the
+    two ``assessment_hash`` values differ — the documented Stage-21 case where a
+    document-wide hash embeds its own output while the ECONOMIC state, the
+    ASSESSMENT EVIDENCE and the CONCLUSION are all unchanged — the difference is
+    named, so a consumer can see that a re-derivation happened and that the
+    store's version is the one every binding must carry.
+    """
+    stored = _stored_artifact_identity(existing, hoc_dir) or dict(identity)
+    recomputed = (identity or {}).get("assessment_hash")
+    return {"status": PERSIST_REUSED, "artifact_id": existing.get("artifact_id"),
+            "path": existing.get("path"), "persisted": True, "reused": True,
+            "conflict": False, "economic_state_changed": False,
+            "assessment_evidence_changed": False,
+            "identity": stored,
+            "recomputed_assessment_hash": recomputed,
+            "recomputed_identity": dict(identity or {}),
+            "reused_recomputed_document": bool(
+                recomputed and stored.get("assessment_hash")
+                and recomputed != stored.get("assessment_hash"))}
+
+
 def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
                        now: Optional[datetime] = None,
                        produced_by: Any = None, drc_run_id: Any = None) -> dict:
@@ -1010,6 +1069,11 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
       1. same economic state + same evidence + same conclusion
          -> ``REUSED_EXISTING``. Idempotent: no second artifact. Re-running a
             cycle from unchanged evidence is not a new assessment.
+            Release 55.2.2 — the outcome's ``identity`` is then the STORED
+            artifact's, never the discarded recomputation's: reuse means the
+            caller's document was not written, so binding its hash to the
+            existing ``artifact_id`` would name an assessment the store does not
+            hold. ``recomputed_assessment_hash`` keeps the re-derivation visible.
       2. same economic state + materially DIFFERENT assessment evidence
          -> ``CREATED_ASSESSMENT_VERSION``. A NEW immutable version is APPENDED.
             The portfolio being economically unchanged does not mean the
@@ -1071,10 +1135,7 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
     # kernel result is the same assessment, whatever a legacy index entry can or
     # cannot tell us about the evidence behind it.
     if existing and existing.get("assessment_hash") == identity["assessment_hash"]:
-        return {"status": PERSIST_REUSED, "artifact_id": existing.get("artifact_id"),
-                "path": existing.get("path"), "persisted": True, "reused": True,
-                "conflict": False, "economic_state_changed": False,
-                "assessment_evidence_changed": False, "identity": identity}
+        return _reuse_outcome(existing, identity, hoc_dir)
 
     new_econ = identity.get("economic_state_hash")
     prior_econ = existing.get("economic_state_hash") if existing else None
@@ -1098,12 +1159,7 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
         # never a version.
         if (new_fingerprint and prior_fingerprint
                 and new_fingerprint == prior_fingerprint):
-            return {"status": PERSIST_REUSED,
-                    "artifact_id": existing.get("artifact_id"),
-                    "path": existing.get("path"), "persisted": True,
-                    "reused": True, "conflict": False,
-                    "economic_state_changed": False,
-                    "assessment_evidence_changed": False, "identity": identity}
+            return _reuse_outcome(existing, identity, hoc_dir)
         return {"status": PERSIST_CONFLICT, "artifact_id": aid,
                 "existing_artifact_id": existing.get("artifact_id"),
                 "existing_assessment_hash": existing.get("assessment_hash"),
@@ -1285,6 +1341,12 @@ def artifact_binding(persistence: Optional[dict] = None,
         "hoc_economic_state_changed": p.get("economic_state_changed"),
         "hoc_supersedes_artifact_id": p.get("superseded_artifact_id"),
         "hoc_version_index": p.get("version_index"),
+        # R55.2.2 — a reuse whose re-derived document hashed differently while
+        # the economic state, the evidence and the conclusion were unchanged.
+        # The binding above names the STORED version; this says the caller also
+        # computed one, so nothing about the reuse is hidden from a consumer.
+        "hoc_reused_recomputed_document": p.get("reused_recomputed_document"),
+        "hoc_recomputed_assessment_hash": p.get("recomputed_assessment_hash"),
     }
 
 

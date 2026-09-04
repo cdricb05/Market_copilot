@@ -1,7 +1,70 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-03
-- **Updated by phase:** **R55.2.1 - RUNTIME ALIGNMENT RECONCILIATION, LEGACY
+- **Last updated:** 2026-09-04
+- **Updated by phase:** **R55.2.2 - GOVERNED DAILY DECISION PERSISTENCE CLOSURE
+  (single agent, no subagents, Windows PowerShell only).** Built over the
+  committed R55.2.1 head `4b88339`. Full narrative:
+  `docs/RELEASE55_2_2_GOVERNED_DAILY_DECISION_PERSISTENCE.md`. A CORRECTNESS
+  repair plus an acceptance-strictness change: no new engine, workflow, decision
+  owner, ledger, store, route or scheduler; no cadence, economics, allocation or
+  safety-boundary change; no production history written; and neither the backend
+  nor the collection worker was restarted.
+  **The failure.** The 2026-09-03 Portfolio Cycle - the FIRST genuinely
+  post-R54.4 daily cycle - completed, concluded `CURRENT_NO_CHANGE`, and left NO
+  governed ledger row; the production decision root still held only the manual
+  lane. Acceptance nonetheless said `R55_ACCEPTANCE_COMPLETE`, because the
+  read-time projection covering the gap was labelled
+  `LEGACY_COMPATIBILITY_PROJECTION` - the same word used for sessions that
+  legitimately predate the delegating producer. Two very different states shared
+  one word and the permissive one won. The "it predates R54.4" explanation was
+  false: R54.4 landed 2026-09-03T16:14:04Z and the cycle started
+  2026-09-04T01:59:33Z.
+  **Root cause (proven by replaying the real manifest: `DAILY_DECISION_WITHHELD`
+  18/19, `HOC_ARTIFACT_IDENTITY_MISMATCH`).** Two owner-seam facts, both upstream
+  of the gate. (1) `holding_opportunity_cost.persist_assessment` REUSED the
+  artifact already held for the session - same economic state, same evidence,
+  same conclusion - but returned the identity of the DISCARDED recomputation, so
+  `artifact_binding` paired the EXISTING `artifact_id` with a hash that artifact
+  does not carry. (2) `api.daily_research_cycle` never consumed that binding at
+  all: R54.3 built the exact-version seam and wired it into the INTRADAY
+  producer only. The daily manifest therefore bound the transient kernel hash to
+  the reused artifact's id, and the reassessment, given no binding, re-resolved
+  one and correctly recorded `hoc_persisted: false`. **The gate was right every
+  time** - the producer claimed evidence the store could not produce, which
+  became inevitable once continuous collection writes a live HOC artifact for
+  the session before the daily cycle runs.
+  **The repair, at the owners.** A REUSE outcome now reports the STORED
+  artifact's identity with the recomputation named beside it; the daily producer
+  records the owner's binding in its manifest and hands `hoc_binding` to the
+  reassessment, exactly as the intraday producer has since R54.3. Replaying the
+  REAL Sep-3 manifest with the corrected binding: **19/19
+  `GOVERNED_DAILY_DECISION_ELIGIBLE`, `CREATED`, and an exact repeat is
+  `REUSED_EXISTING` with one ledger row.**
+  **A read-time projection is no longer one thing.** The cutover is RECORDED
+  PROVENANCE, never a clock: the producer declares that it delegates
+  (`daily_cycle_governed_delegation.v1`), and manifests written before that
+  declaration resolve against the recorded release boundary (`c0df3b1`, first
+  delegating session 2026-09-03). A post-cutover session with no row is
+  `POST_CUTOVER_NOT_PERSISTED` with the named blocker
+  `GOVERNED_DAILY_DECISION_NOT_PERSISTED`; a pre-cutover one stays a legitimate
+  `LEGACY_COMPATIBILITY_PROJECTION`.
+  **Acceptance can no longer call a missing governed write complete.** The ten
+  rows and their PRESENT/MISSING meaning are unchanged; the contract gains
+  BLOCKERS - a row that is PRESENT and still not acceptable - and `complete` is
+  now `not missing and not blockers`. The operator report prints a GOVERNED
+  DAILY DECISION PERSISTENCE section and refuses a stale served contract that
+  cannot express the blocker.
+  **Sep-3 is NOT backfilled: `HISTORICAL_GAP_PRESERVED`.** The decision stands
+  and is readable; writing a row now would fabricate a persistence event that
+  never happened and erase the only evidence the governed write failed.
+  **Live result (read-only, fix applied in-process):** Sep-3 =
+  `CURRENT_NO_CHANGE / GOVERNED_DAILY_CYCLE / POST_CUTOVER_NOT_PERSISTED`,
+  `is_ledger_row: no`, `exact retrieval: yes`, `expected to persist: yes`,
+  `backfilled: no`, acceptance `present 10/10 | blockers:
+  GOVERNED_DAILY_DECISION_NOT_PERSISTED` ->
+  `R55_ACCEPTANCE_INCOMPLETE`. The next genuine completed-session cycle is the
+  live proof; the operator runs it.
+- **Prior phase:** **R55.2.1 - RUNTIME ALIGNMENT RECONCILIATION, LEGACY
   GOVERNED-DECISION CONTINUITY + WINDOWS TOPOLOGY TRUTH MODEL (single agent, no
   subagents, Windows PowerShell only).** Built over the committed and DEPLOYED
   R55.2 head `c26cffebe074`. Full narrative:

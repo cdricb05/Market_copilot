@@ -5300,6 +5300,14 @@ def load_workflow_state(
             "governed_research_evidence_current": governed_research_evidence_current,
             "governed_evidence_owner": "api.daily_research_cycle",
             "governed_manifest_run_id": (research_cycle or {}).get("governed_manifest_run_id"),
+            # R55.2.2 — the daily producer's OWN declaration that it delegates
+            # the governed terminal decision. Forwarded verbatim so the decision
+            # owner can tell a session that legitimately predates the delegating
+            # contract from one that ran under it and is missing its ledger row.
+            # This composition classifies nothing; it carries the producer's
+            # statement to the ONE owner that decides.
+            "governed_decision_delegation": (research_cycle or {}).get(
+                "governed_decision_delegation"),
             "opportunity_cost_artifact_class": hoc_artifact_class,
             "opportunity_cost_producer_owner": hoc_producer_owner,
             "opportunity_cost_claims_drc_terminal": hoc_claims_drc_terminal,

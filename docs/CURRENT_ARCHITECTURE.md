@@ -3252,6 +3252,24 @@ collapsed `#today-advanced` disclosure. Guard:
 `tests/test_release55_active_manager_operational_acceptance.py`. Full narrative:
 `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`.
 
+## R55.2.2 — THE GOVERNED DAILY WRITE ACTUALLY COMPLETES
+
+The 2026-09-03 cycle was the first genuinely post-R54.4 daily cycle and left no
+governed ledger row, while acceptance reported COMPLETE. Full narrative:
+`docs/RELEASE55_2_2_GOVERNED_DAILY_DECISION_PERSISTENCE.md`.
+
+| Concept | Owner | What changed |
+|---|---|---|
+| The exact opportunity-cost version a consumer must bind | `api.holding_opportunity_cost` | A `REUSED_EXISTING` outcome reports the **stored** artifact's identity, not the discarded recomputation's, so `artifact_binding` can no longer pair an existing `artifact_id` with a hash that artifact does not carry. The recomputation is named beside it (`recomputed_assessment_hash`); reuse still writes nothing and rewrites nothing. |
+| The daily producer's evidence binding | `api.daily_research_cycle` | The manifest records the owner's own `binding` (id + hash + evidence hash + persistence status) instead of the transient kernel hash, and `hoc_binding` is handed to the reassessment owner — the seam R54.3 built and wired into the intraday producer only. |
+| Whether a session was EXPECTED to persist a governed row | `api.portfolio_decision` (`governed_daily_write_expected`) | The producer's own `governed_decision_delegation` declaration decides it; manifests written before the declaration resolve against the recorded release boundary (`c0df3b1`, first delegating session 2026-09-03). No clock is read. |
+| How a governed decision is HELD | `api.portfolio_decision` (`classify_decision_persistence`) | A read-time projection is no longer one thing: `LEGACY_COMPATIBILITY_PROJECTION` (legitimate, pre-cutover) and `POST_CUTOVER_NOT_PERSISTED` (a missing governed write, blocker `GOVERNED_DAILY_DECISION_NOT_PERSISTED`) are separate statuses. |
+| Operational acceptance | `api.active_manager_state` + `scripts/r55_operator_acceptance.py` | The ten rows and PRESENT/MISSING are unchanged; the contract gains **blockers** — a row that is PRESENT and still not acceptable — and `complete` is `not missing and not blockers`. |
+
+Sep-3 itself is **not** backfilled (`HISTORICAL_GAP_PRESERVED`): the decision is
+readable, `is_ledger_row: false`, `backfilled: false`. The repair is
+forward-going.
+
 ## R55.2.1 — THREE ABSENCES THAT WERE NEVER ESTABLISHED
 
 Each of these read an absence out of a fact it had not actually checked, and each

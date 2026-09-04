@@ -13278,6 +13278,209 @@ def check_release55_2_1_runtime_and_decision_continuity(files: list[Path]) -> di
     }
 
 
+#: R55.2.2 — the closed persistence vocabulary the decision owner publishes.
+R55_2_2_PERSISTENCE_STATUSES = (
+    "LEDGER_ROW", "LEGACY_COMPATIBILITY_PROJECTION",
+    "POST_CUTOVER_NOT_PERSISTED", "ABSENT")
+
+
+def check_release55_2_2_governed_daily_decision_persistence(
+        files: list[Path]) -> dict:
+    """R55.2.2 invariants — the governed DAILY write actually completes.
+
+    (a) THE OPPORTUNITY-COST OWNER BINDS WHAT IT HOLDS. A REUSE outcome reports
+        the STORED artifact's identity, never the discarded recomputation's, so
+        ``artifact_binding`` can never pair an existing ``artifact_id`` with a
+        hash that artifact does not carry. Immutability is untouched: reuse
+        still writes nothing and no artifact is ever rewritten.
+    (b) BOTH PRODUCERS CONSUME THAT BINDING. R54.3 built the exact-version seam
+        and wired it into the intraday producer only; the daily producer now
+        records it in its manifest and hands it to the reassessment owner.
+    (c) THE CUTOVER IS PROVENANCE, NOT A CLOCK. The daily producer declares that
+        it delegates; the decision owner resolves pre-declaration manifests from
+        a recorded release boundary. No wall-clock read decides it, and the
+        declaration describes the PRODUCER, never the decision.
+    (d) A MISSING POST-CUTOVER ROW IS A NAMED DEFECT. The persistence vocabulary
+        separates the legitimate legacy projection from a governed write that
+        did not complete, and the blocker code has ONE owner.
+    (e) ACCEPTANCE CANNOT CALL IT COMPLETE. The acceptance contract carries
+        blockers, ``complete`` accounts for them, and the operator report will
+        not accept a served contract that predates the blocker.
+    (f) NOTHING IS BACKFILLED, and there is still exactly ONE governed writer,
+        ONE ledger and no repair/recover route.
+    """
+    hoc_src = _read("api/holding_opportunity_cost.py")
+    drc_src = _read("api/daily_research_cycle.py")
+    pd_src = _read("api/portfolio_decision.py")
+    ams_src = _read("api/active_manager_state.py")
+    ws_src = _read("api/workflow_state.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    rep_src = _read("scripts/r55_operator_acceptance.py")
+    ui = _read(UI_FILE)
+
+    def _body(src: str, marker: str) -> str:
+        i = src.find(marker)
+        if i < 0:
+            return ""
+        j = src.find("\ndef ", i + 1)
+        return src[i:j] if j > i else src[i:]
+
+    # (a) reuse reports the stored identity, and still writes nothing.
+    reuse = _body(hoc_src, "def _reuse_outcome(")
+    reuse_binds_stored_identity = all(t in reuse for t in (
+        "_stored_artifact_identity(existing", '"identity": stored',
+        '"recomputed_assessment_hash": recomputed'))
+    reuse_writes = sorted(set(
+        t for t in ("_atomic_write_json", "unlink(", "write_text(", "open(")
+        if t in reuse))
+    one_reuse_spelling = hoc_src.count("_reuse_outcome(existing, identity") == 2
+    binding_publishes_recompute = all(t in hoc_src for t in (
+        '"hoc_reused_recomputed_document": p.get("reused_recomputed_document")',
+        '"hoc_recomputed_assessment_hash": p.get("recomputed_assessment_hash")'))
+
+    # (b) both producers consume the owner's binding.
+    extract = _body(drc_src, "def _extract_holding_opp_cost(")
+    daily_consumes_binding = all(t in extract for t in (
+        'binding = b.get("binding") or {}',
+        'binding.get("hoc_assessment_hash")',
+        '"assessment_hash": bound_hash or computed_hash',
+        '"computed_assessment_hash": computed_hash'))
+    daily_hands_binding_to_reassessment = all(t in drc_src for t in (
+        'prs_kwargs["hoc_binding"]', "if reassessment_fn is None:",
+        "hoc_dir=hoc_dir, hoc_binding=hoc_binding"))
+    intraday_still_consumes_binding = (
+        "hoc_binding=(hoc_binding or None)" in esr_src)
+    manifest_records_the_binding = all(t in drc_src for t in (
+        '"opportunity_cost_binding_owner": hoc.get("binding_owner")',
+        '"opportunity_cost_persistence_status": hoc.get("persistence_status")',
+        '"opportunity_cost_computed_assessment_hash"'))
+
+    # (c) the cutover is recorded provenance, and reads no clock.
+    cutover = _body(pd_src, "def governed_daily_write_expected(")
+    cutover_reads_a_clock = sorted(set(
+        t for t in ("datetime.now", "utcnow", "date.today", "time.time",
+                    "_now_iso")
+        if t in cutover))
+    cutover_owner_complete = all(t in pd_src for t in (
+        "GOVERNED_DAILY_WRITE_CUTOVER_RELEASE =",
+        "GOVERNED_DAILY_WRITE_CUTOVER_SESSION =",
+        "def governed_daily_write_expected(",
+        '"cutover_basis": "PRODUCER_DECLARATION"',
+        '"cutover_basis": "RECORDED_RELEASE_BOUNDARY"'))
+    second_cutover_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith(("api/", "engine/"))
+        and _rel(fp) != "api/portfolio_decision.py"
+        and "def governed_daily_write_expected(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    producer_declares_delegation = all(t in drc_src for t in (
+        'GOVERNED_DELEGATION_CONTRACT = "daily_cycle_governed_delegation.v1"',
+        '"governed_decision_delegation": {',
+        '"delegates_terminal_decision": True',
+        '"decision_is_not_recorded_here": True'))
+    declaration_names_a_decision = sorted(set(
+        t for t in ("record_id", "decided_at", "persist_status",
+                    "decision_record_id")
+        if t in (drc_src.split('"governed_decision_delegation": {')[1]
+                 .split("},")[0] if '"governed_decision_delegation": {'
+                 in drc_src else "")))
+    workflow_forwards_declaration = (
+        '"governed_decision_delegation": (research_cycle or {}).get(' in ws_src)
+
+    # (d) the missing write is a named, owned defect.
+    missing_statuses = sorted(
+        s for s in R55_2_2_PERSISTENCE_STATUSES if ('"%s"' % s) not in pd_src)
+    blocker_owner_complete = all(t in pd_src for t in (
+        'GOVERNED_DAILY_NOT_PERSISTED_BLOCKER = "GOVERNED_DAILY_DECISION_NOT_PERSISTED"',
+        '"persistence_blocker": (GOVERNED_DAILY_NOT_PERSISTED_BLOCKER',
+        '"expected_ledger_row"'))
+    second_blocker_definition = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith(("api/", "engine/", "scripts/"))
+        and _rel(fp) not in ("api/portfolio_decision.py",
+                             "scripts/audit_architecture.py")
+        and 'GOVERNED_DAILY_DECISION_NOT_PERSISTED"' in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    surfaces_carry_the_verdict = all(t in ams_src for t in (
+        '"expected_ledger_row": g.get("expected_ledger_row")',
+        '"persistence_blocker": g.get("persistence_blocker")'))
+    ams_classifies_persistence = sorted(set(
+        t for t in ("def classify_decision_persistence(",
+                    "def governed_daily_write_expected(",
+                    "POST_CUTOVER_NOT_PERSISTED\" if",
+                    "GOVERNED_DAILY_WRITE_CUTOVER_SESSION =")
+        if t in ams_src))
+
+    # (e) acceptance cannot report a missing governed write as complete.
+    acceptance = _body(ams_src, "def build_acceptance_contract(")
+    acceptance_carries_blockers = all(t in acceptance for t in (
+        'gd.get("persistence_blocker")', '"blockers": blockers',
+        '"complete": not missing and not blockers'))
+    report_gates_on_blockers = all(t in rep_src for t in (
+        "_print_governed_persistence", 'acc.get("blocker_codes")',
+        "R55_ACCEPTANCE_INCOMPLETE", "RECOMPOSED_LOCALLY"))
+    report_invents_a_blocker = sorted(set(
+        t for t in ('"GOVERNED_DAILY_DECISION_NOT_PERSISTED"',
+                    "persistence_status =", "is_ledger_row =")
+        if t in rep_src))
+
+    # (f) one writer, one ledger, no backfill, no repair route.
+    second_governed_writer = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith(("api/", "engine/"))
+        and _rel(fp) != "api/portfolio_decision.py"
+        and "def record_governed_decision(" in fp.read_text(encoding="utf-8",
+                                                            errors="replace"))
+    second_governed_store = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith(("api/", "engine/"))
+        and _rel(fp) != "api/portfolio_decision.py"
+        and "governed_decisions.json" in fp.read_text(encoding="utf-8",
+                                                      errors="replace"))
+    backfill_routes = sorted(set(
+        t for t in ("backfill_decision", "recover_governed_decision",
+                    "rebuild_governed_ledger", "repair_decision",
+                    "backfill_governed")
+        if any(t in s for s in (pd_src, drc_src, ams_src, ws_src, rep_src))))
+    never_backfills = ('"backfilled": False' in pd_src
+                       and '"history_rewritten": False' in pd_src)
+    ui_derives_persistence = sorted(set(
+        t for t in ("POST_CUTOVER_NOT_PERSISTED'", "expected_ledger_row =",
+                    "persistence_status ===", "GOVERNED_DAILY_DECISION_NOT_PERSISTED'")
+        if t in ui))
+
+    return {
+        "reuse_binds_stored_identity": bool(reuse_binds_stored_identity),
+        "reuse_writes": reuse_writes,
+        "one_reuse_spelling": bool(one_reuse_spelling),
+        "binding_publishes_recompute": bool(binding_publishes_recompute),
+        "daily_consumes_binding": bool(daily_consumes_binding),
+        "daily_hands_binding_to_reassessment": bool(
+            daily_hands_binding_to_reassessment),
+        "intraday_still_consumes_binding": bool(intraday_still_consumes_binding),
+        "manifest_records_the_binding": bool(manifest_records_the_binding),
+        "cutover_reads_a_clock": cutover_reads_a_clock,
+        "cutover_owner_complete": bool(cutover_owner_complete),
+        "second_cutover_owner": second_cutover_owner,
+        "producer_declares_delegation": bool(producer_declares_delegation),
+        "declaration_names_a_decision": declaration_names_a_decision,
+        "workflow_forwards_declaration": bool(workflow_forwards_declaration),
+        "missing_statuses": missing_statuses,
+        "blocker_owner_complete": bool(blocker_owner_complete),
+        "second_blocker_definition": second_blocker_definition,
+        "surfaces_carry_the_verdict": bool(surfaces_carry_the_verdict),
+        "ams_classifies_persistence": ams_classifies_persistence,
+        "acceptance_carries_blockers": bool(acceptance_carries_blockers),
+        "report_gates_on_blockers": bool(report_gates_on_blockers),
+        "report_invents_a_blocker": report_invents_a_blocker,
+        "second_governed_writer": second_governed_writer,
+        "second_governed_store": second_governed_store,
+        "backfill_routes": backfill_routes,
+        "never_backfills": bool(never_backfills),
+        "ui_derives_persistence": ui_derives_persistence,
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -15099,6 +15302,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release55_2_runtime_release_identity(files),
         "release55_2_1_runtime_and_decision_continuity":
             check_release55_2_1_runtime_and_decision_continuity(files),
+        "release55_2_2_governed_daily_decision_persistence":
+            check_release55_2_2_governed_daily_decision_persistence(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -16095,6 +16300,39 @@ def _print_console(rep: dict) -> None:
           f"PowerShell decides a verdict (must be empty): "
           f"{g3['powershell_decides_a_verdict']}")
     print(f"UI derives authority (must be empty): {g3['ui_derives_authority']}")
+
+    hdr("GOVERNED DAILY DECISION PERSISTENCE (R55.2.2)")
+    g4 = rep["release55_2_2_governed_daily_decision_persistence"]
+    print(f"reuse binds the stored identity: {g4['reuse_binds_stored_identity']}  "
+          f"reuse writes (must be empty): {g4['reuse_writes']}  one reuse "
+          f"spelling: {g4['one_reuse_spelling']}  binding publishes the "
+          f"recompute: {g4['binding_publishes_recompute']}")
+    print(f"daily producer consumes the binding: {g4['daily_consumes_binding']}  "
+          f"hands it to the reassessment: "
+          f"{g4['daily_hands_binding_to_reassessment']}  intraday still does: "
+          f"{g4['intraday_still_consumes_binding']}  manifest records it: "
+          f"{g4['manifest_records_the_binding']}")
+    print(f"cutover owner complete: {g4['cutover_owner_complete']}  reads a clock "
+          f"(must be empty): {g4['cutover_reads_a_clock']}  second cutover owners "
+          f"(must be empty): {g4['second_cutover_owner']}")
+    print(f"producer declares its delegation: {g4['producer_declares_delegation']}  "
+          f"declaration names a decision (must be empty): "
+          f"{g4['declaration_names_a_decision']}  workflow forwards it: "
+          f"{g4['workflow_forwards_declaration']}")
+    print(f"missing persistence statuses (must be empty): {g4['missing_statuses']}  "
+          f"blocker owner complete: {g4['blocker_owner_complete']}  second blocker "
+          f"definitions (must be empty): {g4['second_blocker_definition']}")
+    print(f"surfaces carry the owner's verdict: {g4['surfaces_carry_the_verdict']}  "
+          f"Active Manager classifies persistence (must be empty): "
+          f"{g4['ams_classifies_persistence']}")
+    print(f"acceptance carries blockers: {g4['acceptance_carries_blockers']}  report "
+          f"gates on them: {g4['report_gates_on_blockers']}  report invents one "
+          f"(must be empty): {g4['report_invents_a_blocker']}")
+    print(f"second governed writers (must be empty): {g4['second_governed_writer']}  "
+          f"second governed stores (must be empty): {g4['second_governed_store']}")
+    print(f"backfill routes (must be empty): {g4['backfill_routes']}  never "
+          f"backfills: {g4['never_backfills']}  UI derives persistence (must be "
+          f"empty): {g4['ui_derives_persistence']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -18579,6 +18817,67 @@ BLOCKING_INVARIANTS = (
      "presence_side_effects", []),
     ("release55_2_1_runtime_and_decision_continuity",
      "ui_derives_authority", []),
+    # ------------------------------------------------------------------- #
+    # Release 55.2.2 - GOVERNED DAILY DECISION PERSISTENCE CLOSURE. The
+    # opportunity-cost owner binds the artifact it actually holds, BOTH
+    # producers consume that binding, the cutover is recorded provenance
+    # rather than a clock, a missing post-cutover ledger row is a named
+    # blocker that acceptance cannot call complete, and nothing is ever
+    # backfilled. Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release55_2_2_governed_daily_decision_persistence",
+     "reuse_binds_stored_identity", True),
+    ("release55_2_2_governed_daily_decision_persistence", "reuse_writes", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "one_reuse_spelling", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "binding_publishes_recompute", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "daily_consumes_binding", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "daily_hands_binding_to_reassessment", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "intraday_still_consumes_binding", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "manifest_records_the_binding", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "cutover_reads_a_clock", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "cutover_owner_complete", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "second_cutover_owner", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "producer_declares_delegation", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "declaration_names_a_decision", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "workflow_forwards_declaration", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "missing_statuses", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "blocker_owner_complete", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "second_blocker_definition", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "surfaces_carry_the_verdict", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "ams_classifies_persistence", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "acceptance_carries_blockers", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "report_gates_on_blockers", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "report_invents_a_blocker", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "second_governed_writer", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "second_governed_store", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "backfill_routes", []),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "never_backfills", True),
+    ("release55_2_2_governed_daily_decision_persistence",
+     "ui_derives_persistence", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

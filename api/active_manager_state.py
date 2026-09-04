@@ -725,6 +725,15 @@ def _governed_decision_block(governed_decision: Optional[dict]) -> dict:
         "retrievable_through_owner": g.get("retrievable_through_owner"),
         "retrievability_owner": g.get("retrievability_owner"),
         "backfilled": g.get("backfilled"),
+        # R55.2.2 — WAS a ledger row expected for this session, and is one
+        # missing? Both are the decision owner's verdict, carried verbatim: a
+        # session that predates the delegating producer legitimately has no row,
+        # and one that ran under it and lacks a row is a named blocker.
+        "expected_ledger_row": g.get("expected_ledger_row"),
+        "cutover_basis": g.get("cutover_basis"),
+        "cutover_contract": g.get("cutover_contract"),
+        "persistence_blocker": g.get("persistence_blocker"),
+        "historical_gap_preserved": g.get("historical_gap_preserved"),
         "approval_required_token": g.get("approval_required_token"),
         "creates_orders": False,
         "approves_anything": False,
@@ -1662,6 +1671,11 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
         "persistence_detail": governed.get("persistence_detail"),
         "is_ledger_row": governed.get("is_ledger_row"),
         "retrievable_through_owner": governed.get("retrievable_through_owner"),
+        # R55.2.2 — whether this session was supposed to hold a ledger row, and
+        # the named blocker when it does not. The decision owner's verdict,
+        # carried verbatim; this composition classifies nothing.
+        "expected_ledger_row": governed.get("expected_ledger_row"),
+        "persistence_blocker": governed.get("persistence_blocker"),
         "manual_review_required": governed.get("manual_review_required"),
         # The operational facts the decision was taken against — the book's own.
         "operational_mark_date": operational_book.get("operational_mark_date"),
@@ -1933,6 +1947,14 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              persistence_detail=gd.get("persistence_detail"),
              is_ledger_row=gd.get("is_ledger_row"),
              retrievable_through_owner=gd.get("retrievable_through_owner"),
+             # R55.2.2 — a decision the delegating producer was supposed to
+             # persist and did not is PRESENT (it was genuinely reached) yet
+             # blocks acceptance. Whether it was expected is the decision
+             # owner's verdict; this row carries it and adds nothing.
+             expected_ledger_row=gd.get("expected_ledger_row"),
+             cutover_basis=gd.get("cutover_basis"),
+             persistence_blocker=gd.get("persistence_blocker"),
+             historical_gap_preserved=gd.get("historical_gap_preserved"),
              supersedes_decision_id=gd.get("supersedes_decision_id")),
         _row("OPERATIONAL_BOOK", ob.get("operational_mark_date"),
              owners.get("operational_book"),
@@ -1975,6 +1997,19 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
                  "event_cycle_processing_seconds")),
     ]
     missing = [r["row"] for r in rows if r["status"] == ACCEPTANCE_MISSING]
+    # R55.2.2 — a BLOCKER is a row that is PRESENT and still not acceptable.
+    # The governed daily decision is the case that forced the distinction: it was
+    # genuinely reached, so it is present, yet its ledger row is missing for a
+    # session the delegating producer was supposed to persist. Reporting only
+    # PRESENT/MISSING made that state indistinguishable from a healthy one.
+    # Every blocker code is named by the OWNER of the fact, never invented here.
+    blockers = [{"row": "GOVERNED_DECISION",
+                 "blocker": gd.get("persistence_blocker"),
+                 "owner": owners.get("latest_governed_portfolio_decision"),
+                 "detail": gd.get("persistence_detail"),
+                 "session": gd.get("eligible_market_session"),
+                 "persistence_status": gd.get("persistence_status")}
+                ] if gd.get("persistence_blocker") else []
     return {
         "schema_version": "active_manager_acceptance.v1",
         "phase": "R55",
@@ -1984,14 +2019,18 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
         "rows": rows,
         "present_count": len(rows) - len(missing),
         "missing_rows": missing,
-        "complete": not missing,
+        "blockers": blockers,
+        "blocker_codes": [b["blocker"] for b in blockers],
+        "complete": not missing and not blockers,
         "generated_at": s.get("generated_at"),
         "read_only": True,
         "recomputes_nothing": True,
         "manufactures_no_timestamp": True,
         "note": ("Deterministic acceptance view over the composed state. A row "
                  "is MISSING when its owner persisted nothing; a missing fact "
-                 "is never inferred from a neighbouring stage."),
+                 "is never inferred from a neighbouring stage. A row can be "
+                 "PRESENT and still raise a BLOCKER when its owner reports the "
+                 "fact is held in a way the contract does not accept."),
     }
 
 

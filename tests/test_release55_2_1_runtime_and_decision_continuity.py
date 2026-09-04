@@ -46,6 +46,7 @@ or a fill, promotes a model or activates a sleeve.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -85,8 +86,20 @@ CONTROL_SRC = (REPO / "scripts" / "collection_service_control.py").read_text(
 
 # =========================================================================== #
 # Fixtures
+#
+# ``LIVE_PID`` — ``resolve_service_lifecycle`` probes the REAL operating system
+# for the worker pid's liveness and offers no injectable seam for it, so a
+# fixture pid decides RUNNING vs DEGRADED by whether that process happens to
+# exist on this machine. These fixtures originally carried the live worker's own
+# pid (1976), which made two lifecycle assertions pass only until the operator
+# next restarted the worker. The healthy-worker fixtures now use THIS process's
+# pid, which is alive by construction; the presence tests below keep their
+# explicit pids because they inject ``pid_alive`` and never touch the OS.
 # =========================================================================== #
-def _identity(commit, *, captured_at=T_WORKER_START, pid=1976):
+LIVE_PID = os.getpid()
+
+
+def _identity(commit, *, captured_at=T_WORKER_START, pid=LIVE_PID):
     """A frozen loaded-identity capture, shaped exactly as the owner emits it."""
     return {
         "identity_kind": "LOADED_RUNTIME_IDENTITY", "owner": rid.OWNER,
@@ -111,7 +124,7 @@ def _source(commit):
     }
 
 
-def _service_state(*, commit=REV_B, pid=1976, instance="inst-1",
+def _service_state(*, commit=REV_B, pid=LIVE_PID, instance="inst-1",
                    heartbeat=T_NOW, started=T_WORKER_START):
     """The persisted service state a live worker keeps."""
     st = ic._blank_service_state()
@@ -128,7 +141,7 @@ def _service_state(*, commit=REV_B, pid=1976, instance="inst-1",
     return st
 
 
-def _lock(*, pid=1976, instance="inst-1"):
+def _lock(*, pid=LIVE_PID, instance="inst-1"):
     return {"pid": pid, "instance_id": instance, "host": "test-host",
             "acquired_at": T_WORKER_START.isoformat(),
             "heartbeat_at": T_NOW.isoformat()}
@@ -670,7 +683,10 @@ class TestWindowsWorkerPresence:
     def test_40_presence_explains_its_evidence_and_its_ladder(self):
         got = _presence(_blind_snapshot(), state=_service_state(), lock=_lock())
         assert got["evidence_order"] == list(ic.WORKER_PRESENCE_EVIDENCE_ORDER)
-        assert got["worker_pid"] == 1976 and got["lock_pid"] == 1976
+        # The pids are the fixture's own, carried through verbatim — what this
+        # asserts is that presence REPORTS the evidence it decided on, not that
+        # any particular process id is running on the machine.
+        assert got["worker_pid"] == LIVE_PID and got["lock_pid"] == LIVE_PID
         assert got["heartbeat_fresh"] is True
         assert got["read_only"] is True and got["writes_nothing"] is True
         assert got["owner"] == ic.PRESENCE_OWNER

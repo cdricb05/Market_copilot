@@ -111,6 +111,14 @@ _COMPLETED = frozenset({COMPLETE, COMPLETE_WITH_EVIDENCE_GAP})
 #: defines no decision store, index, ordering or supersession of its own.
 _DECISION_OWNER = "api.portfolio_decision"
 
+#: R55.2.2 — THIS producer's own declaration that it delegates the governed
+#: terminal decision. Recorded on every manifest it persists, it is the
+#: authoritative, provenance-based marker that separates a session run under the
+#: delegating contract (a governed ledger row was expected) from one that
+#: predates it (a read-time compatibility projection is legitimate). It describes
+#: the producer, never the decision or its outcome, and it depends on no clock.
+GOVERNED_DELEGATION_CONTRACT = "daily_cycle_governed_delegation.v1"
+
 # Frozen inconsistency / persistence reason codes (Phase 29G.3 — Workstream B/C).
 #   * A terminal COMPLETE run whose manifest cannot be validated or durably read back is
 #     NEVER returned as COMPLETE; it is downgraded to INCONSISTENT with these codes while
@@ -1323,7 +1331,8 @@ def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None, drc_run_id=None)
 
 
 def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,
-                             reassessment_dir=None, hoc_dir=None):
+                             reassessment_dir=None, hoc_dir=None,
+                             hoc_binding=None):
     """The canonical Stage-20 Portfolio Reassessment owner (the ECONOMIC CHANGE GATE).
 
     Delegates to ``api.portfolio_reassessment.run_and_persist`` — the sole
@@ -1339,11 +1348,19 @@ def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=Non
     economically justified. ``scoring`` / ``hoc_assessment`` (both already built earlier in
     the SAME cycle) are reused so nothing is recomputed; ``reassessment_dir`` isolates the
     artifact root for a sandboxed run. It creates no target, no order and no fill, and it
-    approves nothing."""
+    approves nothing.
+
+    R55.2.2 — ``hoc_binding`` is the opportunity-cost owner's OWN statement of
+    which immutable artifact this cycle's assessment IS (R54.3). Handing it over
+    is what stops the reassessment resolving a binding of its own from the
+    transient document it was passed: when the owner reused an artifact it
+    already held, that self-resolution reported ``hoc_persisted: False`` and the
+    reassessment persisted a dependency nothing could retrieve. The intraday
+    producer has passed it since R54.3; the daily one now does too."""
     from paper_trader.api import portfolio_reassessment as prs
     return prs.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
                                freshness=freshness, reassessment_dir=reassessment_dir,
-                               hoc_dir=hoc_dir)
+                               hoc_dir=hoc_dir, hoc_binding=hoc_binding)
 
 
 def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
@@ -1928,6 +1945,35 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "opportunity_cost_producer_owner": hoc.get("producer_owner"),
         "opportunity_cost_claims_drc_terminal": bool(hoc.get("claims_drc_terminal")),
         "opportunity_cost_proves_drc_complete": False,
+        # --- R55.2.2 — the EXACT opportunity-cost version this run's evidence
+        # stands on, copied verbatim from the opportunity-cost owner's own
+        # binding. ``opportunity_cost_assessment_hash`` above is that binding's
+        # hash; these state how it was reached, so an auditor can see when the
+        # owner reused an artifact it already held and what the run recomputed.
+        "opportunity_cost_binding_owner": hoc.get("binding_owner"),
+        "opportunity_cost_persistence_status": hoc.get("persistence_status"),
+        "opportunity_cost_persisted": hoc.get("persisted"),
+        "opportunity_cost_assessment_evidence_hash": hoc.get(
+            "assessment_evidence_hash"),
+        "opportunity_cost_computed_assessment_hash": hoc.get(
+            "computed_assessment_hash"),
+        "opportunity_cost_reused_recomputed_document": hoc.get(
+            "reused_recomputed_document"),
+        # --- R55.2.2 — THE CUTOVER DECLARATION. This producer delegates its
+        # governed terminal decision to the decision owner (R54.4). A manifest
+        # carrying this ran under a DELEGATING producer, so a session it
+        # describes was EXPECTED to acquire a real governed ledger row; one
+        # without it predates the delegation and legitimately has none. It is a
+        # statement about THIS PRODUCER'S CONTRACT, known before the handoff —
+        # never the decision, its outcome, or a wall-clock guess — so the
+        # append-only rule (the row names the run; the manifest is never
+        # rewritten to name the decision) is untouched.
+        "governed_decision_delegation": {
+            "owner": _DECISION_OWNER,
+            "contract": GOVERNED_DELEGATION_CONTRACT,
+            "delegates_terminal_decision": True,
+            "decision_is_not_recorded_here": True,
+        },
         # --- Stage 20 Portfolio Reassessment — the ECONOMIC CHANGE GATE ----------- #
         "portfolio_reassessment_owner": "api.portfolio_reassessment",
         "portfolio_reassessment_state": prs.get("state"),
@@ -2156,6 +2202,18 @@ def _extract_holding_opp_cost(built: Optional[dict], eligible: Optional[str]) ->
     b = built or {}
     assessment = b.get("assessment") or {}
     persistence = b.get("persistence") or {}
+    # R55.2.2 — the opportunity-cost owner's OWN exact-version binding (R54.3),
+    # which the intraday producer has consumed since R54.3 and this one did not.
+    # It is what the manifest must record: when the owner REUSES an artifact it
+    # already holds, the assessment of record is that artifact, and binding the
+    # re-derived document's hash beside the reused artifact's id described two
+    # different objects. Every consumer downstream then claimed evidence the
+    # store could not produce, and the R54.4 daily governance gate — correctly —
+    # refused to record a decision standing on it.
+    binding = b.get("binding") or {}
+    computed_hash = assessment.get("assessment_hash")
+    bound_hash = (binding.get("hoc_assessment_hash")
+                  if binding.get("hoc_persisted") else None)
     state = assessment.get("assessment_state")
     counts = assessment.get("recommendation_counts") or {}
     gaps = (assessment.get("data_quality") or {}).get("data_gaps") or []
@@ -2166,8 +2224,19 @@ def _extract_holding_opp_cost(built: Optional[dict], eligible: Optional[str]) ->
         "calculation_owner": "engine.holding_opportunity_cost",
         "state": state,
         "eligible_market_date": assessment.get("eligible_market_date") or eligible,
-        "assessment_hash": assessment.get("assessment_hash"),
-        "artifact_id": persistence.get("artifact_id"),
+        # The PERSISTED version when the owner proved one, the kernel's own
+        # otherwise. A refused write stays visible AS a refused write: nothing
+        # here invents, repairs or defaults a binding.
+        "assessment_hash": bound_hash or computed_hash,
+        "computed_assessment_hash": computed_hash,
+        "assessment_evidence_hash": binding.get("hoc_assessment_evidence_hash"),
+        "artifact_id": (binding.get("hoc_artifact_id")
+                        or persistence.get("artifact_id")),
+        "binding": dict(binding),
+        "binding_owner": binding.get("hoc_owner"),
+        "persisted": binding.get("hoc_persisted"),
+        "reused_recomputed_document": binding.get(
+            "hoc_reused_recomputed_document"),
         "persistence_status": persistence.get("status"),
         "holding_count": len(assessment.get("holding_reviews") or []),
         "recommendation_counts": counts,
@@ -3346,11 +3415,22 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                           or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
             if run_engine and holding_opp.get("available"):
                 prs_fn = reassessment_fn or _default_reassessment_fn
-                prs_built = _safe(
-                    lambda: prs_fn(scoring=raw_scoring, hoc_assessment=raw_hoc_assessment,
-                                   freshness=fr2, reassessment_dir=reassess_subdir,
-                                   hoc_dir=hoc_subdir),
-                    warnings, "Portfolio Reassessment engine")
+                prs_kwargs = {"scoring": raw_scoring,
+                              "hoc_assessment": raw_hoc_assessment,
+                              "freshness": fr2,
+                              "reassessment_dir": reassess_subdir,
+                              "hoc_dir": hoc_subdir}
+                # R55.2.2 — hand the opportunity-cost owner's OWN exact-version
+                # binding to the reassessment, so it records the artifact that is
+                # actually held instead of re-resolving one from the transient
+                # document. As with ``drc_run_id`` above, only the CANONICAL
+                # default is handed it: an injected test/sandbox seam keeps its
+                # existing contract.
+                if reassessment_fn is None:
+                    prs_kwargs["hoc_binding"] = (holding_opp.get("binding")
+                                                 or None)
+                prs_built = _safe(lambda: prs_fn(**prs_kwargs),
+                                  warnings, "Portfolio Reassessment engine")
                 raw_reassessment = (prs_built or {}).get("reassessment")
                 reassessment = _extract_reassessment(prs_built, facts["eligible"])
                 step_results.append(_step(STEP_REASSESS_PORTFOLIO,

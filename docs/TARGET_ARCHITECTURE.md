@@ -294,6 +294,29 @@ responsibilities, candidate existing modules, and migration approach.
   rather than reaching the verdict a destructive path treats as proof.**
   Fail-closed cuts both ways: unreadable metadata may neither invent a worker nor
   hide one.
+- **Bind what you can retrieve, and let the owner say what it holds (R55.2.2,
+  LANDED):** an idempotent write that REUSES an existing artifact did not persist
+  the caller's document, so reporting the caller's identity beside the stored
+  artifact's id describes two objects and every downstream binding inherits the
+  mismatch. **Target rule: a persistence outcome states the identity of the
+  artifact the store holds AFTER the call**, names any re-derivation beside it
+  rather than hiding it, and every consumer records that owner-published binding
+  instead of composing one from the document it happened to be handed.
+- **A seam built for one producer is not a seam until every producer uses it
+  (R55.2.2, LANDED):** R54.3's exact-version binding was wired into the intraday
+  producer only, so the daily producer kept claiming evidence the store could not
+  produce and its governed write was refused, correctly, every time. **Target
+  rule: when an owner publishes a binding contract, every producer of that
+  evidence consumes it, and the architecture audit asserts each one does.**
+- **An absence must say whether it was expected (R55.2.2, LANDED):** a read-time
+  compatibility projection is legitimate history for a session that predates a
+  contract and a real defect for one that ran under it, and one word for both let
+  a missing governed write pass acceptance. **Target rule: a compatibility
+  fallback carries the EXPECTATION alongside the state — decided from recorded
+  provenance (the producer's own declaration, or a recorded release boundary),
+  never from a clock — and a surface may report a present-but-unacceptable fact
+  as a named BLOCKER rather than silently accepting it.** Preserving the gap is
+  the repair; backfilling it is not.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and
