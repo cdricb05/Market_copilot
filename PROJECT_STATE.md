@@ -1,7 +1,63 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R55.1 - INTRADAY GOVERNANCE COMPLETION + NO-OP
+- **Updated by phase:** **R55.2 - RUNTIME RELEASE IDENTITY, STALE-WORKER
+  DETECTION + DECISION-LATENCY SEMANTIC HARDENING (single agent, no subagents,
+  Windows PowerShell only).** Built over the committed R55.1 head `55d497b`.
+  Full narrative: `docs/RELEASE55_2_RUNTIME_RELEASE_IDENTITY.md`. A
+  RELIABILITY / OBSERVABILITY slice: no new engine, workflow, decision owner,
+  ledger or scheduler; no cadence change; no trading economics or allocation
+  touched; and neither the backend nor the collection worker was restarted.
+  **The failure mode.** A Python process resolves its imports ONCE, at start,
+  and holds that module graph for life. The information-collection worker
+  started 2026-09-01 14:12:09; the R54.1 governance gate was committed
+  2026-09-01 23:46:16 - **9h34m later** - so for days it executed a pre-R54.1
+  snapshot of `api.event_signal_refresh` while its heartbeat stayed fresh, its
+  progress stamp advanced and the service reported RUNNING. R55 diagnosed this
+  as a governance defect for an entire release. It never was one: the gate was
+  not silent, it was never called, because the running code did not contain it.
+  **Repository HEAD is not evidence about a running process.**
+  **The repair.** ONE new bounded owner, `api.runtime_identity`, separates three
+  concepts that were previously one: SOURCE identity (the revision on disk now,
+  re-read every call), LOADED RUNTIME identity (**captured once at process start
+  and frozen for that process's life**), and RUNTIME ALIGNMENT (`ALIGNED` /
+  `STALE_RUNTIME` / `UNKNOWN` / `NOT_APPLICABLE`, one named reason each). The
+  immutability is the mechanism: recomputing the loaded identity at read time
+  would silently follow the source tree and always agree with it, reproducing
+  the exact bug. Commit identity is read from git's own files (HEAD -> ref ->
+  packed-refs) with NO subprocess, so a runtime can capture at start without
+  depending on an external git. **ALIGNED is unreachable from liveness** - the
+  classifier cannot see a heartbeat, pid, activity token or service state at
+  all, and the audit blocks on any of them appearing in its body. A dirty
+  working tree is a reported caveat, never a stale verdict. The backend captures
+  at application import; the worker captures before its loop and publishes into
+  the EXISTING service-state and status contracts (no second heartbeat store).
+  **Operator semantics.** A stale or unprovable runtime is a HIGH-SEVERITY
+  research-runtime degradation, not a new operator action: it degrades the
+  live/intraday lane with one sentence and the exact canonical remediation
+  command, and it can never invalidate a completed operational close or the
+  standing governed decision, manufacture a portfolio change, or alter the
+  primary operator action - which keeps its one owner, `api.workflow_state`.
+  Nothing restarts automatically.
+  **Latency semantics.** `observation_to_signal_seconds = 6111.7` on a no-op
+  cycle was never a processing delay: the endpoints come from DIFFERENT cycles
+  (a no-op admits nothing, so it cannot own an observation). Three live reads
+  during implementation returned 6765.4, then **-750.1**, then 212.5 - a
+  negative value is impossible for a latency and settles it. The measurement was
+  right and the NAME was wrong, so values and keys are unchanged and the
+  interval is RELABELLED as the OBSERVATION AGE it is (fail-closed: an
+  undeclared provenance gets the same label), with the engine's own
+  `event_cycle_processing_seconds` (12.5s live) reported beside it. R55.1's
+  stage-awareness is intact: NOT_REQUIRED is never MISSING and never zero.
+  **Live result (read-only):** R55 acceptance stays **10/10**; runtime alignment
+  reports backend ALIGNED and collection worker **UNKNOWN** with `proven:
+  false`, because that worker was restarted at 14:58 today - before this release
+  existed - and recorded no identity. That is the contract working, and it
+  resolves at the worker's next restart. Gates: 72 R55.2 tests, targeted
+  perimeter 1496 passed / 0 failed across 27 files, `--strict` exit 0 with 25
+  new blocking invariants, `git diff --check` clean, browser acceptance at
+  1920x1080. Nothing committed, pushed, restarted or executed.
+- **Prior phase:** **R55.1 - INTRADAY GOVERNANCE COMPLETION + NO-OP
   SEMANTIC CLARITY (single agent, no subagents, Windows PowerShell only).**
   Built over the committed R55 head `acdfb77`. Full narrative:
   `docs/RELEASE55_1_INTRADAY_GOVERNANCE_COMPLETION.md`. A COMPLETION +
@@ -58,7 +114,7 @@
   not by code; R55.1 makes it provable and NAMED rather than an unexplained
   blank. The backend (started 2026-09-03 13:56) is current, so the DAILY
   governed path is unaffected.
-- **Prior phase:** **R55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE +
+- **Earlier phase:** **R55 - ACTIVE MANAGER OPERATIONAL ACCEPTANCE +
   OPERATOR CLARITY (single agent, no subagents, Windows PowerShell only).**
   Built over the committed R54.4 head `c0df3b1`. Full narrative:
   `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`. An OPERATIONAL-

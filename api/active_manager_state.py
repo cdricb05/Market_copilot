@@ -94,6 +94,10 @@ COMPONENTS = (
     # R54.2.4 — LANE B: the live/intraday reassessment as one first-class,
     # self-explaining answer (composed from the components above; no new owner).
     "live_reassessment_lane",
+    # R55.2 — WHICH RELEASE EACH LONG-LIVED RUNTIME ACTUALLY LOADED. A
+    # reliability component, not a portfolio one: it can degrade the live lane
+    # and it can never invalidate a completed close or a governed decision.
+    "runtime_alignment",
 )
 
 #: The authoritative owner of every composed component (part of the tested
@@ -112,7 +116,40 @@ COMPONENT_OWNERS = {
     "intraday_governance": "api.portfolio_decision",
     "decision_latency": "api.event_signal_refresh",
     "live_reassessment_lane": "api.active_manager_state",
+    "runtime_alignment": "api.runtime_identity",
 }
+
+#: R55.2 — WHY A STALE RUNTIME IS A RESEARCH-RUNTIME PROBLEM AND NOT A NEW
+#: OPERATOR ACTION.
+#:
+#: A collection worker running an older release is alive, healthy and wrong: its
+#: near-real-time reassessment cannot be trusted to be current. It is still not
+#: allowed to change the primary operator action, for three reasons drawn from
+#: the canonical workflow and safety model:
+#:
+#:   1  THE ACTION HAS ONE OWNER. ``api.workflow_state._decide_overall`` owns the
+#:      priority. Manufacturing a competing top-priority action here would
+#:      create the second workflow authority R55 exists to prevent.
+#:   2  THE GOVERNED EVIDENCE DID NOT COME FROM THE STALE PROCESS. The daily
+#:      close, the governed reassessment and the governed decision are produced
+#:      in the backend. A stale research worker cannot retro-invalidate them, and
+#:      a portfolio decision must never be manufactured out of an infrastructure
+#:      condition.
+#:   3  NOTHING ABOUT IT IS UNSAFE. Execution automation is off, there is no
+#:      broker and manual review is mandatory, so a stale worker cannot cause an
+#:      action; it can only cause research to be less current than it looks.
+#:
+#: So it is a HIGH-SEVERITY, explicitly named degradation of the live/intraday
+#: research lane, carried in the operator's STALE / MISSING list with a precise
+#: remediation — visible, unmissable, and not a portfolio instruction.
+RUNTIME_STALENESS_POLICY = (
+    "A stale or unprovable runtime degrades the LIVE / INTRADAY RESEARCH lane "
+    "and is reported with the exact command that repairs it. It never "
+    "invalidates a completed operational close or the standing governed "
+    "portfolio decision, and never manufactures a portfolio change. It "
+    "never changes the primary operator action"
+    ", which has exactly one owner (api.workflow_state). "
+    "Nothing restarts a process automatically.")
 
 SAFETY_BADGES = ["READ ONLY", "PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
                  "AUTOMATION OFF", "MANUAL REVIEW"]
@@ -317,6 +354,11 @@ def _live_information_block(information_collection: Optional[dict],
             # token records ARTIFACT EXISTENCE, never a recommended change.
             "reassessment_ran": last_run.get("reassessment_ran"),
             "proposal_built": last_run.get("proposal_built"),
+            # R55.2 — the cycle owner's own two measurement facts: how many
+            # events it admitted (which decides whether an observation can
+            # belong to it) and how long it actually took to run.
+            "events_admitted": last_run.get("events_admitted"),
+            "cycle_duration_seconds": last_run.get("cycle_duration_seconds"),
             # Owner-summary flat keys first; the full run payload's nested
             # shape as fallback (both are the same owner artifact).
             "materiality_change_level": (
@@ -1018,6 +1060,124 @@ def _stages_not_required(cycle: Optional[dict]) -> list:
         return []
 
 
+def _runtime_alignment_block(live_information: dict,
+                             information_collection: Optional[dict] = None,
+                             runtime_alignment: Optional[dict] = None) -> dict:
+    """R55.2 — is every long-lived runtime operating the deployed release?
+
+    A COMPOSITION over facts other owners already recorded. It gathers three
+    things and compares none of them itself:
+
+      * this process's own frozen capture — this composition IS the backend, so
+        ``api.runtime_identity.loaded_identity()`` here is the backend's loaded
+        identity, not a fresh reading of the source tree;
+      * the collection worker's capture, read verbatim from the service state
+        that ``api.information_collection`` publishes;
+      * the revision on disk now, read by the same identity owner.
+
+    The verdict is ``api.runtime_identity``'s. A pre-R55.2 worker recorded no
+    identity, so its row is UNKNOWN — never ALIGNED, and never inferred from the
+    fresh heartbeat sitting next to it. An unavailable owner degrades the whole
+    block to unavailable rather than to a comforting answer.
+    """
+    if runtime_alignment is not None:
+        return dict(runtime_alignment, policy=RUNTIME_STALENESS_POLICY)
+    try:
+        from paper_trader.api import runtime_identity as rid
+    except Exception as exc:  # noqa: BLE001 — no owner, no verdict
+        return {"available": False, "owner": COMPONENT_OWNERS["runtime_alignment"],
+                "verdict": None, "unavailable_reason": str(exc)[:160],
+                "policy": RUNTIME_STALENESS_POLICY}
+    svc = ((information_collection or {}).get("service") or {})
+    worker_loaded = svc.get("loaded_release") or (
+        live_information.get("collection_loaded_release"))
+    try:
+        composed = rid.build_runtime_alignment(runtimes=[
+            {"runtime": rid.RUNTIME_BACKEND,
+             "loaded": rid.loaded_identity(),
+             "process": {"role": "serves this composition"}},
+            {"runtime": rid.RUNTIME_COLLECTION,
+             "loaded": worker_loaded,
+             "process": {
+                 "pid": svc.get("worker_pid") or live_information.get(
+                     "collection_worker_pid"),
+                 "instance_id": svc.get("instance_id"),
+                 "started_at": svc.get("started_at"),
+                 # Liveness is shown BESIDE the verdict, never used to reach it.
+                 "service_state": svc.get("service_state") or live_information.get(
+                     "collection_service_state"),
+                 "worker_activity": svc.get("worker_activity") or
+                                    live_information.get("worker_activity")}},
+            {"runtime": rid.RUNTIME_RESEARCH, "loaded": None, "process": {}},
+            {"runtime": rid.RUNTIME_INTRADAY_EMISSION, "loaded": None,
+             "process": {}},
+        ])
+    except Exception as exc:  # noqa: BLE001 — a read model never crashes
+        return {"available": False, "owner": COMPONENT_OWNERS["runtime_alignment"],
+                "verdict": None, "unavailable_reason": str(exc)[:160],
+                "policy": RUNTIME_STALENESS_POLICY}
+    return dict(composed, available=True, policy=RUNTIME_STALENESS_POLICY)
+
+
+def _runtime_degrades_live_lane(alignment: Optional[dict]) -> dict:
+    """Does the runtime verdict degrade the LIVE / INTRADAY RESEARCH lane?
+
+    Only the collection runtime feeds that lane, so only its row can degrade it.
+    A degraded lane says exactly what cannot be trusted and what repairs it; it
+    never changes the governed decision, the operational close or the operator
+    action (see :data:`RUNTIME_STALENESS_POLICY`).
+    """
+    rows = [r for r in ((alignment or {}).get("runtimes") or [])
+            if r.get("runtime") == "information_collection_worker"]
+    row = rows[0] if rows else {}
+    verdict = row.get("verdict")
+    degraded = verdict in ("STALE_RUNTIME", "UNKNOWN")
+    if verdict == "STALE_RUNTIME":
+        statement = ("Near-real-time reassessment is DEGRADED: the collection "
+                     "runtime is running an older application release, so an "
+                     "intraday cycle it produced may not include the current "
+                     "decision path. The standing governed decision and the "
+                     "completed operational close are unaffected.")
+    elif verdict == "UNKNOWN":
+        statement = ("Near-real-time reassessment cannot be confirmed current: "
+                     "the collection runtime did not record which application "
+                     "release it loaded. The standing governed decision and the "
+                     "completed operational close are unaffected.")
+    else:
+        statement = None
+    return {
+        "runtime_degraded": bool(degraded),
+        "runtime_alignment": verdict,
+        "runtime_degradation_statement": statement,
+        "runtime_remediation": row.get("remediation"),
+        "runtime_loaded_commit": row.get("loaded_commit_short"),
+        "runtime_source_commit": row.get("source_commit_short"),
+        # The two facts this must never touch, stated so no reader has to infer.
+        "invalidates_governed_decision": False,
+        "invalidates_operational_close": False,
+    }
+
+
+def _observation_provenance(cycle: Optional[dict]) -> str:
+    """R55.2 — could the observation this block selected belong to THIS cycle?
+
+    This block does not take the stamp from the cycle's admitted events; it
+    selects the newest observation the live-information block already published.
+    A cycle that admitted nothing therefore PROVES the stamp predates it. Any
+    other case is simply not established here, and an unestablished provenance
+    fails closed to the same treatment: the interval is labelled an observation
+    AGE, never a processing latency. The vocabulary belongs to the latency owner.
+    """
+    try:
+        from paper_trader.api import event_signal_refresh as esr
+        admitted = (cycle or {}).get("events_admitted")
+        if isinstance(admitted, int) and admitted == 0:
+            return esr.OBS_PREDATES_THIS_CYCLE
+        return esr.OBS_PROVENANCE_UNKNOWN
+    except Exception:  # noqa: BLE001 — an unreadable owner proves nothing
+        return "UNKNOWN"
+
+
 def _measure_latency(**kwargs) -> Optional[dict]:
     """Call the LATENCY OWNER's own measurement function.
 
@@ -1073,6 +1233,14 @@ def _decision_latency_block(governed_decision: Optional[dict],
                 stage_timestamps=stamps,
                 event_cycle_started_at=cycle.get("generated_at"),
                 observation_received_at=observed,
+                # R55.2 — THIS stamp is a SELECTION over the live block's newest
+                # observation, not a stamp taken from the events this cycle
+                # admitted, so the interval that begins at it is an OBSERVATION
+                # AGE. A cycle that admitted nothing proves it outright; any
+                # other case is undeclared and fails closed to the same label.
+                observation_provenance=_observation_provenance(cycle),
+                event_cycle_processing_seconds=cycle.get(
+                    "cycle_duration_seconds"),
                 governance_gate_completed_at=None,
                 governed_decision_persisted_at=None,
                 # R55.1 — the CYCLE owner names which stages it legitimately
@@ -1096,6 +1264,18 @@ def _decision_latency_block(governed_decision: Optional[dict],
             "reassessment_to_governed_seconds"),
         "observation_to_governed_seconds": lat.get(
             "observation_to_governed_seconds"),
+        # R55.2 — WHAT EACH NUMBER MEASURES, composed by the latency owner.
+        # ``observation_to_signal_seconds`` is a pipeline latency only when the
+        # observation was admitted by the same cycle; otherwise it is the age of
+        # the newest observation, and the label says so, so 6111 seconds can no
+        # longer read as the engine taking 102 minutes to process a signal.
+        "observation_provenance": lat.get("observation_provenance"),
+        "interval_semantics": lat.get("interval_semantics") or {},
+        "interval_labels": lat.get("interval_labels") or {},
+        # The engine's own processing duration for the cycle — the number an
+        # operator usually meant when they asked "how long did this take".
+        "event_cycle_processing_seconds": lat.get(
+            "event_cycle_processing_seconds"),
         "latency_measurement_complete": lat.get("latency_measurement_complete"),
         "missing_measurements": list(lat.get("missing_measurements") or []),
         # R55.1 — NOT_REQUIRED is not MISSING. A stage an owner proved this
@@ -1269,7 +1449,8 @@ _ASSESS_NEEDS_ACTION = frozenset({"STALE", "DUE", "OVERDUE", "MISSING"})
 
 def _stale_components(*, operational_book: dict, live_information: dict,
                       signal_state: dict, reassessment: dict,
-                      target_proposal: dict, research_governance: dict) -> tuple:
+                      target_proposal: dict, research_governance: dict,
+                      runtime_alignment: Optional[dict] = None) -> tuple:
     """Return ``(stale_components, advisory_components)``.
 
     RELEASE 55 — WHAT BELONGS ON A NORMAL OPERATOR SURFACE.
@@ -1389,6 +1570,21 @@ def _stale_components(*, operational_book: dict, live_information: dict,
              (research_governance.get("research_runtime") or {}).get("state")
              or "RESEARCH_RUNTIME_UNKNOWN",
              "R52 research runtime health")
+    # R55.2 — A RUNNING SERVICE ON AN OLDER RELEASE IS AN OPERATOR PROBLEM.
+    #
+    # It is a HIGH-SEVERITY row here rather than a change of the primary
+    # operator action: this list makes it unmissable, while the ONE action owner
+    # keeps deciding what the operator should DO. The remediation is the exact
+    # canonical command, and nothing here restarts anything. An UNKNOWN verdict
+    # lands here too — silence about which code is running is not a pass.
+    ra = runtime_alignment or {}
+    if ra.get("available") and ra.get("verdict") in ("STALE_RUNTIME", "UNKNOWN"):
+        rows = [r for r in (ra.get("runtimes") or [])
+                if r.get("verdict") in ("STALE_RUNTIME", "UNKNOWN")]
+        _add("runtime_alignment", ra.get("verdict"),
+             "; ".join(str(r.get("statement") or "") for r in rows) or
+             ra.get("headline"),
+             display_label=ra.get("headline"))
     return out, advisory
 
 
@@ -1513,6 +1709,14 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
         "headline": lane.get("headline"),
         "reassessment_summary": lane.get("reassessment_summary"),
         "governed_summary": lane.get("governed_summary"),
+        # R55.2 — when the runtime that FEEDS this lane is not provably running
+        # the deployed release, the lane says so in one sentence with the exact
+        # command that repairs it. Absent (None) when everything is aligned, so
+        # a healthy system gains no new clutter on the operator's first screen.
+        "runtime_degraded": lane.get("runtime_degraded"),
+        "runtime_degradation_statement": lane.get(
+            "runtime_degradation_statement"),
+        "runtime_remediation": lane.get("runtime_remediation"),
         "latest_reassessment_at": lane.get("at") if ran else None,
         "latest_reassessment_display": (_operator_display_time(lane.get("at"))
                                         if ran else None),
@@ -1628,6 +1832,13 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
     cycle = li.get("last_event_cycle") or {}
     stamps = cycle.get("stage_timestamps") or {}
     owners = s.get("component_owners") or dict(COMPONENT_OWNERS)
+    # R55.2 — the collection runtime's alignment row, SELECTED from the named
+    # diagnostic contract. A payload without one leaves the fields empty rather
+    # than letting this view guess a verdict.
+    ra = s.get("runtime_alignment") or {}
+    _collection_row = next(
+        (r for r in (ra.get("runtimes") or [])
+         if r.get("runtime") == "information_collection_worker"), {})
 
     def _row(row: str, key_fact: Any, owner: Any, **values) -> dict:
         return {"row": row,
@@ -1636,12 +1847,22 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
                 "owner": owner, **values}
 
     rows = [
+        # R55.2 — the COLLECTION row now also says which application release
+        # that live worker loaded. These are VALUES, not the row's key fact: the
+        # ten-row vocabulary and every row's PRESENT/MISSING meaning are
+        # unchanged, and the alignment verdict has its own named contract
+        # (``runtime_alignment``) which fails closed to UNKNOWN on its own.
         _row("COLLECTION", li.get("last_observation_at"),
              owners.get("live_information"),
              service_state=li.get("collection_service_state"),
              running=li.get("collection_running"),
              last_observation_at=li.get("last_observation_at"),
-             worker_activity=li.get("worker_activity")),
+             worker_activity=li.get("worker_activity"),
+             runtime_alignment=_collection_row.get("verdict"),
+             runtime_alignment_reason=_collection_row.get("reason"),
+             loaded_release=_collection_row.get("loaded_commit_short"),
+             loaded_captured_at=_collection_row.get("loaded_captured_at"),
+             deployed_release=_collection_row.get("source_commit_short")),
         _row("SIGNAL", li.get("last_material_event_at"),
              owners.get("live_information"),
              last_material_event_at=li.get("last_material_event_at"),
@@ -1744,7 +1965,14 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              # apart from MISSING so a correct no-op does not read as a fault.
              not_required_measurements=list(
                  lat.get("not_required_measurements") or []),
-             interval_dispositions=lat.get("interval_dispositions") or {}),
+             interval_dispositions=lat.get("interval_dispositions") or {},
+             # R55.2 — the row states WHAT the numbers measure. An observation
+             # this cycle did not admit yields an AGE, not a processing latency,
+             # and the label travels with the number so it cannot be misread.
+             observation_provenance=lat.get("observation_provenance"),
+             interval_labels=lat.get("interval_labels") or {},
+             event_cycle_processing_seconds=lat.get(
+                 "event_cycle_processing_seconds")),
     ]
     missing = [r["row"] for r in rows if r["status"] == ACCEPTANCE_MISSING]
     return {
@@ -1781,6 +2009,7 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                                runtime_health: Optional[dict] = None,
                                intraday_emission: Optional[dict] = None,
                                governed_decision: Optional[dict] = None,
+                               runtime_alignment: Optional[dict] = None,
                                warnings: Optional[list] = None) -> dict:
     """Compose the ONE Active Manager Operating State from the owners' payloads.
 
@@ -1811,12 +2040,20 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         governed_decision=governed_block)
     decision_latency = _decision_latency_block(governed_decision,
                                                live_information)
+    # R55.2 — WHICH RELEASE EACH LONG-LIVED RUNTIME LOADED. Composed before the
+    # component lists so a stale runtime can degrade the live lane in the same
+    # pass, and injectable so the incident is reproducible hermetically.
+    runtime_alignment_block = _runtime_alignment_block(
+        live_information, information_collection, runtime_alignment)
+    runtime_lane = _runtime_degrades_live_lane(runtime_alignment_block)
+    live_reassessment_lane.update(runtime_lane)
     # R55 — the operator's STALE / MISSING list and the AUDIT-ONLY advisory list
     # are now two lists, because they answer two different questions.
     stale, advisory = _stale_components(
         operational_book=operational_book, live_information=live_information,
         signal_state=signal_state, reassessment=reassessment_block,
-        target_proposal=target_proposal, research_governance=research_governance)
+        target_proposal=target_proposal, research_governance=research_governance,
+        runtime_alignment=runtime_alignment_block)
     # R55 — the THREE operator answers, composed once from the owners above.
     operator_answer = _operator_answer_block(
         governed=governed_block,
@@ -2000,6 +2237,11 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
         "latest_governed_portfolio_decision": governed_block,
         "intraday_governance": intraday_governance,
         "decision_latency": decision_latency,
+        # R55.2 — the runtime-alignment DIAGNOSTIC contract: which release each
+        # long-lived runtime loaded, what is deployed on disk, and the ONE
+        # owner's verdict. Explicitly named and explicitly separate from the R55
+        # acceptance rows, so it competes with no acceptance framework.
+        "runtime_alignment": runtime_alignment_block,
         "stale_components": stale,
         "stale_component_count": len(stale),
         # Release 55 — the AUDIT / ADVANCED advisory list: observations that are

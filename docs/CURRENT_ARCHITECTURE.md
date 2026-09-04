@@ -3252,6 +3252,78 @@ collapsed `#today-advanced` disclosure. Guard:
 `tests/test_release55_active_manager_operational_acceptance.py`. Full narrative:
 `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`.
 
+## R55.2 — WHICH RELEASE DID THIS PROCESS ACTUALLY LOAD?
+
+`api/runtime_identity.py` is the ONE owner of runtime release identity, and it
+separates three concepts the system previously conflated:
+
+| Concept | Meaning | Dynamic? |
+|---|---|---|
+| **Source / repository identity** | the revision on disk right now | re-read on every call, deliberately |
+| **Loaded runtime identity** | the revision a process loaded at start | **captured once, then frozen for that process's life** |
+| **Runtime alignment** | whether cooperating runtimes run the same release | derived from those two, never from health |
+
+The immutability of the middle row is the mechanism, not a detail. A Python
+process resolves its imports once, at start; the collection worker started
+9h34m BEFORE the R54.1 gate was committed and then executed the older module
+graph for days while its heartbeat stayed fresh and the service read `RUNNING`.
+Recomputing a "loaded identity" at read time would silently follow the source
+tree and always agree with it — reproducing exactly that bug — so
+`capture_loaded_identity()` memoises per process and every later call returns
+the same frozen mapping. Commit identity is read from git's own files (`HEAD` →
+ref → `packed-refs`, following a worktree's `gitdir:` pointer) with **no
+subprocess**, so a runtime can capture at start without depending on an external
+`git`; the tracked-file dirty flag is a tolerant subprocess that degrades to
+unknown rather than to clean.
+
+Alignment vocabulary: `ALIGNED` (two proven, equal commits) · `STALE_RUNTIME`
+(two proven commits that differ) · `UNKNOWN` (required and unprovable) ·
+`NOT_APPLICABLE` (the runtime exits between invocations, so it re-imports the
+application every time and cannot hold a stale release). Every verdict carries
+one named reason. **`ALIGNED` is unreachable from liveness**: `classify_alignment`
+cannot see a heartbeat, pid, activity token or service state, and the strict
+audit blocks if any of those words appears in its body. The composed verdict is
+the worst any required runtime holds, so an aligned backend never masks a stale
+worker, and `proven` is true only when every runtime that needs an identity
+produced one.
+
+The backend captures at application import (`api/app.py`, before `FastAPI(...)`);
+the collection worker captures before its loop and persists `loaded_release`
+into the EXISTING service state, written only by `register_worker_start` and
+replaced only by a genuinely new worker process. There is no second heartbeat
+store, no second status file and no new operator endpoint: the identity travels
+out through `api.information_collection`'s existing status block, through
+`scripts/collection_service_control.py --action status` (and so through
+`manage_information_collection.ps1 -Action Status`), and through the
+`runtime_alignment` diagnostic contract on the existing active-manager-state
+composition.
+
+A stale or unprovable runtime is a **high-severity research-runtime
+degradation, not a new operator action**
+(`api.active_manager_state.RUNTIME_STALENESS_POLICY`). It degrades the
+live/intraday lane with one sentence and the exact canonical remediation
+command, and appears in the operator's STALE / MISSING list. It can never
+invalidate a completed operational close or the standing governed decision
+(which the backend produced), manufacture a portfolio change, or alter the
+primary operator action — that keeps its one owner, `api.workflow_state`.
+Nothing here restarts a process; the restart owners are unchanged.
+
+**Latency semantics.** `observation_to_signal_seconds` is a pipeline latency
+only when the observation was admitted by the same cycle that produced the
+signal stamp. On a no-op cycle nothing is admitted, so the endpoints come from
+different cycles and the figure is an OBSERVATION AGE — which is why it read
+6111.7 seconds, and why a live read returned −750.1, a value impossible for a
+latency. `api.event_signal_refresh` keeps the values and keys and adds
+`interval_semantics` / `interval_labels`: the caller declares
+`observation_provenance` (`ADMITTED_BY_THIS_CYCLE` / `PREDATES_THIS_CYCLE` /
+`UNKNOWN`, failing closed to the age label), a negative age is named as proof
+that the endpoints are cross-cycle, and `event_cycle_processing_seconds` carries
+the engine's own duration beside it. R55.1's stage-awareness is untouched.
+
+Guard: `check_release55_2_runtime_release_identity` (25 strict-blocking fields)
++ `tests/test_release55_2_runtime_release_identity.py`. Full narrative:
+`docs/RELEASE55_2_RUNTIME_RELEASE_IDENTITY.md`.
+
 ## R55.1 — A TERMINAL GOVERNANCE DISPOSITION FOR EVERY EVENT CYCLE
 
 `api/portfolio_decision.py` remains the ONE governance authority and owns

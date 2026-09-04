@@ -1505,6 +1505,46 @@ unchanged.
   invariants) and
   `tests/test_release55_active_manager_operational_acceptance.py` (85).
 
+## R55.2 - runtime release identity + stale-worker detection (LANDED)
+
+Makes the R55.1 residual blocker DETECTABLE instead of invisible. A reliability /
+observability slice: no new engine, workflow, decision owner, ledger or
+scheduler; no cadence change; no trading economics touched; nothing restarted.
+
+- ONE new bounded owner, `api.runtime_identity`, separates SOURCE identity (the
+  revision on disk now), LOADED RUNTIME identity (**captured once at process
+  start, frozen for the process's life**) and RUNTIME ALIGNMENT (`ALIGNED` /
+  `STALE_RUNTIME` / `UNKNOWN` / `NOT_APPLICABLE`, one named reason each).
+- The immutability IS the mechanism: a "loaded identity" recomputed at read time
+  follows the source tree, always agrees with it and reproduces the exact bug.
+- Commit identity is read from git's own files (HEAD -> ref -> packed-refs) with
+  NO subprocess, so a runtime can capture at start without an external `git`;
+  the tracked-file dirty flag degrades to unknown and is a caveat, never a
+  stale verdict.
+- **ALIGNED is unreachable from liveness.** The classifier cannot see a
+  heartbeat, pid, activity token or service state, and the strict audit blocks
+  if any of them appears in its body. The composed verdict is the worst any
+  required runtime holds, so an aligned backend never masks a stale worker.
+- The backend captures at application import; the worker captures before its
+  loop and publishes into the EXISTING service-state and status contracts - no
+  second heartbeat store, no new operator endpoint.
+- A stale/unprovable runtime degrades the LIVE lane with the exact canonical
+  remediation and appears in the operator's STALE / MISSING list. It never
+  invalidates a completed close or the governed decision, manufactures no
+  portfolio change, and never alters the primary operator action
+  (`api.workflow_state` keeps that ownership). Nothing restarts automatically.
+- Latency relabelled, never rewritten: an observation the cycle did not admit
+  yields an OBSERVATION AGE (an undeclared provenance fails closed to the same),
+  a negative value is named as proof the endpoints are cross-cycle, and
+  `event_cycle_processing_seconds` reports the engine's own duration beside it.
+- Guarded by `check_release55_2_runtime_release_identity` (25 strict-blocking
+  invariants) and `tests/test_release55_2_runtime_release_identity.py` (72).
+
+Next (an OPERATOR action, not a code change): restart the
+information-collection worker once R55.2 is deployed, so it records a loaded
+identity and the alignment verdict resolves from UNKNOWN to ALIGNED. Until then
+the contract truthfully reports that the worker cannot prove what it loaded.
+
 ## R55.1 - intraday governance completion + no-op semantic clarity (LANDED)
 
 Closes R55's named gap. `api.portfolio_decision` REMAINS the one governance

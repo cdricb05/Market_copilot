@@ -37,6 +37,7 @@ if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
 from paper_trader.api import information_collection as ic  # noqa: E402
+from paper_trader.api import runtime_identity as rid  # noqa: E402
 from paper_trader.engine import collection_cadence as cad  # noqa: E402
 
 
@@ -72,6 +73,17 @@ def action_status(root=None) -> int:
     logs = ic.logs_root(root)
     stdout_path = _REPO / "paper_trader_collection.stdout.log"
     stderr_path = _REPO / "paper_trader_collection.stderr.log"
+    # R55.2 — the comparison is composed by the identity OWNER, never restated
+    # here. A single runtime row keeps the status payload flat for PowerShell.
+    _SOURCE = rid.read_source_identity()
+    _ALIGNMENT = (rid.build_runtime_alignment(
+        source=_SOURCE,
+        runtimes=[{"runtime": rid.RUNTIME_COLLECTION,
+                   "loaded": service.get("loaded_release"),
+                   "process": {"pid": lifecycle["worker_pid"],
+                               "started_at": service.get("started_at"),
+                               "instance_id": service.get("instance_id")}}],
+    ).get("runtimes") or [{}])[0]
     payload = {
         "service_state": lifecycle["service_state"],
         "reason": lifecycle["reason"],
@@ -82,6 +94,26 @@ def action_status(root=None) -> int:
         "instance_id": service.get("instance_id"),
         "worker_pid": lifecycle["worker_pid"],
         "worker_alive": lifecycle["worker_alive"],
+        # R55.2 — WHICH RELEASE IS THAT LIVE WORKER ACTUALLY RUNNING?
+        #
+        # The worker's own capture, the revision on disk now, and the ONE
+        # owner's comparison of the two. This helper runs in a SEPARATE, freshly
+        # started process, so its own loaded identity says nothing about the
+        # worker's: the worker's persisted capture is the only admissible
+        # evidence, and an absent capture stays UNKNOWN rather than being
+        # filled in from this process.
+        "loaded_release": service.get("loaded_release"),
+        "loaded_commit": (service.get("loaded_release") or {}).get(
+            "commit_short"),
+        "loaded_captured_at": (service.get("loaded_release") or {}).get(
+            "captured_at"),
+        "source_commit": _SOURCE.get("commit_short"),
+        "source_branch": _SOURCE.get("branch"),
+        "source_dirty": _SOURCE.get("dirty"),
+        "runtime_alignment": _ALIGNMENT.get("verdict"),
+        "runtime_alignment_reason": _ALIGNMENT.get("reason"),
+        "runtime_alignment_statement": _ALIGNMENT.get("statement"),
+        "runtime_alignment_remediation": _ALIGNMENT.get("remediation"),
         "lock_held": bool(lock),
         "lock_pid": (lock or {}).get("pid"),
         "lock_instance_id": (lock or {}).get("instance_id"),

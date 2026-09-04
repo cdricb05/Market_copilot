@@ -632,6 +632,86 @@ LATENCY_INTERVAL_ENDPOINTS = {
                                         "governed_decision_persisted_at"),
 }
 
+# --------------------------------------------------------------------------- #
+# R55.2 — WHAT THE OBSERVATION ENDPOINT ACTUALLY IS.
+#
+# ``observation_to_signal_seconds`` reported 6111.7 on a live NO_NEW_INFORMATION
+# cycle and read, to an operator, as "the engine took 102 minutes to process a
+# signal". It did not. The two endpoints came from DIFFERENT cycles: the signal
+# stamp is this refresh's, while the observation stamp is the newest material
+# observation the live block had — admitted by an EARLIER cycle, possibly hours
+# earlier. A no-op cycle admits nothing at all, so it cannot own an observation.
+#
+# The measurement was right; the NAME was wrong. The number is an OBSERVATION
+# AGE — how old the newest observation was when this refresh completed — and it
+# is a PIPELINE LATENCY only when the observation was admitted by the very cycle
+# that produced the signal stamp. Only the CALLER knows which, because only the
+# caller knows where it took the stamp from, so the caller declares it and this
+# module labels the interval accordingly. Historical records keep their keys and
+# their values; what changes is that the interval now says what it is.
+# --------------------------------------------------------------------------- #
+#: The stamp came from an event THIS cycle admitted: a true pipeline latency.
+OBS_ADMITTED_BY_THIS_CYCLE = "ADMITTED_BY_THIS_CYCLE"
+#: The stamp belongs to an earlier cycle: an age, not a processing duration.
+OBS_PREDATES_THIS_CYCLE = "PREDATES_THIS_CYCLE"
+#: Provenance not established. Fails closed to AGE — never claimed as latency.
+OBS_PROVENANCE_UNKNOWN = "UNKNOWN"
+OBSERVATION_PROVENANCE_VOCAB = (OBS_ADMITTED_BY_THIS_CYCLE,
+                                OBS_PREDATES_THIS_CYCLE, OBS_PROVENANCE_UNKNOWN)
+
+#: What an interval MEASURES, as distinct from what it is keyed on.
+INTERVAL_KIND_PIPELINE = "PIPELINE_LATENCY"
+INTERVAL_KIND_OBSERVATION_AGE = "OBSERVATION_AGE"
+INTERVAL_KIND_VOCAB = (INTERVAL_KIND_PIPELINE, INTERVAL_KIND_OBSERVATION_AGE)
+
+#: The default (pipeline) label and meaning of each interval. Composed here so
+#: no surface has to word a measurement for itself.
+LATENCY_INTERVAL_SEMANTICS = {
+    "observation_to_signal_seconds": {
+        "kind": INTERVAL_KIND_PIPELINE,
+        "label": "Observation → signal refresh",
+        "means": ("Time from the observation this cycle admitted to the moment "
+                  "this cycle finished refreshing the affected inputs."),
+    },
+    "signal_to_reassessment_seconds": {
+        "kind": INTERVAL_KIND_PIPELINE,
+        "label": "Signal refresh → reassessment",
+        "means": ("Time from the completed signal refresh to the completed "
+                  "portfolio reassessment, within one cycle."),
+    },
+    "reassessment_to_governed_seconds": {
+        "kind": INTERVAL_KIND_PIPELINE,
+        "label": "Reassessment → governed decision",
+        "means": ("Time from the completed reassessment to the governed "
+                  "decision being persisted."),
+    },
+    "observation_to_governed_seconds": {
+        "kind": INTERVAL_KIND_PIPELINE,
+        "label": "Observation → governed decision",
+        "means": "End-to-end time from the admitted observation to the "
+                 "governed decision.",
+    },
+}
+
+#: When the observation was NOT admitted by this cycle, the two intervals that
+#: begin at it stop being latencies and are relabelled as what they measure.
+_AGE_RELABEL = {
+    "observation_to_signal_seconds": {
+        "kind": INTERVAL_KIND_OBSERVATION_AGE,
+        "label": "Age of the newest observation at this signal refresh",
+        "means": ("How old the newest observation already was when this "
+                  "refresh completed. It is NOT processing time: this cycle "
+                  "admitted no new observation, so the two endpoints belong to "
+                  "different cycles."),
+    },
+    "observation_to_governed_seconds": {
+        "kind": INTERVAL_KIND_OBSERVATION_AGE,
+        "label": "Age of the newest observation at the governed decision",
+        "means": ("How old the newest observation already was when the "
+                  "governed decision was recorded. Not processing time."),
+    },
+}
+
 #: R55.1 — the three dispositions a stage or interval can hold. MEASURED is a
 #: real number; NOT_REQUIRED means an owner proved the stage legitimately did
 #: not run; MISSING means the system cannot prove what happened. NOT_REQUIRED
@@ -674,7 +754,9 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
                              observation_received_at: Any = None,
                              governance_gate_completed_at: Any = None,
                              governed_decision_persisted_at: Any = None,
-                             not_required_stages: Optional[list] = None) -> dict:
+                             not_required_stages: Optional[list] = None,
+                             observation_provenance: Any = None,
+                             event_cycle_processing_seconds: Any = None) -> dict:
     """Observation -> signal -> reassessment -> governed decision, measured.
 
     Every interval is computed ONLY when both of its endpoints exist as
@@ -689,6 +771,15 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
     not required (see :func:`stages_not_required`). Those endpoints are
     reported NOT_REQUIRED and do not defeat completeness; every other unstamped
     endpoint remains MISSING and still does.
+
+    RELEASE 55.2 — SEMANTICALLY LABELLED. ``observation_provenance`` says where
+    the observation endpoint came from. Only ``ADMITTED_BY_THIS_CYCLE`` makes an
+    interval that begins at it a PIPELINE LATENCY; anything else (including an
+    undeclared provenance) relabels it as the OBSERVATION AGE it actually is, so
+    a 6111-second figure can no longer be read as the engine taking 102 minutes.
+    ``event_cycle_processing_seconds`` carries the cycle owner's own measured
+    processing duration — the number an operator usually wanted — beside it.
+    Values and keys are unchanged; only the labelling is added.
     """
     stamps = dict(stage_timestamps or {})
     stamps.update({
@@ -725,11 +816,60 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
     interval_dispositions = {name: _interval_disposition(name)
                              for name in LATENCY_INTERVAL_ENDPOINTS}
     missing = sorted(k for k, v in stamps.items() if not v and k not in excused)
+
+    # R55.2 — label every interval with WHAT IT MEASURES. An observation the
+    # caller did not prove this cycle admitted cannot yield a pipeline latency,
+    # so the intervals that begin at it are relabelled as an age. Fails closed:
+    # an undeclared provenance is treated exactly like a stale observation.
+    provenance = (str(observation_provenance) if observation_provenance
+                  else OBS_PROVENANCE_UNKNOWN)
+    if provenance not in OBSERVATION_PROVENANCE_VOCAB:
+        provenance = OBS_PROVENANCE_UNKNOWN
+    semantics = {name: dict(meta)
+                 for name, meta in LATENCY_INTERVAL_SEMANTICS.items()}
+    if provenance != OBS_ADMITTED_BY_THIS_CYCLE:
+        for name, relabel in _AGE_RELABEL.items():
+            semantics[name] = dict(relabel)
+        # A NEGATIVE value here is not an anomaly to hide — it is the proof.
+        # No latency can run backwards, so an observation stamped AFTER the
+        # signal-refresh stamp settles that the two endpoints came from
+        # different cycles: this observation arrived after that refresh and no
+        # refresh has processed it yet. Named for exactly that, with the sign
+        # preserved; nothing is clamped, dropped or turned into zero.
+        for name in _AGE_RELABEL:
+            value = intervals.get(name)
+            if value is not None and value < 0:
+                semantics[name] = dict(
+                    semantics[name],
+                    label="Newest observation arrived AFTER this signal refresh",
+                    means=("The newest observation is more recent than the "
+                           "stamp it is measured against, so no refresh has "
+                           "processed it yet. A negative value proves the two "
+                           "endpoints belong to different cycles; it is never "
+                           "a processing duration."),
+                    negative_is_proof_of_cross_cycle_endpoints=True)
+    try:
+        processing = (None if event_cycle_processing_seconds is None
+                      else round(float(event_cycle_processing_seconds), 1))
+    except (TypeError, ValueError):
+        processing = None
+
     return {
         "contract_id": "paper_trader.governed_decision_latency/1",
         "owner": COMPOSITION_OWNER,
         "timestamps": stamps,
         **intervals,
+        # The engine's OWN processing duration for this cycle, from the cycle
+        # owner's measurement. This — not an observation age — is what "how long
+        # did the engine take" means.
+        "event_cycle_processing_seconds": processing,
+        "observation_provenance": provenance,
+        "observation_provenance_vocabulary": list(OBSERVATION_PROVENANCE_VOCAB),
+        "interval_semantics": semantics,
+        "interval_labels": {name: meta["label"]
+                            for name, meta in semantics.items()},
+        "interval_kind_vocabulary": list(INTERVAL_KIND_VOCAB),
+        "observation_age_is_not_processing_latency": True,
         "missing_measurements": missing,
         "not_required_measurements": sorted(excused),
         "stage_dispositions": stage_dispositions,
@@ -1132,7 +1272,14 @@ def run_event_signal_refresh(
                     # against the operator's real artifact store.
                     hoc_dir=hoc_dir,
                     observation_received_at=_newest_stamp(
-                        [e.get("ingested_at") for e in admitted]))
+                        [e.get("ingested_at") for e in admitted]),
+                    # R55.2 — this stamp is the newest ingestion time among the
+                    # events THIS cycle admitted, so the interval that begins at
+                    # it really is a pipeline latency. The gate only runs with a
+                    # reassessment candidate, which only exists with admitted
+                    # events; the declaration is made here because this is the
+                    # only place that knows where the stamp came from.
+                    observation_provenance=OBS_ADMITTED_BY_THIS_CYCLE)
                 rec["detail"] = "%s (recorded=%s)" % (
                     (governance or {}).get("verdict") or "UNAVAILABLE",
                     bool((governance or {}).get("recorded")))
@@ -1193,6 +1340,11 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         "reassessment_ran": full.get("reassessment_ran"),
         "reassessment_reason": full.get("reassessment_reason"),
         "proposal_built": full.get("proposal_built"),
+        # R55.2 — how many events THIS cycle admitted. A cycle that admitted
+        # none cannot own an observation, which is what proves that an
+        # observation stamp a reader pairs with this cycle's signal stamp is an
+        # AGE and not a processing latency.
+        "events_admitted": full.get("events_admitted"),
         "materiality_change_level": (full.get("materiality")
                                      or {}).get("change_level"),
         "trigger_count": (full.get("materiality") or {}).get("trigger_count"),
@@ -1402,4 +1554,9 @@ __all__ = [
     "GOVERNANCE_GATE_STEP", "NO_CANDIDATE_CYCLE_STATES", "stages_not_required",
     "LATENCY_INTERVAL_ENDPOINTS", "LATENCY_DISPOSITION_VOCAB",
     "LAT_MEASURED", "LAT_NOT_REQUIRED", "LAT_MISSING",
+    # R55.2 — what an interval MEASURES, and where its observation came from.
+    "OBS_ADMITTED_BY_THIS_CYCLE", "OBS_PREDATES_THIS_CYCLE",
+    "OBS_PROVENANCE_UNKNOWN", "OBSERVATION_PROVENANCE_VOCAB",
+    "INTERVAL_KIND_PIPELINE", "INTERVAL_KIND_OBSERVATION_AGE",
+    "INTERVAL_KIND_VOCAB", "LATENCY_INTERVAL_SEMANTICS",
 ]

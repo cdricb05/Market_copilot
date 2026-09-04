@@ -146,6 +146,14 @@ def _print_answers(state: dict) -> None:
                  _fmt(chg.get("latest_reassessment_conclusion"))))
     print("       research lane | supersedes standing decision: %s"
           % _fmt(chg.get("supersedes_standing_decision")))
+    # R55.2 — printed ONLY when the backend says the runtime feeding this lane
+    # is not provably running the deployed release. Both sentences are the
+    # backend's; this reporter compares no revision.
+    if chg.get("runtime_degraded") is True:
+        print("       RESEARCH RUNTIME DEGRADED")
+        print("         %s" % _fmt(chg.get("runtime_degradation_statement")))
+        if chg.get("runtime_remediation"):
+            print("         %s" % _fmt(chg.get("runtime_remediation")))
     print()
     print("  3  WHAT YOU NEED TO DO")
     print("       %s" % _fmt(act.get("action_label")))
@@ -171,6 +179,52 @@ def _print_acceptance(acc: dict, source: str) -> None:
           % (acc.get("present_count"), len(acc.get("rows") or []),
              _fmt(acc.get("missing_rows"))))
     print()
+
+
+def _print_runtime_alignment(state: dict) -> None:
+    """R55.2 — WHICH RELEASE IS EACH LIVE RUNTIME ACTUALLY RUNNING?
+
+    An explicitly named diagnostic contract, printed apart from the ten
+    acceptance rows so it competes with no acceptance framework. It fails
+    CLOSED: a runtime that needs an identity and did not record one is UNKNOWN,
+    never ALIGNED, whatever its heartbeat says.
+    """
+    ra = state.get("runtime_alignment")
+    if not isinstance(ra, dict) or not ra.get("runtimes"):
+        print(_rule())
+        print("RUNTIME RELEASE IDENTITY")
+        print(_rule())
+        print("  Not published by this runtime (pre-R55.2 payload). No")
+        print("  alignment is assumed in its place.")
+        print()
+        return
+    src = ra.get("source") or {}
+    print(_rule())
+    print("RUNTIME RELEASE IDENTITY  (%s)" % _fmt(ra.get("verdict")))
+    print(_rule())
+    print("  deployed source %s on %s | working tree modified: %s"
+          % (_fmt(src.get("commit_short")), _fmt(src.get("branch")),
+             _fmt(src.get("dirty"))))
+    print("  proven for every runtime that needs an identity: %s"
+          % _fmt(ra.get("proven")))
+    print()
+    for row in ra.get("runtimes") or []:
+        print("  %-34s %s" % (row.get("runtime"), row.get("verdict")))
+        print("      loaded %s   captured %s"
+              % (_fmt(row.get("loaded_commit_short")),
+                 _fmt(row.get("loaded_captured_at"))))
+        print("      %s" % _fmt(row.get("statement")))
+        if row.get("remediation"):
+            print("      remediation: %s" % _fmt(row.get("remediation")))
+    print()
+    if ra.get("verdict") != "ALIGNED":
+        print("  %s" % _fmt(ra.get("headline")))
+        print("  This degrades the live / intraday research lane only. The "
+              "governed")
+        print("  decision and the completed operational close are unaffected, "
+              "and")
+        print("  nothing here restarts a process.")
+        print()
 
 
 def _print_advisories(state: dict) -> None:
@@ -224,6 +278,7 @@ def main(argv=None) -> int:
     print()
     _print_answers(state)
     _print_acceptance(acc, source)
+    _print_runtime_alignment(state)
     _print_advisories(state)
 
     if acc.get("complete"):

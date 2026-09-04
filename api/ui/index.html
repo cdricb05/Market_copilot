@@ -3256,6 +3256,21 @@
     .r55-badge.governed { background: rgba(34,197,94,.16); color: var(--ok, #22c55e); }
     .r55-badge.research { background: rgba(122,143,176,.16); color: var(--label, #7a8fb0); }
     .r55-badge.safety { background: rgba(255,255,255,.06); color: var(--text-accent, #a8b8d8); }
+    /* R55.2 - a runtime running an older release. Present ONLY when the backend
+       says so, so an aligned system shows nothing here at all. */
+    .r55-badge.warn { background: rgba(245,158,11,.16); color: var(--warning, #f59e0b); }
+    .r55-runtime {
+      margin-top: 8px; padding: 7px 10px; border-radius: 6px;
+      border: 1px solid rgba(245,158,11,.32); background: rgba(245,158,11,.07);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .r55-advisory .row [data-runtime] { min-width: 0; }
+    .r55-advisory .row .present { color: var(--ok, #22c55e); font-weight: 800; }
+    .r55-advisory .row .missing { color: var(--warning, #f59e0b); font-weight: 800; }
+    [data-runtime-alignment-rows] .row {
+      border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+      padding: 6px 0;
+    }
     .r55-answer {
       font-size: 27px; font-weight: 900; line-height: 1.12; letter-spacing: .01em;
       color: var(--text-primary, #e0e0ff);
@@ -29540,6 +29555,22 @@ function _r55RenderOperatorAnswer(d) {
                  chg.supersedes_standing_decision ? 'Superseded'
                    : (chg.governed_summary || 'Unchanged'))
     + '</div>'
+    // R55.2 — RUNTIME DEGRADATION. Shown ONLY when the backend says the runtime
+    // feeding this lane is not provably running the deployed release, so an
+    // aligned system gains no clutter here at all. Both sentences are composed
+    // by api.runtime_identity / api.active_manager_state: the browser compares
+    // no revision, reads no commit and reaches no alignment verdict.
+    + (chg.runtime_degraded === true
+        ? ('<div class="r55-runtime" data-runtime-degraded="1">'
+           + '<span class="r55-badge warn">RESEARCH RUNTIME DEGRADED</span>'
+           + '<div class="r55-why">'
+           + _opEsc(chg.runtime_degradation_statement || '') + '</div>'
+           + (chg.runtime_remediation
+               ? ('<div class="r55-quiet">' + _opEsc(chg.runtime_remediation)
+                  + '</div>')
+               : '')
+           + '</div>')
+        : '')
     + '</div>';
 
   // ---- ANSWER 3 — the ONE operator action -------------------------------- //
@@ -29638,11 +29669,22 @@ function _r55RenderAcceptance(d) {
       +   _opEsc(sub ? _opWords(sub) : (r.owner || '')) + '</div>'
       + '</div>';
   }).join('');
+  // R55.2 — EVERY LATENCY LABEL COMES FROM THE BACKEND. "Observation → signal"
+  // was a hard-coded caption here, and it turned a 6111-second OBSERVATION AGE
+  // into what read as 102 minutes of engine processing. The latency owner now
+  // says what each number measures (pipeline latency, observation age, or an
+  // observation that arrived after the refresh) and this renders that verbatim.
+  var _latLbl = lat.interval_labels || {};
+  function _latRow(key, fallback) {
+    return _r55Fact(_latLbl[key] || fallback, _opNum(lat[key], 1));
+  }
   var latRows = ''
-    + _r55Fact('Observation → signal', _opNum(lat.observation_to_signal_seconds, 1))
-    + _r55Fact('Signal → reassessment', _opNum(lat.signal_to_reassessment_seconds, 1))
-    + _r55Fact('Reassessment → governed', _opNum(lat.reassessment_to_governed_seconds, 1))
-    + _r55Fact('Observation → governed', _opNum(lat.observation_to_governed_seconds, 1));
+    + _r55Fact('Event cycle processing time',
+               _opNum(lat.event_cycle_processing_seconds, 1))
+    + _latRow('observation_to_signal_seconds', 'Observation → signal')
+    + _latRow('signal_to_reassessment_seconds', 'Signal → reassessment')
+    + _latRow('reassessment_to_governed_seconds', 'Reassessment → governed')
+    + _latRow('observation_to_governed_seconds', 'Observation → governed');
   var missing = (lat.missing_measurements || []).join(', ');
   // R55.1 — a stage the backend proved this cycle never needed is NOT missing.
   var notReq = (lat.not_required_measurements || []).join(', ');
@@ -29665,10 +29707,56 @@ function _r55RenderAcceptance(d) {
         ? ('<div class="r55-quiet">Not measured (no persisted timestamp): '
            + _opEsc(missing) + '. A missing stamp is reported, never invented.</div>')
         : '')
+    +   _r55RuntimeAlignmentHtml(d)
     + '</div>';
   host.style.display = '';
 }
 window._r55RenderAcceptance = _r55RenderAcceptance;
+
+// ---- AUDIT / ADVANCED: RUNTIME RELEASE IDENTITY (R55.2) ------------------- //
+// Which release each long-lived runtime LOADED when it started, what is deployed
+// on disk now, and the ONE owner's alignment verdict per runtime. The browser
+// compares nothing: it prints api.runtime_identity's verdict, reason and
+// statement, and it exposes no restart control — recovery stays an explicit
+// operator action through the canonical scripts.
+function _r55RuntimeAlignmentHtml(d) {
+  var ra = (d && d.runtime_alignment) || {};
+  if (!ra.runtimes || !ra.runtimes.length) return '';
+  var src = ra.source || {};
+  var rows = ra.runtimes.map(function (r) {
+    var cls = (r.verdict === 'ALIGNED') ? 'present'
+      : ((r.verdict === 'NOT_APPLICABLE') ? '' : 'missing');
+    return '<div class="row" data-runtime="' + _opEsc(r.runtime || '') + '"'
+      + ' data-runtime-alignment="' + _opEsc(r.verdict || '') + '">'
+      + '<span class="tok">' + _opEsc(r.label || r.runtime || '') + '</span> '
+      + '<span class="' + cls + '">' + _opEsc(_opWords(r.verdict || '')) + '</span>'
+      + '<div class="r55-facts" style="border-top:0;padding-top:2px;">'
+      +   _r55Fact('Loaded release', r.loaded_commit_short)
+      +   _r55Fact('Captured at start', r.loaded_captured_at)
+      +   _r55Fact('Process started', (r.process || {}).started_at)
+      +   _r55Fact('Reason', _opWords(r.reason || ''), 'muted')
+      + '</div>'
+      + '<div class="r55-quiet">' + _opEsc(r.statement || '') + '</div>'
+      + (r.remediation
+          ? ('<div class="r55-quiet">' + _opEsc(r.remediation) + '</div>')
+          : '')
+      + '</div>';
+  }).join('');
+  return '<div class="h" style="margin-top:10px;">Runtime release identity '
+    + '&middot; ' + _opEsc(_opWords(ra.verdict || 'UNKNOWN'))
+    + ' &middot; owner ' + _opEsc(ra.owner || '') + '</div>'
+    + '<div class="r55-facts" style="border-top:0;padding-top:0;">'
+    +   _r55Fact('Deployed source release', src.commit_short)
+    +   _r55Fact('Branch', src.branch)
+    +   _r55Fact('Working tree modified', src.dirty === true ? 'yes'
+                  : (src.dirty === false ? 'no' : 'unknown'))
+    +   _r55Fact('Read at', src.read_at, 'muted')
+    + '</div>'
+    + '<div data-runtime-alignment-rows="1">' + rows + '</div>'
+    + (ra.headline ? ('<div class="r55-quiet">' + _opEsc(ra.headline)
+                      + '</div>') : '');
+}
+window._r55RuntimeAlignmentHtml = _r55RuntimeAlignmentHtml;
 /* R55_REGION_END */
 
 /* R50_REGION_START */

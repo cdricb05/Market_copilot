@@ -12861,6 +12861,232 @@ def check_release55_1_intraday_governance_completion(files: list[Path]) -> dict:
     }
 
 
+#: R55.2 — the four runtime-alignment verdicts. Only ALIGNED means "current",
+#: and it is reachable only from two proven, equal commit identities.
+R55_2_VERDICTS = ("ALIGNED", "STALE_RUNTIME", "UNKNOWN", "NOT_APPLICABLE")
+#: One named cause per verdict; a verdict never travels without its reason.
+R55_2_REASONS = ("LOADED_COMMIT_MATCHES_SOURCE_COMMIT",
+                 "LOADED_COMMIT_DIFFERS_FROM_SOURCE_COMMIT",
+                 "LOADED_COMMIT_NOT_RECORDED_BY_THIS_RUNTIME",
+                 "SOURCE_COMMIT_COULD_NOT_BE_RESOLVED",
+                 "RUNTIME_EXITS_BETWEEN_INVOCATIONS")
+#: The identity owner. Everything else consumes; nothing else compares.
+R55_2_IDENTITY_OWNER = "api/runtime_identity.py"
+
+
+def check_release55_2_runtime_release_identity(files: list[Path]) -> dict:
+    """R55.2 invariants — a process can prove which release it loaded.
+
+    (a) ONE identity owner, ``api.runtime_identity``: the loaded capture, the
+        source read, the comparison and the composed contract are defined there
+        and nowhere else, with a frozen four-verdict vocabulary;
+    (b) the loaded capture is taken ONCE per process and MEMOISED, so a later
+        source change cannot move an already-running runtime's reported
+        identity — the property the whole release depends on;
+    (c) the owner is inert: it starts, stops, signals and schedules nothing, and
+        writes no file, so an observability slice can never mutate operations;
+    (d) it fails CLOSED: ALIGNED needs two proven equal commits, and no liveness
+        signal (heartbeat, pid, activity, service state) appears in the
+        classifier at all — a running process is not a current one;
+    (e) NO SURFACE RE-READS HEAD AND CALLS IT A LOADED IDENTITY. That is the
+        exact defect: ``rev-parse`` and the source read must not appear in a
+        status composition;
+    (f) both LONG-LIVED runtimes capture at process start (the backend at
+        application import, the worker before its loop), and the worker's
+        capture is replaced only by a new worker registration;
+    (g) the worker publishes into the EXISTING service-state and status
+        contracts — no second heartbeat store, no second status file;
+    (h) LATENCY SEMANTICS: an observation the cycle did not admit yields an
+        OBSERVATION AGE and never a pipeline latency, an undeclared provenance
+        fails closed to the same, the engine's own processing duration is
+        reported separately, and NOT_REQUIRED is still never zero-filled;
+    (i) the presentation owner consumes the verdict and holds no alignment rule,
+        and the staleness policy states in writing that a stale runtime does not
+        change the primary operator action or invalidate the book;
+    (j) the UI renders the owner's verdict, statement and latency labels and
+        computes no alignment of its own.
+    """
+    rid_src = _read(R55_2_IDENTITY_OWNER)
+    ams_src = _read("api/active_manager_state.py")
+    ic_src = _read("api/information_collection.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    app_src = _read("api/app.py")
+    worker_src = _read("scripts/run_information_collection_service.py")
+    control_src = _read("scripts/collection_service_control.py")
+    ui = _read(UI_FILE)
+
+    # (a) one owner, one vocabulary.
+    identity_owner_complete = all(t in rid_src for t in (
+        "def read_source_identity(", "def capture_loaded_identity(",
+        "def loaded_identity(", "def classify_alignment(",
+        "def build_runtime_alignment(", "ALIGNMENT_VERDICTS = (",
+        "RUNTIME_CONTRACT = {"))
+    missing_verdicts = sorted(v for v in R55_2_VERDICTS
+                              if '"%s"' % v not in rid_src)
+    missing_reasons = sorted(r for r in R55_2_REASONS
+                             if '"%s"' % r not in rid_src)
+    second_identity_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R55_2_IDENTITY_OWNER, "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and ("def classify_alignment(" in fp.read_text(encoding="utf-8",
+                                                       errors="replace")
+             or "def build_runtime_alignment(" in fp.read_text(
+                 encoding="utf-8", errors="replace")
+             or "def capture_loaded_identity(" in fp.read_text(
+                 encoding="utf-8", errors="replace")))
+
+    # (b) captured once, then frozen.
+    capture_is_memoised = all(t in rid_src for t in (
+        "_LOADED: Optional[dict] = None", "if _LOADED is not None:",
+        "return _LOADED", '"captured_once_per_process": True',
+        '"changes_when_source_changes": False'))
+
+    # (c) inert: no lifecycle control, no write.
+    owner_side_effects = sorted(set(
+        t for t in ("Popen", "os.kill", "terminate(", "taskkill",
+                    "Start-Process", "Stop-Process", "os.system",
+                    "write_text(", "mkdir(", "unlink(", "threading.",
+                    "Register-ScheduledTask")
+        if t in rid_src))
+    owner_declares_inert = all(t in rid_src for t in (
+        '"writes_nothing": True', '"restarts_nothing": True',
+        '"restarts_no_process_automatically": True'))
+
+    # (d) fail closed, and never from health. Scan the classifier BODY only.
+    _c0 = rid_src.find("def classify_alignment(")
+    _c1 = rid_src.find("\ndef ", _c0 + 1) if _c0 >= 0 else -1
+    body = rid_src[_c0:_c1] if 0 <= _c0 < _c1 else ""
+    _d0 = body.find('"""')
+    _d1 = body.find('"""', _d0 + 3)
+    code = body[:_d0] + body[_d1 + 3:] if 0 <= _d0 < _d1 else body
+    classifier_reads_liveness = sorted(set(
+        t for t in ("heartbeat", "worker_activity", "service_state", "pid",
+                    "alive", "progress", "RUNNING")
+        if t in code))
+    aligned_requires_both_commits = (
+        "if not loaded_commit:" in code and "if not source_commit:" in code
+        and "str(loaded_commit) == str(source_commit)" in code)
+    declares_not_from_health = '"inferred_from_process_health": False' in rid_src
+
+    # (e) no status surface re-reads HEAD as a loaded identity.
+    surfaces_reading_head = sorted(
+        rel for rel, src in (("api/active_manager_state.py", ams_src),
+                             ("api/information_collection.py", ic_src),
+                             ("api/event_signal_refresh.py", esr_src))
+        if "rev-parse" in src or "read_source_identity(" in src)
+
+    # (f) both long-lived runtimes capture at START.
+    backend_captures_at_import = (
+        "_runtime_identity.capture_loaded_identity()" in app_src
+        and app_src.find("capture_loaded_identity") < app_src.find(
+            "app = FastAPI("))
+    worker_captures_before_loop = (
+        "rid.capture_loaded_identity(pid=pid)" in worker_src
+        and 0 <= worker_src.find("capture_loaded_identity") < worker_src.find(
+            "while True:"))
+    identity_replaced_only_on_registration = (
+        '"loaded_release": loaded_release,' in ic_src
+        and ic_src.count('"loaded_release": loaded_release,') == 1)
+
+    # (g) the existing contracts carry it; no second store appears.
+    publishes_through_existing_contract = all(t in ic_src for t in (
+        '"loaded_release": None,', '"loaded_release": service.get("loaded_release")',
+        '"loaded_release_owner": "api.runtime_identity"'))
+    second_heartbeat_store = sorted(set(
+        t for t in ("runtime_identity.json", "loaded_release.json",
+                    "worker_identity.json", "release_identity.json")
+        if t in ic_src or t in worker_src or t in control_src))
+
+    # (h) latency semantics.
+    latency_semantics = all(t in esr_src for t in (
+        'OBS_ADMITTED_BY_THIS_CYCLE = "ADMITTED_BY_THIS_CYCLE"',
+        'OBS_PREDATES_THIS_CYCLE = "PREDATES_THIS_CYCLE"',
+        'INTERVAL_KIND_OBSERVATION_AGE = "OBSERVATION_AGE"',
+        "LATENCY_INTERVAL_SEMANTICS = {", "_AGE_RELABEL = {",
+        '"observation_age_is_not_processing_latency": True',
+        '"event_cycle_processing_seconds": processing'))
+    age_relabel_fails_closed = (
+        "if provenance not in OBSERVATION_PROVENANCE_VOCAB:" in esr_src
+        and "provenance = OBS_PROVENANCE_UNKNOWN" in esr_src
+        and "if provenance != OBS_ADMITTED_BY_THIS_CYCLE:" in esr_src)
+    zero_fill_guard_intact = (
+        '"never_zero_fills_an_unexecuted_stage": True' in esr_src
+        and "def stages_not_required(" in esr_src)
+    second_provenance_decider = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/event_signal_refresh.py",
+                            "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and 'OBS_ADMITTED_BY_THIS_CYCLE = "' in fp.read_text(encoding="utf-8",
+                                                             errors="replace"))
+
+    # (i) presentation consumes; it does not decide.
+    _r0 = ams_src.find("def _runtime_degrades_live_lane(")
+    _r1 = ams_src.find("\ndef ", _r0 + 1) if _r0 >= 0 else -1
+    lane_body = ams_src[_r0:_r1] if 0 <= _r0 < _r1 else ""
+    presentation_consumes_verdict = all(t in ams_src for t in (
+        "def _runtime_alignment_block(", "rid.build_runtime_alignment(",
+        '"runtime_alignment": "api.runtime_identity"',
+        "RUNTIME_STALENESS_POLICY = ("))
+    presentation_reinfers_alignment = sorted(set(
+        t for t in ("loaded_commit ==", "source_commit ==", "commit_short ==",
+                    "rev-parse")
+        if t in lane_body or t in ams_src[ams_src.find(
+            "def _runtime_alignment_block("):ams_src.find(
+                "def _runtime_degrades_live_lane(")]))
+    # The policy sentence belongs to the presentation owner; the machine-readable
+    # declarations belong to the identity owner that composes the contract.
+    policy_protects_the_action_owner = (
+        all(t in ams_src for t in ("never changes the primary operator action",
+                                   "api.workflow_state",
+                                   '"invalidates_governed_decision": False',
+                                   '"invalidates_operational_close": False'))
+        and all(t in rid_src for t in ('"alters_primary_operator_action": False',
+                                       '"invalidates_governed_decision": False',
+                                       '"invalidates_operational_close": False')))
+
+    # (j) the UI renders; it does not compare.
+    ui_renders_backend_alignment = all(t in ui for t in (
+        "_r55RuntimeAlignmentHtml", "ra.runtimes", "r.statement",
+        "lat.interval_labels", "chg.runtime_degradation_statement",
+        "data-runtime-alignment="))
+    ui_computes_alignment = sorted(set(
+        t for t in ("rev-parse", "=== 'STALE_RUNTIME'", "loaded_commit ===",
+                    "source_commit ===", "!== r.source_commit")
+        if t in ui))
+
+    return {
+        "identity_owner_complete": bool(identity_owner_complete),
+        "missing_alignment_verdicts": missing_verdicts,
+        "missing_alignment_reasons": missing_reasons,
+        "second_identity_owner": second_identity_owner,
+        "capture_is_memoised": bool(capture_is_memoised),
+        "identity_owner_side_effects": owner_side_effects,
+        "identity_owner_declares_inert": bool(owner_declares_inert),
+        "classifier_reads_liveness": classifier_reads_liveness,
+        "aligned_requires_two_proven_commits": bool(aligned_requires_both_commits),
+        "declares_not_inferred_from_health": bool(declares_not_from_health),
+        "surfaces_reading_head_as_loaded_identity": surfaces_reading_head,
+        "backend_captures_at_import": bool(backend_captures_at_import),
+        "worker_captures_before_loop": bool(worker_captures_before_loop),
+        "identity_replaced_only_on_registration": bool(
+            identity_replaced_only_on_registration),
+        "publishes_through_existing_contract": bool(
+            publishes_through_existing_contract),
+        "second_heartbeat_store": second_heartbeat_store,
+        "latency_semantics_declared": bool(latency_semantics),
+        "age_relabel_fails_closed": bool(age_relabel_fails_closed),
+        "zero_fill_guard_intact": bool(zero_fill_guard_intact),
+        "second_provenance_decider": second_provenance_decider,
+        "presentation_consumes_verdict": bool(presentation_consumes_verdict),
+        "presentation_reinfers_alignment": presentation_reinfers_alignment,
+        "policy_protects_the_action_owner": bool(policy_protects_the_action_owner),
+        "ui_renders_backend_alignment": bool(ui_renders_backend_alignment),
+        "ui_computes_alignment": ui_computes_alignment,
+    }
+
+
 def check_release54_2_3_1_owned_data_readiness_authority(files: list[Path]) -> dict:
     """R54.2.3.1 invariants — persisted close confirmation != provider readiness.
 
@@ -14678,6 +14904,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release55_active_manager_acceptance(files),
         "release55_1_intraday_governance_completion":
             check_release55_1_intraday_governance_completion(files),
+        "release55_2_runtime_release_identity":
+            check_release55_2_runtime_release_identity(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -15610,6 +15838,41 @@ def _print_console(rep: dict) -> None:
           f"{g1['ui_reads_the_reassessment_flag']}  UI interprets cycle state "
           f"(must be empty): {g1['ui_interprets_cycle_state']}  separates "
           f"NOT_REQUIRED: {g1['ui_separates_not_required_from_missing']}")
+
+    hdr("RUNTIME RELEASE IDENTITY + STALE-WORKER DETECTION (R55.2)")
+    g2 = rep["release55_2_runtime_release_identity"]
+    print(f"identity owner complete: {g2['identity_owner_complete']}  missing "
+          f"verdicts (must be empty): {g2['missing_alignment_verdicts']}  missing "
+          f"reasons (must be empty): {g2['missing_alignment_reasons']}")
+    print(f"second identity owners (must be empty): "
+          f"{g2['second_identity_owner']}  capture is memoised: "
+          f"{g2['capture_is_memoised']}")
+    print(f"owner side effects (must be empty): "
+          f"{g2['identity_owner_side_effects']}  declares inert: "
+          f"{g2['identity_owner_declares_inert']}")
+    print(f"classifier reads liveness (must be empty): "
+          f"{g2['classifier_reads_liveness']}  ALIGNED needs two proven commits: "
+          f"{g2['aligned_requires_two_proven_commits']}  not from health: "
+          f"{g2['declares_not_inferred_from_health']}")
+    print(f"surfaces re-reading HEAD as a loaded identity (must be empty): "
+          f"{g2['surfaces_reading_head_as_loaded_identity']}")
+    print(f"backend captures at import: {g2['backend_captures_at_import']}  "
+          f"worker captures before loop: {g2['worker_captures_before_loop']}  "
+          f"replaced only on registration: "
+          f"{g2['identity_replaced_only_on_registration']}")
+    print(f"publishes through the existing contract: "
+          f"{g2['publishes_through_existing_contract']}  second heartbeat stores "
+          f"(must be empty): {g2['second_heartbeat_store']}")
+    print(f"latency semantics declared: {g2['latency_semantics_declared']}  age "
+          f"relabel fails closed: {g2['age_relabel_fails_closed']}  zero-fill "
+          f"guard intact: {g2['zero_fill_guard_intact']}  second provenance "
+          f"deciders (must be empty): {g2['second_provenance_decider']}")
+    print(f"presentation consumes the verdict: "
+          f"{g2['presentation_consumes_verdict']}  re-infers (must be empty): "
+          f"{g2['presentation_reinfers_alignment']}  policy protects the action "
+          f"owner: {g2['policy_protects_the_action_owner']}")
+    print(f"UI renders the backend verdict: {g2['ui_renders_backend_alignment']}  "
+          f"UI computes alignment (must be empty): {g2['ui_computes_alignment']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -17998,6 +18261,51 @@ BLOCKING_INVARIANTS = (
      "ui_interprets_cycle_state", []),
     ("release55_1_intraday_governance_completion",
      "ui_separates_not_required_from_missing", True),
+    # ------------------------------------------------------------------- #
+    # Release 55.2 - RUNTIME RELEASE IDENTITY. A long-lived process resolves
+    # its imports once and holds them for life, so repository HEAD is NOT
+    # proof of what a running worker loaded. ONE owner captures a loaded
+    # identity at process start and freezes it, ONE comparison decides
+    # alignment, ALIGNED is unreachable from a heartbeat, and no status
+    # surface may re-read HEAD and present it as a loaded identity. The
+    # observability slice mutates nothing and restarts nothing. Every field
+    # below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release55_2_runtime_release_identity", "identity_owner_complete", True),
+    ("release55_2_runtime_release_identity", "missing_alignment_verdicts", []),
+    ("release55_2_runtime_release_identity", "missing_alignment_reasons", []),
+    ("release55_2_runtime_release_identity", "second_identity_owner", []),
+    ("release55_2_runtime_release_identity", "capture_is_memoised", True),
+    ("release55_2_runtime_release_identity", "identity_owner_side_effects", []),
+    ("release55_2_runtime_release_identity",
+     "identity_owner_declares_inert", True),
+    ("release55_2_runtime_release_identity", "classifier_reads_liveness", []),
+    ("release55_2_runtime_release_identity",
+     "aligned_requires_two_proven_commits", True),
+    ("release55_2_runtime_release_identity",
+     "declares_not_inferred_from_health", True),
+    ("release55_2_runtime_release_identity",
+     "surfaces_reading_head_as_loaded_identity", []),
+    ("release55_2_runtime_release_identity", "backend_captures_at_import", True),
+    ("release55_2_runtime_release_identity", "worker_captures_before_loop", True),
+    ("release55_2_runtime_release_identity",
+     "identity_replaced_only_on_registration", True),
+    ("release55_2_runtime_release_identity",
+     "publishes_through_existing_contract", True),
+    ("release55_2_runtime_release_identity", "second_heartbeat_store", []),
+    ("release55_2_runtime_release_identity", "latency_semantics_declared", True),
+    ("release55_2_runtime_release_identity", "age_relabel_fails_closed", True),
+    ("release55_2_runtime_release_identity", "zero_fill_guard_intact", True),
+    ("release55_2_runtime_release_identity", "second_provenance_decider", []),
+    ("release55_2_runtime_release_identity",
+     "presentation_consumes_verdict", True),
+    ("release55_2_runtime_release_identity",
+     "presentation_reinfers_alignment", []),
+    ("release55_2_runtime_release_identity",
+     "policy_protects_the_action_owner", True),
+    ("release55_2_runtime_release_identity",
+     "ui_renders_backend_alignment", True),
+    ("release55_2_runtime_release_identity", "ui_computes_alignment", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

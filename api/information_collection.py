@@ -251,6 +251,17 @@ def _blank_service_state() -> dict:
         "pid": None,
         "host": None,
         "started_at": None,
+        # R55.2 — WHICH APPLICATION RELEASE THIS WORKER LOADED.
+        #
+        # A long-lived Python process resolves its imports once and holds them
+        # for life. On 2026-09-01 this worker started 9h34m BEFORE the R54.1
+        # governance gate was committed and went on executing the older module
+        # graph while the repository, the backend and every test reported the
+        # newer code — invisibly, because a heartbeat proves a process is alive
+        # and says nothing about which code it is running. The identity is
+        # captured ONCE by ``api.runtime_identity`` at worker start and is
+        # replaced only when a genuinely new worker process registers.
+        "loaded_release": None,
         "heartbeat_at": None,
         "stopped_at": None,
         "graceful_shutdown": None,
@@ -752,14 +763,29 @@ def release_service_lock(*, root=None, instance_id: str,
 
 
 def register_worker_start(*, root=None, instance_id: str, pid: int,
-                          now: Optional[datetime] = None) -> dict:
-    """Record a worker start, counting restarts without losing prior evidence."""
+                          now: Optional[datetime] = None,
+                          loaded_release: Optional[dict] = None) -> dict:
+    """Record a worker start, counting restarts without losing prior evidence.
+
+    R55.2 — a start is also the ONE moment at which this worker's loaded release
+    identity can be recorded truthfully, so it is stamped here and replaced only
+    by the next genuinely new worker process. ``loaded_release`` is injectable
+    for hermetic tests; the default asks the ONE identity owner for the frozen
+    capture this process already made.
+    """
     now = now or _now()
     state = load_service_state(root=root)
     if state.get("started_at"):
         state["restart_count"] = int(state.get("restart_count") or 0) + 1
+    if loaded_release is None:
+        try:
+            from . import runtime_identity as _rid
+            loaded_release = _rid.loaded_identity()
+        except Exception:  # noqa: BLE001 - identity never blocks a worker start
+            loaded_release = None
     state.update({"instance_id": instance_id, "pid": int(pid),
                   "host": socket.gethostname(), "started_at": _iso(now),
+                  "loaded_release": loaded_release,
                   "heartbeat_at": _iso(now), "stopped_at": None,
                   "graceful_shutdown": None, "current_source": None,
                   # A NEW worker has proven no work yet. Inheriting the dead
@@ -2360,6 +2386,12 @@ def load_information_collection(*, root=None, limit: int = 12,
             "worker_alive": lifecycle["worker_alive"],
             "host": service.get("host"),
             "started_at": service.get("started_at"),
+            # R55.2 — the release THIS worker process loaded when it started,
+            # published verbatim. Whether it matches the deployed source is a
+            # comparison, and the comparison belongs to api.runtime_identity;
+            # this block only carries the worker's own recorded fact.
+            "loaded_release": service.get("loaded_release"),
+            "loaded_release_owner": "api.runtime_identity",
             "heartbeat_at": service.get("heartbeat_at"),
             "heartbeat_age_seconds": lifecycle["heartbeat_age_seconds"],
             "heartbeat_stale_after_seconds": HEARTBEAT_STALE_SECONDS,

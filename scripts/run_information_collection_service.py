@@ -65,6 +65,7 @@ if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
 from paper_trader.api import information_collection as ic  # noqa: E402
+from paper_trader.api import runtime_identity as rid  # noqa: E402
 from paper_trader.engine import collection_cadence as cad  # noqa: E402
 
 STOPPED = "COLLECTION_SERVICE_STOPPED"
@@ -173,6 +174,13 @@ def main(argv=None) -> int:
     pid = os.getpid()
     log = _BoundedLog(ic.logs_root(root) / "collection_service.log")
 
+    # R55.2 — capture the loaded release BEFORE the loop, at process start.
+    # This process has already resolved its whole module graph; the capture
+    # records which revision that graph came from, and freezes it for this
+    # worker's life so a later commit can never make a stale worker look
+    # current. The ONE owner of the calculation is api.runtime_identity.
+    release = rid.capture_loaded_identity(pid=pid)
+
     state = ic.load_service_state(root=root)
     if not state.get("collection_automation_enabled") and not args.allow_disabled:
         print("%s - collection automation is not enabled. The operator must "
@@ -201,9 +209,13 @@ def main(argv=None) -> int:
                   wait_refused_reason=lock.get("wait_refused_reason"))
         return 3
 
-    ic.register_worker_start(root=root, instance_id=instance_id, pid=pid)
+    ic.register_worker_start(root=root, instance_id=instance_id, pid=pid,
+                             loaded_release=release)
     log.write("worker_started", instance_id=instance_id, pid=pid,
               interval_floor_seconds=floor,
+              loaded_commit=release.get("commit_short"),
+              loaded_branch=release.get("branch"),
+              dirty_at_capture=release.get("dirty_at_capture"),
               reclaimed=lock.get("reclaimed"),
               waited_seconds=lock.get("waited_seconds"))
 

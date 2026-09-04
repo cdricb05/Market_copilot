@@ -295,6 +295,21 @@ from paper_trader.api import environment_isolation as _env_iso  # noqa: E402
 
 _STORE_ROOT_PREFLIGHT = _env_iso.assert_production_store_roots()
 
+# ---------------------------------------------------------------------------
+# Release 55.2 — THE BACKEND'S LOADED RELEASE IDENTITY, captured HERE.
+#
+# This runs while the application module is being imported, which is the
+# backend's process start. Whatever the source tree does afterwards, this
+# process keeps the identity it captured — exactly as it keeps the module graph
+# it resolved. ``api.runtime_identity`` is the ONE owner of the calculation; the
+# backend merely captures early so the answer is honest, and the identity
+# travels out through the existing active-manager-state composition rather than
+# through a new operator endpoint.
+# ---------------------------------------------------------------------------
+from paper_trader.api import runtime_identity as _runtime_identity  # noqa: E402
+
+_BACKEND_RELEASE_IDENTITY = _runtime_identity.capture_loaded_identity()
+
 app = FastAPI(title=_SERVICE_NAME, version=_SERVICE_VERSION)
 
 

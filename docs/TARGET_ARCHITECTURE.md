@@ -245,6 +245,32 @@ responsibilities, candidate existing modules, and migration approach.
   retrievability is derived from the canonical owner's own read, never from a
   file probe or a browser. A boolean like `persisted: false` beside a real
   identifier is not a contract — it is an ambiguity.
+- **A running process must be able to prove which release it loaded (R55.2,
+  LANDED):** repository HEAD describes the disk, not a process that resolved its
+  imports hours or days ago. **Target rule: every long-lived runtime captures
+  its release identity ONCE at process start and that capture is immutable for
+  the process's life.** A later source change must not move it — a "loaded
+  identity" recomputed at read time silently follows the tree, always agrees
+  with it, and reproduces the defect it was meant to detect.
+- **Liveness is never evidence of currency (R55.2, LANDED):** a heartbeat, a
+  live pid, an advancing iteration and a RUNNING service state prove a process
+  is alive and say nothing about the code it is executing. **Target rule:
+  ALIGNED requires two proven, equal commit identities and is unreachable from
+  any health signal**; anything unprovable is UNKNOWN, and a runtime that exits
+  between invocations is NOT_APPLICABLE rather than a permanent UNKNOWN.
+- **An infrastructure fault degrades research; it never rewrites the book
+  (R55.2, LANDED):** a stale runtime makes near-real-time reassessment
+  untrustworthy. **Target rule: it degrades the lane it feeds, with the exact
+  remediation named, and may not invalidate a completed operational close,
+  invalidate the standing governed decision, manufacture a portfolio change or
+  alter the primary operator action** — which keeps exactly one owner. Detection
+  never restarts anything; recovery stays an explicit operator act.
+- **A measurement must say what it measures (R55.2, LANDED):** an interval whose
+  two endpoints come from different cycles is an AGE, not a latency, and a
+  negative value proves it. **Target rule: the caller declares the provenance of
+  an endpoint, the measurement owner labels the interval accordingly and fails
+  closed to the weaker claim, and the surface renders that label rather than a
+  hard-coded caption.** Relabel; never rewrite a persisted value.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

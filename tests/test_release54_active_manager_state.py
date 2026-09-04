@@ -204,6 +204,31 @@ def _scoring() -> dict:
             "scored_count": 430, "status": "UNIVERSE_SCORING_READY"}
 
 
+#: R55.2 — a FULLY HEALTHY system now also means "every long-lived runtime is
+#: provably running the deployed release". Injected so this fixture stays
+#: hermetic: without it the composition would read the real repository and the
+#: real worker's recorded identity, and a healthy fixture would report the
+#: honest-but-environmental UNKNOWN of whatever machine ran the test.
+_ALIGNED_RUNTIMES = {
+    "available": True, "owner": "api.runtime_identity",
+    "verdict": "ALIGNED", "aligned": True, "proven": True,
+    "headline": "All persistent runtimes are running the deployed release.",
+    "source": {"commit": "c" * 40, "commit_short": "cccccccccccc",
+               "branch": "stage19-controlled-rebalance", "dirty": False},
+    "runtimes": [
+        {"runtime": "backend", "verdict": "ALIGNED", "identity_required": True,
+         "reason": "LOADED_COMMIT_MATCHES_SOURCE_COMMIT"},
+        {"runtime": "information_collection_worker", "verdict": "ALIGNED",
+         "identity_required": True,
+         "reason": "LOADED_COMMIT_MATCHES_SOURCE_COMMIT"},
+    ],
+    "stale_runtimes": [], "unknown_runtimes": [], "remediation": [],
+    "invalidates_operational_close": False,
+    "invalidates_governed_decision": False,
+    "alters_primary_operator_action": False,
+}
+
+
 def _full() -> dict:
     return ams.build_active_manager_state(
         workflow=_wf(), portfolio_state=_ps(), constrained=_constr(),
@@ -211,6 +236,7 @@ def _full() -> dict:
         event_refresh=_esr(), reassessment=_reas(), scoring=_scoring(),
         runtime_health={"state": "HEALTHY", "owner": "api.research_runtime",
                         "n_runs_total": 12},
+        runtime_alignment=_ALIGNED_RUNTIMES,
         intraday_emission=_intraday())
 
 
@@ -408,6 +434,13 @@ class TestCompositionOnly:
             # converts no timezone and reads no clock of its own; a missing
             # owner degrades to None, never to a guessed local time.
             "from paper_trader.engine import market_session as msession",
+            # R55.2 — WHICH RELEASE each long-lived runtime loaded is a read
+            # contract like the others above: this module gathers the recorded
+            # identities and asks api.runtime_identity for the verdict. It holds
+            # no alignment rule, compares no commit and restarts nothing
+            # (guarded by the R55.2 suite's TestArchitecturalBoundaries and by
+            # the strict audit's presentation_reinfers_alignment invariant).
+            "from paper_trader.api import runtime_identity as rid",
         )
         unexpected = [ln for ln in import_lines if ln not in allowed]
         assert unexpected == []

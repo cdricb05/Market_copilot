@@ -3623,3 +3623,78 @@ moment a real row exists for that session. **Nothing is backfilled and no
 history is rewritten** — `backfilled: False` and `history_rewritten: False` are
 asserted on every path — and the first real ledger row is written by the next
 governed cycle, not by a repair.
+
+### D-R55.2-1 — repository HEAD is not evidence about a running process (CONFIRMED)
+
+**Decision.** SOURCE identity, LOADED RUNTIME identity and RUNTIME ALIGNMENT are
+three distinct facts with one owner, `api.runtime_identity`. A long-lived
+runtime **captures its loaded identity once, at process start, and that capture
+is immutable for the life of the process.**
+
+**Evidence.** The information-collection worker started 2026-09-01 14:12:09; the
+R54.1 governance gate was committed 2026-09-01 23:46:16, 9h34m later. The worker
+executed the pre-R54.1 module graph for days. The repository, the backend and
+every test reported the newer code, so R55 diagnosed a governance defect that
+did not exist: the gate was not silent, it was never called.
+
+**Consequence.** Recomputing a "loaded identity" at read time is FORBIDDEN — it
+silently follows the source tree, always agrees with it, and reproduces exactly
+the defect it claims to detect. `capture_loaded_identity` memoises per process;
+the audit blocks any status surface that resolves HEAD and presents it as what a
+process loaded. Commit identity is read from git's own files with no subprocess,
+so capture at start never depends on an external tool.
+
+### D-R55.2-2 — liveness is not currency (CONFIRMED)
+
+**Decision.** `ALIGNED` requires two PROVEN, equal commit identities. No health
+signal may produce it. A runtime that exits between invocations is
+`NOT_APPLICABLE`; anything else unprovable is `UNKNOWN`.
+
+**Evidence.** Throughout the incident the worker's heartbeat was seconds old,
+its progress stamp was advancing, its activity was BUSY and its service state
+was RUNNING. Every one of those was true, and none of them said anything about
+which code was executing.
+
+**Consequence.** `classify_alignment` cannot see a heartbeat, pid, activity
+token or service state; the strict audit scans its body and blocks on any of
+those words. Health facts travel BESIDE the verdict, never into it. A dirty
+working tree is a reported caveat, not a stale verdict, because a dirty tree is
+the normal state during implementation and proves nothing about a running
+process.
+
+### D-R55.2-3 — an infrastructure fault degrades research; it never rewrites the book (CONFIRMED)
+
+**Decision.** A stale or unprovable runtime is a high-severity degradation of
+the lane it feeds, with the exact remediation named. It does not change the
+primary operator action, invalidate a completed operational close, invalidate
+the standing governed decision, or manufacture a portfolio change.
+
+**Evidence.** Three facts from the canonical model: the operator action has one
+owner (`api.workflow_state._decide_overall`); the governed evidence was produced
+by the backend, not by the stale worker; and with execution automation off, no
+broker and mandatory manual review, a stale worker cannot cause an action — only
+make research less current than it looks.
+
+**Consequence.** Detection never restarts anything. The restart owners are
+unchanged, and `RUNTIME_STALENESS_POLICY` states the boundary in the code so a
+later change cannot quietly cross it.
+
+### D-R55.2-4 — a measurement must say what it measures (CONFIRMED)
+
+**Decision.** An interval whose endpoints come from different cycles is an AGE,
+not a latency. The caller declares an endpoint's provenance, the measurement
+owner labels the interval accordingly and fails closed to the weaker claim, and
+surfaces render that label instead of a hard-coded caption.
+
+**Evidence.** `observation_to_signal_seconds` reported 6111.7 on a
+`NO_NEW_INFORMATION` cycle and read as 102 minutes of engine processing. A no-op
+cycle admits nothing, so it cannot own an observation: the signal stamp was this
+cycle's and the observation stamp was an earlier cycle's. Three live reads
+during R55.2 returned 6765.4, then **−750.1**, then 212.5 — and a negative value
+is impossible for a latency.
+
+**Consequence.** Values and keys are unchanged, so no persisted record moves:
+**relabel, never rewrite.** A negative age is named as proof that the endpoints
+are cross-cycle rather than hidden or clamped, and
+`event_cycle_processing_seconds` reports the engine's own duration beside it, so
+the question "how long did this take" has a real answer.

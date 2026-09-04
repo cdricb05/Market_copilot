@@ -1452,6 +1452,7 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
                              workflow: Optional[dict] = None,
                              hoc_binding: Optional[dict] = None,
                              observation_received_at: Any = None,
+                             observation_provenance: Any = None,
                              now: Optional[datetime] = None) -> dict:
     """Assemble ONE governed-decision candidate out of the owners' own payloads.
 
@@ -1648,6 +1649,11 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
             "stage_timestamps": dict(ev.get("stage_timestamps") or {}),
             "event_cycle_started_at": ev.get("generated_at"),
             "observation_received_at": observation_received_at,
+            # R55.2 — WHERE the observation stamp came from. Copied verbatim
+            # from the caller, which is the only party that knows; the latency
+            # owner labels the interval a pipeline latency only for an
+            # observation THIS cycle admitted, and an age otherwise.
+            "observation_provenance": observation_provenance,
             "cycle_duration_seconds": ev.get("cycle_duration_seconds"),
             "oldest_event_to_reassessment_seconds": ev.get(
                 "oldest_event_to_reassessment_seconds"),
@@ -2344,6 +2350,8 @@ def record_governed_decision(*, candidate: dict, gate: dict,
             stage_timestamps=li.get("stage_timestamps"),
             event_cycle_started_at=li.get("event_cycle_started_at"),
             observation_received_at=li.get("observation_received_at"),
+            observation_provenance=li.get("observation_provenance"),
+            event_cycle_processing_seconds=li.get("cycle_duration_seconds"),
             governance_gate_completed_at=(gate or {}).get("evaluated_at"),
             governed_decision_persisted_at=ts)
     except Exception as exc:  # noqa: BLE001 - observability never blocks a decision
@@ -2431,6 +2439,7 @@ def govern_latest_intraday_assessment(
         rebalance: Optional[dict] = None,
         hoc_binding: Optional[dict] = None,
         observation_received_at: Any = None,
+        observation_provenance: Any = None,
         decision_dir=None, reallocation_dir=None, hoc_dir=None,
         loaders: Optional[dict] = None,
         now: Optional[datetime] = None) -> dict:
@@ -2531,7 +2540,8 @@ def govern_latest_intraday_assessment(
         portfolio_state=ps, event_cycle=ev, reassessment=rs,
         proposal_summary=summ, constrained=con, scoring_identity=sc,
         workflow=wf, hoc_binding=hb,
-        observation_received_at=observation_received_at, now=now)
+        observation_received_at=observation_received_at,
+        observation_provenance=observation_provenance, now=now)
     # The STANDING authority is the later of the persisted governed record and
     # the projected DRC-governed decision, under the ONE ordering — the same
     # resolution the read performs. Comparing against only the persisted record

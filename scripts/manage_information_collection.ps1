@@ -165,6 +165,15 @@ function Show-Status([string]$Title) {
     Info "  activity      : $(Fmt $st.worker_activity 'unknown')   ($(Fmt $st.worker_activity_reason ''))"
     Info "  progress age  : $pg   seq $(Fmt $st.progress_seq '0')   step $(Fmt $st.progress_step 'none')"
     Info "  iteration open: $(Fmt $st.iteration_in_flight 'false')   id $(Fmt $st.current_iteration_id 'none')"
+    # R55.2 - WHICH RELEASE IS THIS LIVE WORKER RUNNING? A heartbeat proves the
+    # process is alive; it says nothing about the code it loaded. The verdict,
+    # the reason and the remediation sentence all come from the ONE identity
+    # owner (api.runtime_identity) - this script prints them and decides nothing.
+    Info "  loaded release: $(Fmt $st.loaded_commit 'UNKNOWN')   captured $(Fmt $st.loaded_captured_at 'never')"
+    Info "  source release: $(Fmt $st.source_commit 'UNKNOWN')   branch $(Fmt $st.source_branch 'unknown')   dirty: $(Fmt $st.source_dirty 'unknown')"
+    Info "  alignment     : $(Fmt $st.runtime_alignment 'UNKNOWN')   ($(Fmt $st.runtime_alignment_reason ''))"
+    if ($st.runtime_alignment_statement) { Info "    $($st.runtime_alignment_statement)" }
+    if ($st.runtime_alignment_remediation) { Info "    remediation : $($st.runtime_alignment_remediation)" }
     Info "  iterations    : $($st.loop_count)   restarts: $($st.restart_count)"
     Info "  last iteration: $(Fmt $st.last_iteration_finished_at 'never')"
     Info "  next wake     : $(Fmt $st.next_wake_at 'not scheduled')"

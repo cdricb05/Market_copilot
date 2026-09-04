@@ -983,7 +983,13 @@ def test_the_advanced_disclosure_keeps_every_diagnostic():
     region = _r55_region()
     assert "d.advisory_components" in region
     assert "d.acceptance" in region
-    assert "lat.observation_to_signal_seconds" in region
+    # R55.2 — the interval is still rendered, but its CAPTION now comes from the
+    # backend instead of being hard-coded here (a hard-coded "Observation →
+    # signal" turned an observation AGE into what read as processing time), so
+    # the row is emitted through the label-driven helper rather than by naming
+    # the key inline. The diagnostic itself is unchanged and still present.
+    assert "_latRow('observation_to_signal_seconds'" in region
+    assert "lat.interval_labels" in region
     assert "lat.missing_measurements" in region
 
 
