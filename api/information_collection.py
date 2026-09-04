@@ -89,6 +89,11 @@ SVC_DEGRADED = "DEGRADED"
 SVC_NEVER_STARTED = "NEVER_STARTED"
 SERVICE_STATES = (SVC_RUNNING, SVC_STOPPED, SVC_DEGRADED, SVC_NEVER_STARTED)
 
+#: R55.2.1 — the ONE module that decides what a loaded release identity IS and
+#: whether it matches the deployed source. This module records and republishes
+#: the worker's capture; it never compares two commits itself.
+_RELEASE_IDENTITY_OWNER = "api.runtime_identity"
+
 #: A heartbeat older than this means the worker is not alive even if a lock file
 #: is still on disk (a hard kill leaves the lock behind).
 HEARTBEAT_STALE_SECONDS = 300.0
@@ -830,7 +835,10 @@ def resolve_service_lifecycle(state: dict, lock: Optional[dict],
                 "progress_seq": None, "progress_step": None,
                 "iteration_in_flight": False,
                 "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
-                "worker_pid": None, "worker_alive": None}
+                "worker_pid": None, "worker_alive": None,
+                "instance_id": None, "started_at": None,
+                "loaded_release": None,
+                "loaded_release_owner": _RELEASE_IDENTITY_OWNER}
     hb_age = _age(state.get("heartbeat_at"), now)
     pg_age = _age(state.get("progress_at"), now)
     in_flight = bool(state.get("iteration_in_flight"))
@@ -849,7 +857,23 @@ def resolve_service_lifecycle(state: dict, lock: Optional[dict],
                 "progress_step": state.get("progress_step"),
                 "iteration_in_flight": in_flight,
                 "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
-                "worker_pid": pid, "worker_alive": alive}
+                "worker_pid": pid, "worker_alive": alive,
+                # R55.2.1 — WHICH WORKER, AND WHICH RELEASE IT LOADED.
+                #
+                # These are properties of the worker PROCESS, exactly like
+                # ``worker_pid``, and they are carried here VERBATIM out of the
+                # state this owner was already handed. R55.2 published the
+                # capture only on the full collection payload, so every consumer
+                # that reads the canonical lifecycle view instead — the operator
+                # presentation, the decision snapshot and through it the Active
+                # Manager — saw no identity at all and reported a proven-aligned
+                # worker as UNKNOWN. One lifecycle owner, one set of worker
+                # facts. This owner still compares nothing: the alignment verdict
+                # belongs to ``api.runtime_identity`` and to nothing else.
+                "instance_id": state.get("instance_id"),
+                "started_at": state.get("started_at"),
+                "loaded_release": state.get("loaded_release"),
+                "loaded_release_owner": _RELEASE_IDENTITY_OWNER}
 
     if state.get("stopped_at") and not lock:
         return _verdict(SVC_STOPPED, ACT_NOT_RUNNING,
@@ -946,6 +970,71 @@ WORKER_TOPOLOGY_AMBIGUOUS = "AMBIGUOUS_WORKER_TOPOLOGY"
 WORKER_TOPOLOGY_VERDICTS = (WORKER_TOPOLOGY_NONE, WORKER_TOPOLOGY_SINGLE,
                             WORKER_TOPOLOGY_VIOLATED, WORKER_TOPOLOGY_AMBIGUOUS)
 
+# --------------------------------------------------------------------------- #
+# RELEASE 55.2.1 — "I LOOKED AND SAW NOTHING" IS NOT "I COULD NOT LOOK"
+# --------------------------------------------------------------------------- #
+# Measured on this machine on 2026-09-03, in an unelevated operator shell:
+#
+#   Get-CimInstance Win32_Process -Filter "Name='python.exe'"  ->  6 rows
+#     pid  1888 / 2264   CommandLine READABLE     (this shell's own lineage)
+#     pid  3208 / 58768  CommandLine NULL         (backend, Task Scheduler)
+#     pid 61108 /  1976  CommandLine NULL         (COLLECTION WORKER, alive)
+#
+# The collector selects candidates by ``CommandLine -like "*<worker script>*"``,
+# so a row whose command line the shell may not read is not merely unmatched —
+# it never reaches this function at all. The snapshot arrived EMPTY while pid
+# 1976 was alive, holding the singleton lock and heartbeating, and the verdict
+# was NO_LOGICAL_WORKER: "No process on this machine is running the collection
+# worker." Restart then declared COLLECTION_SERVICE_BLOCKED on a healthy service.
+#
+# That is not a cosmetic warning. ``resolve_abandoned_lock`` treats
+# NO_LOGICAL_WORKER as PROOF that the machine is empty and returns
+# ``may_clear: True`` — so the same blindness would have authorised clearing the
+# singleton lock of a RUNNING worker and permitted a second one. An unreadable
+# snapshot must therefore never reach that verdict; it fails closed to
+# AMBIGUOUS_WORKER_TOPOLOGY, which every safety consumer already refuses.
+#
+# The introspection envelope is what lets this function tell the two cases
+# apart. It is OPTIONAL: a caller that supplies none is taken at its word, which
+# keeps every existing snapshot contract working unchanged.
+#: Counters a snapshot collector may report about its OWN ability to see.
+WORKER_SNAPSHOT_INTROSPECTION_KEYS = ("scanned_count", "matched_count",
+                                      "unreadable_command_line_count",
+                                      "query_failed")
+
+# --------------------------------------------------------------------------- #
+# WORKER PRESENCE — the evidence hierarchy, ordered strongest first
+# --------------------------------------------------------------------------- #
+#: One live worker, corroborated by a readable process snapshot.
+WORKER_PRESENCE_CONFIRMED = "CONFIRMED_SINGLETON"
+#: One live worker proven by AUTHORITATIVE runtime state, while the OPTIONAL OS
+#: process-metadata correlation was unavailable. Strong evidence, one advisory.
+WORKER_PRESENCE_CONFIRMED_NO_OS = "CONFIRMED_SINGLETON_OS_METADATA_UNAVAILABLE"
+#: No authoritative evidence of any worker.
+WORKER_PRESENCE_NONE = "NO_WORKER"
+#: More than one worker is PROVEN. Never softened by anything below it.
+WORKER_PRESENCE_MULTIPLE = "MULTIPLE_WORKERS"
+#: The evidence conflicts (heartbeat pid vs lock owner vs snapshot). Fails closed.
+WORKER_PRESENCE_INCONSISTENT = "INCONSISTENT_TOPOLOGY"
+WORKER_PRESENCE_VERDICTS = (WORKER_PRESENCE_CONFIRMED,
+                            WORKER_PRESENCE_CONFIRMED_NO_OS,
+                            WORKER_PRESENCE_NONE, WORKER_PRESENCE_MULTIPLE,
+                            WORKER_PRESENCE_INCONSISTENT)
+#: The verdicts under which an operator lifecycle action may report success.
+WORKER_PRESENCE_SINGLETON_PROVEN = (WORKER_PRESENCE_CONFIRMED,
+                                    WORKER_PRESENCE_CONFIRMED_NO_OS)
+
+#: The evidence ladder, named once so no surface invents its own ordering. Read
+#: top to bottom: the first rung that decides, decides.
+WORKER_PRESENCE_EVIDENCE_ORDER = (
+    "PROVEN_MULTIPLE_LINEAGES",       # the snapshot proves two workers
+    "CONFLICTING_RUNTIME_EVIDENCE",   # heartbeat pid vs lock owner vs instance
+    "AUTHORITATIVE_RUNTIME_STATE",    # live pid + lock owner + instance + beat
+    "OS_PROCESS_CORRELATION",         # optional; corroborates, never overrides
+)
+#: The ONE owner of the presence verdict. No script re-derives it.
+PRESENCE_OWNER = "api.information_collection.resolve_worker_presence"
+
 #: Bound on the ancestor walk. A lineage is a redirector plus a worker; anything
 #: deeper than this is a malformed snapshot, not a launch chain.
 _MAX_LINEAGE_DEPTH = 16
@@ -995,15 +1084,73 @@ def _created_before(parent: dict, child: dict) -> bool:
         return True
 
 
+def _split_snapshot(processes: Any, introspection: Optional[dict]) -> tuple:
+    """``(rows, introspection)`` from either a bare list or an envelope.
+
+    A collector may hand over ``[row, ...]`` (every pre-R55.2.1 caller) or
+    ``{"rows": [...], "introspection": {...}}``. Both are accepted so the
+    envelope can be adopted one collector at a time.
+    """
+    if isinstance(processes, dict):
+        intro = introspection or processes.get("introspection") or None
+        return list(processes.get("rows") or []), intro
+    return list(processes or []), introspection
+
+
+def _snapshot_authority(introspection: Optional[dict]) -> dict:
+    """Could this snapshot SEE everything it needed to see?
+
+    No envelope means the collector made no claim, and a caller is taken at its
+    word — that is what every existing snapshot contract already assumed.
+    """
+    if not isinstance(introspection, dict) or not introspection:
+        return {"os_metadata_available": True, "snapshot_authoritative": True,
+                "introspection": None,
+                "authority_detail": ("No introspection envelope was supplied; the "
+                                     "snapshot is taken as complete.")}
+    unreadable = introspection.get("unreadable_command_line_count")
+    try:
+        unreadable = int(unreadable) if unreadable is not None else 0
+    except (TypeError, ValueError):
+        unreadable = 0
+    failed = bool(introspection.get("query_failed"))
+    available = not failed and unreadable == 0
+    if failed:
+        detail = ("The process query itself failed, so this machine's process "
+                  "table was never read.")
+    elif unreadable:
+        detail = ("%d process(es) were visible but their command lines could not "
+                  "be read by this shell, so a worker among them could not be "
+                  "recognised." % unreadable)
+    else:
+        detail = ("Every visible process exposed its command line; the snapshot "
+                  "is complete.")
+    return {"os_metadata_available": available,
+            "snapshot_authoritative": available,
+            "introspection": {k: introspection.get(k)
+                              for k in WORKER_SNAPSHOT_INTROSPECTION_KEYS},
+            "authority_detail": detail}
+
+
 def resolve_worker_topology(processes: Any, *, lock: Optional[dict] = None,
-                            worker_script: str = CANONICAL_WORKER_SCRIPT) -> dict:
+                            worker_script: str = CANONICAL_WORKER_SCRIPT,
+                            introspection: Optional[dict] = None) -> dict:
     """ONE authoritative logical-worker verdict over a process snapshot.
 
     ``processes`` is a snapshot of candidate processes (Win32_Process rows or the
-    snake_case equivalent). Membership is the command line naming the canonical
+    snake_case equivalent), optionally wrapped in an envelope carrying what the
+    collector could SEE. Membership is the command line naming the canonical
     worker script — the same test the manager has always used — but the COUNT is
     of launch lineages, not of physical processes.
+
+    R55.2.1: an EMPTY snapshot now means "no worker" only when the collector
+    could actually read the process table. When command lines were unreadable the
+    verdict fails closed to AMBIGUOUS_WORKER_TOPOLOGY instead, because
+    :func:`resolve_abandoned_lock` treats NO_LOGICAL_WORKER as proof that the
+    machine is empty and would otherwise authorise clearing a live worker's lock.
     """
+    processes, introspection = _split_snapshot(processes, introspection)
+    authority = _snapshot_authority(introspection)
     rows = [_process_row(r) for r in (processes or [])]
     token = str(worker_script or "").lower()
     candidates = [r for r in rows if token and token in r["command_line"].lower()]
@@ -1076,7 +1223,17 @@ def resolve_worker_topology(processes: Any, *, lock: Optional[dict] = None,
     orphaned = sorted(set(by_pid) - reached)
     leaf_total = sum(len(l["leaf_pids"]) for l in lineages)
 
-    if not candidates:
+    if not candidates and not authority["snapshot_authoritative"]:
+        # THE R55.2.1 REPAIR. Absence of evidence is not evidence of absence when
+        # the shell was not permitted to look. Failing closed here is what keeps
+        # ``resolve_abandoned_lock`` from clearing a live worker's singleton lock.
+        verdict = WORKER_TOPOLOGY_AMBIGUOUS
+        reason = ("The process snapshot is not authoritative, so it cannot show "
+                  "whether a worker is running. %s Independent runtime evidence "
+                  "(service state, heartbeat, singleton lock, pid liveness) "
+                  "decides worker presence instead."
+                  % authority["authority_detail"])
+    elif not candidates:
         verdict = WORKER_TOPOLOGY_NONE
         reason = "No process on this machine is running the collection worker."
     elif unreadable or cyclic or orphaned:
@@ -1140,7 +1297,178 @@ def resolve_worker_topology(processes: Any, *, lock: Optional[dict] = None,
         "singleton_ok": verdict == WORKER_TOPOLOGY_SINGLE,
         "healthy": bool(verdict == WORKER_TOPOLOGY_SINGLE and lock_correlated),
         "worker_script": worker_script,
+        # R55.2.1 — what the COLLECTOR could see, carried beside what it found.
+        # A consumer must be able to tell a complete snapshot that found nothing
+        # from a snapshot that could not be taken.
+        "os_metadata_available": authority["os_metadata_available"],
+        "snapshot_authoritative": authority["snapshot_authoritative"],
+        "snapshot_authority_detail": authority["authority_detail"],
+        "introspection": authority["introspection"],
     }
+
+
+def resolve_worker_presence(*, topology: Optional[dict],
+                            state: Optional[dict] = None,
+                            lock: Optional[dict] = None,
+                            now: Optional[datetime] = None,
+                            pid_alive: Optional[Callable] = None) -> dict:
+    """R55.2.1 — IS EXACTLY ONE COLLECTION WORKER RUNNING, and how do we know?
+
+    ONE verdict over TWO independent bodies of evidence, ranked by strength and
+    resolved in the fixed order of :data:`WORKER_PRESENCE_EVIDENCE_ORDER`:
+
+      1. PROVEN_MULTIPLE_LINEAGES — the process snapshot resolved two or more
+         workers. This outranks everything below it and is never softened,
+         because the singleton guarantee is the one thing that must fail closed
+         in both directions: unreadable OS metadata may not manufacture a worker
+         out of nothing, and it may not hide one either.
+      2. CONFLICTING_RUNTIME_EVIDENCE — the heartbeat's pid, the lock owner and
+         the instance id disagree. Undecidable is not healthy.
+      3. AUTHORITATIVE_RUNTIME_STATE — the worker's own durable evidence: a live
+         pid, a singleton lock naming that pid, the same instance id in both, and
+         a heartbeat (or an advancing iteration) inside the stall budget. This is
+         STRONGER than a process-table correlation, because the worker wrote it.
+      4. OS_PROCESS_CORRELATION — the optional command-line snapshot. It can
+         CORROBORATE rung 3 and it can prove rung 1. It can never, on its own,
+         refute rung 3: a shell that may not read a Task-Scheduler process's
+         command line has learned nothing about whether that process exists.
+
+    Rung 4 does retain one refutation: when the snapshot WAS authoritative and
+    found no worker while rung 3 says one is live, the two disagree about a fact
+    both could see, and that is INCONSISTENT_TOPOLOGY — reported, never resolved
+    by preferring the more comfortable answer.
+
+    Read-only. Starts, stops, restarts and signals nothing.
+    """
+    now = now or _now()
+    alive_fn = pid_alive or _pid_alive
+    topo = topology or {}
+    st = state or {}
+    verdict_topo = topo.get("verdict")
+    os_available = topo.get("os_metadata_available")
+    if os_available is None:
+        os_available = True
+
+    lock_pid = _as_pid((lock or {}).get("pid"))
+    state_pid = _as_pid(st.get("pid"))
+    lock_instance = (lock or {}).get("instance_id")
+    state_instance = st.get("instance_id")
+    hb_age = _age(st.get("heartbeat_at"), now)
+    pg_age = _age(st.get("progress_at"), now)
+    in_flight = bool(st.get("iteration_in_flight"))
+    # A worker proves it is awake either by heartbeating between iterations or by
+    # advancing progress inside an open one — the same two proofs the lifecycle
+    # owner already uses. Nothing here invents a third.
+    beating = bool(hb_age is not None and hb_age <= HEARTBEAT_STALE_SECONDS)
+    advancing = bool(in_flight and pg_age is not None
+                     and pg_age <= PROGRESS_STALL_SECONDS)
+    pid_for_liveness = state_pid or lock_pid
+    live = alive_fn(pid_for_liveness) if pid_for_liveness else None
+
+    evidence = {
+        "worker_pid": state_pid, "lock_pid": lock_pid,
+        "pid_alive": live,
+        "state_instance_id": state_instance, "lock_instance_id": lock_instance,
+        "heartbeat_age_seconds": (None if hb_age is None else round(hb_age, 1)),
+        "heartbeat_fresh": beating,
+        "progress_age_seconds": (None if pg_age is None else round(pg_age, 1)),
+        "iteration_in_flight": in_flight, "iteration_advancing": advancing,
+        "heartbeat_stale_after_seconds": HEARTBEAT_STALE_SECONDS,
+        "progress_stall_after_seconds": PROGRESS_STALL_SECONDS,
+        "topology_verdict": verdict_topo,
+        "topology_reason": topo.get("reason"),
+        "topology_executing_pid": topo.get("executing_pid"),
+        "os_metadata_available": bool(os_available),
+        "snapshot_authoritative": bool(topo.get("snapshot_authoritative", True)),
+        "snapshot_authority_detail": topo.get("snapshot_authority_detail"),
+        "evidence_order": list(WORKER_PRESENCE_EVIDENCE_ORDER),
+    }
+
+    def _out(verdict: str, rung: str, reason: str, advisory=None) -> dict:
+        return dict(evidence, verdict=verdict, verdict_vocabulary=list(
+            WORKER_PRESENCE_VERDICTS), decided_on=rung, reason=reason,
+            advisory=advisory,
+            singleton_proven=verdict in WORKER_PRESENCE_SINGLETON_PROVEN,
+            read_only=True, writes_nothing=True, restarts_nothing=True,
+            owner=PRESENCE_OWNER)
+
+    # ---- 1. A proven violation outranks every other consideration. --------- #
+    if verdict_topo == WORKER_TOPOLOGY_VIOLATED:
+        return _out(WORKER_PRESENCE_MULTIPLE, "PROVEN_MULTIPLE_LINEAGES",
+                    topo.get("reason") or "More than one collection worker is "
+                                          "running.")
+
+    # ---- 2. Runtime evidence that contradicts itself is never healthy. ----- #
+    if (lock_pid is not None and state_pid is not None and lock_pid != state_pid
+            and live is not False):
+        return _out(WORKER_PRESENCE_INCONSISTENT, "CONFLICTING_RUNTIME_EVIDENCE",
+                    ("The service state records worker pid %s while the singleton "
+                     "lock is held by pid %s. Two different processes cannot both "
+                     "be the one worker." % (state_pid, lock_pid)))
+    if (lock_instance and state_instance and lock_instance != state_instance):
+        return _out(WORKER_PRESENCE_INCONSISTENT, "CONFLICTING_RUNTIME_EVIDENCE",
+                    ("The singleton lock names instance %s while the service state "
+                     "records instance %s." % (lock_instance, state_instance)))
+
+    # ---- 3. Does the worker's OWN durable evidence prove one live worker? --- #
+    proven = bool(lock_pid is not None and live is True and (beating or advancing)
+                  and (state_pid is None or state_pid == lock_pid))
+    if proven:
+        detail = ("pid %s is alive, holds the singleton lock, and %s"
+                  % (lock_pid,
+                     ("last heartbeat %.0fs ago" % hb_age) if beating
+                     else ("its open iteration advanced %.0fs ago" % pg_age)))
+        # ---- 4. The optional OS correlation: corroborate, or disagree. ------ #
+        if verdict_topo == WORKER_TOPOLOGY_SINGLE:
+            return _out(WORKER_PRESENCE_CONFIRMED, "AUTHORITATIVE_RUNTIME_STATE",
+                        ("Exactly one collection worker is running: %s. The "
+                         "process snapshot resolves the same single launch "
+                         "lineage." % detail))
+        if not os_available:
+            return _out(
+                WORKER_PRESENCE_CONFIRMED_NO_OS, "AUTHORITATIVE_RUNTIME_STATE",
+                ("Exactly one collection worker is running: %s." % detail),
+                advisory=("OS process-metadata correlation is unavailable — %s "
+                          "Worker presence is proven by the worker's own durable "
+                          "runtime state instead, which is stronger evidence than "
+                          "a command-line match. Nothing is wrong with the service."
+                          % (topo.get("snapshot_authority_detail") or
+                             "this shell could not read the process command "
+                             "lines.")))
+        if verdict_topo == WORKER_TOPOLOGY_NONE:
+            return _out(WORKER_PRESENCE_INCONSISTENT, "OS_PROCESS_CORRELATION",
+                        ("The runtime state proves a live worker (%s) but a "
+                         "COMPLETE process snapshot found no process running the "
+                         "collection worker. The two disagree about a fact both "
+                         "could observe." % detail))
+        return _out(
+            WORKER_PRESENCE_CONFIRMED_NO_OS, "AUTHORITATIVE_RUNTIME_STATE",
+            ("Exactly one collection worker is running: %s." % detail),
+            advisory=("The process snapshot could not be resolved into launch "
+                      "lineages (%s), so it neither corroborates nor refutes the "
+                      "runtime evidence." % (topo.get("reason") or "unresolved")))
+
+    # ---- 5. Nothing proves a worker. --------------------------------------- #
+    if verdict_topo == WORKER_TOPOLOGY_SINGLE:
+        return _out(WORKER_PRESENCE_INCONSISTENT, "OS_PROCESS_CORRELATION",
+                    ("A single worker lineage is running (executing pid %s) but "
+                     "its durable runtime evidence does not confirm it: %s."
+                     % (topo.get("executing_pid"),
+                        topo.get("lock_correlation_reason") or
+                        "the singleton lock does not name a live heartbeating "
+                        "process")))
+    why = []
+    if lock_pid is None:
+        why.append("no singleton lock is held")
+    if live is False:
+        why.append("the recorded worker pid %s is gone" % pid_for_liveness)
+    elif live is None:
+        why.append("no worker pid has been recorded")
+    if not (beating or advancing):
+        why.append("no fresh heartbeat or advancing iteration")
+    return _out(WORKER_PRESENCE_NONE, "AUTHORITATIVE_RUNTIME_STATE",
+                "No collection worker can be proven: %s."
+                % ("; ".join(why) or "no runtime evidence of a worker"))
 
 
 # --------------------------------------------------------------------------- #
@@ -2391,7 +2719,7 @@ def load_information_collection(*, root=None, limit: int = 12,
             # comparison, and the comparison belongs to api.runtime_identity;
             # this block only carries the worker's own recorded fact.
             "loaded_release": service.get("loaded_release"),
-            "loaded_release_owner": "api.runtime_identity",
+            "loaded_release_owner": _RELEASE_IDENTITY_OWNER,
             "heartbeat_at": service.get("heartbeat_at"),
             "heartbeat_age_seconds": lifecycle["heartbeat_age_seconds"],
             "heartbeat_stale_after_seconds": HEARTBEAT_STALE_SECONDS,

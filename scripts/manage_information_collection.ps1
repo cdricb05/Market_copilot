@@ -195,7 +195,12 @@ function Show-StartupDiagnostics([string]$Reason) {
     } else {
         Info "task              : NOT INSTALLED"
     }
-    foreach ($p in (Get-WorkerProcesses)) {
+    $scan = Get-WorkerScan
+    Info "process scan      : $($scan.scanned) python.exe row(s); $($scan.unreadable) with an unreadable command line; query failed: $($scan.failed)"
+    if ($scan.unreadable -gt 0) {
+        Info "                    (an unreadable command line means THIS SHELL may not inspect that process, not that it is absent)"
+    }
+    foreach ($p in @($scan.matched)) {
         Info "process           : pid=$($p.ProcessId) parent=$($p.ParentProcessId) image=$($p.ExecutablePath)"
     }
     $st = Get-ServiceStatus
@@ -226,22 +231,56 @@ function Show-StartupDiagnostics([string]$Reason) {
 # here for ONE worker. How many LOGICAL workers those rows are is decided by
 # ic.resolve_worker_topology, not by this function.
 function Get-WorkerProcesses() {
-    $procs = @()
+    return (Get-WorkerScan).matched
+}
+
+# RELEASE 55.2.1 - REPORT WHAT THIS SHELL COULD SEE, NOT ONLY WHAT IT MATCHED.
+#
+# Measured here on 2026-09-03: Win32_Process returned 6 python.exe rows and FOUR
+# of them (the backend and collection lineages, both owned by Task Scheduler)
+# exposed a NULL CommandLine to this unelevated shell. The old collector's filter
+# required a readable command line, so those rows were dropped silently and the
+# snapshot arrived EMPTY while the worker was alive, heartbeating and holding the
+# singleton lock. Python then said NO_LOGICAL_WORKER and Restart said BLOCKED.
+#
+# The counters below are the difference between "I looked and saw nothing" and
+# "I was not allowed to look". PowerShell reports; Python decides what it means.
+function Get-WorkerScan() {
+    $matched   = @()
+    $scanned   = 0
+    $unreadable = 0
+    $failed    = $false
     try {
-        $all = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop
+        $all = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop)
+        $scanned = $all.Count
         foreach ($p in $all) {
-            if ($p.CommandLine -and $p.CommandLine -like "*run_information_collection_service.py*") {
-                $procs += $p
+            if (-not $p.CommandLine) {
+                # Visible process, unreadable metadata. It MIGHT be the worker;
+                # this shell cannot tell, and must not pretend otherwise.
+                $unreadable++
+                continue
+            }
+            if ($p.CommandLine -like "*run_information_collection_service.py*") {
+                $matched += $p
             }
         }
-    } catch { }
-    return $procs
+    } catch {
+        $failed = $true
+    }
+    return [pscustomobject]@{
+        matched    = $matched
+        scanned    = $scanned
+        unreadable = $unreadable
+        failed     = $failed
+    }
 }
 
-# The process snapshot, in the shape the control helper's stdin contract wants.
+# The process snapshot ENVELOPE, in the shape the control helper's stdin
+# contract wants: the rows this shell could read, plus what it could not.
 function Get-WorkerSnapshotJson() {
+    $scan = Get-WorkerScan
     $rows = @()
-    foreach ($p in (Get-WorkerProcesses)) {
+    foreach ($p in @($scan.matched)) {
         $created = $null
         if ($p.CreationDate) {
             try { $created = $p.CreationDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ") } catch { }
@@ -254,29 +293,31 @@ function Get-WorkerSnapshotJson() {
             created_at      = $created
         }
     }
-    return (ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress)
+    $envelope = [pscustomobject]@{
+        rows          = @($rows)
+        introspection = [pscustomobject]@{
+            scanned_count                  = $scan.scanned
+            matched_count                  = @($rows).Count
+            unreadable_command_line_count  = $scan.unreadable
+            query_failed                   = $scan.failed
+        }
+    }
+    return (ConvertTo-Json -InputObject $envelope -Depth 5 -Compress)
 }
 
-# The ONE logical-worker verdict. PowerShell enumerates; Python decides.
+# The ONE logical-worker verdict AND the ONE presence verdict. PowerShell
+# enumerates; Python decides. This script never re-derives either.
 function Get-WorkerTopology() {
-    $rows = @()
-    foreach ($p in (Get-WorkerProcesses)) {
-        $created = $null
-        if ($p.CreationDate) {
-            try { $created = $p.CreationDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ") } catch { }
-        }
-        $rows += [pscustomobject]@{
-            pid             = $p.ProcessId
-            parent_pid      = $p.ParentProcessId
-            command_line    = $p.CommandLine
-            executable_path = $p.ExecutablePath
-            created_at      = $created
-        }
-    }
-    $json = ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+    $json = Get-WorkerSnapshotJson
     $out = $json | & $PythonExe $StatePy --action worker-topology 2>&1
     if ($LASTEXITCODE -ne 0) { return $null }
     try { return ($out -join "`n") | ConvertFrom-Json } catch { return $null }
+}
+
+# Is the singleton PROVEN? Never re-implemented here - it is the owner's word.
+function Test-SingletonProven($Topology) {
+    if ($null -eq $Topology) { return $false }
+    return [bool]$Topology.singleton_proven
 }
 
 function Show-Topology($Topology) {
@@ -284,7 +325,19 @@ function Show-Topology($Topology) {
         Info "worker topology: UNREADABLE (control helper returned no JSON)"
         return
     }
-    Info "worker topology : $($Topology.verdict)"
+    # R55.2.1 - PRESENCE first, because it is the authoritative answer to "is a
+    # worker running". The process snapshot below it is OPTIONAL corroboration.
+    Info "worker presence : $($Topology.presence_verdict)"
+    Info "  $($Topology.presence_reason)"
+    Info "  decided on    : $($Topology.presence_decided_on)   singleton proven: $($Topology.singleton_proven)"
+    if ($Topology.presence_advisory) { Info "  advisory      : $($Topology.presence_advisory)" }
+    $pr = $Topology.presence
+    if ($null -ne $pr) {
+        Info "  evidence      : pid $(Fmt $pr.worker_pid) alive=$(Fmt $pr.pid_alive 'unknown')  lock pid $(Fmt $pr.lock_pid)  instance $(Fmt $pr.state_instance_id)"
+        Info "                  heartbeat $(Fmt $pr.heartbeat_age_seconds 'never') s (fresh: $($pr.heartbeat_fresh))  iteration open: $($pr.iteration_in_flight) advancing: $($pr.iteration_advancing)"
+    }
+    Info "  OS metadata   : available=$($Topology.os_metadata_available)   $(Fmt $Topology.snapshot_authority_detail '')"
+    Info "worker topology : $($Topology.verdict)   (optional OS process correlation)"
     Info "  $($Topology.reason)"
     Info "  logical workers : $($Topology.logical_worker_count)   physical processes: $($Topology.physical_process_count)"
     Info "  executing pid   : $(Fmt $Topology.executing_pid)"
@@ -297,14 +350,16 @@ function Show-Topology($Topology) {
     Info "  $($Topology.lock_correlation_reason)"
 }
 
-# A healthy start is ONE lineage whose executing process owns the singleton lock.
-# The snapshot is re-read a bounded number of times because a redirector that has
-# not yet spawned its child is a transient, not a verdict.
+# A healthy start is ONE PROVEN worker. R55.2.1: proof comes from the presence
+# owner's evidence ladder, not from `healthy`, which was true only when the
+# optional command-line correlation happened to be readable. The snapshot is
+# re-read a bounded number of times because a redirector that has not yet spawned
+# its child is a transient, not a verdict.
 function Wait-ForOneLogicalWorker([int]$Attempts = 5) {
     $last = $null
     for ($i = 0; $i -lt $Attempts; $i++) {
         $last = Get-WorkerTopology
-        if ($null -ne $last -and $last.healthy) { return $last }
+        if (Test-SingletonProven $last) { return $last }
         Start-Sleep -Seconds 2
     }
     return $last
@@ -345,8 +400,35 @@ function Install-CollectionTask() {
 function Stop-Worker() {
     $procs = Get-WorkerProcesses
     if ($procs.Count -eq 0) {
-        Info "No collection worker process is running."
-        return $true
+        # R55.2.1 - AN EMPTY SNAPSHOT IS NOT PROOF OF A STOP. When this shell
+        # cannot read command lines, the matched set is empty while the worker is
+        # very much alive, and returning $true here reported a stop that never
+        # happened. Fall back to the AUTHORITATIVE evidence - the pid the worker
+        # itself recorded and the pid holding the singleton lock - and stop those.
+        $verdict = Get-WorkerTopology
+        $known = @()
+        if ($null -ne $verdict -and $null -ne $verdict.presence) {
+            foreach ($candidate in @($verdict.presence.worker_pid, $verdict.presence.lock_pid)) {
+                if ($candidate -and ($known -notcontains $candidate)) { $known += $candidate }
+            }
+        }
+        $live = @($known | Where-Object { $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue) })
+        if ($live.Count -eq 0) {
+            Info "No collection worker process is running."
+            return $true
+        }
+        Info "The process snapshot matched nothing, but the recorded worker pid(s) $($live -join ', ') are alive; stopping those."
+        foreach ($stopPid in $live) {
+            Info "Stopping worker pid $stopPid ..."
+            try { Stop-Process -Id $stopPid -ErrorAction Stop } catch { }
+        }
+        $deadline = (Get-Date).AddSeconds(45)
+        while ((Get-Date) -lt $deadline) {
+            $stillAlive = @($live | Where-Object { $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue) })
+            if ($stillAlive.Count -eq 0) { return $true }
+            Start-Sleep -Seconds 2
+        }
+        return $false
     }
     # Kill the LEAVES first. The venv redirector is a parent that WAITS on the
     # base interpreter, so killing the parent first orphans the child that owns
@@ -423,13 +505,13 @@ switch ($Action) {
             Fail "the scheduled task is not installed. Run -Action Install -Execute first."
         }
         $existing = Get-WorkerTopology
-        if ($null -ne $existing -and $existing.verdict -ne "NO_LOGICAL_WORKER") {
-            if ($existing.verdict -ne "SINGLE_LOGICAL_WORKER") {
+        if ($null -ne $existing -and $existing.presence_verdict -ne "NO_WORKER") {
+            if (-not (Test-SingletonProven $existing)) {
                 Show-Topology $existing
-                Show-StartupDiagnostics $existing.reason
-                Fail "$($existing.verdict): $($existing.reason)"
+                Show-StartupDiagnostics $existing.presence_reason
+                Fail "$($existing.presence_verdict): $($existing.presence_reason)"
             }
-            Info "A worker is already running (executing pid $($existing.executing_pid)). Singleton respected."
+            Info "A worker is already running (pid $(Fmt $existing.presence.lock_pid)). Singleton respected."
             Show-Topology $existing
             $st = Show-Status "COLLECTION SERVICE STATUS"
             if ($null -ne $st -and $st.service_state -eq "RUNNING") {
@@ -450,17 +532,18 @@ switch ($Action) {
             Show-StartupDiagnostics "the worker topology could not be read"
             Fail "worker topology unreadable"
         }
-        if (-not $topology.healthy) {
+        if (-not (Test-SingletonProven $topology)) {
             Show-Topology $topology
-            Show-StartupDiagnostics $topology.reason
-            Fail "$($topology.verdict): $($topology.reason) $($topology.lock_correlation_reason)"
+            Show-StartupDiagnostics $topology.presence_reason
+            Fail "$($topology.presence_verdict): $($topology.presence_reason)"
         }
         Show-Status "COLLECTION SERVICE STATUS" | Out-Null
         Show-Topology $topology
         Write-Section "VERIFIED"
         Info "worker pid       : $($st.worker_pid)"
-        Info "logical workers  : $($topology.logical_worker_count) (physical processes: $($topology.physical_process_count))"
-        Info "singleton lock   : held=$($st.lock_held)  owned by the executing process: $($topology.lock_correlated)"
+        Info "worker presence  : $($topology.presence_verdict) (decided on $($topology.presence_decided_on))"
+        if ($topology.presence_advisory) { Info "advisory         : $($topology.presence_advisory)" }
+        Info "singleton lock   : held=$($st.lock_held)"
         Info "heartbeat age    : $($st.heartbeat_age_seconds) s"
         Info "execution autom. : OFF"
         Write-Host ""
@@ -477,10 +560,12 @@ switch ($Action) {
         if (-not $clean) { Fail "a collection worker process did not exit" }
         Invoke-Control @("--action", "mark-stopped") | Out-Null
         # The whole LINEAGE must be gone, not just the process that owned the lock.
+        # R55.2.1: judged on PRESENCE, so an unreadable snapshot can neither
+        # certify a stop that did not happen nor fail one that did.
         $after = Get-WorkerTopology
-        if ($null -ne $after -and $after.verdict -ne "NO_LOGICAL_WORKER") {
+        if ($null -ne $after -and $after.presence_verdict -ne "NO_WORKER") {
             Show-Topology $after
-            Fail "a member of the worker launch lineage survived Stop: $($after.reason)"
+            Fail "a collection worker survived Stop: $($after.presence_reason)"
         }
         Show-Status "POST-STOP STATE" | Out-Null
         Show-Topology $after
@@ -507,17 +592,25 @@ switch ($Action) {
             Show-StartupDiagnostics "no RUNNING heartbeat after restart"
             Fail "collection service did not come back"
         }
+        # R55.2.1 - RESTART SUCCEEDS WHEN THE SINGLETON IS PROVEN, and BLOCKS only
+        # when it genuinely cannot be. Before this repair the gate required the
+        # topology's `healthy` flag, which in turn required the OPTIONAL
+        # command-line correlation to be readable; on this machine it is not, so a
+        # restart that produced a new instance, a live pid, a held lock, a fresh
+        # heartbeat and an ALIGNED loaded release still ended
+        # COLLECTION_SERVICE_BLOCKED.
         $topology = Wait-ForOneLogicalWorker
-        if ($null -eq $topology -or -not $topology.healthy) {
+        if (-not (Test-SingletonProven $topology)) {
             Show-Topology $topology
-            Show-StartupDiagnostics "the restarted service is not exactly one logical worker"
-            Fail "singleton violated after restart: $(if ($topology) { $topology.reason } else { 'topology unreadable' })"
+            Show-StartupDiagnostics "the restarted service is not exactly one proven worker"
+            Fail "singleton violated after restart: $(if ($topology) { $topology.presence_reason } else { 'worker presence unreadable' })"
         }
         Show-Topology $topology
         Write-Section "RESTART VERIFIED"
         if ($null -ne $before) { Info "prior instance : $($before.instance_id)" }
         Info "new instance   : $($after.instance_id)"
-        Info "logical workers: $($topology.logical_worker_count)"
+        Info "worker presence: $($topology.presence_verdict) (decided on $($topology.presence_decided_on))"
+        if ($topology.presence_advisory) { Info "advisory       : $($topology.presence_advisory)" }
         Info "restart count  : $($after.restart_count)"
         Info "watermarks     : preserved (source runtime state is durable)"
         Write-Host ""
@@ -553,22 +646,24 @@ switch ($Action) {
         #    calling Recover twice must never produce two workers.
         $before = Get-WorkerTopology
         Show-Topology $before
-        if ($null -ne $before -and $before.verdict -eq "SINGLE_LOGICAL_WORKER") {
+        if (Test-SingletonProven $before) {
             $st = Show-Status "COLLECTION SERVICE STATUS"
             if ($null -ne $st -and $st.service_state -eq "RUNNING") {
                 Write-Host ""
                 Write-Host $NOOP_TOKEN
                 exit 0
             }
-            Info "One logical worker exists but the service is not RUNNING; use -Action Restart -Execute."
+            Info "One worker exists but the service is not RUNNING; use -Action Restart -Execute."
             Show-StartupDiagnostics "a worker process exists but the service is not reporting RUNNING"
             Fail "worker present but not healthy - Recover will not kill a running worker"
         }
-        if ($null -ne $before -and $before.verdict -eq "SINGLETON_VIOLATED") {
-            Fail "SINGLETON_VIOLATED: $($before.reason) - Recover refuses to add to a violation"
+        if ($null -ne $before -and $before.presence_verdict -eq "MULTIPLE_WORKERS") {
+            Fail "MULTIPLE_WORKERS: $($before.presence_reason) - Recover refuses to add to a violation"
         }
-        if ($null -eq $before -or $before.verdict -eq "AMBIGUOUS_WORKER_TOPOLOGY") {
-            Fail "the worker topology could not be resolved; recovery fails closed rather than guessing"
+        # R55.2.1 - anything that is not a PROVEN absence fails closed. Recovery
+        # starts a worker, so it may act only when it is certain none is running.
+        if ($null -eq $before -or $before.presence_verdict -ne "NO_WORKER") {
+            Fail "worker presence could not be resolved; recovery fails closed rather than guessing"
         }
 
         # 2. NO worker exists. Clear a lock the dead worker never released -

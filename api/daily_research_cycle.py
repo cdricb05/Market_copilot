@@ -2359,7 +2359,28 @@ def _pre_run_state(facts: dict, *, eligible_cycle_complete: bool = False
     return None
 
 
-def _reflect_completed_run(prior: dict, facts: dict, warnings: list) -> dict:
+def _pending_session_gate(facts: dict) -> dict:
+    """R55.2.1 — the NEXT cycle's market-session gate, kept beside a reflected run.
+
+    Reflecting a completed run must not cost the operator the reason the next
+    cycle cannot start yet. These two facts are simply about different sessions,
+    so both are reported and neither is inferred from the other.
+    """
+    return {
+        "gate": "market_session",
+        "session_status": facts.get("session_status"),
+        "eligible_market_date": facts.get("eligible"),
+        "expected_completed_market_date": facts.get("expected"),
+        "action": facts.get("session_operator_action"),
+        "note": ("The governed cycle for the eligible session is COMPLETE. A "
+                 "LATER session is waiting for owned market data, which is why "
+                 "no new cycle is runnable — it is not a statement about the "
+                 "finished run."),
+    }
+
+
+def _reflect_completed_run(prior: dict, facts: dict, warnings: list,
+                           pending_session_gate: Optional[dict] = None) -> dict:
     """Reflect a persisted TERMINAL-COMPLETE manifest for the current eligible session
     (Workstream C). The stored contract (run_id, idempotency_key, hashes, completed
     steps, opportunity-cost artifact reference) is surfaced VERBATIM; the run is the
@@ -2372,6 +2393,20 @@ def _reflect_completed_run(prior: dict, facts: dict, warnings: list) -> dict:
     out["executable"] = False
     out["state_vocabulary"] = list(RUN_STATES)
     ow = list(out.get("warnings") or [])
+    if pending_session_gate:
+        # The completed run is reported AND the next session's gate is preserved,
+        # including its required action, so nothing the waiting contract used to
+        # tell the operator is lost by reflecting the run.
+        out["pending_session_gate"] = dict(pending_session_gate)
+        out["required_actions"] = [{"gate": pending_session_gate["gate"],
+                                    "action": pending_session_gate.get("action")}]
+        msg = ("The governed cycle for %s is COMPLETE and is reported as such; a "
+               "later session (%s) is still waiting for owned market data, so no "
+               "new cycle is runnable yet."
+               % (facts.get("eligible"), pending_session_gate.get(
+                   "expected_completed_market_date")))
+        if msg not in ow:
+            ow.append(msg)
     prior_session = prior.get("session_contract_hash")
     cur_session = facts.get("session_contract_hash")
     fast_drift = (facts.get("input_contract_hash")
@@ -2467,10 +2502,46 @@ def load_daily_research_cycle_status(
     # completed run for that session is what it must report. This opens nothing: the
     # reflected run carries ``executable = False``, and the RUN path still refuses
     # before the close (it keeps ``_pre_run_state`` unchanged, and persists nothing).
-    # INCONSISTENT and WAITING_FOR_OWNED_DATA keep their precedence — both say the
-    # inputs themselves cannot be trusted, which a finished run does not answer.
-    if pre == WAITING_FOR_SESSION_CLOSE and prior and prior.get("state") in _COMPLETED:
-        return _reflect_completed_run(prior, facts, warnings)
+    # INCONSISTENT keeps its precedence — it says the inputs themselves cannot be
+    # trusted, which a finished run does not answer.
+    #
+    # RELEASE 55.2.1 — THE SAME ERASURE THROUGH THE OTHER PRE-STATE.
+    #
+    # R46.2 repaired exactly ONE of the two ways the clock erases a finished run,
+    # and its own rule — "the state describes THE ELIGIBLE SESSION's cycle, not
+    # the wall clock" — settles the second. WAITING_FOR_OWNED_DATA has two
+    # meanings that the single verdict word hides:
+    #
+    #   (a) the ELIGIBLE session's own owned data is not confirmed. Then there is
+    #       no eligible session at all, ``prior`` is None (the index is keyed on
+    #       it), and nothing can be reflected. Unchanged.
+    #   (b) the eligible session IS owned-data-confirmed and a LATER session has
+    #       completed whose data has not published yet. That is a statement about
+    #       the NEXT cycle's runnability and says nothing whatsoever about the
+    #       governed run that finished for the eligible session.
+    #
+    # Case (b) is what happened on 2026-09-03: the Sep-2 cycle was COMPLETE
+    # (``drc_2026-09-02_15abfb01856f``), Sep-2 owned data was confirmed, and at
+    # 16:00 ET the Sep-3 session closed without publishing. ``pre`` flipped from
+    # WAITING_FOR_SESSION_CLOSE to WAITING_FOR_OWNED_DATA, this branch stopped
+    # matching, and the completed Sep-2 run vanished from the status —
+    # ``governed_research_evidence_current`` went false, the Release-29.5
+    # governed-evidence contract went dark, and with it the legacy compatibility
+    # projection of the Sep-2 governed portfolio decision. The decision did not
+    # change and no evidence moved; only the clock did.
+    #
+    # This opens nothing. The reflected run carries ``executable = False`` exactly
+    # as the waiting contract did, the RUN path still consults ``_pre_run_state``
+    # and still refuses, and INCONSISTENT still outranks everything here.
+    later_session_awaited = bool(pre == WAITING_FOR_OWNED_DATA
+                                and facts["owned_data_confirmed"]
+                                and facts["eligible"])
+    if (prior and prior.get("state") in _COMPLETED
+            and (pre == WAITING_FOR_SESSION_CLOSE or later_session_awaited)):
+        return _reflect_completed_run(
+            prior, facts, warnings,
+            pending_session_gate=(_pending_session_gate(facts)
+                                  if later_session_awaited else None))
     if pre is not None:
         blockers = []
         required_actions = [{"gate": "market_session",

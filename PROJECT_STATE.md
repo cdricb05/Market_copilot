@@ -1,7 +1,74 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-03
-- **Updated by phase:** **R55.2 - RUNTIME RELEASE IDENTITY, STALE-WORKER
+- **Updated by phase:** **R55.2.1 - RUNTIME ALIGNMENT RECONCILIATION, LEGACY
+  GOVERNED-DECISION CONTINUITY + WINDOWS TOPOLOGY TRUTH MODEL (single agent, no
+  subagents, Windows PowerShell only).** Built over the committed and DEPLOYED
+  R55.2 head `c26cffebe074`. Full narrative:
+  `docs/RELEASE55_2_1_RUNTIME_AND_DECISION_CONTINUITY.md`. A CORRECTNESS /
+  RELIABILITY repair: no new engine, workflow, decision owner, ledger or
+  scheduler; no cadence, economics, allocation or safety-boundary change; and
+  neither the backend nor the collection worker was restarted.
+  **The theme.** Three surfaces reported an ABSENCE THEY HAD NOT ESTABLISHED,
+  and each is repaired at the OWNER of the fact rather than at the surface that
+  displayed it.
+  **Defect 1 - the Active Manager said UNKNOWN while the collection owner said
+  ALIGNED.** R55.2 published the worker's captured release only on the FULL
+  collection payload; the Active Manager reads the CANONICAL LIFECYCLE view
+  (`resolve_service_lifecycle`, through `api.decision_snapshot`), which did not
+  carry it. The lifecycle verdict now carries the worker's own identity facts -
+  `loaded_release`, `instance_id`, `started_at` - verbatim out of the state it
+  was already handed, exactly as it has always carried `worker_pid`. There is
+  still exactly ONE alignment calculation and it is `api.runtime_identity`'s.
+  **Defect 2 - the Sep-2 governed decision became ABSENT. NOT an R55.2
+  regression:** that commit touches neither `api.daily_research_cycle` nor the
+  projection. R46.2 repaired ONE of the two ways the clock erases a completed
+  run and left the other open. When the Sep-3 session closed WITHOUT publishing
+  owned data, `_pre_run_state` moved `WAITING_FOR_SESSION_CLOSE` ->
+  `WAITING_FOR_OWNED_DATA`, the reflection branch stopped matching, the COMPLETE
+  Sep-2 manifest vanished from the status, `governed_research_evidence_current`
+  went false and the Release-29.5 compatibility projection went dark with it.
+  A wait for a LATER session's data says NOTHING about the eligible session's
+  finished research. The completed run is now reflected through both waiting
+  pre-states, with the next session's market gate preserved beside it;
+  INCONSISTENT keeps its precedence and nothing became executable.
+  **No ledger backfill.** Sep-2 ran before R54.4 made the daily cycle delegate
+  its governed write, so it legitimately has no ledger row and must not be given
+  one: it is restored as the READ projection it always was
+  (`LEGACY_COMPATIBILITY_PROJECTION`, `is_ledger_row: false`,
+  `retrievable_through_owner: true`, `backfilled: false`).
+  **Today's contradiction resolved at its source.** With the standing decision
+  restored, the decision lane no longer falls through to
+  `PROPOSAL_REVIEW_REQUIRED`: the headline moves from "PORTFOLIO PROPOSAL -
+  MANUAL REVIEW REQUIRED" to **"NO PORTFOLIO CHANGE REQUIRED"** with NO
+  presentation change, while the operator action stays "Run the Portfolio Cycle
+  to close the missed 2026-09-03 session". A standing HOLD for Sep-2 and a
+  catch-up action for Sep-3 are two different questions about two different
+  sessions.
+  **Defect 3 - NO_LOGICAL_WORKER for a healthy worker.** Measured: 6 python.exe
+  rows, FOUR with a NULL CommandLine (every Task-Scheduler-owned process,
+  including the worker). The collector required a readable command line, so it
+  dropped them silently and the snapshot arrived EMPTY - and this was a SAFETY
+  defect, not a cosmetic one, because `resolve_abandoned_lock` treats
+  NO_LOGICAL_WORKER as PROOF the machine is empty and would have authorised
+  clearing a LIVE worker's singleton lock. Worker presence is now decided on a
+  documented evidence ladder (`PROVEN_MULTIPLE_LINEAGES` >
+  `CONFLICTING_RUNTIME_EVIDENCE` > `AUTHORITATIVE_RUNTIME_STATE` >
+  `OS_PROCESS_CORRELATION`); an unreadable snapshot fails closed to
+  `AMBIGUOUS_WORKER_TOPOLOGY`, and presence reports
+  `CONFIRMED_SINGLETON_OS_METADATA_UNAVAILABLE` with an advisory. Singleton
+  safety is not weakened in either direction: a proven violation is never
+  softened, and Recover still refuses on anything that is not a PROVEN absence.
+  **HOC identity mismatch (Phase J): LEGITIMATE, left fail-closed.** The reused
+  reassessment claims HOC assessment `aa64bd4b...` while the named artifact
+  carries `a162fca9...` - exactly the R54.3 condition that a governed decision
+  may not stand on evidence it cannot produce. R54.3 is not weakened.
+  **Live result (read-only):** runtime alignment **ALIGNED / proven: true** for
+  backend AND worker; Sep-2 governed decision PRESENT as
+  `CURRENT_NO_CHANGE / GOVERNED_DAILY_CYCLE / LEGACY_COMPATIBILITY_PROJECTION`;
+  Today reads NO PORTFOLIO CHANGE REQUIRED; operator action unchanged;
+  `stale_components: []`; acceptance still 10 rows.
+- **Prior phase:** **R55.2 - RUNTIME RELEASE IDENTITY, STALE-WORKER
   DETECTION + DECISION-LATENCY SEMANTIC HARDENING (single agent, no subagents,
   Windows PowerShell only).** Built over the committed R55.1 head `55d497b`.
   Full narrative: `docs/RELEASE55_2_RUNTIME_RELEASE_IDENTITY.md`. A

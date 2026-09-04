@@ -4522,9 +4522,18 @@ IC_SAFETY_TOKENS = ("CONFIRM_ENABLE_INFORMATION_COLLECTION",
 #: the base interpreter from pyvenv.cfg with a BYTE-IDENTICAL command line, so
 #: every clean start is two physical processes for one worker. A raw process
 #: count is therefore not a singleton verdict — one launch lineage is.
+#:
+#: R55.2.1 — the manager now consumes the PRESENCE vocabulary. A command-line
+#: snapshot is only ONE of the two bodies of evidence and on a Task-Scheduler
+#: worker it is routinely unreadable, so the singleton question is answered by
+#: the owner's evidence ladder and the script reads its ``singleton_proven``
+#: flag. The delegation these tokens exist to protect is unchanged: PowerShell
+#: enumerates, Python decides, and the script defines no verdict of its own.
 IC_MANAGE_TOPOLOGY_TOKENS = ("--action worker-topology",
                              "function Get-WorkerTopology(",
-                             "SINGLE_LOGICAL_WORKER", "NO_LOGICAL_WORKER")
+                             "function Test-SingletonProven",
+                             "$Topology.singleton_proven",
+                             "MULTIPLE_WORKERS", "NO_WORKER")
 IC_MANAGE_RAW_PROCESS_COUNT = (
     'singleton violated: $($procs.Count) worker processes',
     '$procs.Count -gt 1',
@@ -12990,9 +12999,18 @@ def check_release55_2_runtime_release_identity(files: list[Path]) -> dict:
         and ic_src.count('"loaded_release": loaded_release,') == 1)
 
     # (g) the existing contracts carry it; no second store appears.
+    #
+    # R55.2.1 — the owner NAME is now a module constant rather than a repeated
+    # literal, because the CANONICAL LIFECYCLE VIEW publishes it too. That view
+    # is what api.decision_snapshot (and through it the Active Manager) actually
+    # reads, and R55.2 published the capture only on the full collection payload,
+    # so a proven-aligned worker reported UNKNOWN everywhere else. Both publishing
+    # sites are required here so that seam cannot silently drop the fact again.
     publishes_through_existing_contract = all(t in ic_src for t in (
         '"loaded_release": None,', '"loaded_release": service.get("loaded_release")',
-        '"loaded_release_owner": "api.runtime_identity"'))
+        '_RELEASE_IDENTITY_OWNER = "api.runtime_identity"',
+        '"loaded_release_owner": _RELEASE_IDENTITY_OWNER',
+        '"loaded_release": state.get("loaded_release")'))
     second_heartbeat_store = sorted(set(
         t for t in ("runtime_identity.json", "loaded_release.json",
                     "worker_identity.json", "release_identity.json")
@@ -13084,6 +13102,179 @@ def check_release55_2_runtime_release_identity(files: list[Path]) -> dict:
         "policy_protects_the_action_owner": bool(policy_protects_the_action_owner),
         "ui_renders_backend_alignment": bool(ui_renders_backend_alignment),
         "ui_computes_alignment": ui_computes_alignment,
+    }
+
+
+#: R55.2.1 — the presence vocabulary, owned once by api.information_collection.
+R55_2_1_PRESENCE_VERDICTS = ("CONFIRMED_SINGLETON",
+                             "CONFIRMED_SINGLETON_OS_METADATA_UNAVAILABLE",
+                             "NO_WORKER", "MULTIPLE_WORKERS",
+                             "INCONSISTENT_TOPOLOGY")
+R55_2_1_EVIDENCE_RUNGS = ("PROVEN_MULTIPLE_LINEAGES",
+                          "CONFLICTING_RUNTIME_EVIDENCE",
+                          "AUTHORITATIVE_RUNTIME_STATE",
+                          "OS_PROCESS_CORRELATION")
+
+
+def check_release55_2_1_runtime_and_decision_continuity(files: list[Path]) -> dict:
+    """R55.2.1 invariants — three absences that were never established.
+
+    (a) THE COLLECTION IDENTITY REACHES THE ACTIVE MANAGER. The canonical
+        lifecycle verdict (which is what api.decision_snapshot, and through it
+        the Active Manager, actually reads) carries the worker's own captured
+        release. R55.2 published it only on the FULL collection payload, so a
+        proven-aligned worker reported UNKNOWN on every other surface.
+    (b) NO SECOND ALIGNMENT CALCULATION. The Active Manager delegates to
+        api.runtime_identity and re-derives no collection release of its own.
+    (c) THE LEGACY GOVERNED COMPATIBILITY PATH SURVIVES. The pre-R54.4 read
+        projection, its persistence vocabulary and its suppression-by-ledger-row
+        rule all still exist, and nothing backfills a historical ledger row.
+    (d) A COMPLETED RUN IS NOT ERASED BY THE CLOCK — through EITHER pre-state.
+        R46.2 repaired WAITING_FOR_SESSION_CLOSE; R55.2.1 repairs the identical
+        erasure through WAITING_FOR_OWNED_DATA when a LATER session is awaited,
+        and INCONSISTENT keeps its precedence.
+    (e) A WITHHELD INTRADAY CANDIDATE NEVER ERASES STANDING AUTHORITY: the gate
+        resolves the standing decision and reports it beside the verdict.
+    (f) WORKER EXISTENCE IS NOT CIM-ONLY. An unreadable process snapshot can
+        never reach NO_LOGICAL_WORKER (which the abandoned-lock owner treats as
+        proof the machine is empty), presence has ONE owner and a documented
+        evidence ladder, and PowerShell decides no verdict of its own.
+    (g) THE BROWSER DERIVES NEITHER GOVERNED AUTHORITY NOR RUNTIME ALIGNMENT.
+    """
+    ic_src = _read("api/information_collection.py")
+    ams_src = _read("api/active_manager_state.py")
+    drc_src = _read("api/daily_research_cycle.py")
+    pd_src = _read("api/portfolio_decision.py")
+    ctl_src = _read("scripts/collection_service_control.py")
+    ps1_src = _read("scripts/manage_information_collection.ps1")
+    ui = _read("api/ui/index.html")
+
+    def _body(src: str, marker: str) -> str:
+        i = src.find(marker)
+        if i < 0:
+            return ""
+        j = src.find("\ndef ", i + 1)
+        return src[i:j] if j > i else src[i:]
+
+    # (a) the lifecycle verdict carries the worker's identity facts.
+    lifecycle = _body(ic_src, "def resolve_service_lifecycle(")
+    lifecycle_carries_identity = all(t in lifecycle for t in (
+        '"loaded_release": state.get("loaded_release")',
+        '"loaded_release_owner": _RELEASE_IDENTITY_OWNER',
+        '"instance_id": state.get("instance_id")',
+        '"started_at": state.get("started_at")'))
+
+    # (b) one alignment calculation; the Active Manager re-derives nothing.
+    ams_block = _body(ams_src, "def _runtime_alignment_block(")
+    ams_delegates_alignment = ("rid.build_runtime_alignment(" in ams_block
+                               and 'svc.get("loaded_release")' in ams_block)
+    ams_rederives_release = sorted(set(
+        t for t in ("read_source_identity(", "rev-parse", "capture_loaded_identity(",
+                    "_commit_from_git_dir", "packed-refs")
+        if t in ams_src))
+    lifecycle_compares_commits = sorted(set(
+        t for t in ("ALIGNED", "STALE_RUNTIME", "classify_alignment",
+                    "read_source_identity", "rev-parse")
+        if t in lifecycle))
+
+    # (c) the legacy compatibility path is intact and backfills nothing.
+    legacy_projection_intact = all(t in pd_src for t in (
+        "def project_governed_daily_cycle_decision(",
+        'DECISION_PERSISTENCE_LEGACY_PROJECTION = "LEGACY_COMPATIBILITY_PROJECTION"',
+        '"legacy_compatibility_projection": True',
+        '"projected": True',
+        "def load_persisted_daily_decision(",
+        "projection_suppressed = True"))
+    projection_writes = sorted(set(
+        t for t in ("save_service_state", "_append_governed_decision",
+                    "_atomic_write_json", "open(")
+        if t in _body(pd_src, "def project_governed_daily_cycle_decision(")))
+
+    # (d) a completed run survives BOTH pre-states; INCONSISTENT still wins.
+    reflection = drc_src[drc_src.find("later_session_awaited = bool("):
+                         drc_src.find("if pre is not None:")]
+    reflects_through_both_pre_states = all(t in reflection for t in (
+        "pre == WAITING_FOR_OWNED_DATA", 'facts["owned_data_confirmed"]',
+        'facts["eligible"]', "pre == WAITING_FOR_SESSION_CLOSE",
+        "_COMPLETED"))
+    inconsistent_keeps_precedence = (
+        drc_src.find("if facts[\"consistency_status\"] == df.INCONSISTENT:")
+        < drc_src.find("later_session_awaited = bool("))
+    reflection_writes = sorted(set(
+        t for t in ("_save_run", "_atomic_write_json", "_write_index")
+        if t in _body(drc_src, "def _reflect_completed_run(")))
+    pending_gate_preserved = ("def _pending_session_gate(" in drc_src
+                              and '"pending_session_gate"' in drc_src)
+
+    # (e) the withheld candidate reports the standing authority it did not touch.
+    withheld_keeps_standing = all(t in pd_src for t in (
+        "projected_standing = project_governed_daily_cycle_decision(",
+        '"standing_decision_id": (standing or {}).get("record_id")'))
+
+    # (f) worker existence is evidence-ranked, not CIM-only.
+    presence_owner_complete = all(t in ic_src for t in (
+        "def resolve_worker_presence(", "WORKER_PRESENCE_EVIDENCE_ORDER = (",
+        "PRESENCE_OWNER =", "WORKER_PRESENCE_SINGLETON_PROVEN = ("))
+    missing_presence_verdicts = sorted(
+        v for v in R55_2_1_PRESENCE_VERDICTS if ('"%s"' % v) not in ic_src)
+    missing_evidence_rungs = sorted(
+        r for r in R55_2_1_EVIDENCE_RUNGS if ('"%s"' % r) not in ic_src)
+    second_presence_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in ("api/information_collection.py",
+                            "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and "def resolve_worker_presence(" in fp.read_text(encoding="utf-8",
+                                                           errors="replace"))
+    topology = _body(ic_src, "def resolve_worker_topology(")
+    blind_snapshot_never_means_empty = (
+        'if not candidates and not authority["snapshot_authoritative"]:' in topology
+        and topology.find('if not candidates and not authority') <
+        topology.find("verdict = WORKER_TOPOLOGY_NONE"))
+    collector_reports_blindness = all(t in ps1_src for t in (
+        "function Get-WorkerScan", "unreadable_command_line_count",
+        "$unreadable++", "query_failed"))
+    powershell_decides_a_verdict = sorted(set(
+        t for t in ('$Topology.verdict -eq "SINGLE_LOGICAL_WORKER"',
+                    'verdict -ne "NO_LOGICAL_WORKER"', "-not $topology.healthy")
+        if t in ps1_src))
+    script_uses_owner_flag = ("function Test-SingletonProven" in ps1_src
+                              and "$Topology.singleton_proven" in ps1_src
+                              and "ic.resolve_worker_presence(" in ctl_src)
+    presence_side_effects = sorted(set(
+        t for t in ("subprocess", "Popen", "terminate(", "os.kill",
+                    "save_service_state", "unlink(")
+        if t in _body(ic_src, "def resolve_worker_presence(")))
+
+    # (g) the browser renders; it decides nothing.
+    ui_derives_authority = sorted(set(
+        t for t in ("persistence_status ==", "=== 'LEGACY_COMPATIBILITY_PROJECTION'",
+                    "loaded_commit ===", "=== 'STALE_RUNTIME'",
+                    "singleton_proven =")
+        if t in ui))
+
+    return {
+        "lifecycle_carries_worker_identity": bool(lifecycle_carries_identity),
+        "lifecycle_compares_commits": lifecycle_compares_commits,
+        "ams_delegates_alignment": bool(ams_delegates_alignment),
+        "ams_rederives_release": ams_rederives_release,
+        "legacy_projection_intact": bool(legacy_projection_intact),
+        "projection_writes": projection_writes,
+        "reflects_through_both_pre_states": bool(reflects_through_both_pre_states),
+        "inconsistent_keeps_precedence": bool(inconsistent_keeps_precedence),
+        "reflection_writes": reflection_writes,
+        "pending_gate_preserved": bool(pending_gate_preserved),
+        "withheld_keeps_standing": bool(withheld_keeps_standing),
+        "presence_owner_complete": bool(presence_owner_complete),
+        "missing_presence_verdicts": missing_presence_verdicts,
+        "missing_evidence_rungs": missing_evidence_rungs,
+        "second_presence_owner": second_presence_owner,
+        "blind_snapshot_never_means_empty": bool(blind_snapshot_never_means_empty),
+        "collector_reports_blindness": bool(collector_reports_blindness),
+        "powershell_decides_a_verdict": powershell_decides_a_verdict,
+        "script_uses_owner_flag": bool(script_uses_owner_flag),
+        "presence_side_effects": presence_side_effects,
+        "ui_derives_authority": ui_derives_authority,
     }
 
 
@@ -14906,6 +15097,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release55_1_intraday_governance_completion(files),
         "release55_2_runtime_release_identity":
             check_release55_2_runtime_release_identity(files),
+        "release55_2_1_runtime_and_decision_continuity":
+            check_release55_2_1_runtime_and_decision_continuity(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -15873,6 +16066,35 @@ def _print_console(rep: dict) -> None:
           f"owner: {g2['policy_protects_the_action_owner']}")
     print(f"UI renders the backend verdict: {g2['ui_renders_backend_alignment']}  "
           f"UI computes alignment (must be empty): {g2['ui_computes_alignment']}")
+
+    hdr("RUNTIME + DECISION CONTINUITY, WORKER PRESENCE (R55.2.1)")
+    g3 = rep["release55_2_1_runtime_and_decision_continuity"]
+    print(f"lifecycle carries the worker identity: "
+          f"{g3['lifecycle_carries_worker_identity']}  lifecycle compares commits "
+          f"(must be empty): {g3['lifecycle_compares_commits']}")
+    print(f"Active Manager delegates alignment: {g3['ams_delegates_alignment']}  "
+          f"re-derives release (must be empty): {g3['ams_rederives_release']}")
+    print(f"legacy governed projection intact: {g3['legacy_projection_intact']}  "
+          f"projection writes (must be empty): {g3['projection_writes']}")
+    print(f"completed run survives BOTH pre-states: "
+          f"{g3['reflects_through_both_pre_states']}  INCONSISTENT keeps "
+          f"precedence: {g3['inconsistent_keeps_precedence']}  next-session gate "
+          f"preserved: {g3['pending_gate_preserved']}")
+    print(f"reflection writes (must be empty): {g3['reflection_writes']}  withheld "
+          f"candidate keeps standing authority: {g3['withheld_keeps_standing']}")
+    print(f"presence owner complete: {g3['presence_owner_complete']}  missing "
+          f"verdicts (must be empty): {g3['missing_presence_verdicts']}  missing "
+          f"evidence rungs (must be empty): {g3['missing_evidence_rungs']}")
+    print(f"second presence owners (must be empty): "
+          f"{g3['second_presence_owner']}  presence side effects (must be empty): "
+          f"{g3['presence_side_effects']}")
+    print(f"a blind snapshot never means an empty machine: "
+          f"{g3['blind_snapshot_never_means_empty']}  collector reports blindness: "
+          f"{g3['collector_reports_blindness']}")
+    print(f"script uses the owner's flag: {g3['script_uses_owner_flag']}  "
+          f"PowerShell decides a verdict (must be empty): "
+          f"{g3['powershell_decides_a_verdict']}")
+    print(f"UI derives authority (must be empty): {g3['ui_derives_authority']}")
 
     hdr("OWNED-DATA READINESS AUTHORITY (R54.2.3.1)")
     ra = rep["release54_2_3_1_owned_data_readiness_authority"]
@@ -18306,6 +18528,57 @@ BLOCKING_INVARIANTS = (
     ("release55_2_runtime_release_identity",
      "ui_renders_backend_alignment", True),
     ("release55_2_runtime_release_identity", "ui_computes_alignment", []),
+    # ------------------------------------------------------------------- #
+    # Release 55.2.1 - THREE ABSENCES THAT WERE NEVER ESTABLISHED. The
+    # canonical lifecycle view must carry the worker's captured release (the
+    # Active Manager reads THAT view, not the full collection payload); the
+    # legacy governed compatibility projection must survive and never be
+    # backfilled; a COMPLETED research run must survive BOTH waiting pre-states;
+    # a WITHHELD intraday candidate must report - never erase - the standing
+    # authority; and worker existence must be decided on a ranked evidence
+    # hierarchy, so an unreadable process snapshot can never reach the verdict
+    # the abandoned-lock owner treats as proof the machine is empty.
+    # ------------------------------------------------------------------- #
+    ("release55_2_1_runtime_and_decision_continuity",
+     "lifecycle_carries_worker_identity", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "lifecycle_compares_commits", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "ams_delegates_alignment", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "ams_rederives_release", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "legacy_projection_intact", True),
+    ("release55_2_1_runtime_and_decision_continuity", "projection_writes", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "reflects_through_both_pre_states", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "inconsistent_keeps_precedence", True),
+    ("release55_2_1_runtime_and_decision_continuity", "reflection_writes", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "pending_gate_preserved", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "withheld_keeps_standing", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "presence_owner_complete", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "missing_presence_verdicts", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "missing_evidence_rungs", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "second_presence_owner", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "blind_snapshot_never_means_empty", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "collector_reports_blindness", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "powershell_decides_a_verdict", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "script_uses_owner_flag", True),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "presence_side_effects", []),
+    ("release55_2_1_runtime_and_decision_continuity",
+     "ui_derives_authority", []),
     # ------------------------------------------------------------------- #
     # Release 54.2.3.1 - OWNED-DATA READINESS AUTHORITY. Persisted close
     # confirmation and live provider coverage are DIFFERENT concepts: the

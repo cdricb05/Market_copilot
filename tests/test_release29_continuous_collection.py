@@ -922,10 +922,16 @@ class TestWindowsLaunchLineageIdentity:
         assert "singleton violated: $($procs.Count) worker processes" not in manage
         assert "--action worker-topology" in manage
         assert "function Get-WorkerTopology(" in manage
-        assert "SINGLE_LOGICAL_WORKER" in manage
+        # R55.2.1 — the manager now consumes the PRESENCE vocabulary rather than
+        # the topology words, because a command-line snapshot is only one of the
+        # two bodies of evidence and on this machine it is frequently unreadable.
+        # The delegation this test exists to protect is unchanged and stronger:
+        # PowerShell still decides nothing, it prints the owner's verdict.
+        assert "$Topology.singleton_proven" in manage
+        assert "NO_WORKER" in manage
+        assert "MULTIPLE_WORKERS" in manage
         # Stop must still remove the WHOLE lineage, deepest member first.
         assert "$parentPids" in manage
-        assert "NO_LOGICAL_WORKER" in manage
 
     def test_the_control_helper_exposes_the_one_definition(self):
         control = (REPO / "scripts" / "collection_service_control.py").read_text(

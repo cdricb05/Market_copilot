@@ -3698,3 +3698,88 @@ is impossible for a latency.
 are cross-cycle rather than hidden or clamped, and
 `event_cycle_processing_seconds` reports the engine's own duration beside it, so
 the question "how long did this take" has a real answer.
+
+### D-R55.2.1-1 — a fact must travel on the seam its reader uses (CONFIRMED)
+
+**Decision.** A property of a runtime is published on the CANONICAL VERDICT about
+that runtime, not only on the richest payload that happens to mention it.
+Consumers still re-derive nothing.
+
+**Evidence.** R55.2 put the worker's captured release on
+`load_information_collection`. The Active Manager reads
+`resolve_service_lifecycle` (through `api.operator_presentation.owner_loaders`
+and `api.decision_snapshot`), which did not carry it, so the composition received
+`loaded=None` and reported `UNKNOWN` for a worker that had proven itself
+`ALIGNED` on the manager's own status line. Both answers were correct given their
+inputs; the seam in between dropped the fact.
+
+**Consequence.** The lifecycle verdict carries `loaded_release`, `instance_id`
+and `started_at` — alongside `worker_pid`, which it has always carried. Publishing
+a fact twice is not duplication when the two publications are two views of the
+same owner's state; duplicating the CALCULATION would be. The alignment verdict
+still has exactly one implementation, and the audit blocks the lifecycle owner
+from containing any comparison vocabulary at all.
+
+### D-R55.2.1-2 — a wait for a LATER session says nothing about an EARLIER one (CONFIRMED)
+
+**Decision.** A terminal-COMPLETE governed manifest is reflected whenever the
+eligible session's own owned data is confirmed, whatever waiting state the NEXT
+cycle is in. Genuinely contradictory surfaces (INCONSISTENT) still outrank it.
+
+**Evidence.** R46.2 recorded the rule — "the state describes THE ELIGIBLE
+SESSION's cycle, not the wall clock" — and applied it to
+`WAITING_FOR_SESSION_CLOSE` only, excluding `WAITING_FOR_OWNED_DATA` on the
+reasoning that it means "the inputs cannot be trusted". That verdict word covers
+two situations. When Sep-3 closed without publishing owned data on 2026-09-03,
+the eligible session was still Sep-2, still owned-confirmed, still CONSISTENT and
+still COMPLETE (`drc_2026-09-02_15abfb01856f`) — yet the reflection branch stopped
+matching, `governed_research_evidence_current` went false, and the Sep-2 governed
+portfolio decision went `ABSENT`. Nothing about the decision or its evidence
+changed; only the clock did.
+
+**Consequence.** Case (b) — a confirmed eligible session with a later session
+awaiting data — reflects the completed run and keeps the next session's market
+gate beside it in `pending_session_gate`. Nothing becomes executable, the RUN path
+is untouched and the reflection writes nothing. **The status of a finished run is
+a property of its session, not of the wall clock.**
+
+### D-R55.2.1-3 — a read projection is restored; a ledger row is never backfilled (CONFIRMED)
+
+**Decision.** Pre-R54.4 governed sessions stay readable through the compatibility
+projection and are never given a ledger row retroactively.
+
+**Evidence.** Sep-2 completed before R54.4 made the daily cycle delegate its
+governed write, so its absence from the ledger is the documented legacy path, not
+corruption. Writing a row now would fabricate a persistence event that never
+happened and would make an audit of the ledger lie about when governance began.
+
+**Consequence.** The decision is exposed as
+`LEGACY_COMPATIBILITY_PROJECTION` / `is_ledger_row: false` /
+`retrievable_through_owner: true` / `backfilled: false`, and retires
+automatically once a real row exists for that book and session. The repair
+restores a fact that existed; it does not create one.
+
+### D-R55.2.1-4 — absence of observation is not observation of absence (CONFIRMED)
+
+**Decision.** Existence verdicts are decided on a declared evidence hierarchy. An
+observation channel that could not observe fails closed and never reaches a
+verdict a destructive path treats as proof.
+
+**Evidence.** In an unelevated shell, `Win32_Process` returned six `python.exe`
+rows and four — every Task-Scheduler-owned process, including the collection
+worker — exposed a NULL `CommandLine`. The collector required a readable command
+line, dropped them silently, and `resolve_worker_topology` answered
+`NO_LOGICAL_WORKER`: *"No process on this machine is running the collection
+worker"*, while pid 1976 was alive, heartbeating, holding the singleton lock and
+running the deployed release. `resolve_abandoned_lock` treats that verdict as
+proof the machine is empty and returns `may_clear: True`, so the same blindness
+would have authorised clearing a LIVE worker's lock.
+
+**Consequence.** The ladder is
+`PROVEN_MULTIPLE_LINEAGES` > `CONFLICTING_RUNTIME_EVIDENCE` >
+`AUTHORITATIVE_RUNTIME_STATE` > `OS_PROCESS_CORRELATION`. The worker's own
+durable state is STRONGER evidence than a command-line match, because the worker
+wrote it. Fail-closed cuts both ways: unreadable metadata may neither invent a
+worker nor hide one, so a proven violation is never softened, and a snapshot that
+WAS authoritative and contradicts live runtime state is reported as
+`INCONSISTENT_TOPOLOGY` rather than resolved toward the comfortable answer.

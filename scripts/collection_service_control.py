@@ -296,6 +296,11 @@ def _stdin_process_rows():
     # processes" would have hidden a running worker from the singleton gate.
     if isinstance(parsed, dict) and "processes" in parsed:
         parsed = parsed.get("processes")
+    # R55.2.1 - the collector may wrap its rows in an envelope declaring what it
+    # could SEE. Passed through verbatim to the topology owner, which is the ONE
+    # module allowed to decide what an empty snapshot means.
+    if isinstance(parsed, dict) and "rows" in parsed:
+        return parsed
     return parsed if isinstance(parsed, list) else ([parsed] if parsed else [])
 
 
@@ -311,12 +316,30 @@ def _topology_from_stdin(root=None):
 
 
 def action_worker_topology(root=None) -> int:
-    """Resolve a STDIN process snapshot into logical workers. Fails closed."""
+    """Resolve a STDIN process snapshot into logical workers. Fails closed.
+
+    R55.2.1 - the snapshot is only ONE of the two bodies of evidence. The
+    PRESENCE verdict composes it with the worker's own durable runtime state
+    (service state, heartbeat, singleton lock, pid liveness, instance identity),
+    because a shell that may not read a Task-Scheduler process's command line has
+    learned nothing about whether that process exists. Both are printed; the
+    owner of the composition is api.information_collection, not this script.
+    """
     topology, err = _topology_from_stdin(root=root)
     if err is not None:
         print(json.dumps(err, indent=1))
         return 1
-    print(json.dumps(topology, indent=1, default=str))
+    presence = ic.resolve_worker_presence(
+        topology=topology, state=ic.load_service_state(root=root),
+        lock=ic.read_service_lock(root=root), now=ic.now_utc())
+    body = dict(topology, presence=presence,
+                presence_verdict=presence["verdict"],
+                presence_reason=presence["reason"],
+                presence_advisory=presence.get("advisory"),
+                presence_decided_on=presence["decided_on"],
+                singleton_proven=presence["singleton_proven"],
+                presence_owner=ic.PRESENCE_OWNER)
+    print(json.dumps(body, indent=1, default=str))
     return 0
 
 

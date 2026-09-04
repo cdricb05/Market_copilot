@@ -1505,6 +1505,51 @@ unchanged.
   invariants) and
   `tests/test_release55_active_manager_operational_acceptance.py` (85).
 
+## R55.2.1 - runtime alignment reconciliation, legacy decision continuity, worker presence (LANDED)
+
+Three surfaces reported an ABSENCE THEY HAD NOT ESTABLISHED. Each is repaired at
+the OWNER of the fact, never at the surface that displayed it. A correctness /
+reliability repair: no new engine, workflow, decision owner, ledger or scheduler;
+no cadence, economics, allocation or safety-boundary change; nothing restarted.
+Narrative: `docs/RELEASE55_2_1_RUNTIME_AND_DECISION_CONTINUITY.md`.
+
+- **Runtime alignment.** The canonical lifecycle verdict
+  (`resolve_service_lifecycle`) now carries the worker's own `loaded_release`,
+  `instance_id` and `started_at` — the seam the Active Manager actually reads.
+  R55.2 published them only on the FULL collection payload, so a proven-aligned
+  worker reported UNKNOWN everywhere else. Still exactly ONE alignment
+  calculation, still `api.runtime_identity`'s; the Active Manager delegates and
+  cannot disagree with the collection owner for identical evidence.
+- **Legacy governed-decision continuity.** NOT an R55.2 regression: that commit
+  touches neither `api.daily_research_cycle` nor the projection. R46.2 repaired
+  ONE of the two ways the clock erases a completed run; the identical erasure
+  through `WAITING_FOR_OWNED_DATA` (a LATER session awaiting data) is now closed.
+  `INCONSISTENT` keeps precedence, the reflected run stays `executable: False`,
+  the next session's gate is preserved in `pending_session_gate`, and the
+  reflection writes nothing.
+- **No ledger backfill.** Sep-2 predates R54.4's delegated governed write, so it
+  legitimately has no ledger row and is restored as the READ projection it always
+  was — `LEGACY_COMPATIBILITY_PROJECTION`, `is_ledger_row: false`,
+  `retrievable_through_owner: true`, `backfilled: false`. A later genuine ledger
+  row still supersedes it through the existing suppression path.
+- **Standing authority vs withheld candidate vs catch-up action.** A WITHHELD
+  intraday candidate is reported BESIDE the standing decision, never in place of
+  it. A standing HOLD for one session and a catch-up action for a later session
+  are two different questions and both are shown.
+- **Worker presence.** One owner, `resolve_worker_presence`, with a declared
+  evidence ladder: `PROVEN_MULTIPLE_LINEAGES` > `CONFLICTING_RUNTIME_EVIDENCE` >
+  `AUTHORITATIVE_RUNTIME_STATE` > `OS_PROCESS_CORRELATION`. A snapshot whose
+  command lines the shell may not read is NOT authoritative and fails closed to
+  `AMBIGUOUS_WORKER_TOPOLOGY` — the verdict `resolve_abandoned_lock` refuses —
+  instead of `NO_LOGICAL_WORKER`, which it treats as proof the machine is empty
+  and which would have authorised clearing a LIVE worker's singleton lock.
+  Restart succeeds on a PROVEN singleton with an OS-metadata advisory, and blocks
+  only on real ambiguity. Singleton safety is not weakened in either direction.
+- **Phase J finding.** The live `HOC_IDENTITY_MISMATCH` /
+  `HOC_ARTIFACT_IDENTITY_MISMATCH` is LEGITIMATE R54.3 governance — the reused
+  reassessment claims an assessment hash the named artifact does not carry — and
+  is left fail-closed and documented.
+
 ## R55.2 - runtime release identity + stale-worker detection (LANDED)
 
 Makes the R55.1 residual blocker DETECTABLE instead of invisible. A reliability /

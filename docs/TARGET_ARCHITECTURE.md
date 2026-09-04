@@ -271,6 +271,29 @@ responsibilities, candidate existing modules, and migration approach.
   an endpoint, the measurement owner labels the interval accordingly and fails
   closed to the weaker claim, and the surface renders that label rather than a
   hard-coded caption.** Relabel; never rewrite a persisted value.
+- **A fact must reach the reader that needs it, on the seam that reader uses
+  (R55.2.1, LANDED):** publishing a fact on one composition does not publish it
+  on another. The Active Manager reads the canonical LIFECYCLE view, not the full
+  collection payload, so an identity present on the second and absent from the
+  first reported a proven-aligned worker as UNKNOWN. **Target rule: a property of
+  a runtime travels on the canonical verdict about that runtime**, and a
+  consuming surface still re-derives nothing.
+- **A wait for a LATER session is not a statement about an EARLIER one
+  (R55.2.1, LANDED):** a completed governed run is a fact about the eligible
+  session and survives the wall clock. **Target rule: a terminal-COMPLETE
+  manifest for the eligible session is reflected whenever that session's own
+  owned data is confirmed**, whichever waiting state the next cycle is in;
+  genuinely contradictory inputs (INCONSISTENT) still outrank it, and reflecting
+  a run makes nothing executable and writes nothing.
+- **Absence of observation is not observation of absence (R55.2.1, LANDED):** a
+  process snapshot that could not read the command lines it needed has learned
+  nothing about whether a process exists. **Target rule: existence verdicts are
+  decided on a declared evidence hierarchy — a proven violation first, then
+  contradictory runtime evidence, then the runtime's own durable state, and only
+  then optional OS correlation — and a non-authoritative snapshot fails closed
+  rather than reaching the verdict a destructive path treats as proof.**
+  Fail-closed cuts both ways: unreadable metadata may neither invent a worker nor
+  hide one.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

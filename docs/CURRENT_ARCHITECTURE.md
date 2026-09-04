@@ -3252,6 +3252,60 @@ collapsed `#today-advanced` disclosure. Guard:
 `tests/test_release55_active_manager_operational_acceptance.py`. Full narrative:
 `docs/RELEASE55_ACTIVE_MANAGER_OPERATIONAL_ACCEPTANCE.md`.
 
+## R55.2.1 — THREE ABSENCES THAT WERE NEVER ESTABLISHED
+
+Each of these read an absence out of a fact it had not actually checked, and each
+is repaired at the OWNER of the fact rather than at the surface that showed it.
+Full narrative: `docs/RELEASE55_2_1_RUNTIME_AND_DECISION_CONTINUITY.md`.
+
+**1. The collection identity must reach the reader that needs it.** The Active
+Manager does not read the full collection payload; it reads the canonical
+lifecycle view (`api.information_collection.resolve_service_lifecycle`, through
+`api.operator_presentation.owner_loaders` and `api.decision_snapshot`). That
+verdict now carries the worker's own `loaded_release`, `instance_id` and
+`started_at` — properties of the worker PROCESS, exactly like `worker_pid`. The
+comparison is untouched: there is still exactly one alignment calculation, in
+`api.runtime_identity`, and the Active Manager delegates to it.
+
+**2. A completed research run is not erased by the clock — through EITHER waiting
+pre-state.** `WAITING_FOR_OWNED_DATA` covers two different situations, and only
+one of them is about the eligible session:
+
+| Case | Meaning | Effect |
+|---|---|---|
+| (a) `eligible` unconfirmed | the ELIGIBLE session's own data is missing | no eligible session; nothing to reflect (unchanged) |
+| (b) a LATER session awaited | the eligible session is confirmed and complete; a newer session has not published | the completed run IS reflected (R55.2.1) |
+
+R46.2 repaired the same erasure through `WAITING_FOR_SESSION_CLOSE`. Case (b)
+took `governed_research_evidence_current` false on 2026-09-03 and with it the
+Release-29.5 compatibility projection of the Sep-2 governed decision.
+`INCONSISTENT` keeps its precedence; the reflected run stays
+`executable: False`; the next session's market gate is preserved in
+`pending_session_gate`; and the reflection writes nothing.
+
+**3. Worker existence is decided on ranked evidence, never on CIM alone.**
+
+```
+PROVEN_MULTIPLE_LINEAGES     > CONFLICTING_RUNTIME_EVIDENCE
+  > AUTHORITATIVE_RUNTIME_STATE   > OS_PROCESS_CORRELATION
+```
+
+`api.information_collection.resolve_worker_presence` is the ONE owner of the
+verdict (`CONFIRMED_SINGLETON` · `CONFIRMED_SINGLETON_OS_METADATA_UNAVAILABLE` ·
+`NO_WORKER` · `MULTIPLE_WORKERS` · `INCONSISTENT_TOPOLOGY`). A snapshot whose
+command lines this shell may not read is **not authoritative**, so
+`resolve_worker_topology` fails closed to `AMBIGUOUS_WORKER_TOPOLOGY` rather than
+`NO_LOGICAL_WORKER` — which is the verdict `resolve_abandoned_lock` treats as
+proof the machine is empty, and would have authorised clearing a live worker's
+singleton lock. Unreadable metadata never suppresses a proven violation, and the
+manager script reads the owner's `singleton_proven` flag and decides nothing.
+
+**Standing decision vs operator action.** They answer different questions about
+different sessions and must both be shown: the standing governed decision (HOLD
+for 2026-09-02) and the operational catch-up action (run the Portfolio Cycle for
+2026-09-03). A WITHHELD intraday candidate is reported beside the standing
+authority, never in place of it.
+
 ## R55.2 — WHICH RELEASE DID THIS PROCESS ACTUALLY LOAD?
 
 `api/runtime_identity.py` is the ONE owner of runtime release identity, and it
