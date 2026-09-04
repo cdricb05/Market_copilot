@@ -1,0 +1,168 @@
+{
+  "schema_version": "r57_research_protocol.v1",
+  "release": "R57",
+  "campaign_id": "r57_alpha_discovery_v1",
+  "registered_at": "2026-09-04T17:25:00Z",
+  "registered_before_any_experiment_ran": true,
+  "registration_rule": "Every threshold, split, family boundary, variant grid, cost assumption and gate in this file was fixed BEFORE any train/validation/lockbox result was computed. Data-AVAILABILITY probes (which databases, watchlists, symbols, date ranges and ledgers exist) preceded registration; no RESULT did. Thresholds may not move after seeing answers; a change would require a v2 protocol that discloses what had already been seen.",
+
+  "question": "Can we find a material, robust, after-cost, out-of-sample signal or strategy that deserves to compete for capital against the incumbent, SPY and cash?",
+
+  "evidence_ladder": {
+    "vocabulary": ["HISTORICAL_IN_SAMPLE", "HISTORICAL_VALIDATION", "HISTORICAL_FINAL_OOS", "FORWARD_PENDING", "FORWARD_EVIDENCED", "FORWARD_CONFIRMED"],
+    "verdict_vocabulary": {
+      "NO_ALPHA_EVIDENCE": "no credible historical OOS advantage",
+      "HISTORICAL_ALPHA_CANDIDATE": "positive, economically material, after-cost final-OOS result passing the pre-registered robustness and multiple-testing gates",
+      "FORWARD_PENDING_ALPHA_CANDIDATE": "historical candidate frozen prospectively; forward evidence immature",
+      "FORWARD_EVIDENCED_ALPHA": "forward evidence directionally supportive, confirmation threshold not passed",
+      "FORWARD_CONFIRMED_ALPHA": "pre-registered independent forward evidence threshold passed"
+    },
+    "found_alpha_phrase_reserved_for": "FORWARD_CONFIRMED_ALPHA",
+    "forward_confirmation_threshold": "≥60 effective independent forward observations at the strategy's decision cadence AND net excess over its declared benchmark with one-sided HAC t ≥ 2.0 on forward data alone"
+  },
+
+  "data": {
+    "equity_panel": {
+      "source": "Norgate US Equities + US Equities Delisted (local, licensed)",
+      "universe": "S&P 500 Current & Past (1,897 securities, 1,236 delisted-suffixed)",
+      "pit_membership": "norgatedata.index_constituent_timeseries('S&P 500') per security per day; today's list is NEVER applied backwards",
+      "price_basis": "TOTALRETURN adjusted close for returns; UNADJUSTED close x volume for dollar-volume and price floors",
+      "window": "2006-01-01 .. 2026-09-03 (last completed session)",
+      "calendar": "SPY trading sessions",
+      "survivorship_treatment": "delisted members retained through their membership window; a delisting inside a holding window realises the delisting-path total return present in the vendor series"
+    },
+    "futures_panel": {
+      "source": "Norgate Continuous Futures (112 markets x 2 continuous methodologies: '&MKT' and '&MKT_CCB')",
+      "window": "2006-01-01 .. 2026-09-03; per-market inception honoured, never padded backwards",
+      "universe_rule": "mechanical: every market with >= 2000 sessions of history and a bar on/after 2026-08-01; no hand-picking",
+      "pnl_basis": "daily dollar P&L per contract = delta(back-adjusted close) x point value; percent-return arithmetic on back-adjusted series is FORBIDDEN (near-zero adjusted prices fabricate returns)",
+      "roll_methodology_check": "per market, daily $P&L of '&' vs '&_CCB' compared (correlation, mean |diff| / vol); a family verdict requires the SAME SIGN of the lockbox primary metric under both methodologies"
+    },
+    "track1_forward_ledger": {
+      "source": "C:\\Users\\binis\\.paper_trader\\paper_trading_desk forward_prediction_{snapshots,outcomes,prices}.json (READ ONLY)",
+      "content": "TRUE_FORWARD cross-sections for fundamental_momentum_50_50_v1, composite_sn (fundamental leg), mom_6_1 (momentum leg) since 2026-07-24, with matured per-member outcomes at h=1,5,20",
+      "role": "DIAGNOSTIC ONLY - no alpha verdict may be issued from this sample"
+    },
+    "excluded_information_with_reasons": {
+      "fundamental_quality_value": "no NEW PIT fundamental data exists since Stage 23/24/R27 prosecuted these families; registry reopen conditions (pre-2015 PIT vendor) unmet; re-running is repetition, not research",
+      "analyst_revisions": "no owned survivorship-safe PIT estimate history (Stage 13C OOS failure, Intrinio DO_NOT_BUY); reopen condition unmet",
+      "earnings_event_drift": "historical PIT earnings timestamps for delisted names not owned; family already on live R46 forward evidence",
+      "futures_curve_carry": "already prosecuted with the correct capital denominator (R43) and live on R46 forward evidence; historical re-test adds no information",
+      "calendar_seasonality": "excluded: survives only behind multiple-testing control this sample cannot fund; already an R46 forward challenger",
+      "intraday": "no owned intraday tape for the tested markets in the window"
+    }
+  },
+
+  "partition": {
+    "layers": {
+      "HISTORICAL_IN_SAMPLE": "2006-01-01 .. 2017-12-31",
+      "HISTORICAL_VALIDATION": "2018-01-01 .. 2022-12-31",
+      "HISTORICAL_FINAL_OOS": "2023-01-01 .. 2026-09-03"
+    },
+    "lockbox_is_latest_block": true,
+    "embargo_rule": "ceil(horizon_sessions / cadence_sessions) decision dates dropped from the END of the earlier layer at every boundary; embargoed dates belong to NO layer",
+    "lockbox_discipline": "variant selection is computed and PERSISTED from validation results before any lockbox evaluation runs; one variant per family enters the lockbox; the lockbox is evaluated once per family; selection artifact timestamps must precede lockbox artifact timestamps",
+    "no_test_set_tuning": "no parameter, threshold, universe rule or construction may be altered after a lockbox result is seen"
+  },
+
+  "conventions": {
+    "equity_decision_cadence_sessions": {"monthly_families": 21, "short_horizon_family": 5},
+    "entry_convention": "NEXT_CLOSE: signal uses data through decision close t; position effective at close t+1; forward window [t+1, t+1+h]",
+    "equity_cost_bps_per_side": 12.5,
+    "equity_cost_rule": "one-way turnover sum|dw| x rate, charged to strategy AND to the EW-universe benchmark symmetrically",
+    "equity_eligibility": "PIT index member at t AND unadjusted close >= $5 AND trailing 63d median dollar volume >= $10M AND >= 260 prior sessions",
+    "equity_portfolio": "long-only equal-weight top-50 by family score (primary); benchmark = equal-weight of the full eligible universe, same cadence, same costs",
+    "futures_cost_bps_of_notional_per_side": 2.0,
+    "futures_roll_cost": "every detected roll (Delivery Month change) charges 2 sides on the rolled notional",
+    "futures_sizing": "per-market inverse-volatility to a 10% annualised target on 63d realised $P&L vol; portfolio = equal risk across markets; rebalance every 5 sessions",
+    "futures_pnl_measure": "portfolio daily $P&L / capital, capital = sum of per-market risk capital at target vol"
+  },
+
+  "families": {
+    "grouping_rule": "parameter variations live INSIDE one economic family; the family is the unit of multiple-testing; the validation layer selects exactly one variant per family for the lockbox; the variant grid below is exhaustive and may not grow after registration",
+    "equity": [
+      {"id": "E1_XS_MOMENTUM", "economic_family": "CROSS_SECTIONAL_MOMENTUM", "horizon_sessions": 21, "cadence": 21, "variants": ["mom_252_21", "mom_189_21", "mom_126_21"], "note": "trailing total return with 21-session skip"},
+      {"id": "E2_SHORT_REVERSAL", "economic_family": "CROSS_SECTIONAL_REVERSAL", "horizon_sessions": 5, "cadence": 5, "variants": ["rev_5", "rev_10"], "note": "negative of trailing 5/10-session return"},
+      {"id": "E3_RESIDUAL_MOMENTUM", "economic_family": "RESIDUAL_MOMENTUM", "horizon_sessions": 21, "cadence": 21, "variants": ["resid_252_21", "resid_126_21"], "note": "momentum of SPY-beta residual returns (beta on trailing 252d)"},
+      {"id": "E4_SECTOR_RELATIVE_MOMENTUM", "economic_family": "SECTOR_RELATIVE_MOMENTUM", "horizon_sessions": 21, "cadence": 21, "variants": ["srel_252_21", "srel_126_21"], "note": "momentum demeaned within GICS sector at t"},
+      {"id": "E5_LOW_RISK", "economic_family": "LOW_RISK_ANOMALY", "horizon_sessions": 21, "cadence": 21, "variants": ["lowvol_252", "lowbeta_252"], "note": "inverse realised vol / inverse beta"},
+      {"id": "E6_IDIO_VOL", "economic_family": "IDIOSYNCRATIC_VOLATILITY", "horizon_sessions": 21, "cadence": 21, "variants": ["idiovol_63", "idiovol_126"], "note": "low idiosyncratic vol of SPY-residual returns"},
+      {"id": "E7_HIGH_PROXIMITY", "economic_family": "DRAWDOWN_RECOVERY_STATE", "horizon_sessions": 21, "cadence": 21, "variants": ["hi52_252", "hi52_126"], "note": "closeness to trailing high (George-Hwang)"},
+      {"id": "E8_LIQUIDITY", "economic_family": "LIQUIDITY_PREMIUM", "horizon_sessions": 21, "cadence": 21, "variants": ["amihud_63", "dvol_trend_63"], "note": "exploratory; Amihud illiquidity / dollar-volume trend"},
+      {"id": "E9_COMBO", "economic_family": "MULTI_SIGNAL_COMBINATION", "horizon_sessions": 21, "cadence": 21, "variants": ["rank_average_of_validation_passers"], "condition": "built ONLY from families whose validation primary metric is positive; itself charged in the lockbox BH denominator"}
+    ],
+    "futures": [
+      {"id": "F1_TS_TREND", "economic_family": "TIME_SERIES_TREND", "cadence": 5, "variants": ["tsmom_63_sign", "tsmom_126_sign", "tsmom_252_sign", "tsmom_63_volscaled", "tsmom_126_volscaled", "tsmom_252_volscaled"], "note": "sign(trailing return) or vol-scaled strength; sizing variants are IN-family"},
+      {"id": "F2_CHANNEL_BREAKOUT", "economic_family": "CHANNEL_BREAKOUT_TREND", "cadence": 5, "variants": ["donchian_50", "donchian_100", "donchian_200"], "note": "long above trailing channel high, short below channel low, flat inside"},
+      {"id": "F3_XS_MOMENTUM", "economic_family": "CROSS_MARKET_RELATIVE_MOMENTUM", "cadence": 5, "variants": ["xsmom_126", "xsmom_252"], "note": "long top-third / short bottom-third of markets by trailing vol-adjusted return, risk-balanced"}
+    ]
+  },
+
+  "statistics": {
+    "equity_primary_metric": "annualised net excess return of the long-only top-50 portfolio over the EW eligible-universe benchmark, both after costs",
+    "futures_primary_metric": "annualised net Sharpe of the vol-targeted family portfolio (benchmark: cash = 0)",
+    "test": "one-sided t on period excess returns with Newey-West lag = overlap periods (h/cadence - 1, min 0); daily-marked futures use lag 10",
+    "multiple_testing": "Benjamini-Hochberg FDR q = 0.10 across ALL lockbox primary tests of this campaign (equity + futures + combo counted together); the denominator is recorded in the registry before lockbox evaluation",
+    "prior_search_burden_disclosure": "this repository's cumulative discovery burden (~289 prosecuted hypotheses through R46) is disclosed in every verdict; R57 families are pre-registered ex ante, not survivors of a wider silent scan, which is the condition under which family-level FDR is defensible",
+    "effective_observations_floor": {"h21_cadence21": "36 lockbox periods", "h5_cadence5": "120 lockbox periods", "futures_daily_marks": "500 daily marks and 36 months of span"},
+    "small_sample_rule": "no Sharpe or t quoted on fewer than the floor; a result on fewer observations is reported as INSUFFICIENT_SAMPLE regardless of magnitude"
+  },
+
+  "gates": {
+    "economic_materiality": {
+      "equity": "lockbox net excess >= +1.5%/yr vs the EW-universe benchmark",
+      "futures": "lockbox net Sharpe >= 0.40"
+    },
+    "risk": {
+      "equity": "lockbox max drawdown of the strategy NAV no worse than 1.5x the benchmark's over the same window",
+      "futures": "lockbox max drawdown <= 25% of risk capital at the 10% vol target"
+    },
+    "robustness_all_required": [
+      "validation and lockbox primary metrics share a sign",
+      "lockbox split into two contiguous halves: neither half's net primary metric below -0.5%/yr (equity) / -0.10 Sharpe (futures)",
+      "selected variant's +/-1 grid neighbours share the validation sign",
+      "equity: excluding the largest GICS sector at each decision date leaves the lockbox primary metric's sign unchanged",
+      "futures: lockbox sign identical under '&' and '&_CCB' roll methodologies",
+      "equity turnover: one-way turnover <= 40%/month for 21d-cadence families (else the strategy is a cost machine and is rejected on turnover)"
+    ],
+    "verdict_rule": "HISTORICAL_ALPHA_CANDIDATE requires: effective-observations floor AND BH survival at q=0.10 AND economic materiality AND every robustness gate AND the risk gate. Failing any single gate -> the named rejection.",
+    "challenger_freeze_rule": "every HISTORICAL_ALPHA_CANDIDATE is frozen as an immutable R57 forward challenger at the next completed session, with weights, cash, decision timestamp, eligible session, universe identity, input hashes, spec hash, cost/construction/risk policy versions and git identity; forward evidence starts strictly after inception; no backfill"
+  },
+
+  "calibration_track": {
+    "applies_to": "the strongest equity family that passes its VALIDATION gates (chosen before lockbox)",
+    "methods": ["linear_in_rank_with_shrinkage", "isotonic_rank_to_return"],
+    "fit_window": "DISCOVERY + VALIDATION",
+    "selection": "validation MAE chooses the method and the shrinkage factor from {0.25, 0.5, 0.75, 1.0}",
+    "lockbox_evaluation": ["MAE vs the zero-forecast baseline", "monotonicity of realised decile means (Kendall tau)", "top-decile predicted-vs-realised gap"],
+    "survival_rule": "calibration SURVIVES OOS only if lockbox MAE < zero-forecast MAE AND decile monotonicity Kendall tau >= 0.5; otherwise expected_return_state stays NOT_CALIBRATED and that is the published answer",
+    "governance": "no calibrated forecast enters any governed decision in R57; research lane only"
+  },
+
+  "construction_track": {
+    "applies_to": "each HISTORICAL_ALPHA_CANDIDATE (or, if none, the best rejected equity family, labelled diagnostic)",
+    "pre_registered_constructions": ["EW_top50", "rank_weighted_top50", "inverse_vol_top50", "EW_top25"],
+    "shared_kernels": "same panel, same eligibility, same cost model, same calendar; risk weights from realised 63d vol only; NO optimiser zoo",
+    "attribution": "signal value = best-construction gross excess; construction value = spread between constructions; transition value = turnover-track deltas"
+  },
+
+  "turnover_track": {
+    "applies_to": "same target as construction track",
+    "pre_registered_controls": ["no_band (K_in=50=K_out)", "band_75 (K_in=50, K_out=75)", "band_100", "band_150"],
+    "criterion": "AFTER-COST lockbox net excess, never turnover itself; a control that lowers turnover and lowers net excess FAILED"
+  },
+
+  "track1_diagnostics": {
+    "scope": "DIAGNOSTIC ONLY - measures the incumbent, issues no alpha verdicts",
+    "forward_ledger": "per-component (blend / fundamental leg / momentum leg) buy-side (top-quartile forward excess vs universe mean) and sell-side (bottom-quartile) asymmetry on matured TRUE_FORWARD outcomes at h=1,5,20",
+    "historical_replication": "mom_6_1-style momentum leg replicated on the survivorship-safe panel with the same buy/sell asymmetry measured on validation+lockbox layers",
+    "sample_size_warning": "the forward ledger holds ~25/21/8 matured sessions by horizon; every number carries its n"
+  },
+
+  "safety": {
+    "paper_only": true, "no_orders": true, "no_broker": true, "no_promotion": true,
+    "no_operational_store_mutation": true,
+    "writes_restricted_to": ["D:\\paper_trader_r56_alpha_capital\\research\\r57", "D:\\Stock_Prediction_app_data\\r57_alpha_discovery", "worktree source files"],
+    "r56_challenger_records_immutable": true
+  }
+}
