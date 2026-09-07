@@ -14687,6 +14687,347 @@ def check_release59_persistent_research_runtime(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 60 — architecture consolidation + AlphaAgent outcomes visibility.
+# --------------------------------------------------------------------------- #
+R60_OWNER = "api/alphaagent_outcomes.py"
+R60_ROUTE = "/v1/research/alphaagent-outcomes"
+
+#: The six-word EVIDENCE vocabulary. It is the operator-facing state and is
+#: deliberately disjoint from the worker-state vocabulary.
+R60_GOVERNANCE_STATES = (
+    "NO_QUALIFIED_ALPHA_YET", "HISTORICAL_CANDIDATE_ONLY",
+    "FORWARD_EVIDENCE_MATURING", "CHALLENGER_WARRANTS_GOVERNED_REVIEW",
+    "RESEARCH_WAITING_FOR_NEW_INFORMATION", "RESEARCH_MEMORY_NOT_PRESENT")
+
+#: Every one of these WRITES. A read model that called any of them would make
+#: opening a dashboard change the research plan.
+R60_WRITING_RESEARCH_CALLS = (
+    "generate_mandates(", "stop_reason(", "capacity_allocation(",
+    "FR.measure(", "frontier.measure(", "report.build(", "OPP.seed(",
+    "seed_mandates(", "run_session(", "run_forever(", "freeze_qualified(",
+    "record_result(", "freeze_forward(", "set_opportunity(", "set_frontier(",
+    "set_meta(", "record_generator_yield(", "set_provider_usage(",
+    "open_memory(", "research_runtime_cycle(",
+)
+
+#: Nothing in the outcomes owner may execute, approve, promote, allocate or buy.
+R60_FORBIDDEN_CALLS = (
+    "place_order(", "submit_order(", "create_order(", "run_fill_cycle(",
+    "confirm_rebalance_order_plan(", "run_daily_close(", "run_portfolio_cycle(",
+    "promote_model(", "promote_challenger(", "approve_proposal(",
+    "activate_sleeve(", "purchase(", "recalibrate(",
+)
+
+#: A second research store / queue / runtime would undo R59 entirely.
+R60_SECOND_STORE_FORBIDDEN = (
+    "api/research_memory.py", "api/alphaagent_memory.py",
+    "api/alphaagent_queue.py", "api/research_queue.py",
+    "engine/research_memory.py", "alpha_agent/r60/memory.py",
+    "alpha_agent/r60/runtime.py", "alpha_agent/r60/loop.py",
+)
+
+#: An action route on this surface would make a research READ a research ACT.
+R60_FORBIDDEN_ROUTE_SUBSTR = (
+    "alphaagent-outcomes/run", "alphaagent-outcomes/refresh",
+    "alphaagent-outcomes/promote", "alphaagent-outcomes/approve",
+    "alphaagent-outcomes/purchase", "alphaagent-outcomes/mandate",
+    "alphaagent/research/start", "alphaagent/research/stop",
+)
+
+
+def _r60_ui_region(ui: str) -> str:
+    """The R60 RENDERER. Marker-bounded so this guard can never drift onto a
+    neighbouring release's code."""
+    start = ui.find("RELEASE 60 ALPHAAGENT OUTCOMES START")
+    end = ui.find("RELEASE 60 ALPHAAGENT OUTCOMES END")
+    if start == -1 or end == -1 or end <= start:
+        return ""
+    return ui[start:end]
+
+
+def _r60_ui_panel(ui: str) -> str:
+    """The R60 PANEL markup - where the safety badges live."""
+    start = ui.find("RELEASE 60 ALPHAAGENT OUTCOMES PANEL START")
+    end = ui.find("RELEASE 60 ALPHAAGENT OUTCOMES PANEL END")
+    if start == -1 or end == -1 or end <= start:
+        return ""
+    return ui[start:end]
+
+
+def check_release60_alphaagent_outcomes(files: list[Path]) -> dict:
+    """Release 60 invariants — the research record became legible without the
+    act of reading it changing anything.
+
+    R59 made the researcher persistent and left its record invisible: there
+    was no API surface of any kind over the R59 persistent memory, and the
+    only thing the estate could say about a running AlphaAgent was a process
+    line. Making that record readable creates five new ways to be wrong, and
+    each is closed here:
+
+    * READING BECOMES WRITING. Before R60 the only way to open either research
+      store was to construct a writer that created the directory and ran the
+      schema script, and the right owner of "what should we research next"
+      (the governor) writes a capacity fingerprint and an event every time it
+      is asked. So the read model is proven to use READ-ONLY handles and to
+      call none of the writing owners — including the governor, whose answer
+      it gets from the queue instead.
+
+    * A SECOND RESEARCH BRAIN. Closed by exactly one ResearchMemory, one
+      ResearchQueue and one run_forever in the tree, and by the absence of any
+      R60-named store, queue or runtime module.
+
+    * PROCESS HEALTH SOLD AS RESEARCH SUCCESS. Closed by two disjoint
+      vocabularies, by both being present in the owner, and by the operator
+      badge being bound to the EVIDENCE state rather than the worker state.
+
+    * THE BROWSER DECIDING. Closed by exactly one loader, by the UI region
+      reading the backend's own fields, and by it neither comparing against a
+      governance literal nor performing research arithmetic.
+
+    * A READ TURNING INTO AN ACT. Closed by a GET-only route with no run /
+      refresh / promote / approve / purchase / mandate sibling, and by the
+      owner containing no execution, promotion, approval or purchase call.
+    """
+    owner = _read(R60_OWNER)
+    ui = _read(UI_FILE)
+    app = _read(APP_MODULE)
+    mem_src = _read("alpha_agent/r59/memory.py")
+    queue_src = _read("alpha_agent/autonomous_research.py")
+    loop_src = _read("alpha_agent/r59/loop.py")
+    runtime_src = _read("alpha_agent/r59/runtime.py")
+    lock_src = _read("alpha_agent/r46/runlock.py")
+    routes = check_routes()["routes"]
+
+    # (1) ONE owner, GET-only, with no action sibling.
+    owner_present = bool(owner)
+    route_entries = [r for r in routes if r["path"] == R60_ROUTE]
+    route_methods = sorted({r["method"] for r in route_entries})
+    route_get_only = route_methods == ["GET"]
+    forbidden_routes_present = sorted(
+        r["path"] for r in routes
+        if any(tok in r["path"] for tok in R60_FORBIDDEN_ROUTE_SUBSTR))
+    app_delegates = ("_r60_outcomes.load_alphaagent_outcomes()" in app)
+    second_owner_modules = sorted(
+        p for p in R60_SECOND_STORE_FORBIDDEN if (REPO_ROOT / p).exists())
+
+    # (2) The read model is read-only in STORE ACCESS, not merely in intent.
+    uses_readonly_memory = "open_memory_readonly()" in owner
+    uses_readonly_queue = "open_queue(read_only=True)" in owner
+    uses_readonly_status = "read_only=True)" in owner
+    owner_writing_calls = sorted(
+        tok for tok in R60_WRITING_RESEARCH_CALLS if tok in owner)
+    owner_forbidden_calls = sorted(
+        tok for tok in R60_FORBIDDEN_CALLS if tok in owner)
+    # It must not open a database itself: the memory owner owns the SQL.
+    owner_opens_no_sqlite = not any(
+        tok in owner for tok in ("import sqlite3", "sqlite3.connect", "SELECT "))
+
+    # (3) The canonical owners actually PROVIDE a refusing read-only handle.
+    memory_readonly_contract = all(
+        tok in mem_src for tok in
+        ("class ReadOnlyMemory", "def open_memory_readonly",
+         "def memory_db_path", "def memory_present", "def _guard_write",
+         "read_only: bool = False", "mode=ro", "PRAGMA query_only=ON"))
+    memory_writers_guarded = mem_src.count("self._guard_write()") >= 10
+    queue_readonly_contract = all(
+        tok in queue_src for tok in
+        ("class ReadOnlyQueue", "def _guard_write", "read_only: bool = False",
+         "mode=ro", "PRAGMA query_only=ON"))
+    queue_writers_guarded = queue_src.count("self._guard_write()") >= 6
+    loop_readonly_passthrough = ("read_only: bool = False" in loop_src
+                                 and "def queue_db_path" in loop_src)
+    runtime_read_paths_do_not_create = all(
+        tok in runtime_src for tok in
+        ("def runtime_dir(*, create: bool = True)", "def status_path(",
+         "status_path(create=False)", "read_only: bool = False"))
+
+    # (4) ONE brain: one memory, one queue, one persistent runtime.
+    agent_files = sorted((REPO_ROOT / "alpha_agent").rglob("*.py"))
+    memory_classes = sum((_read(_rel(p)) or "").count("class ResearchMemory")
+                         for p in agent_files)
+    queue_classes = sum((_read(_rel(p)) or "").count("class ResearchQueue")
+                        for p in agent_files)
+    run_forever_defs = sum((_read(_rel(p)) or "").count("def run_forever(")
+                           for p in agent_files)
+    one_research_brain = (memory_classes == 1 and queue_classes == 1
+                          and run_forever_defs == 1)
+
+    # (5) Process health and alpha evidence are DIFFERENT questions.
+    governance_vocabulary_complete = all(
+        tok in owner for tok in R60_GOVERNANCE_STATES)
+    declares_health_is_not_success = (
+        '"process_health_is_not_research_success": True' in owner
+        and '"process_health_is_a_separate_question": True' in owner)
+    worker_states_are_not_governance_states = not any(
+        w in R60_GOVERNANCE_STATES for w in
+        ("RESEARCHING", "SLEEPING", "STARTING", "STOPPED",
+         "MATURING_FORWARD_EVIDENCE"))
+
+    # (6) Honesty rules live in the read model, not the browser.
+    reports_not_available = ('NOT_AVAILABLE = "NOT_AVAILABLE"' in owner
+                             and "def _not_available(" in owner)
+    splits_measured_from_imported = (
+        '"imported_from_prior_release"' in owner
+        and '"measured_here"' in owner)
+    orphan_freeze_is_explicit = (
+        'FWD_LINK_ORPHAN = "NOT_REGISTERED_WITH_FORWARD_EVIDENCE_OWNER"'
+        in owner)
+    purchase_verdict_is_the_gates = (
+        '"purchase_actually_recommended"' in owner
+        and "PURCHASE_RECOMMENDED" in owner
+        and "api.data_expansion" in owner)
+    forward_evidence_from_canonical_owner = all(
+        tok in owner for tok in
+        ("api import research_runtime", "api import prospective_tournament",
+         "api import shadow_portfolio_evidence"))
+
+    # (7) The lease no longer calls a healthy worker dead.
+    lease_access_denied_is_undecidable = all(
+        tok in lock_src for tok in
+        ("_ERROR_ACCESS_DENIED", "_ERROR_INVALID_PARAMETER",
+         "kernel32.GetLastError()"))
+
+    # (8) The UI renders; it does not classify.
+    region = _r60_ui_region(ui)
+    panel = _r60_ui_panel(ui)
+    ui_region_present = bool(region) and bool(panel)
+    missing_safety_badges = sorted(
+        b for b in ("READ ONLY", "RESEARCH ONLY", "MANUAL REVIEW",
+                    "NO MODEL PROMOTION", "NO PORTFOLIO MUTATION",
+                    "NO ORDERS", "AUTOMATION OFF", "NO PURCHASE")
+        if b not in panel)
+    panel_action_controls = sorted(
+        t for t in ("Create Order", "Approve", "Promote", "Allocate",
+                    "Execute", "<form", "onsubmit")
+        if t in panel)
+    ui_loader_count = ui.count("function loadAlphaAgentOutcomes")
+    ui_fetches_owner_route = ("_mhzGet('%s')" % R60_ROUTE) in ui
+    ui_reads_backend_fields = [
+        f for f in ("d.governance", "d.runtime", "d.current_research_intent",
+                    "d.recent_activity", "d.prospective",
+                    "d.best_current_candidates", "d.graveyard",
+                    "d.data_opportunities", "d.next_research",
+                    "d.human_action")
+        if f not in region]
+    ui_derives_governance = sorted(
+        tok for tok in R60_GOVERNANCE_STATES
+        if ("=== '%s'" % tok) in region or ('=== "%s"' % tok) in region
+        or ("state = '%s'" % tok) in region)
+    ui_research_math = sorted(
+        tok for tok in ("Math.log", "Math.sqrt", "Math.exp", "Math.pow",
+                        "lockbox_t >", "t_stat >", "p_value", "* 10000")
+        if tok in region)
+    ui_action_controls = sorted(
+        tok for tok in ("runUiAction(", "method: 'POST'", 'method: "POST"',
+                        "alert(", "confirm(", "promote", "approve",
+                        "Create Order")
+        if tok in region)
+    ui_badge_is_evidence_state = ("stateEl.textContent = state" in region
+                                  and "var state = gov.state" in region)
+    ui_worker_badge_is_separate = "aao-worker-badge" in region
+    ui_nav_present = ('id="ra-nav-alphaagent"' in ui
+                      and 'data-rasub="alphaagent"' in ui)
+    ui_panel_registered = ("'alphaagent':       { panels: ['aaout-panel']" in ui
+                           and "'aaout-panel'" in ui)
+    ui_loader_wired = "'alphaagent': ['loadAlphaAgentOutcomes']" in ui
+    ui_is_research_landing = "'alphaagent';" in ui
+    # No second dashboard: the outcomes panel lives on the EXISTING Research
+    # workspace tab, not in a new top-level view.
+    tab_start = ui.find('id="tab-audit-advanced"')
+    panel_at = ui.find('id="aaout-panel"')
+    ui_no_second_dashboard = (tab_start != -1 and panel_at > tab_start
+                              and 'data-route="alphaagent"' not in ui)
+    # Every pre-R60 Research deep link still resolves.
+    preserved_subs = [s for s in
+                      ("research-agent", "research-bridge", "performance",
+                       "daily-operations", "paper-books", "revalidation",
+                       "tournament", "alpha-factory", "price-alpha",
+                       "alpha-agent", "stage11", "stage12", "stage13a",
+                       "data-expansion", "diagnostics")
+                      if ('data-rasub="%s"' % s) not in ui]
+
+    # (9) The inventory records the new owner and the concepts it reads.
+    inv_raw = _read("docs/architecture/system_inventory.json")
+    try:
+        inv = json.loads(inv_raw) if inv_raw.strip() else {}
+    except json.JSONDecodeError:
+        inv = {}
+    inv_paths = {m.get("path") for m in (inv.get("modules") or [])}
+    inv_routes = {r.get("prefix") for r in (inv.get("route_ownership") or [])}
+    inv_concepts = {c.get("concept") for c in (inv.get("canonical_concepts") or [])}
+    required_concepts = (
+        "persistent_research_runtime_lifecycle", "research_persistent_memory",
+        "research_work_queue", "research_hypothesis_generation",
+        "search_burden", "research_graveyard",
+        "prospective_challenger_freeze", "true_forward_maturation",
+        "data_opportunity_frontier", "alphaagent_research_outcomes")
+    missing_inventory_concepts = sorted(
+        c for c in required_concepts if c not in inv_concepts)
+    # One owner per concept: no concept may list two authoritative owners.
+    concept_owner_conflicts = sorted(
+        c.get("concept") for c in (inv.get("canonical_concepts") or [])
+        if isinstance(c.get("authoritative_owner"), list))
+
+    return {
+        "owner_present": owner_present,
+        "route": R60_ROUTE,
+        "route_methods": route_methods,
+        "route_get_only": route_get_only,
+        "forbidden_routes_present": forbidden_routes_present,
+        "app_delegates": app_delegates,
+        "second_owner_modules": second_owner_modules,
+        "uses_readonly_memory": uses_readonly_memory,
+        "uses_readonly_queue": uses_readonly_queue,
+        "uses_readonly_status": uses_readonly_status,
+        "owner_writing_calls": owner_writing_calls,
+        "owner_forbidden_calls": owner_forbidden_calls,
+        "owner_opens_no_sqlite": owner_opens_no_sqlite,
+        "memory_readonly_contract": memory_readonly_contract,
+        "memory_writers_guarded": memory_writers_guarded,
+        "queue_readonly_contract": queue_readonly_contract,
+        "queue_writers_guarded": queue_writers_guarded,
+        "loop_readonly_passthrough": loop_readonly_passthrough,
+        "runtime_read_paths_do_not_create": runtime_read_paths_do_not_create,
+        "one_research_brain": one_research_brain,
+        "memory_class_definitions": memory_classes,
+        "queue_class_definitions": queue_classes,
+        "run_forever_definitions": run_forever_defs,
+        "governance_vocabulary_complete": governance_vocabulary_complete,
+        "declares_health_is_not_success": declares_health_is_not_success,
+        "worker_states_are_not_governance_states":
+            worker_states_are_not_governance_states,
+        "reports_not_available": reports_not_available,
+        "splits_measured_from_imported": splits_measured_from_imported,
+        "orphan_freeze_is_explicit": orphan_freeze_is_explicit,
+        "purchase_verdict_is_the_gates": purchase_verdict_is_the_gates,
+        "forward_evidence_from_canonical_owner":
+            forward_evidence_from_canonical_owner,
+        "lease_access_denied_is_undecidable": lease_access_denied_is_undecidable,
+        "ui_region_present": ui_region_present,
+        "ui_missing_safety_badges": missing_safety_badges,
+        "ui_panel_action_controls": panel_action_controls,
+        "ui_loader_count": ui_loader_count,
+        "ui_fetches_owner_route": ui_fetches_owner_route,
+        "ui_missing_backend_fields": ui_reads_backend_fields,
+        "ui_derives_governance": ui_derives_governance,
+        "ui_research_math": ui_research_math,
+        "ui_action_controls": ui_action_controls,
+        "ui_badge_is_evidence_state": ui_badge_is_evidence_state,
+        "ui_worker_badge_is_separate": ui_worker_badge_is_separate,
+        "ui_nav_present": ui_nav_present,
+        "ui_panel_registered": ui_panel_registered,
+        "ui_loader_wired": ui_loader_wired,
+        "ui_is_research_landing": ui_is_research_landing,
+        "ui_no_second_dashboard": ui_no_second_dashboard,
+        "ui_lost_deep_links": preserved_subs,
+        "inventory_lists_owner": R60_OWNER in inv_paths,
+        "inventory_lists_route": R60_ROUTE in inv_routes,
+        "missing_inventory_concepts": missing_inventory_concepts,
+        "concept_owner_conflicts": concept_owner_conflicts,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -15457,6 +15798,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release52_persistent_research_runtime(files),
         "release59_persistent_research_runtime":
             check_release59_persistent_research_runtime(files),
+        "release60_alphaagent_outcomes":
+            check_release60_alphaagent_outcomes(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -16586,6 +16929,40 @@ def _print_console(rep: dict) -> None:
           f"creates orders (must be False): "
           f"{pr['research_recovery_creates_orders']}  "
           f"monthly contract not weakened: {pr['monthly_contract_not_weakened']}")
+
+    hdr("RELEASE 60 — ALPHAAGENT OUTCOMES (read-only research legibility)")
+    r60 = rep["release60_alphaagent_outcomes"]
+    print(f"owner present: {r60['owner_present']}  route {r60['route']} "
+          f"methods {r60['route_methods']}  forbidden routes: "
+          f"{r60['forbidden_routes_present']}")
+    print(f"read-only store access — memory: {r60['uses_readonly_memory']}  "
+          f"queue: {r60['uses_readonly_queue']}  "
+          f"status: {r60['uses_readonly_status']}")
+    print(f"writing research calls in the read model (must be empty): "
+          f"{r60['owner_writing_calls']}")
+    print(f"forbidden calls (must be empty): {r60['owner_forbidden_calls']}  "
+          f"opens no sqlite: {r60['owner_opens_no_sqlite']}")
+    print(f"one research brain: {r60['one_research_brain']}  "
+          f"(memory={r60['memory_class_definitions']} "
+          f"queue={r60['queue_class_definitions']} "
+          f"run_forever={r60['run_forever_definitions']})")
+    print(f"process health != research success: "
+          f"{r60['declares_health_is_not_success']}  "
+          f"evidence vocabulary complete: "
+          f"{r60['governance_vocabulary_complete']}")
+    print(f"UI safety badges missing (must be empty): "
+          f"{r60['ui_missing_safety_badges']}  panel action controls "
+          f"(must be empty): {r60['ui_panel_action_controls']}")
+    print(f"UI loaders: {r60['ui_loader_count']}  "
+          f"derives governance (must be empty): {r60['ui_derives_governance']}  "
+          f"research math (must be empty): {r60['ui_research_math']}  "
+          f"action controls (must be empty): {r60['ui_action_controls']}")
+    print(f"extends the existing Research surface: "
+          f"{r60['ui_no_second_dashboard']}  lost deep links (must be empty): "
+          f"{r60['ui_lost_deep_links']}")
+    print(f"inventory owner/route: {r60['inventory_lists_owner']}/"
+          f"{r60['inventory_lists_route']}  missing concepts (must be empty): "
+          f"{r60['missing_inventory_concepts']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -19224,6 +19601,77 @@ BLOCKING_INVARIANTS = (
     ("release59_persistent_research_runtime",
      "validator_knows_the_persistent_contract", True),
     ("release59_persistent_research_runtime", "no_operational_reach", True),
+    # --- Release 60: the research record became legible, and reading it
+    # changed nothing. ONE read-only owner over the R59 persistent memory, the
+    # canonical queue and the canonical forward-evidence owners; GET-only with
+    # no run/refresh/promote/approve/purchase sibling; read-only in STORE
+    # ACCESS (the memory and the queue both refuse every mutation and create
+    # nothing) and calling none of the writing research owners - including the
+    # governor, whose answer comes from the queue instead; one memory, one
+    # queue, one persistent runtime; process health and alpha evidence kept as
+    # two disjoint vocabularies with the operator badge bound to the evidence
+    # one; an unadopted prospective freeze reported as orphaned rather than as
+    # a hopeful zero; the purchase verdict left to the canonical gate; the
+    # worker lease no longer calling a healthy AlphaAgent dead; the browser
+    # rendering the backend's own fields and classifying nothing; the existing
+    # Research workspace extended rather than a second dashboard added, with
+    # every prior deep link intact; and the inventory carrying the nine
+    # research concepts it had never recorded.
+    ("release60_alphaagent_outcomes", "owner_present", True),
+    ("release60_alphaagent_outcomes", "route_get_only", True),
+    ("release60_alphaagent_outcomes", "forbidden_routes_present", []),
+    ("release60_alphaagent_outcomes", "app_delegates", True),
+    ("release60_alphaagent_outcomes", "second_owner_modules", []),
+    ("release60_alphaagent_outcomes", "uses_readonly_memory", True),
+    ("release60_alphaagent_outcomes", "uses_readonly_queue", True),
+    ("release60_alphaagent_outcomes", "uses_readonly_status", True),
+    ("release60_alphaagent_outcomes", "owner_writing_calls", []),
+    ("release60_alphaagent_outcomes", "owner_forbidden_calls", []),
+    ("release60_alphaagent_outcomes", "owner_opens_no_sqlite", True),
+    ("release60_alphaagent_outcomes", "memory_readonly_contract", True),
+    ("release60_alphaagent_outcomes", "memory_writers_guarded", True),
+    ("release60_alphaagent_outcomes", "queue_readonly_contract", True),
+    ("release60_alphaagent_outcomes", "queue_writers_guarded", True),
+    ("release60_alphaagent_outcomes", "loop_readonly_passthrough", True),
+    ("release60_alphaagent_outcomes",
+     "runtime_read_paths_do_not_create", True),
+    ("release60_alphaagent_outcomes", "one_research_brain", True),
+    ("release60_alphaagent_outcomes", "memory_class_definitions", 1),
+    ("release60_alphaagent_outcomes", "queue_class_definitions", 1),
+    ("release60_alphaagent_outcomes", "run_forever_definitions", 1),
+    ("release60_alphaagent_outcomes", "governance_vocabulary_complete", True),
+    ("release60_alphaagent_outcomes", "declares_health_is_not_success", True),
+    ("release60_alphaagent_outcomes",
+     "worker_states_are_not_governance_states", True),
+    ("release60_alphaagent_outcomes", "reports_not_available", True),
+    ("release60_alphaagent_outcomes", "splits_measured_from_imported", True),
+    ("release60_alphaagent_outcomes", "orphan_freeze_is_explicit", True),
+    ("release60_alphaagent_outcomes", "purchase_verdict_is_the_gates", True),
+    ("release60_alphaagent_outcomes",
+     "forward_evidence_from_canonical_owner", True),
+    ("release60_alphaagent_outcomes",
+     "lease_access_denied_is_undecidable", True),
+    ("release60_alphaagent_outcomes", "ui_region_present", True),
+    ("release60_alphaagent_outcomes", "ui_missing_safety_badges", []),
+    ("release60_alphaagent_outcomes", "ui_panel_action_controls", []),
+    ("release60_alphaagent_outcomes", "ui_loader_count", 1),
+    ("release60_alphaagent_outcomes", "ui_fetches_owner_route", True),
+    ("release60_alphaagent_outcomes", "ui_missing_backend_fields", []),
+    ("release60_alphaagent_outcomes", "ui_derives_governance", []),
+    ("release60_alphaagent_outcomes", "ui_research_math", []),
+    ("release60_alphaagent_outcomes", "ui_action_controls", []),
+    ("release60_alphaagent_outcomes", "ui_badge_is_evidence_state", True),
+    ("release60_alphaagent_outcomes", "ui_worker_badge_is_separate", True),
+    ("release60_alphaagent_outcomes", "ui_nav_present", True),
+    ("release60_alphaagent_outcomes", "ui_panel_registered", True),
+    ("release60_alphaagent_outcomes", "ui_loader_wired", True),
+    ("release60_alphaagent_outcomes", "ui_is_research_landing", True),
+    ("release60_alphaagent_outcomes", "ui_no_second_dashboard", True),
+    ("release60_alphaagent_outcomes", "ui_lost_deep_links", []),
+    ("release60_alphaagent_outcomes", "inventory_lists_owner", True),
+    ("release60_alphaagent_outcomes", "inventory_lists_route", True),
+    ("release60_alphaagent_outcomes", "missing_inventory_concepts", []),
+    ("release60_alphaagent_outcomes", "concept_owner_conflicts", []),
 )
 
 

@@ -1,6 +1,106 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-04
+- **Last updated:** 2026-09-07
+- **Updated by phase:** **R60 - ARCHITECTURE CONSOLIDATION + ALPHAAGENT
+  OUTCOMES VISIBILITY (single agent, Windows PowerShell only, isolated worktree
+  `D:\paper_trader_r60_architecture` on branch `r60-architecture-consolidation`,
+  built over `a5c09cb`).** NOT COMMITTED, not pushed, not merged, not deployed.
+  The deployed checkout `C:\Users\binis\paper_trader` was READ ONLY throughout:
+  no restart, no scheduled-task change, no collection run, no portfolio cycle,
+  no daily close, no approval, no order, no promotion, and no service started
+  from `D:`. The persistent AlphaAgent kept running on `C:` for the whole
+  release and its SQLite state was read, never written.
+  Full narrative: `docs/RELEASE60_ARCHITECTURE_CONSOLIDATION.md`.
+
+  **The problem.** R59 solved the process-lifetime problem - AlphaAgent
+  researches independently of any session - and left the LEGIBILITY problem
+  wide open. `grep -ri r59 api/` returned nothing: there was no API surface of
+  any kind over the R59 persistent research memory, so a 21 MB SQLite database
+  holding every hypothesis the estate has prosecuted, its statistics, its
+  refusing gate, its graveyard and its reopen conditions could only be read by a
+  person opening a database. The only thing the product could say about a
+  running researcher was `worker=RESEARCHING queue=141 hypotheses=4653`, whose
+  green word invites exactly the wrong inference.
+
+  **What landed.** ONE read-only owner, `api/alphaagent_outcomes.py`
+  (`GET /v1/research/alphaagent-outcomes`), and ONE operator surface - a new
+  PRIMARY `AlphaAgent Outcomes` section on the EXISTING Research workspace,
+  which is now the Research landing (no second dashboard; every prior deep link
+  resolves unchanged). It answers what has been tested and rejected, what is
+  statistically interesting but unqualified and WHICH recorded gate refused it,
+  what is frozen prospectively and which freezes actually accrue TRUE_FORWARD
+  evidence, what was learned and under what named condition it may reopen,
+  which data opportunities exist and whether a purchase is ACTUALLY recommended
+  by the canonical gate, what is being researched now and why, what is next, and
+  what changed over `last_24h` / `since_worker_start` /
+  `since_latest_eligible_session` / `lifetime`.
+
+  **PROCESS HEALTH IS NOT RESEARCH SUCCESS**, and R60 enforces it in the read
+  model rather than the browser: the operator badge carries a six-word EVIDENCE
+  vocabulary (`NO_QUALIFIED_ALPHA_YET`, `HISTORICAL_CANDIDATE_ONLY`,
+  `FORWARD_EVIDENCE_MATURING`, `CHALLENGER_WARRANTS_GOVERNED_REVIEW`,
+  `RESEARCH_WAITING_FOR_NEW_INFORMATION`, `RESEARCH_MEMORY_NOT_PRESENT`) that is
+  disjoint from the worker states, and worker state is a separate secondary row.
+
+  **Three real defects were found while tracing, and fixed in the CANONICAL
+  owners** (a read model carrying its own workaround would have been a second
+  owner):
+  1. **A healthy AlphaAgent could be declared dead and replaced.**
+     `alpha_agent.r46.runlock.pid_alive` read EVERY Windows `OpenProcess`
+     failure as death - including `ERROR_ACCESS_DENIED`, which is what an
+     unprivileged reader gets for a worker started by a scheduled task. Since
+     `_reclaim_if_stale` deletes the lease whenever `alive is False`, any reader
+     could evict a live researcher and let a second one start. Measured against
+     the live worker (pid 60908, heartbeat 4s old): `pid_alive -> False` before,
+     `-> None` (undecidable, fails closed) after. `False` is now reserved for
+     `ERROR_INVALID_PARAMETER`, which is how the kernel says *no such process*.
+  2. **Reading the research record wrote to it.** `ResearchMemory.__init__` and
+     `ResearchQueue.__init__` created their directory, ran the schema script and
+     wrote a meta row; `r59.runtime.runtime_dir()` created the artifact
+     directory as a side effect of resolving a path; and
+     `governor.generate_mandates` - the right owner of what to research next -
+     writes a capacity fingerprint and an event on every call. Both stores gained
+     READ-ONLY handles that create nothing and refuse every mutation, and the
+     projection answers current intent and next research from the QUEUE, whose
+     job payload IS the mandate the governor issued.
+  3. **`cumulative_hypotheses` reported the wrong number under the right name.**
+     `r59.runtime.status` read a key (`n_hypotheses`) the memory summary has
+     never carried, so it always fell through to the SETTLED count and published
+     it as the total. Both are now reported, each under its own name.
+
+  **One measured finding is carried as evidence, not fixed here.** FIVE
+  prospective freezes - four R58 families and the one R59-native
+  `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` (inception 2026-09-04T23:44:35Z) - are
+  registered with NEITHER forward-evidence owner, so they have accrued ZERO
+  TRUE_FORWARD observations since inception and never will. Registering an R59
+  freeze into the R46 registry is a research-pipeline change and R60's mandate
+  forbids touching research scoring or alpha gates, so the read model reports
+  each as `NOT_REGISTERED_WITH_FORWARD_EVIDENCE_OWNER` and raises a named human
+  action; the fix is sequenced as **R61 NOW**.
+
+  **The inventory now records the research lane.** Ten canonical concepts -
+  runtime lifecycle, memory, queue, hypothesis generation, search burden,
+  graveyard, prospective freeze, TRUE_FORWARD maturation, data-opportunity
+  frontier and the outcomes projection - had no inventory row (the concept list
+  stopped at R54), so "one concept, one owner" could not be checked for any of
+  them.
+
+  **Live research state at 2026-09-07T18:55Z** (read-only): 5,467 hypotheses,
+  all settled - 5,408 `NO_ALPHA_EVIDENCE`, 56 `FORWARD_FROZEN`, 3 `REJECTED`,
+  **0 `QUALIFIED`**; counted search burden 5,410 across 259 families; queue 29
+  QUEUED / 1 RUNNING / 6 BLOCKED_SPECIFIC / 2,472 COMPLETED; six scopes
+  RESEARCH_READY, VOLATILITY EXHAUSTED, CREDIT_PROXY BLOCKED (no owned
+  substrate); 45 forward challengers, 296 TRUE_FORWARD predictions, 41 matured,
+  18 effective independent observations, promotion-ready **0**. The honest
+  headline that produces is `FORWARD_EVIDENCE_MATURING`.
+
+  **Guarded by** `check_release60_alphaagent_outcomes` (51 strict-blocking
+  invariants) and `tests/test_release60_architecture_consolidation.py` (42
+  tests, all passing). `scripts/audit_architecture.py --strict` exits 0;
+  inventory drift zero; `git diff --check` clean.
+
+## Release 58 (superseded as the current phase; result unchanged)
+
 - **Updated by phase:** **R58 - ORTHOGONAL ALPHA OFFENSIVE (single agent, no
   subagents, Windows PowerShell only, isolated worktree
   `D:\paper_trader_r58_orthogonal_alpha` on branch

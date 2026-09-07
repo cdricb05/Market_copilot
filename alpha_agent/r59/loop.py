@@ -56,7 +56,17 @@ STOP_D = "D_ENVIRONMENT_LIMIT"
 SUPERVISOR_STOP = "supervisor_stop_requested"
 
 
-def open_queue(db_path: Optional[Path] = None) -> AR.ResearchQueue:
+def queue_db_path(db_path: Optional[Path] = None) -> Path:
+    """Where the R59 queue LIVES, without creating anything (R60)."""
+    return Path(db_path) if db_path else (r59.research_root() / QUEUE_NAME)
+
+
+def queue_present(db_path: Optional[Path] = None) -> bool:
+    return queue_db_path(db_path).exists()
+
+
+def open_queue(db_path: Optional[Path] = None, *,
+               read_only: bool = False) -> AR.ResearchQueue:
     """Open the canonical Stage-8 queue for the R59 session.
 
     A dedicated database file, NOT a dedicated queue implementation: this is
@@ -65,8 +75,14 @@ def open_queue(db_path: Optional[Path] = None) -> AR.ResearchQueue:
     an R59 research session from competing for write locks with the live
     collection queue while remaining the same code path - and
     ``handlers.route_r59`` supports sharing one file when that is wanted.
+
+    ``read_only`` (R60) returns an observer handle: no directory is created,
+    no schema script runs and every transition is refused, so a read model can
+    count the queue without writing to it.
     """
-    path = Path(db_path) if db_path else (r59.research_root() / QUEUE_NAME)
+    path = queue_db_path(db_path)
+    if read_only:
+        return AR.ResearchQueue(path, read_only=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     return AR.ResearchQueue(path)
 

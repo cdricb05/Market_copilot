@@ -254,31 +254,61 @@ class Job:
         }
 
 
+class ReadOnlyQueue(RuntimeError):
+    """A write was attempted on a queue opened read-only.
+
+    Raised rather than silently ignored: a read model that reaches a mutation
+    has a defect, and a queue that quietly swallowed it would hide the defect
+    behind a plausible-looking response.
+    """
+
+
 class ResearchQueue:
     """Durable, resumable, idempotent Stage 8 research work queue.
 
     ``clock`` is an injectable ``() -> iso-string`` so tests are deterministic;
     production uses UTC wall-clock. The queue never raises on a missing job and
-    never deletes a settled row (full audit trail)."""
+    never deletes a settled row (full audit trail).
+
+    ``read_only`` (R60) opens an OBSERVER handle for a read model. It creates
+    no directory, runs no schema script, writes no meta row and refuses every
+    transition. This exists because the previous only way to count the queue
+    was to construct a full writer - so merely ASKING how deep the queue was
+    mutated the store the question was about.
+    """
 
     def __init__(self, db_path: str | Path, *,
                  clock: Optional[Callable[[], str]] = None,
                  max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
                  retry_backoff_seconds: int = _DEFAULT_RETRY_BACKOFF_SECONDS,
                  stale_seconds: int = _DEFAULT_STALE_SECONDS,
-                 queue_floor: int = _DEFAULT_QUEUE_FLOOR):
+                 queue_floor: int = _DEFAULT_QUEUE_FLOOR,
+                 read_only: bool = False):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = bool(read_only)
         self._clock = clock or _utc_now_iso
         self.max_attempts = int(max_attempts)
         self.retry_backoff_seconds = int(retry_backoff_seconds)
         self.stale_seconds = int(stale_seconds)
         self.queue_floor = int(queue_floor)
         self._lock = threading.Lock()
-        self._init_schema()
+        if self.read_only:
+            if not self.db_path.exists():
+                raise FileNotFoundError(
+                    "research queue not present: %s" % self.db_path)
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_schema()
 
     # -- low-level ---------------------------------------------------------- #
+    def _guard_write(self) -> None:
+        if self.read_only:
+            raise ReadOnlyQueue(
+                "this ResearchQueue handle is read-only: %s" % self.db_path)
+
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            return self._connect_read_only()
         conn = sqlite3.connect(str(self.db_path), timeout=30.0,
                                isolation_level=None)
         conn.row_factory = sqlite3.Row
@@ -286,6 +316,34 @@ class ResearchQueue:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    def _connect_read_only(self) -> sqlite3.Connection:
+        """A handle that cannot write, even by accident.
+
+        ``mode=ro`` is preferred and touches nothing. It fails when the
+        database is in WAL mode and its ``-shm`` companion is absent (a
+        cleanly-closed store), because SQLite would have to CREATE that file
+        to read. The fallback opens normally and sets ``query_only``, which
+        the engine itself enforces: the shared-memory file may be recreated,
+        but no row, page or schema object can change. ``immutable=1`` is
+        deliberately NOT used - it would return torn reads while the live
+        worker is mid-transaction.
+        """
+        uri = "file:%s?mode=ro" % self.db_path.as_posix()
+        try:
+            conn = sqlite3.connect(uri, uri=True, timeout=30.0,
+                                   isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            return conn
+        except sqlite3.Error:
+            conn = sqlite3.connect(str(self.db_path), timeout=30.0,
+                                   isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA query_only=ON")
+            return conn
 
     def _init_schema(self) -> None:
         conn = self._connect()
@@ -365,6 +423,7 @@ class ResearchQueue:
         Returns the job_id of the live job (existing or new). Duplicate
         Telegram updates / duplicate seed passes therefore never create
         duplicate work."""
+        self._guard_write()
         if category not in JOB_CATEGORIES:
             raise ValueError("unknown job category: %s" % category)
         payload = payload or {}
@@ -423,6 +482,7 @@ class ResearchQueue:
         transitioned, so unrelated queue work is left completely untouched.
         Returns None when nothing eligible is runnable right now (which does NOT
         mean the queue is empty — see ``depth``)."""
+        self._guard_write()
         now = now or self._clock()
         cats = None if categories is None else tuple(categories)
         orgs = None if origins is None else tuple(origins)
@@ -480,6 +540,7 @@ class ResearchQueue:
     # -- transitions -------------------------------------------------------- #
     def _settle(self, job_id: str, state: str, *, result: Optional[dict],
                 blocked_reason: Optional[str]) -> None:
+        self._guard_write()
         now = self._clock()
         with self._lock:
             conn = self._connect()
@@ -511,6 +572,7 @@ class ResearchQueue:
     def block_specific(self, job_id: str, reason: str) -> None:
         """Mark ONE job blocked on a specific missing input. It is skipped by
         the scheduler but never blocks an unrelated job or lane."""
+        self._guard_write()
         now = self._clock()
         with self._lock:
             conn = self._connect()
@@ -533,6 +595,7 @@ class ResearchQueue:
         already-incremented count and, when it has reached ``max_attempts``,
         settles the job FAILED_PERMANENT; otherwise it schedules a backoff so a
         later claim consumes the next attempt. Returns the resulting state."""
+        self._guard_write()
         backoff = self.retry_backoff_seconds if backoff_seconds is None \
             else int(backoff_seconds)
         now = self._clock()
@@ -703,6 +766,7 @@ class ResearchQueue:
                       stale_seconds: Optional[int] = None) -> int:
         """Safely return stale RUNNING jobs to QUEUED (bounded by max_attempts)
         so a dead worker never strands work. Returns the count requeued."""
+        self._guard_write()
         now = now or self._clock()
         stale = self.stale_running(now=now, stale_seconds=stale_seconds)
         n = 0

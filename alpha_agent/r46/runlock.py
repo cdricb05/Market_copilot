@@ -45,6 +45,16 @@ _POLL_S = 2.0
 _STILL_ACTIVE = 259
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
+#: Windows tells a caller WHY ``OpenProcess`` failed, and the two answers mean
+#: opposite things. ``ERROR_INVALID_PARAMETER`` is how the kernel says there is
+#: no such process - that is genuinely dead. ``ERROR_ACCESS_DENIED`` says the
+#: process EXISTS and this caller may not query it, which is the normal case
+#: for a worker started by a scheduled task under a different principal.
+#: Reading the second as "dead" is how a healthy AlphaAgent gets its lease
+#: reclaimed out from under it by any unprivileged reader (R60).
+_ERROR_ACCESS_DENIED = 5
+_ERROR_INVALID_PARAMETER = 87
+
 
 class AdvanceLockBusy(RuntimeError):
     """Another advance holds the lock and did not release it in time."""
@@ -55,7 +65,18 @@ def lock_path(campaign_id: str = CAMPAIGN_ID) -> Path:
 
 
 def pid_alive(pid: int):
-    """True/False when decidable, None when the platform will not say."""
+    """True/False when decidable, None when the platform will not say.
+
+    ``False`` is a licence to reclaim a lease, so it is reserved for a process
+    the operating system says does not exist. "I am not allowed to look" is
+    NOT that answer and returns None, which fails closed: an undecidable pid
+    keeps its lease until the age rule expires it. The POSIX branch has always
+    made that distinction (``PermissionError`` is an ``OSError``, not a
+    ``ProcessLookupError``); the Windows branch treated every ``OpenProcess``
+    failure as death, so a worker running under a scheduled task's principal
+    was reported dead to any unprivileged reader - and a second AlphaAgent
+    could take the lease while the first was still researching.
+    """
     try:
         pid = int(pid)
     except (TypeError, ValueError):
@@ -72,10 +93,16 @@ def pid_alive(pid: int):
             return None
     try:
         kernel32 = ctypes.windll.kernel32
+        kernel32.SetLastError(0)
         handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION,
                                       False, pid)
         if not handle:
-            return False
+            err = kernel32.GetLastError()
+            if err == _ERROR_INVALID_PARAMETER:
+                return False                   # the kernel: no such process
+            if err == _ERROR_ACCESS_DENIED:
+                return None                    # it exists; we may not ask
+            return None                        # undecidable, so fail closed
         try:
             code = ctypes.c_ulong()
             if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):

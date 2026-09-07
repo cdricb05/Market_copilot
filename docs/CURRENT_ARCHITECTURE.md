@@ -3649,3 +3649,72 @@ mathematics then emits `month_label 2026-09` / `market_as_of_date 2026-09-01` / 
 names. The Sep-1 TRUE_FORWARD snapshot gap remains permanent and is never reconstructed.
 
 Full narrative: `docs/RELEASE54_2_3_CONTROLLED_MONTHLY_RESEARCH_INPUT_RECOVERY.md`.
+
+## Release 60 — the research lane, as built (2026-09-07)
+
+Until R60 this document mapped the OPERATIONAL lane in detail and the research
+lane barely at all, and the architecture inventory's concept list stopped at
+R54. That was not an omission of description — nothing in the estate could
+answer questions about the persistent researcher, because **there was no API
+surface of any kind over the R59 persistent research memory**. A 21 MB SQLite
+database holding every hypothesis the estate has prosecuted, its statistics, its
+refusing gate, its graveyard and its reopen conditions existed only on disk.
+
+**The research lane's canonical owners** (all now carrying inventory concept
+rows):
+
+| Concept | Owner | Store |
+|---|---|---|
+| persistent runtime lifecycle | `alpha_agent/r59/runtime.py` — the ONE `run_forever` | `runtime/runtime_status.json` + a lease |
+| persistent research memory | `alpha_agent/r59/memory.py` | `research_memory.sqlite` |
+| research work queue | `alpha_agent/autonomous_research.py` `ResearchQueue` (Stage 8) | `r59_autonomy.sqlite` |
+| what to research next | `alpha_agent/r59/governor.py` over `alpha_agent/r39/representation_factory.py` | memory (fingerprint + events) |
+| search burden | `alpha_agent/r59/memory.py` `burden()` — counted, never copied | memory |
+| graveyard + reopen conditions | `alpha_agent/r59/memory.py` | memory |
+| prospective freeze (inception only) | `alpha_agent/r59/memory.py` `freeze_forward` | memory + a challenger artifact |
+| TRUE_FORWARD maturation | `alpha_agent/r52/runtime.py` over `alpha_agent/r46/advance.py` | the R46/R52 roots |
+| data-opportunity frontier | `alpha_agent/r59/opportunities.py` | memory |
+| **research outcomes (read)** | **`api/alphaagent_outcomes.py`** → `GET /v1/research/alphaagent-outcomes` | none — pure projection |
+
+**Two runtimes exist and are deliberately distinct.**
+`alpha_agent/r59/runtime.py` is the persistent DISCOVERY worker;
+`alpha_agent/r52/runtime.py` is the prospective FORWARD-EVIDENCE maturation
+cycle the discovery worker calls. There is exactly one `run_forever` in the
+tree, one `ResearchMemory` and one `ResearchQueue`.
+
+**Reading the research record used to write to it.** `ResearchMemory.__init__`
+and `ResearchQueue.__init__` created their directory, ran the schema script and
+wrote a meta row; `r59.runtime.runtime_dir()` created the artifact directory as
+a side effect of resolving a path; and `governor.generate_mandates` —
+the right owner of "what should we research next" — writes a capacity
+fingerprint and an event on every call. R60 added READ-ONLY handles
+(`open_memory_readonly()`, `open_queue(read_only=True)`,
+`status(read_only=True)`) that create nothing and refuse every mutation, and
+answers *current intent* and *next research* from the QUEUE, whose job payload
+IS the mandate the governor issued.
+
+**Four forward-evidence identities that must never be summed:** R46 forward
+SIGNAL challengers (`api/prospective_tournament.py`), R56 forward PAPER
+PORTFOLIO challengers (`api/shadow_portfolio_evidence.py`), the daily governed
+TRUE_FORWARD bundle (`api/forward_prediction_skill.py`) and the R53.1
+`PROSPECTIVE_INTRADAY` lane (`api/research_runtime.py`).
+
+**Known structural gap, measured not inferred.** An R59 prospective freeze
+records an inception instant and does NOT register the challenger with a
+forward-evidence owner. Five freezes — four R58 families and the one R59-native
+challenger — are known to neither owner and have therefore accrued zero
+TRUE_FORWARD observations since inception. The outcomes read model reports each
+as `NOT_REGISTERED_WITH_FORWARD_EVIDENCE_OWNER`; the fix is sequenced as R61 in
+`docs/CONSOLIDATION_ROADMAP.md`.
+
+**Operator surface.** One new PRIMARY section on the EXISTING Research
+workspace (`Research → AlphaAgent Outcomes`), which is now the Research landing;
+every prior deep link resolves unchanged. The operator badge carries the
+six-word EVIDENCE vocabulary (`NO_QUALIFIED_ALPHA_YET`,
+`HISTORICAL_CANDIDATE_ONLY`, `FORWARD_EVIDENCE_MATURING`,
+`CHALLENGER_WARRANTS_GOVERNED_REVIEW`, `RESEARCH_WAITING_FOR_NEW_INFORMATION`,
+`RESEARCH_MEMORY_NOT_PRESENT`), which is disjoint from the worker states —
+process health is a separate, secondary row, because a healthy process is not
+successful research.
+
+Full narrative: `docs/RELEASE60_ARCHITECTURE_CONSOLIDATION.md`.

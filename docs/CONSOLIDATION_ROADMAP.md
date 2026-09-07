@@ -1667,3 +1667,136 @@ After that: the operational-book cutover - letting an approved governed CHANGE
 be named BY ID by the Stage-19 order plan that implements it, so the
 decision -> execution lineage becomes end-to-end provable. Execution itself
 remains manual, preview-first and separately authorised.
+
+## R60 - architecture consolidation + AlphaAgent outcomes visibility (LANDED)
+
+R59 made the researcher persistent; it did not make the research LEGIBLE. There
+was no API surface of any kind over the R59 persistent research memory, and the
+only thing the product could say about a running AlphaAgent was a process line.
+R60 adds ONE read-only owner and ONE operator surface, and lands three bounded
+consolidations in the canonical owners - each of which was a real defect found
+while tracing, not a tidy-up.
+
+- **`api/alphaagent_outcomes.py`** (`GET /v1/research/alphaagent-outcomes`) is
+  the ONE projection over the persistent researcher's own record. It owns
+  presentation and nothing else: no research state, no research mathematics, no
+  forward evidence, no mandate generation. Every store is reached through its
+  canonical owner's READ-ONLY handle.
+- **Reading no longer writes.** Before R60 the only way to open either research
+  store was to construct a writer that created the directory and ran the schema
+  script, and the right owner of "what should we research next" (the governor)
+  writes a capacity fingerprint and an event on every call. `ResearchMemory` and
+  `ResearchQueue` gained `read_only=True` handles that create nothing and refuse
+  every mutation; the projection answers current intent and next research from
+  the QUEUE, whose job payload IS the mandate the governor issued.
+- **The worker lease no longer calls a healthy AlphaAgent dead.**
+  `alpha_agent.r46.runlock.pid_alive` read every Windows `OpenProcess` failure
+  as death - including `ERROR_ACCESS_DENIED`, which is what an unprivileged
+  reader gets for a worker started by a scheduled task. That licensed
+  `_reclaim_if_stale` to delete a live lease and start a second researcher.
+  Access-denied is now undecidable and fails closed.
+- **`cumulative_hypotheses` means the total.** It read a key the memory summary
+  has never carried and silently published the SETTLED count under a name that
+  promised the total.
+- **The inventory records the research lane.** Ten concepts - runtime lifecycle,
+  memory, queue, hypothesis generation, search burden, graveyard, prospective
+  freeze, TRUE_FORWARD maturation, data-opportunity frontier and the outcomes
+  projection itself - had no inventory row, so "one concept, one owner" could not
+  be checked for any of them.
+- **PROCESS HEALTH IS NOT RESEARCH SUCCESS** is enforced in the read model: one
+  six-word evidence vocabulary, disjoint from the worker states, carries the
+  operator badge.
+- Guarded by `check_release60_alphaagent_outcomes` (51 strict-blocking
+  invariants) and `tests/test_release60_architecture_consolidation.py` (42).
+
+Full narrative: `docs/RELEASE60_ARCHITECTURE_CONSOLIDATION.md`.
+
+## Sequenced consolidation roadmap after R60
+
+Prioritised by correctness risk, conflicting-state risk, operator confusion,
+research autonomy, portfolio-decision integrity, point-in-time integrity,
+regression risk and implementation dependency - in that order. Each item names
+the canonical owner it belongs to; none is a rewrite.
+
+### NOW
+
+1. **R61 - adopt the orphaned prospective freezes** *(Milestone 4; correctness,
+   point-in-time integrity)*. FIVE prospective challengers - four R58 families
+   and the one R59-native `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` - carry an
+   inception instant and are registered with NEITHER forward-evidence owner, so
+   they have accrued zero TRUE_FORWARD observations since 2026-09-03/04 and never
+   will. The fix belongs to `alpha_agent.r59.handlers.freeze_qualified`: a freeze
+   must register the challenger with the canonical registry
+   (`alpha_agent.r46`) in the same operation that writes its inception, and an
+   inception that fails to register must be reported as REFUSED rather than
+   recorded. It is a research-pipeline change and needs its own release because
+   it touches the freeze path - it was deliberately kept out of R60. Until then
+   `api/alphaagent_outcomes.py` reports each as
+   `NOT_REGISTERED_WITH_FORWARD_EVIDENCE_OWNER` and raises a named human action.
+   Dependency: none. Regression risk: LOW (adds a registration; changes no gate,
+   no scoring and no existing record).
+
+2. **R61.1 - one bounded summary accessor on the forward-evidence board**
+   *(operator experience; no ownership change)*. `load_prospective_tournament()`
+   loads every ledger and costs ~2.9 s, and it is now on the AlphaAgent outcomes
+   read path. Add a `summary()` to `api/prospective_tournament.py` - the same
+   owner, a narrower contract - returning the scalars and the challenger-id set
+   that other read models actually need. Do NOT fork a second reader.
+   Dependency: none. Regression risk: LOW.
+
+### NEXT
+
+3. **R62 - the research-outcome delta the memory cannot currently express**
+   *(operator confusion; honesty)*. `settled_at` is the instant the memory
+   RECORDED a verdict, so an imported prior-release result carries the import
+   instant. R60 reports `measured_here` separately rather than pretending
+   otherwise, but the estate cannot say when a prior release ORIGINALLY measured
+   a result. Add an `originally_settled_at` column to
+   `alpha_agent/r59/memory.py` (additive migration, nothing rebuilt) and have
+   `alpha_agent/r59/importers.py` populate it where the source artifact carries
+   a date. Dependency: none. Regression risk: LOW (additive; the graveyard is
+   never rebuilt).
+
+4. **R62.1 - a consumer census for the 62 orphan endpoints** *(regression risk
+   reduction, then DEPRECATE)*. The audit lists 62 declared `/v1/...` routes
+   with no UI consumer. Several are operator-script or acceptance-harness
+   entrypoints and deleting them would break a workflow that is not in the UI.
+   Produce the census (UI, scripts, tests, PowerShell handoffs, docs), classify
+   each KEEP / DEPRECATE / REMOVE_LATER in the inventory, and only then retire
+   anything. Confirm before acting, never the reverse. Dependency: none.
+   Regression risk: MEDIUM if reversed.
+
+5. **R62.2 - name the four forward-evidence identities in ONE contract**
+   *(conflicting-state risk)*. R46 signal challengers, R56 forward paper
+   portfolios, the daily governed TRUE_FORWARD bundle and the R53.1 intraday
+   lane are four distinct evidence identities that must never be summed. R60
+   documents them in the inventory and reports each freeze's owner; the next step
+   is a single declared vocabulary the four owners each stamp on their rows, so a
+   future reader cannot mix them by accident rather than by intent. Dependency:
+   none. Regression risk: LOW.
+
+### LATER
+
+6. **R63 - the operational-book cutover** *(Milestone 6; unchanged priority)*.
+   Let an approved governed CHANGE be named BY ID by the Stage-19 order plan
+   that implements it, so the decision -> execution lineage is end-to-end
+   provable. Execution stays manual, preview-first and separately authorised.
+
+7. **R63.1 - `api/app.py` route extraction** *(implementation dependency)*.
+   22,865 lines and 235 routes in one module. Extract by canonical owner, one
+   bounded router at a time, behind the existing route contract tests. This is
+   the largest single source of merge friction in the estate and the least
+   urgent correctness risk, which is why it is LATER and not NEVER.
+
+8. **R63.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
+   `engine/reconciler.py` remains the only order/fill code and is quarantined;
+   `engine/scoring.py` + `engine/market_screener.py` are the legacy DB screener
+   path. They retire with Slice 11 (Controlled Execution), not before.
+
+9. **R63.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
+   `alpha_agent/evidence_observatory.py` (Stage 1-7) and
+   `api/alpha_opportunity_registry.py` (R56 citation catalogue) answer
+   neighbouring questions from earlier generations of the research OS. Neither is
+   wrong and neither is deleted; once the R60 outcomes surface has run for a
+   while, decide with evidence whether either still earns its place in
+   navigation.
