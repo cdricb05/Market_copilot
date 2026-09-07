@@ -101,14 +101,21 @@ def _age_seconds(path: Path) -> float:
         return 0.0
 
 
-def _try_create(path: Path, holder: str) -> bool:
-    body = json.dumps({
+def _body(holder: str, extra: dict = None) -> str:
+    row = {
         "holder": holder,
         "pid": os.getpid(),
         "acquired_at_utc": _dt.datetime.now(_dt.timezone.utc)
         .strftime("%Y-%m-%dT%H:%M:%SZ"),
         "owner": CALCULATION_OWNER,
-    })
+    }
+    if extra:
+        row["identity"] = dict(extra)
+    return json.dumps(row)
+
+
+def _try_create(path: Path, holder: str, extra: dict = None) -> bool:
+    body = _body(holder, extra)
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
@@ -139,13 +146,20 @@ def _reclaim_if_stale(path: Path, stale_after_s: float) -> dict:
 
 def acquire_path(path: Path, holder: str, *,
                  wait_s: float = DEFAULT_WAIT_S,
-                 stale_after_s: float = DEFAULT_STALE_AFTER_S) -> dict:
-    """Path-addressed acquire, for callers with their own lock scope (R52)."""
+                 stale_after_s: float = DEFAULT_STALE_AFTER_S,
+                 extra: dict = None) -> dict:
+    """Path-addressed acquire, for callers with their own lock scope (R52).
+
+    ``extra`` records WHO the holder is beyond its pid - release, source
+    commit, host, instance id. A pid is not an identity: after a reboot the
+    number is reused, and a lease that only carries a pid cannot tell a
+    restarted worker from a different worker running older code.
+    """
     path = Path(path)
     deadline = time.monotonic() + max(0.0, float(wait_s))
     reclaimed = {}
     while True:
-        if _try_create(path, holder):
+        if _try_create(path, holder, extra):
             return {"acquired": True, "holder": holder, "path": str(path),
                     **({"reclaimed_stale": reclaimed} if reclaimed else {})}
         rec = _reclaim_if_stale(path, stale_after_s)
@@ -160,6 +174,43 @@ def acquire_path(path: Path, holder: str, *,
                     path, info.get("holder"), info.get("pid"),
                     _age_seconds(path), float(wait_s)))
         time.sleep(_POLL_S)
+
+
+def heartbeat_path(path: Path, holder: str, extra: dict = None) -> bool:
+    """Refresh a lock this holder owns, so a LIVE long hold is not reclaimed.
+
+    ``_reclaim_if_stale`` treats any lock older than ``stale_after_s`` as
+    abandoned even when its pid is alive - correct for a bounded run, wrong
+    for a persistent worker, which would be evicted mid-research purely for
+    having worked longer than the threshold. A worker that means to hold the
+    lease for hours must therefore SAY SO periodically; this is that
+    statement, and it is refused for anyone else's lock.
+
+    Returns False when the lock is missing or held by someone else. The
+    caller must treat that as LOST OWNERSHIP and stop, never as a reason to
+    recreate the lock: recreating it is how two workers end up believing
+    they are the only one.
+    """
+    path = Path(path)
+    info = _read(path)
+    if not info:
+        return False
+    if info.get("holder") != holder or int(info.get("pid") or -1) != os.getpid():
+        return False
+    merged = dict(info.get("identity") or {})
+    if extra:
+        merged.update(extra)
+    row = dict(info)
+    row["identity"] = merged
+    row["heartbeat_at_utc"] = _dt.datetime.now(_dt.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # Rewrite in place: the MTIME is what _reclaim_if_stale reads, so the
+        # write itself is the liveness proof.
+        path.write_text(json.dumps(row), encoding="utf-8")
+        return True
+    except OSError:
+        return False
 
 
 def release_path(path: Path, holder: str) -> bool:
@@ -182,7 +233,9 @@ def state_path(path: Path) -> dict:
     return {"held": True, "path": str(path), "holder": info.get("holder"),
             "pid": info.get("pid"), "pid_alive": pid_alive(info.get("pid")),
             "age_seconds": round(_age_seconds(path), 1),
-            "acquired_at_utc": info.get("acquired_at_utc")}
+            "acquired_at_utc": info.get("acquired_at_utc"),
+            "heartbeat_at_utc": info.get("heartbeat_at_utc"),
+            "identity": info.get("identity")}
 
 
 def acquire(holder: str, campaign_id: str = CAMPAIGN_ID, *,
@@ -236,4 +289,4 @@ def state(campaign_id: str = CAMPAIGN_ID) -> dict:
 __all__ = ["CALCULATION_OWNER", "LOCK_NAME", "DEFAULT_STALE_AFTER_S",
            "DEFAULT_WAIT_S", "AdvanceLockBusy", "lock_path", "pid_alive",
            "acquire", "release", "hold", "state",
-           "acquire_path", "release_path", "state_path"]
+           "acquire_path", "release_path", "state_path", "heartbeat_path"]

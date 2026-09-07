@@ -1,12 +1,36 @@
 # =============================================================================
-# scripts\install_research_runtime_task.ps1  (Release 52)
+# scripts\install_research_runtime_task.ps1  (Release 52; Release 59 adds -Mode)
 #
-# Installs the ONE durable Windows scheduled task for the persistent
-# prospective research runtime:
+# Installs the ONE durable Windows scheduled task for the research runtime:
 #
 #     TaskName : PaperTrader-ResearchRuntime
 #     Action   : <venv python> scripts\run_research_runtime.py --trigger SCHEDULED
 #     Triggers : daily 08:15, 17:45, 19:45, 21:45 local (machine local = ET)
+#
+# -Mode Cycle (default, Release 52 behaviour) registers exactly that: four
+# bounded prospective-evidence invocations a day, each capped at PT2H.
+#
+# -Mode Persistent (Release 59) registers the SAME task, the SAME script and
+# the SAME four times to run the long-lived autonomous researcher instead:
+#
+#     Action   : ... run_research_runtime.py --mode persistent --trigger SCHEDULED
+#     Triggers : at logon, plus the same four daily times
+#     Limit    : PT0S (no execution time limit)
+#
+# Three deliberate differences, each for a reason:
+#   - PT0S, because a persistent researcher that Windows kills after two
+#     hours is not persistent. The protection a time limit used to provide is
+#     replaced by the worker lease, which carries a heartbeat: an abandoned
+#     lease becomes reclaimable after LEASE_STALE_SECONDS and the next
+#     trigger takes over. A hung run can no longer block the queue forever
+#     because a hung run stops heartbeating.
+#   - a logon trigger, so the worker returns after a reboot without anyone
+#     asking it to.
+#   - the four daily times are kept as a WATCHDOG. With MultipleInstances
+#     IgnoreNew a trigger that fires while the worker is healthy is a no-op,
+#     and one that fires after it died silently restarts it. Release 46.6.2
+#     lost six hours of collection to a logon-only trigger that never fired
+#     again; this task will not repeat that.
 #
 # The trigger times are CONSUMED from the derived timing contract
 # (alpha_agent.r52.timing_contract.INVOCATION_PLAN); this script adds no
@@ -55,6 +79,7 @@ param(
     [string]$WorkingDirectory = 'C:\Users\binis\paper_trader',
     [string[]]$TriggerTimes = @('08:15', '17:45', '19:45', '21:45'),
     [ValidateSet('S4U', 'Interactive')][string]$PreferredLogonType = 'S4U',
+    [ValidateSet('Cycle', 'Persistent')][string]$Mode = 'Cycle',
     [string]$EvidenceFile = '',
     [string]$DecisionProbe = '',
     [switch]$Force
@@ -67,7 +92,12 @@ function Write-Blocked([string]$Reason) {
     Write-Output "R52_TASK_INSTALL_BLOCKED - $Reason"
 }
 
-$arguments = "`"$RuntimeScript`" --trigger SCHEDULED"
+$persistent = ($Mode -eq 'Persistent')
+$arguments = if ($persistent) {
+    "`"$RuntimeScript`" --mode persistent --trigger SCHEDULED"
+} else {
+    "`"$RuntimeScript`" --trigger SCHEDULED"
+}
 
 # ---- the ONE desired definition (every compared field, explicit) ----------- #
 function Get-R52DesiredDefinition {
@@ -75,12 +105,23 @@ function Get-R52DesiredDefinition {
         Execute            = $PythonExe
         Arguments          = $arguments
         WorkingDirectory   = $WorkingDirectory
-        TriggerType        = 'MSFT_TaskDailyTrigger'
+        Mode               = $Mode
+        # Cycle: daily triggers only. Persistent: the same daily triggers as
+        # a watchdog, PLUS a logon trigger for reboot recovery.
+        TriggerTypes       = $(if ($persistent) {
+                                  @('MSFT_TaskDailyTrigger', 'MSFT_TaskLogonTrigger')
+                              } else {
+                                  @('MSFT_TaskDailyTrigger')
+                              })
+        RequiresLogonTrigger = $persistent
         TriggerTimes       = @(@($TriggerTimes) | Sort-Object)
         Enabled            = $true
         StartWhenAvailable = $true
         MultipleInstances  = 'IgnoreNew'
-        ExecutionTimeLimit = 'PT2H'
+        # PT0S means NO limit. A persistent worker must outlive two hours;
+        # the worker lease heartbeat replaces the timeout as the hung-run
+        # protection.
+        ExecutionTimeLimit = $(if ($persistent) { 'PT0S' } else { 'PT2H' })
         RestartCount       = 2
         RestartInterval    = 'PT10M'
         WakeToRun          = $true
@@ -101,15 +142,25 @@ function Get-R52DefinitionMismatches($existing, $desired) {
     if ([string]$existing.Action.WorkingDirectory -ne [string]$desired.WorkingDirectory) {
         $mm += "WorkingDirectory '$($existing.Action.WorkingDirectory)' != '$($desired.WorkingDirectory)'"
     }
-    $badTypes = @($existing.Triggers | Where-Object { [string]$_.Type -ne $desired.TriggerType })
+    $badTypes = @($existing.Triggers | Where-Object { $desired.TriggerTypes -notcontains [string]$_.Type })
     if ($badTypes.Count -gt 0) {
         $mm += ("trigger types " + (@($badTypes | ForEach-Object { $_.Type }) -join ', ') +
-                " (expected only $($desired.TriggerType))")
+                " (expected only " + (@($desired.TriggerTypes) -join ', ') + ")")
+    }
+    if ($desired.RequiresLogonTrigger) {
+        $logon = @($existing.Triggers | Where-Object { [string]$_.Type -eq 'MSFT_TaskLogonTrigger' })
+        if ($logon.Count -eq 0) {
+            $mm += 'no logon trigger (a persistent worker must return after a reboot)'
+        }
     }
     $disabledTriggers = @($existing.Triggers | Where-Object { -not [bool]$_.Enabled })
     if ($disabledTriggers.Count -gt 0) { $mm += "$($disabledTriggers.Count) trigger(s) disabled" }
-    $haveTimes = @($existing.Triggers | ForEach-Object {
-        if ($_.StartBoundary) { ([DateTime]$_.StartBoundary).ToString('HH:mm') } }) | Sort-Object
+    # Only the DAILY triggers carry a time-of-day contract; a logon trigger's
+    # StartBoundary is a registration artifact, not a schedule.
+    $haveTimes = @($existing.Triggers |
+        Where-Object { [string]$_.Type -eq 'MSFT_TaskDailyTrigger' } |
+        ForEach-Object {
+            if ($_.StartBoundary) { ([DateTime]$_.StartBoundary).ToString('HH:mm') } }) | Sort-Object
     if ((@($haveTimes) -join ',') -ne (@($desired.TriggerTimes) -join ',')) {
         $mm += ("trigger times [" + (@($haveTimes) -join ', ') + "] != [" +
                 (@($desired.TriggerTimes) -join ', ') + "]")
@@ -266,11 +317,20 @@ $triggers = @()
 foreach ($t in $TriggerTimes) {
     $triggers += New-ScheduledTaskTrigger -Daily -At ([DateTime]::ParseExact($t, 'HH:mm', $null))
 }
+if ($persistent) {
+    # Reboot recovery. The daily triggers stay as the watchdog that a
+    # logon-only task fatally lacks.
+    $triggers += New-ScheduledTaskTrigger -AtLogOn
+}
+
+# New-TimeSpan -Seconds 0 registers as PT0S, which the scheduler reads as
+# "no limit".
+$timeLimit = if ($persistent) { New-TimeSpan -Seconds 0 } else { New-TimeSpan -Hours 2 }
 
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+    -ExecutionTimeLimit $timeLimit `
     -RestartCount 2 `
     -RestartInterval (New-TimeSpan -Minutes 10) `
     -AllowStartIfOnBatteries `
@@ -346,5 +406,5 @@ if ($verdict.decision -eq 'MIGRATE') {
     Write-Output "R52_TASK_MIGRATED - $TaskName re-registered ($(@($verdict.mismatches).Count) definition difference(s) resolved), LogonType=$logonUsed"
 } else {
     $global:R52TaskInstallResult = "INSTALLED ($logonUsed)"
-    Write-Output "R52_TASK_INSTALLED - $TaskName with $($TriggerTimes.Count) daily triggers ($($TriggerTimes -join ', ')), LogonType=$logonUsed"
+    Write-Output "R52_TASK_INSTALLED - $TaskName in $Mode mode with $($TriggerTimes.Count) daily triggers ($($TriggerTimes -join ', '))$(if ($persistent) { ' plus a logon trigger' }), LogonType=$logonUsed"
 }

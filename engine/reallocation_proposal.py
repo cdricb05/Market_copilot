@@ -387,21 +387,74 @@ def _positive(weights: dict) -> dict:
     return {tk: w for tk, w in (weights or {}).items() if (_f(w) or 0.0) > 0.0}
 
 
+#: A REPLACE leg whose counterparty survived constraint repair is not a
+#: replacement. Recorded so the operator can still see WHY the label changed.
+CODE_REPLACEMENT_COUNTERPARTY_RETAINED = "REPLACEMENT_COUNTERPARTY_RETAINED"
+#: The mirror case: an incumbent still leaves, but the name it was funding did
+#: not survive the repair, so the row is an ordinary EXIT.
+CODE_REPLACEMENT_COUNTERPARTY_DEFERRED = "REPLACEMENT_COUNTERPARTY_DEFERRED"
+CODE_REPLACE_DEFERRED_BY_REPAIR = "REPLACE_DEFERRED_BY_CONSTRAINT_REPAIR"
+
+#: Reason-code prefixes that assert a replacement relationship about THIS
+#: target (as opposed to ``HOC_REPLACE``, which records what the opportunity-cost
+#: owner recommended and stays true whatever the repair does).
+_REPLACEMENT_CLAIM_PREFIXES = ("FUNDS_REPLACEMENT_OF_", "REPLACED_BY_")
+
+
+def _strip_replacement_claim(reason_codes: list, *, added: str = None) -> list:
+    """Drop the codes that claim a replacement this target no longer performs."""
+    kept = [c for c in (reason_codes or [])
+            if not str(c).startswith(_REPLACEMENT_CLAIM_PREFIXES)]
+    if added:
+        kept.append(added)
+    return sorted(set(kept))
+
+
 def _reoptimised_action(*, ticker: str, action: str, reason_codes: list,
                         delta: float, proposed: float, held: bool,
-                        policy: dict) -> tuple:
+                        policy: dict,
+                        counterparty_proposed: Optional[float] = None) -> tuple:
     """Re-derive one row's ACTION from the repaired weights, keeping provenance.
 
     A repaired target may reduce a name the ideal target wanted to add, or leave a
     name untouched that the ideal target wanted to exit. The label must follow the
     weights, never the intention, or the operator reads an action the plan does not
     perform.
+
+    ``counterparty_proposed`` is the REPAIRED weight of the other leg of a
+    replacement. Neither REPLACE label is a statement about its own row - each
+    is a claim about another one ("this name is here because that one leaves"),
+    so they are the only actions whose truth cannot be decided from their own
+    weight. On 2026-09-04 the turnover budget deferred the HST and DVN exits
+    while keeping the EXPD and SNDK buys, and the proposal went on asserting
+    EXPD REPLACE_IN of HST beside HST RETAIN - two replacements with zero
+    REPLACE_OUT.
+
+    The two legs are mirror images and BOTH have to be checked, or the counts
+    simply become unequal in the other direction:
+
+        REPLACE_IN  is true only if its counterparty LEAVES  (weight <= band)
+        REPLACE_OUT is true only if its counterparty ENTERS  (weight >  band)
+
+    An unprovable counterparty (``None``) fails closed to the weaker label -
+    ADD for an entering name, EXIT for a leaving one. Both are true of the row
+    on their own; a REPLACE label is a stronger, paired claim that has to be
+    earned.
     """
     band = float(policy["material_weight_delta"])
     codes = sorted(set(list(reason_codes or []) + ["CONSTRAINT_REOPTIMIZED"]))
     if proposed <= band and held:
-        # A REPLACE_OUT keeps its counterparty semantics; anything else is an EXIT.
-        return (action if action == ACT_REPLACE_OUT else ACT_EXIT), codes
+        # A REPLACE_OUT keeps its counterparty semantics only while the name it
+        # funds actually enters; otherwise the position simply leaves, and
+        # calling that a replacement would leave an orphan REPLACE_OUT exactly
+        # as the unguarded REPLACE_IN left an orphan the other way.
+        if action == ACT_REPLACE_OUT:
+            cp = counterparty_proposed
+            if cp is None or float(cp) <= band:
+                return ACT_EXIT, _strip_replacement_claim(
+                    codes, added=CODE_REPLACEMENT_COUNTERPARTY_DEFERRED)
+            return ACT_REPLACE_OUT, codes
+        return ACT_EXIT, codes
     if proposed <= band and not held:
         # R54.2.4 — a non-held name repaired to (materially) nothing changes
         # nothing: there is no action to label and no row to keep. Labelling it
@@ -409,7 +462,13 @@ def _reoptimised_action(*, ticker: str, action: str, reason_codes: list,
         # tells the caller to drop the row.
         return None, codes
     if not held:
-        return (action if action in (ACT_ADD, ACT_REPLACE_IN) else ACT_ADD), codes
+        if action == ACT_REPLACE_IN:
+            cp = counterparty_proposed
+            if cp is None or float(cp) > band:
+                return ACT_ADD, _strip_replacement_claim(
+                    codes, added=CODE_REPLACEMENT_COUNTERPARTY_RETAINED)
+            return ACT_REPLACE_IN, codes
+        return (action if action == ACT_ADD else ACT_ADD), codes
     if delta > band:
         return ACT_INCREASE, codes
     if delta < -band:
@@ -785,11 +844,18 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     def _allocation_rows(override: Optional[dict] = None) -> tuple:
         """The allocation rows and proposed weights for ONE candidate target.
 
-        ``override`` is the Release-47 constraint-repaired target. Provenance
-        (source recommendation, replacement relationship, reason codes) is carried
-        through unchanged, but the ACTION is re-derived from the actual weight
-        change, so a repaired row can never keep a label its weights no longer
-        support.
+        ``override`` is the Release-47 constraint-repaired target. The source
+        recommendation is provenance and is carried through unchanged, but the
+        ACTION and the REPLACEMENT RELATIONSHIP are both re-derived from the
+        repaired weights, so a repaired row can never keep a label its weights
+        no longer support.
+
+        The relationship used to be treated as provenance and carried through.
+        It is not provenance: ``source_hoc_recommendation`` already records what
+        the opportunity-cost owner asked for, while a replacement relationship
+        is a claim about THIS target - "EXPD is here because HST leaves". When
+        the turnover budget defers HST's exit, that claim becomes false, and on
+        2026-09-04 the proposal published it next to HST RETAIN.
         """
         all_tickers = sorted(held_set | set(selected.keys()) | set(override or {}))
         allocations: list[dict] = []
@@ -846,13 +912,32 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                     replacement_relationship = {"role": "REPLACE_OUT",
                                                 "counterparty": pz["replacement_for"]}
             if override is not None:
+                counterparty = (replacement_relationship or {}).get("counterparty")
+                cp_weight = (None if counterparty is None
+                             else round(float(override.get(counterparty, 0.0) or 0.0), 8))
                 action, reason_codes = _reoptimised_action(
                     ticker=tk, action=action, reason_codes=reason_codes, delta=delta,
-                    proposed=pw, held=tk in held_set, policy=pol)
+                    proposed=pw, held=tk in held_set, policy=pol,
+                    counterparty_proposed=cp_weight)
                 if action is None:
                     # No material change for a non-held name: no row (see the
                     # band guard above; this is the classifier's own answer).
                     continue
+                # THE INVARIANT: only a REPLACE leg may carry a replacement
+                # relationship. A row repaired into RETAIN/INCREASE/REDUCE/ADD
+                # is not half of a swap, and saying so cost an operator review
+                # a "2 replacements" chip for two names that were being kept.
+                if action not in (ACT_REPLACE_IN, ACT_REPLACE_OUT):
+                    if replacement_relationship is not None:
+                        # A held name that STAYS records why its replacement did
+                        # not happen; one that leaves anyway already carries its
+                        # own reason from the classifier.
+                        reason_codes = _strip_replacement_claim(
+                            reason_codes,
+                            added=(CODE_REPLACE_DEFERRED_BY_REPAIR
+                                   if (tk in held_set and action != ACT_EXIT)
+                                   else None))
+                    replacement_relationship = None
             urow = urows.get(tk) or {}
             # Release 50 - the instrument contract behind the row: from the universe /
             # frontier row, else from the held position, else the equity defaults.
@@ -1310,6 +1395,60 @@ def _validate_constraints(*, allocations: list, proposed_weight: dict, sector_of
             violations.append({"code": "EXIT_HAS_NONZERO_WEIGHT", "ticker": row["ticker"],
                                "weight": pw})
 
+    # Replacement coherence. A replacement is a PAIR, and the pairing is a claim
+    # about this target rather than provenance of how it was built: every
+    # REPLACE_IN must name a counterparty that actually leaves, every
+    # REPLACE_OUT must name the leg it funds, and a row that is neither may not
+    # carry a relationship at all. The 2026-09-04 proposal published two
+    # REPLACE_IN rows against zero REPLACE_OUT because constraint repair
+    # deferred both exits, and nothing measured the contradiction.
+    replacement_pairing_ok = True
+    by_ticker = {row["ticker"]: row for row in allocations}
+    n_replace_in = 0
+    n_replace_out = 0
+    for row in allocations:
+        act = row["action"]
+        rel = row.get("replacement_relationship") or None
+        if act == "REPLACE_IN":
+            n_replace_in += 1
+        elif act == "REPLACE_OUT":
+            n_replace_out += 1
+        if act not in ("REPLACE_IN", "REPLACE_OUT"):
+            if rel:
+                replacement_pairing_ok = False
+                violations.append({
+                    "code": "REPLACEMENT_RELATIONSHIP_ON_NON_REPLACE_ROW",
+                    "ticker": row["ticker"], "action": act,
+                    "counterparty": rel.get("counterparty")})
+            continue
+        counterparty = (rel or {}).get("counterparty")
+        if not counterparty:
+            replacement_pairing_ok = False
+            violations.append({"code": "REPLACE_WITHOUT_COUNTERPARTY",
+                               "ticker": row["ticker"], "action": act})
+            continue
+        cp_weight = _f((by_ticker.get(counterparty) or {}).get("proposed_weight"))
+        if cp_weight is None:
+            cp_weight = _f(proposed_weight.get(counterparty)) or 0.0
+        if act == "REPLACE_IN" and cp_weight > tol:
+            replacement_pairing_ok = False
+            violations.append({"code": "REPLACE_IN_COUNTERPARTY_RETAINED",
+                               "ticker": row["ticker"], "counterparty": counterparty,
+                               "counterparty_weight": cp_weight})
+        if act == "REPLACE_OUT" and cp_weight <= tol:
+            # The mirror orphan: an incumbent labelled as funding a replacement
+            # that the repair never bought. It is an EXIT, and saying otherwise
+            # is the same false pairing read from the other end.
+            replacement_pairing_ok = False
+            violations.append({"code": "REPLACE_OUT_COUNTERPARTY_ABSENT",
+                               "ticker": row["ticker"], "counterparty": counterparty,
+                               "counterparty_weight": cp_weight})
+    if n_replace_in != n_replace_out:
+        replacement_pairing_ok = False
+        violations.append({"code": "ORPHAN_REPLACEMENT_LEGS",
+                           "replace_in": n_replace_in,
+                           "replace_out": n_replace_out})
+
     # no duplicate ticker
     tickers = [row["ticker"] for row in allocations]
     no_duplicate_ok = len(tickers) == len(set(tickers))
@@ -1351,6 +1490,7 @@ def _validate_constraints(*, allocations: list, proposed_weight: dict, sector_of
         "long_only_ok": long_only_ok,
         "no_duplicate_ok": no_duplicate_ok,
         "no_exit_allocation_ok": no_exit_alloc_ok,
+        "replacement_pairing_ok": replacement_pairing_ok,
         "reconciles_ok": reconciles_ok,
         "all_ok": not violations,
         "violations": violations,

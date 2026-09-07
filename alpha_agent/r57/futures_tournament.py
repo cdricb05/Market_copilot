@@ -156,9 +156,25 @@ def signal_matrix(close: np.ndarray, variant: str) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 # Simulation
 # --------------------------------------------------------------------------- #
-def simulate(fp: dict, variant: str, methodology: str = "a") -> dict:
+def simulate(fp: dict, variant: str, methodology: str = "a", *,
+             signal_override: "np.ndarray | None" = None,
+             market_mask: "np.ndarray | None" = None) -> dict:
     """Daily portfolio return series for one variant on one continuous
-    methodology ('a' = '&MKT', 'b' = '&MKT_CCB')."""
+    methodology ('a' = '&MKT', 'b' = '&MKT_CCB').
+
+    ``signal_override`` supplies a (markets x dates) position-strength matrix in
+    [-1, 1] instead of resolving ``variant`` through :func:`signal_matrix`, and
+    ``market_mask`` restricts the book to a subset of markets (its capital
+    slice is recomputed so a four-market scope is not sized as if it were the
+    whole panel). Both are keyword-only and default to the original behaviour,
+    so every existing call is byte-identical.
+
+    They exist so a machine-generated signal is measured by THIS simulator -
+    the same NEXT_CLOSE convention, the same inverse-vol sizing, the same
+    leverage bound, the same roll and trade costs - rather than by a second,
+    subtly different copy of it. A duplicated evaluator is how two families
+    stop being comparable.
+    """
     close = fp["close_" + methodology].astype(np.float64)
     pv = fp["point_values"][:, None]
     rolls = fp["rolls"]
@@ -169,9 +185,22 @@ def simulate(fp: dict, variant: str, methodology: str = "a") -> dict:
     dpnl = np.diff(dollar, axis=1, prepend=dollar[:, :1])
     dpnl[:, 0] = 0.0
     sd = _rolling_std(dpnl, VOL_LOOKBACK)            # $ vol per contract
-    sig = signal_matrix(close, variant)
+    sig = (signal_matrix(close, variant) if signal_override is None
+           else np.asarray(signal_override, dtype=np.float64))
+    if sig.shape != close.shape:
+        raise ValueError("signal shape %s does not match panel %s"
+                         % (sig.shape, close.shape))
+    # ``n_active`` drives the capital slice; ``n_mkt`` stays the PANEL width so
+    # every per-market array below keeps its full shape.
+    n_active = n_mkt
+    if market_mask is not None:
+        mask = np.asarray(market_mask, dtype=bool)
+        if mask.shape != (n_mkt,):
+            raise ValueError("market_mask must be one flag per market")
+        sig = np.where(mask[:, None], sig, 0.0)
+        n_active = max(1, int(mask.sum()))
 
-    cap_per_mkt = CAPITAL / n_mkt
+    cap_per_mkt = CAPITAL / n_active
     target_daily = TARGET_VOL / math.sqrt(252.0) * cap_per_mkt
 
     start = int(np.searchsorted(dates, DISCOVERY_START))

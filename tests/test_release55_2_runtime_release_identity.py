@@ -274,6 +274,69 @@ class TestLoadedIdentityIsCapturedOnceAndFrozen:
                                        runner=lambda a: None)
         assert src["dirty"] is not False
 
+    # ---- R59: a LINKED WORKTREE keeps its refs in the common directory ----
+    # ``_resolve_git_dir`` always followed the ``gitdir:`` pointer, so worktree
+    # support was intended — but resolution then looked for
+    # ``refs/heads/<branch>`` beside that HEAD, where a linked worktree never
+    # writes it. Every branch checkout in a worktree therefore resolved to no
+    # commit, which R59's maturation policy correctly (but needlessly) treats as
+    # SOURCE_REVISION_UNRESOLVED and refuses.
+
+    @staticmethod
+    def _linked_worktree(tmp_path, ref="refs/heads/feature-x", packed=False):
+        """Build git's real linked-worktree shape: HEAD here, refs over there."""
+        common = tmp_path / "main" / ".git"
+        (common / "refs" / "heads").mkdir(parents=True)
+        wt_git = common / "worktrees" / "wt"
+        wt_git.mkdir(parents=True)
+        (wt_git / "HEAD").write_text("ref: %s\n" % ref, encoding="utf-8")
+        (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
+        if packed:
+            (common / "packed-refs").write_text(
+                "# pack-refs with: peeled fully-peeled sorted \n%s %s\n"
+                % (REV_A, ref), encoding="utf-8")
+        else:
+            (common / ref).write_text(REV_A + "\n", encoding="utf-8")
+        root = tmp_path / "wt"
+        root.mkdir()
+        (root / ".git").write_text("gitdir: %s\n" % wt_git, encoding="utf-8")
+        return root
+
+    def test_a_linked_worktree_resolves_its_commit_from_the_common_dir(
+            self, tmp_path):
+        root = self._linked_worktree(tmp_path)
+        src = rid.read_source_identity(repo_root=root, runner=lambda a: None)
+        assert src["commit"] == REV_A
+        assert src["branch"] == "feature-x"
+        assert src["resolved_from"] == rid.RESOLVED_FROM_GIT_DIR
+
+    def test_a_linked_worktree_also_reads_the_common_packed_refs(self, tmp_path):
+        root = self._linked_worktree(tmp_path, packed=True)
+        src = rid.read_source_identity(repo_root=root, runner=lambda a: None)
+        assert src["commit"] == REV_A
+        assert src["branch"] == "feature-x"
+
+    def test_a_worktree_whose_ref_is_nowhere_is_still_unresolved_not_a_guess(
+            self, tmp_path):
+        root = self._linked_worktree(tmp_path)
+        (tmp_path / "main" / ".git" / "refs" / "heads" / "feature-x").unlink()
+        src = rid.read_source_identity(repo_root=root, runner=lambda a: None)
+        assert src["commit"] is None
+        assert src["resolved_from"] == rid.RESOLVED_UNRESOLVED
+
+    def test_a_plain_checkout_ignores_the_common_dir_fallback_entirely(
+            self, tmp_path):
+        """The fallback must add a search root, never redirect an ordinary one."""
+        git_dir = tmp_path / "plain" / ".git"
+        (git_dir / "refs" / "heads").mkdir(parents=True)
+        (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        (git_dir / "refs" / "heads" / "main").write_text(REV_B, encoding="utf-8")
+        assert rid._ref_storage_dirs(git_dir) == [git_dir], (
+            "no commondir file means exactly one search root")
+        src = rid.read_source_identity(repo_root=tmp_path / "plain",
+                                       runner=lambda a: None)
+        assert src["commit"] == REV_B
+
 
 # =========================================================================== #
 # PHASE E — THE ALIGNMENT CONTRACT, FAIL-CLOSED

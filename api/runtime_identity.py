@@ -176,13 +176,43 @@ def _resolve_git_dir(repo_root: Path) -> Optional[Path]:
     return None
 
 
+def _ref_storage_dirs(git_dir: Path) -> list:
+    """Where refs may actually live, nearest first.
+
+    HEAD is per-worktree, but REFS are not. A linked worktree's git dir holds
+    ``HEAD`` and a ``commondir`` pointer, and its branch ref lives only in the
+    COMMON directory — ``refs/heads/<branch>`` is simply absent next to HEAD.
+    Following the ``gitdir:`` pointer without then following ``commondir`` is
+    why every branch checkout in a worktree resolved to no commit at all while
+    a detached HEAD resolved fine.
+
+    A normal checkout has no ``commondir`` file, so the list stays ``[git_dir]``
+    and nothing about its resolution changes.
+    """
+    roots = [git_dir]
+    try:
+        pointer = (git_dir / "commondir").read_text(
+            encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return roots
+    if not pointer:
+        return roots
+    common = Path(pointer)
+    if not common.is_absolute():
+        common = (git_dir / common).resolve()
+    if common.is_dir() and common != git_dir:
+        roots.append(common)
+    return roots
+
+
 def _commit_from_git_dir(git_dir: Path) -> tuple:
     """``(commit, branch)`` read STRAIGHT out of git's own files.
 
     No subprocess, so a process can capture its identity at start without paying
-    for — or depending on — an external ``git`` executable. Handles the three
-    shapes git actually writes: a symbolic HEAD, a detached HEAD, and a ref that
-    lives only in ``packed-refs``.
+    for — or depending on — an external ``git`` executable. Handles the four
+    shapes git actually writes: a symbolic HEAD, a detached HEAD, a ref that
+    lives only in ``packed-refs``, and a linked worktree whose refs live in the
+    common directory rather than beside its own HEAD.
     """
     try:
         head = (git_dir / "HEAD").read_text(encoding="utf-8",
@@ -194,23 +224,25 @@ def _commit_from_git_dir(git_dir: Path) -> tuple:
         return (head or None), None
     ref = head.split(":", 1)[1].strip()
     branch = ref.rsplit("/", 1)[-1] if ref else None
-    try:
-        loose = git_dir / Path(ref)
-        if loose.is_file():
-            return (loose.read_text(encoding="utf-8",
-                                    errors="replace").strip() or None), branch
-    except OSError:
-        pass
-    try:
-        for line in (git_dir / "packed-refs").read_text(
-                encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("#") or not line.strip():
-                continue
-            parts = line.split(None, 1)
-            if len(parts) == 2 and parts[1].strip() == ref:
-                return parts[0].strip(), branch
-    except OSError:
-        pass
+    for root in _ref_storage_dirs(git_dir):
+        try:
+            loose = root / Path(ref)
+            if loose.is_file():
+                return (loose.read_text(encoding="utf-8",
+                                        errors="replace").strip()
+                        or None), branch
+        except OSError:
+            pass
+        try:
+            for line in (root / "packed-refs").read_text(
+                    encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("#") or not line.strip():
+                    continue
+                parts = line.split(None, 1)
+                if len(parts) == 2 and parts[1].strip() == ref:
+                    return parts[0].strip(), branch
+        except OSError:
+            pass
     return None, branch
 
 
