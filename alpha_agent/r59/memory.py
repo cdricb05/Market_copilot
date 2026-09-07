@@ -178,27 +178,94 @@ def hypothesis_id(*, family: str, spec: Any) -> str:
     return "H_%s_%s" % (r59.short_hash(family, 8), r59.short_hash(spec, 12))
 
 
+class ReadOnlyMemory(RuntimeError):
+    """A write was attempted on a memory opened read-only.
+
+    Raised rather than ignored. A read model that reaches a mutation has a
+    defect, and swallowing it would leave the defect invisible behind a
+    plausible-looking response.
+    """
+
+
+def memory_db_path(db_path: Optional[Path] = None) -> Path:
+    """Where the memory LIVES, without creating anything.
+
+    Asking the question must not answer it: constructing a
+    :class:`ResearchMemory` used to be the only way to learn the path, and
+    that call created the directory and ran the schema script.
+    """
+    return Path(db_path) if db_path else (r59.research_root() / DB_NAME)
+
+
 class ResearchMemory:
     """The persistent memory. One writer process at a time; WAL + busy timeout
-    make a concurrent reader safe."""
+    make a concurrent reader safe.
+
+    ``read_only`` (R60) opens an OBSERVER handle for a read model. It creates
+    no directory, runs no schema script, writes no ``memory_meta`` row and
+    refuses every mutating method. Before R60 the only way to READ this
+    memory was to construct a writer, so merely asking what research had
+    concluded wrote to the store the question was about - which is exactly
+    what a read-only projection may not do.
+    """
 
     def __init__(self, db_path: Optional[Path] = None, *,
-                 busy_timeout_ms: int = 10000):
-        self.db_path = Path(db_path) if db_path else \
-            (r59.research_root() / DB_NAME)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                 busy_timeout_ms: int = 10000, read_only: bool = False):
+        self.db_path = memory_db_path(db_path)
+        self.read_only = bool(read_only)
         self._busy = int(busy_timeout_ms)
         self._lock = threading.RLock()
-        self._init_schema()
+        if self.read_only:
+            if not self.db_path.exists():
+                raise FileNotFoundError(
+                    "research memory not present: %s" % self.db_path)
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_schema()
 
     # -- plumbing ----------------------------------------------------------- #
+    def _guard_write(self) -> None:
+        if self.read_only:
+            raise ReadOnlyMemory(
+                "this ResearchMemory handle is read-only: %s" % self.db_path)
+
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            return self._connect_read_only()
         conn = sqlite3.connect(str(self.db_path), timeout=self._busy / 1000.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=%d" % self._busy)
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
+
+    def _connect_read_only(self) -> sqlite3.Connection:
+        """A handle that cannot write, even by accident.
+
+        ``mode=ro`` is preferred and touches nothing at all. It fails when the
+        database is in WAL mode and its ``-shm`` companion is absent (a
+        cleanly-closed store), because SQLite would have to CREATE that file
+        in order to read. The fallback opens normally and sets ``query_only``,
+        which the engine itself enforces: the shared-memory file may be
+        recreated, but no row, page or schema object can change.
+        ``immutable=1`` is deliberately NOT used - it would return torn reads
+        while the live worker is mid-transaction.
+        """
+        uri = "file:%s?mode=ro" % self.db_path.as_posix()
+        try:
+            conn = sqlite3.connect(uri, uri=True,
+                                   timeout=self._busy / 1000.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=%d" % self._busy)
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            return conn
+        except sqlite3.Error:
+            conn = sqlite3.connect(str(self.db_path),
+                                   timeout=self._busy / 1000.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=%d" % self._busy)
+            conn.execute("PRAGMA query_only=ON")
+            return conn
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -228,6 +295,7 @@ class ResearchMemory:
     # -- events ------------------------------------------------------------- #
     def event(self, kind: str, *, subject: Optional[str] = None,
               detail: Optional[dict] = None) -> None:
+        self._guard_write()
         with self._lock:
             conn = self._connect()
             try:
@@ -274,6 +342,7 @@ class ResearchMemory:
         substrate for and the fairness reservation would then under-count
         non-equity work without saying so.
         """
+        self._guard_write()
         if asset_class not in r59.ASSET_CLASSES:
             raise ValueError(
                 "unknown asset class %r; map it onto the R59 vocabulary "
@@ -321,6 +390,7 @@ class ResearchMemory:
         forward evidence is the exact fraud R46 was built to prevent, so it is
         refused here rather than left to a caller's discipline.
         """
+        self._guard_write()
         if outcome not in r59.HYPOTHESIS_OUTCOMES:
             raise ValueError("unknown outcome: %s" % outcome)
         if evidence_maturity == "FORWARD_CONFIRMED":
@@ -350,6 +420,7 @@ class ResearchMemory:
         score. Whatever that challenger goes on to earn is the R46/R52
         runtime's to measure, forward, from this instant on.
         """
+        self._guard_write()
         with self._lock:
             conn = self._connect()
             try:
@@ -378,6 +449,7 @@ class ResearchMemory:
         computed from a meaningless feature is not a negative finding about
         that economics, it is no finding at all.
         """
+        self._guard_write()
         fams = tuple(economic_families)
         if not fams:
             return {"invalidated": 0}
@@ -465,6 +537,7 @@ class ResearchMemory:
             conn.close()
 
     def set_meta(self, key: str, value: Any) -> None:
+        self._guard_write()
         with self._lock:
             conn = self._connect()
             try:
@@ -516,6 +589,141 @@ class ResearchMemory:
                      "economic_family": r[2], "outcome": r[3],
                      "statistic": _unj(r[4]) or {}, "settled_at": r[5]}
                     for r in rows]
+        finally:
+            conn.close()
+
+    def settled_between(self, *, since: Optional[str] = None,
+                        until: Optional[str] = None,
+                        limit: int = 50000) -> list:
+        """Compact rows for everything SETTLED in a time window (R60).
+
+        ``settled_at`` is the instant this MEMORY recorded a verdict, which is
+        the import instant for a result a prior release originally measured.
+        ``release`` therefore travels with every row so a caller can separate
+        what the machine measured in the window from what was carried into it
+        - reporting an import as a day's research output would be a lie the
+        counts themselves cannot detect.
+        """
+        sql = ("SELECT hypothesis_id, release, origin, generation_method,"
+               " economic_family, information_family, asset_class,"
+               " horizon_sessions, outcome, reason_rejected, settled_at,"
+               " invalidated_reason FROM hypotheses WHERE outcome IS NOT NULL")
+        params: list = []
+        if since:
+            sql += " AND settled_at >= ?"
+            params.append(str(since))
+        if until:
+            sql += " AND settled_at < ?"
+            params.append(str(until))
+        sql += " ORDER BY settled_at DESC, rowid DESC LIMIT ?"
+        params.append(int(limit))
+        conn = self._connect()
+        try:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        finally:
+            conn.close()
+
+    def strongest_unqualified(self, *, limit: int = 8,
+                              min_t: Optional[float] = None) -> list:
+        """The settled hypotheses with the highest persisted lockbox t (R60).
+
+        These are the "statistically interesting but not qualified" rows an
+        operator asks about: what came CLOSEST, and which gate refused it.
+        Ordering is by the SIGNED statistic, because a large negative t is not
+        a near-miss for a long book - it is the opposite finding.
+
+        Nothing is recomputed. The statistic, the economics, the robustness
+        checks and the refusing gates are read back exactly as the evaluation
+        kernel recorded them; invalidated rows are excluded because a result
+        computed from a meaningless feature is not a near-miss either.
+        """
+        base = ("SELECT hypothesis_id, release, economic_family,"
+                " information_family, asset_class, horizon_sessions,"
+                " model_family, outcome, reason_rejected, settled_at,"
+                " statistic_json, economics_json, robustness_json,"
+                " reopen_condition FROM hypotheses"
+                " WHERE outcome IS NOT NULL AND invalidated_reason IS NULL"
+                " AND outcome <> ? AND statistic_json IS NOT NULL")
+        conn = self._connect()
+        try:
+            rows = []
+            try:
+                sql = (base.replace("SELECT ", "SELECT"
+                                    " json_extract(statistic_json,"
+                                    " '$.lockbox_t') AS lockbox_t, ")
+                       + " AND json_extract(statistic_json, '$.lockbox_t')"
+                         " IS NOT NULL")
+                if min_t is not None:
+                    sql += " AND json_extract(statistic_json,"\
+                           " '$.lockbox_t') >= %f" % float(min_t)
+                sql += " ORDER BY lockbox_t DESC LIMIT ?"
+                rows = conn.execute(
+                    sql, (r59.HO_FORWARD_FROZEN, int(limit))).fetchall()
+            except sqlite3.OperationalError:
+                # A SQLite build without JSON1. Rank in Python over the same
+                # rows rather than degrade the answer.
+                rows = conn.execute(
+                    base, (r59.HO_FORWARD_FROZEN,)).fetchall()
+                scored = []
+                for r in rows:
+                    st = _unj(r["statistic_json"]) or {}
+                    try:
+                        t = float(st.get("lockbox_t"))
+                    except (TypeError, ValueError):
+                        continue
+                    if min_t is not None and t < float(min_t):
+                        continue
+                    scored.append((t, r))
+                scored.sort(key=lambda x: -x[0])
+                rows = [r for _, r in scored[:int(limit)]]
+            out = []
+            for r in rows:
+                d = dict(r)
+                st = _unj(d.pop("statistic_json")) or {}
+                d["statistic"] = st
+                d["economics"] = _unj(d.pop("economics_json"))
+                d["robustness"] = _unj(d.pop("robustness_json"))
+                d["lockbox_t"] = d.get("lockbox_t", st.get("lockbox_t"))
+                out.append(d)
+            return out
+        finally:
+            conn.close()
+
+    def count_unqualified_above_t(self, min_t: float = 2.0) -> int:
+        """How many settled, non-invalidated rows recorded a lockbox t at or
+        above ``min_t`` and were still refused (R60).
+
+        A COUNT rather than a page of rows: the operator's question is "how
+        much is interesting but unqualified", and hydrating hundreds of rows
+        to answer it would make the read model the most expensive thing on
+        the page.
+        """
+        conn = self._connect()
+        try:
+            try:
+                return int(conn.execute(
+                    "SELECT COUNT(*) FROM hypotheses WHERE outcome IS NOT NULL"
+                    " AND invalidated_reason IS NULL AND outcome NOT IN (?,?)"
+                    " AND statistic_json IS NOT NULL"
+                    " AND json_extract(statistic_json, '$.lockbox_t') >= ?",
+                    (r59.HO_QUALIFIED, r59.HO_FORWARD_FROZEN, float(min_t))
+                ).fetchone()[0])
+            except sqlite3.OperationalError:
+                n = 0
+                for row in conn.execute(
+                        "SELECT statistic_json FROM hypotheses"
+                        " WHERE outcome IS NOT NULL"
+                        " AND invalidated_reason IS NULL"
+                        " AND outcome NOT IN (?,?)"
+                        " AND statistic_json IS NOT NULL",
+                        (r59.HO_QUALIFIED, r59.HO_FORWARD_FROZEN)):
+                    st = _unj(row[0]) or {}
+                    try:
+                        if float(st.get("lockbox_t")) >= float(min_t):
+                            n += 1
+                    except (TypeError, ValueError):
+                        continue
+                return n
         finally:
             conn.close()
 
@@ -613,6 +821,7 @@ class ResearchMemory:
         rather than assumed - and it is the only thing that lets the loop reach
         a genuine terminal state instead of running until a clock stops it.
         """
+        self._guard_write()
         with self._lock:
             conn = self._connect()
             try:
@@ -652,6 +861,7 @@ class ResearchMemory:
     # -- frontier ----------------------------------------------------------- #
     def set_frontier(self, asset_class: str, *, state: str,
                      reason: str = "", detail: Optional[dict] = None) -> None:
+        self._guard_write()
         if state not in r59.FRONTIER_STATES:
             raise ValueError("unknown frontier state: %s" % state)
         with self._lock:
@@ -694,6 +904,7 @@ class ResearchMemory:
                         cost_usd_year: Optional[float] = None,
                         gate_verdict: Optional[str] = None,
                         detail: Optional[dict] = None) -> None:
+        self._guard_write()
         if state not in r59.DATA_OPPORTUNITY_STATES:
             raise ValueError("unknown opportunity state: %s" % state)
         with self._lock:
@@ -754,6 +965,7 @@ class ResearchMemory:
     def set_provider_usage(self, provider: str, data_class: str, *,
                            coverage: Optional[dict] = None,
                            detail: Optional[dict] = None) -> None:
+        self._guard_write()
         with self._lock:
             conn = self._connect()
             try:
@@ -831,3 +1043,19 @@ class ResearchMemory:
 
 def open_memory(db_path: Optional[Path] = None) -> ResearchMemory:
     return ResearchMemory(db_path)
+
+
+def memory_present(db_path: Optional[Path] = None) -> bool:
+    """Does the persistent memory exist? Answered WITHOUT creating it."""
+    return memory_db_path(db_path).exists()
+
+
+def open_memory_readonly(db_path: Optional[Path] = None) -> ResearchMemory:
+    """Open the memory for reading only.
+
+    The ONE way a read model may reach this store. It creates nothing, runs
+    no schema script and refuses every mutating method; a missing database
+    raises ``FileNotFoundError`` so a caller reports absence rather than
+    silently reporting an empty research record as a measured zero.
+    """
+    return ResearchMemory(db_path, read_only=True)

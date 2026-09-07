@@ -240,6 +240,8 @@ from paper_trader.api import pnl_opportunity_frontier as _r32_frontier
 from paper_trader.api import prospective_tournament as _r46_tournament
 # Release 52 - persistent research runtime health (read-only).
 from paper_trader.api import research_runtime as _r52_runtime
+# Release 60 - the ONE AlphaAgent research-outcomes projection (read-only).
+from paper_trader.api import alphaagent_outcomes as _r60_outcomes
 # Release 56 - alpha-to-capital: the opportunity registry, the cash deployment
 # frontier, the forward paper portfolio challengers and the ONE operator read
 # model that composes them. All read-only.
@@ -19842,6 +19844,45 @@ def get_research_runtime_health() -> dict:
     audit.
     """
     return _r52_runtime.load_runtime_health()
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/research/alphaagent-outcomes — Release 60 AlphaAgent research outcomes
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/alphaagent-outcomes",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_alphaagent_outcomes() -> dict:
+    """Release 60 ALPHAAGENT RESEARCH OUTCOMES (read-only).
+
+    The ONE projection over the persistent researcher's own record. R59 made
+    AlphaAgent outlive the session that started it; this answers what it has
+    actually FOUND: what it tested and rejected, what is statistically
+    interesting but unqualified and which gate refused it, what has been
+    frozen prospectively and what is genuinely accruing TRUE_FORWARD
+    evidence, what was learned and under what condition it may be reopened,
+    which data opportunities exist and whether a purchase is actually
+    recommended, what it is researching right now and why, what it will try
+    next, and what changed since yesterday.
+
+    PROCESS HEALTH IS NOT RESEARCH SUCCESS, and the two are reported
+    separately: the operator-facing state is the EVIDENCE state
+    (NO_QUALIFIED_ALPHA_YET / HISTORICAL_CANDIDATE_ONLY /
+    FORWARD_EVIDENCE_MATURING / CHALLENGER_WARRANTS_GOVERNED_REVIEW /
+    RESEARCH_WAITING_FOR_NEW_INFORMATION), never a green badge that only
+    means a worker is running.
+
+    Strictly READ-ONLY, and read-only in the STORE ACCESS as well as the
+    intent: the R59 persistent memory and the canonical Stage-8 queue are
+    opened through observer handles that create no directory, run no schema
+    script and refuse every mutation. This endpoint owns no research state,
+    generates no mandate (generating one writes), computes no research
+    mathematics, mints no forward evidence, promotes no model, approves no
+    proposal, allocates no capital and creates no order.
+    """
+    return _r60_outcomes.load_alphaagent_outcomes()
 
 
 # --------------------------------------------------------------------------- #

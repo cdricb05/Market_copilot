@@ -6198,6 +6198,7 @@
           <a id="ra-nav-research-agent" data-rasub="research-agent" onclick="navigateToRoute('research-audit/research-agent')" title="Persistent Alpha Research Agent (Slice 8, Milestone 4): is the current research/model stack still trustworthy? Evidence sufficiency, champion-health components, model-degradation categories, HOC/reallocation feedback, challenger classification, recalibration recommendation and a ranked queue of bounded research opportunities. Research governance only — read-only, manual review, no model promotion, no portfolio mutation, no orders, automation off.">Research Agent</a>
           <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
           <a id="ra-nav-data-expansion" data-rasub="data-expansion" onclick="navigateToRoute('research-audit/data-expansion')" title="Data Expansion Purchase-Gate (Slice 9, Milestone 5): is an external dataset worth acquiring / integrating? Sixteen-dimension gate — point-in-time integrity, historical depth, inactive/delisted coverage, universe breadth, effective sample, revision history, freshness, identifiers, survivorship risk, restatement/backfill, licensing, cost, incremental information, measured lift, implementation complexity, operational reliability — with blockers, gaps and one explicit recommendation. Research governance only — read-only, manual purchase approval, no auto-purchase, no provider activation, no portfolio mutation, automation off.">Data Expansion</a>
+          <a id="ra-nav-alphaagent" data-rasub="alphaagent" onclick="navigateToRoute('research-audit/alphaagent')" title="AlphaAgent Outcomes (Release 60): what the persistent researcher has actually FOUND. What it tested and rejected, what is statistically interesting but unqualified and which gate refused it, what is frozen prospectively and what is genuinely accruing TRUE_FORWARD evidence, what was learned and under what condition it may be reopened, which data opportunities exist and whether a purchase is actually recommended, what it is researching now and why, what it will try next, and what changed since yesterday. Process health is reported separately from alpha evidence — a running worker is not a research result. Read-only; no model promotion; no portfolio mutation; no orders; automation off.">AlphaAgent Outcomes</a>
           <details id="ra-advanced" class="ra-advanced">
             <summary title="Advanced / expert research surfaces — Research Bridge, Daily Operations, Paper Books, Revalidation, Tournament, Alpha Factory, Price Alpha Lab, Alpha Agent Observatory, Stage 11 / 12 / 13A and Diagnostics &amp; Archive. Collapsed by default; nothing here is deleted and every deep link still resolves.">Advanced Research</summary>
           <a id="ra-nav-research-bridge" data-rasub="research-bridge" onclick="navigateToRoute('research-audit/research-bridge')" title="Controlled Autonomous Research Execution Bridge: the Research Agent commissions BOUNDED research from the existing AlphaAgent research lab (queue + tournament + gates). Triggering research opportunity, the controlled research mandate (hypothesis families, 1/5/20/63-session horizons, experiment budget, dispatch identity, lifecycle), alpha-discovery status (candidates tested / KEEP / rejected / DATA_HOLD / FDR survivors / best challenger / NO_DEFENSIBLE_ALPHA), evidence and governance. Research governance only — read-only, manual model review, no model promotion, no portfolio mutation, no orders, automation off.">Research Bridge</a>
@@ -6412,6 +6413,126 @@
           <span class="cc-badge">AUTOMATION OFF</span>
           <span class="cc-badge">NO LIVE BROKER ORDERS</span>
         </div>
+
+        <!-- ===================== RELEASE 60 ALPHAAGENT OUTCOMES PANEL START =====================
+             The ONE operator surface over the PERSISTENT researcher's own record. Every
+             value is RENDERED from GET /v1/research/alphaagent-outcomes, which is a
+             read-only projection over the canonical R59 research memory, the canonical
+             Stage-8 queue and the canonical forward-evidence owners. The browser
+             classifies nothing: it computes no verdict, no governance state, no gate, no
+             statistic and no delta — each is read from the backend field that carries it.
+
+             The headline badge is the ALPHA EVIDENCE state, never process health. A
+             worker that is running is not a research result, and the two are rendered as
+             separate rows on purpose. There is no execute, approve, promote, allocate,
+             purchase or order control here, and there never may be. -->
+        <div class="card" id="aaout-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>AlphaAgent Outcomes
+              <span class="cc-badge muted" title="Release 60 — the canonical read model over the persistent researcher's own record.">RELEASE 60</span>
+              <span class="cc-badge" id="aao-state" title="The ALPHA EVIDENCE state, read from the backend projection. This is NOT process health.">&mdash;</span>
+            </span>
+            <button class="btn-sm" id="aao-refresh" onclick="loadAlphaAgentOutcomes()" title="Reload the read-only AlphaAgent outcomes projection. A read-only GET; it changes nothing and cannot start, stop or steer research.">&#8635; Refresh</button>
+          </div>
+
+          <div id="aao-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.03em;font-size:11px;">
+            ALPHAAGENT RESEARCH OUTCOMES &mdash; RESEARCH EVIDENCE ONLY &middot; MANUAL REVIEW REQUIRED
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">READ ONLY</span>
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO MODEL PROMOTION</span>
+            <span class="cc-badge">NO PORTFOLIO MUTATION</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO PURCHASE</span>
+          </div>
+
+          <div id="aao-headline" style="font-size:12px;margin:0 0 4px;">Loading the read-only AlphaAgent outcomes projection&hellip;</div>
+          <div id="aao-because" style="font-size:11px;color:var(--muted,#8b98b0);margin:0 0 12px;line-height:1.45;">&mdash;</div>
+
+          <!-- WHETHER HUMAN ACTION IS REQUIRED. First, because it is the only thing on
+               this surface a person can act on. -->
+          <div style="border:1px solid var(--border,#2a3550);border-left:3px solid var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Human action
+              <span class="cc-badge" id="aao-action-badge" title="Whether a person is required, read from the backend.">&mdash;</span>
+              <span class="cc-badge safe" style="font-size:9px;">NOTHING HERE IS EXECUTED BY THE SYSTEM</span></div>
+            <div id="aao-action" style="font-size:11px;line-height:1.5;">&mdash;</div>
+          </div>
+
+          <div class="aao-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;align-items:start;">
+
+            <!-- WHAT ALPHAAGENT IS DOING NOW -->
+            <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">What AlphaAgent is doing now
+                <span class="cc-badge" style="font-size:9px;" title="The mandate the worker actually claimed, read from the canonical queue.">CURRENT MANDATE</span></div>
+              <div id="aao-intent" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            </div>
+
+            <!-- RESEARCH STATUS — process health, explicitly separate -->
+            <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Research process
+                <span class="cc-badge muted" id="aao-worker-badge" title="Worker state. A healthy process is NOT successful research — the evidence state is the badge at the top of this card.">&mdash;</span>
+                <span class="cc-badge" style="font-size:9px;">PROCESS HEALTH &ne; RESEARCH SUCCESS</span></div>
+              <div id="aao-runtime" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            </div>
+
+            <!-- WHAT CHANGED RECENTLY -->
+            <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">What changed recently
+                <span class="cc-badge" style="font-size:9px;" title="Measured work is separated from work imported from a prior release; a backfill is not a day of research.">MEASURED VS IMPORTED</span></div>
+              <div id="aao-activity" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            </div>
+
+            <!-- FORWARD CHALLENGERS -->
+            <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Forward challengers
+                <span class="cc-badge" style="font-size:9px;" title="TRUE_FORWARD evidence is owned by the canonical forward-evidence owners. A historical result is never shown as a forward one.">TRUE_FORWARD</span></div>
+              <div id="aao-forward" style="font-size:11px;line-height:1.5;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- BEST CURRENT EVIDENCE -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Best current evidence &mdash; and why it is not qualified
+              <span class="cc-badge" style="font-size:9px;">HISTORICAL ONLY &middot; CONFERS NO CAPITAL</span></div>
+            <div id="aao-candidates" style="font-size:11px;overflow-x:auto;">&mdash;</div>
+          </div>
+
+          <!-- WHAT FAILED / WHAT WAS LEARNED -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">What failed, and what was learned
+              <span class="cc-badge" style="font-size:9px;" title="Nothing is deleted: a rejection is the denominator of every later claim.">GRAVEYARD</span></div>
+            <div id="aao-graveyard" style="font-size:11px;overflow-x:auto;">&mdash;</div>
+          </div>
+
+          <!-- DATA OPPORTUNITIES -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Data opportunities
+              <span class="cc-badge" id="aao-purchase-badge" title="Whether the canonical purchase gate actually recommends buying anything.">&mdash;</span>
+              <span class="cc-badge safe" style="font-size:9px;">NOTHING IS PURCHASED HERE</span></div>
+            <div id="aao-opportunities" style="font-size:11px;overflow-x:auto;">&mdash;</div>
+          </div>
+
+          <!-- NEXT RESEARCH ACTION -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Next research action
+              <span class="cc-badge" style="font-size:9px;" title="Read from the queue in the order the worker will claim it. This surface never asks the governor for a new batch — that call would write.">FROM THE QUEUE</span></div>
+            <div id="aao-next" style="font-size:11px;overflow-x:auto;">&mdash;</div>
+          </div>
+
+          <!-- AUDIT / ADVANCED — volume counters, frontier, providers, availability -->
+          <details id="aao-advanced" class="r29-quiet-details" style="margin-top:12px;">
+            <summary>Audit / Advanced &mdash; research volume, multi-asset frontier, provider utilisation and source availability</summary>
+            <div id="aao-volume" style="font-size:11px;line-height:1.5;margin-top:6px;">&mdash;</div>
+            <div id="aao-frontier" style="font-size:11px;overflow-x:auto;margin-top:8px;">&mdash;</div>
+            <div id="aao-providers" style="font-size:11px;overflow-x:auto;margin-top:8px;">&mdash;</div>
+            <div id="aao-availability" style="font-size:10px;color:var(--muted,#8b98b0);margin-top:8px;line-height:1.5;">&mdash;</div>
+          </details>
+        </div>
+        <!-- RELEASE 60 ALPHAAGENT OUTCOMES PANEL END -->
 
         <!-- ===================== Phase 29I SLICE 8 PERSISTENT ALPHA RESEARCH AGENT ===================== -->
         <!-- The ONE first-class Research Agent panel (Milestone 4). It reads the immutable
@@ -25964,6 +26085,11 @@ var _RA_SECTIONS = {
   // Release 46.2: the live prospective tournament joins the same section. The
   // operator's question is one question — "is the research trustworthy?" — and
   // forward evidence is the only thing that can answer it.
+  // Release 60: the persistent researcher's OUTCOMES are their own primary
+  // section and the Research landing. "Is the model stack trustworthy?"
+  // (Research Agent) and "what has the researcher found?" are different
+  // questions, and only the second was unanswerable before R60.
+  'alphaagent':       { panels: ['aaout-panel'], champion: false },
   'research-agent':   { panels: ['rag-panel', 'albd-panel', 'r46t-panel'], champion: false },
   'research-bridge':  { panels: ['rbridge-panel'], champion: false },
   'performance':      { panels: ['cap-panel'], champion: false },
@@ -25983,7 +26109,7 @@ var _RA_SECTIONS = {
   // lists, the portfolio-decision line and research status) live in this section.
   'diagnostics':      { panels: ['sysops-panel', 'cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['sysops-panel', 'cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'albd-panel', 'r46t-panel', 'rbridge-panel', 'dex-panel'];
+var _RA_ALL_PANELS = ['sysops-panel', 'cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'albd-panel', 'r46t-panel', 'rbridge-panel', 'dex-panel', 'aaout-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -25994,7 +26120,7 @@ function _raHighlightNav(sub) {
   // one of the demoted expert surfaces, so the active item is always visible.
   var adv = document.getElementById('ra-advanced');
   if (adv) {
-    var primarySubs = ['', 'research-agent', 'performance', 'data-expansion'];
+    var primarySubs = ['', 'alphaagent', 'research-agent', 'performance', 'data-expansion'];
     if (sub && primarySubs.indexOf(sub) === -1) adv.open = true;
   }
 }
@@ -26032,6 +26158,7 @@ window._raApplySection = _raApplySection;
 // Best-effort, read-only data load for the active Research & Audit section.
 function _raLoadSection(sub) {
   var loaders = {
+    'alphaagent': ['loadAlphaAgentOutcomes'],
     'research-agent': ['loadResearchAgent', 'loadResearchBridge',
                        'loadAlphaLeaderboard', 'loadProspectiveTournament'],
     'research-bridge': ['loadResearchBridge'],
@@ -26073,7 +26200,11 @@ function _applySubsection(base, sub) {
   // Research & Audit workspace with a canonical default section (Research → research-agent,
   // System · Audit → diagnostics). Normalise so all existing section logic applies unchanged.
   if (base === 'research' || base === 'system-audit') {
-    if (!sub) sub = (base === 'system-audit') ? 'diagnostics' : 'research-agent';
+    // Release 60: Research lands on AlphaAgent Outcomes. The first question an
+    // operator has about a persistent researcher is what it has FOUND, and
+    // that surface did not exist before R60. Research Agent, and every other
+    // section, stays one click away and every deep link resolves unchanged.
+    if (!sub) sub = (base === 'system-audit') ? 'diagnostics' : 'alphaagent';
     base = 'research-audit';
   }
   // Always keep the Portfolio internal navigator in sync, even at the overview.
@@ -33198,6 +33329,360 @@ window._opxOpenDetail = _opxOpenDetail;
 // opportunity is read verbatim from the backend engine. Research governance only:
 // no model promotion, no portfolio mutation, no orders, automation off.
 // ---------------------------------------------------------------------------
+// ===================== RELEASE 60 ALPHAAGENT OUTCOMES START =====================
+// ONE loader against the ONE authoritative projection. The browser renders the
+// backend's own fields: it derives no governance state, no verdict, no gate, no
+// statistic and no delta. Every literal below is a LABEL for a backend value or
+// a fixed safety word — never a classification the UI decided.
+var _AAO_STATE_CLASS = {
+  CHALLENGER_WARRANTS_GOVERNED_REVIEW: 'manual',
+  FORWARD_EVIDENCE_MATURING: 'manual',
+  HISTORICAL_CANDIDATE_ONLY: 'manual',
+  RESEARCH_WAITING_FOR_NEW_INFORMATION: 'muted',
+  NO_QUALIFIED_ALPHA_YET: 'muted',
+  RESEARCH_MEMORY_NOT_PRESENT: 'danger',
+  NOT_AVAILABLE: 'danger'
+};
+
+function _aaoChip(label, value, cls) {
+  return '<span class="cc-badge ' + (cls || 'muted') + '" title="'
+    + escapeHtml(label) + '">' + escapeHtml(label) + ': '
+    + escapeHtml(value === null || value === undefined ? '—' : String(value))
+    + '</span> ';
+}
+
+function _aaoNum(x) {
+  if (x === null || x === undefined || x === '') return '—';
+  if (typeof x !== 'number') return String(x);
+  return x.toLocaleString('en-US', { maximumFractionDigits: 4 });
+}
+
+function _aaoRows(headers, rows) {
+  var h = '<table class="pt-table" style="font-size:11px;width:100%;"><thead><tr>';
+  headers.forEach(function (c) { h += '<th style="text-align:left;">' + escapeHtml(c) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  rows.forEach(function (r) {
+    h += '<tr>';
+    r.forEach(function (c) { h += '<td>' + (c === null || c === undefined ? '—' : c) + '</td>'; });
+    h += '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function loadAlphaAgentOutcomes() {
+  if (window._aaOutcomesInFlight) return window._aaOutcomesInFlight;
+  var hd = document.getElementById('aao-headline');
+  if (hd) hd.textContent = 'Loading the read-only AlphaAgent outcomes projection…';
+  var p = _mhzGet('/v1/research/alphaagent-outcomes').then(function (d) {
+    window._aaOutcomesInFlight = null;
+    window._aaOutcomesData = d;
+    renderAlphaAgentOutcomes(d);
+    return d;
+  }).catch(function () {
+    window._aaOutcomesInFlight = null; renderAlphaAgentOutcomes(null); return null;
+  });
+  window._aaOutcomesInFlight = p;
+  return p;
+}
+window.loadAlphaAgentOutcomes = loadAlphaAgentOutcomes;
+
+function renderAlphaAgentOutcomes(d) {
+  var stateEl = document.getElementById('aao-state');
+  var hd = document.getElementById('aao-headline');
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'cc-badge danger'; }
+    if (hd) hd.textContent = 'The AlphaAgent outcomes projection did not answer. '
+      + 'Nothing was changed; press Refresh to try again.';
+    ['aao-because', 'aao-action', 'aao-intent', 'aao-runtime', 'aao-activity',
+     'aao-forward', 'aao-candidates', 'aao-graveyard', 'aao-opportunities',
+     'aao-next', 'aao-volume', 'aao-frontier', 'aao-providers',
+     'aao-availability'].forEach(function (id) { _setHtml(id, '—'); });
+    return;
+  }
+
+  var gov = d.governance || {};
+  var state = gov.state || 'NOT_AVAILABLE';
+  if (stateEl) {
+    stateEl.textContent = state;
+    stateEl.className = 'cc-badge ' + (_AAO_STATE_CLASS[state] || 'muted');
+  }
+  if (hd) hd.textContent = d.headline || '—';
+  _setHtml('aao-because', escapeHtml(gov.because || '—'));
+
+  // ---- human action ------------------------------------------------------ #
+  var ha = d.human_action || {};
+  var abadge = document.getElementById('aao-action-badge');
+  if (abadge) {
+    abadge.textContent = ha.human_action_required ? 'ACTION REQUIRED' : 'NONE REQUIRED';
+    abadge.className = 'cc-badge ' + (ha.human_action_required ? 'manual' : 'safe');
+  }
+  var acts = ha.actions || [];
+  _setHtml('aao-action', acts.length
+    ? acts.map(function (a) {
+        return '<div style="margin:3px 0;"><span class="cc-badge manual">'
+          + escapeHtml(a.action || '—') + '</span> ' + escapeHtml(a.detail || '') + '</div>';
+      }).join('')
+    : 'No human action is required by the research record right now.');
+
+  // ---- current research intent ------------------------------------------ #
+  var intent = d.current_research_intent || {};
+  var m = intent.current_mandate;
+  var ihtml = '';
+  if (intent.state === 'NOT_AVAILABLE') {
+    ihtml = '<span class="cc-badge danger">NOT_AVAILABLE</span> ' + escapeHtml(intent.reason || '');
+  } else if (!m) {
+    ihtml = '<span class="cc-badge muted">NO MANDATE CLAIMED</span> '
+      + 'No research job is currently claimed by a worker.';
+  } else {
+    ihtml += _aaoChip('Kind', m.mandate_kind, 'muted')
+      + _aaoChip('Asset class', m.asset_class, 'muted')
+      + _aaoChip('Family', m.family, 'muted')
+      + _aaoChip('Expected information value', _aaoNum(m.expected_information_value), 'muted')
+      + _aaoChip('Lane', m.lane, 'muted');
+    ihtml += '<div style="margin-top:6px;"><b>Why this was selected:</b> '
+      + escapeHtml(m.why_selected || '—') + '</div>';
+    ihtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);"><b>What would change the lane:</b> '
+      + escapeHtml((intent.what_would_change_the_lane || {}).rule || '—') + '</div>';
+    ihtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);">Mandate issued by '
+      + escapeHtml(m.issued_by || '—') + ' at ' + escapeHtml(m.issued_at || '—')
+      + '; started ' + escapeHtml(m.started_at || '—') + '.</div>';
+  }
+  _setHtml('aao-intent', ihtml);
+
+  // ---- research process (explicitly NOT research success) ---------------- #
+  var rt = d.runtime || {};
+  var wbadge = document.getElementById('aao-worker-badge');
+  if (wbadge) {
+    wbadge.textContent = rt.worker_state || 'NOT_AVAILABLE';
+    wbadge.className = 'cc-badge muted';
+  }
+  var lease = rt.lease || {};
+  var rhtml = _aaoChip('Heartbeat', rt.heartbeat_freshness, 'muted')
+    + _aaoChip('Heartbeat age (s)', rt.heartbeat_age_seconds, 'muted')
+    + _aaoChip('Lease held', lease.held, 'muted')
+    + _aaoChip('Release', (rt.release_identity || {}).commit_short, 'muted')
+    + _aaoChip('Forward maturation', (rt.maturation_policy || {}).reason, 'muted');
+  rhtml += '<div style="margin-top:6px;">Started ' + escapeHtml(rt.started_at || '—')
+    + '; last heartbeat ' + escapeHtml(rt.last_heartbeat || '—') + '.</div>';
+  rhtml += '<div style="margin-top:4px;">Latest error: '
+    + escapeHtml(rt.latest_error === null || rt.latest_error === undefined
+      ? 'none' : String(rt.latest_error)) + '</div>';
+  rhtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);">'
+    + 'A healthy worker is a statement about the process, not about the research. '
+    + 'The evidence state is the badge at the top of this card.</div>';
+  _setHtml('aao-runtime', rhtml);
+
+  // ---- what changed ------------------------------------------------------ #
+  var wins = (d.recent_activity || {}).windows || {};
+  var order = ['last_24h', 'since_worker_start', 'since_latest_eligible_session', 'lifetime'];
+  var wrows = [];
+  order.forEach(function (k) {
+    var w = wins[k];
+    if (!w) return;
+    if (w.state === 'NOT_AVAILABLE') {
+      wrows.push([escapeHtml(k), '<span class="cc-badge danger">NOT_AVAILABLE</span> '
+        + escapeHtml(w.reason || ''), '—', '—', '—', '—']);
+      return;
+    }
+    wrows.push([escapeHtml(k), _aaoNum(w.hypotheses_settled), _aaoNum(w.measured_here),
+                _aaoNum(w.imported_from_prior_release), _aaoNum(w.rejected),
+                _aaoNum(w.prospective_freezes)]);
+  });
+  _setHtml('aao-activity', _aaoRows(
+    ['Window', 'Settled', 'Measured here', 'Imported', 'Rejected', 'Freezes'], wrows)
+    + '<div style="margin-top:6px;color:var(--muted,#8b98b0);">'
+    + escapeHtml((d.recent_activity || {}).why_split || '') + '</div>');
+
+  // ---- forward challengers ----------------------------------------------- #
+  var pr = d.prospective || {};
+  var acc = pr.forward_accrual || {};
+  var fhtml = '';
+  if (acc.state === 'NOT_AVAILABLE') {
+    fhtml = '<span class="cc-badge danger">NOT_AVAILABLE</span> ' + escapeHtml(acc.reason || '');
+  } else {
+    fhtml += _aaoChip('Challengers active', acc.challengers_active, 'muted')
+      + _aaoChip('Forward predictions', acc.forward_predictions_made, 'muted')
+      + _aaoChip('Matured', acc.forward_predictions_matured, 'muted')
+      + _aaoChip('Effective independent', acc.effective_independent_observations, 'muted')
+      + _aaoChip('Promotion ready', pr.promotion_ready_count,
+                 pr.promotion_ready_count ? 'manual' : 'safe')
+      + _aaoChip('Maturity state', acc.evidence_maturity_state, 'muted');
+    var top = acc.current_top_forward_challenger || null;
+    if (top) {
+      fhtml += '<div style="margin-top:6px;"><b>Top forward challenger:</b> '
+        + escapeHtml(top.challenger_id || '—') + ' — ' + escapeHtml(top.state || '—')
+        + ', ' + _aaoNum(top.raw_matured) + ' matured / '
+        + _aaoNum(top.effective_independent) + ' effective. '
+        + escapeHtml(top.next_evidence_gate || '') + '</div>';
+    }
+  }
+  fhtml += '<div style="margin-top:6px;">Prospective freezes recorded: '
+    + _aaoNum(pr.freezes_recorded_in_research_memory) + '; not registered with any '
+    + 'forward-evidence owner: <b>' + _aaoNum(pr.freezes_not_registered_with_a_forward_owner)
+    + '</b>.</div>';
+  (pr.orphan_freezes || []).slice(0, 8).forEach(function (o) {
+    fhtml += '<div style="margin:2px 0;color:var(--muted,#8b98b0);">'
+      + '<span class="cc-badge danger">' + escapeHtml(o.forward_evidence_link || '—')
+      + '</span> ' + escapeHtml(o.challenger_id || '—') + ' (' + escapeHtml(o.release || '—')
+      + ', inception ' + escapeHtml(o.inception || '—') + ')</div>';
+  });
+  _setHtml('aao-forward', fhtml);
+
+  // ---- best current evidence --------------------------------------------- #
+  var cand = (d.best_current_candidates || {}).candidates || [];
+  var crows = cand.map(function (c) {
+    var st = c.historical_statistics || {};
+    var mu = c.multiplicity_state || {};
+    var ma = c.materiality_state || {};
+    var w = c.why_not_yet_qualified || {};
+    return [
+      escapeHtml(c.economic_family || '—') + '<br><span style="color:var(--muted,#8b98b0);">'
+        + escapeHtml(c.information_family || '') + '</span>',
+      escapeHtml(c.asset_class || '—'),
+      _aaoNum(c.horizon_sessions),
+      _aaoNum(st.lockbox_t),
+      _aaoNum(st.lockbox_observations),
+      _aaoNum(mu.burden_denominator) + ' / p=' + _aaoNum(mu.burden_corrected_p),
+      _aaoNum(ma.lockbox_materiality) + ' / ' + _aaoNum(ma.validation_materiality),
+      (w.failed_dimensions || []).map(function (f) {
+        return '<span class="cc-badge danger" style="font-size:9px;">' + escapeHtml(f) + '</span>';
+      }).join(' ')
+    ];
+  });
+  _setHtml('aao-candidates', cand.length
+    ? _aaoRows(['Economic family', 'Asset class', 'Horizon', 'Lockbox t',
+                'Effective obs', 'Burden / corrected p',
+                'Materiality lockbox / validation', 'Why not qualified'], crows)
+      + '<div style="margin-top:6px;color:var(--muted,#8b98b0);">'
+      + escapeHtml((d.best_current_candidates || {}).ranked_by || '') + '</div>'
+    : 'No settled hypothesis carries a recorded lockbox statistic yet.');
+
+  // ---- graveyard ---------------------------------------------------------- #
+  var gy = d.graveyard || {};
+  var grows = (gy.major_families_rejected || []).slice(0, 12).map(function (f) {
+    var reasons = f.reasons || {};
+    return [
+      escapeHtml(f.economic_family || '—'),
+      escapeHtml(f.asset_class || '—'),
+      _aaoNum(f.rejected),
+      Object.keys(reasons).sort().map(function (k) {
+        return '<span class="cc-badge muted" style="font-size:9px;">' + escapeHtml(k)
+          + ' ' + _aaoNum(reasons[k]) + '</span>';
+      }).join(' '),
+      escapeHtml(f.reopen_condition || '—')
+    ];
+  });
+  _setHtml('aao-graveyard',
+    '<div style="margin-bottom:6px;">' + _aaoChip('Rejected total', gy.rejected_total, 'muted')
+    + _aaoChip('Distinct families', gy.n_distinct_rejected_families, 'muted')
+    + _aaoChip('Invalidated rows', gy.invalidated_rows, 'muted') + '</div>'
+    + _aaoRows(['Economic family', 'Asset class', 'Rejected', 'Refusing dimensions',
+                'Reopen condition'], grows)
+    + '<div style="margin-top:6px;color:var(--muted,#8b98b0);">'
+    + escapeHtml(gy.reopen_rule || '') + '</div>');
+
+  // ---- data opportunities -------------------------------------------------- #
+  var op = d.data_opportunities || {};
+  var pbadge = document.getElementById('aao-purchase-badge');
+  if (pbadge) {
+    pbadge.textContent = op.purchase_actually_recommended
+      ? 'PURCHASE RECOMMENDED' : 'NO PURCHASE RECOMMENDED';
+    pbadge.className = 'cc-badge ' + (op.purchase_actually_recommended ? 'manual' : 'safe');
+  }
+  var counts = op.state_counts || {};
+  var ohtml = '<div style="margin-bottom:6px;">';
+  Object.keys(counts).sort().forEach(function (k) { ohtml += _aaoChip(k, counts[k], 'muted'); });
+  ohtml += '</div>';
+  var orows = [];
+  Object.keys(op.by_state || {}).sort().forEach(function (st) {
+    (op.by_state[st] || []).forEach(function (o) {
+      orows.push([escapeHtml(o.opportunity_id || '—'), escapeHtml(st),
+                  escapeHtml(o.asset_class || '—'),
+                  escapeHtml(o.gate_verdict || '—'),
+                  escapeHtml(o.information_need || '—')]);
+    });
+  });
+  ohtml += _aaoRows(['Opportunity', 'State', 'Asset class', 'Purchase-gate verdict',
+                     'Information need'], orows);
+  ohtml += '<div style="margin-top:6px;color:var(--muted,#8b98b0);">'
+    + escapeHtml(op.purchase_verdict_owner || '') + '</div>';
+  _setHtml('aao-opportunities', ohtml);
+
+  // ---- next research ------------------------------------------------------- #
+  var nx = d.next_research || {};
+  if (nx.state === 'NOT_AVAILABLE') {
+    _setHtml('aao-next', '<span class="cc-badge danger">NOT_AVAILABLE</span> '
+      + escapeHtml(nx.reason || ''));
+  } else {
+    var nrows = (nx.queued || []).slice(0, 8).map(function (j) {
+      return [escapeHtml(j.mandate_kind || '—'), escapeHtml(j.asset_class || '—'),
+              escapeHtml(j.family || '—'), _aaoNum(j.expected_information_value),
+              escapeHtml(j.why_selected || '—')];
+    });
+    var brows = (nx.blocked || []).slice(0, 8).map(function (j) {
+      return [escapeHtml(j.lane || '—'), escapeHtml(j.blocked_reason || '—')];
+    });
+    _setHtml('aao-next',
+      _aaoRows(['Kind', 'Asset class', 'Family', 'Expected information value',
+                'Why selected'], nrows)
+      + '<div style="margin-top:6px;color:var(--muted,#8b98b0);">'
+      + escapeHtml(nx.ordering || '') + '</div>'
+      + (brows.length ? '<div style="margin-top:8px;"><b>Blocked on a specific input</b></div>'
+          + _aaoRows(['Lane', 'Blocked reason'], brows) : ''));
+  }
+
+  // ---- audit / advanced ----------------------------------------------------- #
+  var vol = d.research_volume || {};
+  var q = vol.queue || {};
+  _setHtml('aao-volume',
+    _aaoChip('Hypotheses total', vol.hypotheses_total, 'muted')
+    + _aaoChip('Settled', vol.hypotheses_settled, 'muted')
+    + _aaoChip('Open', vol.hypotheses_open, 'muted')
+    + _aaoChip('Search burden', vol.search_burden_total, 'muted')
+    + _aaoChip('Distinct families', vol.distinct_families, 'muted')
+    + _aaoChip('Queue runnable', q.runnable_now, 'muted')
+    + _aaoChip('Queue running', q.running, 'muted')
+    + _aaoChip('Queue blocked', q.blocked_specific, 'muted')
+    + _aaoChip('Queue completed', q.completed, 'muted'));
+
+  var fr = (d.multi_asset_frontier || {}).asset_classes || {};
+  var frows = Object.keys(fr).sort().map(function (ac) {
+    var r = fr[ac] || {};
+    return [escapeHtml(ac), escapeHtml(r.state || '—'), _aaoNum(r.instruments),
+            _aaoNum(r.hypotheses_recorded), _aaoNum(r.search_burden),
+            escapeHtml(r.reason || '—')];
+  });
+  _setHtml('aao-frontier', '<div style="margin:4px 0;"><b>Multi-asset research frontier</b></div>'
+    + _aaoRows(['Asset class', 'State', 'Instruments', 'Hypotheses', 'Burden', 'Reason'], frows));
+
+  var pv = d.provider_utilisation || [];
+  _setHtml('aao-providers', '<div style="margin:4px 0;"><b>Provider utilisation</b></div>'
+    + _aaoRows(['Provider', 'Data class', 'Classification', 'Cost known', 'Current usage'],
+        pv.map(function (r) {
+          return [escapeHtml(r.provider || '—'), escapeHtml(r.data_class || '—'),
+                  escapeHtml(r.classification || '—'),
+                  escapeHtml(String(r.cost_known)), escapeHtml(r.current_usage || '—')];
+        })));
+
+  var av = d.availability || {};
+  var avhtml = Object.keys(av).sort().map(function (k) {
+    return _aaoChip(k, av[k], av[k] === 'PRESENT' ? 'safe' : 'manual');
+  }).join('');
+  if ((d.warnings || []).length) {
+    avhtml += '<div style="margin-top:6px;">' + (d.warnings || []).map(function (w) {
+      return '<div class="cc-error">' + escapeHtml(w) + '</div>';
+    }).join('') + '</div>';
+  }
+  avhtml += '<div style="margin-top:6px;">Read from: '
+    + escapeHtml((d.reads || []).join(' · ')) + '</div>';
+  avhtml += '<div style="margin-top:4px;">Generated at ' + escapeHtml(d.generated_at || '—')
+    + ' by ' + escapeHtml(d.owner || '—') + '. This surface computes no research '
+    + 'mathematics and owns no research state.</div>';
+  _setHtml('aao-availability', avhtml);
+}
+window.renderAlphaAgentOutcomes = renderAlphaAgentOutcomes;
+// ===================== RELEASE 60 ALPHAAGENT OUTCOMES END =====================
+
 function loadResearchAgent() {
   if (window._researchAgentInFlight) return window._researchAgentInFlight;
   var note = document.getElementById('rag-note');

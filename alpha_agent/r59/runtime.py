@@ -98,14 +98,25 @@ CHALLENGER_REVIEW = "CHALLENGER_WARRANTS_GOVERNED_REVIEW"
 # --------------------------------------------------------------------------- #
 # Paths and identity
 # --------------------------------------------------------------------------- #
-def runtime_dir() -> Path:
+def runtime_dir(*, create: bool = True) -> Path:
+    """The runtime artifact directory.
+
+    ``create=False`` (R60) is how a READ path asks where the artifacts are
+    without bringing the directory into existence. A GET that creates a
+    research directory as a side effect is not a read.
+    """
     d = r59.research_root() / RUNTIME_SUBDIR
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def lease_path() -> Path:
-    return runtime_dir() / WORKER_LEASE_NAME
+def lease_path(*, create: bool = True) -> Path:
+    return runtime_dir(create=create) / WORKER_LEASE_NAME
+
+
+def status_path(*, create: bool = True) -> Path:
+    return runtime_dir(create=create) / STATUS_ARTIFACT
 
 
 def _close(queue) -> None:
@@ -205,7 +216,7 @@ def maturation_policy(identity: Optional[dict] = None) -> dict:
 # Status read model (section L). No dashboard - one JSON document.
 # --------------------------------------------------------------------------- #
 def read_status() -> dict:
-    return r59.read_json(runtime_dir() / STATUS_ARTIFACT) or {}
+    return r59.read_json(status_path(create=False)) or {}
 
 
 def write_status(body: dict) -> Path:
@@ -215,7 +226,7 @@ def write_status(body: dict) -> Path:
 def _log(row: dict) -> None:
     try:
         import json
-        p = runtime_dir() / RUN_LOG
+        p = runtime_dir(create=True) / RUN_LOG
         if p.exists() and p.stat().st_size > 4 * 1024 * 1024:
             prev = p.with_suffix(".log.1")
             if prev.exists():
@@ -228,17 +239,30 @@ def _log(row: dict) -> None:
 
 
 def status(mem: Optional[M.ResearchMemory] = None,
-           queue=None) -> dict:
-    """Read-only runtime status. Safe to call while a worker is running."""
-    mem = mem or M.open_memory()
+           queue=None, *, read_only: bool = False) -> dict:
+    """Read-only runtime status. Safe to call while a worker is running.
+
+    ``read_only`` (R60) makes the STORE ACCESS read-only too, not merely the
+    intent: the memory and the queue are opened as observer handles and the
+    lease path is resolved without creating the runtime directory. Without it
+    this function still opened writer handles, so asking for status ran the
+    schema scripts of both SQLite stores it was reporting on.
+    """
+    mem = mem or (M.open_memory_readonly() if read_only else M.open_memory())
     close_queue = queue is None
-    queue = queue or LP.open_queue()
+    queue = queue or LP.open_queue(read_only=read_only)
     try:
         counts = queue.counts_by_state()
         burden = mem.burden()
         summary = mem.summary()
         persisted = read_status()
-        lease = RL.state_path(lease_path())
+        lease = RL.state_path(lease_path(create=not read_only))
+        # ``hypotheses_total`` is the memory summary's own name for every
+        # registered identity. The earlier key (``n_hypotheses``) has never
+        # existed in that contract, so this always fell through to the sum of
+        # by_outcome - the SETTLED count - and reported it under a name that
+        # promised the total. Both are now reported, each under its own name.
+        settled = sum((summary.get("by_outcome") or {}).values())
         return {
             "calculation_owner": CALCULATION_OWNER,
             "observed_at": r59.now_iso(),
@@ -258,8 +282,9 @@ def status(mem: Optional[M.ResearchMemory] = None,
             "queue_running": int(counts.get("RUNNING", 0)),
             "queue_blocked": int(counts.get("BLOCKED_SPECIFIC", 0)),
             "queue_completed": int(counts.get("COMPLETED", 0)),
-            "cumulative_hypotheses": summary.get("n_hypotheses")
-            or sum((summary.get("by_outcome") or {}).values()),
+            "cumulative_hypotheses": summary.get("hypotheses_total", settled),
+            "cumulative_hypotheses_settled": summary.get(
+                "hypotheses_settled", settled),
             "cumulative_search_burden": burden.get("total"),
             "distinct_families": burden.get("distinct_families"),
             "last_completed_experiment": persisted.get(
@@ -271,7 +296,8 @@ def status(mem: Optional[M.ResearchMemory] = None,
             "capacity": persisted.get("capacity"),
             "maturation": persisted.get("maturation"),
             "latest_error": persisted.get("latest_error"),
-            "status_path": str(runtime_dir() / STATUS_ARTIFACT),
+            "status_path": str(status_path(create=not read_only)),
+            "read_only": bool(read_only),
             "safety": dict(r59.SAFETY),
         }
     finally:
@@ -749,6 +775,7 @@ __all__ = ["CALCULATION_OWNER", "WORKER_LEASE_NAME", "STATUS_ARTIFACT",
            "MAX_SLEEP_SECONDS", "DEPLOYED_ROOT_ENV", "WORKER_STATES",
            "W_STARTING", "W_RESEARCHING", "W_MATURING", "W_SLEEPING",
            "W_STOPPED", "W_REFUSED", "W_LEASE_LOST", "CHALLENGER_REVIEW",
-           "runtime_dir", "lease_path", "source_identity", "worker_identity",
+           "runtime_dir", "lease_path", "status_path", "source_identity",
+           "worker_identity",
            "maturation_policy", "read_status", "write_status", "status",
            "wake_conditions", "wake_delta", "plan_sleep", "run_forever"]
