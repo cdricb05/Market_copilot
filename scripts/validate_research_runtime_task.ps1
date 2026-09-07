@@ -25,9 +25,20 @@ param(
     [string]$PythonExe = 'C:\Users\binis\paper_trader\.venv-win\Scripts\python.exe',
     [string]$RuntimeScript = 'C:\Users\binis\paper_trader\scripts\run_research_runtime.py',
     [string[]]$TriggerTimes = @('08:15', '17:45', '19:45', '21:45'),
+    [ValidateSet('Cycle', 'Persistent')][string]$Mode = 'Cycle',
     [string]$ReportFile = '',
     [string]$PrincipalProbe = ''
 )
+
+# Release 59. A PERSISTENT task is valid under a different contract from a
+# CYCLE task, and validating one against the other's rules would reject a
+# correct installation. The differences are exactly three: the entrypoint is
+# invoked with --mode persistent, a logon trigger must exist so the worker
+# returns after a reboot, and the execution time limit must be ABSENT
+# (PT0S) - a two-hour cap on a persistent researcher is a guaranteed daily
+# kill. The hung-run protection a time limit used to give is provided by the
+# worker lease heartbeat instead, which is why removing it here is safe.
+$persistent = ($Mode -eq 'Persistent')
 
 $global:R52TaskValidateResult = $null
 $problems = @()
@@ -65,16 +76,30 @@ $act = $t.Actions[0]
 if ($act.Execute -ne $PythonExe) { $problems += "action executes '$($act.Execute)' (expected the canonical venv python)" }
 if ($act.Arguments -notmatch [regex]::Escape($RuntimeScript)) { $problems += 'action does not run the canonical runtime entrypoint' }
 if ($t.Actions.Count -ne 1) { $problems += "task has $($t.Actions.Count) actions (expected exactly 1)" }
+if ($persistent -and ($act.Arguments -notmatch '--mode\s+persistent')) {
+    $problems += 'action does not pass --mode persistent (the task would run one bounded cycle, not the autonomous researcher)'
+}
+if (-not $persistent -and ($act.Arguments -match '--mode\s+persistent')) {
+    $problems += 'action passes --mode persistent but the requested contract is Cycle'
+}
 
+$allowedTriggerTypes = @('MSFT_TaskDailyTrigger')
+if ($persistent) { $allowedTriggerTypes += 'MSFT_TaskLogonTrigger' }
 $haveTimes = @()
+$haveLogonTrigger = $false
 foreach ($tr in $t.Triggers) {
-    if ($tr.CimClass.CimClassName -ne 'MSFT_TaskDailyTrigger') {
-        $problems += "trigger of type $($tr.CimClass.CimClassName) (expected daily time triggers only)"
+    $ttype = [string]$tr.CimClass.CimClassName
+    if ($allowedTriggerTypes -notcontains $ttype) {
+        $problems += "trigger of type $ttype (expected " + ($allowedTriggerTypes -join ' or ') + ')'
     }
+    if ($ttype -eq 'MSFT_TaskLogonTrigger') { $haveLogonTrigger = $true; continue }
     if ($tr.StartBoundary) { $haveTimes += ([DateTime]$tr.StartBoundary).ToString('HH:mm') }
 }
 $missing = @($TriggerTimes | Where-Object { $haveTimes -notcontains $_ })
 if ($missing.Count -gt 0) { $problems += ('missing trigger times: ' + ($missing -join ', ')) }
+if ($persistent -and -not $haveLogonTrigger) {
+    $problems += 'no logon trigger (after a reboot nothing would restart the worker until the next daily time)'
+}
 
 $logonType = [string]$t.Principal.LogonType
 if ($LoggedOutCapable -notcontains $logonType) {
@@ -85,16 +110,24 @@ if ($LoggedOutCapable -notcontains $logonType) {
 
 if (-not $t.Settings.StartWhenAvailable) { $problems += 'StartWhenAvailable is off (a missed trigger would never recover)' }
 if ([string]$t.Settings.MultipleInstances -ne 'IgnoreNew') { $problems += "MultipleInstances is $($t.Settings.MultipleInstances) (expected IgnoreNew)" }
-if ($t.Settings.ExecutionTimeLimit -in @('PT0S', $null, '')) { $problems += 'no execution time limit (a hung run would block the queue forever)' }
+if ($persistent) {
+    if ($t.Settings.ExecutionTimeLimit -notin @('PT0S', $null, '')) {
+        $problems += "ExecutionTimeLimit is $($t.Settings.ExecutionTimeLimit); a persistent worker must have none (PT0S), or Windows kills the researcher on a timer"
+    }
+} else {
+    if ($t.Settings.ExecutionTimeLimit -in @('PT0S', $null, '')) { $problems += 'no execution time limit (a hung run would block the queue forever)' }
+}
 
 $report = [PSCustomObject]@{
     task               = $TaskName
+    mode               = $Mode
     present            = $true
     state              = [string]$t.State
     enabled            = $t.Settings.Enabled
     action             = [PSCustomObject]@{ Execute = $act.Execute; Arguments = $act.Arguments }
     trigger_times      = @($haveTimes | Sort-Object)
     expected_times     = @($TriggerTimes | Sort-Object)
+    logon_trigger      = $haveLogonTrigger
     principal          = [PSCustomObject]@{ UserId = $t.Principal.UserId; LogonType = $logonType }
     logged_out_capable = ($LoggedOutCapable -contains $logonType)
     start_when_available = $t.Settings.StartWhenAvailable
@@ -113,7 +146,7 @@ if ($ReportFile) { $report | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 $
 
 if ($problems.Count -eq 0) {
     $global:R52TaskValidateResult = 'VALID'
-    Write-Output "R52_TASK_VALID - $TaskName ($($haveTimes.Count) daily triggers; LogonType=$logonType; next run $($report.next_run))"
+    Write-Output "R52_TASK_VALID - $TaskName in $Mode mode ($($haveTimes.Count) daily triggers$(if ($haveLogonTrigger) { ' + logon trigger' }); LogonType=$logonType; next run $($report.next_run))"
 } else {
     $global:R52TaskValidateResult = 'INVALID - ' + ($problems -join '; ')
     Write-Output ("R52_TASK_INVALID - " + ($problems -join '; '))

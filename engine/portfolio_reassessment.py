@@ -820,6 +820,41 @@ def explain_holding(review: dict, *, universe_size: Optional[int], policy: dict,
             % (tk, rank_txt, move, det, hurdle, liq_txt))
 
 
+#: The SCOPE of every turnover / cost / improvement figure this owner narrates.
+#: Release 29.3 already declares them pre-proposal estimates over the release set
+#: and explicitly non-binding ("turnover_budget_binding_here": False); the binding
+#: verdict is reached exactly once, on the COMPLETE constrained target, by
+#: engine.reallocation_proposal.
+#:
+#: The label has to travel WITH the number. On 2026-09-04 an operator read this
+#: owner's "+45.7% turnover, $112.24" in a headline directly above the proposal's
+#: binding "35.0%, $85.94" and had no way to tell that they measure different
+#: objects. Both were correct; only the presentation made them look like a
+#: contradiction.
+NARRATIVE_ESTIMATE_SCOPE = "PRE_PROPOSAL_RELEASE_SET_ESTIMATE"
+NARRATIVE_ESTIMATE_BINDING = "NON_BINDING"
+
+
+def estimate_scope_clause() -> str:
+    """The ONE sentence that names the scope of this owner's economic figures."""
+    return ("These figures are a %s and are %s: the binding switching economics "
+            "of the complete constrained target are owned by %s."
+            % (NARRATIVE_ESTIMATE_SCOPE, NARRATIVE_ESTIMATE_BINDING,
+               TARGET_ENGINE_OWNER))
+
+
+def _clears_hurdle(net, hurdle) -> bool:
+    """Does the pre-proposal net estimate clear the portfolio hurdle?
+
+    The SAME comparison the gate makes. It exists so a narrative can never
+    assert a verdict the gate did not reach: the mandatory-exit sentence used
+    to state "does not clear" unconditionally, and on 2026-09-04 said so about
+    +0.081 against a 0.050 hurdle while its own reason codes carried
+    PORTFOLIO_NET_IMPROVEMENT_CLEARS_HURDLE.
+    """
+    return net is not None and float(net) >= float(hurdle) - 1e-12
+
+
 def explain_portfolio(result_core: dict, policy: dict) -> str:
     """Generate ONE deterministic portfolio-level sentence for the operator."""
     state = result_core["reassessment_state"]
@@ -853,16 +888,27 @@ def explain_portfolio(result_core: dict, policy: dict) -> str:
         return base
     if state == STATE_PROPOSAL_READY:
         if mex and GATE_MANDATORY_EXIT in (d.get("reason_codes") or []):
+            # The trigger is the retention breach either way; whether the
+            # economics ALSO justify the change is a separate fact and must be
+            # read off the comparison, never asserted. The sibling breach
+            # branch below has always done this; this one did not, and stated
+            # "does not clear" about a number that did.
+            if _clears_hurdle(net, hurdle):
+                economics = ("and the expected net improvement of %s score points also "
+                             "clears the %.3f economic hurdle" % (_fmt_score(net), hurdle))
+            else:
+                economics = ("even though the expected net improvement of %s score points "
+                             "does not clear the %.3f economic hurdle on its own"
+                             % (_fmt_score(net), hurdle))
             return ("%s no longer meet the HOC retention rule, so a complete target is "
-                    "requested even though the expected net improvement of %s score points "
-                    "does not clear the %.3f economic hurdle on its own: a name past the "
-                    "retention band is a constraint breach, not an alpha bet. %d actionable holding(s), %s "
-                    "estimated one-way turnover, %s estimated cost. The canonical "
-                    "reallocation proposal is built for MANUAL REVIEW — nothing is approved "
-                    "or executed, and the complete target must still satisfy the turnover, "
-                    "concentration, sector and risk limits owned by %s."
-                    % (", ".join(mex), _fmt_score(net), hurdle, n_act, _fmt_pct(turn),
-                       _fmt_usd(cost), TARGET_ENGINE_OWNER))
+                    "requested %s: a name past the retention band is a constraint breach, "
+                    "not an alpha bet. %d actionable holding(s), %s estimated one-way "
+                    "turnover, %s estimated cost. %s The canonical reallocation proposal "
+                    "is built for MANUAL REVIEW — nothing is approved or executed, and the "
+                    "complete target must still satisfy the turnover, concentration, sector "
+                    "and risk limits owned by %s."
+                    % (", ".join(mex), economics, n_act, _fmt_pct(turn),
+                       _fmt_usd(cost), estimate_scope_clause(), TARGET_ENGINE_OWNER))
         # Track B (decision consistency): a breach-override target request is a
         # CONSTRAINT fact, not an economic verdict. The generic sentence below used
         # to claim "economically justified" for it — the stored 2026-08-31 artifact
@@ -871,23 +917,24 @@ def explain_portfolio(result_core: dict, policy: dict) -> str:
         # true trigger; whether the change is WORTH making stays with the switching
         # economics owned downstream (engine.constrained_reallocation).
         if GATE_HELD_NAME_BREACH_REQUIRES_TARGET in (d.get("reason_codes") or []) \
-                and not (net is not None and net >= hurdle - 1e-12):
+                and not _clears_hurdle(net, hurdle):
             breaches = ", ".join(d.get("held_name_constraint_breaches") or []) \
                 or "a held name breaches a hard portfolio constraint"
             return ("A complete target is requested because a held name breaches a hard "
                     "portfolio constraint (%s) — a constraint fact, not an economic "
                     "verdict: the expected net improvement of %s score points does not "
                     "clear the %.3f hurdle on its own. %d actionable holding(s), %s "
-                    "estimated one-way turnover, %s estimated cost. Whether switching is "
+                    "estimated one-way turnover, %s estimated cost. %s Whether switching is "
                     "worth its cost is decided by the constrained target's own switching "
                     "economics; nothing is approved or executed."
                     % (breaches, _fmt_score(net), hurdle, n_act, _fmt_pct(turn),
-                       _fmt_usd(cost)))
+                       _fmt_usd(cost), estimate_scope_clause()))
         return ("A portfolio change is economically justified: %d actionable holding(s), "
                 "expected net improvement %s score points against a %.3f hurdle, %s one-way "
-                "turnover at an estimated %s transaction cost. The canonical reallocation "
+                "turnover at an estimated %s transaction cost. %s The canonical reallocation "
                 "proposal is built for MANUAL REVIEW — nothing is approved or executed."
-                % (n_act, _fmt_score(net), hurdle, _fmt_pct(turn), _fmt_usd(cost)))
+                % (n_act, _fmt_score(net), hurdle, _fmt_pct(turn), _fmt_usd(cost),
+                   estimate_scope_clause()))
     if state == STATE_BLOCKED_DATA:
         return ("The portfolio cannot be reassessed against complete evidence: %s. No "
                 "change is inferred from incomplete data."

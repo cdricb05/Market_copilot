@@ -3798,6 +3798,7 @@
     <div class="sidebar-section">
       <div class="sidebar-label">Research</div>
       <a class="sidebar-link" id="nav-research" data-route="research" onclick="navigateToRoute('research');" title="Research — the Persistent Alpha Research Agent, champion/challenger health, evidence sufficiency, research opportunities and Data Expansion. Research governance only; no auto promotion.">Research</a>
+      <a class="sidebar-link" id="nav-alpha-capital" data-route="alpha-capital" onclick="navigateToRoute('alpha-capital');" title="Alpha &amp; Capital — where capital is, where zero-base capital would go, whether the cash should be deployed, the strongest alpha opportunities, the best forward paper challenger and what is limiting P&amp;L. Read-only; preview only; no orders.">Alpha &amp; Capital</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">System</div>
@@ -8849,6 +8850,108 @@
 
       </div><!-- end tab-audit-advanced -->
 
+      <!-- =========================== RELEASE 56 =============================
+           ALPHA & CAPITAL. The ONE decision-oriented surface for "where should
+           capital go". Every value is rendered VERBATIM from the ONE composed
+           read model (GET /v1/operations/alpha-capital, owner api.alpha_capital);
+           the browser computes no economics, ranks nothing and decides nothing.
+           Layout follows docs/RELEASE56_ALPHA_TO_CAPITAL_OFFENSIVE.md section
+           3.3: top status bar, six KPI cards, a 2x2 cockpit grid, a compact
+           registry table, a sticky right safety/answer panel, and every
+           diagnostic inside the Audit / Advanced <details>. GETs only: this view
+           has no form, no POST and no confirmation token. -->
+      <div id="tab-alpha-capital" class="tab-content">
+        <div class="cc-statusbar" id="ak-statusbar"
+             style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+          <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">ALPHA &amp; CAPITAL</span>
+          <span class="cc-badge" id="ak-state" title="Read model state.">&mdash;</span>
+          <span class="cc-badge muted" id="ak-session" title="The eligible market session every number on this page describes.">&mdash;</span>
+          <span class="cc-spacer"></span>
+          <span class="cc-badge safe">PREVIEW ONLY</span>
+          <span class="cc-badge safe">READ ONLY</span>
+          <span class="cc-badge safe">PAPER ONLY</span>
+          <span class="cc-badge safe">NO ORDERS</span>
+          <span class="cc-badge safe">AUTOMATION OFF</span>
+          <span class="cc-badge manual">MANUAL REVIEW</span>
+          <span class="cc-badge manual">NO MODEL PROMOTION</span>
+          <button class="cc-btn ghost" id="ak-refresh"
+                  onclick="loadAlphaCapital();"
+                  title="Reload the Alpha &amp; Capital read model. Read-only GETs; changes nothing.">Refresh</button>
+        </div>
+
+        <div id="ak-headline" class="cc-na-explain"
+             style="margin-bottom:12px;padding:10px 13px;border:1px solid var(--cc-border);border-radius:8px;background:var(--cc-panel);">Loading the Alpha &amp; Capital read model&hellip;</div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start;">
+          <div style="min-width:0;display:flex;flex-direction:column;gap:14px;">
+
+            <!-- KPI ROW - six cards, each a real measured number -->
+            <div class="cc-kpi-row" id="ak-kpis"></div>
+
+            <!-- COCKPIT ROW 1: A cash decision | B limiters -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;">
+              <div class="cc-panel" id="ak-cash-card">
+                <div class="cc-panel-title">A &middot; Cash decision &mdash; should the next dollar be deployed?</div>
+                <div id="ak-cash-body" class="cc-empty">Loading&hellip;</div>
+              </div>
+              <div class="cc-panel" id="ak-limiter-card">
+                <div class="cc-panel-title">B &middot; What is limiting paper P&amp;L</div>
+                <div id="ak-limiter-body" class="cc-empty">Loading&hellip;</div>
+              </div>
+            </div>
+
+            <!-- COCKPIT ROW 2: C zero-base vs transition | D scoreboard -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;">
+              <div class="cc-panel" id="ak-zerobase-card">
+                <div class="cc-panel-title">C &middot; Zero-base vs transition-aware &mdash; and what the switch costs</div>
+                <div id="ak-zerobase-body" class="cc-empty">Loading&hellip;</div>
+              </div>
+              <div class="cc-panel" id="ak-scoreboard-card">
+                <div class="cc-panel-title">D &middot; Alpha &amp; P&amp;L scoreboard &mdash; every row carries its own window</div>
+                <div id="ak-scoreboard-body" class="cc-empty">Loading&hellip;</div>
+              </div>
+            </div>
+
+            <!-- E: the registry -->
+            <div class="cc-panel" id="ak-registry-card">
+              <div class="cc-panel-title">E &middot; Alpha opportunity registry &mdash; strongest opportunities first</div>
+              <div id="ak-registry-body" class="cc-empty">Loading&hellip;</div>
+            </div>
+
+            <!-- AUDIT / ADVANCED - every diagnostic lives here, never above -->
+            <details id="ak-audit" style="border:1px solid var(--cc-border);border-radius:8px;background:var(--cc-panel);">
+              <summary style="cursor:pointer;padding:10px 13px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--label);">Audit / Advanced &mdash; full ladders, all families, rejected experiments, provenance</summary>
+              <div style="padding:0 13px 13px 13px;" id="ak-audit-body"></div>
+            </details>
+          </div>
+
+          <!-- RIGHT PANEL - the one answer + safety, sticky -->
+          <div style="position:sticky;top:12px;display:flex;flex-direction:column;gap:14px;min-width:0;">
+            <div class="cc-panel" id="ak-answer-card">
+              <div class="cc-panel-title">The one answer</div>
+              <div id="ak-answer-body" class="cc-empty">Loading&hellip;</div>
+            </div>
+            <div class="cc-panel">
+              <div class="cc-panel-title">Safety</div>
+              <div class="cc-kv"><span>Lane</span><span class="cc-badge safe">PREVIEW ONLY</span></div>
+              <div class="cc-kv"><span>Orders</span><span class="cc-badge safe">PAPER ONLY &middot; THIS PAGE CREATES NONE</span></div>
+              <div class="cc-kv"><span>Broker</span><span class="cc-badge safe">NO LIVE BROKER ORDERS</span></div>
+              <div class="cc-kv"><span>Automation</span><span class="cc-badge safe">AUTOMATION OFF</span></div>
+              <div class="cc-kv"><span>Promotion</span><span class="cc-badge manual">MANUAL REVIEW</span></div>
+              <div class="cc-na-note">This surface reads. It creates no signal, target, proposal, decision, order or fill, changes no holding, cash or NAV, promotes no model and activates no sleeve.</div>
+            </div>
+            <div class="cc-panel" id="ak-next-card">
+              <div class="cc-panel-title">Next experiment</div>
+              <div id="ak-next-body" class="cc-empty">Loading&hellip;</div>
+            </div>
+            <div class="cc-panel" id="ak-maturity-card">
+              <div class="cc-panel-title">Evidence maturity</div>
+              <div id="ak-maturity-body" class="cc-empty">Loading&hellip;</div>
+            </div>
+          </div>
+        </div>
+      </div><!-- end tab-alpha-capital -->
+
     </div><!-- end main-content-area -->
 
   </main>
@@ -9190,6 +9293,13 @@ window._switchTab = function(tabName, opts) {
     // Phase 28B: the read-only FORWARD PREDICTION SKILL evidence (TRUE_FORWARD
     // snapshots + matured outcomes only; shadow books research-only).
     try { loadPredictionSkill(); } catch (e) {}
+  }
+
+  // Release 56: ALPHA & CAPITAL — lazy-load the read-only capital read model the
+  // first time the tab opens (its Refresh button reloads on demand). GETs only.
+  if (tabName === 'alpha-capital' && !window._akLoaded) {
+    window._akLoaded = true;
+    try { loadAlphaCapital(); } catch (e) {}
   }
 
   // Phase 25: Multi-Horizon Alpha Portfolio — lazy-load the read-only platform
@@ -25769,6 +25879,9 @@ var _ROUTE_TO_TAB = {
   // real hash routes so browser Back and deep links work; they never open a new browser tab.
   'holding-review': 'holding-review',
   'proposed-portfolio': 'proposed-portfolio',
+  // Release 56: ALPHA & CAPITAL — the decision-oriented capital surface. Its own
+  // primary route so browser Back and deep links work; it opens no new tab.
+  'alpha-capital': 'alpha-capital',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -26540,6 +26653,377 @@ function _mhzRoleForBook(bookId) {
   if (bookId.indexOf('composite_sn') === 0) return 'RESEARCH CHAMPION';
   return '';
 }
+
+/* ======================= RELEASE 56 — ALPHA & CAPITAL =======================
+   ONE loader, ONE fetch owner (_mhzGet), ONE payload
+   (GET /v1/operations/alpha-capital, owner api.alpha_capital). The browser
+   renders what the composition owner already decided: it computes no economics,
+   ranks no limiter, chooses no destination and never converts a number into a
+   different number. Read-only: no POST, no form, no confirmation token. */
+function _akNum(x, nd, suffix) {
+  if (x === null || x === undefined || x === '' || isNaN(Number(x))) return '&mdash;';
+  return Number(x).toFixed(nd === undefined ? 2 : nd) + (suffix || '');
+}
+function _akMoney(x) {
+  if (x === null || x === undefined || isNaN(Number(x))) return '&mdash;';
+  var n = Number(x);
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _akSign(x) {
+  if (x === null || x === undefined || isNaN(Number(x))) return '';
+  return Number(x) < 0 ? 'cc-neg' : 'cc-pos';
+}
+function _akBadge(text, cls) {
+  return '<span class="cc-badge ' + (cls || 'muted') + '">' +
+    escapeHtml(String(text === null || text === undefined ? '—' : text)
+      .replace(/_/g, ' ')) + '</span>';
+}
+function _akSevClass(sev) {
+  return sev === 'BINDING' ? 'danger' : sev === 'MATERIAL' ? 'warn'
+    : sev === 'SECONDARY' ? 'muted' : 'safe';
+}
+function _akKpis(d) {
+  var cap = d.capital_now || {}, fr = d.capital_frontier || {},
+      opp = (d.incumbent_opportunity_cost || {}).against || {},
+      zb = opp.zero_base || {}, sb = (d.scoreboard || {}).rows || [],
+      book = sb.filter(function (r) { return r.entity === 'OPERATIONAL_BOOK'; })[0] || {},
+      fst = d.forward_signal_tournament || {};
+  var cards = [
+    { l: 'NAV', v: _akMoney(cap.nav),
+      s: 'P&amp;L ' + _akMoney(cap.cumulative_pnl_usd) + ' vs $' +
+         _akNum(cap.starting_nav, 0) + ' start', c: _akSign(cap.cumulative_pnl_usd) },
+    { l: 'Idle cash', v: _akMoney(cap.cash),
+      s: _akNum((cap.cash_weight || 0) * 100, 2, '% of NAV') + ' &middot; ' +
+         (cap.position_count === null || cap.position_count === undefined
+           ? '&mdash;' : cap.position_count + ' positions') },
+    { l: 'Since inception', v: _akNum(book.return_pct, 2, '%'),
+      s: 'benchmark ' + _akNum(book.benchmark_return_pct, 2, '%') + ' &middot; excess ' +
+         _akNum(book.excess_pct_points, 2, 'pp'), c: _akSign(book.return_pct) },
+    { l: 'Opportunity cost', v: _akMoney(zb.utility_gap_dollars_annualised),
+      s: 'zero-base utility gap, annualised', c: _akSign(-1) },
+    { l: 'Zero-base payback', v: _akNum((zb.payback || {}).payback_sessions, 1, ' sess'),
+      s: (zb.payback || {}).verdict ? escapeHtml(String((zb.payback || {}).verdict)
+        .replace(/_/g, ' ').toLowerCase()) : '&mdash;' },
+    { l: 'Forward confirmed', v: (fst.forward_confirmed === null ||
+        fst.forward_confirmed === undefined) ? '&mdash;' : String(fst.forward_confirmed),
+      s: (fst.matured || 0) + ' matured of ' + (fst.forward_predictions || 0) +
+         ' forward predictions' }
+  ];
+  return cards.map(function (c) {
+    return '<div class="cc-kpi"><div class="cc-kpi-label">' + c.l + '</div>' +
+      '<div class="cc-kpi-value ' + (c.c || '') + '">' + c.v + '</div>' +
+      '<div class="cc-kpi-sub">' + c.s + '</div></div>';
+  }).join('');
+}
+function _akCash(d) {
+  var cd = d.cash_decision || {}, fr = d.capital_frontier || {};
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">' +
+    _akBadge('RESEARCH LANE: ' + (cd.research_lane_answer || '—'),
+      cd.research_lane_answer === 'DEPLOY' ? 'safe' : 'muted') +
+    _akBadge('GOVERNED LANE: ' + (cd.governed_lane_answer || '—'), 'manual') +
+    _akBadge('PROOF ' + (cd.governed_economic_proof || '—'),
+      cd.governed_economic_proof === 'PRESENT' ? 'safe' : 'danger') + '</div>';
+  h += '<div class="cc-kv"><span>Deployable now</span><span>' +
+    _akMoney(cd.research_lane_deployable_usd) + '</span></div>';
+  h += '<div class="cc-kv"><span>Net gain per policy horizon</span><span class="' +
+    _akSign(cd.research_lane_net_gain_usd_per_horizon) + '">' +
+    _akMoney(cd.research_lane_net_gain_usd_per_horizon) + '</span></div>';
+  h += '<div class="cc-kv"><span>Payback</span><span>' +
+    _akNum(cd.research_lane_payback_sessions, 1, ' sessions') + '</span></div>';
+  h += '<div class="cc-kv"><span>Cost share of marginal gain</span><span>' +
+    _akNum((fr.cost_share_of_marginal_gain || 0) * 100, 1, '%') + '</span></div>';
+  var lad = ((window._akRawFrontier || {}).deployment_ladder) || {};
+  var rungs = lad.rungs || [];
+  if (rungs.length) {
+    h += '<div class="table-wrap" style="margin-top:8px;max-height:210px;overflow:auto;">' +
+      '<table class="af-tbl"><thead><tr><th>Rung</th><th>Deployed</th>' +
+      '<th>Cost</th><th>Net / horizon</th><th>Payback</th><th>Hurdle</th></tr></thead><tbody>';
+    rungs.forEach(function (r) {
+      h += '<tr><td>' + escapeHtml(r.label || '') + '</td><td>' +
+        _akMoney(r.deployed_usd) + '</td><td>' + _akMoney(r.transaction_cost_usd) +
+        '</td><td class="' + _akSign(r.net_of_cost_gain_usd) + '">' +
+        _akMoney(r.net_of_cost_gain_usd) + '</td><td>' +
+        _akNum((r.payback || {}).payback_sessions, 1) + '</td><td>' +
+        _akBadge(r.hurdle_clears ? 'CLEARS' : 'CASH WINS',
+          r.hurdle_clears ? 'safe' : 'warn') + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '<div class="cc-na-note" style="margin-top:6px;">' +
+    escapeHtml(cd.why_the_two_lanes_differ || '') + '</div>';
+  return h;
+}
+function _akLimiters(d) {
+  var lm = d.limiters || {}, rows = lm.limiters || [],
+      dec = d.realised_excess_decomposition || {};
+  var h = '<div class="table-wrap" style="max-height:240px;overflow:auto;">' +
+    '<table class="af-tbl"><thead><tr><th>Limiter</th><th>Severity</th>' +
+    '<th>Impact</th><th>Measured by</th></tr></thead><tbody>';
+  rows.forEach(function (r) {
+    h += '<tr><td title="' + escapeHtml(r.statement || '') + '">' +
+      escapeHtml(String(r.limiter || '').replace(/_/g, ' ')) + '</td><td>' +
+      _akBadge(r.severity, _akSevClass(r.severity)) + '</td><td class="' +
+      _akSign(r.impact_pct_points) + '">' +
+      (r.impact_pct_points === null || r.impact_pct_points === undefined
+        ? '&mdash;' : _akNum(r.impact_pct_points, 2, 'pp')) + '</td><td>' +
+      escapeHtml(r.measured_by || '') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  if (dec.available) {
+    h += '<div class="cc-panel-title" style="margin-top:9px;">Realised excess ' +
+      _akNum(dec.excess_pct_points, 2, 'pp') + ' decomposes as</div>';
+    (dec.terms || []).forEach(function (t) {
+      h += '<div class="cc-kv" title="' + escapeHtml(t.formula || '') + '"><span>' +
+        escapeHtml(String(t.term).replace(/_/g, ' ')) + '</span><span class="' +
+        _akSign(t.pct_points) + '">' + _akNum(t.pct_points, 4, 'pp') + '</span></div>';
+    });
+    h += '<div class="cc-na-note">Beta assumption: ' +
+      escapeHtml(dec.beta_assumption || '') + '.</div>';
+  }
+  return h;
+}
+function _akZeroBase(d) {
+  var t = d.zero_base || {}, opp = d.incumbent_opportunity_cost || {},
+      ag = opp.against || {};
+  function econRow(name, e, extra) {
+    e = e || {};
+    return '<div class="cc-kv"><span>' + name + '</span><span>' +
+      (e.position_count === undefined ? '&mdash;' : e.position_count) + ' names &middot; cash ' +
+      _akNum((e.cash_weight || 0) * 100, 1, '%') + ' &middot; U ' +
+      _akNum(e.expected_net_utility, 5) + (extra || '') + '</span></div>';
+  }
+  var h = econRow('Current book', t.current_economics);
+  h += econRow('Zero-base target', t.zero_base_economics);
+  h += econRow('Transition-aware target', t.implementable_economics);
+  h += '<div class="cc-panel-title" style="margin-top:9px;">Cost of getting there</div>';
+  [['Zero-base', ag.zero_base], ['Transition-aware', ag.implementable]].forEach(function (p) {
+    var l = p[1] || {}, pb = l.payback || {};
+    h += '<div class="cc-kv"><span>' + p[0] + '</span><span>switch ' +
+      _akMoney(l.switch_cost_dollars) + ' &middot; gap ' +
+      _akMoney(l.utility_gap_dollars_per_horizon) + '/hz &middot; payback ' +
+      _akNum(pb.payback_sessions, 1, ' sess') + ' ' +
+      _akBadge(pb.verdict === 'PAYS_BACK_WITHIN_ONE_POLICY_HORIZON' ? 'PAYS BACK'
+        : pb.verdict === 'NEVER_PAYS_BACK_AT_THIS_COST_RATE' ? 'NEVER'
+        : 'MULTI HORIZON',
+        pb.verdict === 'PAYS_BACK_WITHIN_ONE_POLICY_HORIZON' ? 'safe' : 'warn') +
+      '</span></div>';
+  });
+  h += '<div class="cc-na-note" style="margin-top:6px;">The current book gets no ' +
+    'privilege here beyond the cost of leaving it, and that cost is charged in full.</div>';
+  return h;
+}
+function _akScoreboard(d) {
+  var sb = d.scoreboard || {}, rows = sb.rows || [];
+  var h = '<div class="table-wrap" style="max-height:260px;overflow:auto;">' +
+    '<table class="af-tbl"><thead><tr><th>Entity</th><th>Window</th><th>n</th>' +
+    '<th>Return</th><th>Excess</th><th>Max DD</th></tr></thead><tbody>';
+  rows.forEach(function (r) {
+    h += '<tr><td title="' + escapeHtml(r.owner || '') + '">' +
+      escapeHtml(r.label || r.entity || '') + '</td><td>' +
+      escapeHtml(r.window || '') + '</td><td>' +
+      (r.n_observations === null || r.n_observations === undefined ? '&mdash;'
+        : r.n_observations) + '</td><td class="' + _akSign(r.return_pct) + '">' +
+      _akNum(r.return_pct, 2, '%') + '</td><td class="' +
+      _akSign(r.excess_pct_points) + '">' +
+      (r.excess_pct_points === null || r.excess_pct_points === undefined ? '&mdash;'
+        : _akNum(r.excess_pct_points, 2, 'pp')) + '</td><td>' +
+      (r.max_drawdown_pct === null || r.max_drawdown_pct === undefined ? '&mdash;'
+        : _akNum(r.max_drawdown_pct, 2, '%')) + '</td></tr>';
+  });
+  h += '</tbody></table></div><div class="cc-na-note" style="margin-top:6px;">' +
+    escapeHtml(sb.comparability_rule || '') + '</div>';
+  return h;
+}
+function _akRegistry(d) {
+  var reg = d.alpha_registry || {}, tops = d.top_opportunities || [];
+  var counts = reg.status_counts || {};
+  var h = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">';
+  Object.keys(counts).sort().forEach(function (k) {
+    h += _akBadge(k + ' ' + counts[k],
+      k === 'ACTIVE' ? 'safe' : (k === 'REJECTED' || k === 'BLOCKED') ? 'danger'
+        : k === 'EXHAUSTED' ? 'muted' : 'warn');
+  });
+  h += '</div><div class="table-wrap" style="max-height:250px;overflow:auto;">' +
+    '<table class="af-tbl"><thead><tr><th>Family</th><th>Status</th>' +
+    '<th>Asset classes</th><th>Capital today</th><th>Fwd obs</th>' +
+    '<th>Best net alpha</th></tr></thead><tbody>';
+  tops.forEach(function (f) {
+    h += '<tr><td>' + escapeHtml(f.label || f.family_id || '') + '</td><td>' +
+      _akBadge(f.status, f.status_class) + '</td><td>' +
+      escapeHtml((f.asset_classes || []).join(', ')) + '</td><td>' +
+      _akBadge(f.capital_eligible_today ? 'ELIGIBLE' : 'RESEARCH ONLY',
+        f.capital_eligible_today ? 'safe' : 'muted') + '</td><td>' +
+      (f.forward_evidence_observations || 0) + '</td><td>' +
+      (f.best_measured_net_alpha_bps === null ||
+        f.best_measured_net_alpha_bps === undefined ? '&mdash;'
+        : _akNum(f.best_measured_net_alpha_bps, 1, ' bps')) + '</td></tr>';
+  });
+  h += '</tbody></table></div><div class="cc-na-note" style="margin-top:6px;">' +
+    escapeHtml(reg.headline || '') + '</div>';
+  return h;
+}
+function _akAnswer(d) {
+  var cd = d.cash_decision || {}, lm = d.limiters || {};
+  var h = '<div class="cc-na-action">' +
+    escapeHtml(String(cd.governed_lane_answer || '—').replace(/_/g, ' ')) + '</div>';
+  h += '<div class="cc-na-explain">The governed lane cannot evidence an economic ' +
+    'hurdle today, so any cash deployment is a manual judgement supported by ' +
+    'ordering evidence.</div>';
+  h += '<div class="cc-kv" style="margin-top:6px;"><span>Research lane says</span>' +
+    _akBadge(cd.research_lane_answer, cd.research_lane_answer === 'DEPLOY' ? 'safe' : 'muted') +
+    '</div>';
+  h += '<div class="cc-kv"><span>Primary limiter</span>' +
+    _akBadge(lm.primary_limiter, 'danger') + '</div>';
+  h += '<div class="cc-kv"><span>Binding limiters</span><span>' +
+    (lm.n_binding === undefined ? '&mdash;' : lm.n_binding) + '</span></div>';
+  return h;
+}
+function _akNext(d) {
+  var q = d.experiment_queue || {}, top = (q.queued || [])[0];
+  if (!top) return '<div class="cc-empty">No experiment is queued.</div>';
+  var h = '<div class="cc-na-action" style="font-size:13px;">' +
+    escapeHtml(top.experiment_id || '') + '</div>';
+  h += '<div class="cc-na-explain">' + escapeHtml(top.hypothesis || '') + '</div>';
+  h += '<div class="cc-kv" style="margin-top:6px;"><span>Information value</span><span>' +
+    _akNum(top.expected_information_value, 3) + '</span></div>';
+  h += '<div class="cc-kv"><span>Queued / rejected</span><span>' +
+    (q.n_queued || 0) + ' / ' + (q.n_rejected || 0) + '</span></div>';
+  h += '<div class="cc-na-note">Every experiment requires manual approval; nothing runs automatically.</div>';
+  return h;
+}
+function _akMaturity(d) {
+  var m = d.evidence_maturity || {}, fp = d.forward_portfolio_challengers || {};
+  var h = '<div class="cc-kv"><span>Forward confirmed</span>' +
+    _akBadge(m.nothing_is_forward_confirmed ? 'NONE' : 'SOME',
+      m.nothing_is_forward_confirmed ? 'warn' : 'safe') + '</div>';
+  h += '<div class="cc-kv"><span>Effective independent obs</span><span>' +
+    (m.tournament_effective_independent === null ||
+      m.tournament_effective_independent === undefined ? '&mdash;'
+      : m.tournament_effective_independent) + '</span></div>';
+  h += '<div class="cc-kv"><span>Operational observations</span><span>' +
+    (m.operational_observations === null || m.operational_observations === undefined
+      ? '&mdash;' : m.operational_observations) + '</span></div>';
+  h += '<div class="cc-kv"><span>Portfolio challengers</span><span>' +
+    (fp.n_with_forward_evidence || 0) + ' of ' + (fp.n_challengers || 0) +
+    ' with evidence</span></div>';
+  h += '<div class="cc-na-note">' + escapeHtml(fp.headline || '') + '</div>';
+  return h;
+}
+function _akAudit(d) {
+  var raw = window._akRawFrontier || {};
+  var q = d.experiment_queue || {}, reg = window._akRegistryData || {};
+  var h = '<div class="cc-panel-title" style="margin-top:9px;">Redeployment ladder (buys AND sales)</div>';
+  var rd = raw.redeployment_ladder || {};
+  h += '<div class="table-wrap"><table class="af-tbl"><thead><tr><th>Rung</th>' +
+    '<th>Deployed</th><th>Turnover</th><th>Cost</th><th>Net / horizon</th>' +
+    '<th>Hurdle</th></tr></thead><tbody>';
+  (rd.rungs || []).forEach(function (r) {
+    h += '<tr><td>' + escapeHtml(r.label || '') + '</td><td>' + _akMoney(r.deployed_usd) +
+      '</td><td>' + _akNum((r.one_way_turnover || 0) * 100, 2, '%') + '</td><td>' +
+      _akMoney(r.transaction_cost_usd) + '</td><td class="' +
+      _akSign(r.net_of_cost_gain_usd) + '">' + _akMoney(r.net_of_cost_gain_usd) +
+      '</td><td>' + _akBadge(r.hurdle_state, r.hurdle_clears ? 'safe' : 'warn') +
+      '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="cc-panel-title" style="margin-top:9px;">Rejected experiments</div>';
+  (q.rejected || []).forEach(function (r) {
+    h += '<div class="cc-kv"><span>' + escapeHtml(r.experiment_id || '') + '</span>' +
+      _akBadge(r.verdict, 'danger') + '</div>';
+  });
+  h += '<div class="cc-panel-title" style="margin-top:9px;">All alpha families</div>';
+  h += '<div class="table-wrap" style="max-height:320px;overflow:auto;">' +
+    '<table class="af-tbl"><thead><tr><th>Family</th><th>Status</th><th>Release</th>' +
+    '<th>Verdict</th><th>Re-open requires</th></tr></thead><tbody>';
+  (reg.families || []).forEach(function (f) {
+    var ev = f.evidence || {};
+    h += '<tr><td>' + escapeHtml(f.family_id || '') + '</td><td>' +
+      _akBadge(f.status, f.status_class) + '</td><td>' + escapeHtml(ev.release || '') +
+      '</td><td>' + escapeHtml(ev.verdict || '') + '</td><td>' +
+      escapeHtml(f.reopen_condition || '') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  var shp = window._akShadowData || {};
+  h += '<div class="cc-panel-title" style="margin-top:9px;">Frozen forward paper portfolio challengers</div>';
+  if ((shp.challengers || []).length) {
+    h += '<div class="table-wrap"><table class="af-tbl"><thead><tr><th>Challenger</th>' +
+      '<th>Inception</th><th>Names</th><th>Cash</th><th>Entry cost</th>' +
+      '<th>Sessions</th><th>Valued by</th></tr></thead><tbody>';
+    shp.challengers.forEach(function (c) {
+      h += '<tr><td>' + escapeHtml(c.label || c.challenger_id || '') + '</td><td>' +
+        escapeHtml(c.inception_session || '') + '</td><td>' +
+        (c.position_count === null || c.position_count === undefined ? '&mdash;'
+          : c.position_count) + '</td><td>' +
+        _akNum((c.cash_weight || 0) * 100, 1, '%') + '</td><td>' +
+        _akMoney(c.entry_cost_usd) + '</td><td>' + (c.sessions_scored || 0) +
+        '</td><td>' + escapeHtml(c.valuation_source || '') + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div class="cc-na-note">' + escapeHtml(shp.headline || '') + '</div>';
+  } else {
+    h += '<div class="cc-empty">' +
+      escapeHtml(shp.headline || 'No forward paper portfolio challenger is frozen.') +
+      '</div>';
+  }
+  h += '<div class="cc-panel-title" style="margin-top:9px;">Provenance</div>';
+  var pv = (raw.provenance || {});
+  Object.keys(pv).sort().forEach(function (k) {
+    if (typeof pv[k] === 'object') return;
+    h += '<div class="cc-kv"><span>' + escapeHtml(k) + '</span><span>' +
+      escapeHtml(String(pv[k])) + '</span></div>';
+  });
+  var deg = d.degraded_sources || [];
+  h += '<div class="cc-panel-title" style="margin-top:9px;">Degraded sources</div>';
+  h += deg.length ? deg.map(function (x) {
+    return '<div class="cc-kv"><span>' + escapeHtml(x.source || '') + '</span><span>' +
+      escapeHtml(x.detail || '') + '</span></div>';
+  }).join('') : '<div class="cc-empty">None &mdash; every owner answered.</div>';
+  return h;
+}
+async function loadAlphaCapital() {
+  var st = document.getElementById('ak-state');
+  if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
+  var res = await Promise.all([
+    _mhzGet('/v1/operations/alpha-capital'),
+    _mhzGet('/v1/operations/cash-deployment-frontier'),
+    _mhzGet('/v1/research/alpha-opportunity-registry'),
+    _mhzGet('/v1/research/shadow-portfolio-evidence')
+  ]);
+  var d = res[0], raw = res[1], reg = res[2], shp = res[3];
+  // NOTE the suffixes. A top-level `function _akRegistry(){}` IS `window._akRegistry`
+  // in a browser, so storing the registry payload under that name would overwrite
+  // the renderer with a plain object and the next call would throw. Every payload
+  // this loader stashes therefore carries a name no function uses.
+  window._akData = d; window._akRawFrontier = raw || {};
+  window._akRegistryData = reg || {}; window._akShadowData = shp || {};
+  if (!d) {
+    _setHtml('ak-headline',
+      '<span class="cc-error">The Alpha &amp; Capital read model did not answer. ' +
+      'Nothing was changed; press Refresh to try again.</span>');
+    if (st) { st.textContent = 'UNAVAILABLE'; st.className = 'cc-badge danger'; }
+    return;
+  }
+  if (st) {
+    st.textContent = d.state || 'UNKNOWN';
+    st.className = 'cc-badge ' + (d.state === 'READY' ? 'safe'
+      : d.state === 'DEGRADED' ? 'warn' : 'danger');
+  }
+  var ses = document.getElementById('ak-session');
+  if (ses) ses.textContent = 'SESSION ' + (d.eligible_market_date || '—');
+  _setHtml('ak-headline', escapeHtml(d.headline || ''));
+  _setHtml('ak-kpis', _akKpis(d));
+  _setHtml('ak-cash-body', _akCash(d));
+  _setHtml('ak-limiter-body', _akLimiters(d));
+  _setHtml('ak-zerobase-body', _akZeroBase(d));
+  _setHtml('ak-scoreboard-body', _akScoreboard(d));
+  _setHtml('ak-registry-body', _akRegistry(d));
+  _setHtml('ak-answer-body', _akAnswer(d));
+  _setHtml('ak-next-body', _akNext(d));
+  _setHtml('ak-maturity-body', _akMaturity(d));
+  _setHtml('ak-audit-body', _akAudit(d));
+}
+window.loadAlphaCapital = loadAlphaCapital;
 
 async function loadMultiHorizon() {
   var st = document.getElementById('mhz-status');

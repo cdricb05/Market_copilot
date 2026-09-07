@@ -14504,6 +14504,189 @@ def check_release52_persistent_research_runtime(files: list[Path]) -> dict:
     }
 
 
+def check_release59_persistent_research_runtime(files: list[Path]) -> dict:
+    """Release 59 invariants - a researcher that outlives the session that
+    started it, and stays a researcher.
+
+    R59 reunified the autonomous loop but bound its LIFETIME to an
+    interactive session: the discovery loop ran only when a person started
+    it, so the state survived and nothing ever resumed it. Making it
+    persistent creates four new ways to be wrong, and each is closed here:
+
+    * a SECOND research lifetime - closed by exactly one ``run_forever`` and
+      by a runtime that owns process lifecycle and nothing else;
+    * TWO AlphaAgents - closed by one worker lease that fails closed against
+      a healthy holder, carries the holder's release identity, and can be
+      HEARTBEATEN so a live long-running worker is not evicted by the same
+      staleness rule that recovers a dead one;
+    * a PRODUCTION CAP smuggled back in - closed by debug-only parameters
+      that default to None, after an earlier run stopped on a self-imposed
+      counter and reported it as an environment limit;
+    * an UNBOUNDED GRAMMAR owning the machine - closed by a capacity
+      allocator that reads measured crowding and marginal yield, throttles
+      generative search without ever disabling it, and restores it when the
+      information set actually changes.
+
+    Two couplings are also refused outright: the research package may not
+    import the application's api/engine/db layer (the revision reader is
+    INJECTED by the entrypoint), and it may not name a deployment path.
+    """
+    r59_dir = REPO_ROOT / "alpha_agent" / "r59"
+    src = {p.stem: (_read(p) or "") for p in sorted(r59_dir.glob("*.py"))}
+    all_src = "\n".join(src.values())
+    runtime = src.get("runtime", "")
+    governor = src.get("governor", "")
+    loop = src.get("loop", "")
+    runner = _read(REPO_ROOT / "scripts/run_research_runtime.py") or ""
+    manager = _read(REPO_ROOT / "scripts/manage_research_runtime.ps1") or ""
+    install_ps1 = _read(REPO_ROOT /
+                        "scripts/install_research_runtime_task.ps1") or ""
+    validate_ps1 = _read(REPO_ROOT /
+                         "scripts/validate_research_runtime_task.ps1") or ""
+    runlock_src = _read(REPO_ROOT / "alpha_agent/r46/runlock.py") or ""
+
+    # (1) ONE persistent runtime, owning lifecycle only.
+    run_forever_defs = sum(
+        (_read(p) or "").count("def run_forever(")
+        for p in (REPO_ROOT / "alpha_agent").rglob("*.py"))
+    one_persistent_runtime = (run_forever_defs == 1
+                              and "def run_forever(" in runtime)
+    runtime_owns_lifecycle_only = bool(runtime) and not any(
+        tok in runtime for tok in
+        ("def nw_tstat", "def bh_fdr", "def claim_next", "def apply_outcome",
+         "def run_topn", "def generate_mandates", "def research_runtime_cycle"))
+    runtime_delegates_to_owners = all(
+        tok in runtime for tok in
+        ("LP.run_session", "R52.research_runtime_cycle", "RL.acquire_path"))
+
+    # (2) ONE logical worker, with a heartbeat and an identity.
+    lease_is_singleton_and_recoverable = (
+        "wait_s=0" in runtime and "LEASE_STALE_SECONDS" in runtime
+        and "W_REFUSED" in runtime and "_reclaim_if_stale" in runlock_src)
+    lease_heartbeats = (
+        "def heartbeat_path" in runlock_src
+        and "RL.heartbeat_path" in runtime
+        and "LOST OWNERSHIP" in runlock_src)
+    lease_carries_release_identity = (
+        "def source_identity" in runtime and "extra=identity" in runtime
+        and '"identity"' in runlock_src)
+    lost_lease_stops_rather_than_recreates = (
+        "W_LEASE_LOST" in runtime and 'stopper.request("LEASE_LOST")' in runtime)
+
+    # (3) No production cap; every cap is an explicit operator override.
+    no_production_iteration_cap = (
+        "debug_max_seconds: Optional[float] = None" in runtime
+        and "debug_max_cycles: Optional[int] = None" in runtime
+        and '"production_iteration_limit": None' in runtime
+        and "max_iterations: Optional[int] = None" in loop
+        and "budget_seconds: Optional[float] = None" in loop)
+    supervisor_stop_is_external = (
+        "SUPERVISOR_STOP" in loop and '"external": True' in loop
+        and '"operator_override": False' in loop)
+    entrypoint_owns_no_loop = (
+        "while True" not in runner and "run_forever" in runner
+        and 'default="cycle"' in runner)
+
+    # (4) Sleep is allowed; idling while work exists is not.
+    ready_work_beats_sleeping = (
+        "EXECUTABLE_RESEARCH_EXISTS" in runtime
+        and "ONLY_FUTURE_DATA_CAN_ADVANCE_THE_STATE" in runtime
+        and "def plan_sleep" in runtime and "def wake_conditions" in runtime)
+
+    # (5) Resource governance: measured, throttling, never disabling.
+    capacity_is_measured = all(
+        tok in governor for tok in
+        ("def capacity_allocation", "MACHINE_SHARE_CEILING",
+         "MIN_CAPACITY_MULTIPLIER", "marginal_yield_multiplier",
+         "crowding_multiplier"))
+    discovery_is_throttled_never_killed = (
+        '"mathematical_discovery_disabled": False' in governor
+        and "MIN_CAPACITY_MULTIPLIER = " in governor
+        and "max(1, int(round(MACHINE_BATCH * multiplier)))" in governor)
+    reopen_is_fingerprinted_not_timestamped = (
+        "REOPEN_GRACE_TESTS" in governor and "def _reopen_state" in governor
+        and "fingerprint" in governor)
+    exploration_lanes_are_named = "PROTECTED_LANES" in governor
+
+    # (6) No coupling to the application, no deployment path in research code.
+    research_does_not_import_the_app = not any(
+        tok in all_src for tok in
+        ("from api import", "from api.", "import api\n", "from engine import",
+         "from db import", "from paper_trader.api import"))
+    no_deployment_path_in_research = "binis\\paper_trader" not in all_src
+    identity_is_injected = ("identity_reader" in runtime
+                            and "identity_reader=reader" in runner
+                            and "read_source_identity" in runner)
+
+    # (7) Prospective evidence: canonical owner, failing closed.
+    maturation_fails_closed = all(
+        tok in runtime for tok in
+        ("SOURCE_REVISION_UNRESOLVED", "SOURCE_HAS_UNCOMMITTED_CHANGES",
+         "def maturation_policy"))
+    maturation_cannot_promote = (
+        "CHALLENGER_WARRANTS_GOVERNED_REVIEW" in runtime
+        and '"promotes_model": False' in runtime
+        and '"mutates_holdings": False' in runtime)
+
+    # (8) Task lifecycle: one registrar, explicit mutation, read-only status.
+    manager_registers_nothing = bool(manager) and (
+        "Register-ScheduledTask" not in manager)
+    manager_requires_explicit_execute = (
+        "requires -Execute" in manager
+        and "RESEARCH_WORKER_BLOCKED" in manager
+        and "not the deployed checkout" in manager)
+    installer_supports_both_modes = (
+        "ValidateSet('Cycle', 'Persistent')" in install_ps1
+        and "--mode persistent" in install_ps1
+        and "MSFT_TaskLogonTrigger" in install_ps1
+        and "PT0S" in install_ps1)
+    validator_knows_the_persistent_contract = (
+        "ValidateSet('Cycle', 'Persistent')" in validate_ps1
+        and "--mode\\s+persistent" in validate_ps1
+        and "no logon trigger" in validate_ps1)
+
+    # (9) Safety: research automation only.
+    no_operational_reach = not any(
+        tok in runtime for tok in
+        ("portfolio_decision", "rebalance_execution", "normal_cycle",
+         "operational_book", "requests.", "urllib.request",
+         "127.0.0.1:8001"))
+
+    return {
+        "runtime_module_present": bool(runtime),
+        "one_persistent_runtime": one_persistent_runtime,
+        "run_forever_definitions": run_forever_defs,
+        "runtime_owns_lifecycle_only": runtime_owns_lifecycle_only,
+        "runtime_delegates_to_owners": runtime_delegates_to_owners,
+        "lease_is_singleton_and_recoverable": lease_is_singleton_and_recoverable,
+        "lease_heartbeats": lease_heartbeats,
+        "lease_carries_release_identity": lease_carries_release_identity,
+        "lost_lease_stops_rather_than_recreates":
+            lost_lease_stops_rather_than_recreates,
+        "no_production_iteration_cap": no_production_iteration_cap,
+        "supervisor_stop_is_external": supervisor_stop_is_external,
+        "entrypoint_owns_no_loop": entrypoint_owns_no_loop,
+        "ready_work_beats_sleeping": ready_work_beats_sleeping,
+        "capacity_is_measured": capacity_is_measured,
+        "discovery_is_throttled_never_killed":
+            discovery_is_throttled_never_killed,
+        "reopen_is_fingerprinted_not_timestamped":
+            reopen_is_fingerprinted_not_timestamped,
+        "exploration_lanes_are_named": exploration_lanes_are_named,
+        "research_does_not_import_the_app": research_does_not_import_the_app,
+        "no_deployment_path_in_research": no_deployment_path_in_research,
+        "identity_is_injected": identity_is_injected,
+        "maturation_fails_closed": maturation_fails_closed,
+        "maturation_cannot_promote": maturation_cannot_promote,
+        "manager_registers_nothing": manager_registers_nothing,
+        "manager_requires_explicit_execute": manager_requires_explicit_execute,
+        "installer_supports_both_modes": installer_supports_both_modes,
+        "validator_knows_the_persistent_contract":
+            validator_knows_the_persistent_contract,
+        "no_operational_reach": no_operational_reach,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -15272,6 +15455,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
         "release50_multi_asset": check_release50_multi_asset(files),
         "release52_persistent_research_runtime":
             check_release52_persistent_research_runtime(files),
+        "release59_persistent_research_runtime":
+            check_release59_persistent_research_runtime(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -18981,6 +19166,64 @@ BLOCKING_INVARIANTS = (
      "research_recovery_creates_orders", False),
     ("release54_2_2_post_close_research_recovery",
      "monthly_contract_not_weakened", True),
+    # --- Release 59: the PERSISTENT autonomous research runtime -------------
+    # ONE runtime owning process lifecycle only and delegating every research
+    # decision; ONE worker lease that fails closed, heartbeats, carries the
+    # holder's release identity, and stops rather than recreating itself when
+    # ownership is lost; no production iteration cap, and a supervisor stop
+    # declared EXTERNAL rather than dressed up as a research conclusion;
+    # sleeping only when future data alone can advance the state; a capacity
+    # allocator that throttles an unbounded grammar on measured crowding and
+    # marginal yield without ever disabling it, reopening on a fingerprinted
+    # change in the information set rather than on a timestamp; no import of
+    # the application layer and no deployment path inside research code;
+    # prospective evidence advanced only through the canonical owner and only
+    # from a known-clean revision; and a task lifecycle whose mutation is
+    # explicit, whose status is read-only, and which adds no second registrar.
+    ("release59_persistent_research_runtime", "runtime_module_present", True),
+    ("release59_persistent_research_runtime", "one_persistent_runtime", True),
+    ("release59_persistent_research_runtime",
+     "runtime_owns_lifecycle_only", True),
+    ("release59_persistent_research_runtime",
+     "runtime_delegates_to_owners", True),
+    ("release59_persistent_research_runtime",
+     "lease_is_singleton_and_recoverable", True),
+    ("release59_persistent_research_runtime", "lease_heartbeats", True),
+    ("release59_persistent_research_runtime",
+     "lease_carries_release_identity", True),
+    ("release59_persistent_research_runtime",
+     "lost_lease_stops_rather_than_recreates", True),
+    ("release59_persistent_research_runtime",
+     "no_production_iteration_cap", True),
+    ("release59_persistent_research_runtime",
+     "supervisor_stop_is_external", True),
+    ("release59_persistent_research_runtime", "entrypoint_owns_no_loop", True),
+    ("release59_persistent_research_runtime",
+     "ready_work_beats_sleeping", True),
+    ("release59_persistent_research_runtime", "capacity_is_measured", True),
+    ("release59_persistent_research_runtime",
+     "discovery_is_throttled_never_killed", True),
+    ("release59_persistent_research_runtime",
+     "reopen_is_fingerprinted_not_timestamped", True),
+    ("release59_persistent_research_runtime",
+     "exploration_lanes_are_named", True),
+    ("release59_persistent_research_runtime",
+     "research_does_not_import_the_app", True),
+    ("release59_persistent_research_runtime",
+     "no_deployment_path_in_research", True),
+    ("release59_persistent_research_runtime", "identity_is_injected", True),
+    ("release59_persistent_research_runtime", "maturation_fails_closed", True),
+    ("release59_persistent_research_runtime",
+     "maturation_cannot_promote", True),
+    ("release59_persistent_research_runtime",
+     "manager_registers_nothing", True),
+    ("release59_persistent_research_runtime",
+     "manager_requires_explicit_execute", True),
+    ("release59_persistent_research_runtime",
+     "installer_supports_both_modes", True),
+    ("release59_persistent_research_runtime",
+     "validator_knows_the_persistent_contract", True),
+    ("release59_persistent_research_runtime", "no_operational_reach", True),
 )
 
 

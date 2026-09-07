@@ -240,6 +240,13 @@ from paper_trader.api import pnl_opportunity_frontier as _r32_frontier
 from paper_trader.api import prospective_tournament as _r46_tournament
 # Release 52 - persistent research runtime health (read-only).
 from paper_trader.api import research_runtime as _r52_runtime
+# Release 56 - alpha-to-capital: the opportunity registry, the cash deployment
+# frontier, the forward paper portfolio challengers and the ONE operator read
+# model that composes them. All read-only.
+from paper_trader.api import alpha_opportunity_registry as _r56_registry
+from paper_trader.api import cash_deployment_frontier as _r56_frontier
+from paper_trader.api import shadow_portfolio_evidence as _r56_shadow
+from paper_trader.api import alpha_capital as _r56_alpha_capital
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6678,6 +6685,148 @@ def operations_zero_base_target() -> dict:
     holding, cash or NAV; it promotes no model and enables no automation.
     """
     return _zero_base.load_zero_base_target()
+
+
+# --------------------------------------------------------------------------- #
+# Release 56 - ALPHA TO CAPITAL (four read-only surfaces)
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/operations/cash-deployment-frontier",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_cash_deployment_frontier() -> dict:
+    """Release 56 CASH DEPLOYMENT FRONTIER and INCUMBENT OPPORTUNITY COST.
+
+    Answers the question an allocator never asks: not *which portfolio*, but
+    *how many dollars of it, and does the NEXT dollar pay for itself?* It walks
+    a ladder of capital increments - $1,000, $2,500, $5,000, 5%, 10%, 25% and
+    100% of NAV - in TWO separate modes that are never blurred: a CASH-ONLY
+    ladder that buys and never sells (and can never spend more than the cash on
+    hand), and a REDEPLOYMENT ladder that walks the allocator's own path funded
+    by cash AND sales. Each rung reports its destination, expected gain,
+    incremental risk and concentration, transaction cost, liquidity
+    participation, turnover, whether the economic hurdle clears and - when it
+    does not - the named reason CASH won.
+
+    It also publishes the INCUMBENT OPPORTUNITY COST: what holding the current
+    book costs per policy horizon against the zero-base and implementable
+    targets, and the PAYBACK HORIZON - how long that edge must persist before
+    the switch repays its own cost.
+
+    Composed by ``api.cash_deployment_frontier`` from the canonical owners and
+    computed by the pure ``engine.alpha_capital_frontier`` kernel, which imports
+    the objective, the caps and the cost arithmetic from
+    ``engine.zero_base_allocator`` rather than restating them. Two lanes are
+    reported and permanently labelled: the RESEARCH utility lane (which has a
+    forecast and is therefore evidence) and the GOVERNED lane (which has no
+    calibrated expected return and says so).
+
+    STRICTLY READ-ONLY. It is not a proposal (``engine.reallocation_proposal``
+    remains the one proposal owner) and not a decision (``api.portfolio_decision``
+    remains the one decision owner). It creates no target, order plan, order,
+    fill, signal or decision; it changes no holding, cash or NAV; it promotes no
+    model, activates no sleeve and enables no automation.
+    """
+    return _r56_frontier.load_cash_deployment_frontier()
+
+
+@app.get(
+    "/v1/operations/alpha-capital",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_alpha_capital() -> dict:
+    """Release 56 ALPHA & CAPITAL - the ONE operator read model.
+
+    Eight answers in the order a portfolio manager asks them: where capital is
+    now, where zero-base capital would go, whether the cash should be deployed,
+    which alpha opportunities are strongest, which challenger is earning the
+    best forward paper P&L, what is stopping the portfolio earning more, what
+    evidence is immature, and what experiment runs next.
+
+    Every number is composed from an owner that already published it
+    (``api.capital_pool``, ``api.cash_deployment_frontier``,
+    ``api.alpha_opportunity_registry``, ``api.shadow_portfolio_evidence``,
+    ``api.prospective_tournament``, ``api.research_agent``,
+    ``api.forward_evidence``, ``api.paper_trading_desk``). The single
+    calculation this owner performs is the LIMITER RANKING, and it ranks facts
+    those owners measured - severity band first, then measured impact in points
+    of realised excess.
+
+    The SCOREBOARD carries a WINDOW on every row: rows sharing a window are
+    directly comparable and rows on different windows are not, which is stated
+    rather than left for the reader to notice.
+
+    STRICTLY READ-ONLY: no signal, target, proposal, decision, order or fill; no
+    holding, cash or NAV change; no model promotion, no sleeve activation and no
+    automation.
+    """
+    return _r56_alpha_capital.load_alpha_capital()
+
+
+@app.get(
+    "/v1/research/alpha-opportunity-registry",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_opportunity_registry() -> dict:
+    """Release 56 ALPHA OPPORTUNITY REGISTRY (read-only research visibility).
+
+    The ONE catalogue of ECONOMICALLY DISTINCT alpha families: which have been
+    tested, what each concluded, which could receive a dollar today, and - for
+    every closed family - the named condition under which it may be re-opened.
+    Twenty-six campaigns produced those verdicts and they lived in twenty-six
+    documents; a release that cannot see them rediscovers a closed frontier.
+
+    Two halves, permanently distinguishable: a FROZEN CATALOGUE of citations
+    (every figure quoted from the release document that published it, nulls
+    where a release published nothing) and a LIVE COMPOSITION from
+    ``api.prospective_tournament``, ``api.pnl_opportunity_frontier``,
+    ``api.opportunity_frontier`` and ``api.universe_scoring``. Where the two
+    disagree, both are shown and the frozen verdict is never silently rewritten.
+
+    It also publishes the ASSET-CLASS READINESS table (DATA_READY /
+    RESEARCH_READY / FORWARD_SHADOW_READY / NOT_READY / BLOCKED) and the
+    EXPERIMENT QUEUE ranked by expected information value, in which an
+    experiment that re-tests an EXHAUSTED family without new information is
+    rejected by name.
+
+    Research visibility only: it creates no signal, target, capital allocation,
+    proposal, decision or order, promotes no model, activates no sleeve and
+    enables no automation.
+    """
+    return _r56_registry.load_alpha_opportunity_registry()
+
+
+@app.get(
+    "/v1/research/shadow-portfolio-evidence",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_shadow_portfolio_evidence() -> dict:
+    """Release 56 FORWARD PAPER PORTFOLIO CHALLENGERS (read-only).
+
+    Release 46 competes SIGNALS forward; this competes PORTFOLIOS forward. Each
+    challenger is a complete weight vector plus its cash, frozen at a real
+    decision timestamp with the point-in-time identity of every input, and
+    scored ONLY on sessions strictly after its inception. A challenger frozen
+    today therefore holds zero forward observations today - the correct answer,
+    not a defect.
+
+    Records are immutable and are never rewritten or backfilled; nothing is
+    rebalanced after inception, because a rebalance is a decision that was never
+    taken. Comparisons run through the kernel that intersects two books'
+    calendars, so an excess is always measured on equal time. Each challenger
+    names the owner that values it: ``api.price_panel`` for the equity books,
+    ``api.paper_trading_desk`` for the benchmark, and the declared zero-return
+    paper policy for cash.
+
+    Research visibility only: no order, fill, signal or decision; the
+    operational book's authoritative NAV remains the desk's; nothing here
+    promotes a model or activates a sleeve.
+    """
+    return _r56_shadow.load_shadow_portfolio_evidence()
 
 
 @app.get(

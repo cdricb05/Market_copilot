@@ -768,7 +768,11 @@
       "prefix": "/v1/operations/opportunity-frontier",
       "owner": "api/opportunity_frontier.py",
       "system": "infrastructure"
-    }
+    },
+    { "prefix": "/v1/operations/cash-deployment-frontier", "owner": "api/cash_deployment_frontier.py", "system": "infrastructure" },
+    { "prefix": "/v1/operations/alpha-capital", "owner": "api/alpha_capital.py", "system": "infrastructure" },
+    { "prefix": "/v1/research/alpha-opportunity-registry", "owner": "api/alpha_opportunity_registry.py", "system": "research_os" },
+    { "prefix": "/v1/research/shadow-portfolio-evidence", "owner": "api/shadow_portfolio_evidence.py", "system": "research_os" }
   ],
   "r54_ownership_classification": {
     "generated_by": "R54 Slice 1 (2026-09-01) - evidence-based classification of every strict-audit multi-writer candidate; vocabulary: OPERATIONAL_CANONICAL_OWNER | RESEARCH_ONLY_CALCULATION | PROJECTION | COMPATIBILITY_WRAPPER | READ_COMPOSER | PERSISTENCE_ADAPTER | LEGACY_DEPRECATED | TRUE_DUPLICATE_OWNER",
@@ -4106,6 +4110,167 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Release 47. A record that cannot be frozen truthfully is not written at all and is never patched later - there is deliberately no path that can create a counterfactual after the fact. The evidence root follows the desk the decision describes, so an injected (hermetic) desk keeps its evidence hermetic by construction. Read-only surface; no promotion, no recalibration, no policy write."
+    },
+    {
+      "path": "engine/alpha_capital_frontier.py",
+      "system": "infrastructure",
+      "responsibility": "Release 56 PURE kernel for the capital axis. Owns three calculations that did not previously exist and NO second opinion about anything that did: (1) the CASH DEPLOYMENT LADDER in two modes that are never blurred - CASH_ONLY_BUYS_NO_SALES (cash is a hard ceiling; a rung larger than the cash on hand reports its shortfall as unfunded) and REDEPLOYMENT_BUYS_AND_SALES (the allocator's own two-leg path, funded by cash AND sales); (2) the PAYBACK HORIZON - switch cost divided by the per-horizon utility gain, the number the transition path implied and never stated; (3) the REALISED EXCESS DECOMPOSITION into cash drag (quoting the desk's own formula), transaction cost drag and an explicitly-named UNEXPLAINED residual that is never relabelled selection alpha. The objective, the caps, the covariance scaling and the transaction-cost arithmetic are IMPORTED from engine.zero_base_allocator, so every ladder point is a blend of weight vectors the allocator already produced and nothing here can propose a portfolio the allocator would refuse. Cash wins a rung by name whenever the net-of-cost gain is not positive or the eligible targets cannot absorb the money.",
+      "classification": "KEEP",
+      "target_owner": "engine/alpha_capital_frontier.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "zero_base_allocator.portfolio_economics",
+        "zero_base_allocator.transition_economics",
+        "zero_base_allocator.horizon_covariance"
+      ],
+      "direct_writes": [],
+      "endpoints": [],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Pure: no I/O, no clock, no randomness, no network, no database. Creates no signal, target, proposal, decision, order or fill."
+    },
+    {
+      "path": "engine/shadow_portfolio_evidence.py",
+      "system": "infrastructure",
+      "responsibility": "Release 56 PURE kernel for FORWARD PAPER PORTFOLIO CHALLENGERS. Release 46 competes SIGNALS forward; this competes PORTFOLIOS. Builds the immutable inception record (weights, cash, PIT input identity, entry cost model, named valuation owner, record hash over that body) and accrues its forward P&L. THE rule the file exists to enforce: no function will read a bar dated on or before the inception session, so there is no code path to hindsight. It does not rebalance (a rebalance is a decision nobody took) and it does not manufacture prices (a session where under 95% of invested weight has a real bar is reported UNCOVERED and is not scored). compare_on_common_window intersects two books' calendars so an excess is always measured on equal time; the leaderboard ranks evidence maturity before measured edge.",
+      "classification": "KEEP",
+      "target_owner": "engine/shadow_portfolio_evidence.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Not a second P&L owner: the operational book's authoritative NAV remains api.paper_trading_desk.book_nav and each challenger names the owner that values it."
+    },
+    {
+      "path": "api/cash_deployment_frontier.py",
+      "system": "infrastructure",
+      "responsibility": "Release 56 composition and read owner of the CASH DEPLOYMENT FRONTIER and the INCUMBENT OPPORTUNITY COST. Owns no mathematics: it builds the zero-base input contract ONCE, runs the allocator ONCE, derives the horizon covariance through the allocator's own helper, and hands all of it to engine.alpha_capital_frontier. Publishes both ladders (cash-only and redeployment), the incumbent opportunity cost with its payback horizon, and TWO permanently-labelled lanes: the RESEARCH utility lane (which has a forecast and is therefore evidence) and the GOVERNED lane (which has no calibrated expected return and says so).",
+      "classification": "KEEP",
+      "target_owner": "api/cash_deployment_frontier.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_state.load_portfolio_state",
+        "universe_scoring.load_universe_scoring",
+        "return_forecast.build",
+        "zero_base_target.resolve_policy",
+        "zero_base_target.build_input_contract",
+        "capital_pool.load_capital_pool",
+        "opportunity_frontier.load_opportunity_frontier",
+        "holding_opportunity_cost.load_holding_opportunity_cost"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "GET /v1/operations/cash-deployment-frontier"
+      ],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Not a proposal (engine.reallocation_proposal) and not a decision (api.portfolio_decision). Degrades to an explicit UNAVAILABLE payload rather than raising."
+    },
+    {
+      "path": "api/alpha_opportunity_registry.py",
+      "system": "research_governance",
+      "responsibility": "Release 56 ONE canonical registry of ECONOMICALLY DISTINCT alpha families. Two permanently-distinguishable halves: a FROZEN CATALOGUE of citations (release, document, that release's own published figures, and the named reopen_condition for every closed family; nulls where a release published nothing) and a LIVE COMPOSITION from api.prospective_tournament, api.pnl_opportunity_frontier, api.opportunity_frontier and api.universe_scoring. A live challenger inside a family the catalogue calls closed is annotated, never silently rewritten. Also owns the ASSET-CLASS READINESS table (DATA_READY / RESEARCH_READY / FORWARD_SHADOW_READY / NOT_READY / BLOCKED) and the EXPERIMENT QUEUE ranked by EXPECTED INFORMATION VALUE, which rejects by name any experiment that re-tests an EXHAUSTED family without new information.",
+      "classification": "KEEP",
+      "target_owner": "api/alpha_opportunity_registry.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "prospective_tournament.load_prospective_tournament",
+        "pnl_opportunity_frontier.load_frontier",
+        "opportunity_frontier.load_opportunity_frontier",
+        "universe_scoring.load_universe_scoring"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "GET /v1/research/alpha-opportunity-registry"
+      ],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Capital eligibility is NEVER a research result: it is read from the investability registry through the opportunity frontier at composition time."
+    },
+    {
+      "path": "api/shadow_portfolio_evidence.py",
+      "system": "research_governance",
+      "responsibility": "Release 56 composition, freeze and read owner of the FORWARD PAPER PORTFOLIO CHALLENGERS: the zero-base target, the implementable target, the governed score lane (equal-weight top-25 on the approved model's own ranking), the incumbent book, all-cash and passive SPY. Freezing is an EXPLICIT call - no GET writes - and is first-write-wins per (challenger, inception session); a record is never rewritten and never backfilled. Records live under a Release-56 RESEARCH root (PAPER_TRADER_R56_SHADOW_DIR) that no operational owner reads.",
+      "classification": "KEEP",
+      "target_owner": "api/shadow_portfolio_evidence.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "price_panel.load_operational_price_panel",
+        "paper_trading_desk.load_performance",
+        "cash_deployment_frontier.weights_from_rows"
+      ],
+      "direct_writes": [
+        "PAPER_TRADER_R56_SHADOW_DIR/records/*.json (research-only, append-only, first-write-wins)"
+      ],
+      "endpoints": [
+        "GET /v1/research/shadow-portfolio-evidence"
+      ],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Writes no operational store. A challenger frozen today holds ZERO forward observations today, and that is reported as the correct state."
+    },
+    {
+      "path": "api/alpha_capital.py",
+      "system": "operator_state_composition",
+      "responsibility": "Release 56 ONE read model behind the operator's ALPHA & CAPITAL surface. Answers eight questions in the order a portfolio manager asks them by composing owners that already published the facts (api.capital_pool, api.cash_deployment_frontier, api.alpha_opportunity_registry, api.shadow_portfolio_evidence, api.prospective_tournament, api.research_agent, api.forward_evidence, api.paper_trading_desk). It owns exactly ONE calculation of its own - the LIMITER RANKING - and it ranks facts those owners measured: severity band first, then measured impact in points of realised excess. The SCOREBOARD carries a WINDOW on every row, because rows on different clocks are not comparable and saying so is the summary's job.",
+      "classification": "KEEP",
+      "target_owner": "api/alpha_capital.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "capital_pool.load_capital_pool",
+        "cash_deployment_frontier.load_cash_deployment_frontier",
+        "alpha_opportunity_registry.load_alpha_opportunity_registry",
+        "shadow_portfolio_evidence.load_shadow_portfolio_evidence",
+        "prospective_tournament.load_prospective_tournament",
+        "research_agent.load_research_agent",
+        "forward_evidence.load_forward_evidence",
+        "paper_trading_desk.load_performance"
+      ],
+      "direct_writes": [],
+      "endpoints": [
+        "GET /v1/operations/alpha-capital"
+      ],
+      "ui_consumers": [
+        "#tab-alpha-capital"
+      ],
+      "tests": [
+        "tests/test_release56_alpha_capital.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Degrade-safe: a missing research owner reduces the payload's state, never its availability."
     }
   ]
 }

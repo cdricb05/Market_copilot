@@ -47,6 +47,63 @@ def _base_ticker(symbol: str) -> str:
     return symbol.split(".")[0].upper()
 
 
+#: The first US-session open, in UTC, at which each session flag's report is
+#: certainly public. 14:30Z is 09:30 EST and 10:30 EDT, so it is at or after
+#: the opening bell under either daylight offset.
+#:   BeforeMarket -> published before the open of the report date itself.
+#:   AfterMarket  -> published after that close, hence public by the NEXT open.
+#: The day offset is what makes the AfterMarket bound provable. An intra-day
+#: bound such as 22:00Z (17:00 EST) is NOT safe: a company that releases at
+#: 18:00 ET on an AfterMarket day would be claimed public an hour before it
+#: was, which is look-ahead.
+_EARNINGS_SESSION_TRADABLE = {
+    "beforemarket": (0, "BeforeMarket: public by the open of the report date"),
+    "aftermarket": (1, "AfterMarket: public by the open of the following day"),
+}
+
+_TRADABLE_TIME_UTC = "T14:30:00Z"
+
+
+def _earnings_session_bound(report_date, session_flag: str):
+    """Turn EODHD's ``before_after_market`` flag into a provable public-by bound.
+
+    The estate recorded the flag only inside a display string, so the
+    before/after-close distinction a post-earnings drift study needs was not
+    machine-readable. This makes it structured, and derives the earliest US
+    session open by which the report is certainly public.
+
+    This is deliberately NOT the record's ``available_at``. Availability is a
+    point-in-time assertion about when the information itself existed, and a
+    date plus a coarse session flag cannot prove an instant - only a later
+    bound. Stage 2 keeps ``available_at`` null for earnings, and this bound
+    travels beside it in the payload, named for exactly what it is.
+
+    Returns ``(public_by, basis, quality_warnings)``. Without a report date or a
+    recognised flag there is no bound at all: an unflagged row must never be
+    given a fabricated one.
+    """
+    flag = (session_flag or "").strip().lower()
+    entry = _EARNINGS_SESSION_TRADABLE.get(flag)
+    unknown = ["PUBLICATION_TIME_OF_DAY_UNKNOWN: report_date is date-precision; "
+               "availability left null (period_end NEVER substituted for "
+               "publication)"]
+    if not report_date or not entry:
+        return None, "date (before/after market flag: %s)" % (
+            session_flag or None), unknown
+    day_offset, basis = entry
+    try:
+        day = _dt.date.fromisoformat(str(report_date)[:10])
+    except ValueError:
+        return None, "date (before/after market flag: %s)" % (
+            session_flag or None), unknown
+    public_by = (day + _dt.timedelta(days=day_offset)).isoformat()
+    return ("%s%s" % (public_by, _TRADABLE_TIME_UTC),
+            "date + %s" % basis,
+            unknown + ["EARNINGS_PUBLIC_BY_FROM_SESSION_FLAG: payload carries a "
+                       "session-open upper bound derived from the provider's "
+                       "before_after_market flag; available_at is unchanged"])
+
+
 class EodhdCollector(BaseCollector):
     source_id = "eodhd"
     requires_credential = True
@@ -308,7 +365,12 @@ class EodhdCollector(BaseCollector):
             payload["period_end"] = period_end
             payload["event_time"] = report_date
             payload["publication_time"] = report_date
-            payload["publication_time_precision"] = "date (before/after market flag: %s)" % row.get("before_after_market")
+            session_flag = str(row.get("before_after_market") or "").strip()
+            public_by, precision, warnings = _earnings_session_bound(
+                report_date, session_flag)
+            payload["publication_time_precision"] = precision
+            payload["session_timing"] = session_flag or None
+            payload["public_by_session_open"] = public_by
             self.records.append(build_normalized_record(
                 record_type=RT_EARNINGS_EVENT, source_id=self.source_id,
                 source_native_id="earnings|%s|%s" % (row["code"], report_date or period_end),
@@ -318,9 +380,7 @@ class EodhdCollector(BaseCollector):
                 event_type="EARNINGS_REPORT", payload=payload,
                 entity_mapping_confidence=EM_MATCHED_EXACT,
                 provenance="EODHD /calendar/earnings",
-                quality_warnings=["PUBLICATION_TIME_OF_DAY_UNKNOWN: report_date is "
-                                  "date-precision; availability left null (period_end "
-                                  "NEVER substituted for publication)"]))
+                quality_warnings=warnings))
             if report_date:
                 self.note_event_time(report_date)
 

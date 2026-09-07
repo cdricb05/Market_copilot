@@ -682,6 +682,34 @@ def optimise(*, candidates: list, mu: dict, sigma_forecast: dict,
 # --------------------------------------------------------------------------- #
 # Portfolio-level economics
 # --------------------------------------------------------------------------- #
+def horizon_covariance(*, tickers, aligned_returns: dict, policy: dict,
+                       horizon: int) -> dict:
+    """The canonical covariance, scaled to the policy horizon, in ONE place.
+
+    The matrix itself is the risk owner's (``engine.holding_opportunity_cost``);
+    the only thing added here is the horizon scaling, and it lives here so that
+    no caller can hold a second opinion about what "the covariance at the policy
+    horizon" means. Release 56's capital ladder prices its rungs on exactly the
+    matrix the allocator used, because it calls this same function.
+    """
+    from . import holding_opportunity_cost as _hoc
+    built = _hoc.build_covariance(tickers=tickers,
+                                  aligned_returns=aligned_returns or {},
+                                  policy=policy)
+    h = float(int(horizon))
+    return {
+        "covariance_daily": built["covariance"],
+        "covariance_horizon": {i: {j: v * h for j, v in row.items()}
+                               for i, row in built["covariance"].items()},
+        "included_tickers": list(built["included_tickers"]),
+        "excluded_tickers": list(built["excluded_tickers"]),
+        "observations_used": built["observations_used"],
+        "horizon_sessions": int(horizon),
+        "scaling": "DAILY_COVARIANCE_TIMES_HORIZON_SESSIONS",
+        "matrix_owner": "engine.holding_opportunity_cost.build_covariance",
+    }
+
+
 def portfolio_economics(*, weights: dict, mu: dict, sigma_forecast: dict,
                         cov_h: dict, cov_included: list, policy: dict,
                         horizon: int) -> dict:
@@ -952,14 +980,11 @@ def build_allocation(*, input_contract: dict,
     # priced on the same matrix as the target or the comparison is meaningless.
     from . import holding_opportunity_cost as _hoc
     cov_universe = sorted(set(caps) | set(current))
-    built = _hoc.build_covariance(tickers=cov_universe,
-                                  aligned_returns=ic.get("aligned_returns") or {},
-                                  policy=pol)
+    built = horizon_covariance(tickers=cov_universe,
+                              aligned_returns=ic.get("aligned_returns") or {},
+                              policy=pol, horizon=horizon)
     cov_included = list(built["included_tickers"])
-    # Scale the DAILY covariance to the policy horizon exactly once, here, so no
-    # downstream routine holds a second opinion about the horizon.
-    cov_h = {i: {j: v * float(horizon) for j, v in row.items()}
-             for i, row in built["covariance"].items()}
+    cov_h = built["covariance_horizon"]
 
     zb = optimise(candidates=candidates, mu=mu, sigma_forecast=sigma_f,
                   cov_h=cov_h, cov_included=cov_included, caps=caps,

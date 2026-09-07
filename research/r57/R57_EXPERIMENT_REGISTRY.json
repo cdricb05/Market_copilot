@@ -1,0 +1,329 @@
+{
+ "registry": [
+  {
+   "hypothesis_id": "r57_e1_xs_momentum",
+   "economic_family": "E1_XS_MOMENTUM",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,drawdown,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "mom_189_21",
+    "validation_ann_net_excess": -0.00194135294569674,
+    "lockbox_ann_net_excess": 0.09271330395392449,
+    "lockbox_t": 1.4724386019626061,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e2_short_reversal",
+   "economic_family": "E2_SHORT_REVERSAL",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "5d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_1p5pct",
+   "result": {
+    "selected_variant": "rev_5",
+    "validation_ann_net_excess": -0.011212571175019686,
+    "lockbox_ann_net_excess": -0.011631455749974411,
+    "lockbox_t": -0.20247104491922446,
+    "lockbox_periods": 183
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e3_residual_momentum",
+   "economic_family": "E3_RESIDUAL_MOMENTUM",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,turnover_cap,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "resid_126_21",
+    "validation_ann_net_excess": -0.010061450706073116,
+    "lockbox_ann_net_excess": 0.07210550993617754,
+    "lockbox_t": 1.6697535958224556,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e4_sector_relative_momentum",
+   "economic_family": "E4_SECTOR_RELATIVE_MOMENTUM",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "srel_126_21",
+    "validation_ann_net_excess": -0.02741570076113182,
+    "lockbox_ann_net_excess": 0.07590388298708897,
+    "lockbox_t": 1.2975456874325504,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e5_low_risk",
+   "economic_family": "E5_LOW_RISK",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_1p5pct,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "lowbeta_252",
+    "validation_ann_net_excess": 0.011630381531135648,
+    "lockbox_ann_net_excess": -0.04895571915574691,
+    "lockbox_t": -0.6372349976238231,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e6_idio_vol",
+   "economic_family": "E6_IDIO_VOL",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_1p5pct,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "idiovol_126",
+    "validation_ann_net_excess": 0.020575047127196797,
+    "lockbox_ann_net_excess": -0.02929324833357018,
+    "lockbox_t": -0.755331866679095,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e7_high_proximity",
+   "economic_family": "E7_HIGH_PROXIMITY",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_1p5pct,turnover_cap",
+   "result": {
+    "selected_variant": "hi52_252",
+    "validation_ann_net_excess": -0.09045119254832915,
+    "lockbox_ann_net_excess": -0.05242439604201999,
+    "lockbox_t": -0.8495566616478303,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e8_liquidity",
+   "economic_family": "E8_LIQUIDITY",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,drawdown,halves_floor,materiality_1p5pct,turnover_cap",
+   "result": {
+    "selected_variant": "dvol_trend_63",
+    "validation_ann_net_excess": -0.013582716793356344,
+    "lockbox_ann_net_excess": -0.036254365784315,
+    "lockbox_t": -0.7704851998545872,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_e9_combo",
+   "economic_family": "E9_COMBO",
+   "information_family": "PRICE_STATE",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_1p5pct,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": null,
+    "validation_ann_net_excess": null,
+    "lockbox_ann_net_excess": -0.05481356376156474,
+    "lockbox_t": -0.8069057056474626,
+    "lockbox_periods": 43
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on survivorship-safe PIT panel, 2023-01..2026-07",
+   "next_action": "no re-run without new information; forward families already live in R46",
+   "reopen_condition": "a regime-stability overlay with its own pre-registered protocol, or new orthogonal information"
+  },
+  {
+   "hypothesis_id": "r57_f1_ts_trend",
+   "economic_family": "F1_TS_TREND",
+   "information_family": "PRICE_STATE",
+   "asset_class": "MULTI_ASSET_FUTURES",
+   "horizon": "5d-cadence daily-marked",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_sharpe_0p40,neighbour_sign",
+   "result": {
+    "selected_variant": "tsmom_252_volscaled",
+    "validation_net_sharpe": 0.1315797457630594,
+    "lockbox_net_sharpe": 0.21839060591888737,
+    "lockbox_ann_net_return": 0.00373081266604092
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on 103 Norgate continuous markets, both roll methodologies",
+   "next_action": "F3 cross-market momentum is the strongest rejected futures family; a v2 protocol could pre-register it alone",
+   "reopen_condition": "a pre-registered v2 futures protocol (fresh lockbox impossible - would need forward evidence)"
+  },
+  {
+   "hypothesis_id": "r57_f2_channel_breakout",
+   "economic_family": "F2_CHANNEL_BREAKOUT",
+   "information_family": "PRICE_STATE",
+   "asset_class": "MULTI_ASSET_FUTURES",
+   "horizon": "5d-cadence daily-marked",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,halves_floor,materiality_sharpe_0p40,validation_lockbox_same_sign",
+   "result": {
+    "selected_variant": "donchian_50",
+    "validation_net_sharpe": 0.37602285398984675,
+    "lockbox_net_sharpe": -0.3937028854471207,
+    "lockbox_ann_net_return": -0.009161531382083372
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on 103 Norgate continuous markets, both roll methodologies",
+   "next_action": "F3 cross-market momentum is the strongest rejected futures family; a v2 protocol could pre-register it alone",
+   "reopen_condition": "a pre-registered v2 futures protocol (fresh lockbox impossible - would need forward evidence)"
+  },
+  {
+   "hypothesis_id": "r57_f3_xs_momentum",
+   "economic_family": "F3_XS_MOMENTUM",
+   "information_family": "PRICE_STATE",
+   "asset_class": "MULTI_ASSET_FUTURES",
+   "horizon": "5d-cadence daily-marked",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "pre-registered R57 family",
+   "expected_information_value": null,
+   "status": "NO_ALPHA_EVIDENCE",
+   "reason": "failed gates: bh_fdr_q10,neighbour_sign",
+   "result": {
+    "selected_variant": "xsmom_252",
+    "validation_net_sharpe": 0.11003447267843829,
+    "lockbox_net_sharpe": 0.4383210339590689,
+    "lockbox_ann_net_return": 0.007651196394119635
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS on 103 Norgate continuous markets, both roll methodologies",
+   "next_action": "F3 cross-market momentum is the strongest rejected futures family; a v2 protocol could pre-register it alone",
+   "reopen_condition": "a pre-registered v2 futures protocol (fresh lockbox impossible - would need forward evidence)"
+  },
+  {
+   "hypothesis_id": "r57_calibration_e6",
+   "economic_family": "SCORE_TO_RETURN_CALIBRATION",
+   "information_family": "DERIVED",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "first OOS-judged calibration attempt",
+   "expected_information_value": null,
+   "status": "REJECTED_OOS",
+   "reason": "lockbox MAE worse than zero forecast; decile ordering inverted (tau -0.47)",
+   "result": {
+    "selected_method": "isotonic_decile",
+    "shrinkage": 0.25,
+    "validation_mae": 0.001499241429797336,
+    "lockbox_mae": 0.002819595045981748,
+    "zero_forecast_mae": 0.0027635000352226246,
+    "lockbox_kendall_tau": -0.4667
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS",
+   "next_action": "expected_return_state remains NOT_CALIBRATED and that is the published answer",
+   "reopen_condition": "a signal whose decile ordering is stable across validation and lockbox"
+  },
+  {
+   "hypothesis_id": "r57_track1_buy_sell_asymmetry",
+   "economic_family": "INCUMBENT_DIAGNOSIS",
+   "information_family": "TRUE_FORWARD_LEDGER",
+   "asset_class": "US_EQUITY",
+   "horizon": "1/5/20d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "first component-level buy/sell split on forward data",
+   "expected_information_value": null,
+   "status": "DIAGNOSTIC_COMPLETE",
+   "reason": "diagnostic only; tiny n by construction",
+   "result": {
+    "summary": "fundamental leg positive BOTH sides at every horizon; momentum leg INVERTED (bottom decile outperformed, IC negative); blend buy side dragged negative at h20",
+    "detail_artifact": "track1_incumbent_diagnosis.json"
+   },
+   "evidence_quality": "FORWARD n=8..25 sessions - directional only",
+   "next_action": "the operational question is the momentum leg's blend weight / regime handling - a GOVERNED model review question, not an R57 research claim",
+   "reopen_condition": "n/a - accrues automatically with the forward ledger"
+  },
+  {
+   "hypothesis_id": "r57_turnover_bands",
+   "economic_family": "TURNOVER_CONTROL",
+   "information_family": "DERIVED",
+   "asset_class": "US_EQUITY",
+   "horizon": "21d",
+   "data_readiness": "DATA_READY",
+   "novelty_vs_prior_work": "hysteresis bands judged on after-cost OOS, not on turnover",
+   "expected_information_value": null,
+   "status": "DIAGNOSTIC_COMPLETE",
+   "reason": "no HISTORICAL_ALPHA_CANDIDATE existed to attach it to",
+   "result": {
+    "summary": "rank-band hysteresis (K_out=75..150) cut turnover 35-61% with lockbox net excess flat (+0.093 vs +0.093); after-cost performance held, not improved",
+    "detail_artifact": "turnover_results.json"
+   },
+   "evidence_quality": "HISTORICAL_FINAL_OOS diagnostic on a rejected family",
+   "next_action": "carries to the operational stack as a construction candidate through GOVERNED review (R56 already showed 0/17 live swaps clear payback)",
+   "reopen_condition": "n/a"
+  }
+ ],
+ "n_hypotheses": 15,
+ "protocol": "research/r57/R57_RESEARCH_PROTOCOL.json",
+ "generated_at": "2026-09-04T17:39:28.456340+00:00"
+}
