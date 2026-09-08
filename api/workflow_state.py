@@ -2247,7 +2247,26 @@ def build_session_recovery(*, expected_completed_market_date: Any,
         "missed_session_backlog_truncated": bool(calendar["truncated"]),
         "skipped_non_sessions": list(calendar["skipped_non_sessions"]),
         "recovery_session": recovery,
+        # Release 61 — DEPRECATED, and truthfully labelled. This key has always
+        # been a verbatim alias of ``expected_completed_market_date``: the
+        # latest session the clock expects to be COMPLETE. It never named the
+        # session that is currently open or the next one to open, so on
+        # 2026-09-08 — a real trading session, mid-day — it read 2026-09-04 and
+        # contradicted its own name on every surface that showed it. The value
+        # is correct and unchanged; only the promise it made is withdrawn.
+        # Readers must move to ``latest_expected_completed_session``.
         "current_open_or_next_session": _iso(_coerce_date(
+            expected_completed_market_date)),
+        "current_open_or_next_session_deprecated": True,
+        "current_open_or_next_session_deprecation": {
+            "release": "R61",
+            "reason": ("the field never carried the session it names; it is "
+                       "the latest EXPECTED COMPLETED session"),
+            "replaced_by": "latest_expected_completed_session",
+            "value_is_unchanged": True,
+        },
+        # The same value under a name that states what it is.
+        "latest_expected_completed_session": _iso(_coerce_date(
             expected_completed_market_date)),
         "expected_completed_market_date": _iso(_coerce_date(
             expected_completed_market_date)),

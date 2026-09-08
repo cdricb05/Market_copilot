@@ -113,6 +113,14 @@ def _f(x: Any) -> Optional[float]:
         return None
 
 
+def _hoc_module():
+    """The opportunity-cost owner. Imported lazily so this module stays a thin
+    composition layer and a test can pin the store root without import order
+    mattering."""
+    from paper_trader.api import holding_opportunity_cost as _hoc
+    return _hoc
+
+
 def _summarize_hoc(result: Optional[dict]) -> Optional[dict]:
     """A bounded READ of what the canonical opportunity-cost owner decided."""
     a = (result or {}).get("assessment") or {}
@@ -125,10 +133,21 @@ def _summarize_hoc(result: Optional[dict]) -> Optional[dict]:
     # ever stand on.
     p = (result or {}).get("persistence") or {}
     b = (result or {}).get("binding") or {}
+    # R61 — the DEPENDENCY hash is the one the STORE holds, resolved by the
+    # artifact owner's own single spelling. Publishing the freshly derived
+    # document's hash here paired a stored ``artifact_id`` with a hash that
+    # artifact does not carry, and the R54.3 exact-artifact governance check
+    # then refused every reused-assessment candidate as
+    # HOC_ARTIFACT_IDENTITY_MISMATCH. The re-derivation stays visible beside it.
+    bound_hash = _hoc_module().bound_assessment_hash(binding=b, assessment=a)
     return {
         "calculation_owner": a.get("calculation_owner"),
         "assessment_state": a.get("assessment_state"),
-        "assessment_hash": a.get("assessment_hash"),
+        "assessment_hash": bound_hash,
+        "recomputed_assessment_hash": _hoc_module().recomputed_assessment_hash(
+            binding=b, assessment=a),
+        "reused_recomputed_document": b.get("hoc_reused_recomputed_document"),
+        "derived_assessment_hash": a.get("assessment_hash"),
         "eligible_market_date": a.get("eligible_market_date"),
         "recommendation_counts": a.get("recommendation_counts"),
         "recommendation_vocabulary": a.get("recommendation_vocabulary"),
@@ -309,11 +328,14 @@ def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=Non
 
 
 def _default_proposal_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
-                         hoc_dir=None):
+                         hoc_dir=None, hoc_binding=None):
     """The canonical Reallocation Proposal owner — the SAME entry point the Daily
     Research Cycle uses. Review-only: it confirms no target and creates no order."""
     from paper_trader.api import reallocation_proposal as rp
     return rp.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
+                              # R61 - the proposal binds the STORED opportunity-cost
+                              # identity, exactly as the reassessment does.
+                              hoc_binding=hoc_binding,
                               reallocation_dir=reallocation_dir, hoc_dir=hoc_dir)
 
 
@@ -1171,6 +1193,7 @@ def run_event_signal_refresh(
                        CANONICAL_CALCULATION_DELEGATES[ek.CALC_REALLOCATION_PROPOSAL]) as rec:
                 proposal = proposal_call(
                     scoring=sc, hoc_assessment=(hoc_result or {}).get("assessment"),
+                    hoc_binding=(hoc_binding or None),
                     reallocation_dir=reallocation_dir, hoc_dir=hoc_dir)
                 proposal_at = _now_iso()
                 rec["detail"] = "complete target portfolio built for manual review"
@@ -1360,7 +1383,14 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         "eligible_market_date": full.get("eligible_market_date"),
         "portfolio_state_hash": full.get("portfolio_state_hash"),
         "holdings": full.get("holdings"),
+        # R61 — the STORED artifact's hash (see ``_summarize_hoc``). This is the
+        # identity governance proves against the immutable store, so it must be
+        # the store's, never this run's re-derivation of the same document.
         "hoc_assessment_hash": hoc_sum.get("assessment_hash"),
+        "hoc_recomputed_assessment_hash": hoc_sum.get(
+            "recomputed_assessment_hash"),
+        "hoc_reused_recomputed_document": hoc_sum.get(
+            "reused_recomputed_document"),
         "hoc_holdings_reviewed": hoc_sum.get("holdings_reviewed"),
         # R54.3 — the IMMUTABLE opportunity-cost artifact this run's assessment
         # became. Before R54.3 the cycle published the hash alone, so a same-session

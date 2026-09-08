@@ -206,16 +206,31 @@ def test_29_daily_operating_run_delegates_completed_session():
 
 
 def test_28_daily_close_delegates_session_eligibility():
+    """The close owns no session arithmetic - and, since R61, no CALENDAR either.
+
+    The comparison is against the session owner called with the SAME
+    authoritative non-session set the close now supplies. Comparing against a
+    calendar-less call would only prove the close is as holiday-blind as the
+    bare policy: before R61 it was, which is how 2026-09-07 (Labor Day) came
+    to be published as the latest expected COMPLETED session on 2026-09-08
+    while the session-recovery owner correctly said 2026-09-04.
+    """
     for now in _MATRIX:
         legacy = dc._resolve_clock(now=now)
-        new = ms.resolve_expected_session(now, close_cutoff_et=dc.POST_CLOSE_CUTOFF_ET)
+        skip = dc._authoritative_non_sessions(ms.to_eastern(now).date())
+        new = ms.resolve_expected_session(
+            now, close_cutoff_et=dc.POST_CLOSE_CUTOFF_ET, non_sessions=skip)
         assert legacy["expected_market_date"] == new.market_date.isoformat()
         assert bool(legacy["cutoff_passed"]) == new.cutoff_passed
         assert bool(legacy["within_trading_day"]) == new.within_trading_day
-    # Injected-date (offline) rule also delegates.
-    for s in ("2026-08-04", "2026-08-03", "2026-08-01", "2026-07-31"):
+        # And the expectation is never a date the calendar calls a closure.
+        assert legacy["expected_market_date"] not in skip
+    # Injected-date (offline) rule also delegates, through the same calendar.
+    for s in ("2026-08-04", "2026-08-03", "2026-08-01", "2026-07-31",
+              "2026-09-08"):
+        skip = dc._authoritative_non_sessions(date.fromisoformat(s))
         assert dc._resolve_clock(today=s)["expected_market_date"] == \
-            ms.expected_from_reference_date(s).market_date.isoformat()
+            ms.expected_from_reference_date(s, skip).market_date.isoformat()
 
 
 def test_30_alpha_target_delegates_completed_session():

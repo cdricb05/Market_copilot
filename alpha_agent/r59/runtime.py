@@ -87,8 +87,48 @@ W_STOPPED = "STOPPED"
 W_REFUSED = "REFUSED_ANOTHER_WORKER_HOLDS_THE_LEASE"
 W_LEASE_LOST = "STOPPED_LEASE_LOST"
 
+#: R61 - a TRUTHFUL waiting state. ``SLEEPING`` says only that the process is
+#: not busy; it does not say whether the estate is waiting for a session, for
+#: data it does not own, or has genuinely run out of questions. Those need
+#: different operator actions, so they get different words.
+W_WAITING_MARKET = "WAITING_FOR_MARKET_DATA"
+W_WAITING_FORWARD = "WAITING_FOR_FORWARD_EVIDENCE"
+W_WAITING_SAMPLE = "WAITING_FOR_EXTERNAL_SAMPLE"
+W_FRONTIER_EXHAUSTED = "FRONTIER_EXHAUSTED_UNTIL_NEW_INFORMATION"
+
+WAITING_STATES = (W_WAITING_MARKET, W_WAITING_FORWARD, W_WAITING_SAMPLE,
+                  W_FRONTIER_EXHAUSTED)
+
 WORKER_STATES = (W_STARTING, W_RESEARCHING, W_MATURING, W_SLEEPING,
-                 W_STOPPED, W_REFUSED, W_LEASE_LOST)
+                 W_STOPPED, W_REFUSED, W_LEASE_LOST) + WAITING_STATES
+
+#: The reason published while a research cycle is actually executing jobs. A
+#: busy worker is not waiting for anything, and saying so is not the same as
+#: saying nothing.
+RESEARCH_IN_PROGRESS = "EXECUTING_RESEARCH"
+
+#: How a canonical blocker reason maps to the state the operator should see.
+#: One mapping, so the runtime and the read model cannot disagree about what a
+#: blocked frontier means.
+_WAIT_STATE_BY_BLOCKER: dict[str, str] = {
+    "WAITING_FOR_MARKET_SESSION": W_WAITING_MARKET,
+    "WAITING_FOR_FORWARD_EVIDENCE": W_WAITING_FORWARD,
+    "WAITING_FOR_SAMPLE": W_WAITING_SAMPLE,
+    "WAITING_FOR_EXTERNAL_ENTITLEMENT": W_WAITING_SAMPLE,
+    "WAITING_FOR_PROVIDER_DATA": W_WAITING_MARKET,
+    "FAMILY_EXHAUSTED": W_FRONTIER_EXHAUSTED,
+    "DEPENDENCY_BLOCKED": W_FRONTIER_EXHAUSTED,
+    "COMPUTE_GATE": W_SLEEPING,
+    "INVALIDATED": W_FRONTIER_EXHAUSTED,
+    "SUPERSEDED": W_FRONTIER_EXHAUSTED,
+    "UNCLASSIFIED_BLOCKER": W_SLEEPING,
+}
+
+
+def waiting_state_for(blocker_reason: Optional[str]) -> str:
+    """The worker state that truthfully describes waiting on this blocker."""
+    return _WAIT_STATE_BY_BLOCKER.get(str(blocker_reason or ""),
+                                      W_FRONTIER_EXHAUSTED)
 
 #: The ONE signal a forward-confirmed challenger may raise. It is addressed to
 #: a human governance review and is not an instruction to anything.
@@ -292,6 +332,10 @@ def status(mem: Optional[M.ResearchMemory] = None,
             "last_challenger_freeze": persisted.get("last_challenger_freeze"),
             "stop_or_sleep_reason": persisted.get("stop_or_sleep_reason"),
             "next_planned_wake": persisted.get("next_planned_wake"),
+            "wake_condition": persisted.get("wake_condition"),
+            "blocker_reason": persisted.get("blocker_reason"),
+            "blocker_reasons": dict(persisted.get("blocker_reasons") or {}),
+            "wait_detail": persisted.get("wait_detail"),
             "data_frontier": persisted.get("data_frontier"),
             "capacity": persisted.get("capacity"),
             "maturation": persisted.get("maturation"),
@@ -404,28 +448,81 @@ def wake_delta(previous: Optional[list], current: list) -> dict:
             "any_change": bool(changed)}
 
 
+def _blocked_summary(queue) -> dict:
+    """The canonical classification of everything the queue currently holds
+    blocked (R61). A read; never raises, because observability may not break a
+    research cycle."""
+    try:
+        from . import blockers as BLK
+        rows = [BLK.classify_job(j) for j in queue.blocked_jobs(limit=500)]
+        return BLK.summarise(rows)
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
 def plan_sleep(*, ready_work: int, conditions: list,
-               max_sleep: float = MAX_SLEEP_SECONDS) -> dict:
-    """How long to sleep, and why. READY work always beats sleeping.
+               max_sleep: float = MAX_SLEEP_SECONDS,
+               blocked_summary: Optional[dict] = None) -> dict:
+    """How long to sleep, why, and WHAT WOULD END THE WAIT. READY work always
+    beats sleeping.
 
     The project rule is that usable time is never left idle, and the
     distinction that makes it operable is between "nothing to do right now"
     and "nothing until new data exists". Only the second one may sleep.
+
+    RELEASE 61 - the wait is now NAMED. ``blocked_summary`` is
+    ``alpha_agent.r59.blockers.summarise`` over the queue's blocked rows, so
+    the state the operator sees ("waiting for market data", "frontier
+    exhausted until new information") is derived from the canonical reason the
+    blocked work actually carries rather than from the single word "sleeping".
+    A blocker only TIME can clear justifies a short re-check; one that time can
+    never clear does not, and sleeping the ceiling on it is the honest answer.
     """
     if ready_work > 0:
         return {"sleep_seconds": 0.0, "state": W_RESEARCHING,
                 "reason": "EXECUTABLE_RESEARCH_EXISTS",
+                "wake_condition": None, "blocker_reasons": {},
                 "detail": "%d job(s) claimable now" % ready_work}
+    summary = blocked_summary or {}
+    by_reason = dict(summary.get("by_reason") or {})
     blocked = next((c for c in conditions
                     if c["name"] == "BLOCKED_SOURCES"), None)
-    if blocked and str(blocked.get("watermark") or "0") != "0":
-        return {"sleep_seconds": float(MIN_SLEEP_SECONDS), "state": W_SLEEPING,
+    n_blocked = 0
+    try:
+        n_blocked = int(str(blocked.get("watermark") or "0")) if blocked else 0
+    except (TypeError, ValueError):
+        n_blocked = 0
+    if by_reason or n_blocked:
+        # The DOMINANT canonical reason decides the word; every reason is
+        # published beside it so a mixed frontier is never reduced to one.
+        dominant = (max(by_reason.items(), key=lambda kv: kv[1])[0]
+                    if by_reason else "UNCLASSIFIED_BLOCKER")
+        time_clears = int(summary.get("time_will_clear") or 0)
+        # A blocker time CAN clear earns a short re-check. So does an
+        # UNCLASSIFIED one: the R59 back-off is the safe answer when the estate
+        # cannot say what it is waiting for, and sleeping the ceiling on an
+        # unknown blocker would trade responsiveness for nothing. Only a
+        # classification that says no amount of time will help sleeps long.
+        classified = bool(by_reason)
+        seconds = (float(MIN_SLEEP_SECONDS)
+                   if (time_clears or not classified)
+                   else float(max(MIN_SLEEP_SECONDS, max_sleep)))
+        return {"sleep_seconds": seconds,
+                "state": waiting_state_for(dominant),
                 "reason": "WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE",
-                "detail": "%s job(s) blocked on a named external condition"
-                          % blocked.get("watermark")}
+                "blocker_reason": dominant,
+                "blocker_reasons": by_reason,
+                "wake_condition": (
+                    "AN_ELAPSED_MARKET_SESSION" if time_clears else
+                    "A_RE_CHECK_OF_AN_UNCLASSIFIED_BLOCKER" if not classified
+                    else "NEW_INFORMATION_OR_AN_OPERATOR_DECISION"),
+                "detail": "%s job(s) blocked; dominant canonical reason %s"
+                          % (summary.get("blocked_total", n_blocked), dominant)}
     return {"sleep_seconds": float(max(MIN_SLEEP_SECONDS, max_sleep)),
-            "state": W_SLEEPING,
+            "state": W_FRONTIER_EXHAUSTED,
             "reason": "ONLY_FUTURE_DATA_CAN_ADVANCE_THE_STATE",
+            "blocker_reason": None, "blocker_reasons": {},
+            "wake_condition": "NEW_INFORMATION_OR_AN_OPERATOR_DECISION",
             "detail": "no executable research and no mandate the governor can "
                       "issue from the current information set"}
 
@@ -472,6 +569,7 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
                 max_jobs_per_iteration: int = 8,
                 allow_maturation: Optional[bool] = None,
                 identity_reader=None,
+                adopt_forward=None,
                 debug_max_seconds: Optional[float] = None,
                 debug_max_cycles: Optional[int] = None,
                 sleep_fn=time.sleep,
@@ -535,6 +633,25 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
     state = W_STARTING
     sleep_plan = {"reason": "STARTING", "sleep_seconds": 0.0}
 
+    def _researching_plan(iteration: Optional[dict] = None) -> dict:
+        """R61 — the reason to publish WHILE a research cycle is running.
+
+        ``sleep_plan`` was only recomputed at the END of a cycle, and a research
+        cycle has no cap by design. The live worker therefore published
+        ``stop_or_sleep_reason: STARTING`` and ``next_planned_wake: null`` for
+        its entire life while reporting RESEARCHING - so the one field that says
+        what the agent is waiting for said nothing, for hours. A worker that IS
+        executing jobs has no wake condition because it is not waiting, and that
+        is what this says, with the iteration it is on as the evidence.
+        """
+        it = iteration or {}
+        return {"reason": RESEARCH_IN_PROGRESS, "sleep_seconds": 0.0,
+                "next_wake": None,
+                "detail": ("executing research; iteration %s, %s job(s) "
+                           "completed in the last iteration"
+                           % (it.get("iteration"), it.get("jobs_completed")))
+                          if it else "executing research"}
+
     def _beat(lane: Optional[str] = None, *, worker_state: str = None,
               extra: dict = None) -> bool:
         """Refresh the lease and republish status. False = ownership lost."""
@@ -554,6 +671,13 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             "last_challenger_freeze": last_freeze,
             "stop_or_sleep_reason": sleep_plan.get("reason"),
             "next_planned_wake": sleep_plan.get("next_wake"),
+            # R61 - WHAT would end the wait, and the canonical blocker reasons
+            # behind it. A worker that reports RESEARCHING with no wake
+            # condition is either busy (and says so) or lying.
+            "wake_condition": sleep_plan.get("wake_condition"),
+            "blocker_reason": sleep_plan.get("blocker_reason"),
+            "blocker_reasons": dict(sleep_plan.get("blocker_reasons") or {}),
+            "wait_detail": sleep_plan.get("detail"),
             "latest_error": latest_error,
             "cycles_completed": len(cycles),
             "production_iteration_limit": None,
@@ -576,12 +700,14 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
         engineering smoke that could only stop between cycles would not be
         an engineering smoke. Production passes None and this never fires.
         """
-        nonlocal last_experiment
+        nonlocal last_experiment, sleep_plan
         last_experiment = {
             "iteration": iteration.get("iteration"),
             "jobs_completed": iteration.get("jobs_completed"),
             "hypotheses_measured": iteration.get("hypotheses_measured"),
             "at": r59.now_iso()}
+        # R61 - the published reason tracks the work actually in flight.
+        sleep_plan = _researching_plan(iteration)
         if not _beat("r59.research", worker_state=W_RESEARCHING):
             stopper.request("LEASE_LOST")
             return False
@@ -610,12 +736,15 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
 
             # ---- 1. RESEARCH. No cap; returns when genuinely out of work --- #
             state = W_RESEARCHING
+            sleep_plan = _researching_plan()
             _beat("r59.research", worker_state=state)
             session = None
             try:
                 session = LP.run_session(
                     mem=mem, queue=queue, batch=batch,
                     max_jobs_per_iteration=max_jobs_per_iteration,
+                    # R61 - carried through, never imported here.
+                    adopt_forward=adopt_forward,
                     on_progress=_progress)
             except Exception as exc:                     # noqa: BLE001
                 latest_error = "%s: %s" % (type(exc).__name__, str(exc)[:300])
@@ -645,7 +774,8 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
                     latest_error = "%s: %s" % (type(exc).__name__,
                                                str(exc)[:300])
 
-            sleep_plan = plan_sleep(ready_work=runnable, conditions=conditions)
+            sleep_plan = plan_sleep(ready_work=runnable, conditions=conditions,
+                                    blocked_summary=_blocked_summary(queue))
             cycles.append({
                 "cycle": cycle,
                 "stop_condition": (session or {}).get("stop_condition"),
@@ -773,6 +903,10 @@ def _mature_forward_evidence() -> dict:
 __all__ = ["CALCULATION_OWNER", "WORKER_LEASE_NAME", "STATUS_ARTIFACT",
            "LEASE_STALE_SECONDS", "HEARTBEAT_SECONDS", "MIN_SLEEP_SECONDS",
            "MAX_SLEEP_SECONDS", "DEPLOYED_ROOT_ENV", "WORKER_STATES",
+           # R61 - truthful waiting vocabulary + the blocker mapping.
+           "WAITING_STATES", "W_WAITING_MARKET", "W_WAITING_FORWARD",
+           "W_WAITING_SAMPLE", "W_FRONTIER_EXHAUSTED", "RESEARCH_IN_PROGRESS",
+           "waiting_state_for",
            "W_STARTING", "W_RESEARCHING", "W_MATURING", "W_SLEEPING",
            "W_STOPPED", "W_REFUSED", "W_LEASE_LOST", "CHALLENGER_REVIEW",
            "runtime_dir", "lease_path", "status_path", "source_identity",

@@ -94,6 +94,7 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
                 queue: Optional[AR.ResearchQueue] = None,
                 base_handlers: Optional[dict] = None,
                 seed_opportunities: bool = True,
+                adopt_forward: Optional[Callable] = None,
                 on_progress: Optional[Callable[[dict], bool]] = None) -> dict:
     """Run autonomous research until it is genuinely exhausted.
 
@@ -122,7 +123,11 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
     if seed_opportunities:
         OPP.seed(mem)
 
-    r59_handlers = H.make_handlers(mem, queue)
+    # R61 - the governed prospective-adoption owner, INJECTED. The research
+    # package may not import the application layer, so a freeze reaches its
+    # forward-evidence owner the same way the revision reader reaches the
+    # runtime: from the entrypoint that composes them.
+    r59_handlers = H.make_handlers(mem, queue, adopt_forward=adopt_forward)
     handlers = (H.route_r59(base_handlers, r59_handlers) if base_handlers
                 else r59_handlers)
 

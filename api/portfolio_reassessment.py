@@ -483,6 +483,27 @@ def _current_portfolio_score(reviews: list) -> Optional[float]:
     return round(acc / tot, 6)
 
 
+def _bound_hoc_assessment_hash(hoc_binding: Optional[dict],
+                               hoc_assessment: Optional[dict]) -> Optional[str]:
+    """Delegate to the opportunity-cost owner's single spelling (R61)."""
+    try:
+        from paper_trader.api import holding_opportunity_cost as hocm
+        return hocm.bound_assessment_hash(binding=hoc_binding,
+                                          assessment=hoc_assessment)
+    except Exception:  # noqa: BLE001 - a contract build never crashes on a read
+        return (hoc_binding or {}).get("hoc_assessment_hash") or             (hoc_assessment or {}).get("assessment_hash")
+
+
+def _recomputed_hoc_assessment_hash(hoc_binding: Optional[dict],
+                                    hoc_assessment: Optional[dict]):
+    try:
+        from paper_trader.api import holding_opportunity_cost as hocm
+        return hocm.recomputed_assessment_hash(binding=hoc_binding,
+                                               assessment=hoc_assessment)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment: dict,
                          freshness: Optional[dict] = None,
                          recent_change_history: Optional[list] = None,
@@ -537,7 +558,19 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "universe_scoring_hash": sc.get("output_hash"),
         "universe_input_contract_hash": sc.get("input_contract_hash"),
         "model_identity": _model_identity(sc),
-        "hoc_assessment_hash": hoc.get("assessment_hash"),
+        # Release 61 — the dependency hash is the one the opportunity-cost STORE
+        # holds, spelled by that owner's own ``bound_assessment_hash``. Before
+        # R61 this recorded the hash of the document this run derived; on a
+        # REUSE (R55.2.2) that document was never written, so the contract named
+        # an ``hoc_artifact_id`` together with a hash the artifact does not
+        # carry, and the R54.3 governance check refused the candidate as
+        # HOC_ARTIFACT_IDENTITY_MISMATCH. The re-derivation stays recorded
+        # beside it — visible, and never a dependency identity.
+        "hoc_assessment_hash": _bound_hoc_assessment_hash(hoc_binding, hoc),
+        "hoc_recomputed_assessment_hash": _recomputed_hoc_assessment_hash(
+            hoc_binding, hoc),
+        "hoc_reused_recomputed_document": hoc_binding.get(
+            "hoc_reused_recomputed_document"),
         "hoc_assessment_state": hoc.get("assessment_state"),
         "hoc_eligible_market_date": hoc.get("eligible_market_date"),
         "hoc_portfolio_state_hash": ((hoc.get("provenance") or {}).get("portfolio_state_hash")),
@@ -632,15 +665,25 @@ def resolve_hoc_binding(*, hoc_assessment: Optional[dict],
     used_hash = (hoc_assessment or {}).get("assessment_hash")
     try:
         from paper_trader.api import holding_opportunity_cost as hocm
+        # Release 61 — resolve the EXACT version this assessment IS, by content,
+        # across the session's whole append-only chain. Before R61 the lookup
+        # compared the consumed hash against the session's LATEST artifact only,
+        # so a reassessment that legitimately consumed an earlier version of a
+        # multi-version session (R54.3's designed behaviour) resolved to "no
+        # artifact is persisted" — the exact opposite of the truth, with the
+        # evidence sitting retrievable on disk the whole time.
+        exact = hocm.load_artifact_by_assessment_hash(
+            assessment_hash=used_hash, active_book_id=active_book_id,
+            eligible_market_date=eligible_market_date, hoc_dir=hoc_dir)
+        if exact is not None:
+            return hocm.resolve_binding(
+                binding=hocm.artifact_binding(artifact=exact),
+                active_book_id=active_book_id,
+                eligible_market_date=eligible_market_date, hoc_dir=hoc_dir)
         art = hocm.load_latest_artifact(active_book_id=active_book_id,
                                         eligible_market_date=eligible_market_date,
                                         hoc_dir=hoc_dir)
         stored = ((art or {}).get("identity") or {}).get("assessment_hash")
-        if art is not None and used_hash and stored and str(used_hash) == str(stored):
-            return hocm.resolve_binding(binding=hocm.artifact_binding(artifact=art),
-                                        active_book_id=active_book_id,
-                                        eligible_market_date=eligible_market_date,
-                                        hoc_dir=hoc_dir)
         return {
             "schema_version": hocm.BINDING_SCHEMA_VERSION,
             "hoc_owner": hocm.COMPOSITION_OWNER,
@@ -658,9 +701,9 @@ def resolve_hoc_binding(*, hoc_assessment: Optional[dict],
             "hoc_binding_detail": (
                 "no opportunity-cost artifact is persisted for this book and session"
                 if art is None else
-                "the assessment consumed (%s) is NOT the persisted artifact (%s); its "
-                "evidence exists only transiently" % (str(used_hash)[:16],
-                                                      str(stored)[:16])),
+                "the assessment consumed (%s) is not held by ANY version of this "
+                "session (latest is %s); its evidence exists only transiently"
+                % (str(used_hash)[:16], str(stored)[:16])),
         }
     except Exception as exc:  # noqa: BLE001 — a binding read never crashes a run
         return {"hoc_artifact_id": None, "hoc_assessment_hash": used_hash,

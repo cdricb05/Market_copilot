@@ -30,8 +30,10 @@ from __future__ import annotations
 from typing import Optional
 
 from .. import r59
+from . import blockers as BLK
 from . import frontier as FR
 from . import memory as M
+from . import opportunities as OPP
 
 CALCULATION_OWNER = "alpha_agent.r59.governor"
 
@@ -321,6 +323,28 @@ def _mandate(kind: str, *, asset_class: str, family: str, eiv: float,
     return body
 
 
+def _generative_draws(mem, asset_class: str, machine_kind: str) -> int:
+    """How many candidates this generator has ALREADY drawn in this scope.
+
+    Read from the estate's own ``generator_yield`` ledger - the count includes
+    duplicates, which is the point: a duplicate is a draw that was made, and
+    the next draw must therefore start somewhere the search has not been.
+    Deterministic and replayable from persisted state; zero when the ledger has
+    nothing to say, which reproduces the pre-R61 seed exactly.
+    """
+    want = str(machine_kind or "").upper()
+    try:
+        for row in (mem.generator_yield() or []):
+            if str(row.get("asset_class") or "") != str(asset_class):
+                continue
+            if want and want not in str(row.get("kind") or "").upper():
+                continue
+            return int(row.get("generated") or 0)
+    except Exception:                                    # noqa: BLE001
+        return 0
+    return 0
+
+
 def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
                       limit: int = 24,
                       frontier_view: Optional[dict] = None) -> dict:
@@ -375,10 +399,25 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
                 # made the machine search unreproducible between runs - two
                 # invocations of the same state would explore different spaces
                 # and neither could be replayed.
+                # R61 - the seed must ADVANCE with the search itself. It was
+                # derived from the scope's BURDEN alone, and a draw rejected as
+                # a duplicate does not count to burden - so a scope whose every
+                # draw was a duplicate re-derived the SAME seed, and therefore
+                # the SAME expression, on every batch, forever. That is the
+                # symbolic-enumeration fixpoint R61 forbids: 18,621 generation
+                # jobs in twenty-four hours re-proposing one expression the
+                # estate had already booked. Adding the generator's OWN draw
+                # count (its existing yield ledger) makes each batch explore a
+                # new region while keeping the seed fully deterministic and
+                # replayable from persisted state - never a clock, never the
+                # per-process randomised builtin hash.
+                drawn = _generative_draws(mem, ac, machine_kind)
                 payload = {"machine_kind": machine_kind,
                            "batch": capacity["machine_batch"],
+                           "search_position": drawn,
                            "seed": 5900 + int(
-                               r59.short_hash([ac, machine_kind, b_here], 8),
+                               r59.short_hash([ac, machine_kind, b_here,
+                                               drawn], 8),
                                16) % 90000}
                 # The capacity multiplier is applied to the SIZE of the search
                 # as well as to its priority. Priority alone would not have
@@ -409,8 +448,28 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
                                        payload=payload))
 
     # Data opportunities that are actionable WITHOUT a purchase.
+    #
+    # R61 - a re-probe is issued only when its own substrate has MOVED. The
+    # probe for an owned-but-unreadable family restates a stored measurement:
+    # re-running it against an unchanged substrate returns, with certainty,
+    # what the last run returned. Four such mandates were re-issued roughly
+    # 17,700 times each in a day for exactly that non-answer, which is a busy
+    # loop wearing a research job's name. Nothing is retired here - the moment
+    # the watermark moves the mandate is issuable again on the next batch.
+    deferred_probes: list = []
     for opp in mem.opportunities():
         if opp["state"] != r59.DO_ALREADY_OWNED_UNUSED:
+            continue
+        informative = OPP.probe_is_informative(
+            mem, opportunity_id=opp["opportunity_id"])
+        if not informative.get("informative"):
+            deferred_probes.append({
+                "opportunity_id": opp["opportunity_id"],
+                "reason": informative.get("reason"),
+                "last_probe_at": informative.get("last_probe_at"),
+                "watermark": informative.get("watermark"),
+                "blocker_reason": BLK.WAITING_FOR_EXTERNAL_ENTITLEMENT,
+                "reissued_when": "its own substrate watermark changes"})
             continue
         candidates.append(_mandate(
             MANDATE_DATA, asset_class=opp.get("asset_class")
@@ -432,6 +491,7 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
     mem.event("MANDATES_GENERATED", subject="governor",
               detail={"n_candidates": len(candidates),
                       "n_selected": len(selected),
+                      "n_deferred_probes": len(deferred_probes),
                       "non_equity_selected": sum(
                           1 for m in selected
                           if m["asset_class"] != r59.AC_US_EQUITY)})
@@ -441,6 +501,14 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
             "mandates": selected,
             "terminal": terminal,
             "capacity": capacity,
+            # R61 - probes withheld because their substrate has not moved. A
+            # suppressed mandate is stated, with the condition that revives it.
+            "deferred_probes": deferred_probes,
+            "n_deferred_probes": len(deferred_probes),
+            "deferred_probe_policy": (
+                "a data-opportunity probe is issued only when its own "
+                "substrate watermark has changed; it is deferred, never "
+                "retired, and never rate-limited by a clock"),
             "non_equity_reservation": r59.NON_EQUITY_RESERVATION}
 
 

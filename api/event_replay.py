@@ -276,12 +276,20 @@ def _real_owner_seams(world: dict, roots: dict) -> dict:
             hoc_dir=hoc_dir or roots["hoc"], hoc_binding=hoc_binding)
 
     def proposal_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
-                    hoc_dir=None):
+                    hoc_dir=None, hoc_binding=None):
+        # R61 — the proposal is the THIRD consumer of the opportunity-cost
+        # identity, and the governance gate cross-checks ITS bound hash against
+        # the candidate's (TARGET_BOUND_TO_SAME_HOC). The replay threads the
+        # owner's OWN binding through for exactly the reason R54.3 threads it
+        # into the reassessment above: a replayed cycle must record the artifact
+        # that is actually held rather than a re-derivation of the transient
+        # document, or replay and live would disagree about the very identity
+        # under test — and replay would keep reproducing the defect R61 fixed.
         from paper_trader.api import reallocation_proposal as rp
         return rp.run_and_persist(
             portfolio_state=ps, scoring=scoring, hoc_assessment=hoc_assessment,
             price_panel=panel, reallocation_dir=reallocation_dir or roots["realloc"],
-            hoc_dir=hoc_dir or roots["hoc"])
+            hoc_dir=hoc_dir or roots["hoc"], hoc_binding=hoc_binding)
 
     return {"hoc_fn": hoc_fn, "reassessment_fn": reassessment_fn,
             "proposal_fn": proposal_fn}

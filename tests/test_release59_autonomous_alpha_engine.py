@@ -494,7 +494,7 @@ def test_the_loop_continues_after_a_handler_failure(root, mem, monkeypatch):
     calls = {"n": 0}
     real = H.make_handlers
 
-    def _boom_handlers(m=None, q=None):
+    def _boom_handlers(m=None, q=None, adopt_forward=None):
         base = real(m, q)
 
         def _bad(job):
@@ -526,9 +526,9 @@ def test_a_drained_batch_is_not_a_stop_condition(root, mem, monkeypatch):
          r59.AC_FX: ["TIME_SERIES_TREND"]}))
     monkeypatch.setattr(
         H, "make_handlers",
-        lambda m=None, q=None: {c: (lambda job: (AR.OUTCOME_COMPLETED,
-                                                 {"real_work": "noop"}))
-                                for c in AR.JOB_CATEGORIES})
+        lambda m=None, q=None, adopt_forward=None: {
+            c: (lambda job: (AR.OUTCOME_COMPLETED, {"real_work": "noop"}))
+            for c in AR.JOB_CATEGORIES})
     s = LP.run_session(max_iterations=3, batch=3, max_jobs_per_iteration=3,
                        budget_seconds=60, mem=mem, seed_opportunities=False)
     assert s["stop_condition"] != LP.STOP_A
@@ -540,9 +540,9 @@ def test_the_session_is_resumable(root, mem, monkeypatch):
         {r59.AC_RATES: ["TIME_SERIES_TREND", "CARRY_SLOPE"]}))
     monkeypatch.setattr(
         H, "make_handlers",
-        lambda m=None, q=None: {c: (lambda job: (AR.OUTCOME_COMPLETED,
-                                                 {"real_work": "noop"}))
-                                for c in AR.JOB_CATEGORIES})
+        lambda m=None, q=None, adopt_forward=None: {
+            c: (lambda job: (AR.OUTCOME_COMPLETED, {"real_work": "noop"}))
+            for c in AR.JOB_CATEGORIES})
     s1 = LP.run_session(max_iterations=1, batch=4, max_jobs_per_iteration=1,
                         budget_seconds=30, mem=mem, seed_opportunities=False)
     assert s1["resumable"] and Path(s1["queue_path"]).exists()
@@ -559,9 +559,9 @@ def test_environment_limits_are_reported_as_a_pause_not_a_conclusion(
         {r59.AC_RATES: ["TIME_SERIES_TREND", "CARRY_SLOPE"]}))
     monkeypatch.setattr(
         H, "make_handlers",
-        lambda m=None, q=None: {c: (lambda job: (AR.OUTCOME_COMPLETED,
-                                                 {"real_work": "noop"}))
-                                for c in AR.JOB_CATEGORIES})
+        lambda m=None, q=None, adopt_forward=None: {
+            c: (lambda job: (AR.OUTCOME_COMPLETED, {"real_work": "noop"}))
+            for c in AR.JOB_CATEGORIES})
     s = LP.run_session(max_iterations=1, batch=4, max_jobs_per_iteration=1,
                        budget_seconds=30, mem=mem, seed_opportunities=False)
     assert s["stop_condition"] == LP.STOP_D
@@ -787,9 +787,9 @@ def test_an_explicit_cap_is_reported_as_an_operator_override(root, mem,
         {r59.AC_RATES: ["TIME_SERIES_TREND", "CARRY_SLOPE"]}))
     monkeypatch.setattr(
         H, "make_handlers",
-        lambda m=None, q=None: {c: (lambda job: (AR.OUTCOME_COMPLETED,
-                                                 {"real_work": "noop"}))
-                                for c in AR.JOB_CATEGORIES})
+        lambda m=None, q=None, adopt_forward=None: {
+            c: (lambda job: (AR.OUTCOME_COMPLETED, {"real_work": "noop"}))
+            for c in AR.JOB_CATEGORIES})
     s = LP.run_session(max_iterations=1, batch=4, max_jobs_per_iteration=1,
                        mem=mem, seed_opportunities=False)
     assert s["stop_condition"] == LP.STOP_D
@@ -850,9 +850,9 @@ def test_exhaustion_stops_without_any_cap(root, mem, monkeypatch):
         "substrates": {}})
     monkeypatch.setattr(
         H, "make_handlers",
-        lambda m=None, q=None: {c: (lambda job: (AR.OUTCOME_COMPLETED,
-                                                 {"real_work": "noop"}))
-                                for c in AR.JOB_CATEGORIES})
+        lambda m=None, q=None, adopt_forward=None: {
+            c: (lambda job: (AR.OUTCOME_COMPLETED, {"real_work": "noop"}))
+            for c in AR.JOB_CATEGORIES})
     s = LP.run_session(mem=mem, seed_opportunities=False)
     assert s["stop_condition"] == LP.STOP_A
 

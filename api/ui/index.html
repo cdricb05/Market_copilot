@@ -6477,6 +6477,8 @@
                 <span class="cc-badge muted" id="aao-worker-badge" title="Worker state. A healthy process is NOT successful research — the evidence state is the badge at the top of this card.">&mdash;</span>
                 <span class="cc-badge" style="font-size:9px;">PROCESS HEALTH &ne; RESEARCH SUCCESS</span></div>
               <div id="aao-runtime" style="font-size:11px;line-height:1.5;">&mdash;</div>
+              <div style="margin-top:10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#8b98b0);">Blocked research &mdash; why, and what would end each wait <span class="cc-badge safe">READ ONLY</span></div>
+              <div id="aao-blocked" style="font-size:11px;line-height:1.5;">&mdash;</div>
             </div>
 
             <!-- WHAT CHANGED RECENTLY -->
@@ -33437,7 +33439,7 @@ function renderAlphaAgentOutcomes(d) {
     if (hd) hd.textContent = 'The AlphaAgent outcomes projection did not answer. '
       + 'Nothing was changed; press Refresh to try again.';
     ['aao-because', 'aao-action', 'aao-intent', 'aao-runtime', 'aao-activity',
-     'aao-forward', 'aao-candidates', 'aao-graveyard', 'aao-opportunities',
+     'aao-forward', 'aao-blocked', 'aao-candidates', 'aao-graveyard', 'aao-opportunities',
      'aao-next', 'aao-volume', 'aao-frontier', 'aao-providers',
      'aao-availability'].forEach(function (id) { _setHtml(id, '—'); });
     return;
@@ -33510,10 +33512,57 @@ function renderAlphaAgentOutcomes(d) {
   rhtml += '<div style="margin-top:4px;">Latest error: '
     + escapeHtml(rt.latest_error === null || rt.latest_error === undefined
       ? 'none' : String(rt.latest_error)) + '</div>';
+  // R61 - WHAT WOULD END THE WAIT. Rendered verbatim from the runtime owner;
+  // the UI decides no state and derives no wake condition of its own.
+  rhtml += '<div style="margin-top:6px;">Waiting on: '
+    + escapeHtml(rt.blocker_reason || 'nothing \u2014 the worker is executing research')
+    + '. Next wake: <b>' + escapeHtml(rt.wake_condition || 'not waiting') + '</b>'
+    + (rt.next_planned_wake ? ' (' + escapeHtml(rt.next_planned_wake) + ')' : '')
+    + '.</div>';
+  if (rt.wait_detail) {
+    rhtml += '<div style="margin-top:2px;color:var(--muted,#8b98b0);">'
+      + escapeHtml(rt.wait_detail) + '</div>';
+  }
   rhtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);">'
     + 'A healthy worker is a statement about the process, not about the research. '
     + 'The evidence state is the badge at the top of this card.</div>';
   _setHtml('aao-runtime', rhtml);
+
+  // ---- R61: blocked work, by CANONICAL reason ---------------------------- #
+  var bl = d.blocked_research || {};
+  var bhtml = '';
+  if (bl.state === 'NOT_AVAILABLE') {
+    bhtml = '<span class="cc-badge danger">NOT_AVAILABLE</span> '
+      + escapeHtml(bl.reason || '');
+  } else if (!bl.blocked_total) {
+    bhtml = 'No research job is blocked.';
+  } else {
+    bhtml += _aaoChip('Blocked', bl.blocked_total, 'manual')
+      + _aaoChip('Time will clear', bl.time_will_clear, 'muted')
+      + _aaoChip('Needs new information', bl.needs_new_information, 'muted')
+      + _aaoChip('Terminal without a decision', bl.terminal_without_a_decision,
+                 'muted')
+      + _aaoChip('Unclassified', bl.unclassified_count,
+                 bl.unclassified_count ? 'manual' : 'safe');
+    var byReason = bl.by_reason || {};
+    Object.keys(byReason).forEach(function (code) {
+      bhtml += '<div style="margin:3px 0;"><span class="cc-badge muted">'
+        + escapeHtml(code) + '</span> ' + _aaoNum(byReason[code])
+        + ' &mdash; ' + escapeHtml((bl.reason_descriptions || {})[code] || '')
+        + '</div>';
+    });
+    var byAc = bl.by_asset_class || {};
+    var acBits = Object.keys(byAc).map(function (a) {
+      return escapeHtml(a) + ' ' + _aaoNum(byAc[a]);
+    });
+    if (acBits.length) {
+      bhtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);">'
+        + 'By asset class: ' + acBits.join(' &middot; ') + '</div>';
+    }
+    bhtml += '<div style="margin-top:4px;color:var(--muted,#8b98b0);">'
+      + escapeHtml(bl.a_terminal_blocker_is_not_a_reason_to_sleep || '') + '</div>';
+  }
+  _setHtml('aao-blocked', bhtml);
 
   // ---- what changed ------------------------------------------------------ #
   var wins = (d.recent_activity || {}).windows || {};
@@ -33563,11 +33612,36 @@ function renderAlphaAgentOutcomes(d) {
     + _aaoNum(pr.freezes_recorded_in_research_memory) + '; not registered with any '
     + 'forward-evidence owner: <b>' + _aaoNum(pr.freezes_not_registered_with_a_forward_owner)
     + '</b>.</div>';
+  // R61 - an orphan that is WITHDRAWN or INVALIDATED is a decision the estate
+  // already took, not work waiting to be done. The split comes from the
+  // lifecycle owner; the UI classifies nothing.
+  if (pr.orphan_freezes_adoptable_count !== undefined) {
+    fhtml += '<div style="margin-top:4px;">Of those, adoptable (ACTIVE): <b>'
+      + _aaoNum(pr.orphan_freezes_adoptable_count)
+      + '</b>; closed by their own lifecycle and never resurrectable: <b>'
+      + _aaoNum(pr.orphan_freezes_closed_by_lifecycle_count) + '</b>.</div>';
+  }
   (pr.orphan_freezes || []).slice(0, 8).forEach(function (o) {
+    var lc = o.lifecycle_state || '—';
     fhtml += '<div style="margin:2px 0;color:var(--muted,#8b98b0);">'
+      + '<span class="cc-badge ' + (o.adoptable ? 'manual' : 'muted') + '">'
+      + escapeHtml(lc) + '</span> '
       + '<span class="cc-badge danger">' + escapeHtml(o.forward_evidence_link || '—')
       + '</span> ' + escapeHtml(o.challenger_id || '—') + ' (' + escapeHtml(o.release || '—')
-      + ', inception ' + escapeHtml(o.inception || '—') + ')</div>';
+      + ', ' + escapeHtml(o.asset_class || '—')
+      + ', inception ' + escapeHtml(o.inception || '—') + ')'
+      + (o.never_resurrectable ? ' &mdash; never resurrectable' : '')
+      + (o.canonical_registrar
+          ? ' &mdash; registrar ' + escapeHtml(o.canonical_registrar)
+          : ' &mdash; no canonical registrar for class '
+            + escapeHtml(o.challenger_class || '—'))
+      + '</div>';
+  });
+  (pr.open_adoption_intents || []).slice(0, 8).forEach(function (i) {
+    fhtml += '<div style="margin:2px 0;color:var(--muted,#8b98b0);">'
+      + '<span class="cc-badge manual">OPEN ADOPTION INTENT</span> '
+      + escapeHtml(i.challenger_id || '—') + ' &mdash; '
+      + escapeHtml(i.blocked_reason || '—') + '</div>';
   });
   _setHtml('aao-forward', fhtml);
 

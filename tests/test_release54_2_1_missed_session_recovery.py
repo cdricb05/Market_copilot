@@ -349,11 +349,26 @@ class TestPointInTimeSafety:
         assert ahead["session_binding_rejected"] == dc.BINDING_REJECTED_FUTURE
         assert ahead["expected_market_date"] == SEP1
         assert ahead["session_binding"] is None
-        # A genuinely older session narrows the clock (Friday recovered on Tuesday).
+        # A genuinely older session narrows the clock (Wednesday recovered on
+        # the following Tuesday).
+        #
+        # RELEASE 61 — the unbound clock for 2026-09-08 is 2026-09-04, not
+        # 2026-09-07. This assertion previously pinned 2026-09-07: Labor Day, a
+        # full-day NYSE closure, named as the latest expected COMPLETED session
+        # because this clock was weekday-only while the session-recovery owner
+        # already used the authoritative exchange calendar. Two calendars, two
+        # answers, and the live 2026-09-08 payload showed both at once. The
+        # clock now asks ``engine.exchange_calendar`` like every other session
+        # owner, so 2026-09-04 is the correct unbound expectation and the
+        # narrowing property is exercised against a genuinely older target.
         older = dc._resolve_clock(today="2026-09-08",                   # noqa: SLF001
-                                  target_market_date="2026-09-04")
-        assert older["expected_market_date"] == "2026-09-04"
-        assert older["clock_expected_market_date"] == "2026-09-07"
+                                  target_market_date="2026-09-02")
+        assert older["expected_market_date"] == "2026-09-02"
+        assert older["session_binding"] == "2026-09-02"
+        assert older["clock_expected_market_date"] == "2026-09-04"
+        # And a full-day exchange holiday can never BE the expectation.
+        assert dc._resolve_clock(today="2026-09-08")[                   # noqa: SLF001
+            "expected_market_date"] != "2026-09-07"
 
     def test_16_every_date_dependent_close_step_reads_the_bound_session(self):
         """The bound session is the ONE value the close threads into the provider

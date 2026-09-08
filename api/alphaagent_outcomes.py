@@ -270,9 +270,56 @@ def _runtime_block(status: Optional[dict], now: _dt.datetime) -> dict:
         "maturation_policy": status.get("maturation"),
         "sleep_or_stop_reason": status.get("stop_or_sleep_reason"),
         "next_planned_wake": status.get("next_planned_wake"),
+        # R61 - WHAT WOULD END THE WAIT. ``RESEARCHING`` with no wake condition
+        # was published for the whole life of a worker whose first cycle never
+        # ended, so the one field that says what the agent is waiting for said
+        # nothing at all. These are the runtime owner's own words, read here.
+        "wake_condition": status.get("wake_condition"),
+        "blocker_reason": status.get("blocker_reason"),
+        "blocker_reasons": dict(status.get("blocker_reasons") or {}),
+        "wait_detail": status.get("wait_detail"),
+        "waiting_state_vocabulary": list(rt.WAITING_STATES),
+        "worker_state_vocabulary": list(rt.WORKER_STATES),
+        "process_state_is_not_evidence_state": True,
         "last_completed_experiment": status.get("last_completed_experiment"),
         "latest_error": status.get("latest_error"),
         "process_health_is_not_research_success": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 1b. BLOCKED WORK - classified into the canonical taxonomy (R61)
+# --------------------------------------------------------------------------- #
+def _blocked_block(queue) -> dict:
+    """Every blocked job, with the CANONICAL reason it is blocked.
+
+    Before R61 a blocked job carried a free-text sentence, so seventeen blocked
+    mandates across five asset classes could not be grouped, counted or waited
+    on - and the operator could not tell "waiting for a session" from "we are
+    not entitled to this data" from "this search space is finished". The
+    classification is delegated to ``alpha_agent.r59.blockers``; this read owns
+    no taxonomy of its own.
+    """
+    if queue is None:
+        return _not_available("R59_QUEUE_NOT_PRESENT",
+                              "the persistent research queue does not exist")
+    try:
+        from paper_trader.alpha_agent.r59 import blockers as BLK
+    except Exception as exc:                             # noqa: BLE001
+        return _not_available("BLOCKER_TAXONOMY_UNAVAILABLE", str(exc)[:200])
+    rows = [BLK.classify_job(j) for j in queue.blocked_jobs(limit=500)]
+    summary = BLK.summarise(rows)
+    return {
+        **summary,
+        "blocked": rows,
+        "taxonomy_owner": BLK.CALCULATION_OWNER,
+        "reason_descriptions": dict(BLK.DESCRIPTION),
+        "every_blocked_job_has_a_canonical_reason": summary.get(
+            "every_blocker_is_classified"),
+        "a_terminal_blocker_is_not_a_reason_to_sleep": (
+            "time clears a TIME blocker on its own; an INFORMATION or TERMINAL "
+            "blocker never does, and a worker that sleeps on one is idle, not "
+            "researching"),
     }
 
 
@@ -713,7 +760,56 @@ def _freeze_row(row: dict, known: Optional[dict]) -> dict:
         "accruing_through": owner,
         "scoring_owner": "a canonical forward-evidence owner - never R59, "
                          "which writes only the inception",
+        # R61 - the freeze's LIFECYCLE, reconstructed from persisted history by
+        # the governed adoption owner. A withdrawn freeze is not an orphan
+        # waiting for a home; it is a decision, and it may never be revived.
+        **_lifecycle_fields(row),
     }
+
+
+def _lifecycle_fields(row: dict) -> dict:
+    """The adoption owner's lifecycle verdict for one freeze. Never recomputed
+    here: this read model owns no lifecycle rule."""
+    try:
+        from paper_trader.api import prospective_adoption as PA
+        lc = PA.classify_lifecycle(row)
+        klass = PA.classify_challenger_class(row)
+        return {
+            "lifecycle_state": lc.get("lifecycle_state"),
+            "lifecycle_evidence": lc.get("evidence"),
+            "lifecycle_detail": lc.get("detail"),
+            "lifecycle_vocabulary": list(PA.LIFECYCLE_STATES),
+            "adoptable": bool(lc.get("adoptable")),
+            "never_resurrectable": bool(lc.get("never_resurrectable")),
+            "challenger_class": klass,
+            "canonical_registrar": PA.REGISTRARS.get(klass),
+            "lifecycle_owner": PA.COMPOSITION_OWNER,
+        }
+    except Exception as exc:                             # noqa: BLE001
+        return {"lifecycle_state": None,
+                "lifecycle_detail": "lifecycle owner unavailable: %s"
+                                    % str(exc)[:160]}
+
+
+def _open_adoption_intents() -> list:
+    """Adoptions that were STARTED and never committed (R61).
+
+    An OPEN intent is the durable, resumable record of "this freeze was taken
+    and its forward evidence has not started". Before R61 that state had no
+    record at all, which is exactly why it stayed invisible for two releases.
+    """
+    try:
+        from paper_trader.api import prospective_adoption as PA
+        return [{"identity_hash": (i.get("identity") or {}).get("identity_hash"),
+                 "challenger_id": (i.get("identity") or {}).get("challenger_id"),
+                 "asset_class": (i.get("identity") or {}).get("asset_class"),
+                 "challenger_class": i.get("challenger_class"),
+                 "blocked_reason": i.get("blocked_reason"),
+                 "opened_at": i.get("opened_at"),
+                 "detail": i.get("detail")}
+                for i in PA.open_intents()]
+    except Exception:                                    # noqa: BLE001
+        return []
 
 
 def _prospective_block(mem, forward: dict) -> dict:
@@ -725,6 +821,12 @@ def _prospective_block(mem, forward: dict) -> dict:
     frozen = mem.list_hypotheses(outcome=r59.HO_FORWARD_FROZEN, limit=500)
     rows = [_freeze_row(r, known) for r in frozen]
     orphans = [r for r in rows if r["forward_evidence_link"] == FWD_LINK_ORPHAN]
+    # R61 - an orphan that is WITHDRAWN or INVALIDATED is not work waiting to be
+    # done. Counting the two together is what made "5 unregistered freezes" read
+    # as five candidates needing a forward home when one of them is a decision
+    # the estate already took and must never revisit.
+    adoptable = [r for r in orphans if r.get("adoptable")]
+    non_adoptable = [r for r in orphans if not r.get("adoptable")]
 
     if board is None:
         accrual = _not_available(
@@ -758,6 +860,16 @@ def _prospective_block(mem, forward: dict) -> dict:
         "freezes": rows,
         "freezes_not_registered_with_a_forward_owner": len(orphans),
         "orphan_freezes": orphans,
+        # R61 - the split that makes the orphan count actionable.
+        "orphan_freezes_adoptable": adoptable,
+        "orphan_freezes_adoptable_count": len(adoptable),
+        "orphan_freezes_closed_by_lifecycle": non_adoptable,
+        "orphan_freezes_closed_by_lifecycle_count": len(non_adoptable),
+        "lifecycle_states_present": sorted(
+            {r.get("lifecycle_state") for r in rows if r.get("lifecycle_state")}),
+        "adoption_owner": "api.prospective_adoption",
+        "open_adoption_intents": _open_adoption_intents(),
+        "withdrawn_freezes_are_never_resurrected": True,
         "forward_accrual": accrual,
         "promotion_ready_count": health.get("promotion_ready_count"),
         "forward_paper_portfolios": (
@@ -1069,8 +1181,14 @@ def _human_action_block(governance: dict, prospective: dict,
                       "are not registered with the canonical forward-evidence "
                       "owner, so they accrue no TRUE_FORWARD observations. "
                       "This is a documented architecture gap, not a research "
-                      "result." % prospective.get(
+                      "result. R61: %s of them are ACTIVE and adoptable; %s "
+                      "are closed by their own lifecycle (withdrawn or "
+                      "invalidated) and must never be revived."
+                      % (prospective.get(
                           "freezes_not_registered_with_a_forward_owner"),
+                         prospective.get("orphan_freezes_adoptable_count"),
+                         prospective.get(
+                             "orphan_freezes_closed_by_lifecycle_count")),
         })
     if opportunities.get("purchase_actually_recommended"):
         actions.append({
@@ -1126,6 +1244,8 @@ def load_alphaagent_outcomes() -> dict:
             "alpha_agent.r59.runtime (persisted worker status + lease)",
             "api.research_runtime (R52 forward-evidence runtime health)",
             "api.prospective_tournament (R46 forward-evidence board)",
+            "api.prospective_adoption (R61 freeze lifecycle + adoption intents)",
+            "alpha_agent.r59.blockers (R61 canonical blocked-reason taxonomy)",
         ],
         "computes": [],
         "computes_no_research_mathematics": True,
@@ -1215,6 +1335,11 @@ def load_alphaagent_outcomes() -> dict:
         governance=governance,
         runtime=runtime,
         current_research_intent=_intent_block(queue, status, frontier),
+        # R61 - blocked work, with the CANONICAL reason each job is blocked and
+        # what would end each wait. Process state and evidence state stay
+        # separate: ``runtime`` says what the worker is doing, this says what
+        # the research cannot do and why.
+        blocked_research=_blocked_block(queue),
         research_volume=_volume_block(summary, burden, queue),
         recent_activity=activity,
         recent_outcomes=_recent_outcomes_block(

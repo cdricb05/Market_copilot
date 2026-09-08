@@ -1721,20 +1721,29 @@ the canonical owner it belongs to; none is a rewrite.
 ### NOW
 
 1. **R61 - adopt the orphaned prospective freezes** *(Milestone 4; correctness,
-   point-in-time integrity)*. FIVE prospective challengers - four R58 families
-   and the one R59-native `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` - carry an
-   inception instant and are registered with NEITHER forward-evidence owner, so
-   they have accrued zero TRUE_FORWARD observations since 2026-09-03/04 and never
-   will. The fix belongs to `alpha_agent.r59.handlers.freeze_qualified`: a freeze
-   must register the challenger with the canonical registry
-   (`alpha_agent.r46`) in the same operation that writes its inception, and an
-   inception that fails to register must be reported as REFUSED rather than
-   recorded. It is a research-pipeline change and needs its own release because
-   it touches the freeze path - it was deliberately kept out of R60. Until then
-   `api/alphaagent_outcomes.py` reports each as
-   `NOT_REGISTERED_WITH_FORWARD_EVIDENCE_OWNER` and raises a named human action.
-   Dependency: none. Regression risk: LOW (adds a registration; changes no gate,
-   no scoring and no existing record).
+   point-in-time integrity)*. **LANDED IN PART; the registrar is carried to
+   R62.3.** R61 built what this item asked for structurally: the freeze path no
+   longer ends at the inception. `alpha_agent.r59.handlers.freeze_qualified`
+   delegates to ONE governed operation, `api/prospective_adoption.py`, which is
+   idempotent, keyed by an exact adoption identity, refuses a lifecycle state
+   that is not ACTIVE, refuses any backdated observation clock, and makes the two
+   halves RECOVERABLE (a durable INTENT before the registrar is called, COMMITTED
+   after) rather than pretending cross-store atomicity exists. An inception whose
+   registration does not happen is now REPORTED - as `NO_CANONICAL_REGISTRAR`,
+   `REGISTRAR_FAILED_INTENT_RECOVERABLE` or
+   `FORWARD_ADOPTION_OWNER_NOT_INJECTED`, each with a durable resumable record -
+   instead of being silently recorded as a freeze that accrues nothing.
+
+   Two findings changed the shape of the remaining work. **It is four freezes,
+   not five**: `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` was WITHDRAWN AT INCEPTION
+   with zero forward observations after two gate defects were corrected, and the
+   lifecycle owner now refuses it permanently - counting it as outstanding work
+   was itself the error. And **the canonical registry cannot take the other
+   four**: `alpha_agent.r46` is a frozen contract whose `contract_hash` binds
+   sixty-eight existing predictions, so registering a new challenger class there
+   is a bounded release of its own. That is R62.3. Regression risk of what
+   landed: LOW (changed no gate, no scoring and no existing record; every
+   historical artifact is byte-identical).
 
 2. **R61.1 - one bounded summary accessor on the forward-evidence board**
    *(operator experience; no ownership change)*. `load_prospective_tournament()`
@@ -1777,23 +1786,46 @@ the canonical owner it belongs to; none is a rewrite.
 
 ### LATER
 
-6. **R63 - the operational-book cutover** *(Milestone 6; unchanged priority)*.
+6. **R62.3 - a forward-evidence registrar for R58/R59-class signal
+   challengers** *(the remaining half of R61 Workstream D)*. R61 built the
+   ONE governed prospective-adoption operation - idempotent, crash-
+   recoverable, asset-agnostic, refusing a withdrawn or invalidated freeze
+   and refusing any backdated observation clock - and wired it into the
+   research freeze path, so a freeze can no longer be persisted while its
+   forward evidence silently never starts. What it still cannot do is
+   REGISTER an R58/R59-class signal challenger, because no canonical
+   forward-evidence owner accepts that class: the R46 cohort is a frozen
+   contract whose `contract_hash` binds sixty-eight existing predictions,
+   and `alpha_agent/r46/adopted_forward.py` is wired to the R39/R40 shadow
+   owners. Four ACTIVE freezes (`R58_SHORT_VOLUME_PRESSURE_V1`,
+   `R58_DISCLOSURE_INTENSITY_V1`, `R58_FUND_MOMENTUM_VETO_V1`,
+   `R58_FCF_PURE_V1`) wait on it; until then adoption refuses with
+   `NO_CANONICAL_REGISTRAR` and writes a durable OPEN intent, so the gap is
+   a record the estate can act on rather than an invisible orphan.
+   Prospective only - the observation clock starts from legitimate
+   availability and no historical session is ever synthesised. The one
+   WITHDRAWN freeze (`R59_CALENDAR_TERM_STRUCTURE_F9BE2426`) is permanently
+   out of scope and is refused by the lifecycle owner before any store is
+   touched. Dependency: none. Regression risk: LOW (additive; nothing
+   accrues today).
+
+7. **R63 - the operational-book cutover** *(Milestone 6; unchanged priority)*.
    Let an approved governed CHANGE be named BY ID by the Stage-19 order plan
    that implements it, so the decision -> execution lineage is end-to-end
    provable. Execution stays manual, preview-first and separately authorised.
 
-7. **R63.1 - `api/app.py` route extraction** *(implementation dependency)*.
+8. **R63.1 - `api/app.py` route extraction** *(implementation dependency)*.
    22,865 lines and 235 routes in one module. Extract by canonical owner, one
    bounded router at a time, behind the existing route contract tests. This is
    the largest single source of merge friction in the estate and the least
    urgent correctness risk, which is why it is LATER and not NEVER.
 
-8. **R63.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
+9. **R63.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
    `engine/reconciler.py` remains the only order/fill code and is quarantined;
    `engine/scoring.py` + `engine/market_screener.py` are the legacy DB screener
    path. They retire with Slice 11 (Controlled Execution), not before.
 
-9. **R63.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
+10. **R63.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
    `alpha_agent/evidence_observatory.py` (Stage 1-7) and
    `api/alpha_opportunity_registry.py` (R56 citation catalogue) answer
    neighbouring questions from earlier generations of the research OS. Neither is

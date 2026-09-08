@@ -1364,7 +1364,7 @@ def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=Non
 
 
 def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
-                             hoc_dir=None):
+                             hoc_dir=None, hoc_binding=None):
     """The canonical Reallocation Proposal engine (Slice 7, Milestone 3).
 
     Delegates to ``api.reallocation_proposal.run_and_persist`` — the sole
@@ -1380,6 +1380,12 @@ def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_
     creates no order."""
     from paper_trader.api import reallocation_proposal as rp
     return rp.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
+                              # R61 - the opportunity-cost owner's OWN binding, so
+                              # the proposal records the artifact that is actually
+                              # held rather than re-deriving an identity from the
+                              # transient document (the same repair the
+                              # reassessment received above).
+                              hoc_binding=hoc_binding,
                               reallocation_dir=reallocation_dir, hoc_dir=hoc_dir)
 
 
@@ -3496,10 +3502,17 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                           or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
             if run_engine and holding_opp.get("available"):
                 rp_fn = reallocation_proposal_fn or _default_reallocation_fn
-                rp_built = _safe(
-                    lambda: rp_fn(scoring=raw_scoring, hoc_assessment=raw_hoc_assessment,
-                                  reallocation_dir=realloc_subdir, hoc_dir=hoc_subdir),
-                    warnings, "Reallocation Proposal engine")
+                rp_kwargs = {"scoring": raw_scoring,
+                             "hoc_assessment": raw_hoc_assessment,
+                             "reallocation_dir": realloc_subdir,
+                             "hoc_dir": hoc_subdir}
+                # R61 - as with the reassessment above, only the CANONICAL default
+                # is handed the binding; an injected test/sandbox seam keeps its
+                # existing contract.
+                if reallocation_proposal_fn is None:
+                    rp_kwargs["hoc_binding"] = (holding_opp.get("binding") or None)
+                rp_built = _safe(lambda: rp_fn(**rp_kwargs),
+                                 warnings, "Reallocation Proposal engine")
                 raw_reallocation = (rp_built or {}).get("proposal")
                 reallocation = _extract_reallocation(rp_built, facts["eligible"])
                 step_results.append(_step(STEP_BUILD_REALLOCATION,

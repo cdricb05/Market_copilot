@@ -104,11 +104,32 @@ def _persistent(args) -> int:
     except Exception:                                     # noqa: BLE001
         reader = None
 
+    # R61 - the GOVERNED PROSPECTIVE-ADOPTION owner, injected for the same
+    # reason and in the same place. A qualified freeze and the start of its
+    # forward evidence are one operation; without this, a freeze was durable
+    # and its forward registration simply never happened, which is how five
+    # frozen challengers came to accrue nothing while looking merely young.
+    # The owner is idempotent, refuses a withdrawn or invalidated freeze, and
+    # never backdates an observation clock. If it cannot be loaded the worker
+    # still researches and still freezes; the freeze then reports, by name,
+    # that its forward half did not start.
+    try:
+        from api import prospective_adoption as _pa       # type: ignore
+
+        def adopter(*, freeze_row, observation_clock_starts):
+            return _pa.adopt_prospective_freeze(
+                freeze_row=freeze_row,
+                observation_clock_starts=observation_clock_starts,
+                confirm=_pa.ADOPT_CONFIRM_TOKEN)
+    except Exception:                                     # noqa: BLE001
+        adopter = None
+
     body = R59RT.run_forever(
         batch=int(args.batch),
         max_jobs_per_iteration=int(args.jobs),
         allow_maturation=(False if args.no_maturation else None),
         identity_reader=reader,
+        adopt_forward=adopter,
         debug_max_seconds=args.debug_max_seconds,
         debug_max_cycles=args.debug_max_cycles)
 

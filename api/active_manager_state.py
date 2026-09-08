@@ -1203,6 +1203,56 @@ def _measure_latency(**kwargs) -> Optional[dict]:
         return None
 
 
+#: R61 — the latency endpoints only the INTRADAY lane can own, read from the
+#: decision owner so there is ONE spelling of the set.
+def _intraday_only_latency_stages() -> list:
+    try:
+        from paper_trader.api import portfolio_decision as pdec
+        return list(pdec.INTRADAY_ONLY_LATENCY_STAGES)
+    except Exception:  # noqa: BLE001
+        return ["observation_received_at", "event_cycle_started_at"]
+
+
+def _latency_lane_scope(governed_decision: Optional[dict],
+                        latency: Optional[dict]) -> dict:
+    """Which endpoints the PRODUCING LANE could ever have had (R61).
+
+    Pure interpretation of an immutable record: it renames nothing, rewrites
+    nothing and invents no timestamp. A decision whose provenance is the daily
+    lane never ran an event cycle, so an absent event-cycle stamp on it is a
+    property of the lane. An INTRADAY decision owns both endpoints, so nothing
+    on it is ever structurally absent and a gap there stays a real gap.
+    """
+    gd = governed_decision or {}
+    prov = str(gd.get("provenance") or "")
+    missing = list((latency or {}).get("missing_measurements") or [])
+    try:
+        from paper_trader.api import portfolio_decision as pdec
+        daily = pdec.PROV_GOVERNED_DAILY_CYCLE
+    except Exception:  # noqa: BLE001
+        daily = "GOVERNED_DAILY_CYCLE"
+    if prov != daily:
+        return {"producing_lane": prov or None,
+                "structurally_absent_measurements": [],
+                "measurements_missing_and_expected": missing,
+                "lane_scope_note": ("this decision's lane owns every latency "
+                                    "endpoint; an absent stamp is a real gap")}
+    intraday_only = _intraday_only_latency_stages()
+    absent = [m for m in missing if m in intraday_only]
+    expected = [m for m in missing if m not in intraday_only]
+    return {
+        "producing_lane": prov,
+        "structurally_absent_measurements": absent,
+        "measurements_missing_and_expected": expected,
+        "lane_scope_note": (
+            "a session-terminal daily decision processes no observation and "
+            "starts no event cycle, so %s were never available to it. The "
+            "record is immutable and unchanged; no timestamp is reconstructed."
+            % (", ".join(absent) if absent else "no endpoint")),
+        "backfilled": False,
+    }
+
+
 def _decision_latency_block(governed_decision: Optional[dict],
                             live_information: dict) -> dict:
     """R54.1 — measured, never modelled. Every value is the latency owner's
@@ -1231,6 +1281,17 @@ def _decision_latency_block(governed_decision: Optional[dict],
     lat = (governed_decision or {}).get("latency") or {}
     cycle = live_information.get("last_event_cycle") or {}
     basis = "GOVERNED_DECISION_LATENCY_RECORD"
+    # R61 — WHICH LANE produced the decision this latency describes. The two
+    # endpoints that read MISSING against the standing record —
+    # ``observation_received_at`` and ``event_cycle_started_at`` — are INTRADAY
+    # concepts: a session-terminal daily decision processes no observation and
+    # starts no event cycle, so it never had them to persist. Reporting that as
+    # a broken measurement chain was a category error, not a missing write.
+    # The record is immutable and stays exactly as written; what R61 adds is the
+    # SCOPE, so an operator can tell "this lane never had these stamps" from
+    # "this lane lost them". The prospective writer fix lives with the producer
+    # (``api.portfolio_decision``); nothing is backfilled here or anywhere.
+    lane_scope = _latency_lane_scope(governed_decision, lat)
     if not lat:
         stamps = cycle.get("stage_timestamps") or {}
         # The observation stamp is the event fabric's own; the newest material
@@ -1287,6 +1348,10 @@ def _decision_latency_block(governed_decision: Optional[dict],
             "event_cycle_processing_seconds"),
         "latency_measurement_complete": lat.get("latency_measurement_complete"),
         "missing_measurements": list(lat.get("missing_measurements") or []),
+        # R61 — the immutable record's own scope. ``structurally_absent`` names
+        # endpoints the producing lane never had; they are NOT backfilled, NOT
+        # excused in the record, and NOT removed from ``missing_measurements``.
+        **lane_scope,
         # R55.1 — NOT_REQUIRED is not MISSING. A stage an owner proved this
         # cycle never needed is named separately and never zero-filled.
         "not_required_measurements": list(
@@ -1822,6 +1887,16 @@ ACCEPTANCE_ROWS = (
 )
 ACCEPTANCE_PRESENT = "PRESENT"
 ACCEPTANCE_MISSING = "MISSING"
+#: Release 61 — a row whose key fact the PRODUCING LANE could never have had.
+#: The LATENCY row forced it: ``observation_to_signal_seconds`` needs an
+#: observation and an event cycle, and a session-terminal DAILY decision has
+#: neither, so the row read MISSING against a decision that was complete on its
+#: own terms and the contract sat at 9/10 for a fault that did not exist.
+#: MISSING keeps its meaning exactly — the system cannot prove what happened —
+#: and this says something different: there was nothing to prove. It is never
+#: inferred here; only the producing lane's own declaration can select it, and
+#: an INTRADAY decision missing the same stamps still reads MISSING.
+ACCEPTANCE_NOT_APPLICABLE = "NOT_APPLICABLE_TO_THIS_LANE"
 
 
 def build_acceptance_contract(state: Optional[dict]) -> dict:
@@ -1854,11 +1929,15 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
         (r for r in (ra.get("runtimes") or [])
          if r.get("runtime") == "information_collection_worker"), {})
 
-    def _row(row: str, key_fact: Any, owner: Any, **values) -> dict:
-        return {"row": row,
-                "status": (ACCEPTANCE_PRESENT if key_fact not in (None, "", [])
-                           else ACCEPTANCE_MISSING),
-                "owner": owner, **values}
+    def _row(row: str, key_fact: Any, owner: Any,
+             not_applicable: bool = False, **values) -> dict:
+        if key_fact not in (None, "", []):
+            status = ACCEPTANCE_PRESENT
+        elif not_applicable:
+            status = ACCEPTANCE_NOT_APPLICABLE
+        else:
+            status = ACCEPTANCE_MISSING
+        return {"row": row, "status": status, "owner": owner, **values}
 
     rows = [
         # R55.2 — the COLLECTION row now also says which application release
@@ -1972,6 +2051,20 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
              executes=action.get("executes")),
         _row("LATENCY", lat.get("observation_to_signal_seconds"),
              lat.get("measurement_owner") or owners.get("decision_latency"),
+             # R61 — the interval is NOT_APPLICABLE only when the producing
+             # lane's own scope says both its endpoints were never available to
+             # it. Nothing is reconstructed and the record is untouched; the
+             # missing_measurements list below still names them verbatim.
+             not_applicable=bool(
+                 lat.get("structurally_absent_measurements")
+                 and not lat.get("measurements_missing_and_expected")),
+             producing_lane=lat.get("producing_lane"),
+             structurally_absent_measurements=list(
+                 lat.get("structurally_absent_measurements") or []),
+             measurements_missing_and_expected=list(
+                 lat.get("measurements_missing_and_expected") or []),
+             lane_scope_note=lat.get("lane_scope_note"),
+             latency_is_never_backfilled=True,
              measurement_basis=lat.get("measurement_basis"),
              observation_to_signal_seconds=lat.get(
                  "observation_to_signal_seconds"),
@@ -2015,9 +2108,25 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
         "phase": "R55",
         "owner": OWNER,
         "row_vocabulary": list(ACCEPTANCE_ROWS),
-        "status_vocabulary": [ACCEPTANCE_PRESENT, ACCEPTANCE_MISSING],
+        "status_vocabulary": [ACCEPTANCE_PRESENT, ACCEPTANCE_MISSING,
+                              ACCEPTANCE_NOT_APPLICABLE],
+        "not_applicable_rows": [r["row"] for r in rows
+                                if r["status"] == ACCEPTANCE_NOT_APPLICABLE],
+        "not_applicable_means": (
+            "the producing lane never had this row's key fact; it is not a "
+            "gap in the evidence and no value was reconstructed"),
         "rows": rows,
-        "present_count": len(rows) - len(missing),
+        # R61 — PRESENT means the row's key fact is on the record. A row the
+        # producing lane could never have had is counted separately rather than
+        # inflating the present count: "10/10 present" would be a claim the
+        # evidence does not support, and "9/10, LATENCY MISSING" was a fault
+        # report for a fault that does not exist. Both are now avoidable.
+        "present_count": sum(1 for r in rows
+                             if r["status"] == ACCEPTANCE_PRESENT),
+        "not_applicable_count": sum(
+            1 for r in rows if r["status"] == ACCEPTANCE_NOT_APPLICABLE),
+        "accountable_row_count": sum(
+            1 for r in rows if r["status"] != ACCEPTANCE_NOT_APPLICABLE),
         "missing_rows": missing,
         "blockers": blockers,
         "blocker_codes": [b["blocker"] for b in blockers],
@@ -2408,7 +2517,8 @@ __all__ = [
     # the deterministic acceptance contract.
     "STALE_SURFACE", "ADVISORY_SURFACE", "LEGACY_SCHEDULE_ADVISORY_REASON",
     "OPERATOR_ANSWER_QUESTIONS", "ACCEPTANCE_ROWS", "ACCEPTANCE_PRESENT",
-    "ACCEPTANCE_MISSING", "build_acceptance_contract",
+    "ACCEPTANCE_MISSING", "ACCEPTANCE_NOT_APPLICABLE",
+    "build_acceptance_contract",
     # Release 55.1 — no-op semantics + the owner-issued governance disposition.
     "LANE_CONCLUSION_NO_REASSESSMENT", "LANE_NO_REASSESSMENT_CONCLUSIONS",
     "LANE_CONCLUSION_VOCAB", "LANE_GOVERNANCE_VOCAB",

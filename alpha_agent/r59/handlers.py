@@ -190,7 +190,8 @@ def _settle(mem: M.ResearchMemory, *, mandate: dict, spec: dict, title: str,
             "prior_family_burden": burden, "search_denominator": den}
 
 
-def freeze_qualified(mem: M.ResearchMemory, *, hypothesis_id: str) -> dict:
+def freeze_qualified(mem: M.ResearchMemory, *, hypothesis_id: str,
+                     adopt_forward=None) -> dict:
     """Freeze a qualifying HISTORICAL candidate as a PROSPECTIVE challenger.
 
     Two facts must both survive, so two rows exist:
@@ -256,14 +257,70 @@ def freeze_qualified(mem: M.ResearchMemory, *, hypothesis_id: str) -> dict:
                               subdir="challengers")
     mem.event("PROSPECTIVE_FREEZE", subject=challenger_id,
               detail={"from": hypothesis_id, "inception": inception})
+    # R61 - a freeze and the start of its forward evidence are ONE governed
+    # operation. Before R61 this function ended here: the freeze was durable and
+    # NOTHING registered the challenger with any forward-evidence owner, so a
+    # qualified candidate accrued zero observations and looked exactly like one
+    # that was merely young. Five freezes reached the operator that way.
+    #
+    # The adoption owner is idempotent and fail-closed. When no canonical
+    # forward owner exists for this challenger's class it records a durable,
+    # RESUMABLE intent and says so - which is a named gap the estate can see and
+    # act on, rather than an orphan nobody knows about. It promotes nothing,
+    # writes no holding and creates no order.
+    adoption = _register_forward_evidence(mem, frozen_id, adopt_forward)
     return {"state": "FROZEN", "challenger_id": challenger_id,
             "hypothesis_id": frozen_id, "inception": inception,
-            "artifact": str(path)}
+            "artifact": str(path),
+            "forward_adoption": adoption,
+            "forward_evidence_started": bool(adoption.get("adopted")),
+            "forward_adoption_owner": "api.prospective_adoption"}
+
+
+#: R61 - the state a freeze is in when no adopter was INJECTED. The research
+#: package may not import the application layer (an R59 invariant), so the
+#: governed prospective-adoption owner arrives the same way the revision reader
+#: does: from the entrypoint that composes them. An un-wired worker still
+#: freezes and still says, in one word, that the forward half did not happen -
+#: which is the visibility whose absence let five orphans survive two releases.
+FORWARD_ADOPTION_NOT_WIRED = "FORWARD_ADOPTION_OWNER_NOT_INJECTED"
+
+
+def _register_forward_evidence(mem, frozen_id: str, adopt_forward) -> dict:
+    """Hand the freeze to THE governed prospective-adoption owner (R61).
+
+    ``adopt_forward`` is INJECTED - this module never imports the application
+    layer. Delegation only: it decides no lifecycle, computes no identity and
+    writes to no forward store. A failure here never destroys the freeze; the
+    freeze is already durable, and the adoption owner's own intent record is
+    what makes the missing half recoverable.
+    """
+    if adopt_forward is None:
+        return {"adopted": False, "outcome": FORWARD_ADOPTION_NOT_WIRED,
+                "detail": "no prospective-adoption owner was injected by the "
+                          "entrypoint; the freeze is durable and its forward "
+                          "registration has NOT started"}
+    try:
+        return adopt_forward(
+            freeze_row=mem.get(frozen_id) or {},
+            # The clock starts from what is legitimately observable NOW, never
+            # from an inception that has already passed. No session between the
+            # two is synthesised.
+            observation_clock_starts=r59.now_iso()[:10])
+    except Exception as exc:                             # noqa: BLE001
+        return {"adopted": False, "outcome": "ADOPTION_OWNER_UNAVAILABLE",
+                "detail": str(exc)[:200]}
 
 
 def make_handlers(mem: Optional[M.ResearchMemory] = None,
-                  queue: Optional[AR.ResearchQueue] = None) -> dict:
-    """Build the R59 handler map for the canonical queue categories."""
+                  queue: Optional[AR.ResearchQueue] = None,
+                  adopt_forward=None) -> dict:
+    """Build the R59 handler map for the canonical queue categories.
+
+    R61 - ``adopt_forward`` is the INJECTED governed prospective-adoption owner
+    (see :func:`_register_forward_evidence`). ``None`` is a legitimate
+    configuration and is reported as such; it is never silently ignored.
+    """
     mem = mem or M.open_memory()
 
     def _economic(job) -> tuple:
@@ -499,7 +556,8 @@ def make_handlers(mem: Optional[M.ResearchMemory] = None,
             # stop condition and never touches the operational portfolio.
             if s["gate"]["qualified"]:
                 row["freeze"] = freeze_qualified(
-                    mem, hypothesis_id=s["hypothesis_id"])
+                    mem, hypothesis_id=s["hypothesis_id"],
+                    adopt_forward=adopt_forward)
             measured.append(row)
 
         if not measured:

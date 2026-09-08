@@ -1257,6 +1257,36 @@ def load_latest_artifact(*, active_book_id: Optional[str],
     return _read_indexed_artifact(entry, hoc_dir)
 
 
+def load_artifact_by_assessment_hash(*, assessment_hash: str,
+                                     active_book_id: Optional[str],
+                                     eligible_market_date: Optional[str],
+                                     hoc_dir=None) -> Optional[dict]:
+    """Load the EXACT version of a session whose stored ``assessment_hash`` matches.
+
+    Release 61 — a session may hold several immutable assessments (R54.3), so a
+    consumer that computed assessment X must be able to name the artifact that
+    IS assessment X, whatever later versions the session went on to acquire.
+    Without this the only by-content lookup available was "the latest", and a
+    consumer bound to an earlier version resolved to *not persisted* even though
+    its evidence was sitting on disk, retrievable, unchanged.
+
+    The newest matching version wins (an ``assessment_hash`` is content, so two
+    versions carrying it are the same assessment). ``None`` when the session
+    holds no version with that hash — never the latest as a consolation.
+    """
+    if not assessment_hash:
+        return None
+    want = str(assessment_hash)
+    for v in reversed(load_artifact_versions(
+            active_book_id=active_book_id,
+            eligible_market_date=eligible_market_date, hoc_dir=hoc_dir)):
+        if str(v.get("assessment_hash") or "") == want:
+            art = _read_indexed_artifact(v, hoc_dir)
+            if art is not None:
+                return art
+    return None
+
+
 def load_artifact_versions(*, active_book_id: Optional[str],
                            eligible_market_date: Optional[str],
                            hoc_dir=None) -> list[dict]:
@@ -1348,6 +1378,51 @@ def artifact_binding(persistence: Optional[dict] = None,
         "hoc_reused_recomputed_document": p.get("reused_recomputed_document"),
         "hoc_recomputed_assessment_hash": p.get("recomputed_assessment_hash"),
     }
+
+
+#: Release 61 — THE one spelling of "which assessment hash does this consumer
+#: depend on". A REUSE outcome (R55.2.2) means the caller's freshly derived
+#: document was NOT written: the durable evidence is the artifact already held,
+#: and :func:`artifact_binding` already reports the STORED identity. Every
+#: consumer that re-derived the hash from the transient in-memory assessment
+#: instead published an id/hash pair the store does not hold, and the R54.3
+#: exact-artifact governance check then refused it as
+#: ``HOC_ARTIFACT_IDENTITY_MISMATCH`` — a candidate withheld for evidence that
+#: was retrievable all along. There is now one function, and it lives with the
+#: artifact store that decides the answer.
+BOUND_HASH_OWNER = COMPOSITION_OWNER
+
+
+def bound_assessment_hash(binding: Optional[dict] = None,
+                          assessment: Optional[dict] = None) -> Optional[str]:
+    """The assessment hash a downstream consumer must publish as its dependency.
+
+    The binding's ``hoc_assessment_hash`` — the STORED artifact's — whenever a
+    binding exists, because that is the hash the artifact carries and therefore
+    the only one governance can prove. Falls back to the assessment's own hash
+    only when no binding was supplied at all, which is the honest answer for a
+    run that never reached the persistence owner. Never repairs, never infers.
+    """
+    b = binding or {}
+    stored = b.get("hoc_assessment_hash")
+    if stored:
+        return str(stored)
+    own = (assessment or {}).get("assessment_hash")
+    return str(own) if own else None
+
+
+def recomputed_assessment_hash(binding: Optional[dict] = None,
+                               assessment: Optional[dict] = None) -> Optional[str]:
+    """The hash of the document this run DERIVED, when it differs from the stored
+    one. Audit only: it names the re-derivation so nothing about a reuse is
+    hidden, and it is never a dependency identity."""
+    b = binding or {}
+    recomputed = (b.get("hoc_recomputed_assessment_hash")
+                  or (assessment or {}).get("assessment_hash"))
+    stored = b.get("hoc_assessment_hash")
+    if not recomputed or not stored:
+        return None
+    return str(recomputed) if str(recomputed) != str(stored) else None
 
 
 def resolve_binding(*, binding: Optional[dict] = None,

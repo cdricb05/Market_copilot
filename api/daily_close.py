@@ -1117,18 +1117,57 @@ def _walk_back_weekend(d: date) -> date:
     return msession.walk_back_to_trading_day(d)
 
 
+#: Release 61 — how wide a window this module asks the authoritative exchange
+#: calendar for. Rule-based arithmetic, no IO, so the cost is irrelevant; the
+#: width only has to cover a walk-back across a long holiday weekend.
+_CALENDAR_LOOKBACK_DAYS = 30
+_CALENDAR_LOOKAHEAD_DAYS = 7
+
+
+def _authoritative_non_sessions(anchor: date) -> frozenset[str]:
+    """The AUTHORITATIVE exchange closures around ``anchor``.
+
+    Release 61 — the ONE calendar owner (``engine.exchange_calendar``) answers.
+    This module derives no holiday of its own and guesses none: when the
+    calendar cannot answer for the window, the set is empty and the session
+    policy degrades to its documented weekday-only behaviour, unchanged.
+    """
+    try:
+        from paper_trader.engine import exchange_calendar as xcal
+        return frozenset(xcal.non_sessions_between(
+            anchor - timedelta(days=_CALENDAR_LOOKBACK_DAYS),
+            anchor + timedelta(days=_CALENDAR_LOOKAHEAD_DAYS)))
+    except Exception:  # noqa: BLE001 — an unreadable calendar is not a holiday
+        return frozenset()
+
+
 def _expected_session(now_et: datetime) -> tuple[date, bool, bool]:
     """The clock's latest EXPECTED completed trading session, whether the post-close
     safety cutoff has passed, and whether we are inside a trading day still forming
-    today's session (a weekday before the cutoff).
+    today's session (a trading day before the cutoff).
 
     COMPATIBILITY WRAPPER (Slice 1): the weekday/cutoff/walk-back arithmetic is
     owned by ``engine.market_session``; this delegates with the World B policy
-    (17:30 ET post-close cutoff) and returns the identical triple. A holiday only
-    makes the expected date one session too new — provider confirmation (part B)
-    then resolves it to the latest actual session."""
-    es = msession.resolve_expected_session(now_et, close_cutoff_et=POST_CLOSE_CUTOFF_ET)
+    (17:30 ET post-close cutoff) and returns the identical triple.
+
+    RELEASE 61 — the AUTHORITATIVE calendar is now supplied. R60.1 built
+    ``engine.exchange_calendar`` and taught ``engine.market_session`` to honour
+    it, but this call site — the one that decides which session the owned
+    provider is probed for — still passed nothing, so it stayed weekday-only.
+    On 2026-09-08 that published ``expected_market_date = 2026-09-07``: Labor
+    Day, a full-day closure, named as the session the provider owed data for,
+    beside a session-recovery block that correctly said 2026-09-04. Two dates,
+    two policies, one clock. There is now ONE calendar, and a full-day exchange
+    holiday can no longer appear as a provider-expected market date."""
+    es = msession.resolve_expected_session(
+        now_et, close_cutoff_et=POST_CLOSE_CUTOFF_ET,
+        non_sessions=_authoritative_non_sessions(_ET_date(now_et)))
     return es.market_date, es.cutoff_passed, es.within_trading_day
+
+
+def _ET_date(now_et: datetime) -> date:
+    """The Eastern calendar date of a clock instant, through the session owner."""
+    return msession.to_eastern(now_et).date()
 
 
 #: Release 54.2.1 — why a SESSION BINDING may narrow the clock's expectation, and the
@@ -1174,9 +1213,12 @@ def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None,
     if now is None and _now_override is None and os.environ.get(NOW_ENV) is None \
             and today is not None:
         d = date.fromisoformat(str(today)[:10])
-        # Offline injected-date rule (weekday before ``today``) — owned by
+        # Offline injected-date rule (trading day before ``today``) — owned by
         # engine.market_session.previous_trading_day (Slice 1 delegation).
-        expected = msession.previous_trading_day(d)
+        # R61 — the same authoritative calendar as the live path, so an offline
+        # harness cannot name a full-day exchange holiday a completed session.
+        expected = msession.previous_trading_day(
+            d, _authoritative_non_sessions(d))
         base.update({
             "now_et": None, "cutoff_passed": True, "within_trading_day": False,
             "expected_market_date": expected.isoformat(),

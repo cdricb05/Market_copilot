@@ -322,10 +322,30 @@ def _aligned_returns(*, price_panel: dict, tickers: list, eligible: str,
                               as_of=eligible, lookback=lookback)
 
 
+def _bound_hoc_assessment_hash(hoc_binding, hoc_assessment):
+    """Release 61 - the dependency hash, spelled by the opportunity-cost owner.
+
+    This proposal is the THIRD consumer of that identity (after the event cycle
+    and the reassessment). On a REUSE the caller's re-derived document was never
+    written, so publishing its hash here would bind the proposal to an
+    assessment the store does not hold - and the governed gate's
+    TARGET_BOUND_TO_SAME_HOC check would then refuse a proposal whose evidence
+    is perfectly retrievable. One owner, one spelling, three consumers.
+    """
+    try:
+        from paper_trader.api import holding_opportunity_cost as hocm
+        return hocm.bound_assessment_hash(binding=hoc_binding,
+                                          assessment=hoc_assessment)
+    except Exception:  # noqa: BLE001 - a contract build never crashes on a read
+        return ((hoc_binding or {}).get("hoc_assessment_hash")
+                or (hoc_assessment or {}).get("assessment_hash"))
+
+
 def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment: dict,
                          price_panel: Optional[dict] = None,
                          policy: Optional[dict] = None,
-                         frontier: Optional[dict] = None) -> dict:
+                         frontier: Optional[dict] = None,
+                         hoc_binding: Optional[dict] = None) -> dict:
     """Assemble the immutable point-in-time reallocation-input contract.
 
     Everything is sourced as of the portfolio-state eligible market date. No expected
@@ -403,7 +423,9 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "corporate_actions_hash": _corporate_actions_hash(ps),
         "universe_scoring_hash": sc.get("output_hash"),
         "universe_input_contract_hash": sc.get("input_contract_hash"),
-        "hoc_assessment_hash": hoc.get("assessment_hash"),
+        "hoc_assessment_hash": _bound_hoc_assessment_hash(hoc_binding, hoc),
+        "hoc_recomputed_assessment_hash": (hoc_binding or {}).get(
+            "hoc_recomputed_assessment_hash"),
         "hoc_assessment_state": hoc_state,
         "hoc_available": hoc_available,
         "hoc_data_gaps": list(hoc_gaps),
@@ -468,6 +490,7 @@ def run_proposal(*, input_contract: Optional[dict] = None,
                  portfolio_state: Optional[dict] = None,
                  scoring: Optional[dict] = None,
                  hoc_assessment: Optional[dict] = None,
+                 hoc_binding: Optional[dict] = None,
                  price_panel: Optional[dict] = None,
                  policy: Optional[dict] = None,
                  hoc_dir=None,
@@ -512,7 +535,7 @@ def run_proposal(*, input_contract: Optional[dict] = None,
                 fr = None
         input_contract = build_input_contract(
             portfolio_state=ps, scoring=sc, hoc_assessment=hoc or {},
-            price_panel=pp_obj, policy=pol, frontier=fr)
+            price_panel=pp_obj, policy=pol, frontier=fr, hoc_binding=hoc_binding)
     result = kernel.build_proposal(input_contract=input_contract, policy=pol)
     return {"input_contract": input_contract, "proposal": result}
 
@@ -658,6 +681,7 @@ def load_latest_artifact(*, active_book_id: Optional[str],
 def run_and_persist(*, portfolio_state: Optional[dict] = None,
                     scoring: Optional[dict] = None,
                     hoc_assessment: Optional[dict] = None,
+                    hoc_binding: Optional[dict] = None,
                     price_panel: Optional[dict] = None, policy: Optional[dict] = None,
                     reallocation_dir=None, hoc_dir=None, now: Optional[datetime] = None,
                     portfolio_state_loader: Optional[Callable] = None,
@@ -667,6 +691,7 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
     """The Daily Research Cycle entry: build -> kernel -> persist (idempotent)."""
     run = run_proposal(
         portfolio_state=portfolio_state, scoring=scoring, hoc_assessment=hoc_assessment,
+        hoc_binding=hoc_binding,
         price_panel=price_panel, policy=policy, hoc_dir=hoc_dir,
         portfolio_state_loader=portfolio_state_loader, scoring_loader=scoring_loader,
         price_panel_loader=price_panel_loader, hoc_assessment_loader=hoc_assessment_loader)

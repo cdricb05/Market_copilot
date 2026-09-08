@@ -3718,3 +3718,86 @@ process health is a separate, secondary row, because a healthy process is not
 successful research.
 
 Full narrative: `docs/RELEASE60_ARCHITECTURE_CONSOLIDATION.md`.
+
+## Release 61 — decision & research continuity (2026-09-08)
+
+Full report: [RELEASE61_DECISION_RESEARCH_CONTINUITY.md](RELEASE61_DECISION_RESEARCH_CONTINUITY.md).
+R61 changes no economics, no threshold and no decision policy. Every fix is an
+IDENTITY or a STATE WORD that was wrong, each diagnosed against the live artifact
+that exhibited it.
+
+**Decision continuity.** A same-session opportunity-cost REUSE leaves the
+caller's re-derived document unwritten, and R55.2.2 already made
+`artifact_binding()` report the STORED identity. Two consumers went on
+re-deriving that field independently from the transient assessment and published
+it beside the stored `artifact_id`, so the R54.3 exact-artifact governance check
+correctly refused a chain whose evidence was retrievable all along
+(`HOC_ARTIFACT_IDENTITY_MISMATCH`, live on 2026-09-08). A THIRD consumer, the
+reallocation proposal, published it too, and the gate cross-checks the
+proposal's against the candidate's - so repairing only two would have traded one
+withheld reason for another. There is now ONE spelling
+— `holding_opportunity_cost.bound_assessment_hash()` — and the re-derivation
+stays visible beside it as audit, never as identity.
+`portfolio_reassessment.resolve_hoc_binding()` additionally resolved "latest HOC"
+rather than the exact bound one, stranding any consumer of an earlier version of
+a multi-version session; `load_artifact_by_assessment_hash()` resolves by content
+across the whole append-only chain, and a hash no version holds still resolves to
+nothing.
+
+**Duplicate detection.** `govern_latest_intraday_assessment` compared its
+candidate against `project_governed_daily_cycle_decision(...)` built from THE
+CANDIDATE'S OWN reassessment and proposal — a self-comparison no new evidence
+could ever beat, which made `DUPLICATE_CANDIDATE` a structural false positive for
+every genuinely new intraday candidate. The R54.4 rule that prevents it (a real
+daily ledger row RETIRES the projection) already existed and the READ had always
+applied it; the gate declared parity in a comment and did not perform it. The
+rule now lives in ONE function, `resolve_standing_governed_decision()`, used by
+both.
+
+**Research continuity.** `alpha_agent/r59/blockers.py` is the canonical,
+asset-agnostic blocked-reason taxonomy (eleven reasons, three clearance classes);
+all seventeen live blocked jobs across five asset classes classify, and an
+unrecognised blocker is never folded into a neighbour. The runtime publishes a
+live reason while researching and a truthful waiting state with a WAKE CONDITION
+otherwise — before R61 it reported `RESEARCHING` with `stop_or_sleep_reason:
+STARTING` and no wake condition for the entire life of a worker whose uncapped
+first cycle never ended. Two closed loops that produced 89,077 zero-information
+job completions in twenty-four hours are closed at the source: a data-opportunity
+probe is issued only when its own substrate WATERMARK has moved (four mandates
+had been re-executed ~17,700 times each for an identical non-answer), and the
+generative search seed now advances with the generator's own draw ledger instead
+of sitting at a fixpoint that re-proposed one already-booked expression 18,621
+times.
+
+**Prospective adoption.** `api/prospective_adoption.py` is the ONE governed
+operation that turns a qualified freeze into a challenger a canonical
+forward-evidence owner is accruing for, and the ONE lifecycle reconstruction over
+persisted history (ACTIVE / WITHDRAWN / INVALIDATED / SUPERSEDED / MATURED /
+FAILED). Before R61 the freeze and the registration were two unrelated writes and
+only the first ever happened. It is idempotent, refuses everything that is not
+ACTIVE, refuses any backdated observation clock, and makes the two halves
+RECOVERABLE rather than pretending they are atomic: the intent is durable before
+the registrar is called, so a crash leaves a named resumable record instead of a
+silent orphan. It is not a second registry — registration is delegated by
+challenger class — and it is INJECTED from the composition root, because the
+research package may not import the application layer.
+
+**Cross-surface consistency.** `api/daily_close.py` now asks the ONE exchange
+calendar which session the provider owes data for; it had stayed weekday-only
+after R60.1 and published Labor Day (2026-09-07) as the latest expected COMPLETED
+session on 2026-09-08 while session recovery correctly said 2026-09-04.
+`current_open_or_next_session` never carried the session it named and is
+deprecated in place beside `latest_expected_completed_session`. The Active
+Manager latency gap is a category error over an immutable daily-lane record, not
+a missing write: the producer's own `intraday_latency_applicable: False` now
+reaches the latency owner prospectively, the read names
+`structurally_absent_measurements` vs `measurements_missing_and_expected`, and
+the acceptance contract gains `NOT_APPLICABLE_TO_THIS_LANE`. Nothing is
+backfilled.
+
+**Remaining gap, stated.** Lifecycle and evidence contracts are asset-agnostic;
+operational capital is still equity-centric and R61 adds no multi-asset NAV, risk
+state or execution path. R58/R59-class signal challengers still have no canonical
+forward-evidence registrar (sequenced R62.3); four ACTIVE freezes wait on it, and
+until then adoption refuses with `NO_CANONICAL_REGISTRAR` and a durable OPEN
+intent.

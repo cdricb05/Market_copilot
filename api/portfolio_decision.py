@@ -2266,6 +2266,78 @@ def load_persisted_daily_decision(*, active_book_id: Optional[str],
         return None
 
 
+#: Release 61 — why the legacy projection may not stand as an authority the
+#: governance gate compares a candidate against.
+#:
+#: ``project_governed_daily_cycle_decision`` builds its identity from the
+#: reassessment and proposal it is HANDED. The intraday gate hands it the very
+#: reassessment and proposal the candidate under evaluation is built from, so
+#: the projection's core evidence equalled the candidate's BY CONSTRUCTION and
+#: ``CANDIDATE_ADDS_NEW_EVIDENCE`` could never pass: every genuinely new
+#: evidence-bearing intraday candidate was refused as ``DUPLICATE_CANDIDATE``.
+#:
+#: The R54.4 rule that prevents this already exists and the READ has always
+#: applied it — a real daily ledger row RETIRES the projection for that session,
+#: because two descriptions of one decision must never both be candidates for
+#: authority. The gate declared parity with that read in a comment and did not
+#: perform it. This resolver is that rule, in ONE place, used by both.
+PROJECTION_RETIRED_BY_LEDGER_ROW = "LEGACY_DAILY_PROJECTION_RETIRED_BY_LEDGER_ROW"
+
+
+def resolve_standing_governed_decision(*, persisted: Optional[dict],
+                                       projected: Optional[dict],
+                                       decision_dir=None) -> dict:
+    """THE standing governed authority, and what it was chosen over.
+
+    Pure selection over two candidate descriptions under the ONE ordering
+    function, with the R54.4 retirement applied first. Reads only the governed
+    ledger (through :func:`load_persisted_daily_decision`); writes nothing.
+    """
+    projection_suppressed = False
+    if projected and projected.get("decision"):
+        pid = projected.get("identity") or {}
+        row = load_persisted_daily_decision(
+            active_book_id=(projected.get("active_book_id")
+                            or pid.get("active_book_id")),
+            eligible_market_session=projected.get("eligible_market_session"),
+            decision_dir=decision_dir)
+        if row:
+            projection_suppressed = True
+            projected = None
+    rows = [r for r in (persisted, projected) if r and r.get("decision")]
+    standing = (max(rows, key=governed_decision_ordering_key) if rows else None)
+    return {
+        "standing": standing,
+        "persisted_record_present": bool(persisted),
+        "projected_daily_cycle_present": bool(projected),
+        "legacy_daily_projection_suppressed": projection_suppressed,
+        "suppression_reason": (PROJECTION_RETIRED_BY_LEDGER_ROW
+                               if projection_suppressed else None),
+        "resolved_by": GOVERNANCE_GATE_OWNER,
+    }
+
+
+#: R61 — the endpoints that only the INTRADAY lane can own. A producer that
+#: declares ``intraday_latency_applicable: False`` never had an observation to
+#: receive or an event cycle to start, so an absent stamp there is a fact about
+#: the lane, not a broken chain.
+INTRADAY_ONLY_LATENCY_STAGES = ("observation_received_at",
+                                "event_cycle_started_at")
+
+
+def _not_required_latency_stages(latency_inputs: Optional[dict]) -> list:
+    """Which latency endpoints the PRODUCER proved it legitimately never ran.
+
+    Only the producer may excuse a stage (the R55.1 rule), and this reads that
+    declaration rather than inferring one: a producer that says nothing excuses
+    nothing, and every unstamped endpoint stays MISSING.
+    """
+    li = latency_inputs or {}
+    if li.get("intraday_latency_applicable") is False:
+        return list(INTRADAY_ONLY_LATENCY_STAGES)
+    return []
+
+
 def record_governed_decision(*, candidate: dict, gate: dict,
                              provenance: str = PROV_GOVERNED_INTRADAY,
                              confirm: Optional[str] = None,
@@ -2353,7 +2425,19 @@ def record_governed_decision(*, candidate: dict, gate: dict,
             observation_provenance=li.get("observation_provenance"),
             event_cycle_processing_seconds=li.get("cycle_duration_seconds"),
             governance_gate_completed_at=(gate or {}).get("evaluated_at"),
-            governed_decision_persisted_at=ts)
+            governed_decision_persisted_at=ts,
+            # R61 — the PRODUCER's own declaration reaches the latency owner.
+            # The daily lane already said ``intraday_latency_applicable:
+            # False`` — it processes no observation and runs no event cycle, so
+            # those two endpoints do not exist for it — but the declaration was
+            # never passed on, so both came back MISSING and the Active Manager
+            # acceptance read 9/10 with LATENCY MISSING against a decision that
+            # structurally never had them. This is NOT a backfill: no timestamp
+            # is invented, and a stage that DID stamp is still measured on its
+            # own evidence (``measure_decision_latency`` excuses only unstamped
+            # endpoints). An intraday decision, which does own both, is
+            # unaffected and still reports MISSING when either is absent.
+            not_required_stages=_not_required_latency_stages(li))
     except Exception as exc:  # noqa: BLE001 - observability never blocks a decision
         latency = {"latency_measurement_complete": False,
                    "measurement_unavailable": str(exc)[:160]}
@@ -2551,10 +2635,14 @@ def govern_latest_intraday_assessment(
         decision_dir=decision_dir)
     projected_standing = project_governed_daily_cycle_decision(
         workflow=wf, reassessment=rs, proposal_summary=summ, constrained=con)
-    standing_rows = [r for r in (persisted_standing, projected_standing)
-                     if r and r.get("decision")]
-    standing = (max(standing_rows, key=governed_decision_ordering_key)
-                if standing_rows else None)
+    # R61 — resolved through the ONE resolver, so the gate performs the same
+    # R54.4 retirement the read performs instead of merely claiming to. The
+    # projection is built from THIS candidate's own reassessment and proposal;
+    # left standing it is a self-comparison no new evidence can ever beat.
+    standing_resolution = resolve_standing_governed_decision(
+        persisted=persisted_standing, projected=projected_standing,
+        decision_dir=decision_dir)
+    standing = standing_resolution["standing"]
     gate = evaluate_intraday_governance(
         candidate=candidate, portfolio_state=ps, event_cycle=ev,
         reassessment=rs, proposal_summary=summ, constrained=con, workflow=wf,
@@ -2578,6 +2666,12 @@ def govern_latest_intraday_assessment(
         "candidate": candidate,
         "gate": gate,
         "standing_decision_id": (standing or {}).get("record_id"),
+        # R61 — WHICH description of the standing decision the gate compared
+        # against, and whether the legacy projection was retired by a real
+        # ledger row. An operator reading DUPLICATE_CANDIDATE needs to know what
+        # the candidate was said to duplicate.
+        "standing_decision_resolution": {
+            k: v for k, v in standing_resolution.items() if k != "standing"},
         "warnings": warnings,
         "safety": _governed_safety(),
     }
@@ -3730,20 +3824,13 @@ def load_governed_portfolio_decision(*, workflow: Optional[dict] = None,
     # daily ledger row exists for that book and session, the row IS the decision
     # and the projection is retired: two descriptions of one decision must never
     # both be candidates for authority.
-    projection_suppressed = False
-    if projected and projected.get("decision"):
-        pid = projected.get("identity") or {}
-        row = load_persisted_daily_decision(
-            active_book_id=(projected.get("active_book_id")
-                            or pid.get("active_book_id")),
-            eligible_market_session=projected.get("eligible_market_session"),
-            decision_dir=decision_dir)
-        if row:
-            projection_suppressed = True
-            projected = None
-    candidates = [r for r in (persisted, projected) if r and r.get("decision")]
-    latest = (max(candidates, key=governed_decision_ordering_key)
-              if candidates else None)
+    # R61 — the retirement rule lives in ONE function, shared verbatim with the
+    # governance gate (see ``resolve_standing_governed_decision``).
+    resolution = resolve_standing_governed_decision(
+        persisted=persisted, projected=projected, decision_dir=decision_dir)
+    projection_suppressed = resolution["legacy_daily_projection_suppressed"]
+    projected = None if projection_suppressed else projected
+    latest = resolution["standing"]
     return {
         "owner": GOVERNANCE_GATE_OWNER,
         "gate_version": GOVERNANCE_GATE_VERSION,
@@ -3937,4 +4024,7 @@ __all__ = [
     "DECISION_PERSISTENCE_UNPERSISTED", "GOVERNED_DAILY_NOT_PERSISTED_BLOCKER",
     "GOVERNED_DAILY_WRITE_CUTOVER_RELEASE", "GOVERNED_DAILY_WRITE_CUTOVER_SESSION",
     "GOVERNED_DAILY_WRITE_CUTOVER_BASIS", "governed_daily_write_expected",
+    # R61 — the ONE standing-authority resolver, shared by the gate and the read.
+    "resolve_standing_governed_decision", "PROJECTION_RETIRED_BY_LEDGER_ROW",
+    "INTRADAY_ONLY_LATENCY_STAGES",
 ]
