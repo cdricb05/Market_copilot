@@ -144,27 +144,43 @@ def format_operator_timestamp(value: Any, *, with_date: bool = True
     return "%s %d, %s" % (et.strftime("%b"), et.day, clock)
 
 
-def walk_back_to_trading_day(d: date) -> date:
-    """Return ``d`` moved back to the nearest weekday (Mon–Fri) at or before it.
+def walk_back_to_trading_day(d: date, non_sessions: Any = None) -> date:
+    """Return ``d`` moved back to the nearest TRADING day at or before it.
 
-    Weekday-only: there is no holiday calendar. Saturday/Sunday resolve to the
-    prior Friday; a weekday is returned unchanged.
+    Weekends always resolve back (Saturday/Sunday → the prior Friday). When an
+    AUTHORITATIVE ``non_sessions`` set is supplied (Release 60.1 —
+    ``engine.exchange_calendar``) its dates are skipped too, so an exchange
+    holiday resolves back to the session that actually traded. With no calendar
+    supplied the behaviour is unchanged and weekday-only, which is exactly the
+    documented degraded policy — never a holiday guess.
     """
-    while d.weekday() >= 5:  # 5 = Sat, 6 = Sun
+    skip = _norm_non_sessions(non_sessions)
+    guard = 0
+    while (d.weekday() >= 5 or d.isoformat() in skip) and guard < 30:
         d -= timedelta(days=1)
+        guard += 1
     return d
 
 
-def previous_trading_day(d: date) -> date:
-    """Return the most recent weekday strictly before ``d`` (weekday-only)."""
-    return walk_back_to_trading_day(d - timedelta(days=1))
+def previous_trading_day(d: date, non_sessions: Any = None) -> date:
+    """Return the most recent trading day strictly before ``d``.
+
+    Weekday-only unless an authoritative ``non_sessions`` set is supplied.
+    """
+    return walk_back_to_trading_day(d - timedelta(days=1), non_sessions)
 
 
-def next_trading_day(d: date) -> date:
-    """Return the nearest weekday strictly after ``d`` (weekday-only)."""
+def next_trading_day(d: date, non_sessions: Any = None) -> date:
+    """Return the nearest trading day strictly after ``d``.
+
+    Weekday-only unless an authoritative ``non_sessions`` set is supplied.
+    """
+    skip = _norm_non_sessions(non_sessions)
     d += timedelta(days=1)
-    while d.weekday() >= 5:  # 5 = Sat, 6 = Sun
+    guard = 0
+    while (d.weekday() >= 5 or d.isoformat() in skip) and guard < 30:
         d += timedelta(days=1)
+        guard += 1
     return d
 
 
@@ -231,49 +247,95 @@ class ExpectedSession:
     within_trading_day: bool
     now_et: datetime
     close_cutoff_et: time
+    #: Release 60.1 — the AUTHORITATIVE non-session dates that were stepped over to
+    #: reach ``market_date`` (exchange holidays between the resolved session and the
+    #: clock's own date, the clock's date included when it was itself a non-session).
+    #: Empty whenever no calendar was supplied or none applied.
+    non_sessions_skipped: tuple[str, ...] = ()
 
     @property
     def market_date_iso(self) -> str:
         return self.market_date.isoformat()
 
 
+def _skipped_non_sessions(*, from_date: date, to_date: date,
+                          non_sessions: frozenset[str]) -> tuple[str, ...]:
+    """The authoritative non-session dates in ``(to_date, from_date]``, ascending.
+
+    ``from_date`` is the clock's own ET date and ``to_date`` the session that was
+    finally resolved, so a holiday on the clock's own day is included and the
+    resolved session itself never is. Weekends are absent from the authoritative
+    set by construction, so only DECLARED exchange closures appear here.
+    """
+    if not non_sessions or from_date <= to_date:
+        return ()
+    out: list[str] = []
+    cur = from_date
+    guard = 0
+    while cur > to_date and guard < 30:
+        iso = cur.isoformat()
+        if iso in non_sessions:
+            out.append(iso)
+        cur -= timedelta(days=1)
+        guard += 1
+    return tuple(sorted(out))
+
+
 def resolve_expected_session(
     now: datetime,
     *,
     close_cutoff_et: Any = DEFAULT_CLOSE_CUTOFF_ET,
+    non_sessions: Any = None,
 ) -> ExpectedSession:
     """Resolve the latest EXPECTED completed session from a datetime clock (pure).
 
-    On a weekday at/after ``close_cutoff_et`` (US/Eastern) today's session is
-    expected complete; otherwise the most recent prior weekday. Weekends resolve
-    back to the prior Friday. No holiday calendar is consulted — a holiday only
-    makes the expected date one session too *new*; owned-data confirmation
-    (``evaluate_session``) then resolves it to the latest actual session.
+    On a TRADING day at/after ``close_cutoff_et`` (US/Eastern) today's session is
+    expected complete; otherwise the most recent prior trading day. Weekends
+    resolve back to the prior Friday.
+
+    Release 60.1 — a trading day is a weekday that the AUTHORITATIVE calendar
+    (``non_sessions``, supplied by ``engine.exchange_calendar``) does not name a
+    closure. An exchange holiday is therefore never treated as a session that
+    could close: the cutoff never "passes" on it, the operator is never told
+    today's session is still forming on a day the market never opened, and the
+    expected date steps back to the session that actually traded. With NO
+    calendar supplied the behaviour is byte-for-byte the previous weekday-only
+    policy — this module still never guesses a holiday.
     """
     cutoff = _coerce_cutoff(close_cutoff_et)
+    skip = _norm_non_sessions(non_sessions)
     et = to_eastern(now)
-    is_weekday = et.weekday() < 5
-    cutoff_passed = bool(is_weekday and et.timetz().replace(tzinfo=None) >= cutoff)
-    candidate = et.date() if cutoff_passed else et.date() - timedelta(days=1)
-    within_trading_day = bool(is_weekday and not cutoff_passed)
+    today = et.date()
+    is_session_day = bool(et.weekday() < 5 and today.isoformat() not in skip)
+    cutoff_passed = bool(is_session_day
+                         and et.timetz().replace(tzinfo=None) >= cutoff)
+    candidate = today if cutoff_passed else today - timedelta(days=1)
+    within_trading_day = bool(is_session_day and not cutoff_passed)
+    market_date = walk_back_to_trading_day(candidate, skip)
     return ExpectedSession(
-        market_date=walk_back_to_trading_day(candidate),
+        market_date=market_date,
         cutoff_passed=cutoff_passed,
         within_trading_day=within_trading_day,
         now_et=et,
         close_cutoff_et=cutoff,
+        non_sessions_skipped=_skipped_non_sessions(
+            from_date=today, to_date=market_date, non_sessions=skip),
     )
 
 
-def expected_from_reference_date(reference_today: Any) -> ExpectedSession:
+def expected_from_reference_date(reference_today: Any,
+                                 non_sessions: Any = None) -> ExpectedSession:
     """Offline / injected-date resolution: the latest completed session is the
-    weekday BEFORE ``reference_today`` (the deterministic rule the offline harness
-    and ``paper_trading_desk._required_mark_date`` already use). ``cutoff_passed``
-    is treated as True and ``within_trading_day`` as False (no live clock)."""
+    trading day BEFORE ``reference_today`` (the deterministic rule the offline
+    harness and ``paper_trading_desk._required_mark_date`` already use).
+    ``cutoff_passed`` is treated as True and ``within_trading_day`` as False (no
+    live clock). Release 60.1 — an authoritative ``non_sessions`` set is honoured
+    here too, so the offline path cannot name a holiday a completed session."""
     d = _coerce_date(reference_today)
     if d is None:
         raise ValueError("reference_today must be a date or ISO date string")
-    expected = previous_trading_day(d)
+    skip = _norm_non_sessions(non_sessions)
+    expected = previous_trading_day(d, skip)
     et_midnight = datetime(d.year, d.month, d.day, tzinfo=_ET)
     return ExpectedSession(
         market_date=expected,
@@ -281,6 +343,8 @@ def expected_from_reference_date(reference_today: Any) -> ExpectedSession:
         within_trading_day=False,
         now_et=et_midnight,
         close_cutoff_et=DEFAULT_CLOSE_CUTOFF_ET,
+        non_sessions_skipped=_skipped_non_sessions(
+            from_date=d, to_date=expected, non_sessions=skip),
     )
 
 
@@ -315,8 +379,16 @@ class MarketSession:
     # inferred as a holiday. False otherwise.
     calendar_policy_degraded: bool = False
     # Authoritative non-session dates (exchange holidays / provider-confirmed
-    # non-sessions) that were used to resolve the expected session, if any.
+    # non-sessions) that were APPLIED to resolve the expected session, if any.
     authoritative_non_sessions: tuple[str, ...] = ()
+    # Release 60.1 — the FULL authoritative calendar window that was supplied,
+    # whether or not any of it applied to this evaluation. ``authoritative_non_
+    # sessions`` answers "which closures moved this date?"; this answers "which
+    # closures does the calendar know about at all?" and is what a downstream
+    # session ENUMERATION (the missed-session catch-up projection) must use — a
+    # holiday that did not move today's date must still be excluded from the list
+    # of sessions that were owed.
+    exchange_calendar_non_sessions: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         d = {
@@ -340,6 +412,8 @@ class MarketSession:
             "operator_action": self.operator_action,
             "calendar_policy_degraded": self.calendar_policy_degraded,
             "authoritative_non_sessions": list(self.authoritative_non_sessions),
+            "exchange_calendar_non_sessions": list(
+                self.exchange_calendar_non_sessions),
             "warnings": list(self.warnings),
         }
         return d
@@ -393,17 +467,6 @@ def evaluate_session(
     """
     if now is not None and reference_today is not None:
         raise ValueError("supply either now or reference_today, not both")
-    if now is not None:
-        exp = resolve_expected_session(now, close_cutoff_et=close_cutoff_et)
-    elif reference_today is not None:
-        exp = expected_from_reference_date(reference_today)
-    else:
-        raise ValueError("evaluate_session requires an explicit clock (now or reference_today)")
-
-    expected = exp.market_date
-    confirmed = _coerce_date(latest_confirmed_owned_data_date)
-    benchmark = _coerce_date(latest_benchmark_date)
-    warnings: list[str] = []
 
     # AUTHORITATIVE non-session dates (exchange holidays / provider-confirmed
     # non-sessions). These are the ONLY inputs allowed to classify a weekday as a
@@ -414,6 +477,23 @@ def evaluate_session(
     calendar_available = (bool(exchange_calendar_available)
                           if exchange_calendar_available is not None
                           else authoritative_non_sessions is not None)
+
+    # Release 60.1 — the calendar is resolved BEFORE the clock so the expected
+    # session is holiday-aware from the start. Previously the expectation was
+    # weekday-only and a holiday could only be corrected downstream, which left an
+    # exchange closure looking like a session that had merely not published yet.
+    if now is not None:
+        exp = resolve_expected_session(now, close_cutoff_et=close_cutoff_et,
+                                       non_sessions=non_sessions)
+    elif reference_today is not None:
+        exp = expected_from_reference_date(reference_today, non_sessions)
+    else:
+        raise ValueError("evaluate_session requires an explicit clock (now or reference_today)")
+
+    expected = exp.market_date
+    confirmed = _coerce_date(latest_confirmed_owned_data_date)
+    benchmark = _coerce_date(latest_benchmark_date)
+    warnings: list[str] = []
 
     evaluated_utc = (exp.now_et.astimezone(timezone.utc).isoformat()
                      if exp.now_et.tzinfo else None)
@@ -446,6 +526,7 @@ def evaluate_session(
             warnings=tuple(warnings),
             calendar_policy_degraded=bool(calendar_policy_degraded),
             authoritative_non_sessions=tuple(non_session_dates),
+            exchange_calendar_non_sessions=tuple(sorted(non_sessions)),
         )
 
     # Calendar-only mode (no owned-data confirmation requested): World A / 16:00.
@@ -517,6 +598,26 @@ def evaluate_session(
                 gate=GATE_OWNED_DATA_LAG,
                 action="Wait for the owned benchmark (SPY) to publish the %s session."
                        % expected.isoformat())
+        # Release 60.1 — the expected session was reached by stepping OVER one or
+        # more AUTHORITATIVE exchange closures, and owned data confirms it. The
+        # operator must see WHY the eligible date did not advance with the clock,
+        # so this is reported as NON_SESSION (ready) naming the closure, not as a
+        # bare SESSION_READY that looks like a stale date.
+        if exp.non_sessions_skipped:
+            skipped_txt = ", ".join(exp.non_sessions_skipped)
+            warnings.append(
+                "Authoritative calendar: %s is a non-session; the latest actual "
+                "session is %s and owned data confirms it."
+                % (skipped_txt, expected.isoformat()))
+            return build(
+                eligible=expected, status=NON_SESSION, ready=True,
+                non_session_dates=exp.non_sessions_skipped,
+                reason="Authoritative non-session(s) %s; the latest completed session "
+                       "is %s and owned data confirms it."
+                       % (skipped_txt, expected.isoformat()),
+                gate=GATE_NONE,
+                action="None — %s is a confirmed non-session; %s is the eligible "
+                       "session." % (skipped_txt, expected.isoformat()))
         return build(
             eligible=expected, status=SESSION_READY, ready=True,
             reason="Owned data (market + benchmark) confirms the expected completed "

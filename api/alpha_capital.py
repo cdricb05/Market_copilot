@@ -514,6 +514,17 @@ def load_alpha_capital(*, cash_frontier: Optional[dict] = None,
         "cash_decision": _cash_decision(cash_frontier),
         "zero_base": (cash_frontier or {}).get("targets") or {},
         "incumbent_opportunity_cost": opp,
+        # Release 60.1 - republished VERBATIM from the frontier owner this read
+        # model has ALREADY composed above. The operator surface needs both, and
+        # before R60.1 it fetched /v1/operations/cash-deployment-frontier a second
+        # time to get them - so one page load ran the (~35s) zero-base allocator
+        # TWICE, concurrently, and the alpha-capital request routinely exceeded the
+        # browser read timeout. Nothing is recomputed here and no owner is
+        # duplicated: these are api.cash_deployment_frontier's own answers.
+        "deployment_ladder": (cash_frontier or {}).get("deployment_ladder"),
+        "redeployment_ladder": (cash_frontier or {}).get("redeployment_ladder"),
+        "cash_deployment_frontier_provenance": (
+            (cash_frontier or {}).get("provenance")),
         # 4 - the alpha opportunities
         "alpha_registry": rs,
         "top_opportunities": _top_opportunities(registry),

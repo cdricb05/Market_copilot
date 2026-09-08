@@ -4390,7 +4390,15 @@ def load_workflow_state(
         session_status=session_status, owned_data_lag=owned_data_lag,
         inconsistent=inconsistent_inputs, cycle_running=cycle_running,
         cycle_blocked=cycle_blocked,
-        authoritative_non_sessions=session.get("authoritative_non_sessions"),
+        # Release 60.1 — the FULL authoritative calendar window, not just the
+        # closures that happened to move today's expected date. The enumeration
+        # asks "which completed sessions were owed?", so every exchange holiday in
+        # the recovered range must be excluded, including ones that did not affect
+        # the current session verdict. Passing the applied-only list is what let
+        # Labor Day 2026-09-07 be enumerated as an unclosed session.
+        authoritative_non_sessions=(
+            session.get("exchange_calendar_non_sessions")
+            or session.get("authoritative_non_sessions")),
         provider_readiness=provider_readiness,
         market_data_scope=market_data_scope)
     catch_up_required = bool(session_recovery["catch_up_required"])

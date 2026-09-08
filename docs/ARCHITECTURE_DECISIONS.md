@@ -88,9 +88,24 @@
   (`GET /v1/operations/data-freshness`) and one UI loader (`loadDataFreshness()`).
 - **Policy:** owned-provider-confirmed sessions are the holiday-safe authority; the
   weekday+cutoff calculation is an explicit *expectation* (`WEEKDAY_CUTOFF_NO_HOLIDAYS`)
-  that never overrides confirmed owned data. No exchange-holiday calendar dependency
-  is installed, so none is used. The two close policies (16:00 World A / 17:30
-  World B) are preserved as an explicit `close_cutoff_et` parameter, not hard-coded.
+  that never overrides confirmed owned data. The two close policies (16:00 World A /
+  17:30 World B) are preserved as an explicit `close_cutoff_et` parameter, not
+  hard-coded.
+- **Release 60.1 amendment — the calendar is now supplied.** `engine/market_session.py`
+  had accepted an authoritative calendar since Phase 29D.1
+  (`authoritative_non_sessions`, `exchange_calendar_available`), but *nothing ever
+  supplied one*, so in production the parameter was permanently `None`, the tested
+  `NON_SESSION` branch was unreachable, and every exchange holiday was treated as a
+  weekday session that had merely not published yet. On Labor Day 2026-09-07 the
+  missed-session projection turned that into a false catch-up obligation for a session
+  that never existed. `engine/exchange_calendar.py` is now the authoritative supplier
+  (rule-based NYSE holidays plus the declared ad-hoc closures; **no third-party
+  calendar dependency is installed**, so the original constraint still holds), and
+  `api/data_freshness.py` is the seam that wires it into the session owner. The
+  separation is unchanged: the calendar SUPPLIES, `market_session` INTERPRETS. Outside
+  the calendar's supported years it reports itself unavailable and the weekday policy
+  degrades exactly as before — the absence of owned market data is still never a
+  holiday.
 - **Separation of concerns (D-7 upheld):** research/model or slower-cadence staleness
   may block a NEW signal refresh or TRUE_FORWARD capture but never invalidates an
   already-completed operational close; a month boundary is one freshness condition,

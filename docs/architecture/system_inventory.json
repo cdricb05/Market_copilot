@@ -3362,6 +3362,28 @@
       "notes": "Legacy DB-snapshot universe ranker; owned-panel analogue of the factories. DEPRECATE if the scan endpoint is dead."
     },
     {
+      "path": "engine/exchange_calendar.py",
+      "system": "infrastructure",
+      "responsibility": "Release 60.1 CANONICAL exchange-session calendar: the authoritative answer to 'did the exchange trade on date D?'. Rule-based NYSE holidays (weekend-observed, Good Friday via Easter, Juneteenth from 2022) plus an explicit table of the declared ad-hoc full-day closures. PURE: no IO, no network, no clock, no machine-local timezone. It is the SUPPLIER of authoritative_non_sessions to engine/market_session.py, which remains the only INTERPRETER of what a non-session means for eligibility, recovery and readiness. Early closes are deliberately not modelled - an early close IS a trading session. Outside its supported years it reports UNAVAILABLE rather than answering, so the session owner degrades to its documented weekday policy instead of a fabricated verdict.",
+      "classification": "KEEP",
+      "target_owner": "engine/exchange_calendar.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [
+        "/v1/operations/data-freshness (via api/data_freshness.py)"
+      ],
+      "ui_consumers": [
+        "loadDataFreshness"
+      ],
+      "tests": [
+        "tests/test_release60_1_operational_hotfix.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Closes the R60.1 defect: engine/market_session.py had accepted an authoritative calendar since Phase 29D.1, but NOTHING ever supplied one, so in production every exchange holiday was treated as a weekday session that had merely not published yet. On Labor Day 2026-09-07 the missed-session projection turned that into a false catch-up obligation for a session that never existed. Supplies nothing else and decides nothing else; the absence of owned market data is still never a holiday."
+    },
+    {
       "path": "engine/market_session.py",
       "system": "infrastructure",
       "responsibility": "Slice 1 CANONICAL market-session domain: expected/confirmed/eligible market date + session status. Pure (no IO), built on engine/market_hours.py. R54.2.1 adds the PURE missed-session enumeration completed_sessions_after(last_closed, through, non_sessions) (+ next_trading_day, MAX_MISSED_SESSIONS): evaluate_session answers a CONFIRMATION question and can never express an obligation for a session whose data was never ingested, so the OBLIGATION question (which completed sessions were not closed) lives here as calendar arithmetic bounded by the caller's two owner answers - never a wall clock. R55 adds format_operator_timestamp - the operator-facing Eastern spelling of an owner-stamped instant - beside the existing to_eastern. The Eastern clock has ONE owner: no API surface and no browser converts a timezone, and a missing or unparseable stamp yields None rather than a substituted 'now'.",

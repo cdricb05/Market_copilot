@@ -26739,9 +26739,17 @@ window.loadResearchChampionSummary = loadResearchChampionSummary;
    This is a presentation/robustness fix: it is GET-only, it changes no payload,
    no calculation and no safety semantics, and it never retries a write. */
 var _R29_READ_TIMEOUT_MS = 45000;
-function _mhzGet(path) {
+/* Release 60.1 - the Alpha & Capital composition runs the zero-base allocator,
+   which legitimately costs tens of seconds on the live book. The shared 45s
+   budget was BELOW that cost, so the request was aborted every time and the page
+   reported "the read model did not answer" for a read model that was still
+   working. This is a read-only GET budget, not a new behaviour. */
+var _R601_HEAVY_READ_TIMEOUT_MS = 180000;
+function _mhzGet(path, timeoutMs) {
   var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
-  var timer = ctl ? setTimeout(function () { ctl.abort(); }, _R29_READ_TIMEOUT_MS) : null;
+  var budget = (typeof timeoutMs === 'number' && timeoutMs > 0)
+    ? timeoutMs : _R29_READ_TIMEOUT_MS;
+  var timer = ctl ? setTimeout(function () { ctl.abort(); }, budget) : null;
   return fetch(path, {
     method: 'GET',
     headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
@@ -27104,6 +27112,13 @@ function _akAudit(d) {
     h += '<div class="cc-kv"><span>' + escapeHtml(k) + '</span><span>' +
       escapeHtml(String(pv[k])) + '</span></div>';
   });
+  // Release 60.1 - the ladders and provenance above are api.cash_deployment_frontier's
+  // own answers, republished by the Alpha & Capital owner that already composed it.
+  // Naming the source route keeps the provenance honest without this view paying for
+  // a second run of the same zero-base allocator.
+  h += '<div class="cc-kv"><span>ladder + provenance source</span><span>' +
+    escapeHtml('/v1/operations/cash-deployment-frontier') +
+    ' (composed by api.alpha_capital; not re-fetched)</span></div>';
   var deg = d.degraded_sources || [];
   h += '<div class="cc-panel-title" style="margin-top:9px;">Degraded sources</div>';
   h += deg.length ? deg.map(function (x) {
@@ -27112,27 +27127,55 @@ function _akAudit(d) {
   }).join('') : '<div class="cc-empty">None &mdash; every owner answered.</div>';
   return h;
 }
+/* Release 60.1 - the panels this loader owns, so an unanswered read model leaves
+   a NAMED unavailable state instead of the word "Loading" forever. */
+var _AK_PANEL_IDS = ['ak-kpis', 'ak-cash-body', 'ak-limiter-body',
+  'ak-zerobase-body', 'ak-scoreboard-body', 'ak-registry-body',
+  'ak-answer-body', 'ak-next-body', 'ak-maturity-body', 'ak-audit-body'];
+
+function _akClearPanels(msg) {
+  var html = '<div class="cc-empty">' + escapeHtml(msg) + '</div>';
+  _AK_PANEL_IDS.forEach(function (id) { _setHtml(id, html); });
+}
+
 async function loadAlphaCapital() {
   var st = document.getElementById('ak-state');
   if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
+  // The Alpha & Capital owner ALREADY composes api.cash_deployment_frontier and
+  // republishes its deployment ladder and provenance, so this view no longer
+  // fetches '/v1/operations/cash-deployment-frontier' as well. Fetching both ran
+  // the same multi-second zero-base allocator TWICE per page load, concurrently,
+  // which is what pushed the alpha-capital read past the browser's abort budget.
+  // That route is unchanged and still served for its own consumers.
   var res = await Promise.all([
-    _mhzGet('/v1/operations/alpha-capital'),
-    _mhzGet('/v1/operations/cash-deployment-frontier'),
+    _mhzGet('/v1/operations/alpha-capital', _R601_HEAVY_READ_TIMEOUT_MS),
     _mhzGet('/v1/research/alpha-opportunity-registry'),
     _mhzGet('/v1/research/shadow-portfolio-evidence')
   ]);
-  var d = res[0], raw = res[1], reg = res[2], shp = res[3];
+  var d = res[0], reg = res[1], shp = res[2];
   // NOTE the suffixes. A top-level `function _akRegistry(){}` IS `window._akRegistry`
   // in a browser, so storing the registry payload under that name would overwrite
   // the renderer with a plain object and the next call would throw. Every payload
   // this loader stashes therefore carries a name no function uses.
-  window._akData = d; window._akRawFrontier = raw || {};
+  window._akData = d;
+  window._akRawFrontier = d ? {
+    deployment_ladder: d.deployment_ladder,
+    redeployment_ladder: d.redeployment_ladder,
+    provenance: d.cash_deployment_frontier_provenance
+  } : {};
   window._akRegistryData = reg || {}; window._akShadowData = shp || {};
   if (!d) {
     _setHtml('ak-headline',
       '<span class="cc-error">The Alpha &amp; Capital read model did not answer. ' +
       'Nothing was changed; press Refresh to try again.</span>');
     if (st) { st.textContent = 'UNAVAILABLE'; st.className = 'cc-badge danger'; }
+    // Release 60.1 - every panel is told it has no data. Returning here without
+    // this left ten panels reading "Loading..." indefinitely, which an operator
+    // cannot distinguish from a read that is still in flight.
+    _akClearPanels('Unavailable - the Alpha & Capital read model did not answer. '
+                   + 'Press Refresh to try again.');
+    var sesX = document.getElementById('ak-session');
+    if (sesX) sesX.textContent = 'SESSION —';
     return;
   }
   if (st) {

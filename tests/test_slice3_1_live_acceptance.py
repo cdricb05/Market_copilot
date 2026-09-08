@@ -129,9 +129,21 @@ def test_s1b_before_cutoff_waits_when_nothing_is_eligible(tmp_path):
 
 
 def test_s2_after_cutoff_with_prior_day_data_waits_for_owned_data(tmp_path):
+    # Release 60.1 - the WAIT is unchanged and is the point of this test: after
+    # the cutoff, with owned data still on D-1, the cycle waits for owned data
+    # and is not executable.
+    #
+    # ``calendar_policy_degraded`` flipped to False, and that is the FIX, not a
+    # regression. The flag means "no authoritative exchange-holiday calendar is
+    # available, so the expected weekday cannot be resolved". Until R60.1 nothing
+    # ever supplied a calendar, so it was permanently True in production - which
+    # is exactly why Labor Day 2026-09-07 was reported as an unclosed session.
+    # ``api.data_freshness`` now supplies ``engine.exchange_calendar``, and D
+    # (2026-08-05) is an ordinary Wednesday the calendar affirms IS a session, so
+    # the policy is no longer degraded while the owned-data wait still stands.
     fr = _fresh()
     assert fr["market_session"]["session_status"] == ms.WAITING_FOR_OWNED_DATA
-    assert fr["market_session"]["calendar_policy_degraded"] is True
+    assert fr["market_session"]["calendar_policy_degraded"] is False
     s = _drc_status(tmp_path)
     assert s["state"] == drc.WAITING_FOR_OWNED_DATA and s["executable"] is False
 

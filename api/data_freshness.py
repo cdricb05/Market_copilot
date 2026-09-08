@@ -39,6 +39,7 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
+from paper_trader.engine import exchange_calendar as xcal
 from paper_trader.engine import market_session as msession
 
 PHASE = "29B.1-Slice1"
@@ -666,6 +667,35 @@ def load_data_freshness(
 
     if now is None and reference_today is None:
         now = _now()
+
+    # ------------------------------------------------------------------ #
+    # Release 60.1 — SUPPLY THE AUTHORITATIVE EXCHANGE CALENDAR.
+    #
+    # ``engine.market_session`` has accepted an authoritative calendar since
+    # Phase 29D.1, but until R60.1 no composition ever supplied one, so in
+    # production the parameter was permanently None and every exchange holiday
+    # was treated as a weekday session that had merely not published yet. On
+    # Labor Day 2026-09-07 that produced a false catch-up obligation for a
+    # session that never existed. THIS is the seam that was missing: the session
+    # owner still interprets, the calendar owner now answers.
+    #
+    # An explicitly injected calendar (tests, offline harnesses) always wins —
+    # nothing here overrides a caller who has already decided.
+    # ------------------------------------------------------------------ #
+    if authoritative_non_sessions is None:
+        anchor_date = (msession.to_eastern(now).date() if now is not None
+                       else (_coerce_date(reference_today) or _now().date()))
+        # A window wide enough to cover the recovery lookback
+        # (``MAX_MISSED_SESSIONS`` completed sessions plus the holidays and
+        # weekends between them) with margin on both sides. Cheap: the calendar
+        # is rule-based arithmetic, no IO.
+        cal_from = anchor_date - timedelta(days=120)
+        cal_to = anchor_date + timedelta(days=30)
+        authoritative_non_sessions = xcal.non_sessions_between(cal_from, cal_to)
+        if exchange_calendar_available is None:
+            exchange_calendar_available = xcal.calendar_available_between(
+                cal_from, cal_to)
+
     session = msession.evaluate_session(
         now=now, reference_today=reference_today,
         latest_confirmed_owned_data_date=confirmed,
@@ -674,8 +704,9 @@ def load_data_freshness(
         require_confirmation=True,
         # A weekday is a NON-SESSION only through an AUTHORITATIVE calendar or a
         # persisted provider-confirmed contract; absence of same-day owned data is
-        # never a holiday. None (production default) → the expected weekday stays
-        # unresolved (WAITING_FOR_OWNED_DATA, calendar_policy_degraded).
+        # never a holiday. The calendar above is that authoritative source; when it
+        # cannot answer (a date outside its supported years) it says so and the
+        # expected weekday stays unresolved (WAITING_FOR_OWNED_DATA, degraded).
         authoritative_non_sessions=authoritative_non_sessions,
         provider_confirmed_non_sessions=provider_confirmed_non_sessions,
         exchange_calendar_available=exchange_calendar_available,

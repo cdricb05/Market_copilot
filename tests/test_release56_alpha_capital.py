@@ -1006,15 +1006,32 @@ class TestUiAcceptance:
         assert "Connect to load" not in view
 
     def test_the_view_issues_gets_only(self, ui):
+        """Read-only GETs, and no second run of the zero-base allocator.
+
+        Release 60.1 narrowed this from four fetches to three. The frontier's
+        deployment ladders and provenance now arrive INSIDE the alpha-capital
+        payload, republished by the owner that had already composed them, so the
+        view no longer fetches ``/v1/operations/cash-deployment-frontier`` as
+        well. Fetching both ran the same multi-second allocator twice per page
+        load, concurrently, and pushed the alpha-capital read past the browser's
+        abort budget - the live "the read model did not answer" defect. The route
+        itself is unchanged and still served; only this view stopped paying for
+        it twice.
+        """
         block = ui[ui.index("async function loadAlphaCapital("):
                    ui.index("window.loadAlphaCapital = loadAlphaCapital;")]
         assert "method: 'POST'" not in block
         assert "_mhzGet(" in block
         for path in ("/v1/operations/alpha-capital",
-                     "/v1/operations/cash-deployment-frontier",
                      "/v1/research/alpha-opportunity-registry",
                      "/v1/research/shadow-portfolio-evidence"):
             assert path in block, path
+        # The duplicate heavy fetch must NOT come back.
+        assert "_mhzGet('/v1/operations/cash-deployment-frontier'" not in block
+        # ...and the data it used to carry must still reach the view.
+        assert "d.deployment_ladder" in block
+        assert "d.redeployment_ladder" in block
+        assert "d.cash_deployment_frontier_provenance" in block
 
     def test_no_r56_route_is_an_orphan_endpoint(self, ui):
         """Every route this release declares is reachable from the view, so the
