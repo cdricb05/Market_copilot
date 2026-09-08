@@ -344,11 +344,16 @@ def next_maturity(campaign_id: str = CAMPAIGN_ID) -> Optional[str]:
 #: model composes this instead of recomputing the minimum for itself.
 MATURITY_ESTIMATE_NOTE = (
     "horizon_end_expected is a CALENDAR estimate: "
-    "alpha_agent.r46.clock.expected_maturity_date counts weekdays after the "
-    "entry session. Scoring never uses it - the judge counts the instrument's "
-    "OWN realised sessions. A prediction whose estimate has arrived is "
-    "therefore not necessarily scoreable, and a next maturity that does not "
-    "move is evidence about DATA, not about a stalled tournament.")
+    "alpha_agent.r46.clock.expected_maturity_date counts sessions after the "
+    "entry session. Release 62.1 - for a US cash-equity instrument those are "
+    "AUTHORITATIVE exchange sessions supplied by engine.exchange_calendar "
+    "through api.forward_challenger_registry, so a full-day NYSE closure "
+    "(2026-09-07, Labor Day) can never be advertised as a maturity; every "
+    "market on its own realised calendar keeps the weekday estimate, which is "
+    "correct for it. Scoring never uses either - the judge counts the "
+    "instrument's OWN realised sessions. A prediction whose estimate has "
+    "arrived is therefore not necessarily scoreable, and a next maturity that "
+    "does not move is evidence about DATA, not about a stalled tournament.")
 
 
 def next_maturity_detail(campaign_id: str = CAMPAIGN_ID, *,

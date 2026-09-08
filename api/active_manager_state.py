@@ -315,11 +315,55 @@ def _merged_last_run(ev: dict) -> dict:
     return merged
 
 
+#: R62.1 — WHERE the CURRENT collection state came from. Two surfaces disagreed
+#: about a healthy service because two different payloads answered the same
+#: question: the sticky header read the collection route live, while the Active
+#: Manager read the ``information_collection`` section of the Release-50 DECISION
+#: snapshot — a snapshot whose identity is a fingerprint of the DECISION stores
+#: and therefore does not move when a worker restarts, stops or re-captures its
+#: release. One question, one answer, and the answer says where it came from.
+CC_SOURCE_CURRENT_OWNER = "CANONICAL_CURRENT_RUNTIME_READ"
+CC_SOURCE_DECISION_SNAPSHOT = "DECISION_SNAPSHOT_SECTION"
+CC_SOURCE_UNAVAILABLE = "CURRENT_COLLECTION_STATE_UNAVAILABLE"
+CURRENT_COLLECTION_SOURCES = (CC_SOURCE_CURRENT_OWNER,
+                              CC_SOURCE_DECISION_SNAPSHOT,
+                              CC_SOURCE_UNAVAILABLE)
+
+
+def _current_collection_state(information_collection: Optional[dict],
+                              current_collection: Optional[dict] = None) -> dict:
+    """THE current Information Collection service state, and its provenance.
+
+    ``current_collection`` is the canonical CURRENT-runtime read
+    (``api.information_collection.resolve_service_lifecycle`` over the service
+    state as it is right now) supplied by the production loader. It is preferred
+    unconditionally; the decision-snapshot section is a labelled fallback for
+    callers that inject only that, and an absent answer is reported as absent
+    rather than replaced by a comforting one.
+    """
+    cur = (current_collection or {})
+    svc = cur.get("service") or (cur if cur.get("service_state") else None)
+    if svc:
+        return {"service": svc, "source": CC_SOURCE_CURRENT_OWNER,
+                "identity_kind": "CURRENT_RUNTIME_IDENTITY",
+                "available": True}
+    ic = information_collection or {}
+    snap = ic.get("service") or (ic if ic.get("service_state") else None)
+    if snap:
+        return {"service": snap, "source": CC_SOURCE_DECISION_SNAPSHOT,
+                "identity_kind": "CURRENT_RUNTIME_IDENTITY",
+                "available": True}
+    return {"service": {}, "source": CC_SOURCE_UNAVAILABLE,
+            "identity_kind": "CURRENT_RUNTIME_IDENTITY", "available": False}
+
+
 def _live_information_block(information_collection: Optional[dict],
                             event_refresh: Optional[dict],
-                            reassessment: Optional[dict]) -> dict:
-    ic = information_collection or {}
-    svc = ic.get("service") or ic  # snapshot section wraps the lifecycle verdict
+                            reassessment: Optional[dict],
+                            current_collection: Optional[dict] = None) -> dict:
+    current = _current_collection_state(information_collection,
+                                        current_collection)
+    svc = current["service"]
     ev = event_refresh or {}
     last_run = _merged_last_run(ev)
     recent = ev.get("recent_events") or []
@@ -339,12 +383,32 @@ def _live_information_block(information_collection: Optional[dict],
                 1 for e in material
                 if (_parse_dt(e.get("ingested_at") or e.get("published_at"))
                     or anchor) > anchor)
+    provenance = _event_cycle_provenance(last_run, svc)
     return {
         "available": bool(svc),
         "collection_running": (svc.get("service_state") == "RUNNING"),
         "collection_service_state": svc.get("service_state"),
         "worker_activity": svc.get("worker_activity"),
         "collection_reason": svc.get("reason"),
+        # R62.1 — ONE authoritative current collection state, and the name of the
+        # read that produced it. Every operator surface renders THIS; nothing in
+        # the browser reconciles two payloads that answer the same question.
+        "current_collection": {
+            "service_state": svc.get("service_state"),
+            "worker_activity": svc.get("worker_activity"),
+            "reason": svc.get("reason"),
+            "worker_pid": svc.get("worker_pid"),
+            "instance_id": svc.get("instance_id"),
+            "started_at": svc.get("started_at"),
+            "source": current["source"],
+            "source_vocabulary": list(CURRENT_COLLECTION_SOURCES),
+            "identity_kind": current["identity_kind"],
+            "available": current["available"],
+            "owner": COMPONENT_OWNERS["live_information"],
+            "note": ("The CURRENT service state, from the canonical current-"
+                     "runtime read. A completed historical cycle's release is "
+                     "provenance and can never make this stale."),
+        },
         "last_event_cycle": {
             "run_id": last_run.get("run_id"),
             "state": last_run.get("state") or ev.get("state"),
@@ -398,6 +462,16 @@ def _live_information_block(information_collection: Optional[dict],
             # chain from a broken one.
             "governance_gate_invoked": last_run.get("governance_gate_invoked"),
             "stage_timestamps": last_run.get("stage_timestamps"),
+            # R62.1 — WHICH RUNTIME PRODUCED THIS CYCLE. A completed cycle is
+            # immutable evidence about the release that produced it; presenting
+            # it beside the current service state is what stops a historical
+            # withheld candidate from reading as something the code running now
+            # has just done again. The verdict is api.runtime_identity's.
+            "runtime_provenance": provenance,
+            "is_historical_event_cycle": bool(
+                provenance.get("is_historical_event_cycle")),
+            "historical_note": provenance.get("statement"),
+            "decides_current_collection_health": False,
         },
         "last_observation_at": last_observation_at,
         "last_material_event_at": last_material_at,
@@ -409,6 +483,32 @@ def _live_information_block(information_collection: Optional[dict],
         "affected_current_holdings": ev.get("affected_holdings"),
         "owner": COMPONENT_OWNERS["live_information"],
     }
+
+
+def _event_cycle_provenance(last_run: dict, svc: dict) -> dict:
+    """Which runtime produced the last event cycle. DELEGATED, never decided.
+
+    The rule belongs to ``api.runtime_identity`` and this block supplies only
+    persisted facts: the cycle's own stamp, the release it recorded (present on
+    cycles written from R62.1 onward, absent on every earlier one), and the
+    CURRENT worker's start instant and captured release from the canonical
+    lifecycle view. An unavailable owner degrades to an explicit
+    not-established row — never to a claim about the current runtime.
+    """
+    try:
+        from paper_trader.api import runtime_identity as rid
+    except Exception as exc:  # noqa: BLE001 — no owner, no verdict
+        return {"verdict": None, "owner": COMPONENT_OWNERS["runtime_alignment"],
+                "unavailable_reason": str(exc)[:160],
+                "is_historical_event_cycle": False,
+                "decides_current_service_health": False}
+    cycle_release = (last_run or {}).get("runtime_release") or {}
+    worker_release = (svc or {}).get("loaded_release") or {}
+    return rid.classify_event_cycle_provenance(
+        cycle_generated_at=(last_run or {}).get("generated_at"),
+        current_runtime_started_at=(svc or {}).get("started_at"),
+        cycle_loaded_commit=cycle_release.get("commit"),
+        current_loaded_commit=worker_release.get("commit"))
 
 
 def _signal_state_block(event_refresh: Optional[dict], scoring: Optional[dict],
@@ -1071,7 +1171,8 @@ def _stages_not_required(cycle: Optional[dict]) -> list:
 
 def _runtime_alignment_block(live_information: dict,
                              information_collection: Optional[dict] = None,
-                             runtime_alignment: Optional[dict] = None) -> dict:
+                             runtime_alignment: Optional[dict] = None,
+                             current_collection: Optional[dict] = None) -> dict:
     """R55.2 — is every long-lived runtime operating the deployed release?
 
     A COMPOSITION over facts other owners already recorded. It gathers three
@@ -1097,7 +1198,13 @@ def _runtime_alignment_block(live_information: dict,
         return {"available": False, "owner": COMPONENT_OWNERS["runtime_alignment"],
                 "verdict": None, "unavailable_reason": str(exc)[:160],
                 "policy": RUNTIME_STALENESS_POLICY}
-    svc = ((information_collection or {}).get("service") or {})
+    # R62.1 — the alignment row is about the runtime SERVING NOW, so its facts
+    # come from the ONE current-runtime read, never from a decision-snapshot
+    # section (whose identity is a fingerprint of the DECISION stores and does
+    # not move when a worker restarts) and never from a completed cycle's
+    # release, which is historical provenance and decides no current health.
+    svc = (_current_collection_state(information_collection,
+                                     current_collection)["service"] or {})
     worker_loaded = svc.get("loaded_release") or (
         live_information.get("collection_loaded_release"))
     try:
@@ -2158,6 +2265,7 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
                                intraday_emission: Optional[dict] = None,
                                governed_decision: Optional[dict] = None,
                                runtime_alignment: Optional[dict] = None,
+                               current_collection: Optional[dict] = None,
                                warnings: Optional[list] = None) -> dict:
     """Compose the ONE Active Manager Operating State from the owners' payloads.
 
@@ -2168,7 +2276,8 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
     warn = list(warnings or [])
     operational_book = _operational_book_block(portfolio_state, workflow)
     live_information = _live_information_block(information_collection,
-                                               event_refresh, reassessment)
+                                               event_refresh, reassessment,
+                                               current_collection)
     signal_state = _signal_state_block(event_refresh, scoring, workflow,
                                        intraday_emission)
     reassessment_block = _reassessment_block(reassessment, workflow, event_refresh)
@@ -2192,7 +2301,8 @@ def build_active_manager_state(*, workflow: Optional[dict] = None,
     # component lists so a stale runtime can degrade the live lane in the same
     # pass, and injectable so the incident is reproducible hermetically.
     runtime_alignment_block = _runtime_alignment_block(
-        live_information, information_collection, runtime_alignment)
+        live_information, information_collection, runtime_alignment,
+        current_collection)
     runtime_lane = _runtime_degrades_live_lane(runtime_alignment_block)
     live_reassessment_lane.update(runtime_lane)
     # R55 — the operator's STALE / MISSING list and the AUDIT-ONLY advisory list
@@ -2448,6 +2558,29 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
                                   _section("information_collection"))
     rebalance = _get("rebalance", _section("rebalance"))
 
+    def _current_collection():
+        """R62.1 — THE current Information Collection state, read LIVE.
+
+        Deliberately NOT the decision-snapshot section. That snapshot's identity
+        is a fingerprint of the stores that can change a DECISION, so it does
+        not move when a worker restarts, stops or re-captures its release —
+        which is exactly how the Active Manager came to disagree with the
+        collection route about a service that was healthy the whole time. This
+        is the SAME canonical call the collection route makes, so the two
+        cannot diverge.
+        """
+        from paper_trader.api import information_collection as _ic
+        state = _ic.load_service_state()
+        try:
+            lock = _ic._read_json(_ic._lock_path()) or None
+        except Exception:  # noqa: BLE001 - a missing lock is a normal state
+            lock = None
+        return {"service": _ic.resolve_service_lifecycle(
+            state, lock, datetime.now(timezone.utc))}
+
+    current_collection = _get("current_collection",
+                              lds.get("current_collection", _current_collection))
+
     def _event_refresh():
         from paper_trader.api import event_signal_refresh as esr
         return esr.load_event_signal_refresh_status(
@@ -2506,7 +2639,8 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
         rebalance=rebalance, event_refresh=event_refresh,
         reassessment=reassessment, scoring=scoring,
         runtime_health=runtime_health, intraday_emission=intraday_emission,
-        governed_decision=governed_decision, warnings=warnings)
+        governed_decision=governed_decision,
+        current_collection=current_collection, warnings=warnings)
 
 
 __all__ = [
@@ -2523,5 +2657,8 @@ __all__ = [
     "LANE_CONCLUSION_NO_REASSESSMENT", "LANE_NO_REASSESSMENT_CONCLUSIONS",
     "LANE_CONCLUSION_VOCAB", "LANE_GOVERNANCE_VOCAB",
     "LANE_GOV_EVALUATED_NO_PROMOTION", "GOVERNANCE_DISPOSITION_TO_LANE",
+    # Release 62.1 — ONE current collection state, and its declared provenance.
+    "CC_SOURCE_CURRENT_OWNER", "CC_SOURCE_DECISION_SNAPSHOT",
+    "CC_SOURCE_UNAVAILABLE", "CURRENT_COLLECTION_SOURCES",
     "build_active_manager_state", "load_active_manager_state",
 ]

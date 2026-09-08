@@ -724,10 +724,35 @@ def _known_forward_ids(forward: dict) -> Optional[dict]:
             known.setdefault(
                 str(cid),
                 "api.shadow_portfolio_evidence (R56 forward paper portfolios)")
+    # R62.1 — the canonical signal-challenger registrar. A freeze registered
+    # here is NOT an orphan: it has a named owner, a registration instant and a
+    # prospective observation clock, and the row below proves it.
+    for reg in _canonical_registrations():
+        cid = reg.get("challenger_id")
+        if cid:
+            known.setdefault(
+                str(cid),
+                "api.forward_challenger_registry (R62.1 canonical prospective "
+                "signal challengers)")
     return known
 
 
-def _freeze_row(row: dict, known: Optional[dict]) -> dict:
+def _canonical_registrations() -> list:
+    """Every prospective registration the canonical registrar holds. Read-only.
+
+    Degrades to an empty list, which reads as "nothing is registered" - the same
+    thing an empty registry means. It never reports a registration this owner
+    could not actually read.
+    """
+    try:
+        from paper_trader.api import forward_challenger_registry as FCR
+        return [FCR.registration_row(r) for r in FCR.load_registrations()]
+    except Exception:                                    # noqa: BLE001
+        return []
+
+
+def _freeze_row(row: dict, known: Optional[dict],
+                registrations: Optional[dict] = None) -> dict:
     """One prospective freeze recorded in research memory."""
     raw = row.get("forward_challenger")
     if isinstance(raw, str):
@@ -764,6 +789,10 @@ def _freeze_row(row: dict, known: Optional[dict]) -> dict:
         # the governed adoption owner. A withdrawn freeze is not an orphan
         # waiting for a home; it is a decision, and it may never be revived.
         **_lifecycle_fields(row),
+        # R62.1 - the canonical registration, READ VERBATIM from the registrar.
+        # Every maturity, every session and every evidence word below is the
+        # registrar's own: no browser and no read model computes one.
+        "forward_registration": (registrations or {}).get(str(cid)),
     }
 
 
@@ -818,8 +847,11 @@ def _prospective_block(mem, forward: dict) -> dict:
     health = (forward.get("runtime") or {}).get("runtime_health") or {}
     known = _known_forward_ids(forward)
 
+    registrations = _canonical_registrations()
+    by_challenger = {str(r.get("challenger_id")): r for r in registrations
+                     if r.get("challenger_id")}
     frozen = mem.list_hypotheses(outcome=r59.HO_FORWARD_FROZEN, limit=500)
-    rows = [_freeze_row(r, known) for r in frozen]
+    rows = [_freeze_row(r, known, by_challenger) for r in frozen]
     orphans = [r for r in rows if r["forward_evidence_link"] == FWD_LINK_ORPHAN]
     # R61 - an orphan that is WITHDRAWN or INVALIDATED is not work waiting to be
     # done. Counting the two together is what made "5 unregistered freezes" read
@@ -870,12 +902,21 @@ def _prospective_block(mem, forward: dict) -> dict:
         "adoption_owner": "api.prospective_adoption",
         "open_adoption_intents": _open_adoption_intents(),
         "withdrawn_freezes_are_never_resurrected": True,
+        # R62.1 - THE canonical prospective registrations, in full. This is the
+        # answer to "what is actually accruing, from when, on which calendar,
+        # and when does the next legitimate maturity fall?" - and every field is
+        # the registrar's, computed nowhere else.
+        "canonical_forward_registrar": "api.forward_challenger_registry",
+        "canonical_forward_registrations": registrations,
+        "canonical_forward_registration_count": len(registrations),
         "forward_accrual": accrual,
         "promotion_ready_count": health.get("promotion_ready_count"),
         "forward_paper_portfolios": (
             None if forward.get("shadow_records") is None
             else len(forward.get("shadow_records") or [])),
         "forward_evidence_owners": [
+            "api.forward_challenger_registry (R62.1 THE canonical prospective "
+            "registrar for signal challengers, all asset classes)",
             "api.prospective_tournament (R46 forward SIGNAL challengers, "
             "advanced by alpha_agent.r52.runtime)",
             "api.shadow_portfolio_evidence (R56 forward PAPER PORTFOLIO "

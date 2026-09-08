@@ -991,9 +991,19 @@ def test_50_retrying_after_a_crash_does_not_duplicate_the_registration(tmp_path)
     assert len(list((tmp_path / "intents").glob("*.json"))) == 1
 
 
-def test_51_an_unregistrable_class_records_a_named_resumable_gap(tmp_path):
+def test_51_an_unregistrable_class_records_a_named_resumable_gap(
+        tmp_path, monkeypatch):
     """FAIL CLOSED: no canonical owner means no registration, and the gap is a
-    durable record rather than an invisible orphan."""
+    durable record rather than an invisible orphan.
+
+    Release 62.1 closed the gap this test was written against - an R58 freeze now
+    routes to the canonical registrar - but the MACHINERY must stay reachable,
+    because recording a named resumable gap instead of inventing an owner is what
+    kept five orphans from being invisible. The class is unmapped here
+    deliberately, which is the only condition that can still produce it.
+    """
+    monkeypatch.setattr(PA, "classify_challenger_class",
+                        lambda _row: PA.CLASS_SIGNAL_UNREGISTERED)
     out = PA.adopt_prospective_freeze(
         freeze_row=_freeze(), observation_clock_starts="2026-09-08",
         confirm=PA.ADOPT_CONFIRM_TOKEN, adoption_dir_override=str(tmp_path))
@@ -1160,14 +1170,21 @@ def test_58_the_identity_contract_carries_no_equity_only_field():
 
 
 def test_59_the_forward_evidence_owner_stays_canonical():
-    """This module delegates; it never becomes the owner."""
+    """This module delegates; it never becomes the owner.
+
+    Release 62.1 added the THIRD canonical owner and routed every freeze that is
+    not a member of the two frozen cohorts to it. The delegation rule is
+    unchanged: this module still names an owner and calls it, and still owns no
+    forward evidence of its own.
+    """
     assert set(PA.REGISTRARS.values()) == {"api.shadow_portfolio_evidence",
-                                           "alpha_agent.r46.registry"}
+                                           "alpha_agent.r46.registry",
+                                           "api.forward_challenger_registry"}
     assert PA.classify_challenger_class({"release": "R56"}) == \
         PA.CLASS_PAPER_PORTFOLIO
     assert PA.classify_challenger_class({"release": "R46"}) == PA.CLASS_SIGNAL_R46
     assert PA.classify_challenger_class({"release": "R58"}) == \
-        PA.CLASS_SIGNAL_UNREGISTERED
+        PA.CLASS_SIGNAL_CANONICAL
 
 
 # =========================================================================== #

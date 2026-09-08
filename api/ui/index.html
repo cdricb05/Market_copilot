@@ -6496,6 +6496,14 @@
             </div>
           </div>
 
+          <!-- RELEASE 62.1 — CANONICAL PROSPECTIVE REGISTRATIONS -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Registered prospective challengers
+              <span class="cc-badge" style="font-size:9px;" title="Every column is read verbatim from api.forward_challenger_registry. No maturity, lifecycle or evidence word is computed in the browser.">CANONICAL REGISTRAR</span>
+              <span class="cc-badge safe" style="font-size:9px;" title="Registration starts a measurement. It allocates no capital, promotes no model and creates no order.">NO BACKFILL &middot; NO PROMOTION</span></div>
+            <div id="aao-registrations" style="font-size:11px;overflow-x:auto;">&mdash;</div>
+          </div>
+
           <!-- BEST CURRENT EVIDENCE -->
           <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:12px 0 0;">
             <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Best current evidence &mdash; and why it is not qualified
@@ -29916,15 +29924,30 @@ function renderActiveManagerState(d) {
   var sb = sg.scoring_basis || {};
   var ie = sg.latest_intraday_prospective_emission || null;
   var ieLast = (ie && ie.last_emission) || {};
+  // R62.1 — the ONE authoritative CURRENT collection state, rendered verbatim.
+  // The backend answers this question from a single canonical current-runtime
+  // read, so the sticky header chip and this row can no longer disagree about a
+  // service that is healthy. The read's own provenance travels in the hover
+  // title; the browser reconciles nothing and classifies nothing.
+  var cc = li.current_collection || {};
   var col2 = '<div class="ams-col"><div class="h">Live / intraday research state</div>'
-    + _amsRow('Collection', _opEsc(_opWords(li.collection_service_state) || '—')
-        + (li.worker_activity ? ' · ' + _opEsc(_opWords(li.worker_activity)) : ''),
-        li.collection_running ? 'ok' : 'warn')
+    + _amsRow('Collection', _opEsc(_opWords(cc.service_state || li.collection_service_state) || '—')
+        + ((cc.worker_activity || li.worker_activity)
+            ? ' · ' + _opEsc(_opWords(cc.worker_activity || li.worker_activity)) : ''),
+        li.collection_running ? 'ok' : 'warn',
+        String(cc.note || '') + ' Source: ' + String(cc.source || '') + '.')
     + _amsRow('Last information', _opEsc(_amsTs(li.last_observation_at)))
     + _amsRow('Last material event', _opEsc(_amsTs(li.last_material_event_at)))
+    // R62.1 — a completed cycle produced by an EARLIER runtime is historical
+    // provenance, not a statement about the release running now. The label and
+    // the sentence are both the backend's; nothing here decides which cycle is
+    // historical.
     + _amsRow('Last event cycle', _opEsc(_opWords(lc.state) || '—')
-        + (lc.generated_at ? ' · ' + _opEsc(_amsTs(lc.generated_at)) : ''),
-        '', lc.state_note || '')
+        + (lc.generated_at ? ' · ' + _opEsc(_amsTs(lc.generated_at)) : '')
+        + (lc.is_historical_event_cycle
+            ? ' <span class="cc-badge muted" title="'
+              + _opEsc(String(lc.historical_note || '')) + '">HISTORICAL</span>' : ''),
+        '', String(lc.state_note || '') + ' ' + String(lc.historical_note || ''))
     + _amsRow('Latest scoring', _opEsc(sg.last_scoring_ranking_date || '—')
         + (sg.scored_universe_count != null ? ' · ' + _opEsc(String(sg.scored_universe_count)) + ' scored' : '')
         + (sb.scope ? ' · ' + _opEsc(_opWords(sb.scope)) : ''),
@@ -33439,7 +33462,8 @@ function renderAlphaAgentOutcomes(d) {
     if (hd) hd.textContent = 'The AlphaAgent outcomes projection did not answer. '
       + 'Nothing was changed; press Refresh to try again.';
     ['aao-because', 'aao-action', 'aao-intent', 'aao-runtime', 'aao-activity',
-     'aao-forward', 'aao-blocked', 'aao-candidates', 'aao-graveyard', 'aao-opportunities',
+     'aao-forward', 'aao-blocked', 'aao-registrations', 'aao-candidates',
+     'aao-graveyard', 'aao-opportunities',
      'aao-next', 'aao-volume', 'aao-frontier', 'aao-providers',
      'aao-availability'].forEach(function (id) { _setHtml(id, '—'); });
     return;
@@ -33644,6 +33668,44 @@ function renderAlphaAgentOutcomes(d) {
       + escapeHtml(i.blocked_reason || '—') + '</div>';
   });
   _setHtml('aao-forward', fhtml);
+
+  // ---- R62.1: canonical prospective registrations ------------------------- #
+  // Every cell is a backend field. The registrar owns the lifecycle, the
+  // calendar, the effective-from boundary, the maturity session and the
+  // evidence word; this renderer places them and derives nothing.
+  var regs = pr.canonical_forward_registrations || [];
+  var rrows = regs.map(function (r) {
+    return [
+      escapeHtml(r.challenger_id || '—') + '<br><span style="color:var(--muted,#8b98b0);">'
+        + escapeHtml(r.freeze_id || '') + '</span>',
+      '<span class="cc-badge muted">' + escapeHtml(r.lifecycle_state || '—') + '</span>',
+      escapeHtml(r.asset_class || '—') + '<br><span style="color:var(--muted,#8b98b0);">'
+        + _aaoNum(r.instrument_scope_size) + ' instrument(s)</span>',
+      _aaoNum(r.horizon_sessions),
+      escapeHtml(r.registration_timestamp || '—') + '<br><span style="color:var(--muted,#8b98b0);">'
+        + 'effective from ' + escapeHtml(r.prospective_effective_from || '—') + '</span>',
+      _aaoNum(r.predictions_emitted) + ' / ' + _aaoNum(r.matured_observations)
+        + ' / ' + _aaoNum(r.pending_observations)
+        + '<br><span style="color:var(--muted,#8b98b0);">'
+        + _aaoNum(r.effective_independent_observations) + ' effective</span>',
+      escapeHtml(r.first_eligible_observation_session || '—') + ' &rarr; '
+        + escapeHtml(r.next_legitimate_maturity_session || '—')
+        + '<br><span style="color:var(--muted,#8b98b0);">'
+        + escapeHtml(r.observation_calendar_owner || '') + '</span>',
+      '<span class="cc-badge muted">' + escapeHtml(r.evidence_status || '—') + '</span>'
+        + '<br><span style="color:var(--muted,#8b98b0);">'
+        + escapeHtml(r.next_legitimate_evidence_gate || '') + '</span>'
+    ];
+  });
+  _setHtml('aao-registrations', regs.length
+    ? _aaoRows(['Challenger / freeze', 'Lifecycle', 'Asset class', 'Horizon',
+                'Registered / effective from', 'Emitted / matured / pending',
+                'First eligible &rarr; next maturity', 'Evidence status'], rrows)
+      + '<div style="margin-top:6px;color:var(--muted,#8b98b0);">Canonical registrar: '
+      + escapeHtml(pr.canonical_forward_registrar || '—')
+      + '. Registration starts a measurement, never a position: nothing is backfilled, '
+      + 'no capital moves and every model review stays with a person.</div>'
+    : 'No prospective challenger is registered with the canonical forward-evidence registrar yet.');
 
   // ---- best current evidence --------------------------------------------- #
   var cand = (d.best_current_candidates || {}).candidates || [];

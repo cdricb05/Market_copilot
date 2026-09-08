@@ -1602,6 +1602,17 @@ def build_operator_presentation(*, workflow: Optional[dict],
         "rebalance_state": _d(cn.get("execution")).get("rebalance_state"),
         "close_status": os_.get("latest_close_status"),
         "collection_service_state": _d(_d(information_collection).get("service")).get("service_state"),
+        # R62.1 — this collection token arrives through the Release-50 decision
+        # snapshot, whose identity is a fingerprint of the DECISION stores and
+        # does not move when a worker restarts. It is a DIAGNOSTIC echo, not the
+        # current service authority, and it is deliberately not rendered on any
+        # normal surface. The one authoritative CURRENT collection state is
+        # api.information_collection.resolve_service_lifecycle, published to the
+        # operator by GET /v1/operations/information-collection and by
+        # api.active_manager_state as live_information.current_collection.
+        "collection_service_state_is_authoritative": False,
+        "current_collection_authority": (
+            "api.information_collection.resolve_service_lifecycle"),
         "note": "Raw owner states, for Audit / Advanced only. Normal surfaces render the reconciled fields.",
         # Release 54.2.1 (Phase J.3) — a raw upstream token is NOT a decision, and Audit
         # rendered them as if it were: "PORTFOLIO PROPOSAL READY" with a "REVIEW

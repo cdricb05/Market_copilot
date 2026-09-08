@@ -41,6 +41,20 @@ itself to the canonical owner for the challenger's class
 :data:`NO_CANONICAL_REGISTRAR` and adopted by nobody - fail closed, because a
 fabricated registration is worse than a named gap.
 
+RELEASE 62.1 - THE NAMED GAP IS CLOSED
+--------------------------------------
+R61 shipped with exactly one such gap, and it was real: the two forward owners
+of the day (``alpha_agent.r46.registry`` and ``api.shadow_portfolio_evidence``)
+each own a FROZEN COHORT rather than a registration, so a qualified R58/R59
+freeze had an immutable identity and no owner that would accept it. R62.1 does
+not add a third business owner beside them; it generalises the missing operation
+into ONE canonical signal-challenger registrar,
+:mod:`api.forward_challenger_registry`, and routes every class through this same
+table. R46 and R56 keep their cohorts, their ledgers and their evidence exactly
+as they are - they are reached here through compatibility adapters, never
+rewritten - and every other qualified freeze registers on one asset-agnostic
+contract instead of being squeezed into an equity ticker or left invisible.
+
 It promotes no model, activates no sleeve, writes no holding, creates no order
 and approves nothing. Adoption starts a measurement; it never starts a position.
 """
@@ -271,25 +285,40 @@ def build_adoption_identity(freeze_row: dict, *,
 REGISTRARS: dict[str, str] = {
     "FORWARD_PAPER_PORTFOLIO": "api.shadow_portfolio_evidence",
     "FORWARD_SIGNAL_R46": "alpha_agent.r46.registry",
+    # R62.1 - the canonical SIGNAL-challenger forward owner. Every qualified
+    # freeze that is not a member of one of the two frozen cohorts above
+    # registers here, on one asset-agnostic contract.
+    "FORWARD_SIGNAL_CANONICAL": "api.forward_challenger_registry",
 }
 
 #: How a freeze's class is decided, from what the freeze itself records.
 CLASS_PAPER_PORTFOLIO = "FORWARD_PAPER_PORTFOLIO"
 CLASS_SIGNAL_R46 = "FORWARD_SIGNAL_R46"
+#: R62.1 - the canonical class. A signal challenger whose forward evidence the
+#: canonical registrar owns end to end.
+CLASS_SIGNAL_CANONICAL = "FORWARD_SIGNAL_CANONICAL"
+#: The R61 fail-closed answer, RETAINED. It is no longer reached by any release
+#: the estate holds, and it must stay reachable: if a class is ever mapped to no
+#: registrar again, the machinery that records a named, resumable gap instead of
+#: inventing an owner is the thing that kept five orphans from being invisible.
 CLASS_SIGNAL_UNREGISTERED = "FORWARD_SIGNAL_NO_CANONICAL_REGISTRAR"
 
 
 def classify_challenger_class(freeze_row: dict) -> str:
-    """Which forward-evidence owner OUGHT to accrue this freeze."""
+    """Which forward-evidence owner OUGHT to accrue this freeze.
+
+    R46 and R56 name their own cohort owners because those cohorts are frozen
+    contracts that predate the canonical registrar and may never be edited.
+    EVERY other qualified freeze - R58's four, R59's, and whatever a future
+    release freezes - is the canonical registrar's, whatever its asset class.
+    """
     row = freeze_row or {}
     release = str(row.get("release") or "").upper()
     if release == "R56":
         return CLASS_PAPER_PORTFOLIO
     if release == "R46":
         return CLASS_SIGNAL_R46
-    # R58 / R59 signal challengers were frozen by the research engine with no
-    # forward owner declared for their class. Saying so is the honest answer.
-    return CLASS_SIGNAL_UNREGISTERED
+    return CLASS_SIGNAL_CANONICAL
 
 
 # --------------------------------------------------------------------------- #
@@ -407,6 +436,7 @@ def adopt_prospective_freeze(*, freeze_row: dict,
                              mark_owner: Optional[str] = None,
                              registrar: Optional[Callable] = None,
                              adoption_dir_override=None,
+                             registry_dir_override=None,
                              now: Optional[str] = None) -> dict:
     """Adopt ONE prospective freeze into forward evidence. Idempotent.
 
@@ -490,7 +520,8 @@ def adopt_prospective_freeze(*, freeze_row: dict,
     # (e) REGISTRAR. Resolved by class; absent means refused, never invented.
     fn = registrar
     if fn is None:
-        fn = _resolve_registrar(klass)
+        fn = _resolve_registrar(
+            klass, lifecycle=lc, registry_dir_override=registry_dir_override)
     if fn is None:
         # An OPEN intent is still written: the estate must be able to SEE that
         # a qualified freeze is waiting for a forward home. That visibility is
@@ -540,16 +571,41 @@ def adopt_prospective_freeze(*, freeze_row: dict,
             "intent": committed, "registration": registration}
 
 
-def _resolve_registrar(challenger_class: str) -> Optional[Callable]:
+def _resolve_registrar(challenger_class: str, *,
+                       lifecycle: Optional[dict] = None,
+                       registry_dir_override=None) -> Optional[Callable]:
     """The canonical owner's own registration entry point, or None.
 
     Resolution is by NAME from :data:`REGISTRARS` and the callable is the
     owner's own; this module implements no registration of its own and never
-    falls back to one.
+    falls back to one. The two cohort owners are reached through COMPATIBILITY
+    ADAPTERS that only ever READ their frozen contracts - R46's challenger
+    cohort and R56's session cohort are never edited from here.
     """
     dotted = REGISTRARS.get(challenger_class)
     if not dotted:
         return None
+    if challenger_class == CLASS_SIGNAL_CANONICAL:
+        def _canonical(*, identity, observation_clock_starts, challenger_class):
+            from paper_trader.api import forward_challenger_registry as FCR
+            out = FCR.register_forward_challenger(
+                identity=identity,
+                observation_clock_starts=observation_clock_starts,
+                challenger_class=challenger_class,
+                # The lifecycle verdict travels WITH the registration. The
+                # registrar re-checks it rather than trusting the caller, so a
+                # withdrawn freeze is refused twice and resurrected never.
+                lifecycle=lifecycle,
+                registry_dir_override=registry_dir_override)
+            if not out.get("registered"):
+                raise RuntimeError(
+                    "%s refused the registration: %s"
+                    % (dotted, out.get("reason") or out.get("outcome")))
+            return {"registered_with": dotted,
+                    "outcome": out.get("outcome"),
+                    "already_present": bool(out.get("idempotent")),
+                    "registration": out.get("registration")}
+        return _canonical
     if challenger_class == CLASS_PAPER_PORTFOLIO:
         def _shadow(*, identity, observation_clock_starts, challenger_class):
             from paper_trader.api import shadow_portfolio_evidence as r56
@@ -591,7 +647,8 @@ __all__ = [
     "LC_INVALIDATED", "LC_SUPERSEDED", "LC_MATURED", "LC_FAILED",
     "classify_lifecycle", "IDENTITY_FIELDS", "PROVEN_ASSET_CLASSES",
     "DEFAULT_MARK_OWNERS", "build_adoption_identity", "REGISTRARS",
-    "CLASS_PAPER_PORTFOLIO", "CLASS_SIGNAL_R46", "CLASS_SIGNAL_UNREGISTERED",
+    "CLASS_PAPER_PORTFOLIO", "CLASS_SIGNAL_R46", "CLASS_SIGNAL_CANONICAL",
+    "CLASS_SIGNAL_UNREGISTERED",
     "classify_challenger_class", "ADOPTION_OUTCOMES", "ADOPTED",
     "ALREADY_ADOPTED", "REFUSED_LIFECYCLE", "REFUSED_BACKDATED",
     "REFUSED_IDENTITY", "REFUSED_CONFIRMATION", "NO_CANONICAL_REGISTRAR",

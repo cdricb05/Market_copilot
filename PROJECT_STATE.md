@@ -1,5 +1,73 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-09-08
+- **Updated by phase:** **R62.1 - CANONICAL MULTI-ASSET TRUE_FORWARD
+  REGISTRATION (single agent, Windows PowerShell only, isolated worktree
+  `D:\paper_trader_r62_1_forward_evidence` on branch
+  `r62-1-canonical-forward-evidence`, built over `ba0d9a3`).** NOT COMMITTED, not
+  pushed, not merged, not deployed. The deployed checkout
+  `C:\Users\binis\paper_trader` was READ ONLY throughout: no restart, no
+  scheduled-task change, no collection run, no portfolio cycle, no daily close,
+  no approval, no order, no promotion, no replay of the Sep-8 withheld candidate
+  and no service started from `D:`. The persistent AlphaAgent kept running on
+  `C:` for the whole release and its SQLite state was not touched.
+  Full narrative: `docs/RELEASE62_1_CANONICAL_FORWARD_EVIDENCE.md`.
+
+  **The problem.** R61 built the one governed prospective-adoption operation and
+  found it had nowhere to go. Forward evidence had two owners and each owns a
+  FROZEN COHORT rather than a registration: `alpha_agent/r46/registry.py` owns a
+  challenger CONTRACT hashed into `contract_hash` that every emitted row cites,
+  and `api/shadow_portfolio_evidence.py` says in its own refusal that it
+  registers a session cohort, not a single challenger. Four ACTIVE R58 freezes
+  therefore held exact immutable identities that no owner would accept, and were
+  reported honestly as `FORWARD_SIGNAL_NO_CANONICAL_REGISTRAR`. Separately, a
+  live read exposed `next_material_maturity = 2026-09-07` - Labor Day, a full
+  NYSE closure - because forward maturity scheduling counted bare weekdays while
+  the R60.1 exchange calendar sat unused beside it.
+
+  **What landed.** ONE canonical signal-challenger forward registrar,
+  `api/forward_challenger_registry.py`, reached through the ONE `REGISTRARS`
+  table in `api/prospective_adoption.py`. It is a GENERALISATION of the existing
+  ownership, not a third parallel owner: R46 and R56 keep their cohorts and are
+  reached by compatibility adapters that only READ, and neither module imports
+  the registrar. It records a REGISTRATION and the OBSERVATION CLOCK it starts -
+  no prediction, no outcome, no score, no P&L - and NAMES the owner that will
+  accrue (`engine.shadow_portfolio_evidence`, matured by
+  `alpha_agent.r52.runtime`). R61's fail-closed `NO_CANONICAL_REGISTRAR` path is
+  retained and still reachable.
+
+  **Registration is asset-agnostic, idempotent, crash-safe and zero-backfill.**
+  There is no `ticker` in the contract; `instrument_scope` is a list and the
+  observation calendar is resolved per asset class - US cash-equity from the
+  authoritative rule-based exchange calendar, every other market from its own
+  realised bar calendar, an undeclared class from nothing at all. The identity
+  hash is the store key, first write wins, and the first legitimate observation
+  is the first eligible session STRICTLY AFTER the session registration happened
+  in. The five sessions between the 2026-09-03 R58 inception and a 2026-09-08
+  registration are never synthesised, and the module holds no code path that
+  could write one. `R59_CALENDAR_TERM_STRUCTURE_F9BE2426`, WITHDRAWN at
+  inception, is refused twice by two independent owners.
+
+  **Two state-continuity defects closed.** `api/runtime_identity.py` now
+  separates `CURRENT_RUNTIME_IDENTITY` - the only input to current service health
+  - from `EVENT_CYCLE_RUNTIME_IDENTITY`, the immutable provenance of a completed
+  cycle, so a historical cycle produced by an earlier worker can no longer report
+  the current collection service as stale. And `api/active_manager_state.py` now
+  reads the collection service through the SAME canonical current-runtime call
+  the collection route makes, instead of through the Release-50 decision
+  snapshot whose identity does not move when a worker restarts - so two backend
+  payloads can no longer disagree about a healthy service. The Sep-8 18:16Z
+  withheld cycle is not rewritten, replayed, rebound or erased; it is LABELLED
+  historical, with the backend's own sentence.
+
+  **Guarded by** `check_release62_1_canonical_forward_evidence` (31
+  strict-blocking invariants) and
+  `tests/test_release62_1_canonical_forward_evidence.py` (65 tests, all passing).
+  `scripts/audit_architecture.py --strict` exits 0; inventory drift zero;
+  `git diff --check` clean.
+
+## Release 60 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-09-07
 - **Updated by phase:** **R60 - ARCHITECTURE CONSOLIDATION + ALPHAAGENT
   OUTCOMES VISIBILITY (single agent, Windows PowerShell only, isolated worktree

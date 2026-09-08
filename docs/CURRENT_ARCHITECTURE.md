@@ -3800,4 +3800,102 @@ operational capital is still equity-centric and R61 adds no multi-asset NAV, ris
 state or execution path. R58/R59-class signal challengers still have no canonical
 forward-evidence registrar (sequenced R62.3); four ACTIVE freezes wait on it, and
 until then adoption refuses with `NO_CANONICAL_REGISTRAR` and a durable OPEN
-intent.
+intent. **That gap is closed by Release 62.1, below.**
+
+## Release 62.1 — canonical multi-asset TRUE_FORWARD registration (2026-09-08)
+
+Full report:
+[RELEASE62_1_CANONICAL_FORWARD_EVIDENCE.md](RELEASE62_1_CANONICAL_FORWARD_EVIDENCE.md).
+R62.1 changes no economics, no gate and no threshold. It closes the one named gap
+R61 shipped with, repairs a maturity clock that scheduled a session the exchange
+never held, and separates two runtime identities the estate had one word for.
+
+**The old limitation, precisely.** Forward evidence had two owners and neither
+accepted a REGISTRATION. `alpha_agent/r46/registry.py` freezes the R46 challenger
+CONTRACT — a fixed specification list hashed into `contract_hash`, which every
+emitted row cites — so a challenger outside that list cannot be added without
+changing the contract those rows were emitted under.
+`api/shadow_portfolio_evidence.py` freezes a SESSION COHORT of complete paper
+portfolios and says so in its own refusal ("it registers a session cohort, not a
+single challenger"). A qualified R58 freeze therefore had an exact immutable
+identity, an inception, a specification hash and a computable cross-section — and
+no owner that would take it.
+
+**The canonical new owner.** `api/forward_challenger_registry.py` is THE
+signal-challenger forward registrar: the one place a qualified freeze becomes a
+registered prospective challenger, and the one owner of the observation clock
+that registration starts. It is a GENERALISATION of the existing ownership, not a
+third parallel one — `api/prospective_adoption.py` routes every class through ONE
+`REGISTRARS` table, and R46 and R56 are reached through compatibility adapters
+that only READ their frozen contracts. It writes no prediction, no outcome and no
+score; it records the registration and NAMES the owner that will accrue the
+evidence (`engine.shadow_portfolio_evidence` for weight-book challengers, matured
+by `alpha_agent.r52.runtime`). R61's fail-closed `NO_CANONICAL_REGISTRAR` path is
+retained and still reachable, because recording a named resumable gap rather than
+inventing an owner is what kept five orphans from being invisible.
+
+**The R58 adoption boundary, and the zero-backfill guarantee.** The four ACTIVE
+R58 freezes (`SHORT_VOLUME_PRESSURE`, `DISCLOSURE_INTENSITY`,
+`FUND_MOMENTUM_VETO`, `FCF_PURE`, inception 2026-09-03) register on their exact
+immutable identity: freeze record hash, model specification hash, feature
+snapshot, horizon, cost model and mark owner. Registration starts the clock and
+nothing else — every counter is zero, and the first legitimate observation is the
+first eligible session STRICTLY AFTER the session registration happened in. The
+five sessions between the 2026-09-03 inception and a 2026-09-08 registration are
+not synthesised, and no code path in the module could write one. The withdrawn
+`R59_CALENDAR_TERM_STRUCTURE_F9BE2426` challenger is refused twice, by two
+independent owners, and can never be revived.
+
+**The multi-asset contract.** There is no `ticker` anywhere in it.
+`instrument_scope` is a list of instrument identifiers whatever they name, the
+asset class travels as data, and the OBSERVATION CALENDAR is resolved per asset
+class: US cash-equity classes from the authoritative rule-based exchange calendar,
+every other class from the instrument's OWN realised bar calendar. An asset class
+with no declared calendar owner publishes NO clock rather than a guessed one.
+
+**The calendar / maturity fix.** The live board advertised
+`next_material_maturity = 2026-09-07` — Labor Day, a full NYSE closure — because
+`alpha_agent/r46/clock.expected_maturity_date` counted bare weekdays.
+`engine/exchange_calendar.py` (R60.1) is still the ONE calendar owner and no
+second table was created: the estimate now ACCEPTS an authoritative non-session
+set, `alpha_agent/r46/emit.py` supplies it for equity-session instruments through
+one resolver, and each row records which calendar produced it. Every market on
+its own realised calendar keeps the frozen weekday estimate, which is correct for
+it, and the judge still scores on realised bars either way.
+
+**Current runtime vs historical event cycle.** `api/runtime_identity.py` now
+publishes two identity KINDS. `CURRENT_RUNTIME_IDENTITY` is the release the
+process serving a runtime loaded, and it is the ONLY input to current service
+health and to runtime alignment. `EVENT_CYCLE_RUNTIME_IDENTITY` is the release a
+COMPLETED cycle ran under — immutable provenance that may never decide a
+current-health verdict. `classify_event_cycle_provenance()` decides which, from
+persisted stamps and (for cycles written from R62.1 on) the cycle's own recorded
+commit, and fails closed to `RUNTIME_PROVENANCE_NOT_ESTABLISHED` rather than ever
+claiming the current runtime.
+
+**One current collection state.** `api/active_manager_state.py` took its
+collection facts from the `information_collection` section of the Release-50
+DECISION snapshot, whose identity is a fingerprint of the stores that can change
+a DECISION and therefore does not move when a worker restarts, stops or
+re-captures its release. The sticky header read the collection route live. Two
+payloads answered one question and could disagree about a healthy service. The
+Active Manager now reads the SAME canonical current-runtime call the collection
+route makes, publishes it once as `live_information.current_collection` with the
+name of the read that produced it, and the browser reconciles nothing.
+
+**The historical Sep-8 withheld event.** The 18:16Z cycle that persisted
+`HOC_ARTIFACT_IDENTITY_MISMATCH` and `DUPLICATE_CANDIDATE` was produced before
+R61 was deployed. It is not rewritten, replayed, rebound or erased. It is
+LABELLED: the operator surface shows it as a historical event cycle produced by
+an earlier runtime, with the backend's own sentence, so the repaired chain is not
+accused of having just reproduced the defect. A future NATURAL post-R61 material
+event is the legitimate production proof, and R62.1 forces no such event.
+
+**Remaining gaps, stated.** The registrar starts measurements; it does not yet
+DRIVE the accrual — `engine.shadow_portfolio_evidence` is named as the accrual
+owner for canonical weight-book challengers and wiring the scheduled emission for
+them is not in R62.1. Operational capital remains equity-centric: registering a
+rates or FX challenger creates research evidence infrastructure and no
+multi-asset NAV, risk state or execution path. A cycle written before R62.1
+carries no recorded runtime release and is read as provenance-not-recorded;
+nothing backfills it.

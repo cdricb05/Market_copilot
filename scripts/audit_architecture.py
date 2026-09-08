@@ -15028,6 +15028,256 @@ def check_release60_alphaagent_outcomes(files: list[Path]) -> dict:
     }
 
 
+#: R62.1 - the canonical signal-challenger forward registrar.
+R62_1_REGISTRAR = "api/forward_challenger_registry.py"
+R62_1_ADOPTION_OWNER = "api/prospective_adoption.py"
+R62_1_IDENTITY_OWNER = "api/runtime_identity.py"
+
+#: The registration outcome vocabulary the registrar must publish in full.
+R62_1_OUTCOMES = ("REGISTERED", "ALREADY_REGISTERED",
+                  "REFUSED_NOT_ADOPTABLE_LIFECYCLE_STATE",
+                  "REFUSED_LIFECYCLE_NOT_ESTABLISHED",
+                  "REFUSED_INCOMPLETE_IDENTITY",
+                  "REFUSED_BACKDATED_OBSERVATION_CLOCK")
+
+#: The two identity KINDS R62.1 separates, and the provenance vocabulary.
+R62_1_IDENTITY_KINDS = ("CURRENT_RUNTIME_IDENTITY", "EVENT_CYCLE_RUNTIME_IDENTITY")
+R62_1_PROVENANCE = ("PRODUCED_BY_THE_CURRENT_RUNTIME",
+                    "PRODUCED_BY_AN_EARLIER_RUNTIME",
+                    "RUNTIME_PROVENANCE_NOT_ESTABLISHED")
+
+
+def check_release62_1_canonical_forward_evidence(files: list[Path]) -> dict:
+    """R62.1 invariants - one forward owner, one calendar, one current runtime.
+
+    (a) ONE CANONICAL SIGNAL-CHALLENGER REGISTRAR. Registration is defined in
+        exactly one module, every challenger class routes through ONE table, and
+        the two frozen cohorts (R46, R56) are reached by reference rather than
+        replaced - so closing R61's named gap did not create a second parallel
+        TRUE_FORWARD business owner.
+    (b) THE REGISTRAR IS NOT A SECOND EVIDENCE STORE. It writes no prediction,
+        outcome or score, computes no P&L, and NAMES the owner that accrues.
+    (c) NO SECOND CALENDAR OWNER, AND NO WEEKDAY ARITHMETIC WHERE AN
+        AUTHORITATIVE CALENDAR IS REQUIRED. The registrar keeps no holiday table,
+        consults the R60.1 supplier through the ONE market-session interpreter,
+        and refuses rather than falling back to counting weekdays. The R46
+        scheduling estimate accepts the authoritative closures instead of
+        inventing them - which is what stops 2026-09-07 (Labor Day) from being
+        advertised as a maturity - and every non-equity class keeps its own
+        realised bar calendar.
+    (d) FAIL CLOSED ON LIFECYCLE. A freeze whose lifecycle is not ACTIVE is
+        refused, and a registration with NO established lifecycle verdict is
+        refused too: a registrar that assumed ACTIVE could resurrect a withdrawn
+        challenger.
+    (e) NO BACKFILL. The clock opens strictly after registration and every
+        counter starts at zero; nothing in the module can write a past session.
+    (f) CURRENT VS HISTORICAL RUNTIME IDENTITY. The ONE identity owner publishes
+        both kinds and the event-cycle classifier, no second module defines it,
+        the classifier states that it decides no current health, and the Active
+        Manager reads the CURRENT runtime for its collection facts while still
+        delegating the alignment verdict.
+    (g) THE CYCLE RECORDS ITS OWN PRODUCING RUNTIME, from the frozen capture -
+        never a fresh source read - so provenance survives the process.
+    (h) THE BROWSER RENDERS. It computes no maturity, no lifecycle and no
+        evidence verdict, and it reconciles no two payloads.
+    """
+    reg_src = _read(R62_1_REGISTRAR)
+    pa_src = _read(R62_1_ADOPTION_OWNER)
+    rid_src = _read(R62_1_IDENTITY_OWNER)
+    ams_src = _read("api/active_manager_state.py")
+    esr_src = _read("api/event_signal_refresh.py")
+    clock_src = _read("alpha_agent/r46/clock.py")
+    emit_src = _read("alpha_agent/r46/emit.py")
+    r46_reg_src = _read("alpha_agent/r46/registry.py")
+    r56_src = _read("api/shadow_portfolio_evidence.py")
+    r52_src = _read("alpha_agent/r52/runtime.py")
+    aao_src = _read("api/alphaagent_outcomes.py")
+    ui = _read(UI_FILE)
+
+    # (a) one registrar, one routing table, three named owners.
+    registrar_present = all(t in reg_src for t in (
+        "def register_forward_challenger(", "def resolve_observation_clock(",
+        "def observation_calendar_for(", "def load_forward_challenger_registry(",
+        "OBSERVATION_CALENDARS", "EVIDENCE_ACCRUAL_OWNERS"))
+    second_registrar = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R62_1_REGISTRAR, "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and "def register_forward_challenger(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    missing_outcomes = sorted(o for o in R62_1_OUTCOMES
+                              if ('"%s"' % o) not in reg_src)
+    routes_through_one_table = all(t in pa_src for t in (
+        'CLASS_SIGNAL_CANONICAL = "FORWARD_SIGNAL_CANONICAL"',
+        '"FORWARD_SIGNAL_CANONICAL": "api.forward_challenger_registry"',
+        "return CLASS_SIGNAL_CANONICAL"))
+    # The R61 fail-closed path must remain REACHABLE, not deleted.
+    named_gap_still_reachable = all(t in pa_src for t in (
+        'CLASS_SIGNAL_UNREGISTERED = "FORWARD_SIGNAL_NO_CANONICAL_REGISTRAR"',
+        "NO_CANONICAL_REGISTRAR", "intent_is_resumable"))
+    # The frozen cohorts are reached BY REFERENCE and never edited from here.
+    cohorts_untouched = sorted(
+        rel for rel, src in (("alpha_agent/r46/registry.py", r46_reg_src),
+                             ("api/shadow_portfolio_evidence.py", r56_src),
+                             ("alpha_agent/r52/runtime.py", r52_src))
+        if "forward_challenger_registry" in src)
+
+    # (b) not a second evidence store.
+    registrar_writes_evidence = sorted(
+        t for t in ("def append_prediction", "def append_outcome", "def score(",
+                    "def mature(", "def accrue_forward(", "def leaderboard(",
+                    "net_alpha", "realised_return")
+        if t in reg_src)
+    names_the_accrual_owner = all(t in reg_src for t in (
+        "engine.shadow_portfolio_evidence", "alpha_agent.r52.runtime",
+        "alpha_agent.r46"))
+
+    # (c) one calendar owner; no weekday fallback where authority is required.
+    registrar_keeps_a_calendar = sorted(
+        t for t in ("AD_HOC_CLOSURES", "def holidays_for_year(",
+                    "easter_sunday(", "_nth_weekday(", "weekday() >= 5",
+                    "weekday() in WEEKEND")
+        if t in reg_src)
+    registrar_uses_canonical_calendar = all(t in reg_src for t in (
+        "from paper_trader.engine import exchange_calendar",
+        "from paper_trader.engine import market_session",
+        "calendar_available_between(", "non_sessions_between(",
+        "next_trading_day("))
+    calendar_refuses_rather_than_guesses = all(t in reg_src for t in (
+        'CLOCK_CALENDAR_UNAVAILABLE = "EXCHANGE_CALENDAR_UNAVAILABLE_FOR_THIS_RANGE"',
+        'CLOCK_ASSET_CLASS_UNDECLARED = "ASSET_CLASS_HAS_NO_DECLARED_OBSERVATION_CALENDAR"',
+        '"uses_weekday_arithmetic": False'))
+    # The R46 estimate consumes the authority; the frozen weekday rule survives
+    # for the markets that legitimately keep their own calendar.
+    estimate_accepts_authority = all(t in clock_src for t in (
+        "def expected_maturity_date(entry_date: _dt.date, horizon: int,",
+        "non_sessions=None", "def exchange_non_sessions(",
+        "observation_calendar_for(", "calendar_available_between("))
+    emitter_supplies_the_calendar = all(t in emit_src for t in (
+        "_maturity_non_sessions(", "non_sessions=_maturity_non_sessions(",
+        '"horizon_end_expected_calendar_owner"'))
+
+    # (d) fail closed on lifecycle, in the registrar itself.
+    lifecycle_fails_closed = all(t in reg_src for t in (
+        "REFUSED_LIFECYCLE_UNKNOWN", "def _adoptable_states(",
+        "PA.ADOPTABLE_STATES", "never_resurrectable"))
+    registrar_decides_a_lifecycle = sorted(
+        t for t in ("def classify_lifecycle(", "invalidated_reason",
+                    "withdrawn at inception")
+        if t in reg_src)
+
+    # (e) no backfill anywhere on the path.
+    no_backfill_declared = all(t in reg_src for t in (
+        '"backfilled": False', '"backfill_allowed": False',
+        "sessions_between_inception_and_registration_are_never_synthesised",
+        '"predictions_emitted": 0', '"matured_observations": 0',
+        "REFUSED_BACKDATED"))
+    promotion_paths = sorted(
+        t for t in ("def promote", "activate_sleeve(", "create_order",
+                    "build_order_plan", "rebalance_execution",
+                    "paper_trading_desk")
+        if t in reg_src)
+    # Reaching an evidence gate is the GATE OWNER's verdict. A registrar that
+    # could award PROMOTION_READY would be a promotion path with a softer name,
+    # so the token may never appear as one of its published states.
+    promotion_ready_is_not_a_state = ('"PROMOTION_READY"' not in reg_src
+                                      and "'PROMOTION_READY'" not in reg_src)
+
+    # (f) the current / historical identity split.
+    identity_kinds_present = all(('"%s"' % k) in rid_src
+                                 for k in R62_1_IDENTITY_KINDS)
+    missing_provenance_verdicts = sorted(
+        v for v in R62_1_PROVENANCE if ('"%s"' % v) not in rid_src)
+    provenance_owner_complete = all(t in rid_src for t in (
+        "def classify_event_cycle_provenance(",
+        "EVENT_CYCLE_PROVENANCE_VERDICTS = (",
+        '"decides_current_service_health": False'))
+    second_provenance_owner = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R62_1_IDENTITY_OWNER, "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and "def classify_event_cycle_provenance(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    ams_reads_current_runtime = all(t in ams_src for t in (
+        "def _current_collection_state(", "CC_SOURCE_CURRENT_OWNER",
+        "CC_SOURCE_DECISION_SNAPSHOT", "CC_SOURCE_UNAVAILABLE",
+        "_ic.resolve_service_lifecycle(", '"current_collection"',
+        "rid.build_runtime_alignment(", 'svc.get("loaded_release")'))
+    ams_rederives_release = sorted(set(
+        t for t in ("read_source_identity(", "rev-parse",
+                    "capture_loaded_identity(", "_commit_from_git_dir",
+                    "packed-refs")
+        if t in ams_src))
+    historical_cycle_is_labelled = all(t in ams_src for t in (
+        "def _event_cycle_provenance(", '"is_historical_event_cycle"',
+        '"decides_current_collection_health": False',
+        "rid.classify_event_cycle_provenance("))
+
+    # (g) the cycle records its producing runtime, from the FROZEN capture.
+    cycle_records_its_runtime = all(t in esr_src for t in (
+        "def _producing_runtime_release(", '"runtime_release": _producing',
+        "_rid.loaded_identity()", '"EVENT_CYCLE_RUNTIME_IDENTITY"'))
+    cycle_reads_head = sorted(set(
+        t for t in ("rev-parse", "read_source_identity(") if t in esr_src))
+
+    # (h) the read model publishes the registrar's own rows; the browser renders.
+    read_model_publishes_registrations = all(t in aao_src for t in (
+        "def _canonical_registrations(", '"canonical_forward_registrar"',
+        '"canonical_forward_registrations"', "FCR.registration_row("))
+    ui_renders_registrations = all(t in ui for t in (
+        'id="aao-registrations"', "canonical_forward_registrations",
+        "li.current_collection", "is_historical_event_cycle"))
+    ui_derives_forward_state = sorted(
+        t for t in ("r.lifecycle_state ===", "r.evidence_status ===",
+                    "matured_observations >", "next_legitimate_maturity_session >",
+                    "=== 'STALE_RUNTIME'", "collection_service_state ===")
+        if t in ui)
+
+    # (i) the inventory records the new owner.
+    inv_raw = _read("docs/architecture/system_inventory.json")
+    try:
+        inv = json.loads(inv_raw) if inv_raw.strip() else {}
+    except json.JSONDecodeError:
+        inv = {}
+    inv_paths = {m.get("path") for m in (inv.get("modules") or [])}
+
+    return {
+        "registrar_present": bool(registrar_present),
+        "second_registrar": second_registrar,
+        "missing_outcomes": missing_outcomes,
+        "routes_through_one_table": bool(routes_through_one_table),
+        "named_gap_still_reachable": bool(named_gap_still_reachable),
+        "cohorts_untouched": cohorts_untouched,
+        "registrar_writes_evidence": registrar_writes_evidence,
+        "names_the_accrual_owner": bool(names_the_accrual_owner),
+        "registrar_keeps_a_calendar": registrar_keeps_a_calendar,
+        "registrar_uses_canonical_calendar": bool(registrar_uses_canonical_calendar),
+        "calendar_refuses_rather_than_guesses":
+            bool(calendar_refuses_rather_than_guesses),
+        "estimate_accepts_authority": bool(estimate_accepts_authority),
+        "emitter_supplies_the_calendar": bool(emitter_supplies_the_calendar),
+        "lifecycle_fails_closed": bool(lifecycle_fails_closed),
+        "registrar_decides_a_lifecycle": registrar_decides_a_lifecycle,
+        "no_backfill_declared": bool(no_backfill_declared),
+        "promotion_paths": promotion_paths,
+        "promotion_ready_is_not_a_state": bool(promotion_ready_is_not_a_state),
+        "identity_kinds_present": bool(identity_kinds_present),
+        "missing_provenance_verdicts": missing_provenance_verdicts,
+        "provenance_owner_complete": bool(provenance_owner_complete),
+        "second_provenance_owner": second_provenance_owner,
+        "ams_reads_current_runtime": bool(ams_reads_current_runtime),
+        "ams_rederives_release": ams_rederives_release,
+        "historical_cycle_is_labelled": bool(historical_cycle_is_labelled),
+        "cycle_records_its_runtime": bool(cycle_records_its_runtime),
+        "cycle_reads_head": cycle_reads_head,
+        "read_model_publishes_registrations":
+            bool(read_model_publishes_registrations),
+        "ui_renders_registrations": bool(ui_renders_registrations),
+        "ui_derives_forward_state": ui_derives_forward_state,
+        "inventory_lists_registrar": R62_1_REGISTRAR in inv_paths,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -15800,6 +16050,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release59_persistent_research_runtime(files),
         "release60_alphaagent_outcomes":
             check_release60_alphaagent_outcomes(files),
+        "release62_1_canonical_forward_evidence":
+            check_release62_1_canonical_forward_evidence(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -16963,6 +17215,44 @@ def _print_console(rep: dict) -> None:
     print(f"inventory owner/route: {r60['inventory_lists_owner']}/"
           f"{r60['inventory_lists_route']}  missing concepts (must be empty): "
           f"{r60['missing_inventory_concepts']}")
+
+    hdr("RELEASE 62.1 — CANONICAL MULTI-ASSET TRUE_FORWARD REGISTRATION")
+    r621 = rep["release62_1_canonical_forward_evidence"]
+    print(f"canonical registrar present: {r621['registrar_present']}  "
+          f"second registrar (must be empty): {r621['second_registrar']}  "
+          f"missing outcomes (must be empty): {r621['missing_outcomes']}")
+    print(f"one routing table: {r621['routes_through_one_table']}  "
+          f"named gap still reachable: {r621['named_gap_still_reachable']}  "
+          f"frozen cohorts edited (must be empty): {r621['cohorts_untouched']}")
+    print(f"writes evidence (must be empty): {r621['registrar_writes_evidence']}"
+          f"  names the accrual owner: {r621['names_the_accrual_owner']}")
+    print(f"keeps a calendar (must be empty): "
+          f"{r621['registrar_keeps_a_calendar']}  uses the canonical calendar: "
+          f"{r621['registrar_uses_canonical_calendar']}  refuses rather than "
+          f"guesses: {r621['calendar_refuses_rather_than_guesses']}")
+    print(f"R46 estimate accepts the authority: "
+          f"{r621['estimate_accepts_authority']}  emitter supplies it: "
+          f"{r621['emitter_supplies_the_calendar']}")
+    print(f"lifecycle fails closed: {r621['lifecycle_fails_closed']}  "
+          f"decides a lifecycle (must be empty): "
+          f"{r621['registrar_decides_a_lifecycle']}")
+    print(f"no backfill declared: {r621['no_backfill_declared']}  promotion "
+          f"paths (must be empty): {r621['promotion_paths']}  PROMOTION_READY "
+          f"is not a state: {r621['promotion_ready_is_not_a_state']}")
+    print(f"identity kinds present: {r621['identity_kinds_present']}  "
+          f"provenance owner complete: {r621['provenance_owner_complete']}  "
+          f"second provenance owner (must be empty): "
+          f"{r621['second_provenance_owner']}")
+    print(f"AMS reads the current runtime: {r621['ams_reads_current_runtime']}  "
+          f"re-derives release (must be empty): {r621['ams_rederives_release']}  "
+          f"historical cycle labelled: {r621['historical_cycle_is_labelled']}")
+    print(f"cycle records its runtime: {r621['cycle_records_its_runtime']}  "
+          f"reads HEAD (must be empty): {r621['cycle_reads_head']}")
+    print(f"read model publishes registrations: "
+          f"{r621['read_model_publishes_registrations']}  UI renders them: "
+          f"{r621['ui_renders_registrations']}  UI derives forward state "
+          f"(must be empty): {r621['ui_derives_forward_state']}")
+    print(f"inventory lists the registrar: {r621['inventory_lists_registrar']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -19672,6 +19962,61 @@ BLOCKING_INVARIANTS = (
     ("release60_alphaagent_outcomes", "inventory_lists_route", True),
     ("release60_alphaagent_outcomes", "missing_inventory_concepts", []),
     ("release60_alphaagent_outcomes", "concept_owner_conflicts", []),
+    # ------------------------------------------------------------------- #
+    # Release 62.1 - CANONICAL MULTI-ASSET TRUE_FORWARD REGISTRATION. R61
+    # shipped one named gap: a qualified R58/R59 freeze had an immutable
+    # identity and no forward owner that would accept it, because the two
+    # owners of the day each own a FROZEN COHORT rather than a registration.
+    # R62.1 closes it by GENERALISING the ownership, not by adding a third
+    # parallel one: registration is defined once, every class routes through
+    # one table, the two cohorts are reached by reference and never edited,
+    # the observation clock comes from the ONE exchange-calendar owner (so
+    # 2026-09-07 Labor Day can never be a maturity) or from the instrument's
+    # own realised calendar, nothing is backfilled, a withdrawn freeze is
+    # refused by two independent owners, and a completed cycle's release is
+    # provenance that can never make the current service stale. Every field
+    # below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release62_1_canonical_forward_evidence", "registrar_present", True),
+    ("release62_1_canonical_forward_evidence", "second_registrar", []),
+    ("release62_1_canonical_forward_evidence", "missing_outcomes", []),
+    ("release62_1_canonical_forward_evidence", "routes_through_one_table", True),
+    ("release62_1_canonical_forward_evidence", "named_gap_still_reachable", True),
+    ("release62_1_canonical_forward_evidence", "cohorts_untouched", []),
+    ("release62_1_canonical_forward_evidence", "registrar_writes_evidence", []),
+    ("release62_1_canonical_forward_evidence", "names_the_accrual_owner", True),
+    ("release62_1_canonical_forward_evidence", "registrar_keeps_a_calendar", []),
+    ("release62_1_canonical_forward_evidence",
+     "registrar_uses_canonical_calendar", True),
+    ("release62_1_canonical_forward_evidence",
+     "calendar_refuses_rather_than_guesses", True),
+    ("release62_1_canonical_forward_evidence", "estimate_accepts_authority", True),
+    ("release62_1_canonical_forward_evidence",
+     "emitter_supplies_the_calendar", True),
+    ("release62_1_canonical_forward_evidence", "lifecycle_fails_closed", True),
+    ("release62_1_canonical_forward_evidence",
+     "registrar_decides_a_lifecycle", []),
+    ("release62_1_canonical_forward_evidence", "no_backfill_declared", True),
+    ("release62_1_canonical_forward_evidence", "promotion_paths", []),
+    ("release62_1_canonical_forward_evidence",
+     "promotion_ready_is_not_a_state", True),
+    ("release62_1_canonical_forward_evidence", "identity_kinds_present", True),
+    ("release62_1_canonical_forward_evidence",
+     "missing_provenance_verdicts", []),
+    ("release62_1_canonical_forward_evidence",
+     "provenance_owner_complete", True),
+    ("release62_1_canonical_forward_evidence", "second_provenance_owner", []),
+    ("release62_1_canonical_forward_evidence", "ams_reads_current_runtime", True),
+    ("release62_1_canonical_forward_evidence", "ams_rederives_release", []),
+    ("release62_1_canonical_forward_evidence",
+     "historical_cycle_is_labelled", True),
+    ("release62_1_canonical_forward_evidence", "cycle_records_its_runtime", True),
+    ("release62_1_canonical_forward_evidence", "cycle_reads_head", []),
+    ("release62_1_canonical_forward_evidence",
+     "read_model_publishes_registrations", True),
+    ("release62_1_canonical_forward_evidence", "ui_renders_registrations", True),
+    ("release62_1_canonical_forward_evidence", "ui_derives_forward_state", []),
+    ("release62_1_canonical_forward_evidence", "inventory_lists_registrar", True),
 )
 
 

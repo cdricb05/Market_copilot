@@ -54,6 +54,36 @@ NON_EMISSION_REASONS = (REASON_DATA_BLOCKED, REASON_BUILD_FAILED, REASON_FLAT,
                         REASON_NO_CUTOFF)
 
 
+#: Release 62.1 - how far past the entry session the exchange calendar is asked
+#: for closures. Generous enough for the longest declared horizon plus weekends.
+_MATURITY_CALENDAR_MARGIN_DAYS = 30
+
+
+def _maturity_non_sessions(asset_class, entry_date: _dt.date, horizon: int):
+    """The authoritative closures to skip when ESTIMATING this row's maturity.
+
+    Delegates to the ONE resolver (``alpha_agent.r46.clock.exchange_non_sessions``),
+    which asks the canonical forward-evidence owner whether this asset class even
+    keeps exchange sessions. ``None`` for every market on its own realised
+    calendar - the frozen weekday estimate stands there, correctly.
+    """
+    end = entry_date + _dt.timedelta(
+        days=int(horizon) * 2 + _MATURITY_CALENDAR_MARGIN_DAYS)
+    return CK.exchange_non_sessions(asset_class, entry_date, end)
+
+
+def _maturity_calendar_owner(asset_class) -> str:
+    """WHICH calendar produced this row's maturity estimate. Named on the row so
+    a reader never has to guess whether a holiday was considered."""
+    try:
+        from paper_trader.api import forward_challenger_registry as FCR
+        return str(FCR.observation_calendar_for(asset_class)
+                   .get("calendar_owner")
+                   or "alpha_agent.r46.clock (weekday estimate)")
+    except Exception:                               # noqa: BLE001 - fail soft
+        return "alpha_agent.r46.clock (weekday estimate)"
+
+
 def batch_id(emitted_at: _dt.datetime) -> str:
     return "r46b_" + emitted_at.astimezone(_dt.timezone.utc).strftime(
         "%Y%m%dT%H%M%SZ")
@@ -232,8 +262,21 @@ def build_batch(campaign_id: str = CAMPAIGN_ID, registry: dict = None,
                 "prediction_type": spec["prediction_type"],
                 "horizon": int(horizon),
                 "horizon_unit": "ELIGIBLE_SESSIONS",
+                # Release 62.1 - the scheduling estimate counts the RIGHT
+                # sessions. For a US cash-equity instrument the authoritative
+                # exchange closures are supplied and skipped (2026-09-07, Labor
+                # Day, can no longer be advertised as a maturity); for every
+                # market on its own calendar the frozen weekday estimate stands,
+                # because a futures contract really does print on days the NYSE
+                # is shut. Scoring is unaffected either way: the judge counts
+                # the instrument's own realised bars.
                 "horizon_end_expected": str(
-                    CK.expected_maturity_date(entry_date, horizon)),
+                    CK.expected_maturity_date(
+                        entry_date, horizon,
+                        non_sessions=_maturity_non_sessions(
+                            spec["asset_class"], entry_date, horizon))),
+                "horizon_end_expected_calendar_owner":
+                    _maturity_calendar_owner(spec["asset_class"]),
 
                 "direction": direction,
                 "expected_return": None,

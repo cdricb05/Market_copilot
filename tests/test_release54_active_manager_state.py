@@ -441,6 +441,17 @@ class TestCompositionOnly:
             # (guarded by the R55.2 suite's TestArchitecturalBoundaries and by
             # the strict audit's presentation_reinfers_alignment invariant).
             "from paper_trader.api import runtime_identity as rid",
+            # R62.1 — the CURRENT Information Collection service state is a read
+            # contract like the others above, and it is read from the SAME
+            # canonical lifecycle owner the collection route uses. Before R62.1
+            # this module took those facts from the Release-50 DECISION snapshot,
+            # whose identity is a fingerprint of the stores that can change a
+            # decision and therefore does not move when a worker restarts — so
+            # two backend payloads could disagree about a healthy service. This
+            # module still compares nothing and classifies nothing: the lifecycle
+            # verdict is the owner's and the alignment verdict stays
+            # api.runtime_identity's.
+            "from paper_trader.api import information_collection as _ic",
         )
         unexpected = [ln for ln in import_lines if ln not in allowed]
         assert unexpected == []
@@ -475,6 +486,11 @@ class TestCompositionOnly:
             "portfolio_state": _mk("portfolio_state", _ps()),
             "constrained": _mk("constrained", _constr()),
             "information_collection": _mk("collection", _coll()),
+            # R62.1 — the CURRENT collection read is its own injectable owner.
+            # It must be injected here too: left to its default it reads the
+            # real worker's service state, which would make this test's result
+            # depend on whether a collection worker happens to be running.
+            "current_collection": _mk("current_collection", _coll()),
             "rebalance": _mk("rebalance", {"rebalance_state": "REBALANCE_IDLE"}),
             "event_refresh": _mk("event_refresh", _esr()),
             "reassessment": _mk("reassessment", _reas()),
@@ -485,8 +501,8 @@ class TestCompositionOnly:
         assert d["operational_book"]["nav"] == 99113.0
         assert sorted(calls) == sorted([
             "workflow", "portfolio_state", "constrained", "collection",
-            "rebalance", "event_refresh", "reassessment", "scoring", "runtime",
-            "intraday_emission"])
+            "current_collection", "rebalance", "event_refresh", "reassessment",
+            "scoring", "runtime", "intraday_emission"])
 
     def test_loader_degrades_per_owner_never_crashes(self):
         def _boom():
@@ -494,7 +510,8 @@ class TestCompositionOnly:
 
         d = ams.load_active_manager_state(loaders={
             "workflow": _boom, "portfolio_state": _boom, "constrained": _boom,
-            "information_collection": _boom, "rebalance": _boom,
+            "information_collection": _boom, "current_collection": _boom,
+            "rebalance": _boom,
             "event_refresh": _boom, "reassessment": _boom, "scoring": _boom,
             "runtime_health": _boom, "intraday_emission": _boom})
         assert d["stale_component_count"] >= 6

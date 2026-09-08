@@ -224,6 +224,28 @@ def _summarize_proposal(result: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _producing_runtime_release() -> Optional[dict]:
+    """The FROZEN loaded identity of the process running this cycle (R62.1).
+
+    Asked of the ONE identity owner, which captured it once at process start.
+    This is not a source read and it is not a fresh revision lookup: it is the
+    same immutable capture the runtime-alignment contract already uses, recorded
+    on the cycle so its provenance survives the process that produced it.
+    """
+    try:
+        from paper_trader.api import runtime_identity as _rid
+        ident = _rid.loaded_identity()
+    except Exception:                                    # noqa: BLE001
+        return None
+    return {"commit": ident.get("commit"),
+            "commit_short": ident.get("commit_short"),
+            "branch": ident.get("branch"),
+            "captured_at": ident.get("captured_at"),
+            "pid": ident.get("pid"),
+            "identity_kind": "EVENT_CYCLE_RUNTIME_IDENTITY",
+            "owner": ident.get("owner")}
+
+
 def _safety(performed_write: bool) -> dict:
     return {
         "read_only": not performed_write,
@@ -1214,6 +1236,14 @@ def run_event_signal_refresh(
         "state_vocabulary": list(CYCLE_STATES),
         "generated_at": started_iso,
         "completed_at": _now_iso(),
+        # R62.1 — WHICH RELEASE PRODUCED THIS CYCLE. A cycle is immutable
+        # evidence about the code that ran it, and a process holds the module
+        # graph it resolved at start for life. Recording the producing runtime's
+        # FROZEN capture here makes "this withheld candidate was produced under
+        # an older release" a fact on the record rather than an inference from
+        # timestamps. Cycles written before R62.1 simply do not carry it, and
+        # are read as provenance-not-recorded — never rewritten.
+        "runtime_release": _producing_runtime_release(),
         "requested_by": (str(requested_by) if requested_by else None),
         "active_book_id": active_book,
         "eligible_market_date": eligible,
@@ -1360,6 +1390,11 @@ def build_last_run_summary(full: Optional[dict]) -> Optional[dict]:
         "state": full.get("state"),
         "generated_at": full.get("generated_at"),
         "completed_at": full.get("completed_at"),
+        # R62.1 — the producing runtime's frozen identity, carried verbatim onto
+        # the summary so a reader can attribute the run without re-opening the
+        # full payload. Absent on every cycle written before R62.1, and absent
+        # is the truth for those.
+        "runtime_release": full.get("runtime_release"),
         "reassessment_ran": full.get("reassessment_ran"),
         "reassessment_reason": full.get("reassessment_reason"),
         "proposal_built": full.get("proposal_built"),

@@ -1711,6 +1711,57 @@ while tracing, not a tidy-up.
 
 Full narrative: `docs/RELEASE60_ARCHITECTURE_CONSOLIDATION.md`.
 
+## R62.1 - canonical multi-asset TRUE_FORWARD registration (LANDED)
+
+**What it consolidated.** Forward evidence had TWO owners and neither accepted a
+registration: `alpha_agent/r46/registry.py` owns a frozen challenger CONTRACT
+(hashed into `contract_hash`, cited by every emitted row) and
+`api/shadow_portfolio_evidence.py` owns a frozen SESSION COHORT of complete paper
+portfolios. R62.1 does not add a third owner beside them. It GENERALISES the
+missing operation into ONE canonical signal-challenger registrar,
+`api/forward_challenger_registry.py`, and routes every challenger class through
+the ONE `REGISTRARS` table in `api/prospective_adoption.py`. R46 and R56 are
+reached by compatibility adapters that only READ their contracts; their cohorts,
+ledgers and evidence are untouched, and neither module imports the new registrar.
+
+**Bounded by construction.** The registrar records a REGISTRATION and the
+OBSERVATION CLOCK it starts, and nothing else. It writes no prediction, no
+outcome and no score, computes no P&L, and names the owner that will accrue
+(`engine.shadow_portfolio_evidence`, matured by `alpha_agent.r52.runtime`). The
+R61 fail-closed `NO_CANONICAL_REGISTRAR` path is retained and reachable, because
+recording a named resumable gap rather than inventing an owner is the machinery
+that made the original orphans visible.
+
+**Second consolidation: one calendar.** `engine/exchange_calendar.py` (R60.1) was
+already THE exchange-session calendar, but forward maturity scheduling had never
+been wired to it: `alpha_agent/r46/clock.expected_maturity_date` counted bare
+weekdays, so the live board advertised `next_material_maturity = 2026-09-07`, a
+full NYSE closure. No second table was created. The estimate now ACCEPTS an
+authoritative non-session set, one resolver supplies it for equity-session
+instruments only, and every other market keeps its own realised bar calendar -
+which is the correct answer for it, not a concession.
+
+**Third consolidation: one current runtime.** `api/runtime_identity.py` now
+separates `CURRENT_RUNTIME_IDENTITY` (the only input to current service health)
+from `EVENT_CYCLE_RUNTIME_IDENTITY` (immutable provenance for a completed cycle),
+and `api/active_manager_state.py` reads the collection service through the SAME
+canonical current-runtime call the collection route makes rather than through the
+Release-50 decision snapshot, whose identity does not move when a worker
+restarts. One question, one answer, and the answer names the read that produced
+it.
+
+**Regression risk: LOW.** No gate, threshold, scoring rule or economic policy
+changed; no historical artifact was rewritten, replayed or rebound; the frozen
+weekday estimate is byte-identical for every caller that does not supply a
+calendar. Guarded by `tests/test_release62_1_canonical_forward_evidence.py` and
+`check_release62_1_canonical_forward_evidence` (31 blocking invariants).
+
+**What it deliberately did not do.** It does not DRIVE the accrual for the newly
+registered challengers - wiring their scheduled emission is a separate bounded
+slice - and it activates no non-equity operational capital. Registering a rates
+or FX challenger creates research evidence infrastructure and no multi-asset NAV,
+risk state or execution path.
+
 ## Sequenced consolidation roadmap after R60
 
 Prioritised by correctness risk, conflicting-state risk, operator confusion,
@@ -1787,7 +1838,9 @@ the canonical owner it belongs to; none is a rewrite.
 ### LATER
 
 6. **R62.3 - a forward-evidence registrar for R58/R59-class signal
-   challengers** *(the remaining half of R61 Workstream D)*. R61 built the
+   challengers** *(the remaining half of R61 Workstream D)*. **LANDED as
+   Release 62.1** - see the entry below. The description that follows is kept
+   verbatim as the statement of the problem it solved. R61 built the
    ONE governed prospective-adoption operation - idempotent, crash-
    recoverable, asset-agnostic, refusing a withdrawn or invalidated freeze
    and refusing any backdated observation clock - and wired it into the

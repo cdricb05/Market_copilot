@@ -13,6 +13,20 @@ cannot be argued into look-ahead by a fast market.
 realised bar calendar - the dates it actually printed - so mixed calendars,
 holidays and market-specific closures are handled by observation rather than
 by an assumed holiday table.
+
+RELEASE 62.1 - THE SCHEDULING ESTIMATE STOPS COUNTING BARE WEEKDAYS
+------------------------------------------------------------------
+:func:`expected_maturity_date` is the CALENDAR ESTIMATE the boards schedule
+from (``horizon_end_expected``). It counted weekdays, so on 2026-09-07 - Labor
+Day, a full NYSE closure - the live board advertised a maturity on a session
+that does not exist. It now accepts an AUTHORITATIVE non-session set and skips
+those dates too. This module still owns no holiday table: the set is supplied by
+:mod:`engine.exchange_calendar` through
+:func:`api.forward_challenger_registry.observation_calendar_for`, which is the
+ONE place that decides whether an asset class even keeps exchange sessions.
+Called without a set the behaviour is byte-for-byte what it always was, so every
+existing R46 row and every non-equity instrument - which legitimately trades on
+days the NYSE is shut - is unchanged.
 """
 from __future__ import annotations
 
@@ -114,11 +128,44 @@ def eastern_date(dt: _dt.datetime) -> _dt.date:
     return to_eastern(dt).date()
 
 
-def next_weekday(d: _dt.date) -> _dt.date:
+def next_weekday(d: _dt.date, non_sessions=None) -> _dt.date:
+    """The next weekday after ``d``, skipping any AUTHORITATIVE non-session.
+
+    ``non_sessions`` is an iterable of ISO dates supplied by the canonical
+    exchange-calendar owner. ``None`` keeps the frozen weekday-only rule
+    exactly as it was - which is the correct answer for every market that is
+    NOT on the NYSE session calendar, and the only answer available when the
+    authoritative calendar cannot cover the range.
+    """
+    skip = {str(x)[:10] for x in (non_sessions or ())}
     n = d + _dt.timedelta(days=1)
-    while n.weekday() in WEEKEND:
+    guard = 0
+    while (n.weekday() in WEEKEND or n.isoformat() in skip) and guard < 40:
         n += _dt.timedelta(days=1)
+        guard += 1
     return n
+
+
+def exchange_non_sessions(asset_class, start: _dt.date, end: _dt.date):
+    """The authoritative non-sessions for ``asset_class`` in ``[start, end]``.
+
+    Delegation, not a calendar. It asks the ONE forward-evidence owner whether
+    this asset class keeps exchange sessions at all and, if it does, asks the
+    ONE supplier for that range's full-day closures. Any other asset class - and
+    any range the supplier cannot cover - yields ``None``, which means "keep the
+    weekday estimate", never "assume a holiday".
+    """
+    try:
+        from paper_trader.api import forward_challenger_registry as FCR
+        cal = FCR.observation_calendar_for(asset_class)
+        if not cal.get("is_exchange_session_calendar"):
+            return None
+        from paper_trader.engine import exchange_calendar as EC
+        if not EC.calendar_available_between(start, end):
+            return None
+        return EC.non_sessions_between(start, end)
+    except Exception:                               # noqa: BLE001 - fail soft
+        return None
 
 
 def entry_session_date(emitted_at: _dt.datetime) -> _dt.date:
@@ -183,15 +230,19 @@ def maturity_session(sessions: Sequence, entry_date: _dt.date,
     return sessions[j]
 
 
-def expected_maturity_date(entry_date: _dt.date, horizon: int) -> _dt.date:
+def expected_maturity_date(entry_date: _dt.date, horizon: int,
+                           non_sessions=None) -> _dt.date:
     """A calendar ESTIMATE of maturity, for scheduling only.
 
-    Counts ``horizon`` weekdays after ``entry_date``. Never used to score -
-    the judge always counts realised sessions.
+    Counts ``horizon`` sessions after ``entry_date``, skipping weekends and -
+    when an AUTHORITATIVE ``non_sessions`` set is supplied - full-day exchange
+    closures. Never used to score: the judge always counts the instrument's own
+    realised sessions. Without a set the rule is the frozen weekday count, so
+    non-equity instruments and legacy callers are unchanged.
     """
     d = entry_date
     for _ in range(int(horizon)):
-        d = next_weekday(d)
+        d = next_weekday(d, non_sessions)
     return d
 
 
@@ -232,7 +283,7 @@ def session_index(sessions: Iterable) -> list:
 
 __all__ = [
     "now_utc", "iso", "iso_precise", "parse_iso", "ordering_evidence",
-    "to_eastern", "eastern_date", "next_weekday",
+    "to_eastern", "eastern_date", "next_weekday", "exchange_non_sessions",
     "entry_session_date", "outcome_window_start_utc", "is_true_forward",
     "resolve_entry", "maturity_session", "expected_maturity_date",
     "sessions_remaining", "session_index", "CALCULATION_OWNER",

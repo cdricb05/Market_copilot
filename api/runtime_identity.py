@@ -21,6 +21,29 @@ THE DISTINCTION THIS MODULE OWNS
     RUNTIME ALIGNMENT              whether the cooperating runtimes are operating
                                    the same release.
 
+RELEASE 62.1 — A SECOND DISTINCTION, AND WHY IT MATTERS AS MUCH
+---------------------------------------------------------------
+A LOADED identity belongs to a PROCESS, and processes end. R61 was deployed
+while a collection worker started under the previous release was still running;
+that worker produced the 2026-09-08 material-event cycle and then exited, and a
+new worker started on the deployed release. Both facts are true, and the estate
+had only one word for them, so the historical cycle's older release kept being
+reported as the CURRENT service's identity — "Information Collection is stale"
+about a worker that was, provably, running exactly the deployed code.
+
+    CURRENT_RUNTIME_IDENTITY      the release the process serving this runtime
+                                  RIGHT NOW loaded. The ONLY input to current
+                                  service health and to runtime alignment.
+    EVENT_CYCLE_RUNTIME_IDENTITY  the release a COMPLETED historical cycle ran
+                                  under. Immutable provenance. It explains what
+                                  a past cycle could and could not do, and it
+                                  may NEVER decide a current-health verdict.
+
+:func:`classify_event_cycle_provenance` is the whole of the second concept: it
+decides, from persisted stamps alone, whether a recorded cycle was produced by
+the process that is running now or by an earlier one, and it fails closed to
+"not established" rather than ever claiming the current runtime.
+
 The one rule that makes this useful: **a later source-tree change must never
 change the reported loaded identity of an already-running process.**
 ``capture_loaded_identity`` therefore memoises per process, and every subsequent
@@ -433,6 +456,126 @@ def classify_alignment(*, loaded: Optional[dict], source: Optional[dict],
     }
 
 
+# --------------------------------------------------------------------------- #
+# EVENT-CYCLE PROVENANCE (R62.1) — historical, immutable, and never current.
+# --------------------------------------------------------------------------- #
+#: The two identity KINDS this module publishes. A surface that mixes them is
+#: the R62.1 defect: a completed cycle's release is provenance, not health.
+IDENTITY_CURRENT_RUNTIME = "CURRENT_RUNTIME_IDENTITY"
+IDENTITY_EVENT_CYCLE_RUNTIME = "EVENT_CYCLE_RUNTIME_IDENTITY"
+IDENTITY_KINDS = (IDENTITY_CURRENT_RUNTIME, IDENTITY_EVENT_CYCLE_RUNTIME)
+
+#: The cycle was produced by the process that is serving this runtime now.
+EVC_CURRENT_RUNTIME = "PRODUCED_BY_THE_CURRENT_RUNTIME"
+#: The cycle was produced by a process that no longer exists — proven, because
+#: the cycle's own stamp precedes the current process's start instant, or
+#: because the two recorded commits differ.
+EVC_EARLIER_RUNTIME = "PRODUCED_BY_AN_EARLIER_RUNTIME"
+#: Nothing persisted establishes which process produced it. FAIL CLOSED: an
+#: unestablished provenance is never reported as the current runtime.
+EVC_NOT_ESTABLISHED = "RUNTIME_PROVENANCE_NOT_ESTABLISHED"
+EVENT_CYCLE_PROVENANCE_VERDICTS = (EVC_CURRENT_RUNTIME, EVC_EARLIER_RUNTIME,
+                                   EVC_NOT_ESTABLISHED)
+
+
+def _instant(value: Any) -> Optional[datetime]:
+    """Parse a persisted ISO instant, tolerating the trailing-Z form."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        out = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return out if out.tzinfo else out.replace(tzinfo=timezone.utc)
+
+
+def classify_event_cycle_provenance(*, cycle_generated_at: Any,
+                                    current_runtime_started_at: Any = None,
+                                    cycle_loaded_commit: Any = None,
+                                    current_loaded_commit: Any = None) -> dict:
+    """WHICH runtime produced a completed cycle. Pure; decides no health.
+
+    Two independent proofs, either of which is sufficient:
+
+    * a recorded commit on the cycle that differs from the current runtime's —
+      the strongest evidence, available only for cycles written from R62.1 on;
+    * the cycle's own stamp preceding the current process's ``started_at`` — a
+      process cannot have produced a record that predates its own start, so the
+      producer is provably a DIFFERENT, earlier process.
+
+    Everything else is :data:`EVC_NOT_ESTABLISHED`. This function never reads a
+    heartbeat, a pid or a service state, and its verdict is never an input to
+    whether a service is healthy now: ``decides_current_service_health`` is
+    False, permanently, and is returned so no caller has to remember it.
+    """
+    cyc = _instant(cycle_generated_at)
+    started = _instant(current_runtime_started_at)
+    cyc_commit = str(cycle_loaded_commit or "") or None
+    cur_commit = str(current_loaded_commit or "") or None
+
+    if cyc_commit and cur_commit:
+        same = cyc_commit == cur_commit
+        verdict = EVC_CURRENT_RUNTIME if same else EVC_EARLIER_RUNTIME
+        because = ("the cycle recorded the same loaded commit as the current "
+                   "runtime" if same else
+                   "the cycle recorded loaded commit %s and the current "
+                   "runtime loaded %s" % (_short(cyc_commit),
+                                          _short(cur_commit)))
+    elif cyc is not None and started is not None:
+        if cyc < started:
+            verdict = EVC_EARLIER_RUNTIME
+            because = ("the cycle was recorded at %s, before the current "
+                       "process started at %s, so a different process "
+                       "produced it" % (cyc.isoformat(), started.isoformat()))
+        else:
+            verdict = EVC_CURRENT_RUNTIME
+            because = ("the cycle was recorded after the current process "
+                       "started, so the process running now produced it")
+    else:
+        verdict = EVC_NOT_ESTABLISHED
+        because = ("neither a recorded cycle commit nor a comparable process "
+                   "start instant is available; provenance is not established "
+                   "and is never assumed to be the current runtime")
+
+    return {
+        "owner": OWNER,
+        "identity_kind": IDENTITY_EVENT_CYCLE_RUNTIME,
+        "verdict": verdict,
+        "verdict_vocabulary": list(EVENT_CYCLE_PROVENANCE_VERDICTS),
+        "because": because,
+        "is_historical_event_cycle": verdict == EVC_EARLIER_RUNTIME,
+        "cycle_generated_at": (cyc.isoformat() if cyc else None),
+        "current_runtime_started_at": (started.isoformat() if started else None),
+        "cycle_loaded_commit_short": _short(cyc_commit),
+        "current_loaded_commit_short": _short(cur_commit),
+        # The whole point of the split, stated on the row.
+        "decides_current_service_health": False,
+        "current_health_owner": ("the canonical current-runtime read for that "
+                                 "service; a completed cycle's release is "
+                                 "provenance, never health"),
+        "statement": _event_cycle_statement(verdict),
+        "writes_nothing": True,
+        "restarts_nothing": True,
+    }
+
+
+def _event_cycle_statement(verdict: str) -> str:
+    """The operator sentence for one cycle's provenance, composed HERE."""
+    if verdict == EVC_EARLIER_RUNTIME:
+        return ("This is a HISTORICAL event cycle: it was produced by an "
+                "earlier runtime, under the application release that process "
+                "had loaded. It is immutable evidence about that cycle and it "
+                "says nothing about the release running now.")
+    if verdict == EVC_CURRENT_RUNTIME:
+        return ("This cycle was produced by the runtime that is serving now, "
+                "under the release that runtime loaded.")
+    return ("Which runtime produced this cycle is not established from "
+            "persisted facts, so it is not attributed to the current runtime.")
+
+
 def _statement(runtime: str, row: dict) -> str:
     """The operator sentence for one runtime, composed HERE so no surface has to
     word an alignment verdict for itself."""
@@ -556,4 +699,9 @@ __all__ = [
     "read_source_identity", "capture_loaded_identity", "loaded_identity",
     "reset_loaded_identity_for_tests", "classify_alignment",
     "build_runtime_alignment",
+    # Release 62.1 — the current / historical identity split.
+    "IDENTITY_CURRENT_RUNTIME", "IDENTITY_EVENT_CYCLE_RUNTIME",
+    "IDENTITY_KINDS", "EVC_CURRENT_RUNTIME", "EVC_EARLIER_RUNTIME",
+    "EVC_NOT_ESTABLISHED", "EVENT_CYCLE_PROVENANCE_VERDICTS",
+    "classify_event_cycle_provenance",
 ]
