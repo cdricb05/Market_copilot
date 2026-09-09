@@ -1762,6 +1762,49 @@ slice - and it activates no non-equity operational capital. Registering a rates
 or FX challenger creates research evidence infrastructure and no multi-asset NAV,
 risk state or execution path.
 
+## R62.1.1 - forward ACTIVATION + live-state integrity (LANDED)
+
+**What it consolidated.** R62.1 shipped a canonical registrar and the live estate
+still read `canonical_forward_registration_count = 0` beside
+`orphan_freezes_adoptable_count = 4`. Both were true, and the reason was
+structural: R61 and R62.1 act when a freeze is CREATED, and
+`alpha_agent.r59.handlers.freeze_qualified` returned `ALREADY_FROZEN` BEFORE the
+adoption owner was called. There was no governed way — for the runtime OR for an
+operator — to adopt a freeze that already existed. R62.1.1 adds ONE operator
+door, `scripts/adopt_prospective_freeze.py`, which owns no rule and delegates to
+`api.prospective_adoption.adopt_prospective_freeze`; and it makes the research
+handler re-offer an existing freeze to that SAME owner, so recovery needs no
+second path.
+
+**Bounded by construction.** Dry run by default; a live write requires BOTH
+`--confirm ADOPT_PROSPECTIVE_FORWARD_CLOCKS` AND `--execute`. `--challenger-id`
+is repeatable and required and there is no `--all`. There is no
+`--effective-from`, `--date`, `--backfill` or `--inception-override`: the
+prospective boundary is derived by the owner and is always today, and the strict
+audit blocks if such an argument ever appears. Eighteen strict-blocking
+invariants in `check_release62_1_1_forward_activation_integrity`; 57 tests in
+`tests/test_release62_1_1_forward_activation_integrity.py`.
+
+**Three live-state defects, fixed at the source.** (1) ONE current-collection
+read and ONE block shape now live with the lifecycle owner, and the browser no
+longer converts a failed READ into a SERVICE verdict — the CURRENT verdict had
+been riding on a composition that reads a 14 MB event index and the whole
+attention universe, neither of which it depends on. (2) The Sep-8 live
+reassessment's withholding was CORRECT and its identity chain exact; the three
+reason codes it emitted described a defect that did not exist, and a
+NO-PRICED-TARGET lane now marks the seven conditions that need a target
+`NOT_APPLICABLE_TO_THIS_LANE` while the verdict stays unchanged. (3) The HOC
+"previous eligible session" was resolved on weekday arithmetic and named Labor
+Day; membership drift is now classified with the exact affected names and is
+fail-closed on the benign claim; and R61's latency fix, whose two halves
+cancelled out, now works end to end with an acceptance count that is provably
+closed.
+
+**What it deliberately did not do.** It did NOT perform the four R58 adoptions —
+this release ships the door, not the act. It did not touch the standing Sep-8
+governed decision, replay any event, rewrite any artifact, or change any gate,
+threshold or economics.
+
 ## Sequenced consolidation roadmap after R60
 
 Prioritised by correctness risk, conflicting-state risk, operator confusion,
@@ -1795,6 +1838,18 @@ the canonical owner it belongs to; none is a rewrite.
    is a bounded release of its own. That is R62.3. Regression risk of what
    landed: LOW (changed no gate, no scoring and no existing record; every
    historical artifact is byte-identical).
+
+1b. **R62.1.1 - the operator door, and the act that is still owed** *(Milestone
+   4; correctness)*. **THE DOOR LANDED; THE ADOPTION HAS NOT BEEN PERFORMED.**
+   `scripts/adopt_prospective_freeze.py` exists, is governed, is idempotent and
+   cannot backdate, and `freeze_qualified` can now recover an existing freeze
+   through the same owner. The four ACTIVE R58 challengers are READY to adopt and
+   the estate still holds zero canonical forward registrations, because
+   performing the write is an operator act on the deployed checkout and this
+   release was read-only on `C:`. The exact dry-run and live commands are in
+   `docs/RELEASE62_1_1_FORWARD_ACTIVATION_INTEGRITY.md`. Until it is run, nothing
+   accrues: the gap is now a scheduled ACT rather than a missing capability.
+   Dependency: deployment of R62.1.1. Regression risk: LOW.
 
 2. **R61.1 - one bounded summary accessor on the forward-evidence board**
    *(operator experience; no ownership change)*. `load_prospective_tournament()`

@@ -29930,6 +29930,11 @@ function renderActiveManagerState(d) {
   // service that is healthy. The read's own provenance travels in the hover
   // title; the browser reconciles nothing and classifies nothing.
   var cc = li.current_collection || {};
+  // R62.1.1 â€” the sticky header chip renders the SAME canonical block. Both
+  // payloads carry it from one owner, so this cannot contradict the collection
+  // route; it only means a slow or failed collection read can no longer leave
+  // the header asserting a service state nobody measured.
+  try { _icRenderCanonicalCollection(cc); } catch (e) {}
   var col2 = '<div class="ams-col"><div class="h">Live / intraday research state</div>'
     + _amsRow('Collection', _opEsc(_opWords(cc.service_state || li.collection_service_state) || '—')
         + ((cc.worker_activity || li.worker_activity)
@@ -34658,6 +34663,33 @@ function _icSetHeaderBadge(text, cls, title) {
   el.style.border = '1px solid ' + tone[2];
   if (title) el.setAttribute('title', title);
 }
+// R62.1.1 â€” THE ONE renderer of the CURRENT collection state.
+//
+// Two backend payloads carry this answer (the collection route and the Active
+// Manager state), and since R62.1.1 both get it from ONE owner function, so the
+// block is identical whichever arrives. This renderer places that block and
+// nothing else: it classifies nothing, compares nothing and reconciles nothing.
+// Whichever loader finishes last writes the same words.
+function _icRenderCanonicalCollection(cc) {
+  if (!cc || !cc.available || !cc.service_state) return false;
+  var m = _IC_SERVICE_BADGE[cc.service_state]
+       || { cls: 'muted', label: String(cc.service_state) };
+  _icSetHeaderBadge(m.label, m.cls,
+    String(cc.reason || '') + ' Source: ' + String(cc.source || '')
+    + '. Owner: ' + String(cc.owner || '') + '.');
+  return true;
+}
+// A FETCH that did not answer is a TRANSPORT fact, never a service verdict.
+// Publishing a collection-unavailable verdict for a read that merely timed out
+// is exactly how a healthy worker came to be shown as unavailable on the pages
+// whose own heavy composition was still running. The chip says what actually
+// happened, and the canonical state is left to whichever payload does answer.
+function _icHeaderReadDidNotAnswer() {
+  _icSetHeaderBadge('COLLECTION READ DID NOT ANSWER', 'muted',
+    'The collection read did not answer. This is a READ failure, not a '
+    + 'statement about the collection service: the service state is decided '
+    + 'only by api.information_collection.');
+}
 
 function renderInformationCollection(d) {
   if (!d) {
@@ -34671,8 +34703,7 @@ function renderInformationCollection(d) {
     _icSetBadge('ic-activity-badge', 'UNAVAILABLE', 'muted');
     _icSetBadge('ic-service-badge', 'UNAVAILABLE', 'muted');
     _icSetBadge('ic-collection-badge', 'COLLECTION: UNKNOWN', 'muted');
-    _icSetHeaderBadge('COLLECTION: UNAVAILABLE', 'muted',
-      'The collection status endpoint could not be read.');
+    _icHeaderReadDidNotAnswer();
     return;
   }
   var svc = d.service || {};
@@ -34693,7 +34724,13 @@ function renderInformationCollection(d) {
     'EXECUTION AUTOMATION: ' + (auto.execution_automation_enabled ? 'ON' : 'OFF'),
     'danger',
     'Order-execution automation is permanently off and unreachable from the collection service.');
-  _icSetHeaderBadge(sb.label, sb.cls, svc.reason || '');
+  // The header chip renders the CANONICAL block this payload carries (R62.1.1),
+  // which is the same object api.active_manager_state publishes. The card badge
+  // above keeps reading this route's own service section; both are the same
+  // owner's verdict, so they cannot disagree.
+  if (!_icRenderCanonicalCollection(d.current_collection)) {
+    _icSetHeaderBadge(sb.label, sb.cls, svc.reason || '');
+  }
 
   // RELEASE 29 UI CONSOLIDATION — WHAT IS THE MANAGER DOING RIGHT NOW? The
   // backend's own worker_activity verdict, promoted from a micro key/value to a
@@ -37830,7 +37867,13 @@ window._obReframeStageStatuses = _obReframeStageStatuses;
 function renderOperationalBook(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
   var t = (ob && ob.current_target) || null;
-  var stateTxt = ob ? (ob.initialized ? _obStateLabel(ob.current_status) : 'NOT INITIALIZED') : 'UNAVAILABLE';
+  // R62.1.1 â€” a read that did not answer is a TRANSPORT fact, not a book state.
+  // The old word here was 'UNAVAILABLE', and on the heavy Alpha & Capital and
+  // Portfolio routes â€” where this 45s read runs beside a composition that
+  // legitimately takes minutes â€” it published a failed fetch as the operational
+  // book's own status, on the global right rail, on every route at once.
+  var stateTxt = ob ? (ob.initialized ? _obStateLabel(ob.current_status) : 'NOT INITIALIZED')
+                    : 'BOOK READ DID NOT ANSWER';
   var cash = ob && ob.initialized ? _obMoney(ob.cash) : (ob ? '— (not initialized)' : '—');
   var nav = ob && ob.initialized ? _obMoney(ob.nav) : (ob ? '— (not initialized)' : '—');
   var holdings = ob ? String(ob.holdings_count || 0) : '—';

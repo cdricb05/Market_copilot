@@ -799,10 +799,23 @@ class TestGovernanceIntegration:
         also proves the opportunity-cost dependency was PERSISTED and is exactly
         RETRIEVABLE, rather than trusting a hash that may name nothing. The
         expectation is stated as "every check passes", so a future release that
-        adds a condition strengthens this test instead of breaking it."""
+        adds a condition strengthens this test instead of breaking it.
+
+        R62.1.1 raised it to 47 and split the denominator: a check is PASSED,
+        FAILED or NOT_APPLICABLE_TO_THIS_LANE. A PRICED-target candidate like
+        this one has exactly one inapplicable condition - the no-target lane's
+        PROPOSAL_BINDING_CONSISTENT, whose applicable counterpart here is
+        TARGET_HASH_BOUND - so "every APPLICABLE check passes" is the claim, and
+        the arithmetic is asserted rather than assumed."""
         _, gate = _gate()
-        assert gate["checks_total"] == 45
-        assert gate["checks_passed"] == gate["checks_total"], gate["failing_checks"]
+        assert gate["checks_total"] == 47
+        assert gate["checks_applicable"] + gate["checks_not_applicable"] == \
+            gate["checks_total"]
+        assert gate["not_applicable_checks"] == ["PROPOSAL_BINDING_CONSISTENT"]
+        assert gate["checks_passed"] == gate["checks_applicable"], \
+            gate["failing_checks"]
+        assert gate["checks_failed"] == 0
+        assert gate["counts_are_closed"] is True
         assert gate["verdict"] == pdec.GATE_ELIGIBLE
         assert gate["withheld_reason_codes"] == []
 
@@ -851,7 +864,11 @@ class TestGovernanceIntegration:
                          hoc_assessment_hash=binding["hoc_assessment_hash"])
 
         cand, gate = _gate(reas=reas, cycle=cycle, summ=summ, sc=sc, hocb=hocb)
-        assert gate["checks_passed"] == gate["checks_total"], gate["failing_checks"]
+        # R62.1.1 - every APPLICABLE check passes. The denominator excludes the
+        # no-target lane's binding rule, which this priced candidate is not in.
+        assert gate["checks_passed"] == gate["checks_applicable"], \
+            gate["failing_checks"]
+        assert gate["failing_checks"] == []
         assert gate["verdict"] == pdec.GATE_ELIGIBLE
         assert cand["identity"]["reassessment_id"] == v2["artifact_id"]
         # ...and version 1 is still exactly where it was.

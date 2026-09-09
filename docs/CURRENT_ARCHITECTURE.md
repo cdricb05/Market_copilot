@@ -3899,3 +3899,119 @@ rates or FX challenger creates research evidence infrastructure and no
 multi-asset NAV, risk state or execution path. A cycle written before R62.1
 carries no recorded runtime release and is read as provenance-not-recorded;
 nothing backfills it.
+
+## Release 62.1.1 — forward activation + live-state integrity (2026-09-08)
+
+R62.1.1 adds no economics, no gate, no threshold and no owner of a new business
+fact. It closes the ACTIVATION gap R62.1 left — a canonical registrar with
+nothing registered — and three live-state defects that made correct behaviour
+read as failure.
+
+**The activation gap, and why the runtime could not close it.** R61 made freeze
+-> registration ONE governed operation and R62.1 gave that operation a canonical
+registrar. Both act at the moment a freeze is CREATED.
+`alpha_agent.r59.handlers.freeze_qualified` returns `ALREADY_FROZEN` for a
+challenger whose row is already in research memory — and it returned it BEFORE
+the adoption owner was called. So the four ACTIVE R58 freezes
+(`R58_SHORT_VOLUME_PRESSURE_V1`, `R58_DISCLOSURE_INTENSITY_V1`,
+`R58_FUND_MOMENTUM_VETO_V1`, `R58_FCF_PURE_V1`) were adoptable and unreachable
+by the only code that adopts, whatever the research runtime did next.
+
+**ONE governed operator entrypoint.** `scripts/adopt_prospective_freeze.py` is
+the one door, and it owns no lifecycle rule, no identity calculation, no
+observation calendar, no registration rule, no evidence rule, no promotion rule
+and no portfolio rule. It resolves operator-named challenger ids against the
+canonical ResearchMemory through `open_memory_readonly()` and hands each
+resolved freeze to `api.prospective_adoption.adopt_prospective_freeze` exactly
+once; that owner re-checks the lifecycle, writes a durable intent and delegates
+to `api.forward_challenger_registry`, which re-checks the lifecycle again and
+resolves the clock on the asset's own calendar. The three rules the entrypoint
+would otherwise have had to invent live with the owner:
+`OPERATOR_ADOPT_CONFIRM_TOKEN`, `resolve_freeze_by_challenger_id` (unknown and
+ambiguous both fail closed) and `current_prospective_boundary`.
+
+**No backfill, and no way to ask for one.** The boundary is derived and is always
+today; there is no `--effective-from`, `--date`, `--backfill` or
+`--inception-override`, and the strict audit blocks if one appears. The first
+legitimate observation stays the first eligible session STRICTLY AFTER
+registration. There is no `--all`: adoption is named, one challenger at a time.
+Dry run is the default and a live write needs BOTH `--confirm
+ADOPT_PROSPECTIVE_FORWARD_CLOCKS` AND `--execute`.
+
+**Recovery without a second path.** `freeze_qualified` now re-offers an existing
+freeze to the SAME governed owner. That cannot resurrect anything: the lifecycle
+is reclassified from persisted history, the identity hash keys idempotency, the
+registrar's first-write-wins returns the existing registration untouched, and the
+clock offered is today's. `R59_CALENDAR_TERM_STRUCTURE_F9BE2426`, WITHDRAWN at
+inception, is refused by both owners independently and can never register.
+
+**One current collection state.** "Is collection running now?" had two payload
+paths, and the CURRENT verdict rode on a heavy composition it does not depend on
+(source-runtime health, the event-signal-refresh status over a 14 MB event index,
+the whole attention universe). A slow read of any of those, on the routes whose
+own composition legitimately takes minutes, produced a browser-side
+`COLLECTION: UNAVAILABLE` — a SERVICE verdict manufactured from a TRANSPORT
+failure. The cheap canonical read (`resolve_current_collection_state`: the
+service-state document, the single-flight lock, one pure lifecycle verdict) and
+the block every surface renders (`build_current_collection_state`) now live with
+the lifecycle owner, and both the collection route and
+`api.active_manager_state` publish the same object. In the browser one renderer
+places that block, and a read that did not answer says exactly that.
+Historical event-cycle provenance still decides nothing about current health.
+
+**The Sep-8 live reassessment was correctly withheld.** Its candidate identity
+hash is `c329a4e57fa9cfea2f1412677ea19176`, byte-identical to the standing
+governed decision, so the chain signal refresh -> HOC -> reassessment ->
+candidate -> governance used one exact persisted identity with no transient
+substitution. The intraday producer contract promotes only on a PRICED R47
+outcome — concluding `CURRENT_NO_CHANGE` for a SESSION is the daily producer's
+prerogative — so the cycle had no target, and the seven conditions that inspect
+one all failed and emitted `TARGET_IDENTITY_MISMATCH`,
+`CANDIDATE_EVIDENCE_INCOMPLETE` and `SWITCHING_ECONOMICS_INCOMPLETE`. A check now
+has THREE dispositions: in the NO-PRICED-TARGET lane those seven are
+`NOT_APPLICABLE_TO_THIS_LANE`, the designed no-op is named once as
+`INTRADAY_CYCLE_REACHED_NO_PRICED_TARGET`, and the daily gate's
+`PROPOSAL_BINDING_CONSISTENT` rule applies in the same lane so a no-target cycle
+that binds a proposal is still a real mismatch. The lane changes which conditions
+APPLY and never whether an applicable one passed; the verdict is unchanged.
+
+**The HOC data gap was a calendar defect.** `previous_trading_day` is weekday-only
+unless handed the authoritative closure set, and
+`api.holding_opportunity_cost` was not handing it one — so the "previous eligible
+session" for 2026-09-08 was 2026-09-07, Labor Day, for which no assessment can
+ever have been persisted. `PRIOR_RANK_UNAVAILABLE` was therefore unfillable and
+the assessment went DEGRADED for a session whose real predecessor, 2026-09-04,
+had a good artifact. The R60.1 supplier now answers, here and in
+`api.portfolio_state`; when it cannot answer for the window the documented
+weekday-only behaviour is unchanged and the reason says which calendar decided.
+
+**Membership drift is classified, with names.**
+`api.daily_close.classify_membership_drift` separates the BENIGN legacy
+rank-membership comparison from a real INTEGRITY problem (a HELD name the frozen
+model's scoring universe does not contain), names the exact affected tickers
+rather than a count, and is fail-closed on the benign claim — a session with no
+evaluated decision scope is `MEMBERSHIP_INTEGRITY_NOT_VERIFIABLE_THIS_SESSION`,
+never "compatibility only". Close validity is unaffected either way.
+
+**Latency N/A, and an acceptance count that adds up.** R61's two halves cancelled
+out: the producer began excusing the endpoints a session-terminal daily decision
+never had, which removed them from `missing_measurements`, and the read model
+derived the structurally-absent set from `missing_measurements` alone. The read
+model now reads the producer's own `not_required_measurements`; the producer's
+declaration is completed (every excused endpoint is an EVENT CYCLE concept and
+R61 named two of five); `measure_decision_latency` names every interval endpoint
+in its own census so "complete" and the dispositions describe the same set; and
+the LATENCY acceptance row is decided on ITS OWN key-fact interval, so a real gap
+in that interval still reads MISSING. The acceptance contract publishes
+`row_count`, `applicable_row_count`, `present_count`, `missing_count` and
+`not_applicable_count` and proves `applicable = present + missing` and
+`total = applicable + not_applicable`.
+
+**Remaining gaps, stated.** The four R58 adoptions are READY and have NOT been
+performed: this release ships the door, not the act. The daily lane still does
+not stamp its own signal/reassessment completion instants — it declares them
+structurally absent rather than measuring them, which is honest for an
+event-cycle vocabulary and would be better as a daily-lane vocabulary of its own.
+The heavy `/v1/operations/information-collection` composition is unchanged; only
+the CURRENT verdict was moved off it. Wiring the scheduled emission that ACCRUES
+evidence for canonical weight-book challengers remains outside this release.

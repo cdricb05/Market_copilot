@@ -2488,6 +2488,121 @@ def _book_state(ops: dict) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 62.1.1 — MEMBERSHIP DRIFT, CLASSIFIED.
+#
+# ``DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT`` has been documented since Release
+# 29.3 as a compatibility-only observation, and the 2026-09-08 close recorded it
+# with 20 proposed changes. But the token alone cannot tell an operator which of
+# two very different things happened:
+#
+#   * the legacy rank-membership comparison found that the held names are not
+#     the current top-ranked names. That is BENIGN and expected — it is the
+#     comparison's whole purpose, the canonical decision lane already answered
+#     the portfolio question (CURRENT_NO_CHANGE for 2026-09-08), and no
+#     reallocation was requested; or
+#   * a HELD name is not in the scoring universe at all, so the model cannot
+#     evaluate something the book actually owns. That is an INTEGRITY problem
+#     and must never be filed under "compatibility only".
+#
+# The classification is FAIL-CLOSED on the benign claim: when the decision-scope
+# facts needed to answer the second question are absent, the class is
+# UNVERIFIED. It never says "benign" without having checked, and it never
+# invents an integrity alarm it did not measure.
+# --------------------------------------------------------------------------- #
+#: No membership difference was observed at this close.
+DRIFT_NONE = "NO_MEMBERSHIP_DRIFT"
+#: Held names differ from the currently top-ranked names. Expected; not a fault.
+DRIFT_LEGACY_RANK_COMPARISON = "LEGACY_RANK_MEMBERSHIP_COMPARISON"
+#: A HELD name is absent from the scoring universe. A real integrity problem.
+DRIFT_HELD_NAME_UNSCORED = "HELD_NAME_ABSENT_FROM_SCORING_UNIVERSE"
+#: The integrity question could not be answered from this close's own evidence.
+DRIFT_UNVERIFIED = "MEMBERSHIP_INTEGRITY_NOT_VERIFIABLE_THIS_SESSION"
+MEMBERSHIP_DRIFT_CLASSES = (DRIFT_NONE, DRIFT_LEGACY_RANK_COMPARISON,
+                            DRIFT_HELD_NAME_UNSCORED, DRIFT_UNVERIFIED)
+
+
+def _names(rows: Any) -> list:
+    """Ticker names out of a gate's change rows, whatever shape they carry."""
+    out = []
+    for r in (rows or []):
+        tk = r.get("ticker") if isinstance(r, dict) else r
+        if tk:
+            out.append(str(tk).upper())
+    return sorted(set(out))
+
+
+def classify_membership_drift(*, close_status: Any, gate: Optional[dict],
+                              market_data_scope: Optional[dict] = None) -> dict:
+    """Classify ONE close's membership difference. Pure; reads, never re-derives.
+
+    Every input is a fact another owner already published: the close status this
+    module wrote, the daily action gate's own proposed additions/removals, and
+    the market-data scope's own list of held or open-order names the scoring
+    universe does not contain.
+    """
+    g = gate or {}
+    scope = market_data_scope or {}
+    additions = _names(g.get("proposed_additions"))
+    removals = _names(g.get("proposed_removals"))
+    resizes = _names(g.get("proposed_resizes"))
+    drifted = bool(normalize_close_status(close_status)
+                   == CLOSE_COMPLETE_MEMBERSHIP_DRIFT
+                   or additions or removals or resizes)
+    # A held / open-order name the frozen model's scoring universe does not
+    # contain. The market-data scope owner computes it; this reads it.
+    unscored = _names(scope.get("decision_missing_tickers"))
+    # ``decision_missing_tickers`` is only meaningful once the model actually
+    # evaluated a universe; an unevaluated session proves nothing either way.
+    verifiable = bool(scope) and scope.get("decision_universe_count") is not None
+
+    if not drifted:
+        klass, benign, integrity = DRIFT_NONE, True, False
+        because = "the held names match the current target membership"
+    elif unscored:
+        klass, benign, integrity = DRIFT_HELD_NAME_UNSCORED, False, True
+        because = ("%d held or open-order name(s) are not in the frozen model's "
+                   "scoring universe, so the model cannot evaluate something "
+                   "this book owns: %s" % (len(unscored), ", ".join(unscored)))
+    elif not verifiable:
+        klass, benign, integrity = DRIFT_UNVERIFIED, False, False
+        because = ("a membership difference was observed and this close carries "
+                   "no evaluated decision scope, so whether every held name is "
+                   "scoreable was NOT established this session")
+    else:
+        klass, benign, integrity = DRIFT_LEGACY_RANK_COMPARISON, True, False
+        because = ("the held names differ from the currently top-ranked names "
+                   "and every held name is in the scoring universe. This is the "
+                   "legacy rank-membership comparison doing exactly what it "
+                   "measures; the canonical portfolio answer belongs to the "
+                   "Holding Opportunity-Cost review and the reallocation "
+                   "proposal, and this close requested neither")
+    return {
+        "drift_observed": drifted,
+        "classification": klass,
+        "classification_vocabulary": list(MEMBERSHIP_DRIFT_CLASSES),
+        "benign": benign,
+        "integrity_problem": integrity,
+        "integrity_verifiable_this_session": verifiable,
+        "because": because,
+        # The EXACT names, never a bare count.
+        "affected_names": sorted(set(additions) | set(removals) | set(resizes)),
+        "target_names_not_held": additions,
+        "held_names_not_in_target": removals,
+        "held_names_resized": resizes,
+        "held_names_absent_from_scoring_universe": unscored,
+        "scoring_universe_count": scope.get("decision_universe_count"),
+        "decision_scope_count": scope.get("decision_scope_count"),
+        "current_holding_count": scope.get("current_holding_count"),
+        "open_order_ticker_count": scope.get("open_order_ticker_count"),
+        "close_validity_is_independent_of_this": True,
+        "creates_orders": False,
+        "is_a_reallocation_proposal": False,
+        "owner": "api.daily_close",
+        "canonical_portfolio_decision_owner": "api.portfolio_decision",
+    }
+
+
 def _gate_slim(gate: dict) -> dict:
     """The gate fields the daily-close surfaces render (never re-derived in JS)."""
     g = gate or {}
@@ -2645,6 +2760,13 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "clock": ctx.get("clock"),
         "provider_readiness": ctx.get("provider_readiness"),
         "market_data_scope": ctx.get("market_data_scope"),
+        # R62.1.1 — WHICH KIND of membership difference this close observed, the
+        # exact names it affects, and whether it is an integrity problem. The
+        # classification is fail-closed on "benign"; the close's own validity is
+        # unaffected either way (CLOSE_VALIDITY_EXCLUDED_INPUTS).
+        "membership_drift": classify_membership_drift(
+            close_status=close_status, gate=gate,
+            market_data_scope=ctx.get("market_data_scope")),
         "baseline": ctx.get("baseline"),
         # -- Phase 27H atomic blocks (dates / recalc / attribution / monitor) - #
         "close_dates": ctx.get("close_dates"),
@@ -3520,6 +3642,10 @@ def _completed_message(close_status: str, closed_date: str, pcount: int,
 
 
 __all__ = [
+    # R62.1.1 — membership drift, classified by the owner that writes the token.
+    "MEMBERSHIP_DRIFT_CLASSES", "DRIFT_NONE", "DRIFT_LEGACY_RANK_COMPARISON",
+    "DRIFT_HELD_NAME_UNSCORED", "DRIFT_UNVERIFIED",
+    "classify_membership_drift",
     "PHASE", "EXECUTE_CONFIRMATION", "DAILY_CLOSE_JOURNAL_FILE", "DAILY_CLOSE_EVENT",
     "POST_CLOSE_CUTOFF_ET", "NOW_ENV",
     "INITIAL_BASELINE_DUE", "INITIAL_BASELINE_RECORDED", "AWAITING_MARKET_CLOSE",

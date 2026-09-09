@@ -832,10 +832,18 @@ def measure_decision_latency(*, stage_timestamps: Optional[dict] = None,
         "governance_gate_completed_at": governance_gate_completed_at,
         "governed_decision_persisted_at": governed_decision_persisted_at,
     })
+    # R62.1.1 — EVERY endpoint an interval needs is named in ``stamps``, even
+    # when the caller supplied no stage timestamps at all. Before this release
+    # ``missing_measurements`` iterated only the keys a caller happened to pass,
+    # so a producer that passed none reported ``latency_measurement_complete:
+    # True`` while three of its four intervals were MISSING. The census and the
+    # dispositions now describe the same set, so the arithmetic closes.
+    for _ends in LATENCY_INTERVAL_ENDPOINTS.values():
+        for _endpoint in _ends:
+            stamps.setdefault(_endpoint, None)
     # Only an UNSTAMPED endpoint can be excused: a stage that actually recorded
     # a timestamp is measured on its evidence, whatever the caller claimed.
-    excused = {k for k in (not_required_stages or [])
-               if k in stamps and not stamps.get(k)}
+    excused = {k for k in (not_required_stages or []) if not stamps.get(k)}
 
     def _delta(a: str, b: str) -> Optional[float]:
         da, db = _parse_dt(stamps.get(a)), _parse_dt(stamps.get(b))

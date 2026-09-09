@@ -1196,6 +1196,23 @@ WR_SUPERSEDED = "SUPERSEDED_BY_NEWER_DECISION"
 WR_DUPLICATE = "DUPLICATE_CANDIDATE"
 WR_EXECUTION_PRECEDENCE = "EXECUTION_PRECEDENCE"
 WR_EVIDENCE_INCOMPLETE = "CANDIDATE_EVIDENCE_INCOMPLETE"
+#: Release 62.1.1 — the INTRADAY lane's own designed no-op, named.
+#:
+#: The intraday producer contract (see :func:`build_intraday_candidate`)
+#: deliberately promotes only on a PRICED R47 outcome: concluding
+#: ``CURRENT_NO_CHANGE`` for a SESSION is the session-terminal daily producer's
+#: prerogative, so an intraday cycle whose reassessment concluded no change
+#: carries no governed decision at all. That withholding is CORRECT and stays.
+#:
+#: What was wrong was the WORDS. With no target to inspect, the target and
+#: economics checks all failed, and the operator was shown
+#: ``TARGET_IDENTITY_MISMATCH`` + ``CANDIDATE_EVIDENCE_INCOMPLETE`` +
+#: ``SWITCHING_ECONOMICS_INCOMPLETE`` — three defect reports for a chain with no
+#: defect in it, on 2026-09-08 against a candidate whose evidence identity
+#: matched the standing governed decision exactly. This code says the true
+#: thing, once, and the checks that need a target are NOT_APPLICABLE instead of
+#: failed. The verdict is unchanged: the cycle is still withheld.
+WR_INTRADAY_NO_PRICED_TARGET = "INTRADAY_CYCLE_REACHED_NO_PRICED_TARGET"
 #: Release 54.4 — the DAILY producer's own admissibility failure: the Daily
 #: Research Cycle manifest this candidate claims is absent, non-terminal, or is
 #: not the governed manifest of record for that session (Release 29.5). It is a
@@ -1209,7 +1226,13 @@ WITHHELD_REASON_VOCAB = (
     WR_REASSESSMENT_IDENTITY, WR_TARGET_IDENTITY,
     WR_SWITCHING_ECONOMICS, WR_TRUE_BLOCKER, WR_CHANGE_WITHHELD,
     WR_SUPERSEDED, WR_DUPLICATE, WR_EXECUTION_PRECEDENCE,
-    WR_EVIDENCE_INCOMPLETE, WR_DAILY_MANIFEST_NOT_GOVERNED)
+    WR_EVIDENCE_INCOMPLETE, WR_INTRADAY_NO_PRICED_TARGET,
+    WR_DAILY_MANIFEST_NOT_GOVERNED)
+
+#: R62.1.1 — reason codes that describe a lane's DESIGNED behaviour rather than
+#: a defect in the evidence. Named as a set so an operator surface can render a
+#: correct no-op differently from a broken chain without classifying anything.
+NON_DEFECT_WITHHELD_REASON_CODES = (WR_INTRADAY_NO_PRICED_TARGET, WR_DUPLICATE)
 
 #: The governed lane of this owner's ledger (see the module note above).
 _GOVERNED_RECORDS_FILE = "governed_decisions.json"
@@ -1289,11 +1312,74 @@ def _governed_safety() -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Release 62.1.1 — a check has THREE dispositions, not two.
+#
+# A condition that cannot apply to the lane being evaluated is not a failure and
+# is not a pass. Before this release there was no way to say so, so every check
+# that needs a priced target FAILED on a cycle that legitimately produced none —
+# and the operator read three defect codes for a chain with no defect in it.
+#
+# NOT_APPLICABLE is never inferred from an absent value: only an explicit lane
+# declaration selects it (see :func:`_no_priced_target_lane`), and a check that
+# is applicable and unproven still FAILS and still withholds.
+# --------------------------------------------------------------------------- #
+CHECK_PASSED = "PASSED"
+CHECK_FAILED = "FAILED"
+CHECK_NOT_APPLICABLE = "NOT_APPLICABLE_TO_THIS_LANE"
+CHECK_DISPOSITION_VOCAB = (CHECK_PASSED, CHECK_FAILED, CHECK_NOT_APPLICABLE)
+
+
 def _check(group: str, name: str, passed: bool, owner: str, detail: str,
-           reason_code: Optional[str] = None) -> dict:
-    return {"group": group, "check": name, "passed": bool(passed),
+           reason_code: Optional[str] = None,
+           applicable: bool = True,
+           not_applicable_because: Optional[str] = None) -> dict:
+    applicable = bool(applicable)
+    if not applicable:
+        disposition = CHECK_NOT_APPLICABLE
+    else:
+        disposition = CHECK_PASSED if passed else CHECK_FAILED
+    return {"group": group, "check": name,
+            "passed": bool(passed) if applicable else None,
+            "applicable": applicable,
+            "disposition": disposition,
+            "disposition_vocabulary": list(CHECK_DISPOSITION_VOCAB),
+            "not_applicable_because": (None if applicable
+                                       else not_applicable_because),
             "owner": owner, "detail": detail,
-            "reason_code": (None if passed else reason_code)}
+            "reason_code": (None if (passed or not applicable) else reason_code)}
+
+
+def _gate_counts(checks: list) -> dict:
+    """The arithmetic of a gate result, and a NON-VACUOUS proof that it closes.
+
+    Every count is tallied INDEPENDENTLY from the checks themselves - passed,
+    failed and not-applicable are three separate scans - and the two identities
+
+        applicable = passed + failed
+        total      = applicable + not_applicable
+
+    are then ASSERTED over those independent tallies rather than derived by
+    subtraction. Deriving one count from another would make the flag true by
+    construction and prove nothing; tallying separately is what makes a check
+    that is neither passed, failed nor excused - or one quietly counted twice -
+    show up as ``counts_are_closed: False``.
+    """
+    total = len(checks)
+    na = sum(1 for c in checks if not c.get("applicable", True))
+    passed = sum(1 for c in checks
+                 if c.get("applicable", True) and c.get("passed"))
+    failed = sum(1 for c in checks
+                 if c.get("applicable", True) and not c.get("passed"))
+    applicable = sum(1 for c in checks if c.get("applicable", True))
+    return {"checks_total": total,
+            "checks_applicable": applicable,
+            "checks_passed": passed,
+            "checks_failed": failed,
+            "checks_not_applicable": na,
+            "check_disposition_vocabulary": list(CHECK_DISPOSITION_VOCAB),
+            "counts_are_closed": (passed + failed == applicable
+                                  and applicable + na == total)}
 
 
 #: The evidence fields EVERY governed decision carries — a persisted intraday
@@ -1667,6 +1753,66 @@ def build_intraday_candidate(*, portfolio_state: Optional[dict],
 
 
 # --------------------------------------------------------------------------- #
+# Release 62.1.1 — THE NO-PRICED-TARGET LANE
+# --------------------------------------------------------------------------- #
+#: The reassessment owner's own word for "the current portfolio remains the best
+#: use of capital and NO target was requested". Spelled once, read from the
+#: owner's payload, never inferred from an absent artifact.
+_REASSESS_CURRENT_NO_CHANGE = "CURRENT_NO_CHANGE"
+
+
+def _no_priced_target_lane(*, candidate: dict, reassessment: Optional[dict],
+                           evidence: dict, identity: dict) -> dict:
+    """Did this intraday cycle legitimately produce NO priced target?
+
+    FAIL-CLOSED, and deliberately conjunctive. Every one of the three facts
+    below is a POSITIVE declaration by an OWNER; not one of them is "the
+    artifact is missing". A cycle whose target failed to compute, or whose
+    reassessment was BLOCKED_DATA or BLOCKED_EVIDENCE, matches none of them - so
+    every target and economics check stays applicable and still fails exactly as
+    it did before.
+
+        1. the REASSESSMENT owner concluded CURRENT_NO_CHANGE;
+        2. the CYCLE owner recorded ``proposal_built: False``;
+        3. the CYCLE owner recorded that a reassessment DID run (so this is a
+           completed conclusion, not an abandoned chain).
+
+    A BOUND PROPOSAL HASH is deliberately NOT one of them. A cycle that asked
+    for no target and bound one anyway is precisely the stale-artifact
+    substitution this release exists to catch, and it must be caught INSIDE this
+    lane by ``PROPOSAL_BINDING_CONSISTENT`` - as a named TARGET_IDENTITY_MISMATCH
+    - rather than quietly routed back into the priced lane where a bound hash
+    satisfies ``TARGET_HASH_BOUND`` and the substitution passes unremarked.
+    """
+    rs = reassessment or {}
+    state = str(rs.get("state") or evidence.get("reassessment_state") or "")
+    reasons = {
+        "reassessment_concluded_no_change": state == _REASSESS_CURRENT_NO_CHANGE,
+        "cycle_built_no_proposal": evidence.get("proposal_built") is False,
+        "cycle_ran_a_reassessment": evidence.get("reassessment_ran") is True,
+    }
+    active = all(reasons.values())
+    return {
+        "no_priced_target_lane": active,
+        "lane_facts": reasons,
+        "proposal_hash_bound": bool(identity.get("proposal_hash")),
+        "reassessment_state": state or None,
+        "because": (
+            "the reassessment owner concluded %s and the cycle owner recorded "
+            "that it built no proposal, so there is no priced target for the "
+            "target and economics checks to inspect. The intraday producer "
+            "contract promotes only on a priced R47 outcome - a session's "
+            "no-change conclusion belongs to the daily producer - so this "
+            "cycle is still WITHHELD, for that reason and not for a defect."
+            % _REASSESS_CURRENT_NO_CHANGE) if active else
+            ("a priced target is expected of this cycle; every target and "
+             "economics condition is applicable and unproven ones fail"),
+        "verdict_is_unchanged_by_this_classification": True,
+        "owner": GOVERNANCE_GATE_OWNER,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # THE GATE. Admissibility only — it decides no economics of its own.
 # --------------------------------------------------------------------------- #
 def evaluate_intraday_governance(*, candidate: Optional[dict],
@@ -1697,6 +1843,13 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
     op = wf.get("operational_state") or {}
     econ = cand.get("switching_economics") or {}
     checks: list[dict] = []
+
+    # R62.1.1 — WHICH LANE is being evaluated, decided from four positive owner
+    # declarations before a single condition is scored. Nothing below infers it.
+    lane = _no_priced_target_lane(candidate=cand, reassessment=rs,
+                                  evidence=ev, identity=ident)
+    _target_applies = not lane["no_priced_target_lane"]
+    _lane_note = lane["because"]
 
     # --- A. PORTFOLIO IDENTITY --------------------------------------------- #
     book_id = ident.get("active_book_id")
@@ -1980,6 +2133,15 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
 
     # --- F. TARGET / PROPOSAL IDENTITY -------------------------------------- #
     outcome = ident.get("target_outcome")
+    # R62.1.1 — the intraday lane's own designed no-op, stated ONCE as its own
+    # applicable, failing condition. It is what actually withholds a
+    # CURRENT_NO_CHANGE cycle, and saying it here is what lets the seven
+    # target/economics conditions below stop reporting a defect that is not one.
+    checks.append(_check(
+        "TARGET_IDENTITY", "INTRADAY_CANDIDATE_HAS_A_PRICED_TARGET",
+        bool(cand.get("decision")), GOVERNANCE_GATE_OWNER,
+        "candidate decision %s; %s" % (cand.get("decision") or "NONE", _lane_note),
+        WR_INTRADAY_NO_PRICED_TARGET))
     if outcome == _OUTCOME_TRUE_BLOCKER:
         conclusive, conclusive_reason = False, WR_TRUE_BLOCKER
     elif summ.get("reallocation_proposal_withheld"):
@@ -1993,12 +2155,14 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
         "api.reallocation_proposal (engine.constrained_reallocation)",
         "outcome %s; withheld=%s" % (outcome or "NONE",
                                      bool(summ.get("reallocation_proposal_withheld"))),
-        conclusive_reason))
+        conclusive_reason,
+        applicable=_target_applies, not_applicable_because=_lane_note))
 
     checks.append(_check(
         "TARGET_IDENTITY", "TARGET_HASH_BOUND", bool(ident.get("proposal_hash")),
         "api.reallocation_proposal", "proposal hash %s" % ident.get("proposal_hash"),
-        WR_TARGET_IDENTITY))
+        WR_TARGET_IDENTITY,
+        applicable=_target_applies, not_applicable_because=_lane_note))
     target_book = _eq_when_known(summ.get("reallocation_bound_active_book_id"), book_id)
     checks.append(_check(
         "TARGET_IDENTITY", "TARGET_BOUND_TO_ACTIVE_BOOK", target_book is not False,
@@ -2011,7 +2175,22 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
              or con.get("feasible_target_exists")),
         "engine.constrained_reallocation",
         "feasible target exists = %s" % summ.get("reallocation_feasible_target_exists"),
-        WR_TARGET_IDENTITY))
+        WR_TARGET_IDENTITY,
+        applicable=_target_applies, not_applicable_because=_lane_note))
+    # R62.1.1 — the DAILY gate's binding rule, applied to the intraday lane so
+    # both producers spell it the same way: a cycle that requested no target
+    # must bind NO proposal. Binding one would launder a stale artifact into a
+    # conclusion that never asked for it, and THAT is a real identity mismatch.
+    # It replaces TARGET_HASH_BOUND in the no-target lane, so in every lane
+    # exactly one of the two is applicable and the binding is never unchecked.
+    checks.append(_check(
+        "TARGET_IDENTITY", "PROPOSAL_BINDING_CONSISTENT",
+        not ident.get("proposal_hash"), "api.reallocation_proposal",
+        "a no-target cycle binds proposal %s" % (ident.get("proposal_hash"),),
+        WR_TARGET_IDENTITY,
+        applicable=not _target_applies,
+        not_applicable_because=("a priced-target cycle MUST bind its proposal; "
+                                "TARGET_HASH_BOUND is the applicable rule")))
 
     # --- G. CHURN / ECONOMIC CONTROLS (bound, never re-decided) ------------- #
     required_econ = ("switching_hurdle", "clears_switching_hurdle",
@@ -2019,22 +2198,28 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
                      "concentration_before", "concentration_after",
                      "score_improvement_net_of_cost")
     missing_econ = [k for k in required_econ if econ.get(k) is None]
+    # R62.1.1 — switching ECONOMICS price a switch. With no priced target there
+    # is no switch to price, so these four are NOT_APPLICABLE to the no-target
+    # lane rather than four more defect reports about a chain with no defect.
     checks.append(_check(
         "ECONOMIC_CONTROLS", "SWITCHING_ECONOMICS_COMPLETE", not missing_econ,
         "engine.constrained_reallocation.switching_economics",
-        "missing: %s" % (missing_econ or "none"), WR_SWITCHING_ECONOMICS))
+        "missing: %s" % (missing_econ or "none"), WR_SWITCHING_ECONOMICS,
+        applicable=_target_applies, not_applicable_because=_lane_note))
     checks.append(_check(
         "ECONOMIC_CONTROLS", "RISK_BEFORE_AND_AFTER_PRICED",
         ("portfolio_volatility_before" in econ and "portfolio_volatility_after" in econ),
         "engine.constrained_reallocation",
         "volatility before/after published by the target owner",
-        WR_SWITCHING_ECONOMICS))
+        WR_SWITCHING_ECONOMICS,
+        applicable=_target_applies, not_applicable_because=_lane_note))
     checks.append(_check(
         "ECONOMIC_CONTROLS", "TURNOVER_BUDGET_EVALUATED",
         bool((con.get("constraint_inventory") or {}).get("constraints")
              or econ.get("one_way_turnover") is not None),
         "engine.constrained_reallocation",
-        "one-way turnover %s" % econ.get("one_way_turnover"), WR_SWITCHING_ECONOMICS))
+        "one-way turnover %s" % econ.get("one_way_turnover"), WR_SWITCHING_ECONOMICS,
+        applicable=_target_applies, not_applicable_because=_lane_note))
     checks.append(_check(
         "ECONOMIC_CONTROLS", "ZERO_BASE_INCUMBENCY_POLICY_INTACT",
         ((cand.get("zero_base") or {}).get("incumbency_policy")
@@ -2042,7 +2227,8 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
          and not (cand.get("zero_base") or {}).get("current_holdings_privileged")),
         "engine.constrained_reallocation",
         "incumbency policy %s" % (cand.get("zero_base") or {}).get("incumbency_policy"),
-        WR_SWITCHING_ECONOMICS))
+        WR_SWITCHING_ECONOMICS,
+        applicable=_target_applies, not_applicable_because=_lane_note))
     not_duplicate_trigger = (ev.get("event_cycle_state")
                              != "DUPLICATE_TRIGGER_SUPPRESSED")
     checks.append(_check(
@@ -2133,7 +2319,7 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
              or safety.get("activated_sleeve")),
         GOVERNANCE_GATE_OWNER, "structural safety intact", WR_EVIDENCE_INCOMPLETE))
 
-    failed = [c for c in checks if not c["passed"]]
+    failed = [c for c in checks if c["applicable"] and not c["passed"]]
     reasons: list[dict] = []
     seen: set = set()
     for c in failed:
@@ -2145,6 +2331,7 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
                         "owner": c["owner"], "detail": c["detail"]})
 
     eligible_verdict = not failed
+    counts = _gate_counts(checks)
     return {
         "owner": GOVERNANCE_GATE_OWNER,
         "gate_version": GOVERNANCE_GATE_VERSION,
@@ -2155,13 +2342,18 @@ def evaluate_intraday_governance(*, candidate: Optional[dict],
         "candidate_identity_hash": cand.get("candidate_identity_hash"),
         "candidate_decision": cand.get("decision"),
         "duplicate_of_standing_decision": dup,
+        # R62.1.1 — WHICH LANE this cycle was evaluated as, and why. A
+        # classification, never a verdict: the lane changes which conditions
+        # APPLY, and never whether an applicable one passed.
+        "evaluation_lane": lane,
         "withheld_reasons": reasons,
         "withheld_reason_codes": [r["code"] for r in reasons],
         "withheld_reason_vocabulary": list(WITHHELD_REASON_VOCAB),
         "failing_checks": [c["check"] for c in failed],
+        "not_applicable_checks": [c["check"] for c in checks
+                                  if not c["applicable"]],
         "checks": checks,
-        "checks_passed": len(checks) - len(failed),
-        "checks_total": len(checks),
+        **counts,
         "evaluated_at": _now_iso(None),
         "economics_owner": "engine.constrained_reallocation",
         "gate_decides_economics": False,
@@ -2324,6 +2516,30 @@ def resolve_standing_governed_decision(*, persisted: Optional[dict],
 INTRADAY_ONLY_LATENCY_STAGES = ("observation_received_at",
                                 "event_cycle_started_at")
 
+#: R62.1.1 — the R61 statement, COMPLETED. Every endpoint above is an EVENT
+#: CYCLE concept, and so are these three: ``api.event_signal_refresh``'s own
+#: ``stage_step_map`` resolves each of them to a step of an event cycle
+#: (REFRESH_AFFECTED_INPUTS, PORTFOLIO_REASSESSMENT, REALLOCATION_PROPOSAL). A
+#: session-terminal daily decision runs no event cycle, so it has none of them —
+#: exactly as it has no observation and no cycle start. R61 named two of the
+#: five and left three behind, which is why the Sep-8 daily record's own
+#: ``interval_dispositions`` said MISSING for three intervals while its
+#: ``missing_measurements`` was empty: two halves of one true statement,
+#: disagreeing. The daily lane's OWN latency (governance gate -> persistence) is
+#: unaffected and is still MEASURED on its own stamps.
+#:
+#: This is not a licence to excuse a stage that ran. ``measure_decision_latency``
+#: excuses only UNSTAMPED endpoints, and an INTRADAY decision never reaches this
+#: list at all: it does own every endpoint, so an absent stamp there is a real
+#: gap and stays MISSING.
+EVENT_CYCLE_ONLY_LATENCY_STAGES = ("signal_refresh_completed_at",
+                                   "reassessment_completed_at",
+                                   "target_completed_at")
+
+#: The full set a producer with no event cycle structurally never had.
+DAILY_LANE_ABSENT_LATENCY_STAGES = (INTRADAY_ONLY_LATENCY_STAGES
+                                    + EVENT_CYCLE_ONLY_LATENCY_STAGES)
+
 
 def _not_required_latency_stages(latency_inputs: Optional[dict]) -> list:
     """Which latency endpoints the PRODUCER proved it legitimately never ran.
@@ -2334,7 +2550,7 @@ def _not_required_latency_stages(latency_inputs: Optional[dict]) -> list:
     """
     li = latency_inputs or {}
     if li.get("intraday_latency_applicable") is False:
-        return list(INTRADAY_ONLY_LATENCY_STAGES)
+        return list(DAILY_LANE_ABSENT_LATENCY_STAGES)
     return []
 
 
@@ -3458,7 +3674,7 @@ def evaluate_daily_cycle_governance(*, candidate: Optional[dict],
              or safety.get("activated_sleeve")),
         GOVERNANCE_GATE_OWNER, "structural safety intact", WR_EVIDENCE_INCOMPLETE))
 
-    failed = [c for c in checks if not c["passed"]]
+    failed = [c for c in checks if c["applicable"] and not c["passed"]]
     reasons: list[dict] = []
     seen: set = set()
     for c in failed:
@@ -3470,6 +3686,7 @@ def evaluate_daily_cycle_governance(*, candidate: Optional[dict],
                         "owner": c["owner"], "detail": c["detail"]})
 
     eligible_verdict = not failed
+    counts = _gate_counts(checks)
     return {
         "owner": GOVERNANCE_GATE_OWNER,
         "gate_version": GOVERNANCE_GATE_VERSION,
@@ -3487,9 +3704,10 @@ def evaluate_daily_cycle_governance(*, candidate: Optional[dict],
         "withheld_reason_codes": [r["code"] for r in reasons],
         "withheld_reason_vocabulary": list(WITHHELD_REASON_VOCAB),
         "failing_checks": [c["check"] for c in failed],
+        "not_applicable_checks": [c["check"] for c in checks
+                                  if not c["applicable"]],
         "checks": checks,
-        "checks_passed": len(checks) - len(failed),
-        "checks_total": len(checks),
+        **counts,
         "evaluated_at": _now_iso(None),
         "economics_owner": "engine.constrained_reallocation",
         "gate_decides_economics": False,
@@ -3999,6 +4217,11 @@ __all__ = [
     "DECISION_PROVENANCE_VOCAB", "GATE_ELIGIBLE", "GATE_WITHHELD",
     "GATE_VERDICT_VOCAB", "GD_HOLD_CURRENT_BOOK", "GD_CHANGE_RECOMMENDED",
     "GOVERNED_DECISION_VOCAB", "WITHHELD_REASON_VOCAB",
+    # R62.1.1 — three check dispositions, the designed-no-op reason code and
+    # the lane classification that selects between them.
+    "CHECK_PASSED", "CHECK_FAILED", "CHECK_NOT_APPLICABLE",
+    "CHECK_DISPOSITION_VOCAB", "WR_INTRADAY_NO_PRICED_TARGET",
+    "NON_DEFECT_WITHHELD_REASON_CODES",
     "POSITION_RECOMMENDATION_VOCAB", "GOVERNED_DECISION_CONFIRM_TOKEN",
     "build_intraday_candidate", "evaluate_intraday_governance",
     "record_governed_decision", "load_governed_decision_record",

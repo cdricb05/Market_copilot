@@ -34,9 +34,51 @@ from pathlib import Path
 # This mirrors the same fix applied in db/migrations/env.py (parents[3] there
 # because env.py is two levels deeper).
 # ---------------------------------------------------------------------------
-_pkg_parent = str(Path(__file__).resolve().parents[2])
+_repo_root = Path(__file__).resolve().parents[1]
+_pkg_parent = str(_repo_root.parent)
 if _pkg_parent not in sys.path:
     sys.path.insert(0, _pkg_parent)
+
+
+# ---------------------------------------------------------------------------
+# WORKTREE IMPORT INTEGRITY (Release 62.1.1)
+#
+# The venv carries an editable install whose finder hard-maps ``paper_trader``
+# to ``C:\Users\binis\paper_trader``, and it sits in ``sys.meta_path`` AHEAD of
+# every ``sys.path`` entry. A git worktree checked out under any other name
+# therefore ran its tests against the LIVE tree's code while reading the
+# worktree's fixtures - a green suite that proved nothing about the code being
+# changed. ``alpha_agent.r59.assert_worktree_import`` already documents this
+# hazard for the research package; this closes it for the application package.
+#
+# In the canonical checkout the repo directory IS named ``paper_trader``, the
+# mapping already points here, and this block is a no-op. In a worktree it
+# installs ONE finder ahead of the editable one that resolves ``paper_trader``
+# to THIS checkout. It maps nothing else, and it never redirects a package it
+# does not own.
+# ---------------------------------------------------------------------------
+if _repo_root.name != "paper_trader" and (_repo_root / "__init__.py").exists():
+    from importlib.util import spec_from_file_location
+
+    class _WorktreePaperTraderFinder:
+        """Resolve ``paper_trader`` to the checkout these tests live in."""
+
+        ROOT = _repo_root
+
+        @classmethod
+        def find_spec(cls, fullname, path=None, target=None):  # noqa: ANN001
+            if fullname != "paper_trader":
+                return None
+            return spec_from_file_location(
+                fullname, str(cls.ROOT / "__init__.py"),
+                submodule_search_locations=[str(cls.ROOT)])
+
+    if "paper_trader" in sys.modules:  # pragma: no cover - import-order guard
+        raise RuntimeError(
+            "paper_trader was imported before the worktree finder was "
+            "installed; the tests would run against %s"
+            % getattr(sys.modules["paper_trader"], "__file__", "?"))
+    sys.meta_path.insert(0, _WorktreePaperTraderFinder)
 
 import pytest
 from sqlalchemy import create_engine, event

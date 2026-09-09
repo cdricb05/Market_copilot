@@ -401,6 +401,96 @@ def open_intents(adoption_dir_override=None) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# 4b. RELEASE 62.1.1 - ADOPTING A FREEZE THAT ALREADY EXISTS
+#
+# R61 made freeze -> registration ONE operation, and R62.1 gave that operation a
+# canonical registrar. Neither reaches a freeze that was written BEFORE both
+# existed: ``alpha_agent.r59.handlers.freeze_qualified`` returns ALREADY_FROZEN
+# for a challenger whose row is already in research memory, so re-running the
+# research worker can never start the forward clock of the four ACTIVE R58
+# freezes. Adopting them needs a governed OPERATOR path, and an operator path
+# needs three rules that must not be re-spelled by whoever writes the script:
+#
+#   * WHICH freeze does an operator-supplied challenger id name?
+#   * WHAT is the legitimate prospective observation boundary RIGHT NOW?
+#   * WHICH token authorises the write?
+#
+# All three live here, with the lifecycle rule they depend on. The entrypoint
+# (``scripts/adopt_prospective_freeze.py``) supplies persisted rows and a
+# decision to execute; it owns none of the rules below.
+# --------------------------------------------------------------------------- #
+#: The OPERATOR-facing confirmation for adopting an ALREADY-EXISTING freeze.
+#: Deliberately distinct from :data:`ADOPT_CONFIRM_TOKEN` (the in-process token
+#: the governed operation itself requires) and from every approval / promotion
+#: token in the estate, so no operator confirmation can ever satisfy another.
+OPERATOR_ADOPT_CONFIRM_TOKEN = "ADOPT_PROSPECTIVE_FORWARD_CLOCKS"
+
+#: The ONE operator entrypoint permitted to adopt an already-existing freeze.
+#: Named here so the architecture audit can prove there is exactly one.
+OPERATOR_ADOPTION_ENTRYPOINT = "scripts/adopt_prospective_freeze.py"
+
+FREEZE_RESOLVED = "FREEZE_RESOLVED"
+FREEZE_UNKNOWN = "UNKNOWN_CHALLENGER_ID"
+FREEZE_AMBIGUOUS = "AMBIGUOUS_CHALLENGER_ID"
+FREEZE_RESOLUTION_OUTCOMES = (FREEZE_RESOLVED, FREEZE_UNKNOWN, FREEZE_AMBIGUOUS)
+
+
+def freeze_challenger_id(freeze_row: dict) -> Optional[str]:
+    """The challenger id ONE persisted freeze row carries, or None."""
+    cid = _as_dict((freeze_row or {}).get("forward_challenger")).get(
+        "challenger_id")
+    return None if cid is None else str(cid)
+
+
+def resolve_freeze_by_challenger_id(challenger_id: Any,
+                                    freeze_rows: Optional[list]) -> dict:
+    """Resolve ONE operator-named challenger id to ONE persisted freeze.
+
+    Fail-closed by construction. An id no persisted freeze carries resolves to
+    :data:`FREEZE_UNKNOWN`; an id carried by more than one freeze resolves to
+    :data:`FREEZE_AMBIGUOUS` and is adopted by nobody, because "which of these
+    two rows did the operator mean?" is not a question a write may guess at.
+
+    ``freeze_rows`` are the canonical ResearchMemory rows, supplied by the
+    caller: this module reaches no store and opens no database.
+    """
+    wanted = None if challenger_id is None else str(challenger_id)
+    rows = [r for r in (freeze_rows or [])
+            if wanted is not None and freeze_challenger_id(r) == wanted]
+    if not rows:
+        return {"outcome": FREEZE_UNKNOWN, "challenger_id": wanted,
+                "resolved": False, "freeze_row": None, "matches": 0,
+                "reason": ("no freeze in the canonical research memory carries "
+                           "challenger id %r" % wanted)}
+    if len(rows) > 1:
+        return {"outcome": FREEZE_AMBIGUOUS, "challenger_id": wanted,
+                "resolved": False, "freeze_row": None, "matches": len(rows),
+                "freeze_ids": [r.get("hypothesis_id") for r in rows],
+                "reason": ("%d freezes carry challenger id %r; an ambiguous "
+                           "identity is never adopted" % (len(rows), wanted))}
+    return {"outcome": FREEZE_RESOLVED, "challenger_id": wanted,
+            "resolved": True, "freeze_row": rows[0], "matches": 1,
+            "freeze_id": rows[0].get("hypothesis_id"),
+            "reason": "exactly one persisted freeze carries this identity"}
+
+
+def current_prospective_boundary(now: Optional[datetime] = None) -> str:
+    """THE legitimate prospective observation boundary, right now.
+
+    The ONE derivation, so no caller can supply a boundary of its own: it is
+    today's UTC date and nothing else. There is deliberately no parameter an
+    operator could use to name an earlier one - a backdated boundary is the
+    single input that could turn an adoption into a fabricated history.
+
+    This is NOT the first observation session. The canonical registrar resolves
+    that from the asset's own calendar as the first eligible session STRICTLY
+    AFTER the session in which the registration happened, which is exactly why
+    nothing that already completed can become a prediction.
+    """
+    return (now or datetime.now(timezone.utc)).date().isoformat()
+
+
+# --------------------------------------------------------------------------- #
 # 5. THE ONE GOVERNED OPERATION
 # --------------------------------------------------------------------------- #
 def _safety() -> dict:
@@ -649,6 +739,11 @@ __all__ = [
     "DEFAULT_MARK_OWNERS", "build_adoption_identity", "REGISTRARS",
     "CLASS_PAPER_PORTFOLIO", "CLASS_SIGNAL_R46", "CLASS_SIGNAL_CANONICAL",
     "CLASS_SIGNAL_UNREGISTERED",
+    # R62.1.1 - adopting a freeze that already exists, through ONE entrypoint.
+    "OPERATOR_ADOPT_CONFIRM_TOKEN", "OPERATOR_ADOPTION_ENTRYPOINT",
+    "FREEZE_RESOLUTION_OUTCOMES", "FREEZE_RESOLVED", "FREEZE_UNKNOWN",
+    "FREEZE_AMBIGUOUS", "freeze_challenger_id",
+    "resolve_freeze_by_challenger_id", "current_prospective_boundary",
     "classify_challenger_class", "ADOPTION_OUTCOMES", "ADOPTED",
     "ALREADY_ADOPTED", "REFUSED_LIFECYCLE", "REFUSED_BACKDATED",
     "REFUSED_IDENTITY", "REFUSED_CONFIRMATION", "NO_CANONICAL_REGISTRAR",

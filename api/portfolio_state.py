@@ -382,12 +382,29 @@ def _corporate_actions_identity(book_id: Optional[str]) -> dict:
 def _previous_trading_day_iso(iso_date: Optional[str]) -> Optional[str]:
     """The immediately-preceding trading session for an ISO date, via the authoritative
     calendar owner (``engine.market_session.previous_trading_day``). Degrade-safe: returns
-    None if the date is unparseable or the calendar owner is unavailable."""
+    None if the date is unparseable or the calendar owner is unavailable.
+
+    Release 62.1.1 — ``previous_trading_day`` is weekday-only UNLESS it is handed
+    the authoritative closure set, and this call was not handing it one, so the
+    session after a full-day exchange holiday resolved to the holiday. The ONE
+    calendar owner (``engine.exchange_calendar``, the Release-60.1 supplier) now
+    supplies it; an owner that cannot answer leaves the documented weekday-only
+    behaviour exactly as it was."""
     if not iso_date:
         return None
     try:
         from paper_trader.engine import market_session as ms
-        return ms.previous_trading_day(date.fromisoformat(iso_date)).isoformat()
+        d = date.fromisoformat(iso_date)
+        non_sessions = frozenset()
+        try:
+            from datetime import timedelta as _td
+            from paper_trader.engine import exchange_calendar as xcal
+            if xcal.calendar_available_between(d - _td(days=30), d):
+                non_sessions = frozenset(
+                    xcal.non_sessions_between(d - _td(days=30), d))
+        except Exception:  # noqa: BLE001 — an unreadable calendar is not a holiday
+            non_sessions = frozenset()
+        return ms.previous_trading_day(d, non_sessions).isoformat()
     except Exception:  # noqa: BLE001
         return None
 

@@ -12378,9 +12378,16 @@ def check_release54_4_single_governed_decision_writer(files: list[Path]) -> dict
         t for t in R541_FORBIDDEN_EXECUTION_TOKENS if t in lane))
     lane_defines_economics = sorted(set(
         d for d in R541_FORBIDDEN_CALC_DEFS if d in lane))
+    # R62.1.1 - assert MEMBERSHIP of the canonical vocabulary, not one literal
+    # adjacency inside it. The old form pinned two names to being neighbours in
+    # the tuple, so declaring a THIRD reason code (the intraday lane's designed
+    # no-op) read as the daily code having been withdrawn.
+    _wr_vocab = (pd_src.split("WITHHELD_REASON_VOCAB = (")[1].split(")")[0]
+                 if "WITHHELD_REASON_VOCAB = (" in pd_src else "")
     daily_reason_code_declared = (
         'WR_DAILY_MANIFEST_NOT_GOVERNED = "DAILY_MANIFEST_NOT_GOVERNED"' in pd_src
-        and "WR_EVIDENCE_INCOMPLETE, WR_DAILY_MANIFEST_NOT_GOVERNED" in pd_src)
+        and "WR_DAILY_MANIFEST_NOT_GOVERNED" in _wr_vocab
+        and "WR_EVIDENCE_INCOMPLETE" in _wr_vocab)
 
     # (g) R54.3 parity in the daily gate.
     daily_gate_fails_closed = (
@@ -15198,10 +15205,13 @@ def check_release62_1_canonical_forward_evidence(files: list[Path]) -> dict:
         and not _rel(fp).startswith("tests/")
         and "def classify_event_cycle_provenance(" in fp.read_text(
             encoding="utf-8", errors="replace"))
+    # R62.1.1 - the cheap canonical read has ONE implementation and it lives
+    # with the lifecycle owner, so the Active Manager CALLS it rather than
+    # re-spelling the service-state + lock + lifecycle sequence of its own.
     ams_reads_current_runtime = all(t in ams_src for t in (
         "def _current_collection_state(", "CC_SOURCE_CURRENT_OWNER",
         "CC_SOURCE_DECISION_SNAPSHOT", "CC_SOURCE_UNAVAILABLE",
-        "_ic.resolve_service_lifecycle(", '"current_collection"',
+        "_ic.resolve_current_collection_state(", '"current_collection"',
         "rid.build_runtime_alignment(", 'svc.get("loaded_release")'))
     ams_rederives_release = sorted(set(
         t for t in ("read_source_identity(", "rev-parse",
@@ -15275,6 +15285,207 @@ def check_release62_1_canonical_forward_evidence(files: list[Path]) -> dict:
         "ui_renders_registrations": bool(ui_renders_registrations),
         "ui_derives_forward_state": ui_derives_forward_state,
         "inventory_lists_registrar": R62_1_REGISTRAR in inv_paths,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE 62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY
+# --------------------------------------------------------------------------- #
+#: THE one operator entrypoint for adopting an ALREADY-EXISTING frozen
+#: challenger. A second one would be a second way to start a forward clock, and
+#: two ways to start a clock is how a challenger ends up with two.
+R6211_ENTRYPOINT = "scripts/adopt_prospective_freeze.py"
+R6211_ADOPTION_OWNER = "api/prospective_adoption.py"
+R6211_REGISTRAR = "api/forward_challenger_registry.py"
+R6211_COLLECTION_OWNER = "api/information_collection.py"
+R6211_GATE_OWNER = "api/portfolio_decision.py"
+R6211_AMS = "api/active_manager_state.py"
+R6211_OPERATOR_TOKEN = "ADOPT_PROSPECTIVE_FORWARD_CLOCKS"
+
+#: Arguments through which an operator could name a HISTORICAL observation
+#: boundary. Not one of them may exist, in any spelling, ever.
+R6211_BACKDATE_ARGUMENTS = ("--effective-from", "--date", "--backfill",
+                            "--inception-override", "--as-of", "--since",
+                            "--observation-clock-starts")
+#: Arguments through which an operator could adopt without naming what.
+R6211_ADOPT_ALL_ARGUMENTS = ("--all", "--adopt-all", "--every", "--sweep")
+#: Reach the entrypoint may not have. Adoption starts a MEASUREMENT.
+R6211_FORBIDDEN_REACH = ("paper_trading_desk", "rebalance_execution",
+                         "daily_close", "portfolio_cycle", "alpha_target",
+                         "create_order", "submit_order", "create_fill",
+                         "promote_model", "activate_sleeve")
+
+
+def check_release62_1_1_forward_activation_integrity(files: list[Path]) -> dict:
+    """R62.1.1 invariants - one activation path, one current truth.
+
+    (a) ONE OPERATOR ADOPTION ENTRYPOINT, and it owns no rule. Adopting a freeze
+        that already exists is a governed act with exactly one door. The door
+        DELEGATES: it may not import or write the canonical registrar, decide a
+        lifecycle, compute an identity or resolve an observation calendar.
+
+    (b) NO BACKDATE, AND NO WAY TO ASK FOR ONE. The prospective boundary is
+        derived by the owner and is always today. An argument through which an
+        operator could name an earlier one is the single input that would turn
+        an adoption into a fabricated history, so none may exist.
+
+    (c) NO ADOPT-ALL. An operator who cannot name what they are adopting is not
+        ready to adopt it, and a sweep across the estate would eventually sweep
+        up a candidate the estate already decided against.
+
+    (d) WITHDRAWN FAILS CLOSED, TWICE. The adoption owner refuses a
+        non-adoptable lifecycle before any store is touched, and the registrar
+        re-checks the same verdict rather than trusting its caller.
+
+    (e) ONE CURRENT COLLECTION OWNER. "Is collection running now?" is answered
+        by ONE cheap read and ONE block shape in the lifecycle owner, published
+        by every route that answers the question. A HISTORICAL event cycle's
+        runtime may never decide current service health, and the browser may
+        never turn a failed READ into a service verdict.
+
+    (f) THE EXACT CANDIDATE TARGET IDENTITY. A cycle that concluded no change
+        must bind NO proposal; binding one launders a stale artifact into a
+        conclusion that never asked for it. The lane classification changes
+        which conditions APPLY and never whether an applicable one passed.
+
+    (g) LATENCY N/A SEMANTICS. A stage the producing lane never ran is
+        NOT_APPLICABLE, declared by the PRODUCER and read by the read model from
+        that declaration - not inferred, and never a backfilled timestamp. A
+        stage the lane does own stays MISSING.
+
+    (h) NO PORTFOLIO, EXECUTION OR PROMOTION PATH anywhere in the release.
+    """
+    entry_src = _read(R6211_ENTRYPOINT)
+    pa_src = _read(R6211_ADOPTION_OWNER)
+    reg_src = _read(R6211_REGISTRAR)
+    ic_src = _read(R6211_COLLECTION_OWNER)
+    pd_src = _read(R6211_GATE_OWNER)
+    ams_src = _read(R6211_AMS)
+    ui = _read("api/ui/index.html")
+
+    # (a) exactly one operator entrypoint, and it delegates.
+    operator_entrypoints = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("scripts/") and not _rel(fp).startswith("tests/")
+        and _rel(fp) != "scripts/audit_architecture.py"
+        and R6211_OPERATOR_TOKEN in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    entrypoint_delegates = bool(
+        "PA.adopt_prospective_freeze(" in entry_src
+        and entry_src.count("PA.adopt_prospective_freeze(") == 1
+        and "M.open_memory_readonly()" in entry_src)
+    entrypoint_writes_registry = sorted(set(
+        t for t in ("FCR.register_forward_challenger(", "_atomic_write_json",
+                    "def classify_lifecycle(", "def resolve_observation_clock(",
+                    "def register_forward_challenger(", "open_memory()")
+        if t in entry_src))
+
+    # (b) + (c) the two argument families that must not exist.
+    backdate_arguments = sorted(set(
+        a for a in R6211_BACKDATE_ARGUMENTS
+        if ('"%s"' % a) in entry_src or ("'%s'" % a) in entry_src))
+    adopt_all_paths = sorted(set(
+        a for a in R6211_ADOPT_ALL_ARGUMENTS
+        if ('"%s"' % a) in entry_src or ("'%s'" % a) in entry_src))
+    boundary_is_derived = bool(
+        "def current_prospective_boundary(" in pa_src
+        and "PA.current_prospective_boundary()" in entry_src
+        and "boundary = PA.current_prospective_boundary()" in entry_src)
+
+    # (b2) explicit confirmation AND an explicit write flag, both required.
+    explicit_confirmation = bool(
+        ('OPERATOR_ADOPT_CONFIRM_TOKEN = "%s"' % R6211_OPERATOR_TOKEN) in pa_src
+        and "confirmed = (args.confirm == PA.OPERATOR_ADOPT_CONFIRM_TOKEN)"
+        in entry_src
+        and "if write_requested and not confirmed:" in entry_src)
+    explicit_execute_flag = bool(
+        '"--execute", action="store_true"' in entry_src
+        and "if confirmed and not args.execute:" in entry_src
+        and "if not (args.execute and confirmed):" in entry_src)
+
+    # (d) withdrawn fails closed in BOTH owners.
+    withdrawn_fails_closed = bool(
+        "ADOPTABLE_STATES = (LC_ACTIVE,)" in pa_src
+        and "if lc.get(\"lifecycle_state\") not in ADOPTABLE_STATES:" in pa_src
+        and "if lc.get(\"lifecycle_state\") not in _adoptable_states():"
+        in reg_src)
+
+    # (e) one current collection owner, and no browser-side verdict.
+    one_current_collection_owner = bool(
+        "def resolve_current_collection_state(" in ic_src
+        and "def build_current_collection_state(" in ic_src
+        and '"current_collection": build_current_collection_state(' in ic_src
+        and "_ic.resolve_current_collection_state(" in ams_src
+        and "build_current_collection_state(" in ams_src
+        and "function _icRenderCanonicalCollection(" in ui
+        and ui.count("function _icRenderCanonicalCollection(") == 1)
+    second_collection_resolver = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (R6211_COLLECTION_OWNER, "scripts/audit_architecture.py")
+        and not _rel(fp).startswith("tests/")
+        and "def resolve_current_collection_state(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    historical_runtime_decides_current_health = sorted(set(
+        t for t in ('"decides_current_collection_health": True',
+                    '"decides_current_service_health": True')
+        if t in ams_src or t in ic_src))
+    browser_publishes_a_read_failure_as_a_verdict = sorted(set(
+        t for t in ("_icSetHeaderBadge('COLLECTION: UNAVAILABLE'",
+                    "'COLLECTION: UNAVAILABLE'")
+        if t in ui))
+
+    # (f) the exact candidate target identity.
+    exact_candidate_target_identity = bool(
+        "def _no_priced_target_lane(" in pd_src
+        and '"PROPOSAL_BINDING_CONSISTENT"' in pd_src
+        and pd_src.count('"PROPOSAL_BINDING_CONSISTENT"') >= 2
+        and 'WR_INTRADAY_NO_PRICED_TARGET = ' in pd_src
+        and "CHECK_NOT_APPLICABLE = " in pd_src
+        and 'c["applicable"] and not c["passed"]' in pd_src)
+    lane_decides_a_verdict = sorted(set(
+        t for t in ('"eligible": True', "eligible_verdict = True")
+        if t in pd_src))
+
+    # (g) latency N/A semantics - producer declares, read model reads.
+    latency_na_semantics = bool(
+        "DAILY_LANE_ABSENT_LATENCY_STAGES = " in pd_src
+        and "EVENT_CYCLE_ONLY_LATENCY_STAGES = " in pd_src
+        and "not_required_measurements" in ams_src
+        and "def _key_interval_not_applicable(" in ams_src
+        and '"counts_are_closed"' in ams_src)
+    latency_backfills = sorted(set(
+        t for t in ("stamps[\"observation_received_at\"] = _now",
+                    "datetime.now(timezone.utc).isoformat()  # latency")
+        if t in ams_src))
+
+    # (h) no portfolio / execution / promotion reach.
+    portfolio_or_execution_paths = sorted(set(
+        "%s:%s" % (rel, t)
+        for rel, src in ((R6211_ENTRYPOINT, entry_src),
+                         (R6211_ADOPTION_OWNER, pa_src))
+        for t in R6211_FORBIDDEN_REACH if t in src))
+
+    return {
+        "operator_entrypoints": operator_entrypoints,
+        "entrypoint_delegates_to_owner": entrypoint_delegates,
+        "entrypoint_writes_the_registry": entrypoint_writes_registry,
+        "boundary_is_derived_not_supplied": boundary_is_derived,
+        "explicit_confirmation_required": explicit_confirmation,
+        "explicit_execute_flag_required": explicit_execute_flag,
+        "backdate_arguments": backdate_arguments,
+        "adopt_all_paths": adopt_all_paths,
+        "withdrawn_fails_closed": withdrawn_fails_closed,
+        "one_current_collection_owner": one_current_collection_owner,
+        "second_current_collection_resolver": second_collection_resolver,
+        "historical_runtime_decides_current_health":
+            historical_runtime_decides_current_health,
+        "browser_publishes_read_failure_as_verdict":
+            browser_publishes_a_read_failure_as_a_verdict,
+        "exact_candidate_target_identity": exact_candidate_target_identity,
+        "lane_decides_a_verdict": lane_decides_a_verdict,
+        "latency_na_semantics": latency_na_semantics,
+        "latency_backfills": latency_backfills,
+        "portfolio_or_execution_paths": portfolio_or_execution_paths,
     }
 
 
@@ -16052,6 +16263,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release60_alphaagent_outcomes(files),
         "release62_1_canonical_forward_evidence":
             check_release62_1_canonical_forward_evidence(files),
+        "release62_1_1_forward_activation_integrity":
+            check_release62_1_1_forward_activation_integrity(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -17253,6 +17466,33 @@ def _print_console(rep: dict) -> None:
           f"{r621['ui_renders_registrations']}  UI derives forward state "
           f"(must be empty): {r621['ui_derives_forward_state']}")
     print(f"inventory lists the registrar: {r621['inventory_lists_registrar']}")
+
+    hdr("RELEASE 62.1.1 — FORWARD ACTIVATION + LIVE-STATE INTEGRITY")
+    r6211 = rep["release62_1_1_forward_activation_integrity"]
+    print(f"operator adoption entrypoints (must be exactly one): "
+          f"{r6211['operator_entrypoints']}  delegates to the owner: "
+          f"{r6211['entrypoint_delegates_to_owner']}  writes the registry "
+          f"(must be empty): {r6211['entrypoint_writes_the_registry']}")
+    print(f"confirmation required: {r6211['explicit_confirmation_required']}  "
+          f"execute flag required: {r6211['explicit_execute_flag_required']}  "
+          f"boundary derived: {r6211['boundary_is_derived_not_supplied']}")
+    print(f"backdate arguments (must be empty): {r6211['backdate_arguments']}  "
+          f"adopt-all paths (must be empty): {r6211['adopt_all_paths']}  "
+          f"withdrawn fails closed: {r6211['withdrawn_fails_closed']}")
+    print(f"one current collection owner: "
+          f"{r6211['one_current_collection_owner']}  second resolver (must be "
+          f"empty): {r6211['second_current_collection_resolver']}")
+    print(f"historical runtime decides current health (must be empty): "
+          f"{r6211['historical_runtime_decides_current_health']}  browser "
+          f"publishes a read failure as a verdict (must be empty): "
+          f"{r6211['browser_publishes_read_failure_as_verdict']}")
+    print(f"exact candidate target identity: "
+          f"{r6211['exact_candidate_target_identity']}  lane decides a verdict "
+          f"(must be empty): {r6211['lane_decides_a_verdict']}")
+    print(f"latency N/A semantics: {r6211['latency_na_semantics']}  latency "
+          f"backfills (must be empty): {r6211['latency_backfills']}")
+    print(f"portfolio/execution paths (must be empty): "
+          f"{r6211['portfolio_or_execution_paths']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -19977,6 +20217,48 @@ BLOCKING_INVARIANTS = (
     # provenance that can never make the current service stale. Every field
     # below BLOCKS strict mode.
     # ------------------------------------------------------------------- #
+    # ------------------------------------------------------------------- #
+    # Release 62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY.
+    # ONE operator door into forward evidence, and it owns no rule; no argument
+    # through which a historical observation boundary could be named; no
+    # adopt-all; a withdrawn lifecycle refused twice; ONE current-collection
+    # owner whose answer a historical runtime cannot decide and a browser
+    # cannot invent; one exact candidate target identity chain; a lane that
+    # changes which conditions APPLY and never whether one passed; and latency
+    # NOT_APPLICABLE declared by the producer, never inferred or backfilled.
+    # Every field below BLOCKS strict mode.
+    # ------------------------------------------------------------------- #
+    ("release62_1_1_forward_activation_integrity", "operator_entrypoints",
+     ["scripts/adopt_prospective_freeze.py"]),
+    ("release62_1_1_forward_activation_integrity",
+     "entrypoint_delegates_to_owner", True),
+    ("release62_1_1_forward_activation_integrity",
+     "entrypoint_writes_the_registry", []),
+    ("release62_1_1_forward_activation_integrity",
+     "boundary_is_derived_not_supplied", True),
+    ("release62_1_1_forward_activation_integrity",
+     "explicit_confirmation_required", True),
+    ("release62_1_1_forward_activation_integrity",
+     "explicit_execute_flag_required", True),
+    ("release62_1_1_forward_activation_integrity", "backdate_arguments", []),
+    ("release62_1_1_forward_activation_integrity", "adopt_all_paths", []),
+    ("release62_1_1_forward_activation_integrity",
+     "withdrawn_fails_closed", True),
+    ("release62_1_1_forward_activation_integrity",
+     "one_current_collection_owner", True),
+    ("release62_1_1_forward_activation_integrity",
+     "second_current_collection_resolver", []),
+    ("release62_1_1_forward_activation_integrity",
+     "historical_runtime_decides_current_health", []),
+    ("release62_1_1_forward_activation_integrity",
+     "browser_publishes_read_failure_as_verdict", []),
+    ("release62_1_1_forward_activation_integrity",
+     "exact_candidate_target_identity", True),
+    ("release62_1_1_forward_activation_integrity", "lane_decides_a_verdict", []),
+    ("release62_1_1_forward_activation_integrity", "latency_na_semantics", True),
+    ("release62_1_1_forward_activation_integrity", "latency_backfills", []),
+    ("release62_1_1_forward_activation_integrity",
+     "portfolio_or_execution_paths", []),
     ("release62_1_canonical_forward_evidence", "registrar_present", True),
     ("release62_1_canonical_forward_evidence", "second_registrar", []),
     ("release62_1_canonical_forward_evidence", "missing_outcomes", []),

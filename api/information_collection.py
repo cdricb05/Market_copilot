@@ -428,6 +428,113 @@ def read_service_lock(*, root=None) -> Optional[dict]:
     return _read_json(_lock_path(root))
 
 
+# --------------------------------------------------------------------------- #
+# RELEASE 62.1.1 - THE ONE CURRENT-SERVICE-STATE READ, AND ITS PROVENANCE
+#
+# WHY THIS LIVES HERE
+# -------------------
+# "Is information collection running RIGHT NOW?" was answered by two different
+# payloads. The sticky header read this module's FULL collection route; the
+# Active Manager read the ``information_collection`` SECTION of the Release-50
+# decision snapshot, whose identity is a fingerprint of the DECISION stores and
+# therefore does not move when a worker restarts. R62.1 stopped the Active
+# Manager reading the snapshot for this question - and left the SHAPE of the
+# answer, and the CHEAP read that produces it, spelled in the consumer.
+#
+# That matters for a reason the live estate proved on 2026-09-08. The full
+# collection route composes source-runtime health, the event-signal-refresh
+# status over a 14 MB event index and the whole attention universe. The CURRENT
+# service verdict needs none of that - it is the service-state document, the
+# single-flight lock and one pure lifecycle call - yet it rode on the heavy
+# composition, so a slow read of things the verdict does not depend on made a
+# healthy worker read as unavailable on every surface that fetched it.
+#
+# So: ONE cheap read, ONE shape, ONE provenance vocabulary, owned by the module
+# that owns the lifecycle verdict. Every surface renders THIS block verbatim.
+# --------------------------------------------------------------------------- #
+#: The canonical CURRENT-runtime read: this module's own lifecycle verdict over
+#: the service state as it is at this instant.
+CC_SOURCE_CURRENT_OWNER = "CANONICAL_CURRENT_RUNTIME_READ"
+#: A labelled FALLBACK for a caller that could inject only the decision
+#: snapshot's section. It is a current-runtime identity that may be stale, and
+#: it says so rather than passing itself off as the live read.
+CC_SOURCE_DECISION_SNAPSHOT = "DECISION_SNAPSHOT_SECTION"
+#: No read answered. Reported as absent, never replaced by a comforting verdict
+#: and never by a browser-side guess.
+CC_SOURCE_UNAVAILABLE = "CURRENT_COLLECTION_STATE_UNAVAILABLE"
+CURRENT_COLLECTION_SOURCES = (CC_SOURCE_CURRENT_OWNER,
+                              CC_SOURCE_DECISION_SNAPSHOT,
+                              CC_SOURCE_UNAVAILABLE)
+
+#: A HISTORICAL event cycle's runtime is provenance about that cycle. It can
+#: never decide whether the service is healthy now, and this states it in the
+#: payload so no consumer has to infer it.
+CURRENT_COLLECTION_NOTE = (
+    "The CURRENT service state, from the canonical current-runtime read. A "
+    "completed historical cycle's release is provenance and can never make "
+    "this stale.")
+
+#: What a surface must say when its READ did not answer. A transport failure is
+#: not a service verdict: the browser that turned one into the other is exactly
+#: how a healthy worker came to be shown as unavailable.
+CC_READ_DID_NOT_ANSWER = "COLLECTION READ DID NOT ANSWER"
+
+
+def resolve_current_collection_state(*, root=None,
+                                     now: Optional[datetime] = None) -> dict:
+    """THE cheap, canonical CURRENT lifecycle read. Reads two files.
+
+    Deliberately free of every heavy composition: the service-state document,
+    the single-flight lock, and :func:`resolve_service_lifecycle`. Nothing about
+    "is the worker healthy now" depends on the attention universe, the event
+    index or source-runtime health, so nothing about it may be able to fail
+    because one of those is slow.
+    """
+    state = load_service_state(root=root)
+    lock = read_service_lock(root=root)
+    return {"service": resolve_service_lifecycle(state, lock, now or _now())}
+
+
+def build_current_collection_state(*, current: Optional[dict] = None,
+                                   snapshot: Optional[dict] = None) -> dict:
+    """THE one current-collection block every operator surface renders.
+
+    ``current`` is the canonical current-runtime read (this module's own
+    :func:`resolve_current_collection_state`, or an injected equivalent) and is
+    preferred unconditionally. ``snapshot`` is the labelled decision-snapshot
+    fallback. An absent answer is reported as absent.
+    """
+    cur = current or {}
+    svc = cur.get("service") or (cur if cur.get("service_state") else None)
+    source = CC_SOURCE_CURRENT_OWNER
+    if not svc:
+        snap = snapshot or {}
+        svc = snap.get("service") or (snap if snap.get("service_state") else None)
+        source = CC_SOURCE_DECISION_SNAPSHOT if svc else CC_SOURCE_UNAVAILABLE
+    svc = svc or {}
+    return {
+        "service_state": svc.get("service_state"),
+        "service_state_vocabulary": list(SERVICE_STATES),
+        "worker_activity": svc.get("worker_activity"),
+        "reason": svc.get("reason"),
+        "worker_pid": svc.get("worker_pid"),
+        "instance_id": svc.get("instance_id"),
+        "started_at": svc.get("started_at"),
+        "source": source,
+        "source_vocabulary": list(CURRENT_COLLECTION_SOURCES),
+        "identity_kind": "CURRENT_RUNTIME_IDENTITY",
+        "available": bool(svc),
+        "owner": COMPOSITION_OWNER,
+        "decided_by_historical_event_runtime": False,
+        # A surface whose FETCH failed renders this label. It is published here
+        # so no consumer invents its own wording, and so a transport failure can
+        # never be published as a service verdict.
+        "read_failure_is_not_a_service_verdict": True,
+        "read_did_not_answer_label": CC_READ_DID_NOT_ANSWER,
+        "note": CURRENT_COLLECTION_NOTE,
+    }
+
+
 def acquire_service_lock(*, root=None, instance_id: Optional[str] = None,
                          pid: Optional[int] = None, now: Optional[datetime] = None
                          ) -> dict:
@@ -2691,6 +2798,12 @@ def load_information_collection(*, root=None, limit: int = 12,
         # back, and whether anything else would. Derived from the two verdicts
         # below; never a competing state machine.
         "recovery": recovery,
+        # R62.1.1 - THE canonical current-service block, byte-identical to the
+        # one api.active_manager_state publishes, because both come from this
+        # module's ONE builder. Two routes, one answer: a surface that renders
+        # this can never disagree with a surface that renders the other.
+        "current_collection": build_current_collection_state(
+            current={"service": lifecycle}),
         "service": {
             "service_id": SERVICE_ID,
             "scheduled_task_name": SCHEDULED_TASK_NAME,
@@ -2837,6 +2950,11 @@ __all__ = [
     "heartbeat", "record_progress", "ProgressReporter",
     "clear_iteration_in_flight",
     "register_worker_start", "resolve_service_lifecycle",
+    # R62.1.1 - the ONE current-service-state read, shape and provenance.
+    "CC_SOURCE_CURRENT_OWNER", "CC_SOURCE_DECISION_SNAPSHOT",
+    "CC_SOURCE_UNAVAILABLE", "CURRENT_COLLECTION_SOURCES",
+    "CURRENT_COLLECTION_NOTE", "CC_READ_DID_NOT_ANSWER",
+    "resolve_current_collection_state", "build_current_collection_state",
     "CANONICAL_WORKER_SCRIPT", "WORKER_TOPOLOGY_VERDICTS",
     "WORKER_TOPOLOGY_NONE", "WORKER_TOPOLOGY_SINGLE",
     "WORKER_TOPOLOGY_VIOLATED", "WORKER_TOPOLOGY_AMBIGUOUS",

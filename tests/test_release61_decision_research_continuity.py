@@ -1257,9 +1257,16 @@ def test_66_the_mislabelled_session_field_is_deprecated_not_contradictory():
 # I.B. THE LATENCY CATEGORY ERROR - NAMED, NEVER BACKFILLED
 # =========================================================================== #
 def test_67_the_daily_lane_declares_its_intraday_endpoints_not_required():
-    assert pdec._not_required_latency_stages(
-        {"intraday_latency_applicable": False}) == list(
-            pdec.INTRADAY_ONLY_LATENCY_STAGES)
+    # R62.1.1 — the R61 declaration, COMPLETED. Every endpoint the daily lane
+    # excuses is an EVENT CYCLE concept, and R61 named only two of the five, so
+    # the record it produced said `missing_measurements: []` while three of its
+    # own interval dispositions said MISSING. The intraday pair is still in the
+    # set; three event-cycle stage endpoints join it.
+    declared = pdec._not_required_latency_stages(
+        {"intraday_latency_applicable": False})
+    assert declared == list(pdec.DAILY_LANE_ABSENT_LATENCY_STAGES)
+    for stage in pdec.INTRADAY_ONLY_LATENCY_STAGES:
+        assert stage in declared
 
 
 def test_68_a_producer_that_declares_nothing_excuses_nothing():
@@ -1275,11 +1282,34 @@ def test_69_an_excused_endpoint_is_not_required_rather_than_missing():
         observation_received_at=None,
         governance_gate_completed_at="2026-09-06T22:57:00+00:00",
         governed_decision_persisted_at="2026-09-06T22:57:01+00:00",
-        not_required_stages=list(pdec.INTRADAY_ONLY_LATENCY_STAGES))
+        not_required_stages=list(pdec.DAILY_LANE_ABSENT_LATENCY_STAGES))
     assert lat["missing_measurements"] == []
     assert lat["latency_measurement_complete"] is True
     for stage in pdec.INTRADAY_ONLY_LATENCY_STAGES:
         assert lat["stage_dispositions"][stage] == esr.LAT_NOT_REQUIRED
+    # R62.1.1 — and the census now covers EVERY endpoint an interval needs, so
+    # "complete" and the interval dispositions describe the same set.
+    for name in esr.LATENCY_INTERVAL_ENDPOINTS:
+        assert lat["interval_dispositions"][name] in (
+            esr.LAT_MEASURED, esr.LAT_NOT_REQUIRED)
+
+
+def test_69b_a_partial_declaration_excuses_only_what_it_names():
+    """Nothing is auto-excused: a producer that names two endpoints excuses two,
+    and every other unstamped endpoint is still MISSING and still incomplete."""
+    lat = esr.measure_decision_latency(
+        stage_timestamps={}, event_cycle_started_at=None,
+        observation_received_at=None,
+        governance_gate_completed_at="2026-09-06T22:57:00+00:00",
+        governed_decision_persisted_at="2026-09-06T22:57:01+00:00",
+        not_required_stages=list(pdec.INTRADAY_ONLY_LATENCY_STAGES))
+    for stage in pdec.INTRADAY_ONLY_LATENCY_STAGES:
+        assert lat["stage_dispositions"][stage] == esr.LAT_NOT_REQUIRED
+    for stage in pdec.EVENT_CYCLE_ONLY_LATENCY_STAGES:
+        if stage in lat["stage_dispositions"]:
+            assert lat["stage_dispositions"][stage] == esr.LAT_MISSING
+    assert "reassessment_completed_at" in lat["missing_measurements"]
+    assert lat["latency_measurement_complete"] is False
 
 
 def test_70_a_stamped_endpoint_is_measured_whatever_the_caller_claimed():

@@ -784,7 +784,10 @@ def test_42_the_production_loader_reads_the_canonical_current_owner():
     src = (REPO / "api" / "active_manager_state.py").read_text(
         encoding="utf-8", errors="replace")
     assert "def _current_collection(" in src
-    assert "_ic.resolve_service_lifecycle(" in src
+    # R62.1.1 — the cheap canonical read has ONE implementation, and it lives
+    # with the lifecycle owner. This module calls that function rather than
+    # re-spelling the service-state + lock + lifecycle sequence itself.
+    assert "_ic.resolve_current_collection_state(" in src
     assert 'current_collection=current_collection' in src
     # And it still delegates the alignment verdict rather than deriving one.
     assert "rid.build_runtime_alignment(" in src

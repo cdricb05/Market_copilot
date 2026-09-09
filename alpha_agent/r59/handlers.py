@@ -231,8 +231,31 @@ def freeze_qualified(mem: M.ResearchMemory, *, hypothesis_id: str,
         counts_to_burden=False, spec=spec)
     existing = mem.get(frozen_id)
     if existing and existing.get("outcome") == r59.HO_FORWARD_FROZEN:
+        # R62.1.1 - AN EXISTING FREEZE IS STILL OWED ITS FORWARD CLOCK.
+        #
+        # Before this release the function returned here, BEFORE the adoption
+        # owner was called. So a freeze whose forward half never happened -
+        # every freeze written before R61, and any freeze whose adoption failed
+        # once - could never self-heal, however many times the persistent
+        # research runtime ran again. Four ACTIVE R58 challengers sat exactly
+        # there: adoptable, and unreachable by the only code that adopts.
+        #
+        # Re-offering it to the SAME governed owner creates no second
+        # registration path and cannot resurrect anything: the owner reclassifies
+        # the lifecycle from persisted history (a WITHDRAWN, INVALIDATED,
+        # SUPERSEDED, MATURED or FAILED freeze is refused before any store is
+        # touched), keys idempotency on the identity hash, and the canonical
+        # registrar's first-write-wins rule returns the EXISTING registration
+        # untouched. The clock it would open is today's, never the old
+        # inception, so nothing can be backdated by re-running. It promotes no
+        # model and allocates no capital.
+        adoption = _register_forward_evidence(mem, frozen_id, adopt_forward)
         return {"state": "ALREADY_FROZEN", "challenger_id": challenger_id,
-                "hypothesis_id": frozen_id}
+                "hypothesis_id": frozen_id,
+                "forward_adoption": adoption,
+                "forward_evidence_started": bool(adoption.get("adopted")),
+                "forward_adoption_owner": "api.prospective_adoption",
+                "forward_adoption_retried_for_existing_freeze": True}
 
     inception = r59.now_iso()
     mem.freeze_forward(frozen_id, challenger_id=challenger_id,

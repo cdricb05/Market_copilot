@@ -817,11 +817,53 @@ def _default_price_panel_loader() -> Optional[dict]:
     return pp.load_operational_price_panel()
 
 
+#: R62.1.1 — how far either side of the anchor the authoritative closure table
+#: is consulted. A long weekend plus a holiday never spans more than a few days;
+#: the window is generous so a range question is never answered partially.
+_CALENDAR_WINDOW_DAYS = 30
+
+
+def _authoritative_non_sessions(anchor):
+    """The AUTHORITATIVE exchange closures around ``anchor``.
+
+    Release 62.1.1 — the ONE calendar owner (``engine.exchange_calendar``, the
+    Release-60.1 supplier) answers. This module derives no holiday of its own
+    and guesses none: when the calendar cannot answer for the window the set is
+    empty and the caller degrades to the documented weekday-only behaviour AND
+    says so, rather than silently naming a closed exchange day a session.
+    """
+    from datetime import timedelta as _td
+    try:
+        from paper_trader.engine import exchange_calendar as xcal
+        lo, hi = anchor - _td(days=_CALENDAR_WINDOW_DAYS), anchor
+        if not xcal.calendar_available_between(lo, hi):
+            return frozenset(), False
+        return frozenset(xcal.non_sessions_between(lo, hi)), True
+    except Exception:  # noqa: BLE001 — an unreadable calendar is not a holiday
+        return frozenset(), False
+
+
 def _prior_ranking_from_artifact(*, active_book_id, eligible_market_date, hoc_dir=None):
     """Prior eligible-session per-ticker rank from the previous eligible date's
     persisted artifact (PIT-honest: a real prior snapshot, never today's snapshot).
 
     Returns ``(ranking|None, state, reason, source_date)``.
+
+    RELEASE 62.1.1 — THE PREVIOUS SESSION IS A CALENDAR QUESTION.
+
+    ``engine.market_session.previous_trading_day`` is weekday-only UNLESS it is
+    handed the authoritative closure set, and this call was not handing it one.
+    So on 2026-09-08 the "previous eligible session" resolved to 2026-09-07 —
+    Labor Day, a full-day NYSE closure on which no assessment can ever have been
+    persisted. The lookup could not succeed, ``PRIOR_RANK_UNAVAILABLE`` was
+    recorded as a data gap, the assessment went DEGRADED, and the operator was
+    shown "HOC data gaps: 1" for a session whose real predecessor (2026-09-04)
+    had a perfectly good artifact. That is the same defect class Release 60.1
+    fixed for session eligibility, in a module it did not reach.
+
+    The calendar is now supplied by its ONE owner. When that owner cannot answer
+    for the window the behaviour is unchanged and the reason says which calendar
+    decided, so a degraded answer is never mistaken for an authoritative one.
     """
     from paper_trader.engine import market_session as ms
     from datetime import date as _date
@@ -829,20 +871,25 @@ def _prior_ranking_from_artifact(*, active_book_id, eligible_market_date, hoc_di
         return None, "UNAVAILABLE", "No eligible market date to anchor a prior lookup.", None
     try:
         d = _date.fromisoformat(eligible_market_date)
-        prior_date = ms.previous_trading_day(d).isoformat()
+        non_sessions, authoritative = _authoritative_non_sessions(d)
+        prior_date = ms.previous_trading_day(d, non_sessions).isoformat()
     except (ValueError, TypeError):
         return None, "UNAVAILABLE", "Eligible market date is not a valid ISO date.", None
+    _cal = ("the authoritative exchange calendar" if authoritative
+            else "weekday arithmetic (the exchange calendar could not answer "
+                 "for this window)")
     art = load_latest_artifact(active_book_id=active_book_id,
                                eligible_market_date=prior_date, hoc_dir=hoc_dir)
     if not art:
         return (None, "UNAVAILABLE",
                 "No persisted opportunity-cost artifact exists for the previous eligible "
-                "session (%s); previous rank is unavailable." % prior_date, prior_date)
+                "session (%s, resolved on %s); previous rank is unavailable."
+                % (prior_date, _cal), prior_date)
     snapshot = ((art.get("assessment") or {}).get("diagnostics") or {}).get("rank_snapshot")
     if not snapshot:
         return (None, "UNAVAILABLE",
-                "The previous session artifact (%s) carries no rank snapshot." % prior_date,
-                prior_date)
+                "The previous session artifact (%s, resolved on %s) carries no rank "
+                "snapshot." % (prior_date, _cal), prior_date)
     return dict(snapshot), "AVAILABLE", "", prior_date
 
 

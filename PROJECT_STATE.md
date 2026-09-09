@@ -1,6 +1,107 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-08
+- **Updated by phase:** **R62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY
+  (single agent, Windows PowerShell only, isolated worktree
+  `D:\paper_trader_r62_1_1_forward_activation_integrity` on branch
+  `r62-1-1-forward-activation-integrity`, built over `da77be7`).** NOT
+  COMMITTED, not pushed, not merged, not deployed, and NO LIVE ADOPTION WAS
+  PERFORMED. The deployed checkout `C:\Users\binis\paper_trader` was READ ONLY
+  throughout: no restart, no scheduled-task change, no collection run, no
+  portfolio cycle, no daily close, no approval, no order, no promotion, no
+  replay of any event and no service started from `D:`. The persistent
+  AlphaAgent kept running on `C:` for the whole release and its SQLite state was
+  read, never written.
+  Full narrative: `docs/RELEASE62_1_1_FORWARD_ACTIVATION_INTEGRITY.md`.
+
+  **The problem, in four parts.** R62.1 gave a qualified freeze a canonical
+  forward registrar and the live estate still showed
+  `canonical_forward_registration_count = 0` beside
+  `orphan_freezes_adoptable_count = 4`. Both statements were true, and the
+  reason was structural: R61 and R62.1 act at the moment a freeze is CREATED,
+  and `alpha_agent.r59.handlers.freeze_qualified` returns `ALREADY_FROZEN`
+  BEFORE the adoption owner is called - so the four ACTIVE R58 freezes could
+  never be reached by the only code that adopts, however many times the research
+  runtime ran. Three live-state defects sat beside it: surfaces disagreed about
+  a collection service that was healthy the whole time; a natural post-close
+  reassessment reported `TARGET_IDENTITY_MISMATCH` +
+  `CANDIDATE_EVIDENCE_INCOMPLETE` + `SWITCHING_ECONOMICS_INCOMPLETE` for a chain
+  with no defect in it; and `HOC data gaps = 1` with `LATENCY MISSING` at 9/10
+  acceptance, neither of which was a fault.
+
+  **What landed - one governed operator door.**
+  `scripts/adopt_prospective_freeze.py` is THE one entrypoint for adopting an
+  ALREADY-EXISTING frozen challenger, and it owns no rule: it resolves
+  operator-named ids against the canonical ResearchMemory through its READ-ONLY
+  handle and hands each resolved freeze to
+  `api.prospective_adoption.adopt_prospective_freeze` exactly once. Dry run is
+  the default; a live write requires BOTH `--confirm
+  ADOPT_PROSPECTIVE_FORWARD_CLOCKS` AND `--execute`. `--challenger-id` is
+  repeatable and REQUIRED - there is no `--all` - and there is no
+  `--effective-from`, `--date`, `--backfill` or `--inception-override`, because
+  the prospective boundary is derived by the owner and is always today. It
+  promotes nothing, allocates nothing and creates no order, and it refuses
+  before parsing if the editable-install finder captured `paper_trader` from a
+  different checkout. `freeze_qualified` now also re-offers an EXISTING freeze
+  to the SAME owner, so the estate can self-heal without a second path: the
+  lifecycle is reclassified from persisted history, the identity hash keys
+  idempotency, and a WITHDRAWN candidate is refused twice by two independent
+  owners.
+
+  **ONE current collection state.** The cheap canonical read and the block every
+  surface renders now live with the lifecycle owner
+  (`api.information_collection.resolve_current_collection_state` /
+  `build_current_collection_state`), and the collection route and the Active
+  Manager publish the SAME object. The verdict no longer rides on a composition
+  it does not depend on - the full route reads source health, a 14 MB event
+  index and the whole attention universe, and the CURRENT verdict needs none of
+  them - and the browser no longer converts a READ failure into a SERVICE
+  verdict: a fetch that did not answer says so, for the collection chip and for
+  the operational book's global status alike.
+
+  **The Sep-8 withholding was CORRECT and is preserved.** The live cycle's
+  candidate identity hash is `c329a4e57fa9cfea2f1412677ea19176` - byte-identical
+  to the standing governed decision
+  `gdec_2026-09-08_alpha_paper_book_1_c329a4e57fa9` - so the identity chain was
+  exact and there was no stale artifact and no composition mismatch. What was
+  wrong was the WORDS: the intraday producer contract deliberately promotes only
+  on a PRICED R47 outcome, the cycle concluded `CURRENT_NO_CHANGE` and built no
+  target, and the seven conditions that need a target failed and emitted three
+  defect codes. Those conditions are now `NOT_APPLICABLE_TO_THIS_LANE`, the
+  designed no-op is named once (`INTRADAY_CYCLE_REACHED_NO_PRICED_TARGET`), and
+  the daily gate's `PROPOSAL_BINDING_CONSISTENT` rule is applied in the same
+  lane so a no-target cycle that binds a proposal is still caught as a real
+  mismatch. The verdict is unchanged: still WITHHELD, and `DUPLICATE_CANDIDATE`
+  is still the governing refusal.
+
+  **HOC gap, drift and latency.** The HOC "previous eligible session" was
+  resolved on weekday arithmetic, so on 2026-09-08 it named 2026-09-07 - Labor
+  Day - for which no artifact can ever exist; the R60.1 exchange calendar now
+  answers, and the real predecessor is 2026-09-04.
+  `DAILY_CLOSE_COMPLETE_MEMBERSHIP_DRIFT` is now CLASSIFIED by the owner that
+  writes it, with the exact affected names, and it is fail-closed on the benign
+  claim: a held name the scoring universe does not contain is an INTEGRITY
+  problem and never "compatibility only". R61's latency fix had two halves that
+  cancelled out - the producer excused the endpoints and the read model looked
+  only at what was left over - so the LATENCY row read MISSING against a
+  decision complete on its own terms; the read model now reads the producer's
+  own declaration, the row is decided on its own key-fact interval, and both the
+  acceptance contract and both governance gates publish every count with the
+  identities they close under, asserted over independent tallies.
+
+  **The Sep-8 governed decision is untouched.** `CURRENT_NO_CHANGE`, session
+  `2026-09-08`, turnover 0, cost 0, NAV ~97,496.72, cash ~4,482.71, 25 holdings.
+  Nothing in this release regenerates, supersedes, replays or edits it.
+
+  **Guarded by** `check_release62_1_1_forward_activation_integrity` (18
+  strict-blocking invariants) and
+  `tests/test_release62_1_1_forward_activation_integrity.py` (60 tests, all
+  passing). `scripts/audit_architecture.py --strict` exits 0; inventory drift
+  zero; `git diff --check` clean.
+
+## Release 62.1 (superseded as the current phase; result unchanged)
+
+- **Last updated:** 2026-09-08
 - **Updated by phase:** **R62.1 - CANONICAL MULTI-ASSET TRUE_FORWARD
   REGISTRATION (single agent, Windows PowerShell only, isolated worktree
   `D:\paper_trader_r62_1_forward_evidence` on branch

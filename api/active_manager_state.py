@@ -322,9 +322,33 @@ def _merged_last_run(ev: dict) -> dict:
 #: snapshot — a snapshot whose identity is a fingerprint of the DECISION stores
 #: and therefore does not move when a worker restarts, stops or re-captures its
 #: release. One question, one answer, and the answer says where it came from.
-CC_SOURCE_CURRENT_OWNER = "CANONICAL_CURRENT_RUNTIME_READ"
-CC_SOURCE_DECISION_SNAPSHOT = "DECISION_SNAPSHOT_SECTION"
-CC_SOURCE_UNAVAILABLE = "CURRENT_COLLECTION_STATE_UNAVAILABLE"
+#:
+#: R62.1.1 — and the answer's SHAPE, its PROVENANCE VOCABULARY and the cheap
+#: read that produces it now live with the owner of the lifecycle verdict
+#: (``api.information_collection``), so the collection route and this
+#: composition publish the SAME block rather than two spellings of it. These
+#: names are re-exported, not redefined: there is exactly one definition.
+def _cc_owner():
+    """The canonical current-collection owner, resolved lazily (never forked)."""
+    from paper_trader.api import information_collection as _ic
+    return _ic
+
+
+def _cc_sources() -> tuple:
+    """The owner's provenance vocabulary, READ. The fallback exists only so an
+    unimportable owner degrades to an explicit absence instead of an
+    AttributeError; it is never a second definition in use."""
+    try:
+        _ic = _cc_owner()
+        return (_ic.CC_SOURCE_CURRENT_OWNER, _ic.CC_SOURCE_DECISION_SNAPSHOT,
+                _ic.CC_SOURCE_UNAVAILABLE)
+    except Exception:                                   # noqa: BLE001
+        return ("CANONICAL_CURRENT_RUNTIME_READ", "DECISION_SNAPSHOT_SECTION",
+                "CURRENT_COLLECTION_STATE_UNAVAILABLE")
+
+
+(CC_SOURCE_CURRENT_OWNER, CC_SOURCE_DECISION_SNAPSHOT,
+ CC_SOURCE_UNAVAILABLE) = _cc_sources()
 CURRENT_COLLECTION_SOURCES = (CC_SOURCE_CURRENT_OWNER,
                               CC_SOURCE_DECISION_SNAPSHOT,
                               CC_SOURCE_UNAVAILABLE)
@@ -334,27 +358,28 @@ def _current_collection_state(information_collection: Optional[dict],
                               current_collection: Optional[dict] = None) -> dict:
     """THE current Information Collection service state, and its provenance.
 
-    ``current_collection`` is the canonical CURRENT-runtime read
-    (``api.information_collection.resolve_service_lifecycle`` over the service
-    state as it is right now) supplied by the production loader. It is preferred
+    DELEGATED, never decided here. ``current_collection`` is the canonical
+    CURRENT-runtime read supplied by the production loader and is preferred
     unconditionally; the decision-snapshot section is a labelled fallback for
     callers that inject only that, and an absent answer is reported as absent
-    rather than replaced by a comforting one.
+    rather than replaced by a comforting one. The whole rule — which input wins,
+    what the block contains and what its provenance is called — belongs to
+    ``api.information_collection.build_current_collection_state``.
     """
-    cur = (current_collection or {})
-    svc = cur.get("service") or (cur if cur.get("service_state") else None)
-    if svc:
-        return {"service": svc, "source": CC_SOURCE_CURRENT_OWNER,
-                "identity_kind": "CURRENT_RUNTIME_IDENTITY",
-                "available": True}
+    try:
+        block = _cc_owner().build_current_collection_state(
+            current=current_collection, snapshot=information_collection)
+    except Exception:                                   # noqa: BLE001
+        return {"service": {}, "source": CC_SOURCE_UNAVAILABLE, "block": {},
+                "identity_kind": "CURRENT_RUNTIME_IDENTITY", "available": False}
+    cur = current_collection or {}
     ic = information_collection or {}
-    snap = ic.get("service") or (ic if ic.get("service_state") else None)
-    if snap:
-        return {"service": snap, "source": CC_SOURCE_DECISION_SNAPSHOT,
-                "identity_kind": "CURRENT_RUNTIME_IDENTITY",
-                "available": True}
-    return {"service": {}, "source": CC_SOURCE_UNAVAILABLE,
-            "identity_kind": "CURRENT_RUNTIME_IDENTITY", "available": False}
+    svc = (cur.get("service") or (cur if cur.get("service_state") else None)
+           or ic.get("service") or (ic if ic.get("service_state") else None)
+           or {})
+    return {"service": svc, "source": block["source"], "block": block,
+            "identity_kind": block["identity_kind"],
+            "available": block["available"]}
 
 
 def _live_information_block(information_collection: Optional[dict],
@@ -393,22 +418,9 @@ def _live_information_block(information_collection: Optional[dict],
         # R62.1 — ONE authoritative current collection state, and the name of the
         # read that produced it. Every operator surface renders THIS; nothing in
         # the browser reconciles two payloads that answer the same question.
-        "current_collection": {
-            "service_state": svc.get("service_state"),
-            "worker_activity": svc.get("worker_activity"),
-            "reason": svc.get("reason"),
-            "worker_pid": svc.get("worker_pid"),
-            "instance_id": svc.get("instance_id"),
-            "started_at": svc.get("started_at"),
-            "source": current["source"],
-            "source_vocabulary": list(CURRENT_COLLECTION_SOURCES),
-            "identity_kind": current["identity_kind"],
-            "available": current["available"],
-            "owner": COMPONENT_OWNERS["live_information"],
-            "note": ("The CURRENT service state, from the canonical current-"
-                     "runtime read. A completed historical cycle's release is "
-                     "provenance and can never make this stale."),
-        },
+        # R62.1.1 — the block is the OWNER's, verbatim, so the collection route
+        # and this composition are byte-identical on this question.
+        "current_collection": current["block"],
         "last_event_cycle": {
             "run_id": last_run.get("run_id"),
             "state": last_run.get("state") or ev.get("state"),
@@ -1315,9 +1327,19 @@ def _measure_latency(**kwargs) -> Optional[dict]:
 def _intraday_only_latency_stages() -> list:
     try:
         from paper_trader.api import portfolio_decision as pdec
-        return list(pdec.INTRADAY_ONLY_LATENCY_STAGES)
+        return list(pdec.DAILY_LANE_ABSENT_LATENCY_STAGES)
     except Exception:  # noqa: BLE001
         return ["observation_received_at", "event_cycle_started_at"]
+
+
+def _latency_interval_endpoints() -> dict:
+    """WHICH two endpoints each latency interval needs. The measurement owner's
+    own map, read — this module declares no interval of its own."""
+    try:
+        from paper_trader.api import event_signal_refresh as esr
+        return dict(esr.LATENCY_INTERVAL_ENDPOINTS)
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _latency_lane_scope(governed_decision: Optional[dict],
@@ -1329,10 +1351,24 @@ def _latency_lane_scope(governed_decision: Optional[dict],
     lane never ran an event cycle, so an absent event-cycle stamp on it is a
     property of the lane. An INTRADAY decision owns both endpoints, so nothing
     on it is ever structurally absent and a gap there stays a real gap.
+
+    RELEASE 62.1.1 — READ THE PRODUCER'S OWN DECLARATION, NOT ONLY THE RESIDUE.
+
+    R61 fixed both halves of this and they cancelled out. The producer began
+    declaring which endpoints it never had, so ``measure_decision_latency``
+    EXCUSED them and removed them from ``missing_measurements`` — and this
+    function derived the structurally-absent set from ``missing_measurements``
+    alone, which was now empty. The set came out empty, the LATENCY acceptance
+    row fell through to MISSING, and the Active Manager reported 9/10 with
+    "LATENCY MISSING" against a decision that was complete on its own terms.
+    An excused endpoint is the STRONGEST form of the fact this function reports,
+    so it is read first.
     """
     gd = governed_decision or {}
     prov = str(gd.get("provenance") or "")
-    missing = list((latency or {}).get("missing_measurements") or [])
+    lat = latency or {}
+    missing = list(lat.get("missing_measurements") or [])
+    excused = list(lat.get("not_required_measurements") or [])
     try:
         from paper_trader.api import portfolio_decision as pdec
         daily = pdec.PROV_GOVERNED_DAILY_CYCLE
@@ -1340,17 +1376,22 @@ def _latency_lane_scope(governed_decision: Optional[dict],
         daily = "GOVERNED_DAILY_CYCLE"
     if prov != daily:
         return {"producing_lane": prov or None,
+                # An intraday decision owns every endpoint. Anything its own
+                # producer excused is still reported, and it is reported as a
+                # gap: only the DAILY lane structurally lacks these stamps.
                 "structurally_absent_measurements": [],
-                "measurements_missing_and_expected": missing,
+                "measurements_missing_and_expected": sorted(
+                    set(missing) | set(excused)),
                 "lane_scope_note": ("this decision's lane owns every latency "
                                     "endpoint; an absent stamp is a real gap")}
-    intraday_only = _intraday_only_latency_stages()
-    absent = [m for m in missing if m in intraday_only]
-    expected = [m for m in missing if m not in intraday_only]
+    lane_absent = _intraday_only_latency_stages()
+    absent = sorted({m for m in list(missing) + excused if m in lane_absent})
+    expected = sorted({m for m in missing if m not in lane_absent})
     return {
         "producing_lane": prov,
         "structurally_absent_measurements": absent,
         "measurements_missing_and_expected": expected,
+        "producer_declared_not_required": sorted(set(excused)),
         "lane_scope_note": (
             "a session-terminal daily decision processes no observation and "
             "starts no event cycle, so %s were never available to it. The "
@@ -2006,6 +2047,24 @@ ACCEPTANCE_MISSING = "MISSING"
 ACCEPTANCE_NOT_APPLICABLE = "NOT_APPLICABLE_TO_THIS_LANE"
 
 
+def _key_interval_not_applicable(latency: Optional[dict],
+                                 interval: str) -> bool:
+    """Could the PRODUCING LANE ever have had this exact interval? (R62.1.1)
+
+    True only when an endpoint of THIS interval is one the lane structurally
+    never had AND neither of its endpoints is a real, expected gap. Both halves
+    matter: the first stops a correct no-op reading as a fault, and the second
+    stops a real gap being excused by a neighbouring structural absence.
+    """
+    lat = latency or {}
+    ends = set(_latency_interval_endpoints().get(interval) or ())
+    if not ends:
+        return False
+    absent = set(lat.get("structurally_absent_measurements") or ())
+    expected = set(lat.get("measurements_missing_and_expected") or ())
+    return bool(ends & absent) and not (ends & expected)
+
+
 def build_acceptance_contract(state: Optional[dict]) -> dict:
     """The R55 read-only acceptance view over a composed active-manager state.
 
@@ -2159,12 +2218,22 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
         _row("LATENCY", lat.get("observation_to_signal_seconds"),
              lat.get("measurement_owner") or owners.get("decision_latency"),
              # R61 — the interval is NOT_APPLICABLE only when the producing
-             # lane's own scope says both its endpoints were never available to
-             # it. Nothing is reconstructed and the record is untouched; the
+             # lane's own scope says its endpoints were never available to it.
+             # Nothing is reconstructed and the record is untouched; the
              # missing_measurements list below still names them verbatim.
-             not_applicable=bool(
-                 lat.get("structurally_absent_measurements")
-                 and not lat.get("measurements_missing_and_expected")),
+             #
+             # R62.1.1 — the question is asked about THIS ROW'S OWN KEY FACT.
+             # The old test looked at the whole record: any other endpoint the
+             # lane genuinely still owes forced the row back to MISSING, so a
+             # row whose own interval the lane could never have had was reported
+             # as a fault. It now asks about the two endpoints of
+             # ``observation_to_signal_seconds`` and nothing else — and if
+             # either of THOSE is a real gap, the row is MISSING, as it must be.
+             not_applicable=_key_interval_not_applicable(
+                 lat, "observation_to_signal_seconds"),
+             key_fact_interval="observation_to_signal_seconds",
+             key_fact_endpoints=list(_latency_interval_endpoints().get(
+                 "observation_to_signal_seconds") or []),
              producing_lane=lat.get("producing_lane"),
              structurally_absent_measurements=list(
                  lat.get("structurally_absent_measurements") or []),
@@ -2210,6 +2279,13 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
                  "session": gd.get("eligible_market_session"),
                  "persistence_status": gd.get("persistence_status")}
                 ] if gd.get("persistence_blocker") else []
+    # R62.1.1 — four INDEPENDENT tallies. See ``counts_are_closed`` below.
+    _total = len(rows)
+    _present = sum(1 for r in rows if r["status"] == ACCEPTANCE_PRESENT)
+    _missing = sum(1 for r in rows if r["status"] == ACCEPTANCE_MISSING)
+    _na = sum(1 for r in rows if r["status"] == ACCEPTANCE_NOT_APPLICABLE)
+    _applicable = sum(1 for r in rows
+                      if r["status"] != ACCEPTANCE_NOT_APPLICABLE)
     return {
         "schema_version": "active_manager_acceptance.v1",
         "phase": "R55",
@@ -2228,12 +2304,33 @@ def build_acceptance_contract(state: Optional[dict]) -> dict:
         # inflating the present count: "10/10 present" would be a claim the
         # evidence does not support, and "9/10, LATENCY MISSING" was a fault
         # report for a fault that does not exist. Both are now avoidable.
-        "present_count": sum(1 for r in rows
-                             if r["status"] == ACCEPTANCE_PRESENT),
-        "not_applicable_count": sum(
-            1 for r in rows if r["status"] == ACCEPTANCE_NOT_APPLICABLE),
-        "accountable_row_count": sum(
-            1 for r in rows if r["status"] != ACCEPTANCE_NOT_APPLICABLE),
+        "present_count": _present,
+        "not_applicable_count": _na,
+        "accountable_row_count": _applicable,
+        # R62.1.1 — SAY THE ARITHMETIC, AND PROVE IT CLOSES.
+        #
+        # The contract published a present count, an N/A count and an
+        # accountable count, and no missing count and no total, so "9 of 10
+        # present" had to be reconstructed by whoever read it — and the number
+        # an operator reconstructed was the one that made a correct no-op look
+        # like a fault. Every count is now published, and the two identities
+        #
+        #     applicable = present + missing
+        #     total      = present + missing + not_applicable
+        #
+        # are ASSERTED over four INDEPENDENT tallies rather than derived from
+        # one another. Deriving them would make the flag true by construction
+        # and prove nothing; tallying separately is what makes a row that is
+        # none of the three statuses show up as ``counts_are_closed: False``,
+        # and it is why a NOT_APPLICABLE row can never be quietly counted as
+        # present to make the sum work.
+        "row_count": _total,
+        "applicable_row_count": _applicable,
+        "missing_count": _missing,
+        "counts_are_closed": (_present + _missing == _applicable
+                              and _present + _missing + _na == _total),
+        "count_identities": ("applicable = present + missing; "
+                             "total = present + missing + not_applicable"),
         "missing_rows": missing,
         "blockers": blockers,
         "blocker_codes": [b["blocker"] for b in blockers],
@@ -2565,18 +2662,18 @@ def load_active_manager_state(*, loaders: Optional[dict] = None) -> dict:
         is a fingerprint of the stores that can change a DECISION, so it does
         not move when a worker restarts, stops or re-captures its release —
         which is exactly how the Active Manager came to disagree with the
-        collection route about a service that was healthy the whole time. This
-        is the SAME canonical call the collection route makes, so the two
-        cannot diverge.
+        collection route about a service that was healthy the whole time.
+
+        R62.1.1 — it is now literally the SAME FUNCTION the collection route
+        calls (``api.information_collection.resolve_current_collection_state``),
+        not a second spelling of it, and that function is deliberately cheap:
+        the service-state document, the single-flight lock and one pure
+        lifecycle verdict. Nothing about "is the worker healthy now" depends on
+        the attention universe or the event index, so nothing about it can fail
+        because one of those is slow.
         """
         from paper_trader.api import information_collection as _ic
-        state = _ic.load_service_state()
-        try:
-            lock = _ic._read_json(_ic._lock_path()) or None
-        except Exception:  # noqa: BLE001 - a missing lock is a normal state
-            lock = None
-        return {"service": _ic.resolve_service_lifecycle(
-            state, lock, datetime.now(timezone.utc))}
+        return _ic.resolve_current_collection_state()
 
     current_collection = _get("current_collection",
                               lds.get("current_collection", _current_collection))
