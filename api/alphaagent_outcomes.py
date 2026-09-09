@@ -737,16 +737,51 @@ def _known_forward_ids(forward: dict) -> Optional[dict]:
     return known
 
 
-def _canonical_registrations() -> list:
+def _canonical_accrual() -> dict:
+    """The ACCRUAL owner's projection, keyed by identity hash (R62.2).
+
+    READ from the artifact the accrual RUN persisted, not recomputed. Deriving
+    these counters here would mean loading the operational price panel a SECOND
+    time on this route - the R56 owner below already loads it once - and putting
+    a heavy composition back on a read path is the defect R62.1.1 spent a
+    workstream removing.
+
+    Degrades to ``{}``, which reads as "the accrual owner has published nothing
+    yet" and leaves the registrar's own immutable zeros showing, rather than
+    inventing a count this owner could not read.
+    """
+    try:
+        from paper_trader.api import canonical_forward_accrual as CFA
+        return CFA.load_accrual_projection()
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
+def _canonical_accrual_generated_at() -> Optional[str]:
+    """WHEN the accrual owner last published. A persisted read model that does
+    not say how old it is invites a stale number to be read as a current one."""
+    try:
+        from paper_trader.api import canonical_forward_accrual as CFA
+        return CFA.load_accrual_projection_artifact().get("generated_at")
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def _canonical_registrations(accrual: Optional[dict] = None) -> list:
     """Every prospective registration the canonical registrar holds. Read-only.
 
     Degrades to an empty list, which reads as "nothing is registered" - the same
     thing an empty registry means. It never reports a registration this owner
-    could not actually read.
+    could not actually read. The living accrual counters are the ACCRUAL owner's
+    and are overlaid by the registrar itself; nothing is recomputed here.
     """
     try:
         from paper_trader.api import forward_challenger_registry as FCR
-        return [FCR.registration_row(r) for r in FCR.load_registrations()]
+        acc = accrual if accrual is not None else {}
+        return [FCR.registration_row(
+            r, accrual=acc.get(str((r.get("identity") or {})
+                                   .get("identity_hash"))))
+            for r in FCR.load_registrations()]
     except Exception:                                    # noqa: BLE001
         return []
 
@@ -847,7 +882,8 @@ def _prospective_block(mem, forward: dict) -> dict:
     health = (forward.get("runtime") or {}).get("runtime_health") or {}
     known = _known_forward_ids(forward)
 
-    registrations = _canonical_registrations()
+    canonical_accrual = _canonical_accrual()
+    registrations = _canonical_registrations(canonical_accrual)
     by_challenger = {str(r.get("challenger_id")): r for r in registrations
                      if r.get("challenger_id")}
     frozen = mem.list_hypotheses(outcome=r59.HO_FORWARD_FROZEN, limit=500)
@@ -909,6 +945,34 @@ def _prospective_block(mem, forward: dict) -> dict:
         "canonical_forward_registrar": "api.forward_challenger_registry",
         "canonical_forward_registrations": registrations,
         "canonical_forward_registration_count": len(registrations),
+        # R62.2 - the AUTOMATIC accrual owner, and what it says right now about
+        # each registration. Before R62.2 a registration was a clock nothing
+        # wound: the four counters below were structurally zero because no code
+        # path advanced them. They are the accrual owner's, computed nowhere
+        # else, and no browser derives one.
+        "canonical_forward_accrual_owner": "api.canonical_forward_accrual",
+        "canonical_forward_maturation_owner": "alpha_agent.r52.runtime",
+        "canonical_forward_accrual_by_identity": canonical_accrual,
+        "canonical_forward_accrual_generated_at": _canonical_accrual_generated_at(),
+        "canonical_forward_predictions_emitted": sum(
+            int(a.get("predictions_emitted") or 0)
+            for a in canonical_accrual.values()),
+        "canonical_forward_matured_observations": sum(
+            int(a.get("matured_observations") or 0)
+            for a in canonical_accrual.values()),
+        "canonical_forward_effective_independent_observations": sum(
+            int(a.get("effective_independent_observations") or 0)
+            for a in canonical_accrual.values()),
+        "canonical_forward_forfeitures": sum(
+            int(a.get("forfeitures") or 0)
+            for a in canonical_accrual.values()),
+        "canonical_forward_armed_for_a_future_session": sum(
+            1 for a in canonical_accrual.values()
+            if a.get("next_eligible_observation_session")),
+        "canonical_forward_accrual_states": sorted(
+            {str(a.get("current_accrual_state"))
+             for a in canonical_accrual.values()
+             if a.get("current_accrual_state")}),
         "forward_accrual": accrual,
         "promotion_ready_count": health.get("promotion_ready_count"),
         "forward_paper_portfolios": (

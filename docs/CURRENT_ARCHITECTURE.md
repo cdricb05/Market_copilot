@@ -4015,3 +4015,72 @@ event-cycle vocabulary and would be better as a daily-lane vocabulary of its own
 The heavy `/v1/operations/information-collection` composition is unchanged; only
 the CURRENT verdict was moved off it. Wiring the scheduled emission that ACCRUES
 evidence for canonical weight-book challengers remains outside this release.
+
+## Release 62.2 — the automatic forward accrual loop (2026-09-09)
+
+R62.2 adds no economics, no gate, no threshold and no forecast. It closes the
+one structural gap R62.1.1 named in its own "remaining gaps" section: a
+canonical registration NAMED its accrual owner and its maturation owner, and no
+code path connected the two. Four ACTIVE R58 challengers were adopted live on
+2026-09-09 and would have accrued nothing, forever.
+
+**The accrual owner.** `api/canonical_forward_accrual.py` owns exactly ONE
+question — whether a canonical registration has a legal, unemitted prospective
+decision right now — and the durable record of what happened to that
+opportunity. It discovers registrations from `api.forward_challenger_registry`
+and writes none of them; it READS the frozen weight book from the originating
+release's own immutable artifact and binds it to the registration by
+`freeze_record_hash`, refusing a mismatch rather than repairing it; and it builds
+and scores every record with the ONE pure kernel
+`engine.shadow_portfolio_evidence`, so the estate keeps a single definition of
+what a frozen forward book is worth.
+
+**One cadence, not two.** `alpha_agent/r52/runtime.py` already owns the research
+cadence, so the accrual is stage 5b of `research_runtime_cycle` — inside the
+runtime's EXISTING lock, between the forfeiture sweep and the velocity rebuild,
+mapped onto the runtime's own frozen stage vocabulary. No new scheduled task
+exists; the three task-definition owners are unchanged. The accrual owner holds
+no timer, no thread and no lock of its own, and the audit blocks all three.
+
+**Immutable records, overlaid counters.** A registration is first-write-wins and
+immutable, so its own counters are zero for life by design. The living counters
+belong to the accrual owner and are OVERLAID by
+`registration_row(record, accrual=…)` over exactly the fields in
+`ACCRUAL_OVERLAY_FIELDS`. `api.alphaagent_outcomes` injects the projection from
+the read-only twin `load_canonical_forward_accrual`, which classifies exactly as
+the writer would and is guaranteed to write nothing — so a GET can never emit a
+prediction, and the observation never depends on who was looking. The registrar
+must not import the accrual owner and must not accrue; both are blocking
+invariants.
+
+**No backfill, and a forfeiture that means something.** An emission is legal only
+while its decision session is the latest session the panel has priced, because
+the kernel scores only bars dated strictly after inception. Once a later session
+prints, the opportunity is `FORFEITED` and recorded with `backfill_refused`,
+`evidence_is_deliberately_absent` and `may_never_be_reconstructed`. A cadence
+boundary for which the originating owner froze NO decision is deliberately not a
+forfeiture — there was nothing to emit, because a rebalance is a decision and
+none was taken — and reports `AWAITING_NEW_GOVERNED_FREEZE`. Treating it as a
+loss would manufacture losses out of governance. The six-state vocabulary is
+`NOT_DUE`, `DUE`, `EMITTED`, `FORFEITED`, `DATA_BLOCKED`, `INTEGRITY_BLOCKED`.
+
+**Maturation on the instrument's own calendar.** Maturity counts
+`horizon_sessions` sessions STRICTLY AFTER the decision session on the dates the
+instrument actually printed, so holidays and market-specific closures are handled
+by observation rather than by an assumed holiday table. Effective independent
+observations count only matured windows that do not overlap: fifty overlapping
+twenty-one-session bets are one observation observed repeatedly, not fifty.
+
+**Multi-asset by construction.** No ticker appears anywhere in the accrual owner.
+Exchange-session classes resolve through the registrar's authoritative NYSE
+supplier; every other class — futures, rates, FX, commodities, volatility,
+cross-asset, credit — observes on its own realised bars, and a market that trades
+on Labor Day observes on Labor Day.
+
+**Remaining gaps, stated.** The four registered challengers accrue ONE
+buy-and-hold observation each from their adopted freeze; a second observation
+requires a NEW governed freeze from the originating release, which no scheduled
+path produces yet — until one does, later cadence boundaries will read
+`AWAITING_NEW_GOVERNED_FREEZE` rather than accruing. Canonical forward evidence
+is deliberately reported apart from R46 and R56 evidence and is not yet named in
+a single declared evidence-identity vocabulary, which is the next release's work.

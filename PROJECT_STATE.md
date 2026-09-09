@@ -1,17 +1,87 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-08
-- **Updated by phase:** **R62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY
-  (single agent, Windows PowerShell only, isolated worktree
+- **Last updated:** 2026-09-09
+- **Updated by phase:** **R62.2 - THE AUTOMATIC FORWARD ACCRUAL LOOP (single
+  agent, Windows PowerShell only, isolated worktree
   `D:\paper_trader_r62_1_1_forward_activation_integrity` on branch
-  `r62-1-1-forward-activation-integrity`, built over `da77be7`).** NOT
-  COMMITTED, not pushed, not merged, not deployed, and NO LIVE ADOPTION WAS
-  PERFORMED. The deployed checkout `C:\Users\binis\paper_trader` was READ ONLY
-  throughout: no restart, no scheduled-task change, no collection run, no
-  portfolio cycle, no daily close, no approval, no order, no promotion, no
-  replay of any event and no service started from `D:`. The persistent
-  AlphaAgent kept running on `C:` for the whole release and its SQLite state was
-  read, never written.
+  `r62-1-1-forward-activation-integrity`, built over `b623161`).**
+  Full narrative: `docs/RELEASE62_2_AUTOMATIC_FORWARD_ACCRUAL.md`.
+
+  **The gap.** R62.1 built the canonical registrar and R62.1.1 built the
+  governed operator entrypoint that fills it. On 2026-09-09 the four ACTIVE R58
+  freezes were adopted live and the estate reported, correctly,
+  `canonical_forward_registration_count = 4` and
+  `orphan_freezes_adoptable_count = 0`. **And then nothing would ever have
+  happened.** A registration NAMES its accrual owner
+  (`engine.shadow_portfolio_evidence`) and its maturation owner
+  (`alpha_agent.r52.runtime`), and no code path connected the two: the R46
+  tournament advances the R46 CONTRACT COHORT, `api.shadow_portfolio_evidence`
+  advances a SESSION COHORT of complete paper portfolios, and neither had ever
+  looked at the registry. A registered challenger was a clock nothing wound.
+
+  **What landed - one accrual owner, wound by the runtime that already exists.**
+  `api/canonical_forward_accrual.py` owns exactly ONE question: whether a
+  canonical registration has a legal, unemitted prospective decision right now.
+  It discovers registrations from `api.forward_challenger_registry` and writes
+  none; it READS the weight book from the originating release's own immutable
+  frozen artifact and binds it to the registration by `freeze_record_hash`
+  (a mismatch is refused, never repaired); it builds and scores every record
+  with the ONE pure kernel `engine.shadow_portfolio_evidence`; and it holds no
+  timer, thread or task definition, because `alpha_agent.r52.runtime` already
+  owns the research cadence and calls it as one more stage inside the runtime's
+  existing lock. The chain now runs end to end: registration -> emission ->
+  forward accrual -> maturation on the instrument's own realised bar calendar ->
+  effective independent observations -> a human evidence gate.
+
+  **No backfill, and an honest forfeiture.** An emission is legal only STRICTLY
+  BEFORE the session it stamps - the same shape as the frozen R46 entry rule and
+  as the originating freeze's own inception rule. The position is entered at
+  that session's close and the kernel scores only bars dated strictly after it,
+  so the emitter has seen neither the entry mark nor any outcome. Emitting after
+  the session closed would be weaker in a way that matters: the book is frozen,
+  so WHAT is emitted could not change, but WHETHER to emit could, and an emitter
+  that has seen the session it is stamping could skip a bad one. Once the
+  session arrives the opportunity is `FORFEITED` and recorded with
+  `backfill_refused: true` - the opposite of backfilling. A cadence boundary for
+  which the originating owner froze no decision is deliberately NOT a
+  forfeiture: there was nothing to emit, because a rebalance is a DECISION and
+  none was taken, so it reports `AWAITING_NEW_GOVERNED_FREEZE` and the
+  forfeiture count stays honest. State vocabulary: `NOT_DUE`, `DUE`, `EMITTED`,
+  `FORFEITED`, `DATA_BLOCKED`, `INTEGRITY_BLOCKED`. Effective independent
+  observations count only matured windows that do not overlap.
+
+  **Multi-asset by construction.** Exchange-session classes resolve through the
+  registrar's authoritative NYSE supplier; every other class - futures, rates,
+  FX, commodities, volatility, cross-asset, credit - observes on the
+  instrument's OWN realised bar calendar, read from the panel. No weekday
+  arithmetic and no holiday table exists in the accrual owner, and a market that
+  trades on Labor Day observes on Labor Day.
+
+  **The read model is published, not recomputed.** The accrual RUN writes
+  `accrual_projection.json` and `api.alphaagent_outcomes` reads it. Deriving the
+  counters on the GET would load the operational price panel a SECOND time on a
+  route that already loads it once through the R56 owner, and putting a heavy
+  composition back on a read path is the defect R62.1.1 spent a workstream
+  removing. The payload carries `canonical_forward_accrual_generated_at` so a
+  stale number cannot be read as a current one.
+
+  **Guarded by** `check_release62_2_automatic_forward_accrual` (16
+  strict-blocking invariants) and
+  `tests/test_release62_2_automatic_forward_accrual.py` (65 tests, all passing).
+
+- **Superseded phase:** **R62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY
+  (isolated worktree `D:\paper_trader_r62_1_1_forward_activation_integrity` on
+  branch `r62-1-1-forward-activation-integrity`, built over `da77be7`).**
+  COMMITTED as `b623161`, pushed, fast-forward merged into
+  `stage19-controlled-rebalance` and deployed to the canonical checkout on
+  2026-09-09. THE LIVE ADOPTION WAS PERFORMED on 2026-09-09: exactly the four
+  ACTIVE R58 challengers, through the governed entrypoint, with
+  `--confirm ADOPT_PROSPECTIVE_FORWARD_CLOCKS --execute`, boundary derived as
+  `2026-09-09`, first eligible observation `2026-09-10`, zero predictions, zero
+  matured observations and `backfilled: false` on all four.
+  `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` remains WITHDRAWN and unregistered. No
+  portfolio cycle, no daily close, no approval, no order, no fill and no model
+  promotion accompanied it.
   Full narrative: `docs/RELEASE62_1_1_FORWARD_ACTIVATION_INTEGRITY.md`.
 
   **The problem, in four parts.** R62.1 gave a qualified freeze a canonical

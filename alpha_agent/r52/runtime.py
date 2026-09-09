@@ -98,6 +98,34 @@ def _chains_ok() -> dict:
     return {"all_intact": ok, "chains": reports}
 
 
+def _lifecycle_by_challenger() -> dict:
+    """``challenger_id -> the ONE lifecycle owner's CURRENT verdict``.
+
+    A challenger can be withdrawn or invalidated AFTER it was registered, and a
+    registration carries only the verdict that was true at adoption. This asks
+    the canonical owner again, from persisted history, so a closed lifecycle
+    stops the accrual at the next invocation rather than at the next release.
+
+    Degrades to ``{}``, which means "no current verdict was established" - the
+    accrual owner then reports ``lifecycle_rechecked: false`` rather than
+    silently assuming the challenger is still active.
+    """
+    try:
+        from paper_trader.alpha_agent import r59
+        from paper_trader.alpha_agent.r59 import memory as M
+        from paper_trader.api import prospective_adoption as PA
+        mem = M.open_memory_readonly()
+        out = {}
+        for row in mem.list_hypotheses(outcome=r59.HO_FORWARD_FROZEN,
+                                       limit=5000):
+            cid = PA.freeze_challenger_id(row)
+            if cid:
+                out[str(cid)] = PA.classify_lifecycle(row)
+        return out
+    except Exception:                     # noqa: BLE001 - never block accrual
+        return {}
+
+
 def research_runtime_cycle(now: _dt.datetime = None, *,
                            campaign_id: str = CAMPAIGN_ID,
                            trigger: str = "MANUAL",
@@ -129,6 +157,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
 
     advance_result = None
     forf = None
+    canon = None
     vel = None
     frontier = None
     integrity = None
@@ -207,6 +236,47 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 5b. the canonical prospective registrations advance ----------- #
+        # R62.2. A registration made by the canonical registrar names its
+        # accrual owner and its maturation owner, and before this stage nothing
+        # called either: the four R58 challengers adopted on 2026-09-09 were
+        # clocks nothing wound. This runtime already owns the research cadence,
+        # so the accrual becomes one more stage here rather than a second
+        # scheduler. It emits only what is legally due, records what was
+        # genuinely missed, and matures what has completed its horizon.
+        try:
+            from paper_trader.api import canonical_forward_accrual as CFA
+            canon = CFA.advance_canonical_forward_accrual(
+                now=started, lifecycle_by_challenger=_lifecycle_by_challenger())
+            if canon.get("n_blocked"):
+                c_state = DATA_BLOCKED
+            elif canon.get("n_forfeitures_recorded_this_run"):
+                c_state = FORFEITED
+            elif canon.get("n_emitted_this_run"):
+                c_state = SUCCESS
+            elif canon.get("n_registered"):
+                c_state = NOT_DUE
+            else:
+                c_state = NOT_DUE
+            stages.append(_stage(
+                "canonical_forward_accrual", c_state,
+                registered=canon.get("n_registered"),
+                due_now=canon.get("n_due_now"),
+                emitted=canon.get("n_emitted_this_run"),
+                duplicates_skipped=canon.get("n_duplicates_skipped"),
+                forfeited=canon.get("n_forfeitures_recorded_this_run"),
+                blocked=canon.get("n_blocked"),
+                armed_for_a_future_session=canon.get(
+                    "n_armed_for_a_future_session"),
+                matured_total=canon.get("matured_observations_total"),
+                effective_independent_observations=canon.get(
+                    "effective_independent_observations_total")))
+        except Exception as exc:          # noqa: BLE001
+            canon = None
+            stages.append(_stage("canonical_forward_accrual", FAILED_RETRYABLE,
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 6. operational velocity --------------------------------------- #
         try:
             vel = VO.build(started, campaign_id=campaign_id)
@@ -239,11 +309,12 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                              "n_total": (forf or {}).get(
                                  "n_total_forfeitures")},
                          emission_policy=policy,
+                         canonical_forward_accrual=_canonical_digest(canon),
                          promotion_ready_count=(frontier or {}).get(
                              "promotion_ready_count"))
         _journal(body)
         _write_health(body, contract, advance_result, forf, frontier,
-                      integrity, velocity=vel)
+                      integrity, velocity=vel, canonical=canon)
         return body
     finally:
         RL.release_path(_lock_file(), holder)
@@ -259,6 +330,18 @@ def _advance_digest(a) -> dict:
         "tournament_forward_evidence_count", "pending_predictions",
         "tournament_challengers_active", "n_stage_failures",
         "ledger_chain_intact", "pnl_as_of")}
+
+
+def _canonical_digest(c) -> dict:
+    """What the canonical accrual stage did, in the run journal's own terms."""
+    if not c:
+        return {"state": "NOT_RUN"}
+    return {k: c.get(k) for k in (
+        "n_registered", "n_due_now", "n_emitted_this_run",
+        "n_duplicates_skipped", "n_forfeitures_recorded_this_run", "n_blocked",
+        "n_armed_for_a_future_session", "predictions_emitted_total",
+        "matured_observations_total",
+        "effective_independent_observations_total", "forfeitures_total")}
 
 
 def _run_body(run_id: str, state: str, started: _dt.datetime, trigger: str,
@@ -314,7 +397,7 @@ def _next_invocation(now: _dt.datetime) -> dict:
 
 
 def _write_health(run_body: dict, contract, advance_result, forf, frontier,
-                  integrity, velocity=None) -> None:
+                  integrity, velocity=None, canonical=None) -> None:
     now = CK.now_utc()
     prior = read_json(runtime_dir() / HEALTH_ARTIFACT, default=None) or {}
     a = advance_result or {}
@@ -385,6 +468,17 @@ def _write_health(run_body: dict, contract, advance_result, forf, frontier,
             "projected_effective_per_week"),
         research_shadow_nav=shadow.get("shadow_nav"),
         residual_alpha_vs_cash=shadow.get("residual_alpha_pnl_vs_cash"),
+        # ---- canonical prospective registrations (R62.2) ---------------- #
+        # Kept as its OWN block rather than folded into the R46 counters: an
+        # R46 contract-cohort prediction and a canonical registration's
+        # prospective emission are different evidence identities, and summing
+        # them is exactly the mistake R62.2 exists to prevent.
+        canonical_forward=_canonical_digest(canonical),
+        canonical_forward_registered=(canonical or {}).get("n_registered"),
+        canonical_forward_armed=(canonical or {}).get(
+            "n_armed_for_a_future_session"),
+        canonical_forward_effective_independent_observations=(
+            (canonical or {}).get("effective_independent_observations_total")),
         accountability_start_date=ACCOUNTABILITY_START_DATE,
         runtime_lock=RL.state_path(_lock_file()),
         advance_lock=RL.state(),

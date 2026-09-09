@@ -15489,6 +15489,214 @@ def check_release62_1_1_forward_activation_integrity(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# RELEASE 62.2 - THE AUTOMATIC FORWARD ACCRUAL LOOP
+# --------------------------------------------------------------------------- #
+#: THE one owner that decides whether a canonical registration has a legal,
+#: unemitted prospective decision right now. A second one would be a second
+#: opinion about when evidence may be created, which is the only question in
+#: this estate that may never have two answers.
+R622_ACCRUAL_OWNER = "api/canonical_forward_accrual.py"
+R622_REGISTRAR = "api/forward_challenger_registry.py"
+R622_RUNTIME = "alpha_agent/r52/runtime.py"
+R622_KERNEL = "engine/shadow_portfolio_evidence.py"
+R622_OUTCOMES = "api/alphaagent_outcomes.py"
+
+#: The frozen accrual vocabulary. Every one of these is a persisted or directly
+#: derivable fact; none of them is an estimate.
+R622_STATES = ("NOT_DUE", "DUE", "EMITTED", "FORFEITED", "DATA_BLOCKED",
+               "INTEGRITY_BLOCKED")
+
+#: Reach the accrual owner may not have. Accrual advances a MEASUREMENT.
+#:
+#: These are CALL shapes and IMPORT names, never bare words. The module
+#: legitimately DECLARES ``"called_portfolio_cycle": False`` in its safety
+#: block, and an invariant that failed on that string would only teach the next
+#: author to stop declaring what the module does not do - which is the opposite
+#: of what this audit is for.
+R622_FORBIDDEN_CALLS = ("run_daily_close(", "portfolio_cycle(",
+                        "create_order(", "submit_order(", "create_fill(",
+                        "promote_model(", "activate_sleeve(",
+                        "approve_proposal(", "record_governed_decision(",
+                        "book_nav(", "freeze_challengers(")
+R622_FORBIDDEN_IMPORTS = ("paper_trading_desk", "daily_close",
+                          "rebalance_execution", "portfolio_cycle", "orders",
+                          "shadow_portfolio_evidence as spe")
+
+#: A second scheduler would mean two cadences racing for the same emission
+#: window. These are the only owners allowed to define a scheduled task.
+R622_TASK_OWNERS = ("scripts/install_alpha_agent_tasks.ps1",
+                    "scripts/install_information_collection_task.ps1",
+                    "scripts/install_intraday_emission_task.ps1",
+                    "scripts/install_research_runtime_task.ps1")
+
+
+def check_release62_2_automatic_forward_accrual(files: list[Path]) -> dict:
+    """R62.2 invariants - a clock that winds itself, and cannot be wound back.
+
+    (a) ONE ACCRUAL OWNER, DISCOVERED FROM THE REGISTRAR. What exists is the
+        registrar's answer and only the registrar's. The accrual owner reads
+        registrations and never writes one: a module that could both register
+        and accrue could register whatever it had already measured.
+
+    (b) NO SECOND SIGNAL IMPLEMENTATION. The weight book is READ from the
+        originating release's own immutable artifact and bound to the
+        registration by ``freeze_record_hash``. A mismatch is refused, never
+        repaired, and no ranking, scoring or optimisation appears here.
+
+    (c) NO SECOND SCHEDULER. The cadence stays alpha_agent.r52.runtime's, the
+        accrual runs inside the runtime's EXISTING lock, and no new scheduled
+        task definition appears in the estate.
+
+    (d) NO BACKFILL, AND A HONEST FORFEITURE. An emission is legal only while
+        its decision session is the latest the panel has priced. Once a later
+        session prints, the opportunity is FORFEITED and recorded with
+        ``backfill_refused``. A cadence boundary for which the originating owner
+        froze no decision is NOT a forfeiture - there was nothing to emit - and
+        counting it as one would manufacture losses.
+
+    (e) THE REGISTRAR STILL COMPUTES NO ACCRUAL. Registrations are immutable, so
+        their counters are zero for life; the living counters are OVERLAID from
+        the accrual owner's projection. The registrar must not import the
+        accrual owner, and must not accrue.
+
+    (f) THE READ MODEL WRITES NOTHING. A GET that could emit a prediction would
+        make the observation depend on who was looking.
+
+    (g) ONE PURE P&L KERNEL. Every return, cost and curve is
+        engine.shadow_portfolio_evidence's, so the estate keeps one definition
+        of what a frozen forward book is worth.
+
+    (h) NO PORTFOLIO, EXECUTION OR PROMOTION PATH.
+    """
+    acc = _read(R622_ACCRUAL_OWNER)
+    reg = _read(R622_REGISTRAR)
+    rt = _read(R622_RUNTIME)
+    out = _read(R622_OUTCOMES)
+
+    # (a) one owner, discovery from the registrar, and no registration path.
+    accrual_owners = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("api/") and not _rel(fp).startswith("tests/")
+        and "def advance_canonical_forward_accrual(" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    discovers_from_registrar = bool(
+        "from paper_trader.api import forward_challenger_registry as FCR" in acc
+        and "FCR.load_registrations(" in acc)
+    accrual_registers = sorted(set(
+        t for t in ("register_forward_challenger(", "def registration_row(",
+                    "def resolve_observation_clock(", "def classify_lifecycle(")
+        if t in acc))
+
+    # (b) the frozen book is read and hash-bound; nothing is recomputed.
+    identity_bound_by_hash = bool(
+        "INTEGRITY_HASH_MISMATCH" in acc
+        and 'expected_record_hash' in acc
+        and "if expected and actual and str(expected) != str(actual):" in acc
+        and "FROZEN_DECISION_OWNERS" in acc)
+    second_signal_implementation = sorted(set(
+        t for t in ("xs_rank01(", "xs_z(", "numpy", "def _book_from_scores(",
+                    "argsort", "def score(", "def rank(")
+        if t in acc))
+
+    # (c) one cadence, one lock, no new task definition.
+    runtime_owns_the_cadence = bool(
+        "advance_canonical_forward_accrual(" in rt
+        and '_stage("canonical_forward_accrual"' in rt
+        and rt.index("RL.acquire_path(_lock_file()")
+        < rt.index("advance_canonical_forward_accrual("))
+    second_scheduler = sorted(set(
+        t for t in ("threading", "sched.scheduler", "asyncio", "Timer(",
+                    "def research_runtime_cycle(")
+        if t in acc))
+    task_definition_owners = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp).startswith("scripts/") and _rel(fp).endswith(".ps1")
+        and "Register-ScheduledTask" in fp.read_text(encoding="utf-8",
+                                                     errors="replace"))
+    unexpected_task_owners = [p for p in task_definition_owners
+                              if p not in R622_TASK_OWNERS]
+
+    # (d) no backfill; forfeiture is recorded and never repaired.
+    forfeiture_refuses_backfill = bool(
+        '"backfill_refused": True' in acc
+        and '"may_never_be_reconstructed": True' in acc
+        and 'FORFEIT_WINDOW_CLOSED = "EMISSION_WINDOW_CLOSED_WHEN_THE_SESSION_'
+        in acc
+        and '"backfilled": False' in acc)
+    # The emission window closes when the session ARRIVES, not when a later one
+    # prints. A decision taken with its own session already in view could be a
+    # decision to skip a bad session, and the rule removes that possibility
+    # rather than trusting nobody to use it.
+    emits_strictly_before_its_session = bool(
+        "if s <= today:" in acc
+        and "today = (_iso_date(today) or _iso_date(as_of)" in acc
+        and "next_turn_taken" in acc)
+    missing_freeze_is_not_a_forfeiture = bool(
+        'NOT_DUE_AWAITING_NEW_FREEZE = "AWAITING_NEW_GOVERNED_FREEZE"' in acc
+        and "def book_for_decision_session(" in acc)
+    states_declared = bool(
+        ("ACCRUAL_STATES = (%s)" % ", ".join(
+            "ACC_" + s for s in R622_STATES)).replace(
+                "ACC_NOT_DUE, ACC_DUE", "ACC_NOT_DUE, ACC_DUE") in acc
+        or all(('"%s"' % s) in acc for s in R622_STATES))
+
+    # (e) the registrar overlays and never accrues.
+    registrar_overlays_only = bool(
+        "ACCRUAL_OVERLAY_FIELDS" in reg
+        and "accrual: Optional[dict] = None" in reg
+        and "canonical_forward_accrual" not in reg
+        and "accrue_forward" not in reg)
+
+    # (f) the read model writes nothing, and does not recompute on a read path.
+    #     The GET route reads the artifact the RUN persisted: recomputing would
+    #     load the operational price panel a second time on a route that already
+    #     loads it once through the R56 owner.
+    read_model_is_read_only = bool(
+        "def load_canonical_forward_accrual(" in acc
+        and "return advance_canonical_forward_accrual(execute=False" in acc
+        and "def load_accrual_projection(" in acc
+        and "CFA.load_accrual_projection()" in out
+        and "advance_canonical_forward_accrual(" not in out
+        and "load_canonical_forward_accrual(" not in out)
+
+    # (g) one pure P&L kernel.
+    one_pnl_kernel = bool(
+        "from paper_trader.engine import shadow_portfolio_evidence as kernel"
+        in acc
+        and "kernel.make_inception_record(" in acc
+        and "kernel.accrue_forward(" in acc
+        and "kernel.MIN_PRICED_WEIGHT" in acc
+        and "def accrue_forward(" not in acc)
+
+    # (h) reach: what it CALLS, and what it IMPORTS - never what it declares.
+    acc_imports = "\n".join(ln for ln in acc.splitlines()
+                            if ln.lstrip().startswith(("import ", "from ")))
+    portfolio_or_execution_paths = sorted(set(
+        [t for t in R622_FORBIDDEN_CALLS if t in acc]
+        + ["import:%s" % t for t in R622_FORBIDDEN_IMPORTS
+           if t in acc_imports]))
+
+    return {
+        "accrual_owners": accrual_owners,
+        "discovers_from_the_registrar": discovers_from_registrar,
+        "accrual_owner_registers": accrual_registers,
+        "identity_bound_by_freeze_hash": identity_bound_by_hash,
+        "second_signal_implementation": second_signal_implementation,
+        "runtime_owns_the_cadence": runtime_owns_the_cadence,
+        "second_scheduler": second_scheduler,
+        "unexpected_task_definition_owners": unexpected_task_owners,
+        "forfeiture_refuses_backfill": forfeiture_refuses_backfill,
+        "emits_strictly_before_its_session": emits_strictly_before_its_session,
+        "missing_freeze_is_not_a_forfeiture": missing_freeze_is_not_a_forfeiture,
+        "accrual_states_declared": states_declared,
+        "registrar_overlays_only": registrar_overlays_only,
+        "read_model_is_read_only": read_model_is_read_only,
+        "one_pnl_kernel": one_pnl_kernel,
+        "portfolio_or_execution_paths": portfolio_or_execution_paths,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -16265,6 +16473,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release62_1_canonical_forward_evidence(files),
         "release62_1_1_forward_activation_integrity":
             check_release62_1_1_forward_activation_integrity(files),
+        "release62_2_automatic_forward_accrual":
+            check_release62_2_automatic_forward_accrual(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -17493,6 +17703,32 @@ def _print_console(rep: dict) -> None:
           f"backfills (must be empty): {r6211['latency_backfills']}")
     print(f"portfolio/execution paths (must be empty): "
           f"{r6211['portfolio_or_execution_paths']}")
+
+    hdr("RELEASE 62.2 — THE AUTOMATIC FORWARD ACCRUAL LOOP")
+    r622 = rep["release62_2_automatic_forward_accrual"]
+    print(f"accrual owners (must be exactly one): {r622['accrual_owners']}  "
+          f"discovers from the registrar: "
+          f"{r622['discovers_from_the_registrar']}  registers (must be empty): "
+          f"{r622['accrual_owner_registers']}")
+    print(f"identity bound by freeze hash: "
+          f"{r622['identity_bound_by_freeze_hash']}  second signal "
+          f"implementation (must be empty): "
+          f"{r622['second_signal_implementation']}")
+    print(f"runtime owns the cadence: {r622['runtime_owns_the_cadence']}  "
+          f"second scheduler (must be empty): {r622['second_scheduler']}  "
+          f"unexpected task owners (must be empty): "
+          f"{r622['unexpected_task_definition_owners']}")
+    print(f"forfeiture refuses backfill: {r622['forfeiture_refuses_backfill']}  "
+          f"emits strictly before its session: "
+          f"{r622['emits_strictly_before_its_session']}")
+    print(f"a missing freeze is not a forfeiture: "
+          f"{r622['missing_freeze_is_not_a_forfeiture']}  states declared: "
+          f"{r622['accrual_states_declared']}")
+    print(f"registrar overlays only: {r622['registrar_overlays_only']}  "
+          f"read model is read-only: {r622['read_model_is_read_only']}  "
+          f"one P&L kernel: {r622['one_pnl_kernel']}")
+    print(f"portfolio/execution paths (must be empty): "
+          f"{r622['portfolio_or_execution_paths']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -20259,6 +20495,32 @@ BLOCKING_INVARIANTS = (
     ("release62_1_1_forward_activation_integrity", "latency_backfills", []),
     ("release62_1_1_forward_activation_integrity",
      "portfolio_or_execution_paths", []),
+    # --- R62.2: the accrual loop winds itself, and cannot be wound back --- #
+    ("release62_2_automatic_forward_accrual", "accrual_owners",
+     ["api/canonical_forward_accrual.py"]),
+    ("release62_2_automatic_forward_accrual", "discovers_from_the_registrar",
+     True),
+    ("release62_2_automatic_forward_accrual", "accrual_owner_registers", []),
+    ("release62_2_automatic_forward_accrual", "identity_bound_by_freeze_hash",
+     True),
+    ("release62_2_automatic_forward_accrual", "second_signal_implementation",
+     []),
+    ("release62_2_automatic_forward_accrual", "runtime_owns_the_cadence", True),
+    ("release62_2_automatic_forward_accrual", "second_scheduler", []),
+    ("release62_2_automatic_forward_accrual",
+     "unexpected_task_definition_owners", []),
+    ("release62_2_automatic_forward_accrual", "forfeiture_refuses_backfill",
+     True),
+    ("release62_2_automatic_forward_accrual",
+     "emits_strictly_before_its_session", True),
+    ("release62_2_automatic_forward_accrual",
+     "missing_freeze_is_not_a_forfeiture", True),
+    ("release62_2_automatic_forward_accrual", "accrual_states_declared", True),
+    ("release62_2_automatic_forward_accrual", "registrar_overlays_only", True),
+    ("release62_2_automatic_forward_accrual", "read_model_is_read_only", True),
+    ("release62_2_automatic_forward_accrual", "one_pnl_kernel", True),
+    ("release62_2_automatic_forward_accrual", "portfolio_or_execution_paths",
+     []),
     ("release62_1_canonical_forward_evidence", "registrar_present", True),
     ("release62_1_canonical_forward_evidence", "second_registrar", []),
     ("release62_1_canonical_forward_evidence", "missing_outcomes", []),

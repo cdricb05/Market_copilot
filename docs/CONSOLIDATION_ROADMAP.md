@@ -1801,9 +1801,46 @@ cancelled out, now works end to end with an acceptance count that is provably
 closed.
 
 **What it deliberately did not do.** It did NOT perform the four R58 adoptions —
-this release ships the door, not the act. It did not touch the standing Sep-8
+that release shipped the door, not the act. It did not touch the standing Sep-8
 governed decision, replay any event, rewrite any artifact, or change any gate,
 threshold or economics.
+
+**The act, since performed.** R62.1.1 was deployed as `b623161` on 2026-09-09 and
+the four ACTIVE R58 challengers were adopted through the entrypoint the same day.
+The live estate reads `canonical_forward_registration_count = 4`,
+`orphan_freezes_adoptable_count = 0`, all four `backfilled: false` with first
+eligible observation `2026-09-10`, and `R59_CALENDAR_TERM_STRUCTURE_F9BE2426`
+still WITHDRAWN and unregistered.
+
+## R62.2 - the automatic forward accrual loop (LANDED)
+
+**What it consolidated.** Adoption started four observation clocks and nothing
+advanced them. A registration NAMED `engine.shadow_portfolio_evidence` as its
+accrual owner and `alpha_agent.r52.runtime` as its maturation owner, and no code
+path connected the two: `alpha_agent.r46.advance` advances the R46 CONTRACT
+COHORT, `api.shadow_portfolio_evidence` advances a SESSION COHORT of complete
+paper portfolios, and neither had ever opened the registry. R62.2 adds ONE
+accrual owner, `api/canonical_forward_accrual.py`, which owns exactly one
+question — is an observation due? — and delegates everything else.
+
+**Bounded by construction.** No second registry (registrations are read, never
+written), no second signal implementation (the frozen book is read from the
+originating release's own artifact and bound by `freeze_record_hash`), no second
+P&L kernel (`engine.shadow_portfolio_evidence`), no second scheduler (stage 5b of
+`research_runtime_cycle`, inside the runtime's existing lock, with no new
+scheduled task) and no second calendar. Fifteen strict-blocking invariants in
+`check_release62_2_automatic_forward_accrual`; 55 tests in
+`tests/test_release62_2_automatic_forward_accrual.py`.
+
+**The forfeiture distinction that keeps the count honest.** An emission is legal
+only while its decision session is the latest the panel has priced. A missed
+window is `FORFEITED` with `backfill_refused`. A cadence boundary for which the
+originating owner froze NO decision is NOT a forfeiture — there was nothing to
+emit — and reports `AWAITING_NEW_GOVERNED_FREEZE` instead.
+
+**What it deliberately did not do.** It does not recompute a signal, award an
+evidence gate, promote a model, activate a sleeve or merge canonical forward
+evidence with R46 or R56 evidence.
 
 ## Sequenced consolidation roadmap after R60
 
@@ -1839,17 +1876,37 @@ the canonical owner it belongs to; none is a rewrite.
    landed: LOW (changed no gate, no scoring and no existing record; every
    historical artifact is byte-identical).
 
-1b. **R62.1.1 - the operator door, and the act that is still owed** *(Milestone
-   4; correctness)*. **THE DOOR LANDED; THE ADOPTION HAS NOT BEEN PERFORMED.**
-   `scripts/adopt_prospective_freeze.py` exists, is governed, is idempotent and
-   cannot backdate, and `freeze_qualified` can now recover an existing freeze
-   through the same owner. The four ACTIVE R58 challengers are READY to adopt and
-   the estate still holds zero canonical forward registrations, because
-   performing the write is an operator act on the deployed checkout and this
-   release was read-only on `C:`. The exact dry-run and live commands are in
-   `docs/RELEASE62_1_1_FORWARD_ACTIVATION_INTEGRITY.md`. Until it is run, nothing
-   accrues: the gap is now a scheduled ACT rather than a missing capability.
-   Dependency: deployment of R62.1.1. Regression risk: LOW.
+1b. **R62.1.1 - the operator door, and the act it owed** *(Milestone 4;
+   correctness)*. **LANDED, DEPLOYED AND PERFORMED (2026-09-09).**
+   `scripts/adopt_prospective_freeze.py` is governed, idempotent and cannot
+   backdate, and `freeze_qualified` recovers an existing freeze through the same
+   owner. R62.1.1 was committed as `b623161`, fast-forward merged into
+   `stage19-controlled-rebalance` and deployed; the four ACTIVE R58 challengers
+   were then adopted through the entrypoint with
+   `--confirm ADOPT_PROSPECTIVE_FORWARD_CLOCKS --execute`, and the live estate
+   reports `canonical_forward_registration_count = 4` and
+   `orphan_freezes_adoptable_count = 0`.
+   `R59_CALENDAR_TERM_STRUCTURE_F9BE2426` remains WITHDRAWN and unregistered.
+   Regression risk: NONE OBSERVED.
+
+1c. **R62.2 - the accrual loop that winds the clocks** *(Milestone 4;
+   correctness)*. **LANDED.** Adoption started four clocks that nothing advanced:
+   a registration NAMED `engine.shadow_portfolio_evidence` as its accrual owner
+   and `alpha_agent.r52.runtime` as its maturation owner, and no code path
+   connected the two. `api/canonical_forward_accrual.py` is that connection and
+   owns exactly one question - whether a registration has a legal, unemitted
+   prospective decision right now. It creates no second registry, no second
+   signal implementation, no second P&L kernel, no second scheduler and no second
+   calendar; the cadence stays the R52 runtime's, as stage 5b inside its existing
+   lock. Registrations remain immutable and their living counters are OVERLAID
+   from the accrual owner's projection rather than recomputed anywhere.
+   Forfeiture is reserved for a REAL missed window and carries
+   `backfill_refused`; a cadence boundary with no governed freeze reports
+   `AWAITING_NEW_GOVERNED_FREEZE` instead, so the loss count cannot be inflated
+   by governance. Full narrative:
+   `docs/RELEASE62_2_AUTOMATIC_FORWARD_ACCRUAL.md`. Regression risk: LOW
+   (added one runtime stage; changed no gate, no scoring, no existing record and
+   no R46/R56 evidence path).
 
 2. **R61.1 - one bounded summary accessor on the forward-evidence board**
    *(operator experience; no ownership change)*. `load_prospective_tournament()`

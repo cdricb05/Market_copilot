@@ -437,10 +437,18 @@ def test_15d_every_terminal_token_is_printed_exactly_once(estate, capsys):
     assert out.count(ENTRY.TOKEN_DRY_RUN_OK) == 1
 
 
-def test_15f_the_entrypoint_refuses_a_captured_import(monkeypatch, capsys):
+def test_15f_the_entrypoint_refuses_a_captured_import(stores, monkeypatch,
+                                                      capsys):
     """An operator entrypoint that WRITES must not run a different checkout's
     code. The venv's editable finder maps ``paper_trader`` ahead of every
-    sys.path entry, so this is the one hazard that cannot be closed by care."""
+    sys.path entry, so this is the one hazard that cannot be closed by care.
+
+    It takes ``stores`` so the final "nothing was written" assertion is made
+    against a pytest temp registry. Without it the assertion read the LIVE
+    registry, which was empty when this test was written and stopped being empty
+    the moment the four R58 challengers were adopted - a test that passed
+    because production happened to be idle proves nothing about the entrypoint.
+    """
     assert ENTRY.assert_import_integrity() == str(REPO.resolve())
     monkeypatch.setattr(
         ENTRY.PA, "__file__",

@@ -603,12 +603,22 @@ def register_forward_challenger(*, identity: dict,
 # --------------------------------------------------------------------------- #
 # 5. THE READ MODEL - what an operator must be able to see (R62.1 workstream H)
 # --------------------------------------------------------------------------- #
-def evidence_state(record: dict, *, today: Optional[str] = None) -> dict:
-    """The evidence state of ONE registration. No gate verdict is derived."""
+def evidence_state(record: dict, *, today: Optional[str] = None,
+                   accrual: Optional[dict] = None) -> dict:
+    """The evidence state of ONE registration. No gate verdict is derived.
+
+    ``accrual`` is the ACCRUAL owner's projection. A registration record is
+    immutable, so its own ``matured_observations`` is zero forever; asking this
+    function to decide the evidence state from that number alone would report
+    ACCRUING_NO_MATURED_OBSERVATION_YET for the rest of the estate's life.
+    """
     rec = record or {}
     clock = rec.get("observation_clock") or {}
     first = clock.get("first_eligible_observation_session")
-    matured = int(rec.get("matured_observations") or 0)
+    acc = accrual or {}
+    matured = int((acc.get("matured_observations")
+                   if acc.get("matured_observations") is not None
+                   else rec.get("matured_observations")) or 0)
     now = str(today or datetime.now(timezone.utc).date().isoformat())[:10]
     if clock.get("state") not in (CLOCK_RESOLVED,):
         state = EV_CLOCK_NOT_RESOLVED
@@ -636,16 +646,33 @@ def evidence_state(record: dict, *, today: Optional[str] = None) -> dict:
     }
 
 
-def registration_row(record: dict, *, today: Optional[str] = None) -> dict:
+#: What the ACCRUAL owner - never this registrar - is entitled to say about a
+#: registration. A registration record is immutable, so its own counters are
+#: zero for life by design; the living numbers belong to the owner named in
+#: ``evidence_accrual_owner`` and are OVERLAID here, never recomputed here.
+ACCRUAL_OVERLAY_FIELDS = ("predictions_emitted", "matured_observations",
+                          "pending_observations",
+                          "effective_independent_observations",
+                          "current_accrual_state", "last_emission_session",
+                          "next_eligible_observation_session", "forfeitures",
+                          "latest_blocker", "accrual_owner")
+
+
+def registration_row(record: dict, *, today: Optional[str] = None,
+                     accrual: Optional[dict] = None) -> dict:
     """ONE registration projected for the operator surfaces.
 
-    Every field is READ from the persisted record or from the clock the
-    registrar already resolved. No browser and no read model recomputes a
-    maturity, a lifecycle or an evidence verdict from this.
+    Every field is READ from the persisted record, from the clock the registrar
+    already resolved, or - for the counters in :data:`ACCRUAL_OVERLAY_FIELDS` -
+    from the accrual owner's own projection supplied by the caller. No browser
+    and no read model recomputes a maturity, a lifecycle or an evidence verdict
+    from this, and this registrar computes no accrual of its own.
     """
     rec = record or {}
     clock = rec.get("observation_clock") or {}
     lc = rec.get("lifecycle_at_registration") or {}
+    overlay = {k: v for k, v in (accrual or {}).items()
+               if k in ACCRUAL_OVERLAY_FIELDS}
     return {
         "challenger_id": rec.get("challenger_id"),
         "freeze_id": rec.get("freeze_id"),
@@ -675,15 +702,25 @@ def registration_row(record: dict, *, today: Optional[str] = None) -> dict:
         "first_eligible_observation_session": clock.get(
             "first_eligible_observation_session"),
         "backfilled": bool(rec.get("backfilled")),
-        **evidence_state(rec, today=today),
+        **evidence_state(rec, today=today, accrual=accrual),
+        # LAST, so the accrual owner's living counters win over the record's
+        # immutable zeros for exactly the fields it owns and no others.
+        **overlay,
+        "accrual_projection_supplied": bool(accrual),
     }
 
 
 def load_forward_challenger_registry(*, registry_dir_override=None,
-                                     today: Optional[str] = None) -> dict:
+                                     today: Optional[str] = None,
+                                     accrual_by_identity: Optional[dict] = None
+                                     ) -> dict:
     """The canonical read model over every prospective registration."""
     records = load_registrations(registry_dir_override)
-    rows = [registration_row(r, today=today) for r in records]
+    acc = accrual_by_identity or {}
+    rows = [registration_row(
+        r, today=today,
+        accrual=acc.get(str((r.get("identity") or {}).get("identity_hash"))))
+        for r in records]
     by_class: dict = {}
     for r in records:
         by_class.setdefault(str(r.get("challenger_class")), 0)
@@ -722,7 +759,8 @@ __all__ = [
     "resolve_observation_clock", "EVIDENCE_ACCRUAL_OWNERS",
     "REGISTRATION_OUTCOMES", "REGISTERED", "ALREADY_REGISTERED",
     "REFUSED_LIFECYCLE", "REFUSED_LIFECYCLE_UNKNOWN", "REFUSED_IDENTITY",
-    "REFUSED_BACKDATED", "EVIDENCE_STATES", "EV_AWAITING_FIRST_SESSION",
+    "REFUSED_BACKDATED", "EVIDENCE_STATES", "ACCRUAL_OVERLAY_FIELDS",
+    "EV_AWAITING_FIRST_SESSION",
     "EV_NO_MATURED_YET", "EV_ACCRUING", "EV_CLOCK_NOT_RESOLVED",
     "load_registration", "load_registrations", "register_forward_challenger",
     "evidence_state", "registration_row", "load_forward_challenger_registry",
