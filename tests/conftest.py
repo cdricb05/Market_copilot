@@ -140,6 +140,59 @@ def _hermetic_corporate_action_registry(tmp_path_factory, monkeypatch) -> None:
     yield
 
 
+#: The production roots of the two forward-evidence stores, as the modules that
+#: own them declare: ``api.forward_challenger_registry._DEFAULT_REGISTRY_DIR``
+#: and ``api.canonical_forward_accrual._DEFAULT_STORE_DIR``. They are repeated
+#: here rather than imported because conftest must not import the application
+#: while it is still bootstrapping ``sys.path``; a drift test in
+#: ``tests/test_release62_2_automatic_forward_accrual.py`` asserts these two
+#: literals still equal the constants they mirror.
+_FORWARD_EVIDENCE_PRODUCTION_ROOTS = (
+    ("PAPER_TRADER_FORWARD_CHALLENGER_REGISTRY_DIR",
+     r"D:\Stock_Prediction_app_data\forward_challenger_registry",
+     "forward_challenger_registry"),
+    ("PAPER_TRADER_CANONICAL_FORWARD_ACCRUAL_DIR",
+     r"D:\Stock_Prediction_app_data\canonical_forward_accrual",
+     "canonical_forward_accrual"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_forward_evidence_stores(tmp_path_factory, monkeypatch) -> None:
+    """R62.1.2 — never let the LIVE forward-evidence stores leak into a test.
+
+    ``api.forward_challenger_registry`` and ``api.canonical_forward_accrual``
+    each fall back to a production root when their env var is unset, and the
+    R62.1.2 accrual stage inside
+    ``alpha_agent.r52.runtime.research_runtime_cycle`` consults BOTH by default
+    — which is correct in production and catastrophic in a test.
+
+    Without this fixture, any test that drives a research cycle discovers the
+    operator's REAL adopted challengers, resolves their REAL frozen books, and
+    writes REAL emission records into the LIVE accrual store stamped with the
+    test's own frozen clock. That is fabricated forward evidence sitting in
+    production; and because emission is deliberately first-write-wins and a
+    record is immutable, it also PERMANENTLY suppresses the governed runtime's
+    legitimate emission for that session. The evidence a forward record exists
+    to carry would be destroyed by the act of testing it.
+
+    Every test therefore starts against an EMPTY registry and an EMPTY accrual
+    store in its own temp root, which is also the exact backward-compatibility
+    case: no registration means nothing to discover and nothing to emit. A test
+    that needs either store sets the env var itself; that assignment happens
+    inside the test body and wins over this fixture.
+    """
+    root = None
+    for env_var, production_default, leaf in _FORWARD_EVIDENCE_PRODUCTION_ROOTS:
+        current = os.environ.get(env_var)
+        if current and Path(current) != Path(production_default):
+            continue
+        if root is None:
+            root = tmp_path_factory.mktemp("forward_evidence_hermetic")
+        monkeypatch.setenv(env_var, str(root / leaf))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """

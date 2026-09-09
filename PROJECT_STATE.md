@@ -65,9 +65,34 @@
   removing. The payload carries `canonical_forward_accrual_generated_at` so a
   stale number cannot be read as a current one.
 
+  **The defect this release found in itself, after a green full gate.** The
+  first definitive gate passed (10433 passed, 976 skipped). Verifying the live
+  estate afterwards found four emission records for 2026-09-10 already in the
+  PRODUCTION accrual store, stamped `emitted_at = 2026-08-31T13:00:00+00:00` -
+  a clock preceding the 2026-09-03 freeze those records encode. Real books,
+  real hashes, test provenance. The cause was structural: putting the accrual
+  stage inside `research_runtime_cycle` made both the registry and the accrual
+  store reachable from every pre-existing research-cycle test, and both fall
+  back to a production root when their env var is unset, so
+  `tests/test_release52_research_runtime.py` wrote real emissions into the live
+  store under its own frozen clock. Because this store is deliberately
+  first-write-wins and immutable, those rows CONSUMED the 2026-09-10 session
+  and permanently suppressed the governed runtime's legitimate emission:
+  running the test suite destroyed the evidence the store exists to carry. The
+  estate already owned the remedy - `tests/conftest.py` solved the identical
+  hazard for the corporate-action registry at Stage 19.1 - so the fix is one
+  autouse fixture, `_hermetic_forward_evidence_stores`, redirecting both stores
+  into a per-test temp root whenever the env var is unset or still points at
+  production; a test that wants either store sets it itself and wins. Four
+  regression tests take no `stores` fixture on purpose, asserting what an
+  ORDINARY test resolves to. The contaminated records were quarantined out of
+  the live store, neither counted nor repaired, and the governed runtime then
+  emitted the four predictions ITSELF at `2026-09-09T16:57:50Z`, strictly
+  before the 2026-09-10 session. Nothing was backfilled.
+
   **Guarded by** `check_release62_2_automatic_forward_accrual` (16
   strict-blocking invariants) and
-  `tests/test_release62_2_automatic_forward_accrual.py` (65 tests, all passing).
+  `tests/test_release62_2_automatic_forward_accrual.py` (69 tests, all passing).
 
 - **Superseded phase:** **R62.1.1 - FORWARD ACTIVATION + LIVE-STATE INTEGRITY
   (isolated worktree `D:\paper_trader_r62_1_1_forward_activation_integrity` on

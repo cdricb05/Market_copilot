@@ -1051,3 +1051,56 @@ def test_29_the_adoption_owner_still_names_this_registrar(stores):
     assert PA.REGISTRARS["FORWARD_SIGNAL_CANONICAL"] == (
         "api.forward_challenger_registry")
     assert FCR.EVIDENCE_ACCRUAL_OWNERS["FORWARD_SIGNAL_CANONICAL"]
+
+
+# =========================================================================== #
+# 30. THE TEST SUITE MAY NEVER REACH THE PRODUCTION FORWARD-EVIDENCE STORES
+#
+# These take no ``stores`` fixture ON PURPOSE. They describe what an ORDINARY
+# test - one that never heard of this release - resolves to. The runtime stage
+# added here is reachable from every existing research-cycle test, so if the
+# default resolved to production those tests would discover the operator's real
+# challengers and write real emissions under their own frozen clocks. Emission
+# is first-write-wins and a record is immutable, so that would not merely add a
+# bad row: it would permanently consume the session and suppress the governed
+# runtime's legitimate emission. The evidence would be destroyed by the act of
+# testing it.
+# =========================================================================== #
+def test_30_the_accrual_store_default_is_hermetic_under_pytest():
+    resolved = CFA.store_dir()
+    assert resolved != CFA._DEFAULT_STORE_DIR, (
+        "a test resolved the PRODUCTION accrual store: %s" % resolved)
+    assert not str(resolved).startswith(str(CFA._DEFAULT_STORE_DIR))
+
+
+def test_30b_the_registry_default_is_hermetic_under_pytest():
+    resolved = FCR.registry_dir()
+    assert resolved != FCR._DEFAULT_REGISTRY_DIR, (
+        "a test resolved the PRODUCTION registry: %s" % resolved)
+    assert not str(resolved).startswith(str(FCR._DEFAULT_REGISTRY_DIR))
+
+
+def test_30c_an_ordinary_run_discovers_nothing_and_writes_nothing():
+    """No ``stores`` fixture, no override - exactly a research-cycle test."""
+    before = files_in(CFA.store_dir()) if CFA.store_dir().exists() else []
+    out = CFA.advance_canonical_forward_accrual(
+        price_panel={"series": {}}, today="2026-09-09", execute=True)
+    assert out["n_registered"] == 0
+    assert out["n_emitted_this_run"] == 0
+    assert evidence_files_in(CFA.store_dir()) == [
+        p for p in before if not p.endswith(CFA.PROJECTION_ARTIFACT)]
+
+
+def test_30d_the_conftest_guard_mirrors_the_owning_constants():
+    """The guard repeats two paths; drift would silently re-open the hole."""
+    declared = None
+    for node in _tree("tests/conftest.py").body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(getattr(t, "id", None) == "_FORWARD_EVIDENCE_PRODUCTION_ROOTS"
+               for t in node.targets):
+            declared = ast.literal_eval(node.value)
+    assert declared, "tests/conftest.py no longer declares the hermetic guard"
+    guard = dict((env_var, default) for env_var, default, _leaf in declared)
+    assert Path(guard[FCR.REGISTRY_DIR_ENV]) == FCR._DEFAULT_REGISTRY_DIR
+    assert Path(guard[CFA.STORE_DIR_ENV]) == CFA._DEFAULT_STORE_DIR

@@ -232,6 +232,58 @@ declaring what the module does not do.
 `registrar_overlays_only` · `read_model_is_read_only` · `one_pnl_kernel` ·
 `portfolio_or_execution_paths` (empty)
 
+### 7.2 The defect this release found in itself, after a green full gate
+
+The first full gate passed (10433 passed, 976 skipped). Verifying the live
+estate afterwards turned up four emission records for 2026-09-10 already
+sitting in the PRODUCTION accrual store, stamped
+`emitted_at = 2026-08-31T13:00:00+00:00` — a clock that precedes the
+2026-09-03 freeze those very records encode. Their books, hashes and
+identities were real. Their provenance was a test.
+
+The cause was structural, not incidental. This release put the accrual stage
+inside `research_runtime_cycle`, and both the registry and the accrual store
+fall back to a production root when their env var is unset. Every pre-existing
+research-cycle test — `tests/test_release52_research_runtime.py` drives eight
+of them under a frozen clock — therefore discovered the operator's REAL
+adopted challengers, resolved their REAL frozen books, and wrote REAL
+emissions into the LIVE store under the test's own fabricated time.
+
+The damage is worse than a bad row, because this store is deliberately
+first-write-wins and its records are immutable. The test-authored rows
+consumed the 2026-09-10 session, so the governed runtime's legitimate
+emission for that session was permanently suppressed. **Running the test
+suite destroyed the very evidence the store exists to carry.**
+
+The estate already owned the remedy: `tests/conftest.py` solved exactly this
+hazard for the corporate-action registry at Stage 19.1. The fix follows that
+precedent — one autouse fixture, `_hermetic_forward_evidence_stores`,
+redirecting both stores into a per-test temp root whenever the env var is
+unset or still points at production. A test that wants either store sets it
+itself and wins, unchanged.
+
+Four regression tests (`test_30`…`test_30d`) take no `stores` fixture on
+purpose: they assert what an ORDINARY test — one that never heard of this
+release — resolves to, and that the conftest guard's two repeated paths still
+equal the constants they mirror.
+
+The four contaminated records were quarantined out of the live store, not
+counted and not repaired. The governed runtime then emitted the four
+predictions itself at `2026-09-09T16:57:50Z`, strictly before the 2026-09-10
+session. Nothing was backfilled.
+
+| Gate | Result |
+|---|---|
+| `tests/test_release62_2_automatic_forward_accrual.py` (65 → 69) | 69 passed |
+| `test_release52_research_runtime.py` + `test_release59_persistent_research_runtime.py` | 101 passed, production store untouched |
+| Second definitive full gate | 10437 passed, 976 skipped, 1:28:25, exit 0 |
+
+The proof that matters is not the count. After the fix, the two test files
+that CAUSED the contamination were re-run against an empty production store,
+and the `2026-08-31T13:00:00+00:00` signature did not reappear. The only
+records that appeared were the governed runtime's own, stamped with real
+wall-clock time.
+
 ---
 
 ## 8. Live state at the end of this release
