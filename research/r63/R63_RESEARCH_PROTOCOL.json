@@ -1,0 +1,197 @@
+{
+ "schema_version": "r63-research-protocol/1",
+ "release": "R63",
+ "campaign_id": "r63_information_sensitivity_v1",
+ "registered_at": "2026-09-09T20:05:00+00:00",
+ "registered_before_any_experiment_ran": true,
+ "registration_rule": "Every substrate, universe rule, horizon, baseline, dimension construction, split, model, statistic, gate and threshold in this document was written BEFORE any R63 sensitivity, increment, orthogonality or economic number was computed. Nothing here may be edited after a lockbox number is observed. A hypothesis that occurs to the researcher after seeing results must be registered as R63_PROTOCOL_V2 with an explicit disclosure of what had already been seen.",
+
+ "question": "The research estate has prosecuted 8,380 hypotheses across 311 families with 0 QUALIFIED, and 98.5% of them use PRICE_STATE information. Every settled row carries the reopen condition NEW_ORTHOGONAL_INFORMATION. R63 asks: WHICH economic information dimensions carry predictive value for WHICH asset classes at WHICH horizons, CONDITIONAL on the information the estate already uses; which owned dimensions are redundant; where the estate is information-blind; whether the cheapest legitimately acquirable observable for the highest-value gaps adds out-of-sample NET portfolio value; and what the AlphaAgent should research next.",
+
+ "what_r63_is_not": [
+  "not another transformation zoo over price: no new momentum, reversal, breakout or volatility FORMULA is registered as a hypothesis",
+  "not a vendor catalogue: the unit of analysis is an INFORMATION NEED, and a provider is only named when a need has been ranked",
+  "not a purchase: no dataset, sample, trial, account or subscription is bought or started",
+  "not a promotion or a live registration: a surviving specification becomes a research-only challenger candidate artifact and nothing else",
+  "not a live-system change: the canonical checkout, its services, its stores, holdings, cash and NAV are read-only throughout"
+ ],
+
+ "core_principle": {
+  "chain": ["economic information", "conditional predictive value", "incremental out-of-sample signal", "incremental net portfolio utility", "expected deployable P&L"],
+  "raw_correlation_is_not_evidence": true,
+  "standalone_association_is_descriptive_only": true,
+  "verdict_requires": ["conditional value after the baseline", "orthogonality to the baseline", "stability across time, regime and instrument", "positive net economics after turnover and costs", "multiple-testing survival", "adequate effective sample", "point-in-time integrity"]
+ },
+
+ "amendments_before_any_result_was_selected_on": [
+  "2026-09-09T20:35Z: the ontology dimension COUNT in this document was corrected from 43 to 42. The ontology itself (alpha_agent.r63.ontology, 42 dimensions, hashed) was never edited; the number in this document was a miscount discovered by the test suite before any lockbox result had been read or any selection made. No family, threshold, split, cost, statistic or gate changed.",
+  "2026-09-09T21:35Z, AFTER the first full grid pass and DISCLOSED: four cells crashed and 141 cells returned DATA_HOLD for coverage reasons, all traced to substrate defects rather than to any result: (1) the ICE BofA OAS and HY total-return series in the owned FRED panel are licence-capped to a rolling three-year window (2023-08 onward), so CREDIT_CONDITIONS was 8% covered and every CREDIT_PROXY cell had no training data - the credit block now uses the Moody's Baa minus 10-year spread (BAA10Y, owned R35 archive, 1986 onward) and the credit proxy uses the owned Norgate total-return series of HYG (2007) and LQD (2002); (2) the FUNDING block required the SOFR minus fed-funds spread, which begins in 2018 - replaced by the fed-funds minus 3-month-bill spread (2000 onward); (3) a one-instrument scope has one row per decision slot and was refused by fold floors written for cross-sections - the floors now scale with the cross-section; (4) a cross-sectional cell whose dimension covers fewer than five names on every date crashed on an empty period set - it is now DATA_HOLD with the reason. Only cells that were DATA_HOLD or ERROR are re-run; no SCORED cell is re-run, no threshold, split, cost, statistic or gate changed, and no selection was made on any first-pass number.",
+  "2026-09-09T22:05Z, AFTER the first full grid pass and DISCLOSED: the TIME-SERIES primary statistic and the TS book sized the position as clip(score / training score std, -1, 1). A hard clip saturates at +/-1 whenever the score leaves the training range (a new regime), both arms then hold the identical saturated position and the paired increment is identically zero; the first pass measured t_lockbox = 0.00 on several TS cells for exactly this reason, biasing TS cells toward NO_CONDITIONAL_VALUE in the lockbox. The clip is replaced by tanh of the SAME standardised score, applied identically to both arms and to the book. This is a repair of a degenerate statistic, not a threshold; every TS cell (all scopes, all horizons) is re-run under the repaired rule so the matrix is graded under one definition; cross-sectional cells (rank IC, quintile books) are untouched. Both rules are recorded here; the repaired one is the campaign's.",
+  "2026-09-09T22:45Z, AFTER the second pass and DISCLOSED: the cross-sectional long-short book used UNCAPPED inverse-volatility weights inside each quintile. On the cross-asset scope a short-rate future with ~0.3%/yr volatility took 99.7% of a side and the book recorded a -100% drawdown on BOTH arms; the cell's conditional statistics (rank-IC increment, FDR survival, lockbox agreement) do not depend on the book, but its economic increment measured the construction, not the information, and it had been classified READY_FOR_FORWARD_QUALIFICATION. Repair: inverse-vol weights are capped per name at max(1/k, 25%) and renormalised, and a book whose augmented arm records a drawdown below -90% or a single-name weight above 50% is DEGENERATE and cannot pass the economic gate. Every cross-sectional futures cell is re-run under the capped book (the equity long-only equal-weight book and every TS cell are unaffected). Rank-IC statistics are unchanged by construction."
+ ],
+ "ontology": {
+  "owner": "alpha_agent.r63.ontology",
+  "n_dimensions": 42,
+  "rule": "formula variants of one economic state are ONE dimension; a dataset carrying k states contributes to k dimensions; a dimension is never a provider",
+  "baseline_information": {
+   "DEFAULT": ["PRICE_RETURN_STATE", "TREND", "MOMENTUM", "REVERSAL", "REALISED_VOLATILITY", "TAIL_CRASH_STATE", "LIQUIDITY", "VOLUME_PARTICIPATION"],
+   "US_EQUITY": ["PRICE_RETURN_STATE", "TREND", "MOMENTUM", "REVERSAL", "REALISED_VOLATILITY", "TAIL_CRASH_STATE", "LIQUIDITY", "VOLUME_PARTICIPATION", "FUNDAMENTAL_LEVELS", "FREE_CASH_FLOW"],
+   "why": "the baseline is what the estate ALREADY USES to decide: the price block that 98.5% of prosecuted hypotheses live on, plus the operational champion's PIT fundamental leg for equities. Every conditional measurement controls for it."
+  }
+ },
+
+ "substrates": {
+  "futures": {
+   "source": "R41 dated-contract curve store (Norgate dated Futures database, licensed local), READ ONLY: D:\\Stock_Prediction_app_data\\multi_horizon_alpha_r41\\_data_curves\\<MKT>_daily.csv and <MKT>_panel.csv",
+   "fields": "ret1/ret2/ret3 (front/second/third dated contract returns under the frozen observable R38 roll rule: exit at the earlier of first-notice minus 2 business days and last-quoted minus 5), c1..c8 settlements, dte, open interest, volume, slope_ann (front-second annualised curve slope), slope23_ann",
+   "universe_rule": "every market in the store with >= 2000 sessions and a bar on or after 2026-08-01, EXCLUDING micro and e-mini duplicates (MES, MNQ, M2K, MYM, MBT, MET), crypto (BTC, ETH), and mini/official-close duplicates of a market already present (MHI). No hand-picking beyond these declared exclusions.",
+   "asset_class_rule": "R38 ml-ready panel asset_class/economic_group where the market is in it; otherwise the Norgate classification through the R59 NORGATE_CLASS_MAP; &VX is VOLATILITY by symbol; short-term interest-rate futures (ZQ, SR3, LEU, SO3, YIB, YIR) are RATES_FUTURES",
+   "cost_rule": "R38 measured cost_bps_per_side per market; a market absent from the R38 panel is charged the R38 MAXIMUM (15bp), never the cheapest",
+   "return_basis": "ret1 is a genuine percent return of a dated contract; percent arithmetic on back-adjusted continuous series is FORBIDDEN and no back-adjusted series is used",
+   "pit": "exchange settlements on their own session; a decision at close t uses data dated <= t and the position is effective at close t+1 (NEXT_CLOSE)"
+  },
+  "us_equity": {
+   "source": "R57 Norgate S&P 500 Current & Past PIT panel (1,897 securities, TOTALRETURN, PIT membership) joined to R58 PANEL-F (885 symbols, 237 delisted, SEC companyfacts with real filed dates), READ ONLY, re-used byte-identical",
+   "eligibility": "the R57 kernel rule: PIT S&P 500 member at t, unadjusted close >= $5, trailing 63-session median dollar volume >= $10M, >= 260 prior sessions",
+   "cost_rule": "12.5bp per side charged symmetrically to strategy and benchmark",
+   "forward_return": "NEXT_CLOSE window [t+1, t+1+h]; a name whose series ends inside the window exits at its last total-return close and the missing tail earns zero",
+   "declared_limitation": "GICS sector is CURRENT, not point-in-time; no sector-neutral construction is used or claimed"
+  },
+  "market_level_conditioners": {
+   "fred_daily_market_series": "R41 fred_daily_panel.csv (constant-maturity yields, OAS, breakevens, real yields, VIX/OVX/GVZ, EFFR, SOFR). These are unrevised MARKET observations published on their own session and are PIT_MARKET_OBSERVABLE; a one-session broadcast lag is applied. DTWEXBGS (a weighted index that is occasionally reweighted) is excluded.",
+   "cboe_term_structure": "VIX9D, VIX, VIX3M, VIX6M, VVIX, SKEW daily closes (R41 acquisition), PIT_MARKET_OBSERVABLE, one-session lag",
+   "alfred_vintages": "UNRATE, CPIAUCSL, ICSA, NFCI from the owned normalized MACRO_OBSERVATION store, fred_alfred records only, available_at = realtime_start. A value enters the panel at the FIRST session strictly after its realtime_start. A series with no vintage yet fails CLOSED. BEA and BLS records (available_at null) are NEVER used.",
+   "cftc_cot": "R35 annual archives 1986-2026, legacy futures-only, codes mapped to markets through the R46 keyword-verified code map; a report dated Tuesday T is observable from T + 6 calendar days (R35/R46 contract), then the one-session broadcast lag",
+   "eia_weekly_petroleum": "owned PET.zip bulk archive weekly ending-stocks series (crude ex-SPR, total gasoline, distillate); a week-ending value is observable 7 calendar days after the period date (release is normally the following Wednesday; the extra two days are conservatism), then the one-session lag",
+   "eia_weekly_natural_gas": "the free EIA NG.zip bulk archive (working gas in underground storage, lower 48), acquired by R63 if reachable, same 7-day rule; a failed acquisition leaves the dimension NOT_OBSERVED for natural gas rather than proxied",
+   "policy_path": "ZQ and SR3 dated contracts from the R41 store: implied rate = 100 - settlement; the policy-expectation state is the implied rate roughly six months out minus the front implied rate, and its 21-session change; PIT_MARKET_OBSERVABLE",
+   "form345_insider": "R35 SEC Form 3/4/5 structured data sets 2008Q1-2026Q1, open-market codes P and S only, COUNTED never valued (R35 measured decision), indexed at FILING_DATE plus one session; joined to the equity panel through the RESOLVED CIK bridge",
+   "sec_submissions_8k": "per-issuer filing histories from data.sec.gov/submissions for the PANEL-F CIKs, acquired by R63 under the estate's canonical SEC User-Agent convention; acceptanceDateTime is the PIT anchor; 8-K rate, NT 10-K/10-Q notices and periodic amendments; a failed or partial acquisition is reported as coverage, never filled",
+   "cross_sectional_dispersion": "the free proxy for DISPERSION: cross-sectional standard deviation of 21-session returns across the eligible cross-section, PIT by construction"
+  },
+  "excluded_information_with_reasons": {
+   "analyst_estimates_and_revisions": "no owned survivorship-safe PIT history (Stage 13C, Intrinio DO_NOT_BUY, six free endpoints CURRENT_SNAPSHOT_ONLY) - BLOCKED; a current snapshot may never be differenced into history",
+   "short_interest_and_short_volume_history": "FINRA daily short-volume history files are not served (HTTP 403 measured 2026-09-09; only the current day is 200); owned history begins 2026-07-23 - PROSPECTIVE_ONLY",
+   "13f_institutional_ownership": "the SEC 13F data sets identify holdings by CUSIP and the estate owns no CUSIP-to-issuer bridge - BLOCKED on instrument mapping, not on data",
+   "etf_fund_flows": "not owned; free aggregates exist at market level only - NOT_OBSERVED, sourcing ladder recorded",
+   "shipping_freight": "no free PIT freight history is owned - NOT_OBSERVED",
+   "options_implied_volatility_surface_history": "premium-only at every probed provider - BLOCKED (payment)",
+   "point_in_time_sector": "no owned PIT GICS history - BLOCKED",
+   "intraday": "the owned daily panels cannot support an intraday horizon and none is manufactured",
+   "news_and_earnings_feeds": "7 / 15 tickers of owned history - NOT_A_CROSS_SECTION; prospective only",
+   "bea_bls_macro": "available_at null with RELEASE_LAG_UNKNOWN - TIMESTAMP_INSUFFICIENT at every horizon"
+  }
+ },
+
+ "horizons": {
+  "sessions": [1, 5, 21, 63],
+  "cadence_rule": "decision cadence = min(horizon, 21) sessions; a 63-session horizon is evaluated at 21-session cadence with overlapping windows paid for by the Newey-West lag ceil(h/cadence) - 1",
+  "intraday": "NOT_SUPPORTED_BY_OWNED_DAILY_PANELS"
+ },
+
+ "partition_and_leakage": {
+  "lockbox_start": "2023-01-01",
+  "selection_end": "2023-01-01",
+  "walk_forward": "expanding-window folds by calendar year; the first out-of-sample fold begins after at least 1260 training sessions; every fold before 2023 is a SELECTION fold; the block 2023-01-01 .. panel end is the LOCKBOX and is evaluated exactly once per pre-registered cell after every selection decision has been persisted",
+  "purge": "training rows whose forward window ends on or after the test block start are dropped",
+  "embargo": "h sessions between the last admissible training decision and the first test decision",
+  "nested_selection": "the ridge penalty is chosen by 3-fold BLOCKED cross-validation on the BASELINE arm inside the training block only, and the chosen penalty is FORCED on the augmented arm so an increment cannot be a luckier architecture",
+  "no_test_set_tuning": "no parameter, universe rule, cost, construction or threshold may be altered after any lockbox number is seen",
+  "futures_discovery_start": "1995-01-01",
+  "equity_discovery_start": "2011-07-01"
+ },
+
+ "engine": {
+  "owner": "alpha_agent.r63.sensitivity",
+  "standalone_association": "Spearman rank correlation of each dimension feature with the forward return: per-date cross-sectional rank IC for cross-sectional scopes, pooled per-instrument rank IC for time-series scopes; Newey-West t; DESCRIPTIVE ONLY and never a verdict",
+  "conditional_value": {
+   "primary": "PAIRED OOS RANK-IC INCREMENT: delta(p) = rankIC(BASELINE + DIMENSION, p) - rankIC(BASELINE, p) per evaluation period p on identical rows, identical realised returns and the identical forced model; mean(delta), Newey-West t, one-sided p for a POSITIVE increment",
+   "secondary": ["partial rank IC after residualising both the dimension composite and the forward return on the baseline (training-fitted)", "out-of-sample R-squared increment per fold", "out-of-sample permutation drop: the dimension columns are shuffled within each test block and the fall in rank IC is measured"],
+   "model": "ridge regression on training-standardised features; cross-sectional scopes use per-date demeaned, 1%/99% winsorised forward returns; time-series scopes use the forward return divided by the trailing 63-session realised volatility",
+   "arm_responded_rule": "an augmented arm whose OOS scores are identical to the baseline arm (the model declined the information) is reported as NO_RESPONSE and excluded from best-increment statements, never counted as a tested null (R35 rule)"
+  },
+  "redundancy": {
+   "residual_share": "Var(dimension composite - OLS(composite ~ baseline features)) / Var(composite) on TRAINING rows only; REDUNDANT below 0.10, PARTIALLY_REDUNDANT below 0.35, DISTINCT otherwise (R35 thresholds reused)",
+   "orthogonality_matrix": "pairwise absolute Spearman correlation between every dimension composite within a scope, plus each composite's residual share against the baseline"
+  },
+  "stability": ["increment by non-overlapping 3-year blocks", "increment by regime: implied-volatility above/below its trailing 252-session median, and the cross-asset trend composite up/down (both PIT)", "share of instruments with a positive increment (time-series scopes)", "sign agreement between selection folds and the lockbox", "consistency across horizons"],
+  "economic_value": {
+   "cross_sectional_futures": "long the top quintile, short the bottom quintile of the OOS score (terciles below ten names), inverse-volatility weights capped per name at max(1/k, 25%) and renormalised (registered uncapped; capped after the second pass - see amendments), rebalanced every cadence, charged per-market cost on one-way turnover",
+   "time_series_futures": "position = tanh(score / training score std) scaled to a 10% annualised volatility target per instrument, equal-weighted across the scope, charged per-market cost on turnover (registered as clip(.., -1, 1); repaired to tanh after the first pass - see amendments)",
+   "us_equity": "long-only equal-weight top-50 by OOS score versus the equal-weight eligible universe, 12.5bp per side charged to both (the R57 kernel convention)",
+   "credit_proxy": "time-series rule on the ICE BofA HY total-return index excess over the 3-month bill, charged 5bp per side as an HYG-class ETF, DISCLOSED as an index proxy",
+   "reported": ["annualised net return increment", "Sharpe increment", "maximum drawdown", "mean one-way turnover", "annualised cost drag", "concentration (max weight)", "effective independent periods", "paired Newey-West t on per-period net return differences"]
+  },
+  "multiple_testing": {
+   "method": "Benjamini-Hochberg at q = 0.10 across EVERY conditional primary increment computed by the campaign (all scopes x horizons x dimensions), reported with m, the number of raw one-sided p < 0.05, and the survivors; a second BH family across the economic increments",
+   "denominator_rule": "every cell that produced a p-value is counted; a cell that failed coverage or produced NO_RESPONSE is listed but not counted, with the reason"
+  },
+  "effective_sample": {
+   "min_effective_periods": 36,
+   "rule": "effective periods = non-overlapping evaluation periods for the scope; a cell below the floor is DATA_HOLD and receives no verdict"
+  },
+  "coverage_rule": "a dimension that is present for fewer than 60% of the scope's eligible instrument-periods is NOT judged on the full scope; it is evaluated on the covered rows only and labelled COVERED_ROWS_ONLY, with the covered fraction published"
+ },
+
+ "verdict_ladder": {
+  "REDUNDANT": "residual share below 0.10 against the baseline - the information is already in the baseline",
+  "NO_CONDITIONAL_VALUE": "increment t below 2.0 or non-positive",
+  "CONDITIONAL_VALUE_NOT_ECONOMIC": "increment t >= 2.0 but the net economic increment is below 1.5%/yr AND the Sharpe increment is below 0.15",
+  "CONDITIONAL_VALUE_UNSTABLE": "conditional and economic gates pass but fewer than 60% of 3-year blocks are positive, or the lockbox sign disagrees with the selection folds",
+  "CONDITIONAL_VALUE_NOT_FDR_SIGNIFICANT": "all gates pass except Benjamini-Hochberg",
+  "INCREMENTAL_INFORMATION_CANDIDATE": "every gate passes including Benjamini-Hochberg and the effective-sample floor",
+  "DATA_HOLD": "effective sample or coverage insufficient - no verdict"
+ },
+
+ "challenger_rules": {
+  "READY_FOR_FORWARD_QUALIFICATION": "INCREMENTAL_INFORMATION_CANDIDATE at a horizon where the net increment survives at 2x cost, with lockbox sign agreement and PIT status PIT_TRUE or PIT_MARKET_OBSERVABLE or PIT_BY_DECLARED_LAG",
+  "MORE_RESEARCH_REQUIRED": "conditional t >= 2.0 and residual share >= 0.35 but one of: economics, stability, FDR, or PIT_UNVERIFIED",
+  "REJECTED": "everything else",
+  "no_promotion": true,
+  "no_live_registration": true,
+  "artifact_only": "a candidate is an immutable research artifact capable of later entering the governed forward process through the existing R61/R62 owners; R63 never calls them"
+ },
+
+ "gap_ranking": {
+  "unit": "INFORMATION_NEED (asset class x horizon x dimension), never a provider",
+  "criteria": ["marginal predictive sensitivity measured or proxied", "orthogonality to the baseline", "PIT quality", "available history", "effective independent sample", "cross-asset applicability", "horizon applicability", "capital applicability", "likely turnover", "implementation complexity", "source availability", "expected incremental net P&L"],
+  "score_rule": "each criterion is scored 0..1 from measured inputs by a declared, deterministic rule; the frontier is the descending sort of the product of expected incremental value and feasibility; ties are broken by dimension id so the ranking is reproducible"
+ },
+
+ "sourcing_ladder": ["OWNED_DEEPER", "FREE_PUBLIC_PROXY", "SELF_SERVICE_INEXPENSIVE", "PAID_VENDOR"],
+ "paid_data_gate": {
+  "no_purchase": true,
+  "nav_source": "the authoritative paper NAV read read-only from the live desk forward_performance ledger (latest daily-close row)",
+  "break_even_rule": "break-even alpha = annual fee / deployable NAV + expected annual trading cost of the strategy family + an uncertainty margin equal to 50% of the expected gross increment + a required return on research spend of 10% of the fee / NAV",
+  "hurdle_rule": "a dataset whose fee exceeds 2% of deployable NAV per year is flagged EXTREME_HURDLE and cannot be a purchase-experiment candidate on a proxy result alone",
+  "gate_1": "purchase EXPERIMENT worthwhile only if: gap identified, source distinct from owned information, proxy shows conditional evidence (t >= 2.0), PIT credible, effective sample adequate, strategy families and asset classes identified, turnover and cost estimated, fee known or bounded, expected net alpha after haircut exceeds break-even",
+  "gate_2": "defined, not executed: renew or scale only if the incremental OOS net portfolio benefit of existing-system-plus-dataset comfortably (>= 2x) exceeds the annual fee"
+ },
+
+ "stopping_rules": ["evidence clearly negative (increment t <= 0 at every horizon)", "marginal utility negligible (net increment below 0.5%/yr everywhere)", "redundancy high (residual share below 0.10)", "PIT quality inadequate (PIT_BLOCKED or PIT_UNVERIFIED with no repair path)", "effective sample inadequate", "costs destroy the edge (negative at 1x cost)", "robustness fails (sign flips between selection and lockbox)"],
+
+ "acquisition_budget": {
+  "top_gaps_actively_sourced": 3,
+  "candidates_in_declared_order": ["INSIDER_BEHAVIOUR at stock level from the owned Form 345 archives (owned deeper)", "DISCLOSURE_INTENSITY_LANGUAGE from SEC submissions histories for the PANEL-F issuers (free, official, acceptance-stamped)", "INVENTORY for energy futures from the owned EIA petroleum archive plus the free EIA natural-gas archive"],
+  "rule": "a failed source is recorded REJECTED or BLOCKED with the measurement and the next candidate is taken; no source is polished after it fails"
+ },
+
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "activates_sleeve": false,
+  "approves_proposal": false,
+  "registers_forward_challenger": false,
+  "mutates_operational_store": false,
+  "mutates_live_research_store": false,
+  "purchases_data": false,
+  "starts_trial_or_subscription": false,
+  "automation_enabled": false,
+  "live_checkout_read_only": true,
+  "research_root": "D:\\Stock_Prediction_app_data\\r63_information_sensitivity"
+ }
+}

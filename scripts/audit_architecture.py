@@ -15496,6 +15496,162 @@ def check_release62_1_1_forward_activation_integrity(files: list[Path]) -> dict:
 #: unemitted prospective decision right now. A second one would be a second
 #: opinion about when evidence may be created, which is the only question in
 #: this estate that may never have two answers.
+# --------------------------------------------------------------------------- #
+# Release 63 - information sensitivity, orthogonal information discovery and
+# the alpha offensive. A RESEARCH-ONLY package that measures which economic
+# information carries conditional value for which asset class at which
+# horizon, certifies every owned field, ranks the information gaps, prices the
+# paid-data gate against the live NAV (read only) and hands the AlphaAgent a
+# ranked frontier. It may never register, adopt, promote, purchase, order or
+# write a live store, and it may never see the future.
+# --------------------------------------------------------------------------- #
+R63_PACKAGE = "alpha_agent/r63"
+R63_INIT = "alpha_agent/r63/__init__.py"
+R63_PROTOCOL = "research/r63/R63_RESEARCH_PROTOCOL.json"
+R63_RUNNER = "scripts/run_r63_information_sensitivity.py"
+R63_TESTS = "tests/test_release63_information_sensitivity.py"
+R63_MODULES = ("__init__", "ontology", "inventory", "panels", "pit", "features",
+               "sensitivity", "experiments", "asset_horizon", "gaps", "sourcing",
+               "challengers", "handoff", "acquire", "report")
+#: CALL shapes, never bare words: the package legitimately DECLARES what it
+#: does not do in its safety block and its docstrings.
+R63_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "execute_order(",
+                       "create_order(", "create_fill(", "promote_model(",
+                       "activate_sleeve(", "approve_proposal(",
+                       "register_forward_challenger(", "adopt_prospective_freeze(",
+                       "record_governed_decision(", "run_daily_close(",
+                       "portfolio_cycle(", "freeze_challengers(", "freeze_qualified(")
+R63_FORBIDDEN_IMPORTS = ("paper_trader.api", "paper_trader.engine", "paper_trader.db",
+                         "from api", "import api", "from engine", "import engine",
+                         "from db", "import db", "paper_trading_desk",
+                         "rebalance_execution", "prospective_adoption",
+                         "forward_challenger_registry", "canonical_forward_accrual")
+R63_MEMORY_WRITE_CALLS = (".register(", ".settle(", ".set_opportunity(",
+                          ".set_frontier(", ".set_meta(", ".event(",
+                          "open_memory(", "ResearchMemory(")
+R63_SAFETY_FLAGS_OFF = ("creates_orders", "creates_fills", "broker_enabled",
+                        "promotes_model", "activates_sleeve", "approves_proposal",
+                        "registers_forward_challenger", "mutates_operational_store",
+                        "mutates_live_research_store", "purchases_data",
+                        "starts_trial_or_subscription", "automation_enabled")
+R63_LIVE_CONSUMERS = ("alpha_agent/r59/governor.py", "alpha_agent/r59/runtime.py",
+                      "alpha_agent/r59/loop.py", "alpha_agent/r52/runtime.py",
+                      "scripts/run_research_runtime.py")
+
+
+def check_release63_information_sensitivity(files: list[Path]) -> dict:
+    """R63 invariants - research that cannot reach the live estate or the future.
+
+    (a) THE PACKAGE AND ITS PROTOCOL EXIST, and the protocol was registered
+        before any experiment with every dangerous flag off.
+    (b) NO PORTFOLIO, EXECUTION, REGISTRATION OR PROMOTION PATH: forbidden
+        call shapes and forbidden imports are absent from every R63 module.
+    (c) THE LIVE RESEARCH MEMORY IS READ THROUGH ITS READ-ONLY HANDLE ONLY.
+    (d) ONE AS-OF OWNER, NO FUTURE SHIFT: ``def as_of(`` lives in pit.py alone
+        and no R63 module shifts a series backwards in time.
+    (e) THE RESEARCH ROOT IS ON THE DATA DRIVE and the only live path the
+        package touches is the desk ledger, READ through read_json.
+    (f) ARTIFACTS ARE DETERMINISTIC: sorted keys, hash excludes generated_at.
+    (g) NO SECOND PURCHASE VERDICT and no purchase authority.
+    (h) THE HANDOFF IS AN INTERFACE: no live runtime consumer imports r63.
+    (i) THE RUNNER HAS NO EXECUTE PATH and the tests are hermetic.
+    """
+    pkg_files = {_rel(fp): fp for fp in files if _rel(fp).startswith(R63_PACKAGE + "/")
+                 and _rel(fp).endswith(".py")}
+    missing_modules = sorted(m for m in R63_MODULES
+                             if "%s/%s.py" % (R63_PACKAGE, m) not in pkg_files)
+    init = _read(R63_INIT)
+    # the safety block is a dict of NAME: False literals; each flag is asserted
+    # on the source text so a flag flipped to True (or deleted) fails
+    safety_flags_off = bool(init) and all(
+        re.search(r'"%s":\s*False\b' % re.escape(k), init) is not None
+        for k in R63_SAFETY_FLAGS_OFF)
+    disposition_vocabulary_closed = bool(
+        'D_USED = "USED"' in init and 'D_TESTED = "TESTED"' in init
+        and 'D_REJECTED = "REJECTED"' in init and 'D_BLOCKED = "BLOCKED"' in init
+        and "DISPOSITIONS = (D_USED, D_TESTED, D_REJECTED, D_BLOCKED)" in init
+        and '"UNKNOWN"' not in init)
+    try:
+        proto = json.loads(_read(R63_PROTOCOL) or "{}")
+    except ValueError:
+        proto = {}
+    protocol_registered = bool(
+        proto.get("registered_before_any_experiment_ran") is True
+        and (proto.get("safety") or {}).get("purchases_data") is False
+        and (proto.get("safety") or {}).get("registers_forward_challenger") is False
+        and (proto.get("paid_data_gate") or {}).get("no_purchase") is True)
+
+    forbidden_calls, forbidden_imports, memory_writes = [], [], []
+    second_as_of, future_shift, live_write_targets = [], [], []
+    for rel, fp in sorted(pkg_files.items()):
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        code = _strip_prose(src)
+        for t in R63_FORBIDDEN_CALLS:
+            if t in code:
+                forbidden_calls.append("%s:%s" % (rel, t))
+        imports = "\n".join(ln for ln in src.splitlines()
+                            if ln.lstrip().startswith(("import ", "from ")))
+        for t in R63_FORBIDDEN_IMPORTS:
+            if t in imports:
+                forbidden_imports.append("%s:%s" % (rel, t))
+        for t in R63_MEMORY_WRITE_CALLS:
+            if t in code:
+                memory_writes.append("%s:%s" % (rel, t))
+        if "def as_of(" in code and not rel.endswith("/pit.py"):
+            second_as_of.append(rel)
+        if "shift(-" in code:
+            future_shift.append(rel)
+        if "paper_trading_desk" in code and not rel.endswith("/sourcing.py"):
+            live_write_targets.append(rel)
+    inventory_src = _strip_prose(_read("%s/inventory.py" % R63_PACKAGE))
+    memory_read_only_handle = "open_memory_readonly(" in inventory_src
+    sourcing = _strip_prose(_read("%s/sourcing.py" % R63_PACKAGE))
+    desk_read_only = bool(
+        "read_json(DESK_PERFORMANCE_LEDGER)" in sourcing
+        and "write_text(" not in sourcing.replace("write_artifact(", "")
+        and "open(DESK" not in sourcing)
+    research_root_on_data_drive = 'DEFAULT_RESEARCH_ROOT = Path(r"D:\\Stock_Prediction_app_data' in init
+    artifacts_deterministic = bool(
+        "sort_keys=True" in init
+        and 'if k not in ("artifact_hash", "generated_at")' in init)
+    no_second_purchase_verdict = bool(
+        "def evaluate(" not in sourcing and "def evaluate_dataset(" not in sourcing
+        and '"purchase_authorised": False' in sourcing
+        and "purchases" in sourcing)
+    live_consumers_importing_r63 = sorted(
+        p for p in R63_LIVE_CONSUMERS if "r63" in _read(p))
+    runner = _read(R63_RUNNER)
+    runner_has_no_execute = bool(
+        runner and "--execute" not in runner and "Register-ScheduledTask" not in runner
+        and "restart_paper_trader_backend" not in runner and "uvicorn" not in runner
+        and "assert_research_root_is_not_live()" in runner)
+    tests = _read(R63_TESTS)
+    tests_hermetic = bool(
+        tests and "monkeypatch.setenv(R.RESEARCH_ROOT_ENV" in tests
+        and 'monkeypatch.setattr(INV, "memory_evidence"' in tests
+        and "test_research_root_is_hermetic" in tests)
+    return {
+        "missing_modules": missing_modules,
+        "protocol_registered_before_experiments": protocol_registered,
+        "safety_flags_off": safety_flags_off,
+        "disposition_vocabulary_closed": disposition_vocabulary_closed,
+        "forbidden_calls": sorted(forbidden_calls),
+        "forbidden_imports": sorted(forbidden_imports),
+        "memory_write_calls": sorted(memory_writes),
+        "memory_read_only_handle": memory_read_only_handle,
+        "second_as_of_owner": sorted(second_as_of),
+        "future_shift": sorted(future_shift),
+        "live_paths_outside_sourcing": sorted(live_write_targets),
+        "desk_ledger_read_only": desk_read_only,
+        "research_root_on_data_drive": research_root_on_data_drive,
+        "artifacts_deterministic": artifacts_deterministic,
+        "no_second_purchase_verdict": no_second_purchase_verdict,
+        "live_consumers_importing_r63": live_consumers_importing_r63,
+        "runner_has_no_execute_path": runner_has_no_execute,
+        "tests_hermetic": tests_hermetic,
+    }
+
+
 R622_ACCRUAL_OWNER = "api/canonical_forward_accrual.py"
 R622_REGISTRAR = "api/forward_challenger_registry.py"
 R622_RUNTIME = "alpha_agent/r52/runtime.py"
@@ -16475,6 +16631,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release62_1_1_forward_activation_integrity(files),
         "release62_2_automatic_forward_accrual":
             check_release62_2_automatic_forward_accrual(files),
+        "release63_information_sensitivity":
+            check_release63_information_sensitivity(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -17729,6 +17887,30 @@ def _print_console(rep: dict) -> None:
           f"one P&L kernel: {r622['one_pnl_kernel']}")
     print(f"portfolio/execution paths (must be empty): "
           f"{r622['portfolio_or_execution_paths']}")
+
+    hdr("RELEASE 63 - INFORMATION SENSITIVITY (research only)")
+    r63 = rep["release63_information_sensitivity"]
+    print(f"missing modules (must be empty): {r63['missing_modules']}  "
+          f"protocol registered before experiments: "
+          f"{r63['protocol_registered_before_experiments']}  safety flags off: "
+          f"{r63['safety_flags_off']}  dispositions closed: "
+          f"{r63['disposition_vocabulary_closed']}")
+    print(f"forbidden calls (must be empty): {r63['forbidden_calls']}  "
+          f"forbidden imports (must be empty): {r63['forbidden_imports']}")
+    print(f"memory write calls (must be empty): {r63['memory_write_calls']}  "
+          f"read-only handle: {r63['memory_read_only_handle']}")
+    print(f"second as-of owner (must be empty): {r63['second_as_of_owner']}  "
+          f"future shift (must be empty): {r63['future_shift']}")
+    print(f"live paths outside sourcing (must be empty): "
+          f"{r63['live_paths_outside_sourcing']}  desk ledger read-only: "
+          f"{r63['desk_ledger_read_only']}  research root on data drive: "
+          f"{r63['research_root_on_data_drive']}")
+    print(f"artifacts deterministic: {r63['artifacts_deterministic']}  "
+          f"no second purchase verdict: {r63['no_second_purchase_verdict']}  "
+          f"live consumers importing r63 (must be empty): "
+          f"{r63['live_consumers_importing_r63']}")
+    print(f"runner has no execute path: {r63['runner_has_no_execute_path']}  "
+          f"tests hermetic: {r63['tests_hermetic']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -20561,6 +20743,26 @@ BLOCKING_INVARIANTS = (
     ("release62_1_canonical_forward_evidence", "ui_renders_registrations", True),
     ("release62_1_canonical_forward_evidence", "ui_derives_forward_state", []),
     ("release62_1_canonical_forward_evidence", "inventory_lists_registrar", True),
+    # --- R63: research that cannot reach the live estate or the future --- #
+    ("release63_information_sensitivity", "missing_modules", []),
+    ("release63_information_sensitivity",
+     "protocol_registered_before_experiments", True),
+    ("release63_information_sensitivity", "safety_flags_off", True),
+    ("release63_information_sensitivity", "disposition_vocabulary_closed", True),
+    ("release63_information_sensitivity", "forbidden_calls", []),
+    ("release63_information_sensitivity", "forbidden_imports", []),
+    ("release63_information_sensitivity", "memory_write_calls", []),
+    ("release63_information_sensitivity", "memory_read_only_handle", True),
+    ("release63_information_sensitivity", "second_as_of_owner", []),
+    ("release63_information_sensitivity", "future_shift", []),
+    ("release63_information_sensitivity", "live_paths_outside_sourcing", []),
+    ("release63_information_sensitivity", "desk_ledger_read_only", True),
+    ("release63_information_sensitivity", "research_root_on_data_drive", True),
+    ("release63_information_sensitivity", "artifacts_deterministic", True),
+    ("release63_information_sensitivity", "no_second_purchase_verdict", True),
+    ("release63_information_sensitivity", "live_consumers_importing_r63", []),
+    ("release63_information_sensitivity", "runner_has_no_execute_path", True),
+    ("release63_information_sensitivity", "tests_hermetic", True),
 )
 
 

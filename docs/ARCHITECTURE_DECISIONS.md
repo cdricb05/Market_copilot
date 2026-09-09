@@ -3893,3 +3893,65 @@ the owner's own words (`is_ledger_row: false`, `backfilled: false`,
 `history_rewritten: false`), the audit asserts `backfill_routes == []`, and the
 repair is forward-going: the next governed cycle writes a real row and the
 projection retires itself for that session.
+
+## Release 63 — information sensitivity and orthogonal information discovery
+
+### D-R63-1 — the research frontier is information-constrained, and the unit of research is an information dimension (CONFIRMED)
+
+**Decision.** The persistent research estate's unit of analysis gains a third
+axis beside asset class and horizon: the INFORMATION DIMENSION, defined once in
+`alpha_agent/r63/ontology.py` as a latent economic state (42 dimensions in ten
+classes). Formula variants of one state are one dimension; a dataset carrying k
+states contributes to k dimensions; a provider is never a dimension.
+
+**Evidence.** At R63's start the live ResearchMemory held 8,380 settled
+hypotheses across 311 families with 0 QUALIFIED; 8,257 of them (98.5%) carried
+`information_family = PRICE_STATE` or its placebo, every settled historical
+row carried the reopen condition `NEW_ORTHOGONAL_INFORMATION`, and every scope
+but CROSS_ASSET was EXHAUSTED. Generating another transformation of the same
+price panel could not change that state.
+
+**Consequence.** Certification (`alpha_agent/r63/inventory.py`) classifies
+every owned field against a dimension; the sensitivity engine measures a
+dimension's CONDITIONAL value against the information the estate already uses;
+the gap frontier ranks INFORMATION NEEDS, not vendors; and the AlphaAgent
+handoff answers "which asset class x horizon x dimension has the highest
+remaining research value" - a question the price-family frontier cannot ask.
+
+### D-R63-2 — standalone association is descriptive; a verdict needs the whole chain (CONFIRMED)
+
+**Decision.** No R63 verdict rests on a raw correlation or a standalone rank
+IC. A dimension earns `INCREMENTAL_INFORMATION_CANDIDATE` only through the
+chain: paired out-of-sample increment over the baseline on identical rows with
+a forced model, residual share against the baseline, stability across 3-year
+blocks and regimes, lockbox sign agreement, positive net economics after the
+scope's own costs, Benjamini-Hochberg survival, and an effective-sample floor.
+
+**Evidence.** R35 measured four of six free information families predicting
+returns standalone at t 2.1-3.0 and adding nothing conditional on the base set.
+R63's commodity-carry cell reproduces the shape: standalone t 3.9, conditional
+increment t 1.0.
+
+**Consequence.** The verdict ladder (`REDUNDANT`, `NO_CONDITIONAL_VALUE`,
+`CONDITIONAL_VALUE_NOT_ECONOMIC`, `CONDITIONAL_VALUE_UNSTABLE`,
+`CONDITIONAL_VALUE_NOT_FDR_SIGNIFICANT`, `INCREMENTAL_INFORMATION_CANDIDATE`,
+`DATA_HOLD`, `NO_RESPONSE`) names the gate that refused, so a near miss is
+recorded as a near miss and never rounded up.
+
+### D-R63-3 — research reads the live estate; it never writes it (CONFIRMED)
+
+**Decision.** R63 reads the live ResearchMemory only through its read-only
+handle, reads the paper NAV only from the desk ledger through `read_json`, and
+writes only under its own research root on the data drive. It registers,
+adopts, promotes, purchases and orders nothing; a surviving specification is
+an immutable research artifact for a later governed forward process.
+
+**Evidence.** The R62.1.2 incident: a pytest run wrote real emissions into a
+live first-write-wins store. R63's tests redirect the research root through
+the owner's own env-var constant and patch out the memory read, and the audit
+asserts the read-only handle, the absence of memory-write calls, forbidden
+imports and forbidden call shapes, and that no live runtime consumer imports
+the package.
+
+**Consequence.** Tonight's Daily Cycle does not depend on R63, and R63 cannot
+make it depend on R63 by accident.

@@ -1812,6 +1812,29 @@ The live estate reads `canonical_forward_registration_count = 4`,
 eligible observation `2026-09-10`, and `R59_CALENDAR_TERM_STRUCTURE_F9BE2426`
 still WITHDRAWN and unregistered.
 
+## R63 - information sensitivity, orthogonal information discovery (LANDED, research only)
+
+**What it consolidated.** Three research questions the estate had asked
+piecemeal - R35 (six free families on a 47-ETF cross-section, no increment),
+R57/R58 (price factors and PIT fundamentals on the S&P 500 panel, no alpha),
+R59 (machine transformations over price on the futures panel, no alpha) - now
+have ONE engine, ONE ontology and ONE certification. `alpha_agent/r63/` measures
+every information dimension's CONDITIONAL value against the baseline the estate
+already uses, on identical rows with a forced model, across asset class ×
+horizon, and it does so from owned data only. The certification classifies
+every owned field USED / TESTED / REJECTED / BLOCKED from evidence, because no
+R62.2 certification owner existed.
+
+**Bounded by construction.** No second owner: the R59 data-opportunity
+frontier keeps ranking datasets, the Slice-9 gate keeps every purchase verdict,
+the R61/R62 owners keep registration, adoption and accrual, and R63 imports none
+of them. No live write: the research root is on the data drive, the live memory
+is read through its read-only handle, the paper NAV through the desk ledger.
+No wiring: the AlphaAgent handoff is an interface in the governor's mandate
+shape, tested, not consumed. Results in `docs/RELEASE63_INFORMATION_SENSITIVITY.md`.
+Regression risk: NONE OBSERVED (additive package, one additive audit check,
+five inventory rows, documentation).
+
 ## R62.2 - the automatic forward accrual loop (LANDED)
 
 **What it consolidated.** Adoption started four observation clocks and nothing
@@ -1908,6 +1931,12 @@ the canonical owner it belongs to; none is a rewrite.
    (added one runtime stage; changed no gate, no scoring, no existing record and
    no R46/R56 evidence path).
 
+1d. **R63 - information sensitivity, orthogonal information discovery and the
+   alpha offensive** *(Milestone 4 research; research only)*. **LANDED** on
+   branch `r63-information-sensitivity` - see the R63 section below and
+   `docs/RELEASE63_INFORMATION_SENSITIVITY.md`. Not merged, not deployed;
+   the live estate was read-only throughout. Regression risk: NONE OBSERVED.
+
 2. **R61.1 - one bounded summary accessor on the forward-evidence board**
    *(operator experience; no ownership change)*. `load_prospective_tournament()`
    loads every ledger and costs ~2.9 s, and it is now on the AlphaAgent outcomes
@@ -1974,23 +2003,25 @@ the canonical owner it belongs to; none is a rewrite.
    touched. Dependency: none. Regression risk: LOW (additive; nothing
    accrues today).
 
-7. **R63 - the operational-book cutover** *(Milestone 6; unchanged priority)*.
+7. **R64 - the operational-book cutover** *(Milestone 6; unchanged priority;
+   renumbered from R63 on 2026-09-09 because R63 became the information-
+   sensitivity research release below)*.
    Let an approved governed CHANGE be named BY ID by the Stage-19 order plan
    that implements it, so the decision -> execution lineage is end-to-end
    provable. Execution stays manual, preview-first and separately authorised.
 
-8. **R63.1 - `api/app.py` route extraction** *(implementation dependency)*.
+8. **R64.1 - `api/app.py` route extraction** *(implementation dependency)*.
    22,865 lines and 235 routes in one module. Extract by canonical owner, one
    bounded router at a time, behind the existing route contract tests. This is
    the largest single source of merge friction in the estate and the least
    urgent correctness risk, which is why it is LATER and not NEVER.
 
-9. **R63.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
+9. **R64.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
    `engine/reconciler.py` remains the only order/fill code and is quarantined;
    `engine/scoring.py` + `engine/market_screener.py` are the legacy DB screener
    path. They retire with Slice 11 (Controlled Execution), not before.
 
-10. **R63.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
+10. **R64.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
    `alpha_agent/evidence_observatory.py` (Stage 1-7) and
    `api/alpha_opportunity_registry.py` (R56 citation catalogue) answer
    neighbouring questions from earlier generations of the research OS. Neither is

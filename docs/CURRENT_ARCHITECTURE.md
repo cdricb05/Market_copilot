@@ -4084,3 +4084,80 @@ path produces yet — until one does, later cadence boundaries will read
 `AWAITING_NEW_GOVERNED_FREEZE` rather than accruing. Canonical forward evidence
 is deliberately reported apart from R46 and R56 evidence and is not yet named in
 a single declared evidence-identity vocabulary, which is the next release's work.
+
+## Release 63 — information sensitivity, orthogonal information discovery and the alpha offensive (2026-09-09)
+
+**The question the estate could not ask.** At R63's start the persistent
+research memory held 8,380 settled hypotheses across 311 families with 0
+QUALIFIED; 98.5% of them used PRICE_STATE information, every settled row
+carried the reopen condition `NEW_ORTHOGONAL_INFORMATION`, and every scope but
+CROSS_ASSET was EXHAUSTED. The R59 frontier ranks PRICE FAMILIES per scope and
+the R59 opportunity frontier ranks DATASETS by acquisition state; no owner could
+say which economic INFORMATION carries value for which asset class at which
+horizon conditional on what the estate already uses, or where it is blind.
+
+**What landed — one research package, `alpha_agent/r63/`, no second owner of
+an existing concept.** `ontology.py` is the ONE canonical economic-information
+ontology (42 dimensions in ten classes, deterministic and hashed; formula
+variants of one state are one dimension, a provider is never a dimension).
+`inventory.py` is the owned-information CERTIFICATION that no R62.2 owner had
+produced: 51 fields across 17 providers, each carrying provider, source,
+dataset, field, normalised field, dimension, asset classes, horizons, history,
+cadence, PIT status, `available_at` / `effective_at` semantics, collector,
+normaliser, consumer, families, evidence ids and ONE disposition — USED,
+TESTED, REJECTED or BLOCKED — DERIVED from the live ResearchMemory (read-only
+handle), the R58 inventory and R63's own cells; UNKNOWN is not in the
+vocabulary. `panels.py` / `features.py` build the substrates from OWNED data
+only: the R41 dated-contract curve store (94 admitted futures markets under a
+mechanical rule, front/second/third dated-contract returns, the ZQ/SR3 policy
+path from c1..c8), the R57 PIT equity panel with R58 PANEL-F, the R35 Form
+3/4/5 archives joined to the STOCK panel for the first time, SEC submissions
+histories acquired for the 842 PANEL-F issuers (1.22 million filings,
+acceptance-stamped), the EIA petroleum and natural-gas archives, CFTC through
+the R46 code map, FRED market series, Cboe term structure and ALFRED vintages.
+`pit.py` is the ONE as-of join (strict availability, declared publication lags,
+a broadcast session) and the purged / embargoed walk-forward. `sensitivity.py`
+is the engine: standalone association (descriptive only), the PAIRED
+out-of-sample increment over the baseline on identical rows with a forced ridge
+penalty chosen by blocked inner CV on the baseline arm, partial rank IC, OOS R²
+increment, OOS permutation drop, residual share, stability by block / regime /
+instrument and lockbox sign, a cost-charged book per arm, and Benjamini-Hochberg
+across every conditional p-value the campaign produced. `experiments.py` runs
+996 cells (scope × mode × horizon × dimension; a baseline dimension by ABLATION,
+a new one by AUGMENTATION), checkpointed and parallel by slice.
+`asset_horizon.py` is the asset × horizon × dimension observation map;
+`gaps.py` the ranked INFORMATION GAP FRONTIER (unit: information need);
+`sourcing.py` the cheapest-first ladder and the break-even alpha of any paid
+rung against the paper NAV read read-only from the desk ledger; `challengers.py`
+immutable research-only candidate records; `handoff.py` the AlphaAgent frontier
+in the governor's own mandate shape — an interface, tested, not wired.
+
+**Distinct from, and delegating to, what existed.** `data_opportunity_frontier`
+(R59) keeps its owner and its question; the R63 frontier ranks needs, not
+datasets. The purchase VERDICT stays with `engine.data_expansion_gate`; R63
+quotes R32's ten conditions and never re-scores them. Forward registration,
+adoption, accrual and promotion stay with R61 / R62; R63 imports none of them
+and the audit proves it by token. The five new canonical concepts are
+inventoried with one owner each.
+
+**Safety, enforced rather than declared.** `check_release63_information_sensitivity`
+(18 strict-blocking invariants): the package exists with every dangerous flag
+False on the source text; no forbidden call shape; no `api` / `engine` / `db` /
+registrar / adopter / accrual / desk import; the live memory read only through
+`open_memory_readonly()` and no memory-write call; one `as_of` owner and no
+backward shift; the research root on the data drive and the desk ledger read
+through `read_json` only; artifacts sorted and hashed with `generated_at`
+excluded; no second purchase verdict; no live runtime consumer imports the
+package; the runner has no execute path; the tests are hermetic.
+
+**Remaining gaps, stated.** Results, candidates and the frontier are in
+`docs/RELEASE63_INFORMATION_SENSITIVITY.md` and the machine-readable artifacts
+under the R63 research root. Three substrate limits were measured and are
+recorded rather than worked around: the ICE BofA spread and total-return
+series in the owned FRED panel are licence-capped to a rolling three-year
+window (the credit block therefore uses the Moody's Baa spread from 1986 and the
+credit proxy the owned HYG / LQD total-return series); FINRA short-volume
+history is not served free (HTTP 403 measured 2026-09-09); 13F ownership is
+blocked on a CUSIP bridge the estate does not own. The handoff is not wired into
+`alpha_agent.r59.governor`; wiring it is a research-runtime change for a later
+release.

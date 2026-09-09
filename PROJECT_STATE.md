@@ -1,7 +1,81 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-09
-- **Updated by phase:** **R62.2 - THE AUTOMATIC FORWARD ACCRUAL LOOP (single
+- **Updated by phase:** **R63 - INFORMATION SENSITIVITY, ORTHOGONAL INFORMATION
+  DISCOVERY AND THE ALPHA OFFENSIVE (single agent, Windows PowerShell only,
+  isolated worktree `D:\paper_trader_r63_information_sensitivity` on branch
+  `r63-information-sensitivity`, built over `89a066f`).** Research only;
+  committed and pushed on the DEVELOPMENT branch; NOT merged, NOT deployed.
+  The canonical checkout `C:\Users\binis\paper_trader` was READ ONLY for the
+  whole release - no restart, no daily close, no portfolio cycle, no adoption,
+  no registration, no purchase, no live-store write - and its tracked tree was
+  verified byte-identical to the start-of-run baseline at the end.
+  Full narrative: `docs/RELEASE63_INFORMATION_SENSITIVITY.md`.
+
+  **The question the estate could not ask.** 8,380 settled hypotheses, 311
+  families, 0 QUALIFIED; 98.5% PRICE_STATE; every settled row reopening only on
+  `NEW_ORTHOGONAL_INFORMATION`; every scope but CROSS_ASSET EXHAUSTED. No owner
+  could say which economic INFORMATION carries value for which asset class at
+  which horizon CONDITIONAL on what the estate already uses, or where it is
+  blind. R63 built that owner (`alpha_agent/r63/`, 15 modules) from owned data
+  only, with a pre-registered protocol, and ran it.
+
+  **What was measured.** A 42-dimension economic-information ontology; a
+  51-field, 17-provider certification (USED 9 / TESTED 10 / REJECTED 13 /
+  BLOCKED 19, UNKNOWN 0) derived from evidence, since no R62.2 certification
+  owner existed; 996 cells (scope × mode × horizon × dimension) over 94
+  futures markets from the R41 dated-contract store, the R57/R58 equity
+  panel, the R35 Form 3/4/5 archives joined to the STOCK panel for the first
+  time, SEC submissions histories acquired for the 842 PANEL-F issuers (1.22 M
+  acceptance-stamped filings), the EIA petroleum and natural-gas archives,
+  CFTC, FRED, Cboe and ALFRED vintages. Every cell measures the PAIRED
+  out-of-sample increment over the baseline on identical rows with a forced
+  ridge penalty, residual share, stability, a cost-charged book, and sits
+  under ONE Benjamini-Hochberg family of 978 conditional p-values.
+
+  **The result.** 951 of 978 scored cells show NO conditional value; 54 raw
+  p < 0.05 collapse to **3** BH survivors: FX carry from the dated-contract
+  slope at the 1-session horizon (increment t 4.26, lockbox t 2.80, partial-IC
+  t 4.38, residual share 0.82, nine of ten 3-year blocks positive, net
+  +2.5%/yr at t 2.34) - the ONE `INCREMENTAL_INFORMATION_CANDIDATE` and the
+  first free information dimension in the estate to survive multiple-testing
+  control conditional on the price block; cross-asset TREND at daily cadence
+  (a cadence the memory holds nine hypotheses at; t 3.89, lockbox t 3.94) whose
+  book is degenerate and which is therefore MORE_RESEARCH_REQUIRED; and
+  realised-volatility ablation in rates at the quarter horizon, below the
+  economic floor. The three top gaps actually sourced - stock-level insider
+  behaviour, disclosure intensity and the expected-filing window from the SEC
+  submissions histories, and energy inventories - are all REJECTED with the
+  numbers in the release document. Equity fundamental change, policy
+  expectations from ZQ/SR3, positioning, credit, funding, macro levels,
+  changes and naive surprises, inflation and rates expectations, term
+  structure and curve shape carry no conditional value anywhere. **No paid
+  dataset is a purchase-experiment candidate**: no owned or free proxy shows
+  conditional evidence for any paid rung, and the single-name options surface
+  has proxy evidence but no recorded fee. 1 READY_FOR_FORWARD_QUALIFICATION
+  challenger record (FX carry), 23 MORE_RESEARCH_REQUIRED, nothing promoted,
+  registered or adopted.
+
+  **Disclosed amendments after the first grid pass** (in the protocol): a
+  dimension-count typo; a licence cap discovered in the owned FRED panel (ICE
+  BofA spreads and total return only from 2023-08, so the credit block moved
+  to the Baa spread from 1986 and the credit proxy to the owned HYG/LQD
+  total-return series); a fold floor that refused single-instrument scopes; a
+  time-series statistic whose hard clip saturated and produced identically
+  zero lockbox increments (replaced by tanh, every TS cell re-run); and an
+  uncapped inverse-vol cross-sectional book that handed 99.7% of the
+  cross-asset book to a 0.3%-vol short-rate future (capped at 25%, every XS
+  futures cell re-run, degenerate books refused by rule). No threshold, split,
+  cost or gate moved and nothing was selected on a first-pass number.
+
+  **Guarded by** `check_release63_information_sensitivity` (18
+  strict-blocking invariants) and
+  `tests/test_release63_information_sensitivity.py` (29 hermetic tests).
+  `scripts/audit_architecture.py --strict` exits 0; inventory drift zero;
+  `git diff --check` clean. No full-repository gate: no shared runtime or
+  business behaviour changed.
+
+- **Superseded phase:** **R62.2 - THE AUTOMATIC FORWARD ACCRUAL LOOP (single
   agent, Windows PowerShell only, isolated worktree
   `D:\paper_trader_r62_1_1_forward_activation_integrity` on branch
   `r62-1-1-forward-activation-integrity`, built over `b623161`).**
