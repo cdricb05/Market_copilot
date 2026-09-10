@@ -209,17 +209,38 @@ def execute_mandates(*, verbose: bool = True, resume: bool = True) -> dict:
                        "error": c.get("error")})
     body = {"schema": "alpha_recovery_frontier_mandates/1", "calculation_owner": CALCULATION_OWNER,
             "family": MANDATE_FAMILY, "priced_by": "alpha_agent.r64.experiments.measure_cell (verbatim)",
-            "mandated_not_executed": {"CREDIT_PROXY|21|INFLATION_EXPECTATIONS": "no credit-proxy substrate in the R64 book",
-                                      "US_EQUITY|1|FREE_CASH_FLOW": "a baseline dimension of the incumbent (tournament baseline arm)"},
+            "mandated_not_executed": {},
+            "mandated_executed_in_frontier_residual": {
+                "CREDIT_PROXY|21|INFLATION_EXPECTATIONS": "the R64 futures assembler has no credit-proxy "
+                                                          "substrate; the R63 one does, so the cell is measured "
+                                                          "in alpha_agent/alpha_recovery/frontier_residual.py",
+                "US_EQUITY|1|FREE_CASH_FLOW": "being a baseline dimension of the incumbent is a reason to "
+                                              "measure it, not to skip it; measured in "
+                                              "alpha_agent/alpha_recovery/frontier_residual.py"},
             "n_cells": len(cells), "brief": briefs, "cells": cells}
     write_artifact(MANDATES_ARTIFACT, body)
     return body
 
 
+def _one_spec(fam: dict, s, kind: str) -> dict:
+    """A protocol specification entry is either a string (it inherits the
+    family's PRICE_STATE classification) or a dict that classifies itself -
+    the INCUMBENT_DECOMPOSITION family holds both a price-state leg and a
+    fundamental one, and counting them the same way would be wrong."""
+    body = s if isinstance(s, dict) else {"spec": s}
+    return {"family": fam["family"], "spec": body.get("spec"), "kind": kind,
+            "price_state": bool(body.get("price_state", fam.get("price_state"))),
+            "selects_information": bool(fam.get("selects_information", True)),
+            "binding_failure": body.get("binding_failure"),
+            "frontier_cell_keys": fam.get("frontier_cell_keys") or []}
+
+
 def _family_specs(fam: dict) -> list:
-    return [{"family": fam["family"], "spec": s, "price_state": bool(fam.get("price_state")),
-             "frontier_cell_keys": fam.get("frontier_cell_keys") or []}
-            for s in (fam.get("primary_specifications") or [])]
+    return [_one_spec(fam, s, "PRIMARY") for s in (fam.get("primary_specifications") or [])]
+
+
+def _family_rescues(fam: dict) -> list:
+    return [_one_spec(fam, s, "RESCUE") for s in (fam.get("rescue_specifications") or [])]
 
 
 def build(*, executed: dict | None = None, verbose: bool = True, write: bool = True) -> dict:
@@ -235,18 +256,28 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
     mapping = []
     for fam in fams:
         ex = (executed or {}).get(fam["family"]) or {}
+        rescues = _family_rescues(fam)
         n_primary = int(ex.get("primary", len(fam.get("primary_specifications") or [])))
-        n_rescue = int(ex.get("rescue", 0))
-        budgets.append(check_family_budget(fam, executed_primary=n_primary, executed_rescue=n_rescue,
-                                           rescue_binding_failures=tuple(ex.get("binding_failures") or ())))
+        n_rescue = int(ex.get("rescue", len(rescues)))
+        budgets.append(check_family_budget(
+            fam, executed_primary=n_primary, executed_rescue=n_rescue,
+            rescue_binding_failures=tuple(ex.get("binding_failures")
+                                          or [r.get("binding_failure") for r in rescues])))
         specs.extend(_family_specs(fam)[:n_primary])
+        specs.extend(rescues[:n_rescue])
         keys = fam.get("frontier_cell_keys") or []
         ranks = {k: top_keys.get(k) for k in keys}
         reopen = None
         if fam.get("price_state"):
-            reopen = reopening_allowed(price_state=True, reason=REOPEN_REASONS[3],
-                                       binding_failure="R64: daily cadence cost drag (cross-asset TREND book "
-                                                       "loses 36-46 %/yr to costs)")
+            # each PRICE_STATE family names the MEASURED binding failure that
+            # licenses its reopening; the default is R64's cadence cost drag
+            reopen = reopening_allowed(
+                price_state=True, reason=fam.get("reopening_reason") or REOPEN_REASONS[3],
+                binding_failure=fam.get("reopening_binding_failure")
+                or "R64: daily cadence cost drag (cross-asset TREND book loses 36-46 %/yr to costs)")
+            reopen["binding_failure"] = (fam.get("reopening_binding_failure")
+                                         or "R64: daily cadence cost drag (cross-asset TREND book "
+                                            "loses 36-46 %/yr to costs)")
         best_rank = min([r for r in ranks.values() if r is not None], default=None)
         mand = sorted(k for k in keys if k in mandated)
         if mand:
@@ -264,8 +295,16 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
                         "frontier_cell_keys": keys, "frontier_rank_by_key": ranks,
                         "best_frontier_rank": best_rank, "frontier_relation": relation,
                         "mandated_by_isolated_governor": mand,
+                        "selects_information": bool(fam.get("selects_information", True)),
+                        "information_class": fam.get("information_class"),
                         "reopening": reopen, "n_primary": n_primary, "n_rescue": n_rescue})
-    share = non_price_share(specs)
+    # The 75 % rule governs INFORMATION-directed research: a specification that
+    # selects no information dimension (a pure construction change to the
+    # incumbent's own book) is not a PRICE_STATE formula and is not an
+    # information choice either. Both readings are reported and BOTH must hold,
+    # so the rule is never met by reclassification.
+    share = non_price_share([s for s in specs if s.get("selects_information")])
+    share_inclusive = non_price_share(specs)
     n_fam_on_frontier = sum(1 for m in mapping if m["best_frontier_rank"] is not None)
     n_fam_mandated = sum(1 for m in mapping if m["mandated_by_isolated_governor"])
     n_fam_new_observable = sum(1 for m in mapping
@@ -275,7 +314,12 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
     body = {"schema": "alpha_recovery_research_program/1", "calculation_owner": CALCULATION_OWNER,
             "frontier": rank, "isolated_governor": gov, "families": mapping,
             "budgets": budgets, "budget_rule": {"primary_max": FAMILY_PRIMARY_MAX, "rescue_max": FAMILY_RESCUE_MAX},
-            "non_price_rule": share, "n_families": len(fams),
+            "non_price_rule": share, "non_price_rule_inclusive": share_inclusive,
+            "non_price_rule_denominators": {
+                "information_directed": "specifications from families that SELECT an information "
+                                        "dimension (the rule's subject)",
+                "inclusive": "every executed specification, construction-only families included"},
+            "n_families": len(fams),
             "n_families_with_a_frontier_need": n_fam_on_frontier,
             "n_families_mandated_by_governor": n_fam_mandated,
             "n_families_new_observable_under_zeroed_dimension": n_fam_new_observable,
@@ -283,7 +327,8 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
             "governor_mandates_executed": mandated_executed,
             "governor_mandates_not_executed": [k for k in mandated_all if k not in mandated_executed],
             "allocation_follows_frontier": bool(
-                share["rule_met"] and all(m["frontier_relation"] != "NONE" for m in mapping)
+                share["rule_met"] and share_inclusive["rule_met"]
+                and all(m["frontier_relation"] != "NONE" for m in mapping)
                 and len(mandated_executed) >= max(1, len(mandated_all) // 2)),
             "allocation_rule": ("every family is mandated, on the top-%d frontier, a PRICE_STATE rescue under "
                                 "the reopening rule, or a declared new observable under a frontier dimension the "

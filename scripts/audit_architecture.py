@@ -15871,7 +15871,8 @@ ALPHA_RECOVERY_RUNNER = "scripts/run_alpha_recovery_offensive.py"
 ALPHA_RECOVERY_TESTS = "tests/test_alpha_recovery_offensive.py"
 ALPHA_RECOVERY_MODULES = ("__init__", "checkpoint", "scoreboard", "forecast_contract", "incumbent",
                           "program", "earnings_events", "news", "tournament", "cadence",
-                          "market_direction", "forward_package", "purchase_case", "report")
+                          "market_direction", "forward_package", "purchase_case", "report",
+                          "equity_challengers", "frontier_residual", "forecast_products")
 ALPHA_RECOVERY_CLAUDE_INSTRUCTIONS = ("Read docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md first",
                                       "which Alpha objective", "Refuse to make non-blocking",
                                       "investment evidence")

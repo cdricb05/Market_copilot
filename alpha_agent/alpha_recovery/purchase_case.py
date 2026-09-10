@@ -159,10 +159,13 @@ def assess_candidate(candidate: dict, *, nav: float | None, tournament: dict | N
 
 
 def build(*, tournament: dict | None = None, cadence: dict | None = None, direction: dict | None = None,
-          news_manifest: dict | None = None, write: bool = True) -> dict:
+          news_manifest: dict | None = None, equity: dict | None = None, residual: dict | None = None,
+          write: bool = True) -> dict:
     tournament = tournament if tournament is not None else read_artifact("tournament.json")
     cadence = cadence if cadence is not None else read_artifact("cadence_grid.json")
     direction = direction if direction is not None else read_artifact("market_direction.json")
+    equity = equity if equity is not None else read_artifact("equity_challengers.json")
+    residual = residual if residual is not None else read_artifact("frontier_residual.json")
     nav_rec = SRC.live_nav()
     nav = nav_rec.get("nav")
     closed = []
@@ -176,6 +179,19 @@ def build(*, tournament: dict | None = None, cadence: dict | None = None, direct
         v = (r.get("verdicts") or {}).get("verdict") if isinstance(r, dict) else None
         closed.append({"family": "MARKET_DIRECTION_SPY", "cell_id": "SPY|%s" % h, "verdict": v,
                        "binding_failure": None if v == "CALIBRATED_DIRECTIONAL_SKILL" else v})
+    # the construction challengers and the residual frontier needs close too, so
+    # the exhaustion claim covers EVERY specification the campaign executed
+    for b in (equity or {}).get("brief") or []:
+        if b.get("verdict") == "REFERENCE_ARM":
+            continue
+        closed.append({"family": b.get("family"), "cell_id": b.get("cell_id"), "verdict": b.get("verdict"),
+                       "binding_failure": (b.get("failed_gates") or ["DATA_HOLD"])[0]
+                       if b.get("verdict") != "MATERIALLY_BEATS_INCUMBENT" else None})
+    for b in (residual or {}).get("brief") or []:
+        closed.append({"family": b.get("family") or "FRONTIER_MANDATES_RISK_CONTROLLED",
+                       "cell_id": b.get("cell_id"), "verdict": b.get("r64_verdict"),
+                       "binding_failure": b.get("r64_verdict")
+                       if b.get("r64_verdict") != "ECONOMIC_UNDER_CONTROLS" else None})
     survivors = [c for c in closed if c["verdict"] in ("MATERIALLY_BEATS_INCUMBENT", "ECONOMIC_UNDER_CONTROLS",
                                                         "CALIBRATED_DIRECTIONAL_SKILL")]
     families = sorted({c["family"] for c in closed if c["family"]})

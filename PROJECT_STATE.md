@@ -39,15 +39,55 @@ rescues (`NO_DIRECTIONAL_SKILL`, Brier skill <= 0); FX carry at 5-21-session
 trade cadence (`ECONOMIC_UNDER_CONTROLS_NOT_FDR`: +2.3 to +2.9 %/yr net under
 the R64 book but Holm-failed, POST_SELECTION, and NO incremental utility for
 the incumbent-only book at equal risk, t -0.95); cross-asset trend at every
-cadence (degenerate); the governor's mandated needs (rates implied-volatility
-term structure, FX positioning: no value; volatility IV: data hold); the
-bounded, PIT-plausible 2021-onward EODHD news sample (41 of the 120 pre-
-registered names within the fetch budget; 5 cells: `NO_ADVANTAGE` at 5
-sessions, `WORSE_THAN_INCUMBENT` at 1 session, data hold at 21). No candidate is READY for
-forward qualification; nothing was registered. The purchase case names
-as-was earnings-consensus history as the top missing need and returns
-`DO_NOT_BUY` at every fee on the ladder because no proxy clears the
-break-even alpha. Full numbers: `research/alpha_recovery/ALPHA_RECOVERY_REPORT.md`.
+cadence (degenerate); the bounded, PIT-plausible 2021-onward EODHD news sample
+(41 of the 120 pre-registered names within the fetch budget; 5 cells:
+`NO_ADVANTAGE` at 5 sessions, `WORSE_THAN_INCUMBENT` at 1 session, data hold
+at 21).
+
+**Every one of the isolated governor's six mandated information needs is now
+measured** (`governor_mandates_not_executed` is empty). The three the first
+pass left open were completed rather than excused: `US_EQUITY|1|FREE_CASH_FLOW`
+(frontier rank 2) carries REAL conditional information - t 2.21, residual
+share 1.00, economic increment +3.6 %/yr at t 3.49 - inside a daily long-short
+book that loses **20.3 %/yr to transaction cost** and draws down 77.5 %, so the
+R64 degeneracy rule voids it; `CREDIT_PROXY|21|INFLATION_EXPECTATIONS`
+(rank 6) is conditional t 2.86 but +1.2 %/yr, below the 1.5 %/yr materiality
+bar; `VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV` (rank 3) had returned
+DATA_HOLD on **196 covered rows against the floor of 200** and was answered by
+running the same information at a cadence that yields enough decision slots -
+the floor was NOT moved - where the conditional statistic is negative and the
+cell fails reproduction against the persisted R63 matrix (the FRED / Cboe
+inputs have drifted since 2026-09-09).
+
+**The strongest same-capital finding is the incumbent's own cadence.** The
+blend rebalanced every 126 sessions instead of 21 earns +4.4 %/yr net excess
+against +2.2 %/yr, Sharpe excess 0.391 against 0.191, a SHALLOWER drawdown
+(-0.190 against -0.206) and 0.126 one-way turnover per 21 sessions against
+0.335 - the whole ladder (42, 63, 126) beats the operational arm on every
+dimension at once. The paired advantage is +2.2 %/yr, above the 1.5 %/yr
+materiality bar, at **t 1.61 - below the frozen t >= 2 bar, which was not
+moved** - so the verdict is `NO_ADVANTAGE` and nothing is adopted. Decomposing
+the blend, the fundamental leg alone is worse than the blend (-1.0 %/yr) and
+the momentum leg alone is no better (+0.9 %/yr, t 0.44) at 2.7x the turnover:
+the blend is momentum, diluted for stability, and the dilution earns its keep
+through cost and drawdown rather than through return.
+
+**Forecast products: 2 of 4 families now carry a lockbox-tested economic
+forecast** (`forecast_products.json`). Broad-market SPY probabilities and
+per-name equity expected returns remain UNAVAILABLE. Book-level expected
+excess returns are licensed at the 42-, 63- and 126-session cadences; the
+OPERATIONAL 21-session book is NOT licensed, because its pre-2023 mean excess
+and its lockbox mean disagree in sign. The FX carry sleeve carries a licensed
+expected 21-session return with its uncertainty and the explicit record that
+it adds no utility to the incumbent at equal risk.
+
+No candidate is READY for forward qualification; nothing was registered. The
+purchase case names as-was earnings-consensus history as the top missing
+purchasable need and returns `DO_NOT_BUY` at every fee on the ladder because
+no proxy clears the break-even alpha. The highest-value UNRESOLVED need on the
+frontier is now `US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW` - free 13F data,
+blocked by the absence of a CUSIP-to-ticker bridge, not by money. Full
+numbers: `research/alpha_recovery/ALPHA_RECOVERY_REPORT.md`.
 Every future agent states which alpha objective its work advances before
 doing it (`CLAUDE.md`).
 

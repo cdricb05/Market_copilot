@@ -20,20 +20,46 @@ Deadline outcome: PENDING
 | evidence maturity | HISTORICAL_OOS 2011-07-01..2026-07-16 | TRUE_FORWARD_ACCRUING (35 sessions; effective independent monthly observations 1) | HISTORICAL_OOS_ONLY |
 | forward evidence | n/a | this IS the forward evidence | NONE (no ALPHA_RECOVERY challenger is registered) |
 
+## Best challenger on the SAME capital as the incumbent
+
+`US_EQUITY|TOP25|blend|k126` - NO_ADVANTAGE
+
+| net advantage /yr | t | Sharpe delta | drawdown delta | turnover delta | lockbox advantage | failed gates |
+|---|---|---|---|---|---|---|
+| 0.0218 | 1.61 | 0.306 | 0.015 | -0.209 | 0.0137 | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,paired_t_ge_2 |
+
+US_EQUITY long-only top-25 book: the SAME universe, score and cost as the incumbent, rebalanced every 126 sessions
+
+## Forecast products
+
+- 2 of 4 product families carry a lockbox-tested economic forecast: EQUITY_BOOK_LEVEL, MULTI_ASSET_SLEEVE
+
 ## Campaign counters
 
 - eligible sessions elapsed / 10: 0 / 10 (remaining 10)
-- share of new research effort on non-price information: 0.857 (rule >= 0.75: True)
-- economically distinct information families tested: 6 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
+- share of new research effort on non-price information: 0.842 (rule >= 0.75: True); inclusive of construction-only specifications 0.762 (True)
+- economically distinct information families tested: 8 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
 - candidate specifications alive: 5
 - in TRUE_FORWARD competition: 0
-- highest-value unresolved information gap: VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV
+- highest-value unresolved information gap: US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW
 - top missing information need (purchase case): EARNINGS_EXPECTATIONS_AS_WAS_CONSENSUS
 
 ## Every candidate
 
 | cell | kind | verdict | net advantage /yr | t | Sharpe delta | lockbox advantage | BH | Holm | failed gates |
 |---|---|---|---|---|---|---|---|---|---|
+| US_EQUITY|TOP25|blend|k126 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0218 | 1.61 | 0.306 | 0.0137 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,paired_t_ge_2 |
+| US_EQUITY|TOP25|blend|k21 | SAME_DOMAIN_CONSTRUCTION | REFERENCE_ARM | 0.0000 | 0.00 | n/a | 0.0000 | None | None | lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
+| US_EQUITY|TOP25|blend|k42 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0169 | 1.62 | 0.412 | -0.0022 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,lockbox_sign_agrees,paired_t_ge_2 |
+| US_EQUITY|TOP25|blend|k63 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0168 | 1.49 | 0.346 | 0.0257 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,paired_t_ge_2 |
+| US_EQUITY|TOP25|fundamental_only|k21 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | -0.0104 | -0.36 | -0.092 | -0.0929 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
+| US_EQUITY|TOP25|fundamental_only|k63 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | -0.0120 | -0.46 | -0.110 | -0.0921 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
+| US_EQUITY|TOP25|momentum_only|k21 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0087 | 0.44 | 0.113 | 0.0716 | False | False | benjamini_hochberg,family_holm,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2,turnover_le_cap |
+| US_EQUITY|TOP25|momentum_only|k63 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0086 | 0.40 | 0.099 | 0.0391 | False | False | benjamini_hochberg,family_holm,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
+| CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS | FRONTIER_NEED | NOT_ECONOMIC_UNDER_CONTROLS | 0.0121 | 1.15 | 0.098 | n/a | False | False |  |
+| US_EQUITY|XS|1|FREE_CASH_FLOW | FRONTIER_NEED | NOT_ECONOMIC_UNDER_CONTROLS | 0.0362 | 3.49 | 0.343 | n/a | True | True |  |
+| VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV | FRONTIER_NEED | REPRODUCTION_FAILED | 0.0004 | 0.11 | 0.003 | n/a | False | False |  |
+| VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV | FRONTIER_NEED | REPRODUCTION_FAILED | 0.0029 | 0.87 | 0.026 | n/a | False | False |  |
 | US_EQUITY|XS|1|EARNINGS_EVENT_REACTION|vs|INCUMBENT_SCORE | SAME_DOMAIN | NO_ADVANTAGE | 0.0197 | 1.57 | 0.581 | 0.0500 | False | False | benjamini_hochberg,family_holm,information_conditional_t_ge_2,paired_t_ge_2 |
 | US_EQUITY|XS|1|NEWS_INTENSITY|vs|INCUMBENT_SCORE | SAME_DOMAIN | WORSE_THAN_INCUMBENT | -0.0346 | -2.46 | -1.157 | -0.0486 | False | False | benjamini_hochberg,family_holm,information_conditional_t_ge_2,lockbox_halves_ge_floor,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
 | US_EQUITY|XS|21|EARNINGS_EVENT_REACTION|vs|INCUMBENT_SCORE | SAME_DOMAIN | NO_ADVANTAGE | -0.0038 | -0.25 | -0.090 | -0.0189 | False | False | benjamini_hochberg,family_holm,information_conditional_t_ge_2,lockbox_halves_ge_floor,lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2,turnover_le_cap |

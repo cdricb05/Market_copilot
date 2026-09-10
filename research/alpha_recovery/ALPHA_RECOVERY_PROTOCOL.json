@@ -8,25 +8,30 @@
  "amendments_disclosed": [
   "2026-09-10T15:05Z, BEFORE any candidate result was observed and DISCLOSED: a fifth family, NEWS_INTENSITY, is added after the read-only EODHD depth probe measured that the entitled archive is empty before 2018 and dense only from 2021 while covering later-delisted names in that window. Sample rule, window, features, horizons and the six-specification budget are registered here before the first fetch; no threshold, gate, split, cost or statistic changed.",
   "2026-09-10T16:10Z, AFTER the four primary MARKET_DIRECTION_SPY cells were observed (all NO_DIRECTIONAL_SKILL) and DISCLOSED: two RESCUE specifications are added under the family's rescue budget (max 2) for the NAMED, MEASURED binding failure EFFECTIVE_SAMPLE - complete rows begin 2011-06-27 because the NFCI and ICSA vintages begin then, leaving 113-115 out-of-sample decisions at 21 and 63 sessions. The rescue drops every feature whose history begins after 2003-08-08 and re-runs the SAME models, folds, penalty rule, calibration tests and verdict rule at 21 and 63 sessions. No threshold, gate, split, cost or statistic changed; the primary cells stand and are not re-run.",
-  "2026-09-10T16:35Z, AFTER the isolated governor run was observed and DISCLOSED: the governor mandated six information needs; the campaign had executed one (FX_FUTURES|5|CARRY). A sixth family, FRONTIER_MANDATES_RISK_CONTROLLED, executes the three other mandated needs the R64 owner can price on the futures substrate - RATES_FUTURES|XS|21|VOLATILITY_EXPECTATIONS_IV, VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV, FX_FUTURES|XS|21|POSITIONING_COMMITMENTS - through alpha_agent.r64.experiments.measure_cell verbatim (the ONE scorer, the ONE risk-controlled book, the R64 verdict ladder), one specification each, so the allocation demonstrably follows the frontier. CREDIT_PROXY|21|INFLATION_EXPECTATIONS and US_EQUITY|1|FREE_CASH_FLOW are recorded as mandated-not-executed with the reason (the R64 book has no credit-proxy substrate; FREE_CASH_FLOW is a baseline dimension of the incumbent already measured by the tournament's baseline arm). No threshold, gate, split, cost or statistic changed."
+  "2026-09-10T16:35Z, AFTER the isolated governor run was observed and DISCLOSED: the governor mandated six information needs; the campaign had executed one (FX_FUTURES|5|CARRY). A sixth family, FRONTIER_MANDATES_RISK_CONTROLLED, executes the three other mandated needs the R64 owner can price on the futures substrate - RATES_FUTURES|XS|21|VOLATILITY_EXPECTATIONS_IV, VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV, FX_FUTURES|XS|21|POSITIONING_COMMITMENTS - through alpha_agent.r64.experiments.measure_cell verbatim (the ONE scorer, the ONE risk-controlled book, the R64 verdict ladder), one specification each, so the allocation demonstrably follows the frontier. CREDIT_PROXY|21|INFLATION_EXPECTATIONS and US_EQUITY|1|FREE_CASH_FLOW are recorded as mandated-not-executed with the reason (the R64 book has no credit-proxy substrate; FREE_CASH_FLOW is a baseline dimension of the incumbent already measured by the tournament's baseline arm). No threshold, gate, split, cost or statistic changed.",
+  "2026-09-10T18:19Z, AFTER the first pass over the frontier was observed and DISCLOSED: the FRONTIER_MANDATES_RISK_CONTROLLED family is completed from three primary specifications to six plus one rescue, because three of the six OWNED needs the frontier ranks highest were still unmeasured. US_EQUITY|XS|1|FREE_CASH_FLOW (frontier rank 2) and CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS (rank 6) had been recorded mandated-not-executed for reasons that describe the R64 futures assembler rather than the information, and are now measured through the ONE scorer and the ONE risk-controlled book composed around the R63 assembler. VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV is a primary and VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV the single RESCUE under the family's rescue budget, for the NAMED, MEASURED binding failure: VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV returned DATA_HOLD with rows_covered=196 against sensitivity.MIN_ROWS=200 and n_instruments=1. No threshold, gate, split, cost or statistic changed - in particular sensitivity.MIN_ROWS stays at 200 and the DATA_HOLD is answered by a cadence that yields enough decision slots, never by lowering the floor to reach 196 rows.",
+  "2026-09-10T18:20Z, AFTER the incumbent baseline and its horizon attribution were observed (INCUMBENT_WEAK_OR_UNPROVEN at the operational 21-session horizon, +2.7 %/yr at t 0.99, while the SAME blend scores +4.5 %/yr at t 2.14 over a 63-session forward window) and DISCLOSED: two families are added that change the CONSTRUCTION of the incumbent rather than its information. EQUITY_INCUMBENT_CADENCE rebalances the top-25 book every 21 (the operational reference arm), 42, 63 and 126 sessions; INCUMBENT_DECOMPOSITION runs the momentum leg alone and the fundamental leg alone at 21 and 63 sessions. Every arm shares the universe, the daily calendar, the capital and the 12.5 bp per side, and is compared to the operational arm on paired non-overlapping 21-session blocks. The frozen head-to-head gates and the frozen threshold set apply UNCHANGED - materiality 1.5 %/yr, paired t >= 2, lockbox sign agreement, lockbox halves >= -0.5 %/yr, turnover <= 0.40 one-way per 21 sessions, drawdown within 1.5x, Holm inside the family and campaign Benjamini-Hochberg. The family is labelled POST_SELECTION because the attribution that motivated the ladder was read first, and the ladder is NOT extended past 126 sessions after seeing that the point estimate rises with the cadence.",
+  "2026-09-10T18:21Z, BEFORE any product number was computed and DISCLOSED: the book-level forecast calibration test is registered. A book-level expected return is licensed only if the estimate a forecaster could have formed on SELECTION periods survives the LOCKBOX on all three counts - the two layer means share a sign, the lockbox mean lies inside a 95 % predictive interval of width 1.96 * sd_selection * sqrt(1/n_s + 1/n_l) around the selection mean, and the lockbox carries at least MIN_EFFECTIVE_PERIODS observations - otherwise the field is UNAVAILABLE with the reason. Passing licenses the FULL-sample out-of-sample mean as the point forecast and the uncertainty travels with it. This adds a test; it moves no threshold and relaxes no gate."
  ],
-
  "question": "Does any specification built from OWNED or FREE information materially beat fundamental_momentum_50_50_v1 after realistic costs on an identical sample (or add incremental utility to the incumbent-only portfolio under equal risk), strongly enough to enter governed TRUE_FORWARD competition within ten eligible sessions - and if not, exactly which information is missing and what would it cost to buy?",
-
  "what_this_campaign_is_not": [
   "not a release: progress is measured by the scoreboard, never by lines, tests or release numbers",
   "not a second scorer, PIT engine, book, frontier, memory, queue, scheduler or forward owner: alpha_agent.r63.sensitivity.run_cell, alpha_agent.r63.pit, alpha_agent.r64.construction, alpha_agent.r63.gaps, alpha_agent.r59.information_needs and api.forward_challenger_registry stay canonical",
   "not a live change: no merge, deploy, restart, registration, adoption, promotion, approval, order, fill, purchase, subscription, trial, account or live-store write",
   "not a transformation zoo: another lag, transform, normalisation, tree or parameter reopens nothing"
  ],
-
  "incumbent_baseline": {
   "model_id": "fundamental_momentum_50_50_v1",
   "shape": "0.5 x z(fundamental composite) + 0.5 x z(momentum 126-21) within the eligible cross-section, the R58 B0 diagnostic shape",
   "fundamental_leg_reconstruction": "PIT rebuild from owned SEC companyfacts on PANEL-F: z(fcf_to_assets) + z(-accruals_to_assets), the R58 a1_composite; the operational composite_sn panel is survivorship-biased and stale (R58 finding) and is NOT used as evidence",
   "momentum_leg_reconstruction": "EXACT: 126-session total return skipping the last 21 sessions",
   "universe": "R63 equity eligibility (PIT S&P 500 member, unadjusted close >= 5, 63-session median dollar volume >= 10M, >= 234 of 260 prior sessions) AND a PANEL-F core fundamental record",
-  "horizons_sessions": [1, 5, 21, 63],
+  "horizons_sessions": [
+   1,
+   5,
+   21,
+   63
+  ],
   "cadence_rule": "min(horizon, 21) sessions, from 2011-07-01 (PANEL-F first honest formation), the R63 rule",
   "books": "long-only equal-weight top-25 (operational) and top-50 (shadow ledger) versus the equal-weight eligible universe, 12.5bp per side on one-way turnover, NEXT_CLOSE entry",
   "statistics": "per-period Spearman rank IC, top-minus-bottom decile spread, net and gross excess return, Sharpe of excess, maximum drawdown of book and benchmark, one-way turnover, hit rate, Newey-West t with lag ceil(h/cadence)-1, effective non-overlapping periods, 3-year blocks, trend-up/down regimes, selection (< 2023) versus lockbox (>= 2023) split, leg attribution (fundamental-only, momentum-only, blend)",
@@ -39,42 +44,235 @@
    "true_forward_cannot_decide": "the TRUE_FORWARD sample (tens of sessions) is reported but cannot move the verdict; it is a separate gate"
   }
  },
-
  "forecast_contract": {
   "owner": "alpha_agent/alpha_recovery/forecast_contract.py",
   "rule": "every economic field is VALUE with an out-of-sample calibration record or UNAVAILABLE with a reason; probabilities lie in [0, 1] and up + down = 1; a score is carried as a labelled score and can never populate expected_return; research only, not wired into capital allocation"
  },
-
  "information_directed_program": {
   "frontier_owner": "alpha_agent.r63.gaps (information_gap_frontier.json) read through alpha_agent.r59.information_needs with the R64 overlay",
   "governor_proof": "alpha_agent.r59.governor.generate_mandates is run against an ISOLATED research memory under the campaign root (PAPER_TRADER_R59_RESEARCH_ROOT redirected), with an empty scope view so only information-need mandates are offered; the executed families must map to mandated or top-ranked needs and the mapping is published",
-  "family_budget": {"primary_specifications_max": 6, "rescue_specifications_max": 2, "rescue_requires_named_measured_binding_failure": true},
+  "family_budget": {
+   "primary_specifications_max": 6,
+   "rescue_specifications_max": 2,
+   "rescue_requires_named_measured_binding_failure": true
+  },
   "non_price_rule": ">= 75 % of newly executed autonomous specifications target non-exhausted information needs rather than PRICE_STATE transformations",
   "reopening_rule": "an exhausted PRICE_STATE family reopens only for genuinely new orthogonal information, materially improved PIT history or coverage, or a truly distinct economic implementation resolving a NAMED binding failure; the cross-asset TREND cadence cells reopen under the last clause (R64 named 'daily cadence cost drag' as the binding failure) and are counted as PRICE_STATE",
   "families": [
-   {"family": "EARNINGS_EVENT_REACTION", "information_class": "EVENT_AND_CALENDAR / EXPECTATIONS", "frontier_cell_keys": ["US_EQUITY|21|EVENT_INFORMATION", "US_EQUITY|5|EVENT_INFORMATION", "US_EQUITY|21|EARNINGS_EXPECTATIONS", "US_EQUITY|5|EARNINGS_EXPECTATIONS"], "price_state": false, "primary_specifications": ["US_EQUITY|XS|1|EARNINGS_EVENT_REACTION vs incumbent", "US_EQUITY|XS|5|EARNINGS_EVENT_REACTION vs incumbent", "US_EQUITY|XS|21|EARNINGS_EVENT_REACTION vs incumbent", "US_EQUITY|XS|63|EARNINGS_EVENT_REACTION vs incumbent", "US_EQUITY|XS|21|EARNINGS_REACTION_ONLY vs incumbent", "US_EQUITY|XS|21|EARNINGS_SURPRISE_ONLY vs incumbent"]},
-   {"family": "FX_CARRY_CADENCE", "information_class": "CARRY_AND_CURVE", "frontier_cell_keys": ["FX_FUTURES|5|CARRY", "FX_FUTURES|1|CARRY"], "price_state": false, "primary_specifications": ["FX_FUTURES|XS|1|CARRY signal daily, trade every 1 session, band 0.25", "trade every 5, band 0.25", "trade every 10, band 0.25", "trade every 21, band 0.25", "trade every 5, band 0.50", "trade every 21, band 0.50"]},
-   {"family": "CROSS_ASSET_TREND_CADENCE", "information_class": "PRICE_STATE (rescue under the reopening rule, named binding failure: cadence cost drag)", "frontier_cell_keys": ["CROSS_ASSET|1|TREND", "CROSS_ASSET|5|TREND"], "price_state": true, "primary_specifications": ["CROSS_ASSET|XS|1|TREND signal daily, trade every 1 session, band 0.25", "trade every 5, band 0.25", "trade every 10, band 0.25", "trade every 21, band 0.25"]},
-   {"family": "MARKET_DIRECTION_SPY", "information_class": "CROSS_ASSET_AND_RISK_STATE / MACRO_AND_POLICY / EXPECTATIONS conditioners with a price-state block", "frontier_cell_keys": ["EQUITY_INDEX_FUTURES|21|VOLATILITY_EXPECTATIONS_IV", "EQUITY_INDEX_FUTURES|21|CREDIT_CONDITIONS", "EQUITY_INDEX_FUTURES|5|EVENT_INFORMATION"], "price_state": false, "primary_specifications": ["SPY direction 1 session", "SPY direction 5 sessions", "SPY direction 21 sessions", "SPY direction 63 sessions"]},
-   {"family": "FRONTIER_MANDATES_RISK_CONTROLLED", "information_class": "EXPECTATIONS (implied volatility term structure) / POSITIONING_AND_FLOW", "frontier_cell_keys": ["RATES_FUTURES|21|VOLATILITY_EXPECTATIONS_IV", "VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV", "FX_FUTURES|21|POSITIONING_COMMITMENTS"], "price_state": false, "primary_specifications": ["RATES_FUTURES|XS|21|VOLATILITY_EXPECTATIONS_IV under the R64 risk-controlled book", "VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV under the R64 risk-controlled book", "FX_FUTURES|XS|21|POSITIONING_COMMITMENTS under the R64 risk-controlled book"], "mandated_not_executed": {"CREDIT_PROXY|21|INFLATION_EXPECTATIONS": "the R64 risk-controlled book has no credit-proxy substrate", "US_EQUITY|1|FREE_CASH_FLOW": "a baseline dimension of the incumbent, measured by the tournament's baseline arm"}, "added_by_disclosed_amendment": true},
-   {"family": "NEWS_INTENSITY", "information_class": "EVENT_AND_CALENDAR / DISCLOSURE_AND_BEHAVIOUR (textual)", "frontier_cell_keys": ["US_EQUITY|5|EVENT_INFORMATION", "US_EQUITY|1|EVENT_INFORMATION"], "price_state": false, "sample": "PIT S&P 500 members on 2021-01-04 passing the R63 eligibility rule with a resolved CIK, ordered by stable hash of the symbol, first 120; later-delisted names kept", "window": "2020-10-01 to the last panel session", "features": ["news_count_z: 5-day article count against the trailing 63-day rate (Poisson z)", "net_sentiment_5d: mean vendor polarity over 5 days (PIT_UNVERIFIED)", "negative_intensity_z: 5-day negative-score sum against the trailing 63-day rate"], "primary_specifications": ["US_EQUITY|XS|1|NEWS_INTENSITY vs incumbent", "US_EQUITY|XS|5|NEWS_INTENSITY vs incumbent", "US_EQUITY|XS|21|NEWS_INTENSITY vs incumbent", "US_EQUITY|XS|5|NEWS_COUNT_ONLY vs incumbent", "US_EQUITY|XS|5|NEWS_SENTIMENT_ONLY vs incumbent"], "coverage_rule": "the cell is judged on covered rows only (the R63 COVERED_ROWS_ONLY rule) and labelled so; a 120-name head-to-head is disclosed as a sample, never as the universe", "added_by_disclosed_amendment": true}
+   {
+    "family": "EARNINGS_EVENT_REACTION",
+    "information_class": "EVENT_AND_CALENDAR / EXPECTATIONS",
+    "frontier_cell_keys": [
+     "US_EQUITY|21|EVENT_INFORMATION",
+     "US_EQUITY|5|EVENT_INFORMATION",
+     "US_EQUITY|21|EARNINGS_EXPECTATIONS",
+     "US_EQUITY|5|EARNINGS_EXPECTATIONS"
+    ],
+    "price_state": false,
+    "primary_specifications": [
+     "US_EQUITY|XS|1|EARNINGS_EVENT_REACTION vs incumbent",
+     "US_EQUITY|XS|5|EARNINGS_EVENT_REACTION vs incumbent",
+     "US_EQUITY|XS|21|EARNINGS_EVENT_REACTION vs incumbent",
+     "US_EQUITY|XS|63|EARNINGS_EVENT_REACTION vs incumbent",
+     "US_EQUITY|XS|21|EARNINGS_REACTION_ONLY vs incumbent",
+     "US_EQUITY|XS|21|EARNINGS_SURPRISE_ONLY vs incumbent"
+    ],
+    "selects_information": true,
+    "rescue_specifications": []
+   },
+   {
+    "family": "FX_CARRY_CADENCE",
+    "information_class": "CARRY_AND_CURVE",
+    "frontier_cell_keys": [
+     "FX_FUTURES|5|CARRY",
+     "FX_FUTURES|1|CARRY"
+    ],
+    "price_state": false,
+    "primary_specifications": [
+     "FX_FUTURES|XS|1|CARRY signal daily, trade every 1 session, band 0.25",
+     "trade every 5, band 0.25",
+     "trade every 10, band 0.25",
+     "trade every 21, band 0.25",
+     "trade every 5, band 0.50",
+     "trade every 21, band 0.50"
+    ],
+    "selects_information": true,
+    "rescue_specifications": []
+   },
+   {
+    "family": "CROSS_ASSET_TREND_CADENCE",
+    "information_class": "PRICE_STATE (rescue under the reopening rule, named binding failure: cadence cost drag)",
+    "frontier_cell_keys": [
+     "CROSS_ASSET|1|TREND",
+     "CROSS_ASSET|5|TREND"
+    ],
+    "price_state": true,
+    "primary_specifications": [
+     "CROSS_ASSET|XS|1|TREND signal daily, trade every 1 session, band 0.25",
+     "trade every 5, band 0.25",
+     "trade every 10, band 0.25",
+     "trade every 21, band 0.25"
+    ],
+    "selects_information": true,
+    "rescue_specifications": [],
+    "reopening_binding_failure": "R64: daily cadence cost drag - the cross-asset TREND book loses 36-46 %/yr to costs",
+    "reopening_reason": "DISTINCT_IMPLEMENTATION_RESOLVES_NAMED_BINDING_FAILURE"
+   },
+   {
+    "family": "MARKET_DIRECTION_SPY",
+    "information_class": "CROSS_ASSET_AND_RISK_STATE / MACRO_AND_POLICY / EXPECTATIONS conditioners with a price-state block",
+    "frontier_cell_keys": [
+     "EQUITY_INDEX_FUTURES|21|VOLATILITY_EXPECTATIONS_IV",
+     "EQUITY_INDEX_FUTURES|21|CREDIT_CONDITIONS",
+     "EQUITY_INDEX_FUTURES|5|EVENT_INFORMATION"
+    ],
+    "price_state": false,
+    "primary_specifications": [
+     "SPY direction 1 session",
+     "SPY direction 5 sessions",
+     "SPY direction 21 sessions",
+     "SPY direction 63 sessions"
+    ],
+    "selects_information": true,
+    "rescue_specifications": [
+     {
+      "spec": "SPY direction at 21 sessions, features restricted to those with history from 2003-08-08",
+      "binding_failure": "EFFECTIVE_SAMPLE: complete rows begin 2011-06-27 because the NFCI and ICSA vintages begin then, leaving 113-115 out-of-sample decisions",
+      "reopening_reason": "COVERAGE_MATERIALLY_IMPROVED"
+     },
+     {
+      "spec": "SPY direction at 63 sessions, same feature restriction",
+      "binding_failure": "EFFECTIVE_SAMPLE: as above at the 63-session horizon",
+      "reopening_reason": "COVERAGE_MATERIALLY_IMPROVED"
+     }
+    ]
+   },
+   {
+    "family": "FRONTIER_MANDATES_RISK_CONTROLLED",
+    "information_class": "EXPECTATIONS (implied volatility term structure) / POSITIONING_AND_FLOW",
+    "frontier_cell_keys": [
+     "CREDIT_PROXY|21|INFLATION_EXPECTATIONS",
+     "FX_FUTURES|21|POSITIONING_COMMITMENTS",
+     "RATES_FUTURES|21|VOLATILITY_EXPECTATIONS_IV",
+     "US_EQUITY|1|FREE_CASH_FLOW",
+     "VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV"
+    ],
+    "price_state": false,
+    "primary_specifications": [
+     "RATES_FUTURES|XS|21|VOLATILITY_EXPECTATIONS_IV under the R64 risk-controlled book",
+     "VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV under the R64 risk-controlled book",
+     "FX_FUTURES|XS|21|POSITIONING_COMMITMENTS under the R64 risk-controlled book",
+     "US_EQUITY|XS|1|FREE_CASH_FLOW ablation vs the R63 equity baseline (frontier rank 2, OWNED)",
+     "VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV augmentation (frontier rank 3, OWNED)",
+     "CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS augmentation (frontier rank 6, OWNED)"
+    ],
+    "mandated_not_executed": {
+     "CREDIT_PROXY|21|INFLATION_EXPECTATIONS": "the R64 risk-controlled book has no credit-proxy substrate",
+     "US_EQUITY|1|FREE_CASH_FLOW": "a baseline dimension of the incumbent, measured by the tournament's baseline arm"
+    },
+    "added_by_disclosed_amendment": true,
+    "selects_information": true,
+    "rescue_specifications": [
+     {
+      "spec": "VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV augmentation",
+      "binding_failure": "VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV returned DATA_HOLD with rows_covered=196 against sensitivity.MIN_ROWS=200 and n_instruments=1",
+      "reopening_reason": "DISTINCT_IMPLEMENTATION_RESOLVES_NAMED_BINDING_FAILURE",
+      "floor_not_moved": "sensitivity.MIN_ROWS stays at 200"
+     }
+    ]
+   },
+   {
+    "family": "NEWS_INTENSITY",
+    "information_class": "EVENT_AND_CALENDAR / DISCLOSURE_AND_BEHAVIOUR (textual)",
+    "frontier_cell_keys": [
+     "US_EQUITY|5|EVENT_INFORMATION",
+     "US_EQUITY|1|EVENT_INFORMATION"
+    ],
+    "price_state": false,
+    "sample": "PIT S&P 500 members on 2021-01-04 passing the R63 eligibility rule with a resolved CIK, ordered by stable hash of the symbol, first 120; later-delisted names kept",
+    "window": "2020-10-01 to the last panel session",
+    "features": [
+     "news_count_z: 5-day article count against the trailing 63-day rate (Poisson z)",
+     "net_sentiment_5d: mean vendor polarity over 5 days (PIT_UNVERIFIED)",
+     "negative_intensity_z: 5-day negative-score sum against the trailing 63-day rate"
+    ],
+    "primary_specifications": [
+     "US_EQUITY|XS|1|NEWS_INTENSITY vs incumbent",
+     "US_EQUITY|XS|5|NEWS_INTENSITY vs incumbent",
+     "US_EQUITY|XS|21|NEWS_INTENSITY vs incumbent",
+     "US_EQUITY|XS|5|NEWS_COUNT_ONLY vs incumbent",
+     "US_EQUITY|XS|5|NEWS_SENTIMENT_ONLY vs incumbent"
+    ],
+    "coverage_rule": "the cell is judged on covered rows only (the R63 COVERED_ROWS_ONLY rule) and labelled so; a 120-name head-to-head is disclosed as a sample, never as the universe",
+    "added_by_disclosed_amendment": true,
+    "selects_information": true,
+    "rescue_specifications": []
+   },
+   {
+    "family": "EQUITY_INCUMBENT_CADENCE",
+    "information_class": "CONSTRUCTION_ONLY - the incumbent's own information unchanged (FUNDAMENTAL_LEVELS / FREE_CASH_FLOW / MOMENTUM); the treatment is the rebalance cadence, not a new observable",
+    "selects_information": false,
+    "frontier_cell_keys": [],
+    "price_state": true,
+    "primary_specifications": [
+     "US_EQUITY|TOP25|blend|k21 - the OPERATIONAL reference arm",
+     "US_EQUITY|TOP25|blend|k42",
+     "US_EQUITY|TOP25|blend|k63",
+     "US_EQUITY|TOP25|blend|k126"
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "the operational construction itself: fundamental_momentum_50_50_v1 rebalances every 21 sessions at 0.335 one-way turnover per rebalance, while the SAME score scores +4.5 %/yr at t 2.14 over a 63-session forward window against +2.7 %/yr at t 0.99 over a 21-session one",
+    "reopening_reason": "DISTINCT_IMPLEMENTATION_RESOLVES_NAMED_BINDING_FAILURE"
+   },
+   {
+    "family": "INCUMBENT_DECOMPOSITION",
+    "information_class": "WHICH LEG - the fundamental leg (FREE_CASH_FLOW, ACCRUALS) against the momentum leg (PRICE_STATE) inside the incumbent's fixed 50/50 blend",
+    "selects_information": true,
+    "frontier_cell_keys": [
+     "US_EQUITY|1|FREE_CASH_FLOW"
+    ],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "US_EQUITY|TOP25|momentum_only|k21",
+      "price_state": true
+     },
+     {
+      "spec": "US_EQUITY|TOP25|fundamental_only|k21",
+      "price_state": false
+     },
+     {
+      "spec": "US_EQUITY|TOP25|momentum_only|k63",
+      "price_state": true
+     },
+     {
+      "spec": "US_EQUITY|TOP25|fundamental_only|k63",
+      "price_state": false
+     }
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "the incumbent's 50/50 blend has never been decomposed on a real capital path: the fundamental leg's own lockbox excess is -0.4 %/yr at 21 sessions while the blend's is +11.0 %/yr",
+    "reopening_reason": "DISTINCT_IMPLEMENTATION_RESOLVES_NAMED_BINDING_FAILURE"
+   }
   ],
   "planned_specification_count": 28,
   "planned_non_price_share": 0.857,
   "benchmark_exemption": "the incumbent baseline measurements are benchmarks and are exempt from the search budget (docs/RESEARCH_CAMPAIGN_CONTRACT.md)"
  },
-
  "earnings_event_reaction": {
   "hypothesis": "the market under-reacts to earnings news: the announcement-window abnormal return and the standardised earnings surprise predict the cross-section of subsequent returns (post-earnings-announcement drift), information the incumbent's monthly fundamental leg (TTM levels, filed weeks after the release) and its momentum leg (126-21 sessions) do not carry at the event horizon",
   "sources": "OWNED: SEC submissions histories (842 PANEL-F issuers, acceptance-stamped 8-K filings, R63 acquisition) and the SEC companyfacts store (NetIncomeLoss, 10-Q / 10-K / 8-K facts with filed dates); the R57 PIT price panel and SPY",
   "announcement_date_rule": "for each (cik, fiscal period end): the filed date of the earliest NetIncomeLoss fact reported on an 8-K for that period end if one exists (XBRL earnings release); otherwise the earliest 8-K filed between period_end + 10 calendar days and the periodic (10-Q/10-K) filing date, at most period_end + 75 days; no period without a candidate 8-K is assigned",
   "event_session_rule": "acceptance timestamp on or before 09:30 (as stamped) -> the event session is the first session on or after the filing date; later -> the first session strictly after it; the 3-session reaction window is [event - 1, event + 1] and is known at the close of event + 1",
-  "features": ["ear: 3-session log return of the stock minus SPY over the reaction window, carried for 63 sessions after the event, NaN thereafter", "sue: (quarterly NetIncomeLoss - same quarter a year earlier) / std of the last 8 seasonal differences (min 4), quarterly values from ~90-day facts and Q4 = annual - 9-month YTD; available at the fact's own filed date + 1 session; carried for 63 sessions", "sessions_since_event: sessions since the event, capped at 126"],
+  "features": [
+   "ear: 3-session log return of the stock minus SPY over the reaction window, carried for 63 sessions after the event, NaN thereafter",
+   "sue: (quarterly NetIncomeLoss - same quarter a year earlier) / std of the last 8 seasonal differences (min 4), quarterly values from ~90-day facts and Q4 = annual - 9-month YTD; available at the fact's own filed date + 1 session; carried for 63 sessions",
+   "sessions_since_event: sessions since the event, capped at 126"
+  ],
   "pit": "every feature is placed on the grid at its own availability instant (market close for ear; filed date + 1 session for sue), never earlier; no current data is inserted into history",
   "cells": "the ONE scorer (alpha_agent.r63.sensitivity.run_cell, keep_predictions) with baseline = INCUMBENT_SCORE (the fixed 50/50 blend, so the baseline arm's ranking IS the incumbent's ranking) and dimension = EARNINGS_EVENT_REACTION at 1, 5, 21, 63 sessions; plus ear-only and sue-only at 21 sessions; the same dimension is ALSO measured conditional on the full R63 equity baseline at 21 sessions as the frontier-consistent information test (counted in the denominator)",
   "identical_sample_rule": "both arms share rows, dates, realised returns, folds, forced ridge penalty, universe, costs and construction"
  },
-
  "head_to_head_tournament": {
   "owner": "alpha_agent/alpha_recovery/tournament.py",
   "same_domain_books": "long-only equal-weight top-25 and top-50 by OOS score versus the equal-weight eligible universe, 12.5bp per side, identical rows for incumbent and challenger",
@@ -88,48 +286,129 @@
    "multiplicity": "Benjamini-Hochberg q = 0.10 over every executed same-domain paired p-value in this campaign AND Holm alpha 0.05 within the family's horizons",
    "information": "the R63 conditional increment t >= 2.0 and residual share >= 0.35 (DISTINCT)"
   },
-  "verdicts": ["MATERIALLY_BEATS_INCUMBENT (every gate)", "BEATS_INCUMBENT_NOT_QUALIFIED (materiality met, a gate failed - named)", "NO_ADVANTAGE", "WORSE_THAN_INCUMBENT"],
+  "verdicts": [
+   "MATERIALLY_BEATS_INCUMBENT (every gate)",
+   "BEATS_INCUMBENT_NOT_QUALIFIED (materiality met, a gate failed - named)",
+   "NO_ADVANTAGE",
+   "WORSE_THAN_INCUMBENT"
+  ],
   "cross_domain": "incumbent-only (the top-25 OOS book, monthly) versus incumbent + sleeve at EQUAL TOTAL RISK: the sleeve's returns are compounded onto the incumbent's decision grid, the combination is scaled to the incumbent-only realised volatility, and the increment in net return, Sharpe and drawdown is reported with a paired Newey-West t; positive incremental utility after costs is required",
   "post_selection_disclosure": "the FX carry and cross-asset trend lockboxes were viewed by R63/R64; their historical results here are POST-SELECTION evidence and are labelled so"
  },
-
  "cadence_grid": {
   "hypothesis": "signal observation frequency != required trading frequency: a daily-observed cross-sectional signal traded every k sessions with a no-trade band keeps most of its information and sheds most of its cost drag",
   "owner": "alpha_agent/alpha_recovery/cadence.py using alpha_agent.r64.construction pieces on the ONE scorer's kept OOS scores",
-  "grid": {"trade_every_sessions": [1, 5, 10, 21], "no_trade_band": [0.25, 0.5]},
-  "fx_carry_specs": 6, "cross_asset_trend_specs": 4,
+  "grid": {
+   "trade_every_sessions": [
+    1,
+    5,
+    10,
+    21
+   ],
+   "no_trade_band": [
+    0.25,
+    0.5
+   ]
+  },
+  "fx_carry_specs": 6,
+  "cross_asset_trend_specs": 4,
   "verdict_ladder": "the R64 ladder verbatim (NO_CONDITIONAL_VALUE / NOT_ECONOMIC_UNDER_CONTROLS / ECONOMIC_UNDER_CONTROLS_UNSTABLE / _NOT_FDR / ECONOMIC_UNDER_CONTROLS) with the R64 degeneracy rule; the conditional statistic is the R63 cell's and is NOT re-tested by cadence",
   "selection_rule": "the cadence taken to the cross-domain test is the one with the highest augmented-book Sharpe on SELECTION periods only; its LOCKBOX result is reported once",
   "multiplicity": "Holm within each family over the cadence specifications' economic p-values; campaign BH over all"
  },
-
  "market_direction": {
   "target": "SPY total return (owned Norgate, 1993-), the canonical US equity market target",
-  "horizons_sessions": [1, 5, 21, 63],
+  "horizons_sessions": [
+   1,
+   5,
+   21,
+   63
+  ],
   "cadence_rule": "min(horizon, 21)",
   "features": "price state (21-, 63-session return, 252-21 trend, 21/252 vol ratio, 252-session drawdown), VOLATILITY_EXPECTATIONS_IV, CREDIT_CONDITIONS, TERM_STRUCTURE, RATES_EXPECTATIONS, INFLATION_EXPECTATIONS, FUNDING_LIQUIDITY_CONDITIONS, MACRO_CHANGE, MACRO_SURPRISES, RISK_APPETITE from alpha_agent.r63.features.market_conditioner_blocks (PIT by declared lag / vintage), plus CFTC ES speculative net positioning (6-day publication lag)",
-  "models": {"climatology": "training base rate (the honest no-information baseline)", "probability": "L2-regularised logistic regression on training-standardised features, penalty by blocked inner CV on log loss, refit on R63 yearly expanding folds with purge and embargo, lockbox 2023+", "expected_return": "ridge regression on the same features; uncertainty = training residual standard deviation"},
-  "metrics": ["Brier score and Brier skill score against climatology", "log loss", "calibration bins (10) and expected calibration error", "directional hit rate against always-up", "expected-return calibration slope and correlation", "realised OOS return by forecast tercile", "economic: overlay A (hold SPY when p >= training base rate, else cash) and overlay B (exposure = clip(p / base rate, 0, 1)) at 1bp per side versus buy-and-hold; paired Newey-West t"],
-  "verdicts": {"CALIBRATED_DIRECTIONAL_SKILL": "Brier skill > 0 with Newey-West t >= 2 on per-period Brier differences AND expected calibration error <= 0.05 AND >= 60 % of yearly folds with positive skill", "PROFITABLE_NOT_CALIBRATED": "an overlay beats buy-and-hold net with t >= 2 but the calibration condition fails", "CALIBRATED_NOT_PROFITABLE": "calibration passes but no overlay beats buy-and-hold", "NO_DIRECTIONAL_SKILL": "otherwise"},
+  "models": {
+   "climatology": "training base rate (the honest no-information baseline)",
+   "probability": "L2-regularised logistic regression on training-standardised features, penalty by blocked inner CV on log loss, refit on R63 yearly expanding folds with purge and embargo, lockbox 2023+",
+   "expected_return": "ridge regression on the same features; uncertainty = training residual standard deviation"
+  },
+  "metrics": [
+   "Brier score and Brier skill score against climatology",
+   "log loss",
+   "calibration bins (10) and expected calibration error",
+   "directional hit rate against always-up",
+   "expected-return calibration slope and correlation",
+   "realised OOS return by forecast tercile",
+   "economic: overlay A (hold SPY when p >= training base rate, else cash) and overlay B (exposure = clip(p / base rate, 0, 1)) at 1bp per side versus buy-and-hold; paired Newey-West t"
+  ],
+  "verdicts": {
+   "CALIBRATED_DIRECTIONAL_SKILL": "Brier skill > 0 with Newey-West t >= 2 on per-period Brier differences AND expected calibration error <= 0.05 AND >= 60 % of yearly folds with positive skill",
+   "PROFITABLE_NOT_CALIBRATED": "an overlay beats buy-and-hold net with t >= 2 but the calibration condition fails",
+   "CALIBRATED_NOT_PROFITABLE": "calibration passes but no overlay beats buy-and-hold",
+   "NO_DIRECTIONAL_SKILL": "otherwise"
+  },
   "both_distinctions_visible": true
  },
-
  "purchase_case": {
   "rule": "no purchase, subscription, trial or account during the campaign; information need first, provider second; every paid candidate carries the R63 break-even arithmetic (fee / NAV + trading cost by horizon + half the expected gross increment + 10 % of fee / NAV) against the live paper NAV read from the desk ledger; BUY_TEST only when the expected incremental net P&L exceeds the break-even alpha after the haircut",
   "news_audit": "a bounded READ-ONLY depth probe of the entitled EODHD news endpoint (a handful of symbols, historical from/to windows, one delisted ticker) measures history depth and survivorship coverage before any acquisition is planned"
  },
-
  "forward_competition": {
   "rule": "a candidate that clears the frozen gates is written as an immutable record with a freeze_record_hash over its complete specification (alpha_agent.r64.challenger shape), never registered automatically; the exact human-gated command (scripts/adopt_prospective_freeze.py with --confirm ADOPT_PROSPECTIVE_FORWARD_CLOCKS --execute) is printed for review",
-  "no_automatic_promotion": true, "no_automatic_portfolio_change": true
+  "no_automatic_promotion": true,
+  "no_automatic_portfolio_change": true
  },
-
  "safety": {
-  "research_only": true, "paper_only": true, "creates_orders": false, "creates_fills": false,
-  "broker_enabled": false, "promotes_model": false, "activates_sleeve": false,
-  "approves_proposal": false, "registers_forward_challenger": false,
-  "mutates_operational_store": false, "mutates_live_research_store": false,
-  "purchases_data": false, "starts_trial_or_subscription": false, "automation_enabled": false,
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "activates_sleeve": false,
+  "approves_proposal": false,
+  "registers_forward_challenger": false,
+  "mutates_operational_store": false,
+  "mutates_live_research_store": false,
+  "purchases_data": false,
+  "starts_trial_or_subscription": false,
+  "automation_enabled": false,
   "live_checkout_read_only": true
+ },
+ "equity_construction": {
+  "workstream": 12,
+  "question": "does the incumbent's OWN information do better under a different construction - a slower rebalance, or one leg instead of the blend?",
+  "owner": "alpha_agent/alpha_recovery/equity_challengers.py",
+  "book": "long-only equal-weight top-25 daily capital path; positions drift between rebalances; a held name whose return stops printing is carried at zero until the next rebalance sells it; 12.5 bp per side on the summed absolute weight change",
+  "benchmark": "the equal-weight scored universe rebalanced every 21 sessions, FIXED across arms",
+  "comparison": "paired non-overlapping 21-session blocks against the operational k21 arm, Newey-West lag from the slower arm",
+  "gates": "protocol head_to_head_tournament.gates_frozen, unchanged",
+  "evidence_label": "POST_SELECTION",
+  "ladder_not_extended": "the cadence ladder stops at 126 sessions; it is NOT extended after observing that the point estimate rises with the cadence"
+ },
+ "frontier_residual": {
+  "workstream": 13,
+  "question": "are the OWNED needs the frontier still ranks highest worth anything, measured rather than assumed?",
+  "owner": "alpha_agent/alpha_recovery/frontier_residual.py",
+  "cells": [
+   "US_EQUITY|XS|1|FREE_CASH_FLOW",
+   "VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV",
+   "CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS",
+   "VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV (RESCUE)"
+  ],
+  "threshold_discipline": "sensitivity.MIN_ROWS stays at 200; the VOLATILITY DATA_HOLD is answered by a cadence that yields enough decision slots, never by a lower floor",
+  "owners": "futures scopes through alpha_agent.r64.experiments.measure_cell verbatim; the equity and credit-proxy scopes compose the SAME scorer and book around the R63 assembler"
+ },
+ "forecast_products": {
+  "workstream": 14,
+  "question": "what can this estate predict today, in economic units?",
+  "owner": "alpha_agent/alpha_recovery/forecast_products.py",
+  "families": [
+   "BROAD_MARKET_DIRECTION",
+   "EQUITY_CROSS_SECTION",
+   "EQUITY_BOOK_LEVEL",
+   "MULTI_ASSET_SLEEVE"
+  ],
+  "calibration_test": "sign agreement between the selection and lockbox means AND the lockbox mean inside a 95 % predictive interval around the selection mean AND at least MIN_EFFECTIVE_PERIODS lockbox observations; otherwise UNAVAILABLE with the reason",
+  "on_passing": "the FULL-sample out-of-sample mean is the point forecast and its Newey-West t travels with it; a licensed small edge is published WITH its t, never dressed up"
  }
 }

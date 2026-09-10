@@ -15,6 +15,10 @@ WHAT THIS IS
         news         the bounded news sample acquisition (needs EODHD_API_KEY)
         cadence      the signal-frequency != trading-frequency grid
         direction    calibrated broad-market directional forecasts (SPY)
+        equity       the incumbent's own information under a different
+                     construction: the rebalance-cadence ladder and its legs
+        residual     the OWNED frontier needs the first pass left unmeasured
+        products     what this estate can predict today, in economic units
         compete      cross-domain equal-risk incremental utility of the chosen
                      sleeve on top of the incumbent-only book
         package      immutable candidate records and the human-gated command
@@ -53,7 +57,8 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "compete", "package", "purchase", "scoreboard", "report", "all")
+          "equity", "residual", "compete", "products", "package", "purchase", "scoreboard",
+          "report", "all")
 
 
 def _stage_checkpoint() -> dict:
@@ -131,6 +136,32 @@ def _stage_direction() -> dict:
     return {h: (r.get("verdicts") or {}).get("verdict") or r.get("state") for h, r in body["horizons"].items()}
 
 
+def _stage_equity() -> dict:
+    """The incumbent's OWN information under a different construction: the
+    rebalance-cadence ladder and the two legs."""
+    from alpha_agent.alpha_recovery import equity_challengers as EC
+    cells = EC.run_grid(verbose=True)
+    body = EC.merge(cells=cells)
+    return {"counts": body["counts"], "best": (body.get("best_by_advantage") or {}).get("cell_id"),
+            "reconciliation": body["reconciliation_with_incumbent_baseline"]}
+
+
+def _stage_residual() -> dict:
+    """The OWNED frontier needs the first pass left unmeasured."""
+    from alpha_agent.alpha_recovery import frontier_residual as FR
+    cells = FR.run_grid(verbose=True)
+    body = FR.merge(cells=cells)
+    return {"counts": body["counts"],
+            "cells": [(b["cell_id"], b["r64_verdict"], b["conditional_t"]) for b in body["brief"]]}
+
+
+def _stage_products() -> dict:
+    """What this estate can predict today, in economic units."""
+    from alpha_agent.alpha_recovery import forecast_products as FP
+    body = FP.build()
+    return {"licensed_families": body["licensed_families"], "answer": body["answer"]}
+
+
 def _stage_compete() -> dict:
     from alpha_agent.alpha_recovery import cadence as CD, incumbent as INC, tournament as T
     import numpy as np
@@ -186,7 +217,8 @@ def _stage_report() -> dict:
 
 STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbent": _stage_incumbent,
             "tournament": _stage_tournament, "news": _stage_news, "cadence": _stage_cadence,
-            "direction": _stage_direction, "compete": _stage_compete, "package": _stage_package,
+            "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
+            "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
 

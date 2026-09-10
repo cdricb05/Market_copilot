@@ -92,8 +92,50 @@ def _incumbent_block(inc: dict | None) -> dict:
     }
 
 
-def _challenger_candidates(tour: dict | None, cad: dict | None, direction: dict | None) -> list:
+def _challenger_candidates(tour: dict | None, cad: dict | None, direction: dict | None,
+                           eqch: dict | None = None, residual: dict | None = None) -> list:
     out = []
+    for b in (eqch or {}).get("brief") or []:
+        if b.get("ann_advantage") is None:
+            continue
+        out.append({"kind": "SAME_DOMAIN_CONSTRUCTION", "cell_id": b["cell_id"], "family": b.get("family"),
+                    "horizon": 21, "information": "the incumbent's own (%s, rebalanced every %s sessions)"
+                                                  % (b.get("leg"), b.get("trade_every")),
+                    "verdict": b.get("verdict"),
+                    "historical_oos_net_advantage": b.get("ann_advantage"),
+                    "t_advantage": b.get("t_advantage"), "sharpe_delta": b.get("sharpe_advantage"),
+                    "drawdown_delta": ((b.get("max_dd") or 0) - (b.get("reference_max_dd") or 0)
+                                       if b.get("max_dd") is not None and b.get("reference_max_dd") is not None
+                                       else None),
+                    "turnover_delta": ((b.get("mean_oneway_turnover_per_21s") or 0)
+                                       - (b.get("reference_oneway_turnover_per_21s") or 0)
+                                       if b.get("mean_oneway_turnover_per_21s") is not None
+                                       and b.get("reference_oneway_turnover_per_21s") is not None else None),
+                    "challenger_turnover": b.get("mean_oneway_turnover_per_21s"),
+                    "lockbox_net_advantage": b.get("lockbox_ann_advantage"),
+                    "challenger_ann_net_excess": b.get("ann_net_excess"),
+                    "challenger_sharpe_excess": b.get("sharpe_excess"),
+                    "fdr_pass": b.get("fdr_pass_paired"), "holm_pass": b.get("holm_pass_family"),
+                    "failed_gates": b.get("failed_gates"), "effective_periods": b.get("periods"),
+                    "evidence_label": b.get("evidence_label"),
+                    "capital_applicability": "US_EQUITY long-only top-25 book: the SAME universe, score and "
+                                             "cost as the incumbent, rebalanced every %s sessions"
+                                             % b.get("trade_every")})
+    for b in (residual or {}).get("brief") or []:
+        if b.get("ann_net_increment") is None:
+            continue
+        out.append({"kind": "FRONTIER_NEED", "cell_id": b["cell_id"], "family": (residual or {}).get("family"),
+                    "horizon": None, "information": b.get("cell_key"), "verdict": b.get("r64_verdict"),
+                    "historical_oos_net_advantage": b.get("ann_net_increment"),
+                    "t_advantage": b.get("t_increment"), "sharpe_delta": b.get("sharpe_increment"),
+                    "drawdown_delta": None, "turnover_delta": None,
+                    "augmented_ann_net": b.get("augmented_ann_net"),
+                    "augmented_max_dd": b.get("augmented_max_dd"),
+                    "conditional_t": b.get("conditional_t"), "residual_share": b.get("residual_share"),
+                    "fdr_pass": b.get("fdr_pass_economic"), "holm_pass": b.get("holm_pass_family"),
+                    "frontier_rank": b.get("frontier_rank"),
+                    "capital_applicability": "the frontier's own top-ranked OWNED need, priced under the "
+                                             "R64 risk-controlled book"})
     for b in (tour or {}).get("brief") or []:
         if b.get("ann_advantage_top25") is None:
             continue
@@ -194,7 +236,10 @@ def build(*, as_of=None, write: bool = True) -> dict:
     purchase = read_artifact("purchase_case.json")
     cross = read_artifact("cross_domain.json")
     mandates = read_artifact("frontier_mandates.json")
-    cands = _challenger_candidates(tour, cad, direction)
+    eqch = read_artifact("equity_challengers.json")
+    residual = read_artifact("frontier_residual.json")
+    products = read_artifact("forecast_products.json")
+    cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual)
     for b in (mandates or {}).get("brief") or []:
         if b.get("ann_net_increment") is None:
             continue
@@ -233,13 +278,23 @@ def build(*, as_of=None, write: bool = True) -> dict:
                                                        "PROFITABLE_NOT_CALIBRATED")]
     np_rule = (program or {}).get("non_price_rule") or {}
     frontier_rows = ((program or {}).get("frontier") or {}).get("rows") or []
+    # a need this campaign has MEASURED is no longer an unresolved gap, whatever
+    # the persisted frontier still says about it
+    measured_keys = {b.get("cell_key") for b in ((residual or {}).get("brief") or [])}
+    measured_keys |= {b.get("cell_key") for b in ((mandates or {}).get("brief") or [])}
+    measured_keys |= {c.get("information") for c in cands if c.get("kind") == "FRONTIER_NEED"}
+    measured_keys.discard(None)
     gap = None
     for r in frontier_rows:
+        if r.get("cell_key") in measured_keys:
+            continue
         if r.get("cell_key") and r.get("observation_state") != "WELL_OBSERVED" or (r.get("best_verdict") in (None, "")):
             gap = r
             break
-    if gap is None and frontier_rows:
-        gap = frontier_rows[0]
+    if gap is None:
+        gap = next((r for r in frontier_rows if r.get("cell_key") not in measured_keys), None)
+    if gap is not None:
+        gap = {**gap, "measured_needs_excluded": sorted(measured_keys)}
     advantage = None
     if best is not None:
         advantage = {"incremental_net_return": best.get("historical_oos_net_advantage"),
@@ -261,13 +316,28 @@ def build(*, as_of=None, write: bool = True) -> dict:
                      "forward_evidence": "NONE (no ALPHA_RECOVERY challenger is registered)"
                      if not any(str(r.get("challenger_id") or "").startswith("ALPHA_RECOVERY") for r in regs)
                      else "REGISTERED"}
+    same_domain = [c for c in cands if c.get("kind") in ("SAME_DOMAIN", "SAME_DOMAIN_CONSTRUCTION")]
+    best_same_domain = _best(same_domain)
     body = {"schema": SCHEMA, "calculation_owner": CALCULATION_OWNER,
             "status": status, "status_vocabulary": list(STATUSES),
             "incumbent": _incumbent_block(inc),
             "best_challenger": best, "advantage": advantage,
+            "best_same_domain_challenger": best_same_domain,
+            "best_same_domain_note": ("the candidate that would use the SAME capital as the incumbent; "
+                                      "reported alongside the ranked best because a cross-domain sleeve "
+                                      "can win the ranking without being applicable to this portfolio"),
+            "forecast_products": ({"n_licensed_families": products.get("n_licensed_families"),
+                                   "n_families": products.get("n_families"),
+                                   "licensed_families": products.get("licensed_families"),
+                                   "answer": products.get("answer")} if products else None),
             "campaign": {"clock": clock, "deadline": outcome,
                          "share_new_research_effort_non_price": np_rule.get("share_non_price"),
                          "non_price_rule_met": np_rule.get("rule_met"),
+                         "share_non_price_inclusive": ((program or {}).get("non_price_rule_inclusive")
+                                                       or {}).get("share_non_price"),
+                         "non_price_rule_met_inclusive": ((program or {}).get("non_price_rule_inclusive")
+                                                          or {}).get("rule_met"),
+                         "n_specifications_executed": np_rule.get("executed"),
                          "n_information_families_tested": len(fam_tested), "families_tested": fam_tested,
                          "n_candidate_specifications_alive": len(alive),
                          "n_in_true_forward_competition": sum(
@@ -322,10 +392,30 @@ def render(sb: dict) -> str:
              ho.get("periods"), ho.get("effective_periods"), tf.get("sessions"), b.get("effective_periods")),
          "| evidence maturity | %s | %s | HISTORICAL_OOS_ONLY |" % (ho.get("evidence_maturity"), tf.get("evidence_maturity")),
          "| forward evidence | n/a | this IS the forward evidence | %s |" % adv.get("forward_evidence"),
-         "",
-         "## Campaign counters", "",
+         ""]
+    sd = sb.get("best_same_domain_challenger") or {}
+    if sd:
+        L += ["## Best challenger on the SAME capital as the incumbent", "",
+              "`%s` - %s" % (sd.get("cell_id"), sd.get("verdict")),
+              "",
+              "| net advantage /yr | t | Sharpe delta | drawdown delta | turnover delta | lockbox advantage | failed gates |",
+              "|---|---|---|---|---|---|---|",
+              "| %s | %s | %s | %s | %s | %s | %s |" % (
+                  _f(sd.get("historical_oos_net_advantage")), _f(sd.get("t_advantage"), 2),
+                  _f(sd.get("sharpe_delta"), 3), _f(sd.get("drawdown_delta"), 3),
+                  _f(sd.get("turnover_delta"), 3), _f(sd.get("lockbox_net_advantage")),
+                  ",".join(sd.get("failed_gates") or []) or "none"),
+              "", sd.get("capital_applicability") or "", ""]
+    fp = sb.get("forecast_products") or {}
+    if fp:
+        L += ["## Forecast products", "",
+              "- %s" % fp.get("answer"), ""]
+    L += ["## Campaign counters", "",
          "- eligible sessions elapsed / 10: %s / %s (remaining %s)" % (clock.get("sessions_elapsed"), clock.get("stop_loss_sessions"), clock.get("sessions_remaining")),
-         "- share of new research effort on non-price information: %s (rule >= 0.75: %s)" % (_f(camp.get("share_new_research_effort_non_price"), 3), camp.get("non_price_rule_met")),
+         "- share of new research effort on non-price information: %s (rule >= 0.75: %s); inclusive of "
+         "construction-only specifications %s (%s)" % (
+             _f(camp.get("share_new_research_effort_non_price"), 3), camp.get("non_price_rule_met"),
+             _f(camp.get("share_non_price_inclusive"), 3), camp.get("non_price_rule_met_inclusive")),
          "- economically distinct information families tested: %s (%s)" % (camp.get("n_information_families_tested"), ", ".join(camp.get("families_tested") or [])),
          "- candidate specifications alive: %s" % camp.get("n_candidate_specifications_alive"),
          "- in TRUE_FORWARD competition: %s" % camp.get("n_in_true_forward_competition"),

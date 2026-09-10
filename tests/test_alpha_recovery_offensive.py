@@ -44,6 +44,9 @@ from alpha_agent import alpha_recovery as AR
 from alpha_agent import r59
 from alpha_agent.alpha_recovery import checkpoint as CK
 from alpha_agent.alpha_recovery import earnings_events as EE
+from alpha_agent.alpha_recovery import equity_challengers as EC
+from alpha_agent.alpha_recovery import forecast_products as FPR
+from alpha_agent.alpha_recovery import frontier_residual as FR
 from alpha_agent.alpha_recovery import forecast_contract as FC
 from alpha_agent.alpha_recovery import forward_package as FP
 from alpha_agent.alpha_recovery import incumbent as INC
@@ -412,8 +415,20 @@ def test_non_price_share_rule_and_protocol_plan():
     planned = []
     for f in fams:
         assert len(f["primary_specifications"]) <= AR.FAMILY_PRIMARY_MAX
-        planned += [{"price_state": f["price_state"]}] * len(f["primary_specifications"])
+        assert len(f.get("rescue_specifications") or []) <= AR.FAMILY_RESCUE_MAX
+        planned += PR._family_specs(f) + PR._family_rescues(f)
+    # the rule governs INFORMATION-directed research; the inclusive count is
+    # reported too and BOTH must hold, so it can never be met by reclassifying
+    info = [s for s in planned if s["selects_information"]]
+    assert PR.non_price_share(info)["rule_met"] is True
     assert PR.non_price_share(planned)["rule_met"] is True
+    # a construction-only family may not quietly claim to select information
+    by_name = {f["family"]: f for f in fams}
+    assert by_name["EQUITY_INCUMBENT_CADENCE"]["selects_information"] is False
+    # every rescue names the measured binding failure it resolves
+    for f in fams:
+        for r in f.get("rescue_specifications") or []:
+            assert r.get("binding_failure")
 
 
 def test_exhausted_price_state_reopening_rule():
@@ -616,3 +631,157 @@ def test_conftest_and_this_file_redirect_every_live_path():
         assert "monkeypatch.setenv(%s" % env in src
     conftest = (REPO / "tests" / "conftest.py").read_text(encoding="utf-8")
     assert "PAPER_TRADER_FORWARD_CHALLENGER_REGISTRY_DIR" in conftest
+
+
+# --------------------------------------------------------------------------- #
+# Same-domain construction challengers (the cadence ladder and the legs)
+# --------------------------------------------------------------------------- #
+def _synthetic_panel(n_sym: int = 60, n_d: int = 260, seed: int = 7):
+    rng = np.random.default_rng(seed)
+    dates = np.array([str(d.date()) for d in pd.bdate_range("2019-01-02", periods=n_d)])
+    ret = rng.normal(0.0004, 0.012, size=(n_sym, n_d))
+    score = rng.normal(size=(n_sym, n_d))
+    elig = np.ones((n_sym, n_d), dtype=bool)
+    return dates, ret, score, elig
+
+
+def test_equity_cadence_arms_share_capital_and_charge_cost_only_when_they_trade():
+    dates, ret, score, elig = _synthetic_panel()
+    b21 = EC.daily_path_book(score, elig=elig, ret=ret, dates=dates, top_n=25, trade_every=21,
+                             start_date=dates[0])
+    b63 = EC.daily_path_book(score, elig=elig, ret=ret, dates=dates, top_n=25, trade_every=63,
+                             start_date=dates[0])
+    # the slower arm trades strictly less and rebalances strictly less often
+    assert b63["rebalanced"].sum() < b21["rebalanced"].sum()
+    assert b63["turnover"].sum() < b21["turnover"].sum()
+    # cost is charged on a rebalance session and nowhere else
+    for b in (b21, b63):
+        assert not (b["cost"][~b["rebalanced"]] > 0).any()
+        assert (b["cost"][b["rebalanced"]] > 0).all()
+    # both arms live on the identical calendar
+    assert np.isfinite(b21["daily_net"]).sum() == np.isfinite(b63["daily_net"]).sum()
+
+
+def test_a_held_name_that_stops_printing_is_carried_never_dropped_for_free():
+    dates, ret, score, elig = _synthetic_panel()
+    top = int(np.argmax(score[:, 0]))
+    ret2 = ret.copy()
+    ret2[top, 5:] = np.nan                      # the name delists mid-holding
+    b = EC.daily_path_book(score, elig=elig, ret=ret2, dates=dates, top_n=25, trade_every=21,
+                           start_date=dates[0])
+    live = np.isfinite(b["daily_net"])
+    assert live.sum() > 200                     # the book keeps running, the NaN does not propagate
+    assert b["n_held"][6] == b["n_held"][4]     # still held, so the exit is charged at the next rebalance
+
+
+def _eq_cell(adv, t, *, lock_adv=0.02, halves=(0.01, 0.01), turn=0.20, dd=-0.20, ref_dd=-0.20,
+             periods=181):
+    return {"cell_id": "US_EQUITY|TOP25|blend|k63", "family": EC.FAM_CADENCE, "is_reference": False,
+            "all": {"paired": {"ann_advantage": adv, "t_advantage": t, "periods": periods,
+                               "effective_periods": periods, "p_advantage_one_sided": 0.01},
+                    "arm": {"mean_oneway_turnover_per_21s": turn, "max_dd": dd},
+                    "reference": {"max_dd": ref_dd}},
+            "selection": {"paired": {"ann_advantage": 0.01}},
+            "lockbox": {"paired": {"ann_advantage": lock_adv, "halves_ann_advantage": list(halves)}}}
+
+
+def test_equity_challenger_gates_are_the_frozen_ones_and_close_is_not_pass():
+    # materiality is the frozen 1.5 %/yr and a hair under it does not pass
+    just_under = _eq_cell(AR.MATERIALITY_ANN_NET - 1e-4, 3.0)
+    assert EC.gates(just_under)["materiality_ge_1p5pct"] is False
+    # a big advantage with t just below 2 is NOT a survivor
+    weak_t = _eq_cell(0.03, 1.99)
+    weak_t["gates"] = EC.gates(weak_t)
+    assert weak_t["gates"]["paired_t_ge_2"] is False
+    assert EC.verdict(weak_t) == T.V_NO_ADVANTAGE
+    # the same cell at t >= 2 is a survivor but still not MATERIAL until BH and Holm decide
+    ok = _eq_cell(0.03, 2.5)
+    ok["gates"] = EC.gates(ok)
+    assert EC.verdict(ok) == T.V_NOT_QUALIFIED
+    ok["gates"] = EC.gates(ok, fdr_pass=True, holm_pass=True)
+    assert EC.verdict(ok) == T.V_MATERIAL
+    # the turnover cap is the tournament's, expressed per 21 sessions
+    fat = _eq_cell(0.03, 2.5, turn=AR.GATE_MAX_TURNOVER + 1e-6)
+    assert EC.gates(fat)["turnover_le_cap"] is False
+
+
+def test_equity_challenger_reference_arm_is_the_operational_construction():
+    grid = EC.default_grid()
+    ref = [g for g in grid if g["is_reference"]]
+    assert len(ref) == 1
+    assert (ref[0]["leg"], ref[0]["trade_every"]) == (EC.LEG_BLEND, 21)
+    # the ladder was fixed before it ran and is not extended
+    assert sorted(g["trade_every"] for g in grid if g["family"] == EC.FAM_CADENCE) == [21, 42, 63, 126]
+    # a reference arm can never be reported as its own challenger
+    assert EC.verdict({"is_reference": True}) == "REFERENCE_ARM"
+
+
+# --------------------------------------------------------------------------- #
+# The residual frontier needs: the row floor is answered, never moved
+# --------------------------------------------------------------------------- #
+def test_frontier_residual_does_not_move_the_row_floor():
+    assert S.MIN_ROWS == 200                     # the inherited floor
+    body = FR.merge(cells=[], write=False)
+    td = body["threshold_discipline"]
+    assert td["sensitivity_min_rows"] == 200 and td["moved"] is False
+    assert "196" in td["named_binding_failure"] and "200" in td["named_binding_failure"]
+
+
+def test_frontier_residual_budget_and_named_rescue():
+    grid = FR.grid()
+    rescues = [c for c in grid if c["tag"] == "RESCUE"]
+    assert len(rescues) == 1
+    assert rescues[0]["binding_failure"] and rescues[0]["reopening_reason"] in PR.REOPEN_REASONS
+    # the three first-pass mandate cells plus these primaries stay inside the family budget
+    n_primary = len(PR.MANDATE_CELLS) + len([c for c in grid if c["tag"] == "PRIMARY"])
+    assert n_primary <= AR.FAMILY_PRIMARY_MAX
+    assert PR.check_family_budget({"family": FR.FAMILY}, executed_primary=n_primary,
+                                  executed_rescue=len(rescues),
+                                  rescue_binding_failures=tuple(r["binding_failure"] for r in rescues))
+
+
+# --------------------------------------------------------------------------- #
+# The forecast-product calibration test
+# --------------------------------------------------------------------------- #
+def test_selection_lockbox_calibration_can_fail_and_is_applied_unchanged():
+    rng = np.random.default_rng(3)
+    n_s, n_l = 400, 100
+    lock = np.array([False] * n_s + [True] * n_l)
+    # a stable series passes
+    x = rng.normal(0.001, 0.01, size=n_s + n_l)
+    good = FPR.selection_lockbox_calibration(x, lock, periods_per_year=12.0, label="good")
+    assert good["calibrated"] is True
+    # a sign flip fails, whatever the interval says
+    y = np.concatenate([rng.normal(-0.004, 0.01, n_s), rng.normal(0.004, 0.01, n_l)])
+    flip = FPR.selection_lockbox_calibration(y, lock, periods_per_year=12.0, label="flip")
+    assert flip["calibrated"] is False and "sign" in flip["reason"]
+    # a lockbox far outside the predictive interval fails
+    z = np.concatenate([rng.normal(0.0005, 0.001, n_s), rng.normal(0.05, 0.001, n_l)])
+    out = FPR.selection_lockbox_calibration(z, lock, periods_per_year=12.0, label="out")
+    assert out["calibrated"] is False and "predictive interval" in out["reason"]
+    # too short a lockbox fails
+    short = np.concatenate([rng.normal(0.001, 0.01, n_s), rng.normal(0.001, 0.01, 5)])
+    sl = FPR.selection_lockbox_calibration(short, np.array([False] * n_s + [True] * 5),
+                                           periods_per_year=12.0, label="short")
+    assert sl["calibrated"] is False
+
+
+def test_an_uncalibrated_book_never_publishes_an_expected_return():
+    rng = np.random.default_rng(11)
+    n_s, n_l = 300, 80
+    lock = np.array([False] * n_s + [True] * n_l)
+    y = np.concatenate([rng.normal(-0.004, 0.01, n_s), rng.normal(0.004, 0.01, n_l)])
+    cal = FPR.selection_lockbox_calibration(y, lock, periods_per_year=12.0, label="flip")
+    rec = FPR._record(cal, "test")
+    assert rec["calibrated"] is False
+    with pytest.raises(FC.ForecastContractError):
+        FC.expected_return(0.01, calibration=rec)          # the contract refuses it outright
+    field = FC.unavailable(cal["reason"], "fraction over 21 sessions")
+    assert field["state"] == FC.UNAVAILABLE and field["reason"]
+
+
+def test_forecast_product_families_are_named_and_the_rule_is_published():
+    assert FPR.FAM_MARKET and FPR.FAM_XS and FPR.FAM_BOOK and FPR.FAM_SLEEVE
+    doc = Path(FPR.__file__).read_text(encoding="utf-8")
+    for token in ("share a sign", "predictive interval", "MIN_EFFECTIVE_PERIODS observations"):
+        assert token in doc
