@@ -580,6 +580,58 @@
       "status": "OWNED_R64",
       "guard": "check_release64_information_directed_alpha",
       "note": "No second memory, queue, scheduler, frontier or forward owner. The adapter imports no research package; the artifact is the interface. An unchanged frontier is never re-mandated (the R61 busy-loop lesson). Executing an information-sensitivity cell stays in the offline research campaign, not in the live runtime."
+    },
+    {
+      "concept": "alpha_recovery_operating_contract",
+      "authoritative_owner": "docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md (PERMANENT project contract: alpha is the primary objective; the incumbent is the benchmark; a score is not an expected return; historical OOS and TRUE_FORWARD never conflated; thresholds never relaxed; no automatic promotion or portfolio change; the 10-eligible-session stop-loss; the 75 % non-price research rule; family budgets)",
+      "current_writers": [],
+      "delegating_domain_fact_owners": [
+        "CLAUDE.md (every future agent reads the contract first and states the alpha objective its work advances)",
+        "PROJECT_STATE.md (begins with the current-primary-objective section)"
+      ],
+      "status": "OWNED_ALPHA_RECOVERY",
+      "guard": "check_alpha_recovery_operating_contract",
+      "note": "Not a release narrative. A later release may add evidence discipline but may never introduce a weaker threshold."
+    },
+    {
+      "concept": "project_stop_loss_checkpoint",
+      "authoritative_owner": "alpha_agent/alpha_recovery/checkpoint.py (the frozen 10-eligible-market-session stop-loss: start and deadline sessions computed by engine/exchange_calendar.py, the same supplier api/forward_challenger_registry.py uses; incumbent identity, R64 parent hash, contract hash and success criteria frozen write-once in research/alpha_recovery/alpha_recovery_checkpoint.json)",
+      "current_writers": [
+        "alpha_agent/alpha_recovery/checkpoint.py"
+      ],
+      "delegating_domain_fact_owners": [
+        "engine/exchange_calendar.py (is a date an exchange session)"
+      ],
+      "status": "OWNED_ALPHA_RECOVERY",
+      "guard": "check_alpha_recovery_operating_contract",
+      "note": "The deadline never moves because results are weak; verify() recomputes the sessions from the frozen start and refuses a moved deadline or a changed contract hash."
+    },
+    {
+      "concept": "alpha_recovery_scoreboard",
+      "authoritative_owner": "alpha_agent/alpha_recovery/scoreboard.py (THE primary progress measure of the project: incumbent and best challenger on the same fields, historical OOS and TRUE_FORWARD in separate columns, exactly one status, the session clock, the campaign counters; deterministic; rendered to research/alpha_recovery/alpha_recovery_scoreboard.json and ALPHA_RECOVERY_SCOREBOARD.md)",
+      "current_writers": [
+        "alpha_agent/alpha_recovery/scoreboard.py"
+      ],
+      "delegating_domain_fact_owners": [
+        "alpha_agent/alpha_recovery/incumbent.py (the incumbent baseline)",
+        "alpha_agent/alpha_recovery/tournament.py (head-to-head on identical samples)",
+        "alpha_agent/alpha_recovery/cadence.py, market_direction.py (the other families)",
+        "api/forward_challenger_registry.py (registrations, READ by path)"
+      ],
+      "status": "OWNED_ALPHA_RECOVERY",
+      "guard": "check_alpha_recovery_operating_contract",
+      "note": "Release numbers, lines changed, tests passed and architecture work are not on it."
+    },
+    {
+      "concept": "forecast_product_contract",
+      "authoritative_owner": "alpha_agent/alpha_recovery/forecast_contract.py (the ONE canonical forecast product for broad market / regime, cross-sectional equities and multi-asset sleeves: every economic field is VALUE with an out-of-sample calibration record or UNAVAILABLE with a reason; probabilities in [0, 1] with up + down = 1; a score is labelled and can never populate an expected return)",
+      "current_writers": [
+        "alpha_agent/alpha_recovery/incumbent.py (equity products from the incumbent's ranks)",
+        "alpha_agent/alpha_recovery/market_direction.py (SPY products)"
+      ],
+      "status": "OWNED_ALPHA_RECOVERY",
+      "guard": "check_alpha_recovery_operating_contract",
+      "note": "Research only; not wired into capital allocation until validated through the governed owners."
     }
   ],
   "route_ownership": [

@@ -1,0 +1,92 @@
+{
+ "artifact_hash": "3cbb1079e00d0fb42edfadcf43b4fdb33f5e74f44c815483747386edb668b5bc",
+ "asset_class_calendar": "US_EQUITY",
+ "calculation_owner": "alpha_agent.alpha_recovery.checkpoint",
+ "calendar": {
+  "calendar_id": "NYSE_RULE_BASED_R60_1",
+  "exchange": "NYSE",
+  "forward_clock_consumer": "api/forward_challenger_registry.py (same supplier)",
+  "owner": "engine/exchange_calendar.py",
+  "session_rule": "a date is an eligible market session when the supplier's is_non_session(date) is False (weekends and full-day closures excluded); never weekday arithmetic"
+ },
+ "campaign_id": "alpha_recovery_offensive_v1",
+ "campaign_started_at": "2026-09-10T14:28:17+00:00",
+ "checkpoint_hash": "415d00a3d4f064ee76b5934448d060bfe86e26568e25d248296d171eacf2f377",
+ "contract": {
+  "path": "docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md",
+  "sha256_crlf_normalised": "35473de97c4d4cdbb6c8e7695e6946bcae1a10ddec0ab3cca6aca417b0335d47",
+  "version": 1
+ },
+ "contract_sha256": "35473de97c4d4cdbb6c8e7695e6946bcae1a10ddec0ab3cca6aca417b0335d47",
+ "deadline_never_moves": true,
+ "deadline_outcomes": [
+  "MATERIAL_CHALLENGER_IN_TRUE_FORWARD_COMPETITION",
+  "OWNED_FREE_INFORMATION_EXHAUSTED",
+  "STOP_LOSS_BREACH"
+ ],
+ "eligible_sessions_after_start": [
+  "2026-09-11",
+  "2026-09-14",
+  "2026-09-15",
+  "2026-09-16",
+  "2026-09-17",
+  "2026-09-18",
+  "2026-09-21",
+  "2026-09-22",
+  "2026-09-23",
+  "2026-09-24"
+ ],
+ "frozen_success_criteria": {
+  "A_material_challenger_in_true_forward_competition": {
+   "cross_domain": "positive incremental portfolio utility after costs for incumbent + sleeve against incumbent-only under equal capital / risk, same evidence discipline; AND registered prospectively through the human-gated adoption path",
+   "same_domain": "passes the repository's frozen historical materiality gates against the incumbent on the identical sample: net advantage >= 0.015/yr, lockbox sign agreement, halves floor, turnover cap, drawdown multiple, Benjamini-Hochberg q=0.10 over the executed denominator, family-aware Holm; AND is registered prospectively through the human-gated adoption path"
+  },
+  "B_owned_free_information_exhausted": "every ranked owned / free information family closed under its budget with a named binding failure, plus the exact missing information with acquisition path, cost, break-even alpha, confidence haircut and expected portfolio value",
+  "deadline_never_moves": true,
+  "otherwise": "STOP_LOSS_BREACH",
+  "thresholds_may_not_be_relaxed_after_seeing_results": true
+ },
+ "generated_at": "2026-09-10T14:32:33+00:00",
+ "incumbent": {
+  "blend": {
+   "fundamental": 0.5,
+   "momentum": 0.5
+  },
+  "legs": {
+   "fundamental": "composite_sn",
+   "momentum": "mom_6_1"
+  },
+  "model_id": "fundamental_momentum_50_50_v1",
+  "operational_book": "alpha_paper_book_1",
+  "role": "BENCHMARK, not the presumed correct model"
+ },
+ "phase": "ALPHA_RECOVERY",
+ "protocol_sha256": "becd50b8c3682828b845b751c31b4970b6d62bfafbe3c4f943c2eedc9e5323e6",
+ "r64_parent_commit": "cb162a8e5871b15e28b54862fe79aea4901cb764",
+ "safety": {
+  "activates_sleeve": false,
+  "approves_proposal": false,
+  "automatic_portfolio_mutation": false,
+  "automatic_promotion": false,
+  "automation_enabled": false,
+  "broker_enabled": false,
+  "creates_fills": false,
+  "creates_orders": false,
+  "live_checkout_read_only": true,
+  "mutates_live_research_store": false,
+  "mutates_operational_store": false,
+  "paper_only": true,
+  "promotes_model": false,
+  "purchases_data": false,
+  "registers_forward_challenger": false,
+  "research_only": true,
+  "starts_trial_or_subscription": false
+ },
+ "schema": "alpha_recovery_checkpoint/1",
+ "start_eligible_market_session": "2026-09-10",
+ "start_session_counts_as": "session 0 (the campaign's own session); the ten sessions STRICTLY AFTER it are the stop-loss window",
+ "stop_loss_sessions": 10,
+ "tenth_eligible_market_session": "2026-09-24",
+ "worktree_head_at_freeze": "cb162a8e5871b15e28b54862fe79aea4901cb764",
+ "write_once": true
+}

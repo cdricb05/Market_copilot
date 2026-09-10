@@ -1,5 +1,56 @@
 # PROJECT_STATE
 
+## CURRENT PRIMARY OBJECTIVE (read before anything else)
+
+**The project's one objective is an investment result, not a release.** Under
+the permanent `docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md` (read it first), the
+project must produce a specification that **materially outperforms the
+incumbent `fundamental_momentum_50_50_v1` after realistic costs and enters
+governed TRUE_FORWARD competition**, or prove **`OWNED_FREE_INFORMATION_EXHAUSTED`**
+with the exact missing information and a defensible purchase case. Progress is
+measured ONLY by `research/alpha_recovery/alpha_recovery_scoreboard.json`
+(human rendering `research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md`).
+Architecture, UI, naming, cleanup and release numbers are not progress.
+
+**Frozen stop-loss** (`research/alpha_recovery/alpha_recovery_checkpoint.json`,
+computed by the canonical NYSE calendar owner, write-once, never moved):
+campaign start session **2026-09-10**, deadline the tenth eligible session
+**2026-09-24**. By then the scoreboard must show
+`MATERIAL_CHALLENGER_IN_TRUE_FORWARD_COMPETITION` or
+`OWNED_FREE_INFORMATION_EXHAUSTED`; anything else is **`STOP_LOSS_BREACH`, a
+project failure state**.
+
+**Campaign status as of 2026-09-10 (development branch
+`alpha-recovery-offensive`, worktree `D:\paper_trader_alpha_recovery_offensive`,
+built over `cb162a8`, live HEAD still `89a066f`, nothing merged, deployed,
+registered, adopted or purchased; the live checkout, desk ledgers and every
+live store were READ ONLY):** the scoreboard reads
+**`OWNED_FREE_INFORMATION_EXHAUSTED`** at 0 / 10 sessions elapsed.
+The incumbent measured on the PIT S&P 500 substrate (2011-07 to 2026-07,
+top-25, 21 sessions) is **`INCUMBENT_WEAK_OR_UNPROVEN`**: net excess
++2.7 %/yr at t 0.99, rank-IC t 1.13, lockbox (2023+) +11.0 %/yr against a
+selection-period +0.2 %/yr; its TRUE_FORWARD book (35 sessions, separate
+gate) is -2.4 % against SPY +2.0 %; its rank score has no lockbox-confirmed
+translation into expected returns (UNAVAILABLE). Six owned / free information
+families were prosecuted under the frozen gates against the incumbent on
+identical samples: earnings-event reaction and XBRL surprise (7 cells,
+`NO_ADVANTAGE`); SPY direction at 1 / 5 / 21 / 63 sessions plus two
+rescues (`NO_DIRECTIONAL_SKILL`, Brier skill <= 0); FX carry at 5-21-session
+trade cadence (`ECONOMIC_UNDER_CONTROLS_NOT_FDR`: +2.3 to +2.9 %/yr net under
+the R64 book but Holm-failed, POST_SELECTION, and NO incremental utility for
+the incumbent-only book at equal risk, t -0.95); cross-asset trend at every
+cadence (degenerate); the governor's mandated needs (rates implied-volatility
+term structure, FX positioning: no value; volatility IV: data hold); the
+bounded, PIT-plausible 2021-onward EODHD news sample (41 of the 120 pre-
+registered names within the fetch budget; 5 cells: `NO_ADVANTAGE` at 5
+sessions, `WORSE_THAN_INCUMBENT` at 1 session, data hold at 21). No candidate is READY for
+forward qualification; nothing was registered. The purchase case names
+as-was earnings-consensus history as the top missing need and returns
+`DO_NOT_BUY` at every fee on the ladder because no proxy clears the
+break-even alpha. Full numbers: `research/alpha_recovery/ALPHA_RECOVERY_REPORT.md`.
+Every future agent states which alpha objective its work advances before
+doing it (`CLAUDE.md`).
+
 - **Last updated:** 2026-09-10
 - **Updated by phase:** **R64 - PORTFOLIO PROPOSAL INTEGRITY AND
   INFORMATION-DIRECTED ALPHA (single agent, Windows PowerShell only, isolated

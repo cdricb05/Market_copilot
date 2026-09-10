@@ -15861,6 +15861,160 @@ def check_release64_information_directed_alpha(files: list[Path]) -> dict:
     }
 
 
+ALPHA_RECOVERY_CONTRACT_DOC = "docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md"
+ALPHA_RECOVERY_PACKAGE = "alpha_agent/alpha_recovery"
+ALPHA_RECOVERY_INIT = "alpha_agent/alpha_recovery/__init__.py"
+ALPHA_RECOVERY_PROTOCOL = "research/alpha_recovery/ALPHA_RECOVERY_PROTOCOL.json"
+ALPHA_RECOVERY_CHECKPOINT = "research/alpha_recovery/alpha_recovery_checkpoint.json"
+ALPHA_RECOVERY_SCOREBOARD = "research/alpha_recovery/alpha_recovery_scoreboard.json"
+ALPHA_RECOVERY_RUNNER = "scripts/run_alpha_recovery_offensive.py"
+ALPHA_RECOVERY_TESTS = "tests/test_alpha_recovery_offensive.py"
+ALPHA_RECOVERY_MODULES = ("__init__", "checkpoint", "scoreboard", "forecast_contract", "incumbent",
+                          "program", "earnings_events", "news", "tournament", "cadence",
+                          "market_direction", "forward_package", "purchase_case", "report")
+ALPHA_RECOVERY_CLAUDE_INSTRUCTIONS = ("Read docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md first",
+                                      "which Alpha objective", "Refuse to make non-blocking",
+                                      "investment evidence")
+ALPHA_RECOVERY_CONTRACT_RULES = ("Alpha is the primary objective", "BENCHMARK",
+                                 "A model score is not an expected return",
+                                 "Thresholds may not be relaxed", "No automatic model promotion",
+                                 "No automatic operational portfolio change",
+                                 "10-eligible-market-session project stop-loss", "STOP_LOSS_BREACH",
+                                 "HUMAN-GATED", "75 %")
+ALPHA_RECOVERY_FORBIDDEN_CALLS = R63_FORBIDDEN_CALLS
+ALPHA_RECOVERY_FORBIDDEN_IMPORTS = ("paper_trader.api", "paper_trader.db", "from api", "import api",
+                                    "from db", "import db", "rebalance_execution", "prospective_adoption",
+                                    "forward_challenger_registry", "canonical_forward_accrual",
+                                    "engine.portfolio", "engine.reconciler")
+ALPHA_RECOVERY_SAFETY_FLAGS_OFF = R63_SAFETY_FLAGS_OFF + ("automatic_promotion",
+                                                          "automatic_portfolio_mutation")
+
+
+def check_alpha_recovery_operating_contract(files: list[Path]) -> dict:
+    """The PERMANENT alpha objective's durable references (the Alpha Recovery
+    Operating Contract), kept small on purpose.
+
+    (a) THE CONTRACT EXISTS with its seventeen rules; CLAUDE.md instructs every
+        future agent to read it first, state the alpha objective the work
+        advances, refuse non-blocking infrastructure as the primary milestone
+        and measure progress by investment evidence; PROJECT_STATE.md BEGINS
+        with the current-primary-objective section.
+    (b) THE STOP-LOSS CHECKPOINT is committed, calendar-derived, ten sessions
+        long, bound to the incumbent identity, the R64 parent and the contract
+        hash - and its deadline never moves (the package's verify rule).
+    (c) THE SCOREBOARD is the progress measure: committed, deterministic
+        (artifact hash excludes generated_at), with exactly one status from the
+        contract vocabulary.
+    (d) THE PACKAGE cannot reach the live estate: every dangerous flag off,
+        no execution / registration / promotion / portfolio call shape, no
+        application import that reaches a store, the ONE scorer / PIT engine /
+        book / frontier reused (no ``def run_cell(`` or ``def as_of(`` here),
+        the runner without an execute path, hermetic tests.
+    """
+    pkg_files = {_rel(fp): fp for fp in files if _rel(fp).startswith(ALPHA_RECOVERY_PACKAGE + "/")
+                 and _rel(fp).endswith(".py")}
+    missing_modules = sorted(m for m in ALPHA_RECOVERY_MODULES
+                             if "%s/%s.py" % (ALPHA_RECOVERY_PACKAGE, m) not in pkg_files)
+    contract = _read(ALPHA_RECOVERY_CONTRACT_DOC)
+    contract_present = bool(contract) and "PERMANENT PROJECT CONTRACT" in contract
+    contract_rules_missing = sorted(r for r in ALPHA_RECOVERY_CONTRACT_RULES if r not in contract)
+    claude = _read("CLAUDE.md")
+    claude_missing = sorted(i for i in ALPHA_RECOVERY_CLAUDE_INSTRUCTIONS if i not in claude)
+    claude_references_contract = ALPHA_RECOVERY_CONTRACT_DOC in claude
+    state = _read("PROJECT_STATE.md")
+    state_head = state[:3000]
+    state_begins_with_objective = ("CURRENT PRIMARY OBJECTIVE" in state_head
+                                   and ALPHA_RECOVERY_CONTRACT_DOC in state_head)
+    try:
+        cp = json.loads(_read(ALPHA_RECOVERY_CHECKPOINT) or "{}")
+    except ValueError:
+        cp = {}
+    try:
+        proto = json.loads(_read(ALPHA_RECOVERY_PROTOCOL) or "{}")
+    except ValueError:
+        proto = {}
+    init = _read(ALPHA_RECOVERY_INIT)
+    checkpoint_frozen = bool(
+        cp.get("stop_loss_sessions") == 10
+        and len(cp.get("eligible_sessions_after_start") or []) == 10
+        and cp.get("tenth_eligible_market_session") == (cp.get("eligible_sessions_after_start") or [None])[-1]
+        and (cp.get("incumbent") or {}).get("model_id") == "fundamental_momentum_50_50_v1"
+        and cp.get("deadline_never_moves") is True and cp.get("write_once") is True
+        and (cp.get("calendar") or {}).get("calendar_id") == "NYSE_RULE_BASED_R60_1"
+        and bool((cp.get("contract") or {}).get("sha256_crlf_normalised"))
+        and cp.get("r64_parent_commit") and cp["r64_parent_commit"] in init)
+    protocol_registered = bool(
+        proto.get("registered_before_any_experiment_ran") is True
+        and (proto.get("safety") or {}).get("registers_forward_challenger") is False
+        and (proto.get("safety") or {}).get("purchases_data") is False
+        and (proto.get("forward_competition") or {}).get("no_automatic_promotion") is True
+        and all("DISCLOSED" in str(a) and "threshold" in str(a).lower()
+                and re.match(r"^2026-\d\d-\d\dT\d\d:\d\dZ", str(a))
+                for a in (proto.get("amendments_disclosed") or [])))
+    try:
+        sb = json.loads(_read(ALPHA_RECOVERY_SCOREBOARD) or "{}")
+    except ValueError:
+        sb = {}
+    statuses = ("RESEARCHING", "HISTORICAL_SURVIVOR", "READY_FOR_FORWARD_QUALIFICATION",
+                "TRUE_FORWARD_COMPETING", "REJECTED", "OWNED_FREE_INFORMATION_EXHAUSTED")
+    scoreboard_committed = bool(sb.get("status") in statuses and sb.get("artifact_hash")
+                                and "incumbent" in sb and "best_challenger" in sb and "campaign" in sb)
+    safety_flags_off = bool(init) and all(
+        re.search(r'"%s":\s*False\b' % re.escape(k), init) is not None
+        for k in ALPHA_RECOVERY_SAFETY_FLAGS_OFF)
+    forbidden_calls, forbidden_imports, second_owners = [], [], []
+    for rel, fp in sorted(pkg_files.items()):
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        code = _strip_prose(src)
+        for t in ALPHA_RECOVERY_FORBIDDEN_CALLS:
+            if t in code:
+                forbidden_calls.append("%s:%s" % (rel, t))
+        imports = "\n".join(ln for ln in src.splitlines()
+                            if ln.lstrip().startswith(("import ", "from ")))
+        for t in ALPHA_RECOVERY_FORBIDDEN_IMPORTS:
+            if t in imports:
+                forbidden_imports.append("%s:%s" % (rel, t))
+        for t in ("def run_cell(", "def bh_fdr(", "def walk_forward(", "def as_of(",
+                  "def forward_compound(", "def build_book(", "def need_rows(",
+                  "def register_forward_challenger(", "def adopt_prospective_freeze("):
+            if t in code:
+                second_owners.append("%s:%s" % (rel, t))
+    runner = _read(ALPHA_RECOVERY_RUNNER)
+    runner_has_no_execute = bool(
+        runner and "--execute" not in runner and "Register-ScheduledTask" not in runner
+        and "restart_paper_trader_backend" not in runner and "uvicorn" not in runner
+        and "assert_research_root_is_not_live()" in runner)
+    tests = _read(ALPHA_RECOVERY_TESTS)
+    tests_hermetic = bool(
+        tests and "monkeypatch.setenv(AR.RESEARCH_ROOT_ENV" in tests
+        and "monkeypatch.setenv(AR.REPO_DIR_ENV" in tests
+        and "monkeypatch.setenv(INC.DESK_DIR_ENV" in tests
+        and "monkeypatch.setenv(SB.REGISTRY_DIR_ENV" in tests
+        and "test_roots_are_hermetic" in tests)
+    research_root_on_data_drive = 'DEFAULT_RESEARCH_ROOT = Path(r"D:\\Stock_Prediction_app_data' in init
+    artifacts_deterministic = bool("sort_keys=True" in init
+                                   and 'if k not in ("artifact_hash", "generated_at")' in init)
+    return {
+        "missing_modules": missing_modules,
+        "contract_present": contract_present,
+        "contract_rules_missing": contract_rules_missing,
+        "claude_md_references_contract": claude_references_contract,
+        "claude_md_instructions_missing": claude_missing,
+        "project_state_begins_with_primary_objective": state_begins_with_objective,
+        "checkpoint_frozen_ten_sessions": checkpoint_frozen,
+        "protocol_registered_before_experiments": protocol_registered,
+        "scoreboard_committed_with_one_status": scoreboard_committed,
+        "safety_flags_off": safety_flags_off,
+        "forbidden_calls": sorted(forbidden_calls),
+        "forbidden_imports": sorted(forbidden_imports),
+        "second_owners": sorted(second_owners),
+        "research_root_on_data_drive": research_root_on_data_drive,
+        "artifacts_deterministic": artifacts_deterministic,
+        "runner_has_no_execute_path": runner_has_no_execute,
+        "tests_hermetic": tests_hermetic,
+    }
+
+
 def check_release62_2_automatic_forward_accrual(files: list[Path]) -> dict:
     """R62.2 invariants - a clock that winds itself, and cannot be wound back.
 
@@ -16809,6 +16963,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release63_information_sensitivity(files),
         "release64_information_directed_alpha":
             check_release64_information_directed_alpha(files),
+        "alpha_recovery_operating_contract":
+            check_alpha_recovery_operating_contract(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -20990,6 +21146,24 @@ BLOCKING_INVARIANTS = (
     ("release64_information_directed_alpha", "runner_has_no_execute_path", True),
     ("release64_information_directed_alpha", "tests_hermetic", True),
     ("release64_information_directed_alpha", "conftest_hermetic_frontier", True),
+    # --- the PERMANENT alpha objective: contract, stop-loss, scoreboard --- #
+    ("alpha_recovery_operating_contract", "missing_modules", []),
+    ("alpha_recovery_operating_contract", "contract_present", True),
+    ("alpha_recovery_operating_contract", "contract_rules_missing", []),
+    ("alpha_recovery_operating_contract", "claude_md_references_contract", True),
+    ("alpha_recovery_operating_contract", "claude_md_instructions_missing", []),
+    ("alpha_recovery_operating_contract", "project_state_begins_with_primary_objective", True),
+    ("alpha_recovery_operating_contract", "checkpoint_frozen_ten_sessions", True),
+    ("alpha_recovery_operating_contract", "protocol_registered_before_experiments", True),
+    ("alpha_recovery_operating_contract", "scoreboard_committed_with_one_status", True),
+    ("alpha_recovery_operating_contract", "safety_flags_off", True),
+    ("alpha_recovery_operating_contract", "forbidden_calls", []),
+    ("alpha_recovery_operating_contract", "forbidden_imports", []),
+    ("alpha_recovery_operating_contract", "second_owners", []),
+    ("alpha_recovery_operating_contract", "research_root_on_data_drive", True),
+    ("alpha_recovery_operating_contract", "artifacts_deterministic", True),
+    ("alpha_recovery_operating_contract", "runner_has_no_execute_path", True),
+    ("alpha_recovery_operating_contract", "tests_hermetic", True),
 )
 
 

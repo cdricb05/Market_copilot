@@ -1,3 +1,35 @@
+# ALPHA RECOVERY OPERATING CONTRACT - READ FIRST (permanent)
+
+Paper Trader has ONE top-level objective: produce a forecasting / model
+specification that materially outperforms the incumbent
+`fundamental_momentum_50_50_v1` after realistic costs and enters governed
+TRUE_FORWARD competition, or prove `OWNED_FREE_INFORMATION_EXHAUSTED` with the
+exact missing information and a quantitatively defensible purchase case. The
+permanent rules live in `docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md`; the frozen
+10-eligible-session stop-loss in
+`research/alpha_recovery/alpha_recovery_checkpoint.json`; the primary progress
+measure in `research/alpha_recovery/alpha_recovery_scoreboard.json`.
+
+Every future agent or session MUST, before proposing or implementing any
+Paper Trader work:
+
+1. Read docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md first.
+2. State which Alpha objective the proposed work advances (a challenger, a
+   forecast product, evidence capture, prospective competition, the
+   exhaustion / purchase case) - or document `BLOCKER / ALPHA IMPACT /
+   MINIMUM FIX` and implement only the minimum fix.
+3. Refuse to make non-blocking infrastructure, UI or cleanup the primary next
+   milestone.
+4. Measure project progress by investment evidence (the scoreboard), never by
+   release numbers, lines changed, tests passed or architecture work.
+
+The incumbent is the BENCHMARK, not the presumed correct model. A model score
+is not an expected return. Historical OOS and TRUE_FORWARD evidence are never
+conflated. Thresholds are never relaxed after seeing results. No automatic
+promotion; no automatic portfolio change; adoption is human-gated. Guard:
+`scripts/audit_architecture.py::check_alpha_recovery_operating_contract` and
+`tests/test_alpha_recovery_offensive.py`.
+
 <!-- BEGIN PAPER TRADER MANDATORY UI REDESIGN WORKFLOW -->
 
 # Paper Trader Mandatory UI Redesign Workflow
