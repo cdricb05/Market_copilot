@@ -427,8 +427,15 @@ def _target(rows: dict, mode: str) -> np.ndarray:
     return y
 
 
-def run_cell(ds: dict, dims_b: tuple, dim_d: str, *, top_n: int = 50) -> dict:
-    """Measure ONE cell. ``ds`` is the dataset from experiments.assemble_*."""
+def run_cell(ds: dict, dims_b: tuple, dim_d: str, *, top_n: int = 50,
+             keep_predictions: bool = False) -> dict:
+    """Measure ONE cell. ``ds`` is the dataset from experiments.assemble_*.
+
+    ``keep_predictions`` (R64, additive, default off) attaches the out-of-sample
+    scores of BOTH arms and the aligned row facts under ``_predictions`` so a
+    later release can price the SAME scores through a different book without
+    a second scorer. Every statistic and every default output byte is unchanged.
+    """
     mode, h, cad = ds["mode"], int(ds["horizon"]), int(ds["cadence"])
     lag = pit.nw_lag(h, cad)
     rows = _flatten(ds, dims_b, dim_d)
@@ -641,6 +648,15 @@ def run_cell(ds: dict, dims_b: tuple, dim_d: str, *, top_n: int = 50) -> dict:
         "folds": per_fold,
     })
     out["verdict"] = verdict(out)
+    if keep_predictions:
+        # R64: the identical OOS scores the books above were priced from, with
+        # the row facts they align to. Not part of the persisted cell.
+        out["_predictions"] = {
+            "pred_B": preds["B"], "pred_BD": preds["BD"], "pred_D": preds["D"],
+            "gid": gid, "iid": iid, "y_raw": y_raw, "vol": vol, "cost": cost,
+            "y_scaled": ys, "fold_kind": fold_kind, "pred_scale": dict(pred_scale),
+            "slot_dates": slot_dates, "inst": list(ds["inst"]),
+        }
     return out
 
 

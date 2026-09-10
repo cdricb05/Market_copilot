@@ -15687,6 +15687,180 @@ R622_TASK_OWNERS = ("scripts/install_alpha_agent_tasks.ps1",
                     "scripts/install_research_runtime_task.ps1")
 
 
+R64_PACKAGE = "alpha_agent/r64"
+R64_INIT = "alpha_agent/r64/__init__.py"
+R64_PROTOCOL = "research/r64/R64_RESEARCH_PROTOCOL.json"
+R64_RUNNER = "scripts/run_r64_information_directed_alpha.py"
+R64_TESTS = "tests/test_release64_information_directed_alpha.py"
+R64_MODULES = ("__init__", "handoff_validation", "carry", "construction", "experiments",
+               "family", "challenger", "frontier", "report")
+#: The ONE scorer, the ONE as-of / walk-forward owner, the ONE BH owner and the
+#: ONE frontier owner R64 reuses and may never duplicate.
+R64_SCORER = "alpha_agent/r63/sensitivity.py"
+R64_PIT_OWNER = "alpha_agent/r63/pit.py"
+R64_FRONTIER_OWNER = "alpha_agent/r63/gaps.py"
+#: The live-runtime adapter through which the governor consumes the frontier.
+R64_ADAPTER = "alpha_agent/r59/information_needs.py"
+R64_GOVERNOR = "alpha_agent/r59/governor.py"
+R64_HANDLERS = "alpha_agent/r59/handlers.py"
+R64_CONFTEST = "tests/conftest.py"
+R64_FORBIDDEN_CALLS = R63_FORBIDDEN_CALLS
+R64_FORBIDDEN_IMPORTS = R63_FORBIDDEN_IMPORTS
+R64_MEMORY_WRITE_CALLS = R63_MEMORY_WRITE_CALLS
+R64_SAFETY_FLAGS_OFF = R63_SAFETY_FLAGS_OFF
+R64_LIVE_CONSUMERS = R63_LIVE_CONSUMERS
+#: Owners that must remain the ONLY definition of these functions INSIDE the
+#: R63/R64 research packages and the R59 runtime they are wired into. Earlier
+#: generations (R57's own BH, the pit_fundamentals as-of) predate the R63
+#: single-owner claim and are out of this scope, exactly as R63's own check is.
+R64_SINGLE_OWNERS = (("def run_cell(", R64_SCORER), ("def bh_fdr(", R64_SCORER),
+                     ("def walk_forward(", R64_PIT_OWNER), ("def as_of(", R64_PIT_OWNER),
+                     ("def forward_compound(", R64_PIT_OWNER))
+R64_SINGLE_OWNER_SCOPE = ("alpha_agent/r64/", "alpha_agent/r63/", "alpha_agent/r59/")
+
+
+def check_release64_information_directed_alpha(files: list[Path]) -> dict:
+    """R64 invariants - one scorer, one book, one frontier, and a governor that
+    can ask the information question without a second owner of anything.
+
+    (a) THE PACKAGE AND ITS PROTOCOL EXIST, registered before any experiment,
+        every dangerous flag off, and the one amendment disclosed and pre-run.
+    (b) NO PORTFOLIO, EXECUTION, REGISTRATION OR PROMOTION PATH in r64.
+    (c) ONE SCORER: ``def run_cell(`` / ``def bh_fdr(`` live in the R63
+        sensitivity module alone; ``def walk_forward(`` / ``def as_of(`` /
+        ``def forward_compound(`` in pit.py alone; R64 asks the scorer to keep
+        its predictions instead of re-scoring.
+    (d) NO SECOND FRONTIER: r64 never writes information_gap_frontier.json and
+        its overlay declares itself not a frontier.
+    (e) THE ADAPTER READS BY PATH and imports no research package; the
+        governor and handler consume it; the watermark dedupe exists; no live
+        runtime consumer imports r63 or r64.
+    (f) THE RESEARCH ROOT IS ON THE DATA DRIVE; artifacts are deterministic.
+    (g) THE RUNNER HAS NO EXECUTE PATH; the tests and conftest are hermetic.
+    """
+    pkg_files = {_rel(fp): fp for fp in files if _rel(fp).startswith(R64_PACKAGE + "/")
+                 and _rel(fp).endswith(".py")}
+    missing_modules = sorted(m for m in R64_MODULES
+                             if "%s/%s.py" % (R64_PACKAGE, m) not in pkg_files)
+    init = _read(R64_INIT)
+    safety_flags_off = bool(init) and all(
+        re.search(r'"%s":\s*False\b' % re.escape(k), init) is not None
+        for k in R64_SAFETY_FLAGS_OFF)
+    try:
+        proto = json.loads(_read(R64_PROTOCOL) or "{}")
+    except ValueError:
+        proto = {}
+    amendments = proto.get("amendments_before_any_result_was_computed") or []
+    # every amendment is DISCLOSED, dated, and states that no threshold moved
+    protocol_registered = bool(
+        proto.get("registered_before_any_experiment_ran") is True
+        and (proto.get("safety") or {}).get("registers_forward_challenger") is False
+        and (proto.get("safety") or {}).get("purchases_data") is False
+        and (proto.get("challenger_rules") or {}).get("no_live_registration") is True
+        and all("DISCLOSED" in str(a) and "threshold" in str(a).lower()
+                and re.match(r"^2026-\d\d-\d\dT\d\d:\d\dZ", str(a)) for a in amendments))
+
+    forbidden_calls, forbidden_imports, memory_writes = [], [], []
+    second_owners, frontier_writes = [], []
+    for rel, fp in sorted(pkg_files.items()):
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        code = _strip_prose(src)
+        for t in R64_FORBIDDEN_CALLS:
+            if t in code:
+                forbidden_calls.append("%s:%s" % (rel, t))
+        imports = "\n".join(ln for ln in src.splitlines()
+                            if ln.lstrip().startswith(("import ", "from ")))
+        for t in R64_FORBIDDEN_IMPORTS:
+            if t in imports:
+                forbidden_imports.append("%s:%s" % (rel, t))
+        for t in R64_MEMORY_WRITE_CALLS:
+            if t in code:
+                memory_writes.append("%s:%s" % (rel, t))
+        for token, owner in R64_SINGLE_OWNERS:
+            if token in code:
+                second_owners.append("%s:%s" % (rel, token))
+        if 'write_artifact("information_gap_frontier' in code or \
+                "write_artifact(G.ARTIFACT_NAME" in code:
+            frontier_writes.append(rel)
+    # the single owners really are single across the research packages and
+    # the runtime they are wired into
+    for token, owner in R64_SINGLE_OWNERS:
+        for fp in files:
+            rel = _rel(fp)
+            if not rel.endswith(".py") or rel == owner or rel.startswith(R64_PACKAGE + "/"):
+                continue
+            if not rel.startswith(R64_SINGLE_OWNER_SCOPE):
+                continue
+            if token in _strip_prose(fp.read_text(encoding="utf-8", errors="replace")):
+                second_owners.append("%s:%s" % (rel, token))
+    scorer = _strip_prose(_read(R64_SCORER))
+    scorer_keeps_predictions = "keep_predictions" in scorer and '"_predictions"' in scorer
+    experiments = _strip_prose(_read("%s/experiments.py" % R64_PACKAGE))
+    r64_uses_the_scorer = "S.run_cell(" in experiments and "keep_predictions=True" in experiments
+    frontier_src = _strip_prose(_read("%s/frontier.py" % R64_PACKAGE))
+    overlay_not_a_frontier = '"not_a_frontier": True' in frontier_src
+
+    adapter = _read(R64_ADAPTER)
+    adapter_imports = "\n".join(ln for ln in adapter.splitlines()
+                                if ln.lstrip().startswith(("import ", "from ")))
+    adapter_imports_no_research_package = bool(
+        adapter and "r63" not in adapter_imports and "r64" not in adapter_imports)
+    adapter_reads_by_path = bool("FRONTIER_PATH_ENV" in adapter and "def load_frontier(" in adapter)
+    adapter_watermark = bool("WATERMARK_META_PREFIX" in adapter and "def record_mandated(" in adapter)
+    governor = _strip_prose(_read(R64_GOVERNOR))
+    governor_consumes_adapter = bool("information_needs as IN" in governor
+                                     and "IN.candidates(" in governor)
+    handlers = _strip_prose(_read(R64_HANDLERS))
+    handler_records_need = bool("IN.is_information_need(" in handlers
+                                and "IN.record_mandated(" in handlers)
+    live_consumers_importing_r6x = sorted(
+        p for p in R64_LIVE_CONSUMERS
+        if "r63" in _read(p) or "import r64" in _read(p) or "r64 import" in _read(p))
+    research_root_on_data_drive = 'DEFAULT_RESEARCH_ROOT = Path(r"D:\\Stock_Prediction_app_data' in init
+    artifacts_deterministic = bool(
+        "sort_keys=True" in init
+        and 'if k not in ("artifact_hash", "generated_at")' in init)
+    runner = _read(R64_RUNNER)
+    runner_has_no_execute = bool(
+        runner and "--execute" not in runner and "Register-ScheduledTask" not in runner
+        and "restart_paper_trader_backend" not in runner and "uvicorn" not in runner
+        and "assert_research_root_is_not_live()" in runner)
+    tests = _read(R64_TESTS)
+    tests_hermetic = bool(
+        tests and "monkeypatch.setenv(R.RESEARCH_ROOT_ENV" in tests
+        and "monkeypatch.setenv(R.R63_RESULTS_ROOT_ENV" in tests
+        and "monkeypatch.setenv(IN.FRONTIER_PATH_ENV" in tests
+        and "test_research_roots_are_hermetic" in tests)
+    conftest = _read(R64_CONFTEST)
+    conftest_hermetic_frontier = bool(
+        "PAPER_TRADER_INFORMATION_FRONTIER_PATH" in conftest
+        and "_hermetic_information_frontier" in conftest)
+    return {
+        "missing_modules": missing_modules,
+        "protocol_registered_before_experiments": protocol_registered,
+        "safety_flags_off": safety_flags_off,
+        "forbidden_calls": sorted(forbidden_calls),
+        "forbidden_imports": sorted(forbidden_imports),
+        "memory_write_calls": sorted(memory_writes),
+        "second_owners": sorted(set(second_owners)),
+        "scorer_keeps_predictions": scorer_keeps_predictions,
+        "r64_uses_the_scorer": r64_uses_the_scorer,
+        "frontier_writes_by_r64": sorted(frontier_writes),
+        "overlay_not_a_frontier": overlay_not_a_frontier,
+        "adapter_imports_no_research_package": adapter_imports_no_research_package,
+        "adapter_reads_by_path": adapter_reads_by_path,
+        "adapter_watermark_dedupe": adapter_watermark,
+        "governor_consumes_adapter": governor_consumes_adapter,
+        "handler_records_need": handler_records_need,
+        "live_consumers_importing_r6x": live_consumers_importing_r6x,
+        "research_root_on_data_drive": research_root_on_data_drive,
+        "artifacts_deterministic": artifacts_deterministic,
+        "runner_has_no_execute_path": runner_has_no_execute,
+        "tests_hermetic": tests_hermetic,
+        "conftest_hermetic_frontier": conftest_hermetic_frontier,
+    }
+
+
 def check_release62_2_automatic_forward_accrual(files: list[Path]) -> dict:
     """R62.2 invariants - a clock that winds itself, and cannot be wound back.
 
@@ -16633,6 +16807,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release62_2_automatic_forward_accrual(files),
         "release63_information_sensitivity":
             check_release63_information_sensitivity(files),
+        "release64_information_directed_alpha":
+            check_release64_information_directed_alpha(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":
@@ -17911,6 +18087,32 @@ def _print_console(rep: dict) -> None:
           f"{r63['live_consumers_importing_r63']}")
     print(f"runner has no execute path: {r63['runner_has_no_execute_path']}  "
           f"tests hermetic: {r63['tests_hermetic']}")
+
+    hdr("RELEASE 64 - INFORMATION-DIRECTED ALPHA (one scorer, one book, one frontier)")
+    r64 = rep["release64_information_directed_alpha"]
+    print(f"missing modules (must be empty): {r64['missing_modules']}  "
+          f"protocol registered before experiments (amendment disclosed): "
+          f"{r64['protocol_registered_before_experiments']}  safety flags off: "
+          f"{r64['safety_flags_off']}")
+    print(f"forbidden calls (must be empty): {r64['forbidden_calls']}  "
+          f"forbidden imports (must be empty): {r64['forbidden_imports']}  "
+          f"memory write calls (must be empty): {r64['memory_write_calls']}")
+    print(f"second owners of run_cell/bh_fdr/walk_forward/as_of (must be empty): "
+          f"{r64['second_owners']}  scorer keeps predictions: "
+          f"{r64['scorer_keeps_predictions']}  r64 uses the scorer: {r64['r64_uses_the_scorer']}")
+    print(f"frontier writes by r64 (must be empty): {r64['frontier_writes_by_r64']}  "
+          f"overlay not a frontier: {r64['overlay_not_a_frontier']}")
+    print(f"adapter imports no research package: {r64['adapter_imports_no_research_package']}  "
+          f"reads by path: {r64['adapter_reads_by_path']}  watermark dedupe: "
+          f"{r64['adapter_watermark_dedupe']}  governor consumes adapter: "
+          f"{r64['governor_consumes_adapter']}  handler records need: "
+          f"{r64['handler_records_need']}")
+    print(f"live consumers importing r63/r64 (must be empty): {r64['live_consumers_importing_r6x']}  "
+          f"research root on data drive: {r64['research_root_on_data_drive']}  "
+          f"artifacts deterministic: {r64['artifacts_deterministic']}")
+    print(f"runner has no execute path: {r64['runner_has_no_execute_path']}  "
+          f"tests hermetic: {r64['tests_hermetic']}  conftest hermetic frontier: "
+          f"{r64['conftest_hermetic_frontier']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -20763,6 +20965,31 @@ BLOCKING_INVARIANTS = (
     ("release63_information_sensitivity", "live_consumers_importing_r63", []),
     ("release63_information_sensitivity", "runner_has_no_execute_path", True),
     ("release63_information_sensitivity", "tests_hermetic", True),
+    # --- R64: one scorer, one book, one frontier; the governor asks the question --- #
+    ("release64_information_directed_alpha", "missing_modules", []),
+    ("release64_information_directed_alpha",
+     "protocol_registered_before_experiments", True),
+    ("release64_information_directed_alpha", "safety_flags_off", True),
+    ("release64_information_directed_alpha", "forbidden_calls", []),
+    ("release64_information_directed_alpha", "forbidden_imports", []),
+    ("release64_information_directed_alpha", "memory_write_calls", []),
+    ("release64_information_directed_alpha", "second_owners", []),
+    ("release64_information_directed_alpha", "scorer_keeps_predictions", True),
+    ("release64_information_directed_alpha", "r64_uses_the_scorer", True),
+    ("release64_information_directed_alpha", "frontier_writes_by_r64", []),
+    ("release64_information_directed_alpha", "overlay_not_a_frontier", True),
+    ("release64_information_directed_alpha",
+     "adapter_imports_no_research_package", True),
+    ("release64_information_directed_alpha", "adapter_reads_by_path", True),
+    ("release64_information_directed_alpha", "adapter_watermark_dedupe", True),
+    ("release64_information_directed_alpha", "governor_consumes_adapter", True),
+    ("release64_information_directed_alpha", "handler_records_need", True),
+    ("release64_information_directed_alpha", "live_consumers_importing_r6x", []),
+    ("release64_information_directed_alpha", "research_root_on_data_drive", True),
+    ("release64_information_directed_alpha", "artifacts_deterministic", True),
+    ("release64_information_directed_alpha", "runner_has_no_execute_path", True),
+    ("release64_information_directed_alpha", "tests_hermetic", True),
+    ("release64_information_directed_alpha", "conftest_hermetic_frontier", True),
 )
 
 

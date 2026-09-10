@@ -613,8 +613,15 @@ def make_handlers(mem: Optional[M.ResearchMemory] = None,
         still real, so a data opportunity is a live claim rather than a note in
         a release document.
         """
+        from . import information_needs as IN
         from . import opportunities as OPP
         m = job.payload or {}
+        if IN.is_information_need(m):
+            # R64 - an information need from the gap frontier: record it in
+            # the ONE research memory and set its watermark. Executes no
+            # research, buys nothing, and is never re-issued for the same
+            # frontier version.
+            return AR.OUTCOME_COMPLETED, IN.record_mandated(mem, mandate=m)
         oid = (m.get("payload") or {}).get("opportunity_id") or ""
         rep = OPP.reassess(mem, opportunity_id=oid)
         return AR.OUTCOME_COMPLETED, {

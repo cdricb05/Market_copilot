@@ -1,0 +1,124 @@
+{
+ "schema_version": "r64-research-protocol/1",
+ "release": "R64",
+ "campaign_id": "r64_information_directed_alpha_v1",
+ "registered_at": "2026-09-10T03:12:00+00:00",
+ "registered_before_any_experiment_ran": true,
+ "registration_rule": "Every substrate, universe rule, horizon, construction, control, split, statistic, gate and threshold in this document was written BEFORE any R64 risk-controlled economic number was computed. Nothing here may be edited after a lockbox number is observed. A hypothesis that occurs to the researcher after seeing results must be registered as R64_PROTOCOL_V2 with an explicit disclosure of what had already been seen.",
+
+ "question": "R63 found ONE incremental information candidate (FX carry from the dated-contract slope, 1 session, 9 CME/ICE currency futures) and several cells whose conditional value was real but whose economic verdict was decided by a pathological book (uncapped or gross-2 unlevered cross-sectional books with -90% to -100% drawdowns). R64 asks: (1) does the exact R63 FX-carry evidence reproduce from the same substrate, and does it survive as ONE economic family across 1, 5, 21 and 63 sessions under family-aware multiple testing; (2) does economically distinct carry information (interest differential, calendar-spread carry, roll yield, dividend-minus-financing, volatility contango, class-neutral cross-asset carry) carry conditional value across FX, rates, commodity, equity-index, volatility and cross-asset scopes; (3) does information that failed only on construction survive a bounded, realistic, risk-controlled portfolio construction; (4) can the persistent AlphaAgent governor consume the R63 information gap frontier without a second memory, queue, scheduler, frontier or forward owner.",
+
+ "amendments_before_any_result_was_computed": [
+  "2026-09-10T03:25Z, BEFORE any R64 cell ran and DISCLOSED: the gross leverage cap was registered at 3.0. The volatility floor of 0.02 annualised already bounds the vol-target leverage at 5x, and an unlevered gross-2 cross-sectional book with a realised volatility of 5-7%/yr needs a gross of roughly 3-4 to reach a 10% target, so a 3.0 cap would have sat at the cap on most periods and the DEGENERATE_UNDER_CONTROLS rule (leverage at the cap on more than 50% of periods) would have measured the cap, not the information. The cap is raised to 5.0 gross (2.5x long / 2.5x short), which is conservative against the R57 futures tournament bound of 10x per market. No result had been computed; no other threshold, split, cost, statistic or gate changed.",
+  "2026-09-10T03:45Z, AFTER a first partial pass (20 of 41 cells) and DISCLOSED: the instrument contribution cap was IMPLEMENTED with a per-side gross rescale after capping, which could re-breach the cap it had just enforced (caught by the hermetic test, not by a result). The cap now binds as registered: excess ex-ante risk is redistributed pro rata to the uncapped names with headroom, total ex-ante risk is preserved, and the volatility target alone sets the scale. This is a repair of the implementation of a registered rule, not a threshold; every cell is re-run under the repaired construction so the matrix is graded under one definition; the R63 conditional statistics are unaffected by construction. No threshold, split, cost, statistic or gate moved and nothing was selected on a first-pass number; the first-pass cells are discarded.",
+  "2026-09-10T04:40Z, AFTER the first complete pass and DISCLOSED, AGAINST the pass's own result: the registered family rule says carry-to-risk and class-neutral carry are formula variants of the ONE CARRY dimension and that the R63 campaign-wide Benjamini-Hochberg result is quoted, never re-run on a smaller family. The merge step had given the variants the R64 campaign BH (m = 41) instead of their base cell's R63 campaign verdict (m = 978), and on that smaller family FX_FUTURES|XS|5|CARRY_TO_RISK was classified READY_FOR_FORWARD_QUALIFICATION while FX_FUTURES|XS|5|CARRY, the same information at the same scope, mode and horizon, had failed the R63 family. The implementation now inherits the base cell's R63 FDR for every variant (a variant with no R63 base still uses the R64 campaign BH); the first-pass challenger records, including that READY record, are discarded and the corrected records written. No threshold, split, cost, statistic or gate moved; the correction removes a survival, it manufactures none."
+ ],
+
+ "what_r64_is_not": [
+  "not a live registration, adoption or promotion: the surviving specification becomes an immutable research candidate capable of entering the canonical prospective-forward process later, through the existing R61/R62 owners, after human review",
+  "not a second research memory, queue, scheduler, data-opportunity frontier or TRUE_FORWARD owner",
+  "not a second scorer: every conditional statistic is produced by alpha_agent.r63.sensitivity.run_cell on the identical rows, folds and forced ridge penalty; R64 only asks that owner to keep its out-of-sample predictions",
+  "not a transformation zoo: carry-to-risk and class-neutral carry are formula variants of the ONE CARRY dimension and are counted inside the CARRY family",
+  "not a live-system change: the canonical checkout, its services, its stores, holdings, cash and NAV are read-only throughout"
+ ],
+
+ "substrates": {
+  "futures": "R41 dated-contract curve store, READ ONLY, exactly as R63 admitted it (94 markets; the R63 universe rule and exclusions are reused verbatim through alpha_agent.r63.panels)",
+  "carry_source_rule": "genuine carry requires DISTINCT contract information: slope_ann is the annualised log ratio of the SECOND dated contract settlement to the FRONT dated contract settlement. The R59 close_b pseudo-curve (a back-adjusted continuous series standing in for a second contract) is FORBIDDEN. R64 measures, per market, the share of sessions where c1 == c2 and refuses any market above 0.50 as PSEUDO_CURVE; the measurement is published.",
+  "return_basis": "ret1 of the dated front contract under the frozen observable roll rule; percent arithmetic on back-adjusted series is forbidden",
+  "pit": "exchange settlements on their own session; a decision at close t uses data dated <= t; the position is effective at close t+1 (NEXT_CLOSE)"
+ },
+
+ "carry_constructions": {
+  "CURVE_CARRY": "the R63 CARRY block verbatim: (slope_ann, slope_ann - slope_ann lagged 21 sessions). Interest differential in FX, calendar-spread carry in rates, roll yield in commodities, dividend-minus-financing in equity index futures, contango in volatility.",
+  "CARRY_TO_RISK": "slope_ann divided by the trailing 63-session realised volatility of ret1 (carry per unit of risk), and its 21-session change. A formula variant of CARRY; same family.",
+  "CARRY_CLASS_NEUTRAL": "for the CROSS_ASSET scope only: slope_ann standardised within its asset class on each session (cross-sectional z-score within class), so a ranking across classes is not decided by the scale of one class (VX contango ~ -58%/yr against FX ~ 1%/yr). A genuinely distinct implementation that addresses the binding failure of the R63 cross-asset CARRY book; still one CARRY family.",
+  "family_rule": "every carry construction at every horizon in every scope is ONE economic family (CARRY). Horizons 1, 5, 21, 63 of FX carry are ONE family and are reported with a family-wise Holm adjustment in addition to the campaign-wide Benjamini-Hochberg control."
+ },
+
+ "horizons": {"sessions": [1, 5, 21, 63], "cadence_rule": "decision cadence = min(horizon, 21) sessions, as R63"},
+
+ "cells": {
+  "reproduction": "FX_FUTURES x XS x {1,5,21,63} x CARRY (augmentation) and FX_FUTURES x TS x {1,5,21,63} x CARRY: the R63 cells re-run through the same owner; the conditional statistics must match the persisted R63 matrix to 1e-9 or the handoff is INVALID",
+  "carry_frontier": "CARRY augmentation, XS mode, in RATES_FUTURES, COMMODITY_FUTURES, EQUITY_INDEX_FUTURES, CROSS_ASSET at {1,5,21,63}; TS mode in VOLATILITY at {1,5,21,63}",
+  "variants": "FX_FUTURES x XS x {1,5,21,63} x CARRY_TO_RISK; CROSS_ASSET x XS x {1,5,21,63} x CARRY_CLASS_NEUTRAL",
+  "construction_rescue": "cells whose R63 verdict was CONDITIONAL_VALUE_NOT_ECONOMIC with a degenerate book: CROSS_ASSET x XS x {1,5,21,63} x TREND (ablation), RATES_FUTURES x XS x 63 x REALISED_VOLATILITY (ablation)",
+  "reopen_rule": "an exhausted PRICE_STATE family (TREND, REALISED_VOLATILITY) is re-measured here ONLY on the construction question: the conditional statistic is unchanged by construction and is not re-tested; only the economic verdict under the risk-controlled book is new"
+ },
+
+ "partition_and_leakage": {
+  "inherited_verbatim_from_r63": true,
+  "lockbox_start": "2023-01-01",
+  "walk_forward": "R63 yearly expanding folds with purge and embargo of one horizon; the ridge penalty chosen on the BASELINE arm by blocked inner CV and FORCED on the augmented arm",
+  "no_test_set_tuning": "no construction parameter is chosen on any result; every control below is fixed here"
+ },
+
+ "risk_controlled_construction": {
+  "owner": "alpha_agent.r64.construction",
+  "applies_to": "BOTH arms of every cell identically (baseline book and augmented book), so the increment measures information, not construction",
+  "cross_sectional_book": {
+   "selection": "top and bottom quintile of the OOS score (terciles below ten names), as R63",
+   "within_side_weights": "inverse 63-session realised volatility, capped per name at max(1/k, 0.25) and renormalised, as R63",
+   "asset_class_risk_budget": "CROSS_ASSET scope only: within each side, the ex-ante risk (|w| x vol) of every asset class present is equalised across classes before capping",
+   "instrument_contribution_cap": "no instrument may carry more than 0.25 of the book's ex-ante risk (|w_i| x vol_i / sum |w_j| x vol_j); excess is redistributed pro rata",
+   "volatility_target": "0.10 annualised. The unlevered book's trailing realised volatility over the previous 63 evaluation periods (strictly before the decision; at least 12 periods, else leverage 1.0) sets the leverage; the vol estimate is floored at 0.02 annualised",
+   "leverage_cap": "gross exposure (sum |w|) <= 5.0 (registered as 3.0; amended to 5.0 BEFORE any R64 cell ran - see amendments_before_any_result_was_computed)",
+   "no_trade_band": "a name held before and after the decision is left at its previous weight when |w_new - w_old| < 0.25 x max(|w_new|, |w_old|); entries and exits always trade",
+   "costs": "per-market R38 cost per side on one-way turnover, as R63; the increment is also reported at 2x cost"
+  },
+  "time_series_book": {
+   "position": "tanh(score / training score std) per instrument, as R63",
+   "per_instrument_vol_target": "0.10 / vol_63, capped at 3.0, equal-weighted across instruments, as R63",
+   "book_level_controls": "the same 0.10 book volatility target, 3.0 gross leverage cap, 0.25 instrument contribution cap and 0.25 no-trade band"
+  },
+  "degeneracy_rule": "a risk-controlled book whose augmented arm records a maximum drawdown below -0.60 or whose gross leverage sits at the cap on more than 50% of periods is DEGENERATE_UNDER_CONTROLS and cannot pass the economic gate"
+ },
+
+ "statistics": {
+  "conditional": "R63 PAIRED OOS increment (rank IC in XS, unit-risk timing statistic in TS), Newey-West t with lag ceil(h/cadence) - 1; REPRODUCED, never recomputed differently",
+  "economic": "paired per-period net return difference augmented minus baseline under the R64 construction; Newey-West t; annualised net increment; Sharpe increment; maximum drawdown; mean one-way turnover; annualised cost drag; gross leverage; max instrument weight; max class share",
+  "multiple_testing": {
+   "campaign_bh": "Benjamini-Hochberg at q = 0.10 across every R64 conditional p-value and, separately, across every R64 economic p-value",
+   "family_holm": "Holm step-down at alpha = 0.05 within the FX CARRY family (the 4 horizons x 2 modes = 8 cells); the family p-value is the Holm-adjusted minimum",
+   "reference": "the R63 campaign-wide BH result is quoted, never re-run on a smaller family to manufacture survival"
+  },
+  "effective_sample": {"min_effective_periods": 36},
+  "materiality": {"ann_net_increment_floor": 0.015, "sharpe_increment_floor": 0.15},
+  "stability": "share of positive 3-year blocks >= 0.60 and lockbox sign agreement, from the reproduced conditional cell",
+  "regime": "increment by implied-volatility regime and by the cross-asset trend regime, from the reproduced conditional cell"
+ },
+
+ "verdict_ladder": {
+  "REPRODUCTION_FAILED": "a reproduced conditional statistic differs from the persisted R63 matrix",
+  "NO_CONDITIONAL_VALUE": "increment t below 2.0 or non-positive (R63 verdict inherited)",
+  "NOT_ECONOMIC_UNDER_CONTROLS": "conditional t >= 2.0 but the risk-controlled net increment is below 1.5%/yr AND the Sharpe increment is below 0.15, or the book is DEGENERATE_UNDER_CONTROLS",
+  "ECONOMIC_UNDER_CONTROLS_UNSTABLE": "economic under controls but stability or lockbox sign fails",
+  "ECONOMIC_UNDER_CONTROLS_NOT_FDR": "economic and stable but fails the campaign Benjamini-Hochberg family",
+  "ECONOMIC_UNDER_CONTROLS": "every gate passes including Benjamini-Hochberg"
+ },
+
+ "challenger_rules": {
+  "READY_FOR_FORWARD_QUALIFICATION": "ECONOMIC_UNDER_CONTROLS with a positive net increment at 2x cost, lockbox sign agreement, PIT_MARKET_OBSERVABLE information, and - for a multi-horizon family - a family Holm p below 0.05",
+  "MORE_RESEARCH_REQUIRED": "conditional t >= 2.0 and DISTINCT (residual share >= 0.35) but one of economics-under-controls, stability, FDR",
+  "REJECTED": "everything else, recorded with the binding failure",
+  "no_promotion": true,
+  "no_live_registration": true,
+  "artifact_only": "a candidate is an immutable research artifact with a freeze_record_hash over its complete forward specification, capable of later binding to api.forward_challenger_registry through the governed R61/R62 owners after human review; R64 never calls them"
+ },
+
+ "alphaagent_integration": {
+  "consumer": "alpha_agent.r59.governor through a thin adapter alpha_agent.r59.information_needs that READS the R63 information_gap_frontier.json artifact by path and never imports alpha_agent.r63",
+  "mandate_kind": "DATA_OPPORTUNITY (existing kind, existing lane, existing fairness cap); family DATA:INFORMATION_NEED:<cell_key>",
+  "dedupe": "one mandate per (cell_key, frontier artifact_hash), recorded as a memory_meta watermark by the existing DATA_VALIDATION handler; never re-issued for an unchanged frontier",
+  "no_second_owner": "no new memory, queue, scheduler, frontier or forward owner; R64 cell results are an OVERLAY keyed by cell_key, not a frontier"
+ },
+
+ "safety": {
+  "research_only": true, "paper_only": true, "creates_orders": false, "creates_fills": false,
+  "broker_enabled": false, "promotes_model": false, "activates_sleeve": false, "approves_proposal": false,
+  "registers_forward_challenger": false, "mutates_operational_store": false, "mutates_live_research_store": false,
+  "purchases_data": false, "starts_trial_or_subscription": false, "automation_enabled": false,
+  "live_checkout_read_only": true,
+  "research_root": "D:\\Stock_Prediction_app_data\\r64_information_directed_alpha"
+ }
+}

@@ -1,7 +1,86 @@
 # PROJECT_STATE
 
-- **Last updated:** 2026-09-09
-- **Updated by phase:** **R63 - INFORMATION SENSITIVITY, ORTHOGONAL INFORMATION
+- **Last updated:** 2026-09-10
+- **Updated by phase:** **R64 - PORTFOLIO PROPOSAL INTEGRITY AND
+  INFORMATION-DIRECTED ALPHA (single agent, Windows PowerShell only, isolated
+  worktree `D:\paper_trader_r64_information_directed_alpha` on branch
+  `r64-information-directed-alpha`, built over `a3a1bf0`; live HEAD still
+  `89a066f`).** Committed and pushed on the DEVELOPMENT branch; NOT merged,
+  NOT deployed. The canonical checkout `C:\Users\binis\paper_trader` was READ
+  ONLY for the whole release - no restart, no daily cycle, no daily close, no
+  reassessment, no proposal regeneration, no approval, no snapshot
+  confirmation, no order, no fill, no corporate-action registration, no
+  adoption, no promotion, no live-store write - and its tracked tree and
+  untracked-file hashes were verified identical to the start-of-run baseline
+  at the end. Full narrative: `docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md`;
+  the proposal review: `docs/PORTFOLIO_PROPOSAL_INTEGRITY_REVIEW_2026-09-09.md`.
+
+  **Track A - the Sep-9 proposal, read-only: `PORTFOLIO_PROPOSAL_REVIEW_READY`
+  with four advisories.** Proposal `reap_2026-09-09_alpha_paper_book_1_0a29467c0f55`
+  (hash `0a29467c…24f280`) is durably present and bound by governed record
+  `gdec_2026-09-09_alpha_paper_book_1_f90423061b45` (46 checks passed, 0
+  failed, 1 not applicable) and by every live read; session 2026-09-09; NAV
+  **97,572.00**. MNST: `MNST_CORPORATE_ACTION_INTEGRITY_OK` - one registered
+  2:1 split applied once at read time, 42 + 2 raw fills -> 86 shares, cost
+  basis 4,116.64 invariant; 44 is the raw pre-action count and 172 is a
+  preview defect (the corporate-action report stacks a provisional suspect on
+  the registered action, D-R64-1); 95,772.72 / 97,572.00 / 101,256.24 are the
+  raw, authoritative and double-applied views, differing by exactly 42 x 42.84
+  and 128 x 42.84. Complete target: 24 names, 23 changes (9 exit, 1 reduce, 5
+  increase, 8 add, 10 retain), one-way turnover 0.35 (budget binding), cost
+  85.38 counted once, net improvement +0.055382 against the frozen 0.050
+  hurdle, every declared limit passing. DDOG's 12.23 % risk share (3.16x
+  weight, a real HOC-trigger breach) falls to 8.44 % (2.18x) in the target
+  although its trim was deferred by the turnover budget; SNDK (4.94x) and ALAB
+  (4.23x) would trigger the HOC rule next (D-R64-3). The `Workflow:
+  Unavailable` / `COLLECTION READ DID NOT ANSWER` surface is
+  `PRESENT_AND_READ_TIMEOUT_ONLY`. The legacy snapshot path is isolated by
+  identity and token, UI-hidden, not backend-blocked (D-R64-4); the score-cost
+  hurdle carries two definitions (D-R64-2). The cockpit deliberately has no
+  approval button: the Stage-18 decision and Stage-19 order-plan confirmation
+  are explicit API calls, written out in the review document. Nothing was
+  performed.
+
+  **Track B - information-directed alpha, research only.** The R63 FX-carry
+  handoff validates (`R63_HANDOFF_VALID_WITH_STALE_CHALLENGER_FILE`: hashes
+  recompute, the record quotes the matrix, a fresh run reproduces every
+  conditional statistic to 1e-9; the write-once challenger file carries
+  first-pass economics and is named as such). Genuine carry is read from
+  DISTINCT dated contracts (94 markets, none a pseudo-curve; FX front/second
+  settlements coincide on <= 2.9 % of sessions). ONE risk-controlled research
+  book (10 % volatility target, gross <= 5, 25 % instrument risk cap, equal
+  class risk budgets, 25 % no-trade band, R38 costs) was applied to BOTH arms
+  of 41 cells - carry across FX / rates / commodity / equity-index /
+  volatility / cross-asset at 1, 5, 21, 63 sessions as ONE family, two carry
+  variants, and the R63 construction-failure cells - through the R63 scorer's
+  own out-of-sample scores (`keep_predictions`, additive; 33 of 33 R63 cells
+  reproduce exactly). **Result: 0 READY_FOR_FORWARD_QUALIFICATION, 16
+  MORE_RESEARCH_REQUIRED, 25 REJECTED.** FX carry's conditional value holds at
+  the family level (Holm p 8.2e-5) and its risk-controlled economics miss by a
+  hair (Holm p 0.0509): at 1 session the increment is the strongest measured
+  (+3.6 %/yr, +0.34 Sharpe, t 2.49, +4.0 % at 2x cost) but the daily book it
+  improves loses money after costs (drawdown -66 %, past the registered -60 %
+  line); at 5 sessions the book is deployable-shaped (+2.0 %/yr, +0.19 Sharpe,
+  drawdown -55 %) and the R63 campaign Benjamini-Hochberg (m = 978) refuses
+  it - R64 quotes that refusal and, by a disclosed amendment made AGAINST its
+  own first-pass result, refused to let a formula variant survive on a smaller
+  family. The construction-rescue answer is no: cross-asset daily TREND is
+  worth +10 %/yr and +0.97 Sharpe relative to the book without it and both
+  books lose 36-46 %/yr to cost drag; the cadence, not the cap, is the
+  binding failure. The R63 information gap frontier is now consumed by the
+  R59 governor through `alpha_agent/r59/information_needs.py` (existing
+  DATA_OPPORTUNITY kind, lane, fairness cap and queue; watermark dedupe per
+  need and frontier version; no second memory, queue, scheduler, frontier or
+  forward owner), with an R64 overlay of 29 updated needs. Sixteen immutable,
+  hash-named candidate records carry a `freeze_record_hash` for a later
+  human-gated registration; `R64_FX_FUTURES_CARRY_H5_41E918F2` is the one to
+  take prospective. Guarded by `check_release64_information_directed_alpha`
+  (22 strict-blocking invariants) and 31 hermetic tests; audit exit 0;
+  impacted suites 755 passed / 5 skipped / 2 pre-existing clock-dependent
+  R62.2 failures reproduced on the untouched parent; no full gate (shared
+  behaviour unchanged by default).
+
+- **Superseded phase:** **R63 - INFORMATION SENSITIVITY, ORTHOGONAL INFORMATION
   DISCOVERY AND THE ALPHA OFFENSIVE (single agent, Windows PowerShell only,
   isolated worktree `D:\paper_trader_r63_information_sensitivity` on branch
   `r63-information-sensitivity`, built over `89a066f`).** Research only;

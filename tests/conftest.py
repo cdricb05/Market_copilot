@@ -193,6 +193,37 @@ def _hermetic_forward_evidence_stores(tmp_path_factory, monkeypatch) -> None:
     yield
 
 
+#: R64 - the information-frontier artifact and the R64 overlay the governor
+#: adapter (``alpha_agent.r59.information_needs``) reads by path. Both fall
+#: back to production roots on the data drive when their env vars are unset,
+#: so a hermetic governor test would otherwise READ the live R63 frontier and
+#: mandate real information needs into its temp memory. Redirected to paths
+#: that do not exist: the adapter then yields nothing, which is the exact
+#: pre-R64 behaviour. A test that needs a frontier writes its own file.
+_INFORMATION_FRONTIER_PATH_ENVS = (
+    ("PAPER_TRADER_INFORMATION_FRONTIER_PATH",
+     r"D:\Stock_Prediction_app_data\r63_information_sensitivity\results\information_gap_frontier.json",
+     "frontier.json"),
+    ("PAPER_TRADER_INFORMATION_NEED_OVERLAY_PATH",
+     r"D:\Stock_Prediction_app_data\r64_information_directed_alpha\results\r64_information_need_updates.json",
+     "overlay.json"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_information_frontier(tmp_path_factory, monkeypatch) -> None:
+    """R64 - never let the LIVE information frontier leak into a governor test."""
+    root = None
+    for env_var, production_default, leaf in _INFORMATION_FRONTIER_PATH_ENVS:
+        current = os.environ.get(env_var)
+        if current and Path(current) != Path(production_default):
+            continue
+        if root is None:
+            root = tmp_path_factory.mktemp("information_frontier_hermetic")
+        monkeypatch.setenv(env_var, str(root / leaf))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """

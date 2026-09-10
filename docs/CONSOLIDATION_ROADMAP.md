@@ -2003,25 +2003,31 @@ the canonical owner it belongs to; none is a rewrite.
    touched. Dependency: none. Regression risk: LOW (additive; nothing
    accrues today).
 
-7. **R64 - the operational-book cutover** *(Milestone 6; unchanged priority;
+7. **R65 - the operational-book cutover** *(Milestone 6; unchanged priority;
    renumbered from R63 on 2026-09-09 because R63 became the information-
-   sensitivity research release below)*.
+   sensitivity research release, and from R64 on 2026-09-10 because R64 became
+   the information-directed-alpha research release: the R63 FX-carry handoff
+   validated and reproduced, carry prosecuted across six scopes and four
+   horizons as one family, a risk-controlled research book applied to both
+   arms, and the R63 information gap frontier made consumable by the R59
+   governor through `alpha_agent/r59/information_needs.py`; see
+   `docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md`)*.
    Let an approved governed CHANGE be named BY ID by the Stage-19 order plan
    that implements it, so the decision -> execution lineage is end-to-end
    provable. Execution stays manual, preview-first and separately authorised.
 
-8. **R64.1 - `api/app.py` route extraction** *(implementation dependency)*.
+8. **R65.1 - `api/app.py` route extraction** *(implementation dependency)*.
    22,865 lines and 235 routes in one module. Extract by canonical owner, one
    bounded router at a time, behind the existing route contract tests. This is
    the largest single source of merge friction in the estate and the least
    urgent correctness risk, which is why it is LATER and not NEVER.
 
-9. **R64.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
+9. **R65.2 - retire the legacy DB engine path** *(Milestone 7 dependency)*.
    `engine/reconciler.py` remains the only order/fill code and is quarantined;
    `engine/scoring.py` + `engine/market_screener.py` are the legacy DB screener
    path. They retire with Slice 11 (Controlled Execution), not before.
 
-10. **R64.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
+10. **R65.3 - fold the pre-R39 evidence surfaces** *(operator confusion)*.
    `alpha_agent/evidence_observatory.py` (Stage 1-7) and
    `api/alpha_opportunity_registry.py` (R56 citation catalogue) answer
    neighbouring questions from earlier generations of the research OS. Neither is

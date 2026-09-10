@@ -32,10 +32,14 @@ from typing import Optional
 from .. import r59
 from . import blockers as BLK
 from . import frontier as FR
+from . import information_needs as IN
 from . import memory as M
 from . import opportunities as OPP
 
 CALCULATION_OWNER = "alpha_agent.r59.governor"
+
+#: R64 - how many information needs one batch may OFFER (before fairness).
+INFORMATION_NEED_BATCH = 6
 
 MANDATE_ECONOMIC = "ECONOMIC_FAMILY"
 MANDATE_MATHEMATICAL = "MACHINE_DISCOVERY"
@@ -479,6 +483,18 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
             payload={"opportunity_id": opp["opportunity_id"],
                      "title": opp["title"]}))
 
+    # R64 - the governor's second question: which asset class x horizon x
+    # information dimension has the highest REMAINING research value? Answered
+    # from the information gap frontier artifact (READ by path through the
+    # adapter; no research package is imported here), carried on the existing
+    # DATA_OPPORTUNITY kind, lane and fairness cap, and deduped by a per-need
+    # watermark so an unchanged frontier is never re-mandated.
+    information_needs = IN.candidates(mem, limit=INFORMATION_NEED_BATCH)
+    for row in information_needs:
+        candidates.append(_mandate(
+            MANDATE_DATA, asset_class=row["asset_class"], family=row["family"],
+            eiv=row["eiv"], reason=row["reason"], payload=row["payload"]))
+
     candidates.sort(key=lambda m: -m["expected_information_value"])
 
     selected = _apply_fairness(candidates, limit=limit,
@@ -492,6 +508,7 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
               detail={"n_candidates": len(candidates),
                       "n_selected": len(selected),
                       "n_deferred_probes": len(deferred_probes),
+                      "n_information_needs": len(information_needs),
                       "non_equity_selected": sum(
                           1 for m in selected
                           if m["asset_class"] != r59.AC_US_EQUITY)})
@@ -501,6 +518,9 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
             "mandates": selected,
             "terminal": terminal,
             "capacity": capacity,
+            # R64 - information needs offered this batch (before fairness).
+            "n_information_needs": len(information_needs),
+            "information_need_source": IN.SOURCE,
             # R61 - probes withheld because their substrate has not moved. A
             # suppressed mandate is stated, with the condition that revives it.
             "deferred_probes": deferred_probes,

@@ -3955,3 +3955,92 @@ the package.
 
 **Consequence.** Tonight's Daily Cycle does not depend on R63, and R63 cannot
 make it depend on R63 by accident.
+
+## Release 64 — portfolio proposal integrity review and information-directed alpha
+
+### D-R64-1 — a preview surface may never stack a provisional correction on a registered one (CONFIRMED; defect documented, not yet fixed)
+
+**Decision.** `api.corporate_actions.load_corporate_action_report` previews the
+NAV correction a registration WOULD apply by reconciling the desk book against
+the union of registered actions and high-confidence suspects. The suspect
+dedupe compares `(ticker, marks.latest_completed_date)` against the registered
+`(ticker, ex_date)`, so a suspect whose action IS registered (the scan says
+`already_registered: true`) is still appended as a second, provisional action
+dated at the latest mark. On 2026-09-09 the report therefore applied the MNST
+2:1 split twice (2026-08-11 registered, 2026-09-09 provisional) and rendered
+44 → 172 shares and NAV 95,772.72 → 101,256.24 while every economic owner
+held 86 shares and NAV 97,572.00. The report is labelled
+`DESK_BOOK_RECONCILIATION_PROJECTION` / `is_authoritative_nav: false`, so no
+economic state was wrong; the preview was. The dedupe must skip a suspect the
+scan already marks `already_registered`, and the UI must never invite a second
+registration of a registered action. Fixed in a later operational release, not
+in R64 (research only, live checkout read-only).
+
+**Evidence.** Immutable fills 2026-07-22 BUY 42 @ 95.67 and 2026-08-13 BUY 2 @
+46.68; registry `ca_MNST_20260811_5cf0bfa6` (FORWARD_SPLIT 2.0, ex 2026-08-11,
+registered once); `adjust_fills` → 84 + 2 = 86; cost basis 4,116.64 invariant;
+`GET /v1/operational-book` holdings MNST 86, NAV 97,572.00; the proposal,
+reassessment, HOC and rebalance reads bind corporate_actions_hash
+`2d2f3e96…`, equal to the live registry fingerprint. 44 × 42.84 = 1,884.96
+(raw), 86 × 42.84 = 3,684.24 (authoritative), 172 × 42.84 = 7,368.48 (double);
+97,572.00 − 95,772.72 = 42 × 42.84 exactly.
+
+### D-R64-2 — the score-cost hurdle has two definitions across two owners (PROVISIONAL; conservative side used)
+
+**Decision.** `engine.reallocation_proposal._signal_block` converts cost to
+score points as `two_way_turnover × round_trip_bps × 0.001` (0.70 × 25 × 0.001
+= 0.0175 on 2026-09-09), and `engine.constrained_reallocation.switching_economics`
+uses that value verbatim when delegated; its own fallback would compute
+`two_way × round_trip_bps × 0.001 / 2` (0.00875). The delegated definition
+charges the round-trip rate on the two-way traded weight — twice the dollar
+cost actually modelled (85.38 = 68,300.39 × 0.00125 = 8.75bp of NAV). Net
+improvement 0.055382 clears the 0.050 hurdle under the conservative
+definition; it would be 0.064132 under the fallback. One definition must be
+chosen and written into both owners; until then the conservative one governs.
+
+### D-R64-3 — the HOC per-name risk trigger and the complete-target risk cap are different rules (CONFIRMED; disclosed to the operator)
+
+**Decision.** `engine.holding_opportunity_cost` flags a held name whose risk
+contribution exceeds `risk_contribution_excess_multiple` (3.0) × its weight;
+`engine.constrained_reallocation` caps a name at `max_name_risk_contribution`
+(0.25) of portfolio risk. DDOG (12.23% at 3.69% weight, 3.16×) breached the
+first and not the second; the constrained target retained it at full weight
+(its trim was deferred by the 35% turnover budget) and still resolved the
+trigger because the added names raise portfolio volatility from 11.75% to
+14.97% — DDOG's share falls to 8.44% (2.18×) — while SNDK (20.72%, 4.94×) and
+ALAB (17.76%, 4.23×) would trigger the HOC rule at the next reassessment.
+Neither rule is wrong; they answer different questions, and the review must
+state both.
+
+### D-R64-4 — the legacy snapshot path is UI-hidden, not backend-blocked (CONFIRMED; documented risk)
+
+**Decision.** `POST /v1/paper-desk/orders/generate` builds orders from the
+latest CONFIRMED multi-horizon snapshot into the OPEN book, and the
+Alpha-target review still reports `snapshot_confirmation_allowed: true`. The
+UI hides the desk button while an alpha book exists and the governed path
+(Stage-18 decision → Stage-19 order plan) is the only path the operator is
+shown, but the backend does not refuse the legacy route when an alpha book is
+open. It requires two explicit legacy tokens through the API and is not
+reachable from the cockpit, so it is a documented isolation gap, not a
+blocker.
+
+### D-R64-5 — one scorer, one book, one frontier; the governor asks the information question (CONFIRMED)
+
+**Decision.** R64 adds no second scorer: `alpha_agent.r63.sensitivity.run_cell`
+keeps its out-of-sample predictions through an additive keyword and
+`alpha_agent.r64.construction` prices the SAME scores for BOTH arms through
+one bounded, risk-controlled book (volatility target, gross leverage cap,
+instrument contribution cap, equal asset-class risk budgets, no-trade band,
+per-market costs). R64 adds no second frontier: its verdicts are an OVERLAY
+keyed by the R63 frontier's own `cell_key`. The R59 governor consumes the
+frontier through `alpha_agent.r59.information_needs`, which reads the artifact
+by path, imports no research package, rides the existing DATA_OPPORTUNITY
+kind, lane, fairness cap and queue, and dedupes by a memory_meta watermark per
+(need, frontier version) so an unchanged frontier is never re-mandated.
+
+**Evidence.** The re-run FX carry cell reproduces the persisted R63
+conditional statistics exactly (t 4.258500040033114, increment
+0.01256187954250206, lockbox 0.0382074993253441, 6,238 effective periods).
+`check_release64_information_directed_alpha` asserts every single-owner
+token, the absence of frontier writes by R64, the adapter's import surface,
+and that no live runtime consumer imports r63 or r64.
