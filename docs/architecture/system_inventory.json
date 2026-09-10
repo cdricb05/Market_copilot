@@ -697,6 +697,17 @@
    "status": "OWNED_ALPHA_RECOVERY",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "Research only. A drifting-moneyness proxy would manufacture a result rather than measure one, so when the bracketing count falls below MIN_EFFECTIVE_PERIODS no cell is scored and the floor is not moved."
+  },
+  {
+   "concept": "native_futures_acquisition_state",
+   "authoritative_owner": "alpha_agent/alpha_recovery/databento_acquisition.py (the ONE owner of the campaign's Databento historical acquisition: the free-credit spending contract, the dated-contract symbology, the causal front-month roll and the PIT validation of any acquired panel)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/databento_acquisition.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'databento')"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only, free credits only, no subscription, zero paid dollars. The spending contract is enforced in code: nothing is downloaded before metadata.get_cost has priced the identical request signature, and a plan exceeding the operator-stated free balance less a 10 % margin is refused rather than trimmed. Genuine dated contracts only - a continuous symbol is never requested because its roll dates are a vendor's choice the estate cannot audit. The roll is decided from volume strictly before the session it applies to, runs forward only, and returns are spliced within one contract so a calendar spread can never enter a return. Currently BLOCKED_CREDENTIAL_ABSENT: DATABENTO_API_KEY is unset in every scope, the provider answers HTTP 401, and no credit has been consumed."
   }
  ],
  "route_ownership": [

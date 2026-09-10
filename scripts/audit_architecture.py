@@ -15873,7 +15873,8 @@ ALPHA_RECOVERY_MODULES = ("__init__", "checkpoint", "scoreboard", "forecast_cont
                           "program", "earnings_events", "news", "tournament", "cadence",
                           "market_direction", "forward_package", "purchase_case", "report",
                           "equity_challengers", "frontier_residual", "forecast_products",
-                          "intraday_data", "intraday_alpha", "options_surface")
+                          "intraday_data", "intraday_alpha", "options_surface",
+                          "databento_acquisition")
 ALPHA_RECOVERY_CLAUDE_INSTRUCTIONS = ("Read docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md first",
                                       "which Alpha objective", "Refuse to make non-blocking",
                                       "investment evidence")

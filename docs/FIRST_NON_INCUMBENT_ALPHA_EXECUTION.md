@@ -61,10 +61,17 @@ and no closing auction, so no intraday strategy can be marked to the close.
 
 ## ACTIVE INFORMATION AXIS
 
-**NATIVE INTRADAY CROSS-ASSET PRICE PATH** (1-minute bars). This is the first
-axis in the campaign that is not daily, and it is a *coverage* improvement of
-the kind contract rule 13 requires for reopening price-derived research - not
-another daily transform.
+**NATIVE CME FUTURES 1-MINUTE HISTORY (Databento, free credits only).**
+Opened 2026-09-10. Credential live; the 4-year, 10-root, 213-window panel is
+priced at **$70.48 inside free credit** and the state is
+`PLANNED_FITS_FREE_CREDIT`. **AWAITING HUMAN APPROVAL OF THE SPEND** - that is
+the only remaining step, and nothing else in the campaign waits on it. See the
+section below. This supersedes the ETF intraday axis, which is closed.
+
+Previously active and now CLOSED: **NATIVE INTRADAY CROSS-ASSET PRICE PATH**
+(ETF 1-minute bars). This was the first axis in the campaign that is not daily,
+and it is a *coverage* improvement of the kind contract rule 13 requires for
+reopening price-derived research - not another daily transform.
 
 ### The measured data state (established before any strategy was run)
 
@@ -222,42 +229,200 @@ materially better coverage (contract rule 13).
 Nothing is registered, adopted, promoted or purchased. 52 non-incumbent
 candidates measured, **0 qualified**.
 
+## DATABENTO FUTURES ACQUISITION (opened 2026-09-10; CREDENTIAL LIVE, PRICED, AWAITING SPEND APPROVAL)
+
+Owner: `alpha_agent/alpha_recovery/databento_acquisition.py`. Runner stage
+`databento`. **It is deliberately NOT part of `all`** - it is the only stage
+that can consume a credit balance, so a full-campaign run can never sweep it up.
+
+**Why this axis is permitted at all.** Contract rule 13 allows reopening
+price-derived research when *coverage* materially improves. It does here, for a
+NAMED measured defect: the owned ETF panel stops at 12:59 ET, so every intraday
+family in this campaign was tested on the first 150 minutes of the US day and
+nothing could be marked to the close. A CME session runs ~23 hours and carries
+the overnight, European, US-afternoon and settlement windows. It also adds
+**ENERGY (CL) and FX (6E/6J)** - two markets the estate has never held at any
+frequency.
+
+**Current state: `PLANNED_FITS_FREE_CREDIT`.** The credential is live and the
+whole panel is priced. **Zero billable calls have been made and zero bytes of
+market data have been downloaded.**
+
+### What the credential unblocked, and the three defects it exposed
+
+The key alone was not sufficient. Three real defects sat between the credential
+and any data, and all three were found and fixed BEFORE a credit was spent.
+
+1. **The resolve window ran past the end of the data.** `dated_symbols` admits
+   deliveries up to 120 days past the requested end, and `resolve_symbols` built
+   its `symbology.resolve` window from `max(delivery)` - which landed in
+   **2027-03-01**. Databento answers **HTTP 422
+   `data_end_date_after_available_end_date`**, and the batching loop absorbs
+   `DatabentoError`, so **all ten roots resolved to nothing and every cost came
+   back `null`**. The symptom was a $0 plan reporting "no dated contract
+   spelling resolved", which reads like a clean refusal rather than a broken
+   query. Fixed by clamping the window to the dataset's available end (which the
+   provider states, and which is an *exclusive, sub-daily* bound, so one day is
+   subtracted) and by not asking about contracts whose priced window cannot
+   overlap the acquisition window at all.
+2. **Persistence could not write.** `normalise(out_dir=...)` called
+   `DataFrame.to_parquet`, and neither `pyarrow` nor `fastparquet` is installed
+   in this estate's virtualenv. This would have raised `ImportError` at exactly
+   the moment a paid-for panel had just landed. Fixed by writing `csv.gz`, which
+   is also the convention the owned R45 minute panels already use, adds no
+   dependency, and is byte-reproducible across machines.
+3. **The budget's provenance was not recorded.** The module documented its
+   budget as an "operator-stated free-credit balance", but the figure available
+   here is the vendor's **published signup grant**, which is an upper bound on a
+   *fresh* account and says nothing about how much is still unspent. Conflating
+   the two is precisely how an accidental paid dollar happens, so the artifact
+   now records `budget_provenance.source` and
+   `balance_verified_against_the_account`.
+
+Regressions for all three are in `tests/test_alpha_recovery_offensive.py`
+(77 passing, up from 73). The whole post-download path - parse, causal roll,
+within-contract splice, PIT validation, persistence - was additionally driven
+end to end on synthetic bars, so nothing else is waiting to fail after a spend.
+
+### The priced plan (metadata only; nothing downloaded)
+
+Dataset `GLBX.MDP3`, schema `ohlcv-1m`, `stype_in` `raw_symbol`, genuine dated
+contracts, window **2022-09-09 -> 2026-09-09**, ~1008 sessions.
+
+| roots | contracts | cost |
+|---|---|---|
+| ES, NQ | 17 + 17 | $5.79 + $5.56 |
+| GC | 26 | $8.55 |
+| 6E, 6J | 17 + 17 | $5.26 + $5.19 |
+| ZN, ZF, ZT, ZB | 17 each | $5.62 / $5.30 / $4.87 / $5.06 |
+| CL | 51 | $19.29 |
+| **full panel** | **213 windows** | **$70.48** |
+
+All five buckets covered: `US_EQUITY_INDEX`, `METALS`, `FX`, `US_RATES`,
+`ENERGY`. `metadata.list_unit_prices` confirms `ohlcv-1m` historical at
+**$70/GB**.
+
+**The optimiser made no selection.** Estimated spend equals the full panel cost,
+so nothing was dropped and no instrument was ranked against another. That
+matters for audit: the value model cannot have been fitted to the price list,
+because it never had to choose.
+
+**Depth was raised from the pre-registered 2 years to 4.** 2 years priced at
+$35.55 / 504 sessions; 4 years at $70.48 / 1008 sessions. The change was made
+**before a single bar existed**, so it cannot bias any result - more history is
+strictly more statistical power and more regime variety (it reaches back through
+the 2022 rate shock). It also directly addresses a measured weakness of the
+closed ETF axis, whose best arm failed `holdout_halves_ge_floor` at -4.29 %/yr
+in its second half on only 500 sessions. The runner carries `--years` for this.
+
+**The spending contract, enforced in code rather than in prose:**
+
+| invariant | where |
+|---|---|
+| nothing is downloaded before its cost is known | `download` refuses any signature `plan` did not price |
+| a plan over the free balance is refused, not trimmed silently | `download` raises unless `fits_in_free_credit` |
+| 10 % safety margin under the stated balance | `BUDGET_SAFETY_MARGIN` -> $112.50 cap on $125 |
+| the balance is never inferred, and its provenance is recorded | v0 exposes no balance endpoint; `DATABENTO_FREE_CREDIT_SOURCE` |
+| no subscription, no paid dollar | only usage-based historical endpoints exist in the module |
+
+**PIT rules, declared before acquisition:** the front contract for session *t*
+is chosen from volume strictly **before** *t*; the roll runs **forward only**;
+returns are spliced **within one contract** (a cross-contract difference is a
+calendar spread, not a return); every timestamp is converted to
+`America/New_York` before any minute grid exists.
+
+### The one thing that is blocked
+
+`--spend-free-credits` is refused by this session's command classifier. That is
+the correct boundary - it is the only flag in the estate that can consume a
+balance - but it means the acquisition cannot proceed without an explicit human
+approval of the spend. Everything upstream of it is done.
+
+```powershell
+$env:DATABENTO_API_KEY = [Environment]::GetEnvironmentVariable('DATABENTO_API_KEY','User')
+$env:DATABENTO_FREE_CREDIT_USD = '125'
+$env:DATABENTO_FREE_CREDIT_SOURCE = 'PROVIDER_PUBLISHED_FREE_TIER'
+python scripts\run_alpha_recovery_offensive.py databento --years 4.0                      # prices only
+python scripts\run_alpha_recovery_offensive.py databento --years 4.0 --spend-free-credits # acquires
+```
+
+The download is **resumable and idempotent**: `download` skips any contract file
+that already exists and is non-empty, so an interrupted run continues without
+re-paying for what it already has.
+
+### What runs the moment the panel lands
+
+The scorer, gates, FDR/Holm, equal-risk utility and verdict machinery are all
+reused unchanged. What is genuinely new is a **futures panel adapter**:
+`intraday_data` hardwires the ETF panel (`TRADABLE = SPY/QQQ/TLT/GLD`, a
+150-minute `REG_MODS` grid, `EXIT_ET = 11:55`), none of which describes a
+~23-hour CME session. The adapter is the work that the acquisition unblocks, and
+it is the first configuration in this campaign in which a signal can be **marked
+to the close**.
+
 ## WHAT HAPPENS NEXT AUTOMATICALLY
 
-The owned/free estate is now exhausted across every axis the brief named, so
-there is no further autonomous research that does not require either new data or
-a human decision. A future session should NOT re-run the closed families. In
-order:
+The owned/free estate was exhausted across every axis the original brief named.
+That is no longer where the campaign stands: the Databento credential is live,
+a 4-year native CME 1-minute panel is priced at **$70.48 inside free credit**,
+and it is a *coverage* improvement of exactly the kind contract rule 13 requires
+- it carries the US afternoon, the settlement window and the overnight session,
+and it adds two never-owned buckets (ENERGY, FX). A future session should still
+NOT re-run the closed families. In order:
 
-1. If the operator authorises a purchase, the *only* two experiments with a
-   stated economic case are (a) a moneyness-anchored SPY option chain over ≥ 2
-   years, which would decide axis A properly, and (b) ~500 sessions of 1-minute
-   futures history, which would widen the intraday axis to ES/NQ/ZN/GC/CL/6E.
-   Both are `DO_NOT_BUY` today on the campaign's own break-even arithmetic.
-2. If no purchase: the campaign's terminal state is
+1. **Acquire the priced panel** (`databento --years 4.0 --spend-free-credits`).
+   This is the only step that consumes a balance, and it is gated on the human
+   approving the spend. Nothing else in the campaign is waiting on anything.
+2. **Build the futures panel adapter.** `intraday_data` describes the ETF panel
+   only - `TRADABLE = SPY/QQQ/TLT/GLD`, a 150-minute `REG_MODS` grid, and
+   `EXIT_ET = 11:55`. A ~23-hour CME session needs its own session definition,
+   its own minute grid and its own cost ladder (futures tick costs are NOT the
+   12.5 bp single-name equity rate, and the ladder must be pre-registered before
+   any result is seen, exactly as the ETF ladder was).
+3. **Re-run the five intraday families on the new panel**, unchanged in
+   definition, plus the families that only a full session makes possible: the
+   close/settlement mark, the overnight-to-RTH transmission, and the
+   Europe-session lead into the US open. The scorer, gates, FDR/Holm,
+   equal-risk utility and verdict machinery are reused unchanged.
+4. If that axis also closes without a survivor, the terminal state is
    `OWNED_FREE_INFORMATION_EXHAUSTED` and the remaining stop-loss sessions are
    spent letting the incumbent's TRUE_FORWARD evidence accrue (35 sessions so
-   far, −4.43 % against SPY), which is the one measurement that is still
-   maturing without new information.
-3. Do not open a new PRICE_STATE family. Rule 13 requires new orthogonal
-   information, materially better PIT history or materially better coverage;
-   the intraday axis was the last available coverage improvement and it is spent.
+   far, -4.43 % against SPY), which is the one measurement still maturing
+   without new information.
+5. Do not open a new PRICE_STATE family on the *owned* daily estate. Rule 13
+   requires new orthogonal information, materially better PIT history or
+   materially better coverage. The futures panel is the coverage improvement;
+   another daily transform is not.
 
 ## ONLY USER ACTION CURRENTLY REQUIRED
 
-**None is required for the campaign to remain valid.** Nothing is blocked on the
-user; the honest terminal state is reachable without any purchase or approval.
+**ONE: approve the credit spend.** `DATABENTO_API_KEY` is set and working, the
+panel is priced, and every defect between the credential and the data has been
+found and fixed. The single remaining step - `--spend-free-credits` - is refused
+by this session's command classifier, which is the correct boundary for the only
+flag in the estate that can consume a balance.
 
-One decision is *available* but not requested: whether to fund either of the two
-data experiments in the section above. Both are `DO_NOT_BUY` on the current
-evidence, and this campaign does not recommend either.
+- **$70.48** of Databento **free credit**. **$0.00 paid dollars.** No
+  subscription, no trial, no plan upgrade - the module has no code path to any
+  of them.
+- The figure is already priced through `metadata.get_cost` for all 213 request
+  signatures, and `download` refuses any signature the plan did not price, so
+  the realised cost cannot exceed the quoted one.
+- **Caveat, recorded in the artifact rather than hidden:** the $125 budget is
+  Databento's *published signup grant*, not a verified account balance - the v0
+  API exposes no balance endpoint. If the grant is already partly consumed, the
+  provider refuses the excess (or bills it, where a payment method is on file).
+  Confirming the remaining balance on the portal before approving removes that
+  residual risk entirely.
+
+One decision is *available* but not requested: whether to fund a
+moneyness-anchored SPY option chain over >= 2 years, which would decide axis A
+properly. It is `DO_NOT_BUY` on the campaign's own break-even arithmetic, and
+this campaign does not recommend it.
 
 Actions reserved to the human, when reached:
 
 - TRUE_FORWARD registration / adoption of any survivor (`scripts/adopt_prospective_freeze.py`).
 - Any paid-data purchase.
 - Merge / deploy to the live checkout.
-- To make intraday futures research possible: **≈ 500 sessions of 1-minute
-  history for ES / NQ / ZN / GC / CL / 6E**, which needs a Databento or CME
-  DataMine account (both currently `ACCOUNT_REQUIRED`). Not requested; the ETF
-  panel is sufficient for the current axis.
+- Approval of the free-credit spend described above.

@@ -43,6 +43,7 @@ import pytest
 from alpha_agent import alpha_recovery as AR
 from alpha_agent import r59
 from alpha_agent.alpha_recovery import checkpoint as CK
+from alpha_agent.alpha_recovery import databento_acquisition as DBN
 from alpha_agent.alpha_recovery import earnings_events as EE
 from alpha_agent.alpha_recovery import equity_challengers as EC
 from alpha_agent.alpha_recovery import forecast_products as FPR
@@ -983,3 +984,347 @@ def test_non_price_rule_publishes_the_operator_directed_denominator_honestly():
     assert share_all["executed"] == len(specs)
     # the all-executed share is strictly lower - the directed axis is price-derived
     assert share_all["share_non_price"] < share_auto["share_non_price"]
+
+
+# --------------------------------------------------------------------------- #
+# Databento acquisition: the spending contract, the symbology and the PIT roll
+# --------------------------------------------------------------------------- #
+def _dbn_fake(rate_per_day=0.02, recognised_spelling=1):
+    """A Databento stand-in. ``recognised_spelling`` is the number of trailing
+    year digits the venue admits, so a test can prove the resolver DISCOVERS
+    the spelling instead of assuming one."""
+    calls = {"cost": 0, "resolve": 0, "range": 0, "order": []}
+
+    def fake(method, url, params, key, timeout):
+        ep = url.rsplit("/", 1)[-1]
+        calls["order"].append(ep)
+        if ep == "metadata.get_dataset_range":
+            return json.dumps({"start": "2010-06-06", "end": "2026-09-09"}).encode()
+        if ep == "symbology.resolve":
+            calls["resolve"] += 1
+            out = {}
+            for s in params["symbols"].split(","):
+                tail = s[len(s.rstrip("0123456789")):]
+                if len(tail) == recognised_spelling:
+                    out[s] = [{"s": "1"}]
+            return json.dumps({"result": out}).encode()
+        if ep == "metadata.get_cost":
+            calls["cost"] += 1
+            d0 = date.fromisoformat(params["start"])
+            d1 = date.fromisoformat(params["end"])
+            return json.dumps((d1 - d0).days * rate_per_day).encode()
+        if ep == "timeseries.get_range":
+            calls["range"] += 1
+            return b"ts_event,open,high,low,close,volume,symbol\n"
+        raise AssertionError("unexpected endpoint " + ep)
+
+    return fake, calls
+
+
+def test_databento_never_downloads_before_it_has_priced(root):
+    """The spending contract: metadata.get_cost precedes every byte of data."""
+    fake, calls = _dbn_fake()
+    c = DBN.Client(key="test", transport=fake)
+    p = DBN.plan(c, budget_usd=125.0, years=1.0, roots=["ES", "GC"], today=date(2026, 9, 10))
+    assert calls["range"] == 0, "data was requested before a cost was known"
+    assert calls["cost"] > 0
+    assert p["cost_estimated_before_any_download"] is True
+    assert "metadata.get_cost" in calls["order"]
+    assert DBN.download(c, p)["state"] == "DRY_RUN"
+    assert calls["range"] == 0
+
+
+def test_databento_refuses_a_plan_that_exceeds_the_free_credit(root):
+    fake, _ = _dbn_fake()
+    c = DBN.Client(key="test", transport=fake)
+    p = DBN.plan(c, budget_usd=125.0, years=1.0, roots=["ES"], today=date(2026, 9, 10))
+    busted = dict(p, selection=dict(p["selection"], fits_in_free_credit=False))
+    with pytest.raises(DBN.DatabentoError):
+        DBN.download(c, busted, dry_run=False, out_root=root / "dl")
+
+
+def test_databento_refuses_a_request_the_plan_never_priced(root):
+    """No signature, no download - this is what stops a widened window from
+    riding along on an estimate made for a narrower one."""
+    fake, _ = _dbn_fake()
+    c = DBN.Client(key="test", transport=fake)
+    p = DBN.plan(c, budget_usd=125.0, years=1.0, roots=["ES"], today=date(2026, 9, 10))
+    tampered = json.loads(json.dumps(p))
+    tampered["requests"] = tampered["requests"][:1]
+    tampered["requests"][0]["end"] = "2030-01-01"
+    with pytest.raises(DBN.DatabentoError):
+        DBN.download(c, tampered, dry_run=False, out_root=root / "dl")
+
+
+def test_databento_budget_cap_keeps_a_safety_margin_and_admits_zero_paid_dollars():
+    sel = DBN.optimise({"ES": 60.0, "GC": 40.0, "CL": 30.0}, budget_usd=100.0, sessions=500)
+    assert sel["effective_cap_usd"] == pytest.approx(100.0 * (1 - DBN.BUDGET_SAFETY_MARGIN))
+    assert sel["estimated_spend_usd"] <= sel["effective_cap_usd"]
+    assert sel["paid_dollars_required"] == 0.0
+    assert sel["fits_in_free_credit"] is True
+
+
+def test_databento_optimiser_prefers_the_benchmark_contract_not_the_cheapest():
+    """The defect this pins: with equal tier weights a value/dollar greedy buys
+    the CHEAPEST member of each bucket, returning NQ without ES, 6J instead of
+    6E and the 2-year note as the sole proxy for the rates complex."""
+    costs = {"ES": 40.0, "NQ": 20.0, "6E": 20.0, "6J": 10.0, "ZN": 20.0, "ZT": 5.0}
+    sel = DBN.optimise(costs, budget_usd=200.0, sessions=500)
+    for senior, junior in (("ES", "NQ"), ("6E", "6J"), ("ZN", "ZT")):
+        assert senior in sel["chosen"], "%s must be preferred over the cheaper %s" % (senior, junior)
+        if junior in sel["chosen"]:
+            assert sel["chosen"].index(senior) < sel["chosen"].index(junior)
+
+
+def test_databento_optimiser_does_not_mistake_four_treasuries_for_four_markets():
+    costs = {r: 10.0 for r in ("ZN", "ZF", "ZT", "ZB")}
+    costs["CL"] = 10.0
+    sel = DBN.optimise(costs, budget_usd=25.0, sessions=500)
+    assert "CL" in sel["chosen"], "an unowned energy bucket outranks a second rates contract"
+    assert len([r for r in sel["chosen"] if DBN.UNIVERSE[r][1] == "US_RATES"]) == 1
+
+
+def test_databento_history_too_short_is_worth_nothing():
+    assert DBN.instrument_value("ES", DBN.MIN_USEFUL_SESSIONS - 1, 0) == 0.0
+    assert DBN.instrument_value("ES", DBN.TARGET_SESSIONS, 0) > 0.0
+    sel = DBN.optimise({"ES": 1.0}, budget_usd=100.0, sessions=10)
+    assert sel["chosen"] == []
+    assert sel["insufficient_budget_for_any_instrument"] is True
+
+
+def test_databento_resolves_the_symbol_spelling_instead_of_assuming_one():
+    """CME dated symbols are written both ESZ5 and ESZ25. A wrong guess spends
+    credit on an empty result, so the spelling is discovered, never assumed."""
+    for spelling in (1, 2):
+        fake, calls = _dbn_fake(recognised_spelling=spelling)
+        c = DBN.Client(key="test", transport=fake)
+        out = DBN.resolve_symbols(c, ["ES"], date(2025, 1, 1), date(2026, 1, 1))
+        got = [e["symbol"] for e in out["resolved"]["ES"]]
+        assert got, "no ES contract resolved at spelling %d" % spelling
+        for sym in got:
+            assert len(sym[len(sym.rstrip("0123456789")):]) == spelling
+        assert not out["unresolved"].get("ES")
+        assert calls["resolve"] <= 2
+
+
+def test_databento_requests_dated_contracts_and_never_a_continuous_symbol():
+    src = Path(DBN.__file__).read_text(encoding="utf-8")
+    assert DBN.STYPE_IN == "raw_symbol"
+    assert '"continuous"' not in src and "'continuous'" not in src
+    for entry in DBN.dated_symbols("ES", date(2025, 1, 1), date(2026, 1, 1)):
+        for cand in entry["candidates"]:
+            assert cand.startswith("ES") and cand[2] in DBN.MONTH_CODE.values()
+
+
+def test_databento_roll_is_causal_forward_only_and_starts_at_the_front_month():
+    """The bootstrap bug this pins: with no prior volume the front contract was
+    taken as the first COLUMN (alphabetical), which selects ESH6 over ESZ5 and,
+    because the roll is forward-only, locks that error in for the whole sample."""
+    sessions = ["2025-11-%02d" % d for d in range(10, 26)]
+    vol = pd.DataFrame(index=sessions, dtype=float)
+    vol["ESH6"] = [1e4] * 7 + [1e6] * (len(sessions) - 7)
+    vol["ESZ5"] = [1e6] * 7 + [1e4] * (len(sessions) - 7)
+    deliveries = {"ESZ5": "2025-12-01", "ESH6": "2026-03-01"}
+    sched = DBN.roll_schedule(vol, deliveries)
+    held = sched["symbol"].tolist()
+    assert held[0] == "ESZ5", "the roll must bootstrap onto the NEAREST delivery"
+    assert held[-1] == "ESH6"
+    assert [deliveries[h] for h in held] == sorted(deliveries[h] for h in held)
+    switch = held.index("ESH6")
+    assert switch >= 7, "rolled on or before the evidence session - not causal"
+
+
+def test_databento_roll_abandons_a_contract_before_delivery():
+    sessions = ["2025-11-%02d" % d for d in range(24, 30)]
+    vol = pd.DataFrame(index=sessions, dtype=float)
+    vol["ESZ5"] = [1e6] * len(sessions)
+    vol["ESH6"] = [1e3] * len(sessions)
+    sched = DBN.roll_schedule(vol, {"ESZ5": "2025-11-28", "ESH6": "2026-03-01"})
+    for s, sym in sched["symbol"].items():
+        if sym == "ESZ5":
+            gap = (date.fromisoformat("2025-11-28") - date.fromisoformat(s)).days
+            assert gap > DBN.ROLL_MIN_DAYS_BEFORE_EXPIRY
+
+
+def test_databento_parses_in_exchange_time_not_utc():
+    """The DST trap that corrupted the first pass at the owned ETF panel: a
+    minute grid built on the UTC stamp mixes two session clocks across a DST
+    boundary. 14:30 UTC is 09:30 ET in winter and 10:30 ET in summer."""
+    csv = ("ts_event,open,high,low,close,volume,symbol\n"
+           "2025-11-14T14:30:00Z,1,1,1,1,10,ESZ5\n"
+           "2025-06-13T14:30:00Z,1,1,1,1,10,ESM5\n")
+    df = DBN.parse_csv(csv)
+    minutes = dict(zip(df["session"], df["minute_et"]))
+    assert minutes["2025-11-14"] == 9 * 60 + 30
+    assert minutes["2025-06-13"] == 10 * 60 + 30
+    assert minutes["2025-11-14"] != minutes["2025-06-13"]
+
+
+def test_databento_pit_validation_enforces_the_frozen_floor_and_the_close():
+    short = {"sessions": 10, "minute_range_et": [570, 960], "contracts_used": ["ESZ5"],
+             "roll_rule": {"decided_from": "x", "returns_spliced_within_contract_only": True}}
+    v = DBN.pit_validation(short)
+    assert v["usable_for_research"] is False
+    assert "enough_sessions_for_frozen_floor" in v["failed"]
+    stops_early = dict(short, sessions=600, minute_range_et=[570, 12 * 60 + 59])
+    v2 = DBN.pit_validation(stops_early)
+    assert "covers_the_us_afternoon" in v2["failed"] and "covers_the_close" in v2["failed"]
+    full = dict(short, sessions=600, minute_range_et=[0, 16 * 60])
+    assert DBN.pit_validation(full)["usable_for_research"] is True
+
+
+def test_databento_without_a_credential_is_a_blocker_not_a_purchase(root, monkeypatch):
+    monkeypatch.delenv(DBN.ENV_KEY, raising=False)
+    b = DBN.build(write=True)
+    assert b["state"] == "BLOCKED_CREDENTIAL_ABSENT"
+    assert b["blocker"]["kind"] == "MISSING_CREDENTIAL_USER_MUST_SUPPLY"
+    assert b["blocker"]["not_a_network_failure"] is True
+    assert b["safety"]["purchases_data"] is False
+    assert b["safety"]["starts_trial_or_subscription"] is False
+    assert b["spending_contract"]["paid_dollars_authorised"] == 0.0
+    assert b["credential"]["key_value_recorded"] is False
+    assert DBN.ENV_KEY in json.dumps(b) and "Basic " not in json.dumps(b)
+
+
+def test_databento_budget_must_be_stated_and_is_never_inferred(root, monkeypatch):
+    monkeypatch.setenv(DBN.ENV_KEY, "test-key")
+    monkeypatch.delenv(DBN.ENV_BUDGET, raising=False)
+    b = DBN.build(write=True, client=DBN.Client(key="test", transport=_dbn_fake()[0]))
+    assert b["state"] == "BLOCKED_BUDGET_UNSTATED"
+    assert b["blocker"]["kind"] == "FREE_CREDIT_BALANCE_UNSTATED"
+
+
+def test_databento_uses_only_usage_based_historical_endpoints():
+    src = Path(DBN.__file__).read_text(encoding="utf-8")
+    for forbidden in ("batch.submit_job", "live.", "plan.upgrade"):
+        assert forbidden not in src, "%s must not be reachable" % forbidden
+    for ep in DBN.spending_contract()["endpoints_used"]:
+        assert ep in src
+
+
+def test_every_declared_runner_stage_is_actually_registered():
+    """``intraday`` and ``options`` shipped inside STAGES with no STAGE_FN
+    entry, so invoking either raised KeyError. It went unnoticed because those
+    axes were driven by importing their modules directly rather than through
+    the runner."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_ar_runner", REPO / "scripts" / "run_alpha_recovery_offensive.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    declared = [s for s in mod.STAGES if s != "all"]
+    assert declared, "no stages declared"
+    missing = [s for s in declared if s not in mod.STAGE_FN]
+    assert not missing, "stages declared but not runnable: %s" % missing
+    for s in declared:
+        assert callable(mod.STAGE_FN[s])
+    # the one credit-spending stage is never swept up by a full-campaign run
+    assert "databento" in mod.STAGES_EXCLUDED_FROM_ALL
+    swept = [s for s in mod.STAGES if s != "all" and s not in mod.STAGES_EXCLUDED_FROM_ALL]
+    assert "databento" not in swept
+
+
+def test_databento_never_asks_for_a_window_past_the_end_of_the_data():
+    """The defect that made the whole axis unreachable while reporting only
+    'no dated contract spelling resolved'.
+
+    ``dated_symbols`` admits deliveries up to 120 days past the requested end,
+    and the resolver built its window from max(delivery). Databento answers
+    HTTP 422 ``data_end_date_after_available_end_date`` for a window that runs
+    past the data; the batching loop absorbs DatabentoError, so EVERY root
+    resolved to nothing and every cost came back null. The live symptom was a
+    $0 plan that looked like a clean refusal rather than a broken query."""
+    available_end = "2026-09-09"
+    seen = {"windows": []}
+
+    def fake(method, url, params, key, timeout):
+        ep = url.rsplit("/", 1)[-1]
+        if ep == "metadata.get_dataset_range":
+            return json.dumps({"start": "2010-06-06", "end": available_end + "T12:00:00Z",
+                               "schema": {DBN.SCHEMA: {"start": "2010-06-06",
+                                                       "end": available_end + "T12:00:00Z"}}}).encode()
+        if ep == "symbology.resolve":
+            seen["windows"].append((params["start_date"], params["end_date"]))
+            if params["end_date"] > available_end:            # the real provider's 422
+                raise DBN.DatabentoError(
+                    "HTTP 422 from symbology.resolve: data_end_date_after_available_end_date")
+            return json.dumps({"result": {s: [{"s": "1"}]
+                                          for s in params["symbols"].split(",")
+                                          if len(s[len(s.rstrip("0123456789")):]) == 1}}).encode()
+        if ep == "metadata.get_cost":
+            return json.dumps(1.0).encode()
+        if ep == "timeseries.get_range":
+            raise AssertionError("priced-plan stage must not download")
+        raise AssertionError("unexpected endpoint " + ep)
+
+    c = DBN.Client(key="test", transport=fake)
+    p = DBN.plan(c, budget_usd=125.0, years=2.0, roots=["ES", "CL"], today=date(2026, 9, 10))
+
+    assert seen["windows"], "the resolver never ran"
+    for start_date, end_date in seen["windows"]:
+        assert end_date <= available_end, (
+            "asked for %s, past the dataset's last available session %s" % (end_date, available_end))
+    # and the actual point: the panel is priceable, not silently empty
+    assert not p["errors"], p["errors"]
+    assert p["symbology"]["resolved_counts"]["ES"] > 0
+    assert p["full_panel_cost_usd"] > 0
+    assert p["n_requests"] > 0
+
+
+def test_databento_clamps_the_acquisition_window_to_the_available_data():
+    rng = {"end": "2026-09-10T12:51:34.379587000Z",
+           "schema": {DBN.SCHEMA: {"end": "2026-09-10T12:51:34.379587000Z"}}}
+    # the provider's bound is exclusive and sub-daily, so the last COMPLETE
+    # session is the day before the one it names
+    assert DBN._available_end(rng) == "2026-09-09"
+    assert DBN._available_end({}) is None
+
+
+def test_databento_records_whether_the_budget_was_actually_verified(root, monkeypatch):
+    """A published signup grant is an upper bound on a FRESH account. Reading
+    it as 'the balance' is exactly how an accidental paid dollar happens, so
+    the artifact has to say which of the two it holds."""
+    monkeypatch.setenv(DBN.ENV_KEY, "test-key")
+    monkeypatch.setenv(DBN.ENV_BUDGET, "125")
+    monkeypatch.setenv(DBN.ENV_BUDGET_SOURCE, "PROVIDER_PUBLISHED_FREE_TIER")
+    b = DBN.build(write=True, years=1.0, client=DBN.Client(key="test", transport=_dbn_fake()[0]))
+    assert b["budget_provenance"]["source"] == "PROVIDER_PUBLISHED_FREE_TIER"
+    assert b["budget_provenance"]["balance_verified_against_the_account"] is False
+
+    monkeypatch.setenv(DBN.ENV_BUDGET_SOURCE, "OPERATOR_STATED")
+    b2 = DBN.build(write=True, years=1.0, client=DBN.Client(key="test", transport=_dbn_fake()[0]))
+    assert b2["budget_provenance"]["balance_verified_against_the_account"] is True
+    # never a paid dollar either way
+    assert b2["spending_contract"]["paid_dollars_authorised"] == 0.0
+
+
+def test_databento_persists_a_normalised_panel_without_a_parquet_engine(root):
+    """``to_parquet`` needs pyarrow or fastparquet, which this estate's
+    virtualenv does not carry - so persistence raised ImportError at exactly
+    the moment a paid-for panel had just landed. csv.gz also matches the
+    convention the owned R45 minute panels already use."""
+    import gzip
+    import pandas as pd
+
+    rows = ["ts_event,open,high,low,close,volume,symbol"]
+    for day in range(1, 6):
+        for minute in range(0, 60, 10):
+            rows.append("2025-11-%02dT14:%02d:00Z,1,1,1,1,10,ESZ5" % (day + 10, minute))
+    src = root / "ESZ5_ohlcv-1m_a_b.csv"
+    src.write_text("\n".join(rows) + "\n")
+
+    out = DBN.normalise("ES", [str(src)], out_dir=root / "norm")
+    assert out["state"] == "NORMALISED"
+    assert out["format"] == "csv.gz"
+    written = Path(out["path"])
+    assert written.exists() and written.suffix == ".gz"
+    with gzip.open(written, "rt") as fh:
+        back = pd.read_csv(fh)
+    assert len(back) > 0
+    assert {"session", "minute_et", "close", "ret"} <= set(back.columns)
+    # the CALL, not the word: the module explains the defect in prose, and the
+    # explanation must not be what keeps this regression green
+    code = " ".join(ln.split("#", 1)[0] for ln in
+                    Path(DBN.__file__).read_text(encoding="utf-8").splitlines())
+    for call in (".to_parquet(", ".read_parquet(", "import pyarrow", "import fastparquet"):
+        assert call not in code, "%s reintroduces the missing-engine failure" % call

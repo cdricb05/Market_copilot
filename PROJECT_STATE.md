@@ -124,6 +124,57 @@ which is BELOW it. Contract rule 14 scopes its threshold to AUTONOMOUS research
 and the intraday axis was operator-directed, so the third number is published as
 failing rather than reclassified into compliance.
 
+A NEW information axis was opened on 2026-09-10 and is now **priced and awaiting
+one human approval of a FREE-credit spend, not blocked at a result**: native CME
+1-minute futures history through Databento, usage-based and limited to the
+account's existing FREE credits, with no subscription and zero paid dollars. It
+is admitted under contract rule 13 as materially better COVERAGE for a named
+measured defect - the owned ETF minute panel stops at 12:59 ET, so no intraday
+family in this campaign could be marked to the close or observe the overnight
+session - and it adds ENERGY and FX, two markets the estate has never held at
+any frequency.
+
+`DATABENTO_API_KEY` is now live. The credential alone was NOT sufficient: three
+real defects sat between it and any data, and all three were found and fixed
+**before a single credit was spent**. (1) `resolve_symbols` built its
+`symbology.resolve` window from `max(delivery)`, which runs up to 120 days past
+the requested end and landed in 2027-03-01; Databento answers HTTP 422
+`data_end_date_after_available_end_date`, the batching loop absorbs
+`DatabentoError`, and so **all ten roots resolved to nothing and every cost came
+back null** - a $0 plan that reads like a clean refusal rather than a broken
+query. The window is now clamped to the dataset's available end, which the
+provider states as an exclusive sub-daily bound. (2) `normalise` persisted via
+`DataFrame.to_parquet`, and neither `pyarrow` nor `fastparquet` is installed in
+this estate's virtualenv, so persistence would have raised `ImportError` at
+exactly the moment a paid-for panel had landed; it now writes `csv.gz`, the
+convention the owned R45 minute panels already use. (3) The budget's provenance
+was not recorded, although the only figure available here is the vendor's
+published signup grant - an upper bound on a *fresh* account - not a verified
+balance; the artifact now carries `budget_provenance` and
+`balance_verified_against_the_account`.
+
+The priced plan is `PLANNED_FITS_FREE_CREDIT`: dataset `GLBX.MDP3`, schema
+`ohlcv-1m` (confirmed at $70/GB by `metadata.list_unit_prices`), genuine dated
+contracts over **2022-09-09 -> 2026-09-09**, ~1008 sessions, 213 request
+windows, **$70.48 of a $112.50 cap** on the stated $125 grant. All ten roots and
+all five buckets (`US_EQUITY_INDEX`, `METALS`, `FX`, `US_RATES`, `ENERGY`) are
+included and **nothing was dropped**, so the value model never had to choose and
+therefore cannot have been fitted to the price list. Depth was raised from the
+pre-registered 2 years to 4 **before a single bar existed**, which cannot bias a
+result and directly addresses a measured weakness of the closed ETF axis (its
+best arm failed the halves floor at -4.29 %/yr in its second half on 500
+sessions). **Zero billable calls have been made and zero bytes of market data
+downloaded**; `metadata.get_cost` priced every signature and `download` refuses
+any signature the plan did not price. The whole post-download path - parse,
+causal forward-only front-month roll, within-contract return splicing, PIT
+validation against the unchanged 36-session floor, persistence - was driven end
+to end on synthetic bars, so nothing else is waiting to fail after a spend. The
+owner is `alpha_agent/alpha_recovery/databento_acquisition.py` and the runner
+stage `databento`, deliberately excluded from `all` because it is the only stage
+that can consume a credit balance; it now carries `--years`. Regressions: 77
+passing in `tests/test_alpha_recovery_offensive.py`, up from 73, with the three
+defects above pinned individually.
+
 No candidate is READY for forward qualification; nothing was registered. 52
 non-incumbent candidates have now been measured and 0 qualified. The purchase
 case names as-was earnings-consensus history as the top missing purchasable need

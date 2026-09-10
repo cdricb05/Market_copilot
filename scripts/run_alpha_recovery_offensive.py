@@ -33,6 +33,11 @@ WHAT THIS IS NOT
     the live desk ledgers and every earlier research root are read only. There
     is no execute flag because there is nothing operational to execute.
 
+    The one flag that causes an outward call is ``--spend-free-credits``, and
+    it is a DATA-ACQUISITION flag: it consumes pre-existing free provider
+    credits against a plan whose cost was already estimated, spends no money,
+    starts no subscription, and touches nothing operational.
+
 TERMINAL TOKENS (exactly one on the last line)
     ALPHA_RECOVERY_STAGE_OK / ALPHA_RECOVERY_STAGE_FAILED - <reason>
 """
@@ -57,8 +62,11 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "equity", "residual", "intraday", "options", "compete", "products", "package",
-          "purchase", "scoreboard", "report", "all")
+          "equity", "residual", "intraday", "options", "databento", "compete", "products",
+          "package", "purchase", "scoreboard", "report", "all")
+#: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
+#: consume a credit balance, so it is never swept up by a full-campaign run.
+STAGES_EXCLUDED_FROM_ALL = ("databento",)
 
 
 def _stage_checkpoint() -> dict:
@@ -181,6 +189,38 @@ def _stage_options() -> dict:
             "dates_bracketing_the_money": body["usability"]["dates_whose_strikes_bracket_the_money"]}
 
 
+def _stage_databento() -> dict:
+    """Acquire native CME futures 1-minute history within the FREE credit only.
+
+    Cost is estimated through the provider's own metadata API before anything
+    is downloaded, and the download step refuses any request the plan did not
+    price. ``--spend-free-credits`` is required to consume a single credit;
+    without it the stage prices the panel and stops.
+
+    The flag is deliberately NOT named for operational execution: this runner
+    guarantees it has no such flag, and that guarantee is a pinned invariant.
+    """
+    from alpha_agent.alpha_recovery import databento_acquisition as DBN
+    body = DBN.build(execute=_SPEND_FREE_CREDITS, years=_ACQUISITION_YEARS)
+    out = {"state": body["state"]}
+    if body.get("blocker"):
+        out["blocker"] = body["blocker"]["kind"]
+        out["remediation"] = body["blocker"]["remediation"]
+        print("databento BLOCKED: %s\n  %s" % (body["blocker"]["kind"],
+                                               body["blocker"]["remediation"]), flush=True)
+        return out
+    sel = (body.get("plan") or {}).get("selection") or {}
+    out.update({"chosen": sel.get("chosen"), "estimated_spend_usd": sel.get("estimated_spend_usd"),
+                "effective_cap_usd": sel.get("effective_cap_usd"),
+                "buckets": sel.get("buckets_covered"),
+                "full_panel_cost_usd": (body.get("plan") or {}).get("full_panel_cost_usd"),
+                "downloaded": (body.get("download") or {}).get("state")})
+    print("databento plan: %s for $%s of a $%s cap (full panel $%s)"
+          % (sel.get("chosen"), sel.get("estimated_spend_usd"), sel.get("effective_cap_usd"),
+             (body.get("plan") or {}).get("full_panel_cost_usd")), flush=True)
+    return out
+
+
 def _stage_products() -> dict:
     """What this estate can predict today, in economic units."""
     from alpha_agent.alpha_recovery import forecast_products as FP
@@ -244,19 +284,44 @@ def _stage_report() -> dict:
 STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbent": _stage_incumbent,
             "tournament": _stage_tournament, "news": _stage_news, "cadence": _stage_cadence,
             "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
+            "intraday": _stage_intraday, "options": _stage_options, "databento": _stage_databento,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
+#: Every declared stage must be runnable. ``intraday`` and ``options`` shipped
+#: in STAGES without a STAGE_FN entry and raised KeyError on invocation, which
+#: went unnoticed because those axes were driven by importing their modules
+#: directly. The test suite now pins this.
+_UNREGISTERED = [s for s in STAGES if s != "all" and s not in STAGE_FN]
+assert not _UNREGISTERED, "stages declared but not registered: %s" % _UNREGISTERED
+
+_SPEND_FREE_CREDITS = False
+#: History depth for the databento stage. Deeper history is strictly more
+#: statistical power and cannot bias a result - it is chosen before any bar
+#: exists, let alone any strategy outcome.
+_ACQUISITION_YEARS = 2.0
+
 
 def main(argv=None) -> int:
+    global _SPEND_FREE_CREDITS, _ACQUISITION_YEARS
     ap = argparse.ArgumentParser(description="Alpha Recovery Offensive research runner (research only).")
     ap.add_argument("stage", choices=STAGES)
     ap.add_argument("--json", action="store_true", help="print the stage result as JSON")
+    ap.add_argument("--spend-free-credits", action="store_true",
+                    help="databento stage only: consume FREE credits on the already-priced plan. "
+                         "Without it the plan is estimated and nothing is downloaded. This is a "
+                         "data-acquisition flag; nothing operational is ever executed here.")
+    ap.add_argument("--years", type=float, default=_ACQUISITION_YEARS,
+                    help="databento stage only: years of dated-contract history to price and, "
+                         "with --spend-free-credits, acquire.")
     args = ap.parse_args(argv)
+    _SPEND_FREE_CREDITS = bool(args.spend_free_credits)
+    _ACQUISITION_YEARS = float(args.years)
     try:
         AR.assert_worktree_import()
         AR.assert_research_root_is_not_live()
-        stages = [s for s in STAGES if s != "all"] if args.stage == "all" else [args.stage]
+        stages = ([s for s in STAGES if s != "all" and s not in STAGES_EXCLUDED_FROM_ALL]
+                  if args.stage == "all" else [args.stage])
         out = {}
         t0 = time.time()
         for s in stages:
