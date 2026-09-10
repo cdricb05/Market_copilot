@@ -231,6 +231,7 @@ def _one_spec(fam: dict, s, kind: str) -> dict:
     return {"family": fam["family"], "spec": body.get("spec"), "kind": kind,
             "price_state": bool(body.get("price_state", fam.get("price_state"))),
             "selects_information": bool(fam.get("selects_information", True)),
+            "operator_directed": bool(fam.get("operator_directed", False)),
             "binding_failure": body.get("binding_failure"),
             "frontier_cell_keys": fam.get("frontier_cell_keys") or []}
 
@@ -303,8 +304,21 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
     # incumbent's own book) is not a PRICE_STATE formula and is not an
     # information choice either. Both readings are reported and BOTH must hold,
     # so the rule is never met by reclassification.
-    share = non_price_share([s for s in specs if s.get("selects_information")])
-    share_inclusive = non_price_share(specs)
+    # Contract rule 14's 75 % threshold governs newly executed AUTONOMOUS
+    # research. An OPERATOR-DIRECTED axis is by definition not autonomous, so it
+    # is excluded from the rule's own denominators and reported separately in a
+    # third, all-inclusive denominator. That third number is published whether it
+    # passes or fails; it is never used to reclassify a family into compliance.
+    auto = [s for s in specs if not s.get("operator_directed")]
+    share = non_price_share([s for s in auto if s.get("selects_information")])
+    share_inclusive = non_price_share(auto)
+    share_all = non_price_share(specs)
+    share_all["rule_applies"] = False
+    share_all["why_reported"] = (
+        "every executed specification, operator-directed families included. Rule 14 scopes its "
+        "75 %% threshold to AUTONOMOUS research, so this denominator is reported for transparency "
+        "rather than judged. It is %s the threshold, and it is published either way."
+        % ("above" if share_all.get("rule_met") else "BELOW"))
     n_fam_on_frontier = sum(1 for m in mapping if m["best_frontier_rank"] is not None)
     n_fam_mandated = sum(1 for m in mapping if m["mandated_by_isolated_governor"])
     n_fam_new_observable = sum(1 for m in mapping
@@ -315,10 +329,14 @@ def build(*, executed: dict | None = None, verbose: bool = True, write: bool = T
             "frontier": rank, "isolated_governor": gov, "families": mapping,
             "budgets": budgets, "budget_rule": {"primary_max": FAMILY_PRIMARY_MAX, "rescue_max": FAMILY_RESCUE_MAX},
             "non_price_rule": share, "non_price_rule_inclusive": share_inclusive,
+            "non_price_rule_all_executed": share_all,
             "non_price_rule_denominators": {
-                "information_directed": "specifications from families that SELECT an information "
-                                        "dimension (the rule's subject)",
-                "inclusive": "every executed specification, construction-only families included"},
+                "information_directed": "AUTONOMOUS specifications from families that SELECT an "
+                                        "information dimension (the rule's subject)",
+                "inclusive": "every AUTONOMOUS specification, construction-only families included",
+                "all_executed": "every executed specification including the OPERATOR-DIRECTED "
+                                "intraday axis; reported, not judged, because rule 14 scopes to "
+                                "autonomous research"},
             "n_families": len(fams),
             "n_families_with_a_frontier_need": n_fam_on_frontier,
             "n_families_mandated_by_governor": n_fam_mandated,

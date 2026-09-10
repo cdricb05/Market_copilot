@@ -39,6 +39,8 @@ def head_table(sb: dict) -> list:
     cal = adv.get("forecast_calibration_improvement")
     sd = sb.get("best_same_domain_challenger") or {}
     fp = sb.get("forecast_products") or {}
+    bi = sb.get("best_intraday_challenger") or {}
+    ni = sb.get("first_non_incumbent_alpha") or {}
     rows = [
         ("INCUMBENT", "%s (%s)" % (INCUMBENT_MODEL_ID, inc.get("verdict"))),
         ("BEST CHALLENGER", "%s (%s)" % (b.get("cell_id"), b.get("verdict")) if b else "none measured"),
@@ -55,6 +57,14 @@ def head_table(sb: dict) -> list:
         ("DRAWDOWN DELTA", _f(b.get("drawdown_delta"), 3)),
         ("TURNOVER", "challenger %s one-way / period (incumbent %s)" % (
             _f(b.get("challenger_turnover"), 3), _f(ho.get("mean_oneway_turnover_per_period"), 3))),
+        ("BEST NON-INCUMBENT (INTRADAY) CHALLENGER",
+         "%s (%s): %s /yr standalone at t %s, %s /yr at the STRESS cost, gross t %s, "
+         "correlation to the incumbent %s"
+         % (bi.get("cell_id"), bi.get("verdict"), _pct(bi.get("standalone_ann_net")),
+            _f(bi.get("standalone_t"), 2), _pct(bi.get("ann_net_at_stress_cost")),
+            _f(bi.get("t_gross"), 2), _f(bi.get("correlation_incumbent"), 3)) if bi else "none measured"),
+        ("FIRST NON-INCUMBENT ALPHA", "%s - %s non-incumbent candidates measured, %s qualified" % (
+            ni.get("state"), ni.get("n_non_incumbent_candidates_measured"), ni.get("n_qualified"))),
         ("FORECAST PRODUCTS", fp.get("answer") or "not built"),
         ("FORECAST CALIBRATION", (cal if isinstance(cal, str) else
                                   "Brier skill %s, ECE %s" % (_f((cal or {}).get("brier_skill_score")),
@@ -204,14 +214,38 @@ def _answers(sb: dict, inc: dict | None, tour: dict | None, cad: dict | None, di
                   % (_pct(cr.get("incremental_ann_net_return")), _f(cr.get("t_incremental"), 2))
                   if cr.get("state") == "OK" else ""))))
     A.append(("What information was rejected?", "; ".join(rejected) or "none"))
+    ni = sb.get("first_non_incumbent_alpha") or {}
+    axes = ni.get("axes_closed_this_session") or {}
+    ida = axes.get("NATIVE_INTRADAY_CROSS_ASSET") or {}
+    opt = axes.get("OPTIONS_IMPLIED_VOLATILITY_SURFACE") or {}
+    bi = sb.get("best_intraday_challenger") or {}
+    A.append(("Did the NEW intraday cross-asset information produce a non-incumbent signal?",
+              "No. %s specifications across five bounded families on %s sessions of owned one-minute "
+              "history in %s. %s The best arm, %s, is %s /yr standalone at t %s, but it collapses to "
+              "%s /yr at the 5.0 bp stress cost, its second holdout half is negative, and its "
+              "equal-risk incremental utility is t %s. Nothing qualified."
+              % (ida.get("n_specifications"), ida.get("sessions"),
+                 ", ".join(ida.get("markets") or []), ida.get("reading") or "",
+                 bi.get("cell_id"), _pct(bi.get("standalone_ann_net")), _f(bi.get("standalone_t"), 2),
+                 _pct(bi.get("ann_net_at_stress_cost")), _f(bi.get("t_advantage"), 2))))
+    A.append(("Why was the options / implied-volatility axis not decided?",
+              "%s. %s Exact missing requirement: %s"
+              % (opt.get("state"), opt.get("why") or "", opt.get("exact_missing_requirement"))))
     npr = (program or {}).get("non_price_rule") or {}
     npi = (program or {}).get("non_price_rule_inclusive") or {}
+    npa = (program or {}).get("non_price_rule_all_executed") or {}
     A.append(("How much research effort was non-price?",
-              "%s of %s information-directed specifications (%s) targeted non-PRICE_STATE information; rule >= 0.75 "
-              "met: %s. Counting the construction-only family too: %s of %s (%s), met: %s. Both denominators are "
-              "reported and both must hold, so the rule cannot be met by reclassifying a family."
+              "AUTONOMOUS research: %s of %s information-directed specifications (%s) targeted "
+              "non-PRICE_STATE information; rule >= 0.75 met: %s. Counting the construction-only "
+              "family too: %s of %s (%s), met: %s. Both denominators are reported and both must hold, "
+              "so the rule cannot be met by reclassifying a family. ALL EXECUTED specifications "
+              "including the OPERATOR-DIRECTED intraday axis: %s of %s (%s), which is BELOW 0.75. "
+              "Contract rule 14 scopes its threshold to autonomous research, so that third number is "
+              "published for transparency rather than judged - it is reported as failing, not "
+              "reclassified into compliance."
               % (npr.get("non_price"), npr.get("executed"), _f(npr.get("share_non_price"), 3), npr.get("rule_met"),
-                 npi.get("non_price"), npi.get("executed"), _f(npi.get("share_non_price"), 3), npi.get("rule_met"))))
+                 npi.get("non_price"), npi.get("executed"), _f(npi.get("share_non_price"), 3), npi.get("rule_met"),
+                 npa.get("non_price"), npa.get("executed"), _f(npa.get("share_non_price"), 3))))
     gov = (program or {}).get("isolated_governor") or {}
     A.append(("What did AlphaAgent choose from the information frontier?",
               "Isolated governor run (%s): %s information needs offered, mandates: %s."
@@ -262,7 +296,7 @@ def render() -> str:
     man = NW.manifest()
     L = ["# ALPHA RECOVERY SCOREBOARD", "", "**STATUS: %s**" % sb.get("status"), ""]
     L += head_table(sb)
-    L += ["", "## The twenty answers", ""]
+    L += ["", "## The answers", ""]
     for i, (q, a) in enumerate(_answers(sb, inc, tour, cad, direction, program, purchase, cross, package, man,
                                        products=products, eqch=eqch, residual=residual), 1):
         L.append("%d. **%s** %s" % (i, q, a))
@@ -271,7 +305,8 @@ def render() -> str:
           "## Files, tests, audit, branch (reported last, as the contract requires)", "",
           "- package: `alpha_agent/alpha_recovery/` (checkpoint, scoreboard, forecast_contract, incumbent, program, "
           "earnings_events, news, tournament, cadence, market_direction, equity_challengers, frontier_residual, "
-          "forecast_products, forward_package, purchase_case, report)",
+          "forecast_products, intraday_data, intraday_alpha, options_surface, forward_package, purchase_case, "
+          "report)",
           "- runner: `scripts/run_alpha_recovery_offensive.py`; protocol: `research/alpha_recovery/ALPHA_RECOVERY_PROTOCOL.json`",
           "- contract: `docs/ALPHA_RECOVERY_OPERATING_CONTRACT.md`; checkpoint: `research/alpha_recovery/alpha_recovery_checkpoint.json`",
           "- tests: `tests/test_alpha_recovery_offensive.py`; audit: `check_alpha_recovery_operating_contract`",

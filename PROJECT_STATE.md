@@ -81,12 +81,56 @@ and its lockbox mean disagree in sign. The FX carry sleeve carries a licensed
 expected 21-session return with its uncertainty and the explicit record that
 it adds no utility to the incumbent at equal risk.
 
-No candidate is READY for forward qualification; nothing was registered. The
-purchase case names as-was earnings-consensus history as the top missing
-purchasable need and returns `DO_NOT_BUY` at every fee on the ladder because
-no proxy clears the break-even alpha. The highest-value UNRESOLVED need on the
-frontier is now `US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW` - free 13F data,
-blocked by the absence of a CUSIP-to-ticker bridge, not by money. Full
+**The first NON-INCUMBENT axis was then opened on the estate's owned NATIVE
+INTRADAY CROSS-ASSET history, and it is closed with no qualified signal**
+(`docs/FIRST_NON_INCUMBENT_ALPHA_EXECUTION.md`, the persistent execution
+roadmap). 500 sessions of owned one-minute bars in four economically distinct
+markets - US equity beta, US tech beta, US long duration and gold - carried 32
+specifications across five bounded families: 15 `NO_ADVANTAGE`, 17
+`WORSE_THAN_INCUMBENT`, 0 survivors, Benjamini-Hochberg rejecting nothing. Two
+traps were measured and avoided rather than absorbed: the panel's window is
+fixed in UTC, so the US session starts at 13:30 UTC under EDT and 14:30 under
+EST and every grid is built in EXCHANGE LOCAL time; and coverage ends at 12:59
+ET, so there is **no afternoon and no closing auction** and nothing is marked to
+the close. **The decisive diagnostic is that the largest gross Newey-West t
+across the 30 primary arms is 1.72 at ZERO transaction cost**, with positive-gross
+arms at 53 % of the grid: the primary grid was not killed by cost, there was no
+credible gross edge to kill. The two permitted rescues were spent on ONE named
+measured binding failure - unconditional engagement, +9.67 %/yr gross at t 1.72
+but 3.85 bp per engaged session against a 4.0 bp round trip. Conditioning on
+large moves did exactly what it predicted on the per-trade economics (10.35 bp
+per engaged session, gross t 2.05) and the second rescue then FALSIFIED the
+effect: the same condition across four markets returns gross t 0.01. The best
+arm nets +4.64 %/yr at t 1.27, **collapses to +0.26 %/yr at the 5 bp stress cost
+and -10.71 %/yr at the canonical 12.5 bp**, has a negative second holdout half,
+and adds no equal-risk utility (t 0.98). Nothing was rescued past a gate.
+
+The remaining axes were measured, not assumed. **Options / implied volatility:
+`DATA_INSUFFICIENT`** - the owned surface is a fixed 654-720 strike band bought
+for one R45 event study, and as SPY rallied 615 -> 751 it drifted out of the
+money, leaving only **25 of 264 dates** with a near-dated expiry bracketing the
+money against the floor of 36; no cell is scored, because an "ATM" series built
+from whichever strike was least far from the money would manufacture a result
+rather than measure one. **Analyst revisions and institutional ownership: NOT
+OWNED** - both normalized stores hold ZERO rows, the FINRA raw store is a
+93-byte probe, and no 13F holdings are on disk. **Macro-event reaction on real
+timestamps: CLOSED BY R45**, whose own frontier records that the effect failed
+on its holdout and in every market the estate owns.
+
+Non-price accounting is now published across THREE denominators: autonomous
+information-directed 0.842 (38 specifications) and autonomous inclusive 0.762
+(42), both meeting the 0.75 rule, and ALL 74 executed specifications at 0.432,
+which is BELOW it. Contract rule 14 scopes its threshold to AUTONOMOUS research
+and the intraday axis was operator-directed, so the third number is published as
+failing rather than reclassified into compliance.
+
+No candidate is READY for forward qualification; nothing was registered. 52
+non-incumbent candidates have now been measured and 0 qualified. The purchase
+case names as-was earnings-consensus history as the top missing purchasable need
+and returns `DO_NOT_BUY` at every fee on the ladder because no proxy clears the
+break-even alpha. The highest-value UNRESOLVED need on the frontier is still
+`US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW` - free 13F data, blocked by the
+absence of a CUSIP-to-ticker bridge AND by the data not being on disk. Full
 numbers: `research/alpha_recovery/ALPHA_RECOVERY_REPORT.md`.
 Every future agent states which alpha objective its work advances before
 doing it (`CLAUDE.md`).

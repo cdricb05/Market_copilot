@@ -93,8 +93,31 @@ def _incumbent_block(inc: dict | None) -> dict:
 
 
 def _challenger_candidates(tour: dict | None, cad: dict | None, direction: dict | None,
-                           eqch: dict | None = None, residual: dict | None = None) -> list:
+                           eqch: dict | None = None, residual: dict | None = None,
+                           intraday: dict | None = None) -> list:
     out = []
+    for b in (intraday or {}).get("brief") or []:
+        if b.get("ann_net") is None:
+            continue
+        out.append({"kind": "INTRADAY_SLEEVE", "cell_id": b["cell_id"], "family": b.get("family"),
+                    "horizon": "intraday (same session, flat overnight)",
+                    "information": b.get("dimension"), "verdict": b.get("verdict"),
+                    "historical_oos_net_advantage": b.get("incremental_ann_net_return"),
+                    "t_advantage": b.get("t_incremental"),
+                    "sharpe_delta": b.get("sharpe_delta_equal_risk"),
+                    "drawdown_delta": None, "turnover_delta": None,
+                    "challenger_turnover": b.get("ann_oneway_turnover"),
+                    "standalone_ann_net": b.get("ann_net"), "standalone_t": b.get("t_net"),
+                    "standalone_sharpe": b.get("sharpe"),
+                    "ann_net_at_stress_cost": b.get("ann_net_at_stress_cost"),
+                    "ann_gross": b.get("ann_gross"), "t_gross": b.get("t_gross"),
+                    "correlation_incumbent": b.get("correlation_incumbent_sleeve"),
+                    "markets": b.get("markets"), "tag": b.get("tag"),
+                    "fdr_pass": b.get("fdr_pass"), "holm_pass": b.get("holm_pass_family"),
+                    "failed_gates": b.get("failed_gates"), "effective_periods": b.get("periods"),
+                    "evidence_label": b.get("evidence_label"),
+                    "capital_applicability": "intraday ETF sleeve, flat overnight; incremental to the "
+                                             "incumbent under equal risk"})
     for b in (eqch or {}).get("brief") or []:
         if b.get("ann_advantage") is None:
             continue
@@ -239,7 +262,11 @@ def build(*, as_of=None, write: bool = True) -> dict:
     eqch = read_artifact("equity_challengers.json")
     residual = read_artifact("frontier_residual.json")
     products = read_artifact("forecast_products.json")
-    cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual)
+    intraday = read_artifact("intraday_alpha.json")
+    intraday_state = read_artifact("intraday_data_state.json")
+    options = read_artifact("options_surface.json")
+    cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual,
+                                   intraday=intraday)
     for b in (mandates or {}).get("brief") or []:
         if b.get("ann_net_increment") is None:
             continue
@@ -318,6 +345,53 @@ def build(*, as_of=None, write: bool = True) -> dict:
                      else "REGISTERED"}
     same_domain = [c for c in cands if c.get("kind") in ("SAME_DOMAIN", "SAME_DOMAIN_CONSTRUCTION")]
     best_same_domain = _best(same_domain)
+    intra_c = [c for c in cands if c.get("kind") == "INTRADAY_SLEEVE"]
+    best_intraday = (max(intra_c, key=lambda c: c.get("standalone_ann_net") or -9)
+                     if intra_c else None)
+    id_diag = (intraday or {}).get("cost_vs_information_diagnosis") or {}
+    non_incumbent = {
+        "objective": "the FIRST non-incumbent, capital-eligible alpha signal in governed "
+                     "TRUE_FORWARD competition, from any market and any horizon",
+        "state": "NOT_ACHIEVED",
+        "n_non_incumbent_candidates_measured": len([c for c in cands if c.get("kind") in
+                                                    ("INTRADAY_SLEEVE", "CROSS_DOMAIN_SLEEVE",
+                                                     "FRONTIER_NEED", "MARKET_DIRECTION")]),
+        "n_qualified": 0,
+        "axes_closed_this_session": {
+            "NATIVE_INTRADAY_CROSS_ASSET": {
+                "state": "CLOSED_NO_QUALIFIED_SIGNAL",
+                "sessions": (intraday_state or {}).get("sessions"),
+                "markets": (intraday_state or {}).get("markets_represented"),
+                "n_specifications": (intraday or {}).get("n_cells"),
+                "diagnosis": id_diag.get("verdict"),
+                "max_gross_t_primary": id_diag.get("max_gross_t_primary"),
+                "max_gross_t_rescue": id_diag.get("max_gross_t_rescue"),
+                "reading": id_diag.get("reading")},
+            "OPTIONS_IMPLIED_VOLATILITY_SURFACE": {
+                "state": ((options or {}).get("usability") or {}).get("state"),
+                "dates_bracketing_the_money": ((options or {}).get("usability") or {}).get(
+                    "dates_whose_strikes_bracket_the_money"),
+                "floor": ((options or {}).get("usability") or {}).get("floor"),
+                "why": ((options or {}).get("usability") or {}).get("why"),
+                "exact_missing_requirement": ((options or {}).get("usability") or {}).get(
+                    "exact_missing_requirement")},
+            "ANALYST_EXPECTATIONS_REVISION_VINTAGES": {
+                "state": "NOT_OWNED",
+                "why": "external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY "
+                       "normalized file and a 960-row / 40-ticker proxy; there is no revision "
+                       "vintage history to test"},
+            "OWNERSHIP_INSTITUTIONAL_FLOW": {
+                "state": "NOT_OWNED",
+                "why": "external_normalized/short_interest is EMPTY and the FINRA raw store is a "
+                       "93-byte probe; 13F holdings are not on disk (only an EDGAR submissions "
+                       "cache), so the need remains blocked by an unbuilt CUSIP-to-ticker bridge "
+                       "AND by absent data"},
+            "MACRO_EVENT_INTRADAY_REACTION": {
+                "state": "CLOSED_BY_R45",
+                "why": "Release 45's own data frontier records that the effect 'failed on its own "
+                       "holdout, in listed US rates and equities over two years, and in every "
+                       "other market the estate owns'. Re-running it would repeat closed work"}},
+    }
     body = {"schema": SCHEMA, "calculation_owner": CALCULATION_OWNER,
             "status": status, "status_vocabulary": list(STATUSES),
             "incumbent": _incumbent_block(inc),
@@ -326,6 +400,8 @@ def build(*, as_of=None, write: bool = True) -> dict:
             "best_same_domain_note": ("the candidate that would use the SAME capital as the incumbent; "
                                       "reported alongside the ranked best because a cross-domain sleeve "
                                       "can win the ranking without being applicable to this portfolio"),
+            "first_non_incumbent_alpha": non_incumbent,
+            "best_intraday_challenger": best_intraday,
             "forecast_products": ({"n_licensed_families": products.get("n_licensed_families"),
                                    "n_families": products.get("n_families"),
                                    "licensed_families": products.get("licensed_families"),
@@ -406,6 +482,30 @@ def render(sb: dict) -> str:
                   _f(sd.get("turnover_delta"), 3), _f(sd.get("lockbox_net_advantage")),
                   ",".join(sd.get("failed_gates") or []) or "none"),
               "", sd.get("capital_applicability") or "", ""]
+    ni = sb.get("first_non_incumbent_alpha") or {}
+    if ni:
+        L += ["## First NON-INCUMBENT alpha - %s" % ni.get("state"), "",
+              "%s non-incumbent candidates measured, %s qualified." % (
+                  ni.get("n_non_incumbent_candidates_measured"), ni.get("n_qualified")), ""]
+        bi = sb.get("best_intraday_challenger") or {}
+        if bi:
+            L += ["Best intraday sleeve `%s` (%s), markets %s:" % (
+                      bi.get("cell_id"), bi.get("verdict"), ", ".join(bi.get("markets") or [])),
+                  "",
+                  "| standalone net /yr | t | Sharpe | net /yr at STRESS cost | gross /yr | gross t | corr. to incumbent | equal-risk increment | t |",
+                  "|---|---|---|---|---|---|---|---|---|",
+                  "| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                      _f(bi.get("standalone_ann_net")), _f(bi.get("standalone_t"), 2),
+                      _f(bi.get("standalone_sharpe"), 2), _f(bi.get("ann_net_at_stress_cost")),
+                      _f(bi.get("ann_gross")), _f(bi.get("t_gross"), 2),
+                      _f(bi.get("correlation_incumbent"), 3),
+                      _f(bi.get("historical_oos_net_advantage")), _f(bi.get("t_advantage"), 2)),
+                  ""]
+        L += ["| information axis | state | evidence |", "|---|---|---|"]
+        for k, v in (ni.get("axes_closed_this_session") or {}).items():
+            why = v.get("why") or v.get("reading") or ""
+            L.append("| %s | %s | %s |" % (k, v.get("state"), why[:300]))
+        L.append("")
     fp = sb.get("forecast_products") or {}
     if fp:
         L += ["## Forecast products", "",

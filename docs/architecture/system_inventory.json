@@ -664,6 +664,39 @@
    "status": "OWNED_ALPHA_RECOVERY",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "Research only. Every product is built through alpha_agent/alpha_recovery/forecast_contract.py; a licensed expected return always travels with its t."
+  },
+  {
+   "concept": "native_intraday_panel_state",
+   "authoritative_owner": "alpha_agent/alpha_recovery/intraday_data.py (the ONE owner of the campaign's native intraday cross-asset panel: which minute history the estate actually OWNS, on an exchange-local minute grid, with the tradable / information-only split decided by MEASURED coverage and liquidity, and the pre-registered cost ladder)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/intraday_alpha.py (consumes the panel)",
+    "alpha_agent/alpha_recovery/options_surface.py (reuses the cost ladder)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only. The panel window is fixed in UTC, so every grid is built in exchange local time; coverage ends 12:59 ET, so nothing may be marked to the close."
+  },
+  {
+   "concept": "intraday_challenger_families",
+   "authoritative_owner": "alpha_agent/alpha_recovery/intraday_alpha.py (the ONE owner of NON-INCUMBENT intraday cross-asset challenger families: session carry, opening range, realised-volatility state, cross-market transmission and cross-sectional relative strength, each flat overnight, charged the full round trip on every engaged session at three cost levels, and reported with its ZERO-COST gross statistic so a cost failure is never confused with an information failure)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/scoreboard.py (reads the brief as candidates)",
+    "alpha_agent/alpha_recovery/purchase_case.py (closes the families)",
+    "alpha_agent/alpha_recovery/options_surface.py (reuses the equal-risk test)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only. GATE_MAX_TURNOVER is a daily-book gate and is replaced - stricter, not weaker - by charging the full round trip every session and requiring survival at 2.5x the headline rate; the substitution is disclosed in the protocol."
+  },
+  {
+   "concept": "option_surface_usability",
+   "authoritative_owner": "alpha_agent/alpha_recovery/options_surface.py (the ONE owner of information axis A: whether the owned SPY option surface can support an honest ATM implied-volatility series at all, decided by measurement BEFORE any signal is computed - a date counts only when a near-dated expiry's strikes BRACKET the money)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/scoreboard.py (reports the axis state)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only. A drifting-moneyness proxy would manufacture a result rather than measure one, so when the bracketing count falls below MIN_EFFECTIVE_PERIODS no cell is scored and the floor is not moved."
   }
  ],
  "route_ownership": [

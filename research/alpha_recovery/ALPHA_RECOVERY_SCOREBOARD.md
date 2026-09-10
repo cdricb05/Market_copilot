@@ -30,6 +30,24 @@ Deadline outcome: PENDING
 
 US_EQUITY long-only top-25 book: the SAME universe, score and cost as the incumbent, rebalanced every 126 sessions
 
+## First NON-INCUMBENT alpha - NOT_ACHIEVED
+
+52 non-incumbent candidates measured, 0 qualified.
+
+Best intraday sleeve `INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY` (NO_ADVANTAGE), markets US_EQUITY_BETA:
+
+| standalone net /yr | t | Sharpe | net /yr at STRESS cost | gross /yr | gross t | corr. to incumbent | equal-risk increment | t |
+|---|---|---|---|---|---|---|---|---|
+| 0.0464 | 1.27 | 0.90 | 0.0026 | 0.0756 | 2.05 | -0.056 | 0.0935 | 0.98 |
+
+| information axis | state | evidence |
+|---|---|---|
+| NATIVE_INTRADAY_CROSS_ASSET | CLOSED_NO_QUALIFIED_SIGNAL | Across the 30 PRIMARY specifications the largest Newey-West t at ZERO transaction cost is 1.72, and positive-gross arms are 53 % of the grid - what an information-free grid looks like. Cost is therefore NOT what killed the primary grid; there was no credible gross edge to kill. The engagement-condit |
+| OPTIONS_IMPLIED_VOLATILITY_SURFACE | DATA_INSUFFICIENT | The surface is a FIXED strike band of 654-720 acquired for a single R45 event study. Over the sample the underlying rallied from 615 to 751, so the band drifted out of the money: only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money, against the frozen floor of 36. An ATM im |
+| ANALYST_EXPECTATIONS_REVISION_VINTAGES | NOT_OWNED | external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY normalized file and a 960-row / 40-ticker proxy; there is no revision vintage history to test |
+| OWNERSHIP_INSTITUTIONAL_FLOW | NOT_OWNED | external_normalized/short_interest is EMPTY and the FINRA raw store is a 93-byte probe; 13F holdings are not on disk (only an EDGAR submissions cache), so the need remains blocked by an unbuilt CUSIP-to-ticker bridge AND by absent data |
+| MACRO_EVENT_INTRADAY_REACTION | CLOSED_BY_R45 | Release 45's own data frontier records that the effect 'failed on its own holdout, in listed US rates and equities over two years, and in every other market the estate owns'. Re-running it would repeat closed work |
+
 ## Forecast products
 
 - 2 of 4 product families carry a lockbox-tested economic forecast: EQUITY_BOOK_LEVEL, MULTI_ASSET_SLEEVE
@@ -38,7 +56,7 @@ US_EQUITY long-only top-25 book: the SAME universe, score and cost as the incumb
 
 - eligible sessions elapsed / 10: 0 / 10 (remaining 10)
 - share of new research effort on non-price information: 0.842 (rule >= 0.75: True); inclusive of construction-only specifications 0.762 (True)
-- economically distinct information families tested: 8 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
+- economically distinct information families tested: 13 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, INTRADAY_CROSS_MARKET_LEADLAG, INTRADAY_OPENING_RANGE, INTRADAY_RELATIVE_STRENGTH, INTRADAY_SESSION_CARRY, INTRADAY_VOLATILITY_STATE, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
 - candidate specifications alive: 5
 - in TRUE_FORWARD competition: 0
 - highest-value unresolved information gap: US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW
@@ -48,6 +66,38 @@ US_EQUITY long-only top-25 book: the SAME universe, score and cost as the incumb
 
 | cell | kind | verdict | net advantage /yr | t | Sharpe delta | lockbox advantage | BH | Holm | failed gates |
 |---|---|---|---|---|---|---|---|---|---|
+| INTRADAY|CROSS_MARKET_LEADLAG|CURVE_TO_SPY_RISKOFF | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.2077 | -2.14 | -0.726 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|CROSS_MARKET_LEADLAG|GLD_TO_SPY_RISKOFF | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.2172 | -2.30 | -0.759 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|CROSS_MARKET_LEADLAG|RISKOFF_VOTE_TO_SPY | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3418 | -3.57 | -1.194 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|CROSS_MARKET_LEADLAG|TLT_TO_SPY_RISKOFF | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1858 | -1.89 | -0.649 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|CROSS_MARKET_LEADLAG|TLT_TO_SPY_RISKON | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3224 | -3.68 | -1.126 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|CROSS_MARKET_LEADLAG|UUP_TO_SPY_RISKOFF | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3488 | -3.91 | -1.218 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_MULTI | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0823 | -0.84 | -0.287 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_QQQ | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1334 | -1.41 | -0.466 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0438 | -0.45 | -0.153 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_MULTI | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.2339 | -2.64 | -0.817 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_QQQ | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0652 | -0.71 | -0.228 | n/a | False | False | benjamini_hochberg,family_holm,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1694 | -1.92 | -0.592 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1000 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3364 | -3.56 | -1.175 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1030 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.5232 | -5.52 | -1.827 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1100 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.5663 | -5.91 | -1.978 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1000 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3767 | -4.09 | -1.316 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1030 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3285 | -3.57 | -1.147 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1100 | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.4806 | -5.29 | -1.678 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_CONTINUATION_SPY | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3469 | -3.86 | -1.212 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_REVERSION_MULTI | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.2049 | -2.13 | -0.716 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_REVERSION_MULTI_LARGE_ONLY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1342 | -1.40 | -0.469 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_REVERSION_QQQ | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0659 | -0.69 | -0.230 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0278 | -0.29 | -0.097 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY | INTRADAY_SLEEVE | NO_ADVANTAGE | 0.0935 | 0.98 | 0.327 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|PREMARKET_CONTINUATION_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1894 | -2.04 | -0.661 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|SESSION_CARRY|PREMARKET_REVERSION_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.1936 | -2.07 | -0.676 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_ANY_MULTI | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3673 | -3.83 | -1.283 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_ANY_SPY | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.2172 | -2.27 | -0.759 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_COMPRESSED_MULTI | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.3129 | -3.30 | -1.093 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_COMPRESSED_SPY | INTRADAY_SLEEVE | NO_ADVANTAGE | -0.0893 | -0.95 | -0.312 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_EXPANDED_MULTI | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.2861 | -3.04 | -0.999 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
+| INTRADAY|VOLATILITY_STATE|OPEN_MOVE_EXPANDED_SPY | INTRADAY_SLEEVE | WORSE_THAN_INCUMBENT | -0.2380 | -2.51 | -0.831 | n/a | False | False | benjamini_hochberg,family_holm,holdout_halves_ge_floor,holdout_sign_agrees,materiality_ge_1p5pct,positive_equal_risk_utility,survives_stress_cost,t_ge_2 |
 | US_EQUITY|TOP25|blend|k126 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0218 | 1.61 | 0.306 | 0.0137 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,paired_t_ge_2 |
 | US_EQUITY|TOP25|blend|k21 | SAME_DOMAIN_CONSTRUCTION | REFERENCE_ARM | 0.0000 | 0.00 | n/a | 0.0000 | None | None | lockbox_sign_agrees,materiality_ge_1p5pct,paired_t_ge_2 |
 | US_EQUITY|TOP25|blend|k42 | SAME_DOMAIN_CONSTRUCTION | NO_ADVANTAGE | 0.0169 | 1.62 | 0.412 | -0.0022 | False | False | benjamini_hochberg,family_holm,lockbox_halves_ge_floor,lockbox_sign_agrees,paired_t_ge_2 |

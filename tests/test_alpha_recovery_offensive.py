@@ -50,6 +50,9 @@ from alpha_agent.alpha_recovery import frontier_residual as FR
 from alpha_agent.alpha_recovery import forecast_contract as FC
 from alpha_agent.alpha_recovery import forward_package as FP
 from alpha_agent.alpha_recovery import incumbent as INC
+from alpha_agent.alpha_recovery import intraday_alpha as IA
+from alpha_agent.alpha_recovery import intraday_data as ID
+from alpha_agent.alpha_recovery import options_surface as OS
 from alpha_agent.alpha_recovery import news as NW
 from alpha_agent.alpha_recovery import program as PR
 from alpha_agent.alpha_recovery import scoreboard as SB
@@ -417,11 +420,16 @@ def test_non_price_share_rule_and_protocol_plan():
         assert len(f["primary_specifications"]) <= AR.FAMILY_PRIMARY_MAX
         assert len(f.get("rescue_specifications") or []) <= AR.FAMILY_RESCUE_MAX
         planned += PR._family_specs(f) + PR._family_rescues(f)
-    # the rule governs INFORMATION-directed research; the inclusive count is
-    # reported too and BOTH must hold, so it can never be met by reclassifying
-    info = [s for s in planned if s["selects_information"]]
+    # Rule 14 scopes its 75 % threshold to AUTONOMOUS research. Inside that
+    # scope the rule governs INFORMATION-directed specifications; the inclusive
+    # count is reported too and BOTH must hold, so it can never be met by
+    # reclassifying a family. An OPERATOR-DIRECTED axis sits outside the rule
+    # and is published in a third denominator whether it passes or fails - see
+    # test_non_price_rule_publishes_the_operator_directed_denominator_honestly.
+    auto = [s for s in planned if not s.get("operator_directed")]
+    info = [s for s in auto if s["selects_information"]]
     assert PR.non_price_share(info)["rule_met"] is True
-    assert PR.non_price_share(planned)["rule_met"] is True
+    assert PR.non_price_share(auto)["rule_met"] is True
     # a construction-only family may not quietly claim to select information
     by_name = {f["family"]: f for f in fams}
     assert by_name["EQUITY_INCUMBENT_CADENCE"]["selects_information"] is False
@@ -785,3 +793,193 @@ def test_forecast_product_families_are_named_and_the_rule_is_published():
     doc = Path(FPR.__file__).read_text(encoding="utf-8")
     for token in ("share a sign", "predictive interval", "MIN_EFFECTIVE_PERIODS observations"):
         assert token in doc
+
+
+# --------------------------------------------------------------------------- #
+# The intraday cross-asset axis. These regressions exist because an intraday
+# backtest fails silently: a mis-aligned minute grid, a look-ahead entry or an
+# uncharged round trip all produce a plausible-looking number.
+# --------------------------------------------------------------------------- #
+def test_intraday_grid_is_exchange_local_not_utc():
+    """The panel's file window is fixed in UTC, so the US session starts at a
+    different point inside it under EDT and EST. Building the grid in UTC would
+    mix 09:30 ET with 08:30 ET. The grid must be exchange-local and the covered
+    regular window must be exactly the common 150 minutes."""
+    assert ID.TZ == "America/New_York"
+    assert ID.REG_FIRST_MOD == 9 * 60 + 30 and ID.REG_LAST_MOD == 11 * 60 + 59
+    assert ID.N_REG == 150 and ID.N_PRE == 150
+    assert ID.minute_index(9, 30) == 0
+    assert ID.minute_index(11, 59) == ID.N_REG - 1
+    with pytest.raises(ValueError):
+        ID.minute_index(15, 0)                      # there is no afternoon in this panel
+    doc = Path(ID.__file__).read_text(encoding="utf-8")
+    for token in ("fixed in UTC", "daylight saving", "exchange local time",
+                  "NO afternoon and NO closing auction"):
+        assert token in doc
+
+
+def test_intraday_tradable_split_is_by_measured_coverage():
+    """A leg is tradable because it prints minutes and turns over, not because
+    it is convenient. UUP prints ~half the session and must stay information."""
+    assert set(ID.TRADABLE) == {"SPY", "QQQ", "TLT", "GLD"}
+    assert "UUP" in ID.INFORMATION_ONLY and "SHY" in ID.INFORMATION_ONLY
+    assert not set(ID.TRADABLE) & set(ID.INFORMATION_ONLY)
+    # four economically distinct markets, which is the point of the axis
+    assert len({ID.MARKET[s] for s in ID.TRADABLE}) == 4
+
+
+def test_intraday_cost_ladder_is_conservative_and_eligibility_uses_the_stress_rate():
+    assert ID.COST_PRIMARY_BPS >= AR.SPY_PROXY_COST_BPS * 2      # 2x the estate's own SPY rate
+    assert ID.COST_STRESS_BPS > ID.COST_PRIMARY_BPS
+    assert ID.COST_ELIGIBILITY_BPS == ID.COST_STRESS_BPS
+    assert ID.COST_CANONICAL_BPS == AR.EQ_COST_RATE_PER_SIDE * 1e4
+
+
+def test_intraday_entry_is_strictly_after_the_signal_minute():
+    """No arm may trade on the bar that produced its own signal."""
+    src = Path(IA.__file__).read_text(encoding="utf-8")
+    assert "entry = si + 1" in src
+    for sp in IA.full_grid():
+        si = ID.minute_index(*sp["signal"])
+        ei = ID.minute_index(*sp["exit"])
+        assert si + 1 < ei, sp["cell_id"]
+
+
+def test_intraday_cost_is_charged_every_engaged_session_and_ladder_is_monotone():
+    sp = IA.full_grid()[0]
+    nets = []
+    for c in (0.0, ID.COST_PRIMARY_BPS, ID.COST_STRESS_BPS, ID.COST_CANONICAL_BPS):
+        p = IA.session_path(sp, cost_bps=c)
+        eng = p["engaged"]
+        exp = eng * 2.0 * c * 1e-4
+        assert np.allclose(p["cost"], exp)           # full round trip, every engaged session
+        nets.append(float(np.nanmean(p["net"])))
+    assert nets == sorted(nets, reverse=True)        # more cost is never better
+
+
+def test_intraday_gross_diagnostic_separates_information_from_execution():
+    """A gross t below 2.0 cannot be rescued by any cost assumption. The cell
+    must carry that number so the two failure modes are never conflated."""
+    sp = IA.full_grid()[0]
+    cell = IA.measure_cell(sp, with_capital=False)
+    g = cell["gross"]
+    for k in ("ann_gross", "t_gross", "bp_per_engaged_session", "reaches_t2_at_zero_cost"):
+        assert k in g
+    zero = IA.session_path(sp, cost_bps=0.0)
+    assert np.allclose(g["ann_gross"], float(np.nanmean(zero["gross"]) * IA.PPY))
+
+
+def test_intraday_gates_are_the_frozen_ones_and_close_is_not_pass():
+    """t = 1.99 is a failure. The stress-cost gate is an ADDITION, never a
+    relaxation, and the turnover substitution is declared rather than silent."""
+    cell = {"by_cost_bps_per_side": {
+        "%.1f" % ID.COST_PRIMARY_BPS: {
+            "all": {"ann_net": 0.09, "t_net": 1.99, "effective_periods": 500},
+            "selection": {"ann_net": 0.09}, "holdout": {"ann_net": 0.09},
+            "holdout_halves_ann_net": [0.05, 0.05]},
+        "%.1f" % ID.COST_STRESS_BPS: {"all": {"ann_net": 0.05}}}}
+    g = IA.gates(cell)
+    assert g["materiality_ge_1p5pct"] is True
+    assert g["t_ge_2"] is False
+    assert IA.verdict({**cell, "gates": g}) != T.V_MATERIAL
+    cell["by_cost_bps_per_side"]["%.1f" % ID.COST_PRIMARY_BPS]["all"]["t_net"] = 2.01
+    assert IA.gates(cell)["t_ge_2"] is True
+    # an arm that only lives inside the cheap cost assumption fails eligibility
+    cell["by_cost_bps_per_side"]["%.1f" % ID.COST_STRESS_BPS]["all"]["ann_net"] = 0.001
+    assert IA.gates(cell)["survives_stress_cost"] is False
+    assert "GATE_MAX_TURNOVER" in IA.TURNOVER_GATE_SUBSTITUTION
+    assert "STRICTER" in IA.TURNOVER_GATE_SUBSTITUTION
+
+
+def test_intraday_rescue_budget_is_two_and_each_names_a_measured_failure():
+    resc = IA.rescue_grid()
+    assert len(resc) <= AR.FAMILY_RESCUE_MAX
+    for sp in resc:
+        assert sp["tag"] == "RESCUE"
+        bf = sp["binding_failure"]
+        assert bf.startswith("MEASURED:") and "unconditional" in bf.lower()
+        assert sp["hypothesis"]
+    # the rescue conditions ENGAGEMENT, it does not add an information dimension
+    assert {sp["dimension"] for sp in resc} <= set(IA.DIMENSION.values())
+    for fam in IA.FAMILIES:
+        n = len([s for s in IA.default_grid() if s["family"] == fam])
+        assert n <= AR.FAMILY_PRIMARY_MAX
+
+
+def test_intraday_conditional_rescue_uses_only_strictly_prior_information():
+    """The engagement threshold is a quantile of the STRICTLY PRIOR window; if
+    it ever peeked at today, the rescue would be look-ahead."""
+    sp = IA.rescue_grid()[0]
+    w = IA.signals(sp)
+    n = int(sp["rescue_lookback_sessions"]) // 2
+    assert np.allclose(w[:n], 0.0)                   # nothing engages before a prior window exists
+    assert 0.0 < float(np.mean(np.abs(w).sum(axis=1) > 0)) < 1.0   # it does gate some sessions
+
+
+def test_intraday_sleeve_is_flat_overnight():
+    for sp in IA.full_grid():
+        assert sp["exit"] == IA.EXIT_ET
+        assert ID.minute_index(*sp["exit"]) <= ID.N_REG - 1
+    doc = Path(IA.__file__).read_text(encoding="utf-8")
+    assert "flat overnight" in doc.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Information axis A: the option surface. The regression that matters is the
+# REFUSAL - a narrow surface must not be turned into a plausible ATM series.
+# --------------------------------------------------------------------------- #
+def test_option_surface_refuses_a_drifting_moneyness_proxy():
+    u = OS.usability()
+    assert u["state"] in ("USABLE", "DATA_INSUFFICIENT")
+    assert u["floor"] == AR.MIN_EFFECTIVE_PERIODS
+    if u["state"] == "DATA_INSUFFICIENT":
+        assert u["dates_whose_strikes_bracket_the_money"] < AR.MIN_EFFECTIVE_PERIODS
+        assert u["exact_missing_requirement"]
+        assert OS.run_grid(verbose=False) == []       # nothing is scored
+    f = OS.features()
+    # every date that does NOT bracket the money contributes no ATM reading
+    bad = f[~f["brackets_the_money"]]
+    assert bool(np.isnan(bad["atm_iv_near"]).all())
+
+
+def test_option_surface_runs_one_pre_registered_sign_per_signal():
+    """Running the mirror sign as a separate specification would double the
+    multiplicity denominator for no information."""
+    grid = OS.default_grid()
+    assert len(grid) == len(OS.SIGNALS) * len(OS.HORIZONS)
+    assert len(grid) <= AR.FAMILY_PRIMARY_MAX
+    for name, sp in OS.SIGNALS.items():
+        signs = {g["sign"] for g in grid if g["name"] == name}
+        assert signs == {sp["sign"]}, name
+        assert sp["economics"]
+    assert 21 in OS.HORIZON_NOT_RUN and "36" in OS.HORIZON_NOT_RUN[21]
+
+
+def test_option_surface_resolves_the_named_binding_failure_without_moving_the_floor():
+    doc = Path(OS.__file__).read_text(encoding="utf-8")
+    assert "196" in doc and "MIN_ROWS" in doc
+    assert "row floor was never moved" in doc or "never moved" in doc
+
+
+# --------------------------------------------------------------------------- #
+# Non-price accounting across three denominators
+# --------------------------------------------------------------------------- #
+def test_non_price_rule_publishes_the_operator_directed_denominator_honestly():
+    """Rule 14 scopes to AUTONOMOUS research. The operator-directed axis is
+    excluded from the rule's denominators and reported in a third one, which is
+    published whether it passes or fails - never reclassified into compliance."""
+    fams = PR.families_from_protocol()
+    directed = [f for f in fams if f.get("operator_directed")]
+    assert directed, "the intraday families are operator-directed"
+    specs = []
+    for fam in fams:
+        specs.extend(PR._family_specs(fam))
+        specs.extend(PR._family_rescues(fam))
+    auto = [s for s in specs if not s.get("operator_directed")]
+    assert len(auto) < len(specs)
+    share_auto = PR.non_price_share([s for s in auto if s.get("selects_information")])
+    share_all = PR.non_price_share(specs)
+    assert share_auto["rule_met"] is True
+    assert share_all["executed"] == len(specs)
+    # the all-executed share is strictly lower - the directed axis is price-derived
+    assert share_all["share_non_price"] < share_auto["share_non_price"]

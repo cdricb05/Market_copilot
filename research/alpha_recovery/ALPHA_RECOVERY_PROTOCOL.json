@@ -11,7 +11,14 @@
   "2026-09-10T16:35Z, AFTER the isolated governor run was observed and DISCLOSED: the governor mandated six information needs; the campaign had executed one (FX_FUTURES|5|CARRY). A sixth family, FRONTIER_MANDATES_RISK_CONTROLLED, executes the three other mandated needs the R64 owner can price on the futures substrate - RATES_FUTURES|XS|21|VOLATILITY_EXPECTATIONS_IV, VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV, FX_FUTURES|XS|21|POSITIONING_COMMITMENTS - through alpha_agent.r64.experiments.measure_cell verbatim (the ONE scorer, the ONE risk-controlled book, the R64 verdict ladder), one specification each, so the allocation demonstrably follows the frontier. CREDIT_PROXY|21|INFLATION_EXPECTATIONS and US_EQUITY|1|FREE_CASH_FLOW are recorded as mandated-not-executed with the reason (the R64 book has no credit-proxy substrate; FREE_CASH_FLOW is a baseline dimension of the incumbent already measured by the tournament's baseline arm). No threshold, gate, split, cost or statistic changed.",
   "2026-09-10T18:19Z, AFTER the first pass over the frontier was observed and DISCLOSED: the FRONTIER_MANDATES_RISK_CONTROLLED family is completed from three primary specifications to six plus one rescue, because three of the six OWNED needs the frontier ranks highest were still unmeasured. US_EQUITY|XS|1|FREE_CASH_FLOW (frontier rank 2) and CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS (rank 6) had been recorded mandated-not-executed for reasons that describe the R64 futures assembler rather than the information, and are now measured through the ONE scorer and the ONE risk-controlled book composed around the R63 assembler. VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV is a primary and VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV the single RESCUE under the family's rescue budget, for the NAMED, MEASURED binding failure: VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV returned DATA_HOLD with rows_covered=196 against sensitivity.MIN_ROWS=200 and n_instruments=1. No threshold, gate, split, cost or statistic changed - in particular sensitivity.MIN_ROWS stays at 200 and the DATA_HOLD is answered by a cadence that yields enough decision slots, never by lowering the floor to reach 196 rows.",
   "2026-09-10T18:20Z, AFTER the incumbent baseline and its horizon attribution were observed (INCUMBENT_WEAK_OR_UNPROVEN at the operational 21-session horizon, +2.7 %/yr at t 0.99, while the SAME blend scores +4.5 %/yr at t 2.14 over a 63-session forward window) and DISCLOSED: two families are added that change the CONSTRUCTION of the incumbent rather than its information. EQUITY_INCUMBENT_CADENCE rebalances the top-25 book every 21 (the operational reference arm), 42, 63 and 126 sessions; INCUMBENT_DECOMPOSITION runs the momentum leg alone and the fundamental leg alone at 21 and 63 sessions. Every arm shares the universe, the daily calendar, the capital and the 12.5 bp per side, and is compared to the operational arm on paired non-overlapping 21-session blocks. The frozen head-to-head gates and the frozen threshold set apply UNCHANGED - materiality 1.5 %/yr, paired t >= 2, lockbox sign agreement, lockbox halves >= -0.5 %/yr, turnover <= 0.40 one-way per 21 sessions, drawdown within 1.5x, Holm inside the family and campaign Benjamini-Hochberg. The family is labelled POST_SELECTION because the attribution that motivated the ladder was read first, and the ladder is NOT extended past 126 sessions after seeing that the point estimate rises with the cadence.",
-  "2026-09-10T18:21Z, BEFORE any product number was computed and DISCLOSED: the book-level forecast calibration test is registered. A book-level expected return is licensed only if the estimate a forecaster could have formed on SELECTION periods survives the LOCKBOX on all three counts - the two layer means share a sign, the lockbox mean lies inside a 95 % predictive interval of width 1.96 * sd_selection * sqrt(1/n_s + 1/n_l) around the selection mean, and the lockbox carries at least MIN_EFFECTIVE_PERIODS observations - otherwise the field is UNAVAILABLE with the reason. Passing licenses the FULL-sample out-of-sample mean as the point forecast and the uncertainty travels with it. This adds a test; it moves no threshold and relaxes no gate."
+  "2026-09-10T18:21Z, BEFORE any product number was computed and DISCLOSED: the book-level forecast calibration test is registered. A book-level expected return is licensed only if the estimate a forecaster could have formed on SELECTION periods survives the LOCKBOX on all three counts - the two layer means share a sign, the lockbox mean lies inside a 95 % predictive interval of width 1.96 * sd_selection * sqrt(1/n_s + 1/n_l) around the selection mean, and the lockbox carries at least MIN_EFFECTIVE_PERIODS observations - otherwise the field is UNAVAILABLE with the reason. Passing licenses the FULL-sample out-of-sample mean as the point forecast and the uncertainty travels with it. This adds a test; it moves no threshold and relaxes no gate.",
+  "2026-09-10T21:05Z, BEFORE any intraday arm was measured and DISCLOSED: the operator directed NATIVE INTRADAY CROSS-ASSET information as the next research axis, ahead of the campaign's own autonomous frontier order. The real data state was measured FIRST and is recorded in intraday_data_state.json. No threshold, gate, split, cost or statistic is moved by this amendment. Two facts are disclosed because they constrain every result that follows: (a) the owned minute panel's window is fixed in UTC, so the US regular session starts at 13:30 UTC under EDT and 14:30 UTC under EST - every grid is therefore built in exchange local time; (b) coverage ends 16:59 UTC, so there is NO afternoon and NO closing auction, no arm may be marked to the close, and the published first-half-hour to last-half-hour intraday momentum result cannot be tested as specified.",
+  "2026-09-10T21:06Z, BEFORE any intraday arm was measured and DISCLOSED: the intraday cost ladder is fixed at 2.0 / 5.0 / 12.5 bp per side, with capital eligibility requiring survival at 5.0 bp - 2.5x the headline rate and 5x the estate's own canonical SPY proxy rate of 1.0 bp. The one frozen gate NOT applied is GATE_MAX_TURNOVER (0.40 one-way per 21 sessions): it is a DAILY-book gate that every intraday strategy exceeds by construction, so applying it would forbid the asset class rather than test cost discipline. It is replaced by a STRICTER control - the full round trip charged on every engaged session at three rates - and realised turnover is reported in full. No other threshold moves.",
+  "2026-09-10T21:07Z, BEFORE any intraday arm was measured and DISCLOSED: the intraday sample (2024-08-26 to 2026-08-24) lies ENTIRELY after the R63 lockbox start of 2023-01-01, so the estate's lockbox does not partition it. The declared substitute is a chronological split - first 300 sessions SELECTION, last 200 sessions HOLDOUT - and the holdout must agree in sign and be positive. The equal-risk cross-domain utility test is run at DAILY frequency because the 2-year sample yields ~24 non-overlapping 21-session periods against the frozen floor of 36; the sizing and equal-risk rescale rule of tournament.cross_domain is unchanged. No threshold is moved by this amendment: the frozen MIN_EFFECTIVE_PERIODS floor of 36 is the reason the daily frequency is used, not a target to be relaxed.",
+  "2026-09-10T21:40Z, AFTER the 30 intraday primary specifications were measured and DISCLOSED: the two permitted rescues are spent on ONE named, MEASURED binding failure - CARRY_REVERSION_SPY earns +9.67 %/yr GROSS at t 1.72 (3.85 bp per engaged session) while engaging on 100 % of sessions and paying a 4.0 bp round trip, i.e. it engages UNCONDITIONALLY regardless of the size of the overnight move. Both rescues apply a magnitude condition (top 30 % of |carry| against a strictly-prior 60-session distribution, fixed once and not swept) to information the arm already uses. No new indicator, no parameter search, no threshold moved. The family is closed afterwards.",
+  "2026-09-10T22:10Z, BEFORE any option-surface signal was computed and DISCLOSED: information axis A is opened on the OWNED SPY option surface because the campaign's own frontier ranks VOLATILITY_EXPECTATIONS_IV third among owned needs and two earlier attempts used an INDEX PROXY - one returned DATA_HOLD on 196 rows against sensitivity.MIN_ROWS = 200 and the cadence answer failed reproduction against the persisted R63 matrix. Replacing an index proxy with per-contract implied volatilities is a coverage improvement under reopening rule 13, not a reopened transform. The row floor was never moved. Each signal carries ONE economically pre-registered sign; the mirror sign is NOT executed as a separate specification. h = 21 is not run because the 265-date sample yields ~12 non-overlapping periods against the frozen floor of 36. No threshold is moved: the sensitivity.MIN_ROWS row floor of 200 stays where it is, and the frozen MIN_EFFECTIVE_PERIODS floor of 36 is what excludes h = 21.",
+  "2026-09-10T22:25Z, AFTER the option surface was measured and DISCLOSED: the surface is a FIXED strike band (654-720, 6 expiries) acquired for a single R45 event study, and over the sample the underlying rallied from 615 to 751, so the band drifted out of the money. Only 25 of 264 dates carry a near-dated expiry whose strikes BRACKET the money, against the frozen floor of 36. The axis is closed DATA_INSUFFICIENT and NO cell is scored: building an 'ATM' series from whichever strike happened to be least far from the money would manufacture a result rather than measure one. The floor is NOT moved and no threshold is relaxed.",
+  "2026-09-10T22:30Z, DISCLOSED with the non-price accounting: contract rule 14's 75 % threshold governs newly executed AUTONOMOUS research. The intraday axis was OPERATOR-DIRECTED, so three denominators are now published - autonomous information-directed, autonomous inclusive, and ALL executed specifications including the operator-directed families. The third falls BELOW 0.75 and is reported as failing rather than reclassified to pass. No threshold is moved."
  ],
  "question": "Does any specification built from OWNED or FREE information materially beat fundamental_momentum_50_50_v1 after realistic costs on an identical sample (or add incremental utility to the incumbent-only portfolio under equal risk), strongly enough to enter governed TRUE_FORWARD competition within ten eligible sessions - and if not, exactly which information is missing and what would it cost to buy?",
  "what_this_campaign_is_not": [
@@ -253,6 +260,209 @@
     "rescue_specifications": [],
     "reopening_binding_failure": "the incumbent's 50/50 blend has never been decomposed on a real capital path: the fundamental leg's own lockbox excess is -0.4 %/yr at 21 sessions while the blend's is +11.0 %/yr",
     "reopening_reason": "DISTINCT_IMPLEMENTATION_RESOLVES_NAMED_BINDING_FAILURE"
+   },
+   {
+    "family": "INTRADAY_SESSION_CARRY",
+    "information_class": "INTRADAY OVERNIGHT AND PRE-MARKET PATH - the prior-session carry and the 07:00-09:29 ET pre-market drift, neither of which has any daily expression",
+    "selects_information": true,
+    "operator_directed": true,
+    "directive": "operator brief 2026-09-10: NATIVE INTRADAY CROSS-ASSET INFORMATION is the next research priority",
+    "frontier_cell_keys": [],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_CONTINUATION_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_REVERSION_QQQ",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|PREMARKET_REVERSION_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|PREMARKET_CONTINUATION_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_REVERSION_MULTI",
+      "price_state": true
+     }
+    ],
+    "rescue_specifications": [
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY",
+      "price_state": true,
+      "binding_failure": "MEASURED: CARRY_REVERSION_SPY earns +9.67 %/yr GROSS at t 1.72 (3.85 bp per engaged session) while engaging on 100 % of sessions and paying a 4.0 bp round trip - unconditional engagement"
+     },
+     {
+      "spec": "INTRADAY|SESSION_CARRY|CARRY_REVERSION_MULTI_LARGE_ONLY",
+      "price_state": true,
+      "binding_failure": "MEASURED: CARRY_REVERSION_SPY earns +9.67 %/yr GROSS at t 1.72 (3.85 bp per engaged session) while engaging on 100 % of sessions and paying a 4.0 bp round trip - unconditional engagement"
+     }
+    ],
+    "reopening_binding_failure": "the daily PRICE_STATE frontier is exhausted on DAILY bars; the overnight/pre-market split, the opening range, minute-level realised volatility and minute-level cross-market transmission have NO daily expression and were never observable",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES"
+   },
+   {
+    "family": "INTRADAY_OPENING_RANGE",
+    "information_class": "INTRADAY OPENING RANGE STRUCTURE - the 09:30-09:59 ET high/low envelope and whether price leaves it",
+    "selects_information": true,
+    "operator_directed": true,
+    "directive": "operator brief 2026-09-10",
+    "frontier_cell_keys": [],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_QQQ",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_QQQ",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_BREAKOUT_MULTI",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|OPENING_RANGE|OPENING_RANGE_FADE_MULTI",
+      "price_state": true
+     }
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "an opening range cannot be computed from a daily bar at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES"
+   },
+   {
+    "family": "INTRADAY_VOLATILITY_STATE",
+    "information_class": "INTRADAY REALISED VOLATILITY STATE - minute-level realised volatility of the first 30 minutes against its own strictly-prior 20-session median",
+    "selects_information": true,
+    "operator_directed": true,
+    "directive": "operator brief 2026-09-10",
+    "frontier_cell_keys": [
+     "VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV"
+    ],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_COMPRESSED_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_EXPANDED_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_ANY_SPY",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_COMPRESSED_MULTI",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_EXPANDED_MULTI",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|VOLATILITY_STATE|OPEN_MOVE_ANY_MULTI",
+      "price_state": true
+     }
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "minute-level realised volatility is not computable from a daily bar; the estate's only volatility observable was an index proxy that returned DATA_HOLD on 196 rows against MIN_ROWS = 200",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES"
+   },
+   {
+    "family": "INTRADAY_CROSS_MARKET_LEADLAG",
+    "information_class": "INTRADAY CROSS-MARKET TRANSMISSION - session-to-date moves in long duration, gold, the dollar and the front end read as information for equity, at minute resolution",
+    "selects_information": true,
+    "operator_directed": true,
+    "directive": "operator brief 2026-09-10",
+    "frontier_cell_keys": [],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|TLT_TO_SPY_RISKOFF",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|TLT_TO_SPY_RISKON",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|GLD_TO_SPY_RISKOFF",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|UUP_TO_SPY_RISKOFF",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|CURVE_TO_SPY_RISKOFF",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|CROSS_MARKET_LEADLAG|RISKOFF_VOTE_TO_SPY",
+      "price_state": true
+     }
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "the estate's daily CROSS_ASSET_TREND family was degenerate under controls at every cadence; intra-session transmission between four markets was never observable at daily resolution",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES"
+   },
+   {
+    "family": "INTRADAY_RELATIVE_STRENGTH",
+    "information_class": "INTRADAY CROSS-SECTIONAL RELATIVE STRENGTH - volatility-adjusted session-to-date returns ranked across four markets",
+    "selects_information": true,
+    "operator_directed": true,
+    "directive": "operator brief 2026-09-10",
+    "frontier_cell_keys": [],
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1000",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1000",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1030",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1030",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_MOMENTUM_1100",
+      "price_state": true
+     },
+     {
+      "spec": "INTRADAY|RELATIVE_STRENGTH|RS_REVERSAL_1100",
+      "price_state": true
+     }
+    ],
+    "rescue_specifications": [],
+    "reopening_binding_failure": "cross-sectional strength measured inside a session, volatility-adjusted, has no daily expression",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES"
    }
   ],
   "planned_specification_count": 28,
@@ -410,5 +620,56 @@
   ],
   "calibration_test": "sign agreement between the selection and lockbox means AND the lockbox mean inside a 95 % predictive interval around the selection mean AND at least MIN_EFFECTIVE_PERIODS lockbox observations; otherwise UNAVAILABLE with the reason",
   "on_passing": "the FULL-sample out-of-sample mean is the point forecast and its Newey-West t travels with it; a licensed small edge is published WITH its t, never dressed up"
+ },
+ "intraday_axis": {
+  "registered_at": "2026-09-10T21:05Z",
+  "owner_data": "alpha_agent/alpha_recovery/intraday_data.py",
+  "owner_research": "alpha_agent/alpha_recovery/intraday_alpha.py",
+  "panel": "D:\\Stock_Prediction_app_data\\macro_event_alpha_r45\\_data_intraday (acquired by R45)",
+  "purchased_anything": false,
+  "window_exchange_local": "09:30-11:59 ET, 150 minutes, complete on all 500 sessions",
+  "tradable": [
+   "SPY",
+   "QQQ",
+   "TLT",
+   "GLD"
+  ],
+  "information_only": [
+   "IEF",
+   "SHY",
+   "UUP"
+  ],
+  "cost_ladder_bps_per_side": {
+   "primary": 2.0,
+   "stress": 5.0,
+   "canonical": 12.5,
+   "eligibility_requires": 5.0
+  },
+  "evidence_split": {
+   "selection_sessions": 300,
+   "holdout_sessions": 200
+  },
+  "gates_frozen": "materiality >= 1.5 %/yr, NW t >= 2.0, BH q = 0.10, family Holm alpha = 0.05, >= 36 effective periods, halves floor -0.005, PLUS survival at the 5.0 bp stress cost and positive equal-risk incremental utility",
+  "turnover_gate_substitution": "GATE_MAX_TURNOVER is a daily-book gate every intraday strategy exceeds by construction; replaced by charging the full round trip every session at three rates - stricter, not weaker",
+  "futures_panel": "DATA_INSUFFICIENT at 49 sessions; the floor is not moved and the family is not opened"
+ },
+ "options_surface_axis": {
+  "registered_at": "2026-09-10T22:10Z",
+  "owner": "alpha_agent/alpha_recovery/options_surface.py",
+  "surface": "polygon_spy_option_surface_r45_extension.csv.gz (acquired by R45)",
+  "purchased_anything": false,
+  "resolves_named_binding_failure": "VOLATILITY|TS|21|VOLATILITY_EXPECTATIONS_IV returned DATA_HOLD on 196 rows against sensitivity.MIN_ROWS = 200 and its cadence answer failed reproduction; both attempts used an INDEX PROXY",
+  "signals_with_pre_registered_signs": [
+   "ATM_IV_LEVEL +",
+   "PUT_CALL_SKEW +",
+   "VARIANCE_RISK_PREMIUM +"
+  ],
+  "mirror_signs_not_executed": true,
+  "horizons": [
+   1,
+   5
+  ],
+  "horizon_21_not_run": "~12 non-overlapping periods against the frozen floor of 36",
+  "outcome": "DATA_INSUFFICIENT - only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money; no cell scored, no threshold moved"
  }
 }

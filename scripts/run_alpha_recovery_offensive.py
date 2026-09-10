@@ -57,8 +57,8 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "equity", "residual", "compete", "products", "package", "purchase", "scoreboard",
-          "report", "all")
+          "equity", "residual", "intraday", "options", "compete", "products", "package",
+          "purchase", "scoreboard", "report", "all")
 
 
 def _stage_checkpoint() -> dict:
@@ -153,6 +153,32 @@ def _stage_residual() -> dict:
     body = FR.merge(cells=cells)
     return {"counts": body["counts"],
             "cells": [(b["cell_id"], b["r64_verdict"], b["conditional_t"]) for b in body["brief"]]}
+
+
+def _stage_intraday() -> dict:
+    """Information axis: NATIVE INTRADAY CROSS-ASSET. Establish the real data
+    state first, then fire the bounded families at it."""
+    from alpha_agent.alpha_recovery import intraday_alpha as IA, intraday_data as ID
+    state = ID.build()
+    print("intraday panel: %d sessions %s -> %s, tradable %s"
+          % (state["sessions"], state["first_session"], state["last_session"], state["tradable"]),
+          flush=True)
+    cells = IA.run_grid(verbose=True)
+    body = IA.merge(cells=cells)
+    d = body["cost_vs_information_diagnosis"]
+    return {"counts": body["counts"], "diagnosis": d["verdict"],
+            "max_gross_t_primary": d["max_gross_t_primary"],
+            "max_gross_t_rescue": d["max_gross_t_rescue"],
+            "best": (body.get("best_by_ann_net") or {}).get("cell_id")}
+
+
+def _stage_options() -> dict:
+    """Information axis A: the owned SPY option / implied-volatility surface."""
+    from alpha_agent.alpha_recovery import options_surface as OS
+    cells = OS.run_grid(verbose=True)
+    body = OS.merge(cells=cells)
+    return {"usability": body["usability"]["state"], "counts": body["counts"],
+            "dates_bracketing_the_money": body["usability"]["dates_whose_strikes_bracket_the_money"]}
 
 
 def _stage_products() -> dict:
