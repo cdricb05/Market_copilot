@@ -627,8 +627,19 @@ def panel(*, rebuild: bool = False, roots: tuple = ROOTS):
         feats[r] = features(raw, r)
     have = [r for r in have if r in feats]
 
-    ref = "ES" if "ES" in feats else have[0]
-    dates = sorted(set(feats[ref]["td"].tolist()))
+    # THE CALENDAR IS THE OHLCV PANEL'S, not this panel's own.
+    #
+    # Taking the dates from the quote data instead admits 408 extra "trade
+    # dates" over four years, 402 of them Saturdays and Sundays carrying a
+    # median of 1.5 rows - the residual quotes either side of the weekly close
+    # and Sunday reopen. They are not sessions. Left in, they would pad the
+    # daily return series with flat rows, dilute every t-statistic and break the
+    # 252-day annualisation. Inheriting the calendar also makes the pairing
+    # claim true by construction rather than by assertion: same dates, same
+    # contracts, same roll as the bars this panel is measured against.
+    from .futures_intraday import panel as ohlcv_panel
+
+    dates = list(ohlcv_panel()["dates"])
     n_d, n_i = len(dates), len(have)
     grids = {f: np.full((n_d, TD_MINUTES, n_i), np.nan, dtype=np.float32) for f in FIELDS}
     held = np.full((n_d, n_i), "", dtype="<U12")

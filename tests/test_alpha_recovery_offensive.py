@@ -1934,13 +1934,29 @@ def test_microstructure_rescue_only_narrows_engagement_and_never_flips_a_sign(ms
     assert np.all(resc * base >= 0), "the rescue flipped a sign"
 
 
-def test_microstructure_panel_inherits_the_ohlcv_roll(monkeypatch):
+def test_microstructure_panel_inherits_the_ohlcv_roll_and_calendar():
     """The two panels must be contract-identical, or every paired comparison
-    measures the roll instead of the information."""
+    measures the roll instead of the information - and the CALENDAR must be
+    inherited too. Deriving dates from the quote data instead admitted 408 extra
+    'trade dates' over four years, 402 of them weekends carrying a median of 1.5
+    rows: the residual quotes either side of the weekly close and Sunday reopen.
+    Left in, they pad the daily series with flat rows and dilute every t."""
     body = Path(MS.__file__).read_text(encoding="utf-8")
     assert "def front_schedule" in body
     assert "panel_path" in body, "the roll must be READ from the OHLCV panel"
     assert "roll_schedule" not in body, "the roll must not be recomputed here"
+    assert "ohlcv_panel()" in body, "the calendar must be READ from the OHLCV panel"
+
+
+def test_microstructure_panel_calendar_matches_the_bars_exactly():
+    """Checked on the acquired panels rather than asserted, when both exist."""
+    try:
+        a, b = MS.panel()["dates"], FI.panel()["dates"]
+    except RuntimeError:
+        pytest.skip("a panel is not on disk in this checkout")
+    assert a == b, "the two panels disagree about which dates are sessions"
+    wd = {pd.Timestamp(d).day_name() for d in a}
+    assert not (wd & {"Saturday", "Sunday"}), "a weekend entered the session calendar"
 
 
 def test_microstructure_artifact_closes_every_family_with_a_reason():
