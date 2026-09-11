@@ -246,10 +246,11 @@ candidates measured, **0 qualified**.
 | Best strategy | `FUT_MARK_TO_CLOSE / REV_COMMOD_RESCUE_CONDITIONAL` (GC+CL, fade the early RTH move, hold to the 16:00 settlement, engage only on the top 30 % of signal magnitude) |
 | Net OOS alpha | **+6.40 %/yr** at PRIMARY cost, **+4.34 %/yr** at STRESS cost |
 | Newey-West t | **1.02** against a frozen floor of 2.0 - **fails** |
-| Sharpe | 0.53 |
-| Max drawdown | -13.2 % |
-| Costs | 1.67 bp round trip (PRIMARY), 3.35 bp (STRESS); charged in FULL on every engaged trade date |
-| Robustness | holdout sign agrees, but the arm is one of 54 and the effect does not generalise beyond two correlated commodity legs |
+| Sharpe | 0.50 |
+| Max drawdown | -13.61 % |
+| Costs | 1.67 bp round trip (PRIMARY), 3.35 bp (STRESS), 6.03 bp (CANONICAL); charged in FULL on every engaged trade date. Still +1.04 %/yr at CANONICAL |
+| Robustness | **fails**. Selection -1.12 %/yr, holdout +17.66 %/yr: the sign does not agree, and an arm that earns almost everything OUT of sample is the signature of noise, not of a stable effect. Engaged 49 % of dates, hit rate 49 % of those |
+| Equal-risk utility vs incumbent | +2.07 %/yr at t 0.39, correlation 0.149 - below the t 2.0 the gate requires |
 | Multiplicity | BH q=0.10 over all 54: **0 rejections**. Family Holm alpha=0.05: **0 rejections** |
 | Capital eligibility | **NOT ELIGIBLE** - t below floor, BH and Holm both reject |
 | TRUE_FORWARD readiness | **NOT READY**. Nothing registered, nothing promoted |
