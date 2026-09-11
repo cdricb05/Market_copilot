@@ -62,7 +62,29 @@ from . import tournament as T
 CALCULATION_OWNER = "alpha_agent.alpha_recovery.options_surface"
 CELLS_DIR = "cells"
 ARTIFACT_NAME = "options_surface.json"
-SURFACE_PATH = ID.OPTION_SURFACE
+#: The R45 surface this axis was first attempted on: a FIXED strike band of
+#: 654-720 that the underlying rallied through, leaving 25 of 264 dates whose
+#: near-dated strikes bracket the money against a frozen floor of 36.
+R45_SURFACE_PATH = ID.OPTION_SURFACE
+
+
+def surface_path():
+    """The surface to run on: the MONEYNESS-ANCHORED one when it exists.
+
+    The axis's recorded blocker was never "not enough dates" - it was that an
+    ATM implied-volatility series cannot be built from a strike band the spot
+    has left. A band that tracks the underlying removes exactly that defect, so
+    running on it is the NAMED binding failure being resolved rather than a
+    closed axis being reopened on a new parameter. The R45 surface remains the
+    fallback so this module still works wherever the new one has not been
+    acquired.
+    """
+    from .options_acquisition import surface_path as anchored
+    p = anchored()
+    return p if p.exists() else R45_SURFACE_PATH
+
+
+SURFACE_PATH = ID.OPTION_SURFACE          # kept for readers that import the name
 PPY = 252.0
 
 FAMILY = "OPTIONS_IMPLIED_VOLATILITY_SURFACE"
@@ -80,9 +102,15 @@ ZSCORE_LOOKBACK = 60
 RV_LOOKBACK = 21
 MIN_T_YEARS_NEAR = 0.05                        # ~18 calendar days
 HORIZONS = (1, 5)
-HORIZON_NOT_RUN = {21: "at cadence 21 the 265-date sample yields ~12 non-overlapping periods "
-                       "against the frozen MIN_EFFECTIVE_PERIODS floor of 36; the floor is not "
-                       "moved and the horizon is not run"}
+#: Re-derived when the moneyness-anchored surface replaced the R45 one, because
+#: the old justification quoted a sample size that no longer applies. The
+#: CONCLUSION is unchanged and the floor is still not moved: a two-year surface
+#: is ~490 dates, which at cadence 21 yields ~23 non-overlapping periods against
+#: the frozen floor of 36. Clearing it at h = 21 needs roughly three years, not
+#: two, so h = 21 remains un-run and says so with the right arithmetic.
+HORIZON_NOT_RUN = {21: "at cadence 21 a two-year surface (~490 dates) yields ~23 non-overlapping "
+                       "periods against the frozen MIN_EFFECTIVE_PERIODS floor of 36; ~756 dates "
+                       "would be needed. The floor is not moved and the horizon is not run"}
 
 _CACHE: dict = {}
 
@@ -118,7 +146,7 @@ def features(*, rebuild: bool = False) -> pd.DataFrame:
     """
     if "feat" in _CACHE and not rebuild:
         return _CACHE["feat"]
-    df = pd.read_csv(SURFACE_PATH, parse_dates=["date", "expiration"])
+    df = pd.read_csv(surface_path(), parse_dates=["date", "expiration"])
     df = df[np.isfinite(df["iv"]) & (df["iv"] > 0)]
     rows = []
     for d, g in df.groupby("date"):
@@ -229,6 +257,32 @@ SIGNALS = {
         "field": "vrp", "sign": +1,
         "economics": "implied minus trailing realised volatility is the premium itself, measured "
                      "directly; a wide premium predicts HIGHER subsequent returns"},
+}
+
+#: A construct the MONEYNESS-ANCHORED surface makes expressible for the first
+#: time and which is DELIBERATELY NOT RUN.
+#:
+#: ``features`` already computes ``term_slope``, and the fixed R45 band could
+#: never have supported it - that band gave an ATM volatility on 25 of 264 dates
+#: and a skew on ZERO. The new surface keeps about three expiries live on every
+#: date, so the slope is finally measurable.
+#:
+#: It is still not run, because this family's research budget is SIX primary
+#: specifications and three signals at two horizons already spend all six.
+#: Adding a fourth signal would take the family to eight, and the budget is
+#: frozen exactly so that "we found something new we could test" cannot quietly
+#: become "so we tested more things". Promoting the term structure to a family
+#: of its own to win six fresh slots would be the same breach wearing a
+#: different label. It is recorded here as available and unspent.
+TERM_SLOPE_NOT_RUN = {
+    "field": "term_slope",
+    "newly_expressible_because": "the moneyness-anchored surface keeps ~3 expiries live per date; "
+                                 "the R45 fixed band supported a skew on 0 of 264 dates",
+    "declared_sign_if_it_were_run": -1,
+    "economics": "far-dated minus near-dated ATM implied volatility inverts when near-term fear "
+                 "spikes, and the stressed state has historically been paid",
+    "why_not_run": "the family's frozen budget is 6 primaries and 3 signals x 2 horizons already "
+                   "spends all of them; the budget is not raised to admit a new idea",
 }
 
 
@@ -508,7 +562,9 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
             "replaces the index proxy with per-contract implied volatilities. The row floor was "
             "never moved."),
         "usability": usability(),
-        "surface": {"path": str(SURFACE_PATH), "dates": int(len(f)),
+        "surface": {"path": str(surface_path()),
+                    "is_moneyness_anchored": surface_path() != R45_SURFACE_PATH,
+                    "dates": int(len(f)),
                     "first": str(f["date"].min())[:10], "last": str(f["date"].max())[:10],
                     "median_contracts_per_date": int(f["n_contracts"].median()),
                     "median_expiries_per_date": int(f["n_expiries"].median()),

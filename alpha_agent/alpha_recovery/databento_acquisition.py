@@ -596,16 +596,18 @@ def _available_end(rng: dict, schema: str = SCHEMA) -> str | None:
     return d.isoformat()
 
 
-def _signature(symbol: str, start: str, end: str, schema: str = SCHEMA) -> str:
+def _signature(symbol: str, start: str, end: str, schema: str = SCHEMA,
+               dataset: str = DATASET) -> str:
     """The byte-identical identity of a priced request.
 
-    ``schema`` is part of it because the SAME contract window costs a different
-    amount in every schema - ES over one quarter is $0.25 in ``bbo-1m`` and
-    $1.19 per SESSION in ``mbp-1``. A signature that omitted the schema would
-    let a cheap ohlcv quote authorise an expensive order-book download, which is
-    exactly the mistake the spending contract exists to make impossible.
+    ``schema`` and ``dataset`` are both part of it because the SAME symbol and
+    window costs a different amount in each - ES over one quarter is $0.25 in
+    ``bbo-1m`` and $1.19 per SESSION in ``mbp-1``, and an OPRA request is priced
+    on a different venue entirely. A signature that omitted either would let a
+    cheap quote authorise an expensive download, which is exactly the mistake
+    the spending contract exists to make impossible.
     """
-    return "%s|%s|%s|%s|%s" % (DATASET, schema, symbol, start, end)
+    return "%s|%s|%s|%s|%s" % (dataset, schema, symbol, start, end)
 
 
 # --------------------------------------------------------------- the download
@@ -614,7 +616,8 @@ def acquisition_root() -> Path:
 
 
 def download(client: Client, plan_body: dict, out_root: Path | None = None,
-             dry_run: bool = True, schema: str | None = None) -> dict:
+             dry_run: bool = True, schema: str | None = None,
+             dataset: str | None = None) -> dict:
     """Execute ONLY the requests that the plan priced and the optimiser chose.
 
     The spending contract is enforced here, not documented here: a request
@@ -626,6 +629,7 @@ def download(client: Client, plan_body: dict, out_root: Path | None = None,
     so a plan priced in one schema can never be downloaded in another.
     """
     schema = schema or plan_body.get("schema") or SCHEMA
+    dataset = dataset or plan_body.get("dataset") or DATASET
     allowed = {r["signature"] for r in plan_body.get("requests", [])}
     if not allowed:
         return {"state": "NOTHING_TO_DOWNLOAD", "written": [], "spent_estimate_usd": 0.0}
@@ -640,15 +644,20 @@ def download(client: Client, plan_body: dict, out_root: Path | None = None,
     out_root.mkdir(parents=True, exist_ok=True)
     written, failed, spent = [], [], 0.0
     for req in plan_body["requests"]:
-        sig = _signature(req["symbol"], req["start"], req["end"], schema)
+        sig = _signature(req["symbol"], req["start"], req["end"], schema, dataset)
         if sig not in allowed:                               # pragma: no cover - defensive
             raise DatabentoError("refusing an unpriced request: %s" % sig)
-        target = out_root / ("%s_%s_%s_%s.csv" % (req["symbol"], schema, req["start"], req["end"]))
+        # a request may carry MANY symbols (an option band is one expiry's whole
+        # strike ladder), so the file is named by the request's own label
+        label = req.get("label") or req["symbol"]
+        symbols = req.get("symbols") or [req["symbol"]]
+        target = out_root / ("%s_%s_%s_%s.csv" % (label, schema, req["start"], req["end"]))
         if target.exists() and target.stat().st_size > 0:
-            written.append({"symbol": req["symbol"], "path": str(target), "reused": True})
+            written.append({"symbol": label, "path": str(target), "reused": True})
             continue
         try:
-            raw = client.get_range_csv([req["symbol"]], req["start"], req["end"], schema=schema)
+            raw = client.get_range_csv(symbols, req["start"], req["end"],
+                                       dataset=dataset, schema=schema)
         except DatabentoError as exc:
             failed.append({"symbol": req["symbol"], "error": str(exc)})
             continue
@@ -656,11 +665,12 @@ def download(client: Client, plan_body: dict, out_root: Path | None = None,
         tmp.write_bytes(raw)
         tmp.replace(target)
         spent += float(req["cost_usd"])
-        written.append({"symbol": req["symbol"], "path": str(target),
+        written.append({"symbol": label, "path": str(target),
                         "bytes": len(raw), "reused": False,
                         "cost_usd": round(float(req["cost_usd"]), 6)})
         time.sleep(0.05)
-    return {"state": "DOWNLOADED", "written": written, "failed": failed, "schema": schema,
+    return {"state": "DOWNLOADED", "written": written, "failed": failed,
+            "schema": schema, "dataset": dataset,
             "spent_estimate_usd": round(spent, 4), "out_root": str(out_root),
             "paid_dollars": 0.0}
 
