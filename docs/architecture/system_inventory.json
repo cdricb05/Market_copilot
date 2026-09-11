@@ -752,6 +752,17 @@
    "status": "OWNED_ALPHA_RECOVERY",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "48 pre-registered primaries, 6 per family across 8 families, at horizons 1/5/15/30/60 minutes. Everything downstream of the weights is REUSED unchanged - intraday_alpha._stats/.gates/.verdict/.equal_risk_daily, sensitivity.bh_fdr/.nw_tstat, family.holm - and test_microstructure_owns_no_second_scorer forbids a second copy. The one genuinely new thing is many entries per trade date, and its two dangers are fixed in advance: entries at horizon H do NOT overlap, so the sample cannot be inflated; and the day's return is the SUM over its entries, not the mean, so an arm at H=1 pays 389 round trips a day instead of one. A signal read at minute m is entered at the mid of m+1, so a full minute separates observation from execution. Both the gross (zero-cost) and net edge are mandatory, because no gross edge is an INFORMATION verdict that no cost assumption can rescue, while a gross edge that dies net is an EXECUTION verdict about this estate's costs."
+  },
+  {
+   "concept": "moneyness_anchored_option_surface",
+   "authoritative_owner": "alpha_agent/alpha_recovery/options_acquisition.py (the ONE owner of the moneyness-anchored SPY option acquisition: the band that tracks the underlying, the OPRA symbology, the put-call-parity forward and the implied-volatility surface it normalises to)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/options_acquisition.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'options', which builds the surface before scoring it)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Resolves the NAMED binding failure that held axis A closed since R63. The owned R45 surface is a FIXED strike band of 654-720; the underlying rallied through it, so only 25 of 264 dates carried a near-dated expiry whose strikes bracket the money against a frozen floor of 36, and a skew was supportable on ZERO. The earlier DO_NOT_BUY priced the WHOLE unfiltered SPY chain at $518 for two years - an instrument this axis never needed - while the +/-10 % moneyness band the requirement actually describes costs $4.60 in cbbo-1m quotes. The forward and discount come from put-call parity rather than an external rate curve, so there is no second data vintage to drift, which is how both earlier implied-volatility attempts failed; call and put implied volatilities at the same strike agree to a median of 0.0041 near the money. Moneyness is anchored on that forward because the option snapshot is 15:45 ET and the equity close is 16:00. Three things only real bytes could teach are pinned by regressions: OPRA reassigns instrument_id EVERY DAY and the CSV carries no symbol column; the OSI spelling is the padded 21-character form; and two monthly expiries fall on market holidays and move to the Thursday. Research only, free credits only, zero paid dollars."
   }
  ],
  "route_ownership": [
