@@ -241,6 +241,30 @@ def session_path(sp: dict, *, cost_bps: float) -> dict:
             "dates": pn["dates"]}
 
 
+def structural_edge_bound_bps(legs: list) -> float:
+    """The LARGEST top-of-book edge that can exist, in basis points, before any
+    data is examined.
+
+    The microprice deviation from the mid is exactly ``(spread/2) * imbalance``,
+    so at a one-tick-wide book and a perfectly one-sided queue it is half a
+    tick. That is an arithmetic ceiling on everything the depth, microprice and
+    order-count families can be worth per trade - not an estimate from the
+    sample, and not something a faster feed can raise. Measured against one
+    round trip at the PRIMARY ladder it comes to 0.33-0.43 in all seven
+    contracts, because the tick drives both numbers.
+
+    The consequence is the one that matters for the next spend decision: if the
+    whole effect is a third of the cost of acting on it, buying mbp-1 or bbo-1s
+    would measure it more precisely without making it harvestable.
+    """
+    worst = 0.0
+    for s in legs:
+        tick, _mult = FI.SPECS[s]
+        px = FI.representative_price(s)
+        worst = max(worst, 10000.0 * 0.5 * tick / px)
+    return worst
+
+
 def latency_control(sp: dict) -> dict:
     """THE decisive diagnostic for this axis: how fast does the signal decay?
 
@@ -294,6 +318,17 @@ def latency_control(sp: dict) -> dict:
                                "bp_per_day": float(np.nanmean(tot) * 1e4)}
     t0 = abs(out["lag_0"]["t_gross"] or 0.0)
     t1 = abs(out["lag_1"]["t_gross"] or 0.0)
+
+    # STATISTICAL significance is not the whole question, and on this axis it is
+    # the less important half. An effect can be highly significant and still be
+    # smaller than the spread you must cross to act on it, in which case no
+    # amount of extra data resolution makes it harvestable.
+    n_entries = max(1, len(entry_columns(h)))
+    bp_entry_0 = abs(out["lag_0"]["bp_per_day"]) / n_entries
+    rt = 2.0 * FI.cost_ladder_bps(sp["legs"])["PRIMARY"]
+    bound = structural_edge_bound_bps(sp["legs"])
+    tradable = bp_entry_0 > rt
+
     out.update({
         "is_a_control_not_a_candidate": True,
         "why_lag_0_is_not_tradable": "it fills at the very mid whose book produced the signal, "
@@ -302,12 +337,27 @@ def latency_control(sp: dict) -> dict:
                                          "could select for capital",
         "abs_t_lost_to_one_minute_of_latency": round(t0 - t1, 4),
         "share_of_signal_surviving_one_minute": (round(t1 / t0, 4) if t0 > 1e-9 else None),
+        "bp_per_entry_at_zero_latency": round(bp_entry_0, 5),
+        "round_trip_cost_bp": round(rt, 5),
+        "zero_latency_edge_exceeds_one_round_trip": bool(tradable),
+        "structural_edge_ceiling_bp": round(bound, 5),
+        "structural_ceiling_over_round_trip": round(bound / rt, 4) if rt else None,
+        "structural_ceiling_exceeds_round_trip": bool(bound > rt),
         "reading": ("no information at minute sampling even with a zero-latency fill"
                     if t0 < 2.0 else
                     "the information is REAL but decays inside the minute: it survives a "
                     "zero-latency fill and not a one-minute one" if t1 < 2.0 else
                     "the signal survives a full minute of latency"),
-        "justifies_finer_data_purchase": bool(t0 >= 2.0 and t1 < 2.0),
+        # The purchase recommendation needs BOTH halves. Significance alone
+        # would recommend buying a faster feed to measure an effect that is
+        # structurally smaller than the cost of trading it.
+        "justifies_finer_data_purchase": bool(t0 >= 2.0 and t1 < 2.0 and tradable),
+        "why_significance_alone_is_not_enough": (
+            "the microprice deviation from the mid is exactly (spread/2)*imbalance, so at a "
+            "one-tick book the entire top-of-book effect is bounded by half a tick - 0.33 to "
+            "0.43 of one round trip in all seven contracts, because the tick sets both. An "
+            "effect a third the size of the cost of acting on it is not made harvestable by "
+            "sampling it faster, only measured more precisely."),
     })
     return out
 
@@ -740,6 +790,18 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
             "arms_reaching_t2_at_one_minute_latency": int(sum(1 for v in t1 if v >= 2.0)),
             "arms_that_would_justify_finer_data": justify,
             "finer_data_purchase_justified": bool(justify),
+            "arms_whose_zero_latency_edge_beats_one_round_trip": int(sum(
+                1 for x in lc if x.get("zero_latency_edge_exceeds_one_round_trip"))),
+            "structural_ceiling_over_round_trip": sorted({
+                x.get("structural_ceiling_over_round_trip") for x in lc
+                if x.get("structural_ceiling_over_round_trip") is not None}),
+            "why_a_significant_effect_can_still_be_unbuyable": (
+                "the microprice deviation from the mid is exactly (spread/2)*imbalance, so at a "
+                "one-tick book the ENTIRE top-of-book effect is half a tick - between 0.33 and "
+                "0.43 of one round trip in every contract bought, because the tick sets both "
+                "numbers. That ceiling is arithmetic, not a property of this sample, and no "
+                "faster feed raises it. A purchase is therefore justified only if the measured "
+                "zero-latency edge per trade already exceeds a round trip."),
             "what_a_null_at_zero_latency_means": (
                 "the book state sampled once a minute carries no directional information even "
                 "when filled at the very mid that produced it. Buying mbp-1 or bbo-1s would then "

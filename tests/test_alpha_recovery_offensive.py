@@ -1950,9 +1950,33 @@ def test_microstructure_latency_control_is_a_control_and_never_a_candidate(ms_pa
     real = MA.session_path(sp, cost_bps=0.0)
     assert lc["lag_1"]["t_gross"] == pytest.approx(
         S.nw_tstat(real["gross"][np.isfinite(real["gross"])], 0)["t"], rel=1e-6)
-    # the purchase recommendation only fires when there IS information to buy
+    # the purchase recommendation needs BOTH halves: a signal that decays, AND
+    # an effect big enough to be worth acting on. Significance alone would
+    # recommend buying a faster feed to measure something smaller than the
+    # spread you must cross to harvest it.
     assert lc["justifies_finer_data_purchase"] == bool(
-        abs(lc["lag_0"]["t_gross"]) >= 2.0 > abs(lc["lag_1"]["t_gross"]))
+        abs(lc["lag_0"]["t_gross"]) >= 2.0 > abs(lc["lag_1"]["t_gross"])
+        and lc["zero_latency_edge_exceeds_one_round_trip"])
+
+
+def test_microstructure_top_of_book_edge_is_capped_below_a_round_trip_by_arithmetic():
+    """The structural result that decides the next spend, and it needs no data:
+    microprice - mid == (spread/2)*imbalance, so at a one-tick book the ENTIRE
+    top-of-book effect is half a tick. The tick sets the cost too, so the ratio
+    is a constant of the contract rather than a property of the sample - and in
+    every contract bought it is well below 1."""
+    for r in MS.ROOTS:
+        px = FI.representative_price(r)
+        ceiling = MA.structural_edge_bound_bps([r])
+        rt = FI.round_trip_bps(r, px, "PRIMARY")
+        assert ceiling == pytest.approx(10000.0 * 0.5 * FI.SPECS[r][0] / px)
+        assert ceiling < rt, (
+            "%s: the top-of-book ceiling %.4f bp exceeds a round trip %.4f bp, which would "
+            "change the purchase conclusion" % (r, ceiling, rt))
+        assert 0.2 < ceiling / rt < 0.6, r
+    # the most expensive leg governs a multi-leg arm, as everywhere else
+    assert MA.structural_edge_bound_bps(["NQ", "ZN"]) == pytest.approx(
+        max(MA.structural_edge_bound_bps(["NQ"]), MA.structural_edge_bound_bps(["ZN"])))
 
 
 def test_microstructure_latency_control_stays_out_of_the_denominator():
