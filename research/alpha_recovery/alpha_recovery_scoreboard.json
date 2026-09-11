@@ -21,7 +21,7 @@
   },
   "turnover_delta": null
  },
- "artifact_hash": "0f713d7d90ac2522950d4e08ea8e34795099baad487a321803e5c6dc9adb97f1",
+ "artifact_hash": "2b9a3792177f188d47edff43c4c449572f7091ce8b82c533bda16372d6399d59",
  "best_challenger": {
   "augmented_ann_net": 0.02280282606212199,
   "augmented_max_dd": -0.5387593219905586,
@@ -2615,9 +2615,9 @@
      "NO_ADVANTAGE": 4,
      "WORSE_THAN_INCUMBENT": 2
     },
-    "dates": 379,
-    "dates_bracketing_the_money": 364,
-    "dates_supporting_a_skew": 359,
+    "dates": 488,
+    "dates_bracketing_the_money": 471,
+    "dates_supporting_a_skew": 464,
     "exact_missing_requirement": "a daily SPY option chain anchored on MONEYNESS rather than on fixed strikes - at minimum a +/-10 % moneyness band with two expiries beyond 18 days - over >= 2 years (~500 dates). The owned surface is 6 fixed expiries x 40 fixed strikes.",
     "floor": 36,
     "n_specifications": 6,
@@ -2627,22 +2627,23 @@
      "arms": [
       {
        "adopted": false,
-       "as_declared_ann_net": -0.3554032923895973,
-       "as_declared_t": -2.404374921428856,
+       "as_declared_ann_net": -0.3452304194816721,
+       "as_declared_t": -3.0900637395769017,
        "cell_id": "OPTIONS|SPY|PUT_CALL_SKEW|h1",
-       "flipped_ann_net": 0.2546032923895973,
+       "flipped_ann_net": 0.2444304194816722,
        "flipped_would_pass_every_gate": true
       },
       {
        "adopted": false,
-       "as_declared_ann_net": -0.40002744901791204,
-       "as_declared_t": -3.266181362065323,
+       "as_declared_ann_net": -0.3000631601922199,
+       "as_declared_t": -3.171476605323772,
        "cell_id": "OPTIONS|SPY|PUT_CALL_SKEW|h5",
-       "flipped_ann_net": 0.379867449017912,
-       "flipped_would_pass_every_gate": true
+       "flipped_ann_net": 0.27990316019222006,
+       "flipped_would_pass_every_gate": false
       }
      ],
      "n": 2,
+     "what_was_done_about_it": "the contradicted direction was FROZEN as a new hypothesis and submitted to the only two kinds of evidence that did not choose it - an untouched historical window that precedes the discovery sample, and TRUE_FORWARD on sessions that had not happened. See REVERSED_SPY_PUT_CALL_SKEW_H5 below.",
      "why": "a sign chosen after seeing the result is post-hoc selection; the only honest test of the opposite direction is PROSPECTIVE and human-gated"
     },
     "state": "USABLE",
@@ -2652,6 +2653,109 @@
    "OWNERSHIP_INSTITUTIONAL_FLOW": {
     "state": "NOT_OWNED",
     "why": "external_normalized/short_interest is EMPTY and the FINRA raw store is a 93-byte probe; 13F holdings are not on disk (only an EDGAR submissions cache), so the need remains blocked by an unbuilt CUSIP-to-ticker bridge AND by absent data"
+   },
+   "REVERSED_SPY_PUT_CALL_SKEW_H5": {
+    "capital_eligible_now": false,
+    "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
+    "discovery_sample": {
+     "is_qualification_evidence": false,
+     "status": "DISCOVERY_ONLY_NEVER_QUALIFICATION_EVIDENCE",
+     "window": [
+      "2024-09-10",
+      "2026-08-20"
+     ]
+    },
+    "does_not_advance_the_campaign_status": "a forward registration starts a MEASUREMENT; only a challenger that cleared the frozen historical gates may advance the campaign status. A challenger registered to test a post-hoc hypothesis has passed nothing, and the status must not be reachable by registering a guess.",
+    "frozen": {
+     "feature": "PUT_CALL_SKEW",
+     "freeze_record_hash": "666c8a0bc503ee3d15d9ba07dfdf5ffeb1298fa2e2f83ba15bca4ae63d277e50",
+     "horizon_sessions": 5,
+     "not_optimised": {
+      "alternate_horizons": 0,
+      "alternate_lookbacks": 0,
+      "alternate_signs": 0,
+      "alternate_thresholds": 0,
+      "note": "one specification enters and one result comes out; this module contains no grid, and a confirmation that can be re-run with a different parameter is not a confirmation",
+      "parameter_search": false,
+      "rescue_arms": 0
+     },
+     "reversed_relative_to": {
+      "original_economics": "a steep put-over-call skew is hedging demand / crash fear; elevated fear has historically been paid, so the sign is POSITIVE",
+      "original_sign": 1,
+      "signal": "PUT_CALL_SKEW"
+     },
+     "sign": -1
+    },
+    "holdings_changed": false,
+    "independent_historical_confirmation": {
+     "acquisition_cost_usd": 3.3784,
+     "ann_gross": 0.27006625425445746,
+     "ann_net": 0.2599862542544575,
+     "ann_net_at_stress_cost": 0.2196662542544574,
+     "classification": "CONFIRMED",
+     "disjoint_from_discovery": "DISJOINT",
+     "exposure_check": {
+      "buy_and_hold_ann_on_the_same_dates": 0.20032048007513253,
+      "correlation_with_spy": 0.08735878123399922,
+      "long_legs": {
+       "ann": 0.5048052758659014,
+       "mean_return": 0.010015977695752012,
+       "n": 41,
+       "spy_mean_on_those_dates": 0.010015977695752012
+      },
+      "mean_position": -0.06818181818181818,
+      "periods": 88,
+      "rule_ann_gross": 0.27006625425445746,
+      "rule_minus_buy_and_hold_ann": 0.06974577417932493,
+      "share_long": 0.4659090909090909,
+      "share_short": 0.5340909090909091,
+      "short_legs": {
+       "ann": 0.06529391625298506,
+       "mean_return": 0.001295514211368751,
+       "n": 47,
+       "spy_mean_on_those_dates": -0.001295514211368751
+      },
+      "state": "OK",
+      "verdict": "NOT_A_DISGUISED_LONG"
+     },
+     "failed_gates": [],
+     "incremental_ann_net_return": 0.3432248072409817,
+     "independent_periods": 88,
+     "is_true_forward": false,
+     "max_dd": -0.13358282329766746,
+     "multiplicity_denominator": 1,
+     "paid_dollars": 0.0,
+     "shared_dates_with_discovery": 0,
+     "sharpe": 1.975080225560116,
+     "t_gross": 2.7265436351216024,
+     "t_incremental": 5.452899975408874,
+     "t_net": 2.624777644706041,
+     "what_a_pass_does_not_establish": [
+      "this is HISTORICAL evidence on data that already existed; only TRUE_FORWARD can test the rule on sessions that did not exist when it was frozen",
+      "the multiplicity denominator of 1 covers the SIGN, which was frozen before this window was touched. It does not cover the human choice of which feature, which horizon menu and which surface construction to build in the first place",
+      "88 independent periods is under two years of non-overlapping observations",
+      "an effect of this size in SPY options - among the most heavily traded and most heavily published markets that exist - is a priori more likely to be an artefact than an edge that survived everyone else looking for it, so the prior against it should stay strong until forward evidence accrues",
+      "entry is the 16:00 close on the signal session, fifteen minutes after the 15:45 snapshot; no latency variant was run here, because a second arm would break the freeze"
+     ],
+     "window": [
+      "2022-09-09",
+      "2024-09-09"
+     ]
+    },
+    "promotion_performed": false,
+    "state": "HISTORICALLY_CONFIRMED_AWAITING_TRUE_FORWARD",
+    "true_forward": {
+     "backfilled": false,
+     "evidence_status": "REGISTERED_AWAITING_FIRST_ELIGIBLE_SESSION",
+     "first_eligible_observation_session": "2026-09-14",
+     "matured_observations": 0,
+     "next_legitimate_maturity_session": "2026-09-21",
+     "registration_owner": "scripts/register_reversed_skew_challenger.py",
+     "state": "REGISTERED"
+    },
+    "what_it_is": "the direction a pre-registered sign was contradicted in, frozen as a hypothesis rather than adopted as a result",
+    "why": "a pre-registered sign was contradicted; the contradicted direction is frozen as a hypothesis and judged ONLY by evidence that did not choose it - an untouched window that precedes the discovery sample, and TRUE_FORWARD. Neither is a promotion and neither makes it capital-eligible.",
+    "why_not_capital_eligible": "forward evidence has not matured, and adoption is human-gated in every case; registration starts a measurement and nothing else"
    }
   },
   "n_non_incumbent_candidates_measured": 52,
@@ -2682,6 +2786,12 @@
    "registered_at": "2026-09-09T13:57:39.092357+00:00"
   },
   {
+   "asset_class": "US_ETF",
+   "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
+   "file": "4e2d1027f9aa2a664f70befcc0c0f27eadf72ba648a8ccebf75e2c6ec3198ff1.json",
+   "registered_at": "2026-09-11T16:38:15.342847+00:00"
+  },
+  {
    "asset_class": "US_EQUITY",
    "challenger_id": "R58_FUND_MOMENTUM_VETO_V1",
    "file": "7919b94eb8d95f865e40d04b49f59a57f76effb158b40e61c4ea89a65899319e.json",
@@ -2694,7 +2804,7 @@
    "registered_at": "2026-09-09T13:57:39.040782+00:00"
   }
  ],
- "generated_at": "2026-09-11T15:52:35+00:00",
+ "generated_at": "2026-09-11T17:18:30+00:00",
  "incumbent": {
   "directional_calibration": "NOT_APPLICABLE (a cross-sectional rank model emits no direction)",
   "expected_return_calibration": {
@@ -2748,7 +2858,7 @@
   "architecture work"
  ],
  "phase": "ALPHA_RECOVERY",
- "protocol_sha256": "81ab5e14aa4c9276678fbf5e71f0aa5d1dece39251c8f32e7fa13b870ce64598",
+ "protocol_sha256": "5846e24d9a3235411792d831ea01e3973835fc7cef571304e676179e46c451f6",
  "safety": {
   "activates_sleeve": false,
   "approves_proposal": false,

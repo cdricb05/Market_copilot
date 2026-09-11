@@ -15997,8 +15997,62 @@ def check_alpha_recovery_operating_contract(files: list[Path]) -> dict:
     research_root_on_data_drive = 'DEFAULT_RESEARCH_ROOT = Path(r"D:\\Stock_Prediction_app_data' in init
     artifacts_deterministic = bool("sort_keys=True" in init
                                    and 'if k not in ("artifact_hash", "generated_at")' in init)
+
+    # (e) EVERY DOOR INTO A FORWARD CLOCK IS ENUMERATED AND DELEGATES.
+    #
+    # R62.1.1 pins that exactly ONE entrypoint carries the
+    # ADOPT_PROSPECTIVE_FORWARD_CLOCKS token. That check keys on that token, so
+    # a script that starts a forward clock through the same governed owner with
+    # a DIFFERENT confirmation token passes it without being seen - and the
+    # invariant that matters is not "one token" but "no second implementation
+    # of the rules". A campaign freeze is not in ResearchMemory and cannot be
+    # reached by that entrypoint, so a second door legitimately exists; it may
+    # not be a second RULE-HOLDER. Every script that can reach the adoption
+    # owner is enumerated here, so a NEW door is a build failure until someone
+    # declares it, and each one must:
+    #   * call the ONE owner exactly once, and
+    #   * define no lifecycle, no observation clock, no identity and no
+    #     registration of its own, and
+    #   * pass a confirmation token explicitly, and
+    #   * expose no argument through which a historical boundary could be named.
+    #
+    # ONE-SHOT OPERATOR COMMANDS carry a further duty that a DAEMON does not.
+    # An operator command adopts a freeze that ALREADY EXISTS, so a human must
+    # type both a confirmation token and an execute flag. The research runtime
+    # is a daemon: under R61 a qualified freeze and the start of its forward
+    # evidence are ONE operation, so it adopts the freeze it just created and
+    # the operator consented by starting the worker. Demanding an --execute flag
+    # of a long-running worker would not make anything safer; it would only mean
+    # the check had never looked at what the script was.
+    forward_clock_entrypoints, forward_clock_defects = [], []
+    for fp in sorted(files):
+        rel = _rel(fp)
+        if not rel.startswith("scripts/") or rel == "scripts/audit_architecture.py":
+            continue
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        if "adopt_prospective_freeze(" not in src:
+            continue
+        forward_clock_entrypoints.append(rel)
+        if src.count("adopt_prospective_freeze(") != 1:
+            forward_clock_defects.append("%s:calls_the_owner_more_than_once" % rel)
+        for t in ("def classify_lifecycle(", "def resolve_observation_clock(",
+                  "def register_forward_challenger(", "def build_adoption_identity(",
+                  "_atomic_write_json", "open_memory()"):
+            if t in src:
+                forward_clock_defects.append("%s:%s" % (rel, t))
+        if "confirm=" not in src:
+            forward_clock_defects.append("%s:no_confirmation_token_supplied" % rel)
+        is_daemon = "run_forever(" in src
+        if not is_daemon and not ("--execute" in src and "--confirm" in src):
+            forward_clock_defects.append("%s:missing_confirm_or_execute" % rel)
+        for a in R6211_BACKDATE_ARGUMENTS:
+            if ('"%s"' % a) in src or ("'%s'" % a) in src:
+                forward_clock_defects.append("%s:%s" % (rel, a))
+
     return {
         "missing_modules": missing_modules,
+        "forward_clock_entrypoints": sorted(forward_clock_entrypoints),
+        "forward_clock_entrypoint_defects": sorted(set(forward_clock_defects)),
         "contract_present": contract_present,
         "contract_rules_missing": contract_rules_missing,
         "claude_md_references_contract": claude_references_contract,
@@ -21167,6 +21221,16 @@ BLOCKING_INVARIANTS = (
     ("alpha_recovery_operating_contract", "artifacts_deterministic", True),
     ("alpha_recovery_operating_contract", "runner_has_no_execute_path", True),
     ("alpha_recovery_operating_contract", "tests_hermetic", True),
+    # Every door into a forward clock is enumerated, and none of them holds a
+    # rule. R62.1.1 pins the one entrypoint carrying ITS token; this pins that
+    # any OTHER script able to reach the adoption owner still delegates
+    # completely - no second lifecycle, clock, identity or registration, and no
+    # argument through which a historical boundary could be named.
+    ("alpha_recovery_operating_contract", "forward_clock_entrypoint_defects", []),
+    ("alpha_recovery_operating_contract", "forward_clock_entrypoints",
+     ["scripts/adopt_prospective_freeze.py",
+      "scripts/register_reversed_skew_challenger.py",
+      "scripts/run_research_runtime.py"]),
 )
 
 

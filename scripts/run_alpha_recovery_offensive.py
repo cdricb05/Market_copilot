@@ -62,9 +62,9 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "equity", "residual", "intraday", "options", "databento", "futures", "futures_alpha",
-          "microstructure", "compete", "products", "package", "purchase", "scoreboard",
-          "report", "all")
+          "equity", "residual", "intraday", "options", "reversed_skew", "databento", "futures",
+          "futures_alpha", "microstructure", "compete", "products", "package", "purchase",
+          "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
 STAGES_EXCLUDED_FROM_ALL = ("databento",)
@@ -202,6 +202,44 @@ def _stage_options() -> dict:
             "surface_is_moneyness_anchored": body["surface"].get("is_moneyness_anchored"),
             "surface_dates": (built or {}).get("dates"),
             "dates_bracketing_the_money": body["usability"]["dates_whose_strikes_bracket_the_money"]}
+
+
+def _stage_reversed_skew() -> dict:
+    """The ONE frozen challenger born from a contradicted pre-registered sign.
+
+    Runs the independent historical confirmation on a window that PRECEDES the
+    discovery sample and reports what the canonical forward registrar holds.
+    This stage registers nothing: registration is an operator act and lives in
+    ``scripts/register_reversed_skew_challenger.py``, because a research stage
+    that could start its own forward clock is one loop away from one that
+    promotes itself.
+    """
+    from alpha_agent.alpha_recovery import options_acquisition as OA
+    from alpha_agent.alpha_recovery import options_surface as OS
+    from alpha_agent.alpha_recovery import reversed_skew as RS
+    built = None
+    # ALWAYS rebuild when bands are present, never "only if the file is absent".
+    # A partially downloaded window writes a perfectly well-formed surface that
+    # covers a fraction of the dates, and a build guarded on existence would
+    # then keep serving it forever - the confirmation would silently be run on
+    # whatever had finished downloading first.
+    if any(OA.data_root(OA.CONFIRMATION_TAG).glob("SPY_*_%s_*.csv" % OA.SCHEMA)):
+        built = OA.build_surface(window=RS.CONFIRMATION_WINDOW, tag=OA.CONFIRMATION_TAG,
+                                 spot_tag=OA.CONFIRMATION_TAG,
+                                 spot_dataset=OA.SPOT_DATASET_PRE_2024,
+                                 spot_schema=OA.SPOT_SCHEMA_INTRADAY)
+        OS._CACHE.clear()
+    body = RS.build()
+    conf = body["independent_historical_confirmation"]
+    fwd = body["true_forward"]
+    return {"challenger_id": body["challenger_id"],
+            "historical_confirmation": conf.get("classification"),
+            "independent_periods": conf.get("independent_periods"),
+            "confirmation_surface_dates": (built or {}).get("dates"),
+            "confirmation_surface_expiries": (built or {}).get("expiries"),
+            "true_forward": fwd.get("state"),
+            "evidence_status": fwd.get("evidence_status"),
+            "capital_eligible_now": body["capital_eligible_now"]}
 
 
 def _stage_databento() -> dict:
@@ -364,7 +402,8 @@ def _stage_report() -> dict:
 STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbent": _stage_incumbent,
             "tournament": _stage_tournament, "news": _stage_news, "cadence": _stage_cadence,
             "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
-            "intraday": _stage_intraday, "options": _stage_options, "databento": _stage_databento,
+            "intraday": _stage_intraday, "options": _stage_options,
+            "reversed_skew": _stage_reversed_skew, "databento": _stage_databento,
             "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
             "microstructure": _stage_microstructure,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,

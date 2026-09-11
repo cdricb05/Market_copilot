@@ -69,19 +69,32 @@ R45_SURFACE_PATH = ID.OPTION_SURFACE
 
 
 def surface_path():
-    """The surface to run on: the MONEYNESS-ANCHORED one when it exists.
+    """The surface to run on: the best one that exists, in a fixed order.
 
     The axis's recorded blocker was never "not enough dates" - it was that an
     ATM implied-volatility series cannot be built from a strike band the spot
     has left. A band that tracks the underlying removes exactly that defect, so
     running on it is the NAMED binding failure being resolved rather than a
     closed axis being reopened on a new parameter. The R45 surface remains the
-    fallback so this module still works wherever the new one has not been
-    acquired.
+    last fallback so this module still works wherever nothing was acquired.
+
+    The CORRECTED build wins when it exists. The first moneyness-anchored
+    surface dated its underlying close one session early and therefore dropped
+    every Friday - 379 dates where 488 were available - because a daily bar is
+    stamped midnight UTC of its own session and was being converted to New York
+    (see ``options_acquisition.session_closes``). That is a data defect, not a
+    parameter: it is decided by the fact that the New-York date carries weekend
+    rows and the UTC date carries none, and no result was consulted in finding
+    it. Preferring the corrected file is how the axis stops reporting numbers
+    computed on mis-dated closes; the original is left on disk because it is
+    what the first reported result was computed on.
     """
+    from .options_acquisition import SPOT_CORRECTED_TAG
     from .options_acquisition import surface_path as anchored
-    p = anchored()
-    return p if p.exists() else R45_SURFACE_PATH
+    for p in (anchored(SPOT_CORRECTED_TAG), anchored()):
+        if p.exists():
+            return p
+    return R45_SURFACE_PATH
 
 
 SURFACE_PATH = ID.OPTION_SURFACE          # kept for readers that import the name
@@ -137,16 +150,23 @@ def _atm_iv(g: pd.DataFrame) -> float:
     return float(np.mean(out)) if out else float("nan")
 
 
-def features(*, rebuild: bool = False) -> pd.DataFrame:
+def features(*, rebuild: bool = False, surface=None) -> pd.DataFrame:
     """One row per surface date: ATM IV near and far, term slope, put-call skew,
     trailing realised volatility and the variance risk premium.
 
     Every field is computed from information available ON that date; the
     realised-volatility leg uses STRICTLY PRIOR closes.
+
+    ``surface`` names a DIFFERENT surface file to read. It exists so an
+    independent historical window can be measured by THIS code rather than by a
+    second implementation of it - a confirmation run on a re-typed feature
+    definition would confirm the typing, not the hypothesis. Nothing else about
+    the construction is reachable from here.
     """
-    if "feat" in _CACHE and not rebuild:
-        return _CACHE["feat"]
-    df = pd.read_csv(surface_path(), parse_dates=["date", "expiration"])
+    key = "feat" if surface is None else "feat:%s" % surface
+    if key in _CACHE and not rebuild:
+        return _CACHE[key]
+    df = pd.read_csv(surface or surface_path(), parse_dates=["date", "expiration"])
     df = df[np.isfinite(df["iv"]) & (df["iv"] > 0)]
     rows = []
     for d, g in df.groupby("date"):
@@ -192,14 +212,14 @@ def features(*, rebuild: bool = False) -> pd.DataFrame:
     lr = np.log(f["underlying_close"]).diff()
     f["rv21"] = lr.shift(1).rolling(RV_LOOKBACK, min_periods=RV_LOOKBACK // 2).std() * math.sqrt(PPY)
     f["vrp"] = f["atm_iv_near"] - f["rv21"]
-    _CACHE["feat"] = f
+    _CACHE[key] = f
     return f
 
 
-def usability() -> dict:
+def usability(*, surface=None) -> dict:
     """Can an honest ATM implied-volatility series be built from this surface
     at all? Decided by MEASUREMENT, before any signal is computed."""
-    f = features()
+    f = features(surface=surface)
     n = int(len(f))
     n_near = int(f["has_near_expiry"].sum())
     n_ok = int((f["has_near_expiry"] & f["brackets_the_money"]).sum())
@@ -300,9 +320,9 @@ def default_grid() -> list:
 # --------------------------------------------------------------------------- #
 # Measurement
 # --------------------------------------------------------------------------- #
-def path(sp: dict, *, cost_bps: float) -> dict:
+def path(sp: dict, *, cost_bps: float, surface=None) -> dict:
     """Non-overlapping per-decision NET returns at cadence = horizon."""
-    f = features()
+    f = features(surface=surface)
     z = _z(f[sp["field"]])
     pos = float(sp["sign"]) * np.sign(z)
     px = f["underlying_close"].to_numpy()
@@ -343,16 +363,17 @@ def _stats(net: np.ndarray, *, h: int, label: str, cost_bps: float) -> dict:
             "ann_cost_drag": float(2.0 * cost_bps * 1e-4 * ppy)}
 
 
-def measure_cell(sp: dict) -> dict:
+def measure_cell(sp: dict, *, surface=None) -> dict:
     cell = dict(sp)
     cell["calculation_owner"] = CALCULATION_OWNER
-    cell["evidence_label"] = ("POST_SELECTION: the surface was acquired by R45 and this axis was "
-                              "opened after the intraday axis failed; the signal signs were fixed "
-                              "from theory before any arm ran")
+    cell["evidence_label"] = sp.get("evidence_label") or (
+        "POST_SELECTION: the surface was acquired by R45 and this axis was "
+        "opened after the intraday axis failed; the signal signs were fixed "
+        "from theory before any arm ran")
     h = int(sp["horizon"])
     by_cost = {}
     for c in COST_LADDER_BPS:
-        p = path(sp, cost_bps=c)
+        p = path(sp, cost_bps=c, surface=surface)
         n = len(p["net"])
         cut = int(round(n * SELECTION_FRACTION))
         lay = {"all": _stats(p["net"], h=h, label="ALL", cost_bps=c),
@@ -365,7 +386,7 @@ def measure_cell(sp: dict) -> dict:
                                          if half >= 5 else None)
         by_cost["%.1f" % c] = lay
     cell["by_cost_bps_per_side"] = by_cost
-    p0 = path(sp, cost_bps=0.0)
+    p0 = path(sp, cost_bps=0.0, surface=surface)
     st0 = S.nw_tstat(p0["gross"], 0)
     cell["gross"] = {"ann_gross": float(np.nanmean(p0["gross"]) * PPY / h), "t_gross": st0["t"],
                      "reaches_t2_at_zero_cost": bool((st0["t"] or 0) >= 2.0),
@@ -378,7 +399,7 @@ def measure_cell(sp: dict) -> dict:
         "cost_ladder_bps_per_side": list(COST_LADDER_BPS),
         "selection_fraction": SELECTION_FRACTION,
         "horizons_not_run": HORIZON_NOT_RUN}
-    prim = path(sp, cost_bps=COST_PRIMARY_BPS)
+    prim = path(sp, cost_bps=COST_PRIMARY_BPS, surface=surface)
     cell["capital_applicability"] = _capital(sp, prim)
     cell["gates"] = gates(cell)
     cell["verdict"] = verdict(cell)
@@ -567,14 +588,28 @@ def contradicted_signs(cells: list) -> dict:
         cap = c.get("capital_applicability") or {}
         gross = (c.get("gross") or {}).get("ann_gross")
         cost_drag = abs((a.get("ann_net") or 0.0) - (gross if gross is not None else 0.0))
+        # Flipping the SIGN does not flip the COST. A declared layer is
+        # ``gross - cost``; the mirror of it is ``-gross - cost``, which equals
+        # ``-(declared) - 2*cost`` - so a layer that is merely negated is
+        # overstated by two full cost drags. That is not cosmetic: on the h = 5
+        # arm it moves the worse holdout half from -0.0053 (which FAILS the
+        # -0.005 floor) to +0.0148 (which passes), i.e. it silently upgrades the
+        # gate report on the one number this function exists to state honestly.
+        # Verified against a direct measurement of the reversed rule: the two
+        # agree to 1e-4 once the second drag is subtracted.
+        def mirror(v):
+            return None if v is None else -float(v) - 2.0 * cost_drag
+
         flipped = {
             "ann_net": -(gross or 0.0) - cost_drag,
             "t_net": -float(t),
             "ann_net_at_stress_cost": -(gross or 0.0) - abs((stress.get("ann_net") or 0.0)
                                                             - (gross or 0.0)),
-            "selection_ann_net": -(sel.get("ann_net") or 0.0),
-            "holdout_ann_net": -(hold.get("ann_net") or 0.0),
-            "holdout_halves_ann_net": [-h for h in halves],
+            "selection_ann_net": mirror(sel.get("ann_net")) or 0.0,
+            "holdout_ann_net": mirror(hold.get("ann_net")) or 0.0,
+            "holdout_halves_ann_net": [mirror(h) for h in halves],
+            "cost_is_paid_in_both_directions": True,
+            "ann_cost_drag_per_layer": cost_drag,
             "equal_risk_increment": (None if cap.get("state") != "OK"
                                      else -(cap.get("incremental_ann_net_return") or 0.0)),
             "t_incremental": (None if cap.get("state") != "OK"

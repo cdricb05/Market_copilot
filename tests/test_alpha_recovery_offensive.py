@@ -62,6 +62,7 @@ from alpha_agent.alpha_recovery import options_acquisition as OA
 from alpha_agent.alpha_recovery import options_surface as OS
 from alpha_agent.alpha_recovery import news as NW
 from alpha_agent.alpha_recovery import program as PR
+from alpha_agent.alpha_recovery import reversed_skew as RS
 from alpha_agent.alpha_recovery import scoreboard as SB
 from alpha_agent.alpha_recovery import tournament as T
 from alpha_agent.r59 import information_needs as IN
@@ -2143,14 +2144,21 @@ def test_option_band_tracks_the_underlying_rather_than_standing_still():
 
 
 def test_option_surface_prefers_the_moneyness_anchored_file_when_present(monkeypatch, tmp_path):
-    """The R45 fixed band stays as the fallback, so the module still runs
-    wherever the new surface has not been acquired."""
-    fake = tmp_path / "anchored.csv.gz"
-    monkeypatch.setattr(OA, "surface_path", lambda: fake)
-    assert OS.surface_path() == OS.R45_SURFACE_PATH, "absent file must fall back"
-    fake.write_bytes(b"")
-    fake.write_text("x")
-    assert OS.surface_path() == fake, "the anchored surface must win when it exists"
+    """Fixed precedence: CORRECTED, then anchored, then the R45 fixed band.
+
+    The R45 band stays as the last fallback so the module still runs wherever
+    nothing was acquired, and the corrected build wins wherever it exists -
+    the first anchored surface dated its close one session early and dropped
+    every Friday, so preferring it would report numbers on mis-dated data."""
+    anchored = tmp_path / "anchored.csv.gz"
+    corrected = tmp_path / ("anchored_%s.csv.gz" % OA.SPOT_CORRECTED_TAG)
+    monkeypatch.setattr(OA, "surface_path",
+                        lambda tag=None: corrected if tag else anchored)
+    assert OS.surface_path() == OS.R45_SURFACE_PATH, "absent files must fall back"
+    anchored.write_text("x")
+    assert OS.surface_path() == anchored, "the anchored surface must win over R45"
+    corrected.write_text("x")
+    assert OS.surface_path() == corrected, "the corrected surface must win over both"
 
 
 def test_option_term_slope_is_expressible_and_deliberately_unspent():
@@ -2233,4 +2241,262 @@ def test_option_contradicted_sign_detector_fires_only_on_a_real_contradiction():
     assert OS.contradicted_signs([cell(-1.4, -0.2)])["n"] == 0, "weak negative is not a finding"
     assert OS.contradicted_signs([cell(+3.0, +0.2)])["n"] == 0, "a winner is not a contradiction"
     assert OS.contradicted_signs([cell(-3.0, -0.2)])["n"] == 1
+
+
+def test_contradicted_sign_pays_the_cost_in_both_directions():
+    """Flipping the SIGN does not flip the COST.
+
+    A declared layer is ``gross - cost``. Its mirror is ``-gross - cost``, which
+    is ``-(declared) - 2*cost`` - so a layer that is merely negated is
+    overstated by two full cost drags. This function exists to state honestly
+    what is being declined, so an arithmetic slip here inflates exactly the
+    number nobody else is checking. On the real h = 5 arm it moved the worse
+    holdout half from -0.0053 (FAILS the floor) to +0.0148 (passes)."""
+    gross, drag = -0.29, 0.0101
+    net = gross - drag
+    c = {"cell_id": "X", "sign": 1,
+         "by_cost_bps_per_side": {
+             "%.1f" % OS.COST_PRIMARY_BPS: {
+                 "all": {"ann_net": net, "t_net": -3.17, "effective_periods": 88},
+                 "selection": {"ann_net": -0.2935}, "holdout": {"ann_net": -0.3100},
+                 "holdout_halves_ann_net": [-0.0148, -0.5887]},
+             "%.1f" % OS.COST_STRESS_BPS: {"all": {"ann_net": -0.3404, "t_net": -3.17}}},
+         "gross": {"ann_gross": gross}}
+    f = OS.contradicted_signs([c])["arms"][0]["with_the_sign_the_data_prefers"]
+    assert f["ann_net"] == pytest.approx(-gross - drag, abs=1e-4)
+    # each LAYER loses two drags, not zero
+    assert f["selection_ann_net"] == pytest.approx(0.2935 - 2 * drag, abs=1e-4)
+    assert f["holdout_ann_net"] == pytest.approx(0.3100 - 2 * drag, abs=1e-4)
+    assert f["holdout_halves_ann_net"][0] == pytest.approx(0.0148 - 2 * drag, abs=1e-4)
+    assert f["holdout_halves_ann_net"][0] < AR.GATE_HALF_FLOOR, \
+        "the worse half must FAIL the floor once the cost is paid honestly"
+    assert OS.contradicted_signs([c])["arms"][0]["would_pass_every_gate"] is False
+
+
+# --------------------------------------------------------------------------- #
+# THE FROZEN REVERSED CHALLENGER
+# --------------------------------------------------------------------------- #
+def test_reversed_skew_flips_the_sign_and_changes_nothing_else():
+    """The whole value of this challenger is that ONE thing differs.
+
+    If anything besides the sign moved, the confirmation would be testing a
+    different rule than the one the discovery sample suggested, and neither a
+    pass nor a fail would mean anything. So the spec is taken FROM the original
+    grid rather than retyped, and this pins that every other field survives."""
+    src = [g for g in OS.default_grid()
+           if g["name"] == RS.SOURCE_SIGNAL and g["horizon"] == RS.FROZEN_HORIZON]
+    assert len(src) == 1
+    src = src[0]
+    got = RS.spec()
+    assert got["sign"] == -src["sign"], "the sign must be the EXACT opposite"
+    assert RS.FROZEN_SIGN == -RS.SOURCE_SIGN
+    for k in ("field", "horizon", "family", "dimension", "instrument"):
+        assert got[k] == src[k], "%s must be inherited, not re-chosen" % k
+    # and the shared construction is read from its owner, never duplicated here
+    fs = RS.frozen_specification()
+    assert fs["zscore_lookback"] == OS.ZSCORE_LOOKBACK
+    assert fs["horizon_sessions"] == RS.FROZEN_HORIZON
+    assert fs["cost_primary_bps_per_side"] == OS.COST_PRIMARY_BPS
+    assert fs["cost_stress_bps_per_side"] == OS.COST_STRESS_BPS
+    assert fs["snapshot_et"] == "%02d:%02d" % OA.SNAPSHOT_ET
+    assert fs["strike_band"] == {"moneyness": OA.MONEYNESS_BAND,
+                                 "spacing": OA.STRIKE_SPACING}
+    assert fs["quote_schema"] == OA.SCHEMA
+
+
+def test_reversed_skew_carries_no_grid_and_no_rescue():
+    """A confirmation that can be re-run with a different parameter is not a
+    confirmation. There must be exactly one arm and no way to add a second."""
+    n = RS.frozen_specification()["not_optimised"]
+    assert n["parameter_search"] is False
+    assert all(n[k] == 0 for k in ("alternate_thresholds", "alternate_lookbacks",
+                                   "alternate_horizons", "alternate_signs", "rescue_arms"))
+    assert isinstance(RS.spec(), dict), "one specification, not a grid"
+    src = Path(RS.__file__).read_text(encoding="utf-8")
+    # exactly ONE scoring call site, and no rescue vocabulary anywhere
+    assert src.count("measure_cell(") == 1, "a second scoring call is a second arm"
+    assert "RESCUE" not in src
+    # the horizon and the sign are single frozen constants, never iterated
+    assert "OS.HORIZONS" not in src and "OS.SIGNALS[" in src
+    assert isinstance(RS.FROZEN_HORIZON, int) and isinstance(RS.FROZEN_SIGN, int)
+
+
+def test_reversed_skew_never_counts_its_discovery_sample_as_evidence():
+    """The sample that chose the sign can never score the rule. Every statistic
+    computed on it - the holdout and the halves included - is conditioned on the
+    choice, so it sizes the hypothesis and cannot test it."""
+    fs = RS.frozen_specification()
+    assert fs["discovery_sample_is_qualification_evidence"] is False
+    assert "DISCOVERY ONLY" in fs["discovery_disclosure"]
+    assert list(RS.DISCOVERY_SAMPLE) == list(fs["discovery_sample"])
+    ev = RS.discovery_evidence()
+    assert ev["status"] == "DISCOVERY_ONLY_NEVER_QUALIFICATION_EVIDENCE"
+    assert ev["why_those_numbers_do_not_qualify_this_challenger"]
+    rec = RS.freeze_record()
+    assert rec["qualification_evidence"]["discovery_sample_excluded"] is True
+    assert rec["promotion_allowed"] is False
+    assert rec["live_registration_performed"] is False
+    assert rec["holdings_changed"] is False
+
+
+def test_reversed_skew_confirmation_window_precedes_the_discovery_sample():
+    """ZERO overlap, or the 'independent' window is not independent."""
+    assert RS.CONFIRMATION_WINDOW[1] < RS.DISCOVERY_SAMPLE[0], "windows must not overlap"
+    d = RS.disjointness()
+    if d.get("state") == "SURFACE_MISSING":
+        pytest.skip("a surface has not been built in this checkout")
+    assert d["state"] == "DISJOINT"
+    assert d["shared_dates"] == 0, "shared: %s" % d["shared_examples"]
+    assert d["confirmation_ends_before_discovery_begins"] is True
+
+
+def test_reversed_skew_classification_invents_no_threshold():
+    """CONFIRMED / FAILED / INSUFFICIENT must come from the EXISTING gates.
+
+    A campaign that answers a disappointing confirmation by inventing a softer
+    bar has confirmed nothing, so the only floor that may decide 'insufficient'
+    is the one every other arm answered to."""
+    assert RS.CLASSIFICATION_RULE["no_new_threshold_was_created"] is True
+    assert str(AR.MIN_EFFECTIVE_PERIODS) in RS.CLASSIFICATION_RULE["INSUFFICIENT_EVIDENCE"]
+
+    def cell(periods, gates):
+        return {"by_cost_bps_per_side": {
+            "%.1f" % OS.COST_PRIMARY_BPS: {"all": {"periods": periods}}}, "gates": gates}
+    assert RS.classify(cell(AR.MIN_EFFECTIVE_PERIODS - 1, {"t_ge_2": True})) \
+        == "INSUFFICIENT_EVIDENCE"
+    assert RS.classify(cell(AR.MIN_EFFECTIVE_PERIODS, {"t_ge_2": True, "x": None})) \
+        == "CONFIRMED"
+    assert RS.classify(cell(AR.MIN_EFFECTIVE_PERIODS, {"t_ge_2": True, "y": False})) \
+        == "FAILED"
+
+
+def test_reversed_skew_registration_is_prospective_and_promotes_nothing():
+    """Registration starts a MEASUREMENT. The first legitimate observation is
+    the first eligible session STRICTLY AFTER it, and no argument anywhere can
+    turn a completed session into a prediction."""
+    assert RS.REGISTRATION_SCOPE["approved"] == "forward evidence registration only"
+    for forbidden in ("promote the model", "allocate capital", "modify the portfolio",
+                      "create orders", "replace the incumbent"):
+        assert forbidden in RS.REGISTRATION_SCOPE["not_approved"]
+    st = RS.true_forward_state()
+    if st["state"] != "REGISTERED":
+        pytest.skip("the challenger is not registered in this checkout")
+    r = st["registration"]
+    assert r["backfilled"] is False
+    assert r["promotion_ready"] is False
+    assert r["prospective_effective_from"] <= r["first_eligible_observation_session"]
+    assert r["first_eligible_observation_session"] > RS.INCEPTION or \
+        r["first_eligible_observation_session"] >= r["prospective_effective_from"]
+    assert st["capital_eligible_now"] is False
+    assert r["identity"]["horizon_sessions"] if "identity" in r else True
+
+
+def test_reversed_skew_pass_is_checked_against_being_a_disguised_long():
+    """Every gate in the battery compares against the incumbent or against zero.
+    None of them compares against BUYING SPY - so a rule that happened to be long
+    most of the time in a rising market would sail through all of them. The
+    exposure check exists to make that failure mode visible whether the result
+    passes or fails, and a PASS must state what it does not establish."""
+    body = AR.read_artifact(RS.ARTIFACT_NAME.replace(".json", "_confirmation.json"))
+    if not body or not body.get("exposure_check"):
+        pytest.skip("the confirmation has not been run in this checkout")
+    ex = body["exposure_check"]
+    if ex.get("state") != "OK":
+        pytest.skip("too few periods to decompose")
+    assert set(ex) >= {"mean_position", "share_long", "correlation_with_spy",
+                       "buy_and_hold_ann_on_the_same_dates",
+                       "rule_minus_buy_and_hold_ann", "verdict"}
+    assert ex["verdict"] in ("NOT_A_DISGUISED_LONG", "REVIEW_THE_EXPOSURE")
+    # a PASS is never allowed to be reported without its own limitations
+    if body.get("classification") == "CONFIRMED":
+        lim = body.get("what_a_pass_does_not_establish") or []
+        assert len(lim) >= 4
+        assert any("TRUE_FORWARD" in s for s in lim)
+
+
+def test_a_registered_but_unqualified_challenger_never_advances_the_status():
+    """A registration is not a qualification.
+
+    MATERIAL_CHALLENGER_IN_TRUE_FORWARD_COMPETITION says a challenger CLEARED
+    the frozen historical gates. REVERSED_SPY_PUT_CALL_SKEW_H5 cleared nothing -
+    its sign was discovered post hoc and forward evidence is the only thing that
+    could ever qualify it. If a bare registration could reach that status, the
+    campaign could declare success by registering a guess."""
+    assert SB.REGISTRATION_IS_NOT_QUALIFICATION
+    reg = [{"challenger_id": RS.CHALLENGER_ID}]
+    worse = {"verdict": "WORSE_THAN_INCUMBENT", "kind": "SAME_DOMAIN"}
+    assert SB.status_from(worse, registrations=reg, purchase=None,
+                          any_measured=True) != SB.ST_COMPETING
+    # and it must not rescue an exhausted campaign either
+    assert SB.status_from(worse, registrations=reg,
+                          purchase={"owned_free_information_exhausted": True},
+                          any_measured=True) == SB.ST_EXHAUSTED
+    # the real scoreboard says so in its own words
+    body = AR.read_artifact("alpha_recovery_scoreboard.json") or {}
+    blk = ((body.get("first_non_incumbent_alpha") or {})
+           .get("axes_closed_this_session") or {}).get("REVERSED_SPY_PUT_CALL_SKEW_H5")
+    if blk:
+        assert blk["capital_eligible_now"] is False
+        assert blk["does_not_advance_the_campaign_status"]
+
+
+def test_spot_close_dates_a_midnight_utc_bar_by_its_own_session(tmp_path, monkeypatch):
+    """The defect that dropped every Friday, pinned.
+
+    A daily bar is stamped 00:00 UTC OF ITS OWN SESSION. Converting that instant
+    to New York lands at 20:00 the day before, which dated every close one
+    session early - and because no session follows a Friday to supply one, every
+    Friday fell out of the surface entirely. The UTC date is the session."""
+    ns = lambda d: int(pd.Timestamp(d, tz="UTC").value)            # noqa: E731
+    sessions = ["2024-09-16", "2024-09-17", "2024-09-18", "2024-09-19", "2024-09-20"]
+    pd.DataFrame({"ts_event": [ns(d) for d in sessions],
+                  "close": [100.0, 101.0, 102.0, 103.0, 104.0]}
+                 ).to_csv(tmp_path / "spy.csv", index=False)
+    monkeypatch.setattr(OA, "spot_path", lambda *a, **k: tmp_path / "spy.csv")
+    got = OA.session_closes(schema=OA.SPOT_SCHEMA)
+    assert sorted(got) == sessions, "a midnight-UTC bar belongs to its OWN session"
+    assert got["2024-09-20"] == 104.0, "the Friday must survive"
+    assert "2024-09-15" not in got, "no close may be dated to a Sunday"
+
+
+def test_spot_close_from_hourly_bars_is_the_sixteen_hundred_print(tmp_path, monkeypatch):
+    """A venue's DAILY bar spans the whole UTC day, so its close is the last
+    extended-hours print, not the close. The 15:00-16:00 ET hourly bar is."""
+    rows = []
+    for hour, px in ((14, 98.0), (15, 100.0), (18, 111.0)):
+        ts = pd.Timestamp("2024-09-17 %02d:30" % hour, tz="America/New_York")
+        rows.append({"ts_event": int(ts.tz_convert("UTC").value), "close": px})
+    pd.DataFrame(rows).to_csv(tmp_path / "spy_h.csv", index=False)
+    monkeypatch.setattr(OA, "spot_path", lambda *a, **k: tmp_path / "spy_h.csv")
+    got = OA.session_closes(schema=OA.SPOT_SCHEMA_INTRADAY)
+    assert got == {"2024-09-17": 100.0}, "the 15:00 ET bar closes on the closing print"
+
+
+def test_option_plan_window_moves_the_dates_and_nothing_else(monkeypatch):
+    """An independent window has to be the SAME instrument measured somewhere
+    else. The band width, the spacing, the lookback and the schema are module
+    constants and none of them is reachable from the window argument."""
+    import inspect
+    sig = inspect.signature(OA.plan)
+    assert "window" in sig.parameters
+    src = inspect.getsource(OA.plan)
+    for knob in ("MONEYNESS_BAND", "STRIKE_SPACING", "LOOKBACK_DAYS", "SNAPSHOT_ET"):
+        assert ("%s =" % knob) not in src, "%s must not be re-chosen per window" % knob
+    assert OA.CONFIRMATION_TAG and OA.surface_path(OA.CONFIRMATION_TAG) != OA.surface_path()
+    assert OA.data_root(OA.CONFIRMATION_TAG) != OA.data_root()
+
+
+def test_reversed_skew_confirmation_is_reported_as_history_not_forward():
+    """An untouched historical window is INDEPENDENT, and independence is not
+    prospectivity. Conflating the two is how a campaign talks itself into
+    believing it has forward evidence it has not waited for."""
+    body = AR.read_artifact(RS.ARTIFACT_NAME.replace(".json", "_confirmation.json"))
+    if not body:
+        pytest.skip("the confirmation has not been run in this checkout")
+    assert body["is_true_forward"] is False
+    assert body["label"] == "INDEPENDENT_HISTORICAL_CONFIRMATION"
+    assert body["why_this_is_not_true_forward"]
+    assert body["classification"] in ("CONFIRMED", "FAILED", "INSUFFICIENT_EVIDENCE")
+    if body.get("multiple_testing"):
+        assert body["multiple_testing"]["denominator"] == 1
 

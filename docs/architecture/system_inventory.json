@@ -699,6 +699,27 @@
    "note": "Research only. A drifting-moneyness proxy would manufacture a result rather than measure one, so when the bracketing count falls below MIN_EFFECTIVE_PERIODS no cell is scored and the floor is not moved."
   },
   {
+   "concept": "frozen_reversed_sign_challenger",
+   "authoritative_owner": "alpha_agent/alpha_recovery/reversed_skew.py (the ONE owner of the challenger born from a CONTRADICTED pre-registered sign: the frozen reversed specification, the disclosure that its discovery sample can never be qualification evidence for it, the independent historical confirmation on a window that PRECEDES that sample, and the CONFIRMED / FAILED / INSUFFICIENT_EVIDENCE classification decided by the existing gates)",
+   "current_writers": [
+    "scripts/register_reversed_skew_challenger.py (the operator door; performs the registration this module may not)",
+    "alpha_agent/alpha_recovery/scoreboard.py (reports the challenger with its two evidence sources kept apart)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only. One specification, one sign, one horizon and no grid: a confirmation that can be re-run with a different parameter is not a confirmation. The module may not register anything - research that could start its own forward clock is one loop away from research that promotes itself - so registration lives in the operator script and this module learns the outcome by reading that script's artifact."
+  },
+  {
+   "concept": "option_surface_spot_session_dating",
+   "authoritative_owner": "alpha_agent/alpha_recovery/options_acquisition.py::session_closes (the ONE owner of which SESSION an underlying close belongs to, and of the 16:00 ET close itself)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/options_acquisition.py::build_surface (joins the surface to it)"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Research only. Two measured defects live here. A daily bar is stamped 00:00 UTC of its OWN session, so converting it to New York dated every close one session early and - because no session follows a Friday to supply one - dropped every Friday from the surface: 379 dates where 488 were available. And a VENUE daily bar spans the whole UTC day, so its close is the last extended-hours print, not the close; it disagrees with the consolidated summary by a median of 8.8 bp and by 348 bp on the worst day of April 2025. The 15:00-16:00 ET hourly bar fixes both and matches the consolidated close to a median of -0.44 bp."
+  },
+  {
    "concept": "native_futures_acquisition_state",
    "authoritative_owner": "alpha_agent/alpha_recovery/databento_acquisition.py (the ONE owner of the campaign's Databento historical acquisition: the free-credit spending contract, the dated-contract symbology, the causal front-month roll and the PIT validation of any acquired panel)",
    "current_writers": [

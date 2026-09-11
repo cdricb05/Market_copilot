@@ -16,7 +16,9 @@
   "2026-09-10T23:05Z, DISCLOSED BEFORE ANY ACQUISITION CALL WAS MADE: the operator authorised usage-based Databento HISTORICAL access limited to the account's existing FREE credit balance, with no subscription and no paid dollar. This does not relax the contract's no-purchase safety boundary and moves no evidence threshold: every frozen gate (materiality 1.5 %/yr, t 2.0, BH q 0.10, Holm 0.05, MIN_EFFECTIVE_PERIODS 36, halves floor, drawdown multiple) applies unchanged to anything researched on acquired data. The spending ceiling is enforced in code, not in prose: alpha_agent.alpha_recovery.databento_acquisition refuses to download any request signature its own cost estimate did not price, and refuses any plan exceeding the stated free balance less a 10 % safety margin.",
   "2026-09-10T23:06Z, DISCLOSED as the reopening justification: native CME 1-minute futures history is admitted under contract rule 13 as MATERIALLY BETTER COVERAGE, not as a new transform. The named measured defect it removes is that the owned R45 ETF minute panel stops at 12:59 ET, so the closed intraday axis could never mark to the close, never observe the US afternoon and never observe the overnight session. No PRICE_STATE threshold is weakened and no closed family is reopened on the OLD data.",
   "2026-09-10T23:07Z, DISCLOSED as a pre-registered acquisition rule: the instrument value model (tier weight, within-bucket seniority, unowned-bucket bonus, session-depth factor) was declared BEFORE any provider price was observed, so the subset chosen inside the free balance cannot have been fitted to the price list. The frozen MIN_EFFECTIVE_PERIODS threshold of 36 sessions is applied to acquired panels exactly as to owned ones: a short panel is DATA_INSUFFICIENT and the floor is not moved to admit it.",
-  "2026-09-10T23:08Z, DISCLOSED as a blocking condition, not a result: the Databento credential is ABSENT from every environment scope on this machine, so no metadata, symbology or timeseries call was made and no credit was consumed. The provider endpoint answers HTTP 401, which establishes reachability and isolates the credential as the only missing input. No threshold was altered and no data was acquired; the acquisition path is built, tested against an injected transport, and blocked at the credential."
+  "2026-09-10T23:08Z, DISCLOSED as a blocking condition, not a result: the Databento credential is ABSENT from every environment scope on this machine, so no metadata, symbology or timeseries call was made and no credit was consumed. The provider endpoint answers HTTP 401, which establishes reachability and isolates the credential as the only missing input. No threshold was altered and no data was acquired; the acquisition path is built, tested against an injected transport, and blocked at the credential.",
+  "2026-09-11T16:38Z, AFTER the options axis was observed and BEFORE the confirmation window was measured, DISCLOSED: the contradicted PUT_CALL_SKEW direction is frozen as ONE new challenger, REVERSED_SPY_PUT_CALL_SKEW_H5, and registered for TRUE_FORWARD evidence with the canonical R62 owner. The discovery sample 2024-09-10 -> 2026-08-20 is recorded as DISCOVERY ONLY and can never be qualification evidence for it. One independent historical window that PRECEDES that sample (2022-09-09 -> 2024-09-09) is acquired and measured ONCE, at multiplicity denominator 1. No threshold, gate, split, cost or statistic changed, no rescue arm exists and no parameter is swept; the challenger is a single specification whose only difference from the original arm is the sign.",
+  "2026-09-11T17:05Z, DISCLOSED as a DATA DEFECT REPAIR, not a specification change: the moneyness-anchored option surface dated its underlying close ONE SESSION EARLY and therefore dropped every Friday - 379 dates where 488 were available. A daily bar is stamped 00:00 UTC of its OWN session, and converting that instant to New York lands at 20:00 the day before; the proof is that the UTC date carries zero weekend rows while the New-York date carries 97 of 506. A venue daily bar also spans the whole UTC day, so its close is the last extended-hours print rather than the 16:00 close, disagreeing with the consolidated summary by a median of 8.8 bp. Both are repaired by taking the 15:00-16:00 ET hourly bar, which matches the consolidated close to a median of -0.44 bp over the 506 sessions where both exist. The six options cells were RE-RUN on the corrected surface and the axis conclusion is unchanged: 0 qualified, 0 BH rejections at q=0.10 over m=6. The contradicted-sign report was also corrected - flipping a sign does not flip the cost, so a merely negated layer was overstated by two cost drags; with the cost paid honestly the h=5 arm's worse holdout half is -0.0053 against the -0.005 floor and it would NOT pass every gate. No threshold, gate, split, cost or statistic was changed."
  ],
  "cadence_grid": {
   "cross_asset_trend_specs": 4,
@@ -963,8 +965,8 @@
       "spec": "MS_DEPTH_IMBALANCE|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [],
     "selects_information": true
    },
@@ -1001,8 +1003,8 @@
       "spec": "MS_MICROPRICE_PRESSURE|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [],
     "selects_information": true
    },
@@ -1039,8 +1041,8 @@
       "spec": "MS_AGGRESSOR_FLOW|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [
      {
       "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
@@ -1083,8 +1085,8 @@
       "spec": "MS_FLOW_IMBALANCE|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [
      {
       "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
@@ -1132,8 +1134,8 @@
       "spec": "MS_LIQUIDITY_WITHDRAWAL|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [
      {
       "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
@@ -1176,8 +1178,8 @@
       "spec": "MS_SPREAD_STATE|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [],
     "selects_information": true
    },
@@ -1214,8 +1216,8 @@
       "spec": "MS_ORDER_COUNT_IMBALANCE|EQUITY_H5"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [],
     "selects_information": true
    },
@@ -1252,8 +1254,8 @@
       "spec": "MS_CROSS_MARKET_TRANSMISSION|ES_TO_NQ_H30"
      }
     ],
-    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
     "rescue_specifications": [],
     "selects_information": true
    }
@@ -1361,6 +1363,69 @@
  "registered_at": "2026-09-10T14:35:00+00:00",
  "registered_before_any_experiment_ran": true,
  "registration_rule": "Every family, specification budget, horizon, target, construction, gate, threshold, cadence grid, calibration test and verdict rule below was written BEFORE any campaign number was computed. Nothing here may be edited after a result is observed. A hypothesis that occurs to the researcher after seeing results is registered as a NEW protocol version with an explicit disclosure of what had already been seen. Thresholds are inherited from the existing owners (R57/R58/R59/R63/R64) and may not be relaxed.",
+ "reversed_sign_challenger": {
+  "budget": {
+   "parameter_search": false,
+   "primaries": 1,
+   "rescues": 0,
+   "why": "a confirmation that can be re-run with a different parameter is not a confirmation"
+  },
+  "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
+  "discovery_sample": {
+   "status": "DISCOVERY_ONLY_NEVER_QUALIFICATION_EVIDENCE",
+   "why": "the sign was read off this sample, so every statistic computed on it - the holdout and the holdout halves included - is conditioned on that choice. It sizes the hypothesis and cannot test it.",
+   "window": [
+    "2024-09-10",
+    "2026-08-20"
+   ]
+  },
+  "frozen_specification": {
+   "cost_ladder_bps_per_side": [
+    1.0,
+    2.0,
+    5.0
+   ],
+   "expiry": "third-Friday monthlies, 90-day lookback each",
+   "feature": "PUT_CALL_SKEW",
+   "gates": "options_surface.gates, unchanged",
+   "horizon_sessions": 5,
+   "moneyness": "strike / put-call-parity forward",
+   "quote_schema": "cbbo-1m on OPRA.PILLAR, +/-10 % moneyness band",
+   "risk_sizing": "gross 1.0 per decision, unlevered",
+   "sign": -1,
+   "sign_is_the_exact_opposite_of": "+1, the pre-registered theoretical sign",
+   "snapshot_et": "15:45",
+   "underlying": "SPY",
+   "zscore_construction": "strictly prior observations only",
+   "zscore_lookback": 60
+  },
+  "independent_historical_confirmation": {
+   "acquisition": "$3.3539 for 24 monthly bands plus $0.0261 for SPY marks; zero paid dollars",
+   "classification_vocabulary": [
+    "CONFIRMED",
+    "FAILED",
+    "INSUFFICIENT_EVIDENCE"
+   ],
+   "multiplicity_denominator": 1,
+   "must_not_overlap_the_discovery_sample": true,
+   "no_new_threshold": "INSUFFICIENT_EVIDENCE is decided by the existing MIN_EFFECTIVE_PERIODS floor of 36; pass and fail are decided by the existing options_surface gates",
+   "why_one": "one hypothesis, frozen in advance, tested once on a window chosen before it was measured - which is exactly what a pre-registration buys and why no second arm may ever be added",
+   "window": [
+    "2022-09-09",
+    "2024-09-09"
+   ]
+  },
+  "owner": "alpha_agent/alpha_recovery/reversed_skew.py",
+  "registered_at": "2026-09-11T16:38Z",
+  "registered_before_the_confirmation_window_was_measured": true,
+  "registration_owner": "scripts/register_reversed_skew_challenger.py",
+  "true_forward": {
+   "backfill": "NONE - the first legitimate observation is the first eligible session STRICTLY AFTER registration",
+   "capital_eligible_now": false,
+   "registrar": "api.forward_challenger_registry via api.prospective_adoption"
+  },
+  "why_it_exists": "the PUT_CALL_SKEW sign was pre-registered from theory as +1 and the data contradicted it at h=1 and h=5. The contradicted direction is not adoptable on the sample that suggested it and is not discardable either, so it is FROZEN as a hypothesis and submitted only to evidence that did not choose it."
+ },
  "safety": {
   "activates_sleeve": false,
   "approves_proposal": false,

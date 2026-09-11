@@ -534,6 +534,104 @@ already spends all six. `h = 21` remains un-run, with the arithmetic re-derived
 for the new sample - ~490 dates gives ~23 non-overlapping periods against the
 floor of 36, and ~756 would be needed.
 
+### TWO DEFECTS IN THIS SURFACE, FOUND AND REPAIRED (2026-09-11)
+
+Neither was found by looking at a result, and both are decided by facts that
+have nothing to do with any return.
+
+**The surface dated its underlying close one session early, and therefore
+dropped every Friday.** A daily bar is stamped `00:00 UTC` **of its own
+session**; converting that instant to New York lands at 20:00 the day *before*.
+The proof is not an argument: the UTC date carries **zero** weekend rows and the
+New-York date carries **97 of 506**. Joined against option dates, that shift put
+the close of session `d+1` onto date `d`, and because no session follows a
+Friday to supply one, every Friday fell out. The surface had **379 dates where
+488 were available**.
+
+**A venue daily bar is not the close.** `ohlcv-1d` on a venue dataset aggregates
+the whole UTC day, extended hours included, so its close is the last print near
+20:00 ET. Against the consolidated summary it is off by a median of 8.8 bp and
+by **348 bp** on the worst day of April 2025.
+
+Both are repaired by one source: the **15:00-16:00 ET hourly bar**, whose
+timestamps are real intraday instants and whose close is the closing print.
+Measured against the `EQUS.SUMMARY` close the discovery sample used, over the
+506 sessions where both exist: median **-0.44 bp**, 95th percentile 2.88 bp,
+5-session return correlation **0.99953**. One spot definition now spans the
+discovery sample and the window that precedes it, for $0.026.
+
+The six cells were **re-run** on the corrected surface. **The axis conclusion is
+unchanged: 0 qualified, 0 BH rejections at q = 0.10 over m = 6.**
+
+**The contradicted-sign report was overstated, and is corrected.** Flipping a
+sign does not flip the cost. A declared layer is `gross - cost`; its mirror is
+`-gross - cost`, which is `-(declared) - 2*cost`. The report had merely negated
+each layer, so every one was overstated by two full cost drags - on exactly the
+numbers this report exists to state honestly. Corrected, the h = 5 arm's worse
+holdout half is **-0.0053 against the -0.005 floor**, so it would **NOT** pass
+every gate. The earlier claim that it would is withdrawn.
+
+| | as first reported | corrected |
+|---|---|---|
+| surface dates | 379 | **488** |
+| independent 5-day periods | 66 | **88** |
+| flipped h=5 net | +37.99 %/yr | **+27.99 %/yr** |
+| flipped h=5 t | 3.10 | **2.96** |
+| flipped h=5 worse holdout half | +0.0148 (passes) | **-0.0053 (FAILS)** |
+| would pass every gate | yes | **no** |
+
+## THE ONE FROZEN CHALLENGER: REVERSED SPY PUT-CALL SKEW (frozen 2026-09-11)
+
+A pre-registered sign was contradicted. The contradicted direction is **not
+adoptable** on the sample that suggested it, and it is **not discardable**
+either. So it is frozen as a hypothesis and submitted only to evidence that did
+not choose it. There are exactly two such kinds of evidence, and both are run:
+
+| | what it is | what it can settle |
+|---|---|---|
+| **independent historical confirmation** | data that existed and was never looked at | whether the effect is a one-regime artefact |
+| **TRUE_FORWARD** | data that did not exist when the rule was frozen | whether it survives prospectively |
+
+They are **never added together** and the second never inherits the first's
+word. Independence is not prospectivity.
+
+**What is frozen:** `REVERSED_SPY_PUT_CALL_SKEW_H5`. SPY, the moneyness-anchored
+surface, `PUT_CALL_SKEW`, sign **-1** (the exact opposite of the declared `+1`),
+horizon **5 sessions**. The z-score construction, lookback, snapshot minute,
+moneyness, expiry rule, cost ladder, risk sizing, equal-risk comparison and
+every gate are **inherited by import** from `options_surface`, not retyped, so
+there is no second definition that can drift. The specification is taken FROM
+the original grid entry and only its sign is changed.
+
+There is **no grid, no sweep, no rescue and no alternative threshold** in
+`reversed_skew.py`, and a regression pins that there is exactly one scoring call
+site: *a confirmation that can be re-run with a different parameter is not a
+confirmation.*
+
+**The discovery sample is DISCOVERY ONLY, permanently.** `2024-09-10 ->
+2026-08-20` is the whole surface the sign was read off. For this challenger that
+sample can never be qualification evidence again - not its holdout, not its
+halves, not its equal-risk increment. The holdout stopped being a holdout the
+instant the sign became a choice.
+
+**Registration is an operator act, not a research act.** The campaign package
+may never call a registrar or import `paper_trader.api`, and the audit enforces
+it file by file. So the freeze record is built in
+`alpha_agent/alpha_recovery/reversed_skew.py` and the registration is performed
+by `scripts/register_reversed_skew_challenger.py`, which holds no lifecycle, no
+clock, no identity and no registration rule of its own - it hands the freeze row
+to `api.prospective_adoption.adopt_prospective_freeze`, the same owner
+`scripts/adopt_prospective_freeze.py` uses. Research that could start its own
+forward clock is one loop away from research that promotes itself.
+
+The audit now **enumerates every door into a forward clock** rather than keying
+on one token. That check immediately found a third door nobody had listed -
+`scripts/run_research_runtime.py`, which adopts under R61 because a freeze and
+the start of its forward evidence are one operation. It is legitimate and is now
+declared; what is pinned is that none of the three holds a rule, all supply a
+confirmation token, and none exposes an argument through which a historical
+boundary could be named.
+
 ## RESULT OF THE NATIVE CME MICROSTRUCTURE AXIS (acquired and executed 2026-09-11) - CLOSED
 
 **ALPHA FOUND: NO.** 52 pre-registered specifications, 8 families, 7 markets, 5

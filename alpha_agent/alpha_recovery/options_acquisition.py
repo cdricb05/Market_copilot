@@ -88,13 +88,37 @@ EXPIRY_SHIFT = {date(2025, 4, 18): date(2025, 4, 17),    # Good Friday
 PRICE_SCALE = 1e-9
 NULL_I64 = 9223372036854775807
 
+#: The DISCOVERY sample: the exact dates the moneyness-anchored surface covers,
+#: and therefore the ONLY dates any sign discovered on this surface was chosen
+#: from. Named as data so a confirmation window can be proved disjoint from it
+#: by comparison rather than by a comment.
+DISCOVERY_WINDOW = ("2024-09-10", "2026-08-20")
 
-def data_root() -> Path:
-    return research_root() / "_data_options_opra"
+#: An INDEPENDENT historical window carries a TAG, and the tag is the only thing
+#: that differs: same band, same spacing, same lookback, same snapshot, same
+#: schema, same parity forward, same inversion. A tagged surface is written to
+#: its own file so a confirmation can never overwrite - or be silently merged
+#: into - the sample a hypothesis was discovered on.
+CONFIRMATION_TAG = "confirm_2022_2024"
+
+#: The discovery bands rebuilt with the CORRECTED spot dating and the true 16:00
+#: close (see ``session_closes``). The original surface is left exactly where it
+#: is: it is what the reported discovery result was computed on, and overwriting
+#: it would erase the only record of what the defect was worth.
+SPOT_CORRECTED_TAG = "spotfix"
 
 
-def surface_path() -> Path:
-    return research_root() / "_data_options" / "opra_spy_moneyness_surface.csv.gz"
+def _suffix(tag: str | None) -> str:
+    return "" if not tag else "_%s" % re.sub(r"[^A-Za-z0-9_]+", "_", str(tag))
+
+
+def data_root(tag: str | None = None) -> Path:
+    return research_root() / ("_data_options_opra%s" % _suffix(tag))
+
+
+def surface_path(tag: str | None = None) -> Path:
+    return research_root() / "_data_options" / (
+        "opra_spy_moneyness_surface%s.csv.gz" % _suffix(tag))
 
 
 # --------------------------------------------------------------------- symbols
@@ -142,14 +166,27 @@ def underlying_levels() -> "tuple":       # noqa: F821
 
 
 def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
-         available_end: str | None = None) -> dict:
-    """Price every expiry's band BEFORE anything is downloaded."""
+         available_end: str | None = None, *, window: tuple | None = None) -> dict:
+    """Price every expiry's band BEFORE anything is downloaded.
+
+    ``window`` names an EXPLICIT ``(start, end)`` instead of "the last ``years``
+    the venue serves". It changes WHICH dates are bought and nothing else - the
+    band width, the strike spacing, the per-expiry lookback, the snapshot minute
+    and the schema are all module constants and none of them is reachable from
+    here. That is the point: an independent confirmation window has to be the
+    SAME instrument measured somewhere else, or it confirms nothing.
+    """
     import numpy as np
 
-    rng = client.dataset_range(DATASET)
-    avail_end = available_end or DA._available_end(rng, SCHEMA) or DA._available_end(rng)
-    end = date.fromisoformat(avail_end)
-    start = end - timedelta(days=int(365.25 * years))
+    if window:
+        start = date.fromisoformat(window[0])
+        end = date.fromisoformat(window[1])
+        avail_end = window[1]
+    else:
+        rng = client.dataset_range(DATASET)
+        avail_end = available_end or DA._available_end(rng, SCHEMA) or DA._available_end(rng)
+        end = date.fromisoformat(avail_end)
+        start = end - timedelta(days=int(365.25 * years))
 
     dates, spy = underlying_levels()
     expiries = [third_friday(y, m)
@@ -212,40 +249,68 @@ def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
 
 
 def acquire(budget_usd: float, execute: bool = False, client: DA.Client | None = None,
-            write: bool = True) -> dict:
+            write: bool = True, *, window: tuple | None = None,
+            tag: str | None = None, spot_window: tuple | None = None,
+            spot_dataset: str | None = None, spot_schema: str | None = None) -> dict:
+    """Acquire an option band, and - when ``spot_window`` is given - the marks it
+    is scored against.
+
+    The spot leg belongs in the SAME artifact as the bands. A surface is not
+    usable without a close to measure returns against, so an acquisition state
+    that reports only the option cost understates what the axis actually spent
+    and leaves the mark's provenance in a different file from the data it marks.
+    """
     cred = DA.credential_state()
     body = {
         "calculation_owner": CALCULATION_OWNER, "provider": "databento",
         "dataset": DATASET, "schema": SCHEMA, "credential": cred,
         "information_case": information_case(),
         "spending_contract": DA.spending_contract(),
+        "tag": tag, "requested_window": list(window) if window else None,
     }
     if not cred["usable"]:
         body["state"] = "BLOCKED_CREDENTIAL_ABSENT"
         if write:
-            write_artifact(ARTIFACT_NAME, body)
+            write_artifact(_artifact_name(tag), body)
         return body
 
     client = client or DA.Client()
-    p = plan(client, budget_usd=budget_usd)
+    p = plan(client, budget_usd=budget_usd, window=window)
     body["plan"] = {k: v for k, v in p.items() if k != "requests"}
     body["plan"]["requests"] = [{k: v for k, v in r.items() if k != "symbols"}
                                 for r in p["requests"]]
     body["state"] = ("PLANNED_FITS_FREE_CREDIT" if p["selection"]["fits_in_free_credit"]
                      else "PLANNED_EXCEEDS_FREE_CREDIT")
     if execute and p["selection"]["fits_in_free_credit"]:
-        d = DA.download(client, p, out_root=data_root(), dry_run=False,
+        d = DA.download(client, p, out_root=data_root(tag), dry_run=False,
                         schema=SCHEMA, dataset=DATASET)
         body["download"] = d
         body["state"] = "ACQUIRED"
         got = {w["symbol"] for w in d.get("written", [])}
-        body["total_acquisition_cost_usd"] = round(
-            sum(r["cost_usd"] for r in p["requests"] if r["label"] in got), 4)
+        band_usd = round(sum(r["cost_usd"] for r in p["requests"] if r["label"] in got), 4)
+        body["band_acquisition_cost_usd"] = band_usd
+        spot_usd = 0.0
+        if spot_window:
+            legs = []
+            for sch in ([spot_schema] if spot_schema else [SPOT_SCHEMA]):
+                leg = acquire_spot(client, spot_window[0], spot_window[1], execute=True,
+                                   tag=tag, dataset=spot_dataset, schema=sch)
+                legs.append(leg)
+                spot_usd += float(leg.get("cost_usd") or 0.0)
+            body["spot"] = legs
+        body["spot_acquisition_cost_usd"] = round(spot_usd, 6)
+        body["total_acquisition_cost_usd"] = round(band_usd + spot_usd, 4)
     elif execute:
         body["download"] = {"state": "REFUSED_EXCEEDS_FREE_CREDIT"}
     if write:
-        write_artifact(ARTIFACT_NAME, body)
+        write_artifact(_artifact_name(tag), body)
     return body
+
+
+def _artifact_name(tag: str | None) -> str:
+    if not tag:
+        return ARTIFACT_NAME
+    return ARTIFACT_NAME.replace(".json", "%s.json" % _suffix(tag))
 
 
 #: The underlying's own daily bars. Moneyness is strike / spot and the variance
@@ -256,19 +321,45 @@ def acquire(budget_usd: float, execute: bool = False, client: DA.Client | None =
 SPOT_DATASET = "EQUS.SUMMARY"
 SPOT_SCHEMA = "ohlcv-1d"
 
+#: EQUS.SUMMARY begins 2024-07-01, so it cannot price a window that PRECEDES the
+#: discovery sample. SPY's primary listing is NYSE Arca and ``ARCX.PILLAR``
+#: serves ``ohlcv-1d`` from 2018, which is the same instrument on the venue that
+#: lists it rather than a proxy. The two series are COMPARED on their overlap
+#: before the earlier one is used, so the substitution is measured, not assumed.
+SPOT_DATASET_PRE_2024 = "ARCX.PILLAR"
 
-def spot_path() -> Path:
-    return data_root() / ("%s_%s_daily.csv" % (UNDERLYING, SPOT_DATASET.replace(".", "_")))
+#: ``ohlcv-1d`` on a VENUE dataset aggregates the whole UTC day, extended hours
+#: included, so its close is the last Arca print near 20:00 ET and not the
+#: 16:00 close at all - it disagrees with the consolidated summary by a median
+#: of 8.8 bp and by 348 bp on the worst day of April 2025. The HOURLY bars carry
+#: the same information without that defect: the bar covering 15:00-16:00 ET
+#: closes at the closing print. $0.02 for four years, and it is the only source
+#: that spans BOTH the discovery sample and the window that precedes it.
+SPOT_SCHEMA_INTRADAY = "ohlcv-1h"
+#: The ET hour whose close IS the session close.
+SPOT_CLOSE_HOUR_ET = 15
 
 
-def acquire_spot(client: DA.Client, start: str, end: str, execute: bool = False) -> dict:
-    """Buy the underlying's daily closes, priced first like everything else."""
-    usd = client.cost([UNDERLYING], start, end, dataset=SPOT_DATASET, schema=SPOT_SCHEMA)
-    out = {"dataset": SPOT_DATASET, "schema": SPOT_SCHEMA, "symbol": UNDERLYING,
-           "start": start, "end": end, "cost_usd": round(usd, 6),
+def spot_path(tag: str | None = None, dataset: str | None = None,
+              schema: str | None = None) -> Path:
+    ds = dataset or SPOT_DATASET
+    sch = schema or SPOT_SCHEMA
+    stem = "daily" if sch == SPOT_SCHEMA else sch.replace("-", "_")
+    return data_root(tag) / ("%s_%s_%s.csv" % (UNDERLYING, ds.replace(".", "_"), stem))
+
+
+def acquire_spot(client: DA.Client, start: str, end: str, execute: bool = False,
+                 *, tag: str | None = None, dataset: str | None = None,
+                 schema: str | None = None) -> dict:
+    """Buy the underlying's closes, priced first like everything else."""
+    ds = dataset or SPOT_DATASET
+    sch = schema or SPOT_SCHEMA
+    usd = client.cost([UNDERLYING], start, end, dataset=ds, schema=sch)
+    out = {"dataset": ds, "schema": sch, "symbol": UNDERLYING,
+           "start": start, "end": end, "cost_usd": round(usd, 6), "tag": tag,
            "why": "moneyness is strike/spot and the variance risk premium needs realised "
                   "volatility from spot returns; the owned SPY minute panel stops at 12:59 ET"}
-    target = spot_path()
+    target = spot_path(tag, ds, sch)
     if target.exists() and target.stat().st_size > 0:
         out["state"] = "REUSED"
         out["path"] = str(target)
@@ -276,8 +367,7 @@ def acquire_spot(client: DA.Client, start: str, end: str, execute: bool = False)
     if not execute:
         out["state"] = "PRICED_NOT_DOWNLOADED"
         return out
-    raw = client.get_range_csv([UNDERLYING], start, end,
-                               dataset=SPOT_DATASET, schema=SPOT_SCHEMA)
+    raw = client.get_range_csv([UNDERLYING], start, end, dataset=ds, schema=sch)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(".csv.tmp")
     tmp.write_bytes(raw)
@@ -285,6 +375,57 @@ def acquire_spot(client: DA.Client, start: str, end: str, execute: bool = False)
     out["state"] = "DOWNLOADED"
     out["path"] = str(target)
     out["bytes"] = len(raw)
+    return out
+
+
+def session_closes(*, tag: str | None = None, dataset: str | None = None,
+                   schema: str | None = None) -> dict:
+    """``session date -> the underlying's close``, dated CORRECTLY.
+
+    Two defects live here and both were found by measurement, not by reading:
+
+    1. A DAILY bar from either dataset is stamped ``00:00 UTC`` **of its own
+       session**, so converting that instant to New York lands at 20:00 on the
+       day BEFORE and dates every close one session early. The proof is that the
+       UTC date carries zero weekend rows while the New-York date carries 97 of
+       506 and 188 of 1003. Joined against option dates that shift pushed the
+       close of session ``d+1`` onto date ``d`` and - because no session follows
+       a Friday to supply one - dropped EVERY FRIDAY from the surface.
+    2. A daily bar on a VENUE dataset aggregates the whole UTC day, extended
+       hours included, so its close is the last print near 20:00 ET rather than
+       the 16:00 close: it disagrees with the consolidated summary by a median
+       of 8.8 bp and by 348 bp on the worst day of April 2025.
+
+    The hourly bar fixes both. Its timestamps are real intraday instants, so the
+    New-York date is the session date, and the bar covering 15:00-16:00 ET
+    closes on the closing print. Measured against the ``EQUS.SUMMARY`` close the
+    discovery sample used, over the 506 sessions where both exist: median
+    -0.44 bp, 95th percentile 2.88 bp, and a 5-session return correlation of
+    0.99953. That is the same series, so ONE spot definition now spans the
+    discovery sample and the window that precedes it.
+    """
+    import numpy as np
+    import pandas as pd
+
+    ds = dataset or SPOT_DATASET
+    sch = schema or SPOT_SCHEMA
+    df = pd.read_csv(spot_path(tag, ds, sch))
+    ts = pd.to_datetime(df["ts_event"], unit="ns", utc=True, errors="coerce")
+    if ts.isna().all():
+        ts = pd.to_datetime(df["ts_event"], utc=True, errors="coerce")
+    px = pd.to_numeric(df["close"], errors="coerce")
+    if px.abs().median() > 1e6:
+        px = px * PRICE_SCALE
+    if sch == SPOT_SCHEMA_INTRADAY:
+        ny = ts.dt.tz_convert("America/New_York")
+        keep = ny.dt.hour == SPOT_CLOSE_HOUR_ET
+        dates = ny[keep].dt.date.astype(str)
+        vals = px[keep]
+    else:
+        # the UTC date IS the session date; NEVER convert a midnight stamp
+        dates = ts.dt.date.astype(str)
+        vals = px
+    out = {d: float(v) for d, v in zip(dates, vals) if np.isfinite(v)}
     return out
 
 
@@ -414,7 +555,12 @@ def _forward_and_discount(g: "pd.DataFrame") -> tuple:              # noqa: F821
     return float(np.median(y + k)), 1.0, int(len(k))
 
 
-def build_surface(client: DA.Client | None = None, *, write: bool = True) -> dict:
+def build_surface(client: DA.Client | None = None, *, write: bool = True,
+                  window: tuple | None = None, tag: str | None = None,
+                  spot_dataset: str | None = None,
+                  spot_schema: str | None = None,
+                  spot_tag: str | None = None,
+                  out_tag: str | None = None) -> dict:
     """Every acquired band -> ONE surface CSV in the exact shape
     ``options_surface.features`` already reads.
 
@@ -426,21 +572,18 @@ def build_surface(client: DA.Client | None = None, *, write: bool = True) -> dic
     import pandas as pd
 
     client = client or DA.Client()
-    p = plan(client, budget_usd=0.0)          # prices nothing new; rebuilds the symbol lists
-    spot = pd.read_csv(spot_path())
-    ts = pd.to_datetime(spot["ts_event"], unit="ns", utc=True, errors="coerce")
-    if ts.isna().all():
-        ts = pd.to_datetime(spot["ts_event"], utc=True, errors="coerce")
-    spot["date"] = ts.dt.tz_convert("America/New_York").dt.date.astype(str)
-    px = pd.to_numeric(spot["close"], errors="coerce")
-    if px.abs().median() > 1e6:
-        px = px * PRICE_SCALE
-    spot_close = dict(zip(spot["date"], px))
+    # prices nothing new; rebuilds the symbol lists
+    p = plan(client, budget_usd=0.0, window=window)
+    # the spot file may live under a different tag: ONE hourly series spans both
+    # the discovery sample and the window before it, and is read by both builds
+    spot_close = session_closes(tag=(tag if spot_tag is None else spot_tag),
+                                dataset=spot_dataset, schema=spot_schema)
 
     snap_min = SNAPSHOT_ET[0] * 60 + SNAPSHOT_ET[1]
     frames, skipped = [], {}
     for req in p["requests"]:
-        f = data_root() / ("%s_%s_%s_%s.csv" % (req["label"], SCHEMA, req["start"], req["end"]))
+        f = data_root(tag) / ("%s_%s_%s_%s.csv" % (req["label"], SCHEMA,
+                                                   req["start"], req["end"]))
         if not f.exists():
             skipped[req["label"]] = "not on disk"
             continue
@@ -515,12 +658,16 @@ def build_surface(client: DA.Client | None = None, *, write: bool = True) -> dic
     if out.empty:
         return {"state": "NO_ROWS", "skipped": skipped}
     out = out.sort_values(["date", "expiration", "type", "strike"]).reset_index(drop=True)
+    dest = surface_path(tag if out_tag is None else out_tag)
     if write:
-        surface_path().parent.mkdir(parents=True, exist_ok=True)
-        out.to_csv(surface_path(), index=False, compression="gzip")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        out.to_csv(dest, index=False, compression="gzip")
     ok = out[np.isfinite(out["iv"]) & (out["iv"] > 0)]
     return {
-        "state": "BUILT", "path": str(surface_path()),
+        "state": "BUILT", "path": str(dest), "tag": tag,
+        "spot_dataset": spot_dataset or SPOT_DATASET,
+        "spot_schema": spot_schema or SPOT_SCHEMA,
+        "spot_dates": len(spot_close),
         "contract_days": int(len(out)), "with_iv": int(len(ok)),
         "dates": int(out["date"].nunique()),
         "first": out["date"].min(), "last": out["date"].max(),

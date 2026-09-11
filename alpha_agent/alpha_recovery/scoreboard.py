@@ -51,6 +51,81 @@ def forward_registrations() -> list:
 # --------------------------------------------------------------------------- #
 # Blocks
 # --------------------------------------------------------------------------- #
+def _reversed_skew_block(rs: dict | None, acq: dict | None) -> dict:
+    """The one frozen challenger, reported with its two evidence sources KEPT
+    APART.
+
+    An untouched historical window is INDEPENDENT; sessions that had not
+    happened when the rule was frozen are PROSPECTIVE. Both are real evidence
+    and they are not the same evidence, so this block never adds them together
+    and never lets the second inherit the first's word.
+    """
+    if not rs:
+        return {"state": "NOT_RUN"}
+    conf = rs.get("independent_historical_confirmation") or {}
+    fwd = rs.get("true_forward") or {}
+    # Declared BEFORE the confirmation was measured. None of these is a
+    # qualification: a PASS says the effect survived a window that did not
+    # choose it, and the only thing that can finish the job is forward evidence.
+    state = {
+        "CONFIRMED": "HISTORICALLY_CONFIRMED_AWAITING_TRUE_FORWARD",
+        "FAILED": "HISTORICAL_CONFIRMATION_FAILED_TRUE_FORWARD_STILL_COLLECTING",
+        "INSUFFICIENT_EVIDENCE":
+            "HISTORICAL_CONFIRMATION_INSUFFICIENT_TRUE_FORWARD_STILL_COLLECTING",
+    }.get(conf.get("classification"), "FROZEN_AWAITING_EVIDENCE")
+    brief = conf.get("brief") or {}
+    spec = rs.get("frozen_specification") or {}
+    disc = rs.get("discovery_sample") or {}
+    return {
+        "state": state,
+        "why": ("a pre-registered sign was contradicted; the contradicted direction is frozen as "
+                "a hypothesis and judged ONLY by evidence that did not choose it - an untouched "
+                "window that precedes the discovery sample, and TRUE_FORWARD. Neither is a "
+                "promotion and neither makes it capital-eligible."),
+        "challenger_id": rs.get("challenger_id"),
+        "what_it_is": ("the direction a pre-registered sign was contradicted in, frozen as a "
+                       "hypothesis rather than adopted as a result"),
+        "frozen": {"feature": spec.get("feature"), "sign": spec.get("sign"),
+                   "horizon_sessions": spec.get("horizon_sessions"),
+                   "reversed_relative_to": (spec.get("sign_is_reversed_relative_to") or {}),
+                   "not_optimised": spec.get("not_optimised"),
+                   "freeze_record_hash": (rs.get("freeze_record") or {}).get("freeze_record_hash")},
+        "discovery_sample": {"window": disc.get("sample"), "status": disc.get("status"),
+                             "is_qualification_evidence": False},
+        "independent_historical_confirmation": {
+            "window": conf.get("window"),
+            "classification": conf.get("classification"),
+            "independent_periods": conf.get("independent_periods"),
+            "ann_net": brief.get("ann_net"), "t_net": brief.get("t_net"),
+            "ann_gross": brief.get("ann_gross"), "t_gross": brief.get("t_gross"),
+            "ann_net_at_stress_cost": brief.get("ann_net_at_stress_cost"),
+            "sharpe": brief.get("sharpe"), "max_dd": brief.get("max_dd"),
+            "incremental_ann_net_return": brief.get("incremental_ann_net_return"),
+            "t_incremental": brief.get("t_incremental"),
+            "failed_gates": brief.get("failed_gates"),
+            "multiplicity_denominator": (conf.get("multiple_testing") or {}).get("denominator"),
+            "disjoint_from_discovery": (conf.get("disjointness") or {}).get("state"),
+            "shared_dates_with_discovery": (conf.get("disjointness") or {}).get("shared_dates"),
+            "exposure_check": conf.get("exposure_check"),
+            "what_a_pass_does_not_establish": conf.get("what_a_pass_does_not_establish"),
+            "is_true_forward": False,
+            "acquisition_cost_usd": (acq or {}).get("total_acquisition_cost_usd"),
+            "paid_dollars": ((acq or {}).get("download") or {}).get("paid_dollars")},
+        "true_forward": {
+            "state": fwd.get("state"),
+            "evidence_status": fwd.get("evidence_status"),
+            "first_eligible_observation_session": fwd.get("first_eligible_observation_session"),
+            "next_legitimate_maturity_session": fwd.get("next_legitimate_maturity_session"),
+            "matured_observations": fwd.get("matured_observations"),
+            "backfilled": fwd.get("backfilled"),
+            "registration_owner": fwd.get("registration_owner")},
+        "capital_eligible_now": False,
+        "promotion_performed": False, "holdings_changed": False,
+        "why_not_capital_eligible": fwd.get("why_not_capital_eligible"),
+        "does_not_advance_the_campaign_status": REGISTRATION_IS_NOT_QUALIFICATION,
+    }
+
+
 def _incumbent_block(inc: dict | None) -> dict:
     if not inc:
         return {"state": "NOT_MEASURED"}
@@ -224,12 +299,37 @@ def _best(cands: list) -> dict | None:
     return max(scored, key=lambda c: (rank.get(c.get("verdict"), 0), c.get("historical_oos_net_advantage") or -9))
 
 
+#: A registration is NOT a qualification, and this status must never confuse
+#: them. ``MATERIAL_CHALLENGER_IN_TRUE_FORWARD_COMPETITION`` says a challenger
+#: CLEARED the frozen historical gates and is now being watched forward. A
+#: challenger can also be registered because a FROZEN HYPOTHESIS deserves a
+#: prospective test - REVERSED_SPY_PUT_CALL_SKEW_H5 is exactly that: its sign
+#: was discovered post hoc, it passed no gate, and forward evidence is the only
+#: thing that could ever qualify it. Counting that as "a material challenger in
+#: competition" would let the campaign declare success by registering a guess.
+#:
+#: The rule below already refuses it, because it demands a ``best`` candidate
+#: from the measured grid AND an ALPHA_RECOVERY challenger id. This constant
+#: exists so the refusal is a DECISION rather than an accident of prefix
+#: matching, and ``test_a_registered_but_unqualified_challenger_never_advances_
+#: the_status`` pins it.
+REGISTRATION_IS_NOT_QUALIFICATION = (
+    "a forward registration starts a MEASUREMENT; only a challenger that cleared the frozen "
+    "historical gates may advance the campaign status. A challenger registered to test a "
+    "post-hoc hypothesis has passed nothing, and the status must not be reachable by "
+    "registering a guess.")
+
+
 def status_from(best: dict | None, *, registrations: list, purchase: dict | None,
                 any_measured: bool, cross_domain_positive: bool | None = None) -> str:
     """Exactly one status. A cross-domain sleeve counts as READY or as a
     HISTORICAL_SURVIVOR only when it ADDS utility to the incumbent-only book
     at equal risk (the contract's cross-domain rule); a same-domain candidate
-    needs the head-to-head verdict."""
+    needs the head-to-head verdict.
+
+    A REGISTRATION alone never reaches ``ST_COMPETING``: see
+    :data:`REGISTRATION_IS_NOT_QUALIFICATION`.
+    """
     if best is not None and registrations and any(
             str(r.get("challenger_id") or "").startswith("ALPHA_RECOVERY") for r in registrations):
         return ST_COMPETING
@@ -268,8 +368,10 @@ def build(*, as_of=None, write: bool = True) -> dict:
     micro = read_artifact("microstructure_alpha.json")
     ms_state = read_artifact("microstructure_acquisition_state.json")
     opt_state = read_artifact("options_acquisition_state.json")
+    opt_state_conf = read_artifact("options_acquisition_state_confirm_2022_2024.json")
     dbn = read_artifact("databento_acquisition_state.json")
     options = read_artifact("options_surface.json")
+    rskew = read_artifact("reversed_skew_challenger.json")
     cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual,
                                    intraday=intraday)
     for b in (mandates or {}).get("brief") or []:
@@ -464,7 +566,14 @@ def build(*, as_of=None, write: bool = True) -> dict:
                                        .get("arms") or [])],
                     "adopted_any": False,
                     "why": "a sign chosen after seeing the result is post-hoc selection; the only "
-                           "honest test of the opposite direction is PROSPECTIVE and human-gated"}},
+                           "honest test of the opposite direction is PROSPECTIVE and human-gated",
+                    "what_was_done_about_it": (
+                        "the contradicted direction was FROZEN as a new hypothesis and submitted "
+                        "to the only two kinds of evidence that did not choose it - an untouched "
+                        "historical window that precedes the discovery sample, and TRUE_FORWARD "
+                        "on sessions that had not happened. See "
+                        "REVERSED_SPY_PUT_CALL_SKEW_H5 below.")}},
+            "REVERSED_SPY_PUT_CALL_SKEW_H5": _reversed_skew_block(rskew, opt_state_conf),
             "ANALYST_EXPECTATIONS_REVISION_VINTAGES": {
                 "state": "NOT_OWNED",
                 "why": "external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY "

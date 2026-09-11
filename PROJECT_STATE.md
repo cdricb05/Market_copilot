@@ -281,14 +281,72 @@ series with 40 % more rows, almost all flat, diluting every t toward zero. The
 panel now inherits the bars' calendar, which also makes the pairing claim true by
 construction.
 
-The next axis is **OPTIONS / IMPLIED VOLATILITY**, and it has been priced on
-`OPRA.PILLAR` with the same free endpoint: the whole unfiltered SPY chain is
-**$518** for two years in `ohlcv-1d`, but the axis needs a **moneyness-anchored
-band**, not the chain, and a +/-10 % band at $5 spacing across 24 monthly
-expiries costs **$4.57** in `cbbo-1m` quotes. The $518 figure is what made this
-axis look unaffordable; it was pricing an instrument the axis never needed. This
-is the first information need in the campaign whose price is MEASURED rather than
-`UNQUOTED`.
+The next axis, **OPTIONS / IMPLIED VOLATILITY**, was then opened, acquired and
+CLOSED on 2026-09-11. It had been `DO_NOT_BUY` since R63 on a quote of **$518**
+for two years of the whole unfiltered SPY chain - an instrument the axis never
+needed. The recorded requirement asks for a **+/-10 % moneyness band**, and that
+costs **$4.60** in `cbbo-1m` quotes across 24 monthly expiries. It was never
+unaffordable; it had been priced for the wrong thing and nobody had re-quoted it.
+Acquired: 488 dates, 471 bracketing the money, 464 supporting a skew, against
+264 / 25 / **0** on the owned R45 fixed band. `DATA_INSUFFICIENT` -> `USABLE`.
+**6 specifications, 0 qualified, 0 BH rejections at q=0.10 over m=6.**
+
+**That axis produced the campaign's one serious new hypothesis, and it arrived
+as a contradiction.** `PUT_CALL_SKEW`'s sign was pre-registered from theory as
+`+1`; the data contradicts it at h=1 and h=5. `options_surface.contradicted_signs`
+computes exactly what the other direction would be worth, reports it in full,
+and **never adopts it** - a direction chosen by the same sample that scores it is
+not evidence, and the holdout stopped being a holdout the instant the sign became
+a choice.
+
+**So it was FROZEN instead.** `REVERSED_SPY_PUT_CALL_SKEW_H5` is one
+specification whose only difference from the original arm is the sign; every
+other knob is inherited by import from `options_surface`, and there is no grid,
+no sweep and no rescue in `reversed_skew.py`. Its discovery sample
+(2024-09-10 -> 2026-08-20) is recorded **DISCOVERY ONLY and can never be
+qualification evidence for it**. It is submitted to the only two kinds of
+evidence that did not choose it: an **independent historical window that
+precedes** the discovery sample, and **TRUE_FORWARD**. The two are reported
+separately and never added - independence is not prospectivity.
+
+The challenger is **registered** with the canonical R62 owner
+(`api.prospective_adoption` -> `api.forward_challenger_registry`), identity
+`4e2d1027...`, first eligible observation **2026-09-14**, first maturity
+**2026-09-21**, `backfilled: false`, 0 predictions emitted. Registration starts a
+MEASUREMENT: nothing is promoted, no capital is allocated, no holding changes and
+no order exists. **Registration is an operator act** - the research package may
+never call a registrar, so the freeze record is built in `reversed_skew.py` and
+the act belongs to `scripts/register_reversed_skew_challenger.py`.
+
+**Two defects in the option surface were found and repaired, neither by looking
+at a result.** (1) A daily bar is stamped `00:00 UTC` **of its own session**, so
+converting it to New York dated every close one session early and - because no
+session follows a Friday to supply one - **dropped every Friday**: 379 dates
+where **488** were available. The proof is that the UTC date carries zero weekend
+rows and the New-York date carries 97 of 506. (2) A VENUE daily bar spans the
+whole UTC day, so its close is the last extended-hours print, off from the
+consolidated close by a median of 8.8 bp and by **348 bp** on the worst day of
+April 2025. Both are fixed by the **15:00-16:00 ET hourly bar**, which matches
+the consolidated close to a median of **-0.44 bp** (p95 2.88 bp, 5-session return
+correlation 0.99953) and spans both windows, for $0.026. The six cells were
+re-run on the corrected surface and **the axis conclusion is unchanged**.
+
+**A third correction is owed to the contradicted-sign report itself.** Flipping
+a sign does not flip the cost: a declared layer is `gross - cost` and its mirror
+is `-(declared) - 2*cost`, so merely negating each layer overstated it by two
+cost drags - on precisely the numbers that report exists to state honestly.
+Corrected, the h=5 arm's worse holdout half is **-0.0053 against the -0.005
+floor**, so it would **NOT** pass every gate. The earlier claim that it would is
+withdrawn. On corrected data the flipped h=5 arm is +27.99 %/yr at t 2.96 over 88
+independent periods, not +37.99 %/yr at t 3.10 over 66.
+
+The audit now **enumerates every door into a forward clock** rather than keying
+on one confirmation token, and that check immediately found a third door nobody
+had listed - `scripts/run_research_runtime.py`, which adopts under R61 because a
+freeze and the start of its forward evidence are one operation. It is legitimate
+and is now declared; what is pinned is that none of the three holds a lifecycle,
+clock, identity or registration rule of its own, all supply a confirmation token,
+and none exposes an argument through which a historical boundary could be named.
 
 Owners: `alpha_agent/alpha_recovery/databento_acquisition.py` (acquisition,
 stage `databento`, deliberately excluded from `all` because it is the only stage
