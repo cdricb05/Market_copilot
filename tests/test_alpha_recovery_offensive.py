@@ -32,6 +32,7 @@ What is protected (the contract's required list):
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -57,6 +58,7 @@ from alpha_agent.alpha_recovery import forward_package as FP
 from alpha_agent.alpha_recovery import incumbent as INC
 from alpha_agent.alpha_recovery import intraday_alpha as IA
 from alpha_agent.alpha_recovery import intraday_data as ID
+from alpha_agent.alpha_recovery import options_acquisition as OA
 from alpha_agent.alpha_recovery import options_surface as OS
 from alpha_agent.alpha_recovery import news as NW
 from alpha_agent.alpha_recovery import program as PR
@@ -2061,4 +2063,125 @@ def test_microstructure_artifact_closes_every_family_with_a_reason():
     s = body["safety"]
     assert s["paper_only"] and s["research_only"] and s["live_checkout_read_only"]
     assert not s["creates_orders"] and not s["automatic_promotion"]
+
+
+
+# --------------------------------------------------------------------------- #
+# Moneyness-anchored SPY option surface
+# --------------------------------------------------------------------------- #
+def test_option_osi_spelling_is_the_padded_21_character_form():
+    """Two other spellings were refused by the venue. The root is padded to six
+    characters, so SPY carries three trailing spaces, and the whole symbol is 21
+    characters. A wrong spelling spends nothing but returns nothing."""
+    s = OA.osi(date(2025, 11, 21), "C", 560.0)
+    assert s == "SPY   251121C00560000"
+    assert len(s) == 21
+    back = OA.parse_osi(s)
+    assert back == {"expiration": date(2025, 11, 21), "type": "call", "strike": 560.0}
+    assert OA.parse_osi(OA.osi(date(2026, 6, 18), "P", 712.5))["strike"] == 712.5
+
+
+def test_option_expiries_move_off_market_holidays():
+    """Two monthly expiries in the window fall on market holidays and move to
+    the Thursday. Found because the VENUE refused to resolve the Friday symbol,
+    not assumed from a calendar."""
+    assert OA.third_friday(2025, 4) == date(2025, 4, 17), "Good Friday 2025"
+    assert OA.third_friday(2026, 6) == date(2026, 6, 18), "Juneteenth 2026"
+    assert OA.third_friday(2025, 11) == date(2025, 11, 21), "an ordinary month is untouched"
+
+
+def test_option_forward_comes_from_parity_and_needs_no_rate_curve():
+    """C - P = D*(F - K) exactly, so the options price their own forward. Both
+    earlier implied-volatility attempts failed because their external rate /
+    index inputs drifted; this construction has no external input to drift."""
+    fwd, disc = 600.0, 1.0
+    ks = np.arange(560.0, 641.0, 5.0)
+    rows = []
+    for k in ks:
+        # any prices obeying parity will do - the fit must recover F from them
+        call = max(fwd - k, 0.0) + 8.0
+        rows += [{"strike": k, "type": "call", "mid": call},
+                 {"strike": k, "type": "put", "mid": call - disc * (fwd - k)}]
+    f, d, n = OA._forward_and_discount(pd.DataFrame(rows))
+    assert f == pytest.approx(fwd, rel=1e-6)
+    assert d == pytest.approx(disc, rel=1e-6)
+    assert n >= 4
+    # too few strikes is a refusal, not a guess
+    assert not np.isfinite(OA._forward_and_discount(pd.DataFrame(rows[:4]))[0])
+
+
+def test_option_implied_vol_round_trips_and_refuses_impossible_prices():
+    """Bisection on a monotone function, so it cannot run away where vega
+    collapses - and a price outside its no-arbitrage bounds has no volatility
+    that produces it, which must be NaN rather than a number."""
+    fwd, k, t, disc = 600.0, 610.0, 0.25, 0.99
+    for vol in (0.08, 0.15, 0.30, 0.80):
+        s = vol * math.sqrt(t)
+        d1 = (math.log(fwd / k) + 0.5 * s * s) / s
+        d2 = d1 - s
+        nd = lambda x: 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))       # noqa: E731
+        price = disc * (fwd * nd(d1) - k * nd(d2))
+        got = OA._implied_vol(price, fwd, k, t, disc, True)
+        assert got == pytest.approx(vol, abs=1e-4), vol
+    # below intrinsic and above the forward are both impossible
+    assert math.isnan(OA._implied_vol(1e-9, fwd, k, t, disc, True))
+    assert math.isnan(OA._implied_vol(disc * fwd * 1.01, fwd, k, t, disc, True))
+    assert math.isnan(OA._implied_vol(10.0, fwd, k, -1.0, disc, True))
+
+
+def test_option_band_tracks_the_underlying_rather_than_standing_still():
+    """The whole defect being fixed: a FIXED band drifts out of the money as the
+    underlying moves. The band must be centred on the level, not on a constant."""
+    lo_band, hi_band = OA.band_for(560.0), OA.band_for(760.0)
+    assert lo_band[0] < 560.0 < lo_band[-1]
+    assert hi_band[0] < 760.0 < hi_band[-1]
+    assert hi_band[0] > lo_band[-1], "the two bands overlap, so it is not tracking"
+    for b in (lo_band, hi_band):
+        centre = 0.5 * (b[0] + b[-1])
+        assert abs(b[0] / centre - (1 - OA.MONEYNESS_BAND)) < 0.02
+        assert all(round((b[i + 1] - b[i]), 6) == OA.STRIKE_SPACING for i in range(len(b) - 1))
+
+
+def test_option_surface_prefers_the_moneyness_anchored_file_when_present(monkeypatch, tmp_path):
+    """The R45 fixed band stays as the fallback, so the module still runs
+    wherever the new surface has not been acquired."""
+    fake = tmp_path / "anchored.csv.gz"
+    monkeypatch.setattr(OA, "surface_path", lambda: fake)
+    assert OS.surface_path() == OS.R45_SURFACE_PATH, "absent file must fall back"
+    fake.write_bytes(b"")
+    fake.write_text("x")
+    assert OS.surface_path() == fake, "the anchored surface must win when it exists"
+
+
+def test_option_term_slope_is_expressible_and_deliberately_unspent():
+    """The budget is frozen so that 'we found something new we could test'
+    cannot quietly become 'so we tested more things'. The term slope is newly
+    measurable on the anchored surface and is recorded as NOT run."""
+    assert "TERM_SLOPE" not in OS.SIGNALS
+    t = OS.TERM_SLOPE_NOT_RUN
+    assert t["field"] == "term_slope"
+    assert t["newly_expressible_because"] and t["why_not_run"]
+    assert len(OS.default_grid()) <= AR.FAMILY_PRIMARY_MAX
+    # and the horizon that cannot clear the floor is still not run
+    assert 21 not in OS.HORIZONS
+    assert "756" in OS.HORIZON_NOT_RUN[21], "the reason must quote the CURRENT sample arithmetic"
+
+
+def test_option_acquisition_prices_before_it_downloads():
+    body = AR.read_artifact(OA.ARTIFACT_NAME)
+    if not body:
+        pytest.skip("the option band has not been acquired in this checkout")
+    p = body["plan"]
+    assert p["cost_estimated_before_any_download"] is True
+    assert p["selection"]["paid_dollars_required"] == 0.0
+    assert p["selection"]["fits_in_free_credit"]
+    assert p["dataset"] == "OPRA.PILLAR" and p["schema"] == "cbbo-1m"
+    d = body.get("download") or {}
+    if d:
+        assert d.get("paid_dollars") == 0.0
+        assert not d.get("failed")
+    # the signature must carry BOTH dataset and schema, or a cheap quote could
+    # authorise an expensive download
+    for r in p["requests"]:
+        assert r["signature"].startswith("OPRA.PILLAR|cbbo-1m|")
 
