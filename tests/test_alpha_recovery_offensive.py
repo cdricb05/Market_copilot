@@ -1934,6 +1934,40 @@ def test_microstructure_rescue_only_narrows_engagement_and_never_flips_a_sign(ms
     assert np.all(resc * base >= 0), "the rescue flipped a sign"
 
 
+def test_microstructure_latency_control_is_a_control_and_never_a_candidate(ms_panel):
+    """The decisive diagnostic for this axis - and the one most dangerous to
+    report carelessly. A lag-0 fill happens at the very mid whose book produced
+    the signal, so it is a zero-latency idealisation that no one can trade. It
+    must never enter the multiplicity denominator or be promotable."""
+    sp = {"cell_id": "T|x", "family": MS.FAM_DEPTH, "name": "t", "rule": "depth",
+          "group": "EQUITY", "legs": ["ES", "NQ"], "sign": 1.0, "horizon": 5}
+    lc = MA.latency_control(sp)
+    assert lc["is_a_control_not_a_candidate"] is True
+    assert lc["why_not_in_the_bh_denominator"]
+    assert set(lc) >= {"lag_0", "lag_1", "justifies_finer_data_purchase"}
+    # lag 1 must be the SAME rule the campaign actually scores, so the control
+    # is a like-for-like comparison rather than a second strategy
+    real = MA.session_path(sp, cost_bps=0.0)
+    assert lc["lag_1"]["t_gross"] == pytest.approx(
+        S.nw_tstat(real["gross"][np.isfinite(real["gross"])], 0)["t"], rel=1e-6)
+    # the purchase recommendation only fires when there IS information to buy
+    assert lc["justifies_finer_data_purchase"] == bool(
+        abs(lc["lag_0"]["t_gross"]) >= 2.0 > abs(lc["lag_1"]["t_gross"]))
+
+
+def test_microstructure_latency_control_stays_out_of_the_denominator():
+    body = AR.read_artifact(MA.ARTIFACT_NAME)
+    if not body:
+        pytest.skip("the microstructure campaign has not been run in this checkout")
+    assert body["multiple_testing"]["denominator"] == body["n_cells"], \
+        "a non-tradable control entered the multiplicity denominator"
+    lat = body.get("latency_decay")
+    if lat:
+        assert "what_a_null_at_zero_latency_means" in lat
+        assert lat["finer_data_purchase_justified"] == bool(
+            lat["arms_that_would_justify_finer_data"])
+
+
 def test_microstructure_panel_inherits_the_ohlcv_roll_and_calendar():
     """The two panels must be contract-identical, or every paired comparison
     measures the roll instead of the information - and the CALENDAR must be

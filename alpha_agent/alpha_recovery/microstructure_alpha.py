@@ -241,6 +241,77 @@ def session_path(sp: dict, *, cost_bps: float) -> dict:
             "dates": pn["dates"]}
 
 
+def latency_control(sp: dict) -> dict:
+    """THE decisive diagnostic for this axis: how fast does the signal decay?
+
+    Two measurements of the same signal, both at ZERO cost, differing only in
+    when the position is opened:
+
+      LAG 0  signal from the book at the end of minute m, return from the mid at
+             the end of m to the mid at the end of m+1. This is a ZERO-LATENCY
+             idealisation - it fills at the very mid whose book produced the
+             signal - so it is NOT tradable and is never a candidate for
+             capital. It bounds the information content from above.
+      LAG 1  the campaign's actual rule: the same signal, entered one minute
+             later, m+1 -> m+2.
+
+    The gap between them is what the minute sampling costs. It is the
+    measurement that decides whether finer data would be worth buying, and it
+    can only be made because both are computed on the same panel:
+
+      both near zero          the information is not there at minute sampling,
+                              and buying mbp-1 would test a different question
+                              rather than the same one more precisely
+      lag 0 strong, lag 1 not the information is REAL but lives inside the
+                              minute, which is a positive result about order
+                              flow and a negative one about this panel - and
+                              the only condition under which spending further
+                              credit on mbp-1 or bbo-1s is justified
+      both strong             the signal survives a minute of latency
+
+    Reported beside the cell, never entered into the BH denominator: a
+    zero-latency fill is not a hypothesis this campaign could select.
+    """
+    pn = MS.panel()
+    j = _idx(pn, sp["legs"])
+    h = int(sp["horizon"])
+    mid = pn["mid"][:, :, j].astype(float)
+    x = raw_score(sp)
+
+    out = {}
+    for lag in (0, 1):
+        tot = np.zeros(mid.shape[0])
+        for m in entry_columns(h):
+            w = weights_at(sp, x, m)
+            p0, p1 = mid[:, m + lag, :], mid[:, m + lag + h, :]
+            with np.errstate(invalid="ignore", divide="ignore"):
+                r = np.where(np.isfinite(p0) & (p0 > 0), p1 / p0 - 1.0, np.nan)
+            w = np.where(np.isfinite(r), w, 0.0)
+            tot += np.nansum(w * np.nan_to_num(r), axis=1)
+        st = S.nw_tstat(tot[np.isfinite(tot)], 0)
+        out["lag_%d" % lag] = {"ann_gross": float(np.nanmean(tot) * PPY),
+                               "t_gross": st["t"],
+                               "bp_per_day": float(np.nanmean(tot) * 1e4)}
+    t0 = abs(out["lag_0"]["t_gross"] or 0.0)
+    t1 = abs(out["lag_1"]["t_gross"] or 0.0)
+    out.update({
+        "is_a_control_not_a_candidate": True,
+        "why_lag_0_is_not_tradable": "it fills at the very mid whose book produced the signal, "
+                                     "which is a zero-latency idealisation",
+        "why_not_in_the_bh_denominator": "a non-tradable fill is not a hypothesis the campaign "
+                                         "could select for capital",
+        "abs_t_lost_to_one_minute_of_latency": round(t0 - t1, 4),
+        "share_of_signal_surviving_one_minute": (round(t1 / t0, 4) if t0 > 1e-9 else None),
+        "reading": ("no information at minute sampling even with a zero-latency fill"
+                    if t0 < 2.0 else
+                    "the information is REAL but decays inside the minute: it survives a "
+                    "zero-latency fill and not a one-minute one" if t1 < 2.0 else
+                    "the signal survives a full minute of latency"),
+        "justifies_finer_data_purchase": bool(t0 >= 2.0 and t1 < 2.0),
+    })
+    return out
+
+
 @contextlib.contextmanager
 def _as_cost_ladder(lad: dict):
     """Point ``intraday_alpha.gates`` at THIS cell's futures cost ladder.
@@ -331,6 +402,8 @@ def measure_cell(sp: dict, *, with_capital: bool = True) -> dict:
         "verdict_if_gross_t_below_2": "NO_INFORMATION - not an execution problem",
         "verdict_if_gross_t_above_2_but_net_fails": "INFORMATION_PRESENT_BUT_UNAFFORDABLE",
     }
+
+    cell["latency_control"] = latency_control(sp)
 
     if with_capital and primary is not None:
         inc = IA.incumbent_daily_path()
@@ -646,6 +719,39 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
     # The two families whose falsifier is a COMPARISON rather than a threshold.
     fam_summary = _comparison_falsifiers(cells, fam_summary)
 
+    # The axis-level latency verdict, aggregated across every arm. This is the
+    # single number that decides whether ANY further order-flow purchase is
+    # justified, so it is computed rather than argued.
+    lc = [c.get("latency_control") or {} for c in cells]
+    t0 = [abs((x.get("lag_0") or {}).get("t_gross") or 0.0) for x in lc if x.get("lag_0")]
+    t1 = [abs((x.get("lag_1") or {}).get("t_gross") or 0.0) for x in lc if x.get("lag_1")]
+    justify = [c["cell_id"] for c in cells
+               if (c.get("latency_control") or {}).get("justifies_finer_data_purchase")]
+    latency = None
+    if t0:
+        latency = {
+            "question": "is there information in the book at minute sampling, and does any of it "
+                        "survive one minute of latency?",
+            "n_arms": len(t0),
+            "max_abs_t_at_zero_latency": max(t0),
+            "max_abs_t_at_one_minute_latency": max(t1) if t1 else None,
+            "median_abs_t_at_zero_latency": float(np.median(t0)),
+            "arms_reaching_t2_at_zero_latency": int(sum(1 for v in t0 if v >= 2.0)),
+            "arms_reaching_t2_at_one_minute_latency": int(sum(1 for v in t1 if v >= 2.0)),
+            "arms_that_would_justify_finer_data": justify,
+            "finer_data_purchase_justified": bool(justify),
+            "what_a_null_at_zero_latency_means": (
+                "the book state sampled once a minute carries no directional information even "
+                "when filled at the very mid that produced it. Buying mbp-1 or bbo-1s would then "
+                "be testing a DIFFERENT question - sub-minute flow - not the same one more "
+                "precisely, and this axis is not evidence for or against it."),
+            "what_a_null_at_one_minute_but_not_zero_means": (
+                "the information is real and decays inside the minute. That is the ONLY condition "
+                "under which further order-flow credit is justified, and it would name exactly "
+                "what to buy."),
+        }
+    body_latency = latency
+
     best = None
     for c in scored:
         ann = _prim(c).get("ann_net")
@@ -695,6 +801,7 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
         "true_forward_ready": bool(qualified),
         "best_by_ann_net": brief(best) if best else None,
         "best_by_gross_t": brief(best_gross) if best_gross else None,
+        "latency_decay": body_latency,
         "information_not_purchased": dict(MS.INFORMATION_NOT_PURCHASED),
         "brief": sorted((brief(c) for c in cells), key=lambda b: str(b["cell_id"])),
         "safety": {"paper_only": True, "research_only": True, "creates_orders": False,
