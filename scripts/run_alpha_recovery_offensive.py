@@ -63,7 +63,8 @@ OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
           "equity", "residual", "intraday", "options", "databento", "futures", "futures_alpha",
-          "compete", "products", "package", "purchase", "scoreboard", "report", "all")
+          "microstructure", "compete", "products", "package", "purchase", "scoreboard",
+          "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
 STAGES_EXCLUDED_FROM_ALL = ("databento",)
@@ -261,6 +262,31 @@ def _stage_futures_alpha() -> dict:
             "best_gross_t": (body.get("best_by_gross_t") or {}).get("t_gross")}
 
 
+def _stage_microstructure() -> dict:
+    """The native CME ORDER-FLOW campaign.
+
+    The first axis in this campaign whose information is not price state at all:
+    resting depth, queue asymmetry, order counts and trade aggressor side cannot
+    be computed from an OHLCV bar at any lag. Runs the pre-registered grid on
+    the acquired top-of-book panel and applies BH / family Holm over every
+    executed specification. An absent panel is a blocker, never a silent
+    "no advantage".
+    """
+    from alpha_agent.alpha_recovery import microstructure as MS
+    from alpha_agent.alpha_recovery import microstructure_alpha as MA
+    if not any(MS.data_root().glob("*_%s_*.csv" % MS.SCHEMA)):
+        return {"state": "BLOCKED", "blocker": "ORDER_FLOW_PANEL_NOT_ACQUIRED",
+                "remediation": "run the microstructure acquisition with an explicit budget first"}
+    primaries = MA.run_grid(MA.default_grid(), verbose=False)
+    rescues = MA.run_grid(MA.rescue_grid(primaries), verbose=False)
+    body = MA.merge(cells=primaries + rescues)
+    return {"n_cells": body["n_cells"], "counts": body["counts"],
+            "bh_rejected": body["multiple_testing"]["benjamini_hochberg"]["n_rejected"],
+            "qualified": len(body["qualified_for_true_forward"]),
+            "true_forward_ready": body["true_forward_ready"],
+            "best_gross_t": (body.get("best_by_gross_t") or {}).get("t_gross")}
+
+
 def _stage_products() -> dict:
     """What this estate can predict today, in economic units."""
     from alpha_agent.alpha_recovery import forecast_products as FP
@@ -326,6 +352,7 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
             "intraday": _stage_intraday, "options": _stage_options, "databento": _stage_databento,
             "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
+            "microstructure": _stage_microstructure,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 

@@ -21,7 +21,7 @@
   },
   "turnover_delta": null
  },
- "artifact_hash": "6982f5b74c32927d561cfd1a24ea0e3269439412eeca2f625107fd4eb7817160",
+ "artifact_hash": "51a4976218200fe38a3b9d52c1ab30ed61cba7d40d3fcc4c5a5b6e1f2c2a501c",
  "best_challenger": {
   "augmented_ann_net": 0.02280282606212199,
   "augmented_max_dd": -0.5387593219905586,
@@ -2553,6 +2553,24 @@
     "trade_dates": 1034,
     "what_it_bought": "the US afternoon, the closing/settlement print, the overnight and European sessions, and two buckets (ENERGY, FX) the estate had never held at any frequency"
    },
+   "NATIVE_CME_FUTURES_MICROSTRUCTURE": {
+    "acquisition_cost_usd": null,
+    "best_ann_net": null,
+    "bh_rejected": null,
+    "buckets": null,
+    "failure_kinds": [],
+    "horizons_minutes": null,
+    "information_class": "NON_PRICE - resting depth, queue asymmetry, order counts and trade aggressor side cannot be computed from an OHLCV bar at any lag",
+    "information_not_purchased": null,
+    "max_gross_t": null,
+    "n_specifications": null,
+    "paid_dollars": null,
+    "roots": null,
+    "schema": null,
+    "state": "NOT_ACQUIRED",
+    "trade_dates": null,
+    "why_not_mbp1": null
+   },
    "NATIVE_INTRADAY_CROSS_ASSET": {
     "diagnosis": "COST_BINDING_BUT_UNPROVEN",
     "markets": [
@@ -2620,7 +2638,7 @@
    "registered_at": "2026-09-09T13:57:39.040782+00:00"
   }
  ],
- "generated_at": "2026-09-11T13:00:15+00:00",
+ "generated_at": "2026-09-11T14:26:13+00:00",
  "incumbent": {
   "directional_calibration": "NOT_APPLICABLE (a cross-sectional rank model emits no direction)",
   "expected_return_calibration": {

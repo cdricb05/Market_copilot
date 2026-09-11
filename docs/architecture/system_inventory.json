@@ -730,6 +730,28 @@
    "status": "CLOSED_MEASURED",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "The campaign that ran on the acquired native CME panel: 1,034 trade dates x 1,440 minutes x 10 roots across 5 buckets, 2022-09-12 to 2026-09-10. It owns exactly one thing the estate did not already have - the panel-to-weights mapping - because three of the eight pre-registered families describe windows no panel this project has ever held could express. Everything downstream is REUSED and a regression forbids a second copy: intraday_alpha._stats, .gates, .verdict and .equal_risk_daily, r63.sensitivity.nw_tstat and .bh_fdr, r64.family.holm. intraday_data's ETF basis points are rebound around each gate evaluation inside a context manager - because a futures cost is a formula of the price level and so differs per cell - and restored afterwards, so the closed ETF axis is never left re-priced. Two roll guards exist because two spans can straddle a roll: the overnight (18:00 ET prior evening -> 09:29 ET, which crosses the calendar boundary) and carry (which differences two trade dates); a price difference taken across a roll is a calendar spread, never a return. RESULT: 54 specifications, 8 families, 0 survivors, 0 BH rejections at q=0.10, highest gross Newey-West t 1.34 at ZERO cost against a frozen floor of 2.0. Each family closed on its own declared falsifier. The decisive finding is FUT_MARK_TO_CLOSE's: marking to the 16:00 settlement - the single capability the credits bought - added a median of 0.0000/yr over the 12:59 ET mark the owned ETF panel is limited to, improving 4 of 8 arms, which is what no effect looks like rather than a small one."
+  },
+  {
+   "concept": "native_futures_microstructure_panel",
+   "authoritative_owner": "alpha_agent/alpha_recovery/microstructure.py (the ONE owner of the native CME ORDER-FLOW panel: which schema was bought and why, the bounded feature set, and the trade-date grid it normalises to)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/microstructure.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'microstructure')"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "The first NON-PRICE axis of the alpha campaign. Resting depth, queue asymmetry, order counts and trade aggressor side cannot be computed from an OHLCV bar at any lag, which is contract rule 13's new-orthogonal-information condition rather than another price transform. The schema was PRICED, not preferred: every schema GLBX.MDP3 offers was costed with metadata.get_cost - which bills nothing - before a byte was bought, and mbp-1 was rejected because $45 buys 13 sessions against a frozen MIN_EFFECTIVE_PERIODS of 36, so it could not clear the floor at any signal strength. bbo-1m bought four years, seven roots and five buckets for $35.12 on the EXACT contract windows the OHLCV panel was already bought on, and the panel inherits that panel's roll AND its session calendar, so the increment of order flow over bars is a paired difference on identical ground. What was not bought is recorded in INFORMATION_NOT_PURCHASED: a null result here falsifies MINUTE-SAMPLED top-of-book information and must never be reported as a verdict on sub-minute order flow. Research only, free credits only, zero paid dollars."
+  },
+  {
+   "concept": "microstructure_alpha_campaign",
+   "authoritative_owner": "alpha_agent/alpha_recovery/microstructure_alpha.py (the ONE owner of the mapping from the top-of-book panel to target weights and of the intraday entry schedule, and of nothing downstream of either)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/microstructure_alpha.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'microstructure')"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "48 pre-registered primaries, 6 per family across 8 families, at horizons 1/5/15/30/60 minutes. Everything downstream of the weights is REUSED unchanged - intraday_alpha._stats/.gates/.verdict/.equal_risk_daily, sensitivity.bh_fdr/.nw_tstat, family.holm - and test_microstructure_owns_no_second_scorer forbids a second copy. The one genuinely new thing is many entries per trade date, and its two dangers are fixed in advance: entries at horizon H do NOT overlap, so the sample cannot be inflated; and the day's return is the SUM over its entries, not the mean, so an arm at H=1 pays 389 round trips a day instead of one. A signal read at minute m is entered at the mid of m+1, so a full minute separates observation from execution. Both the gross (zero-cost) and net edge are mandatory, because no gross edge is an INFORMATION verdict that no cost assumption can rescue, while a gross edge that dies net is an EXECUTION verdict about this estate's costs."
   }
  ],
  "route_ownership": [

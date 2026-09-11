@@ -265,6 +265,8 @@ def build(*, as_of=None, write: bool = True) -> dict:
     intraday = read_artifact("intraday_alpha.json")
     intraday_state = read_artifact("intraday_data_state.json")
     futures = read_artifact("futures_alpha.json")
+    micro = read_artifact("microstructure_alpha.json")
+    ms_state = read_artifact("microstructure_acquisition_state.json")
     dbn = read_artifact("databento_acquisition_state.json")
     options = read_artifact("options_surface.json")
     cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual,
@@ -394,6 +396,33 @@ def build(*, as_of=None, write: bool = True) -> dict:
                            "10 contracts and 5 buckets - produced no arm reaching even gross t "
                            "2.0 at ZERO cost. The failure is information, not execution or "
                            "coverage."},
+            "NATIVE_CME_FUTURES_MICROSTRUCTURE": {
+                "state": ("NOT_ACQUIRED" if not micro
+                          else ("QUALIFIED" if micro.get("true_forward_ready")
+                                else "CLOSED_NO_QUALIFIED_SIGNAL")),
+                "information_class": "NON_PRICE - resting depth, queue asymmetry, order counts "
+                                     "and trade aggressor side cannot be computed from an OHLCV "
+                                     "bar at any lag",
+                "schema": ((micro or {}).get("panel") or {}).get("schema"),
+                "trade_dates": ((micro or {}).get("panel") or {}).get("trade_dates"),
+                "roots": ((micro or {}).get("panel") or {}).get("roots"),
+                "buckets": ((micro or {}).get("panel") or {}).get("buckets"),
+                "horizons_minutes": (micro or {}).get("horizons_minutes"),
+                "n_specifications": (micro or {}).get("n_cells"),
+                "bh_rejected": (((micro or {}).get("multiple_testing") or {})
+                                .get("benjamini_hochberg") or {}).get("n_rejected"),
+                "max_gross_t": ((micro or {}).get("best_by_gross_t") or {}).get("t_gross"),
+                "best_ann_net": ((micro or {}).get("best_by_ann_net") or {}).get("ann_net"),
+                "acquisition_cost_usd": (((ms_state or {}).get("download") or {})
+                                         .get("spent_estimate_usd")),
+                "paid_dollars": ((ms_state or {}).get("download") or {}).get("paid_dollars"),
+                "why_not_mbp1": (((ms_state or {}).get("information_case") or {})
+                                 .get("schema_choice_was_priced_not_preferred")),
+                "failure_kinds": sorted({(s or {}).get("failure_kind")
+                                         for s in ((micro or {}).get("families") or {}).values()
+                                         if (s or {}).get("failure_kind")}),
+                "information_not_purchased": ((micro or {}).get("information_not_purchased") or {})
+                                             .get("consequence_for_a_negative_result")},
             "OPTIONS_IMPLIED_VOLATILITY_SURFACE": {
                 "state": ((options or {}).get("usability") or {}).get("state"),
                 "dates_bracketing_the_money": ((options or {}).get("usability") or {}).get(
