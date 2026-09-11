@@ -708,6 +708,17 @@
    "status": "OWNED_ALPHA_RECOVERY",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "Research only, free credits only, no subscription, zero paid dollars. The spending contract is enforced in code: nothing is downloaded before metadata.get_cost has priced the identical request signature, and a plan exceeding the operator-stated free balance less a 10 % margin is refused rather than trimmed. Genuine dated contracts only - a continuous symbol is never requested because its roll dates are a vendor's choice the estate cannot audit. The roll is decided from volume strictly before the session it applies to, runs forward only, and returns are spliced within one contract so a calendar spread can never enter a return. Currently BLOCKED_CREDENTIAL_ABSENT: DATABENTO_API_KEY is unset in every scope, the provider answers HTTP 401, and no credit has been consumed."
+  },
+  {
+   "concept": "futures_intraday_preregistration",
+   "authoritative_owner": "alpha_agent/alpha_recovery/futures_intraday.py (the ONE owner of the native CME futures intraday panel: its CME trade-date session definition, its pre-registered cost ladder, its declared families and their falsifiers)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/futures_intraday.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'futures')"
+   ],
+   "status": "OWNED_ALPHA_RECOVERY",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "Written and committed BEFORE the priced Databento panel was downloaded, so that none of its choices can have been made after seeing a bar. Three things are fixed and may not move afterwards: what a session is on a 23-hour venue (the CME trade date rolls at 17:00 ET, NOT at midnight - bars stamped 18:00 ET belong to the next trade date, and grouping them by calendar date splits one session in two and leaks the next session's overnight into this session's close); what a round trip costs in each of ten contracts (a FORMULA, not a bp table, because a futures cost in bp depends on the price level - and emphatically not the desk's 12.5 bp single-name equity rate, which is not true for a liquid CME outright); and which families may be tested, each with a declared falsifier, at 6 primary specifications plus at most 2 rescues against a NAMED measured binding failure. Every frozen gate is inherited unchanged: acquiring data does not buy a weaker threshold. This module owns the panel and the pre-registration only - the scorer, BH/Holm and the risk-controlled book stay with their one owner in r63/r64."
   }
  ],
  "route_ownership": [

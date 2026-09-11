@@ -350,15 +350,68 @@ The download is **resumable and idempotent**: `download` skips any contract file
 that already exists and is non-empty, so an interrupted run continues without
 re-paying for what it already has.
 
-### What runs the moment the panel lands
+### What runs the moment the panel lands - PRE-REGISTERED 2026-09-10
 
 The scorer, gates, FDR/Holm, equal-risk utility and verdict machinery are all
-reused unchanged. What is genuinely new is a **futures panel adapter**:
-`intraday_data` hardwires the ETF panel (`TRADABLE = SPY/QQQ/TLT/GLD`, a
-150-minute `REG_MODS` grid, `EXIT_ET = 11:55`), none of which describes a
-~23-hour CME session. The adapter is the work that the acquisition unblocks, and
-it is the first configuration in this campaign in which a signal can be **marked
-to the close**.
+reused unchanged. What is genuinely new is the panel itself, and its
+pre-registration is **already written and committed, before a single bar
+exists**: `alpha_agent/alpha_recovery/futures_intraday.py`, runner stage
+`futures`, artifact `futures_intraday_preregistration.json`, currently
+`PREREGISTERED_AWAITING_PANEL`. Fixing any of this after seeing bars would
+compromise the axis, so it was fixed first. Three things are now frozen:
+
+**1. What a session is on a 23-hour venue.** The CME trade date rolls at
+**17:00 ET, not midnight**. `parse_csv` labels each bar with its ET *calendar*
+date, which is right for a volume-driven roll schedule and wrong for strategy
+construction: bars stamped 18:00 ET Monday belong to **Tuesday's** trade date,
+and grouping them under Monday splits one session across two rows and leaks the
+next session's overnight into this session's close. Named windows are declared
+once and may not be swept: `OVERNIGHT` (18:00 prior evening -> 09:29),
+`EUROPE` (03:00-08:00), `RTH` (09:30-16:00), `US_AFTERNOON` (13:00-16:00),
+`SETTLEMENT` (15:45-16:00), and `ETF_PANEL_EQUIVALENT` (09:30-12:59) so the two
+panels can be compared on identical ground rather than by assertion.
+
+**2. What a round trip costs.** A **formula, not a basis-point table** - a
+futures cost in bp depends on the price level, so a hardcoded table would
+silently drift with the sample:
+
+    per_side_bps = 10000 * (ticks*tick_size + commission_usd/multiplier) / price
+
+with PRIMARY = 0.5 tick + $1.25/side, STRESS = 1.0 tick + $2.50/side (**capital
+eligibility requires surviving this**), CANONICAL = 2.0 ticks + $2.50/side. The
+desk's 12.5 bp single-name equity rate is **not** applied: it is not true for a
+liquid CME outright, and charging it would reject a real edge for a reason that
+is false. Round trips at representative prices:
+
+| | ES | NQ | GC | 6E | 6J | ZT | ZF | ZN | ZB | CL |
+|---|---|---|---|---|---|---|---|---|---|---|
+| PRIMARY bp | 0.47 | 0.16 | 0.36 | 0.64 | 1.05 | 0.50 | 0.96 | 1.62 | 2.86 | 1.79 |
+| STRESS bp | 0.94 | 0.33 | 0.71 | 1.27 | 2.09 | 1.00 | 1.91 | 3.24 | 5.72 | 3.57 |
+
+All ten published tick values are pinned by regression. For contrast the closed
+ETF axis ran at 4.0 / 10.0 / 25.0 bp.
+
+**3. Which families may be tested, and what would falsify each.** A family with
+no declared falsifier is a fishing licence, so every one carries both. Three are
+possible *only* because of this panel - `FUT_MARK_TO_CLOSE`,
+`FUT_OVERNIGHT_TO_RTH`, `FUT_EUROPE_LEAD` - and five are the closed axis's own
+economic statements re-measured where they can finally be marked to the close.
+`FUT_SESSION_CARRY` carries its prior falsification forward explicitly: the ETF
+carry effect reached gross t 2.05 in one market and **+0.03 %/yr at t 0.01**
+across four, and a single-market arm that does not generalise across the ten
+roots will be read as noise again. Budget is contract section 7 unchanged - 6
+primary per family, at most 2 rescues, and only against a NAMED measured binding
+failure.
+
+Every frozen gate is inherited unchanged and pinned by a test: **acquiring data
+does not buy a weaker threshold.** The module owns the panel and the
+pre-registration only; a regression forbids it growing a second scorer, a second
+multiplicity correction or a second book.
+
+The remaining work after the panel lands is the loader and the family
+implementations against `intraday_data`'s ETF-shaped assumptions
+(`TRADABLE = SPY/QQQ/TLT/GLD`, a 150-minute `REG_MODS` grid, `EXIT_ET = 11:55`),
+none of which describes a ~23-hour CME session.
 
 ## WHAT HAPPENS NEXT AUTOMATICALLY
 

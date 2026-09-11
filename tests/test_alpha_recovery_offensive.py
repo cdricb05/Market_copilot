@@ -44,6 +44,7 @@ from alpha_agent import alpha_recovery as AR
 from alpha_agent import r59
 from alpha_agent.alpha_recovery import checkpoint as CK
 from alpha_agent.alpha_recovery import databento_acquisition as DBN
+from alpha_agent.alpha_recovery import futures_intraday as FI
 from alpha_agent.alpha_recovery import earnings_events as EE
 from alpha_agent.alpha_recovery import equity_challengers as EC
 from alpha_agent.alpha_recovery import forecast_products as FPR
@@ -1328,3 +1329,156 @@ def test_databento_persists_a_normalised_panel_without_a_parquet_engine(root):
                     Path(DBN.__file__).read_text(encoding="utf-8").splitlines())
     for call in (".to_parquet(", ".read_parquet(", "import pyarrow", "import fastparquet"):
         assert call not in code, "%s reintroduces the missing-engine failure" % call
+
+
+# --------------------------------------------------------------------------- #
+# Futures intraday panel: the PRE-REGISTRATION, fixed before the data exists
+# --------------------------------------------------------------------------- #
+def test_futures_tick_values_match_the_venue():
+    """The only per-instrument numbers this estate hardcodes. If a tick value
+    is wrong the whole cost ladder is wrong, and a cost ladder that is wrong in
+    the cheap direction manufactures alpha."""
+    published = {"ES": 12.50, "NQ": 5.00, "GC": 10.00, "6E": 6.25, "6J": 6.25,
+                 "ZN": 15.625, "ZF": 7.8125, "ZT": 7.8125, "ZB": 31.25, "CL": 10.00}
+    assert set(published) == set(FI.SPECS)
+    for root, want in published.items():
+        assert FI.tick_value_usd(root) == pytest.approx(want, rel=1e-9), root
+
+
+def test_futures_cost_ladder_is_ordered_and_never_cheaper_than_a_tick():
+    """STRESS must cost more than PRIMARY and CANONICAL more than STRESS, and
+    no level may price a round trip below one crossed tick - the cheapest thing
+    that can physically happen."""
+    for root in FI.ROOTS:
+        price = 100.0
+        levels = [FI.round_trip_bps(root, price, lv)
+                  for lv in ("PRIMARY", "STRESS", "CANONICAL")]
+        assert levels == sorted(levels), root
+        assert levels[0] < levels[-1], root
+        tick, _mult = FI.SPECS[root]
+        one_tick_bps = 10000.0 * tick / price
+        assert levels[0] >= one_tick_bps, "%s prices a round trip below one tick" % root
+
+
+def test_futures_costs_are_not_the_single_name_equity_rate():
+    """Charging a liquid CME outright the desk's 12.5 bp equity rate would
+    reject a real edge for a reason that is not true. Charging it nothing would
+    manufacture one. Both are checked."""
+    es = FI.round_trip_bps("ES", 6400.0, "PRIMARY")
+    assert 0.0 < es < 2.0, es
+    assert FI.round_trip_bps("ES", 6400.0, "CANONICAL") < 25.0
+    # and the ladder still bites on the expensive contracts
+    assert FI.round_trip_bps("ZB", 118.0, "STRESS") > FI.round_trip_bps("ES", 6400.0, "STRESS")
+
+
+def test_futures_cost_in_bp_is_independent_of_the_multiplier_for_the_spread():
+    """The multiplier cancels out of the spread term. If it ever stops
+    cancelling, the formula has been rewritten wrongly."""
+    tick, mult = FI.SPECS["ES"]
+    price = 6400.0
+    spread_only = 10000.0 * (FI.COST_LADDER["PRIMARY"]["ticks"] * tick) / price
+    with_commission = FI.per_side_bps("ES", price, "PRIMARY")
+    commission_part = 10000.0 * (FI.COST_LADDER["PRIMARY"]["commission_usd"] / mult) / price
+    assert with_commission == pytest.approx(spread_only + commission_part, rel=1e-12)
+
+
+def test_futures_trade_date_rolls_at_17_et_not_at_midnight():
+    """The defect this prevents: bars stamped 18:00 ET Monday belong to
+    TUESDAY's trade date. Grouping them under Monday splits one CME session
+    across two rows and leaks the next session's overnight into this session's
+    close."""
+    import pandas as pd
+    ny = "America/New_York"
+    evening = pd.Timestamp("2025-11-17 18:30", tz=ny)        # Monday evening
+    morning = pd.Timestamp("2025-11-18 09:35", tz=ny)        # Tuesday RTH
+    late_us = pd.Timestamp("2025-11-18 15:59", tz=ny)        # Tuesday close
+    assert FI.trade_date(evening) == date(2025, 11, 18)
+    assert FI.trade_date(morning) == date(2025, 11, 18)
+    assert FI.trade_date(late_us) == date(2025, 11, 18)
+    # ... and the calendar date does NOT agree, which is the whole point
+    assert evening.date() != FI.trade_date(evening)
+
+
+def test_futures_windows_cover_what_the_etf_panel_could_never_see():
+    """Each window earns its place by being outside the owned ETF panel, or by
+    being the ETF panel itself for a like-for-like comparison."""
+    etf_lo, etf_hi = FI.WINDOWS["ETF_PANEL_EQUIVALENT"]
+    assert etf_hi == 12 * 60 + 59, "the owned panel's last minute is 12:59 ET"
+    # the afternoon, the settlement print and the close are all beyond it
+    for name in ("US_AFTERNOON", "SETTLEMENT"):
+        assert FI.WINDOWS[name][0] > etf_hi, name
+    assert FI.MARK_MINUTE_ET > etf_hi
+    # the European session and the overnight both start before it
+    assert FI.WINDOWS["EUROPE"][0] < etf_lo
+    assert FI.WINDOWS["OVERNIGHT"][0] < 0, "the overnight starts on the prior evening"
+    assert FI.in_window(18 * 60 + 30, "OVERNIGHT", prior_evening=True)
+    assert FI.in_window(9 * 60, "OVERNIGHT")
+    assert not FI.in_window(10 * 60, "OVERNIGHT")
+
+
+def test_futures_preregistration_does_not_relax_a_single_frozen_gate():
+    """Acquiring data must not buy a weaker threshold."""
+    import alpha_agent.alpha_recovery.intraday_data as ID
+    g = FI.FROZEN_GATES
+    assert g["paired_t"] == 2.0
+    assert g["bh_q"] == 0.10
+    assert g["family_holm_alpha"] == 0.05
+    assert g["materiality_net_pct_per_year"] == 1.5
+    assert g["holdout_halves_floor"] == -0.005
+    assert g["min_effective_periods"] == DBN.MIN_EFFECTIVE_PERIODS == 36
+    assert g["must_survive_cost_level"] == "STRESS"
+    assert FI.COST_ELIGIBILITY_LEVEL == "STRESS"
+    # the closed ETF axis required surviving its own STRESS rung too
+    assert ID.COST_ELIGIBILITY_BPS == ID.COST_STRESS_BPS
+
+
+def test_futures_research_budget_matches_the_contract():
+    assert FI.MAX_PRIMARY_PER_FAMILY == 6
+    assert FI.MAX_RESCUES_PER_FAMILY == 2
+    assert FI.RESCUE_REQUIRES_NAMED_MEASURED_BINDING_FAILURE is True
+
+
+def test_every_futures_family_declares_what_would_falsify_it():
+    """A family with no declared falsifier is a fishing licence."""
+    assert set(FI.FAMILY_CONTRACT) == set(FI.FAMILIES)
+    for fam, contract in FI.FAMILY_CONTRACT.items():
+        assert contract.get("claim"), fam
+        assert contract.get("falsified_by"), fam
+    # the three that justify the spend are the three the ETF panel cannot express
+    for fam in (FI.FAM_CLOSE, FI.FAM_OVERNIGHT, FI.FAM_EUROPE):
+        assert FI.FAMILY_CONTRACT[fam]["only_possible_because"]
+    # and the carry family carries its own prior falsification forward
+    assert "0.01" in FI.FAMILY_CONTRACT[FI.FAM_CARRY]["prior_result"]
+
+
+def test_futures_treasuries_are_one_market_at_four_tenors():
+    """The same non-additivity the acquisition optimiser enforces, restated so
+    a cross-sectional family cannot treat ZT/ZF/ZN/ZB as four independent
+    bets."""
+    rates = [r for r in FI.ROOTS if DBN.UNIVERSE[r][1] == "US_RATES"]
+    assert len(rates) == 4
+    assert len({FI.MARKET[r] for r in rates}) == 4, "tenors are distinguishable"
+    assert all(FI.MARKET[r].startswith("US_RATES") for r in rates), "but they are one complex"
+
+
+def test_futures_panel_absent_is_a_blocker_not_an_empty_result(root, monkeypatch):
+    """The failure mode that produced 8,380 settled hypotheses: an absent panel
+    silently scoring as 'no advantage' instead of refusing to score."""
+    monkeypatch.setattr(FI, "panel_root", lambda: root / "nope")
+    b = FI.build(write=True)
+    assert b["state"] == "PREREGISTERED_AWAITING_PANEL"
+    assert b["blocker"]["kind"] == "PANEL_NOT_ACQUIRED"
+    assert b["roots_on_disk"] == []
+    assert b["written_before_any_bar_was_downloaded"] is True
+    assert b["why_this_is_coverage_not_a_transform"]["contract_rule"] == 13
+    assert b["why_this_is_coverage_not_a_transform"]["is_another_lag_or_transform"] is False
+
+
+def test_futures_preregistration_reuses_the_one_scorer_rather_than_owning_one():
+    """This module owns the PANEL and the pre-registration. It must not grow a
+    second scorer, a second multiplicity correction or a second book."""
+    src = Path(FI.__file__).read_text(encoding="utf-8")
+    for forbidden in ("def run_cell", "def bh_fdr", "def holm", "def walk_forward"):
+        assert forbidden not in src, "%s must stay with its one owner" % forbidden
+    assert FI.preregistration()["reused_not_rebuilt"]
+

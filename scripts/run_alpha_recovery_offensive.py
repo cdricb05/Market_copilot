@@ -62,7 +62,7 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "equity", "residual", "intraday", "options", "databento", "compete", "products",
+          "equity", "residual", "intraday", "options", "databento", "futures", "compete", "products",
           "package", "purchase", "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
@@ -221,6 +221,22 @@ def _stage_databento() -> dict:
     return out
 
 
+def _stage_futures() -> dict:
+    """The native CME futures panel's PRE-REGISTRATION.
+
+    Costs nothing and touches no provider. It exists to be written and
+    committed BEFORE the panel is downloaded, so the session definition, the
+    cost ladder and the family list cannot have been chosen after seeing a bar.
+    """
+    from alpha_agent.alpha_recovery import futures_intraday as FI
+    body = FI.build()
+    out = {"state": body["state"], "roots_on_disk": body["roots_on_disk"],
+           "families": list(body["families"]), "mark_to": body["session"]["mark_to"]}
+    if body.get("blocker"):
+        out["blocker"] = body["blocker"]["kind"]
+    return out
+
+
 def _stage_products() -> dict:
     """What this estate can predict today, in economic units."""
     from alpha_agent.alpha_recovery import forecast_products as FP
@@ -285,6 +301,7 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "tournament": _stage_tournament, "news": _stage_news, "cadence": _stage_cadence,
             "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
             "intraday": _stage_intraday, "options": _stage_options, "databento": _stage_databento,
+            "futures": _stage_futures,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
