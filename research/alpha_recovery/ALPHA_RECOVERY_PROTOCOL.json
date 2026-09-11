@@ -592,6 +592,343 @@
     "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
     "rescue_specifications": [],
     "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_MARK_TO_CLOSE",
+    "frontier_cell_keys": [],
+    "information_class": "THE US AFTERNOON AND THE SETTLEMENT PRINT - 13:00-16:00 ET and the 16:00 mark, which the owned ETF minute panel (09:30-12:59 ET) structurally cannot observe and against which no strategy in this campaign had ever been marked",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|MOM_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|REV_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|MOM_COMMOD"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|REV_COMMOD"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|MOM_EQUITY_RESCUE_CONDITIONAL"
+     },
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_MARK_TO_CLOSE|REV_COMMOD_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_OVERNIGHT_TO_RTH",
+    "frontier_cell_keys": [],
+    "information_class": "THE CME OVERNIGHT SESSION - 18:00 ET prior evening to 09:29 ET, a window the estate has never held at any frequency in any market",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|MOM_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|REV_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|MOM_FX"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|REV_FX"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|MOM_ALL10_RESCUE_CONDITIONAL"
+     },
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_OVERNIGHT_TO_RTH|MOM_EQUITY_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_EUROPE_LEAD",
+    "frontier_cell_keys": [],
+    "information_class": "THE EUROPEAN CASH SESSION - 03:00-08:00 ET, entirely before the owned ETF panel's first bar",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|MOM_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|REV_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|MOM_RATES"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_EUROPE_LEAD|REV_RATES"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_SESSION_CARRY",
+    "frontier_cell_keys": [],
+    "information_class": "PRIOR-SESSION CARRY ON A 23-HOUR VENUE, measurable to the settlement close for the first time and across ten roots rather than four ETFs",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|MOM_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|REV_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|MOM_COMMOD"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_SESSION_CARRY|REV_COMMOD"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_OPENING_RANGE",
+    "frontier_cell_keys": [],
+    "information_class": "OPENING-RANGE STATE held into the afternoon rather than exited at 11:55 ET",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|BREAK_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|FADE_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|BREAK_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|FADE_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|BREAK_COMMOD"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_OPENING_RANGE|FADE_COMMOD"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_VOLATILITY_STATE",
+    "frontier_cell_keys": [],
+    "information_class": "MINUTE-LEVEL REALISED VOLATILITY STATE on native futures rather than ETF proxies",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|COMPRESSED_MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|COMPRESSED_REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|EXPANDED_MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|EXPANDED_REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|COMPRESSED_MOM_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_VOLATILITY_STATE|EXPANDED_MOM_EQUITY"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_CROSS_MARKET_LEADLAG",
+    "frontier_cell_keys": [],
+    "information_class": "MINUTE-LEVEL CROSS-MARKET TRANSMISSION between ten economically distinct CME contracts, including ENERGY and FX which the estate has never held",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|MOM_ZN_TO_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|MOM_GC_TO_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|MOM_CL_TO_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|MOM_6E_TO_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|REV_ZN_TO_EQUITY"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_CROSS_MARKET_LEADLAG|REV_GC_TO_EQUITY"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: find the FIRST NON-INCUMBENT alpha in the newly acquired native CME intraday markets",
+    "family": "FUT_RELATIVE_STRENGTH",
+    "frontier_cell_keys": [],
+    "information_class": "CROSS-SECTIONAL RELATIVE STRENGTH across five buckets on one synchronised clock",
+    "operator_directed": true,
+    "price_state": true,
+    "primary_specifications": [
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|MOM_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|REV_ALL10"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|MOM_CROSS6"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|REV_CROSS6"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|MOM_RATES"
+     },
+     {
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|REV_RATES"
+     }
+    ],
+    "reopening_binding_failure": "the owned R45 ETF minute panel runs 09:30-12:59 ET, so every intraday family in this campaign was tested on the first 150 minutes of the US day and NONE could be marked to the close, observe the overnight session, or see ENERGY or FX at all",
+    "reopening_reason": "COVERAGE_MATERIALLY_IMPROVES",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|MOM_ALL10_RESCUE_CONDITIONAL"
+     },
+     {
+      "binding_failure": "UNCONDITIONAL_ENGAGEMENT: every primary arm engages on essentially every trade date (engaged_share >= 0.90), so it pays a full round trip 252 times a year whether the signal is strong or negligible. On the ten-root arms the pre-registered cost rule charges the most expensive leg's rate to every leg, which is ~7 %/yr of drag against a gross edge an order of magnitude smaller. The failure is measured, not supposed.",
+      "price_state": true,
+      "spec": "FUT_RELATIVE_STRENGTH|REV_RATES_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
    }
   ],
   "family_budget": {

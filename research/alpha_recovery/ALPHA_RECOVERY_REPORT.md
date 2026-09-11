@@ -57,13 +57,13 @@
 
 16. **Why was the options / implied-volatility axis not decided?** DATA_INSUFFICIENT. The surface is a FIXED strike band of 654-720 acquired for a single R45 event study. Over the sample the underlying rallied from 615 to 751, so the band drifted out of the money: only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money, against the frozen floor of 36. An ATM implied-volatility series cannot be built without silently substituting a drifting-moneyness proxy, which would manufacture a result rather than measure one. The floor is NOT moved and no cell is scored. Exact missing requirement: a daily SPY option chain anchored on MONEYNESS rather than on fixed strikes - at minimum a +/-10 % moneyness band with two expiries beyond 18 days - over >= 2 years (~500 dates). The owned surface is 6 fixed expiries x 40 fixed strikes.
 
-17. **How much research effort was non-price?** AUTONOMOUS research: 32 of 38 information-directed specifications (0.842) targeted non-PRICE_STATE information; rule >= 0.75 met: True. Counting the construction-only family too: 32 of 42 (0.762), met: True. Both denominators are reported and both must hold, so the rule cannot be met by reclassifying a family. ALL EXECUTED specifications including the OPERATOR-DIRECTED intraday axis: 32 of 74 (0.432), which is BELOW 0.75. Contract rule 14 scopes its threshold to autonomous research, so that third number is published for transparency rather than judged - it is reported as failing, not reclassified into compliance.
+17. **How much research effort was non-price?** AUTONOMOUS research: 32 of 38 information-directed specifications (0.842) targeted non-PRICE_STATE information; rule >= 0.75 met: True. Counting the construction-only family too: 32 of 42 (0.762), met: True. Both denominators are reported and both must hold, so the rule cannot be met by reclassifying a family. ALL EXECUTED specifications including the OPERATOR-DIRECTED intraday axis: 32 of 128 (0.250), which is BELOW 0.75. Contract rule 14 scopes its threshold to autonomous research, so that third number is published for transparency rather than judged - it is reported as failing, not reclassified into compliance.
 
 18. **What did AlphaAgent choose from the information frontier?** Isolated governor run (OK): 6 information needs offered, mandates: RATES_FUTURES|21|VOLATILITY_EXPECTATIONS_IV (eiv 0.819); VOLATILITY|21|VOLATILITY_EXPECTATIONS_IV (eiv 0.711); FX_FUTURES|5|CARRY (eiv 0.697); FX_FUTURES|21|POSITIONING_COMMITMENTS (eiv 0.690); CREDIT_PROXY|21|INFLATION_EXPECTATIONS (eiv 0.656); US_EQUITY|1|FREE_CASH_FLOW (eiv 0.746).
 
 19. **What is the next highest-value information need?** Frontier: US_EQUITY|5|OWNERSHIP_INSTITUTIONAL_FLOW (remaining value 0.0251, None). Purchase case: EARNINGS_EXPECTATIONS_AS_WAS_CONSENSUS.
 
-20. **How many stop-loss sessions remain?** 0 / 10 eligible sessions elapsed, 10 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
+20. **How many stop-loss sessions remain?** 1 / 10 eligible sessions elapsed, 9 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
 
 21. **If no survivor exists, are owned/free information sources exhausted?** True. Every one of the governor's mandated needs is now executed (0 left unexecuted). The frontier's top OWNED needs were measured rather than assumed: CREDIT_PROXY|TS|21|INFLATION_EXPECTATIONS (frontier rank 6): NOT_ECONOMIC_UNDER_CONTROLS, conditional t 2.86, economic increment +1.21 % /yr; US_EQUITY|XS|1|FREE_CASH_FLOW (frontier rank 2): NOT_ECONOMIC_UNDER_CONTROLS, conditional t 2.21, economic increment +3.62 % /yr; VOLATILITY|TS|1|VOLATILITY_EXPECTATIONS_IV (frontier rank 3): REPRODUCTION_FAILED, conditional t -1.21, economic increment +0.04 % /yr; VOLATILITY|TS|5|VOLATILITY_EXPECTATIONS_IV (frontier rank 3): REPRODUCTION_FAILED, conditional t -1.32, economic increment +0.29 % /yr. Two of them carry REAL conditional information and still fail the economics - the equity free-cash-flow cell improves a daily long-short book that loses 20.3 %/yr to cost and draws down 77.5 %, which the R64 degeneracy rule voids. Families closed: CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, INTRADAY_CROSS_MARKET_LEADLAG, INTRADAY_OPENING_RANGE, INTRADAY_RELATIVE_STRENGTH, INTRADAY_SESSION_CARRY, INTRADAY_VOLATILITY_STATE, MARKET_DIRECTION_SPY, NEWS_INTENSITY. News sample: {'state': None, 'n_complete': None, 'items': 221409}.
 
@@ -75,7 +75,7 @@
 
 **STATUS: OWNED_FREE_INFORMATION_EXHAUSTED**
 
-Stop-loss clock: 0 / 10 eligible sessions elapsed, 10 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
+Stop-loss clock: 1 / 10 eligible sessions elapsed, 9 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
 Deadline outcome: PENDING
 
 | field | INCUMBENT (historical OOS, 21s, top-25) | INCUMBENT (TRUE_FORWARD) | BEST CHALLENGER (historical OOS) |
@@ -117,6 +117,7 @@ Best intraday sleeve `INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY` (NO
 |---|---|---|
 | ANALYST_EXPECTATIONS_REVISION_VINTAGES | NOT_OWNED | external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY normalized file and a 960-row / 40-ticker proxy; there is no revision vintage history to test |
 | MACRO_EVENT_INTRADAY_REACTION | CLOSED_BY_R45 | Release 45's own data frontier records that the effect 'failed on its own holdout, in listed US rates and equities over two years, and in every other market the estate owns'. Re-running it would repeat closed work |
+| NATIVE_CME_FUTURES_INTRADAY | CLOSED_NO_QUALIFIED_SIGNAL | the widest and deepest intraday panel this project has ever held - 2.5x the sessions and 9x the minutes of the closed ETF axis, across 10 contracts and 5 buckets - produced no arm reaching even gross t 2.0 at ZERO cost. The failure is information, not execution or coverage. |
 | NATIVE_INTRADAY_CROSS_ASSET | CLOSED_NO_QUALIFIED_SIGNAL | Across the 30 PRIMARY specifications the largest Newey-West t at ZERO transaction cost is 1.72, and positive-gross arms are 53 % of the grid - what an information-free grid looks like. Cost is therefore NOT what killed the primary grid; there was no credible gross edge to kill. The engagement-condit |
 | OPTIONS_IMPLIED_VOLATILITY_SURFACE | DATA_INSUFFICIENT | The surface is a FIXED strike band of 654-720 acquired for a single R45 event study. Over the sample the underlying rallied from 615 to 751, so the band drifted out of the money: only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money, against the frozen floor of 36. An ATM im |
 | OWNERSHIP_INSTITUTIONAL_FLOW | NOT_OWNED | external_normalized/short_interest is EMPTY and the FINRA raw store is a 93-byte probe; 13F holdings are not on disk (only an EDGAR submissions cache), so the need remains blocked by an unbuilt CUSIP-to-ticker bridge AND by absent data |
@@ -127,7 +128,7 @@ Best intraday sleeve `INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY` (NO
 
 ## Campaign counters
 
-- eligible sessions elapsed / 10: 0 / 10 (remaining 10)
+- eligible sessions elapsed / 10: 1 / 10 (remaining 9)
 - share of new research effort on non-price information: 0.842 (rule >= 0.75: True); inclusive of construction-only specifications 0.762 (True)
 - economically distinct information families tested: 13 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, INTRADAY_CROSS_MARKET_LEADLAG, INTRADAY_OPENING_RANGE, INTRADAY_RELATIVE_STRENGTH, INTRADAY_SESSION_CARRY, INTRADAY_VOLATILITY_STATE, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
 - candidate specifications alive: 5

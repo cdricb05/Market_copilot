@@ -21,7 +21,7 @@
   },
   "turnover_delta": null
  },
- "artifact_hash": "c805e8325b6d3e9cc0f6d8ce0a588134f125f979dde4e89145a66a45220ff788",
+ "artifact_hash": "6982f5b74c32927d561cfd1a24ea0e3269439412eeca2f625107fd4eb7817160",
  "best_challenger": {
   "augmented_ann_net": 0.02280282606212199,
   "augmented_max_dd": -0.5387593219905586,
@@ -2620,7 +2620,7 @@
    "registered_at": "2026-09-09T13:57:39.040782+00:00"
   }
  ],
- "generated_at": "2026-09-11T12:49:41+00:00",
+ "generated_at": "2026-09-11T13:00:15+00:00",
  "incumbent": {
   "directional_calibration": "NOT_APPLICABLE (a cross-sectional rank model emits no direction)",
   "expected_return_calibration": {
@@ -2674,7 +2674,7 @@
   "architecture work"
  ],
  "phase": "ALPHA_RECOVERY",
- "protocol_sha256": "2dc70cb6b0d8c06e66a1e8a72fa7c834533aa53a9f078e51c542de091a4d6467",
+ "protocol_sha256": "90edc4b3b0325ecd517e0c96bfd830ecb681f74029ab3f391b4883980a8c7dda",
  "safety": {
   "activates_sleeve": false,
   "approves_proposal": false,
