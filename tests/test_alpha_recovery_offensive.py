@@ -1,4 +1,4 @@
-﻿"""Alpha Recovery Offensive - the regressions that keep the campaign honest.
+"""Alpha Recovery Offensive - the regressions that keep the campaign honest.
 
 Every test here is HERMETIC. The campaign research root, the committed
 campaign directory (checkpoint / scoreboard), the desk ledger directory, the
@@ -2184,4 +2184,53 @@ def test_option_acquisition_prices_before_it_downloads():
     # authorise an expensive download
     for r in p["requests"]:
         assert r["signature"].startswith("OPRA.PILLAR|cbbo-1m|")
+
+
+
+def test_option_contradicted_sign_is_reported_in_full_and_never_adopted():
+    """The single most dangerous choice on this axis, pinned.
+
+    An arm can be strongly significant in the OPPOSITE direction to the sign
+    declared from theory. Flipping it and reporting a winner is post-hoc sign
+    selection - the direction would have been chosen by the same sample that
+    scores it, so the flipped number carries no evidence. Hiding it would be
+    dishonest. The contract's answer is: compute it, report it in full
+    including which gates it would pass, and do not adopt it."""
+    body = AR.read_artifact(OS.ARTIFACT_NAME)
+    if not body:
+        pytest.skip("the options axis has not been run in this checkout")
+    cs = body.get("pre_registered_signs_the_data_contradicts")
+    assert cs is not None, "the finding must be reported, not omitted"
+    for arm in cs["arms"]:
+        assert arm["adopted"] is False
+        assert arm["why_not_adopted"] and arm["the_only_honest_way_to_test_it"]
+        assert arm["as_declared"]["t_net"] <= -2.0
+        # what is being declined must be stated exactly, not gestured at
+        f = arm["with_the_sign_the_data_prefers"]
+        assert f["t_net"] == pytest.approx(-arm["as_declared"]["t_net"])
+        assert set(arm["gates_it_would_then_pass"]) >= {
+            "materiality_ge_1p5pct", "t_ge_2", "survives_stress_cost",
+            "holdout_sign_agrees", "holdout_halves_ge_floor"}
+    # and none of it may leak into the qualified list or the verdicts
+    assert not body.get("qualified_for_true_forward")
+    for br in body["brief"]:
+        assert br["verdict"] != T.V_MATERIAL
+
+
+def test_option_contradicted_sign_detector_fires_only_on_a_real_contradiction():
+    """A weakly negative arm is not a contradicted sign, and a POSITIVE arm is
+    never one - otherwise the report would fill with noise and the finding would
+    stop meaning anything."""
+    def cell(t_net, ann):
+        return {"cell_id": "X|t%s" % t_net, "sign": 1, "verdict": "NO_ADVANTAGE",
+                "by_cost_bps_per_side": {
+                    "%.1f" % OS.COST_PRIMARY_BPS: {
+                        "all": {"ann_net": ann, "t_net": t_net, "effective_periods": 60},
+                        "selection": {"ann_net": ann}, "holdout": {"ann_net": ann},
+                        "holdout_halves_ann_net": [ann, ann]},
+                    "%.1f" % OS.COST_STRESS_BPS: {"all": {"ann_net": ann, "t_net": t_net}}},
+                "gross": {"ann_gross": ann}}
+    assert OS.contradicted_signs([cell(-1.4, -0.2)])["n"] == 0, "weak negative is not a finding"
+    assert OS.contradicted_signs([cell(+3.0, +0.2)])["n"] == 0, "a winner is not a contradiction"
+    assert OS.contradicted_signs([cell(-3.0, -0.2)])["n"] == 1
 

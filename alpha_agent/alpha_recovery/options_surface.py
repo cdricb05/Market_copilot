@@ -533,6 +533,95 @@ def brief(c: dict) -> dict:
             "error": c.get("error")}
 
 
+def contradicted_signs(cells: list) -> dict:
+    """Arms whose PRE-REGISTERED sign the data contradicts at |t| >= 2.
+
+    This exists because the alternative is worse. An arm can be strongly
+    significant in the OPPOSITE direction to the one declared from theory, and
+    the campaign then faces the single most dangerous choice in empirical
+    finance: flip the sign and report a winner. Flipping is forbidden - it is
+    post-hoc sign selection, and a sign chosen after seeing the result carries
+    no evidence at all. But silently reporting only "0 qualified" would hide a
+    real, decision-relevant measurement.
+
+    So the finding is COMPUTED, reported in full, and explicitly NOT ADOPTED.
+    What it would be worth with the other sign is stated exactly, including
+    which gates it would then pass, so nobody has to take the campaign's word
+    for the size of what is being declined.
+
+    The disciplined way to test a direction discovered this way is PROSPECTIVE:
+    declare it now, freeze it, and let TRUE_FORWARD evidence on data that does
+    not yet exist decide. That is human-gated and nothing here registers it.
+    """
+    out = []
+    for c in cells:
+        a = _lvl(c, COST_PRIMARY_BPS, "all")
+        t = a.get("t_net")
+        if t is None or t >= -2.0:
+            continue
+        sel = _lvl(c, COST_PRIMARY_BPS, "selection")
+        hold = _lvl(c, COST_PRIMARY_BPS, "holdout")
+        stress = _lvl(c, COST_STRESS_BPS, "all")
+        halves = ((c.get("by_cost_bps_per_side") or {}).get("%.1f" % COST_PRIMARY_BPS)
+                  or {}).get("holdout_halves_ann_net") or []
+        cap = c.get("capital_applicability") or {}
+        gross = (c.get("gross") or {}).get("ann_gross")
+        cost_drag = abs((a.get("ann_net") or 0.0) - (gross if gross is not None else 0.0))
+        flipped = {
+            "ann_net": -(gross or 0.0) - cost_drag,
+            "t_net": -float(t),
+            "ann_net_at_stress_cost": -(gross or 0.0) - abs((stress.get("ann_net") or 0.0)
+                                                            - (gross or 0.0)),
+            "selection_ann_net": -(sel.get("ann_net") or 0.0),
+            "holdout_ann_net": -(hold.get("ann_net") or 0.0),
+            "holdout_halves_ann_net": [-h for h in halves],
+            "equal_risk_increment": (None if cap.get("state") != "OK"
+                                     else -(cap.get("incremental_ann_net_return") or 0.0)),
+            "t_incremental": (None if cap.get("state") != "OK"
+                              else -(cap.get("t_incremental") or 0.0)),
+        }
+        would_pass = {
+            "materiality_ge_1p5pct": flipped["ann_net"] >= MATERIALITY_ANN_NET,
+            "t_ge_2": flipped["t_net"] >= 2.0,
+            "survives_stress_cost": flipped["ann_net_at_stress_cost"] >= MATERIALITY_ANN_NET,
+            "holdout_sign_agrees": bool(
+                np.sign(flipped["selection_ann_net"]) == np.sign(flipped["holdout_ann_net"])
+                and flipped["holdout_ann_net"] > 0),
+            "holdout_halves_ge_floor": bool(flipped["holdout_halves_ann_net"]
+                                            and min(flipped["holdout_halves_ann_net"]) >= GATE_HALF_FLOOR),
+            "effective_sample_ge_floor": bool((a.get("effective_periods") or 0) >= MIN_EFFECTIVE_PERIODS),
+            "positive_equal_risk_utility": (None if flipped["equal_risk_increment"] is None
+                                            else flipped["equal_risk_increment"] > 0),
+        }
+        out.append({
+            "cell_id": c["cell_id"], "declared_sign": c.get("sign"),
+            "as_declared": {"ann_net": a.get("ann_net"), "t_net": t,
+                            "verdict": c.get("verdict")},
+            "with_the_sign_the_data_prefers": flipped,
+            "gates_it_would_then_pass": would_pass,
+            "would_pass_every_gate": all(v for v in would_pass.values() if v is not None),
+            "adopted": False,
+            "why_not_adopted": (
+                "the sign was pre-registered from theory BEFORE any arm ran and the data "
+                "contradicts it. Flipping a declared sign after seeing the result is post-hoc "
+                "sign selection: the flipped number is not evidence, because the direction was "
+                "chosen by the same sample that scores it. No threshold was met as registered, "
+                "so the campaign reports 0 qualified."),
+            "the_only_honest_way_to_test_it": (
+                "declare the opposite direction NOW, freeze it, and let TRUE_FORWARD evidence on "
+                "data that does not yet exist decide. That is human-gated and nothing here "
+                "registers it."),
+            "why_it_should_be_treated_sceptically": (
+                "two years is one regime, the arm has %s non-overlapping periods, and an effect "
+                "this large in a heavily-traded, widely-published SPY signal is more consistent "
+                "with a sample artefact than with an edge that survived everyone else looking "
+                "for it" % (a.get("effective_periods"))),
+        })
+    return {"n": len(out), "arms": out,
+            "rule": "reported whenever a PRE-REGISTERED sign is contradicted at t <= -2.0; "
+                    "never acted on"}
+
+
 def merge(*, cells: list | None = None, write: bool = True) -> dict:
     cells = cells if cells is not None else load_cells()
     scored = [c for c in cells if _lvl(c, COST_PRIMARY_BPS, "all").get("p_net_one_sided") is not None]
@@ -562,6 +651,8 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
             "replaces the index proxy with per-contract implied volatilities. The row floor was "
             "never moved."),
         "usability": usability(),
+        # Reported, never acted on. See contradicted_signs.
+        "pre_registered_signs_the_data_contradicts": contradicted_signs(cells),
         "surface": {"path": str(surface_path()),
                     "is_moneyness_anchored": surface_path() != R45_SURFACE_PATH,
                     "dates": int(len(f)),

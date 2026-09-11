@@ -21,7 +21,7 @@
   },
   "turnover_delta": null
  },
- "artifact_hash": "d11b43cecdc9f0676aebe96e999d92cef0e7e1611764b7d24e821872ac9dbd06",
+ "artifact_hash": "0f713d7d90ac2522950d4e08ea8e34795099baad487a321803e5c6dc9adb97f1",
  "best_challenger": {
   "augmented_ann_net": 0.02280282606212199,
   "augmented_max_dd": -0.5387593219905586,
@@ -2610,11 +2610,44 @@
     "state": "CLOSED_NO_QUALIFIED_SIGNAL"
    },
    "OPTIONS_IMPLIED_VOLATILITY_SURFACE": {
-    "dates_bracketing_the_money": 25,
+    "acquisition_cost_usd": 4.5983,
+    "counts": {
+     "NO_ADVANTAGE": 4,
+     "WORSE_THAN_INCUMBENT": 2
+    },
+    "dates": 379,
+    "dates_bracketing_the_money": 364,
+    "dates_supporting_a_skew": 359,
     "exact_missing_requirement": "a daily SPY option chain anchored on MONEYNESS rather than on fixed strikes - at minimum a +/-10 % moneyness band with two expiries beyond 18 days - over >= 2 years (~500 dates). The owned surface is 6 fixed expiries x 40 fixed strikes.",
     "floor": 36,
-    "state": "DATA_INSUFFICIENT",
-    "why": "The surface is a FIXED strike band of 654-720 acquired for a single R45 event study. Over the sample the underlying rallied from 615 to 751, so the band drifted out of the money: only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money, against the frozen floor of 36. An ATM implied-volatility series cannot be built without silently substituting a drifting-moneyness proxy, which would manufacture a result rather than measure one. The floor is NOT moved and no cell is scored."
+    "n_specifications": 6,
+    "paid_dollars": 0.0,
+    "pre_registered_signs_the_data_contradicts": {
+     "adopted_any": false,
+     "arms": [
+      {
+       "adopted": false,
+       "as_declared_ann_net": -0.3554032923895973,
+       "as_declared_t": -2.404374921428856,
+       "cell_id": "OPTIONS|SPY|PUT_CALL_SKEW|h1",
+       "flipped_ann_net": 0.2546032923895973,
+       "flipped_would_pass_every_gate": true
+      },
+      {
+       "adopted": false,
+       "as_declared_ann_net": -0.40002744901791204,
+       "as_declared_t": -3.266181362065323,
+       "cell_id": "OPTIONS|SPY|PUT_CALL_SKEW|h5",
+       "flipped_ann_net": 0.379867449017912,
+       "flipped_would_pass_every_gate": true
+      }
+     ],
+     "n": 2,
+     "why": "a sign chosen after seeing the result is post-hoc selection; the only honest test of the opposite direction is PROSPECTIVE and human-gated"
+    },
+    "state": "USABLE",
+    "surface_is_moneyness_anchored": true,
+    "why": null
    },
    "OWNERSHIP_INSTITUTIONAL_FLOW": {
     "state": "NOT_OWNED",
@@ -2661,7 +2694,7 @@
    "registered_at": "2026-09-09T13:57:39.040782+00:00"
   }
  ],
- "generated_at": "2026-09-11T15:05:24+00:00",
+ "generated_at": "2026-09-11T15:52:35+00:00",
  "incumbent": {
   "directional_calibration": "NOT_APPLICABLE (a cross-sectional rank model emits no direction)",
   "expected_return_calibration": {

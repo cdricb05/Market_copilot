@@ -267,6 +267,7 @@ def build(*, as_of=None, write: bool = True) -> dict:
     futures = read_artifact("futures_alpha.json")
     micro = read_artifact("microstructure_alpha.json")
     ms_state = read_artifact("microstructure_acquisition_state.json")
+    opt_state = read_artifact("options_acquisition_state.json")
     dbn = read_artifact("databento_acquisition_state.json")
     options = read_artifact("options_surface.json")
     cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual,
@@ -429,12 +430,41 @@ def build(*, as_of=None, write: bool = True) -> dict:
                                              .get("consequence_for_a_negative_result")},
             "OPTIONS_IMPLIED_VOLATILITY_SURFACE": {
                 "state": ((options or {}).get("usability") or {}).get("state"),
+                "surface_is_moneyness_anchored": ((options or {}).get("surface") or {}).get(
+                    "is_moneyness_anchored"),
+                "dates": ((options or {}).get("usability") or {}).get("dates"),
                 "dates_bracketing_the_money": ((options or {}).get("usability") or {}).get(
                     "dates_whose_strikes_bracket_the_money"),
+                "dates_supporting_a_skew": ((options or {}).get("usability") or {}).get(
+                    "dates_supporting_a_skew"),
                 "floor": ((options or {}).get("usability") or {}).get("floor"),
                 "why": ((options or {}).get("usability") or {}).get("why"),
+                "n_specifications": (options or {}).get("n_cells"),
+                "counts": (options or {}).get("counts"),
+                "acquisition_cost_usd": (opt_state or {}).get("total_acquisition_cost_usd"),
+                "paid_dollars": ((opt_state or {}).get("download") or {}).get("paid_dollars"),
                 "exact_missing_requirement": ((options or {}).get("usability") or {}).get(
-                    "exact_missing_requirement")},
+                    "exact_missing_requirement"),
+                # The finding that must never be quietly dropped: arms whose
+                # PRE-REGISTERED sign the data contradicts, which would pass
+                # every gate if the sign were flipped - and are not adopted,
+                # because a direction chosen by the sample that scores it is
+                # not evidence.
+                "pre_registered_signs_the_data_contradicts": {
+                    "n": (((options or {}).get("pre_registered_signs_the_data_contradicts") or {})
+                          .get("n")),
+                    "arms": [{"cell_id": a["cell_id"],
+                              "as_declared_ann_net": a["as_declared"]["ann_net"],
+                              "as_declared_t": a["as_declared"]["t_net"],
+                              "flipped_ann_net": a["with_the_sign_the_data_prefers"]["ann_net"],
+                              "flipped_would_pass_every_gate": a["would_pass_every_gate"],
+                              "adopted": a["adopted"]}
+                             for a in (((options or {})
+                                        .get("pre_registered_signs_the_data_contradicts") or {})
+                                       .get("arms") or [])],
+                    "adopted_any": False,
+                    "why": "a sign chosen after seeing the result is post-hoc selection; the only "
+                           "honest test of the opposite direction is PROSPECTIVE and human-gated"}},
             "ANALYST_EXPECTATIONS_REVISION_VINTAGES": {
                 "state": "NOT_OWNED",
                 "why": "external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY "

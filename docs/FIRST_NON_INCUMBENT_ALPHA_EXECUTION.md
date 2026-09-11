@@ -73,8 +73,20 @@ changes that.
 
 ## ACTIVE INFORMATION AXIS
 
-**NONE. Every price-derived axis is closed, and the first NON-price axis is now
-closed too.**
+**NONE. Every price-derived axis is closed; both NON-price axes reachable from
+owned or cheaply-acquirable data have now been opened and closed too.**
+
+**OPTIONS / IMPLIED VOLATILITY** was UNBLOCKED and executed on 2026-09-11. It
+had been `DATA_INSUFFICIENT` since R63 because the owned SPY surface is a fixed
+strike band the underlying rallied through. The recorded `DO_NOT_BUY` had priced
+the whole unfiltered chain at $518; the moneyness band the requirement actually
+names costs **$4.60**. Acquired, built, and run: 379 dates, 364 bracketing the
+money, 359 supporting a skew, 6 specifications, **0 qualified, 0 BH rejections**.
+It also produced the campaign's single most delicate result - two arms whose
+PRE-REGISTERED sign the data contradicts, which would pass every gate if flipped
+and are **not adopted**. See **RESULT OF THE OPTIONS / IMPLIED-VOLATILITY AXIS**
+below; that section is the one a future session must read before touching this
+axis.
 
 **NATIVE CME MICROSTRUCTURE / ORDER FLOW (Databento `bbo-1m`, free credits
 only)** was opened and closed on 2026-09-11 for **$35.12 of free credit and
@@ -405,6 +417,122 @@ $70.49 of free credit, **$0.00 paid dollars**, 213 of 213 requested windows
 delivered, 0 failed. Every request was priced with `metadata.get_cost` before it
 was made, and `download` refuses any signature the plan did not price. No
 subscription, no trial, nothing purchased.
+
+## RESULT OF THE OPTIONS / IMPLIED-VOLATILITY AXIS (acquired and executed 2026-09-11)
+
+**ALPHA FOUND: NO. 0 qualified, 0 BH rejections over m = 6.** But this axis
+produced the one result in the campaign that a reader must not be allowed to
+skim past, and it is reported below in full.
+
+### The axis was BLOCKED on data, not closed on evidence
+
+Since R63 the blocker has been named precisely, and it was never "not enough
+dates": the owned SPY surface is a **FIXED strike band of 654-720** bought for
+one R45 event study. The underlying rallied from 615 to 751, so the band drifted
+out of the money - only **25 of 264 dates** carried a near-dated expiry whose
+strikes bracket the money, against the frozen floor of 36, and a put-call skew
+was supportable on **ZERO** of them. An ATM implied-volatility series cannot be
+built from a strike band the spot has left, and no amount of extra history fixes
+that.
+
+### The recorded DO_NOT_BUY had priced an instrument this axis does not need
+
+That verdict costed the **whole unfiltered SPY option chain**: $518 for two
+years of `ohlcv-1d` on `OPRA.PILLAR`. The requirement on file asks for something
+far smaller - "a +/-10 % moneyness band with two expiries beyond 18 days over
+>= 2 years". Priced with the same free `metadata.get_cost` endpoint, the band
+the requirement actually describes costs **$4.60** in `cbbo-1m` quotes across 24
+monthly expiries. **The axis was never unaffordable. It had been quoted for the
+wrong thing, and nobody had re-quoted it.**
+
+Acquired for **$4.60** plus **$0.0008** for SPY daily closes, zero paid dollars.
+Total across both axes this session: **$39.73 of the $45 cap**.
+
+| | owned R45 fixed band | acquired moneyness band |
+|---|---|---|
+| dates | 264 | **379** |
+| dates whose near strikes bracket the money | **25** | **364** |
+| dates supporting a put-call skew | **0** | **359** |
+| contracts per date (median) | 22 | **160** |
+| expiries per date (median) | ~3 | 3 |
+| usability | `DATA_INSUFFICIENT` | **`USABLE`** |
+
+### THE FINDING THAT IS NOT A WINNER, AND WHY IT IS NOT
+
+Two arms - `PUT_CALL_SKEW` at h = 1 and h = 5 - are strongly significant in the
+**opposite direction to the sign pre-registered from theory**. The declared sign
+is `+1` ("a steep put-over-call skew is hedging demand / crash fear; elevated
+fear has historically been paid"). The data says the reverse.
+
+With the sign the data prefers, `PUT_CALL_SKEW / h5` would be:
+
+| | |
+|---|---|
+| net | **+37.99 %/yr** at t **+3.27** |
+| at STRESS cost (5 bp/side) | +33.95 %/yr |
+| selection / holdout | +41.00 % / +38.48 % — consistent |
+| holdout halves | +18.84 % / +58.11 % — both positive |
+| equal-risk increment vs incumbent | **+79.58 %/yr** at t **+6.88** |
+| gates it would then pass | **every one of them** |
+
+**It is not adopted, and it is not a candidate.** The sign was fixed from theory
+*before any arm ran*, and the data contradicts it. Flipping a declared sign
+after seeing the result is post-hoc sign selection: the direction would have
+been chosen by the very sample that scores it, so the flipped number is not
+evidence of anything, however large it is. The holdout does not rescue it
+either - the holdout was used to choose the sign the moment the sign became a
+choice.
+
+Three further reasons to treat it sceptically rather than as a near-miss:
+
+1. Two years is **one regime**, and the arm has 66 non-overlapping 5-day periods.
+2. An effect this large in a heavily-traded, widely-published SPY signal is more
+   consistent with a sample artefact than with an edge that survived everyone
+   else looking for it.
+3. The same pattern appeared on the microstructure axis - its strongest arm also
+   carried real information with the sign inverted against the declared prior.
+   A campaign that flipped signs when it suited would have "found" two winners
+   today and believed neither of them tomorrow.
+
+**The only honest way to test the opposite direction is PROSPECTIVE:** declare
+it now, freeze it, and let TRUE_FORWARD evidence on data that does not yet exist
+decide. That is human-gated. Nothing here registers it, and the campaign reports
+**0 qualified**.
+
+The finding is computed rather than narrated - `options_surface.contradicted_signs`
+reports it whenever a pre-registered sign is contradicted at t <= -2.0, states
+exactly what is being declined including which gates it would pass, and never
+acts on it. Two regressions pin that it is reported in full and never adopted.
+
+### Construction notes
+
+Quotes, not trades: most strikes in a band do not trade on most days, so a
+trade-based surface is holes and stale prints. Implied volatility comes from the
+`cbbo-1m` quote midpoint and the bid-ask spread is carried through.
+
+The forward and discount come from **put-call parity** - `C - P = D*(F - K)` for
+every strike - so one fit per (date, expiry) recovers both with **no external
+rate curve**. That matters because it is exactly how the estate's two earlier
+implied-volatility attempts failed: both used an index proxy whose FRED / Cboe
+inputs later drifted, and one reproduced badly against the persisted R63 matrix.
+This construction has no second vintage to drift. The check that it is right:
+call and put implied volatilities at the **same strike** agree to a median of
+**0.0041** near the money.
+
+Moneyness is anchored on that forward, not on the equity close, because the
+option snapshot is 15:45 ET and the close is 16:00.
+
+Three things only the real bytes could teach, each now pinned by a regression:
+**OPRA reassigns `instrument_id` every day** and the CSV carries no symbol
+column; the OSI spelling is the padded 21-character form; and two monthly
+expiries fall on market holidays and move to the Thursday - discovered because
+the venue refused to resolve the Friday symbol.
+
+`TERM_SLOPE` is newly expressible on this surface and **deliberately unspent**:
+the family's frozen budget is six primaries and three signals at two horizons
+already spends all six. `h = 21` remains un-run, with the arithmetic re-derived
+for the new sample - ~490 dates gives ~23 non-overlapping periods against the
+floor of 36, and ~756 would be needed.
 
 ## RESULT OF THE NATIVE CME MICROSTRUCTURE AXIS (acquired and executed 2026-09-11) - CLOSED
 
@@ -808,16 +936,21 @@ In order, for a future session:
    0.80 of a round trip at the measured median spreads. mbp-1 and bbo-1s would
    resolve the same effect more precisely without making any more of it
    harvestable, so `finer_data_purchase_justified` is **false**.
-4. **The next axis is OPTIONS / IMPLIED VOLATILITY, and it is now affordable.**
-   A +/-10 % moneyness-anchored SPY band over 2 years costs **$4.57** in
-   `cbbo-1m` quotes on `OPRA.PILLAR` - measured, not estimated. The $518
-   whole-chain quote that made it look unaffordable was pricing the wrong
-   instrument. This is the only open axis that is both non-price and reachable.
-5. **The remaining stop-loss sessions belong to the incumbent's TRUE_FORWARD
+4. **The options axis is DONE, not pending.** It was unblocked for $4.60 and run
+   the same day: 379 dates, 364 bracketing the money, 0 qualified. Do not
+   re-acquire it and do not re-run its six specifications.
+5. **Do NOT flip the two contradicted signs.** `PUT_CALL_SKEW` at h = 1 and
+   h = 5 are significant in the opposite direction to the sign pre-registered
+   from theory, and would pass every gate if flipped (+37.99 %/yr at t 3.27 for
+   h = 5). They are reported in full and NOT adopted. A direction chosen by the
+   sample that scores it is not evidence. The only honest test is prospective,
+   declared now and judged on data that does not yet exist - and that is
+   human-gated.
+6. **The remaining stop-loss sessions belong to the incumbent's TRUE_FORWARD
    evidence.** It is the one measurement still maturing without new information
    (35 sessions, -4.43 % against SPY). Letting it accrue is not idleness; it is
    the only honest thing left that gets better with time alone.
-6. **If an axis is opened at all, it must be non-PRICE_STATE.** Contract rule 14
+7. **If an axis is opened at all, it must be non-PRICE_STATE.** Contract rule 14
    requires >= 75 % of new research to target something other than price state.
    The microstructure axis satisfied that for the first time in the campaign -
    its 52 specifications are all non-price - and the options axis would too.
