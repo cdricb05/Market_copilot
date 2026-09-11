@@ -413,8 +413,12 @@ def build(*, as_of=None, write: bool = True) -> dict:
                                 .get("benjamini_hochberg") or {}).get("n_rejected"),
                 "max_gross_t": ((micro or {}).get("best_by_gross_t") or {}).get("t_gross"),
                 "best_ann_net": ((micro or {}).get("best_by_ann_net") or {}).get("ann_net"),
-                "acquisition_cost_usd": (((ms_state or {}).get("download") or {})
-                                         .get("spent_estimate_usd")),
+                # the priced cost of the panel on disk, NOT what the last run
+                # happened to pay - a resumed run pays 0 and the panel still
+                # cost real credit
+                "acquisition_cost_usd": ((ms_state or {}).get("total_acquisition_cost_usd")
+                                         or (((ms_state or {}).get("plan") or {})
+                                             .get("selection") or {}).get("estimated_spend_usd")),
                 "paid_dollars": ((ms_state or {}).get("download") or {}).get("paid_dollars"),
                 "why_not_mbp1": (((ms_state or {}).get("information_case") or {})
                                  .get("schema_choice_was_priced_not_preferred")),

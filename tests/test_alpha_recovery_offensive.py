@@ -1960,23 +1960,52 @@ def test_microstructure_latency_control_is_a_control_and_never_a_candidate(ms_pa
 
 
 def test_microstructure_top_of_book_edge_is_capped_below_a_round_trip_by_arithmetic():
-    """The structural result that decides the next spend, and it needs no data:
-    microprice - mid == (spread/2)*imbalance, so at a one-tick book the ENTIRE
-    top-of-book effect is half a tick. The tick sets the cost too, so the ratio
-    is a constant of the contract rather than a property of the sample - and in
-    every contract bought it is well below 1."""
+    """The structural result that decides the next spend: microprice - mid ==
+    (spread/2)*imbalance, so the ENTIRE top-of-book effect is bounded by half
+    the quoted spread. The tick sets the cost too, so the ratio is a property of
+    the contract rather than of the sample - and in every contract bought it is
+    below 1, which is why a faster feed cannot make the effect harvestable.
+
+    The spread is MEASURED, not assumed to be one tick: three of the seven
+    contracts quote two ticks, and assuming one would publish a ceiling the data
+    then exceeds."""
+    try:
+        MS.panel()
+    except RuntimeError:
+        pytest.skip("the microstructure panel is not on disk in this checkout")
     for r in MS.ROOTS:
         px = FI.representative_price(r)
         ceiling = MA.structural_edge_bound_bps([r])
         rt = FI.round_trip_bps(r, px, "PRIMARY")
-        assert ceiling == pytest.approx(10000.0 * 0.5 * FI.SPECS[r][0] / px)
+        assert ceiling == pytest.approx(
+            10000.0 * 0.5 * MA.median_spread_ticks(r) * FI.SPECS[r][0] / px)
         assert ceiling < rt, (
             "%s: the top-of-book ceiling %.4f bp exceeds a round trip %.4f bp, which would "
             "change the purchase conclusion" % (r, ceiling, rt))
-        assert 0.2 < ceiling / rt < 0.6, r
+        assert 0.2 < ceiling / rt < 1.0, r
     # the most expensive leg governs a multi-leg arm, as everywhere else
     assert MA.structural_edge_bound_bps(["NQ", "ZN"]) == pytest.approx(
         max(MA.structural_edge_bound_bps(["NQ"]), MA.structural_edge_bound_bps(["ZN"])))
+
+
+def test_microstructure_no_measured_edge_exceeds_its_own_structural_ceiling():
+    """The algebra is a CEILING, so the measurement may approach it and must
+    never pass it. An arm that did would mean the identity, the cost formula or
+    the entry rule was wrong somewhere."""
+    cells = MA.load_cells()
+    if not cells:
+        pytest.skip("the microstructure campaign has not been run in this checkout")
+    checked = 0
+    for c in cells:
+        lc = c.get("latency_control") or {}
+        if not lc.get("round_trip_cost_bp"):
+            continue
+        ratio = lc["bp_per_entry_at_zero_latency"] / lc["round_trip_cost_bp"]
+        assert ratio <= lc["structural_ceiling_over_round_trip"] + 1e-6, (
+            "%s: measured %.4f exceeds its own ceiling %.4f"
+            % (c["cell_id"], ratio, lc["structural_ceiling_over_round_trip"]))
+        checked += 1
+    assert checked > 0
 
 
 def test_microstructure_latency_control_stays_out_of_the_denominator():

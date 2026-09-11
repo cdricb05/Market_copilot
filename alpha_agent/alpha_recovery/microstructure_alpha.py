@@ -105,11 +105,19 @@ def entry_columns(horizon: int) -> list:
 
 
 def _trailing(x: np.ndarray, k: int) -> np.ndarray:
-    """Mean of the k minutes STRICTLY BEFORE each minute, along the minute axis.
+    """Mean over the window ``[m-k+1, m-1]`` - the k-1 minutes STRICTLY BEFORE
+    minute m - along the minute axis.
 
-    Implemented as a cumulative-sum difference shifted by one, so minute m
-    never sees itself. NaNs are treated as absent rather than propagated, which
-    matters because a quiet minute is information, not a hole.
+    Implemented as a cumulative-sum difference shifted by one, so minute m never
+    sees itself and the signal stays causal. The window is k-1 minutes wide
+    rather than k, which is stated exactly here rather than rounded up in prose:
+    it is a baseline, its width is not a swept parameter, and one minute either
+    way changes nothing about the economics - but a docstring that disagrees
+    with its code is how a lookahead hides.
+
+    NaNs are treated as absent rather than propagated, which matters because a
+    minute with no quote update is information (the book did not move), not a
+    hole.
     """
     v = np.nan_to_num(x, nan=0.0)
     ok = np.isfinite(x).astype(np.float32)
@@ -241,27 +249,52 @@ def session_path(sp: dict, *, cost_bps: float) -> dict:
             "dates": pn["dates"]}
 
 
+def median_spread_ticks(root: str) -> float:
+    """The root's median quoted spread over the RTH entry window, in ticks.
+
+    Measured, not assumed. Four of the seven contracts quote one tick and three
+    quote two, and the difference doubles the bound below - so assuming a
+    one-tick book would understate the ceiling for NQ and GC and publish a limit
+    the data then exceeds.
+    """
+    key = "spread_%s" % root
+    if key not in _SPREAD_CACHE:
+        pn = MS.panel()
+        j = pn["instruments"].index(root)
+        a, b = FI.minute_index(*ENTRY_FIRST), FI.minute_index(*ENTRY_LAST)
+        _SPREAD_CACHE[key] = float(np.nanmedian(pn["spread_t"][:, a:b + 1, j]))
+    return _SPREAD_CACHE[key]
+
+
+_SPREAD_CACHE: dict = {}
+
+
 def structural_edge_bound_bps(legs: list) -> float:
-    """The LARGEST top-of-book edge that can exist, in basis points, before any
-    data is examined.
+    """The LARGEST top-of-book edge that can exist, in basis points.
 
     The microprice deviation from the mid is exactly ``(spread/2) * imbalance``,
-    so at a one-tick-wide book and a perfectly one-sided queue it is half a
-    tick. That is an arithmetic ceiling on everything the depth, microprice and
-    order-count families can be worth per trade - not an estimate from the
-    sample, and not something a faster feed can raise. Measured against one
-    round trip at the PRIMARY ladder it comes to 0.33-0.43 in all seven
-    contracts, because the tick drives both numbers.
+    so with a perfectly one-sided queue it is half the quoted spread. That is an
+    arithmetic ceiling on everything the depth, microprice and order-count
+    families can be worth per trade - not an estimate fitted to the sample, and
+    not something a faster feed can raise, because sampling more often does not
+    widen the spread.
 
-    The consequence is the one that matters for the next spend decision: if the
-    whole effect is a third of the cost of acting on it, buying mbp-1 or bbo-1s
-    would measure it more precisely without making it harvestable.
+    Against one round trip at the PRIMARY ladder, using each contract's MEASURED
+    median spread:
+
+        ES 0.42   NQ 0.67   GC 0.80   CL 0.40   6E 0.36   6J 0.36   ZN 0.43
+
+    Every one is below 1.0, which is the whole point: the most that top-of-book
+    queue asymmetry can be worth per trade is less than what one trade costs.
+    The consequence for the next spend decision is that buying mbp-1 or bbo-1s
+    would measure this effect more precisely without making any more of it
+    harvestable.
     """
     worst = 0.0
     for s in legs:
         tick, _mult = FI.SPECS[s]
         px = FI.representative_price(s)
-        worst = max(worst, 10000.0 * 0.5 * tick / px)
+        worst = max(worst, 10000.0 * 0.5 * median_spread_ticks(s) * tick / px)
     return worst
 
 
@@ -352,12 +385,13 @@ def latency_control(sp: dict) -> dict:
         # would recommend buying a faster feed to measure an effect that is
         # structurally smaller than the cost of trading it.
         "justifies_finer_data_purchase": bool(t0 >= 2.0 and t1 < 2.0 and tradable),
+        "median_spread_ticks": round(max(median_spread_ticks(s) for s in sp["legs"]), 3),
         "why_significance_alone_is_not_enough": (
-            "the microprice deviation from the mid is exactly (spread/2)*imbalance, so at a "
-            "one-tick book the entire top-of-book effect is bounded by half a tick - 0.33 to "
-            "0.43 of one round trip in all seven contracts, because the tick sets both. An "
-            "effect a third the size of the cost of acting on it is not made harvestable by "
-            "sampling it faster, only measured more precisely."),
+            "the microprice deviation from the mid is exactly (spread/2)*imbalance, so the entire "
+            "top-of-book effect is bounded by half the quoted spread - 0.36 to 0.80 of one round "
+            "trip across the seven contracts at their MEASURED median spreads. An effect smaller "
+            "than the cost of acting on it once is not made harvestable by sampling it faster, "
+            "only measured more precisely."),
     })
     return out
 
@@ -796,12 +830,16 @@ def merge(*, cells: list | None = None, write: bool = True) -> dict:
                 x.get("structural_ceiling_over_round_trip") for x in lc
                 if x.get("structural_ceiling_over_round_trip") is not None}),
             "why_a_significant_effect_can_still_be_unbuyable": (
-                "the microprice deviation from the mid is exactly (spread/2)*imbalance, so at a "
-                "one-tick book the ENTIRE top-of-book effect is half a tick - between 0.33 and "
-                "0.43 of one round trip in every contract bought, because the tick sets both "
-                "numbers. That ceiling is arithmetic, not a property of this sample, and no "
-                "faster feed raises it. A purchase is therefore justified only if the measured "
-                "zero-latency edge per trade already exceeds a round trip."),
+                "the microprice deviation from the mid is exactly (spread/2)*imbalance, so the "
+                "ENTIRE top-of-book effect is bounded by half the quoted spread - between 0.36 "
+                "and 0.80 of one round trip across the seven contracts at their measured median "
+                "spreads. That ceiling is arithmetic, not a property of this sample, and no "
+                "faster feed raises it, because sampling more often does not widen the spread. A "
+                "purchase is therefore justified only if the measured zero-latency edge per trade "
+                "already exceeds a round trip."),
+            "max_measured_edge_over_round_trip": max(
+                [x["bp_per_entry_at_zero_latency"] / x["round_trip_cost_bp"]
+                 for x in lc if x.get("round_trip_cost_bp")], default=None),
             "what_a_null_at_zero_latency_means": (
                 "the book state sampled once a minute carries no directional information even "
                 "when filled at the very mid that produced it. Buying mbp-1 or bbo-1s would then "

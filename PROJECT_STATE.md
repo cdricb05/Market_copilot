@@ -203,6 +203,93 @@ calendar boundary inside one trade date) and carry (which differences two trade
 dates). Both are masked against the contract actually held, recorded separately
 for the two calendar days a single CME trade date spans.
 
+A SECOND new axis was opened and CLOSED on 2026-09-11, and it is the campaign's
+**first genuinely NON-PRICE axis**: native CME **order flow** through Databento,
+again usage-based, free credits only, **zero paid dollars**. Resting depth, queue
+asymmetry, order counts and trade aggressor side cannot be computed from an OHLCV
+bar at any lag, so contract rule 13's condition here is NEW ORTHOGONAL
+INFORMATION rather than another price transform, and rule 14's non-price
+requirement is satisfied for the first time in the campaign.
+
+**The schema was PRICED, not preferred, and mbp-1 was rejected on the frozen
+floor.** Every schema `GLBX.MDP3` offers was costed with `metadata.get_cost` -
+which bills nothing - on one identical front-month window before a byte was
+bought: `mbp-10` $6.2966/session for ES/NQ/GC/6E, `mbp-1` $3.3280, `tbbo`
+$2.1142, `trades` $1.2685, `ohlcv-1s` $0.5479, `bbo-1s` $0.3949, `bbo-1m`
+$0.0078. `MIN_EFFECTIVE_PERIODS` is frozen at 36 and the gates run on a DAILY
+return series, so the operator's $45 cap buys **13 sessions** of mbp-1 - a sample
+**disqualified before it is examined**. mbp-1 was therefore not merely expensive
+here but unaffordable in the strict sense, and spending the remaining credit on
+evidence that could not qualify a candidate under any outcome is the one purchase
+this contract cannot justify. `bbo-1m` bought **four years, seven roots and all
+five buckets for $35.12** against the $45 cap, on the EXACT contract windows the
+OHLCV panel was already bought on.
+
+**RESULT: closed with no qualified signal - but the failure is not the one the
+previous axis had.** 1,034 trade dates x 1,440 minutes x 7 roots (ES, NQ, GC, CL,
+6E, 6J, ZN), 162 dated contracts, inheriting the OHLCV panel's causal roll AND
+its session calendar so the two are contract-identical (`held_day` agrees
+99.6-99.8 %, RTH coverage 1.000 on every root). **52 specifications** (48
+pre-registered primaries + 4 rescues) across **8 families**, horizons of
+1/5/15/30/60 minutes. BH at q=0.10 over all 52: **0 rejections**; family Holm at
+alpha=0.05: **0 rejections**; 0 qualified.
+
+The decisive measurement is the **latency-decay control**, which measures each
+signal twice at zero cost differing only in when the position opens - lag 0 fills
+at the very mid whose book produced the signal (a zero-latency idealisation,
+never a candidate for capital, excluded from the BH denominator), lag 1 one
+minute later, which is what the campaign actually scores. Of 52 arms, **15 reach
+abs(gross t) >= 2 at zero latency** and one reaches **t = 43.4**; 4 survive one
+minute of latency; and **not one has an edge per trade exceeding a single round
+trip**. The largest edge/round-trip ratio anywhere is **0.38**.
+
+That ceiling was derived algebraically BEFORE the data was examined and the
+measurement then respected it: `microprice - mid == (spread/2) x imbalance`
+exactly, so the entire top-of-book effect is bounded by half the quoted spread -
+**0.36 to 0.80 of one round trip** at the seven contracts' measured median
+spreads. **The information is real, overwhelmingly significant, and structurally
+smaller than the cost of acting on it once.** No faster feed raises that ceiling,
+because sampling more often does not widen the spread, so
+`finer_data_purchase_justified` is **false** and mbp-1 / bbo-1s are recorded
+`DO_NOT_BUY` on arithmetic rather than on a t-statistic.
+
+Seven of the eight families closed as `NO_INFORMATION`. The eighth,
+`MS_FLOW_IMBALANCE`, closed as `INFORMATION_PRESENT_BUT_UNAFFORDABLE`: its best
+arm reaches abs(gross t) **3.33** but with the **opposite sign to the declared
+economic prior** - minute-sampled flow imbalance reverses - and earns 5.98 bp/day
+against **20.73 bp/day** of trading cost. Flipping the sign to match the data
+does not rescue it; it is still 3.5x short. Two families were falsified by a
+declared COMPARISON rather than a threshold: `MS_MICROPRICE_PRESSURE`'s
+t-advantage over the depth imbalance it is built from is
+`{1: +0.055, 5: +0.021, 15: -0.005, 30: +0.003, 60: -0.007}` - the same signal to
+three decimal places, exactly as the identity predicted - and
+`MS_ORDER_COUNT_IMBALANCE` wins 2 of 5 horizons against depth, so order counts
+are a proxy for size rather than separate information.
+
+A defect was caught by its own regression before any measurement ran:
+`microstructure.py` declared `SIDE_BUY = 'A'` directly beneath a comment
+correctly stating that `'B'` is the buy aggressor. Databento labels the side that
+INITIATED the event, so the label reads backwards, and the convention was
+therefore determined EMPIRICALLY on the acquired probe (side `'B'` prints at or
+above the ask 38.6 % of the time against 20.1 % for `'A'`). Left standing, every
+flow family would have been sign-inverted and nothing downstream would have
+complained. A second defect was caught by a pipeline dry run: deriving the
+panel's trade dates from the quote feed admitted 408 extra dates over four years,
+402 of them weekends carrying a median of 1.5 rows - the residual quotes either
+side of the Friday close and Sunday reopen - which would have padded the daily
+series with 40 % more rows, almost all flat, diluting every t toward zero. The
+panel now inherits the bars' calendar, which also makes the pairing claim true by
+construction.
+
+The next axis is **OPTIONS / IMPLIED VOLATILITY**, and it has been priced on
+`OPRA.PILLAR` with the same free endpoint: the whole unfiltered SPY chain is
+**$518** for two years in `ohlcv-1d`, but the axis needs a **moneyness-anchored
+band**, not the chain, and a +/-10 % band at $5 spacing across 24 monthly
+expiries costs **$4.57** in `cbbo-1m` quotes. The $518 figure is what made this
+axis look unaffordable; it was pricing an instrument the axis never needed. This
+is the first information need in the campaign whose price is MEASURED rather than
+`UNQUOTED`.
+
 Owners: `alpha_agent/alpha_recovery/databento_acquisition.py` (acquisition,
 stage `databento`, deliberately excluded from `all` because it is the only stage
 that can consume a credit balance), `futures_intraday.py` (the panel, its
@@ -211,9 +298,22 @@ that can consume a credit balance), `futures_intraday.py` (the panel, its
 the panel-to-weights mapping and nothing downstream: the statistics, the gate
 battery, the verdict vocabulary, the equal-risk utility and both multiplicity
 corrections are reused from `intraday_alpha`, `r63.sensitivity` and
-`r64.family`, and a regression forbids a second copy of any of them. Regressions:
-**104 passing** in `tests/test_alpha_recovery_offensive.py`, up from 73, with all
-four defects and both roll guards pinned individually.
+`r64.family`, and a regression forbids a second copy of any of them.
+
+The order-flow axis adds two owners on the same terms:
+`alpha_agent/alpha_recovery/microstructure.py` (which schema was bought and why,
+the bounded feature set, and the trade-date panel - it READS the OHLCV panel's
+roll and calendar rather than recomputing either) and `microstructure_alpha.py`
+(the signal definitions and the intraday entry schedule, and nothing downstream
+of them), both behind runner stage `microstructure`.
+`test_microstructure_owns_no_second_scorer` forbids a second copy of the
+statistics, the gates, the verdict vocabulary or either multiplicity correction.
+
+Regressions: **125 passing** in `tests/test_alpha_recovery_offensive.py`, up from
+73, with all four OHLCV defects, both roll guards, the inverted aggressor
+constant, the weekend calendar, the non-overlapping entry rule, the sum-not-mean
+cost rule, the latency control's exclusion from the denominator and the
+structural edge ceiling each pinned individually.
 
 No candidate is READY for forward qualification; nothing was registered. 52
 non-incumbent candidates have now been measured and 0 qualified. The purchase

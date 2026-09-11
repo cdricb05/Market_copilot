@@ -74,6 +74,46 @@ CANDIDATES = (
      "usable_history_years": None, "effective_sample": None,
      "fee_reference": "UNQUOTED (S3 / Ortex / exchange files - R63)",
      "proxy_evidence_family": None},
+    # The first two needs in this campaign whose price is MEASURED rather than
+    # UNQUOTED. Both were costed with Databento's metadata.get_cost, which bills
+    # nothing, so the economics below are arithmetic rather than an estimate.
+    {"need": "SUB_MINUTE_ORDER_FLOW",
+     "dimension": "MARKET_MICROSTRUCTURE", "asset_class": "CME_FUTURES", "horizons": [1],
+     "why_owned_free_insufficient": "the estate now owns minute-sampled top-of-book for seven CME "
+                                    "roots over four years, and the latency control measured on it "
+                                    "shows the signal decaying inside the minute. Resolving that "
+                                    "would need every book update (mbp-1) or a 1-second grid "
+                                    "(bbo-1s), neither of which is derivable from a minute sample",
+     "pit_credibility": "PIT_MARKET_OBSERVABLE (exchange capture, already validated on bbo-1m)",
+     "usable_history_years": None, "effective_sample": None,
+     "fee_reference": "MEASURED via metadata.get_cost on GLBX.MDP3, 2026-09-11: mbp-1 $3.3280 "
+                      "per session for ES/NQ/GC/6E, bbo-1s $0.3949, tbbo $2.1142. A 250-session "
+                      "panel therefore costs ~$832 in mbp-1 and ~$99 in bbo-1s",
+     "measured_not_quoted": True,
+     "structural_objection": "the microprice deviation from the mid is exactly "
+                             "(spread/2)*imbalance, so at a one-tick book the ENTIRE top-of-book "
+                             "effect is half a tick - 0.33 to 0.43 of one round trip in all seven "
+                             "contracts, because the tick sets both numbers. That ceiling is "
+                             "arithmetic and no faster feed raises it: finer data would measure "
+                             "the same effect more precisely without making any more of it "
+                             "harvestable",
+     "proxy_evidence_family": None},
+    {"need": "MONEYNESS_ANCHORED_OPTION_SURFACE",
+     "dimension": "VOLATILITY_EXPECTATIONS_IV", "asset_class": "US_EQUITY_INDEX", "horizons": [5, 21],
+     "why_owned_free_insufficient": "the owned SPY surface is a FIXED strike band of 654-720 bought "
+                                    "for a single R45 event study; the underlying rallied through "
+                                    "it, so only 25 of 264 dates carry a near-dated expiry whose "
+                                    "strikes bracket the money, against the frozen floor of 36. "
+                                    "The Polygon options plan answers 403",
+     "pit_credibility": "PIT_MARKET_OBSERVABLE (OPRA consolidated quotes, as-of by construction)",
+     "usable_history_years": 2, "effective_sample": None,
+     "fee_reference": "MEASURED via metadata.get_cost on OPRA.PILLAR, 2026-09-11: a +/-10 % "
+                      "moneyness band at $5 spacing, both rights, 24 monthly expiries over two "
+                      "years, costs $4.57 in cbbo-1m quotes or $22.79 in ohlcv-1d. The whole "
+                      "unfiltered chain would be $518 in ohlcv-1d, which is the quote that made "
+                      "this axis look unaffordable",
+     "measured_not_quoted": True,
+     "proxy_evidence_family": None},
 )
 
 

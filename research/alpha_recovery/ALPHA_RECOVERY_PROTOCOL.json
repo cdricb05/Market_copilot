@@ -929,6 +929,333 @@
      }
     ],
     "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_DEPTH_IMBALANCE",
+    "frontier_cell_keys": [],
+    "information_class": "ORDER BOOK STATE - resting size at the best bid and offer, which a bar never records: a bar carries TRADED volume, never RESTING size",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_DEPTH_IMBALANCE|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_MICROPRICE_PRESSURE",
+    "frontier_cell_keys": [],
+    "information_class": "ORDER BOOK STATE - the size-weighted microprice, which needs both sides' prices AND sizes simultaneously; a bar has neither",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_MICROPRICE_PRESSURE|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_AGGRESSOR_FLOW",
+    "frontier_cell_keys": [],
+    "information_class": "TRADE INITIATION - which side crossed the spread. A bar's volume is unsigned and the aggressor is discarded",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
+      "price_state": false,
+      "spec": "MS_AGGRESSOR_FLOW|ALL7_H5_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_FLOW_IMBALANCE",
+    "frontier_cell_keys": [],
+    "information_class": "TRADE INITIATION - the rolling imbalance of signed flow",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|ALL7_H1_RESCUE_CONDITIONAL"
+     },
+     {
+      "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
+      "price_state": false,
+      "spec": "MS_FLOW_IMBALANCE|EQUITY_H5_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_LIQUIDITY_WITHDRAWAL",
+    "frontier_cell_keys": [],
+    "information_class": "ORDER BOOK DYNAMICS - the CHANGE in resting depth, i.e. liquidity providers stepping away, which no bar can express",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [
+     {
+      "binding_failure": "UNAFFORDABLE_TURNOVER: the arm enters on every scheduled minute of every session, so it pays 390/H round trips a day and the cost ladder consumes a gross edge that the zero-cost measurement shows to be present. The rescue engages only on the arm's own top-conviction minutes, which is the economically correct response to that specific failure and changes no sign, horizon, leg or mark.",
+      "price_state": false,
+      "spec": "MS_LIQUIDITY_WITHDRAWAL|ALL7_H15_RESCUE_CONDITIONAL"
+     }
+    ],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_SPREAD_STATE",
+    "frontier_cell_keys": [],
+    "information_class": "ORDER BOOK STATE - the quoted spread. A bar has one price per field and therefore no spread at all",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_SPREAD_STATE|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_ORDER_COUNT_IMBALANCE",
+    "frontier_cell_keys": [],
+    "information_class": "ORDER BOOK STATE - the NUMBER of resting orders each side, which exists only in book data and is not implied by their total size",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|ALL7_H1"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|ALL7_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|ALL7_H15"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|ALL7_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|ALL7_H60"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_ORDER_COUNT_IMBALANCE|EQUITY_H5"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [],
+    "selects_information": true
+   },
+   {
+    "directive": "operator brief 2026-09-11: determine whether information that does NOT exist in OHLCV bars can predict short-horizon returns",
+    "family": "MS_CROSS_MARKET_TRANSMISSION",
+    "frontier_cell_keys": [],
+    "information_class": "CROSS-MARKET ORDER FLOW - flow pressure in one venue against returns in another; the closed OHLCV axis tested PRICE lead-lag and failed",
+    "operator_directed": true,
+    "price_state": false,
+    "primary_specifications": [
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|NQ_TO_ES_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|ES_TO_NQ_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|GC_TO_ES_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|6E_TO_ES_H5"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|NQ_TO_ES_H30"
+     },
+     {
+      "price_state": false,
+      "spec": "MS_CROSS_MARKET_TRANSMISSION|ES_TO_NQ_H30"
+     }
+    ],
+    "reopening_reason": "NEW_ORTHOGONAL_INFORMATION",
+    "reopening_binding_failure": "the native CME OHLCV axis closed with 0 qualified from 54 specifications and a highest gross t of 1.34, and its mark-to-close falsifier fired - so the estate's intraday problem is INFORMATION, not coverage, and the next axis had to bring information a bar cannot carry",
+    "rescue_specifications": [],
+    "selects_information": true
    }
   ],
   "family_budget": {

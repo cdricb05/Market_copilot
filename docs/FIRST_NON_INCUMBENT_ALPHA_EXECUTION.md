@@ -62,16 +62,37 @@ close - has been REMOVED and then MEASURED. A native CME panel covering the full
 directly against the 12:59 mark. It adds a median of **0.0000 /yr**. The
 coverage was not the constraint.
 
+The successor bottleneck - that bars discard the book, so the estate had never
+observed depth, queue asymmetry, order counts or aggressor side at all - was
+also removed and measured on 2026-09-11. It is not the constraint either, and
+the reason is arithmetic rather than statistical: **the entire top-of-book
+effect is bounded by half the quoted spread**, which is 0.36 to 0.80 of one
+round trip in the seven contracts bought. The information is there and it is
+real; it is smaller than the cost of acting on it once, and no faster feed
+changes that.
+
 ## ACTIVE INFORMATION AXIS
 
-**NONE. Every price-derived axis this campaign can legitimately open is closed.**
+**NONE. Every price-derived axis is closed, and the first NON-price axis is now
+closed too.**
 
-The last one - **NATIVE CME FUTURES 1-MINUTE HISTORY (Databento, free credits
-only)** - was opened 2026-09-10, acquired 2026-09-11 for **$70.49 of free credit
-and $0.00 paid**, and closed the same day across 54 specifications and 8
-families. Best gross Newey-West t at ZERO cost: **1.34** against a frozen floor
-of 2.0. See **RESULT OF THE NATIVE CME FUTURES AXIS** below. It superseded the
-ETF intraday axis, which was already closed, and it did not survive either.
+**NATIVE CME MICROSTRUCTURE / ORDER FLOW (Databento `bbo-1m`, free credits
+only)** was opened and closed on 2026-09-11 for **$35.12 of free credit and
+$0.00 paid**: 52 specifications, 8 families, 7 markets, 5 buckets, horizons of
+1/5/15/30/60 minutes. 0 qualified, 0 BH rejections, 0 Holm rejections. It is the
+campaign's first axis whose information is genuinely not price state - depth,
+queue asymmetry, order counts and aggressor side cannot be computed from a bar
+at any lag - and its result is sharper than a null: **the information is real,
+overwhelmingly significant at zero latency (t up to 43), and structurally
+smaller than one round trip in every one of 52 arms.** See **RESULT OF THE
+NATIVE CME MICROSTRUCTURE AXIS** below.
+
+Before it, **NATIVE CME FUTURES 1-MINUTE OHLCV** was opened 2026-09-10, acquired
+2026-09-11 for **$70.49 of free credit and $0.00 paid**, and closed the same day
+across 54 specifications and 8 families. Best gross Newey-West t at ZERO cost:
+**1.34** against a frozen floor of 2.0. See **RESULT OF THE NATIVE CME FUTURES
+AXIS** below. It superseded the ETF intraday axis, which was already closed, and
+it did not survive either.
 
 Previously active and now CLOSED: **NATIVE INTRADAY CROSS-ASSET PRICE PATH**
 (ETF 1-minute bars). This was the first axis in the campaign that is not daily,
@@ -385,6 +406,160 @@ delivered, 0 failed. Every request was priced with `metadata.get_cost` before it
 was made, and `download` refuses any signature the plan did not price. No
 subscription, no trial, nothing purchased.
 
+## RESULT OF THE NATIVE CME MICROSTRUCTURE AXIS (acquired and executed 2026-09-11) - CLOSED
+
+**ALPHA FOUND: NO.** 52 pre-registered specifications, 8 families, 7 markets, 5
+buckets, 5 horizons. 0 qualified, 0 BH rejections at q = 0.10 over m = 52, 0
+family-Holm rejections. `true_forward_ready: false`. Nothing registered, nothing
+promoted.
+
+This is the campaign's **first genuinely non-price axis**. Resting depth, queue
+asymmetry, order counts and trade aggressor side cannot be computed from an
+OHLCV bar at any lag, so contract rule 13's condition here is NEW ORTHOGONAL
+INFORMATION, not a reopening of price state.
+
+### Why bbo-1m and not mbp-1, which the brief preferred
+
+Priced, not assumed. Every schema GLBX.MDP3 offers was costed with
+`metadata.get_cost` - which bills nothing - on one identical front-month window
+(2026-07-06..2026-07-31, ES/NQ/GC/6E) before a byte was bought:
+
+| schema | $/session, 4 roots | sessions for $45 | clears the frozen floor? |
+|---|---|---|---|
+| mbp-10 | 6.2966 | 7 | no |
+| **mbp-1** | **3.3280** | **13** | **NO** |
+| tbbo | 2.1142 | 21 | no |
+| trades | 1.2685 | 35 | no |
+| ohlcv-1s | 0.5479 | 82 | yes |
+| bbo-1s | 0.3949 | 113 | yes, but no holdout |
+| **bbo-1m** | **0.0078** | **5,764** | **yes, four regimes** |
+
+`MIN_EFFECTIVE_PERIODS` is frozen at 36 and the gates run on a DAILY return
+series, so mbp-1 is not merely expensive here - it is **unaffordable in the
+strict sense**: $45 buys a sample that is disqualified before it is examined.
+bbo-1m bought four years, seven roots and all five buckets for **$35.12**, on
+the EXACT contract windows the OHLCV panel was already bought on.
+
+### What was NOT bought, stated before any result
+
+bbo-1m is the book at the minute boundary plus the last trade of each minute
+with its aggressor side. Quote revisions *within* the minute are not observed,
+and true signed volume cannot be formed - only a last-trade-sign proxy. **A null
+result here falsifies MINUTE-SAMPLED top-of-book information and must never be
+reported as a verdict on sub-minute order flow.**
+
+### The panel
+
+1,034 CME trade dates x 1,440 minutes x 7 roots (ES, NQ, GC, CL, 6E, 6J, ZN),
+2022-09-12 to 2026-09-10, 162 genuine dated contracts, 5 buckets. It inherits
+the OHLCV panel's causal roll **and its session calendar**, so the two are
+identical in dates, contracts and roll: `held_day` agrees 99.6-99.8 %, and RTH
+coverage is 1.000 on every root. That is what makes the increment of order flow
+over bars a paired difference on the same ground rather than a comparison of two
+differently-shaped samples.
+
+### The finding that matters most
+
+The campaign measured each signal twice at zero cost, differing only in when the
+position opens: **lag 0** fills at the very mid whose book produced the signal (a
+zero-latency idealisation, not tradable, never a candidate for capital), and
+**lag 1** is the campaign's actual rule, one minute later.
+
+| | arms of 52 |
+|---|---|
+| reach abs(gross t) >= 2 at **zero** latency | **15** |
+| reach abs(gross t) >= 2 at **one minute** of latency | 4 |
+| whose zero-latency edge per trade exceeds **one round trip** | **0** |
+
+At zero latency the information is overwhelming - `MS_ORDER_COUNT_IMBALANCE` at
+H=1 reaches **t = 43.4**. And it is worth **0.115 bp per trade against a 1.674 bp
+round trip**. The largest edge/round-trip ratio anywhere in 52 arms is **0.38**.
+
+That is not an accident of this sample, and the algebra said so in advance:
+
+> microprice - mid == (spread / 2) x depth_imbalance, **exactly**
+
+so the entire top-of-book effect is bounded by half the quoted spread. Against
+one round trip at each contract's MEASURED median spread that ceiling is
+**0.36 to 0.80** - below 1.0 in all seven. The measured maximum (0.38) sits
+under its own contract's ceiling, as it must.
+
+**The information is real, statistically overwhelming, and structurally smaller
+than the cost of acting on it once.** No faster feed raises that ceiling,
+because sampling more often does not widen the spread. This is why
+`finer_data_purchase_justified` is **false** despite 15 arms clearing t = 2.
+
+### How each family closed
+
+| family | failure kind | best abs(gross t) | best bp/day |
+|---|---|---|---|
+| MS_FLOW_IMBALANCE | **INFORMATION_PRESENT_BUT_UNAFFORDABLE** | **3.33** | 6.09 |
+| MS_AGGRESSOR_FLOW | NO_INFORMATION | 1.78 | 2.24 |
+| MS_LIQUIDITY_WITHDRAWAL | NO_INFORMATION | 1.63 | 1.64 |
+| MS_DEPTH_IMBALANCE | NO_INFORMATION | 1.30 | 1.35 |
+| MS_MICROPRICE_PRESSURE | NO_INFORMATION | 1.29 | 1.35 |
+| MS_SPREAD_STATE | NO_INFORMATION | 1.10 | 2.44 |
+| MS_CROSS_MARKET_TRANSMISSION | NO_INFORMATION | 0.86 | 2.65 |
+| MS_ORDER_COUNT_IMBALANCE | NO_INFORMATION | 0.72 | 0.76 |
+
+Two families were falsified by a **comparison** rather than a threshold, and
+both comparisons were declared in advance:
+
+- **MS_MICROPRICE_PRESSURE** must beat the depth imbalance it is built from. Its
+  t-advantage by horizon is `{1: +0.055, 5: +0.021, 15: -0.005, 30: +0.003,
+  60: -0.007}` - the two families are the *same signal to three decimal places*,
+  which is exactly what the algebraic identity predicted. The spread-scaling
+  carries nothing.
+- **MS_ORDER_COUNT_IMBALANCE** must beat depth imbalance too, and wins 2 of 5
+  horizons: **falsified**. The number of resting orders is a proxy for their
+  total size, not separate information.
+
+### The one family that carries information
+
+`MS_FLOW_IMBALANCE` - the rolling imbalance of signed flow - is the only family
+whose falsifier did not fire. Four of its arms reach abs(gross t) >= 2, and all
+four are **negative**: the declared economic sign (net buying precedes an up
+move) is **wrong at these horizons**. Minute-sampled flow imbalance *reverses*.
+
+Its best arm, after the one pre-registered rescue (engage only on top-conviction
+minutes, which is the correct response to the named measured failure of
+unaffordable turnover):
+
+| | |
+|---|---|
+| arm | `MS_FLOW_IMBALANCE / EQUITY_H5_RESCUE_CONDITIONAL` (ES + NQ, 5-minute horizon) |
+| gross edge | -5.98 bp/day at **abs(t) 3.33** |
+| trading cost | **20.73 bp/day** (38.7 round trips per session) |
+| edge as a share of cost | **0.29** |
+| net, PRIMARY / STRESS / CANONICAL | -67.31 % / -119.55 % / -206.63 % per year |
+| Sharpe / max drawdown / hit rate | -7.32 / -93.81 % / 0.283 |
+| selection / holdout | -66.88 % / -67.94 % per year |
+| equal-risk increment vs incumbent | -81.45 % at t -14.52 |
+
+**Flipping the sign to match the data does not rescue it.** The arm would then
+earn +5.98 bp/day against 20.73 bp/day of cost - still 3.5x short. The rescue
+worked exactly as intended (the conviction filter lifted abs(t) from 2.94 to
+3.33 while cutting turnover in half), and it was still not close.
+
+### Cost discipline
+
+Round-trip cost at PRIMARY, per root: NQ 0.19 bp, GC 0.49, ES 0.54, 6E 0.64,
+6J 1.03, ZN 1.63, CL 1.67. A full round trip is charged on **every engaged
+entry**, so an arm at H=1 pays 389 round trips a day - 648 bp/day on the ALL7
+group. Entries never overlap, and the day's return is the **sum** over its
+entries, not the mean: averaging would have quietly charged one round trip a day
+however fast the arm traded, which is the single assumption that would have made
+minute-horizon trading look cheap.
+
+### What was reused rather than rebuilt
+
+`intraday_alpha._stats/.gates/.verdict/.equal_risk_daily`,
+`r63.sensitivity.bh_fdr/.nw_tstat`, `r64.family.holm`, the futures cost ladder
+and the tournament verdict vocabulary - all unchanged.
+`test_microstructure_owns_no_second_scorer` forbids a second copy of any of
+them. The adapter owns the signal definitions and the entry schedule, and
+nothing else.
+
 ## DATABENTO FUTURES ACQUISITION (opened 2026-09-10; ACQUIRED 2026-09-11)
 
 Owner: `alpha_agent/alpha_recovery/databento_acquisition.py`. Runner stage
@@ -574,11 +749,38 @@ FUTURES AXIS** for what they measured.
 
 ## WHAT HAPPENS NEXT AUTOMATICALLY
 
-The native CME futures axis is **closed**. It was the campaign's single best
-remaining idea, the one axis contract rule 13 clearly permitted, and it was
-executed in full: 1,034 trade dates, 10 markets, 5 buckets, the whole 23-hour
-session, 54 specifications, 8 families, every one closed on its own declared
-falsifier. No arm reached gross t 2.0 at zero cost.
+Both CME axes are **closed** - the OHLCV one and the order-flow one that
+succeeded it. Together they spent $105.61 of free credit, $0.00 paid, and
+executed 106 pre-registered specifications across 16 families, 10 markets and
+5 buckets. Nothing qualified.
+
+**The next axis is OPTIONS / IMPLIED VOLATILITY, and it has been priced.** It
+was previously recorded as `DATA_INSUFFICIENT` because the owned SPY surface is
+a FIXED strike band of 654-720 bought for a single R45 event study; the
+underlying rallied through it, so only 25 of 264 dates carry a near-dated expiry
+whose strikes bracket the money, against the frozen floor of 36. The Polygon
+options plan answers 403.
+
+That blocker is now quantified rather than asserted. The estate's Databento key
+reaches `OPRA.PILLAR`, and the free `metadata.get_cost` endpoint prices the
+exact instrument the axis needs:
+
+| request | 2-year cost |
+|---|---|
+| the whole unfiltered SPY chain, `ohlcv-1d` | **$518** |
+| a +/-10 % moneyness band, $5 spacing, both rights, 24 monthly expiries, `ohlcv-1d` | $22.79 |
+| the same band in `cbbo-1m` **quotes** (what an IV surface actually needs) | **$4.57** |
+
+The whole-chain quote is what made this axis look unaffordable. The axis needs a
+**moneyness-anchored band**, not the chain, and that costs **$4.57** - inside
+the operator's remaining authorised envelope, with a buffer. This is the first
+information need in the campaign whose price is MEASURED rather than `UNQUOTED`,
+and it is recorded as such in `purchase_case.json`.
+
+The previous axis's summary is unchanged and still governs what must NOT be
+re-run: 1,034 trade dates, 10 markets, 5 buckets, the whole 23-hour session, 54
+specifications, 8 families, every one closed on its own declared falsifier. No
+arm reached gross t 2.0 at zero cost.
 
 That result is stronger than a null usually is, because of what the panel ruled
 out. The standing explanation for the closed ETF axis was that it could only see
@@ -590,40 +792,63 @@ kind of information will not fix it.
 
 In order, for a future session:
 
-1. **Do NOT re-run any closed family.** Eight futures families and five ETF
-   families are closed on pre-registered falsifiers. Re-running one on another
-   lag, window or parameter is exactly what contract rule 13 forbids.
-2. **Do NOT buy more price history.** This axis is the controlled experiment
-   that settles it: a 2.5x deeper, 9x wider, 10-market panel of genuine native
-   exchange data, correctly rolled and marked to the settlement print, produced
-   a best gross t of 1.34. More price minutes, more contracts or more history
-   are the same information at a higher resolution.
-3. **The remaining stop-loss sessions belong to the incumbent's TRUE_FORWARD
+1. **Do NOT re-run any closed family.** Eight futures families, eight
+   microstructure families and five ETF families are closed on pre-registered
+   falsifiers. Re-running one on another lag, window or parameter is exactly
+   what contract rule 13 forbids.
+2. **Do NOT buy more price history.** The futures axis is the controlled
+   experiment that settles it: a 2.5x deeper, 9x wider, 10-market panel of
+   genuine native exchange data, correctly rolled and marked to the settlement
+   print, produced a best gross t of 1.34. More price minutes, more contracts or
+   more history are the same information at a higher resolution.
+3. **Do NOT buy finer order-flow data either, and this one is arithmetic.** The
+   microstructure axis measured 15 of 52 arms clearing t = 2 at zero latency,
+   one of them at t = 43 - and **not one** with an edge per trade exceeding a
+   single round trip. The ceiling is `(spread/2) x imbalance`, which is 0.36 to
+   0.80 of a round trip at the measured median spreads. mbp-1 and bbo-1s would
+   resolve the same effect more precisely without making any more of it
+   harvestable, so `finer_data_purchase_justified` is **false**.
+4. **The next axis is OPTIONS / IMPLIED VOLATILITY, and it is now affordable.**
+   A +/-10 % moneyness-anchored SPY band over 2 years costs **$4.57** in
+   `cbbo-1m` quotes on `OPRA.PILLAR` - measured, not estimated. The $518
+   whole-chain quote that made it look unaffordable was pricing the wrong
+   instrument. This is the only open axis that is both non-price and reachable.
+5. **The remaining stop-loss sessions belong to the incumbent's TRUE_FORWARD
    evidence.** It is the one measurement still maturing without new information
    (35 sessions, -4.43 % against SPY). Letting it accrue is not idleness; it is
    the only honest thing left that gets better with time alone.
-4. **If an axis is opened at all, it must be non-PRICE_STATE.** Contract rule 14
-   requires >= 75 % of new research to target something other than price state,
-   and this axis has just spent the project's strongest price-state hypothesis.
-   The open non-price needs are already priced in `purchase_case.json`; none
-   currently clears its own break-even.
+6. **If an axis is opened at all, it must be non-PRICE_STATE.** Contract rule 14
+   requires >= 75 % of new research to target something other than price state.
+   The microstructure axis satisfied that for the first time in the campaign -
+   its 52 specifications are all non-price - and the options axis would too.
 
 ## ONLY USER ACTION CURRENTLY REQUIRED
 
 **None.** Nothing in the campaign is blocked on a decision.
 
-The free-credit spend that was pending has been approved and executed:
-**$70.49 of Databento free credit, $0.00 paid dollars**, 213 of 213 windows
-delivered, 0 failed. No subscription, no trial, no plan upgrade - the module has
-no code path to any of them. **Do not re-download this panel**; it is on disk,
-normalised, and the acquisition state artifact records every priced signature.
+Two free-credit spends have been approved and executed, both inside their stated
+caps and both at **$0.00 paid dollars**:
 
-One decision remains *available* but is not requested: whether to fund a
-moneyness-anchored SPY option chain over >= 2 years, which would decide axis A
-properly. It is `DO_NOT_BUY` on the campaign's own break-even arithmetic, and
-this campaign does not recommend it. The futures result strengthens that
-recommendation rather than weakening it: the last time this campaign bought
-coverage to fix a null, the coverage turned out not to be the constraint.
+| axis | schema | spend | contracts | failed |
+|---|---|---|---|---|
+| native CME 1-minute OHLCV | `ohlcv-1m` | $70.49 | 213 | 0 |
+| native CME order flow | `bbo-1m` | **$35.12** (cap $45) | 162 | 0 |
+
+No subscription, no trial, no plan upgrade - the module has no code path to any
+of them. **Do not re-download either panel**; both are on disk, normalised, and
+the acquisition state artifacts record every priced signature.
+
+One decision is now *available and newly cheap*: whether to fund a
+**moneyness-anchored SPY option band** at the measured price of **$4.57** for
+two years of `cbbo-1m` quotes. That is a different proposition from the
+`DO_NOT_BUY` recorded earlier, which priced the whole unfiltered chain at $518
+and was answering a question the axis never needed answered. At $4.57 the
+break-even arithmetic stops being the binding consideration and research time
+becomes the constraint instead.
+
+The caution from the futures axis still applies and should be read alongside it:
+the last two times this campaign bought data to fix a null, the thing it bought
+turned out not to be the constraint.
 
 Actions reserved to the human, when reached:
 

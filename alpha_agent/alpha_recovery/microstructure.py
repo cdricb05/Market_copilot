@@ -227,9 +227,19 @@ def acquire(budget_usd: float, roots: tuple = ROOTS, execute: bool = False,
     body["state"] = ("PLANNED_FITS_FREE_CREDIT" if p["selection"]["fits_in_free_credit"]
                      else "PLANNED_EXCEEDS_FREE_CREDIT")
     if execute and p["selection"]["fits_in_free_credit"]:
-        body["download"] = DA.download(client, p, out_root=data_root(),
-                                       dry_run=False, schema=SCHEMA)
+        d = DA.download(client, p, out_root=data_root(), dry_run=False, schema=SCHEMA)
+        body["download"] = d
         body["state"] = "ACQUIRED"
+        # ``spent_estimate_usd`` counts only what THIS invocation paid for, so a
+        # resumed or re-verified run reports 0 even though the panel cost real
+        # credit. The acquisition's total is the priced plan for the contracts
+        # actually on disk, and that is the number every downstream reader wants.
+        got = {w["symbol"] for w in d.get("written", [])}
+        body["total_acquisition_cost_usd"] = round(
+            sum(r["cost_usd"] for r in p["requests"] if r["symbol"] in got), 4)
+        body["cost_note"] = ("total_acquisition_cost_usd is the priced cost of every contract on "
+                             "disk; download.spent_estimate_usd is what THIS run paid, which is 0 "
+                             "on a resumed or re-verified run")
     elif execute:
         body["download"] = {"state": "REFUSED_EXCEEDS_FREE_CREDIT"}
     if write:
