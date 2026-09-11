@@ -2,7 +2,7 @@
 
 **STATUS: OWNED_FREE_INFORMATION_EXHAUSTED**
 
-Stop-loss clock: 0 / 10 eligible sessions elapsed, 10 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
+Stop-loss clock: 1 / 10 eligible sessions elapsed, 9 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)
 Deadline outcome: PENDING
 
 | field | INCUMBENT (historical OOS, 21s, top-25) | INCUMBENT (TRUE_FORWARD) | BEST CHALLENGER (historical OOS) |
@@ -43,6 +43,7 @@ Best intraday sleeve `INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY` (NO
 | information axis | state | evidence |
 |---|---|---|
 | NATIVE_INTRADAY_CROSS_ASSET | CLOSED_NO_QUALIFIED_SIGNAL | Across the 30 PRIMARY specifications the largest Newey-West t at ZERO transaction cost is 1.72, and positive-gross arms are 53 % of the grid - what an information-free grid looks like. Cost is therefore NOT what killed the primary grid; there was no credible gross edge to kill. The engagement-condit |
+| NATIVE_CME_FUTURES_INTRADAY | CLOSED_NO_QUALIFIED_SIGNAL | the widest and deepest intraday panel this project has ever held - 2.5x the sessions and 9x the minutes of the closed ETF axis, across 10 contracts and 5 buckets - produced no arm reaching even gross t 2.0 at ZERO cost. The failure is information, not execution or coverage. |
 | OPTIONS_IMPLIED_VOLATILITY_SURFACE | DATA_INSUFFICIENT | The surface is a FIXED strike band of 654-720 acquired for a single R45 event study. Over the sample the underlying rallied from 615 to 751, so the band drifted out of the money: only 25 of 264 dates carry a near-dated expiry whose strikes bracket the money, against the frozen floor of 36. An ATM im |
 | ANALYST_EXPECTATIONS_REVISION_VINTAGES | NOT_OWNED | external_normalized/analyst_revision holds a 3-row mock fixture, an EMPTY normalized file and a 960-row / 40-ticker proxy; there is no revision vintage history to test |
 | OWNERSHIP_INSTITUTIONAL_FLOW | NOT_OWNED | external_normalized/short_interest is EMPTY and the FINRA raw store is a 93-byte probe; 13F holdings are not on disk (only an EDGAR submissions cache), so the need remains blocked by an unbuilt CUSIP-to-ticker bridge AND by absent data |
@@ -54,7 +55,7 @@ Best intraday sleeve `INTRADAY|SESSION_CARRY|CARRY_REVERSION_SPY_LARGE_ONLY` (NO
 
 ## Campaign counters
 
-- eligible sessions elapsed / 10: 0 / 10 (remaining 10)
+- eligible sessions elapsed / 10: 1 / 10 (remaining 9)
 - share of new research effort on non-price information: 0.842 (rule >= 0.75: True); inclusive of construction-only specifications 0.762 (True)
 - economically distinct information families tested: 13 (CROSS_ASSET_TREND_CADENCE, EARNINGS_EVENT_REACTION, EQUITY_INCUMBENT_CADENCE, FRONTIER_MANDATES_RISK_CONTROLLED, FX_CARRY_CADENCE, INCUMBENT_DECOMPOSITION, INTRADAY_CROSS_MARKET_LEADLAG, INTRADAY_OPENING_RANGE, INTRADAY_RELATIVE_STRENGTH, INTRADAY_SESSION_CARRY, INTRADAY_VOLATILITY_STATE, MARKET_DIRECTION_SPY, NEWS_INTENSITY)
 - candidate specifications alive: 5

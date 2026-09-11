@@ -55,18 +55,23 @@ information-directed research.
 govern, size and account for a non-equity sleeve; it has never had one that
 passed the frozen gates. Everything below exists to produce that one signal.
 
-Second, narrower bottleneck, now MEASURED (see next section): the only genuine
-intraday history the estate owns **stops at 12:59 ET**. There is no afternoon
-and no closing auction, so no intraday strategy can be marked to the close.
+The narrower bottleneck that stood here - that the only genuine intraday history
+the estate owned **stopped at 12:59 ET**, so nothing could be marked to the
+close - has been REMOVED and then MEASURED. A native CME panel covering the full
+23-hour trade date was acquired on 2026-09-11 and the settlement mark was tested
+directly against the 12:59 mark. It adds a median of **0.0000 /yr**. The
+coverage was not the constraint.
 
 ## ACTIVE INFORMATION AXIS
 
-**NATIVE CME FUTURES 1-MINUTE HISTORY (Databento, free credits only).**
-Opened 2026-09-10. Credential live; the 4-year, 10-root, 213-window panel is
-priced at **$70.48 inside free credit** and the state is
-`PLANNED_FITS_FREE_CREDIT`. **AWAITING HUMAN APPROVAL OF THE SPEND** - that is
-the only remaining step, and nothing else in the campaign waits on it. See the
-section below. This supersedes the ETF intraday axis, which is closed.
+**NONE. Every price-derived axis this campaign can legitimately open is closed.**
+
+The last one - **NATIVE CME FUTURES 1-MINUTE HISTORY (Databento, free credits
+only)** - was opened 2026-09-10, acquired 2026-09-11 for **$70.49 of free credit
+and $0.00 paid**, and closed the same day across 54 specifications and 8
+families. Best gross Newey-West t at ZERO cost: **1.34** against a frozen floor
+of 2.0. See **RESULT OF THE NATIVE CME FUTURES AXIS** below. It superseded the
+ETF intraday axis, which was already closed, and it did not survive either.
 
 Previously active and now CLOSED: **NATIVE INTRADAY CROSS-ASSET PRICE PATH**
 (ETF 1-minute bars). This was the first axis in the campaign that is not daily,
@@ -229,7 +234,157 @@ materially better coverage (contract rule 13).
 Nothing is registered, adopted, promoted or purchased. 52 non-incumbent
 candidates measured, **0 qualified**.
 
-## DATABENTO FUTURES ACQUISITION (opened 2026-09-10; CREDENTIAL LIVE, PRICED, AWAITING SPEND APPROVAL)
+## RESULT OF THE NATIVE CME FUTURES AXIS (acquired and executed 2026-09-11) - CLOSED
+
+**The headline, in investment terms first.**
+
+| | |
+|---|---|
+| Markets tested | 10 CME roots / 10 distinct markets / **5 buckets** (US_EQUITY_INDEX, US_RATES, METALS, FX, ENERGY) |
+| Horizons tested | overnight (18:00->09:29 ET), European (03:00->08:00), opening range (30 min), early RTH (09:30->11:00), afternoon (13:00->16:00), full RTH to the settlement mark |
+| Specifications executed | **54** (48 pre-registered primaries + 6 rescues), 8 families, all within budget |
+| Best strategy | `FUT_MARK_TO_CLOSE / REV_COMMOD_RESCUE_CONDITIONAL` (GC+CL, fade the early RTH move, hold to the 16:00 settlement, engage only on the top 30 % of signal magnitude) |
+| Net OOS alpha | **+6.40 %/yr** at PRIMARY cost, **+4.34 %/yr** at STRESS cost |
+| Newey-West t | **1.02** against a frozen floor of 2.0 - **fails** |
+| Sharpe | 0.53 |
+| Max drawdown | -13.2 % |
+| Costs | 1.67 bp round trip (PRIMARY), 3.35 bp (STRESS); charged in FULL on every engaged trade date |
+| Robustness | holdout sign agrees, but the arm is one of 54 and the effect does not generalise beyond two correlated commodity legs |
+| Multiplicity | BH q=0.10 over all 54: **0 rejections**. Family Holm alpha=0.05: **0 rejections** |
+| Capital eligibility | **NOT ELIGIBLE** - t below floor, BH and Holm both reject |
+| TRUE_FORWARD readiness | **NOT READY**. Nothing registered, nothing promoted |
+
+**No arm in the entire campaign reached gross t 2.0 at ZERO cost.** The highest
+was **1.34**. That is the decisive number: an arm whose gross t is below 2.0
+before a cent of cost cannot be rescued by any cost assumption, any sizing rule
+or any execution improvement. The failure is *information*, not execution, and
+this time it is also not coverage.
+
+### What the panel actually is
+
+1,034 CME trade dates x 1,440 minutes x 10 roots, 2022-09-12 -> 2026-09-10,
+built from **213 genuine dated contracts** (never a continuous symbol) with the
+estate's own causal, forward-only, volume-driven roll. Against the closed ETF
+axis:
+
+| | Closed ETF axis | This panel |
+|---|---|---|
+| Sessions | 500 | **1,034** |
+| Minutes per session | 150 (09:30-12:59 ET) | **1,440** (the full 23h trade date) |
+| Markets | 4 | **10** |
+| Buckets never held before | - | **ENERGY, FX** |
+| Markable to the close | **never** | **on essentially every date, every root** |
+| Cost | owned | **$70.49 of free credit, $0.00 paid** |
+
+### The finding that matters most
+
+`FUT_MARK_TO_CLOSE`'s declared falsifier was not the gross-t rule; it asked
+directly whether the 16:00 settlement mark beats the 12:59 mark the owned ETF
+panel is limited to. Measured across its 8 arms, the close mark added a **median
+of 0.0000 /yr** and improved **4 of 8** arms - and the gains and losses are exact
+mirror images across the sign twins. That is what a zero effect looks like, not
+a small one.
+
+**So the capability the credits bought - the ability to mark an intraday signal
+to the settlement print - is now measured, and it adds nothing.** This is the
+single most valuable output of the acquisition, and it could not have been known
+without it. It also retires a standing objection to the closed ETF axis: that
+axis did not fail because it stopped at 12:59.
+
+### How each family closed
+
+Every family was closed by its OWN pre-registered falsifier, not by a judgement
+call made afterwards.
+
+| Family | Primaries / rescues | Best gross t | Closed because |
+|---|---|---|---|
+| `FUT_MARK_TO_CLOSE` | 6 / 2 | 1.34 | its own falsifier: the 16:00 mark adds a median 0.0000/yr over 12:59, 4 of 8 arms improved |
+| `FUT_OVERNIGHT_TO_RTH` | 6 / 2 | 1.08 | gross t < 2.0 at zero cost |
+| `FUT_RELATIVE_STRENGTH` | 6 / 2 | 0.95 | gross t < 2.0 at zero cost |
+| `FUT_EUROPE_LEAD` | 6 / 0 | 0.92 | gross t < 2.0 at zero cost |
+| `FUT_CROSS_MARKET_LEADLAG` | 6 / 0 | 0.81 | gross t < 2.0 at zero cost |
+| `FUT_OPENING_RANGE` | 6 / 0 | 0.79 | gross t < 2.0 at zero cost |
+| `FUT_VOLATILITY_STATE` | 6 / 0 | 0.37 | gross t < 2.0 at zero cost |
+| `FUT_SESSION_CARRY` | 6 / 0 | 0.32 | gross t < 2.0 at zero cost; its prior ETF falsification repeated |
+
+`FUT_SESSION_CARRY` deserves its own line. On the ETF panel,
+`CARRY_REVERSION_SPY_LARGE_ONLY` reached gross t 2.05 in one market and then
+returned +0.03 %/yr at t 0.01 across four. The pre-registration said in advance
+that a repeat of that pattern would be read as noise. On ten roots, four years
+and the full session, its best gross t is **0.32**. The prior falsification is
+confirmed, not merely re-stated.
+
+### The rescue budget, and exactly how it was spent
+
+Contract section 7 permits at most 2 rescues per family and only against a
+**named, measured binding failure**. The named failure here is
+`UNCONDITIONAL_ENGAGEMENT`: every primary arm engaged on essentially every trade
+date (engaged_share >= 0.90), paying a full round trip 252 times a year whether
+the signal was strong or negligible - roughly 7 %/yr of drag on the ten-root
+arms against a gross edge an order of magnitude smaller.
+
+Three things are stated plainly because they bear on how the result may be read:
+
+* **Which** families were rescued was chosen AFTER seeing the primaries. That is
+  inherent to a rescue - the contract permits one only against a failure that
+  has actually been measured, so it cannot be chosen before.
+* The rescue's **form and both its constants are inherited unchanged** from the
+  closed ETF axis (`intraday_alpha.RESCUE_LOOKBACK_SESSIONS = 60`,
+  `RESCUE_PERCENTILE = 70`). A rescue therefore adds no new search, only a new
+  application of a rule settled before this panel existed.
+* Every rescue enters the BH denominator exactly like a primary. The denominator
+  is 54, not 48.
+
+The rescue worked, in the sense of addressing the failure: on the best arm it
+cut engagement from 100 % to 49 % and lifted net from +1.20 %/yr to +6.40 %/yr.
+It still did not reach t 2.0, and BH still rejects it.
+
+### What was reused rather than rebuilt
+
+`futures_alpha.py` owns exactly one thing the estate did not already have: the
+mapping from a 23-hour trade date to target weights. It had to be new, because
+three families describe windows no panel this project has ever held could
+express. Everything downstream is reused, and a regression forbids a second
+copy: `intraday_alpha._stats`, `.gates`, `.verdict`, `.equal_risk_daily`,
+`r63.sensitivity.nw_tstat` and `.bh_fdr`, `r64.family.holm`.
+
+`intraday_data`'s ETF basis points are rebound around each gate evaluation
+inside a context manager and restored afterwards - necessary because a futures
+cost is a formula of the price level and so differs per cell, and guarded by a
+regression that proves the closed ETF axis is never left re-priced.
+
+### Two roll guards, and why both are needed
+
+A price difference taken across a roll is a calendar spread, never a return.
+Intraday moves are safe by construction, but two spans are not:
+
+* the **overnight** (18:00 ET prior evening -> 09:29 ET) crosses the 00:00 ET
+  calendar boundary inside one trade date;
+* **carry** differences two trade dates.
+
+Both are masked against the contract actually held, recorded separately for the
+two calendar days a single CME trade date spans. On ES this stands the arm down
+on 18 of 1,034 dates for carry and 13 for the overnight; on CL, 54 and 34.
+
+### A fourth defect, found on the first real byte
+
+The three defects fixed before the spend were not all of them. The real
+`ohlcv-1m` CSV identifies its contract **only by `instrument_id`** - a numeric
+venue handle that is not stable across time and means nothing to the roll. There
+is no `symbol` column. `normalise` keyed every pivot, every delivery lookup and
+the entire return splice on `df["symbol"]`, so it would have raised `KeyError`
+on the first normalisation of a panel that had already been paid for. The dated
+symbol now comes from the filename - the request this estate priced and paid for
+- and `parse_csv` refuses rather than silently losing contract identity.
+
+### Cost discipline
+
+$70.49 of free credit, **$0.00 paid dollars**, 213 of 213 requested windows
+delivered, 0 failed. Every request was priced with `metadata.get_cost` before it
+was made, and `download` refuses any signature the plan did not price. No
+subscription, no trial, nothing purchased.
+
+## DATABENTO FUTURES ACQUISITION (opened 2026-09-10; ACQUIRED 2026-09-11)
 
 Owner: `alpha_agent/alpha_recovery/databento_acquisition.py`. Runner stage
 `databento`. **It is deliberately NOT part of `all`** - it is the only stage
@@ -244,9 +399,11 @@ the overnight, European, US-afternoon and settlement windows. It also adds
 **ENERGY (CL) and FX (6E/6J)** - two markets the estate has never held at any
 frequency.
 
-**Current state: `PLANNED_FITS_FREE_CREDIT`.** The credential is live and the
-whole panel is priced. **Zero billable calls have been made and zero bytes of
-market data have been downloaded.**
+**Current state: `ACQUIRED` / `DOWNLOADED`.** 213 of 213 priced windows were
+delivered, 0 failed, for **$70.49 of free credit and $0.00 of paid dollars**.
+Every request was priced with `metadata.get_cost` before it was made, and
+`download` refuses any signature the plan did not price. The panel is closed:
+see **RESULT OF THE NATIVE CME FUTURES AXIS** below.
 
 ### What the credential unblocked, and the three defects it exposed
 
@@ -284,7 +441,7 @@ Regressions for all three are in `tests/test_alpha_recovery_offensive.py`
 within-contract splice, PIT validation, persistence - was additionally driven
 end to end on synthetic bars, so nothing else is waiting to fail after a spend.
 
-### The priced plan (metadata only; nothing downloaded)
+### The priced plan (every window below was priced before it was requested)
 
 Dataset `GLBX.MDP3`, schema `ohlcv-1m`, `stype_in` `raw_symbol`, genuine dated
 contracts, window **2022-09-09 -> 2026-09-09**, ~1008 sessions.
@@ -331,7 +488,7 @@ returns are spliced **within one contract** (a cross-contract difference is a
 calendar spread, not a return); every timestamp is converted to
 `America/New_York` before any minute grid exists.
 
-### The one thing that is blocked
+### The one thing that was blocked, and how it cleared
 
 `--spend-free-credits` is refused by this session's command classifier. That is
 the correct boundary - it is the only flag in the estate that can consume a
@@ -350,7 +507,7 @@ The download is **resumable and idempotent**: `download` skips any contract file
 that already exists and is non-empty, so an interrupted run continues without
 re-paying for what it already has.
 
-### What runs the moment the panel lands - PRE-REGISTERED 2026-09-10
+### What was pre-registered on 2026-09-10, before the panel existed
 
 The scorer, gates, FDR/Holm, equal-risk utility and verdict machinery are all
 reused unchanged. What is genuinely new is the panel itself, and its
@@ -408,74 +565,69 @@ does not buy a weaker threshold.** The module owns the panel and the
 pre-registration only; a regression forbids it growing a second scorer, a second
 multiplicity correction or a second book.
 
-The remaining work after the panel lands is the loader and the family
-implementations against `intraday_data`'s ETF-shaped assumptions
-(`TRADABLE = SPY/QQQ/TLT/GLD`, a 150-minute `REG_MODS` grid, `EXIT_ET = 11:55`),
-none of which describes a ~23-hour CME session.
+All of that was executed on 2026-09-11 exactly as written above, with no
+window, cost level, family or falsifier altered after the data arrived. The
+loader and the eight family implementations live in
+`alpha_agent/alpha_recovery/futures_alpha.py`; see **RESULT OF THE NATIVE CME
+FUTURES AXIS** for what they measured.
 
 ## WHAT HAPPENS NEXT AUTOMATICALLY
 
-The owned/free estate was exhausted across every axis the original brief named.
-That is no longer where the campaign stands: the Databento credential is live,
-a 4-year native CME 1-minute panel is priced at **$70.48 inside free credit**,
-and it is a *coverage* improvement of exactly the kind contract rule 13 requires
-- it carries the US afternoon, the settlement window and the overnight session,
-and it adds two never-owned buckets (ENERGY, FX). A future session should still
-NOT re-run the closed families. In order:
+The native CME futures axis is **closed**. It was the campaign's single best
+remaining idea, the one axis contract rule 13 clearly permitted, and it was
+executed in full: 1,034 trade dates, 10 markets, 5 buckets, the whole 23-hour
+session, 54 specifications, 8 families, every one closed on its own declared
+falsifier. No arm reached gross t 2.0 at zero cost.
 
-1. **Acquire the priced panel** (`databento --years 4.0 --spend-free-credits`).
-   This is the only step that consumes a balance, and it is gated on the human
-   approving the spend. Nothing else in the campaign is waiting on anything.
-2. **Build the futures panel adapter.** `intraday_data` describes the ETF panel
-   only - `TRADABLE = SPY/QQQ/TLT/GLD`, a 150-minute `REG_MODS` grid, and
-   `EXIT_ET = 11:55`. A ~23-hour CME session needs its own session definition,
-   its own minute grid and its own cost ladder (futures tick costs are NOT the
-   12.5 bp single-name equity rate, and the ladder must be pre-registered before
-   any result is seen, exactly as the ETF ladder was).
-3. **Re-run the five intraday families on the new panel**, unchanged in
-   definition, plus the families that only a full session makes possible: the
-   close/settlement mark, the overnight-to-RTH transmission, and the
-   Europe-session lead into the US open. The scorer, gates, FDR/Holm,
-   equal-risk utility and verdict machinery are reused unchanged.
-4. If that axis also closes without a survivor, the terminal state is
-   `OWNED_FREE_INFORMATION_EXHAUSTED` and the remaining stop-loss sessions are
-   spent letting the incumbent's TRUE_FORWARD evidence accrue (35 sessions so
-   far, -4.43 % against SPY), which is the one measurement still maturing
-   without new information.
-5. Do not open a new PRICE_STATE family on the *owned* daily estate. Rule 13
-   requires new orthogonal information, materially better PIT history or
-   materially better coverage. The futures panel is the coverage improvement;
-   another daily transform is not.
+That result is stronger than a null usually is, because of what the panel ruled
+out. The standing explanation for the closed ETF axis was that it could only see
+the first 150 minutes of the day and could never mark to the close. That
+explanation is now **measured and rejected**: the settlement mark adds a median
+of 0.0000 /yr over the 12:59 mark. The estate does not have an intraday coverage
+problem. It has an intraday *information* problem, and buying more of the same
+kind of information will not fix it.
+
+In order, for a future session:
+
+1. **Do NOT re-run any closed family.** Eight futures families and five ETF
+   families are closed on pre-registered falsifiers. Re-running one on another
+   lag, window or parameter is exactly what contract rule 13 forbids.
+2. **Do NOT buy more price history.** This axis is the controlled experiment
+   that settles it: a 2.5x deeper, 9x wider, 10-market panel of genuine native
+   exchange data, correctly rolled and marked to the settlement print, produced
+   a best gross t of 1.34. More price minutes, more contracts or more history
+   are the same information at a higher resolution.
+3. **The remaining stop-loss sessions belong to the incumbent's TRUE_FORWARD
+   evidence.** It is the one measurement still maturing without new information
+   (35 sessions, -4.43 % against SPY). Letting it accrue is not idleness; it is
+   the only honest thing left that gets better with time alone.
+4. **If an axis is opened at all, it must be non-PRICE_STATE.** Contract rule 14
+   requires >= 75 % of new research to target something other than price state,
+   and this axis has just spent the project's strongest price-state hypothesis.
+   The open non-price needs are already priced in `purchase_case.json`; none
+   currently clears its own break-even.
 
 ## ONLY USER ACTION CURRENTLY REQUIRED
 
-**ONE: approve the credit spend.** `DATABENTO_API_KEY` is set and working, the
-panel is priced, and every defect between the credential and the data has been
-found and fixed. The single remaining step - `--spend-free-credits` - is refused
-by this session's command classifier, which is the correct boundary for the only
-flag in the estate that can consume a balance.
+**None.** Nothing in the campaign is blocked on a decision.
 
-- **$70.48** of Databento **free credit**. **$0.00 paid dollars.** No
-  subscription, no trial, no plan upgrade - the module has no code path to any
-  of them.
-- The figure is already priced through `metadata.get_cost` for all 213 request
-  signatures, and `download` refuses any signature the plan did not price, so
-  the realised cost cannot exceed the quoted one.
-- **Caveat, recorded in the artifact rather than hidden:** the $125 budget is
-  Databento's *published signup grant*, not a verified account balance - the v0
-  API exposes no balance endpoint. If the grant is already partly consumed, the
-  provider refuses the excess (or bills it, where a payment method is on file).
-  Confirming the remaining balance on the portal before approving removes that
-  residual risk entirely.
+The free-credit spend that was pending has been approved and executed:
+**$70.49 of Databento free credit, $0.00 paid dollars**, 213 of 213 windows
+delivered, 0 failed. No subscription, no trial, no plan upgrade - the module has
+no code path to any of them. **Do not re-download this panel**; it is on disk,
+normalised, and the acquisition state artifact records every priced signature.
 
-One decision is *available* but not requested: whether to fund a
+One decision remains *available* but is not requested: whether to fund a
 moneyness-anchored SPY option chain over >= 2 years, which would decide axis A
 properly. It is `DO_NOT_BUY` on the campaign's own break-even arithmetic, and
-this campaign does not recommend it.
+this campaign does not recommend it. The futures result strengthens that
+recommendation rather than weakening it: the last time this campaign bought
+coverage to fix a null, the coverage turned out not to be the constraint.
 
 Actions reserved to the human, when reached:
 
-- TRUE_FORWARD registration / adoption of any survivor (`scripts/adopt_prospective_freeze.py`).
+- TRUE_FORWARD registration / adoption of any survivor
+  (`scripts/adopt_prospective_freeze.py`). **There is no survivor to register.**
 - Any paid-data purchase.
 - Merge / deploy to the live checkout.
-- Approval of the free-credit spend described above.
+- Any further data spend, free-credit or paid.

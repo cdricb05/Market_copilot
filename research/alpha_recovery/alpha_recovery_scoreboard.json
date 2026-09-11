@@ -21,7 +21,7 @@
   },
   "turnover_delta": null
  },
- "artifact_hash": "b3d417fdea9bf95d29e9301d7c5903a68070735cec6e7effba33e5e8f0056354",
+ "artifact_hash": "c805e8325b6d3e9cc0f6d8ce0a588134f125f979dde4e89145a66a45220ff788",
  "best_challenger": {
   "augmented_ann_net": 0.02280282606212199,
   "augmented_max_dd": -0.5387593219905586,
@@ -116,26 +116,26 @@
  "calculation_owner": "alpha_agent.alpha_recovery.scoreboard",
  "campaign": {
   "clock": {
-   "as_of": "2026-09-10",
-   "next_eligible_session": "2026-09-11",
-   "rendered": "0 / 10 eligible sessions elapsed, 10 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)",
-   "sessions_elapsed": 0,
-   "sessions_remaining": 10,
+   "as_of": "2026-09-11",
+   "next_eligible_session": "2026-09-14",
+   "rendered": "1 / 10 eligible sessions elapsed, 9 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)",
+   "sessions_elapsed": 1,
+   "sessions_remaining": 9,
    "start_eligible_market_session": "2026-09-10",
    "state": "BEFORE_DEADLINE",
    "stop_loss_sessions": 10,
    "tenth_eligible_market_session": "2026-09-24"
   },
   "deadline": {
-   "as_of": "2026-09-10",
+   "as_of": "2026-09-11",
    "final": false,
-   "next_eligible_session": "2026-09-11",
+   "next_eligible_session": "2026-09-14",
    "outcome": "PENDING",
    "outcome_if_deadline_were_now": "OWNED_FREE_INFORMATION_EXHAUSTED",
    "project_failure_state": false,
-   "rendered": "0 / 10 eligible sessions elapsed, 10 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)",
-   "sessions_elapsed": 0,
-   "sessions_remaining": 10,
+   "rendered": "1 / 10 eligible sessions elapsed, 9 remaining, deadline 2026-09-24 (BEFORE_DEADLINE)",
+   "sessions_elapsed": 1,
+   "sessions_remaining": 9,
    "start_eligible_market_session": "2026-09-10",
    "state": "BEFORE_DEADLINE",
    "stop_loss_sessions": 10,
@@ -2509,6 +2509,50 @@
     "state": "CLOSED_BY_R45",
     "why": "Release 45's own data frontier records that the effect 'failed on its own holdout, in listed US rates and equities over two years, and in every other market the estate owns'. Re-running it would repeat closed work"
    },
+   "NATIVE_CME_FUTURES_INTRADAY": {
+    "acquisition_cost_usd": 70.4854,
+    "best_ann_net": 0.0639575726976792,
+    "bh_rejected": 0,
+    "buckets": [
+     "ENERGY",
+     "FX",
+     "METALS",
+     "US_EQUITY_INDEX",
+     "US_RATES"
+    ],
+    "did_the_new_coverage_pay": "the close mark adds nothing systematic: the gains and losses are mirror images across the sign pairs, which is what a zero effect looks like when every arm has a sign twin",
+    "markets": [
+     "CRUDE_ENERGY",
+     "EUR_FX",
+     "GOLD",
+     "JPY_FX",
+     "US_EQUITY_BETA",
+     "US_RATES_10Y",
+     "US_RATES_2Y",
+     "US_RATES_30Y",
+     "US_RATES_5Y",
+     "US_TECH_BETA"
+    ],
+    "max_gross_t": 1.3430843001431452,
+    "n_specifications": 54,
+    "paid_dollars": 0.0,
+    "reading": "the widest and deepest intraday panel this project has ever held - 2.5x the sessions and 9x the minutes of the closed ETF axis, across 10 contracts and 5 buckets - produced no arm reaching even gross t 2.0 at ZERO cost. The failure is information, not execution or coverage.",
+    "roots": [
+     "6E",
+     "6J",
+     "CL",
+     "ES",
+     "GC",
+     "NQ",
+     "ZB",
+     "ZF",
+     "ZN",
+     "ZT"
+    ],
+    "state": "CLOSED_NO_QUALIFIED_SIGNAL",
+    "trade_dates": 1034,
+    "what_it_bought": "the US afternoon, the closing/settlement print, the overnight and European sessions, and two buckets (ENERGY, FX) the estate had never held at any frequency"
+   },
    "NATIVE_INTRADAY_CROSS_ASSET": {
     "diagnosis": "COST_BINDING_BUT_UNPROVEN",
     "markets": [
@@ -2576,7 +2620,7 @@
    "registered_at": "2026-09-09T13:57:39.040782+00:00"
   }
  ],
- "generated_at": "2026-09-10T20:44:19+00:00",
+ "generated_at": "2026-09-11T12:49:41+00:00",
  "incumbent": {
   "directional_calibration": "NOT_APPLICABLE (a cross-sectional rank model emits no direction)",
   "expected_return_calibration": {

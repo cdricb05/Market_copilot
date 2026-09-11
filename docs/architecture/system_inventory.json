@@ -719,6 +719,17 @@
    "status": "OWNED_ALPHA_RECOVERY",
    "guard": "check_alpha_recovery_operating_contract",
    "note": "Written and committed BEFORE the priced Databento panel was downloaded, so that none of its choices can have been made after seeing a bar. Three things are fixed and may not move afterwards: what a session is on a 23-hour venue (the CME trade date rolls at 17:00 ET, NOT at midnight - bars stamped 18:00 ET belong to the next trade date, and grouping them by calendar date splits one session in two and leaks the next session's overnight into this session's close); what a round trip costs in each of ten contracts (a FORMULA, not a bp table, because a futures cost in bp depends on the price level - and emphatically not the desk's 12.5 bp single-name equity rate, which is not true for a liquid CME outright); and which families may be tested, each with a declared falsifier, at 6 primary specifications plus at most 2 rescues against a NAMED measured binding failure. Every frozen gate is inherited unchanged: acquiring data does not buy a weaker threshold. This module owns the panel and the pre-registration only - the scorer, BH/Holm and the risk-controlled book stay with their one owner in r63/r64."
+  },
+  {
+   "concept": "futures_intraday_alpha_campaign",
+   "authoritative_owner": "alpha_agent/alpha_recovery/futures_alpha.py (the ONE owner of the mapping from the full 23-hour CME trade date to target weights, and of nothing downstream of it)",
+   "current_writers": [
+    "alpha_agent/alpha_recovery/futures_alpha.py",
+    "scripts/run_alpha_recovery_offensive.py (stage 'futures_alpha')"
+   ],
+   "status": "CLOSED_MEASURED",
+   "guard": "check_alpha_recovery_operating_contract",
+   "note": "The campaign that ran on the acquired native CME panel: 1,034 trade dates x 1,440 minutes x 10 roots across 5 buckets, 2022-09-12 to 2026-09-10. It owns exactly one thing the estate did not already have - the panel-to-weights mapping - because three of the eight pre-registered families describe windows no panel this project has ever held could express. Everything downstream is REUSED and a regression forbids a second copy: intraday_alpha._stats, .gates, .verdict and .equal_risk_daily, r63.sensitivity.nw_tstat and .bh_fdr, r64.family.holm. intraday_data's ETF basis points are rebound around each gate evaluation inside a context manager - because a futures cost is a formula of the price level and so differs per cell - and restored afterwards, so the closed ETF axis is never left re-priced. Two roll guards exist because two spans can straddle a roll: the overnight (18:00 ET prior evening -> 09:29 ET, which crosses the calendar boundary) and carry (which differences two trade dates); a price difference taken across a roll is a calendar spread, never a return. RESULT: 54 specifications, 8 families, 0 survivors, 0 BH rejections at q=0.10, highest gross Newey-West t 1.34 at ZERO cost against a frozen floor of 2.0. Each family closed on its own declared falsifier. The decisive finding is FUT_MARK_TO_CLOSE's: marking to the 16:00 settlement - the single capability the credits bought - added a median of 0.0000/yr over the 12:59 ET mark the owned ETF panel is limited to, improving 4 of 8 arms, which is what no effect looks like rather than a small one."
   }
  ],
  "route_ownership": [

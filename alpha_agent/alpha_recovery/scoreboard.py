@@ -264,6 +264,8 @@ def build(*, as_of=None, write: bool = True) -> dict:
     products = read_artifact("forecast_products.json")
     intraday = read_artifact("intraday_alpha.json")
     intraday_state = read_artifact("intraday_data_state.json")
+    futures = read_artifact("futures_alpha.json")
+    dbn = read_artifact("databento_acquisition_state.json")
     options = read_artifact("options_surface.json")
     cands = _challenger_candidates(tour, cad, direction, eqch=eqch, residual=residual,
                                    intraday=intraday)
@@ -367,6 +369,31 @@ def build(*, as_of=None, write: bool = True) -> dict:
                 "max_gross_t_primary": id_diag.get("max_gross_t_primary"),
                 "max_gross_t_rescue": id_diag.get("max_gross_t_rescue"),
                 "reading": id_diag.get("reading")},
+            "NATIVE_CME_FUTURES_INTRADAY": {
+                "state": ("CLOSED_NO_QUALIFIED_SIGNAL" if futures and not futures.get("true_forward_ready")
+                          else ("QUALIFIED" if futures else "NOT_ACQUIRED")),
+                "trade_dates": ((futures or {}).get("panel") or {}).get("trade_dates"),
+                "roots": ((futures or {}).get("panel") or {}).get("roots"),
+                "markets": ((futures or {}).get("panel") or {}).get("markets"),
+                "buckets": ((futures or {}).get("panel") or {}).get("buckets"),
+                "n_specifications": (futures or {}).get("n_cells"),
+                "bh_rejected": (((futures or {}).get("multiple_testing") or {})
+                                .get("benjamini_hochberg") or {}).get("n_rejected"),
+                "max_gross_t": ((futures or {}).get("best_by_gross_t") or {}).get("t_gross"),
+                "best_ann_net": ((futures or {}).get("best_by_ann_net") or {}).get("ann_net"),
+                "acquisition_cost_usd": ((dbn or {}).get("download") or {}).get("spent_estimate_usd"),
+                "paid_dollars": ((dbn or {}).get("download") or {}).get("paid_dollars"),
+                "what_it_bought": "the US afternoon, the closing/settlement print, the overnight "
+                                  "and European sessions, and two buckets (ENERGY, FX) the estate "
+                                  "had never held at any frequency",
+                "did_the_new_coverage_pay": ((((futures or {}).get("families") or {})
+                                              .get("FUT_MARK_TO_CLOSE") or {})
+                                             .get("mark_to_close_falsifier") or {}).get("reading"),
+                "reading": "the widest and deepest intraday panel this project has ever held - "
+                           "2.5x the sessions and 9x the minutes of the closed ETF axis, across "
+                           "10 contracts and 5 buckets - produced no arm reaching even gross t "
+                           "2.0 at ZERO cost. The failure is information, not execution or "
+                           "coverage."},
             "OPTIONS_IMPLIED_VOLATILITY_SURFACE": {
                 "state": ((options or {}).get("usability") or {}).get("state"),
                 "dates_bracketing_the_money": ((options or {}).get("usability") or {}).get(

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +44,7 @@ from alpha_agent import alpha_recovery as AR
 from alpha_agent import r59
 from alpha_agent.alpha_recovery import checkpoint as CK
 from alpha_agent.alpha_recovery import databento_acquisition as DBN
+from alpha_agent.alpha_recovery import futures_alpha as FA
 from alpha_agent.alpha_recovery import futures_intraday as FI
 from alpha_agent.alpha_recovery import earnings_events as EE
 from alpha_agent.alpha_recovery import equity_challengers as EC
@@ -1481,4 +1482,223 @@ def test_futures_preregistration_reuses_the_one_scorer_rather_than_owning_one():
     for forbidden in ("def run_cell", "def bh_fdr", "def holm", "def walk_forward"):
         assert forbidden not in src, "%s must stay with its one owner" % forbidden
     assert FI.preregistration()["reused_not_rebuilt"]
+
+
+
+# --------------------------------------------------------------------------- #
+# The acquired CME panel, and the campaign that ran on it
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def fut_panel(monkeypatch):
+    """A synthetic futures panel with the REAL geometry, installed through the
+    owner's own cache. Hermetic: no test here opens the acquired panel."""
+    rng = np.random.default_rng(11)
+    roots = ["ES", "NQ", "ZB"]
+    n_d, n_m, n_i = 120, FI.TD_MINUTES, len(roots)
+    base = np.array([5600.0, 19800.0, 117.6])
+    steps = rng.normal(0.0, 1e-4, size=(n_d, n_m, n_i))
+    close = base * np.exp(np.cumsum(steps, axis=1))
+    held = np.array([["ESZ5", "NQZ5", "ZBZ5"]] * n_d)
+    pn = {"dates": [str(date(2025, 1, 1) + timedelta(days=i)) for i in range(n_d)],
+          "instruments": roots, "close": close,
+          "high": (close * 1.0005).astype(np.float32), "low": (close * 0.9995).astype(np.float32),
+          "volume": np.ones((n_d, n_m, n_i), dtype=np.float32),
+          "held_evening": held.copy(), "held_day": held.copy()}
+    monkeypatch.setitem(FI._CACHE, "panel", pn)
+    for r in roots:
+        monkeypatch.setitem(FI._CACHE, "repr_%s" % r, float(np.nanmedian(close[:, :, roots.index(r)])))
+    return pn
+
+
+def test_databento_csv_without_a_symbol_column_keeps_its_contract_identity():
+    """The defect that would have fired on the FIRST normalisation of a panel
+    already paid for: the real ohlcv-1m CSV identifies its contract only by
+    instrument_id, a numeric venue handle the roll cannot read. The dated
+    symbol has to come from the caller, which knows it because it is what was
+    requested and priced."""
+    raw = ("ts_event,rtype,publisher_id,instrument_id,open,high,low,close,volume\n"
+           "1734544380000000000,33,1,294973,6315000000000,6315000000000,"
+           "6315000000000,6315000000000,10\n")
+    df = DBN.parse_csv(raw, symbol="ESZ5")
+    assert list(df["symbol"]) == ["ESZ5"]
+    assert df["close"].iloc[0] == pytest.approx(6315.0)      # fixed point 1e-9 undone
+    with pytest.raises(ValueError):
+        DBN.parse_csv(raw)                                   # refusing beats losing identity
+
+
+def test_databento_does_not_rescale_a_csv_already_in_decimal_units():
+    raw = ("ts_event,symbol,open,high,low,close,volume\n"
+           "2025-01-02T14:31:00Z,ESZ5,6315.25,6315.5,6315.0,6315.25,10\n")
+    assert DBN.parse_csv(raw)["close"].iloc[0] == pytest.approx(6315.25)
+
+
+def test_futures_trade_date_axis_round_trips_every_minute_of_the_day():
+    cols = sorted(FI.col(FI.rel_minute(m)) for m in range(1440))
+    assert cols == list(range(1440)), "the trade-date axis is not a bijection"
+    assert FI.minute_index(17, 0) == 0, "the trade date starts at 17:00 ET"
+    assert FI.minute_index(16, 59) == 1439
+    # 18:00 ET the PRIOR evening precedes 09:30 ET on the SAME trade date
+    assert FI.minute_index(18, 0) < FI.minute_index(9, 30) < FI.minute_index(16, 0)
+    assert FI.window_cols("OVERNIGHT") == (FI.minute_index(18, 0), FI.minute_index(9, 29))
+    assert FI.window_cols("US_AFTERNOON")[0] > FI.window_cols("ETF_PANEL_EQUIVALENT")[1]
+
+
+def test_futures_roll_mask_refuses_to_difference_two_contracts():
+    """A price difference taken across a roll is a calendar spread, never a
+    return. Both spans that can straddle a roll are masked."""
+    pn = {"instruments": ["ES"],
+          "held_evening": np.array([["ESZ5"], ["ESZ5"], ["ESH6"], [""]]),
+          "held_day":     np.array([["ESZ5"], ["ESH6"], ["ESH6"], ["ESH6"]])}
+    mid = FI.same_contract(pn, ["ES"], across="midnight")
+    assert [bool(x) for x in mid[:, 0]] == [True, False, True, False]
+    td = FI.same_contract(pn, ["ES"], across="trade_date")
+    assert not td[0, 0], "the first row has no predecessor to difference against"
+    assert not td[1, 0], "row 1 changed contract between trade dates"
+    assert td[2, 0], "rows 1 and 2 are the same contract"
+
+
+def test_futures_campaign_owns_no_second_scorer():
+    """futures_alpha owns the panel-to-weights mapping and NOTHING downstream:
+    the statistics, the gates, the verdict vocabulary and both multiplicity
+    corrections stay with their one owner."""
+    body = "\n".join(l for l in Path(FA.__file__).read_text(encoding="utf-8").splitlines()
+                     if not l.strip().startswith("#"))
+    for forbidden in ("def bh_fdr", "def holm", "def nw_tstat", "def _max_dd",
+                      "def gates", "def verdict", "def equal_risk_daily"):
+        assert forbidden not in body, "%s must stay with its one owner" % forbidden
+    for reused in ("IA.gates(", "IA.verdict(", "S.bh_fdr(", "FAM.holm(", "IA.equal_risk_daily("):
+        assert reused in body, "%s must be REUSED, not reimplemented" % reused
+
+
+def test_futures_campaign_does_not_relax_a_single_frozen_gate():
+    """Spending credits must not buy a weaker threshold."""
+    g = FI.FROZEN_GATES
+    assert g["paired_t"] == 2.0
+    assert g["bh_q"] == AR.BH_Q == 0.10
+    assert g["family_holm_alpha"] == AR.HOLM_ALPHA == 0.05
+    assert g["min_effective_periods"] == DBN.MIN_EFFECTIVE_PERIODS == 36
+    assert g["must_survive_cost_level"] == "STRESS"
+
+
+def test_futures_cost_rebinding_is_restored_even_on_exception():
+    """The gate battery is pointed at each cell's futures ladder and then put
+    back. A leak would silently re-price the CLOSED ETF axis."""
+    before = (ID.COST_PRIMARY_BPS, ID.COST_STRESS_BPS,
+              ID.COST_CANONICAL_BPS, ID.COST_ELIGIBILITY_BPS)
+    with FA._as_cost_ladder({"PRIMARY": 0.3, "STRESS": 0.6, "CANONICAL": 1.2}):
+        assert ID.COST_PRIMARY_BPS == 0.3
+        assert ID.COST_ELIGIBILITY_BPS == 0.6, "eligibility still keys on STRESS"
+    assert (ID.COST_PRIMARY_BPS, ID.COST_STRESS_BPS,
+            ID.COST_CANONICAL_BPS, ID.COST_ELIGIBILITY_BPS) == before
+    with pytest.raises(RuntimeError):
+        with FA._as_cost_ladder({"PRIMARY": 9.0, "STRESS": 9.0, "CANONICAL": 9.0}):
+            raise RuntimeError("boom")
+    assert ID.COST_PRIMARY_BPS == before[0], "the ETF axis was left re-priced"
+
+
+def test_futures_multi_leg_cost_is_the_most_expensive_leg(fut_panel):
+    """A cell may never be made to look cheaper by pairing a costly market with
+    a cheap one."""
+    es = FI.per_side_bps("ES", FI.representative_price("ES"), "PRIMARY")
+    zb = FI.per_side_bps("ZB", FI.representative_price("ZB"), "PRIMARY")
+    both = FI.cost_ladder_bps(["ES", "ZB"])["PRIMARY"]
+    assert both == pytest.approx(max(es, zb))
+    assert both > es, "pairing with ES must not discount ZB"
+
+
+def test_futures_grid_respects_the_preregistered_research_budget():
+    grid = FA.default_grid()
+    per_family: dict = {}
+    for sp in grid:
+        per_family[sp["family"]] = per_family.get(sp["family"], 0) + 1
+    assert set(per_family) == set(FI.FAMILIES), "every declared family is exercised"
+    for fam, n in per_family.items():
+        assert n <= FI.MAX_PRIMARY_PER_FAMILY, "%s spent %d primaries" % (fam, n)
+    assert len({sp["cell_id"] for sp in grid}) == len(grid), "cell ids must be unique"
+
+
+def _fake_primary(family, name, t_gross, engaged):
+    return {"family": family, "name": name, "rule": "relstrength", "group": "ALL10",
+            "legs": ["ES"], "sign": 1.0, "entry": (11, 1), "exit": (16, 0),
+            "gross": {"t_gross": t_gross},
+            "cost_ladder_bps_per_side": {"PRIMARY": 1.0},
+            "by_cost_bps_per_side": {"1.0": {"all": {"engaged_share": engaged}}}}
+
+
+def test_futures_rescue_requires_the_named_failure_to_actually_bind():
+    """Contract section 7: a rescue is permitted ONLY against a named, measured
+    binding failure. A family that does not exhibit it gets no rescue, however
+    good its gross t looks."""
+    assert FA.rescue_grid([_fake_primary(FI.FAM_CARRY, "A", 5.0, 0.10)]) == []
+    out = FA.rescue_grid([_fake_primary(FI.FAM_CARRY, "A", 5.0, 0.99)])
+    assert len(out) == 1 and out[0]["tag"] == "RESCUE"
+    assert out[0]["conditional"] is True
+    assert "UNCONDITIONAL_ENGAGEMENT" in out[0]["binding_failure"]
+    # the rescue's FORM and constants are inherited, not invented here
+    assert FA.RESCUE_LOOKBACK == IA.RESCUE_LOOKBACK_SESSIONS
+    assert FA.RESCUE_PERCENTILE == IA.RESCUE_PERCENTILE
+
+
+def test_futures_rescue_budget_is_two_per_family_and_takes_the_strongest():
+    fc = [_fake_primary(FI.FAM_RS, "A%d" % i, 1.0 + i, 0.99) for i in range(6)]
+    out = FA.rescue_grid(fc)
+    assert len(out) == FI.MAX_RESCUES_PER_FAMILY
+    assert sorted(s["name"] for s in out) == ["A4_RESCUE_CONDITIONAL", "A5_RESCUE_CONDITIONAL"]
+
+
+def test_futures_rescue_only_narrows_engagement_and_never_flips_a_sign(fut_panel):
+    """The rescue addresses the named failure and NOTHING else: it may stand an
+    arm down, never turn it around."""
+    sp = dict([s for s in FA.default_grid() if s["rule"] == "early"][0],
+              legs=["ES", "NQ"], group="EQUITY")
+    base = FA.signals(sp)
+    resc = FA.signals(dict(sp, conditional=True))
+    engaged_base = np.abs(base).sum(axis=1) > 0
+    engaged_resc = np.abs(resc).sum(axis=1) > 0
+    assert engaged_resc.sum() < engaged_base.sum(), "the rescue must narrow engagement"
+    assert not (engaged_resc & ~engaged_base).any(), "it may not engage a NEW date"
+    # A leg may be stood DOWN (+1 -> 0); no leg may be turned AROUND (+1 -> -1).
+    assert np.all(resc * base >= 0), "the rescue reversed a position instead of standing it down"
+
+
+def test_futures_signal_reads_nothing_after_its_entry_minute(fut_panel):
+    """The point-in-time claim, measured rather than trusted: destroying every
+    minute from the entry onward must not move a single weight."""
+    sp = [s for s in FA.default_grid() if s["rule"] == "early"][0]
+    sp = dict(sp, legs=["ES", "NQ"], group="EQUITY")
+    base = FA.signals(sp)
+    entry = FI.minute_index(*sp["entry"])
+    fut_panel["close"][:, entry:, :] = np.nan
+    fut_panel["high"][:, entry:, :] = np.nan
+    fut_panel["low"][:, entry:, :] = np.nan
+    assert np.array_equal(FA.signals(sp), base), \
+        "the signal moved when only POST-entry minutes changed"
+
+
+def test_futures_sign_twins_are_exact_mirrors(fut_panel):
+    """MOM and REV must differ. A refactor once made them identical, which
+    silently halved the grid."""
+    sp = dict([s for s in FA.default_grid() if s["rule"] == "overnight"][0],
+              legs=["ES", "NQ"], group="EQUITY")
+    mom = FA.signals(dict(sp, sign=1.0))
+    rev = FA.signals(dict(sp, sign=-1.0))
+    assert np.array_equal(mom, -rev), "the sign twin is not a mirror"
+    assert np.abs(mom).sum() > 0, "the arm never engages, so the test proves nothing"
+
+
+def test_futures_campaign_artifact_closes_every_family_with_a_reason():
+    body = AR.read_artifact(FA.ARTIFACT_NAME)
+    if not body:
+        pytest.skip("the futures campaign has not been run in this checkout")
+    assert set(body["families"]) == set(FI.FAMILIES)
+    for fam, s in body["families"].items():
+        assert s["closed_because"], fam
+        assert s["budget_respected"], fam
+    assert body["multiple_testing"]["denominator"] == body["n_cells"], \
+        "every executed specification counts in the denominator, rescues included"
+    assert body["true_forward_ready"] == bool(body["qualified_for_true_forward"])
+    s = body["safety"]
+    assert s["paper_only"] and s["research_only"] and s["live_checkout_read_only"]
+    assert not s["creates_orders"] and not s["registers_forward_challenger"]
+    assert not s["automatic_promotion"]
 

@@ -124,21 +124,43 @@ which is BELOW it. Contract rule 14 scopes its threshold to AUTONOMOUS research
 and the intraday axis was operator-directed, so the third number is published as
 failing rather than reclassified into compliance.
 
-A NEW information axis was opened on 2026-09-10 and is now **priced and awaiting
-one human approval of a FREE-credit spend, not blocked at a result**: native CME
-1-minute futures history through Databento, usage-based and limited to the
-account's existing FREE credits, with no subscription and zero paid dollars. It
-is admitted under contract rule 13 as materially better COVERAGE for a named
-measured defect - the owned ETF minute panel stops at 12:59 ET, so no intraday
-family in this campaign could be marked to the close or observe the overnight
-session - and it adds ENERGY and FX, two markets the estate has never held at
-any frequency.
+A NEW information axis was opened on 2026-09-10, **acquired and CLOSED on
+2026-09-11**: native CME 1-minute futures history through Databento,
+usage-based, limited to the account's existing FREE credits, no subscription and
+**zero paid dollars**. It was admitted under contract rule 13 as materially
+better COVERAGE for a named measured defect - the owned ETF minute panel stops
+at 12:59 ET, so no intraday family in this campaign could be marked to the close
+or observe the overnight session - and it added ENERGY and FX, two markets the
+estate had never held at any frequency.
 
-`DATABENTO_API_KEY` is now live. The credential alone was NOT sufficient: three
-real defects sat between it and any data, and all three were found and fixed
-**before a single credit was spent**. (1) `resolve_symbols` built its
-`symbology.resolve` window from `max(delivery)`, which runs up to 120 days past
-the requested end and landed in 2027-03-01; Databento answers HTTP 422
+**RESULT: the axis is closed with no qualified signal, and the coverage
+hypothesis is itself falsified.** 1,034 CME trade dates x 1,440 minutes x 10
+roots across 5 buckets, 2022-09-12 -> 2026-09-10, built from 213 genuine dated
+contracts under the estate's own causal forward-only roll. **54 specifications**
+(48 pre-registered primaries + 6 rescues) across **8 families**, every one
+closed on its own declared falsifier. Benjamini-Hochberg at q=0.10 over all 54:
+**0 rejections**; family Holm at alpha=0.05: **0 rejections**. The best arm
+(`FUT_MARK_TO_CLOSE / REV_COMMOD_RESCUE_CONDITIONAL`, GC+CL faded into the
+settlement mark) returned +6.40 %/yr net at Newey-West **t 1.02**, below the
+frozen floor of 2.0. **No arm in the campaign reached gross t 2.0 at ZERO
+cost**; the highest was **1.34**. An arm whose gross t is below 2.0 before a
+cent of cost cannot be rescued by any cost, sizing or execution assumption: the
+failure is information.
+
+The decisive measurement is `FUT_MARK_TO_CLOSE`'s, because it tests the
+acquisition's own premise rather than a strategy. Marking to the 16:00
+settlement - the one capability the credits bought - added a **median of
+0.0000 /yr** over the 12:59 ET mark, improving 4 of 8 arms, with gains and
+losses exact mirror images across the sign twins. That is what a zero effect
+looks like, not a small one. **The estate does not have an intraday coverage
+problem; it has an intraday information problem**, and this result retires the
+standing explanation for the closed ETF axis rather than leaving it open.
+
+`DATABENTO_API_KEY` went live on 2026-09-10. The credential alone was NOT
+sufficient: three real defects sat between it and any data, and all three were
+found and fixed **before a single credit was spent**. (1) `resolve_symbols`
+built its `symbology.resolve` window from `max(delivery)`, which runs up to 120
+days past the requested end and landed in 2027-03-01; Databento answers HTTP 422
 `data_end_date_after_available_end_date`, the batching loop absorbs
 `DatabentoError`, and so **all ten roots resolved to nothing and every cost came
 back null** - a $0 plan that reads like a clean refusal rather than a broken
@@ -148,32 +170,50 @@ provider states as an exclusive sub-daily bound. (2) `normalise` persisted via
 this estate's virtualenv, so persistence would have raised `ImportError` at
 exactly the moment a paid-for panel had landed; it now writes `csv.gz`, the
 convention the owned R45 minute panels already use. (3) The budget's provenance
-was not recorded, although the only figure available here is the vendor's
-published signup grant - an upper bound on a *fresh* account - not a verified
-balance; the artifact now carries `budget_provenance` and
-`balance_verified_against_the_account`.
+was not recorded; the artifact now carries `budget_provenance` and
+`balance_verified_against_the_account`, and the operator verified the balance
+before approving.
 
-The priced plan is `PLANNED_FITS_FREE_CREDIT`: dataset `GLBX.MDP3`, schema
-`ohlcv-1m` (confirmed at $70/GB by `metadata.list_unit_prices`), genuine dated
-contracts over **2022-09-09 -> 2026-09-09**, ~1008 sessions, 213 request
-windows, **$70.48 of a $112.50 cap** on the stated $125 grant. All ten roots and
-all five buckets (`US_EQUITY_INDEX`, `METALS`, `FX`, `US_RATES`, `ENERGY`) are
-included and **nothing was dropped**, so the value model never had to choose and
-therefore cannot have been fitted to the price list. Depth was raised from the
-pre-registered 2 years to 4 **before a single bar existed**, which cannot bias a
-result and directly addresses a measured weakness of the closed ETF axis (its
-best arm failed the halves floor at -4.29 %/yr in its second half on 500
-sessions). **Zero billable calls have been made and zero bytes of market data
-downloaded**; `metadata.get_cost` priced every signature and `download` refuses
-any signature the plan did not price. The whole post-download path - parse,
-causal forward-only front-month roll, within-contract return splicing, PIT
-validation against the unchanged 36-session floor, persistence - was driven end
-to end on synthetic bars, so nothing else is waiting to fail after a spend. The
-owner is `alpha_agent/alpha_recovery/databento_acquisition.py` and the runner
+**A fourth defect was found on the first real byte, and only the real data could
+have exposed it.** The genuine `ohlcv-1m` CSV identifies its contract **only by
+`instrument_id`** - a numeric venue handle that is not stable across time and
+means nothing to a roll. There is no `symbol` column. `normalise` keyed every
+pivot, every delivery lookup and the entire return splice on `df["symbol"]`, so
+it would have raised `KeyError` on the first normalisation of a panel that had
+already been paid for. The dated symbol now comes from the filename - the
+request this estate priced and paid for - and `parse_csv` refuses outright
+rather than silently losing contract identity.
+
+Acquisition, as executed: dataset `GLBX.MDP3`, schema `ohlcv-1m` (confirmed at
+$70/GB by `metadata.list_unit_prices`), genuine dated contracts only, 213 of 213
+priced windows delivered, **0 failed**, **$70.49 of free credit and $0.00 paid
+dollars**. All ten roots and all five buckets were included and **nothing was
+dropped**, so the value model never had to choose and cannot have been fitted to
+the price list. Depth was raised from the pre-registered 2 years to 4 **before a
+single bar existed**, which cannot bias a result and directly addressed a
+measured weakness of the closed ETF axis (its best arm failed the halves floor
+at -4.29 %/yr in its second half on 500 sessions). `metadata.get_cost` priced
+every signature before it was requested and `download` refuses any signature the
+plan did not price. **Do not re-download this panel.**
+
+Two roll guards were added because two spans can straddle a roll and a price
+difference taken across a roll is a calendar spread, never a return: the
+overnight (18:00 ET prior evening -> 09:29 ET, which crosses the 00:00 ET
+calendar boundary inside one trade date) and carry (which differences two trade
+dates). Both are masked against the contract actually held, recorded separately
+for the two calendar days a single CME trade date spans.
+
+Owners: `alpha_agent/alpha_recovery/databento_acquisition.py` (acquisition,
 stage `databento`, deliberately excluded from `all` because it is the only stage
-that can consume a credit balance; it now carries `--years`. Regressions: 77
-passing in `tests/test_alpha_recovery_offensive.py`, up from 73, with the three
-defects above pinned individually.
+that can consume a credit balance), `futures_intraday.py` (the panel, its
+17:00 ET trade-date definition and the pre-registration, stage `futures`), and
+`futures_alpha.py` (the campaign, stage `futures_alpha`). `futures_alpha` owns
+the panel-to-weights mapping and nothing downstream: the statistics, the gate
+battery, the verdict vocabulary, the equal-risk utility and both multiplicity
+corrections are reused from `intraday_alpha`, `r63.sensitivity` and
+`r64.family`, and a regression forbids a second copy of any of them. Regressions:
+**104 passing** in `tests/test_alpha_recovery_offensive.py`, up from 73, with all
+four defects and both roll guards pinned individually.
 
 No candidate is READY for forward qualification; nothing was registered. 52
 non-incumbent candidates have now been measured and 0 qualified. The purchase

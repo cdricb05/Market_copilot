@@ -300,6 +300,226 @@ def available_roots() -> list:
     return sorted(r for r in ROOTS if panel_path(r).exists())
 
 
+# --------------------------------------------------------- the aligned panel
+#: The trade date's own minute axis. Index 0 is 17:00 ET on the PRIOR calendar
+#: evening - the instant the CME trade date rolls - and index 1439 is 16:59 ET.
+#: A minute is therefore addressed by its offset from ET MIDNIGHT OF THE TRADE
+#: DATE, which is exactly the convention ``WINDOWS`` is written in, so a window
+#: bound can be turned into a column with no second convention to get wrong.
+TD_FIRST_REL = TRADE_DATE_ROLL_HOUR_ET * 60 - 24 * 60          # -420, i.e. 17:00 prior evening
+TD_MINUTES = 24 * 60                                            # 1440
+
+
+def rel_minute(minute_et: int) -> int:
+    """ET minute-of-day -> minutes from ET midnight OF ITS TRADE DATE."""
+    return minute_et if minute_et < TRADE_DATE_ROLL_HOUR_ET * 60 else minute_et - 24 * 60
+
+
+def col(rel: int) -> int:
+    """A trade-date-relative minute -> its column in the panel grids."""
+    if not (TD_FIRST_REL <= rel < TD_FIRST_REL + TD_MINUTES):
+        raise ValueError("%d is outside the trade date's own 24h axis" % rel)
+    return rel - TD_FIRST_REL
+
+
+def minute_index(hh: int, mm: int) -> int:
+    """Column for an exchange-local wall-clock time on the trade date.
+
+    Deliberately the same call signature as ``intraday_data.minute_index`` so
+    the one scorer can be pointed at this panel without being edited.
+    """
+    return col(rel_minute(hh * 60 + mm))
+
+
+def window_cols(name: str) -> tuple:
+    lo, hi = WINDOWS[name]
+    return col(lo), col(hi)
+
+
+_CACHE: dict = {}
+
+
+def _cache_path() -> Path:
+    return panel_root() / "futures_panel_v1.npz"
+
+
+def _read_front(root: str):
+    """One root's normalised front-month series, on its trade-date axis."""
+    import pandas as pd
+
+    df = pd.read_csv(panel_path(root),
+                     usecols=lambda c: c in ("session", "minute_et", "symbol",
+                                             "open", "high", "low", "close", "volume"))
+    m = df["minute_et"].to_numpy()
+    # The trade date advances at 17:00 ET, so an evening bar belongs to the NEXT
+    # date. This is the one place that correction is applied.
+    td = pd.to_datetime(df["session"]) + pd.to_timedelta(
+        (m >= TRADE_DATE_ROLL_HOUR_ET * 60).astype("int64"), unit="D")
+    df["td"] = td.dt.strftime("%Y-%m-%d").to_numpy()
+    df["c"] = [rel_minute(int(x)) - TD_FIRST_REL for x in m]
+    return df
+
+
+def _grid(df, field: str, dates: list, *, dtype=float):
+    """(n_trade_dates x 1440) of ``field``.
+
+    A minute with no print is forward-filled from the last print WITHIN the
+    same trade date - the last trade is still the price - and minutes before
+    the first print of that trade date stay NaN and are never back-filled.
+    This is the identical rule the owned ETF panel uses.
+    """
+    import numpy as np
+    import pandas as pd
+
+    piv = df.pivot_table(index="td", columns="c", values=field, aggfunc="last")
+    piv = piv.reindex(index=dates, columns=list(range(TD_MINUTES)))
+    arr = piv.to_numpy(dtype=float)
+    if field == "volume":
+        arr = np.nan_to_num(arr, nan=0.0)
+    else:
+        arr = pd.DataFrame(arr).ffill(axis=1).to_numpy()
+    return arr.astype(dtype)
+
+
+def _held(df, dates: list, *, lo_col: int, hi_col: int):
+    """The dated contract held over a column range, per trade date.
+
+    ``None`` where that part of the trade date has no print at all, which is
+    itself information: a signal spanning it cannot be formed.
+    """
+    import numpy as np
+
+    sub = df[(df["c"] >= lo_col) & (df["c"] <= hi_col)]
+    s = sub.groupby("td")["symbol"].last().reindex(dates)
+    # "" means "no print in this part of the trade date". A plain string array
+    # survives the npz round trip, where an object array carrying None does
+    # not - and a None that silently became the STRING "None" would compare
+    # equal to another one, which is exactly the roll bug this guards against.
+    return np.array(["" if v is None or v != v else str(v) for v in s.to_numpy()], dtype="<U12")
+
+
+def same_contract(pn, legs, *, across: str):
+    """(n_dates x n_legs) mask: is the span a single contract, or a spread?
+
+    ``across="midnight"`` covers a signal running from the prior evening into
+    the trade date's own morning - the OVERNIGHT window. ``across="trade_date"``
+    covers a signal differencing this trade date against the previous one -
+    CARRY. Either can straddle a roll, and a price difference taken across a
+    roll is a calendar spread, never a return. This is the same rule
+    ``databento_acquisition.normalise`` applies to minute returns, restated for
+    the two spans that reach beyond a single continuous block of minutes.
+    """
+    import numpy as np
+
+    ev, dy = pn["held_evening"], pn["held_day"]
+    idx = [pn["instruments"].index(s) for s in legs]
+    d = dy[:, idx]
+    if across == "midnight":
+        e = ev[:, idx]
+        return (e == d) & (e != "") & (d != "")
+    if across == "trade_date":
+        prev = np.roll(d, 1, axis=0)
+        prev[0, :] = ""
+        return (prev == d) & (d != "")
+    raise ValueError("unknown span %r" % across)
+
+
+def panel(*, rebuild: bool = False):
+    """The aligned CME futures intraday panel.
+
+    Shape and key names deliberately mirror ``intraday_data.panel`` so the one
+    scorer can consume either: ``(n_trade_dates, 1440, n_roots)``. The only
+    difference is the minute axis, and that difference is the entire point of
+    the acquisition.
+    """
+    import numpy as np
+
+    if "panel" in _CACHE and not rebuild:
+        return _CACHE["panel"]
+    cp = _cache_path()
+    if cp.exists() and not rebuild:
+        z = np.load(cp, allow_pickle=False)
+        out = {"dates": [str(d) for d in z["dates"]], "instruments": [str(s) for s in z["instruments"]],
+               "close": z["close"], "high": z["high"], "low": z["low"], "volume": z["volume"],
+               "held_evening": z["held_evening"], "held_day": z["held_day"]}
+        _CACHE["panel"] = out
+        return out
+
+    roots = available_roots()
+    if not roots:
+        raise RuntimeError("the futures panel is not on disk; acquisition must run first")
+    frames = {r: _read_front(r) for r in roots}
+    # The contract actually held, recorded separately for the two CALENDAR days
+    # a single trade date spans. Any signal that reaches across the 00:00 ET
+    # boundary (the overnight) or across trade dates (carry) must be able to
+    # check that it is not differencing two different contracts - which would
+    # be a calendar spread, not a return.
+    EVENING_LAST_COL = -TD_FIRST_REL - 1                        # 17:00-23:59 ET
+    # The session calendar is ES's: the deepest book and the market whose
+    # session defines the others' tradability. A root missing a date keeps NaN
+    # on that row rather than borrowing a neighbour's.
+    ref = "ES" if "ES" in frames else roots[0]
+    dates = sorted(set(frames[ref]["td"].tolist()))
+    n_d, n_i = len(dates), len(roots)
+    cl = np.full((n_d, TD_MINUTES, n_i), np.nan)
+    hi = np.full((n_d, TD_MINUTES, n_i), np.nan, dtype=np.float32)
+    lo = np.full((n_d, TD_MINUTES, n_i), np.nan, dtype=np.float32)
+    vo = np.zeros((n_d, TD_MINUTES, n_i), dtype=np.float32)
+    ev = np.full((n_d, n_i), "", dtype="<U12")
+    dy = np.full((n_d, n_i), "", dtype="<U12")
+    for j, r in enumerate(roots):
+        df = frames[r]
+        cl[:, :, j] = _grid(df, "close", dates)
+        hi[:, :, j] = _grid(df, "high", dates, dtype=np.float32)
+        lo[:, :, j] = _grid(df, "low", dates, dtype=np.float32)
+        vo[:, :, j] = _grid(df, "volume", dates, dtype=np.float32)
+        ev[:, j] = _held(df, dates, lo_col=0, hi_col=EVENING_LAST_COL)
+        dy[:, j] = _held(df, dates, lo_col=EVENING_LAST_COL + 1, hi_col=TD_MINUTES - 1)
+    out = {"dates": dates, "instruments": list(roots),
+           "close": cl, "high": hi, "low": lo, "volume": vo,
+           "held_evening": ev, "held_day": dy}
+    cp.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(cp, dates=np.array(dates), instruments=np.array(roots),
+                        close=cl, high=hi, low=lo, volume=vo,
+                        held_evening=ev, held_day=dy)
+    _CACHE["panel"] = out
+    return out
+
+
+def ix(root: str) -> int:
+    return panel()["instruments"].index(root)
+
+
+def representative_price(root: str) -> float:
+    """The median close used to turn the cost FORMULA into basis points.
+
+    Taken over the whole panel and over every minute, so it is a property of
+    the sample rather than of any arm's engaged sessions - an arm cannot get a
+    cheaper cost by trading when the contract happens to be expensive.
+    """
+    import numpy as np
+
+    key = "repr_%s" % root
+    if key not in _CACHE:
+        pn = panel()
+        _CACHE[key] = float(np.nanmedian(pn["close"][:, :, pn["instruments"].index(root)]))
+    return _CACHE[key]
+
+
+def cost_ladder_bps(roots) -> dict:
+    """The three pre-registered cost levels, in per-side bp, for a set of legs.
+
+    The MOST EXPENSIVE leg's rate is charged to the whole arm. That is
+    deliberately conservative: a cell mixing ES (0.24 bp/side) and ZB (1.43) is
+    charged ZB's rate on both legs, so no cell can ever be made to look cheaper
+    by pairing a costly market with a cheap one.
+    """
+    out = {}
+    for level in ("PRIMARY", "STRESS", "CANONICAL"):
+        out[level] = max(per_side_bps(r, representative_price(r), level) for r in roots)
+    return out
+
+
 # -------------------------------------------------------------- the artifact
 def preregistration() -> dict:
     """The whole pre-registration, as one machine-readable record written

@@ -660,7 +660,7 @@ CSV_OHLCV = ("open", "high", "low", "close", "volume")
 PRICE_SCALE = 1e-9
 
 
-def parse_csv(raw: bytes | str) -> "pd.DataFrame":                    # noqa: F821
+def parse_csv(raw: bytes | str, symbol: str | None = None) -> "pd.DataFrame":  # noqa: F821
     """Databento ``ohlcv-1m`` CSV -> a tidy frame in exchange-local time.
 
     The DST trap that corrupted the first pass at the owned ETF panel is
@@ -668,6 +668,14 @@ def parse_csv(raw: bytes | str) -> "pd.DataFrame":                    # noqa: F8
     on it silently mixes two different session clocks across a DST boundary.
     Every timestamp is converted to ``America/New_York`` HERE, once, so no
     downstream consumer can index a UTC minute by mistake.
+
+    ``symbol`` is REQUIRED in practice even though it is optional here. The
+    real ``ohlcv-1m`` CSV identifies its contract only by ``instrument_id`` - a
+    numeric venue handle that is not stable across time and means nothing to
+    the roll - so the dated symbol has to come from the caller, which knows it
+    because it is what was requested and priced. Without it the roll cannot
+    tell ESZ5 from ESH6, and every downstream return would be spliced across
+    contracts.
     """
     import io
     import pandas as pd
@@ -676,6 +684,12 @@ def parse_csv(raw: bytes | str) -> "pd.DataFrame":                    # noqa: F8
     df = pd.read_csv(io.StringIO(text))
     if df.empty:
         return df
+    if CSV_SYM not in df.columns:
+        if not symbol:
+            raise ValueError(
+                "ohlcv-1m CSV carries no '%s' column and no symbol was supplied; "
+                "the contract identity would be lost" % CSV_SYM)
+        df[CSV_SYM] = str(symbol)
     ts = pd.to_datetime(df[CSV_TS], utc=True, errors="coerce", format="mixed")
     df = df.assign(ts_utc=ts).dropna(subset=["ts_utc"])
     df["ts_et"] = df["ts_utc"].dt.tz_convert("America/New_York")
@@ -754,7 +768,11 @@ def normalise(root: str, files: list, out_dir: Path | None = None) -> dict:
     """
     import pandas as pd
 
-    frames = [parse_csv(Path(f).read_bytes()) for f in files]
+    # The dated symbol comes from the FILENAME, which is the request this
+    # estate priced and paid for, not from the payload - the payload only
+    # carries instrument_id.
+    frames = [parse_csv(Path(f).read_bytes(), symbol=Path(f).stem.split("_")[0])
+              for f in files]
     frames = [f for f in frames if not f.empty]
     if not frames:
         return {"root": root, "state": "NO_ROWS", "sessions": 0}

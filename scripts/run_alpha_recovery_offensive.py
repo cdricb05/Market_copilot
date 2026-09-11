@@ -62,8 +62,8 @@ ENTRYPOINT = "scripts/run_alpha_recovery_offensive.py"
 OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
-          "equity", "residual", "intraday", "options", "databento", "futures", "compete", "products",
-          "package", "purchase", "scoreboard", "report", "all")
+          "equity", "residual", "intraday", "options", "databento", "futures", "futures_alpha",
+          "compete", "products", "package", "purchase", "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
 STAGES_EXCLUDED_FROM_ALL = ("databento",)
@@ -237,6 +237,30 @@ def _stage_futures() -> dict:
     return out
 
 
+def _stage_futures_alpha() -> dict:
+    """The native CME futures intraday ALPHA campaign.
+
+    Runs the pre-registered grid on the acquired panel, spends the rescue
+    budget only where the named binding failure is actually measured, and
+    applies BH / family Holm over every executed specification. It scores
+    nothing if the panel is absent - an absent panel is a blocker, never a
+    silent "no advantage".
+    """
+    from alpha_agent.alpha_recovery import futures_alpha as FA
+    from alpha_agent.alpha_recovery import futures_intraday as FI
+    if not FI.available_roots():
+        return {"state": "BLOCKED", "blocker": "PANEL_NOT_ACQUIRED",
+                "remediation": "run the databento stage with --spend-free-credits first"}
+    primaries = FA.run_grid(FA.default_grid(), verbose=False)
+    rescues = FA.run_grid(FA.rescue_grid(primaries), verbose=False)
+    body = FA.merge(cells=primaries + rescues)
+    return {"n_cells": body["n_cells"], "counts": body["counts"],
+            "bh_rejected": body["multiple_testing"]["benjamini_hochberg"]["n_rejected"],
+            "qualified": len(body["qualified_for_true_forward"]),
+            "true_forward_ready": body["true_forward_ready"],
+            "best_gross_t": (body.get("best_by_gross_t") or {}).get("t_gross")}
+
+
 def _stage_products() -> dict:
     """What this estate can predict today, in economic units."""
     from alpha_agent.alpha_recovery import forecast_products as FP
@@ -301,7 +325,7 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "tournament": _stage_tournament, "news": _stage_news, "cadence": _stage_cadence,
             "direction": _stage_direction, "equity": _stage_equity, "residual": _stage_residual,
             "intraday": _stage_intraday, "options": _stage_options, "databento": _stage_databento,
-            "futures": _stage_futures,
+            "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
