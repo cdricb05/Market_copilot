@@ -1,4 +1,4 @@
-"""Alpha Recovery Offensive - the regressions that keep the campaign honest.
+﻿"""Alpha Recovery Offensive - the regressions that keep the campaign honest.
 
 Every test here is HERMETIC. The campaign research root, the committed
 campaign directory (checkpoint / scoreboard), the desk ledger directory, the
@@ -46,6 +46,8 @@ from alpha_agent.alpha_recovery import checkpoint as CK
 from alpha_agent.alpha_recovery import databento_acquisition as DBN
 from alpha_agent.alpha_recovery import futures_alpha as FA
 from alpha_agent.alpha_recovery import futures_intraday as FI
+from alpha_agent.alpha_recovery import microstructure as MS
+from alpha_agent.alpha_recovery import microstructure_alpha as MA
 from alpha_agent.alpha_recovery import earnings_events as EE
 from alpha_agent.alpha_recovery import equity_challengers as EC
 from alpha_agent.alpha_recovery import forecast_products as FPR
@@ -1701,4 +1703,259 @@ def test_futures_campaign_artifact_closes_every_family_with_a_reason():
     assert s["paper_only"] and s["research_only"] and s["live_checkout_read_only"]
     assert not s["creates_orders"] and not s["registers_forward_challenger"]
     assert not s["automatic_promotion"]
+
+
+
+# --------------------------------------------------------------------------- #
+# Native CME microstructure axis
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def ms_panel(monkeypatch):
+    """A synthetic order-flow panel with the REAL geometry, installed through
+    the owner's own cache. Hermetic: no test here opens the acquired panel."""
+    rng = np.random.default_rng(23)
+    roots = ["ES", "NQ"]
+    n_d, n_m, n_i = 90, FI.TD_MINUTES, len(roots)
+    base = np.array([5600.0, 19800.0])
+    mid = base * np.exp(np.cumsum(rng.normal(0.0, 1e-4, size=(n_d, n_m, n_i)), axis=1))
+    bsz = rng.integers(1, 80, size=(n_d, n_m, n_i)).astype(np.float32)
+    asz = rng.integers(1, 80, size=(n_d, n_m, n_i)).astype(np.float32)
+    bct = rng.integers(1, 20, size=(n_d, n_m, n_i)).astype(np.float32)
+    act = rng.integers(1, 20, size=(n_d, n_m, n_i)).astype(np.float32)
+    spread_t = np.ones((n_d, n_m, n_i), dtype=np.float32)
+    depth_imb = ((bsz - asz) / (bsz + asz)).astype(np.float32)
+    tick = np.array([FI.SPECS[r][0] for r in roots], dtype=np.float32)
+    micro = (10000.0 * 0.5 * spread_t * tick * depth_imb / mid).astype(np.float32)
+    pn = {"dates": [str(date(2025, 1, 1) + timedelta(days=i)) for i in range(n_d)],
+          "instruments": roots,
+          "mid": mid.astype(np.float32), "spread_t": spread_t,
+          "depth_imb": depth_imb, "ct_imb": ((bct - act) / (bct + act)).astype(np.float32),
+          "micro_bps": micro, "depth_tot": (bsz + asz).astype(np.float32),
+          "signed": rng.integers(-9, 10, size=(n_d, n_m, n_i)).astype(np.float32),
+          "traded": rng.integers(1, 30, size=(n_d, n_m, n_i)).astype(np.float32),
+          "held_day": np.array([["ESZ5", "NQZ5"]] * n_d)}
+    monkeypatch.setitem(MS._CACHE, "panel", pn)
+    for r in roots:
+        monkeypatch.setitem(FI._CACHE, "repr_%s" % r,
+                            float(np.nanmedian(mid[:, :, roots.index(r)])))
+    return pn
+
+
+def test_microstructure_rejected_mbp1_on_the_frozen_floor_not_on_price():
+    """The decisive purchase reasoning, pinned. mbp-1 was not rejected for being
+    dear - it was rejected because the sample it buys cannot clear a frozen
+    threshold at ANY signal strength, which makes it unaffordable in the strict
+    sense rather than merely expensive."""
+    px = MS.SCHEMA_PRICES_USD_PER_SESSION_4_ROOTS
+    assert MS.SCHEMA == "bbo-1m"
+    cap = 45.0
+    mbp1_sessions = int(cap / px["mbp-1"])
+    bought_sessions = int(cap / px[MS.SCHEMA])
+    assert mbp1_sessions < MS.FROZEN_GATES["min_effective_periods"], (
+        "the rejection argument only holds if mbp-1 really cannot reach the floor")
+    assert bought_sessions > 10 * MS.FROZEN_GATES["min_effective_periods"]
+    # and the loss it implies is declared rather than hidden
+    assert "every_book_update" in MS.INFORMATION_NOT_PURCHASED
+    assert "sub-minute" in MS.INFORMATION_NOT_PURCHASED["consequence_for_a_negative_result"]
+
+
+def test_microstructure_signature_carries_its_schema():
+    """A cheap ohlcv quote must never be able to authorise an expensive
+    order-book download."""
+    a = DBN._signature("ESZ5", "2025-01-01", "2025-03-01", "ohlcv-1m")
+    b = DBN._signature("ESZ5", "2025-01-01", "2025-03-01", "mbp-1")
+    assert a != b, "two schemas share a request signature"
+    assert "ohlcv-1m" in a and "mbp-1" in b
+
+
+def test_microstructure_does_not_relax_a_single_frozen_gate():
+    g = MS.FROZEN_GATES
+    assert g["paired_t"] == 2.0
+    assert g["bh_q"] == AR.BH_Q == 0.10
+    assert g["family_holm_alpha"] == AR.HOLM_ALPHA == 0.05
+    assert g["min_effective_periods"] == DBN.MIN_EFFECTIVE_PERIODS == 36
+    assert g["must_survive_cost_level"] == "STRESS"
+    assert MS.MAX_PRIMARY_PER_FAMILY == AR.FAMILY_PRIMARY_MAX
+    assert MS.MAX_RESCUES_PER_FAMILY == AR.FAMILY_RESCUE_MAX
+
+
+def test_microstructure_owns_no_second_scorer():
+    body = "\n".join(l for l in Path(MA.__file__).read_text(encoding="utf-8").splitlines()
+                     if not l.strip().startswith("#"))
+    for forbidden in ("def bh_fdr", "def holm", "def nw_tstat", "def _max_dd",
+                      "def gates", "def verdict", "def equal_risk_daily", "def _stats"):
+        assert forbidden not in body, "%s must stay with its one owner" % forbidden
+    for reused in ("IA.gates(", "IA.verdict(", "IA._stats(", "S.bh_fdr(", "FAM.holm(",
+                   "IA.equal_risk_daily("):
+        assert reused in body, "%s must be REUSED, not reimplemented" % reused
+
+
+def test_microstructure_grid_respects_the_preregistered_budget():
+    grid = MA.default_grid()
+    by_fam = {}
+    for sp in grid:
+        by_fam.setdefault(sp["family"], []).append(sp)
+    assert set(by_fam) == set(MS.FAMILIES), "a declared family was not executed"
+    for fam, cells in by_fam.items():
+        assert len(cells) <= MS.MAX_PRIMARY_PER_FAMILY, fam
+        assert len({c["cell_id"] for c in cells}) == len(cells), "duplicate cell id in %s" % fam
+    assert len({sp["cell_id"] for sp in grid}) == len(grid)
+    # every family carries a falsifier; a family without one is a fishing licence
+    for fam in MS.FAMILIES:
+        assert MS.FAMILY_CONTRACT[fam]["falsified_by"]
+        assert MS.FAMILY_CONTRACT[fam]["not_in_ohlcv"]
+
+
+def test_microstructure_entries_never_overlap():
+    """Overlapping entries would multiply the apparent sample without adding
+    independent information - the easiest way to inflate an intraday t."""
+    for h in MS.HORIZONS_MINUTES:
+        cols = MA.entry_columns(h)
+        assert cols, "horizon %d has no entries" % h
+        gaps = np.diff(cols)
+        assert (gaps >= h).all(), "horizon %d re-enters before the prior exit" % h
+        last_exit = cols[-1] + 1 + h
+        assert last_exit <= FI.minute_index(*MA.ENTRY_LAST), \
+            "horizon %d exits after the close" % h
+        assert cols[0] >= FI.minute_index(*MA.ENTRY_FIRST)
+
+
+def test_microstructure_day_return_is_the_sum_over_entries_not_the_mean(ms_panel):
+    """The assumption that would have made minute-horizon trading look cheap:
+    averaging over entries charges ONE round trip a day however fast the arm
+    trades. Cost must scale with the number of entries."""
+    sp = {"cell_id": "T|x", "family": MS.FAM_DEPTH, "rule": "depth", "group": "EQUITY",
+          "legs": ["ES", "NQ"], "sign": 1.0, "horizon": 5}
+    fast = MA.session_path(sp, cost_bps=1.0)
+    slow = MA.session_path(dict(sp, horizon=60), cost_bps=1.0)
+    n_fast, n_slow = len(MA.entry_columns(5)), len(MA.entry_columns(60))
+    assert n_fast > n_slow
+    assert fast["cost"].mean() > slow["cost"].mean() * 3, \
+        "a 12x faster arm is not paying materially more cost"
+    # and the charge really is a full round trip on every engaged entry
+    exp = fast["round_trips_per_day"] * 2.0 * 1.0 * 1e-4
+    assert np.allclose(fast["cost"], exp)
+
+
+def test_microstructure_signal_reads_nothing_after_its_entry_minute(ms_panel):
+    """Causality, checked by corruption: overwrite every minute from the entry
+    onward and the weights must not move."""
+    sp = {"cell_id": "T|x", "family": MS.FAM_DEPTH, "rule": "depth", "group": "EQUITY",
+          "legs": ["ES", "NQ"], "sign": 1.0, "horizon": 15}
+    m = MA.entry_columns(15)[10]
+    x = MA.raw_score(sp)
+    before = MA.weights_at(sp, x, m)
+    pn = MS.panel()
+    for fld in ("depth_imb", "micro_bps", "ct_imb", "signed", "traded", "mid", "spread_t"):
+        pn[fld][:, m + 1:, :] = np.nan if fld != "signed" else 0.0
+    after = MA.weights_at(sp, MA.raw_score(sp), m)
+    assert np.array_equal(before, after), "the signal reads the future"
+    assert np.abs(before).sum() > 0, "the arm never engages, so the test proves nothing"
+
+
+def test_microstructure_microprice_is_depth_imbalance_scaled_by_the_book(ms_panel):
+    """Declared algebraically in advance, so the family comparison is a real
+    test rather than a rediscovery: microprice - mid == (spread/2)*imbalance."""
+    pn = MS.panel()
+    j = pn["instruments"].index("ES")
+    tick = FI.SPECS["ES"][0]
+    lhs = pn["micro_bps"][:, :, j].astype(float)
+    rhs = (10000.0 * 0.5 * pn["spread_t"][:, :, j] * tick
+           * pn["depth_imb"][:, :, j] / pn["mid"][:, :, j])
+    ok = np.isfinite(lhs) & np.isfinite(rhs)
+    assert ok.mean() > 0.5
+    assert np.allclose(lhs[ok], rhs[ok], atol=1e-6)
+    # therefore the two families may only be separated by the SCALING
+    assert "algebraic_identity_declared_in_advance" in MS.FAMILY_CONTRACT[MS.FAM_MICRO]
+
+
+def test_microstructure_aggressor_side_convention_is_pinned():
+    """A flipped sign would invert every flow family. Databento labels the side
+    that INITIATED the event, so 'B' is the buy aggressor - determined
+    empirically on the acquired data, and pinned here."""
+    assert (MS.SIDE_BUY, MS.SIDE_SELL, MS.SIDE_NONE) == ("B", "A", "N")
+    df = pd.DataFrame({"td": ["2025-01-02"] * 3, "c": [0, 1, 2], "symbol": ["ESZ5"] * 3,
+                       "side": ["B", "A", "N"], "size": [7.0, 4.0, 0.0],
+                       "price": [5600.0, 5600.0, np.nan],
+                       "bid_px_00": [5599.75] * 3, "ask_px_00": [5600.25] * 3,
+                       "bid_sz_00": [10.0] * 3, "ask_sz_00": [5.0] * 3,
+                       "bid_ct_00": [3.0] * 3, "ask_ct_00": [2.0] * 3})
+    f = MS.features(df, "ES")
+    assert list(f["signed"]) == [7.0, -4.0, 0.0], "the aggressor sign is inverted"
+    assert f["depth_imb"].iloc[0] == pytest.approx((10 - 5) / 15.0)
+
+
+def test_microstructure_uses_ts_recv_because_ts_event_is_null_on_quiet_minutes():
+    """Indexing on ts_event would silently drop every minute with no trade -
+    exactly the minutes a liquidity-withdrawal family exists to look at."""
+    assert MS.CSV_TS == "ts_recv"
+    body = Path(MS.__file__).read_text(encoding="utf-8")
+    assert "ts_event" in body, "the trap must be documented where it was hit"
+
+
+def test_microstructure_cost_rebinding_is_restored_even_on_exception():
+    before = (ID.COST_PRIMARY_BPS, ID.COST_STRESS_BPS,
+              ID.COST_CANONICAL_BPS, ID.COST_ELIGIBILITY_BPS)
+    with pytest.raises(RuntimeError):
+        with MA._as_cost_ladder({"PRIMARY": 9.0, "STRESS": 9.0, "CANONICAL": 9.0}):
+            raise RuntimeError("boom")
+    assert (ID.COST_PRIMARY_BPS, ID.COST_STRESS_BPS,
+            ID.COST_CANONICAL_BPS, ID.COST_ELIGIBILITY_BPS) == before
+
+
+def test_microstructure_rescue_requires_a_measured_binding_failure():
+    """A rescue is permitted only against a NAMED failure that the measurement
+    shows actually binds: a real gross edge that cost consumed. No gross edge,
+    no rescue - otherwise a rescue is just another specification."""
+    def cell(t, edge, cost):
+        return {"cell_id": "F|a%s" % t, "family": MS.FAM_DEPTH, "name": "a%s" % t,
+                "rule": "depth", "group": "ALL7", "legs": ["ES"], "sign": 1.0, "horizon": 5,
+                "gross": {"t_gross": t, "bp_per_day_gross": edge,
+                          "cost_bp_per_day_at_primary": cost}}
+    # no gross edge at all -> the failure is information, and nothing is rescued
+    assert MA.rescue_grid([cell(0.4, 1.0, 50.0)]) == []
+    # a gross edge that cost did NOT consume -> nothing to rescue either
+    assert MA.rescue_grid([cell(3.0, 90.0, 5.0)]) == []
+    # a real gross edge consumed by cost -> exactly the case a rescue is for
+    out = MA.rescue_grid([cell(3.0, 4.0, 50.0)])
+    assert len(out) == 1 and out[0]["tag"] == "RESCUE" and out[0]["conditional"]
+    assert out[0]["binding_failure"] == MA.BINDING_FAILURE
+    assert "UNAFFORDABLE_TURNOVER" in MA.BINDING_FAILURE
+
+
+def test_microstructure_rescue_only_narrows_engagement_and_never_flips_a_sign(ms_panel):
+    sp = {"cell_id": "T|x", "family": MS.FAM_DEPTH, "rule": "depth", "group": "EQUITY",
+          "legs": ["ES", "NQ"], "sign": 1.0, "horizon": 15}
+    m = MA.entry_columns(15)[-1]
+    x = MA.raw_score(sp)
+    base = MA.weights_at(sp, x, m)
+    resc = MA.weights_at(dict(sp, conditional=True), x, m)
+    assert np.abs(resc).sum() <= np.abs(base).sum() + 1e-9, "the rescue widened engagement"
+    assert np.all(resc * base >= 0), "the rescue flipped a sign"
+
+
+def test_microstructure_panel_inherits_the_ohlcv_roll(monkeypatch):
+    """The two panels must be contract-identical, or every paired comparison
+    measures the roll instead of the information."""
+    body = Path(MS.__file__).read_text(encoding="utf-8")
+    assert "def front_schedule" in body
+    assert "panel_path" in body, "the roll must be READ from the OHLCV panel"
+    assert "roll_schedule" not in body, "the roll must not be recomputed here"
+
+
+def test_microstructure_artifact_closes_every_family_with_a_reason():
+    body = AR.read_artifact(MA.ARTIFACT_NAME)
+    if not body:
+        pytest.skip("the microstructure campaign has not been run in this checkout")
+    assert set(body["families"]) <= set(MS.FAMILIES)
+    for fam, s in body["families"].items():
+        assert s["closed_because"], fam
+        assert s["budget_respected"], fam
+        assert s["failure_kind"] in ("NONE", "NO_INFORMATION",
+                                     "INFORMATION_PRESENT_BUT_UNAFFORDABLE"), fam
+    assert body["multiple_testing"]["denominator"] == body["n_cells"]
+    assert body["true_forward_ready"] == bool(body["qualified_for_true_forward"])
+    s = body["safety"]
+    assert s["paper_only"] and s["research_only"] and s["live_checkout_read_only"]
+    assert not s["creates_orders"] and not s["automatic_promotion"]
 

@@ -112,9 +112,15 @@ NULL_I64 = 9223372036854775807
 #: needs. The panel is built on ts_recv.
 CSV_TS = "ts_recv"
 BBO_COLUMNS = ("bid_px_00", "ask_px_00", "bid_sz_00", "ask_sz_00", "bid_ct_00", "ask_ct_00")
-#: Aggressor side as Databento encodes it: the trade lifted the ASK (a buy) or
-#: hit the BID (a sell). 'N' means no trade in the interval.
-SIDE_BUY, SIDE_SELL, SIDE_NONE = "A", "B", "N"
+#: Aggressor side as Databento encodes it: the label is the side that INITIATED
+#: the event, so 'B' (Bid) is a BUY aggressor lifting the offer and 'A' (Ask) is
+#: a SELL aggressor hitting the bid. 'N' means no trade in the interval.
+#:
+#: Determined EMPIRICALLY on the acquired probe rather than from memory, because
+#: the label reads backwards and a flipped sign would invert every flow family:
+#: side 'B' prints at or above the ask 38.6 % of the time against 20.1 % for
+#: 'A', and above the mid 49.4 % against 30.6 %.
+SIDE_BUY, SIDE_SELL, SIDE_NONE = "B", "A", "N"
 
 
 def data_root() -> Path:
