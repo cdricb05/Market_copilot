@@ -182,11 +182,25 @@ def _stage_intraday() -> dict:
 
 
 def _stage_options() -> dict:
-    """Information axis A: the owned SPY option / implied-volatility surface."""
+    """Information axis A: the SPY option / implied-volatility surface.
+
+    Builds the MONEYNESS-ANCHORED surface from the acquired OPRA bands when they
+    are on disk, then runs the pre-registered grid. The build is idempotent and
+    costs nothing - the bands are already paid for - and without it the module
+    falls back to the R45 fixed strike band, which is the configuration this
+    axis was blocked on.
+    """
+    from alpha_agent.alpha_recovery import options_acquisition as OA
     from alpha_agent.alpha_recovery import options_surface as OS
+    built = None
+    if any(OA.data_root().glob("SPY_*_%s_*.csv" % OA.SCHEMA)):
+        built = OA.build_surface()
+        OS._CACHE.clear()
     cells = OS.run_grid(verbose=True)
     body = OS.merge(cells=cells)
     return {"usability": body["usability"]["state"], "counts": body["counts"],
+            "surface_is_moneyness_anchored": body["surface"].get("is_moneyness_anchored"),
+            "surface_dates": (built or {}).get("dates"),
             "dates_bracketing_the_money": body["usability"]["dates_whose_strikes_bracket_the_money"]}
 
 
