@@ -16165,14 +16165,25 @@ def check_release62_2_automatic_forward_accrual(files: list[Path]) -> dict:
         and 'FORFEIT_WINDOW_CLOSED = "EMISSION_WINDOW_CLOSED_WHEN_THE_SESSION_'
         in acc
         and '"backfilled": False' in acc)
-    # The emission window closes when the session ARRIVES, not when a later one
-    # prints. A decision taken with its own session already in view could be a
-    # decision to skip a bad session, and the rule removes that possibility
+    # The emission window closes before the emitter can see what its decision
+    # will be scored against. A decision taken with that already in view could
+    # be a decision to skip a bad session, and the rule removes the possibility
     # rather than trusting nobody to use it.
+    #
+    # R62.3 moved the rule OUT of this module. It used to be the inline
+    # comparison ``if s <= today:``, which is correct only for a challenger
+    # whose inputs are complete before its session opens - and forfeits every
+    # session, for ever, of one whose DECLARED inputs arrive during it. The
+    # property now belongs to ``engine.forward_emission_window``, so the audit
+    # checks the delegation is real AND that the inline comparison is gone: two
+    # window rules would be worse than the one that was too narrow.
     emits_strictly_before_its_session = bool(
-        "if s <= today:" in acc
-        and "today = (_iso_date(today) or _iso_date(as_of)" in acc
-        and "next_turn_taken" in acc)
+        "window.classify(policy=policy, session=s, now=now_ts)" in acc
+        and "window.WINDOW_CLOSED" in acc
+        and "window.WINDOW_NOT_OPEN" in acc
+        and "def emission_policy(" in acc
+        and "next_turn_taken" in acc
+        and "if s <= today:" not in acc)
     missing_freeze_is_not_a_forfeiture = bool(
         'NOT_DUE_AWAITING_NEW_FREEZE = "AWAITING_NEW_GOVERNED_FREEZE"' in acc
         and "def book_for_decision_session(" in acc)

@@ -181,7 +181,13 @@ def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
     if window:
         start = date.fromisoformat(window[0])
         end = date.fromisoformat(window[1])
-        avail_end = window[1]
+        # ``window`` chooses WHICH EXPIRIES are in scope; ``available_end`` caps
+        # how far each one may be BOUGHT. They are the same date for a window
+        # that ends at an expiry, which is why one value served both until now -
+        # but a catch-up needs expiries that mature AFTER the last session the
+        # venue serves, bought only up to that session. Defaulting to
+        # ``window[1]`` keeps every existing caller byte-identical.
+        avail_end = available_end or window[1]
     else:
         rng = client.dataset_range(DATASET)
         avail_end = available_end or DA._available_end(rng, SCHEMA) or DA._available_end(rng)
@@ -195,17 +201,29 @@ def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
 
     requests, errors = [], {}
     for i, exp in enumerate(expiries):
+        s0 = max((exp - timedelta(days=LOOKBACK_DAYS)).isoformat(), start.isoformat())
+        s1 = min(exp.isoformat(), avail_end)
+        if s0 >= s1:
+            continue
         w0 = expiries[i - 1] if i else exp - timedelta(days=31)
         m = (dates >= w0.isoformat()) & (dates <= exp.isoformat())
+        if not m.any():
+            # The expiry's NEAR-DATED window lies in the future, so there is no
+            # owned level to take a median of. That happens only when an expiry
+            # is bought over a window that PRECEDES its near-dated life - a
+            # catch-up, where the September monthly is too close to the money
+            # date to serve as the near expiry and the October one must be
+            # bought early. The anchor is then the window actually being bought,
+            # which is the same intent correctly applied: the band exists to
+            # bracket the money over the dates purchased. Every window whose
+            # near-dated period has owned levels takes the first branch and is
+            # byte-identical to before.
+            m = (dates >= s0) & (dates <= s1)
         if not m.any():
             continue
         level = float(np.nanmedian(spy[m]))
         strikes = band_for(level)
         symbols = [osi(exp, r, k) for k in strikes for r in ("C", "P")]
-        s0 = max((exp - timedelta(days=LOOKBACK_DAYS)).isoformat(), start.isoformat())
-        s1 = min(exp.isoformat(), avail_end)
-        if s0 >= s1:
-            continue
         try:
             usd = client.cost(symbols, s0, s1, dataset=DATASET, schema=SCHEMA)
         except DA.DatabentoError as exc:
@@ -250,6 +268,7 @@ def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
 
 def acquire(budget_usd: float, execute: bool = False, client: DA.Client | None = None,
             write: bool = True, *, window: tuple | None = None,
+            available_end: str | None = None,
             tag: str | None = None, spot_window: tuple | None = None,
             spot_dataset: str | None = None, spot_schema: str | None = None) -> dict:
     """Acquire an option band, and - when ``spot_window`` is given - the marks it
@@ -275,7 +294,8 @@ def acquire(budget_usd: float, execute: bool = False, client: DA.Client | None =
         return body
 
     client = client or DA.Client()
-    p = plan(client, budget_usd=budget_usd, window=window)
+    p = plan(client, budget_usd=budget_usd, window=window,
+             available_end=available_end)
     body["plan"] = {k: v for k, v in p.items() if k != "requests"}
     body["plan"]["requests"] = [{k: v for k, v in r.items() if k != "symbols"}
                                 for r in p["requests"]]
@@ -556,7 +576,9 @@ def _forward_and_discount(g: "pd.DataFrame") -> tuple:              # noqa: F821
 
 
 def build_surface(client: DA.Client | None = None, *, write: bool = True,
-                  window: tuple | None = None, tag: str | None = None,
+                  window: tuple | None = None,
+                  available_end: str | None = None,
+                  tag: str | None = None,
                   spot_dataset: str | None = None,
                   spot_schema: str | None = None,
                   spot_tag: str | None = None,
@@ -573,7 +595,7 @@ def build_surface(client: DA.Client | None = None, *, write: bool = True,
 
     client = client or DA.Client()
     # prices nothing new; rebuilds the symbol lists
-    p = plan(client, budget_usd=0.0, window=window)
+    p = plan(client, budget_usd=0.0, window=window, available_end=available_end)
     # the spot file may live under a different tag: ONE hourly series spans both
     # the discovery sample and the window before it, and is read by both builds
     spot_close = session_closes(tag=(tag if spot_tag is None else spot_tag),

@@ -4918,6 +4918,26 @@
    "migration_priority": 0,
    "risk": "low",
    "notes": "Degrade-safe: a missing research owner reduces the payload's state, never its availability."
+  },
+  {
+   "path": "engine/forward_emission_window.py",
+   "system": "research_os",
+   "classification": "KEEP",
+   "target_owner": "engine/forward_emission_window.py",
+   "duplicate_with": [],
+   "responsibility": "Release 62.3 THE ONE OWNER OF WHEN a prospective decision for a session may be emitted. api/canonical_forward_accrual.py encoded a single emission rule inline - emit strictly before the session or FORFEIT - which is correct for a freeze whose inputs are complete before its session opens and forfeits EVERY session, for ever, of a challenger whose declared inputs arrive during it (REVERSED_SPY_PUT_CALL_SKEW_H5 forms its decision from the 15:45 ET option snapshot on session t). This module answers one question from a DECLARED boundary policy: is the window for session S NOT OPEN, OPEN, or CLOSED. Two boundaries exist: PRIOR_SESSION_ONLY (the default and the unchanged pre-R62.3 rule - the window shuts at 00:00 UTC on S) and SAME_SESSION_AFTER_DECLARED_CUTOFF (the window OPENS at a declared information cutoff on S and CLOSES at the declared entry mark on S, so the emitter may see the input the strategy is defined on and can never see the mark it will be scored from). An absent, unrecognised, incomplete or mis-ordered declaration resolves to the STRICTEST rule and records why, so a malformed policy can only cost a challenger an emission and never buy it one; an unanswerable window is never open. Exchange-local time is resolved through engine/market_hours.py, so no second timezone table exists. PURE: no I/O, no clock, no network - every answer is a function of the instant the caller supplies.",
+   "direct_reads": [
+    "engine/market_hours.py"
+   ],
+   "direct_writes": [],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_release62_3_same_session_true_forward.py"
+   ],
+   "migration_priority": 0,
+   "risk": "LOW - pure and additive. The default boundary reproduces the previous inline comparison exactly (a prior-session window for S shuts at S 00:00 UTC, which is what `s <= today` meant when `today` was that UTC date), so every registration that declares no policy is unaffected.",
+   "notes": "Consumed by api/canonical_forward_accrual.py (emission_policy / emission_window_for) and by alpha_agent/alpha_recovery/prospective_decision.py, which freezes a decision only inside its declared window. It lives in engine/ rather than api/ precisely so the research package can import it: the Alpha Recovery campaign contract forbids that package from importing paper_trader.api at all."
   }
  ]
 }

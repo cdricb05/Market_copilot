@@ -90,6 +90,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from paper_trader.engine import forward_emission_window as window
 from paper_trader.engine import shadow_portfolio_evidence as kernel
 
 SCHEMA_VERSION = "canonical_forward_accrual.v1"
@@ -142,7 +143,16 @@ ACCRUAL_STATES = (ACC_NOT_DUE, ACC_DUE, ACC_EMITTED, ACC_FORFEITED,
 #: waiting and needing a human, so it is never collapsed into one word.
 NOT_DUE_SESSION_NOT_REACHED = "OBSERVATION_SESSION_NOT_REACHED"
 NOT_DUE_AWAITING_NEW_FREEZE = "AWAITING_NEW_GOVERNED_FREEZE"
-NOT_DUE_REASONS = (NOT_DUE_SESSION_NOT_REACHED, NOT_DUE_AWAITING_NEW_FREEZE)
+#: R62.3. The session has arrived but the challenger's DECLARED information
+#: cutoff has not. This is a third, genuinely different thing: the session is
+#: not in the future, no decision is missing, and nothing is lost - the inputs
+#: the strategy is defined on simply do not exist yet today. Collapsing it into
+#: either of the other two would report a live challenger as either waiting for
+#: a session that has already started or missing a decision nobody could have
+#: taken.
+NOT_DUE_AWAITING_DECISION_BOUNDARY = "AWAITING_DECISION_BOUNDARY"
+NOT_DUE_REASONS = (NOT_DUE_SESSION_NOT_REACHED, NOT_DUE_AWAITING_NEW_FREEZE,
+                   NOT_DUE_AWAITING_DECISION_BOUNDARY)
 
 #: The one reason a real opportunity is lost. Named, so it can never be confused
 #: with a boundary that simply had no decision to emit.
@@ -154,8 +164,17 @@ BLOCK_SPEC_MISSING = "FROZEN_DECISION_ARTIFACT_NOT_FOUND"
 BLOCK_NO_PANEL = "PRICE_PANEL_UNAVAILABLE"
 BLOCK_NO_SESSIONS = "NO_REALISED_SESSION_FOR_THIS_INSTRUMENT_SCOPE"
 BLOCK_COVERAGE = "INSUFFICIENT_PRICED_WEIGHT_AT_THE_LATEST_REALISED_SESSION"
+#: R62.3. The book HAS a mark for every leg, and the mark is old. Coverage and
+#: currency are different questions and only the first one was ever asked: a
+#: book whose instruments stopped printing in June is 100 % covered at its own
+#: latest session, and entering it against that session's close on a September
+#: decision would date the entry twelve weeks early. The panel itself supplies
+#: the standard - the newest session it holds before the decision session - so
+#: no instrument is named here and no staleness tolerance is invented.
+BLOCK_STALE_MARK = "BOOK_MARKS_ARE_STALE_AT_THE_DECISION_SESSION"
 DATA_BLOCK_REASONS = (BLOCK_SPEC_UNRESOLVABLE, BLOCK_SPEC_MISSING,
-                      BLOCK_NO_PANEL, BLOCK_NO_SESSIONS, BLOCK_COVERAGE)
+                      BLOCK_NO_PANEL, BLOCK_NO_SESSIONS, BLOCK_COVERAGE,
+                      BLOCK_STALE_MARK)
 
 #: Why a challenger may never advance at all. Each is a refusal, not a retry.
 INTEGRITY_LIFECYCLE_CLOSED = "LIFECYCLE_STATE_IS_NOT_ADOPTABLE"
@@ -180,6 +199,30 @@ EMISSION_OUTCOMES = (EMIT_WROTE, EMIT_DUPLICATE, EMIT_REFUSED)
 #: from a second implementation of the signal.
 FROZEN_DECISION_OWNERS = {
     "R58": "alpha_agent.r58.challengers (challengers/<challenger_id>.json)",
+    "ALPHA_RECOVERY_OFFENSIVE":
+        "alpha_agent.alpha_recovery.prospective_decision "
+        "(prospective_decisions/<challenger_id>/<session>.json)",
+}
+
+#: WHAT THIS MODULE MAY NOT DO FOR ANY RELEASE IN THAT TABLE.
+#:
+#: A resolver READS an artifact the originating owner already froze. It may not
+#: download a chain, compute an implied volatility, form a z-score, pick a side,
+#: size a position or repair a missing input. That is not a comment: there is no
+#: import in this file through which any of it is reachable, and
+#: ``test_resolver_cannot_calculate_the_signal`` proves the module text contains
+#: none of it.
+RESOLVER_CONTRACT = {
+    "reads": "an immutable artifact the originating research owner froze",
+    "never_downloads_market_data": True,
+    "never_computes_a_feature": True,
+    "never_computes_a_zscore": True,
+    "never_chooses_a_position": True,
+    "never_sizes_a_position": True,
+    "never_promotes_a_model": True,
+    "never_allocates_capital": True,
+    "never_creates_an_order_or_fill": True,
+    "a_missing_decision_fails_closed": True,
 }
 
 
@@ -255,7 +298,128 @@ def _r58_frozen_decision(challenger_id: str, session: Optional[str]) -> dict:
     }
 
 
-_RESOLVERS = {"R58": _r58_frozen_decision}
+def _alpha_recovery_frozen_decision(challenger_id: str,
+                                    session: Optional[str]) -> dict:
+    """The Alpha Recovery Offensive frozen decision, READ from its own owner.
+
+    This release freezes ONE decision PER ELIGIBLE SESSION rather than one at
+    adoption, because its rule is formed from information that only exists
+    during the session. So ``session=None`` - "the freeze that was adopted" -
+    has no answer here by construction: there is no standing book, only the
+    per-session artifacts. It returns the SCOPE, so the observation calendar can
+    be resolved, and says plainly that it carries no decision.
+    """
+    try:
+        from paper_trader.alpha_agent.alpha_recovery import (
+            prospective_decision as PD)
+    except Exception as exc:                                # noqa: BLE001
+        return {"found": False, "reason": BLOCK_SPEC_UNRESOLVABLE,
+                "detail": "the decision owner could not be read: %s"
+                          % str(exc)[:160]}
+    pol = PD.load_policy(str(challenger_id or ""))
+    if session is None:
+        if not pol:
+            return {"found": False, "reason": BLOCK_SPEC_UNRESOLVABLE,
+                    "detail": ("%s declares no prospective decision policy; its "
+                               "boundary must be declared before any decision "
+                               "can be judged prospective" % challenger_id)}
+        return {
+            "found": True, "per_session_decisions": True, "is_decision": False,
+            "source": str(PD.policy_path(str(challenger_id))),
+            "frozen_decision_session": None,
+            "record_hash": None, "spec_hash": pol.get("model_spec_hash"),
+            "weights_hash": None, "weights": {},
+            "instrument_scope": list(pol.get("instrument_scope") or []),
+            "construction": {
+                "rebalance_cadence_sessions": pol.get(
+                    "rebalance_cadence_sessions"),
+                "evaluation_horizon_sessions": pol.get(
+                    "evaluation_horizon_sessions")},
+            "cadence_sessions": pol.get("rebalance_cadence_sessions"),
+            "horizon_sessions": pol.get("evaluation_horizon_sessions"),
+            "cost_bps_per_side": _f((pol.get("cost_policy") or {})
+                                    .get("bps_per_side")),
+            "benchmark": None,
+            "emission_window": pol.get("emission_window"),
+            "inception_rule": pol.get("emission_rule"),
+        }
+
+    rec = PD.load_decision(str(challenger_id or ""), str(session))
+    if not rec:
+        return {"found": False, "reason": NOT_DUE_AWAITING_NEW_FREEZE,
+                "frozen_decision_session": None,
+                "per_session_decisions": True,
+                "emission_window": (pol or {}).get("emission_window"),
+                "detail": ("the research owner has frozen no decision for %s; a "
+                           "decision is the originating owner's act and this "
+                           "module may not take one on its behalf" % session)}
+    return {
+        "found": True, "per_session_decisions": True, "is_decision": True,
+        "source": str(PD.decision_path(str(challenger_id), str(session))),
+        "frozen_decision_session": _iso_date(rec.get("eligible_session")),
+        "record_hash": rec.get("freeze_record_hash"),
+        "decision_record_hash": rec.get("record_hash"),
+        "spec_hash": rec.get("model_spec_hash"),
+        "weights_hash": rec.get("weights_hash"),
+        "weights": dict(rec.get("weights") or {}),
+        "gross_exposure": rec.get("gross_exposure"),
+        "net_exposure": rec.get("net_exposure"),
+        "instrument_scope": list(rec.get("instrument_scope") or []),
+        "construction": dict(rec.get("construction") or {
+            "rebalance_cadence_sessions": rec.get("rebalance_cadence_sessions"),
+            "evaluation_horizon_sessions": rec.get(
+                "evaluation_horizon_sessions")}),
+        "cadence_sessions": rec.get("rebalance_cadence_sessions"),
+        "horizon_sessions": rec.get("evaluation_horizon_sessions"),
+        "cost_bps_per_side": _f((rec.get("cost_policy") or {})
+                                .get("bps_per_side")),
+        "benchmark": None,
+        "declared_information_cutoff": rec.get("declared_information_cutoff"),
+        "decision_timestamp": rec.get("decision_timestamp"),
+        "source_data_hash": rec.get("source_data_hash"),
+        "feature_state_hash": rec.get("feature_state_hash"),
+        "emission_window": (pol or {}).get("emission_window"),
+        "inception_rule": rec.get("emission_rule"),
+    }
+
+
+_RESOLVERS = {"R58": _r58_frozen_decision,
+              "ALPHA_RECOVERY_OFFENSIVE": _alpha_recovery_frozen_decision}
+
+
+# --------------------------------------------------------------------------- #
+# 2b. THE DECLARED EMISSION BOUNDARY - asked of the release, never assumed
+# --------------------------------------------------------------------------- #
+def emission_policy(registration: dict) -> dict:
+    """The boundary policy ONE registration's release declares.
+
+    Asked of the originating owner, normalised by
+    :mod:`engine.forward_emission_window`. A release that declares nothing gets
+    the STRICTEST rule - emission strictly before the session - which is exactly
+    what every registration made before R62.3 was held to, so widening the
+    vocabulary loosens nothing that did not ask to be loosened.
+    """
+    reg = registration or {}
+    ident = reg.get("identity") or {}
+    release = str(ident.get("release") or "")
+    challenger_id = reg.get("challenger_id") or ident.get("challenger_id")
+    declared = None
+    if release == "ALPHA_RECOVERY_OFFENSIVE":
+        try:
+            from paper_trader.alpha_agent.alpha_recovery import (
+                prospective_decision as PD)
+            declared = (PD.load_policy(str(challenger_id or "")) or {}).get(
+                "emission_window")
+        except Exception:                                   # noqa: BLE001
+            declared = None
+    return window.normalise_policy(declared)
+
+
+def emission_window_for(registration: dict, session: str,
+                        now: Optional[str] = None) -> dict:
+    """Is the emission window for ONE decision session open right now?"""
+    return window.classify(policy=emission_policy(registration),
+                           session=session, now=now)
 
 
 def resolve_frozen_decision(registration: dict,
@@ -287,6 +451,8 @@ def resolve_frozen_decision(registration: dict,
         return {"resolved": False, "state": state, "reason": reason,
                 "release": release,
                 "frozen_decision_session": found.get("frozen_decision_session"),
+                "per_session_decisions": found.get("per_session_decisions"),
+                "emission_window": found.get("emission_window"),
                 "detail": found.get("detail")}
 
     expected = reg.get("freeze_record_hash") or ident.get("freeze_record_hash")
@@ -317,6 +483,13 @@ def book_for_decision_session(registration: dict, session: str, *,
     one on the originating owner's behalf. It asks for a decision frozen FOR
     that session and reports ``AWAITING_NEW_GOVERNED_FREEZE`` when none exists.
     """
+    # A release that freezes ONE decision per session has no standing adopted
+    # book, so there is nothing for the first session to inherit: every session,
+    # the first included, must resolve its own artifact or report that none was
+    # frozen. Applying the inheritance rule to it would hand the first session a
+    # scope descriptor and call it a decision.
+    if (origin or {}).get("per_session_decisions"):
+        return resolve_frozen_decision(registration, session)
     if first_session is not None and str(session) == str(first_session):
         return (origin if origin is not None
                 else resolve_frozen_decision(registration, None))
@@ -348,18 +521,39 @@ def latest_realised_session(weights: dict, series: dict,
     return sessions[-1] if sessions else None
 
 
+def panel_session_before(session: str, series: dict) -> Optional[str]:
+    """The newest session the WHOLE panel holds strictly before ``session``.
+
+    This is the currency standard a book's own marks are judged against. It is
+    read from the panel rather than declared, so it needs no holiday table, no
+    tolerance and no instrument list, and it adapts automatically as the panel
+    advances.
+    """
+    newest = None
+    for s in (series or {}).values():
+        for d in (s.get("dates") or []):
+            d = str(d)
+            if d < str(session) and (newest is None or d > newest):
+                newest = d
+    return newest
+
+
 def priced_share(weights: dict, series: dict, session: str) -> float:
-    """The share of the book's invested weight that has a bar AT ``session``.
+    """The share of the book's GROSS exposure that has a bar AT ``session``.
 
     The threshold this feeds is the kernel's own
     :data:`engine.shadow_portfolio_evidence.MIN_PRICED_WEIGHT`, so the estate
-    has exactly one opinion about when a book is too thinly priced to score.
+    has exactly one opinion about when a book is too thinly priced to score -
+    and, since R62.3, exactly one opinion about what the denominator is. Gross,
+    never net: summing signed weights made ``{"SPY": -1.0}`` a book with -1.0
+    "invested", which tripped the ``invested <= 0`` guard and reported 0 %
+    coverage for a fully priced short. A short leg with a mark is covered.
     """
-    invested = 0.0
+    exposure = 0.0
     priced = 0.0
     for tk, w in (weights or {}).items():
-        wf = _f(w) or 0.0
-        invested += wf
+        wf = abs(_f(w) or 0.0)
+        exposure += wf
         s = (series or {}).get(tk) or {}
         dates = s.get("dates") or []
         adj = s.get("adj") or []
@@ -368,9 +562,9 @@ def priced_share(weights: dict, series: dict, session: str) -> float:
                 if i < len(adj) and adj[i] is not None:
                     priced += wf
                 break
-    if invested <= 0:
+    if exposure <= 0:
         return 0.0
-    return priced / invested
+    return priced / exposure
 
 
 def first_decision_session(registration: dict) -> Optional[str]:
@@ -768,6 +962,7 @@ def assess_registration(*, registration: dict, series: dict,
                         lifecycle_by_challenger: Optional[dict] = None,
                         as_of: Optional[str] = None,
                         today: Optional[str] = None,
+                        now: Optional[str] = None,
                         store_dir_override=None) -> dict:
     """The full accrual picture for ONE registration. Pure: it writes nothing.
 
@@ -841,9 +1036,22 @@ def assess_registration(*, registration: dict, series: dict,
     cadence = origin.get("cadence_sessions") or horizon
     out["horizon_sessions"] = horizon
     out["cadence_sessions"] = cadence
-    out["instrument_scope_size"] = len(weights)
+    # The observation calendar needs the instrument SCOPE, not a weight book. A
+    # per-session release has no standing book at this point, so the scope comes
+    # from the resolver's declaration or from the registrar's own immutable
+    # record - never invented, and never a reason to report "no sessions".
+    scope_keys = (list(weights) or list(origin.get("instrument_scope") or [])
+                  or list(reg.get("instrument_scope") or []))
+    out["instrument_scope"] = list(scope_keys)
+    out["instrument_scope_size"] = len(scope_keys)
+    out["per_session_decisions"] = bool(origin.get("per_session_decisions"))
 
-    sessions = realised_sessions(weights, series, as_of=as_of)
+    policy = emission_policy(reg)
+    out["emission_boundary"] = policy.get("boundary")
+    out["emission_boundary_declaration"] = policy.get("declaration_state")
+
+    sessions = realised_sessions({k: 1.0 for k in scope_keys}, series,
+                                 as_of=as_of)
     if not sessions:
         return {**out, "state": ACC_DATA_BLOCKED,
                 "latest_blocker": (BLOCK_NO_PANEL if not series
@@ -858,6 +1066,15 @@ def assess_registration(*, registration: dict, series: dict,
     # decides whether their sessions have arrived.
     today = (_iso_date(today) or _iso_date(as_of)
              or datetime.now(timezone.utc).date().isoformat())
+    # R62.3. A DATE cannot answer "has 15:45 arrived?", so the emission window
+    # is judged from an INSTANT. When a caller supplies only a date - every
+    # pre-R62.3 caller and every test that fixes "today" - the instant is the
+    # END of that date, which reproduces the old date comparison exactly: a
+    # prior-session window for S shuts at S 00:00Z, and S-1 23:59:59.999999Z is
+    # still before it while any instant on S is not.
+    now_ts = str(now) if now else ("%sT23:59:59.999999+00:00" % today)
+    out["today"] = today
+    out["now"] = now_ts
 
     emissions = load_emissions(identity_hash, store_dir_override)
     forfeits = load_forfeitures(identity_hash, store_dir_override)
@@ -883,36 +1100,56 @@ def assess_registration(*, registration: dict, series: dict,
                           "reason": row.get("reason"),
                           "backfill_refused": True})
             continue
-        if s <= today:
-            # The session has ARRIVED. Whatever this run now knows about it, a
-            # row stamped with it would be a decision taken with the session in
-            # view. The opportunity is gone; it is never written late.
+        # WHEN may this session be emitted? Asked of the ONE window owner
+        # against the challenger's OWN declared boundary. For every registration
+        # that declares nothing this is the prior-session rule, and the answer
+        # is identical to the `s <= today` comparison it replaces.
+        win = window.classify(policy=policy, session=s, now=now_ts)
+        win_view = {k: win.get(k) for k in ("state", "opens_at", "closes_at",
+                                            "boundary")}
+        if win.get("state") == window.WINDOW_CLOSED:
+            # The window has SHUT. Whatever this run now knows about the
+            # session, a row stamped with it would be a decision taken by an
+            # emitter that could already see what it was to be scored against.
+            # The opportunity is gone; it is never written late.
             book = book_for_decision_session(reg, s, origin=origin,
                                              first_session=first_s)
             if not book.get("resolved"):
                 cells.append({"decision_session": s,
                               "state": book.get("state") or ACC_DATA_BLOCKED,
                               "reason": book.get("reason"),
+                              "emission_window": win_view,
                               "detail": book.get("detail")})
                 continue
             cells.append({"decision_session": s, "state": ACC_FORFEITED,
                           "reason": FORFEIT_WINDOW_CLOSED,
-                          "detail": ("the emission window for %s closed when %s "
-                                     "began; a prospective decision is made "
-                                     "BEFORE its session, never after it"
-                                     % (s, s)),
+                          "emission_window": win_view,
+                          "detail": ("the emission window for %s closed at %s; "
+                                     "a prospective decision is made INSIDE its "
+                                     "declared window, never after it"
+                                     % (s, win.get("closes_at"))),
                           "backfill_refused": True,
                           "not_yet_recorded": True})
             continue
-        # The session is still in the future. Only the NEXT unresolved boundary
-        # takes its turn; a later one is not yet anybody's decision to make.
+        # The window is still ahead or open, so this session is live. Only the
+        # NEXT unresolved boundary takes its turn; a later one is not yet
+        # anybody's decision to make.
         if next_turn_taken:
             cells.append({"decision_session": s, "state": ACC_NOT_DUE,
                           "reason": NOT_DUE_SESSION_NOT_REACHED,
+                          "emission_window": win_view,
                           "detail": ("a later cadence boundary; the next one has "
                                      "not been decided yet")})
             continue
         next_turn_taken = True
+        if win.get("state") == window.WINDOW_NOT_OPEN:
+            # The session has arrived but the challenger's DECLARED information
+            # cutoff has not. Nothing is missing and nothing is lost.
+            cells.append({"decision_session": s, "state": ACC_NOT_DUE,
+                          "reason": NOT_DUE_AWAITING_DECISION_BOUNDARY,
+                          "emission_window": win_view,
+                          "detail": win.get("reason")})
+            continue
         book = book_for_decision_session(reg, s, origin=origin,
                                          first_session=first_s)
         if not book.get("resolved"):
@@ -920,6 +1157,25 @@ def assess_registration(*, registration: dict, series: dict,
                           "state": book.get("state") or ACC_DATA_BLOCKED,
                           "reason": book.get("reason"),
                           "detail": book.get("detail")})
+            continue
+        # CURRENCY, before coverage. The position is entered at the close of the
+        # decision session, so the book's marks must be current AS OF that
+        # session. The standard is the panel's own: the newest session it holds
+        # before the decision session is the one this book must also have
+        # reached. A book that is 100 % covered at a session three months old is
+        # not priced for this decision - it is priced for a different one.
+        required = panel_session_before(s, series)
+        if required and latest < required:
+            cells.append({"decision_session": s, "state": ACC_DATA_BLOCKED,
+                          "reason": BLOCK_STALE_MARK,
+                          "book_latest_session": latest,
+                          "panel_latest_session_before_decision": required,
+                          "emission_window": win_view,
+                          "detail": ("the book's newest mark is %s but the panel "
+                                     "already holds %s; entering at the close of "
+                                     "%s against a %s mark would date the entry "
+                                     "to a session that is not the one being "
+                                     "decided" % (latest, required, s, latest))})
             continue
         # Coverage is asked of the LATEST session the panel actually printed -
         # the marks this book would be entered against. The decision session has
@@ -939,9 +1195,11 @@ def assess_registration(*, registration: dict, series: dict,
         cells.append({"decision_session": s, "state": ACC_DUE, "reason": None,
                       "book_resolved": True, "priced_share": round(share, 6),
                       "priced_at_session": latest,
-                      "detail": ("emitted strictly before %s; the position is "
-                                 "entered at that session's close and scored "
-                                 "only after it" % s)})
+                      "emission_window": win_view,
+                      "detail": ("emitted inside the declared window for %s "
+                                 "(closes %s); the position is entered at that "
+                                 "session's close and scored only after it"
+                                 % (s, win.get("closes_at")))})
     out["cells"] = cells
 
     matured = [mature_emission(e, series, as_of=as_of) for e in emissions]
@@ -1023,8 +1281,19 @@ def advance_canonical_forward_accrual(*, now: Optional[datetime] = None,
     # ONE instant decides both the emission stamp and whether a session has
     # arrived. Reading the clock twice would let a run that starts at 23:59:59
     # UTC forfeit a session it was still entitled to emit a second earlier.
+    #
+    # R62.3: the emission window is judged from that INSTANT, so the instant and
+    # ``today`` must describe the same moment. A caller that pins ``today`` to a
+    # date the stamp does not fall on - every fixed-clock test does - gets the
+    # DATE semantics: the window owner is handed no instant and resolves one
+    # from the pinned date. Passing the real stamp alongside a pinned date would
+    # forfeit every session between them.
     if today is None:
         today = _iso_date(ts)
+        window_now = ts
+    else:
+        today = _iso_date(today)
+        window_now = ts if _iso_date(ts) == today else None
     if registrations is None:
         try:
             from paper_trader.api import forward_challenger_registry as FCR
@@ -1052,7 +1321,8 @@ def advance_canonical_forward_accrual(*, now: Optional[datetime] = None,
         assessed = assess_registration(
             registration=reg, series=series,
             lifecycle_by_challenger=lifecycle_by_challenger, as_of=as_of,
-            today=today, store_dir_override=store_dir_override)
+            today=today, now=window_now,
+            store_dir_override=store_dir_override)
         actions = []
         if execute:
             origin = resolve_frozen_decision(reg, None)
@@ -1094,7 +1364,7 @@ def advance_canonical_forward_accrual(*, now: Optional[datetime] = None,
                 assessed = assess_registration(
                     registration=reg, series=series,
                     lifecycle_by_challenger=lifecycle_by_challenger,
-                    as_of=as_of, today=today,
+                    as_of=as_of, today=today, now=window_now,
                     store_dir_override=store_dir_override)
         results.append({**assessed, "actions": actions})
 
@@ -1243,9 +1513,12 @@ __all__ = [
     "ACCRUAL_STATES", "ACC_NOT_DUE", "ACC_DUE", "ACC_EMITTED", "ACC_FORFEITED",
     "ACC_DATA_BLOCKED", "ACC_INTEGRITY_BLOCKED",
     "NOT_DUE_REASONS", "NOT_DUE_SESSION_NOT_REACHED",
-    "NOT_DUE_AWAITING_NEW_FREEZE", "FORFEIT_WINDOW_CLOSED",
+    "NOT_DUE_AWAITING_NEW_FREEZE", "NOT_DUE_AWAITING_DECISION_BOUNDARY",
+    "FORFEIT_WINDOW_CLOSED", "RESOLVER_CONTRACT",
+    "emission_policy", "emission_window_for", "panel_session_before",
     "DATA_BLOCK_REASONS", "BLOCK_SPEC_UNRESOLVABLE", "BLOCK_SPEC_MISSING",
     "BLOCK_NO_PANEL", "BLOCK_NO_SESSIONS", "BLOCK_COVERAGE",
+    "BLOCK_STALE_MARK",
     "INTEGRITY_REASONS", "INTEGRITY_LIFECYCLE_CLOSED",
     "INTEGRITY_HASH_MISMATCH", "INTEGRITY_NO_IDENTITY",
     "EMISSION_OUTCOMES", "EMIT_WROTE", "EMIT_DUPLICATE", "EMIT_REFUSED",

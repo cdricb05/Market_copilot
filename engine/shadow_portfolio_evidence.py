@@ -52,9 +52,18 @@ TRADING_DAYS_YEAR = 252
 CASH_RETURN = 0.0
 CASH_RETURN_POLICY = "ZERO_RETURN_PAPER_ASSUMPTION"
 
-#: A session is scored only if at least this share of the invested weight has a
-#: real bar. Below it the session is reported UNCOVERED and skipped.
+#: A session is scored only if at least this share of the GROSS exposure has a
+#: real bar. Below it the session is reported UNCOVERED and skipped. Gross, not
+#: net: a book that is long one name and short another nets to zero exposure and
+#: would divide by it, while its coverage question - "do I have a mark for every
+#: leg I hold?" - is perfectly well posed.
 MIN_PRICED_WEIGHT = 0.95
+
+#: A weight smaller than this in ABSOLUTE value is not a position. The absolute
+#: value is the whole point: the original ``fv > 1e-9`` silently DELETED every
+#: short leg, so ``{"SPY": -1.0}`` became an empty book holding 100 % cash - a
+#: strategy that was measured as flat rather than as short.
+MIN_ABS_WEIGHT = 1e-9
 
 EVIDENCE_NOT_STARTED = "FORWARD_EVIDENCE_NOT_STARTED"
 EVIDENCE_ACCRUING = "FORWARD_EVIDENCE_ACCRUING"
@@ -98,6 +107,44 @@ def stable_hash(obj: Any) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Exposure and cost - the ONE definition, signed-safe
+# --------------------------------------------------------------------------- #
+def gross_exposure(weights: dict) -> float:
+    """Capital at risk: the sum of ABSOLUTE weights.
+
+    This is what a book is sized by, what it is costed on and what its coverage
+    is measured against. For a long-only book it equals the net, which is why
+    every existing long-only number is unchanged by its introduction.
+    """
+    return round(sum(abs(_f(v) or 0.0) for v in (weights or {}).values()), 8)
+
+
+def net_exposure(weights: dict) -> float:
+    """Directional tilt: the SIGNED sum of weights.
+
+    Reported beside the gross and never confused with it. A long/short book at
+    gross 1.0 can carry a net of anything from -1.0 to +1.0, and the two numbers
+    answer different questions.
+    """
+    return round(sum(_f(v) or 0.0 for v in (weights or {}).values()), 8)
+
+
+def turnover_cost_weight(traded_weight: Any, cost_bps_per_side: Any) -> float:
+    """The cost of trading ``traded_weight``, as a share of capital.
+
+    ALWAYS non-negative. Trading is a cost whichever way the trade goes: opening
+    a short pays the spread exactly as opening a long does, closing it pays
+    again, and reversing from long to short pays on the whole absolute distance
+    rather than on the net change. A negative transaction cost is not a rebate,
+    it is a sign error, and this function is the one place that can no longer
+    produce one.
+    """
+    traded = abs(_f(traded_weight) or 0.0)
+    rate = abs(_f(cost_bps_per_side) or 0.0) / 10000.0
+    return round(traded * rate, 10)
+
+
+# --------------------------------------------------------------------------- #
 # Inception - the immutable record
 # --------------------------------------------------------------------------- #
 def make_inception_record(*, challenger_id: str, label: str, family: str,
@@ -120,9 +167,14 @@ def make_inception_record(*, challenger_id: str, label: str, family: str,
     w = {}
     for k, v in (weights or {}).items():
         fv = _f(v)
-        if fv is not None and fv > 1e-9:
+        if fv is not None and abs(fv) > MIN_ABS_WEIGHT:
             w[str(k)] = round(fv, 8)
-    invested = round(sum(w.values()), 8)
+    # NET is the directional tilt and GROSS is the capital at risk. For a
+    # long-only book they are the same number, which is why every long-only
+    # record this kernel has ever produced is bit-identical after the split.
+    invested = net_exposure(w)
+    gross = gross_exposure(w)
+    shorts = sorted(k for k, v in w.items() if v < 0)
     cash_w = round(max(0.0, 1.0 - invested), 8)
     rate = float(cost_bps_per_side or 0.0) / 10000.0
     body = {
@@ -138,6 +190,16 @@ def make_inception_record(*, challenger_id: str, label: str, family: str,
         "weights": dict(sorted(w.items())),
         "position_count": len(w),
         "invested_weight": invested,
+        "gross_exposure": gross,
+        "net_exposure": invested,
+        "long_exposure": round(sum(v for v in w.values() if v > 0), 8),
+        "short_exposure": round(sum(v for v in w.values() if v < 0), 8),
+        "has_short_leg": bool(shorts),
+        "short_positions": shorts,
+        "exposure_doc": ("gross is capital at risk (sum of absolute weights) "
+                         "and net is directional tilt (signed sum); costing, "
+                         "sizing and coverage all use GROSS, because a book "
+                         "that nets to zero is not a book with no positions"),
         "cash_weight": cash_w,
         "cash_return_policy": CASH_RETURN_POLICY,
         "starting_capital": float(starting_capital),
@@ -145,8 +207,15 @@ def make_inception_record(*, challenger_id: str, label: str, family: str,
         "cost_model": {
             "cost_bps_per_side": float(cost_bps_per_side or 0.0),
             "cost_rate_per_side": rate,
-            "entry_cost_weight": round(invested * rate, 10),
-            "entry_cost_usd": _money(invested * rate * float(starting_capital)),
+            "cost_basis": "GROSS_EXPOSURE",
+            "cost_basis_weight": gross,
+            "entry_cost_weight": turnover_cost_weight(gross, cost_bps_per_side),
+            "entry_cost_usd": _money(turnover_cost_weight(gross, cost_bps_per_side)
+                                     * float(starting_capital)),
+            "round_trip_cost_weight": turnover_cost_weight(
+                2.0 * gross, cost_bps_per_side),
+            "shorts_are_costed_exactly_like_longs": True,
+            "negative_transaction_cost_is_unreachable": True,
             "basis": "ENTRY_ONLY_BUY_AND_HOLD_NO_EXIT_COST_UNTIL_CLOSED",
         },
         "valuation_source": valuation_source,
@@ -253,10 +322,18 @@ def accrue_forward(*, record: dict, price_series: Optional[dict] = None,
                 p1 = (maps.get(tk) or {}).get(d)
                 if p0 is None or not p0 or p1 is None:
                     continue
+                # SIGNED return: a -1.0 weight against a +2 % move is -2 %.
                 gross += float(w) * (float(p1) / float(p0) - 1.0)
-                priced += float(w)
-            invested = float(record.get("invested_weight") or 0.0)
-            share = (priced / invested) if invested > 0 else 1.0
+                # ABSOLUTE coverage: a short leg that has a mark is covered.
+                priced += abs(float(w))
+            # Coverage is measured against GROSS. ``gross_exposure`` is absent
+            # from records frozen before the signed vocabulary existed, and for
+            # those the net IS the gross, so the fallback is exact rather than
+            # approximate.
+            exposure = _f(record.get("gross_exposure"))
+            if exposure is None:
+                exposure = float(record.get("invested_weight") or 0.0)
+            share = (priced / exposure) if exposure > 0 else 1.0
             if share < float(min_priced_weight):
                 uncovered.append({"date": d, "priced_share": _r(share, 4)})
                 continue
@@ -336,6 +413,9 @@ def _measure(*, record: dict, rows: list, uncovered: list, start: float,
                                     % MIN_SESSIONS_FOR_RATIOS)),
         "position_count": record.get("position_count"),
         "invested_weight": record.get("invested_weight"),
+        "gross_exposure": record.get("gross_exposure"),
+        "net_exposure": record.get("net_exposure"),
+        "has_short_leg": record.get("has_short_leg"),
         "cash_weight": record.get("cash_weight"),
         "turnover_since_inception": 0.0,
         "turnover_doc": ("a frozen record is buy-and-hold, so its own turnover "
@@ -397,11 +477,19 @@ def compare_on_common_window(a: dict, b: dict) -> dict:
     }
 
 
-def implied_turnover(records: list) -> dict:
+def implied_turnover(records: list, *,
+                     cost_bps_per_side: Optional[float] = None) -> dict:
     """The turnover successive frozen targets of one challenger really imply.
 
     Each consecutive pair of records is one rebalance the strategy would have
     demanded; the one-way turnover between them is what it would have cost.
+
+    The traded weight is the sum of ABSOLUTE per-name changes, which is the only
+    measure that prices a reversal correctly: going from ``+1.0`` to ``-1.0`` in
+    one name is not a zero-cost hold at net zero, and it is not a 1.0 trade
+    either - it is a 2.0 trade, because the long is sold AND the short is
+    opened. ``cost_bps_per_side`` (defaulting to each record's own declared
+    rate) turns that into a non-negative cost per leg.
     """
     recs = sorted([r for r in (records or []) if r.get("inception_session")],
                   key=lambda r: r["inception_session"])
@@ -410,13 +498,21 @@ def implied_turnover(records: list) -> dict:
         prev, cur = recs[i - 1].get("weights") or {}, recs[i].get("weights") or {}
         names = set(prev) | set(cur)
         traded = sum(abs((cur.get(t) or 0.0) - (prev.get(t) or 0.0)) for t in names)
+        bps = cost_bps_per_side
+        if bps is None:
+            bps = ((recs[i].get("cost_model") or {}).get("cost_bps_per_side"))
         legs.append({"from_session": recs[i - 1]["inception_session"],
                      "to_session": recs[i]["inception_session"],
                      "one_way_turnover": _r(traded / 2.0, 6),
-                     "two_way_traded_weight": _r(traded, 6)})
+                     "two_way_traded_weight": _r(traded, 6),
+                     "transition_cost_weight": turnover_cost_weight(traded, bps),
+                     "cost_bps_per_side": _f(bps),
+                     "reversal_is_priced_on_absolute_distance": True})
     total = sum((l["two_way_traded_weight"] or 0.0) for l in legs)
     return {"n_records": len(recs), "n_rebalances": len(legs), "legs": legs,
             "cumulative_two_way_traded_weight": _r(total, 6),
+            "cumulative_transition_cost_weight": _r(
+                sum((l["transition_cost_weight"] or 0.0) for l in legs), 10),
             "mean_one_way_turnover": (_r(total / (2.0 * len(legs)), 6)
                                       if legs else None)}
 
@@ -465,11 +561,13 @@ def leaderboard(accrued: list, *, control_id: Optional[str] = None) -> list:
 __all__ = [
     "CALCULATION_OWNER", "SCHEMA_VERSION", "RECORD_SCHEMA_VERSION", "PHASE",
     "TRADING_DAYS_YEAR", "CASH_RETURN", "CASH_RETURN_POLICY",
-    "MIN_PRICED_WEIGHT", "MIN_SESSIONS_FOR_RATIOS", "EVIDENCE_VOCAB",
+    "MIN_PRICED_WEIGHT", "MIN_ABS_WEIGHT", "MIN_SESSIONS_FOR_RATIOS",
+    "EVIDENCE_VOCAB",
     "EVIDENCE_NOT_STARTED", "EVIDENCE_ACCRUING",
     "EVIDENCE_SUFFICIENT_FOR_RATIOS", "SAFETY_BADGES",
     "VALUATION_PRICE_PANEL", "VALUATION_DESK_PERFORMANCE",
     "VALUATION_CASH_POLICY",
+    "gross_exposure", "net_exposure", "turnover_cost_weight",
     "stable_hash", "make_inception_record", "forward_sessions",
     "accrue_forward", "compare_on_common_window", "implied_turnover",
     "leaderboard",

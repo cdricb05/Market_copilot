@@ -993,8 +993,50 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
     #    bars were discarded and the point-in-time holding analytics could only be
     #    read from the frozen 301-name research CSV, leaving 10 of 25 real holdings
     #    with no return_20d / volatility_60d / dollar volume at all.
+    # -- R62.3: the BENCHMARK belongs in the trailing panel ------------------------
+    # The fetch universe is the momentum input's ticker list, which is the
+    # TRADABLE universe and correctly excludes SPY. But the trailing panel built
+    # from it is read by ``api.price_panel``, which (a) serves SPY from the
+    # frozen 2026-06-22 research CSV because nothing refreshes it, and (b) builds
+    # every owned series' ``bench``/``bret`` column from the SPY row - so with
+    # SPY absent, ALL 1008 owned series carried a benchmark column that was null
+    # end to end. SPY is this estate's declared ``price_panel.BENCHMARK_TICKER``
+    # and its declared benchmark; a panel that cannot price it cannot mark a book
+    # against it either.
+    #
+    # So the benchmark is fetched AS AN EXTRA, after every universe computation
+    # is complete. It never enters ``series``, so it cannot change the coverage
+    # verdict, the equal-weight universe return, the beta denominator or a single
+    # momentum or risk row. A benchmark failure is REPORTED and never blocks the
+    # refresh: the universe is what the momentum contract needs.
+    panel_extra: dict[str, list[tuple]] = {}
+    bench_state = {"ticker": None, "fetched": False, "reason": "not attempted"}
+    try:
+        from paper_trader.api import price_panel as _pp  # lazy: avoids a cycle
+        bench_tk = str(_pp.BENCHMARK_TICKER or "").strip().upper()
+    except Exception:  # noqa: BLE001 - the refresh must never fail on this
+        bench_tk = ""
+    if bench_tk:
+        bench_state["ticker"] = bench_tk
+        if bench_tk in series:
+            bench_state.update({"fetched": True,
+                                "reason": "already in the fetch universe"})
+        else:
+            try:
+                bars = _normalize_ohlcv(dl(_clean_symbol(bench_tk), start), lcd)
+                if bars:
+                    panel_extra[bench_tk] = bars
+                    bench_state.update({"fetched": True, "bars": len(bars),
+                                        "last_bar": bars[-1][0],
+                                        "reason": "fetched as a panel extra"})
+                else:
+                    bench_state["reason"] = "the provider returned no completed bar"
+            except Exception as exc:  # noqa: BLE001 - never blocks the universe
+                bench_state["reason"] = ("provider error: %s"
+                                         % _classify_provider_error(exc))
+
     panel_path_out = owned_panel_path(inputs_dir)
-    panel_rows, short_history = build_owned_panel_rows(series)
+    panel_rows, short_history = build_owned_panel_rows({**series, **panel_extra})
     _atomic_write_csv(panel_path_out, OWNED_PANEL_FIELDS, panel_rows)
 
     # -- manifest market date + append-only refresh log ----------------------------
@@ -1016,8 +1058,9 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
         "tickers_failed": len(failed),
         "momentum_scores_changed": False,
         # Stage 22.1 — owned trailing-panel coverage, reported by NAME.
-        "trailing_panel_tickers": len(series),
+        "trailing_panel_tickers": len(series) + len(panel_extra),
         "trailing_panel_rows": len(panel_rows),
+        "trailing_panel_benchmark": bench_state,
         "trailing_panel_bars_per_ticker": _OWNED_PANEL_BARS,
         "trailing_panel_short_history_tickers": sorted(short_history)[:50],
         "trailing_panel_short_history_count": len(short_history),
@@ -1055,8 +1098,13 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
         "counts": {"tickers_total": len(tickers), "tickers_refreshed": len(series),
                    "tickers_failed": len(failed), "momentum_rows_updated": n_updated,
                    "risk_rows_updated": n_risk_updated,
-                   "trailing_panel_tickers": len(series),
+                   "trailing_panel_tickers": len(series) + len(panel_extra),
                    "trailing_panel_rows": len(panel_rows)},
+        # R62.3 - whether the DECLARED benchmark reached the trailing panel.
+        # Reported on the refresh result, not only in the manifest, because an
+        # absent benchmark is exactly the condition that leaves every owned
+        # series' bench column null and SPY served from a frozen research CSV.
+        "trailing_panel_benchmark": bench_state,
         "failed_tickers": failed[:50],
         # Stage 22.1 — names whose OWNED trailing window is too short to support the
         # 60-close analytics windows. Their analytics stay honestly unavailable; no
