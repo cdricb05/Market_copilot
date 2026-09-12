@@ -184,6 +184,7 @@ def declare_policy(*, challenger_id: str, information_cutoff_et,
                    evaluation_horizon_sessions: int, cost_policy: dict,
                    instrument_scope: list, identity: Optional[dict] = None,
                    emission_rule: Optional[str] = None,
+                   execution_contract: Optional[dict] = None,
                    now: Optional[str] = None) -> dict:
     """Declare the boundary this challenger's decisions are frozen under.
 
@@ -191,6 +192,14 @@ def declare_policy(*, challenger_id: str, information_cutoff_et,
     any decision exists - is what makes the cutoff a constraint rather than a
     description: a policy that could be written alongside the decision could be
     written to fit it.
+
+    ``execution_contract`` is an OPTIONAL declaration for a challenger whose
+    decision session is not the session its information comes from - a next-open
+    boundary, say, where the emission window sits on the ENTRY session and the
+    signal was formed on the one before. It is stored VERBATIM and only when
+    supplied, so a policy that does not carry one is byte-identical to what this
+    function has always written. This module reads no field of it: the
+    challenger that declares the boundary is the challenger that enforces it.
     """
     existing = load_policy(challenger_id)
     if existing:
@@ -223,6 +232,10 @@ def declare_policy(*, challenger_id: str, information_cutoff_et,
         "backfill_allowed": False,
         "safety": dict(SAFETY),
     }
+    # Only when supplied. An absent contract leaves the record EXACTLY as it was
+    # before this parameter existed, hash included.
+    if execution_contract:
+        body["execution_contract"] = dict(execution_contract)
     body["record_hash"] = stable_hash(
         {k: v for k, v in body.items() if k != "declared_at"})
     _atomic_write(policy_path(challenger_id), body)
@@ -239,12 +252,23 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
                     feature_observed_at: Optional[str] = None,
                     decision_timestamp: Optional[str] = None,
                     now: Optional[str] = None,
-                    policy: Optional[dict] = None) -> dict:
+                    policy: Optional[dict] = None,
+                    context: Optional[dict] = None) -> dict:
     """Freeze ONE immutable prospective decision, or refuse and say why.
 
     ``now`` is the instant the freeze is attempted and is the ONLY clock this
     function consults - supplied by the caller so the whole contract is testable
     without waiting for an afternoon.
+
+    ``context`` is an OPTIONAL block a challenger may carry INTO its record so a
+    later reader can keep the information session, the entry session, the entry
+    boundary and the maturity session apart instead of inferring them from one
+    date. It is stored verbatim and only when supplied, so a decision frozen
+    without one is byte-identical to what this function has always written. It
+    is deliberately NOT part of the decision identity: it is a pure function of
+    the eligible session and the exchange calendar, so it cannot disagree
+    between two freezes of the same decision, and including it would change the
+    identity hash of every challenger that never asked for it.
     """
     cid = str(challenger_id)
     session = str(eligible_session)[:10]
@@ -343,6 +367,8 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
         "first_write_wins": True,
         "safety": dict(SAFETY),
     }
+    if context:
+        body["decision_context"] = dict(context)
     body["decision_identity_hash"] = stable_hash(
         {k: body.get(k) for k in _IDENTITY_FIELDS})
     body["record_hash"] = stable_hash(

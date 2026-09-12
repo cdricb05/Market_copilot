@@ -386,11 +386,40 @@ def test_15b_the_entrypoint_owns_no_rule_and_writes_no_registry():
     assert "M.open_memory_readonly()" in src
 
 
+#: Campaign registration entrypoints: a THIRD category the original form of
+#: test_15c did not have. They are not the generic operator door (they resolve
+#: no freeze out of ResearchMemory and carry none of its token) and they are not
+#: the daemon (they offer an operator an explicit, confirmed act). Each one
+#: registers ONE campaign-built freeze and must be governed exactly as strictly
+#: as the generic door: its own confirm token AND an --execute flag.
+#:
+#: They are enumerated rather than pattern-matched, because the property worth
+#: defending is that adding a door is a DECISION someone made on purpose.
+CAMPAIGN_REGISTRATION_ENTRYPOINTS = [
+    "register_next_open_challenger.py",         # R62.3.3, the next-open boundary
+    "register_reversed_skew_challenger.py",     # R62.1.1, the same-session rule
+]
+
+
 def test_15c_there_is_exactly_one_operator_adoption_entrypoint():
-    """One OPERATOR path. The persistent research runtime also composes the
-    adoption owner (R61's injection at freeze time) and that is a different
-    thing: it adopts what it has just frozen and offers an operator nothing."""
-    operator_paths, injectors = [], []
+    """One GENERIC operator path, and every other door is governed and named.
+
+    Three categories reach the adoption owner, and conflating them is what the
+    original assertion did:
+
+        the generic operator door  carries OPERATOR_ADOPT_CONFIRM_TOKEN and
+                                   resolves an EXISTING freeze out of
+                                   ResearchMemory. There is exactly one.
+        the persistent daemon      composes the owner at freeze time (R61) and
+                                   offers an operator nothing.
+        a campaign registration    registers ONE freeze the campaign itself
+                                   built, under the owner's own confirm token
+                                   plus --execute.
+
+    A script that reaches the owner and is none of these - or is a campaign
+    entrypoint without both guards - fails here.
+    """
+    operator_paths, daemons, campaign, ungoverned = [], [], [], []
     for path in (REPO / "scripts").rglob("*.py"):
         if path.name == "audit_architecture.py":
             continue                      # the auditor NAMES the token to guard it
@@ -398,11 +427,27 @@ def test_15c_there_is_exactly_one_operator_adoption_entrypoint():
         if PA.OPERATOR_ADOPT_CONFIRM_TOKEN in text:
             operator_paths.append(path.name)
         elif "adopt_prospective_freeze(" in text:
-            injectors.append(path.name)
+            if path.name in CAMPAIGN_REGISTRATION_ENTRYPOINTS:
+                campaign.append(path.name)
+                if not (PA.ADOPT_CONFIRM_TOKEN in text
+                        and "--execute" in text and "--confirm" in text):
+                    ungoverned.append(path.name)
+            else:
+                daemons.append(path.name)
     assert operator_paths == ["adopt_prospective_freeze.py"], operator_paths
-    assert injectors == ["run_research_runtime.py"], injectors
+    assert daemons == ["run_research_runtime.py"], daemons
+    assert sorted(campaign) == sorted(CAMPAIGN_REGISTRATION_ENTRYPOINTS), campaign
+    assert ungoverned == [], (
+        "a campaign registration entrypoint reaches the adoption owner without "
+        "both a confirm token and an --execute flag: %s" % ungoverned)
     assert PA.OPERATOR_ADOPTION_ENTRYPOINT == \
         "scripts/adopt_prospective_freeze.py"
+    # each campaign door registers exactly ONE challenger, so two challengers
+    # can never be adopted through one confirmation
+    for name in CAMPAIGN_REGISTRATION_ENTRYPOINTS:
+        text = (REPO / "scripts" / name).read_text(encoding="utf-8",
+                                                   errors="replace")
+        assert text.count("PA.adopt_prospective_freeze(") == 1, name
 
 
 def test_15g_a_cohort_challenger_routes_to_its_own_frozen_owner(stores, capsys):

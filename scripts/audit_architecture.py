@@ -21240,6 +21240,14 @@ BLOCKING_INVARIANTS = (
     ("alpha_recovery_operating_contract", "forward_clock_entrypoint_defects", []),
     ("alpha_recovery_operating_contract", "forward_clock_entrypoints",
      ["scripts/adopt_prospective_freeze.py",
+      # R62.3.3: the next-open challenger is a SEPARATE registration, so it gets
+      # a SEPARATE door. It is enumerated here rather than folded into the
+      # sibling's entrypoint precisely because the two challengers share a
+      # signal and must never be confusable at the moment a forward clock
+      # starts. It carries its own confirm token and --execute flag, and the
+      # defect list above proves it delegates the lifecycle, the clock, the
+      # identity and the registration entirely.
+      "scripts/register_next_open_challenger.py",
       "scripts/register_reversed_skew_challenger.py",
       "scripts/run_research_runtime.py"]),
 )
