@@ -1066,6 +1066,75 @@ PERSIST_ASSESSMENT_VERSION = "CREATED_ASSESSMENT_VERSION"
 PERSIST_CONFLICT = "CONFLICT_REJECTED"
 PERSIST_INCONSISTENT = "REJECTED_INCONSISTENT_IDENTITY"
 
+#: The outcomes that left an exact, retrievable immutable artifact behind. A
+#: REUSE qualifies: the artifact is held, it simply was not written by THIS call.
+PERSIST_SUCCESS_STATUSES = (PERSIST_CREATED, PERSIST_REUSED,
+                            PERSIST_ECONOMIC_VERSION, PERSIST_ASSESSMENT_VERSION)
+
+#: Release 55.2.3 — the identity fields an index entry can supply on its own when
+#: the artifact document itself is unreadable. Deliberately the subset the index
+#: has always written; nothing here is derived, defaulted or invented.
+_INDEXED_IDENTITY_FIELDS = (
+    "eligible_market_date", "active_book_id", "portfolio_state_hash",
+    "economic_state_hash", "universe_scoring_hash", "holdings_snapshot_hash",
+    "hoc_assessment_hash", "reassessment_policy_version", "reassessment_hash",
+    "assessment_evidence_hash", "decision_fingerprint")
+
+
+def _stored_artifact_identity(existing: Optional[dict], reassessment_dir=None):
+    """R55.2.3 — the identity of the artifact the store ALREADY HOLDS.
+
+    The R55.2.2 lesson, applied to the second owner that had it. A REUSE outcome
+    means the caller's freshly computed document was NOT written: the durable
+    evidence is the artifact that was already there. Returning the
+    recomputation's identity instead paired the EXISTING ``artifact_id`` with a
+    ``reassessment_hash`` that artifact does not carry, and the daily research
+    manifest then published that pair — which is exactly what the R54.4 daily
+    governance gate refused as ``REASSESSMENT_IDENTITY_MISMATCH`` on 2026-09-10.
+    The document is authoritative; the index entry is the fallback for a file
+    that cannot be read. ``None`` when neither can answer, and ``None`` is never
+    a match.
+    """
+    if not existing:
+        return None
+    art = _read_indexed_artifact(existing, reassessment_dir) or {}
+    ident = art.get("identity")
+    if isinstance(ident, dict) and ident.get("reassessment_hash"):
+        return dict(ident)
+    if existing.get("reassessment_hash"):
+        return {k: existing.get(k) for k in _INDEXED_IDENTITY_FIELDS
+                if existing.get(k) is not None}
+    return None
+
+
+def _reuse_outcome(existing: dict, identity: dict, reassessment_dir=None) -> dict:
+    """THE reuse result (R55.2.3), mirroring the opportunity-cost owner's R55.2.2.
+
+    ``identity`` describes the document that was NOT written; the outcome
+    therefore reports the identity of the artifact that IS held, and keeps the
+    recomputation visible beside it rather than discarding it silently. When the
+    two ``reassessment_hash`` values differ — the documented case where a
+    document-wide hash embeds its own output while the ECONOMIC state, the
+    ASSESSMENT EVIDENCE and the CONCLUSION are all unchanged, so reuse resolves
+    on the fingerprint branch — the difference is NAMED, so a consumer can see
+    that a re-derivation happened and that the store's version is the one every
+    downstream binding must carry.
+    """
+    stored = _stored_artifact_identity(existing, reassessment_dir) or dict(identity)
+    recomputed = (identity or {}).get("reassessment_hash")
+    return {"status": PERSIST_REUSED,
+            "artifact_id": existing.get("artifact_id"),
+            "path": existing.get("path"), "persisted": True, "reused": True,
+            "conflict": False, "history_appended": False,
+            "economic_state_changed": False,
+            "assessment_evidence_changed": False,
+            "identity": stored,
+            "recomputed_reassessment_hash": recomputed,
+            "recomputed_identity": dict(identity or {}),
+            "reused_recomputed_document": bool(
+                recomputed and stored.get("reassessment_hash")
+                and recomputed != stored.get("reassessment_hash"))}
+
 
 def _existing_assessment_identity(existing: Optional[dict],
                                   reassessment_dir=None) -> tuple:
@@ -1150,6 +1219,12 @@ def persist_reassessment(*, result: dict, input_contract: dict, reassessment_dir
       1. same economic state + same evidence + same conclusion
          -> ``REUSED_EXISTING``. Idempotent: no second artifact, no second history
             row. Re-running a cycle from unchanged evidence is not a new decision.
+            Release 55.2.3 — the outcome's ``identity`` is then the STORED
+            artifact's, never the discarded recomputation's: reuse means the
+            caller's document was not written, so binding its
+            ``reassessment_hash`` to the existing ``artifact_id`` would name a
+            reassessment the store does not hold.
+            ``recomputed_reassessment_hash`` keeps the re-derivation visible.
       2. same economic state + materially DIFFERENT assessment evidence
          -> ``CREATED_ASSESSMENT_VERSION``. A NEW immutable version is APPENDED.
             The portfolio being economically unchanged does not mean the investment
@@ -1235,12 +1310,7 @@ def persist_reassessment(*, result: dict, input_contract: dict, reassessment_dir
              and new_fingerprint == prior_fingerprint)
             or existing.get("reassessment_hash") == identity["reassessment_hash"])
         if same_conclusion:
-            return {"status": PERSIST_REUSED,
-                    "artifact_id": existing.get("artifact_id"),
-                    "path": existing.get("path"), "persisted": True, "reused": True,
-                    "conflict": False, "history_appended": False,
-                    "economic_state_changed": False,
-                    "assessment_evidence_changed": False, "identity": identity}
+            return _reuse_outcome(existing, identity, reassessment_dir)
         return {"status": PERSIST_CONFLICT, "artifact_id": aid,
                 "existing_artifact_id": existing.get("artifact_id"),
                 "existing_reassessment_hash": existing.get("reassessment_hash"),
@@ -1419,6 +1489,58 @@ def run_and_persist(*, portfolio_state: Optional[dict] = None,
                                    reassessment_dir=reassessment_dir, now=now)
     return {"input_contract": run["input_contract"], "reassessment": run["reassessment"],
             "persistence": persist}
+
+
+#: Release 55.2.3 — THE one spelling of "which reassessment hash does this
+#: consumer depend on", living with the artifact store that decides the answer
+#: (the R61 rule, applied to the second owner). A REUSE outcome means the
+#: caller's freshly derived document was NOT written: the durable evidence is the
+#: artifact already held. A consumer that re-derived the hash from the transient
+#: in-memory result instead published an id/hash pair the store does not hold,
+#: and the R54.4 daily governance gate then refused the candidate as
+#: ``REASSESSMENT_IDENTITY_MISMATCH`` — evidence that was retrievable all along.
+BOUND_HASH_OWNER = COMPOSITION_OWNER
+
+
+def persistence_succeeded(persistence: Optional[dict] = None) -> bool:
+    """Did this persistence outcome leave an exact, retrievable artifact behind?
+
+    A refused write stays visible AS a refused write; this never repairs one.
+    """
+    return bool((persistence or {}).get("status") in PERSIST_SUCCESS_STATUSES)
+
+
+def bound_reassessment_hash(persistence: Optional[dict] = None,
+                            reassessment: Optional[dict] = None) -> Optional[str]:
+    """The reassessment hash a downstream consumer must publish as its dependency.
+
+    The persistence outcome's STORED identity whenever the write succeeded,
+    because that is the hash the artifact carries and therefore the only one
+    governance can prove. Falls back to the kernel result's own hash when the
+    write was refused or no persistence outcome was supplied at all, which is
+    the honest answer for a run that produced no durable artifact. Never
+    repairs, never infers.
+    """
+    if persistence_succeeded(persistence):
+        stored = ((persistence or {}).get("identity") or {}).get("reassessment_hash")
+        if stored:
+            return str(stored)
+    own = (reassessment or {}).get("reassessment_hash")
+    return str(own) if own else None
+
+
+def recomputed_reassessment_hash(persistence: Optional[dict] = None,
+                                 reassessment: Optional[dict] = None) -> Optional[str]:
+    """The hash of the document this run DERIVED, when it differs from the stored
+    one. Audit only: it names the re-derivation so nothing about a reuse is
+    hidden, and it is never a dependency identity."""
+    p = persistence or {}
+    recomputed = (p.get("recomputed_reassessment_hash")
+                  or (reassessment or {}).get("reassessment_hash"))
+    stored = bound_reassessment_hash(p, reassessment) if p else None
+    if not recomputed or not stored:
+        return None
+    return str(recomputed) if str(recomputed) != str(stored) else None
 
 
 # --------------------------------------------------------------------------- #
@@ -2412,6 +2534,9 @@ __all__ = [
     "ASSESSMENT_EVIDENCE_IDENTITY_VERSION", "ASSESSMENT_EVIDENCE_COMPONENTS",
     "PERSIST_CREATED", "PERSIST_REUSED", "PERSIST_ECONOMIC_VERSION",
     "PERSIST_ASSESSMENT_VERSION", "PERSIST_CONFLICT", "PERSIST_INCONSISTENT",
+    # Release 55.2.3 — the reused artifact's identity is the bound identity.
+    "PERSIST_SUCCESS_STATUSES", "BOUND_HASH_OWNER", "persistence_succeeded",
+    "bound_reassessment_hash", "recomputed_reassessment_hash",
     "declared_inputs_fingerprint", "assessment_evidence_identity",
     "assessment_evidence_hash", "decision_fingerprint",
     "authoritative_history_rows", "load_artifact_versions", "load_artifact_by_id",

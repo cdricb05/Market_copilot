@@ -2259,6 +2259,22 @@ def _extract_reassessment(built: Optional[dict], eligible: Optional[str]) -> dic
     b = built or {}
     res = b.get("reassessment") or {}
     persistence = b.get("persistence") or {}
+    # R55.2.3 — ask the reassessment owner which hash is the DEPENDENCY, exactly
+    # as R55.2.2 did for the opportunity-cost owner. When that owner REUSES the
+    # artifact it already holds, the reassessment of record IS that artifact;
+    # publishing the re-derived document's hash beside the reused artifact's id
+    # described two different objects, and the R54.4 daily governance gate then
+    # refused the decision standing on it (REASSESSMENT_IDENTITY_MISMATCH,
+    # 2026-09-10). A refused write still publishes its own transient hash and
+    # says so: nothing here invents, repairs or defaults an identity.
+    computed_hash = res.get("reassessment_hash")
+    try:
+        from paper_trader.api import portfolio_reassessment as _prs_owner
+        bound_hash = _prs_owner.bound_reassessment_hash(persistence, res)
+        recomputed_hash = _prs_owner.recomputed_reassessment_hash(persistence, res)
+        persisted = _prs_owner.persistence_succeeded(persistence)
+    except Exception:  # noqa: BLE001 - a descriptive extract must never crash a run
+        bound_hash, recomputed_hash, persisted = computed_hash, None, None
     dec = res.get("decision") or {}
     state = res.get("reassessment_state")
     available = bool(res) and state not in (None, "NOT_READY")
@@ -2268,7 +2284,11 @@ def _extract_reassessment(built: Optional[dict], eligible: Optional[str]) -> dic
         "calculation_owner": "engine.portfolio_reassessment",
         "state": state,
         "eligible_market_date": res.get("eligible_market_date") or eligible,
-        "reassessment_hash": res.get("reassessment_hash"),
+        "reassessment_hash": bound_hash,
+        "computed_reassessment_hash": computed_hash,
+        "recomputed_reassessment_hash": recomputed_hash,
+        "reused_recomputed_document": persistence.get("reused_recomputed_document"),
+        "persisted": persisted,
         "reassessment_id": persistence.get("artifact_id"),
         "persistence_status": persistence.get("status"),
         "history_appended": bool(persistence.get("history_appended")),
