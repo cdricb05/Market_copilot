@@ -478,7 +478,7 @@
    "data": {"owned": ["R38 native Treasury futures (TY, US) and Norgate continuous bond futures"], "free_acquisition": ["TreasuryDirect TA_WS auction and issue history"], "paid": ["index extension projections (not used)"]},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.treasury_month_end_duration_extension:run_mechanism", "module_path": "alpha_agent/alpha_recovery/treasury_month_end_duration_extension.py", "module_sha256": "2c87c3a55a66741b95fa43754bf60d4ce92848d476064efc6a09f33c02ee9853", "preregistration_path": "research/preregistration/TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_PREREGISTRATION.md", "preregistration_sha256": "0f8d0571f5c688d7286433bcfb792750148a9ffaa491ab010ef2da5c2e20ed48", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "b4a7580", "implementation": "e0cace5"}}
   },
   {
    "mechanism_id": "SINGLE_NAME_OPTION_INFORMED_TRADING_V1",
