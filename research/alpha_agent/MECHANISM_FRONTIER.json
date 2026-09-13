@@ -513,6 +513,45 @@
    "requires_purchase": true,
    "reopen": null,
    "executor": null
+  },
+  {
+   "mechanism_id": "MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1",
+   "title": "Merger arbitrage: holding the targets of announced all-cash acquisitions earns the deal-completion risk premium",
+   "domain": "STRUCTURAL_FLOWS_FORCED_TRADING",
+   "mechanism_class": "RISK_TRANSFER_PREMIUM",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-13",
+   "data_version": 1,
+   "asset_class": "US_EQUITY",
+   "horizon_sessions": 63,
+   "model_family": "EVENT_CALENDAR_BOOK",
+   "information_objects": ["SEC_EDGAR:ALL_CASH_ACQUISITION_TARGET_PENDING_SPREAD"],
+   "semantic_tokens": ["merger", "arbitrage", "acquisition"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM", "IMPROVES_AGENT_ABILITY"],
+   "census_before_returns": {
+    "measured_at": "2026-09-13",
+    "computed": "form-type counts only, no price: the owned R63 submissions store holds 1,080 S&P-member CIKs (DEFM14A 351, SC 14D9 131, SC TO-T 395, 10-12B 78 across all years)",
+    "survivorship_finding": "the owned store is selected on S&P 500 membership, so targets that never joined the index are absent; the test universe must come from the full EDGAR quarterly index, not from the owned store"
+   },
+   "pnl_gate": {
+    "PNL_MECHANISM": "When an all-cash acquisition is announced the target trades below the offer price until the deal closes. Long-only holders sell targets to shed deal-break risk and arbitrage capital is limited, so the spread exceeds fair compensation for the probability-weighted break loss (Mitchell and Pulvino 2001; Baker and Savasoglu 2002). A calendar-time book long every pending all-cash target from the session after the definitive agreement is public until delisting or a frozen cap earns that premium.",
+    "WHY_MISPRICING_SHOULD_EXIST": "Deal-break losses are large, lumpy and concentrated in market downturns, so diversified arbitrage capital is scarce and demands more than actuarial compensation, while index and active holders prefer immediate liquidity over the residual spread.",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The spread persists for the weeks to months until completion and is compensation for bearing break risk through that period, not information one session removes; entry after the agreement is public is the standard arbitrage entry.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "Structural: a risk-transfer premium paid by holders shedding deal-break risk to capital-constrained arbitrageurs; no informational edge is claimed.",
+    "EXPECTED_HOLDING_HORIZON": "From the session after the agreement is public to target delisting on completion or a frozen cap of 126 sessions; median about three months.",
+    "EXPECTED_COST_SURVIVABILITY": "One round trip per deal at the 12.5 bp equity desk rate is about 25 bp per deal against published average spreads of several percent per deal; the binding risk is break losses, not trading cost.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether the estate has a non-timing event-driven risk premium, uncorrelated with the incumbent equity book, that survives break losses after costs; if it fails, event-driven risk-transfer premia in US equities are closed and the free frontier outside purchase gates is exhausted.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on 2003-2016 against cash and a beta-matched SPY exposure under the canonical scorer, confirm on the untouched 2017-2026 window, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill if the calendar-time all-cash target book has NW t < 2.0 or net below 1.5 %/yr of NAV at 12.5 bp; or its increment over a beta-matched SPY exposure has NW t < 2.0; or annualised net is non-positive in either qualification half; or it fails BH q=0.10 at m=1 with EVENT_8K_ITEM_CODES and SP500_INDEX_ADDITION_DELETION inherited at p=1; or deal identification or consideration type requires information dated after the entry session.",
+    "TIME_OR_DATA_BUDGET": "Six working days; free SEC EDGAR quarterly full-index form types (DEFM14A, SC TO-T, SC 14D9) and the filings' consideration terms acquired through the canonical SEC collector, plus owned Norgate total-return prices including delisted names; $0.",
+    "WHY_NOT_DUPLICATIVE": "No estate test traded announced acquisitions: EVENT_8K_ITEM_CODES scored item codes as signals of the filer's own later return and found them priced at publication, SP500_INDEX_ADDITION_DELETION traded index membership changes, and CONTROL_BLOCK_13DG traded ownership-stake filings; this harvests a completion-risk premium on a known cash offer rather than an information signal, and unlike the closed carry and VX families it involves no timing of a premium."
+   },
+   "score_inputs": {"mechanism_strength": 0.65, "unpriced_at_entry": 0.50, "adjacent_evidence": 0.50, "gross_edge": 0.45, "cost_survivability": 0.80, "pit_quality": 0.75, "effective_sample": 0.70, "survivorship_quality": 0.80, "independence": 0.80, "incremental_portfolio_value": 0.60, "live_candidate_decision_value": 0.0, "implementation_days": 6, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate US equities total return including delisted names", "canonical SEC collector"], "free_acquisition": ["SEC EDGAR quarterly full-index master.idx form types 2003-2026", "DEFM14A and SC TO-T consideration terms"], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "data_gaps": [
