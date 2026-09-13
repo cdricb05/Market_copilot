@@ -444,7 +444,7 @@
    "data": {"owned": ["D:/Stock_Prediction_app_data/native_futures_r38/r38_native_futures_information_frontier_v4 (dated contracts, roll dates, per-market costs)"], "free_acquisition": ["S&P GSCI and BCOM published roll calendars (methodology documents)"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.commodity_index_roll_window:run_mechanism", "module_path": "alpha_agent/alpha_recovery/commodity_index_roll_window.py", "module_sha256": "a2843b4de2db9d4677d3098c6c1c6fce8a2717b371f685e17786df28b004bb54", "preregistration_path": "research/preregistration/COMMODITY_INDEX_ROLL_WINDOW_PREREGISTRATION.md", "preregistration_sha256": "084b79627c0686b9417deeb901785f31dd4762f6032ef670c5c307cfbd383364", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "6e2c20d", "implementation": "89f43d9"}}
   },
   {
    "mechanism_id": "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_V1",
