@@ -63,7 +63,7 @@ OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
           "equity", "residual", "intraday", "options", "reversed_skew", "databento", "futures",
-          "futures_alpha", "microstructure", "ownership", "control_block", "compete",
+          "futures_alpha", "microstructure", "ownership", "control_block", "event_8k", "compete",
           "products", "package", "purchase", "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
@@ -411,6 +411,24 @@ def _stage_control_block() -> dict:
             "sign": {k: r["sign_result"] for k, r in body["results"].items()}}
 
 
+def _stage_event_8k() -> dict:
+    """The preregistered SEC Form 8-K Item-code event experiment.
+
+    Reads the free EDGAR submissions histories already acquired by the
+    canonical R63 owner and the stream written by
+    ``alpha_agent.alpha_recovery.event_8k_data``; it never downloads here.
+    """
+    from alpha_agent.alpha_recovery import event_8k_alpha as E8
+    body = E8.run(verbose=True)
+    return {"event_counts": body["event_counts"],
+            "coverage": {h: {k: c[k] for k in ("coverage_mean", "uncovered_share")}
+                         for h, c in body["coverage"].items()},
+            "verdicts": {k: r["verdict"] for k, r in body["results"].items()},
+            "merits": {k: r["verdict_if_data_gates_passed"]["verdict"]
+                       for k, r in body["results"].items()},
+            "capital_eligible": body["capital_eligible"]}
+
+
 def _stage_purchase() -> dict:
     from alpha_agent.alpha_recovery import news as NW, purchase_case as PC
     body = PC.build(news_manifest=NW.manifest())
@@ -438,7 +456,7 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "reversed_skew": _stage_reversed_skew, "databento": _stage_databento,
             "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
             "microstructure": _stage_microstructure, "ownership": _stage_ownership,
-            "control_block": _stage_control_block,
+            "control_block": _stage_control_block, "event_8k": _stage_event_8k,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
