@@ -388,6 +388,51 @@ class TestRefresh:
         return {tk: _weekday_bars(price=100.0 + 3 * i)
                 for i, tk in enumerate(tickers)}
 
+    # ----------------------------------------------------------------- R62.3
+    # The DECLARED BENCHMARK belongs in the owned trailing panel.
+    #
+    # The fetch universe is the momentum input's ticker list - the TRADABLE
+    # universe, which correctly excludes SPY. But the panel built from it is
+    # read by api.price_panel, which (a) served SPY from the frozen 2026-06-22
+    # research CSV because nothing refreshed it, and (b) builds every owned
+    # series' bench/bret column FROM the SPY row - so with SPY absent, all 1008
+    # owned series carried a benchmark column that was null end to end.
+    def test_r623_the_declared_benchmark_is_fetched_into_the_trailing_panel(
+            self, env, monkeypatch):
+        _stale_clock(monkeypatch)
+        table = self._table()
+        table["SPY"] = _weekday_bars(price=500.0)
+        out = at.run_refresh(confirm=at.REFRESH_CONFIRM_TOKEN,
+                             downloader=_fake_downloader(table))
+        assert out["status"] == at.R_REFRESHED, out.get("message")
+        bench = out["trailing_panel_benchmark"]
+        assert bench["ticker"] == "SPY"
+        assert bench["fetched"] is True
+        rows = list(csv.DictReader(
+            at.owned_panel_path().read_text(encoding="utf-8").splitlines()))
+        assert "SPY" in {r["ticker"] for r in rows}, \
+            "the benchmark must be priced by the panel"
+        # ... and it is an EXTRA, so the universe that decides coverage, the
+        # equal-weight universe return and every momentum row is untouched.
+        assert "SPY" not in {r["ticker"] for r in csv.DictReader(
+            _mom_csv_text(env).splitlines())}
+
+    def test_r623_a_benchmark_fetch_failure_never_blocks_the_refresh(
+            self, env, monkeypatch):
+        """The universe is what the momentum contract needs; SPY is reported."""
+        _stale_clock(monkeypatch)
+        out = at.run_refresh(confirm=at.REFRESH_CONFIRM_TOKEN,
+                             downloader=_fake_downloader(self._table()))
+        assert out["status"] == at.R_REFRESHED, out.get("message")
+        bench = out["trailing_panel_benchmark"]
+        assert bench["ticker"] == "SPY"
+        assert bench["fetched"] is False
+        assert bench["reason"], "a missing benchmark must say why"
+        rows = list(csv.DictReader(
+            at.owned_panel_path().read_text(encoding="utf-8").splitlines()))
+        assert "SPY" not in {r["ticker"] for r in rows}
+        assert rows, "the universe panel is still written"
+
     def test_refresh_requires_the_exact_token(self, env, monkeypatch):
         _stale_clock(monkeypatch)
         before = _mom_csv_text(env)

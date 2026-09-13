@@ -236,6 +236,54 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 5a2. the originating owner freezes its per-session decision --- #
+        # R62.3.3. The accrual owner in 5b advances a MEASUREMENT and says so
+        # plainly: "a decision is the originating owner's act and this module
+        # may not take one on its behalf". For a release that freezes one
+        # decision PER SESSION rather than one at adoption, that leaves a real
+        # gap - nothing would ever call the research owner, and every entry
+        # session would be MISSED while the registration looked merely young.
+        # So the research owner is asked FIRST, inside this same lock and this
+        # same cadence, and its answer is a stage like any other. No second
+        # scheduler, and no decision taken by anyone but the owner of the rule.
+        #
+        # The call is idempotent end to end: the publication poll is
+        # append-only, the surface append refuses a session it already holds,
+        # and the freeze is first-write-wins. Firing it repeatedly inside the
+        # nine-and-a-half-hour window is how the window is covered by a
+        # schedule instead of by a person.
+        try:
+            from ..alpha_recovery import next_open_runtime as NOR
+            adv = NOR.advance_daily(now=started.isoformat())
+            a_st = str(adv.get("state"))
+            if a_st == NOR.ADV_FROZEN:
+                n_state = SUCCESS
+            elif a_st == NOR.ADV_MISSED:
+                n_state = FORFEITED
+            elif a_st == NOR.ADV_AWAITING_SOURCE:
+                n_state = DATA_BLOCKED
+            elif a_st == NOR.ADV_BLOCKED:
+                n_state = FAILED_RETRYABLE
+            else:
+                n_state = NOT_DUE
+            stages.append(_stage(
+                "next_open_prospective_decision", n_state,
+                challenger_id=adv.get("challenger_id"),
+                advance_state=a_st,
+                information_session=adv.get("information_session"),
+                entry_session=adv.get("entry_session"),
+                entry_state=adv.get("entry_state"),
+                publication=(adv.get("publication") or {}).get("outcome"),
+                append_state=(adv.get("append") or {}).get("state"),
+                paid_dollars=adv.get("paid_dollars"),
+                frozen=bool((adv.get("freeze") or {}).get("frozen")),
+                detail=adv.get("detail")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("next_open_prospective_decision",
+                                 FAILED_RETRYABLE,
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 5b. the canonical prospective registrations advance ----------- #
         # R62.2. A registration made by the canonical registrar names its
         # accrual owner and its maturation owner, and before this stage nothing
