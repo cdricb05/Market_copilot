@@ -53,9 +53,15 @@ CANDIDATES = (
      "why_owned_free_insufficient": "only index-level implied volatility (VIX family) is owned; the "
                                     "cross-sectional dispersion of single-name implied volatility and "
                                     "skew is not derivable from any owned or free source",
-     "pit_credibility": "PIT_MARKET_OBSERVABLE if end-of-day surfaces are delivered as-of",
-     "usable_history_years": None, "effective_sample": None,
-     "fee_reference": "UNQUOTED (ORATS / Cboe DataShop - R63)",
+     "pit_credibility": "PIT_MARKET_OBSERVABLE (OPRA consolidated quotes, as-of by construction)",
+     "usable_history_years": 13, "effective_sample": None,
+     "fee_reference": "MEASURED via metadata.get_cost on OPRA.PILLAR, 2026-09-13: one 15:59-16:00 ET "
+                      "cbbo-1m minute of the FULL option chains of the PIT S&P 500 (parent symbology) "
+                      "costs $0.17 (2013) rising to $0.77 (2026) per snapshot, so weekly snapshots over "
+                      "2013-04..2026-09 are about $290-332 one-time and daily about $1,450-1,660. The "
+                      "statistics schema (open interest) is not needed and costs $21-27 per day from "
+                      "2024. Case: research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md",
+     "measured_not_quoted": True,
      "proxy_evidence_family": None},
     {"need": "UNIVERSE_WIDE_NEWS_HISTORY_PRE_2021",
      "dimension": "EVENT_INFORMATION", "asset_class": "US_EQUITY", "horizons": [1, 5],
