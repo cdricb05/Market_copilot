@@ -179,6 +179,24 @@ def test_text_cover_page_is_read():
     assert r["cusip"].startswith("037833")
 
 
+BARE_COVER = (b"<html><body>11. PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9)"
+              b" 7.91 <br>12. TYPE OF REPORTING PERSON* BD, IA</body></html>")
+
+
+def test_a_percent_printed_without_a_per_cent_sign_is_still_read():
+    """Measured: 389 of 400 sampled failures were exactly this shape. Requiring
+    the sign would discard 6% of the stream and break those filers' chains."""
+    assert CBD.parse_document(BARE_COVER, structured=False)["percents"] == [7.91]
+
+
+def test_the_next_boxes_row_number_is_never_read_as_a_percentage():
+    """Row 12's caption ends row 11's value, and a bare integer is not a
+    percent - otherwise '12. TYPE OF REPORTING PERSON' becomes 12%."""
+    empty = (b"<html>11. PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) "
+             b"Not Applicable 12. TYPE OF REPORTING PERSON HC</html>")
+    assert CBD.parse_document(empty, structured=False)["percents"] == []
+
+
 def test_a_percent_above_one_hundred_is_dropped_not_clipped():
     bad = TEXT_COVER.replace(b"6.37%", b"637%")
     assert CBD.parse_document(bad, structured=False)["percents"] == []
@@ -362,6 +380,19 @@ def test_the_post_hoc_runup_can_never_qualify_anything():
 # --------------------------------------------------------------------------- #
 # The acquisition honours the SEC's rate, not merely its serialisation
 # --------------------------------------------------------------------------- #
+def test_one_accession_spelling_is_used_everywhere():
+    """EDGAR's quarterly index spells an accession WITH dashes and the
+    submissions history WITHOUT them. A key that differs only in punctuation
+    joins nothing and raises nothing - the filer would simply be 'unidentified'
+    on every filing, which reads as missing data rather than as a bug."""
+    assert CBD._norm_accession("0000004405-19-000001") == "000000440519000001"
+    assert CBD._norm_accession("000000440519000001") == "000000440519000001"
+    assert CBD._norm_accession(None) == ""
+    src = Path(CBE.__file__).read_text(encoding="utf-8")
+    assert 'replace("-", "")' not in src, \
+        "accession normalisation must go through the one helper"
+
+
 def test_the_rate_gate_bounds_the_global_request_rate():
     """Concurrency hides latency; it must not raise the request rate. Three
     workers behind ONE gate issue requests no faster than the serial loop."""

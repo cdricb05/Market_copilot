@@ -94,6 +94,16 @@ _PCT_CAPTION = re.compile(
     r"(?:ROW|BOX|LINE)?\s*\(?\s*(?:9|11)\s*\)?", re.I)
 _PCT_FALLBACK = re.compile(r"PERCENT(?:AGE)?\s+OF\s+CLASS\s*[:\-]?\s*", re.I)
 _PCT_VALUE = re.compile(r"(?<![\d.])([0-9]{1,3}(?:\.[0-9]{1,4})?)\s*%")
+#: Many filing agents print the cover-page percent with NO per-cent sign at all
+#: ("11. PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9)   7.91"). Measured:
+#: 389 of 400 sampled failures are exactly this, so requiring the sign discards
+#: 6% of the stream and breaks those filers' chains. A DECIMAL POINT is required
+#: here so that the row number of the NEXT cover-page box ("12") can never be
+#: read as a percentage.
+_PCT_BARE = re.compile(r"(?<![\d.])([0-9]{1,3}\.[0-9]{1,4})(?![\d.%])")
+#: Row 12's caption ends row 11's value. Truncating there stops the search
+#: bleeding into the next box.
+_NEXT_BOX = re.compile(r"TYPE\s+OF\s+REPORTING\s+PERSON", re.I)
 _CUSIP = re.compile(
     r"CUSIP\s*(?:NO\.?|NUMBER|#)?\s*[:.\-]?\s*([0-9A-Z]{6}[\s-]?[0-9A-Z]{2}[\s-]?[0-9A-Z]?)\b", re.I)
 _PERSON = re.compile(
@@ -374,7 +384,11 @@ def _percents_from_text(flat: str) -> list:
     """
     out = []
     for m in _PCT_CAPTION.finditer(flat):
-        v = _PCT_VALUE.search(flat[m.end():m.end() + 240])
+        win = flat[m.end():m.end() + 240]
+        nb = _NEXT_BOX.search(win)
+        if nb:
+            win = win[:nb.start()]
+        v = _PCT_VALUE.search(win) or _PCT_BARE.search(win)
         if v:
             out.append(float(v.group(1)))
     if not out:
@@ -507,6 +521,11 @@ def parsed_records(*, rebuild: bool = False, verbose: bool = True) -> list:
 FULL_INDEX_URL = "https://www.sec.gov/Archives/edgar/full-index/%d/QTR%d/master.idx"
 
 
+def _norm_accession(acc: str) -> str:
+    """The ONE spelling of an accession number used as a key anywhere here."""
+    return str(acc or "").replace("-", "").strip()
+
+
 def _index_path(year: int, qtr: int) -> Path:
     return data_dir() / "full_index" / ("sc13_%d_q%d.tsv" % (year, qtr))
 
@@ -554,7 +573,12 @@ def fetch_full_index(*, first_year: int = 2009, last_year: int = 2026,
                     continue
                 if parts[2].strip().upper() not in want:
                     continue
-                acc = parts[4].rsplit("/", 1)[-1].replace(".txt", "")
+                # The index spells an accession WITH dashes and the submissions
+                # history WITHOUT them. Both are normalised to the dashless
+                # form here and at the lookup, because a key that differs only
+                # in punctuation joins nothing and reports no error - the filer
+                # would simply be "unidentified" for every filing.
+                acc = _norm_accession(parts[4].rsplit("/", 1)[-1].replace(".txt", ""))
                 rows.append("\t".join([parts[0].strip().lstrip("0"),
                                        parts[2].strip(), parts[3].strip(), acc]))
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -581,7 +605,7 @@ def load_filer_map(issuer_ciks: set | None = None) -> dict:
             if not ln.strip():
                 continue
             cik, _form, _date, acc = ln.split("\t")
-            by_acc.setdefault(acc, set()).add(cik)
+            by_acc.setdefault(_norm_accession(acc), set()).add(cik)
     out = {}
     for acc, ciks in by_acc.items():
         others = sorted(ciks - issuer_ciks) if issuer_ciks else sorted(ciks)

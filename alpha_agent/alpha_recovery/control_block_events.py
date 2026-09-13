@@ -203,7 +203,7 @@ def build_events(E: dict, elig: np.ndarray, *, verbose: bool = True,
             continue
         pct = _block_percent(r)
         stats["with_percent" if pct is not None else "without_percent"] += 1
-        acc = str(r.get("accession") or "").replace("-", "")
+        acc = CBD._norm_accession(r.get("accession"))
         filer = filer_map.get(acc)
         if filer is None and r.get("reporting_person_ciks"):
             filer = sorted(r["reporting_person_ciks"])[0]
