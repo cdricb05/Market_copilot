@@ -360,7 +360,7 @@
    "data": {"owned": ["R38 native futures contract layer: TU/FV/TY/US dated contracts, roll dates, per-market costs"], "free_acquisition": ["TreasuryDirect TA_WS securities search API (auction history)", "api.fiscaldata.treasury.gov auctions_query"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.treasury_auction_concession:run_mechanism", "module_path": "alpha_agent/alpha_recovery/treasury_auction_concession.py", "module_sha256": "61224f5420320f9cc0635ce2866092d68c9b82856c5e805793d6697a02b9513e", "preregistration_path": "research/preregistration/TREASURY_AUCTION_CONCESSION_PREREGISTRATION.md", "preregistration_sha256": "6c62c4c2f6c44e390bbd3e7fd786397654b99052486fdaf25e8d4f83bf4a2dac", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "dadda9e", "implementation": "d0c7b94"}}
   },
   {
    "mechanism_id": "MONTH_END_BALANCED_REBALANCING_FLOW_V1",
