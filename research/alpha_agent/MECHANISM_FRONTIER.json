@@ -326,7 +326,7 @@
    "data": {"owned": ["R63 SEC submissions histories (acceptanceDateTime)", "SEC XBRL companyfacts fiscal periods", "Norgate PIT S&P 500 panel"], "free_acquisition": [], "paid": ["point-in-time industry classification (blocked opportunity POINT_IN_TIME_SECTOR)"]},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.peer_earnings_information_transfer:run_mechanism", "module_path": "alpha_agent/alpha_recovery/peer_earnings_information_transfer.py", "module_sha256": "0c8c14876a3b8574bc1a470f213953cde7600bba1276d544e1f80a9f2b04ba1e", "preregistration_path": "research/preregistration/PEER_EARNINGS_INFORMATION_TRANSFER_PREREGISTRATION.md", "preregistration_sha256": "d9b9f1838f2f69715d778937c148cd2c73a870e3a5f583dc11ee0d35c4363fd5", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "e9a15ff", "implementation": "86930a4"}}
   },
   {
    "mechanism_id": "TREASURY_AUCTION_SUPPLY_CONCESSION_V1",
