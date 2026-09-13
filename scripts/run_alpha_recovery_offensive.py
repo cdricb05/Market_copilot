@@ -64,7 +64,7 @@ FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
           "equity", "residual", "intraday", "options", "reversed_skew", "databento", "futures",
           "futures_alpha", "microstructure", "ownership", "control_block", "event_8k",
-          "insider_form4", "compete",
+          "insider_form4", "ftd_fails", "compete",
           "products", "package", "purchase", "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
@@ -451,6 +451,24 @@ def _stage_insider_form4() -> dict:
             "capital_eligible": body["capital_eligible"]}
 
 
+def _stage_ftd_fails() -> dict:
+    """The preregistered SEC fails-to-deliver relative-to-volume experiment.
+
+    Reads the Fails-to-Deliver files already acquired by
+    ``alpha_agent.alpha_recovery.ownership_data`` and the owned CUSIP-anchored
+    bridge; it never downloads here.
+    """
+    from alpha_agent.alpha_recovery import ftd_fails_alpha as FA
+    body = FA.run(verbose=True)
+    return {"verdicts": {k: r["verdict"] for k, r in body["results"].items()},
+            "merits": {k: r["verdict_if_data_gates_passed"]["verdict"]
+                       for k, r in body["results"].items()},
+            "coverage": {k: r["coverage"]["uncovered_share"] for k, r in body["results"].items()},
+            "m_declared": body["multiplicity"]["m_declared"],
+            "m_inherited": body["multiplicity"]["m_inherited"],
+            "capital_eligible": body["capital_eligible"]}
+
+
 def _stage_purchase() -> dict:
     from alpha_agent.alpha_recovery import news as NW, purchase_case as PC
     body = PC.build(news_manifest=NW.manifest())
@@ -479,7 +497,8 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
             "microstructure": _stage_microstructure, "ownership": _stage_ownership,
             "control_block": _stage_control_block, "event_8k": _stage_event_8k,
-            "insider_form4": _stage_insider_form4, "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
+            "insider_form4": _stage_insider_form4, "ftd_fails": _stage_ftd_fails,
+            "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
 #: Every declared stage must be runnable. ``intraday`` and ``options`` shipped
