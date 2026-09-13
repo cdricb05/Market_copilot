@@ -63,8 +63,8 @@ OK = "ALPHA_RECOVERY_STAGE_OK"
 FAILED = "ALPHA_RECOVERY_STAGE_FAILED"
 STAGES = ("checkpoint", "program", "incumbent", "tournament", "news", "cadence", "direction",
           "equity", "residual", "intraday", "options", "reversed_skew", "databento", "futures",
-          "futures_alpha", "microstructure", "compete", "products", "package", "purchase",
-          "scoreboard", "report", "all")
+          "futures_alpha", "microstructure", "ownership", "compete", "products", "package",
+          "purchase", "scoreboard", "report", "all")
 #: ``databento`` is deliberately OUTSIDE ``all``: it is the only stage that can
 #: consume a credit balance, so it is never swept up by a full-campaign run.
 STAGES_EXCLUDED_FROM_ALL = ("databento",)
@@ -379,6 +379,22 @@ def _stage_package() -> dict:
     return {"n_ready": body["n_ready"], "n_survivors_not_qualified": body["n_survivors_not_qualified"]}
 
 
+def _stage_ownership() -> dict:
+    """The preregistered 13F institutional-ownership-breadth experiment.
+
+    Reads the free SEC archives already acquired by
+    ``alpha_agent.alpha_recovery.ownership_data``; it never downloads here, and
+    it reports an honest NOT_ACQUIRED state rather than fabricating a panel.
+    """
+    from alpha_agent.alpha_recovery import ownership_breadth as OB
+    body = OB.run(verbose=True)
+    if body.get("state") == "NOT_ACQUIRED":
+        return {"state": body["state"], "why": body.get("why")}
+    return {"coverage": body["coverage"],
+            "verdicts": {h: r["verdict"] for h, r in body["results"].items()},
+            "sign": {h: r["sign_result"] for h, r in body["results"].items()}}
+
+
 def _stage_purchase() -> dict:
     from alpha_agent.alpha_recovery import news as NW, purchase_case as PC
     body = PC.build(news_manifest=NW.manifest())
@@ -405,7 +421,7 @@ STAGE_FN = {"checkpoint": _stage_checkpoint, "program": _stage_program, "incumbe
             "intraday": _stage_intraday, "options": _stage_options,
             "reversed_skew": _stage_reversed_skew, "databento": _stage_databento,
             "futures": _stage_futures, "futures_alpha": _stage_futures_alpha,
-            "microstructure": _stage_microstructure,
+            "microstructure": _stage_microstructure, "ownership": _stage_ownership,
             "compete": _stage_compete, "products": _stage_products, "package": _stage_package,
             "purchase": _stage_purchase, "scoreboard": _stage_scoreboard, "report": _stage_report}
 
