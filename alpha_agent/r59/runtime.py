@@ -764,7 +764,14 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             delta = wake_delta(last_conditions, conditions)
             last_conditions = conditions
             runnable = queue.runnable_depth()
-            if runnable == 0:
+            # A session that ended on STOP_B has just PROVEN that the governor's
+            # remaining mandates cannot be claimed (their jobs are parked on a
+            # named blocker under the same dedupe keys). Counting those mandates
+            # as runnable work made the worker skip its sleep and re-run the
+            # same zero-job session: 186 consecutive cycles, 0 jobs, on
+            # 2026-09-13. Only a session that did NOT prove that may ask.
+            proven_unclaimable = (session or {}).get("stop_condition") == LP.STOP_B
+            if runnable == 0 and not proven_unclaimable:
                 # A drained queue is not an empty frontier: ask the governor.
                 try:
                     decision = GOV.stop_reason(mem)

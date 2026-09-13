@@ -33,6 +33,7 @@ from .. import r59
 from . import blockers as BLK
 from . import frontier as FR
 from . import information_needs as IN
+from . import mechanisms as MX
 from . import memory as M
 from . import opportunities as OPP
 
@@ -40,12 +41,18 @@ CALCULATION_OWNER = "alpha_agent.r59.governor"
 
 #: R64 - how many information needs one batch may OFFER (before fairness).
 INFORMATION_NEED_BATCH = 6
+#: Alpha Agent - how many economic mechanisms one batch may OFFER.
+MECHANISM_BATCH = MX.DEFAULT_MECHANISM_BATCH
 
 MANDATE_ECONOMIC = "ECONOMIC_FAMILY"
 MANDATE_MATHEMATICAL = "MACHINE_DISCOVERY"
 MANDATE_CROSS_ASSET = "CROSS_ASSET"
 MANDATE_DATA = "DATA_OPPORTUNITY"
 MANDATE_NATIVE = "NATIVE_TERM_STRUCTURE"
+#: A preregistered economic P&L MECHANISM from the mechanism frontier: the
+#: answer to "why could a tradeable price be wrong", not to "which dataset is
+#: untested".
+MANDATE_MECHANISM = "ECONOMIC_MECHANISM"
 
 #: Holding periods a native family sweeps. One sweep is ONE search family.
 NATIVE_HORIZONS = (1, 5, 21, 63)
@@ -495,6 +502,23 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
             MANDATE_DATA, asset_class=row["asset_class"], family=row["family"],
             eiv=row["eiv"], reason=row["reason"], payload=row["payload"]))
 
+    # Alpha Agent - the mechanism frontier: preregistered economic P&L
+    # mechanisms that passed the P&L work gate, were not closed or duplicative,
+    # and are ranked by expected research value. A catalog defect must not stop
+    # the rest of the governor, and it must not vanish either: it is recorded.
+    mechanism_error = None
+    try:
+        mechanisms = MX.candidates(mem, limit=MECHANISM_BATCH)
+    except Exception as exc:                             # noqa: BLE001
+        mechanisms = []
+        mechanism_error = "%s: %s" % (type(exc).__name__, str(exc)[:300])
+        mem.event("MECHANISM_FRONTIER_UNAVAILABLE", subject=CALCULATION_OWNER,
+                  detail={"error": mechanism_error})
+    for row in mechanisms:
+        candidates.append(_mandate(
+            MANDATE_MECHANISM, asset_class=row["asset_class"], family=row["family"],
+            eiv=row["eiv"], reason=row["reason"], payload=row["payload"]))
+
     candidates.sort(key=lambda m: -m["expected_information_value"])
 
     selected = _apply_fairness(candidates, limit=limit,
@@ -521,6 +545,10 @@ def generate_mandates(mem: Optional[M.ResearchMemory] = None, *,
             # R64 - information needs offered this batch (before fairness).
             "n_information_needs": len(information_needs),
             "information_need_source": IN.SOURCE,
+            # Alpha Agent - mechanisms offered this batch (before fairness).
+            "n_mechanisms": len(mechanisms),
+            "mechanism_source": MX.SOURCE,
+            "mechanism_frontier_error": mechanism_error,
             # R61 - probes withheld because their substrate has not moved. A
             # suppressed mandate is stated, with the condition that revives it.
             "deferred_probes": deferred_probes,

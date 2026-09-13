@@ -48,6 +48,7 @@ _KIND_LANE = {
     GOV.MANDATE_CROSS_ASSET: r59.LANE_CROSS_ASSET,
     GOV.MANDATE_DATA: r59.LANE_DATA_OPPORTUNITY,
     GOV.MANDATE_NATIVE: r59.LANE_NATIVE,
+    GOV.MANDATE_MECHANISM: r59.LANE_MECHANISM,
 }
 
 _NATIVE_NAMES = frozenset(
@@ -630,8 +631,17 @@ def make_handlers(mem: Optional[M.ResearchMemory] = None,
             "resolved": rep.get("resolved"),
             "detail": rep.get("note")}
 
+    def _experiment(job) -> tuple:
+        """An EXPERIMENT is either an economic family over the owned panels or
+        a preregistered mechanism from the mechanism frontier; the lane says
+        which, and the mechanism owner does all of the mechanism's work."""
+        if str(getattr(job, "lane", "")).startswith(r59.LANE_MECHANISM_PREFIX):
+            from . import mechanisms as MX
+            return MX.execute_job(mem, job, queue=queue)
+        return _economic(job)
+
     return {
-        AR.CAT_EXPERIMENT: _economic,
+        AR.CAT_EXPERIMENT: _experiment,
         AR.CAT_HYPOTHESIS_GENERATION: _mathematical,
         AR.CAT_SIGNAL_COMBINATION: _cross_asset,
         AR.CAT_DATA_VALIDATION: _data_opportunity,
@@ -651,7 +661,7 @@ def route_r59(existing: dict, r59_handlers: dict) -> dict:
         base = out.get(cat)
 
         def _routed(job, _fn=fn, _base=base, _cat=cat):
-            if str(getattr(job, "lane", "")).startswith(r59.LANE_PREFIX):
+            if str(getattr(job, "lane", "")).startswith(r59.LANE_PREFIXES):
                 return _fn(job)
             if _base is None:
                 return AR.OUTCOME_BLOCKED_SPECIFIC, {

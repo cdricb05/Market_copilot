@@ -181,6 +181,16 @@ LANE_FORM4 = "r59.form4_normalise"
 LANE_PROVIDER = "r59.provider_value"
 LANE_NATIVE = "r59.native"
 
+#: ALPHA AGENT mechanism frontier (``alpha_agent.r59.mechanisms``). A SEPARATE
+#: lane prefix on the SAME canonical queue, for one compatibility reason: a
+#: worker that predates the mechanism handler drains ``r59.*`` and would claim a
+#: mechanism job it has no executor for, park it BLOCKED under its dedupe key,
+#: and so hold that mechanism hostage for every worker that could run it. Only
+#: a worker carrying the mechanism handler drains this prefix.
+LANE_MECHANISM_PREFIX = "r59mech."
+LANE_MECHANISM = "r59mech.mechanism"
+LANE_PREFIXES = (LANE_PREFIX, LANE_MECHANISM_PREFIX)
+
 # --------------------------------------------------------------------------- #
 # Pre-registered evaluation conventions. These are INHERITED from R57/R58 on
 # purpose: reusing the partition and the cost model is what makes an R59 result

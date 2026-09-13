@@ -38,6 +38,7 @@ from .. import r59
 from . import frontier as FR
 from . import governor as GOV
 from . import handlers as H
+from . import mechanisms as MX
 from . import memory as M
 from . import opportunities as OPP
 
@@ -95,7 +96,8 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
                 base_handlers: Optional[dict] = None,
                 seed_opportunities: bool = True,
                 adopt_forward: Optional[Callable] = None,
-                on_progress: Optional[Callable[[dict], bool]] = None) -> dict:
+                on_progress: Optional[Callable[[dict], bool]] = None,
+                checkpoint_context: Optional[Callable[[], dict]] = None) -> dict:
     """Run autonomous research until it is genuinely exhausted.
 
     The DEFAULT is ``RUN_UNTIL_RESEARCH_EXHAUSTED_OR_REAL_EXTERNAL_BLOCKER``:
@@ -122,6 +124,10 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
     queue = queue or open_queue()
     if seed_opportunities:
         OPP.seed(mem)
+        # The closed-mechanism ledger enters the ONE memory before the governor
+        # is asked anything, so no mechanism can be issued that the estate has
+        # already closed. Idempotent; a missing catalog seeds nothing.
+        MX.seed_closed(mem)
 
     # R61 - the governed prospective-adoption owner, INJECTED. The research
     # package may not import the application layer, so a freeze reaches its
@@ -166,7 +172,7 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
 
         report = AR.drain_jobs(
             queue, handlers, max_jobs=max_jobs_per_iteration,
-            lane_prefixes=[r59.LANE_PREFIX],
+            lane_prefixes=list(r59.LANE_PREFIXES),
             budget_seconds=(None if budget_seconds is None
                             else max(1.0, float(budget_seconds)
                                      - (time.monotonic() - started))))
@@ -195,6 +201,16 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
             "hypotheses_measured": measured,
             "queue_depth_after": report.get("queue_depth_after"),
         })
+
+        # The resumable agent checkpoint is rewritten after EVERY iteration, so
+        # an interrupted session loses at most the iteration in flight. A
+        # checkpoint failure is recorded and never stops research.
+        try:
+            MX.write_checkpoint(mem, queue, context=(checkpoint_context()
+                                                     if checkpoint_context else None))
+        except Exception as exc:                         # noqa: BLE001
+            mem.event("CHECKPOINT_WRITE_FAILED", subject=CALCULATION_OWNER,
+                      detail={"error": "%s: %s" % (type(exc).__name__, str(exc)[:300])})
 
         # The supervisor gets the floor between iterations: it heartbeats its
         # lease here, and may ask for a clean wind-down. Everything measured

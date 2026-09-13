@@ -51,6 +51,11 @@ from alpha_agent.r59 import steele as ST  # noqa: E402
 @pytest.fixture()
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv(r59.RESEARCH_ROOT_ENV, str(tmp_path / "r59"))
+    # The committed mechanism catalog is an external input to the governor, like
+    # the R63 frontier artifact; these tests measure the R59 families alone and
+    # tests/test_alpha_agent_mechanism_frontier.py owns the mechanism lane.
+    monkeypatch.setenv("PAPER_TRADER_MECHANISM_FRONTIER_PATH",
+                       str(tmp_path / "no_mechanism_catalog.json"))
     return tmp_path
 
 

@@ -59,6 +59,10 @@ LIVE_CHECKOUT = Path(r"C:\Users\binis\paper_trader")
 @pytest.fixture()
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv(r59.RESEARCH_ROOT_ENV, str(tmp_path / "r59"))
+    # The committed mechanism catalog is an external governor input; these tests
+    # measure the runtime's lifecycle, and the mechanism lane has its own suite.
+    monkeypatch.setenv("PAPER_TRADER_MECHANISM_FRONTIER_PATH",
+                       str(tmp_path / "no_mechanism_catalog.json"))
     return tmp_path
 
 

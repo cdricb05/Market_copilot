@@ -140,6 +140,14 @@ DESCRIPTION: dict[str, str] = {
 # --------------------------------------------------------------------------- #
 #: ``(fragment, reason)``. Matched case-insensitively against the recorded text.
 _RULES: tuple[tuple[str, str], ...] = (
+    # Alpha Agent mechanism frontier. Most specific first: a human purchase gate
+    # is an entitlement decision, and an unbuilt or re-edited executor is a
+    # missing prerequisite that new code (not time) resolves.
+    ("human gate", WAITING_FOR_EXTERNAL_ENTITLEMENT),
+    ("executor not built", DEPENDENCY_BLOCKED),
+    ("executor pin mismatch", DEPENDENCY_BLOCKED),
+    ("preregistration missing", DEPENDENCY_BLOCKED),
+    ("malformed executor result", DEPENDENCY_BLOCKED),
     ("no non-degenerate candidate", FAMILY_EXHAUSTED),
     ("no novel candidate", FAMILY_EXHAUSTED),
     ("space is exhausted", FAMILY_EXHAUSTED),

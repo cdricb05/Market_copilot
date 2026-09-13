@@ -505,9 +505,13 @@ class ResearchMemory:
                         economic_family: Optional[str] = None,
                         outcome: Optional[str] = None,
                         unsettled_only: bool = False,
+                        generation_method: Optional[str] = None,
                         limit: int = 5000) -> list:
         sql = "SELECT * FROM hypotheses WHERE 1=1"
         params: list = []
+        if generation_method:
+            sql += " AND generation_method=?"
+            params.append(generation_method)
         if asset_class:
             sql += " AND asset_class=?"
             params.append(asset_class)
@@ -524,6 +528,23 @@ class ResearchMemory:
         conn = self._connect()
         try:
             return [self._row(r) for r in conn.execute(sql, params).fetchall()]
+        finally:
+            conn.close()
+
+    def graveyard_families(self) -> dict:
+        """Distinct economic families prosecuted to a negative verdict, with
+        their row counts. A compact projection: the mechanism frontier checks
+        every candidate against the WHOLE graveyard on each governor call, and
+        hydrating eight thousand rows to learn three hundred names would make
+        that check the most expensive thing in the loop."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT economic_family, COUNT(*) AS n FROM hypotheses"
+                " WHERE outcome IN (?,?) AND invalidated_reason IS NULL"
+                " GROUP BY economic_family",
+                (r59.HO_REJECTED, r59.HO_NO_ALPHA_EVIDENCE)).fetchall()
+            return {r["economic_family"]: int(r["n"]) for r in rows}
         finally:
             conn.close()
 
