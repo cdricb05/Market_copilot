@@ -251,7 +251,7 @@
    "data": {"owned": ["Norgate PIT S&P 500 panel (R57) for realised correlation", "Norgate SPY total return"], "free_acquisition": ["Cboe COR3M_History.csv (2006+)"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.implied_correlation_premium:run_mechanism", "module_path": "alpha_agent/alpha_recovery/implied_correlation_premium.py", "module_sha256": "ca1d6eecc55d66af0bcfc72d0f867af378231c4373d345ed763399eb6b3b018f", "preregistration_path": "research/preregistration/IMPLIED_CORRELATION_PREMIUM_PREREGISTRATION.md", "preregistration_sha256": "495af3b765f3bddd5b81094865ff9375970c19ade0933ab222f0e3b6c7663e64", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "2add128", "implementation": "c6bf23f"}}
   },
   {
    "mechanism_id": "OIL_SHOCK_EQUITY_SLOW_DIFFUSION_V1",
