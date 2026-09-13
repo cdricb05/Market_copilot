@@ -49,7 +49,9 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import threading
 import time
+from concurrent import futures
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -242,8 +244,39 @@ def document_url(row: dict) -> str:
                           _root_leaf(row["primary_document"]))
 
 
+#: Workers sharing ONE global rate gate. The SEC's stated fair-access limit is
+#: a RATE (<= 10 requests/second), not a requirement to issue requests one at a
+#: time, and a single-threaded loop spends most of its wall clock waiting for
+#: round trips rather than respecting the limit: measured, one worker sustained
+#: 3.4 requests/second against a 7.7/second budget. Three workers behind the
+#: SAME gate keep the global rate identical to the single-threaded case and
+#: stop wasting the difference. The gate, not the worker count, is what bounds
+#: the rate - raising this number never raises the request rate.
+FETCH_WORKERS = 3
+
+
+class _RateGate:
+    """One global minimum interval between request STARTS, shared by all
+    workers. Honours ``ACQ.MIN_INTERVAL_S`` exactly as the serial loop does."""
+
+    def __init__(self, interval: float):
+        self._interval = float(interval)
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.time()
+            due = max(now, self._next)
+            self._next = due + self._interval
+        delay = due - now
+        if delay > 0:
+            time.sleep(delay)
+
+
 def fetch_documents(rows: list, *, headers: dict | None = None,
-                    limit: int | None = None, verbose: bool = True) -> dict:
+                    limit: int | None = None, workers: int = FETCH_WORKERS,
+                    verbose: bool = True) -> dict:
     """Fetch and store each schedule's primary document, gzipped.
 
     Idempotent: a document already on disk is never re-requested, so the run is
@@ -256,38 +289,53 @@ def fetch_documents(rows: list, *, headers: dict | None = None,
     todo = [r for r in rows if r.get("primary_document")]
     if limit:
         todo = todo[:int(limit)]
-    ok = cached = failed = 0
-    nbytes = 0
-    last = 0.0
     data_dir().mkdir(parents=True, exist_ok=True)
-    for k, r in enumerate(todo):
+    pending = []
+    cached = 0
+    for r in todo:
         p = _doc_path(r["issuer_cik"], r["accession"])
         if p.exists() and p.stat().st_size > 64:
             cached += 1
-            continue
-        wait = ACQ.MIN_INTERVAL_S - (time.time() - last)
-        if wait > 0:
-            time.sleep(wait)
-        last = time.time()
+        else:
+            pending.append(r)
+    gate = _RateGate(ACQ.MIN_INTERVAL_S)
+    counters = {"ok": 0, "failed": 0, "bytes": 0}
+    lock = threading.Lock()
+    t0 = time.time()
+
+    def _one(r: dict) -> None:
+        gate.wait()
         status, body = ACQ._get(document_url(r), headers)
         if status != 200 or not body:
-            failed += 1
+            with lock:
+                counters["failed"] += 1
             _append_manifest({"at": now_iso(), "accession": r["accession"],
                               "issuer_cik": r["issuer_cik"], "http": status,
                               "state": "FAILED"})
-            continue
+            return
+        p = _doc_path(r["issuer_cik"], r["accession"])
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
+        tmp = p.with_suffix(".%d.tmp" % threading.get_ident())
         with gzip.open(tmp, "wb") as fh:
             fh.write(body)
         tmp.replace(p)
-        ok += 1
-        nbytes += len(body)
-        if verbose and (ok % 2000 == 0):
-            print("  documents %d/%d fetched=%d cached=%d failed=%d %.1fGB"
-                  % (k + 1, len(todo), ok, cached, failed, nbytes / 1e9), flush=True)
-    return {"requested": len(todo), "fetched": ok, "cached": cached,
-            "failed": failed, "bytes": nbytes, "dir": str(docs_dir())}
+        with lock:
+            counters["ok"] += 1
+            counters["bytes"] += len(body)
+            n = counters["ok"]
+        if verbose and n % 2000 == 0:
+            rate = n / max(time.time() - t0, 1e-9)
+            print("  documents %d/%d failed=%d %.1fGB %.1f req/s"
+                  % (n, len(pending), counters["failed"],
+                     counters["bytes"] / 1e9, rate), flush=True)
+
+    if pending:
+        with futures.ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+            list(pool.map(_one, pending))
+    return {"requested": len(todo), "fetched": counters["ok"], "cached": cached,
+            "failed": counters["failed"], "bytes": counters["bytes"],
+            "workers": int(workers), "min_interval_s": ACQ.MIN_INTERVAL_S,
+            "dir": str(docs_dir())}
 
 
 def _headers() -> dict | None:
@@ -438,3 +486,105 @@ def load_schedules() -> list:
     if not p.exists():
         return []
     return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def parsed_records(*, rebuild: bool = False, verbose: bool = True) -> list:
+    """Every schedule with its cover page read. Cached, because re-reading 97k
+    gzipped documents on every run is minutes of work with no new information;
+    ``rebuild=True`` re-reads from the STORED bytes and never re-fetches."""
+    p = data_dir() / "parsed.jsonl"
+    if p.exists() and not rebuild:
+        return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    rows = parse_all(load_schedules(), verbose=verbose)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows), encoding="utf-8")
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# Filer identity, in bulk
+# --------------------------------------------------------------------------- #
+FULL_INDEX_URL = "https://www.sec.gov/Archives/edgar/full-index/%d/QTR%d/master.idx"
+
+
+def _index_path(year: int, qtr: int) -> Path:
+    return data_dir() / "full_index" / ("sc13_%d_q%d.tsv" % (year, qtr))
+
+
+def fetch_full_index(*, first_year: int = 2009, last_year: int = 2026,
+                     headers: dict | None = None, verbose: bool = True) -> dict:
+    """The reporting person, from EDGAR's own quarterly index.
+
+    A Schedule is indexed under BOTH parties: the SUBJECT issuer and the
+    REPORTING PERSON each get a row for the same accession (measured: 19,053 of
+    19,202 accessions in 2019Q1 carry exactly two CIKs). Grouping by accession
+    therefore names the filer without opening a single filing header - and
+    without ever matching on an issuer's name.
+
+    ``master.idx`` is pipe-delimited, unlike the fixed-width ``form.idx`` whose
+    column offsets drift; only the Schedule rows are kept, so ~3 GB of index
+    becomes a few MB on disk.
+    """
+    headers = headers or _headers()
+    if not headers:
+        return {"state": "BLOCKED_MISSING_USER_AGENT_CONTACT"}
+    want = tuple(FORM_MAP.keys())
+    ok = cached = failed = 0
+    kept = 0
+    last = 0.0
+    for year in range(int(first_year), int(last_year) + 1):
+        for qtr in (1, 2, 3, 4):
+            p = _index_path(year, qtr)
+            if p.exists() and p.stat().st_size > 0:
+                cached += 1
+                kept += sum(1 for _ in p.open(encoding="utf-8"))
+                continue
+            wait = ACQ.MIN_INTERVAL_S - (time.time() - last)
+            if wait > 0:
+                time.sleep(wait)
+            last = time.time()
+            status, body = ACQ._get(FULL_INDEX_URL % (year, qtr), headers)
+            if status != 200 or not body:
+                failed += 1
+                continue
+            rows = []
+            for ln in body.decode("latin-1").splitlines():
+                parts = ln.split("|")
+                if len(parts) != 5:
+                    continue
+                if parts[2].strip().upper() not in want:
+                    continue
+                acc = parts[4].rsplit("/", 1)[-1].replace(".txt", "")
+                rows.append("\t".join([parts[0].strip().lstrip("0"),
+                                       parts[2].strip(), parts[3].strip(), acc]))
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("\n".join(rows), encoding="utf-8")
+            ok += 1
+            kept += len(rows)
+            if verbose:
+                print("  full-index %dQ%d -> %d schedule rows" % (year, qtr, len(rows)),
+                      flush=True)
+    return {"fetched": ok, "cached": cached, "failed": failed, "schedule_rows": kept}
+
+
+def load_filer_map(issuer_ciks: set | None = None) -> dict:
+    """accession -> the CIK that is NOT the subject issuer, i.e. the filer.
+
+    Where an accession carries more than two CIKs (a group filing jointly) the
+    filer is reported as the SORTED FIRST non-issuer CIK so the key is stable
+    across runs; where it carries only one, the filer is unknown and the
+    accession is absent - Cell B drops those and counts them.
+    """
+    by_acc: dict = {}
+    for p in sorted((data_dir() / "full_index").glob("sc13_*.tsv")):
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            cik, _form, _date, acc = ln.split("\t")
+            by_acc.setdefault(acc, set()).add(cik)
+    out = {}
+    for acc, ciks in by_acc.items():
+        others = sorted(ciks - issuer_ciks) if issuer_ciks else sorted(ciks)
+        if len(ciks) >= 2 and others:
+            out[acc] = others[0]
+    return out
