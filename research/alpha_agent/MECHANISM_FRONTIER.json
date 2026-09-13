@@ -283,7 +283,7 @@
    "data": {"owned": ["Norgate &CL continuous futures (R57 futures panel)", "Norgate SPY total return"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.oil_shock_equity_diffusion:run_mechanism", "module_path": "alpha_agent/alpha_recovery/oil_shock_equity_diffusion.py", "module_sha256": "ba850c96519af94b9b593bb6be8c634224c5b71982195f8d006a9584eb49ee67", "preregistration_path": "research/preregistration/OIL_SHOCK_EQUITY_DIFFUSION_PREREGISTRATION.md", "preregistration_sha256": "87aee0309e92c609819e6bb0661b1dd507246412a8342f2cc61e0069d6c9de52", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "ee47d2a", "implementation": "0e11c07"}}
   },
   {
    "mechanism_id": "PEER_EARNINGS_INFORMATION_TRANSFER_V1",
