@@ -164,7 +164,7 @@
    "data": {"owned": ["D:/Stock_Prediction_app_data/multi_horizon_alpha_r41/_data_cboe/SKEW_History.csv", "Norgate SPY total return in the R57 S&P 500 PIT panel (spy_tr)"], "free_acquisition": ["Cboe SKEW_History.csv refresh from cdn.cboe.com"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.skew_index_tail_hedge:run_mechanism", "module_path": "alpha_agent/alpha_recovery/skew_index_tail_hedge.py", "module_sha256": "70358bb1d7d5c2bd86a8ea4731597ec5fae8842f0b8143980c6014c6f758cbd2", "preregistration_path": "research/preregistration/SPX_TAIL_HEDGE_DEMAND_SKEW_INDEX_PREREGISTRATION.md", "preregistration_sha256": "be4808b7cfa043026cef48bebadaf96b6e0200d9116339345f722bd0a6cfe667", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "ad14c56", "implementation": "c05bcce"}}
   },
   {
    "mechanism_id": "RELATIVE_INDEX_IMPLIED_VOL_HEDGING_DEMAND_V1",
@@ -208,7 +208,7 @@
    "data": {"owned": ["Cboe VIX history (R41 _data_cboe)", "Norgate QQQ, IWM, SPY total return"], "free_acquisition": ["FRED VXNCLS (2001+) and RVXCLS (2004+) with the owned FRED key", "Cboe VXN_History.csv and RVX_History.csv (2009+)"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.relative_index_implied_vol:run_mechanism", "module_path": "alpha_agent/alpha_recovery/relative_index_implied_vol.py", "module_sha256": "ed80fd70b26cc28f951e93c58288156952a5ae7abc98f4688a20672c2ab82f0e", "preregistration_path": "research/preregistration/RELATIVE_INDEX_IMPLIED_VOL_PREREGISTRATION.md", "preregistration_sha256": "6d197d392600dfadb63feaca2f18ef931f110f72f8f418ee4c7199d76737a1df", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "03bea7f", "implementation": "94b5523"}}
   },
   {
    "mechanism_id": "IMPLIED_CORRELATION_PREMIUM_INDEX_TIMING_V1",
@@ -393,7 +393,7 @@
    "data": {"owned": ["Norgate &ES and &ZN continuous futures (R57 futures panel)", "Norgate SPY and IEF total return"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.month_end_rebalancing_flow:run_mechanism", "module_path": "alpha_agent/alpha_recovery/month_end_rebalancing_flow.py", "module_sha256": "583bf8ad7d2bdd8e9b94e43edf4b8a627b91d2592cc42e85031c4d95d6a0199e", "preregistration_path": "research/preregistration/MONTH_END_REBALANCING_FLOW_PREREGISTRATION.md", "preregistration_sha256": "8c393f61349c3edf18a86c6acb81fb9c9a8c7e0810071ec6722c57900653caa4", "pinned_at": "2026-09-13", "committed_before_pin": {"preregistration": "0a55ec1", "implementation": "bd88c9e"}}
   },
   {
    "mechanism_id": "COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1",
