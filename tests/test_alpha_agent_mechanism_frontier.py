@@ -488,15 +488,25 @@ def test_reopen_reasons_are_contract_rule_13():
 # --------------------------------------------------------------------------- #
 # The committed catalog
 # --------------------------------------------------------------------------- #
-def test_the_committed_catalog_passes_its_own_gate_and_holds_the_closed_ledger(monkeypatch):
+def test_the_committed_catalog_passes_its_own_gate_and_holds_the_closed_ledger(tmp_path, monkeypatch):
     monkeypatch.delenv(MX.CATALOG_PATH_ENV, raising=False)
     monkeypatch.delenv(MX.REPO_ROOT_ENV, raising=False)
+    monkeypatch.setenv(r59.RESEARCH_ROOT_ENV, str(tmp_path / "r59"))
     cat = MX.load_catalog()
     assert cat and cat["declared_before_returns"] is True
     fr = MX.frontier(None, catalog=cat)
     refused = [(r["mechanism_id"], r["reasons"]) for r in fr["rows"]
                if r["status"] in MX.REFUSED_STATUSES]
     assert refused == []
+    # The graveyard-family overlap only exists once the ledger is IN memory, which is
+    # how the agent actually assesses; an overlap that appeared only after seeding
+    # (a catalog text sharing three tokens with a closed family name) must be caught here.
+    mem = M.open_memory()
+    MX.seed_closed(mem, cat)
+    seeded = MX.frontier(mem, catalog=cat)
+    refused_seeded = [(r["mechanism_id"], r["reasons"]) for r in seeded["rows"]
+                      if r["status"] in MX.REFUSED_STATUSES]
+    assert refused_seeded == []
     closed = {c["family_id"] for c in cat["closed_mechanisms"]}
     for fid in ("INSIDER_FORM4_ALL", "FAILS_TO_DELIVER_AND_SHORT_INTEREST", "OWNERSHIP_BREADTH_13F",
                 "CONTROL_BLOCK_13DG", "EVENT_8K_ITEM_CODES", "ANALYST_REVISIONS_SALES_SURPRISE",
