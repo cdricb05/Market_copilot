@@ -146,6 +146,28 @@ HUMAN_KINDS = (NA_REGISTER, NA_HUMAN_PREREG, NA_PURCHASE)
 #: Actions the agent itself can take.
 AGENT_KINDS = (NA_BUILD, NA_HISTORICAL, NA_DATA_HOLD)
 
+# Recorded human decisions --------------------------------------------------- #
+#: A person's answer to a declared human gate, recorded in the reconciliation so
+#: the agent stops surfacing a gate that has been answered. A decision is an
+#: INPUT; its effect on the candidate is derived on every build.
+HD_AUTHORISED = "AUTHORISED"
+HD_DECLINED = "DECLINED"
+HD_DEFERRED = "DEFERRED"
+HUMAN_DECISIONS = (HD_AUTHORISED, HD_DECLINED, HD_DEFERRED)
+HDE_CLOSED = "CANDIDATE_CLOSED"
+HDE_EXECUTED = "AUTHORISED_AND_EXECUTED"
+HDE_AWAITING = "AUTHORISED_AWAITING_EXECUTION"
+HDE_AUTHORISED = "AUTHORISED"
+HDE_DEFERRED = "DEFERRED"
+HDE_RESURFACED = "RESURFACED"
+HDE_NOT_APPLIED = "NOT_APPLIED"
+#: Effects after which the gate no longer waits on a person.
+DECIDED_EFFECTS = (HDE_CLOSED, HDE_EXECUTED, HDE_AUTHORISED, HDE_DEFERRED)
+
+#: How the agent can act on an admitted agent-executable opportunity.
+PATH_MECHANISM = "EXECUTE_OR_BUILD_MECHANISM"
+PATH_DECLARE = "DECLARE_MECHANISM"
+
 UNTOUCHED = {"CONFIRMED": 1.0, "PARTIAL": 0.6, "NONE": 0.35, "FAILED": 0.0}
 MULTIPLICITY = {"PASS": 1.0, "NOT_RUN": 0.8, "FAIL": 0.6}
 PIT = {"PIT_TRUE": 1.0, "PIT_MARKET_OBSERVABLE": 1.0, "PIT_BY_DECLARED_LAG": 0.8,
@@ -504,7 +526,9 @@ def load_estate(mem: Optional[M.ResearchMemory] = None, *, catalog: Optional[dic
                                   if c.get("candidate_id")),
         "mechanisms": [{"mechanism_id": r["mechanism_id"], "status": r["status"],
                         "asset_class": r.get("asset_class"), "priority": r["score"]["total"],
-                        "executor_state": r.get("executor_state")} for r in fr.get("rows") or []],
+                        "executor_state": r.get("executor_state"),
+                        "reasons": [str(x)[:300] for x in (r.get("reasons") or [])[:3]]}
+                       for r in fr.get("rows") or []],
         "ranked": [r["mechanism_id"] for r in fr.get("ranked") or []],
         "closed_mechanisms": [{"family_id": f.get("family_id"), "asset_scope": f.get("asset_scope"),
                                "mechanism_class": f.get("mechanism_class"),
@@ -621,11 +645,13 @@ def validate_reconciliation(rec: dict, catalog: Optional[dict] = None) -> list:
     ledger = {str(f.get("family_id")) for f in (catalog or {}).get("closed_mechanisms") or []}
     mechanism_ids = {str(m.get("mechanism_id")) for m in (catalog or {}).get("mechanisms") or []}
     seen, claimed = set(), {}
+    by_cid: dict = {}
     for c in rec.get("candidates") or []:
         cid = str((c or {}).get("candidate_id") or "")
         if not cid or cid in seen:
             problems.append("CANDIDATE_ID_MISSING_OR_DUPLICATED: %r" % cid)
         seen.add(cid)
+        by_cid[cid] = c or {}
         state_keys = _forbidden_keys(c)
         if state_keys:
             problems.append("STATE_DECLARED: %s declares %s; state is read from its owner"
@@ -701,6 +727,7 @@ def validate_reconciliation(rec: dict, catalog: Optional[dict] = None) -> list:
                             % (cid, kind, na.get("human_gate")))
         if len(str(c.get("data_requirement") or "").strip()) < 10:
             problems.append("DATA_REQUIREMENT_MISSING: %s" % cid)
+    problems += validate_human_decisions(rec.get("human_decisions"), by_cid)
     for ac, d in (rec.get("asset_classes") or {}).items():
         if ac not in REQUIRED_ASSET_CLASSES:
             problems.append("ASSET_CLASS_SECTION_UNKNOWN: %r" % ac)
@@ -923,6 +950,185 @@ def evidence_quality(quality: float, completeness: float, historical: dict) -> s
     return EQ_BAD_COMPLETE if resolved else EQ_UNPROVEN
 
 
+def _iso_day(value) -> bool:
+    s = str(value or "")
+    return len(s) == 10 and s[4] == "-" and s[7] == "-" and s.replace("-", "").isdigit()
+
+
+def validate_human_decisions(decisions, candidates_by_id: dict) -> list:
+    """Every problem with the recorded human decisions. Pure."""
+    if decisions is None:
+        return []
+    if not isinstance(decisions, list):
+        return ["HUMAN_DECISIONS_NOT_A_LIST"]
+    problems, ids, keys = [], set(), set()
+    for d in decisions:
+        d = d if isinstance(d, dict) else {}
+        did = str(d.get("decision_id") or "")
+        if not did or did in ids:
+            problems.append("HUMAN_DECISION_ID_MISSING_OR_DUPLICATED: %r" % did)
+        ids.add(did)
+        if _forbidden_keys(d):
+            problems.append("STATE_DECLARED: human decision %s declares %s" % (did, sorted(_forbidden_keys(d))))
+        cid = str(d.get("candidate_id") or "")
+        cand = candidates_by_id.get(cid)
+        if cand is None:
+            problems.append("HUMAN_DECISION_UNKNOWN_CANDIDATE: %s %r" % (did, cid))
+            continue
+        if d.get("decision") not in HUMAN_DECISIONS:
+            problems.append("HUMAN_DECISION_UNKNOWN: %s %r" % (did, d.get("decision")))
+        kind = d.get("gate_kind")
+        declared = (cand.get("next_action") or {}).get("kind")
+        if kind not in HUMAN_KINDS or kind != declared:
+            problems.append("HUMAN_DECISION_GATE_MISMATCH: %s decides %r but %s declares %r"
+                            % (did, kind, cid, declared))
+        if (cid, kind) in keys:
+            problems.append("HUMAN_DECISION_DUPLICATED_FOR_GATE: %s %s" % (cid, kind))
+        keys.add((cid, kind))
+        if cand.get("disposition") != DISP_OPEN:
+            problems.append("HUMAN_DECISION_ON_A_NON_OPEN_DECLARATION: %s" % did)
+        if len(str(d.get("reason") or "").strip()) < MIN_TEXT:
+            problems.append("HUMAN_DECISION_REASON_MISSING: %s" % did)
+        if not _iso_day(d.get("decided_on")):
+            problems.append("HUMAN_DECISION_DATE_INVALID: %s" % did)
+        if not str(d.get("decided_by") or "").strip():
+            problems.append("HUMAN_DECISION_DECIDER_MISSING: %s" % did)
+        if d.get("decision") == HD_DEFERRED and d.get("resurface_when") not in (V_PURCHASE_JUSTIFIED, V_BEATS):
+            problems.append("HUMAN_DECISION_DEFERRAL_NEEDS_A_RESURFACE_CONDITION: %s" % did)
+        if d.get("decision") == HD_AUTHORISED and kind == NA_REGISTER and \
+                str(d.get("subject")) not in {str(m) for m in cand.get("members") or []}:
+            problems.append("HUMAN_DECISION_SUBJECT_NOT_A_MEMBER: %s %r" % (did, d.get("subject")))
+    return problems
+
+
+def derive_disposition(c: dict, *, members: list, forward: dict, mech_status: dict,
+                       decisions: dict, registered_ids: set) -> tuple:
+    """The candidate's EFFECTIVE disposition, next action, closed reason and derivation.
+
+    The declaration is only the starting point. Two kinds of RECORDED fact move it,
+    and neither is typed into the declaration as state: a human decision recorded
+    against the candidate's declared gate, and the verdict an agent executor
+    recorded in ResearchMemory for a mechanism the candidate claims. Without the
+    second, an executed NO_EDGE left an OPEN candidate holding a SETTLED mechanism,
+    which blocked the whole frontier until a person edited the catalog: the agent
+    could select, execute and record, but it could not move on.
+    """
+    cid = str(c.get("candidate_id"))
+    disp = c.get("disposition")
+    na = dict(c.get("next_action") or {})
+    closed_reason = c.get("closed_reason")
+    derivation: list = []
+    hd = decisions.get((cid, str(na.get("kind")))) if disp == DISP_OPEN else None
+    if hd:
+        when, subject = hd.get("decided_on"), hd.get("subject")
+        if hd.get("decision") == HD_DECLINED:
+            disp = DISP_CLOSED
+            closed_reason = "HUMAN_DECLINED on %s (%s): %s" % (when, subject, hd.get("reason"))
+            derivation.append("HUMAN_DECLINED")
+        elif hd.get("decision") == HD_AUTHORISED and na.get("kind") == NA_REGISTER:
+            if str(subject) in registered_ids:
+                na = {"kind": NA_ACCRUE, "research_days": 0, "data_cost_usd": 0,
+                      "information_gain": na.get("information_gain"), "human_gate": None,
+                      "description": ("AUTHORISED by a human on %s and registered with the canonical "
+                                      "registrar: %s accrues TRUE_FORWARD evidence on its own clock, so "
+                                      "no research capacity waits on it" % (when, subject))}
+                derivation.append("HUMAN_AUTHORISED_AND_REGISTERED")
+            else:
+                derivation.append("HUMAN_AUTHORISED_AWAITING_EXECUTION")
+        elif hd.get("decision") == HD_AUTHORISED and na.get("kind") == NA_HUMAN_PREREG:
+            na = {**na, "kind": NA_HISTORICAL, "human_gate": None,
+                  "description": "AUTHORISED by a human on %s: %s" % (when, na.get("description"))}
+            derivation.append("HUMAN_AUTHORISED_PREREGISTRATION")
+        elif hd.get("decision") == HD_DEFERRED:
+            derivation.append("HUMAN_DEFERRED")
+        else:
+            derivation.append("HUMAN_AUTHORISED")
+    own = [m for m in members if m in mech_status]
+    if disp == DISP_OPEN and own:
+        sts = [str((mech_status.get(m) or {}).get("status")) for m in own]
+        why = "; ".join("%s %s: %s" % (m, s, " | ".join((mech_status.get(m) or {}).get("reasons") or []))
+                        for m, s in zip(own, sts))[:900]
+        if all(s == MX.ST_SETTLED_CLOSED for s in sts) and not forward.get("registered"):
+            disp = DISP_CLOSED
+            closed_reason = "CLOSED_BY_AGENT_EXECUTION: %s" % why
+            derivation.append("SETTLED_CLOSED_BY_EXECUTOR")
+        elif any(s == MX.ST_SETTLED_QUALIFIED for s in sts):
+            na = {"kind": NA_REGISTER, "research_days": 0.5, "data_cost_usd": 0,
+                  "information_gain": na.get("information_gain"), "human_gate": MX.HUMAN_GATE_REGISTRATION,
+                  "description": ("QUALIFIED by its preregistered executor (%s); the prospective "
+                                  "registration is a human act" % why)}
+            derivation.append("QUALIFIED_BY_EXECUTOR")
+        elif na.get("kind") in AGENT_KINDS and MX.ST_ELIGIBLE not in sts and any(
+                s in (MX.ST_SETTLED_HOLD, MX.ST_HUMAN_GATE, MX.ST_SETTLED_CLOSED) for s in sts):
+            na = {"kind": NA_DATA_HOLD, "research_days": _num(na.get("research_days")) or 0,
+                  "data_cost_usd": 0, "information_gain": na.get("information_gain"), "human_gate": None,
+                  "owner_blocked": True,
+                  "description": ("HELD by owner evidence (%s); it re-enters when that owner's data "
+                                  "version or the catalog entry changes" % why)}
+            derivation.append("HELD_BY_OWNER_EVIDENCE")
+    return disp, na, closed_reason, derivation
+
+
+def human_decision_effects(rec: dict, candidates: list) -> list:
+    """What each recorded human decision did to its candidate, as built right now."""
+    by_id = {c["candidate_id"]: c for c in candidates}
+    out = []
+    for d in rec.get("human_decisions") or []:
+        if not isinstance(d, dict):
+            continue
+        cand = by_id.get(str(d.get("candidate_id"))) or {}
+        deriv = cand.get("derivation") or []
+        cmp = cand.get("opportunity_cost_comparison") or {}
+        dec = d.get("decision")
+        if dec == HD_DECLINED:
+            eff = HDE_CLOSED if "HUMAN_DECLINED" in deriv else HDE_NOT_APPLIED
+        elif dec == HD_DEFERRED:
+            eff = HDE_RESURFACED if cmp.get("verdict") == d.get("resurface_when") else HDE_DEFERRED
+        elif "HUMAN_AUTHORISED_AND_REGISTERED" in deriv:
+            eff = HDE_EXECUTED
+        elif "HUMAN_AUTHORISED_AWAITING_EXECUTION" in deriv:
+            eff = HDE_AWAITING
+        else:
+            eff = HDE_AUTHORISED
+        out.append({**d, "effective": eff, "candidate_state": cand.get("current_state"),
+                    "global_rank": cand.get("global_rank"),
+                    "gate_still_waiting_on_a_person": eff not in DECIDED_EFFECTS})
+        nba = cand.get("next_best_action")
+        if isinstance(nba, dict):
+            nba["human_decision"] = {"decision_id": d.get("decision_id"), "decision": dec, "effective": eff}
+    return out
+
+
+def agent_executable_queue(ranked: list, mech_status: dict) -> list:
+    """Admitted agent-executable opportunities, best first, with HOW the agent acts.
+
+    A candidate whose next action the agent may take and which beats the global top
+    five is either backed by an ELIGIBLE catalog mechanism (execute it, or build its
+    executor first) or backed by none (declare one first). A candidate whose
+    mechanisms are all settled, held or human-gated is not executable and is omitted.
+    """
+    rows = []
+    for r in ranked:
+        nba = r.get("next_best_action") or {}
+        cmp = r.get("opportunity_cost_comparison") or {}
+        if not nba.get("executable_by_agent") or not cmp.get("admitted"):
+            continue
+        own = [m["id"] for m in r.get("members") or [] if m["id"] in mech_status]
+        eligible = [m for m in own if (mech_status.get(m) or {}).get("status") == MX.ST_ELIGIBLE]
+        if eligible:
+            path = PATH_MECHANISM
+        elif not own:
+            path = PATH_DECLARE
+        else:
+            continue
+        rows.append({"candidate_id": r["candidate_id"], "global_rank": r["global_rank"],
+                     "asset_class": r["asset_class"], "kind": nba.get("kind"), "path": path,
+                     "mechanisms": eligible,
+                     "executor_states": {m: (mech_status.get(m) or {}).get("executor_state") for m in eligible},
+                     "opportunity_cost_score": r["opportunity_cost_score"], "verdict": cmp.get("verdict")})
+    return rows
+
+
 def candidate_state(disposition: str, forward: dict, next_action: dict) -> str:
     if disposition == DISP_CLOSED:
         return CS_CLOSED
@@ -978,13 +1184,15 @@ def remaining_gates(historical: dict, forward: dict, next_action: dict) -> list:
 
 def _next_action(na: dict) -> dict:
     kind = (na or {}).get("kind")
+    blocked = bool((na or {}).get("owner_blocked"))
     return {"kind": kind, "description": (na or {}).get("description"),
             "research_days": _num((na or {}).get("research_days")) or 0.0,
             "data_cost_usd": _num((na or {}).get("data_cost_usd")) or 0.0,
             "information_gain": _num((na or {}).get("information_gain")),
             "human_gate": (na or {}).get("human_gate"),
-            "consumes_research_capacity": kind not in PASSIVE_KINDS,
-            "executable_by_agent": kind in AGENT_KINDS,
+            "consumes_research_capacity": kind not in PASSIVE_KINDS and not blocked,
+            "executable_by_agent": kind in AGENT_KINDS and not blocked,
+            "blocked_by_owner_evidence": blocked,
             "requires_human": kind in HUMAN_KINDS}
 
 
@@ -993,7 +1201,9 @@ def _conflicts(cid: str, disposition: str, members: list, classification: dict,
     out = []
     for m in members:
         st = (mechanism_status.get(m) or {}).get("status")
-        if disposition == DISP_OPEN and st == MX.ST_SETTLED_CLOSED:
+        # An OPEN candidate whose mechanisms all settled closed is CLOSED by derivation
+        # (``derive_disposition``); it conflicts only while a forward clock still runs.
+        if disposition == DISP_OPEN and st == MX.ST_SETTLED_CLOSED and forward.get("registered"):
             out.append({"candidate_id": cid, "id": m,
                         "conflict": "OPEN_CANDIDATE_HOLDS_A_SETTLED_CLOSED_MECHANISM"})
         if disposition == DISP_CLOSED and st in (MX.ST_ELIGIBLE, MX.ST_HUMAN_GATE):
@@ -1045,13 +1255,17 @@ def compare_proposal(frontier: dict, candidate_id: str, *, purchase: Optional[bo
     kind = (me.get("next_best_action") or {}).get("kind")
     is_purchase = (kind == NA_PURCHASE) if purchase is None else bool(purchase)
     top = [cands[i] for i in frontier.get("global_top_ids") or [] if i in cands][:TOP_N]
-    rivals, human, passive = [], [], []
+    rivals, human, passive, blocked = [], [], [], []
     for c in top:
         if c["candidate_id"] == candidate_id:
             continue
-        k = (c.get("next_best_action") or {}).get("kind")
+        nba = c.get("next_best_action") or {}
+        k = nba.get("kind")
         if k in PASSIVE_KINDS:
             passive.append(c)
+        elif nba.get("blocked_by_owner_evidence"):
+            # Held by its own owner's evidence: nothing to spend capacity on, so no rival.
+            blocked.append(c)
         elif is_purchase or k in AGENT_KINDS:
             rivals.append(c)
         else:
@@ -1087,6 +1301,7 @@ def compare_proposal(frontier: dict, candidate_id: str, *, purchase: Optional[bo
             "competing_top5": [_compact(c) for c in rivals],
             "human_gated_top5": [_compact(c) for c in human],
             "passive_top5": [_compact(c) for c in passive],
+            "blocked_top5": [_compact(c) for c in blocked],
             "beaten_by": [_compact(c) for c in beating], "why": why}
 
 
@@ -1255,13 +1470,21 @@ def build(catalog: dict, estate: dict) -> dict:
     classification = owner_classifications(estate)
     mech_status = {m["mechanism_id"]: m for m in (owners.get(OW_CATALOG) or {}).get("mechanisms") or []}
 
+    decisions: dict = {}
+    for d in rec.get("human_decisions") or []:
+        if isinstance(d, dict):
+            decisions.setdefault((str(d.get("candidate_id")), str(d.get("gate_kind"))), d)
+    registered_ids = {str(r.get("challenger_id")) for r in (owners.get(OW_REGISTRY) or {}).get("rows") or []}
+
     candidates, conflicts = [], []
     for c in entries:
         cid = str(c.get("candidate_id"))
         members = [str(m) for m in c.get("members") or []]
         fwd = forward_projection(members, estate)
-        disp, hist = c.get("disposition"), c.get("historical") or {}
-        na, judgement = c.get("next_action") or {}, c.get("judgement") or {}
+        hist, judgement = c.get("historical") or {}, c.get("judgement") or {}
+        disp, na, closed_reason, derivation = derive_disposition(
+            c, members=members, forward=fwd, mech_status=mech_status, decisions=decisions,
+            registered_ids=registered_ids)
         state = candidate_state(disp, fwd, na)
         conflicts += _conflicts(cid, disp, members, classification, mech_status, fwd)
         row = {
@@ -1269,7 +1492,8 @@ def build(catalog: dict, estate: dict) -> dict:
             "information_asset_classes": list(c.get("information_asset_classes") or []),
             "mechanism_class": c.get("mechanism_class"),
             "information_object": c.get("information_object"),
-            "disposition": disp, "current_state": state,
+            "disposition": disp, "declared_disposition": c.get("disposition"),
+            "derivation": derivation, "current_state": state,
             "members": [{"id": m, "owners": held_by.get(m, []),
                          "owner_states": classification.get(m, {})} for m in members],
             "source_artifact": c.get("source_artifact"),
@@ -1294,7 +1518,7 @@ def build(catalog: dict, estate: dict) -> dict:
                                      "best_t_stat": fwd["best_t_stat"]},
             "forward_detail": fwd,
             "closed_families": list(c.get("closed_families") or []),
-            "closed_reason": c.get("closed_reason") if disp != DISP_OPEN else None,
+            "closed_reason": closed_reason if disp != DISP_OPEN else None,
             "data_requirement": c.get("data_requirement"),
         }
         if disp == DISP_OPEN:
@@ -1363,6 +1587,7 @@ def build(catalog: dict, estate: dict) -> dict:
     for r in ranked:
         if r["next_best_action"]["kind"] not in PASSIVE_KINDS:
             r["opportunity_cost_comparison"] = compare_proposal(body, r["candidate_id"])
+    body["human_decisions"] = human_decision_effects(rec, candidates)
     body["asset_classes"] = _asset_classes(candidates, rec, estate, top)
     body["global_top_10"] = [
         {"rank": r["global_rank"], "candidate_id": r["candidate_id"], "asset_class": r["asset_class"],
@@ -1371,8 +1596,11 @@ def build(catalog: dict, estate: dict) -> dict:
          "after_cost_evidence": r["after_cost_economics"], "forward_evidence": r["forward_state"],
          "remaining_gate": r["remaining_gate"], "next_action": r["next_best_action"]["kind"]}
         for r in ranked[:10]]
-    nga = next((r for r in ranked if r["next_best_action"]["kind"] not in PASSIVE_KINDS), None)
-    naa = next((r for r in ranked if r["next_best_action"]["kind"] in AGENT_KINDS
+    nga = next((r for r in ranked if r["next_best_action"]["kind"] not in PASSIVE_KINDS
+                and not r["next_best_action"].get("blocked_by_owner_evidence")
+                and (r["next_best_action"].get("human_decision") or {}).get("effective")
+                not in DECIDED_EFFECTS), None)
+    naa = next((r for r in ranked if r["next_best_action"].get("executable_by_agent")
                 and (r.get("opportunity_cost_comparison") or {}).get("admitted")), None)
     body["next_global_action"] = None if nga is None else {
         "candidate_id": nga["candidate_id"], "global_rank": nga["global_rank"],
@@ -1387,6 +1615,7 @@ def build(catalog: dict, estate: dict) -> dict:
         "comparison": naa["opportunity_cost_comparison"]}
     body["purchase_comparisons"] = [r["opportunity_cost_comparison"] for r in ranked
                                     if r["next_best_action"]["kind"] == NA_PURCHASE]
+    body["agent_executable_queue"] = agent_executable_queue(ranked, mech_status)
     body["old_frontier_comparison"] = _old_frontier(estate, candidates, member_of)
     body["answers"] = _answers(body, ranked)
     body["scoring"] = {"quality_weights": dict(QUALITY_WEIGHTS),
@@ -1531,6 +1760,11 @@ def checkpoint_block(frontier: dict) -> dict:
         "candidates_previously_omitted": [c["candidate_id"] for c in old.get("candidates_previously_omitted") or []],
         "purchase_comparisons": [{k: c.get(k) for k in ("proposal", "verdict", "admitted", "why")}
                                  for c in frontier.get("purchase_comparisons") or []],
+        "human_decisions": [{k: d.get(k) for k in ("decision_id", "candidate_id", "subject", "decision",
+                                                   "effective", "decided_on",
+                                                   "gate_still_waiting_on_a_person")}
+                            for d in frontier.get("human_decisions") or []],
+        "agent_executable_queue": frontier.get("agent_executable_queue") or [],
         "invariants": {k: v["value"] for k, v in (frontier.get("invariants") or {}).items()},
     }
 
@@ -1588,6 +1822,15 @@ def render_markdown(frontier: dict) -> str:
     for r in old.get("material_rank_changes") or []:
         lines.append("  - `%s`: old rank %s -> `%s` global #%s" % (
             r["old_id"], r["old_rank"] or "unranked", r["global_candidate"], r["global_rank"]))
+    lines += ["", "## RECORDED HUMAN DECISIONS", ""]
+    for d in frontier.get("human_decisions") or []:
+        lines.append("- `%s` on `%s` (%s): **%s** -> %s. %s" % (
+            d.get("subject"), d.get("candidate_id"), d.get("decided_on"), d.get("decision"),
+            d.get("effective"), d.get("reason")))
+    lines += ["", "## AGENT-EXECUTABLE QUEUE (admitted, best first)", ""]
+    for q in frontier.get("agent_executable_queue") or []:
+        lines.append("- #%s `%s` (%s): %s %s" % (q["global_rank"], q["candidate_id"], q["asset_class"],
+                                                q["path"], q.get("executor_states") or ""))
     ans = frontier.get("answers") or {}
     lines += ["", "## ANSWERS", "",
               "- IS SINGLE-NAME OPTIONS STILL THE BEST NEXT RESEARCH SPEND? **%s** - %s" % (

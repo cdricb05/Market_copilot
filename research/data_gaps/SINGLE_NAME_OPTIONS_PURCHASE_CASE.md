@@ -128,3 +128,13 @@ rates preregistration actions. Its evidence is also the thinnest of the eight: n
 untouched window, no multiplicity charge, and a trading-cost hurdle of about 5 %/yr. **Recommendation
 to the human: do not buy now.** The gate stays open. The comparison is recomputed on every agent
 iteration and flips to justified only when no research action or human decision above it scores higher.
+
+## 9. Human decision recorded (2026-09-14)
+
+**`SINGLE_NAME_OPTIONS_PURCHASE = DEFERRED`** - currently ranked below higher-value global
+opportunities. Nothing was purchased, subscribed or trialled.
+
+The decision is recorded in the catalog's reconciliation (`global_reconciliation.human_decisions`,
+`HD_20260914_SINGLE_NAME_OPTIONS_PURCHASE`) with `resurface_when = PURCHASE_GLOBALLY_JUSTIFIED`. The
+agent no longer lists this purchase among the gates waiting on a person. It resurfaces on its own
+only if the global opportunity-cost comparison turns to `PURCHASE_GLOBALLY_JUSTIFIED`.

@@ -396,6 +396,7 @@ def test_15b_the_entrypoint_owns_no_rule_and_writes_no_registry():
 #: They are enumerated rather than pattern-matched, because the property worth
 #: defending is that adding a door is a DECISION someone made on purpose.
 CAMPAIGN_REGISTRATION_ENTRYPOINTS = [
+    "register_fx_carry_cadence_challenger.py",  # 2026-09-14, human-authorised FX carry cadence record
     "register_next_open_challenger.py",         # R62.3.3, the next-open boundary
     "register_reversed_skew_challenger.py",     # R62.1.1, the same-session rule
 ]

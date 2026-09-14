@@ -561,6 +561,40 @@
   "rule": "Every candidate identity held by an existing owner is claimed by exactly one economic opportunity below. Forward counts, accrual states, promotion distance, owner classifications and executed verdicts are READ from their owners on every build; this section declares only the grouping, the evidence citations and the three judgement inputs no artifact measures. An owner identity that no opportunity claims makes the global frontier BLOCKED_UNRECONCILED.",
   "not_a_registry": true,
   "state_is_read_from_owners": true,
+  "human_decisions": [
+   {
+    "decision_id": "HD_20260914_FX_CARRY_CADENCE_TRUE_FORWARD",
+    "candidate_id": "GC_FX_XS_CARRY_DATED_CONTRACT",
+    "gate_kind": "HUMAN_GATED_FORWARD_REGISTRATION",
+    "subject": "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
+    "decision": "AUTHORISED",
+    "decided_on": "2026-09-14",
+    "decided_by": "human operator instruction PAPER TRADER - AUTHORIZE FX TRUE_FORWARD + COMPLETE END-TO-END ALPHA AGENT AUTONOMY",
+    "reason": "Authorised for prospective TRUE_FORWARD evidence collection of this exact frozen identity only; not model promotion, capital eligibility, portfolio allocation, portfolio mutation, an order or an execution instruction.",
+    "executed_by": "scripts/register_fx_carry_cadence_challenger.py through api.prospective_adoption (identity 436a13011b67, 2026-09-14T13:59:55Z)"
+   },
+   {
+    "decision_id": "HD_20260914_TREASURY_MONTH_END_ZN_POSTHOC_CONTROL",
+    "candidate_id": "GC_RATES_MONTH_END_DURATION_LONG_HUMAN_JUDGEMENT",
+    "gate_kind": "HUMAN_AUTHORISED_PREREGISTRATION",
+    "subject": "TREASURY_MONTH_END_ZN_POSTHOC_CONTROL",
+    "decision": "DECLINED",
+    "decided_on": "2026-09-14",
+    "decided_by": "human operator instruction PAPER TRADER - AUTHORIZE FX TRUE_FORWARD + COMPLETE END-TO-END ALPHA AGENT AUTONOMY",
+    "reason": "Post-hoc control observed only as the control of a killed cell, below the 1.5 %/yr materiality floor, and an unacceptable rescue path."
+   },
+   {
+    "decision_id": "HD_20260914_SINGLE_NAME_OPTIONS_PURCHASE",
+    "candidate_id": "GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING",
+    "gate_kind": "DATA_PURCHASE_DECISION",
+    "subject": "SINGLE_NAME_OPTIONS_PURCHASE",
+    "decision": "DEFERRED",
+    "decided_on": "2026-09-14",
+    "decided_by": "human operator instruction PAPER TRADER - AUTHORIZE FX TRUE_FORWARD + COMPLETE END-TO-END ALPHA AGENT AUTONOMY",
+    "reason": "Currently ranked below higher-value global opportunities; nothing is purchased and the purchase resurfaces only if it becomes globally justified.",
+    "resurface_when": "PURCHASE_GLOBALLY_JUSTIFIED"
+   }
+  ],
   "closed_family_asset_classes": {
    "CRYPTO_FUNDING_CARRY": "CRYPTO"
   },
@@ -584,7 +618,8 @@
    "FX": {
     "data_gaps": [
      "CME micro FX futures entitlement and unit granularity at the $97.9k NAV are unverified (R51 granularity deficit)",
-     "no volatility-matched passive carry control has been measured on the dated-contract carry book"
+     "no volatility-matched passive carry control has been measured on the dated-contract carry book",
+     "no per-session FX carry cadence decision emitter or emission policy exists, so the canonical TRUE_FORWARD registration of ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 (2026-09-14) accrues no observation until one is built; nothing is backfilled"
     ],
     "declared_exhaustion": null
    },

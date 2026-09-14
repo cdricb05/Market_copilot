@@ -238,6 +238,14 @@ HUMAN_GATE_REGISTRATION = (
     "adoption human-gated (scripts/adopt_prospective_freeze.py with its "
     "confirmation token); the agent froze nothing and registered nothing")
 
+#: What an admitted mechanism with no pinned executor still needs. No executor
+#: builder is installed in this agent, so a build is a person's act; the agent
+#: executes the pinned executor on its next iteration.
+BUILD_REQUIRES = (
+    "EXECUTOR_BUILD: a person, or an approved autonomous executor builder (none is installed in this "
+    "agent), writes and commits the preregistration, builds and tests the executor and pins both hashes; "
+    "the agent then executes it on its next iteration")
+
 _STOP = frozenset(
     "the a an of and or to in on for with by from at as is are be this that it "
     "its into than then when which who what why how not no over under per via "
@@ -973,6 +981,8 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
                "verdict": f.get("verdict"), "source": "LEDGER"}
               for f in (cat or {}).get("closed_mechanisms") or []]
 
+    declare = next((q for q in (gfr or {}).get("agent_executable_queue") or []
+                    if q.get("path") == "DECLARE_MECHANISM"), None)
     if jobs["running"]:
         cur = {"action": "EXECUTING", **jobs["running"][0]}
     elif ranked:
@@ -986,6 +996,13 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
                                else build_order(find(cat, top["mechanism_id"]) or {}))}
         if top.get("global_opportunity_cost"):
             cur["global_opportunity_cost"] = top["global_opportunity_cost"]
+        if top["executor_state"] != EX_READY:
+            cur["build_requires"] = BUILD_REQUIRES
+    elif declare:
+        cur = {"action": "DECLARE_MECHANISM", **declare,
+               "note": "the highest-value admitted agent-executable global opportunity has no mechanism in "
+                       "the catalog; a mechanism-first declaration (P&L work gate, distinctness) comes first",
+               "build_requires": BUILD_REQUIRES}
     elif deferred:
         cur = {"action": ST_DEFERRED_GLOBAL,
                "deferred_mechanisms": [{"mechanism_id": r["mechanism_id"],
@@ -1000,22 +1017,43 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
                "note": "every declared mechanism is settled, refused or human-gated; the "
                        "next act is to declare new mechanisms from the economic frontier"}
 
+    decisions: dict = {}
+    if GF is not None:
+        for d in gfr.get("human_decisions") or []:
+            decisions.setdefault(str(d.get("candidate_id")), d)
+
+    def _brief(d: dict) -> dict:
+        return {k: d.get(k) for k in ("decision_id", "subject", "decision", "effective", "decided_on",
+                                      "reason", "gate_still_waiting_on_a_person")}
+
     gates = [{"gate": "PURCHASE", "mechanism_id": mid, "reasons": rows[mid]["reasons"]}
              for mid in (fr.get("by_status") or {}).get(ST_HUMAN_GATE, [])]
     if GF is not None:
+        m2c = gfr.get("member_to_candidate") or {}
         for g in gates:
             g["global_comparison"] = GF.mechanism_comparison(gfr, g["mechanism_id"])
+            d = decisions.get(str(m2c.get(g["mechanism_id"])))
+            if d:
+                g["human_decision"] = _brief(d)
     gates += [{"gate": "PROSPECTIVE_REGISTRATION", **q} for q in qualified]
     if GF is not None:
         by_id = {c["candidate_id"]: c for c in gfr.get("candidates") or []}
         for cid in (gfr.get("global_top_ids") or [])[:GF.TOP_N]:
             na = by_id[cid]["next_best_action"]
             if na.get("requires_human"):
-                gates.append({"gate": "GLOBAL_FRONTIER_HUMAN_DECISION", "candidate_id": cid,
-                              "global_rank": by_id[cid]["global_rank"],
-                              "asset_class": by_id[cid]["asset_class"], "kind": na.get("kind"),
-                              "description": na.get("description"),
-                              "human_gate": na.get("human_gate")})
+                row = {"gate": "GLOBAL_FRONTIER_HUMAN_DECISION", "candidate_id": cid,
+                       "global_rank": by_id[cid]["global_rank"],
+                       "asset_class": by_id[cid]["asset_class"], "kind": na.get("kind"),
+                       "description": na.get("description"),
+                       "human_gate": na.get("human_gate")}
+                if decisions.get(cid):
+                    row["human_decision"] = _brief(decisions[cid])
+                gates.append(row)
+    # A gate a person has answered stops surfacing; it resurfaces only when its
+    # recorded decision says so (a deferral whose condition has come true).
+    answered = [g for g in gates if g.get("human_decision")
+                and not g["human_decision"].get("gate_still_waiting_on_a_person")]
+    pending_gates = [g for g in gates if g not in answered]
 
     domains: dict = {}
     for r in fr.get("rows") or []:
@@ -1064,7 +1102,9 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
             {"rank": i + 1, "mechanism_id": r["mechanism_id"], "domain": r["domain"],
              "mechanism_class": r["mechanism_class"], "priority_score": r["score"]["total"],
              "executor_state": r["executor_state"]} for i, r in enumerate(ranked[:12])],
-        "HUMAN_GATES": gates,
+        "HUMAN_GATES": pending_gates,
+        "HUMAN_DECISIONS_RECORDED": {"gates_answered": answered,
+                                     "decisions": [_brief(d) for d in (gfr or {}).get("human_decisions") or []]},
         "DATA_GAPS": (cat or {}).get("data_gaps") or [],
         "LATEST_RESEARCH_COMMITS": ctx.get("commits"),
         "CURRENT_INFORMATION_FRONTIER": {"by_domain": domains,
