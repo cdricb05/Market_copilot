@@ -997,9 +997,13 @@ def schedule_preview(*, registration_session: str, published: list, horizon_days
         if not nxt:
             break
         if pos % TRADE_EVERY == 0 and d >= registration_session:
+            info = NOC.previous_eligible_session(d)
             out.append({"entry_session": nxt, "newest_published_session": d,
-                        "rebalance_index": pos})
-        pos += 1
+                        "information_session_expected": info, "rebalance_index": pos,
+                        "legal": bool(info and info >= registration_session)})
+        # only a session AFTER the registration session takes a place on the grid
+        if nxt > registration_session:
+            pos += 1
         d = nxt
     return out
 

@@ -163,6 +163,14 @@ def test_04_the_producer_and_the_accrual_name_the_same_boundaries(root):
     assert _plan("2026-09-23", pub, rows)["state"] == FXR.ST_NOT_A_REBALANCE
 
 
+def test_04b_the_operator_schedule_names_the_same_boundaries():
+    published = [d for d in SESSIONS if d <= "2026-09-11"]
+    rows = FXR.schedule_preview(registration_session=REG, published=published)
+    assert [r["entry_session"] for r in rows[:3]] == ["2026-09-15", "2026-09-22", "2026-09-29"]
+    assert [r["legal"] for r in rows[:2]] == [False, True]
+    assert rows[1]["information_session_expected"] == "2026-09-18"
+
+
 def test_05_the_information_session_is_the_newest_with_final_inputs(root):
     _write_store("2026-09-21")          # the newest row carries provisional OI, as measured
     rows = {m: FXR.daily_rows(m) for m in SCOPE}
