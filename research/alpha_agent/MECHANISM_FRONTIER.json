@@ -619,7 +619,7 @@
     "data_gaps": [
      "CME micro FX futures entitlement and unit granularity at the $97.9k NAV are unverified (R51 granularity deficit)",
      "no volatility-matched passive carry control has been measured on the dated-contract carry book",
-     "no per-session FX carry cadence decision emitter or emission policy exists, so the canonical TRUE_FORWARD registration of ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 (2026-09-14) accrues no observation until one is built; nothing is backfilled"
+     "the per-session FX carry cadence decision producer (alpha_agent.alpha_recovery.fx_carry_cadence_runtime, r52 stage 4b) and its emission policy are built and declared on alpha-recovery-offensive (1a8cd09, 0f3bc47, 51039f4), but the persistent runtime that accrues TRUE_FORWARD evidence runs the live checkout, so ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 accrues no observation until those commits are landed there by cherry-pick; first legitimate entry session 2026-09-22 (information session 2026-09-18), first maturity 2026-09-29; nothing is backfilled"
     ],
     "declared_exhaustion": null
    },
