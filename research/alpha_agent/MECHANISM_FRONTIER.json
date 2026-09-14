@@ -551,7 +551,7 @@
    "data": {"owned": ["Norgate US equities total return including delisted names", "canonical SEC collector"], "free_acquisition": ["SEC EDGAR quarterly full-index master.idx form types 2003-2026", "DEFM14A and SC TO-T consideration terms"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.merger_arbitrage_cash_deal:run_mechanism", "committed_before_pin": {"implementation": "2abd3ea", "preregistration": "a693abf"}, "module_path": "alpha_agent/alpha_recovery/merger_arbitrage_cash_deal.py", "module_sha256": "f204370a1076eb98dc80ae35b8b9e058babd39d3cb09c1ab1a314e284f1da2f7", "pinned_at": "2026-09-14", "preregistration_path": "research/preregistration/MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_PREREGISTRATION.md", "preregistration_sha256": "38ad3ca75373b0e72c0e68b093bcb5440c1615d59a78d283e0a1c3a08df97900"}
   }
  ],
  "global_reconciliation": {
