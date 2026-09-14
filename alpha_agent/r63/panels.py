@@ -43,7 +43,13 @@ from . import (AC_COMMODITY, AC_EQUITY_INDEX, AC_FX, AC_RATES, AC_VOLATILITY,
 
 CALCULATION_OWNER = "alpha_agent.r63.panels"
 
-R41_CURVES = R41_ROOT / "_data_curves"
+#: The dated-contract curve store. Redirectable ONLY so a forward producer can
+#: score the frozen construction on a store its OWN child process extended past
+#: the frozen end (``alpha_agent.alpha_recovery.fx_carry_cadence_runtime``); a
+#: long-lived process never sets it. Unset, this is the R41 store every R63/R64
+#: result was measured on, byte-for-byte the path it always was.
+CURVES_DIR_ENV = "PAPER_TRADER_R63_FUTURES_CURVES_DIR"
+R41_CURVES = Path(os.environ.get(CURVES_DIR_ENV) or (R41_ROOT / "_data_curves"))
 MIN_SESSIONS = 2000
 MUST_TRADE_ON_OR_AFTER = "2026-08-01"
 EXCLUDED_MARKETS = {

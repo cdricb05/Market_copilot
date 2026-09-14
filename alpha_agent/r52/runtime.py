@@ -223,6 +223,44 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 4b. the FX carry cadence owner freezes its boundary decision -- #
+        # ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 was registered for
+        # TRUE_FORWARD evidence and accrued nothing, because the accrual stage
+        # below may not take a decision on the research owner's behalf and no
+        # one asked that owner. It is asked here, inside this lock and on this
+        # cadence, BEFORE the accrual: no second scheduler. The call is
+        # idempotent (first-write-wins freeze), never backfills, spends nothing
+        # and refreshes owned vendor settlements only on the live clock.
+        try:
+            from ..alpha_recovery import fx_carry_cadence_runtime as FXR
+            fx = FXR.advance(now=started.isoformat())
+            fx_st = str(fx.get("state"))
+            if fx_st in FXR.PROGRESS_STATES:
+                fx_state = SUCCESS
+            elif fx_st in FXR.MISSED_STATES:
+                fx_state = FORFEITED
+            elif fx_st in FXR.DATA_WAIT_STATES:
+                fx_state = DATA_BLOCKED
+            elif fx_st in FXR.FAILURE_STATES:
+                fx_state = FAILED_RETRYABLE
+            else:
+                fx_state = NOT_DUE
+            stages.append(_stage(
+                "fx_carry_cadence_prospective_decision", fx_state,
+                challenger_id=fx.get("challenger_id"),
+                advance_state=fx_st,
+                entry_session=fx.get("entry_session"),
+                newest_published_session=fx.get("newest_published_session"),
+                marks_refreshed=bool((fx.get("marks_refresh") or {}).get("ran")),
+                paid_dollars=fx.get("paid_dollars"),
+                frozen=fx_st in FXR.PROGRESS_STATES,
+                detail=fx.get("detail")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("fx_carry_cadence_prospective_decision",
+                                 FAILED_RETRYABLE,
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 5. forfeitures become first-class state ----------------------- #
         try:
             forf = FF.sweep(started, scheduler_state=trigger)

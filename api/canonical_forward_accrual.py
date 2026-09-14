@@ -958,6 +958,130 @@ def _lifecycle_blocked(registration: dict,
             "lifecycle_rechecked": rechecked}
 
 
+# --------------------------------------------------------------------------- #
+# 7b. A RELEASE'S DECLARED VALUATION MARKS AND ITS ALREADY-DECIDED ENTRY SESSION
+# --------------------------------------------------------------------------- #
+def _declared_execution_contract(registration: dict) -> dict:
+    """The execution contract ONE registration's release declared, or ``{}``."""
+    reg = registration or {}
+    ident = reg.get("identity") or {}
+    if str(ident.get("release") or "") != "ALPHA_RECOVERY_OFFENSIVE":
+        return {}
+    try:
+        from paper_trader.alpha_agent.alpha_recovery import (
+            prospective_decision as PD)
+        cid = reg.get("challenger_id") or ident.get("challenger_id")
+        return dict((PD.load_policy(str(cid or "")) or {}).get(
+            "execution_contract") or {})
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
+def valuation_series_for(registration: dict, series: dict) -> dict:
+    """The price series ONE registration is valued on.
+
+    Every registration whose release declares no ``valuation_marks`` gets the
+    SAME panel object it was handed, so nothing that existed before this
+    function can be valued differently. A release that declares marks - an
+    instrument class the operational equity panel does not carry, such as dated
+    FX futures - is valued on those marks and on nothing else, so an equity
+    ticker that happens to share a futures root symbol can never price it. A
+    declared store that cannot be read yields NO series, which fails closed as
+    ``PRICE_PANEL_UNAVAILABLE``. The marks are read, never computed from a
+    signal: a cumulative settlement-return index per declared instrument.
+    """
+    marks = _declared_execution_contract(registration).get("valuation_marks") or {}
+    rel = marks.get("store_relative_to_research_root")
+    if not rel:
+        return series
+    import csv
+
+    reg = registration or {}
+    cid = reg.get("challenger_id") or (reg.get("identity") or {}).get("challenger_id")
+    try:
+        from paper_trader.alpha_agent import alpha_recovery as AR
+        from paper_trader.alpha_agent.alpha_recovery import (
+            prospective_decision as PD)
+        scope = list((PD.load_policy(str(cid or "")) or {}).get(
+            "instrument_scope") or [])
+        store = AR.research_root() / str(rel)
+    except Exception:                                       # noqa: BLE001
+        return {}
+    field = str(marks.get("return_field") or "ret1")
+    out = {}
+    for tk in scope:
+        path = store / ("%s_daily.csv" % tk)
+        if not path.exists():
+            continue
+        dates, adj, level = [], [], 1.0
+        with path.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                r = _f(row.get(field))
+                if r is None or r != r or abs(r) == float("inf"):
+                    continue
+                level *= 1.0 + r
+                dates.append(str(row.get("date") or "")[:10])
+                adj.append(level)
+        if dates:
+            out[tk] = {"dates": dates, "adj": adj, "source": str(path)}
+    return out
+
+
+def _next_exchange_session(session: str) -> Optional[str]:
+    """The next session on the authoritative exchange calendar, or ``None``."""
+    from datetime import timedelta
+
+    d = _iso_date(session)
+    if d is None:
+        return None
+    try:
+        from paper_trader.engine import exchange_calendar as _EC
+    except Exception:                                       # noqa: BLE001
+        return None
+    cur = date.fromisoformat(d)
+    for _ in range(14):
+        cur = cur + timedelta(days=1)
+        if not _EC.is_supported(cur):
+            return None
+        if not _EC.is_non_session(cur):
+            return cur.isoformat()
+    return None
+
+
+def armed_owner_sessions(registration: dict, sessions: list) -> list:
+    """The ONE not-yet-realised entry session the originating owner already decided.
+
+    A realised-calendar grid learns of a session only after it has printed, and
+    by then the window of a release that decides BEFORE its entry settlement has
+    shut - so every one of its decisions would be forfeited while looking merely
+    late. A release that declares ``accrual_arms_the_owner_frozen_entry_session``
+    lets this module see exactly one future session: the earliest session its
+    owner has ALREADY frozen a decision for, and only when that session is the
+    next exchange session after the newest realised one. Nothing is decided
+    here, no window is widened, and a release that declares nothing is never
+    armed.
+    """
+    if not sessions:
+        return []
+    if not _declared_execution_contract(registration).get(
+            "accrual_arms_the_owner_frozen_entry_session"):
+        return []
+    latest = str(sessions[-1])
+    reg = registration or {}
+    cid = reg.get("challenger_id") or (reg.get("identity") or {}).get("challenger_id")
+    try:
+        from paper_trader.alpha_agent.alpha_recovery import (
+            prospective_decision as PD)
+        later = sorted(str(r.get("eligible_session"))
+                       for r in PD.list_decisions(str(cid or ""))
+                       if str(r.get("eligible_session") or "") > latest)
+    except Exception:                                       # noqa: BLE001
+        return []
+    if not later:
+        return []
+    return [later[0]] if later[0] == _next_exchange_session(latest) else []
+
+
 def assess_registration(*, registration: dict, series: dict,
                         lifecycle_by_challenger: Optional[dict] = None,
                         as_of: Optional[str] = None,
@@ -973,6 +1097,9 @@ def assess_registration(*, registration: dict, series: dict,
     would do without anything being written.
     """
     reg = registration or {}
+    # The marks this registration is valued on: the panel it was handed, unless
+    # its release declared its own (see valuation_series_for).
+    series = valuation_series_for(reg, series)
     ident = reg.get("identity") or {}
     identity_hash = ident.get("identity_hash")
     out = {
@@ -1060,6 +1187,12 @@ def assess_registration(*, registration: dict, series: dict,
                            "instruments, so no observation can be due")}
     latest = sessions[-1]
     out["latest_realised_session"] = latest
+    # A release that declared it may have its owner's already-frozen NEXT entry
+    # session armed; ``latest`` stays the newest REALISED session either way.
+    armed = armed_owner_sessions(reg, sessions)
+    if armed:
+        out["armed_owner_decided_session"] = armed[0]
+        sessions = sessions + armed
     # The SAME date authority the registrar used to derive the prospective
     # boundary at adoption (api.prospective_adoption.current_prospective_boundary
     # is today's UTC date). One clock opened these registrations; the same clock
