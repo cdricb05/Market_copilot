@@ -21247,6 +21247,10 @@ BLOCKING_INVARIANTS = (
       # starts. It carries its own confirm token and --execute flag, and the
       # defect list above proves it delegates the lifecycle, the clock, the
       # identity and the registration entirely.
+      # The human-authorised FX carry cadence registration (2026-09-14): its
+      # frozen record is a forward-package file, not a memory freeze, so it gets
+      # its own named door under the same delegation rules.
+      "scripts/register_fx_carry_cadence_challenger.py",
       "scripts/register_next_open_challenger.py",
       "scripts/register_reversed_skew_challenger.py",
       "scripts/run_research_runtime.py"]),
