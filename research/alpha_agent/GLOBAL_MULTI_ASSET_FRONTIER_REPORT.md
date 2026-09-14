@@ -13,35 +13,34 @@ Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conf
 | Rank | Candidate | Asset | State | After-cost evidence | Forward evidence | Remaining gate | Next action |
 |---|---|---|---|---|---|---|---|
 | 1 | `GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW` (0.6137) | EQUITY_INDEX | FORWARD_PENDING | net +26.00 %/yr, t 2.62 | 0 emitted / 0 matured / 0 of 40 effective | FORWARD_EVIDENCE_FLOOR | ACCRUE_FORWARD_EVIDENCE |
-| 2 | `GC_FX_XS_CARRY_DATED_CONTRACT` (0.4552) | FX | TRUE_FORWARD | net +2.28 %/yr, t 2.49 | 20 emitted / 4 matured / 0 of 40 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
-| 3 | `GC_USEQ_MERGER_ARBITRAGE` (0.3458) | US_EQUITY | RESEARCH_READY | net -, t None | 0 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | PREREGISTER_BUILD_AND_EXECUTE |
-| 4 | `GC_XA_R39_R40_MACHINE_SHADOWS` (0.3043) | CROSS_ASSET | TRUE_FORWARD | net +3.65 %/yr, t 2.58 | 2 emitted / 0 matured / 0 of 24 effective | MULTIPLICITY | ACCRUE_FORWARD_EVIDENCE |
-| 5 | `GC_COMMODITY_CURVE_CARRY` (0.3017) | COMMODITIES | TRUE_FORWARD | net +2.80 %/yr, t 1.6 | 24 emitted / 6 matured / 1 of 40 effective | OVERTURN_FAILED_UNTOUCHED_EVIDENCE | ACCRUE_FORWARD_EVIDENCE |
-| 6 | `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (0.2916) | US_EQUITY | LIVE_CANDIDATE | net +2.73 %/yr, t 1.13 | 190 emitted / 34 matured / 11 of 24 effective | UNTOUCHED_CONFIRMATION | CONTINUE_OPERATIONAL_OBSERVATION |
-| 7 | `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (0.2875) | US_EQUITY | HUMAN_GATE | net -, t None | 0 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | DATA_PURCHASE_DECISION |
-| 8 | `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (0.2850) | EQUITY_INDEX | TRUE_FORWARD | net -, t None | 5 emitted / 3 matured / 3 of 60 effective | UNTOUCHED_CONFIRMATION | PREREGISTERED_HISTORICAL_TEST |
-| 9 | `GC_XA_FUTURES_TREND_AND_MOMENTUM` (0.2589) | CROSS_ASSET | TRUE_FORWARD | net -0.70 %/yr, t 2.52 | 25 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
-| 10 | `GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD` (0.2328) | US_EQUITY | TRUE_FORWARD | net -, t 1.65 | 24 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
+| 2 | `GC_FX_XS_CARRY_DATED_CONTRACT` (0.4552) | FX | TRUE_FORWARD | net +2.28 %/yr, t 2.49 | 22 emitted / 4 matured / 0 of 40 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
+| 3 | `GC_XA_R39_R40_MACHINE_SHADOWS` (0.3043) | CROSS_ASSET | TRUE_FORWARD | net +3.65 %/yr, t 2.58 | 2 emitted / 0 matured / 0 of 24 effective | MULTIPLICITY | ACCRUE_FORWARD_EVIDENCE |
+| 4 | `GC_COMMODITY_CURVE_CARRY` (0.3017) | COMMODITIES | TRUE_FORWARD | net +2.80 %/yr, t 1.6 | 26 emitted / 6 matured / 1 of 40 effective | OVERTURN_FAILED_UNTOUCHED_EVIDENCE | ACCRUE_FORWARD_EVIDENCE |
+| 5 | `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (0.2925) | US_EQUITY | LIVE_CANDIDATE | net +2.73 %/yr, t 1.13 | 205 emitted / 38 matured / 12 of 24 effective | UNTOUCHED_CONFIRMATION | CONTINUE_OPERATIONAL_OBSERVATION |
+| 6 | `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (0.2875) | US_EQUITY | HUMAN_GATE | net -, t None | 0 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | DATA_PURCHASE_DECISION |
+| 7 | `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (0.2850) | EQUITY_INDEX | TRUE_FORWARD | net -, t None | 7 emitted / 3 matured / 3 of 60 effective | UNTOUCHED_CONFIRMATION | PREREGISTERED_HISTORICAL_TEST |
+| 8 | `GC_XA_FUTURES_TREND_AND_MOMENTUM` (0.2589) | CROSS_ASSET | TRUE_FORWARD | net -0.70 %/yr, t 2.52 | 27 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
+| 9 | `GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD` (0.2328) | US_EQUITY | TRUE_FORWARD | net -, t 1.65 | 26 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
+| 10 | `GC_XA_FUTURES_VALUE_5Y` (0.2297) | CROSS_ASSET | TRUE_FORWARD | net -, t None | 9 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
 
 ## BEST BY ASSET CLASS
 
-- **US_EQUITY** = `GC_USEQ_MERGER_ARBITRAGE` (global #3) - state LIVE_CANDIDATE
+- **US_EQUITY** = `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (global #5) - state LIVE_CANDIDATE
 - **EQUITY_INDEX** = `GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW` (global #1) - state TRUE_FORWARD
 - **FX** = `GC_FX_XS_CARRY_DATED_CONTRACT` (global #2) - state TRUE_FORWARD
-- **RATES** = `GC_RATES_COPPER_GOLD_LEAD` (global #14) - state TRUE_FORWARD
-- **COMMODITIES** = `GC_COMMODITY_CURVE_CARRY` (global #5) - state TRUE_FORWARD
-- **VOLATILITY** = `GC_VOL_VX_TERM_STRUCTURE_CARRY_FORWARD` (global #23) - state TRUE_FORWARD
-- **CREDIT** = `GC_CREDIT_SPREAD_REGIME_FORWARD` (global #21) - state TRUE_FORWARD
+- **RATES** = `GC_RATES_COPPER_GOLD_LEAD` (global #13) - state TRUE_FORWARD
+- **COMMODITIES** = `GC_COMMODITY_CURVE_CARRY` (global #4) - state TRUE_FORWARD
+- **VOLATILITY** = `GC_VOL_VX_TERM_STRUCTURE_CARRY_FORWARD` (global #22) - state TRUE_FORWARD
+- **CREDIT** = `GC_CREDIT_SPREAD_REGIME_FORWARD` (global #20) - state TRUE_FORWARD
 - **CRYPTO** = none open - state BLOCKED; data gaps: no point-in-time listing record for a broad crypto universe (two majors only); the declared venue answers HTTP 451 and its public funding archive is monthly with a ~24-day lag
-- **CROSS_ASSET** = `GC_XA_R39_R40_MACHINE_SHADOWS` (global #4) - state TRUE_FORWARD
+- **CROSS_ASSET** = `GC_XA_R39_R40_MACHINE_SHADOWS` (global #3) - state TRUE_FORWARD
 
 ## WHAT THE OLD FRONTIER MISSED
 
 - Owner identities the mechanism frontier never read: 106
-- Open candidates previously omitted: `GC_XA_R39_R40_MACHINE_SHADOWS` (CROSS_ASSET, #4), `GC_COMMODITY_CURVE_CARRY` (COMMODITIES, #5), `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (US_EQUITY, #6), `GC_XA_FUTURES_TREND_AND_MOMENTUM` (CROSS_ASSET, #9), `GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD` (US_EQUITY, #10), `GC_XA_FUTURES_VALUE_5Y` (CROSS_ASSET, #11), `GC_COMMODITY_XS_SKEWNESS` (COMMODITIES, #12), `GC_RATES_COPPER_GOLD_LEAD` (RATES, #14), `GC_RATES_MACRO_SURPRISE_REPRICING` (RATES, #15), `GC_RATES_CURVE_RV_AND_TERM_CARRY` (RATES, #17), `GC_USEQ_SHORT_VOLUME_PRESSURE` (US_EQUITY, #18), `GC_COMMODITY_XS_MOMENTUM` (COMMODITIES, #19), `GC_CREDIT_SPREAD_REGIME_FORWARD` (CREDIT, #21), `GC_FX_XS_MOMENTUM` (FX, #22), `GC_VOL_VX_TERM_STRUCTURE_CARRY_FORWARD` (VOLATILITY, #23), `GC_EQIDX_XS_RELATIVE_MOMENTUM` (EQUITY_INDEX, #24), `GC_EQIDX_INDEX_TREND_TIMING` (EQUITY_INDEX, #25), `GC_USEQ_DISCLOSURE_INTENSITY` (US_EQUITY, #26), `GC_USEQ_FREE_CASH_FLOW_QUALITY` (US_EQUITY, #27), `GC_USEQ_XS_PRICE_STATE_FORWARD` (US_EQUITY, #28), `GC_XA_COT_POSITIONING` (CROSS_ASSET, #29), `GC_USEQ_INSIDER_FLOW` (US_EQUITY, #30)
-- Asset classes previously underrepresented: EQUITY_INDEX (LISTED_BUT_NOT_RANKED), FX (LISTED_BUT_NOT_RANKED), RATES (ABSENT), COMMODITIES (ABSENT), VOLATILITY (ABSENT), CREDIT (ABSENT), CRYPTO (ABSENT), CROSS_ASSET (ABSENT)
+- Open candidates previously omitted: `GC_XA_R39_R40_MACHINE_SHADOWS` (CROSS_ASSET, #3), `GC_COMMODITY_CURVE_CARRY` (COMMODITIES, #4), `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (US_EQUITY, #5), `GC_XA_FUTURES_TREND_AND_MOMENTUM` (CROSS_ASSET, #8), `GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD` (US_EQUITY, #9), `GC_XA_FUTURES_VALUE_5Y` (CROSS_ASSET, #10), `GC_COMMODITY_XS_SKEWNESS` (COMMODITIES, #11), `GC_RATES_COPPER_GOLD_LEAD` (RATES, #13), `GC_RATES_MACRO_SURPRISE_REPRICING` (RATES, #14), `GC_RATES_CURVE_RV_AND_TERM_CARRY` (RATES, #16), `GC_USEQ_SHORT_VOLUME_PRESSURE` (US_EQUITY, #17), `GC_COMMODITY_XS_MOMENTUM` (COMMODITIES, #18), `GC_CREDIT_SPREAD_REGIME_FORWARD` (CREDIT, #20), `GC_FX_XS_MOMENTUM` (FX, #21), `GC_VOL_VX_TERM_STRUCTURE_CARRY_FORWARD` (VOLATILITY, #22), `GC_EQIDX_XS_RELATIVE_MOMENTUM` (EQUITY_INDEX, #23), `GC_EQIDX_INDEX_TREND_TIMING` (EQUITY_INDEX, #24), `GC_USEQ_DISCLOSURE_INTENSITY` (US_EQUITY, #25), `GC_USEQ_FREE_CASH_FLOW_QUALITY` (US_EQUITY, #26), `GC_USEQ_XS_PRICE_STATE_FORWARD` (US_EQUITY, #27), `GC_XA_COT_POSITIONING` (CROSS_ASSET, #28), `GC_USEQ_INSIDER_FLOW` (US_EQUITY, #29)
+- Asset classes previously underrepresented: US_EQUITY (LISTED_BUT_NOT_RANKED), EQUITY_INDEX (LISTED_BUT_NOT_RANKED), FX (LISTED_BUT_NOT_RANKED), RATES (ABSENT), COMMODITIES (ABSENT), VOLATILITY (ABSENT), CREDIT (ABSENT), CRYPTO (ABSENT), CROSS_ASSET (ABSENT)
 - Rank materially changed: YES
-  - `MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1`: old rank 1 -> `GC_USEQ_MERGER_ARBITRAGE` global #3
   - `REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1`: old rank unranked -> `GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW` global #1
   - `r51_fx_xs_carry_cip`: old rank unranked -> `GC_FX_XS_CARRY_DATED_CONTRACT` global #2
 
@@ -49,19 +48,19 @@ Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conf
 
 - `ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7` on `GC_FX_XS_CARRY_DATED_CONTRACT` (2026-09-14): **AUTHORISED** -> AUTHORISED_AND_EXECUTED. Authorised for prospective TRUE_FORWARD evidence collection of this exact frozen identity only; not model promotion, capital eligibility, portfolio allocation, portfolio mutation, an order or an execution instruction.
 - `TREASURY_MONTH_END_ZN_POSTHOC_CONTROL` on `GC_RATES_MONTH_END_DURATION_LONG_HUMAN_JUDGEMENT` (2026-09-14): **DECLINED** -> CANDIDATE_CLOSED. Post-hoc control observed only as the control of a killed cell, below the 1.5 %/yr materiality floor, and an unacceptable rescue path.
-- `SINGLE_NAME_OPTIONS_PURCHASE` on `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (2026-09-14): **DEFERRED** -> DEFERRED. Currently ranked below higher-value global opportunities; nothing is purchased and the purchase resurfaces only if it becomes globally justified.
+- `SINGLE_NAME_OPTIONS_PURCHASE` on `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (2026-09-14): **DEFERRED** -> RESURFACED. Currently ranked below higher-value global opportunities; nothing is purchased and the purchase resurfaces only if it becomes globally justified.
 
 ## AGENT-EXECUTABLE QUEUE (admitted, best first)
 
-- #3 `GC_USEQ_MERGER_ARBITRAGE` (US_EQUITY): EXECUTE_OR_BUILD_MECHANISM {'MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1': 'NOT_BUILT'}
+- #7 `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (EQUITY_INDEX): DECLARE_MECHANISM 
 
 ## ANSWERS
 
-- IS SINGLE-NAME OPTIONS STILL THE BEST NEXT RESEARCH SPEND? **NO** - NO: advancing GC_USEQ_MERGER_ARBITRAGE (US_EQUITY, rank #3, score 0.3458, next action PREREGISTER_BUILD_AND_EXECUTE) is worth more than GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING (US_EQUITY, rank #7, score 0.2875, next action DATA_PURCHASE_DECISION); it waits until that action is taken or the frontier changes
+- IS SINGLE-NAME OPTIONS STILL THE BEST NEXT RESEARCH SPEND? **YES** - YES: no research action or human decision in the global top 5 scores higher than GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING (US_EQUITY, rank #6, score 0.2875, next action DATA_PURCHASE_DECISION); passive accrual ahead of it costs nothing (GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW, GC_FX_XS_CARRY_DATED_CONTRACT, GC_XA_R39_R40_MACHINE_SHADOWS, GC_COMMODITY_CURVE_CARRY, GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM)
 - IS FX CURRENTLY A TOP GLOBAL PRIORITY? **YES** ({'candidate_id': 'GC_FX_XS_CARRY_DATED_CONTRACT', 'global_rank': 2, 'score': 0.4552})
 - FX versus the single-name options purchase: **STRONGER**
-- Highest-value next action globally: `GC_USEQ_MERGER_ARBITRAGE` (PREREGISTER_BUILD_AND_EXECUTE) - Preregister, build the pinned executor on the full EDGAR quarterly index (DEFM14A, SC TO-T, SC 14D9) with owned Norgate delisted total returns, and let the agent execute the frozen kill rule.
-- Highest-value action the agent itself can take: `GC_USEQ_MERGER_ARBITRAGE` (PREREGISTER_BUILD_AND_EXECUTE) - YES: no agent-executable action in the global top 5 scores higher than GC_USEQ_MERGER_ARBITRAGE (US_EQUITY, rank #3, score 0.3458, next action PREREGISTER_BUILD_AND_EXECUTE); the higher-ranked opportunities either accrue evidence passively (GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW, GC_FX_XS_CARRY_DATED_CONTRACT) or wait at a human gate the agent cannot pass (none)
+- Highest-value next action globally: `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (DATA_PURCHASE_DECISION) - HUMAN PURCHASE DECISION (research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md): approve or decline a one-time Databento OPRA purchase capped at $400, then about twelve working days to build implied volatility from quotes and run a preregistered test.
+- Highest-value action the agent itself can take: `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (PREREGISTERED_HISTORICAL_TEST) - YES: no agent-executable action in the global top 5 scores higher than GC_EQIDX_SCHEDULED_EVENT_PREMIUM (EQUITY_INDEX, rank #7, score 0.2850, next action PREREGISTERED_HISTORICAL_TEST); the higher-ranked opportunities either accrue evidence passively (GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW, GC_FX_XS_CARRY_DATED_CONTRACT, GC_XA_R39_R40_MACHINE_SHADOWS, GC_COMMODITY_CURVE_CARRY, GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM) or wait at a human gate the agent cannot pass (none)
 
 ## INVARIANTS
 
