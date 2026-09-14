@@ -150,11 +150,12 @@ def advance(args) -> str:
 def preview(args) -> str:
     """Refresh + score the newest legitimate context. Freezes NOTHING."""
     scope = _scope()
-    ref = FXR.run_refresh("all")
-    print("refresh   : ok=%s %s" % (ref.get("ok"), ref.get("refresh")))
-    if not ref.get("ok"):
-        print(ref.get("stderr_tail"))
-        return TOKEN_REFUSED
+    if not args.skip_refresh:
+        ref = FXR.run_refresh("all")
+        print("refresh   : ok=%s %s" % (ref.get("ok"), ref.get("refresh")))
+        if not ref.get("ok"):
+            print(ref.get("stderr_tail"))
+            return TOKEN_REFUSED
     rows = {m: FXR.daily_rows(m) for m in scope}
     pub = FXR.published_sessions(scope, rows_by_market=rows)
     t, u = pub[-1], pub[-2]
@@ -238,6 +239,8 @@ def main(argv=None) -> int:
     ap.add_argument("--reproduce", action="store_true")
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--execute", action="store_true")
+    ap.add_argument("--skip-refresh", action="store_true",
+                    help="--preview only: score the forward store as it stands")
     ap.add_argument("--now", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--child-refresh", choices=("scope", "all"), default=None)

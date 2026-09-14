@@ -545,15 +545,23 @@ def score_in_child(*, entry_session: str, information_session: str,
         return {"ok": False, "reason": "FROZEN_SCORER_PRODUCED_NO_PREDICTIONS",
                 "verdict": plain.get("verdict"), "why": plain.get("why")}
     dec = np.asarray(ds["dec"], dtype=int)
-    add = np.arange(int(dec[-1]) + 1, ix_u + 1, dtype=int) if ix_u > int(dec[-1]) else \
-        np.array([], dtype=int)
+    # The information session may already BE a decision slot (a later union-grid date
+    # printed by another market moves the frozen slot range forward) while its label
+    # reaches a session the scope has not settled; or it may lie beyond the slot range.
+    # Either way the placeholder is written at THAT ONE column only, and only where the
+    # label is missing: it is a LOCKBOX test row, so no fitted parameter can move.
+    if ix_u < int(dec[0]):
+        return {"ok": False, "reason": "INFORMATION_SESSION_BEFORE_THE_DECISION_SLOTS"}
+    add = np.array([], dtype=int) if ix_u in set(int(x) for x in dec) else np.array([ix_u], dtype=int)
+    if len(add) and ix_u < int(dec[-1]):
+        return {"ok": False, "reason": "INFORMATION_SESSION_INSIDE_THE_SLOT_RANGE_BUT_NOT_A_SLOT"}
     ext = dict(ds)
     ext["dec"] = np.concatenate([dec, add]) if len(add) else dec
     y = np.array(ds["y"], dtype=float, copy=True)
     ys = np.array(ds["y_scaled"], dtype=float, copy=True)
-    for j in add:
-        y[:, j] = np.where(np.isfinite(y[:, j]), y[:, j], 0.0)
-        ys[:, j] = np.where(np.isfinite(ys[:, j]), ys[:, j], 0.0)
+    placeholder_rows = int((~np.isfinite(y[:, ix_u])).sum())
+    y[:, ix_u] = np.where(np.isfinite(y[:, ix_u]), y[:, ix_u], 0.0)
+    ys[:, ix_u] = np.where(np.isfinite(ys[:, ix_u]), ys[:, ix_u], 0.0)
     ext["y"], ext["y_scaled"] = y, ys
     extended = S.run_cell(ext, base, DIMENSION, keep_predictions=True)
     p2 = extended.get("_predictions")
@@ -626,6 +634,7 @@ def score_in_child(*, entry_session: str, information_session: str,
         "information_session_scored_by_the_lockbox_model": kinds == ["LOCKBOX"],
         "n_instruments_scored": len(preds),
         "appended_unlabelled_slots": [dates[int(j)] for j in add],
+        "information_session_placeholder_label_rows": placeholder_rows,
         "frozen_cell_conditional_t": (frozen_cell.get("conditional") or {}).get("t"),
         "history_periods": len(history),
         "history_last_label_session": last_hist,
