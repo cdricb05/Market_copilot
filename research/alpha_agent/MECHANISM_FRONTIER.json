@@ -554,6 +554,2102 @@
    "executor": null
   }
  ],
+ "global_reconciliation": {
+  "schema": "alpha_agent_global_reconciliation/1",
+  "declared_at": "2026-09-14",
+  "owner": "alpha_agent.r59.global_frontier (reads this section; every state is read from the owners, never declared here)",
+  "rule": "Every candidate identity held by an existing owner is claimed by exactly one economic opportunity below. Forward counts, accrual states, promotion distance, owner classifications and executed verdicts are READ from their owners on every build; this section declares only the grouping, the evidence citations and the three judgement inputs no artifact measures. An owner identity that no opportunity claims makes the global frontier BLOCKED_UNRECONCILED.",
+  "not_a_registry": true,
+  "state_is_read_from_owners": true,
+  "closed_family_asset_classes": {
+   "CRYPTO_FUNDING_CARRY": "CRYPTO"
+  },
+  "asset_classes": {
+   "US_EQUITY": {
+    "data_gaps": [
+     "SINGLE_NAME_OPTIONS_IV_SURFACE_HISTORY: priced (about $332 one-time), waiting at the human purchase gate",
+     "ANALYST_REVISION_VINTAGES: no as-of consensus in owned or free data; stopped before purchase (> $1,950/yr)",
+     "FUND_FLOWS_SECURITY_LEVEL: not priced",
+     "POINT_IN_TIME_INDUSTRY_CLASSIFICATION: peer earnings DATA_HOLD at 86.4 % PIT SIC coverage against a 90 % floor"
+    ],
+    "declared_exhaustion": null
+   },
+   "EQUITY_INDEX": {
+    "data_gaps": [
+     "OPTIONS_OPEN_INTEREST_DEALER_POSITIONING: customer versus market-maker open interest unpriced, PIT integrity unknown",
+     "SPY option surface before 2022 is not owned (OPRA.PILLAR history from 2013 is purchasable)"
+    ],
+    "declared_exhaustion": null
+   },
+   "FX": {
+    "data_gaps": [
+     "CME micro FX futures entitlement and unit granularity at the $97.9k NAV are unverified (R51 granularity deficit)",
+     "no volatility-matched passive carry control has been measured on the dated-contract carry book"
+    ],
+    "declared_exhaustion": null
+   },
+   "RATES": {
+    "data_gaps": [
+     "CME micro Treasury yield futures are NOT in the Norgate entitlement; the smallest owned rates unit (ZF, about $106k) is far above the $9.8k name cap"
+    ],
+    "declared_exhaustion": null
+   },
+   "COMMODITIES": {
+    "data_gaps": [
+     "EIA dated energy curves end 2024-04 (the publisher stopped)",
+     "most commodity contract notionals exceed the NAV name cap"
+    ],
+    "declared_exhaustion": null
+   },
+   "VOLATILITY": {
+    "data_gaps": [
+     "Cboe VX settlement history has no free source (five routes answered 403/404)",
+     "Cboe Mini-VIX (VXM) is not entitled and terminated short-volatility products (XIV, TVIX, ZIV) are absent, so short-volatility history is survivorship-biased"
+    ],
+    "declared_exhaustion": null
+   },
+   "CREDIT": {
+    "data_gaps": [
+     "no owned tradable credit instrument panel (the R59 CREDIT_PROXY substrate is absent)",
+     "ICE BofA OAS on FRED is now a 3-year rolling window"
+    ],
+    "declared_exhaustion": null
+   },
+   "CRYPTO": {
+    "data_gaps": [
+     "no point-in-time listing record for a broad crypto universe (two majors only)",
+     "the declared venue answers HTTP 451 and its public funding archive is monthly with a ~24-day lag"
+    ],
+    "declared_exhaustion": null
+   },
+   "CROSS_ASSET": {
+    "data_gaps": [
+     "R39 latent and graph features are era-patchy (per-window coverage at the 80 % knife edge)",
+     "month-end forward lanes need years to reach their evidence floors (WIDE detection horizon about 173 months)"
+    ],
+    "declared_exhaustion": null
+   }
+  },
+  "candidates": [
+   {
+    "candidate_id": "GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW",
+    "title": "Reversed SPY near-expiry put-call skew, 5-session SPY sign book entered at the next open",
+    "disposition": "OPEN",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "VOLATILITY"
+    ],
+    "mechanism_class": "HEDGER_DEMAND_PRESSURE",
+    "information_object": "SPY_OPRA:PUT_CALL_SKEW_NEAR_EXPIRY_2PCT_OTM",
+    "members": [
+     "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1",
+     "REVERSED_SPY_PUT_CALL_SKEW_H5"
+    ],
+    "closed_families": [
+     "SPY_OPTION_SURFACE_CELLS",
+     "R44_SPY_RISK_REVERSAL_VRP"
+    ],
+    "historical": {
+     "summary": "Independent 2022-09..2024-08 confirmation CONFIRMED on a surface disjoint from the 2024-2026 discovery window: +26.0 %/yr net at 1 bp per side, t_net 2.62 over 88 non-overlapping periods, holdout +26.6 %/yr (t 2.48), maximum drawdown -13.4 %, still +25.0 %/yr at 2 bp. The exposure check says it is not a disguised long (correlation to SPY 0.09; rule minus buy-and-hold +7.0 %/yr gross). The SIGN was discovered post hoc on 2024-2026 and the census found no corroboration in the Cboe SKEW index or in VXN/RVX relative premia.",
+     "evidence": [
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/reversed_skew_challenger_confirmation.json",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/next_open_challenger.json",
+      "research/alpha_agent/MECHANISM_FRONTIER.json#live_candidates"
+     ],
+     "net_after_cost_pa": 0.26,
+     "t_stat": 2.62,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "no net increment over a volatility-matched passive book was computed; the exposure check shows the rule is not a disguised long",
+     "untouched_confirmation": "CONFIRMED",
+     "multiplicity": "PASS",
+     "max_drawdown": -0.134,
+     "cost_survives_2x": true,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.95,
+     "probability_alive": 0.3,
+     "rationale": "a short-horizon SPY sign book with 0.09 correlation to SPY diversifies the equity book and SPY is the most liquid instrument owned; but the sign was found post hoc, 88 periods is under two years, SPY options are the most studied surface there is and no free long-history series corroborates it, so the prior against it stays strong (its own confirmation artifact says so)"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Let the canonical research runtime emit and mature the registered next-open challenger: first entry 2026-09-15 09:30 ET, first maturity 2026-09-22; confirm the first emission is recorded under the entry-session key (the R62.3.4 decision-grid fix). No research capacity, no backfill.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.8,
+     "human_gate": null
+    },
+    "data_requirement": "owned daily OPRA SPY near-expiry snapshot through the existing Databento capture owner; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_SPX_TURN_OF_MONTH",
+    "title": "SPX turn-of-month window (last session and first three sessions)",
+    "disposition": "OPEN",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "CALENDAR_SEASONALITY",
+    "information_object": "CALENDAR:SPX_TURN_OF_MONTH_WINDOW",
+    "members": [
+     "r46_3_spx_turn_of_month"
+    ],
+    "closed_families": [
+     "R32_EVENT_DRIVEN_CALENDAR",
+     "MONTH_END_BALANCED_REBALANCING_FLOW_V1"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. The same calendar window closed as R32_EVENT_DRIVEN_CALENDAR: +4.57 %/yr net but t -1.09 against a volatility-matched passive long. The flow-signed month-end rebalancing mechanism settled NO_EDGE (NW t 0.56) on 2026-09-13.",
+     "evidence": [
+      "docs/RELEASE32_ZERO_COST_INFORMATION_EXPANSION.md",
+      "research/preregistration/MONTH_END_REBALANCING_FLOW_RESULT.md"
+     ],
+     "net_after_cost_pa": 0.0457,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": -1.09,
+     "increment_control": "volatility-matched passive SPY long (R32)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": false,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 1.0,
+     "probability_alive": 0.2,
+     "rationale": "a long-SPY calendar window is mostly equity beta four sessions a month; the unconditional premium exists, but its increment over a matched passive long was negative in R32 and the flow-signed version found nothing"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 prospective 1-session clock (about four decisions a month); sixty effective observations is roughly fifteen months of evidence.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned SPY prices; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_SCHEDULED_EVENT_PREMIUM",
+    "title": "Scheduled-event equity premium: pre-FOMC drift and macro announcement-day premium on SPY",
+    "disposition": "OPEN",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "RATES"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "CALENDAR:FOMC_PRE_ANNOUNCEMENT_AND_MACRO_ANNOUNCEMENT_DAYS",
+    "members": [
+     "r46_4_spx_pre_fomc_drift",
+     "r46_4_spx_announcement_day_premium"
+    ],
+    "closed_families": [
+     "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45"
+    ],
+    "historical": {
+     "summary": "No historical test exists in the estate: R46 froze both calendars from the published literature without a screen. The only related estate evidence is the closed minutes-scale macro-release reaction family (R44/R45 holdout -1.82 bp, t -0.63), which is a different horizon and mechanism.",
+     "evidence": [
+      "alpha_agent/r46/challengers.py (R46_4_PNL_OFFENSIVE cohort)",
+      "docs/RELEASE45_MACRO_EVENT_ALPHA.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 1.0,
+     "probability_alive": 0.3,
+     "rationale": "event-day equity premia are well documented but decayed after publication (the pre-FOMC drift weakened after 2015); they are SPY beta on eight to thirty days a year, so forward accrual alone takes years"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Declare the mechanism first, then preregister one frozen test of both calendars on SPY 1994-2026 with the untouched 2016-2026 half as confirmation and a volatility-matched passive long as control; forward accrual alone needs years at eight FOMC decisions a year.",
+     "research_days": 3,
+     "data_cost_usd": 0,
+     "information_gain": 0.5,
+     "human_gate": null
+    },
+    "data_requirement": "owned SPY total return and the free FRED release calendar; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
+    "title": "SPX 200-day trend timing",
+    "disposition": "OPEN",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "PRICE:SPY_200_DAY_TREND_FILTER",
+    "members": [
+     "r46_spx_trend_200d"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM",
+     "R32_VOLATILITY_RISK_REGIME_BETA_TIMING"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. Time-series trend on futures and ETF prices closed as CROSS_ASSET_TREND_AND_XS_MOMENTUM (R57 t 0.05); R32 regime beta timing was long beta in disguise (t -1.03 against a volatility-matched control). Price-state transformation is closed as a class.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#closed_mechanisms"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 0.05,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured for this rule",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.4,
+     "liquidity_capacity": 1.0,
+     "probability_alive": 0.15,
+     "rationale": "the 200-day filter has been public for decades; it mostly moves market beta out of drawdowns and the estate's trend evidence failed its untouched windows"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 20-session clock; no historical rerun is admissible for a class closed as a class.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned SPY prices; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_XS_RELATIVE_MOMENTUM",
+    "title": "Relative 12-1 momentum within the equity-index futures complex",
+    "disposition": "OPEN",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:EQUITY_INDEX_RELATIVE_12_1_MOMENTUM",
+    "members": [
+     "r52_eqidx_xs_rel_mom_12_1"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM"
+    ],
+    "historical": {
+     "summary": "R52 ran no historical screen. R59 prosecuted CROSS_SECTIONAL_MOMENTUM on the equity-index futures scope (29 hypotheses) to NO_ALPHA_EVIDENCE; price-state transformation is closed as a class.",
+     "evidence": [
+      "D:/Stock_Prediction_app_data/r59_autonomous_alpha/research_memory.sqlite (CROSS_SECTIONAL_MOMENTUM|EQUITY_INDEX_FUTURES)"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.7,
+     "probability_alive": 0.15,
+     "rationale": "a dollar-neutral rotation inside one complex adds some diversification and micro index futures exist, but R59's own momentum search on this scope found nothing"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R52 20-session prospective clock; nothing else is admissible for a class closed as a class.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate equity-index futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_DATED_CARRY",
+    "title": "Equity-index dated-contract carry and funding-liquidity conditioning (R63/R64 cells)",
+    "disposition": "CLOSED",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "DATED_CONTRACT_SLOPE:EQUITY_INDEX",
+    "members": [
+     "R63_EQUITY_INDEX_FUTURES_CARRY_H1_E54BF15C",
+     "R63_EQUITY_INDEX_FUTURES_CARRY_H21_8B8EE6B5",
+     "R63_EQUITY_INDEX_FUTURES_FUNDING_LIQUIDITY_CONDITIONS_H21_1AFCE216",
+     "R64_EQUITY_INDEX_FUTURES_CARRY_H1_E54BF15C"
+    ],
+    "closed_families": [
+     "EQUITY_INDEX_CROSS_ASSET_CARRY_R64"
+    ],
+    "historical": {
+     "summary": "R64 re-priced the 1-session carry cell through the risk-controlled book: +2.07 %/yr increment on a book losing -18.1 %/yr with a -99 % drawdown; the 21-session carry and funding-liquidity cells flipped sign in the lockbox.",
+     "evidence": [
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md"
+     ]
+    },
+    "closed_reason": "DEGENERATE_UNDER_CONTROLS at 1 session and LOCKBOX_SIGN_FLIP at 21 sessions; closed in the ledger as EQUITY_INDEX_CROSS_ASSET_CARRY_R64, and no named failure is addressable by construction"
+   },
+   {
+    "candidate_id": "GC_EQIDX_INDEX_IMPLIED_STATE_TIMING",
+    "title": "Index-level implied-state timing: SKEW tail hedging, relative index implied volatility, implied correlation",
+    "disposition": "CLOSED",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "VOLATILITY"
+    ],
+    "mechanism_class": "HEDGER_DEMAND_PRESSURE",
+    "information_object": "CBOE_INDEX:SKEW_VXN_RVX_COR3M_INDEX_STATES",
+    "members": [
+     "SPX_TAIL_HEDGE_DEMAND_SKEW_INDEX_1993_2022_V1",
+     "RELATIVE_INDEX_IMPLIED_VOL_HEDGING_DEMAND_V1",
+     "IMPLIED_CORRELATION_PREMIUM_INDEX_TIMING_V1"
+    ],
+    "closed_families": [
+     "VOL_TERM_EQUITY_TIMING_R35_R36_R63",
+     "MARKET_IMPLIED_RISK_PREMIA_R35"
+    ],
+    "historical": {
+     "summary": "Executed by the Alpha Agent on 2026-09-13: SKEW tail-hedge KILLED_WRONG_SIGN (t -0.42), relative index implied volatility KILLED_WRONG_SIGN, implied correlation NO_EDGE (right sign, +6.7 %/yr, t 1.26).",
+     "evidence": [
+      "research/preregistration/SPX_TAIL_HEDGE_DEMAND_SKEW_INDEX_RESULT.md",
+      "research/preregistration/RELATIVE_INDEX_IMPLIED_VOL_RESULT.md",
+      "research/preregistration/IMPLIED_CORRELATION_PREMIUM_RESULT.md"
+     ]
+    },
+    "closed_reason": "all three executed mechanisms hit their frozen kill rules; index-level implied-state timing is closed, and the live SPY skew candidate is a different information object (census correlation below 0.2)"
+   },
+   {
+    "candidate_id": "GC_EQIDX_OIL_SHOCK_DIFFUSION",
+    "title": "Crude oil shock slow diffusion into the equity index",
+    "disposition": "CLOSED",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "COMMODITIES"
+    ],
+    "mechanism_class": "INFORMATION_DIFFUSION_SPEED",
+    "information_object": "NORGATE_FUTURES:CRUDE_OIL_PRIOR_MONTH_RETURN_TO_EQUITY_INDEX",
+    "members": [
+     "OIL_SHOCK_EQUITY_SLOW_DIFFUSION_V1"
+    ],
+    "closed_families": [
+     "CROSS_MARKET_PREDICTION_R33_R34"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-13: KILLED_WRONG_SIGN, mean net -0.17 % per month (t -0.57).",
+     "evidence": [
+      "research/preregistration/OIL_SHOCK_EQUITY_DIFFUSION_RESULT.md"
+     ]
+    },
+    "closed_reason": "the frozen negative sign was contradicted on the qualification window; commodity-to-equity month-scale diffusion is closed"
+   },
+   {
+    "candidate_id": "GC_CREDIT_SPREAD_REGIME_FORWARD",
+    "title": "Credit spread regime, momentum and shock challengers (HYG/LQD spread and SPY conditioned on high-yield OAS)",
+    "disposition": "OPEN",
+    "asset_class": "CREDIT",
+    "information_asset_classes": [
+     "CREDIT",
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "ICE_BOFA_HY_OAS_AND_HYG_LQD:SPREAD_LEVEL_CHANGE_AND_SHOCK",
+    "members": [
+     "r46_4_credit_hy_ig_momentum",
+     "r46_4_credit_regime_spx_timing",
+     "r46_6_credit_shock_spx_5d"
+    ],
+    "closed_families": [
+     "CREDIT_SPREAD_TIMING",
+     "MACRO_TIMING_LANES_R63",
+     "MACRO_BETA_XS_STAGE15"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. Credit spread timing closed as CREDIT_SPREAD_TIMING: R41 Zone A t 1.64 then Zone B t 0.16 on BAA10Y, the 3-year ICE OAS window and HYG/LQD/IEF, and R41 found the credit ETF lane null. R63's credit-proxy timing lanes found no conditional value.",
+     "evidence": [
+      "docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md",
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 0.16,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.15,
+     "rationale": "HYG, LQD and SPY are liquid, but credit-spread regimes largely restate equity risk appetite (R63 found no conditional value in the credit timing lanes) and the only untouched test failed"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the three R46 5-session clocks (HYG/LQD spread momentum, SPY credit regime, SPY credit shock); forty effective observations at the 5-session floor is roughly forty weeks.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned FRED/ALFRED high-yield OAS vintages and Norgate HYG/LQD/SPY; the ICE OAS history on FRED is capped to three years"
+   },
+   {
+    "candidate_id": "GC_CREDIT_PROXY_MACRO_CONDITIONING_R63",
+    "title": "Credit-proxy macro and inflation-expectation conditioning (R63 cells)",
+    "disposition": "CLOSED",
+    "asset_class": "CREDIT",
+    "information_asset_classes": [
+     "CREDIT",
+     "RATES"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "FRED:INFLATION_EXPECTATIONS_AND_MACRO_LEVELS_ON_HYG_LQD",
+    "members": [
+     "R63_CREDIT_PROXY_INFLATION_EXPECTATIONS_H21_9F78FCBC",
+     "R63_CREDIT_PROXY_MACRO_LEVELS_H1_3481F206",
+     "R63_CREDIT_PROXY_MACRO_LEVELS_H21_3B76D8B6"
+    ],
+    "closed_families": [
+     "MACRO_TIMING_LANES_R63"
+    ],
+    "historical": {
+     "summary": "R63 MORE_RESEARCH_REQUIRED cells: inflation expectations h21 conditional t 2.86, macro levels h1 t 2.06 and h21 t 2.04 - all three flipped sign in the lockbox; under Alpha Recovery risk controls the h21 inflation cell is NOT_ECONOMIC_UNDER_CONTROLS (+1.21 %/yr, t 1.15).",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md",
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ]
+    },
+    "closed_reason": "a lockbox sign flip is not addressable by a construction change and the risk-controlled book is not economic; closed with MACRO_TIMING_LANES_R63"
+   },
+   {
+    "candidate_id": "GC_FX_XS_CARRY_DATED_CONTRACT",
+    "title": "Cross-sectional FX carry read from the dated CME currency futures curve (covered interest parity)",
+    "disposition": "OPEN",
+    "asset_class": "FX",
+    "information_asset_classes": [
+     "FX",
+     "RATES"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "DATED_FX_FUTURES:FRONT_NEXT_SLOPE_COVERED_INTEREST_CARRY",
+    "members": [
+     "r51_fx_xs_carry_cip",
+     "R63_FX_FUTURES_CARRY_H1_E82A5C66",
+     "R63_FX_FUTURES_CARRY_H5_41E918F2",
+     "R63_FX_FUTURES_CARRY_H63_598854BE",
+     "R64_FX_FUTURES_CARRY_H1_E82A5C66",
+     "R64_FX_FUTURES_CARRY_H5_41E918F2",
+     "R64_FX_FUTURES_CARRY_H63_598854BE",
+     "R64_FX_FUTURES_CARRY_TO_RISK_H1_A0CA9F31",
+     "R64_FX_FUTURES_CARRY_TO_RISK_H5_384E794A",
+     "R64_FX_FUTURES_CARRY_TO_RISK_H63_488D90F5",
+     "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
+     "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_3E1061BA",
+     "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_1BD18932",
+     "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_995858F6",
+     "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_00294AEE"
+    ],
+    "closed_families": [
+     "FX_CARRY"
+    ],
+    "historical": {
+     "summary": "The strongest non-equity evidence in the estate. R63: dated-contract carry adds rank information to the nine-currency cross-section conditional on the whole price block (increment t 4.26, lockbox t 2.80, partial-IC t 4.38, nine of ten 3-year blocks positive) - the only free dimension to survive campaign BH conditional on the baseline. R64 risk-controlled book: 1-session +3.56 %/yr increment (t 2.49) on a book with a -66 % drawdown; 5-session +2.00 %/yr (t 1.36) on the only deployable-shaped FX book (drawdown -55 %); family Holm PASS on the conditional increments (p 8.2e-05) and FAIL on the economic increments (p 0.0509). Alpha Recovery cadence (score at 1 session, trade every 5, band 0.25): +2.92 %/yr increment (t 1.95), economic BH pass, family Holm fail, book +2.28 %/yr with a -54 % drawdown, labelled POST_SELECTION because the lockbox had been viewed. The generic ledger family FX_CARRY (increment over a passive long-foreign-currency basket: R36 t 1.79, R43 timing t 0.06) is a different, weaker test and does not close this candidate.",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md",
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md",
+      "D:/Stock_Prediction_app_data/r64_information_directed_alpha/results/r64_fx_carry_family.json",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/forward_candidates.json",
+      "docs/RELEASE51_NON_EQUITY_PROMOTION_OFFENSIVE.md"
+     ],
+     "net_after_cost_pa": 0.0228,
+     "t_stat": 2.49,
+     "increment_pa": 0.0292,
+     "increment_t": 1.95,
+     "increment_control": "the price-state baseline book under the R64 risk controls (not a volatility-matched passive carry basket)",
+     "untouched_confirmation": "PARTIAL",
+     "multiplicity": "FAIL",
+     "max_drawdown": -0.54,
+     "cost_survives_2x": true,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.9,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.55,
+     "rationale": "a dollar-neutral currency book is nearly uncorrelated with every equity sleeve (R46 diversification 0.97); CME FX futures are deep, but one contract is far above the 10 % name cap at the $97.9k NAV (R51 granularity deficit); the carry premium is forty years old and its conditional information survives the family test, but the after-cost increment missed Holm by 0.0009 and carry crashed in 2007-2009"
+    },
+    "next_action": {
+     "kind": "HUMAN_GATED_FORWARD_REGISTRATION",
+     "description": "HUMAN DECISION: authorise TRUE_FORWARD registration of the deployable-shaped carry cadence specification ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 (score at 1 session, trade every 5, band 0.25) through the governed adoption path. It is NOT qualified: forward evidence is the only admissible way to resolve a multiplicity failure that more backtests cannot buy, and it would accrue daily-scored evidence beside the slower r51_fx_xs_carry_cip thirds book (about 24 weeks from its evidence floor).",
+     "research_days": 0.5,
+     "data_cost_usd": 0,
+     "information_gain": 0.7,
+     "human_gate": "a human runs scripts/adopt_prospective_freeze.py with its confirmation token; the agent never registers or adopts"
+    },
+    "data_requirement": "owned R41 dated-contract FX futures store and Norgate continuous FX futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_FX_XS_MOMENTUM",
+    "title": "G10 FX cross-sectional 12-month momentum",
+    "disposition": "OPEN",
+    "asset_class": "FX",
+    "information_asset_classes": [
+     "FX"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FX_SPOT:G10_XS_252D_MOMENTUM",
+    "members": [
+     "r46_fx_xs_mom_252"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM",
+     "INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. R59 prosecuted CROSS_SECTIONAL_MOMENTUM on FX futures (19 hypotheses) to NO_ALPHA_EVIDENCE; R41 found FX momentum era-limited (Zone A t 3.4, about zero in Zone B at every horizon).",
+     "evidence": [
+      "docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.8,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.15,
+     "rationale": "currency momentum diversifies an equity book, but it decayed after the 1990s in the estate's own zones and carries the same NAV granularity problem as FX carry"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 20-session prospective clock; no admissible historical rerun exists for a class closed as a class.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate FX spot; no purchase"
+   },
+   {
+    "candidate_id": "GC_FX_POSITIONING_AND_LIQUIDITY_R63",
+    "title": "FX positioning (COT) and liquidity dimensions (R63 cells)",
+    "disposition": "CLOSED",
+    "asset_class": "FX",
+    "information_asset_classes": [
+     "FX"
+    ],
+    "mechanism_class": "HEDGER_DEMAND_PRESSURE",
+    "information_object": "CFTC_COT_AND_VOLUME:FX_POSITIONING_AND_LIQUIDITY",
+    "members": [
+     "R63_FX_FUTURES_POSITIONING_COMMITMENTS_H21_631E2106",
+     "R63_FX_FUTURES_LIQUIDITY_H5_91517B93"
+    ],
+    "closed_families": [
+     "COT_HEDGING_PRESSURE"
+    ],
+    "historical": {
+     "summary": "Positioning h21 (conditional t 2.57) flipped sign in the lockbox and its Alpha Recovery reproduction failed (-0.42 %/yr, t -0.32). Liquidity h5 (conditional t 2.32, +1.78 %/yr at t 1.49, drawdown -54 %) failed multiple testing.",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md",
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ]
+    },
+    "closed_reason": "COT positioning is closed as COT_HEDGING_PRESSURE after a lockbox flip and a failed reproduction; the liquidity cell is a price-volume transformation of a class closed as a class"
+   },
+   {
+    "candidate_id": "GC_RATES_CURVE_RV_AND_TERM_CARRY",
+    "title": "Treasury curve relative value and term-premium carry (ZN/ZT, ZN curve carry, adopted R40 international rates carry RV)",
+    "disposition": "OPEN",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES"
+    ],
+    "mechanism_class": "RELATIVE_VALUE_DISLOCATION",
+    "information_object": "TREASURY_AND_INTL_BOND_FUTURES:CURVE_RV_AND_TERM_PREMIUM_CARRY",
+    "members": [
+     "r46_rates_curve_rv_5d",
+     "r46_3_rates_curve_carry",
+     "shadow_intl_rates_carry_rv"
+    ],
+    "closed_families": [
+     "RATES_CARRY_CURVE_RV",
+     "PRIMARY_DEALER_POSITIONS"
+    ],
+    "historical": {
+     "summary": "Closed on history as RATES_CARRY_CURVE_RV: R43 cross-sectional rates carry +4.18 %/yr (t 2.69) in Zone B, an increment over a volatility-matched passive long of +0.64 %/yr (t 0.40), then t -0.16 in the untouched Zone C; R41 pooled rates RV t 2.27 killed as placebo-insensitive; R64 NO_CONDITIONAL_VALUE. The adopted R40 international rates carry RV shadow (R39 cell t 2.47) continues on the month-end lane.",
+     "evidence": [
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md",
+      "D:/Stock_Prediction_app_data/global_alpha_offensive_r43"
+     ],
+     "net_after_cost_pa": 0.0418,
+     "t_stat": 2.69,
+     "increment_pa": 0.0064,
+     "increment_t": 0.4,
+     "increment_control": "volatility-matched passive long (R43)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.3,
+     "probability_alive": 0.2,
+     "rationale": "rates relative value is uncorrelated with the equity book, but no owned rates contract fits the name cap at this NAV (micro yield futures are not entitled) and the only untouched test reversed"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 5-session ZN/ZT and ZN carry clocks and the R46.6.1 month-end continuation of the R40 shadow (next decision 2026-09-30); no admissible historical rerun exists.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate Treasury futures and R38 international bond futures; micro Treasury yield futures are not entitled"
+   },
+   {
+    "candidate_id": "GC_RATES_MACRO_SURPRISE_REPRICING",
+    "title": "Multi-day Treasury repricing after CPI and payrolls surprises",
+    "disposition": "OPEN",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES"
+    ],
+    "mechanism_class": "INFORMATION_DIFFUSION_SPEED",
+    "information_object": "FIRST_PUBLISHED_MACRO:CPI_PAYROLLS_SURPRISE_TO_ZN",
+    "members": [
+     "r46_4_macro_surprise_rates_5d"
+    ],
+    "closed_families": [
+     "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. The minutes-scale macro release reaction closed as MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45 (holdout -1.82 bp, t -0.63; native futures price 81-92 % of the move within one minute). This challenger claims a multi-day repricing of the policy path, which no estate test measured.",
+     "evidence": [
+      "docs/RELEASE45_MACRO_EVENT_ALPHA.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.3,
+     "probability_alive": 0.2,
+     "rationale": "a multi-day policy repricing is a different claim from the one-minute reaction that failed, but futures absorb most of the surprise immediately and the event count is small"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 5-session clock on CPI and Employment Situation days (about 24 events a year).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned first-published macro series and Norgate ZN; no purchase"
+   },
+   {
+    "candidate_id": "GC_RATES_COPPER_GOLD_LEAD",
+    "title": "Copper/gold ratio as a lead on Treasury duration",
+    "disposition": "OPEN",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES",
+     "COMMODITIES"
+    ],
+    "mechanism_class": "INFORMATION_DIFFUSION_SPEED",
+    "information_object": "NORGATE_FUTURES:HG_GC_RATIO_QUARTER_CHANGE_TO_ZN",
+    "members": [
+     "r52_rates_copper_gold_lead"
+    ],
+    "closed_families": [
+     "CROSS_MARKET_PREDICTION_R33_R34"
+    ],
+    "historical": {
+     "summary": "R52 ran no historical screen and no estate test used the copper/gold ratio as a rates signal. The nearest closed work is the commodity-to-equity oil diffusion mechanism (KILLED_WRONG_SIGN) and the pooled cross-market prediction family (R33/R34, prediction did not convert to P&L).",
+     "evidence": [
+      "docs/RELEASE52_PERSISTENT_RESEARCH_RUNTIME.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.3,
+     "probability_alive": 0.25,
+     "rationale": "an industrial-versus-safety metal ratio is information no live rates cell reads, but slow cross-market lead-lag claims have repeatedly failed in this estate and the traded contract is above the name cap"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R52 20-session prospective clock.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate HG, GC and ZN continuous futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_RATES_VOLATILITY_STATE_R63",
+    "title": "Rates realised-volatility, tail-state and implied-volatility cells (R63/R64)",
+    "disposition": "CLOSED",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES",
+     "VOLATILITY"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "TREASURY_FUTURES:REALISED_VOLATILITY_TAIL_AND_IMPLIED_STATE",
+    "members": [
+     "R63_RATES_FUTURES_REALISED_VOLATILITY_H21_BD1F0386",
+     "R63_RATES_FUTURES_REALISED_VOLATILITY_H63_8F5FB0D5",
+     "R63_RATES_FUTURES_TAIL_CRASH_STATE_H21_D90B9295",
+     "R63_RATES_FUTURES_VOLATILITY_EXPECTATIONS_IV_H21_FE0F9515",
+     "R64_RATES_FUTURES_REALISED_VOLATILITY_H63_8F5FB0D5"
+    ],
+    "closed_families": [
+     "VOLATILITY_EXPECTATIONS_IV_R63"
+    ],
+    "historical": {
+     "summary": "R63 cells failed multiple testing; R64 re-priced the strongest (63-session realised volatility, conditional t 3.45) through the risk-controlled book: +0.84 %/yr, below the 1.5 %/yr materiality floor, with a -77 % drawdown and leverage at the cap on 41 % of periods; the implied-volatility cell's Alpha Recovery reproduction failed (t 1.00).",
+     "evidence": [
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md",
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ]
+    },
+    "closed_reason": "DEGENERATE_UNDER_CONTROLS below materiality, a failed reproduction, and a price-state transformation of a class closed as a class"
+   },
+   {
+    "candidate_id": "GC_RATES_TREASURY_AUCTION_CONCESSION",
+    "title": "Treasury auction supply concession",
+    "disposition": "CLOSED",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES"
+    ],
+    "mechanism_class": "FORCED_TRADING_FLOW",
+    "information_object": "TREASURYDIRECT:AUCTION_CALENDAR_OFFERING_SIZE",
+    "members": [
+     "TREASURY_AUCTION_SUPPLY_CONCESSION_V1"
+    ],
+    "closed_families": [
+     "PRIMARY_DEALER_POSITIONS"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-13: KILLED_WRONG_SIGN; the pre-auction short lost before costs (gross t -1.16) and its excess over an always-short book was t 0.30.",
+     "evidence": [
+      "research/preregistration/TREASURY_AUCTION_CONCESSION_RESULT.md"
+     ]
+    },
+    "closed_reason": "the frozen short sign was contradicted before costs; the loss is the 2000-2016 bond bull drift, and the sign is never reversed"
+   },
+   {
+    "candidate_id": "GC_RATES_ISSUANCE_SIZED_DURATION_EXTENSION",
+    "title": "Bond index month-end duration extension sized by settled issuance",
+    "disposition": "CLOSED",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES"
+    ],
+    "mechanism_class": "INDEX_FUND_DEALER_FLOW",
+    "information_object": "TREASURYDIRECT:MONTH_ISSUANCE_DURATION_ADDED_TO_INDEX",
+    "members": [
+     "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_V1"
+    ],
+    "closed_families": [
+     "R32_EVENT_DRIVEN_CALENDAR"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-13: KILLED_BELOW_MATERIALITY, +0.93 %/yr at 2 bp (t 2.50); increment over the unconditional month-end long t 0.62.",
+     "evidence": [
+      "research/preregistration/TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_RESULT.md"
+     ]
+    },
+    "closed_reason": "issuance sizing selects no better month ends than being long at every month end; issuance-sized Treasury supply-and-demand timing is closed"
+   },
+   {
+    "candidate_id": "GC_RATES_MONTH_END_DURATION_LONG_HUMAN_JUDGEMENT",
+    "title": "Unconditional two-session month-end ZN long - an open human judgement recorded by the duration extension result",
+    "disposition": "OPEN",
+    "asset_class": "RATES",
+    "information_asset_classes": [
+     "RATES"
+    ],
+    "mechanism_class": "INDEX_FUND_DEALER_FLOW",
+    "information_object": "R38_ZN_DATED_CONTRACTS:UNCONDITIONAL_MONTH_END_TWO_SESSION_LONG",
+    "members": [],
+    "source_artifact": "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/treasury_month_end_duration_extension.json",
+    "closed_families": [
+     "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_V1"
+    ],
+    "historical": {
+     "summary": "Observed ONLY as the control of a killed cell and never preregistered: the unconditional two-session month-end long in ZN earned +2.11 %/yr gross (t 4.59) and +1.47 %/yr at 2 bp (t 3.20) over 2001-2016 with a -2.63 % maximum drawdown per unit of ZN notional. It sits just below the 1.5 %/yr materiality floor, the window is the bond bull market, and the no-rescue rule forbids adopting it; the 2017-2026 window is still untouched.",
+     "evidence": [
+      "research/preregistration/TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_RESULT.md"
+     ],
+     "net_after_cost_pa": 0.0147,
+     "t_stat": 3.2,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "cash (the control is itself the unconditional long)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": -0.0263,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.3,
+     "probability_alive": 0.2,
+     "rationale": "benchmark-extension demand at month end is a documented index flow uncorrelated with the equity book, but the effect is 1.47 %/yr per unit of notional (below materiality), it was measured in a bull market, and one ZN contract is far above the NAV name cap"
+    },
+    "next_action": {
+     "kind": "HUMAN_AUTHORISED_PREREGISTRATION",
+     "description": "HUMAN JUDGEMENT recorded in the result: authorise or decline a fresh preregistration read ONLY on the untouched 2017-2026 window, with this search counted in its multiplicity and the 1.5 %/yr materiality floor unchanged; two working days on owned data, decisive in one read.",
+     "research_days": 2,
+     "data_cost_usd": 0,
+     "information_gain": 0.7,
+     "human_gate": "a human authorises the fresh preregistration; the no-rescue rule forbids the agent from adopting a control"
+    },
+    "data_requirement": "owned R38 ZN dated contracts and the TreasuryDirect cache; no purchase"
+   },
+   {
+    "candidate_id": "GC_COMMODITY_CURVE_CARRY",
+    "title": "Commodity futures curve carry (backwardation long, contango short)",
+    "disposition": "OPEN",
+    "asset_class": "COMMODITIES",
+    "information_asset_classes": [
+     "COMMODITIES"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "DATED_COMMODITY_FUTURES:FRONT_NEXT_SLOPE_CARRY",
+    "members": [
+     "r46_3_comdty_curve_carry",
+     "R63_COMMODITY_FUTURES_CARRY_H63_F37C04AF",
+     "R64_COMMODITY_FUTURES_CARRY_H63_F37C04AF"
+    ],
+    "closed_families": [
+     "COMMODITY_CURVE_CARRY_SPREADS",
+     "INTER_COMMODITY_RV_SEASONALITY"
+    ],
+    "historical": {
+     "summary": "Closed on the historical record as COMMODITY_CURVE_CARRY_SPREADS: R38 +2.80 %/yr (t 1.60); R41 gross t 2.1-4.4 killed by notional costs on diversified spread books; R63 63-session carry conditional t 2.28 flipped sign in the lockbox; R64 risk-controlled +1.23 %/yr increment (t 2.29) on a +3.3 %/yr book with a -70 % drawdown. The R46 5-session prospective cell reads POSITIVE_EARLY on six matured rows, which is one effective observation.",
+     "evidence": [
+      "docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md",
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md"
+     ],
+     "net_after_cost_pa": 0.028,
+     "t_stat": 1.6,
+     "increment_pa": 0.0123,
+     "increment_t": 2.29,
+     "increment_control": "the price-state baseline book under the R64 risk controls",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": -0.7,
+     "cost_survives_2x": true,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.85,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.3,
+     "rationale": "commodity carry diversifies the book (R46 diversification 0.95) and survives 2x cost on the R46 construction, but its history failed the lockbox, the risk-controlled book is degenerate and commodity notionals bind at this NAV"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 5- and 20-session commodity curve clocks; the first decisive forward read needs at least five effective observations.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.35,
+     "human_gate": null
+    },
+    "data_requirement": "owned R41/R38 dated commodity contracts; no purchase"
+   },
+   {
+    "candidate_id": "GC_COMMODITY_XS_MOMENTUM",
+    "title": "Commodity cross-sectional 12-month momentum",
+    "disposition": "OPEN",
+    "asset_class": "COMMODITIES",
+    "information_asset_classes": [
+     "COMMODITIES"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:COMMODITY_XS_252D_MOMENTUM",
+    "members": [
+     "r46_comdty_xs_mom_252"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM"
+    ],
+    "historical": {
+     "summary": "R46 ran no historical screen. R59 prosecuted CROSS_SECTIONAL_MOMENTUM on commodity futures (41 hypotheses) to NO_ALPHA_EVIDENCE; R38 cross-asset trend +3.85 %/yr (t 2.48) failed BH; the family is closed as CROSS_ASSET_TREND_AND_XS_MOMENTUM.",
+     "evidence": [
+      "docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 2.48,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.8,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.15,
+     "rationale": "commodity momentum is a documented premium with low equity correlation, but the estate's own searches on this scope failed multiplicity and costs"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 20-session prospective clock.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate commodity futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_COMMODITY_XS_SKEWNESS",
+    "title": "Commodity 12-month realised-skewness sort",
+    "disposition": "OPEN",
+    "asset_class": "COMMODITIES",
+    "information_asset_classes": [
+     "COMMODITIES"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:COMMODITY_XS_12M_REALISED_SKEWNESS",
+    "members": [
+     "r53_comdty_xs_skew_12m"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM"
+    ],
+    "historical": {
+     "summary": "R53 ran no historical screen and no estate test measured the realised-skewness sort (published by Fernandez-Perez, Frijns, Fuertes and Miffre 2018). The sort key is a price-state transformation, a class the mechanism catalog closed as a class.",
+     "evidence": [
+      "docs/RELEASE53_ACTIVE_RISK_INTRADAY_ALPHA.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.8,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.25,
+     "rationale": "a lottery-preference premium in commodities is published and distinct from carry and momentum, but it is untested here and a historical executor would need a declared reopen of a closed class"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R53 20-session prospective clock; a historical test would require a contract-rule-13 reopen of the closed price-state class.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate commodity futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_COMMODITY_PRICE_TAIL_STATE_R63",
+    "title": "Daily commodity price-return-state and tail-crash-state ablations (R63 cells)",
+    "disposition": "CLOSED",
+    "asset_class": "COMMODITIES",
+    "information_asset_classes": [
+     "COMMODITIES"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:COMMODITY_DAILY_PRICE_AND_TAIL_STATE",
+    "members": [
+     "R63_COMMODITY_FUTURES_PRICE_RETURN_STATE_H1_7C57CE1C",
+     "R63_COMMODITY_FUTURES_TAIL_CRASH_STATE_H1_39D872BE"
+    ],
+    "closed_families": [
+     "MACHINE_REPRESENTATION_SEARCH"
+    ],
+    "historical": {
+     "summary": "Daily ablations with conditional t 2.13 and 2.55 failed multiple testing on unlevered daily books with drawdowns near -100 %.",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md"
+     ]
+    },
+    "closed_reason": "price-state transformation is closed as a class, the books are degenerate at daily cadence and no reopen reason exists"
+   },
+   {
+    "candidate_id": "GC_COMMODITY_INDEX_ROLL_WINDOW",
+    "title": "Commodity index roll-window pressure",
+    "disposition": "CLOSED",
+    "asset_class": "COMMODITIES",
+    "information_asset_classes": [
+     "COMMODITIES"
+    ],
+    "mechanism_class": "FORCED_TRADING_FLOW",
+    "information_object": "R38_DATED_CONTRACTS:INDEX_ROLL_WINDOW_NEARBY_MINUS_NEXT_SPREAD",
+    "members": [
+     "COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1"
+    ],
+    "closed_families": [
+     "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-13: KILLED_WRONG_SIGN, gross -0.02 %/yr (t -0.11); the loss is pure cost.",
+     "evidence": [
+      "research/preregistration/COMMODITY_INDEX_ROLL_WINDOW_RESULT.md"
+     ]
+    },
+    "closed_reason": "no gross concession survives a decade of front-running of the published GSCI and BCOM roll schedules; schedule-driven roll pressure is closed"
+   },
+   {
+    "candidate_id": "GC_VOL_VX_TERM_STRUCTURE_CARRY_FORWARD",
+    "title": "VX futures term-structure carry - the surviving prospective volatility challengers",
+    "disposition": "OPEN",
+    "asset_class": "VOLATILITY",
+    "information_asset_classes": [
+     "VOLATILITY",
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "VX_FUTURES:FRONT_VERSUS_SPOT_CONTANGO_ROLL_DOWN",
+    "members": [
+     "r46_vx_term_carry_5d",
+     "r46_3_vx_term_carry_1d",
+     "shadow_vx_carry_ts"
+    ],
+    "closed_families": [
+     "VX_TERM_CARRY",
+     "VX_CONDITIONAL_SHORT_VOL_R41",
+     "VOL_TERM_EQUITY_TIMING_R35_R36_R63",
+     "VOLATILITY_EXPECTATIONS_IV_R63",
+     "MARKET_IMPLIED_RISK_PREMIA_R35",
+     "R32_VOLATILITY_RISK_REGIME_BETA_TIMING"
+    ],
+    "historical": {
+     "summary": "Distinct from the closed volatility TIMING families (VIX term-structure equity timing, VVIX/SKEW conditioners, IV expectations, R32 regime timing): these are unconditional short-VX carry books. Historically closed as VX_TERM_CARRY: R38 +6.24 %/yr (t 2.28) failed BH, the mean-reversion variant lost -5.41 %, R64 found NO_CONDITIONAL_VALUE, and R45 measured the variance risk premium (4.50 vol points, t 9.39) as insurance revenue, not alpha. The adopted R39 VX shadow is structurally late and PIT-blocked.",
+     "evidence": [
+      "docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md",
+      "docs/RELEASE51_NON_EQUITY_PROMOTION_OFFENSIVE.md"
+     ],
+     "net_after_cost_pa": 0.0624,
+     "t_stat": 2.28,
+     "increment_pa": null,
+     "increment_t": 0.0,
+     "increment_control": "cash on the collateral it ties up (R46.6.1)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": -0.6,
+     "cost_survives_2x": false,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.4,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.3,
+     "rationale": "short VX carry is short equity crash insurance (drawdowns of the February-2018 kind), VX is the highest cost class and one contract ($16.9k) exceeds the name cap; the premium is real but the estate classifies it as insurance revenue"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 1- and 5-session VX clocks; the 1-session cell is the fastest-maturing non-equity forward evidence in the tournament.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.3,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate &VX and Cboe VIX; Cboe VX settlement history is not free and VXM is not entitled"
+   },
+   {
+    "candidate_id": "GC_VOL_POLICY_EXPECTATIONS_R63",
+    "title": "Policy expectations on the volatility scope (R63 cell)",
+    "disposition": "CLOSED",
+    "asset_class": "VOLATILITY",
+    "information_asset_classes": [
+     "VOLATILITY",
+     "RATES"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "ZQ_SR3:POLICY_EXPECTATIONS_TO_VX",
+    "members": [
+     "R63_VOLATILITY_POLICY_EXPECTATIONS_H5_B4066557"
+    ],
+    "closed_families": [
+     "MACRO_TIMING_LANES_R63"
+    ],
+    "historical": {
+     "summary": "Conditional t 2.05 with a lockbox sign flip and a negative net increment (t -1.02).",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md"
+     ]
+    },
+    "closed_reason": "LOCKBOX_SIGN_FLIP without economics; closed with MACRO_TIMING_LANES_R63 ('best policy-expectations t 2.05 without economics')"
+   },
+   {
+    "candidate_id": "GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM",
+    "title": "Incumbent operational US equity book (fundamental plus momentum 50/50) and its R56 shadow portfolios",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "PUBLIC_SLOW_DISCLOSURE",
+    "information_object": "SEC_XBRL_FCF_ACCRUALS_AND_NORGATE_MOMENTUM:COMPOSITE_RANK",
+    "members": [
+     "us_equity_fundamental_momentum_50_50_v1",
+     "r56_incumbent_book_v1",
+     "r56_governed_score_top25_v1",
+     "r56_implementable_research_v1",
+     "r56_zero_base_research_v1"
+    ],
+    "closed_families": [
+     "PIT_FUNDAMENTALS_AND_VALUATION",
+     "PRICE_STATE_EQUITY_FACTORS"
+    ],
+    "historical": {
+     "summary": "The approved operational model. Historical OOS 2011-07..2026-07 (181 periods, 21-session top-25): +2.73 %/yr net excess, Sharpe 0.25, drawdown -22.2 %, rank IC 0.013 (t 1.13) - INCUMBENT_WEAK_OR_UNPROVEN. TRUE_FORWARD: -2.43 % cumulative against SPY +2.01 % over 35 sessions. R56 localised the failure to the BUY side (forward rank IC +0.017, top-minus-bottom decile -0.44 pp).",
+     "evidence": [
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md",
+      "docs/RELEASE56_ALPHA_TO_CAPITAL_OFFENSIVE.md"
+     ],
+     "net_after_cost_pa": 0.0273,
+     "t_stat": 1.13,
+     "increment_pa": 0.0273,
+     "increment_t": 1.13,
+     "increment_control": "SPY",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": -0.222,
+     "cost_survives_2x": true,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.2,
+     "liquidity_capacity": 1.0,
+     "probability_alive": 0.3,
+     "rationale": "it is the equity beta book the rest of the frontier diversifies against; liquidity is no constraint; its own OOS and forward evidence are weak and its buy side is where it fails"
+    },
+    "next_action": {
+     "kind": "CONTINUE_OPERATIONAL_OBSERVATION",
+     "description": "No research action: the incumbent keeps accruing operational and R56 shadow-portfolio forward evidence under manual governance; any replacement must beat it on the same capital.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.3,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate PIT S&P 500 and SEC companyfacts; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_R56_CONTROL_BOOKS",
+    "title": "R56 declared control portfolios: all cash and SPY buy-and-hold",
+    "disposition": "CONTROL",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "CONTROL:CASH_AND_SPY_BUY_AND_HOLD",
+    "members": [
+     "r56_all_cash_v1",
+     "r56_benchmark_spy_v1"
+    ],
+    "closed_families": [],
+    "historical": {
+     "summary": "Cash and SPY buy-and-hold are the declared controls of the R56 shadow-portfolio cohort frozen on 2026-09-03.",
+     "evidence": [
+      "docs/RELEASE56_ALPHA_TO_CAPITAL_OFFENSIVE.md"
+     ]
+    },
+    "closed_reason": "controls, not alpha candidates: they are reconciled so no frozen book disappears, and excluded from the ranking"
+   },
+   {
+    "candidate_id": "GC_USEQ_XS_PRICE_STATE_FORWARD",
+    "title": "US equity price-state cross-section: momentum, reversal, low volatility, lottery demand and ML books",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_PIT_PRICE:XS_MOMENTUM_REVERSAL_LOWVOL_LOTTERY_ML",
+    "members": [
+     "r46_eq_xs_mom_12_1",
+     "r46_eq_xs_rev_5d",
+     "r46_eq_xs_lowvol_60d",
+     "r46_eq_xs_resid_mom_12_1",
+     "r46_3_eq_xs_max_lottery",
+     "r46_3_ens_eq_xs_equal",
+     "r46_3_ml_eq_xs_ridge",
+     "r46_3_ml_eq_xs_gbt",
+     "r46_4_ml_eq_xs_extratrees",
+     "r46_4_ml_eq_xs_regime_gated",
+     "r46_6_eq_xs_rev_5d_tail2",
+     "r46_6_eq_xs_rev_5d_hold5",
+     "R63_US_EQUITY_MOMENTUM_H63_66B264F5"
+    ],
+    "closed_families": [
+     "PRICE_STATE_EQUITY_FACTORS",
+     "SHORT_HORIZON_REVERSAL_GAP_FADE",
+     "MACHINE_REPRESENTATION_SEARCH",
+     "OVERNIGHT_GAP_CONCENTRATION"
+    ],
+    "historical": {
+     "summary": "Closed on history as PRICE_STATE_EQUITY_FACTORS (momentum validation -0.19 % against lockbox +9.27 % at t 1.47 with era sign flips; residual momentum t 0.11; low volatility inverted at t -3.9), SHORT_HORIZON_REVERSAL_GAP_FADE (break-even 18 bp against a 50 bp round trip) and MACHINE_REPRESENTATION_SEARCH (7,587 machine candidates, 0 qualified). R63's 63-session momentum cell failed multiple testing on 37 effective periods.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#closed_mechanisms",
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 1.47,
+     "increment_pa": null,
+     "increment_t": 0.11,
+     "increment_control": "cash collateral (R46) and the price-state baseline (R63)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": false,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.1,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.15,
+     "rationale": "these books overlap the incumbent's price leg (R46 diversification 0.01-0.03), their history failed untouched windows and the reversal family is cost-dominated at the equity desk rate"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the twelve R46 prospective clocks; no admissible historical rerun exists for a class closed as a class.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate PIT S&P 500 panel; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD",
+    "title": "US equity illiquidity premium and same-calendar-month seasonality",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "LIQUIDITY_PRESSURE",
+    "information_object": "NORGATE_PIT_PRICE_VOLUME:AMIHUD_ILLIQUIDITY_AND_SAME_MONTH_RETURN",
+    "members": [
+     "r46_3_eq_xs_amihud_illiq",
+     "r46_3_eq_xs_seasonal_month"
+    ],
+    "closed_families": [
+     "SAME_MONTH_SEASONALITY"
+    ],
+    "historical": {
+     "summary": "Same-calendar-month seasonality closed as SAME_MONTH_SEASONALITY (IC t 2.50, spread t 1.65, FDR q 0.074); R59 prosecuted the liquidity premium on the PIT S&P 500 (13 hypotheses) to NO_ALPHA_EVIDENCE.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#closed_mechanisms"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 1.65,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.6,
+     "liquidity_capacity": 0.8,
+     "probability_alive": 0.2,
+     "rationale": "both books diversify the incumbent (R46 diversification 0.95), but seasonality failed FDR and the large-cap illiquidity premium was empty in R59"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the two R46 20-session prospective clocks.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate PIT S&P 500 panel; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_EARNINGS_DRIFT",
+    "title": "Post-earnings announcement drift and immediate reaction books",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "INFORMATION_DIFFUSION_SPEED",
+    "information_object": "SEC_8K_ITEM_2_02_ACCEPTANCE:ANNOUNCEMENT_WINDOW_RETURN",
+    "members": [
+     "r46_5_pead_announcement_return_20d",
+     "r46_6_pead_reaction_1d",
+     "r46_6_pead_drift_5d"
+    ],
+    "closed_families": [
+     "EARNINGS_EVENT_REACTION_SUE",
+     "ANALYST_REVISIONS_SALES_SURPRISE"
+    ],
+    "historical": {
+     "summary": "Closed on history as EARNINGS_EVENT_REACTION_SUE (best 1-session +1.97 %/yr, t 1.57, NO_ADVANTAGE against the incumbent) and ANALYST_REVISIONS_SALES_SURPRISE (Stage 13B t 2.27 did not replicate out of sample, t -0.29).",
+     "evidence": [
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ],
+     "net_after_cost_pa": 0.0197,
+     "t_stat": 1.57,
+     "increment_pa": 0.0197,
+     "increment_t": 1.57,
+     "increment_control": "incumbent score",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.8,
+     "probability_alive": 0.2,
+     "rationale": "earnings drift is the most replicated equity anomaly but it has decayed in large caps, and the estate found own-issuer earnings information spent at publication"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the three R46 earnings clocks (1, 5 and 20 sessions; one dependence cluster).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned SEC 8-K acceptance instants and Norgate PIT prices; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_INSIDER_FLOW",
+    "title": "Insider open-market purchase clusters and net purchase ratio",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "PUBLIC_SLOW_DISCLOSURE",
+    "information_object": "SEC_FORM4:OPEN_MARKET_PURCHASE_CLUSTERS",
+    "members": [
+     "r46_5_insider_cluster_buy_20d",
+     "r46_5_insider_net_purchase_xs_20d",
+     "r46_6_insider_cluster_buy_5d"
+    ],
+    "closed_families": [
+     "INSIDER_FORM4_ALL"
+    ],
+    "historical": {
+     "summary": "The nineteenth insider test closed INSIDER_FORM4_ALL: lockbox 63-session -11.5 %/yr (t -2.02), incremental t -2.30 and -2.83, the filing move spent within two sessions; R63 found insider counts LOWER out-of-sample rank IC at 21 and 63 sessions.",
+     "evidence": [
+      "research/preregistration/INSIDER_FORM4_RESULT.md",
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md"
+     ],
+     "net_after_cost_pa": -0.115,
+     "t_stat": -2.02,
+     "increment_pa": null,
+     "increment_t": -2.3,
+     "increment_control": "incumbent score",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.8,
+     "probability_alive": 0.05,
+     "rationale": "nineteen tests of the same public filing have failed and the latest lost money on its lockbox; the forward clocks can only confirm what the history already says"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the three R46 insider clocks; do not revisit insider information on the PIT S&P 500.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.05,
+     "human_gate": null
+    },
+    "data_requirement": "owned R46 daily Form 4 parse; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_SHORT_VOLUME_PRESSURE",
+    "title": "FINRA short-sale participation falling relative to its own baseline",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "FUNDING_COLLATERAL_CONSTRAINT",
+    "information_object": "FINRA:SHORT_VOLUME_RATIO_CHANGE",
+    "members": [
+     "R58_SHORT_VOLUME_PRESSURE_V1"
+    ],
+    "closed_families": [
+     "FAILS_TO_DELIVER_AND_SHORT_INTEREST"
+    ],
+    "historical": {
+     "summary": "Frozen prospectively by R58 from owned FINRA short-volume data that has no history to test (owned only since 2026-07); the adjacent family closed as FAILS_TO_DELIVER_AND_SHORT_INTEREST (short interest t 1.56, fails-to-deliver rank IC about zero).",
+     "evidence": [
+      "D:/Stock_Prediction_app_data/r58_orthogonal_alpha/results/r58_forward_challengers.json",
+      "research/preregistration/FTD_FAILS_RESULT.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "equal-weight eligible universe (R58)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.15,
+     "rationale": "short-sale participation is a funding and positioning signal, but every short-interest and fails measure in the estate was economically empty and this one has no history"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the canonical forward accrual of the registered R58 freeze (21-session maturity).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned FINRA short-volume collection (prospective only); no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_DISCLOSURE_INTENSITY",
+    "title": "Abnormal unscheduled 8-K disclosure intensity",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "PUBLIC_SLOW_DISCLOSURE",
+    "information_object": "SEC_8K:ABNORMAL_UNSCHEDULED_FILING_RATE",
+    "members": [
+     "R58_DISCLOSURE_INTENSITY_V1"
+    ],
+    "closed_families": [
+     "DISCLOSURE_INTENSITY_R63",
+     "EVENT_8K_ITEM_CODES",
+     "SEC_FILING_BEHAVIOUR_R27"
+    ],
+    "historical": {
+     "summary": "Frozen prospectively by R58; the same information closed on history as DISCLOSURE_INTENSITY_R63 (best t 1.55, residual share 0.99 - orthogonal and inert) and EVENT_8K_ITEM_CODES (wrong direction, t at most 1.22).",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md",
+      "research/preregistration/EVENT_8K_ITEM_RESULT.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": 1.55,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "price-state baseline (R63)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.08,
+     "rationale": "public, slow filing behaviour was priced at publication in every estate test and this exact object was measured inert"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the canonical forward accrual of the registered R58 freeze.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.1,
+     "human_gate": null
+    },
+    "data_requirement": "owned SEC submissions acceptance instants; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_FREE_CASH_FLOW_QUALITY",
+    "title": "Free cash flow to assets and the momentum-vetoed fundamental composite",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "PUBLIC_SLOW_DISCLOSURE",
+    "information_object": "SEC_XBRL:FREE_CASH_FLOW_TO_ASSETS",
+    "members": [
+     "R58_FCF_PURE_V1",
+     "R58_FUND_MOMENTUM_VETO_V1",
+     "R63_US_EQUITY_FREE_CASH_FLOW_H1_BE786041"
+    ],
+    "closed_families": [
+     "PIT_FUNDAMENTALS_AND_VALUATION"
+    ],
+    "historical": {
+     "summary": "R58 free cash flow to assets flipped sign from validation (+3.04 %/yr) to lockbox (-0.29 %/yr, t -0.09) and failed sector concentration; the composite and momentum-veto variants failed the same gates. R63's 1-session FCF cell (+3.58 %/yr increment at t 3.62, BH and Holm pass) is REGIME_INSTABLE (half its 3-year blocks positive) and NOT_ECONOMIC_UNDER_CONTROLS in Alpha Recovery.",
+     "evidence": [
+      "D:/Stock_Prediction_app_data/r58_orthogonal_alpha/results/r58_campaign_verdicts.json",
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ],
+     "net_after_cost_pa": -0.0029,
+     "t_stat": -0.09,
+     "increment_pa": 0.0362,
+     "increment_t": 3.49,
+     "increment_control": "incumbent score (the 1-session cell)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "PASS",
+     "max_drawdown": -0.62,
+     "cost_survives_2x": false,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.3,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.15,
+     "rationale": "free cash flow is the one fundamental term whose sign held across R58's layers, but the monthly book lost on its lockbox, the daily increment is regime-unstable and the whole family overlaps the incumbent's fundamental leg"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the canonical forward accrual of the two registered R58 freezes (FCF_PURE is the declared control).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned SEC companyfacts and Norgate PIT S&P 500; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_MERGER_ARBITRAGE",
+    "title": "Merger arbitrage on announced all-cash acquisitions",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "SEC_EDGAR:ALL_CASH_ACQUISITION_TARGET_PENDING_SPREAD",
+    "members": [
+     "MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1"
+    ],
+    "closed_families": [
+     "EVENT_8K_ITEM_CODES",
+     "SP500_INDEX_ADDITION_DELETION",
+     "CONTROL_BLOCK_13DG"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate. Declared mechanism-first on 2026-09-13 (Mitchell and Pulvino 2001; Baker and Savasoglu 2002): a non-timing deal-completion risk premium. The owned R63 submissions store is selected on S&P 500 membership, so the universe must come from the full EDGAR quarterly index.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "beta-matched SPY exposure (declared kill rule)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.7,
+     "probability_alive": 0.45,
+     "rationale": "a completion-risk premium is a different return source from every equity signal the estate holds and is not a timing claim; published spreads compressed after 2010 and break losses cluster in downturns"
+    },
+    "next_action": {
+     "kind": "PREREGISTER_BUILD_AND_EXECUTE",
+     "description": "Preregister, build the pinned executor on the full EDGAR quarterly index (DEFM14A, SC TO-T, SC 14D9) with owned Norgate delisted total returns, and let the agent execute the frozen kill rule.",
+     "research_days": 6,
+     "data_cost_usd": 0,
+     "information_gain": 0.9,
+     "human_gate": null
+    },
+    "data_requirement": "free SEC EDGAR full index and consideration terms through the canonical SEC collector; owned Norgate US equities including delisted names"
+   },
+   {
+    "candidate_id": "GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING",
+    "title": "Informed trading in single-name options (put smirk and implied-volatility spread)",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY",
+     "VOLATILITY"
+    ],
+    "mechanism_class": "DERIVATIVES_LEAD",
+    "information_object": "OPRA_SINGLE_NAME:PUT_SMIRK_AND_IV_SPREAD",
+    "members": [
+     "SINGLE_NAME_OPTION_INFORMED_TRADING_V1"
+    ],
+    "closed_families": [
+     "SPY_OPTION_SURFACE_CELLS",
+     "R44_SPY_RISK_REVERSAL_VRP"
+    ],
+    "historical": {
+     "summary": "Never tested: no owned single-name option history. Priced on 2026-09-13 with free Databento metadata: weekly 15:59 ET cbbo-1m full chains for PIT S&P 500 members 2013-2026 cost about $290-332 one-time (break-even 1.57 %/yr at the 21-session convention, 3.37 %/yr at 5 sessions); trading cost (about 5 %/yr at 40 % weekly turnover), not the data fee, binds. The R32 marginal-evidence condition is unmet.",
+     "evidence": [
+      "research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "incumbent (declared kill rule)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.6,
+     "liquidity_capacity": 0.7,
+     "probability_alive": 0.3,
+     "rationale": "informed option demand is published and replicated, but on pre-2010 samples; the S&P 500 is the hardest universe, a weekly long-short book pays about 5 %/yr in costs and needs shorting, and every free index-level implied signal failed this session"
+    },
+    "next_action": {
+     "kind": "DATA_PURCHASE_DECISION",
+     "description": "HUMAN PURCHASE DECISION (research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md): approve or decline a one-time Databento OPRA purchase capped at $400, then about twelve working days to build implied volatility from quotes and run a preregistered test.",
+     "research_days": 12,
+     "data_cost_usd": 332,
+     "information_gain": 0.9,
+     "human_gate": "purchase approval by a human; the agent never buys, subscribes or starts a trial"
+    },
+    "data_requirement": "PAID: single-name OPRA end-of-day chains 2013-2026 (about $332 one-time)"
+   },
+   {
+    "candidate_id": "GC_USEQ_PEER_EARNINGS_TRANSFER",
+    "title": "Intra-industry earnings information transfer to not-yet-reporting peers",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "INFORMATION_DIFFUSION_SPEED",
+    "information_object": "SEC_SUBMISSIONS_ACCEPTANCE:PEER_ANNOUNCEMENT_REACTION_TO_NONREPORTER",
+    "members": [
+     "PEER_EARNINGS_INFORMATION_TRANSFER_V1"
+    ],
+    "closed_families": [
+     "EARNINGS_EVENT_REACTION_SUE"
+    ],
+    "historical": {
+     "summary": "Executed on 2026-09-13 to DATA_HOLD at its own gate 1: point-in-time SIC coverage 86.4 % against the frozen 90 % floor; the gap is unresolved CIK identity, mostly delisted names, and current SIC (which misplaces 1.5-4 %) is forbidden.",
+     "evidence": [
+      "research/preregistration/PEER_EARNINGS_INFORMATION_TRANSFER_RESULT.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "incumbent and price-state controls (declared kill rule)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "UNESTABLISHED"
+    },
+    "judgement": {
+     "diversification": 0.5,
+     "liquidity_capacity": 0.8,
+     "probability_alive": 0.3,
+     "rationale": "peers of an early reporter are a different information object from the own-issuer events that failed, but the effect is an equity event book at the equity desk cost and its PIT identity is not yet established"
+    },
+    "next_action": {
+     "kind": "RESOLVE_DATA_HOLD",
+     "description": "Raise point-in-time industry coverage above 90 % by resolving delisted-name CIK identity through the canonical SEC collector and the Phase 10.1 bridge; the settled DATA_HOLD re-runs only when the catalog data_version changes.",
+     "research_days": 3,
+     "data_cost_usd": 0,
+     "information_gain": 0.4,
+     "human_gate": null
+    },
+    "data_requirement": "owned R63 submissions histories and the CIK bridge; a paid PIT industry classification is otherwise the gap"
+   },
+   {
+    "candidate_id": "GC_XA_FUTURES_TREND_AND_MOMENTUM",
+    "title": "Multi-asset futures time-series trend and cross-sectional momentum",
+    "disposition": "OPEN",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:TIME_SERIES_AND_XS_TREND",
+    "members": [
+     "r46_fut_ts_mom_252",
+     "r46_3_fut_xs_mom_252",
+     "R63_CROSS_ASSET_TREND_H1_7C708CF5"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM",
+     "INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE"
+    ],
+    "historical": {
+     "summary": "R63 classified the 1-session cross-asset TREND ablation READY_FOR_FORWARD_QUALIFICATION (rank-IC increment t 3.89, lockbox t 3.94, BH pass) on a degenerate book. R64 re-priced it under risk controls: +9.95 %/yr increment on a book losing -35.6 %/yr at 1 session, +3.29 %/yr (t 2.52) on a -0.7 %/yr book with a -61 % drawdown at 5 sessions - NOT_ECONOMIC_UNDER_CONTROLS, the cadence and not the cap binding; Alpha Recovery cadence variants stayed NOT_ECONOMIC (best +1.81 %/yr, t 1.63). The R63 READY record is therefore superseded by R64's under-controls verdict. Historically closed as CROSS_ASSET_TREND_AND_XS_MOMENTUM.",
+     "evidence": [
+      "docs/RELEASE63_INFORMATION_SENSITIVITY.md",
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md",
+      "research/alpha_recovery/ALPHA_RECOVERY_SCOREBOARD.md"
+     ],
+     "net_after_cost_pa": -0.007,
+     "t_stat": 2.52,
+     "increment_pa": 0.0329,
+     "increment_t": 2.52,
+     "increment_control": "the price-state baseline book under the R64 risk controls",
+     "untouched_confirmation": "PARTIAL",
+     "multiplicity": "FAIL",
+     "max_drawdown": -0.61,
+     "cost_survives_2x": false,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.6,
+     "liquidity_capacity": 0.7,
+     "probability_alive": 0.25,
+     "rationale": "trend is the most durable futures premium in the literature and it pays in equity crises, but every estate book that expresses it at the information's cadence is not deployable after R38 costs and the untouched records failed"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46 20-session trend and momentum clocks; no registration is recommended because the R63 READY record is superseded by R64's under-controls verdict.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.25,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate continuous futures and the R38 cost model; no purchase"
+   },
+   {
+    "candidate_id": "GC_XA_DATED_CARRY_R63_R64",
+    "title": "Cross-asset dated-contract carry, raw and class-neutral (R63/R64 cells)",
+    "disposition": "CLOSED",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "DATED_CONTRACT_SLOPE:CROSS_ASSET_RAW_AND_CLASS_NEUTRAL",
+    "members": [
+     "R63_CROSS_ASSET_CARRY_H1_DFBC0751",
+     "R63_CROSS_ASSET_CARRY_H21_5467D464",
+     "R63_CROSS_ASSET_CARRY_H63_64DB7985",
+     "R64_CROSS_ASSET_CARRY_H1_DFBC0751",
+     "R64_CROSS_ASSET_CARRY_H21_5467D464",
+     "R64_CROSS_ASSET_CARRY_H63_64DB7985",
+     "R64_CROSS_ASSET_CARRY_CLASS_NEUTRAL_H1_6A654E8B",
+     "R64_CROSS_ASSET_CARRY_CLASS_NEUTRAL_H5_F737850E",
+     "R64_CROSS_ASSET_CARRY_CLASS_NEUTRAL_H21_22318EFE",
+     "R64_CROSS_ASSET_CARRY_CLASS_NEUTRAL_H63_86C9C330"
+    ],
+    "closed_families": [
+     "EQUITY_INDEX_CROSS_ASSET_CARRY_R64",
+     "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59"
+    ],
+    "historical": {
+     "summary": "R64 measured cross-asset dated-contract carry under a proper book: raw slope +0.39..+1.49 %/yr on books with -55 % to -100 % drawdowns; the class-neutral implementation sharpened the conditional statistic (t 3.18-3.61) and destroyed the economics (-1.0 to +0.25 %/yr).",
+     "evidence": [
+      "docs/RELEASE64_INFORMATION_DIRECTED_ALPHA.md"
+     ]
+    },
+    "closed_reason": "every cell NOT_ECONOMIC or DEGENERATE under controls, and the genuinely distinct class-neutral construction removed what little economics the raw slope had"
+   },
+   {
+    "candidate_id": "GC_XA_COT_POSITIONING",
+    "title": "CFTC positioning books across futures (speculative reversal, speculative flow, commercial hedgers)",
+    "disposition": "OPEN",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET",
+     "COMMODITIES",
+     "FX"
+    ],
+    "mechanism_class": "HEDGER_DEMAND_PRESSURE",
+    "information_object": "CFTC_COT:SPECULATIVE_AND_COMMERCIAL_NET_POSITIONING",
+    "members": [
+     "r46_4_cot_xs_positioning_reversal",
+     "r46_4_cot_xs_positioning_flow",
+     "r46_6_cot_commercial_xs_5d"
+    ],
+    "closed_families": [
+     "COT_HEDGING_PRESSURE"
+    ],
+    "historical": {
+     "summary": "Closed on history as COT_HEDGING_PRESSURE: R35 standalone t 2.29 but an increment of -0.0002, R38 -3.16 %/yr (t -1.70), and the R63 FX 21-session reproduction failed. These are the prospective COT challengers, reconciled separately from that closed generic family.",
+     "evidence": [
+      "docs/RELEASE35_ORTHOGONAL_INFORMATION.md",
+      "docs/RELEASE38_NATIVE_FUTURES_INFORMATION_FRONTIER.md"
+     ],
+     "net_after_cost_pa": -0.0316,
+     "t_stat": -1.7,
+     "increment_pa": null,
+     "increment_t": -0.01,
+     "increment_control": "price-state baseline (R35)",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_BY_DECLARED_LAG"
+    },
+    "judgement": {
+     "diversification": 0.6,
+     "liquidity_capacity": 0.6,
+     "probability_alive": 0.1,
+     "rationale": "positioning is information about hedging pressure, but it carried no increment over the price block and lost money on native futures"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the three R46 positioning clocks (one dependence cluster).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.1,
+     "human_gate": null
+    },
+    "data_requirement": "owned CFTC archives through the R46 code map; no purchase"
+   },
+   {
+    "candidate_id": "GC_XA_FUTURES_VALUE_5Y",
+    "title": "Futures cross-sectional five-year reversal value",
+    "disposition": "OPEN",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "NORGATE_FUTURES:NEGATIVE_FIVE_YEAR_RETURN_VALUE",
+    "members": [
+     "r53_fut_xs_value_5y"
+    ],
+    "closed_families": [
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM"
+    ],
+    "historical": {
+     "summary": "R53 ran no historical screen and no estate test measured five-year reversal value in futures (Asness, Moskowitz and Pedersen 2013); it is a price-state transformation of a class closed as a class.",
+     "evidence": [
+      "docs/RELEASE53_ACTIVE_RISK_INTRADAY_ALPHA.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.8,
+     "liquidity_capacity": 0.6,
+     "probability_alive": 0.25,
+     "rationale": "value is negatively correlated with momentum across asset classes, which is diversification the book lacks, but it is untested here and long-horizon reversal is slow to evidence"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R53 20-session prospective clock.",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.2,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate continuous futures; no purchase"
+   },
+   {
+    "candidate_id": "GC_XA_R39_R40_MACHINE_SHADOWS",
+    "title": "Adopted R39/R40 cross-asset shadows: WIDE ridge book, carry rule and the slot-5 TCN",
+    "disposition": "OPEN",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET"
+    ],
+    "mechanism_class": "PRICE_STATE_TRANSFORMATION",
+    "information_object": "R39_WIDE_RIDGE_CROSS_ASSET_FEATURES:MONTH_END_XS_RANK",
+    "members": [
+     "shadow_wide_xs",
+     "shadow_carry_rule_xs",
+     "shadow_slot5_c39_fad367467c79"
+    ],
+    "closed_families": [
+     "MACHINE_REPRESENTATION_SEARCH",
+     "CROSS_MARKET_PREDICTION_R33_R34"
+    ],
+    "historical": {
+     "summary": "R39 WIDE survived factor residualisation (residual alpha +3.65 %/yr, t 2.58, R-squared 0.41 against 13 premia streams) and 0 of 12 kill tests, with Zone-C t 2.43 on one pre-gated access, but it was killed by the deflated Sharpe at 107 trials and its latent features were era-patchy (empty across Zone B); the R40 slot-5 TCN reached Zone-B t 2.07. Adopted by R46 and continued on the R46.6.1 month-end lane; the honest detection horizon is about 173 months.",
+     "evidence": [
+      "docs/RELEASE46_PROSPECTIVE_ALPHA_TOURNAMENT.md",
+      "D:/Stock_Prediction_app_data/prospective_alpha_tournament_r46/r46_prospective_alpha_tournament_v1/R46_6_1_ADOPTED_CONTINUATION.json"
+     ],
+     "net_after_cost_pa": 0.0365,
+     "t_stat": 2.58,
+     "increment_pa": 0.0365,
+     "increment_t": 2.58,
+     "increment_control": "13 factor premia streams (residual alpha)",
+     "untouched_confirmation": "CONFIRMED",
+     "multiplicity": "FAIL",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "METHODOLOGY_BACKFILL"
+    },
+    "judgement": {
+     "diversification": 0.6,
+     "liquidity_capacity": 0.6,
+     "probability_alive": 0.25,
+     "rationale": "a residual cross-asset return after 13 premia would be valuable, but it is ridge-aggregated weak signals, failed the deflated Sharpe, carries an era-patchy feature defect and needs years to be detected forward"
+    },
+    "next_action": {
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Continue the R46.6.1 month-end continuation lanes (next decision 2026-09-30).",
+     "research_days": 0,
+     "data_cost_usd": 0,
+     "information_gain": 0.15,
+     "human_gate": null
+    },
+    "data_requirement": "owned frozen R39 ridge coefficients, Norgate futures and the FRED/VIX/COT caches; no purchase"
+   },
+   {
+    "candidate_id": "GC_XA_MONTH_END_REBALANCING_FLOW",
+    "title": "Signed month-end equity-bond rebalancing flow",
+    "disposition": "CLOSED",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET",
+     "RATES",
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "FORCED_TRADING_FLOW",
+    "information_object": "NORGATE_FUTURES:MONTH_TO_DATE_EQUITY_MINUS_BOND_RETURN_REBALANCE_WINDOW",
+    "members": [
+     "MONTH_END_BALANCED_REBALANCING_FLOW_V1"
+    ],
+    "closed_families": [
+     "R32_EVENT_DRIVEN_CALENDAR"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-13: NO_EDGE (NW t 0.56).",
+     "evidence": [
+      "research/preregistration/MONTH_END_REBALANCING_FLOW_RESULT.md"
+     ]
+    },
+    "closed_reason": "the mandate-sized month-end flow earned nothing; the month-end flow channel is closed in both unconditional and conditional forms"
+   },
+   {
+    "candidate_id": "GC_XA_CALENDAR_TERM_STRUCTURE_R59",
+    "title": "R59 calendar term-structure challenger (withdrawn at inception)",
+    "disposition": "CLOSED",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "CROSS_ASSET"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "R38_DATED_CONTRACTS:ANNUALISED_SLOPE_CALENDAR_BOOK",
+    "members": [
+     "R59_CALENDAR_TERM_STRUCTURE_F9BE2426"
+    ],
+    "closed_families": [
+     "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59"
+    ],
+    "historical": {
+     "summary": "Frozen then withdrawn with zero forward observations: lockbox t 4.74 on about 14 effective observations with validation t 0.09.",
+     "evidence": [
+      "docs/RELEASE59_AUTONOMOUS_ALPHA_ENGINE.md"
+     ]
+    },
+    "closed_reason": "a false survivor of the effective-sample and validation-materiality traps; closed as CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59"
+   },
+   {
+    "candidate_id": "GC_CRYPTO_BTC_FUNDING_BASIS_CARRY",
+    "title": "BTC perpetual funding carry and cash-and-carry basis shadows",
+    "disposition": "CLOSED",
+    "asset_class": "CRYPTO",
+    "information_asset_classes": [
+     "CRYPTO"
+    ],
+    "mechanism_class": "FUNDING_COLLATERAL_CONSTRAINT",
+    "information_object": "BINANCE:PERP_FUNDING_AND_CASH_AND_CARRY_BASIS",
+    "members": [
+     "shadow_btc_funding_carry_1d",
+     "R42_POSITIVE_ONLY_CASH_AND_CARRY_BTC"
+    ],
+    "closed_families": [
+     "CRYPTO_FUNDING_CARRY"
+    ],
+    "historical": {
+     "summary": "R41 BTC funding carry survived its history (Zone B t 10.2, Zone C t 6.9, ETH replication), but R42/R43 showed the premium is priced below cash once committed, unremunerated collateral is charged (-0.67 %/yr, t -2.41).",
+     "evidence": [
+      "docs/RELEASE41_MULTI_HORIZON_ALPHA_BREAKTHROUGH.md",
+      "docs/RELEASE43_GLOBAL_ALPHA_OFFENSIVE.md"
+     ]
+    },
+    "closed_reason": "both shadows are RETIRED and DATA_BLOCKED (monthly funding archive with a ~24-day lag, venue HTTP 451); CRYPTO_FUNDING_CARRY is a closed MECHANISM, not a closed asset class"
+   }
+  ]
+ },
  "data_gaps": [
   {"gap_id": "SINGLE_NAME_OPTIONS_IV_SURFACE_HISTORY", "exact_signal_hypothesis": "SINGLE_NAME_OPTION_INFORMED_TRADING_V1: weekly XS rank of put smirk (OTM put IV minus ATM call IV) and put-call IV spread predicts negative 5-session returns", "exact_missing_fields": "per-contract end-of-day bid, ask and implied volatility by strike and expiry, with open interest, for PIT S&P 500 constituents including later-delisted names", "required_history": ">= 3 years (about 156 weekly periods: selection, untouched confirmation, MIN_EFFECTIVE_PERIODS 36 each)", "required_coverage": ">= 95 % of the PIT S&P 500 each week", "expected_sample": "about 500 names x 156 weeks", "expected_economic_mechanism": "informed traders use options first; the stock adjusts with a delay", "estimated_purchase_cost": "MEASURED 2026-09-13 via Databento metadata.get_cost (nothing bought): OPRA.PILLAR history 2013-04-01..2026-09-12; one 15:59 ET cbbo-1m minute of the full PIT S&P 500 option chains costs $0.17 (2013) to $0.77 (2026); weekly snapshots 2013-2026 about $290-332 one-time, daily about $1,450-1,660; statistics (open interest) not needed and $21-27 per day from 2024", "minimum_plausible_alpha_to_justify_cost": "at NAV $97,858.94 (2026-09-11) the weekly purchase is 0.34 % of NAV: break-even 1.57 %/yr (purchase-case 21-session convention) or 3.37 %/yr (5-session trading-cost term); the 3.5 %/yr pre-purchase kill rule does not fire; trading cost (about 5 %/yr at 40 % weekly turnover), not the data fee, is the binding hurdle", "state": "HUMAN_PURCHASE_GATE (priced; decision requested in research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md, cap $400, re-quote before placement; R32 marginal-evidence condition unmet and licence/credit unverified)"},
   {"gap_id": "ANALYST_REVISION_VINTAGES", "exact_signal_hypothesis": "as-of consensus revisions breadth predicts 63-session returns", "exact_missing_fields": "as-of (vintage) consensus estimates with revision timestamps for delisted names", "required_history": ">= 10 years", "required_coverage": ">= 90 % of PIT S&P 500", "expected_sample": "500 names x 120 months", "expected_economic_mechanism": "slow diffusion of analyst information", "estimated_purchase_cost": "> $1,950/yr", "minimum_plausible_alpha_to_justify_cost": "EXTREME_HURDLE at the paper NAV", "state": "STOPPED_BEFORE_PURCHASE (research/data_gaps/ANALYST_REVISION_VINTAGE_GAP.md)"},

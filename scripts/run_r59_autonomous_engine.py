@@ -13,6 +13,10 @@ Modes::
     --report-only       rebuild the state artifact from existing memory
     --mechanism-status  seed the closed-mechanism ledger, print the mechanism
                         frontier and write the agent checkpoint; run nothing
+    --global-frontier   reconcile every existing owner into the ONE global
+                        multi-asset frontier, write its artifact beside the
+                        checkpoint and print it (optionally render it to
+                        --global-report PATH); run nothing, write no owner store
     --continuous        the ALPHA AGENT loop for a development checkout: run a
                         session; when it stops on A or B (every remaining path
                         needs a new executor, a human gate or new information)
@@ -83,8 +87,9 @@ def _latest_commits(n: int = 12):
 
 
 def _forward_state(catalog):
-    """What the canonical registry holds for each live candidate. Read only."""
-    ids = {c.get("candidate_id") for c in (catalog or {}).get("live_candidates") or []}
+    """What the canonical registry holds - EVERY registration, not only the
+    catalog's hand-listed live candidates (which once hid the four registered
+    R58 freezes from the checkpoint). Read only."""
     reg = Path(os.environ.get(REGISTRY_DIR_ENV) or DEFAULT_REGISTRY_DIR) / "registrations"
     rows = []
     for p in sorted(reg.glob("*.json")) if reg.exists() else []:
@@ -92,7 +97,7 @@ def _forward_state(catalog):
             body = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if body.get("challenger_id") not in ids:
+        if not body.get("challenger_id"):
             continue
         ident = body.get("identity") or {}
         rows.append({
@@ -170,6 +175,10 @@ def main(argv=None) -> int:
     ap.add_argument("--skip-import", action="store_true",
                     help="do not re-run the prior-release evidence import")
     ap.add_argument("--mechanism-status", action="store_true")
+    ap.add_argument("--global-frontier", action="store_true",
+                    help="reconcile every owner into the global multi-asset frontier; run nothing")
+    ap.add_argument("--global-report", default=None,
+                    help="with --global-frontier: also render the artifact to this Markdown path")
     ap.add_argument("--continuous", action="store_true")
     ap.add_argument("--poll", type=float, default=30.0,
                     help="continuous mode: seconds between frontier checks")
@@ -194,6 +203,18 @@ def main(argv=None) -> int:
     print("R59 research root   :", r59.research_root())
 
     mem = M.open_memory()
+
+    if args.global_frontier:
+        from alpha_agent.r59 import global_frontier as GF
+        fr = GF.current(mem, catalog=MX.load_catalog())
+        path = GF.write(fr) if fr.get("state") != GF.ST_NOT_DECLARED else None
+        text = GF.render_markdown(fr)
+        print(text)
+        print("  artifact: %s" % path)
+        if args.global_report:
+            Path(args.global_report).write_text(text, encoding="utf-8")
+            print("  report  : %s" % args.global_report)
+        return 0 if fr.get("state") == GF.ST_COMPLETE else 2
 
     if args.mechanism_status:
         seeded = MX.seed_closed(mem)

@@ -224,6 +224,26 @@ def _hermetic_information_frontier(tmp_path_factory, monkeypatch) -> None:
     yield
 
 
+#: The global multi-asset frontier (``alpha_agent.r59.global_frontier``) reads the
+#: existing owners' artifacts by path - the R46 tournament, the R51 frontier and
+#: the R58/R63/R64/Alpha Recovery candidate records on the data drive. A governor
+#: test that uses the committed mechanism catalog would otherwise read the LIVE
+#: estate. The data root is redirected to a folder that does not exist: the
+#: frontier then reports BLOCKED_ESTATE_UNREADABLE and offers no mechanism, which
+#: is the exact pre-mechanism-frontier behaviour. A test that needs an estate sets
+#: the variable itself (inside the test body, which wins over this fixture).
+_GLOBAL_FRONTIER_DATA_ROOT_ENV = "PAPER_TRADER_GLOBAL_FRONTIER_DATA_ROOT"
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_global_frontier_estate(tmp_path_factory, monkeypatch) -> None:
+    """Never let the LIVE estate leak into a test through the global frontier."""
+    if not os.environ.get(_GLOBAL_FRONTIER_DATA_ROOT_ENV):
+        monkeypatch.setenv(_GLOBAL_FRONTIER_DATA_ROOT_ENV,
+                           str(tmp_path_factory.mktemp("global_frontier_hermetic") / "absent_estate"))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """

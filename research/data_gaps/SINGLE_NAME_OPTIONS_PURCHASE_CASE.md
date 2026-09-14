@@ -105,3 +105,26 @@ members, 2013-04 to 2026-09.**
   owner's priced-signature gate, then execute through the Alpha Agent.
 * **If declined:** the derivatives domain is closed at the purchase gate, and the frontier continues
   with the remaining free mechanisms.
+
+## 8. Global opportunity-cost comparison (added 2026-09-14)
+
+No purchase recommendation may be made without comparing the purchase to the global top five
+(`alpha_agent.r59.global_frontier`, artifact
+`D:\Stock_Prediction_app_data\r59_autonomous_alpha\agent\global_multi_asset_frontier.json`). This
+case was priced when the mechanism frontier could see only its own catalog. Every owner is now
+reconciled (123 of 123 candidate identities) and the verdict is **`PURCHASE_NOT_GLOBALLY_JUSTIFIED`**:
+
+| global rank | opportunity | asset class | opportunity-cost score | next action |
+|---|---|---|---|---|
+| 1 | reversed SPY near-expiry put-call skew (next open) | EQUITY_INDEX | 0.6137 | accrue TRUE_FORWARD evidence (passive, costs nothing) |
+| 2 | dated-contract FX carry (R51 challenger, R63/R64 cells, Alpha Recovery cadence) | FX | 0.4524 | human-gated forward registration |
+| 3 | merger arbitrage on all-cash targets | US_EQUITY | 0.3458 | preregister, build and execute (free) |
+| 4 | unconditional month-end ZN long (open human judgement) | RATES | 0.3391 | human-authorised preregistration on untouched 2017-2026 |
+| 5 | R39/R40 cross-asset shadows | CROSS_ASSET | 0.3043 | accrue forward evidence (passive) |
+| **8** | **this purchase** | US_EQUITY | **0.2875** | $332 purchase plus about 12 research days |
+
+The purchase loses to advancing FX carry (a free human decision) and to the free merger-arbitrage and
+rates preregistration actions. Its evidence is also the thinnest of the eight: nothing measured, no
+untouched window, no multiplicity charge, and a trading-cost hurdle of about 5 %/yr. **Recommendation
+to the human: do not buy now.** The gate stays open. The comparison is recomputed on every agent
+iteration and flips to justified only when no research action or human decision above it scores higher.

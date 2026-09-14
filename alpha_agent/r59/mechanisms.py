@@ -206,6 +206,10 @@ ST_REFUSED_DUPLICATE = "REFUSED_DUPLICATIVE"
 ST_SETTLED_CLOSED = "SETTLED_CLOSED"
 ST_SETTLED_QUALIFIED = "SETTLED_QUALIFIED_AWAITING_HUMAN_GATE"
 ST_SETTLED_HOLD = "SETTLED_HOLD"
+#: An eligible mechanism whose next action loses to a higher-value action in the
+#: global multi-asset top five (``alpha_agent.r59.global_frontier``). Deferred,
+#: never refused: it becomes issuable again the moment the frontier changes.
+ST_DEFERRED_GLOBAL = "DEFERRED_BY_GLOBAL_OPPORTUNITY_COST"
 REFUSED_STATUSES = (ST_REFUSED_GATE, ST_REFUSED_DUPLICATE)
 SETTLED_STATUSES = (ST_SETTLED_CLOSED, ST_SETTLED_QUALIFIED, ST_SETTLED_HOLD)
 
@@ -637,10 +641,33 @@ def candidates(mem: Optional[M.ResearchMemory] = None, *,
     so the mandate identity MOVES when an executor is built or re-pinned: a
     mechanism that was blocked on a missing executor becomes issuable again the
     moment it is released, without any clock and without retrying a refusal.
+
+    When the catalog declares the global reconciliation, a mechanism is offered
+    only if its next action beats every higher-value action the same research
+    capacity could take in the GLOBAL multi-asset top five; the verdict travels
+    in the payload, so a deferred mechanism re-enters the moment it flips.
     """
-    fr = frontier(mem, catalog=catalog)
+    cat = catalog if catalog is not None else load_catalog()
+    fr = frontier(mem, catalog=cat)
+    gfr = global_frontier_for(mem, cat)
     out = []
-    for r in fr["ranked"][:int(limit)]:
+    for r in fr["ranked"]:
+        if len(out) >= int(limit):
+            break
+        payload = {"source": SOURCE, "mechanism_id": r["mechanism_id"],
+                   "domain": r["domain"], "mechanism_class": r["mechanism_class"],
+                   "priority_score": r["score"]["total"],
+                   "executor_state": r["executor_state"],
+                   "executor_pin": r["executor_pin"],
+                   "catalog_entry_hash": r["catalog_entry_hash"]}
+        if gfr is not None:
+            from . import global_frontier as GF
+            cmp = GF.mechanism_comparison(gfr, r["mechanism_id"])
+            if not cmp["admitted"]:
+                continue
+            payload["global_candidate_id"] = (gfr.get("member_to_candidate") or {}).get(
+                r["mechanism_id"])
+            payload["global_verdict"] = cmp["verdict"]
         out.append({
             "asset_class": r["asset_class"],
             "family": FAMILY_PREFIX + str(r["mechanism_id"]),
@@ -648,13 +675,22 @@ def candidates(mem: Optional[M.ResearchMemory] = None, *,
             "reason": ("mechanism frontier: %s / %s priority %.4f executor %s"
                        % (r["domain"], r["mechanism_class"], r["score"]["total"],
                           r["executor_state"])),
-            "payload": {"source": SOURCE, "mechanism_id": r["mechanism_id"],
-                        "domain": r["domain"], "mechanism_class": r["mechanism_class"],
-                        "priority_score": r["score"]["total"],
-                        "executor_state": r["executor_state"],
-                        "executor_pin": r["executor_pin"],
-                        "catalog_entry_hash": r["catalog_entry_hash"]}})
+            "payload": payload})
     return out
+
+
+def global_frontier_for(mem: Optional[M.ResearchMemory],
+                        catalog: Optional[dict]) -> Optional[dict]:
+    """The global multi-asset frontier, when the catalog declares its reconciliation.
+
+    Imported lazily because ``global_frontier`` reads this module. A catalog
+    without the section (a hermetic fixture) keeps the mechanism-only behaviour
+    exactly; the committed catalog declares it, so production never skips it.
+    """
+    from . import global_frontier as GF
+    if not GF.declared(catalog):
+        return None
+    return GF.current(mem, catalog=catalog)
 
 
 def is_mechanism_mandate(mandate: Optional[dict]) -> bool:
@@ -821,6 +857,17 @@ def execute_job(mem: M.ResearchMemory, job, *, queue=None,
                                      "reason": "; ".join(a["reasons"])[:900]}
     if a["status"] in SETTLED_STATUSES:
         return AR.OUTCOME_COMPLETED, {**base, "disposition": "ALREADY_SETTLED:%s" % a["status"]}
+    gfr = global_frontier_for(mem, cat)
+    if gfr is not None:
+        from . import global_frontier as GF
+        cmp = GF.mechanism_comparison(gfr, mid)
+        if not cmp["admitted"]:
+            mem.event("MECHANISM_DEFERRED_BY_GLOBAL_OPPORTUNITY_COST", subject=mid,
+                      detail={k: cmp.get(k) for k in ("verdict", "why", "frontier_state",
+                                                      "beaten_by")})
+            return AR.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "disposition": ST_DEFERRED_GLOBAL,
+                "reason": ("DEFERRED BY THE GLOBAL MULTI-ASSET FRONTIER: %s" % cmp["why"])[:900]}
     if a["status"] == ST_HUMAN_GATE:
         return AR.OUTCOME_BLOCKED_SPECIFIC, {
             **base, "disposition": ST_HUMAN_GATE,
@@ -891,7 +938,8 @@ def _mechanism_jobs(queue) -> dict:
 
 
 def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = None,
-               context: Optional[dict] = None) -> dict:
+               context: Optional[dict] = None,
+               global_frontier: Optional[dict] = None) -> dict:
     """The resumable state of the agent, in the fields the operating brief names."""
     cat = catalog if catalog is not None else load_catalog()
     fr = frontier(mem, catalog=cat)
@@ -899,6 +947,17 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
     jobs = _mechanism_jobs(queue)
     rows = {r["mechanism_id"]: r for r in fr.get("rows") or []}
     ranked = fr.get("ranked") or []
+    gfr = global_frontier if global_frontier is not None else global_frontier_for(mem, cat)
+    GF = None
+    deferred: list = []
+    if gfr is not None:
+        from . import global_frontier as GF
+        admitted = []
+        for r in ranked:
+            cmp = GF.mechanism_comparison(gfr, r["mechanism_id"])
+            (admitted if cmp["admitted"] else deferred).append(
+                {**r, "global_opportunity_cost": cmp})
+        ranked = admitted
 
     executed = mem.list_hypotheses(generation_method=GENERATION_METHOD, limit=5000)
     qualified = [{"mechanism_id": str(h["economic_family"])[len(FAMILY_PREFIX):],
@@ -925,6 +984,17 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
                "executor_state": top["executor_state"],
                "build_order": (None if top["executor_state"] == EX_READY
                                else build_order(find(cat, top["mechanism_id"]) or {}))}
+        if top.get("global_opportunity_cost"):
+            cur["global_opportunity_cost"] = top["global_opportunity_cost"]
+    elif deferred:
+        cur = {"action": ST_DEFERRED_GLOBAL,
+               "deferred_mechanisms": [{"mechanism_id": r["mechanism_id"],
+                                        "verdict": r["global_opportunity_cost"]["verdict"],
+                                        "why": r["global_opportunity_cost"]["why"]}
+                                       for r in deferred],
+               "next_global_action": (gfr or {}).get("next_global_action"),
+               "note": "every eligible mechanism loses to a higher-value action in the global "
+                       "multi-asset top five"}
     else:
         cur = {"action": "NO_ELIGIBLE_MECHANISM",
                "note": "every declared mechanism is settled, refused or human-gated; the "
@@ -932,7 +1002,20 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
 
     gates = [{"gate": "PURCHASE", "mechanism_id": mid, "reasons": rows[mid]["reasons"]}
              for mid in (fr.get("by_status") or {}).get(ST_HUMAN_GATE, [])]
+    if GF is not None:
+        for g in gates:
+            g["global_comparison"] = GF.mechanism_comparison(gfr, g["mechanism_id"])
     gates += [{"gate": "PROSPECTIVE_REGISTRATION", **q} for q in qualified]
+    if GF is not None:
+        by_id = {c["candidate_id"]: c for c in gfr.get("candidates") or []}
+        for cid in (gfr.get("global_top_ids") or [])[:GF.TOP_N]:
+            na = by_id[cid]["next_best_action"]
+            if na.get("requires_human"):
+                gates.append({"gate": "GLOBAL_FRONTIER_HUMAN_DECISION", "candidate_id": cid,
+                              "global_rank": by_id[cid]["global_rank"],
+                              "asset_class": by_id[cid]["asset_class"], "kind": na.get("kind"),
+                              "description": na.get("description"),
+                              "human_gate": na.get("human_gate")})
 
     domains: dict = {}
     for r in fr.get("rows") or []:
@@ -990,6 +1073,11 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
         "REFUSED": [{"mechanism_id": r["mechanism_id"], "status": r["status"],
                      "reasons": r["reasons"]} for r in fr.get("rows") or []
                     if r["status"] in REFUSED_STATUSES],
+        "GLOBAL_MULTI_ASSET_FRONTIER": (GF.checkpoint_block(gfr) if GF is not None
+                                        else {"state": "NOT_DECLARED"}),
+        "DEFERRED_BY_GLOBAL_OPPORTUNITY_COST": [
+            {"mechanism_id": r["mechanism_id"], "verdict": r["global_opportunity_cost"]["verdict"],
+             "why": r["global_opportunity_cost"]["why"]} for r in deferred],
         "queue": jobs,
         "resume": "the queue and ResearchMemory are SQLite and this checkpoint is rewritten "
                   "every iteration; any session resumes by running "
@@ -1001,8 +1089,14 @@ def checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = N
 
 def write_checkpoint(mem: M.ResearchMemory, queue=None, *, catalog: Optional[dict] = None,
                      context: Optional[dict] = None) -> Path:
+    cat = catalog if catalog is not None else load_catalog()
+    gfr = global_frontier_for(mem, cat)
+    if gfr is not None:
+        from . import global_frontier as GF
+        GF.write(gfr)
     return r59.write_artifact(CHECKPOINT_NAME,
-                              checkpoint(mem, queue, catalog=catalog, context=context),
+                              checkpoint(mem, queue, catalog=cat, context=context,
+                                         global_frontier=gfr),
                               subdir=CHECKPOINT_SUBDIR)
 
 
