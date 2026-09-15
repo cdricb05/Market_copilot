@@ -593,7 +593,7 @@
    "data": {"owned": ["Norgate SPY total return", "FRED DTB3 (R36 capture)", "R46 macro lane captures of CPI and Employment Situation release calendars and initial releases", "R46 event lane capture of the FOMC calendar page"], "free_acquisition": ["federalreserve.gov fomchistorical pages 1994-2020"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.scheduled_event_equity_premium:run_mechanism", "committed_before_pin": {"implementation": "1dbcaac", "preregistration": "29d9fcd"}, "module_path": "alpha_agent/alpha_recovery/scheduled_event_equity_premium.py", "module_sha256": "6a36873f4551b807a3b6c238309863d62470d301bace787f8fb209d084085a83", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/SCHEDULED_EVENT_EQUITY_PREMIUM_PREREGISTRATION.md", "preregistration_sha256": "762c25899aae52bcdd33e1634a97fea22334b61ec7cbaa51215bccaf5638b53e"}
   }
  ],
  "global_reconciliation": {
