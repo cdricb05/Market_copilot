@@ -762,7 +762,7 @@
    "data": {"owned": ["Norgate US equities Russell 2000 Current & Past: Russell 2000 and Russell 1000 index constituent flags, total-return open and close", "Norgate US Indices $RUTTR and $SPXTR"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.russell_reconstitution_flow:run_mechanism", "committed_before_pin": {"implementation": "d4c9c56", "preregistration": "b45f679"}, "module_path": "alpha_agent/alpha_recovery/russell_reconstitution_flow.py", "module_sha256": "b723d8d79e119e0310c0e682ce51984220054f80f00ac47a7e928fc82b1e2f5f", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/INDEX_MEMBERSHIP_FORCED_FLOW_PREREGISTRATION.md", "preregistration_sha256": "697dd785958b521f30f81704aef49afd002ebf34b10e7aa28ff77e4423d24903"}
   }
  ],
  "global_reconciliation": {
