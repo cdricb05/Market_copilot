@@ -552,6 +552,48 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.merger_arbitrage_cash_deal:run_mechanism", "committed_before_pin": {"implementation": "2abd3ea", "preregistration": "a693abf"}, "module_path": "alpha_agent/alpha_recovery/merger_arbitrage_cash_deal.py", "module_sha256": "f204370a1076eb98dc80ae35b8b9e058babd39d3cb09c1ab1a314e284f1da2f7", "pinned_at": "2026-09-14", "preregistration_path": "research/preregistration/MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_PREREGISTRATION.md", "preregistration_sha256": "38ad3ca75373b0e72c0e68b093bcb5440c1615d59a78d283e0a1c3a08df97900"}
+  },
+  {
+   "mechanism_id": "SCHEDULED_EVENT_EQUITY_PREMIUM_V1",
+   "title": "Scheduled FOMC, CPI and Employment Situation sessions: the equity index earns a risk premium for holding through scheduled resolutions of uncertainty",
+   "domain": "CROSS_MARKET_LEAD_LAG",
+   "mechanism_class": "RISK_PREMIUM_TIMING",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "calendar dates and SPY session dates only: scheduled FOMC decision days after exclusions, headline CPI and Employment Situation release days, their mapping to SPY sessions and overlaps; no price, return or book was computed",
+    "fomc": {"scheduled_decision_days_per_year": "8 in every year 1994-2026 except 2020 (7)", "excluded": "conference calls, unscheduled meetings (2013-10-16, 2014-03-04, 2019-10-04, 2020-03-02, 2020-03-15), the cancelled 2020-03-17/18 meeting, notation votes", "merged": "2003-09-15 and 2003-09-16 headings -> 2003-09-16"},
+    "releases": {"headline_rule": "first ALFRED realtime_start per reference month, present on the FRED release calendar", "revision_only_fred_dates_excluded": {"CPI": 20, "EMPLOYMENT": 8}, "holiday_mapped_to_next_session": 12},
+    "independent_windows": {"PRE_FOMC": {"qualification_1994_2015": 176, "confirmation_2016_2026_08_25": 84}, "ANNOUNCEMENT_DAY": {"qualification_1994_2015": 665, "confirmation_2016_2026_08_25": 324}},
+    "share_of_sessions_held": {"PRE_FOMC": 0.0318, "ANNOUNCEMENT_DAY": 0.1245}
+   },
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "horizon_sessions": 1,
+   "model_family": "EVENT_CALENDAR_BOOK",
+   "information_objects": ["CALENDAR:SCHEDULED_FOMC_CPI_EMPLOYMENT_SESSIONS_SPY_EXCESS_RETURN_1994_2026"],
+   "semantic_tokens": ["scheduled", "fomc", "announcement"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM", "ADVANCES_LIVE_CANDIDATE_TOWARD_CAPITAL"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "Scheduled FOMC decisions and the monthly CPI and Employment Situation releases resolve systematic macroeconomic uncertainty at known times. Holding equity through those resolutions carries concentrated, non-diversifiable announcement risk, so investors require a higher return per session on those sessions (Savor and Wilson 2013; Lucca and Moench 2015). The P&L is a long SPY position held only over sessions carrying a scheduled announcement, financed at the Treasury bill rate and flat otherwise, judged against a volatility-matched passive SPY long.",
+    "WHY_MISPRICING_SHOULD_EXIST": "It is compensation rather than an error: scheduled announcement risk cannot be diversified inside the equity market, and risk-averse or capital-constrained holders cut exposure into scheduled resolutions, so the required return per unit of time is higher on those sessions than on ordinary ones.",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The schedule is public before every event and the position is entered at the close before the announcement session, carrying nothing about the announcement's content; a risk premium survives publication only if the risk persists, which is exactly what the untouched post-publication 2016-2026 window tests.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "No information advantage: a structural risk premium for bearing scheduled macroeconomic announcement risk, timed by a public schedule.",
+    "EXPECTED_HOLDING_HORIZON": "One session per event, close to close, about 8 FOMC sessions a year and about 30 sessions a year once CPI and Employment Situation sessions are added.",
+    "EXPECTED_COST_SURVIVABILITY": "One SPY round trip per independent window at 1 bp per side on full NAV: about 0.16 %/yr for FOMC sessions and about 0.6 %/yr for all announcement sessions, with a 2 bp per side survivability gate.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Gives the two frozen R46 scheduled-event forward challengers the historical evidence their forward clocks cannot supply for years: a pass makes the schedule a documented equity-index return source worth human-gated registration; a failure closes the scheduled announcement equity premium on the untouched post-publication decade and removes the candidate from the agent's queue.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on 1994-2015 against a volatility-matched passive SPY long under the canonical scorer, confirm on the untouched 2016-01-01..2026-08-25 window, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill a cell if its long-SPY announcement-session book has mean net excess return <= 0, NW t < 2.0 or annualised net below 1.5 %/yr at 1 bp per side; or its increment over a volatility-matched passive SPY long is non-positive or has NW t < 2.0; or annualised net is non-positive in either qualification half; or its maximum drawdown is worse than 1.5 times the control's; or it fails BH q=0.10 at m=6 with R32_EVENT_DRIVEN_CALENDAR (3 cells) and MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45 inherited at p=1; or annualised net at 2 bp per side is below 1.5 %/yr; or the untouched 2016-2026 confirmation has mean <= 0, NW t < 2.0, annualised net below 1.5 %/yr or a non-positive increment.",
+    "TIME_OR_DATA_BUDGET": "Two working days; owned Norgate SPY total return, owned FRED DTB3, owned R46 captures of the FRED and ALFRED CPI and Employment calendars and of the FOMC calendar page, and 27 free Federal Reserve historical FOMC pages; $0.",
+    "WHY_NOT_DUPLICATIVE": "r46_4_spx_pre_fomc_drift and r46_4_spx_announcement_day_premium are frozen FORWARD clocks of these schedules with no historical test, and their global candidate's declared next action is exactly this preregistered historical test; it measures the same frozen schedules on history those clocks can never reach and registers nothing. MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45 traded the minutes-scale direction of the reaction to the released number, not the premium for holding equity through the release. R32_EVENT_DRIVEN_CALENDAR and r46_3_spx_turn_of_month are turn-of-month, quarter-end and witching dummies and SAME_MONTH_SEASONALITY a per-name month-of-year return; none is an announcement schedule. MACRO_TIMING_LANES_R63 and MACRO_BETA_XS_STAGE15 conditioned on macro state levels and betas. r46_5_pead_announcement_return_20d is single-name earnings drift."
+   },
+   "score_inputs": {"mechanism_strength": 0.65, "unpriced_at_entry": 0.55, "adjacent_evidence": 0.40, "gross_edge": 0.45, "cost_survivability": 0.85, "pit_quality": 0.95, "effective_sample": 0.80, "survivorship_quality": 1.0, "independence": 0.55, "incremental_portfolio_value": 0.50, "live_candidate_decision_value": 0.60, "implementation_days": 2, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate SPY total return", "FRED DTB3 (R36 capture)", "R46 macro lane captures of CPI and Employment Situation release calendars and initial releases", "R46 event lane capture of the FOMC calendar page"], "free_acquisition": ["federalreserve.gov fomchistorical pages 1994-2020"], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -782,7 +824,8 @@
     "information_object": "CALENDAR:FOMC_PRE_ANNOUNCEMENT_AND_MACRO_ANNOUNCEMENT_DAYS",
     "members": [
      "r46_4_spx_pre_fomc_drift",
-     "r46_4_spx_announcement_day_premium"
+     "r46_4_spx_announcement_day_premium",
+     "SCHEDULED_EVENT_EQUITY_PREMIUM_V1"
     ],
     "closed_families": [
      "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45"
