@@ -637,6 +637,47 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.fx_month_end_hedge_rebalancing:run_mechanism", "committed_before_pin": {"implementation": "c9628c1", "preregistration": "05a74f3"}, "module_path": "alpha_agent/alpha_recovery/fx_month_end_hedge_rebalancing.py", "module_sha256": "39b5516050530e5bf6b854e5bf468d302b2c62fc6f23b5e42186906a77adc48c", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/FX_MONTH_END_EQUITY_HEDGE_REBALANCING_PREREGISTRATION.md", "preregistration_sha256": "89dc1f7e780be89f33b141b36f47f68d1b9224782cdb273c08f2989836a73ed3"}
+  },
+  {
+   "mechanism_id": "DIVIDEND_MONTH_DEMAND_PREMIUM_V1",
+   "title": "Dividend-month demand pressure: S&P 500 payers earn a premium in the calendar month they are predicted to go ex-dividend",
+   "domain": "STRUCTURAL_FLOWS_FORCED_TRADING",
+   "mechanism_class": "LIQUIDITY_PRESSURE",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "signal-only: Norgate S&P 500 Current & Past (1,897 securities, 0 load failures) membership flags, unadjusted ex-dividend dates and quote dates at each month-end formation; no holding-month return, book or control was computed",
+    "membership_rule_trap": "the last membership flag of a delisted security forward-fills past its final quote (a first census counted 936 members a month); a member must also have a close within 5 calendar days before formation, which gives 500.2 members a month",
+    "qualification_1994_2012": {"months": 228, "members_mean": 500.2, "payers_mean": 396.8, "long_mean": 127.2, "long_min": 53, "short_mean": 269.6, "short_min": 196, "flip_share": 0.633, "members_unquoted_at_holding_end": 0.0025},
+    "confirmation_2013_2026_08": {"months": 164, "members_mean": 503.6, "payers_mean": 413.1, "long_mean": 134.2, "long_min": 57, "short_mean": 278.9, "short_min": 209, "flip_share": 0.641, "members_unquoted_at_holding_end": 0.0014}
+   },
+   "asset_class": "US_EQUITY",
+   "horizon_sessions": 21,
+   "model_family": "XS_LONG_SHORT_MONTHLY",
+   "information_objects": ["NORGATE_PIT_SP500:PREDICTED_EX_DIVIDEND_MONTH_FROM_LAG_12_EX_DATES"],
+   "semantic_tokens": ["dividend", "exdividend", "payers"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "Many investors prefer to receive dividends (income mandates, retirees, dividend-focused funds, tax clienteles) and buy stocks ahead of their ex-dividend dates. A company's dividend schedule repeats every year, so the months in which a payer will go ex-dividend are predictable, and the buying pressure concentrates in those months, lifting total returns of predicted payers relative to payers not due that month before it reverses (Hartzmark and Solomon 2013). The P&L is a dollar-neutral monthly book inside point-in-time S&P 500 dividend payers: long the payers predicted to go ex-dividend this month because they did twelve months earlier, short the payers that are not.",
+    "WHY_MISPRICING_SHOULD_EXIST": "Dividend-seeking investors treat the dividend as income rather than as a transfer out of the share price, so their demand around ex-dividend dates is price-insensitive, while arbitrageurs who could lean against a predictable monthly pattern across hundreds of large stocks earn thin per-name spreads against real inventory risk.",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The prediction uses only ex-dividend dates twelve months old and index membership at the formation close, and the book is formed at that close for the next calendar month; the clientele preference is persistent, and whether the premium survived its 2013 publication is exactly what the untouched 2013-2026 confirmation tests.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "Structural: predictable, price-insensitive demand pressure from dividend-seeking clienteles around recurring ex-dividend months; no information advantage.",
+    "EXPECTED_HOLDING_HORIZON": "One calendar month, rebalanced at each month-end close.",
+    "EXPECTED_COST_SURVIVABILITY": "About two thirds of payers change side every month (census flip share 0.63), so the dollar-neutral book trades close to three times NAV a month at the 12.5 bp equity desk rate, roughly 4 %/yr of NAV, with a 25 bp stress rung; the premium must clear that.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether a US-equity demand-pressure premium independent of the incumbent's fundamental and momentum legs survives large-cap trading costs and its 2013 publication; a failure closes predictable dividend-month demand and leaves the US-equity frontier with the incumbent and the purchase-gated options mechanism.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on 1994-2012 against the same-calendar-month return seasonality book under the canonical scorer, confirm on the untouched 2013-01..2026-08 window, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill if the dollar-neutral predicted-payer book has mean net <= 0, NW t < 2.0 or annualised net below 1.5 %/yr at 12.5 bp per side; or its increment over the same-calendar-month return seasonality book has t < 2.0 or annualised mean below 1.5 %/yr; or annualised net is non-positive in either qualification half; or its maximum drawdown is worse than -20 %; or it fails BH q=0.10 at m=4 with SAME_MONTH_SEASONALITY and RETURN_SEASONALITY (2 hypotheses) inherited at p=1; or annualised net at 25 bp per side is below 1.5 %/yr; or the untouched 2013-2026 confirmation has mean <= 0, NW t < 2.0 or annualised net below 1.5 %/yr.",
+    "TIME_OR_DATA_BUDGET": "Two working days; owned Norgate US equities (S&P 500 Current & Past, 1,897 securities including delisted names): total-return closes, unadjusted ex-dividend amounts and point-in-time S&P 500 membership flags; $0.",
+    "WHY_NOT_DUPLICATIVE": "No dividend-month hypothesis exists in ResearchMemory or the repository. SAME_MONTH_SEASONALITY ranked names by their own same-calendar-month past return; this signs by a recurring ex-dividend DATE and must beat that seasonality book by construction, with the RETURN_SEASONALITY graveyard hypotheses inherited at p=1. EQUITY_INDEX_CROSS_ASSET_CARRY_R64 used index-futures dividend carry rather than single-name ex-dividend timing; R32_EVENT_DRIVEN_CALENDAR and r46_3_spx_turn_of_month are index calendar dummies; SP500_INDEX_ADDITION_DELETION traded membership changes; SHORT_HORIZON_REVERSAL_GAP_FADE traded daily price reversals; MICROSTRUCTURE_ORDER_FLOW read intraday order flow."
+   },
+   "score_inputs": {"mechanism_strength": 0.55, "unpriced_at_entry": 0.45, "adjacent_evidence": 0.25, "gross_edge": 0.35, "cost_survivability": 0.35, "pit_quality": 0.95, "effective_sample": 0.85, "survivorship_quality": 0.95, "independence": 0.75, "incremental_portfolio_value": 0.60, "live_candidate_decision_value": 0.0, "implementation_days": 2, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate US equities S&P 500 Current & Past: total return, unadjusted Dividend column, S&P 500 index constituent flags"], "free_acquisition": [], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -985,6 +1026,56 @@
      "human_gate": null
     },
     "data_requirement": "owned Norgate FX, ES and international equity-index futures with _CCB; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_DIVIDEND_MONTH_DEMAND",
+    "title": "Dividend-month demand pressure: S&P 500 payers in the calendar month they are predicted to go ex-dividend",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "LIQUIDITY_PRESSURE",
+    "information_object": "NORGATE_PIT_SP500:PREDICTED_EX_DIVIDEND_MONTH_FROM_LAG_12_EX_DATES",
+    "members": [
+     "DIVIDEND_MONTH_DEMAND_PREMIUM_V1"
+    ],
+    "closed_families": [
+     "SAME_MONTH_SEASONALITY",
+     "SHORT_HORIZON_REVERSAL_GAP_FADE"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate: no dividend-month hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first after verdicts 1 and 2 of ALPHA_STRIKE_SEP15_V2 left the global frontier with no agent-executable action (Hartzmark and Solomon 2013). SAME_MONTH_SEASONALITY, the closest closed family, is controlled for by construction.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#DIVIDEND_MONTH_DEMAND_PREMIUM_V1",
+      "research/preregistration/DIVIDEND_MONTH_DEMAND_PREMIUM_PREREGISTRATION.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.2,
+     "rationale": "a dollar-neutral book that only times WHEN known payers go ex-dividend is independent of the incumbent's fundamental and momentum legs and trades the most liquid stocks; but the premium was published in 2013, large caps show smaller effects, and roughly half the payer book changes side every month at the 12.5 bp desk cost"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Execute the preregistered one-cell test on owned Norgate point-in-time S&P 500 total return and ex-dividend dates: qualification 1994-2012 with an increment over the same-calendar-month return seasonality book, untouched 2013-01..2026-08 confirmation after publication.",
+     "research_days": 2,
+     "data_cost_usd": 0,
+     "information_gain": 0.4,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate US equities total return, ex-dividend dates and S&P 500 membership including delisted names; no purchase"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
