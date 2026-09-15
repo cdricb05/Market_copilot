@@ -1141,10 +1141,11 @@
      "MACHINE_REPRESENTATION_SEARCH"
     ],
     "historical": {
-     "summary": "Never tested in the estate: no composite of frozen sleeves exists in ResearchMemory or the repository (sweep 2026-09-15). Declared by ALPHA_COMPOSITE_STRIKE_SEP15_V1 after three NO_EDGE verdicts. The frozen inventory over the canonical frontier found two eligible sleeves (SPY reversed skew, dated-contract FX carry) against a minimum of three.",
+     "summary": "Executed 2026-09-15 (ALPHA_COMPOSITE_STRIKE_SEP15_V1, verdict 1): DATA_HOLD at gate 1. The executor re-derived the sleeve inventory from the canonical global frontier and found exactly the preregistered eligible set - SPY reversed put-call skew (EQUITY_INDEX, sign found post hoc, 5-session periods from 2022-09) and dated-contract FX carry (FX) - two sleeves and two mechanism classes against a frozen minimum of three. Every other ranked candidate is closed on its own evidence, never tested, paid, the incumbent or in the closed price-state class. No return path was loaded and no composite return exists.",
      "evidence": [
-      "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_PREREGISTRATION.md",
-      "D:/Stock_Prediction_app_data/r59_autonomous_alpha/agent/global_multi_asset_frontier.json"
+      "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/orthogonal_multi_asset_alpha_composite.json",
+      "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_PREREGISTRATION.md"
      ],
      "net_after_cost_pa": null,
      "t_stat": null,
