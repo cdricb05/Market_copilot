@@ -1235,20 +1235,21 @@
      "MONTH_END_BALANCED_REBALANCING_FLOW_V1"
     ],
     "historical": {
-     "summary": "Never tested in the estate: no Russell reconstitution hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first by ALPHA_COMPOSITE_STRIKE_SEP15_V1 as the first structural forced-flow mechanism after the composite DATA_HOLD (Madhavan 2003; Petajisto 2011). The S&P 500 committee-change family closed on cost at 5 and 63 sessions.",
+     "summary": "Executed 2026-09-15 (ALPHA_COMPOSITE_STRIKE_SEP15_V1, verdict 2): NO_EDGE at the frozen sign. On the 22 Russell 2000 reconstitutions 1991-2012 (11,129 point-in-time securities including delisted names, at least 139 tradeable names per leg) the post-effective book long deletions / short additions earned +0.02 % per event gross (NW t -0.03): both legs fell about 1.45 % over the 20 sessions. At 3.97 x NAV turnover per event and 25 bp per side it lost 0.97 %/yr (t -1.08, maximum drawdown -29.6 %). The untouched 2013-2026 confirmation was not read.",
      "evidence": [
-      "research/alpha_agent/MECHANISM_FRONTIER.json#INDEX_MEMBERSHIP_FORCED_FLOW_V1",
+      "research/preregistration/INDEX_MEMBERSHIP_FORCED_FLOW_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/index_membership_forced_flow.json",
       "research/preregistration/INDEX_MEMBERSHIP_FORCED_FLOW_PREREGISTRATION.md"
      ],
-     "net_after_cost_pa": null,
-     "t_stat": null,
+     "net_after_cost_pa": -0.0097,
+     "t_stat": -1.08,
      "increment_pa": null,
      "increment_t": null,
-     "increment_control": "Russell 2000 and S&P 500 total-return indices (declared kill rule)",
+     "increment_control": "Russell 2000 and S&P 500 total-return indices (not reached: killed at the frozen sign)",
      "untouched_confirmation": "NONE",
      "multiplicity": "NOT_RUN",
-     "max_drawdown": null,
-     "cost_survives_2x": null,
+     "max_drawdown": -0.296,
+     "cost_survives_2x": false,
      "pit": "PIT_TRUE"
     },
     "judgement": {
