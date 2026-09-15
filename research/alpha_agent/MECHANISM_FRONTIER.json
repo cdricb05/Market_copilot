@@ -763,6 +763,53 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.russell_reconstitution_flow:run_mechanism", "committed_before_pin": {"implementation": "d4c9c56", "preregistration": "b45f679"}, "module_path": "alpha_agent/alpha_recovery/russell_reconstitution_flow.py", "module_sha256": "b723d8d79e119e0310c0e682ce51984220054f80f00ac47a7e928fc82b1e2f5f", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/INDEX_MEMBERSHIP_FORCED_FLOW_PREREGISTRATION.md", "preregistration_sha256": "697dd785958b521f30f81704aef49afd002ebf34b10e7aa28ff77e4423d24903"}
+  },
+  {
+   "mechanism_id": "SPINOFF_PARENT_HOLDER_FORCED_SELLING_V1",
+   "title": "Spin-off parent-holder forced selling: spincos recover after the parent's index funds and mandate-bound holders sell the shares they were handed",
+   "domain": "STRUCTURAL_FLOWS_FORCED_TRADING",
+   "mechanism_class": "FORCED_TRADING_FLOW",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "identity only, two rounds: EDGAR Form 10-12B index rows, filing text, submissions-record names, Norgate symbols, names and first-quote DATES; no price change, return, book or control was computed",
+    "filings": "2,539 Form 10-12B and 10-12B/A filings by 776 CIKs 1996Q1-2026Q3; 100 % parsed; 292 deep reads; 776 submissions records",
+    "round_1_repairs": "a bare 'plan of reorganization' (Section 368 boilerplate) and a bare 'blank check' (blank check preferred stock) excluded 187 real spin-offs; defined-term spin-offs were missed; symbol-only linking reached 52 % and linked parents or siblings",
+    "distribution_registrants": 495,
+    "link_states": {"SYMBOL": 258, "NAME": 116, "NAME_AMBIGUOUS": 24, "UNCONFIRMED_SYMBOL": 4, "SYMBOL_AMBIGUOUS": 2, "NO_NAME_KEY": 1, "NO_QUOTE_IN_WINDOW": 90},
+    "no_new_security_in_window": {"continuing_older_security": 77, "absent_from_norgate": 9, "only_later_security": 4},
+    "identity_resolution": "374 / 405 = 0.923 (gate 0.85, set before the first census)",
+    "raw_coverage": "374 / 495 = 0.756 (reported, not gated)",
+    "events": {"qualification_1996_2012": 168, "h1_1996_2004": 98, "h2_2005_2012": 70, "confirmation_2013_2026": 206},
+    "audit": "60 random events read: 1 wrong link (U S Bioscience -> PURE Bioscience, NAME on BIOSCIENCE), kept"
+   },
+   "asset_class": "US_EQUITY",
+   "horizon_sessions": 126,
+   "model_family": "EVENT_SLOT_BOOK_HEDGED_126_SESSIONS",
+   "information_objects": ["EDGAR_FORM_10_12B:PRO_RATA_DISTRIBUTION_REGISTRANTS_LINKED_TO_FIRST_QUOTE"],
+   "semantic_tokens": ["spinoff", "spinco", "distribution"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "When a parent distributes a subsidiary pro rata, its holders receive shares they never chose: index funds whose benchmark excludes the spinco, income funds when the spinco pays no dividend, and managers whose size, sector or style mandate rules it out must sell in the first weeks of regular-way trading, whatever the price. That selling depresses the spinco below value and it recovers once the forced sellers are done. The P&L is a slot book: each spin-off registrant linked to its first quote is bought at the open of its 21st quoted session and held 126 sessions in a 2 % NAV slot hedged with the Russell 3000 total-return index.",
+    "WHY_MISPRICING_SHOULD_EXIST": "The selling is mechanical and concentrated in a stock with no trading history, no analyst coverage and no natural holder base, while the capital that could absorb it must research a new company from scratch, so the price clears below value for weeks (Cusatis, Miles and Woolridge 1993; McConnell and Ovtchinnikov 2004; Abarbanell, Bushee and Raedy 2003 on institutional selling of spincos).",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "Entry waits until the 21st quoted session, after the when-issued market and the first weeks of forced selling, and uses only filings dated on or before entry, so the book buys the depressed spinco rather than the pre-listing value; whether the recovery survived its publication is what the untouched 2013-2026 confirmation tests.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "Structural: mechanically induced corporate-action selling by holders who cannot or will not hold the distributed shares; no information advantage.",
+    "EXPECTED_HOLDING_HORIZON": "126 sessions (about six months) from the open of the 21st quoted session of each spinco.",
+    "EXPECTED_COST_SURVIVABILITY": "One round trip per spin-off at the 25 bp per side small and mid-cap rate plus 1 bp on the index hedge is about 0.5 % per event, against published six-month spinco abnormal returns of several percent; a 50 bp stress rung doubles the cost.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether mechanically induced corporate-action selling leaves an after-cost recovery a point-in-time book can harvest; a failure closes spin-off forced selling beside the index-membership flow families and completes the third forced-flow verdict of the strike.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on spincos entered 1996-2012 against the Russell 2000 and S&P 500 total-return indices under the canonical scorer, confirm on the untouched 2013-2026 entries, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill if the slot book (2 % NAV per linked Form 10-12B spin-off, long the spinco from the open of its 21st quoted session for 126 sessions, short the Russell 3000 total-return index) has annualised net <= 0, NW t < 2.0 or annualised net below 1.5 %/yr at 25 bp per side; or its increment over the Russell 2000 and S&P 500 total-return indices has t < 2.0 or annualised alpha below 1.5 %/yr; or annualised net is non-positive in either qualification half; or its maximum drawdown is worse than -20 %; or it fails BH q=0.10 at m=4 with S14-B1, S14-B2 and INDEX_MEMBERSHIP_FORCED_FLOW_V1 inherited at p=1; or annualised net at 50 bp per side is below 1.5 %/yr; or the untouched 2013-2026 confirmation has annualised net <= 0, NW t < 2.0 or annualised net below 1.5 %/yr.",
+    "TIME_OR_DATA_BUDGET": "Two working days; free public EDGAR quarterly full-index Form 10-12B and 10-12B/A rows 1996-2026 with the head (and, where needed, a 2 MB deep read) of each filing through the canonical SEC collector, plus owned Norgate US equities including delisted names (symbols, names, first quotes, total-return opens and closes) and the $RUATR, $RUTTR and $SPXTR indices; $0.",
+    "WHY_NOT_DUPLICATIVE": "No spin-off hypothesis exists in ResearchMemory or the repository. SP500_INDEX_ADDITION_DELETION and INDEX_MEMBERSHIP_FORCED_FLOW_V1 traded changes in the membership of existing index constituents, and INDEX_MEMBERSHIP_FORCED_FLOW_V1 is inherited at p=1; this trades a newly created security distributed to holders who did not choose it, identified from its own Form 10 registration. MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1 harvested a deal-completion spread on announced acquisitions and EVENT_8K_ITEM_CODES scored filing items as signals; neither involves a distribution of new shares."
+   },
+   "score_inputs": {"mechanism_strength": 0.65, "unpriced_at_entry": 0.45, "adjacent_evidence": 0.30, "gross_edge": 0.45, "cost_survivability": 0.75, "pit_quality": 0.80, "effective_sample": 0.55, "survivorship_quality": 0.85, "independence": 0.75, "incremental_portfolio_value": 0.60, "live_candidate_decision_value": 0.0, "implementation_days": 2, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate US equities and US equities delisted: symbols, names, first quoted dates, total-return open and close", "Norgate US Indices $RUATR, $RUTTR, $SPXTR"], "free_acquisition": ["SEC EDGAR quarterly full-index master.zip Form 10-12B and 10-12B/A rows 1996Q1-2026Q3", "Form 10-12B filing heads (256 KB) and deep reads (2 MB)", "EDGAR data.sec.gov submissions records (current and former names) of every Form 10-12B registrant"], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -1267,6 +1314,57 @@
      "human_gate": null
     },
     "data_requirement": "owned Norgate Russell 2000 Current & Past membership flags and total-return prices including delisted names, and the $RUTTR and $SPXTR indices; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_SPINOFF_FORCED_SELLING",
+    "title": "Spin-off parent-holder forced selling: spincos recover after the parent's index funds and mandate-bound holders sell",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "FORCED_TRADING_FLOW",
+    "information_object": "EDGAR_FORM_10_12B:PRO_RATA_DISTRIBUTION_REGISTRANTS_LINKED_TO_FIRST_QUOTE",
+    "members": [
+     "SPINOFF_PARENT_HOLDER_FORCED_SELLING_V1"
+    ],
+    "closed_families": [
+     "SP500_INDEX_ADDITION_DELETION",
+     "INDEX_MEMBERSHIP_FORCED_FLOW_V1",
+     "MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate: no spin-off hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first by ALPHA_COMPOSITE_STRIKE_SEP15_V1 as the third structural forced-flow mechanism after the Russell reconstitution NO_EDGE (Cusatis, Miles and Woolridge 1993; McConnell and Ovtchinnikov 2004). The owned R63 submissions store is S&P-selected, so the universe comes from EDGAR's full Form 10-12B index.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#SPINOFF_PARENT_HOLDER_FORCED_SELLING_V1",
+      "research/preregistration/SPINOFF_PARENT_HOLDER_FORCED_SELLING_PREREGISTRATION.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "Russell 2000 and S&P 500 total-return indices (declared kill rule); Russell 3000 hedge inside the book",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.6,
+     "probability_alive": 0.3,
+     "rationale": "a hedged book of newly distributed companies is independent of the incumbent and of every futures sleeve and needs no shorting of small names, but the spin-off anomaly is widely published, a dedicated ETF has traded it since 2006, and identity linking from filings to delisted securities can lose renamed names"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Execute the preregistered one-cell test: EDGAR Form 10-12B distribution registrants linked point-in-time to Norgate first quotes, bought at the 21st quoted session and held 126 sessions against the Russell 3000; qualification on 1996-2012 entries with an increment over the Russell 2000 and S&P 500, untouched 2013-2026 confirmation.",
+     "research_days": 2,
+     "data_cost_usd": 0,
+     "information_gain": 0.4,
+     "human_gate": null
+    },
+    "data_requirement": "free EDGAR Form 10-12B index and filing reads through the canonical SEC collector, owned Norgate US equities including delisted names and the $RUATR, $RUTTR and $SPXTR indices; no purchase"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
