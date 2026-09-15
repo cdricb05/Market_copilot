@@ -953,20 +953,21 @@
      "FX_CARRY"
     ],
     "historical": {
-     "summary": "Never tested in the estate. Declared mechanism-first on 2026-09-15 after verdict 1 left the global frontier with no agent-executable action (Melvin and Prins 2015): benchmark-mandated currency hedge adjustments at the month-end fix, sized by the month-to-date foreign-minus-US equity return. The equity-bond month-end flow (MONTH_END_BALANCED_REBALANCING_FLOW_V1) is a different flow and asset and closed NO_EDGE.",
+     "summary": "Executed 2026-09-15 (ALPHA_STRIKE_SEP15_V2, verdict 2): NO_EDGE at the frozen sign. On 2000-2014 (180 month-end fix sessions) the signed CME euro, yen, Swiss franc and Canadian dollar basket earned -0.51 %/yr gross (t -0.38, hit rate 51.7 %) and -3.83 %/yr at the R38 3 bp cost (t -2.81, Sharpe -0.72, maximum drawdown -46.7 %); every currency was negative after cost. The untouched 2015-2026 confirmation was not read.",
      "evidence": [
-      "research/alpha_agent/MECHANISM_FRONTIER.json#FX_MONTH_END_EQUITY_HEDGE_REBALANCING_V1",
+      "research/preregistration/FX_MONTH_END_EQUITY_HEDGE_REBALANCING_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/fx_month_end_equity_hedge_rebalancing.json",
       "research/preregistration/FX_MONTH_END_EQUITY_HEDGE_REBALANCING_PREREGISTRATION.md"
      ],
-     "net_after_cost_pa": null,
-     "t_stat": null,
+     "net_after_cost_pa": -0.0383,
+     "t_stat": -2.81,
      "increment_pa": null,
      "increment_t": null,
-     "increment_control": "none measured",
+     "increment_control": "unconditional month-end dollar basket (not reached: killed at the frozen sign)",
      "untouched_confirmation": "NONE",
      "multiplicity": "NOT_RUN",
-     "max_drawdown": null,
-     "cost_survives_2x": null,
+     "max_drawdown": -0.467,
+     "cost_survives_2x": false,
      "pit": "PIT_MARKET_OBSERVABLE"
     },
     "judgement": {

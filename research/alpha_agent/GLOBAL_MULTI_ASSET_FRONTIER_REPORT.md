@@ -6,7 +6,7 @@ Rendered from `global_multi_asset_frontier.json` (alpha_agent.r59.global_frontie
 
 > If all research capacity and investable capital were uncommitted today, where across all asset classes is the strongest after-cost P&L opportunity?
 
-Owner identities reconciled: 124 claimed of 124 held; unreconciled 0; owner conflicts 0; invalid declarations 0.
+Owner identities reconciled: 125 claimed of 125 held; unreconciled 0; owner conflicts 0; invalid declarations 0.
 
 ## GLOBAL TOP 10
 
