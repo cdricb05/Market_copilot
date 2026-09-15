@@ -1334,20 +1334,21 @@
      "MERGER_ARBITRAGE_CASH_DEAL_TARGET_SPREAD_V1"
     ],
     "historical": {
-     "summary": "Never tested in the estate: no spin-off hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first by ALPHA_COMPOSITE_STRIKE_SEP15_V1 as the third structural forced-flow mechanism after the Russell reconstitution NO_EDGE (Cusatis, Miles and Woolridge 1993; McConnell and Ovtchinnikov 2004). The owned R63 submissions store is S&P-selected, so the universe comes from EDGAR's full Form 10-12B index.",
+     "summary": "Executed 2026-09-15 (ALPHA_COMPOSITE_STRIKE_SEP15_V1, verdict 3): NO_EDGE at the untouched confirmation. On 168 spincos entered 1996-2012 (EDGAR Form 10-12B distribution registrants linked point-in-time to Norgate, 92 % identity resolution) the hedged slot book passed every qualification gate: +2.31 %/yr net at 25 bp, Sharpe 0.82, NW t 3.42, maximum drawdown -6.6 %, increment over the Russell 2000 and S&P 500 +2.65 %/yr (t 3.91), both halves positive, BH p 0.0003, +2.21 %/yr at 50 bp; mean six-month event excess +11.7 %. On the untouched 2013-2026 entries (206 spincos) it earned +0.50 %/yr (t 0.59, Sharpe 0.16, drawdown -12.3 %), mean event excess +1.7 %: the premium did not survive publication.",
      "evidence": [
-      "research/alpha_agent/MECHANISM_FRONTIER.json#SPINOFF_PARENT_HOLDER_FORCED_SELLING_V1",
+      "research/preregistration/SPINOFF_PARENT_HOLDER_FORCED_SELLING_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/spinoff_parent_holder_forced_selling.json",
       "research/preregistration/SPINOFF_PARENT_HOLDER_FORCED_SELLING_PREREGISTRATION.md"
      ],
-     "net_after_cost_pa": null,
-     "t_stat": null,
-     "increment_pa": null,
-     "increment_t": null,
-     "increment_control": "Russell 2000 and S&P 500 total-return indices (declared kill rule); Russell 3000 hedge inside the book",
-     "untouched_confirmation": "NONE",
-     "multiplicity": "NOT_RUN",
-     "max_drawdown": null,
-     "cost_survives_2x": null,
+     "net_after_cost_pa": 0.0231,
+     "t_stat": 3.42,
+     "increment_pa": 0.0265,
+     "increment_t": 3.91,
+     "increment_control": "Russell 2000 and S&P 500 total-return indices (qualification); Russell 3000 hedge inside the book",
+     "untouched_confirmation": "FAILED",
+     "multiplicity": "PASS",
+     "max_drawdown": -0.066,
+     "cost_survives_2x": true,
      "pit": "PIT_TRUE"
     },
     "judgement": {
