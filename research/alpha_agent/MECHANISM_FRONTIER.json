@@ -1045,20 +1045,21 @@
      "SHORT_HORIZON_REVERSAL_GAP_FADE"
     ],
     "historical": {
-     "summary": "Never tested in the estate: no dividend-month hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first after verdicts 1 and 2 of ALPHA_STRIKE_SEP15_V2 left the global frontier with no agent-executable action (Hartzmark and Solomon 2013). SAME_MONTH_SEASONALITY, the closest closed family, is controlled for by construction.",
+     "summary": "Executed 2026-09-15 (ALPHA_STRIKE_SEP15_V2, verdict 3): NO_EDGE at the frozen sign. On 1994-2012 (228 months, point-in-time S&P 500 payers including delisted names) the dollar-neutral predicted-payer book earned +1.03 %/yr gross (t 1.28, hit rate 57.5 %) but traded 3.0 x NAV a month, so at the 12.5 bp desk cost it lost 3.54 %/yr (t -4.42, Sharpe -1.01, maximum drawdown -50.8 %). The untouched 2013-2026 confirmation was not read.",
      "evidence": [
-      "research/alpha_agent/MECHANISM_FRONTIER.json#DIVIDEND_MONTH_DEMAND_PREMIUM_V1",
+      "research/preregistration/DIVIDEND_MONTH_DEMAND_PREMIUM_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/dividend_month_demand_premium.json",
       "research/preregistration/DIVIDEND_MONTH_DEMAND_PREMIUM_PREREGISTRATION.md"
      ],
-     "net_after_cost_pa": null,
-     "t_stat": null,
+     "net_after_cost_pa": -0.0354,
+     "t_stat": -4.42,
      "increment_pa": null,
      "increment_t": null,
-     "increment_control": "none measured",
+     "increment_control": "same-calendar-month return seasonality book (not reached: killed at the frozen sign)",
      "untouched_confirmation": "NONE",
      "multiplicity": "NOT_RUN",
-     "max_drawdown": null,
-     "cost_survives_2x": null,
+     "max_drawdown": -0.508,
+     "cost_survives_2x": false,
      "pit": "PIT_TRUE"
     },
     "judgement": {
