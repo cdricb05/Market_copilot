@@ -719,7 +719,7 @@
    "data": {"owned": ["canonical global multi-asset frontier artifact", "Alpha Recovery cadence FX carry path and options surface SPY skew path", "FRED DTB3 (R36 acquisition)", "Norgate SPY total return"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.orthogonal_composite:run_mechanism", "committed_before_pin": {"implementation": "e76850f", "preregistration": "69d267f"}, "module_path": "alpha_agent/alpha_recovery/orthogonal_composite.py", "module_sha256": "7bac664db5b1edb59ab675a131cbeadb6df640372e8f272d0e726c033d6dd2bf", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_PREREGISTRATION.md", "preregistration_sha256": "5cd4858f79f25c3a4b79f70f9cd26a9f340812f43dd965ba3033cb1b6b18fc24"}
   }
  ],
  "global_reconciliation": {
