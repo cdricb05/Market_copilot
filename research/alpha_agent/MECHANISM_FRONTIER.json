@@ -594,6 +594,49 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.scheduled_event_equity_premium:run_mechanism", "committed_before_pin": {"implementation": "1dbcaac", "preregistration": "29d9fcd"}, "module_path": "alpha_agent/alpha_recovery/scheduled_event_equity_premium.py", "module_sha256": "6a36873f4551b807a3b6c238309863d62470d301bace787f8fb209d084085a83", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/SCHEDULED_EVENT_EQUITY_PREMIUM_PREREGISTRATION.md", "preregistration_sha256": "762c25899aae52bcdd33e1634a97fea22334b61ec7cbaa51215bccaf5638b53e"}
+  },
+  {
+   "mechanism_id": "FX_MONTH_END_EQUITY_HEDGE_REBALANCING_V1",
+   "title": "Month-end currency hedge rebalancing by international equity holders: the currency of the equity market that outperformed month to date is sold into the month-end fix",
+   "domain": "STRUCTURAL_FLOWS_FORCED_TRADING",
+   "mechanism_class": "FORCED_TRADING_FLOW",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "signal-only: CME session dates and the month-to-date roll-free return of each foreign equity-index future minus that of ES at the signal close; no currency return, window return or book was computed",
+    "calendar": "sessions on which ES, 6E, 6J, 6S and 6C all trade: 6,956 sessions 1999-01-04..2026-09-14",
+    "months": {"qualification_2000_2014": 180, "confirmation_2015_2026_08": 140, "quarter_end_qualification": 60, "months_with_at_least_3_finite_pairs": "180 of 180 and 140 of 140"},
+    "signal_median_abs_qualification": {"EUR": 0.0177, "JPY": 0.0294, "CHF": 0.0185, "CAD": 0.0179},
+    "signal_pairwise_correlation_range": {"qualification": [0.12, 0.45], "confirmation": [0.09, 0.55]},
+    "entry_to_exit_calendar_days": {"1": 148, "2": 5, "3": 25, "4": 2}
+   },
+   "asset_class": "FX_FUTURES",
+   "horizon_sessions": 1,
+   "model_family": "FX_BASKET_WINDOW",
+   "information_objects": ["NORGATE_FUTURES:MONTH_TO_DATE_FOREIGN_MINUS_US_EQUITY_RETURN_FX_FIX_WINDOW"],
+   "semantic_tokens": ["hedge", "fix", "currency"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "International equity investors hedge a fixed share of their foreign equity holdings with currency forwards and reset those hedges at the month-end WM/Refinitiv 4 pm London fix. When a foreign equity market outperforms the US in local terms over the month, US holders of that market must sell more of its currency and foreign holders of US equity need fewer dollar sales, so the dollar is bid against that currency into the fix, and the reverse after the US outperforms (Melvin and Prins 2015). The P&L is a basket of CME euro, yen, Swiss franc and Canadian dollar futures, each signed against its market's month-to-date equity return relative to the S&P 500 and held over the last session of the month.",
+    "WHY_MISPRICING_SHOULD_EXIST": "Hedge ratios are mandated, the adjustment is executed at one benchmark fix regardless of price, and its size scales with a relative equity return everyone can observe, so liquidity providers who absorb the concentrated flow demand a concession.",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The relative equity return is measured at the close three sessions before month end and the basket is entered at the next close, so the forecast uses realised prices only; the flow is a benchmark-mandated hedge adjustment rather than an information trade and recurs every month whether or not it is anticipated. The 2015 fix reform and the publication are exactly what the untouched 2015-2026 confirmation tests.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "Structural, mandate-driven currency hedge rebalancing pressure at a benchmark fix; no information advantage.",
+    "EXPECTED_HOLDING_HORIZON": "One session a month: from the close two sessions before month end to the close of the last session, which contains the 4 pm London fix.",
+    "EXPECTED_COST_SURVIVABILITY": "Four FX futures legs once a month at the R38 FX_FUTURE cost of 3 bp per side with a 6 bp stress rung; at one unit of 10 % volatility per currency the round trips cost roughly 3 %/yr of NAV, which the signed fix move must beat.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether benchmark-mandated currency hedge rebalancing is a tradable FX return source independent of carry and momentum, the estate's only FX candidates; a failure closes month-end hedge flow in currencies after the equity-bond month-end flow already closed.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on 2000-2014 under the canonical scorer against the unconditional month-end dollar basket, confirm on the untouched 2015-01..2026-08 window after the fix reform, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill if the signed currency basket has mean net <= 0, NW t < 2.0 or annualised net below 1.5 %/yr at 3 bp per side per leg; or its increment over the unconditional month-end dollar basket has t < 2.0 or annualised mean below 1.5 %/yr; or annualised net is non-positive in either qualification half or in any leave-one-currency-out basket; or its maximum drawdown is worse than 1.5 times the unconditional basket's; or it fails BH q=0.10 at m=5 with MONTH_END_BALANCED_REBALANCING_FLOW_V1 and R32_EVENT_DRIVEN_CALENDAR (3 cells) inherited at p=1; or annualised net at 6 bp per side is below 1.5 %/yr; or the untouched 2015-2026 confirmation has mean <= 0, NW t < 2.0 or annualised net below 1.5 %/yr.",
+    "TIME_OR_DATA_BUDGET": "Two working days; owned Norgate CME 6E, 6J, 6S, 6C and ES, Eurex FESX and FSMI, CME NKD and Montreal SXF futures with their _CCB companions, and FXE and FXY total return for validation; $0.",
+    "WHY_NOT_DUPLICATIVE": "MONTH_END_BALANCED_REBALANCING_FLOW_V1 signed an equity-versus-bond futures spread against balanced funds' asset-allocation rebalancing; this trades currencies against the hedge-ratio maintenance of international equity holders at the WM/R fix, a different flow, a different signed quantity (foreign minus US equity month to date) and a different traded asset. R32_EVENT_DRIVEN_CALENDAR, SAME_MONTH_SEASONALITY and r46_3_spx_turn_of_month are unsigned month-end or month-of-year dummies. FX_CARRY and r51_fx_xs_carry_cip rank currencies by interest differentials, INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE timed FX by its own past return, CROSS_MARKET_PREDICTION_R33_R34 pooled price predictors, and MICROSTRUCTURE_ORDER_FLOW and FUTURES_INTRADAY_8_FAMILIES read intraday order flow; none signs a currency by the month-to-date equity performance that sizes the hedge adjustment."
+   },
+   "score_inputs": {"mechanism_strength": 0.55, "unpriced_at_entry": 0.40, "adjacent_evidence": 0.25, "gross_edge": 0.35, "cost_survivability": 0.55, "pit_quality": 1.0, "effective_sample": 0.75, "survivorship_quality": 1.0, "independence": 0.85, "incremental_portfolio_value": 0.70, "live_candidate_decision_value": 0.0, "implementation_days": 2, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate CME FX futures 6E, 6J, 6S, 6C and ES with _CCB", "Norgate FESX, FSMI, NKD and SXF index futures with _CCB", "Norgate FXE and FXY total return"], "free_acquisition": [], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -889,6 +932,58 @@
      ]
     },
     "closed_reason": "the scheduled announcement premium is real on 1994-2015 but holding SPY only over announcement sessions did not beat holding SPY at the same risk; claimed apart from the R46 forward clocks because an open candidate may not hold a settled-closed mechanism while its clocks run"
+   },
+   {
+    "candidate_id": "GC_FX_MONTH_END_EQUITY_HEDGE_FIX_FLOW",
+    "title": "Month-end currency hedge rebalancing of international equity holdings at the WM/R fix",
+    "disposition": "OPEN",
+    "asset_class": "FX",
+    "information_asset_classes": [
+     "FX",
+     "EQUITY_INDEX"
+    ],
+    "mechanism_class": "FORCED_TRADING_FLOW",
+    "information_object": "NORGATE_FUTURES:MONTH_TO_DATE_FOREIGN_MINUS_US_EQUITY_RETURN_FX_FIX_WINDOW",
+    "members": [
+     "FX_MONTH_END_EQUITY_HEDGE_REBALANCING_V1"
+    ],
+    "closed_families": [
+     "MONTH_END_BALANCED_REBALANCING_FLOW_V1",
+     "R32_EVENT_DRIVEN_CALENDAR",
+     "FX_CARRY"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate. Declared mechanism-first on 2026-09-15 after verdict 1 left the global frontier with no agent-executable action (Melvin and Prins 2015): benchmark-mandated currency hedge adjustments at the month-end fix, sized by the month-to-date foreign-minus-US equity return. The equity-bond month-end flow (MONTH_END_BALANCED_REBALANCING_FLOW_V1) is a different flow and asset and closed NO_EDGE.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#FX_MONTH_END_EQUITY_HEDGE_REBALANCING_V1",
+      "research/preregistration/FX_MONTH_END_EQUITY_HEDGE_REBALANCING_PREREGISTRATION.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "none measured",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.8,
+     "liquidity_capacity": 0.9,
+     "probability_alive": 0.2,
+     "rationale": "a one-session currency basket signed by equity performance is independent of carry, momentum and every equity signal the estate holds, and CME major FX futures are deep; but the fix flow has been published, front-run by bank month-end estimates and reshaped by the 2015 fix reform, and the equity-bond month-end flow already earned nothing"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Execute the preregistered one-cell test on owned Norgate FX and equity-index futures: qualification 2000-2014 against the unconditional month-end dollar basket, untouched 2015-01..2026-08 confirmation after the fix reform.",
+     "research_days": 2,
+     "data_cost_usd": 0,
+     "information_gain": 0.4,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate FX, ES and international equity-index futures with _CCB; no purchase"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
