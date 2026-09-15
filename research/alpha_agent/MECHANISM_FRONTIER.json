@@ -809,7 +809,7 @@
    "data": {"owned": ["Norgate US equities and US equities delisted: symbols, names, first quoted dates, total-return open and close", "Norgate US Indices $RUATR, $RUTTR, $SPXTR"], "free_acquisition": ["SEC EDGAR quarterly full-index master.zip Form 10-12B and 10-12B/A rows 1996Q1-2026Q3", "Form 10-12B filing heads (256 KB) and deep reads (2 MB)", "EDGAR data.sec.gov submissions records (current and former names) of every Form 10-12B registrant"], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.spinoff_forced_selling:run_mechanism", "committed_before_pin": {"implementation": "3b7fb5b", "preregistration": "029230e"}, "module_path": "alpha_agent/alpha_recovery/spinoff_forced_selling.py", "module_sha256": "d66846febe57a27c025ab714a48830e0aa90ffb7d3cbcae32b9b1bfbf0d221b6", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/SPINOFF_PARENT_HOLDER_FORCED_SELLING_PREREGISTRATION.md", "preregistration_sha256": "a3d74e1c323a6b6d2e94f7950302bfe6dd03738a70168a0257538ae422633b53"}
   }
  ],
  "global_reconciliation": {
