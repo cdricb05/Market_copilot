@@ -1202,6 +1202,45 @@ def armed_owner_sessions(registration: dict, sessions: list) -> list:
     return [later[0]] if later[0] == _next_exchange_session(latest) else []
 
 
+def armed_entry_sessions(registration: dict, sessions: list) -> list:
+    """The entry sessions whose INFORMATION has printed but which have not.
+
+    A release that declares it enters ``offset_sessions`` eligible sessions
+    after the session it read (see :func:`execution_offset_sessions`) decides
+    ON its entry session, before that session trades. The realised calendar
+    names an entry session only once it has printed - after its window has
+    shut - so every cadence boundary after the first would be forfeited while
+    the owner's decision sat frozen. The first boundary never had this problem
+    because :func:`decision_grid` arms it from the calendar; this arms the
+    later ones by the SAME rule: the newest realised session is an information
+    session, and its entry session is that many eligible sessions later on the
+    exchange calendar.
+
+    Nothing is decided here and no window is widened: the armed session enters
+    the grid as a candidate whose window is judged by the one window owner, and
+    is emitted only if the originating owner froze a decision for it inside that
+    window. A release that declares no offset gets ``[]``, so its grid is the
+    realised grid exactly; a calendar that cannot answer arms nothing.
+    """
+    if not sessions:
+        return []
+    try:
+        n = int(execution_offset_sessions(registration).get("offset_sessions") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return []
+    latest = str(sessions[-1])
+    out = []
+    for k in range(1, n + 1):
+        nxt = _shift_eligible(latest, k)
+        if nxt is None:
+            break
+        if nxt > latest:
+            out.append(nxt)
+    return out
+
+
 def assess_registration(*, registration: dict, series: dict,
                         lifecycle_by_challenger: Optional[dict] = None,
                         as_of: Optional[str] = None,
@@ -1313,6 +1352,16 @@ def assess_registration(*, registration: dict, series: dict,
     if armed:
         out["armed_owner_decided_session"] = armed[0]
         sessions = sessions + armed
+    # R62.3.5 - a release that declared a future-entry execution offset has the
+    # entry session of its newest REALISED information session armed from the
+    # exchange calendar (see armed_entry_sessions). Asked of the realised
+    # ``latest``, never of a session armed above, and empty for every release
+    # that declares no offset, whose grid therefore does not move.
+    entry_armed = [s for s in armed_entry_sessions(reg, [latest])
+                   if s not in sessions]
+    if entry_armed:
+        out["armed_entry_sessions"] = list(entry_armed)
+        sessions = sorted(set(sessions) | set(entry_armed))
     # The SAME date authority the registrar used to derive the prospective
     # boundary at adoption (api.prospective_adoption.current_prospective_boundary
     # is today's UTC date). One clock opened these registrations; the same clock
