@@ -147,9 +147,53 @@ def grouped_timing_stat(pred: np.ndarray, y_scaled: np.ndarray, gid: np.ndarray,
 # --------------------------------------------------------------------------- #
 # Preprocessing
 # --------------------------------------------------------------------------- #
+def _zero_mass_bounds(X: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> tuple:
+    """Re-estimate the winsor bounds of a column the clip would FLATTEN.
+
+    An event feature is 0 on every row without an event. When its events are
+    rarer than the winsor fraction, BOTH training percentiles land on the zero
+    mass, the clip maps every event onto no-event, and the column becomes a
+    constant: the augmented arm cannot respond. The 8-K Item-code family
+    measured it at 0.15-0.52% incidence as NO_RESPONSE.
+
+    A clip that turns a non-constant column into one value deletes the column;
+    it is never outlier handling. Because the data's minimum lies at or below
+    ``lo`` and its maximum at or above ``hi``, the clipped column is constant
+    exactly when ``lo == hi``. So the trigger is ``lo == hi == 0`` on a column
+    that holds non-zero observations. For such a column each non-empty side's
+    bound becomes the SAME winsor percentile of that side's non-zero
+    observations: events stay distinct from the zero mass, zero stays inside
+    the bounds, and an extreme event is still clipped.
+
+    Every other column - including a dense one whose percentile happens to sit
+    on an exact zero, and a signed event whose rarer side alone is clipped - is
+    returned untouched and scales bit-identically. A non-zero point mass is out
+    of scope: encode "no event" as 0. Fitted on the rows it is given - training
+    rows only, exactly like the bounds it corrects.
+    """
+    X = np.asarray(X, dtype=float)
+    if X.ndim != 2 or X.shape[0] == 0:
+        return lo, hi
+    pos_min = np.min(X, axis=0, initial=np.inf, where=X > 0.0)
+    neg_max = np.max(X, axis=0, initial=-np.inf, where=X < 0.0)
+    has_pos, has_neg = np.isfinite(pos_min), np.isfinite(neg_max)
+    flat = (lo == 0.0) & (hi == 0.0) & (has_pos | has_neg)
+    if not flat.any():
+        return lo, hi
+    lo, hi = np.array(lo, dtype=float), np.array(hi, dtype=float)
+    for j in np.flatnonzero(flat):
+        col = X[:, j]
+        if has_pos[j]:
+            hi[j] = np.percentile(col[col > 0.0], WINSOR[1] * 100)
+        if has_neg[j]:
+            lo[j] = np.percentile(col[col < 0.0], WINSOR[0] * 100)
+    return lo, hi
+
+
 def _fit_scaler(X: np.ndarray) -> dict:
     lo = np.nanpercentile(X, WINSOR[0] * 100, axis=0)
     hi = np.nanpercentile(X, WINSOR[1] * 100, axis=0)
+    lo, hi = _zero_mass_bounds(X, lo, hi)
     Xc = np.clip(X, lo, hi)
     mu = np.nanmean(Xc, axis=0)
     sd = np.nanstd(Xc, axis=0)
