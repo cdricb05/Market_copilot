@@ -636,7 +636,7 @@
    "data": {"owned": ["Norgate CME FX futures 6E, 6J, 6S, 6C and ES with _CCB", "Norgate FESX, FSMI, NKD and SXF index futures with _CCB", "Norgate FXE and FXY total return"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.fx_month_end_hedge_rebalancing:run_mechanism", "committed_before_pin": {"implementation": "c9628c1", "preregistration": "05a74f3"}, "module_path": "alpha_agent/alpha_recovery/fx_month_end_hedge_rebalancing.py", "module_sha256": "39b5516050530e5bf6b854e5bf468d302b2c62fc6f23b5e42186906a77adc48c", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/FX_MONTH_END_EQUITY_HEDGE_REBALANCING_PREREGISTRATION.md", "preregistration_sha256": "89dc1f7e780be89f33b141b36f47f68d1b9224782cdb273c08f2989836a73ed3"}
   }
  ],
  "global_reconciliation": {
