@@ -677,7 +677,7 @@
    "data": {"owned": ["Norgate US equities S&P 500 Current & Past: total return, unadjusted Dividend column, S&P 500 index constituent flags"], "free_acquisition": [], "paid": []},
    "requires_purchase": false,
    "reopen": null,
-   "executor": null
+   "executor": {"callable": "alpha_agent.alpha_recovery.dividend_month_demand:run_mechanism", "committed_before_pin": {"implementation": "0f76ad6", "preregistration": "b7ef8c4"}, "module_path": "alpha_agent/alpha_recovery/dividend_month_demand.py", "module_sha256": "e55ae9e592ec9802af142d5799c8d1318d5969c38c1e1cb550767f41f83d4d04", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/DIVIDEND_MONTH_DEMAND_PREMIUM_PREREGISTRATION.md", "preregistration_sha256": "185ff3bf4979e41b4384d6bdd065358257e5fedcb2e57b8e91ee0d4a520f87ec"}
   }
  ],
  "global_reconciliation": {
