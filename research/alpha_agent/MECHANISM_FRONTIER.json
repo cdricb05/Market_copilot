@@ -824,44 +824,71 @@
     "information_object": "CALENDAR:FOMC_PRE_ANNOUNCEMENT_AND_MACRO_ANNOUNCEMENT_DAYS",
     "members": [
      "r46_4_spx_pre_fomc_drift",
-     "r46_4_spx_announcement_day_premium",
-     "SCHEDULED_EVENT_EQUITY_PREMIUM_V1"
+     "r46_4_spx_announcement_day_premium"
     ],
     "closed_families": [
-     "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45"
+     "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45",
+     "SCHEDULED_EVENT_EQUITY_PREMIUM_V1"
     ],
     "historical": {
-     "summary": "No historical test exists in the estate: R46 froze both calendars from the published literature without a screen. The only related estate evidence is the closed minutes-scale macro-release reaction family (R44/R45 holdout -1.82 bp, t -0.63), which is a different horizon and mechanism.",
+     "summary": "The preregistered historical test of both frozen calendars was executed on 2026-09-15 (SCHEDULED_EVENT_EQUITY_PREMIUM_V1, ALPHA_STRIKE_SEP15_V2): NO_EDGE. On 1994-2015 the FOMC-session book earned +2.46 %/yr net at 1 bp, t 3.37, Sharpe 0.71, maximum drawdown -7.5 %, and the all-announcement book +3.81 %/yr, t 2.58; both passed sign, t, materiality, halves and BH at m=6 but their increments over a volatility-matched passive SPY long were +1.06 %/yr t 1.16 and +0.99 %/yr t 0.61, so the untouched 2016-2026 confirmation was never read. The two R46 forward clocks are untouched and keep accruing.",
      "evidence": [
-      "alpha_agent/r46/challengers.py (R46_4_PNL_OFFENSIVE cohort)",
-      "docs/RELEASE45_MACRO_EVENT_ALPHA.md"
+      "research/preregistration/SCHEDULED_EVENT_EQUITY_PREMIUM_RESULT.md",
+      "D:/Stock_Prediction_app_data/alpha_recovery_offensive/results/scheduled_event_equity_premium.json",
+      "alpha_agent/r46/challengers.py (R46_4_PNL_OFFENSIVE cohort)"
      ],
-     "net_after_cost_pa": null,
-     "t_stat": null,
-     "increment_pa": null,
-     "increment_t": null,
-     "increment_control": "none measured",
+     "net_after_cost_pa": 0.0246,
+     "t_stat": 3.37,
+     "increment_pa": 0.0106,
+     "increment_t": 1.16,
+     "increment_control": "volatility-matched passive SPY long over 1994-2015 (the FOMC-session cell; the all-announcement cell +0.99 %/yr, t 0.61)",
      "untouched_confirmation": "NONE",
-     "multiplicity": "NOT_RUN",
-     "max_drawdown": null,
-     "cost_survives_2x": null,
+     "multiplicity": "PASS",
+     "max_drawdown": -0.075,
+     "cost_survives_2x": true,
      "pit": "PIT_TRUE"
     },
     "judgement": {
      "diversification": 0.5,
      "liquidity_capacity": 1.0,
-     "probability_alive": 0.3,
-     "rationale": "event-day equity premia are well documented but decayed after publication (the pre-FOMC drift weakened after 2015); they are SPY beta on eight to thirty days a year, so forward accrual alone takes years"
+     "probability_alive": 0.1,
+     "rationale": "the premium is real on history but the timing added nothing significant over holding SPY at the same risk (increment t 1.16 and 0.61 on 22 years), the fourth estate sighting of a real premium with a worthless timing signal; only the forward clocks remain, and they judge the same calendars"
     },
     "next_action": {
-     "kind": "PREREGISTERED_HISTORICAL_TEST",
-     "description": "Declare the mechanism first, then preregister one frozen test of both calendars on SPY 1994-2026 with the untouched 2016-2026 half as confirmation and a volatility-matched passive long as control; forward accrual alone needs years at eight FOMC decisions a year.",
-     "research_days": 3,
+     "kind": "ACCRUE_FORWARD_EVIDENCE",
+     "description": "Let the R46 prospective clocks keep emitting and maturing their one-session calendar rows on their own owner; the historical question is settled NO_EDGE, so no research capacity, no rescue cell and no backfill.",
+     "research_days": 0,
      "data_cost_usd": 0,
-     "information_gain": 0.5,
+     "information_gain": 0.1,
      "human_gate": null
     },
     "data_requirement": "owned SPY total return and the free FRED release calendar; no purchase"
+   },
+   {
+    "candidate_id": "GC_EQIDX_SCHEDULED_EVENT_PREMIUM_HISTORICAL_TEST",
+    "title": "Preregistered historical test of the scheduled FOMC, CPI and Employment Situation equity premium",
+    "disposition": "CLOSED",
+    "asset_class": "EQUITY_INDEX",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "RATES"
+    ],
+    "mechanism_class": "RISK_PREMIUM_TIMING",
+    "information_object": "CALENDAR:SCHEDULED_FOMC_CPI_EMPLOYMENT_SESSIONS_SPY_EXCESS_RETURN_1994_2026",
+    "members": [
+     "SCHEDULED_EVENT_EQUITY_PREMIUM_V1"
+    ],
+    "closed_families": [
+     "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45",
+     "R32_EVENT_DRIVEN_CALENDAR"
+    ],
+    "historical": {
+     "summary": "Executed 2026-09-15 (ALPHA_STRIKE_SEP15_V2): NO_EDGE. Both cells killed at the increment over a volatility-matched passive SPY long (PRE_FOMC +1.06 %/yr t 1.16; ANNOUNCEMENT_DAY +0.99 %/yr t 0.61); confirmation not read.",
+     "evidence": [
+      "research/preregistration/SCHEDULED_EVENT_EQUITY_PREMIUM_RESULT.md"
+     ]
+    },
+    "closed_reason": "the scheduled announcement premium is real on 1994-2015 but holding SPY only over announcement sessions did not beat holding SPY at the same risk; claimed apart from the R46 forward clocks because an open candidate may not hold a settled-closed mechanism while its clocks run"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",

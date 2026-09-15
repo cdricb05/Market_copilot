@@ -6,7 +6,7 @@ Rendered from `global_multi_asset_frontier.json` (alpha_agent.r59.global_frontie
 
 > If all research capacity and investable capital were uncommitted today, where across all asset classes is the strongest after-cost P&L opportunity?
 
-Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conflicts 0; invalid declarations 0.
+Owner identities reconciled: 124 claimed of 124 held; unreconciled 0; owner conflicts 0; invalid declarations 0.
 
 ## GLOBAL TOP 10
 
@@ -18,7 +18,7 @@ Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conf
 | 4 | `GC_COMMODITY_CURVE_CARRY` (0.3017) | COMMODITIES | TRUE_FORWARD | net +2.80 %/yr, t 1.6 | 26 emitted / 6 matured / 1 of 40 effective | OVERTURN_FAILED_UNTOUCHED_EVIDENCE | ACCRUE_FORWARD_EVIDENCE |
 | 5 | `GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM` (0.2925) | US_EQUITY | LIVE_CANDIDATE | net +2.73 %/yr, t 1.13 | 205 emitted / 38 matured / 12 of 24 effective | UNTOUCHED_CONFIRMATION | CONTINUE_OPERATIONAL_OBSERVATION |
 | 6 | `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (0.2875) | US_EQUITY | HUMAN_GATE | net -, t None | 0 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | DATA_PURCHASE_DECISION |
-| 7 | `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (0.2850) | EQUITY_INDEX | TRUE_FORWARD | net -, t None | 7 emitted / 3 matured / 3 of 60 effective | UNTOUCHED_CONFIRMATION | PREREGISTERED_HISTORICAL_TEST |
+| 7 | `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (0.2849) | EQUITY_INDEX | TRUE_FORWARD | net +2.46 %/yr, t 3.37 | 7 emitted / 3 matured / 3 of 60 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
 | 8 | `GC_XA_FUTURES_TREND_AND_MOMENTUM` (0.2589) | CROSS_ASSET | TRUE_FORWARD | net -0.70 %/yr, t 2.52 | 27 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
 | 9 | `GC_USEQ_LIQUIDITY_AND_SEASONALITY_FORWARD` (0.2328) | US_EQUITY | TRUE_FORWARD | net -, t 1.65 | 26 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
 | 10 | `GC_XA_FUTURES_VALUE_5Y` (0.2297) | CROSS_ASSET | TRUE_FORWARD | net -, t None | 9 emitted / 0 matured / 0 of 24 effective | UNTOUCHED_CONFIRMATION | ACCRUE_FORWARD_EVIDENCE |
@@ -52,7 +52,6 @@ Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conf
 
 ## AGENT-EXECUTABLE QUEUE (admitted, best first)
 
-- #7 `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (EQUITY_INDEX): DECLARE_MECHANISM 
 
 ## ANSWERS
 
@@ -60,7 +59,6 @@ Owner identities reconciled: 123 claimed of 123 held; unreconciled 0; owner conf
 - IS FX CURRENTLY A TOP GLOBAL PRIORITY? **YES** ({'candidate_id': 'GC_FX_XS_CARRY_DATED_CONTRACT', 'global_rank': 2, 'score': 0.4552})
 - FX versus the single-name options purchase: **STRONGER**
 - Highest-value next action globally: `GC_USEQ_SINGLE_NAME_OPTIONS_INFORMED_TRADING` (DATA_PURCHASE_DECISION) - HUMAN PURCHASE DECISION (research/data_gaps/SINGLE_NAME_OPTIONS_PURCHASE_CASE.md): approve or decline a one-time Databento OPRA purchase capped at $400, then about twelve working days to build implied volatility from quotes and run a preregistered test.
-- Highest-value action the agent itself can take: `GC_EQIDX_SCHEDULED_EVENT_PREMIUM` (PREREGISTERED_HISTORICAL_TEST) - YES: no agent-executable action in the global top 5 scores higher than GC_EQIDX_SCHEDULED_EVENT_PREMIUM (EQUITY_INDEX, rank #7, score 0.2850, next action PREREGISTERED_HISTORICAL_TEST); the higher-ranked opportunities either accrue evidence passively (GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW, GC_FX_XS_CARRY_DATED_CONTRACT, GC_XA_R39_R40_MACHINE_SHADOWS, GC_COMMODITY_CURVE_CARRY, GC_USEQ_INCUMBENT_FUNDAMENTAL_MOMENTUM) or wait at a human gate the agent cannot pass (none)
 
 ## INVARIANTS
 
