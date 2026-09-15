@@ -720,6 +720,49 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.orthogonal_composite:run_mechanism", "committed_before_pin": {"implementation": "e76850f", "preregistration": "69d267f"}, "module_path": "alpha_agent/alpha_recovery/orthogonal_composite.py", "module_sha256": "7bac664db5b1edb59ab675a131cbeadb6df640372e8f272d0e726c033d6dd2bf", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_PREREGISTRATION.md", "preregistration_sha256": "5cd4858f79f25c3a4b79f70f9cd26a9f340812f43dd965ba3033cb1b6b18fc24"}
+  },
+  {
+   "mechanism_id": "INDEX_MEMBERSHIP_FORCED_FLOW_V1",
+   "title": "Russell 2000 reconstitution forced flow: post-effective reversal of index-fund buying and selling",
+   "domain": "STRUCTURAL_FLOWS_FORCED_TRADING",
+   "mechanism_class": "INDEX_FUND_DEALER_FLOW",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "signal-only: Norgate Russell 2000 Current & Past (11,129 securities, 0 load failures) Russell 2000 and Russell 1000 membership flags and total-return quote DATES; no price change, return, book or control was computed",
+    "index_history_start": "1990-07-03 (the inception snapshot adds every member and is not an event)",
+    "event_rule": "each year 1991-2026 has one June 15..July 15 session with 322 to 1,124 Russell 2000 flag changes; the runner-up in-window session never exceeds 48",
+    "tradeable_rule": "a quote within 5 calendar days before the effective session and the first quote after it on the next market session with a finite open",
+    "smallest_tradeable_legs": {"additions": "183 (2015)", "deletions": "118 (2013)"},
+    "announcement_date": "not used and not inferred; the earliest trade is the open after the effective session"
+   },
+   "asset_class": "US_EQUITY",
+   "horizon_sessions": 20,
+   "model_family": "XS_LONG_SHORT_EVENT_20_SESSIONS",
+   "information_objects": ["NORGATE_RUSSELL_2000_MEMBERSHIP:ANNUAL_RECONSTITUTION_EFFECTIVE_CHANGES"],
+   "semantic_tokens": ["russell", "reconstitution", "membership"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "At each annual Russell reconstitution, index funds and benchmarked small-cap managers tracking the Russell 2000 must buy every security that joins and sell every security that leaves at the reconstitution close, whatever the price. Liquidity providers absorb that one-sided flow at a concession and unwind their inventory over the following weeks, so once the membership change is effective the securities that left should outperform the securities that joined. The P&L is a dollar-neutral book formed only after the effective membership state is observable: long the securities that left the Russell 2000, short the securities that joined it, entered at the next open and held 20 sessions.",
+    "WHY_MISPRICING_SHOULD_EXIST": "Index-tracking demand is price-insensitive and concentrated into one closing auction a year across hundreds of small, thinly traded names, and the capital that warehouses it is limited relative to the flow, so the reconstitution close prints prices away from value that revert as inventory is unwound (Madhavan 2003; Petajisto 2011).",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The book reads only point-in-time membership flags and enters after the effective session, never on preliminary lists or an inferred announcement date, so it harvests only the post-effective unwind that anticipatory traders leave behind; whether that unwind survived two decades of reconstitution arbitrage is what the untouched 2013-2026 confirmation tests.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "Structural: mechanically forced, price-insensitive index-fund trading at a scheduled reconstitution; no information advantage.",
+    "EXPECTED_HOLDING_HORIZON": "Twenty sessions from the open of the session after the effective reconstitution session, once a year.",
+    "EXPECTED_COST_SURVIVABILITY": "Each event trades about four times NAV (both legs in and out); at the 25 bp per side small-cap rate that is about 1 %/yr of NAV and at the 50 bp stress rung about 2 %/yr, so the per-event unwind must exceed that.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether rules-based index reconstitution flow leaves an after-cost post-effective reversal that a point-in-time book can harvest; a failure closes Russell reconstitution flow beside the S&P 500 committee-change family and the run moves to the next distinct forced-flow mechanism.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on the 1991-2012 events against the Russell 2000 and S&P 500 total-return indices under the canonical scorer, confirm on the untouched 2013-2026 events, human-gated prospective registration; R51 and R50 only after forward evidence.",
+    "KILL_RULE": "Kill if the dollar-neutral Russell 2000 reconstitution book (long tradeable deletions, short tradeable additions, entered at the open of the session after the effective session, held 20 sessions) has mean event net <= 0, active-session NW t < 2.0 or mean event net below 1.5 %/yr at 25 bp per side; or its increment over the Russell 2000 and S&P 500 total-return indices has t < 2.0 or annualised alpha below 1.5 %/yr; or mean event net is non-positive in either qualification half; or its maximum drawdown is worse than -20 %; or it fails BH q=0.10 at m=3 with S14-B1 and S14-B2 inherited at p=1; or mean event net at 50 bp per side is below 1.5 %/yr; or the untouched 2013-2026 confirmation has mean event net <= 0, NW t < 2.0 or mean event net below 1.5 %/yr.",
+    "TIME_OR_DATA_BUDGET": "One working day; owned Norgate US equities (Russell 2000 Current & Past, 11,129 securities including delisted names): Russell 2000 and Russell 1000 membership flags, total-return opens and closes, and the $RUTTR and $SPXTR total-return indices; $0.",
+    "WHY_NOT_DUPLICATIVE": "SP500_INDEX_ADDITION_DELETION (Stage 14 hypotheses S14-B1 and S14-B2) traded discretionary S&P 500 committee changes spread through the year at 5 and 63 sessions and failed on cost; this trades the rules-based annual Russell 2000 reconstitution - a different index family, actor and schedule, with hundreds of changes on one effective session - and inherits both Stage 14 hypotheses at p=1. MONTH_END_BALANCED_REBALANCING_FLOW_V1 and COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1 traded calendar-scheduled flows without any membership change, and SHORT_HORIZON_REVERSAL_GAP_FADE signed names by their own past price move, whereas this signs names by the membership change alone."
+   },
+   "score_inputs": {"mechanism_strength": 0.65, "unpriced_at_entry": 0.40, "adjacent_evidence": 0.25, "gross_edge": 0.40, "cost_survivability": 0.45, "pit_quality": 0.95, "effective_sample": 0.45, "survivorship_quality": 0.95, "independence": 0.80, "incremental_portfolio_value": 0.60, "live_candidate_decision_value": 0.0, "implementation_days": 1, "data_cost_usd": 0},
+   "data": {"owned": ["Norgate US equities Russell 2000 Current & Past: Russell 2000 and Russell 1000 index constituent flags, total-return open and close", "Norgate US Indices $RUTTR and $SPXTR"], "free_acquisition": [], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -1173,6 +1216,56 @@
      "human_gate": null
     },
     "data_requirement": "owned frozen sleeve return paths through their canonical owners, FRED DTB3 (R36 acquisition) and Norgate SPY total return; no purchase"
+   },
+   {
+    "candidate_id": "GC_USEQ_RUSSELL_RECONSTITUTION_FORCED_FLOW",
+    "title": "Russell 2000 reconstitution forced flow: post-effective reversal of index-fund buying and selling",
+    "disposition": "OPEN",
+    "asset_class": "US_EQUITY",
+    "information_asset_classes": [
+     "US_EQUITY"
+    ],
+    "mechanism_class": "INDEX_FUND_DEALER_FLOW",
+    "information_object": "NORGATE_RUSSELL_2000_MEMBERSHIP:ANNUAL_RECONSTITUTION_EFFECTIVE_CHANGES",
+    "members": [
+     "INDEX_MEMBERSHIP_FORCED_FLOW_V1"
+    ],
+    "closed_families": [
+     "SP500_INDEX_ADDITION_DELETION",
+     "MONTH_END_BALANCED_REBALANCING_FLOW_V1"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate: no Russell reconstitution hypothesis exists in ResearchMemory or the repository (sweep 2026-09-15). Declared mechanism-first by ALPHA_COMPOSITE_STRIKE_SEP15_V1 as the first structural forced-flow mechanism after the composite DATA_HOLD (Madhavan 2003; Petajisto 2011). The S&P 500 committee-change family closed on cost at 5 and 63 sessions.",
+     "evidence": [
+      "research/alpha_agent/MECHANISM_FRONTIER.json#INDEX_MEMBERSHIP_FORCED_FLOW_V1",
+      "research/preregistration/INDEX_MEMBERSHIP_FORCED_FLOW_PREREGISTRATION.md"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "Russell 2000 and S&P 500 total-return indices (declared kill rule)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_TRUE"
+    },
+    "judgement": {
+     "diversification": 0.7,
+     "liquidity_capacity": 0.5,
+     "probability_alive": 0.3,
+     "rationale": "a once-a-year dollar-neutral small-cap event book is nearly independent of the incumbent and of every futures sleeve, but reconstitution arbitrage is crowded since the 2000s, the names are small and costly to short, and the estate's S&P 500 membership test died on cost"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Execute the preregistered one-cell test on owned Norgate point-in-time Russell 2000 membership and total-return prices: qualification on the 1991-2012 reconstitutions with an increment over the Russell 2000 and S&P 500 total-return indices, untouched 2013-2026 confirmation.",
+     "research_days": 1,
+     "data_cost_usd": 0,
+     "information_gain": 0.4,
+     "human_gate": null
+    },
+    "data_requirement": "owned Norgate Russell 2000 Current & Past membership flags and total-return prices including delisted names, and the $RUTTR and $SPXTR indices; no purchase"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
