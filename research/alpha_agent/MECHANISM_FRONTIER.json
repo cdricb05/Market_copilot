@@ -678,6 +678,48 @@
    "requires_purchase": false,
    "reopen": null,
    "executor": {"callable": "alpha_agent.alpha_recovery.dividend_month_demand:run_mechanism", "committed_before_pin": {"implementation": "0f76ad6", "preregistration": "b7ef8c4"}, "module_path": "alpha_agent/alpha_recovery/dividend_month_demand.py", "module_sha256": "e55ae9e592ec9802af142d5799c8d1318d5969c38c1e1cb550767f41f83d4d04", "pinned_at": "2026-09-15", "preregistration_path": "research/preregistration/DIVIDEND_MONTH_DEMAND_PREMIUM_PREREGISTRATION.md", "preregistration_sha256": "185ff3bf4979e41b4384d6bdd065358257e5fedcb2e57b8e91ee0d4a520f87ec"}
+  },
+  {
+   "mechanism_id": "ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_V1",
+   "title": "Orthogonal multi-asset composite of the strongest frozen, economically distinct Alpha sleeves under one inverse-volatility, volatility-targeted rule",
+   "domain": "HIGH_VALUE_INFORMATION_GAP",
+   "mechanism_class": "RISK_TRANSFER_PREMIUM",
+   "origin": "MECHANISM_FIRST",
+   "declared_before_returns": true,
+   "declared_at": "2026-09-15",
+   "data_version": 1,
+   "census_before_returns": {
+    "measured_at": "2026-09-15",
+    "computed": "metadata only: the canonical global frontier artifact (generated 2026-09-15T20:25:37Z, 29 open ranked and 18 closed or control candidates), owner evidence labels, artifact structure and path DATES; no sleeve return path was loaded and no weight, covariance, correlation or composite statistic was computed",
+    "eligible_under_E1_E10": ["GC_EQIDX_SPY_REVERSED_PUT_CALL_SKEW", "GC_FX_XS_CARRY_DATED_CONTRACT"],
+    "spy_skew_path_span": "5-session periods on two disjoint OPRA surfaces 2022-09-09..2024-08-15 and 2024-09-10..2026-08-20",
+    "fx_carry_path": "per-session NET via alpha_agent.alpha_recovery.cadence.sleeve_series, stability blocks 1998-2027",
+    "r39_r40_path": "month-end Zone-C rows only, 140 rows 2016-12..2026-06"
+   },
+   "asset_class": "CROSS_ASSET",
+   "horizon_sessions": 21,
+   "model_family": "INVERSE_VOLATILITY_TARGETED_SLEEVE_COMPOSITE_MONTHLY",
+   "information_objects": ["ALPHA_AGENT_FROZEN_SLEEVES:INVERSE_VOLATILITY_COMPOSITE_OF_FROZEN_RETURN_PATHS"],
+   "semantic_tokens": ["composite", "sleeves", "diversification"],
+   "work_conditions": ["TESTS_DISTINCT_PNL_MECHANISM"],
+   "pnl_gate": {
+    "PNL_MECHANISM": "Diversification across independent return sources: frozen sleeves whose expected returns come from different economic actors and asset classes have low return correlation, so a monthly inverse-volatility combination, capped per sleeve and scaled to a 10 % volatility target with at most 1.5x gross, earns a higher Sharpe ratio than any single sleeve and can turn it into a material after-cost excess return over cash.",
+    "WHY_MISPRICING_SHOULD_EXIST": "Each component premium is paid by a different constrained participant, and the capital that harvests one premium rarely harvests the others, so the combination's risk-adjusted return is not competed down as a unit even when each component is individually known.",
+    "WHY_IT_SHOULD_STILL_EXIST_WHEN_TRADABLE": "The rule uses only the prior 126 common sessions, rebalances at the first session of each month and pays 2 bp per one-way unit of allocation turnover on top of each sleeve's own frozen costs; the last 30 % of the common sessions is an untouched composite confirmation.",
+    "INFORMATION_ADVANTAGE_OR_STRUCTURAL_PRESSURE": "No new information: portfolio construction over existing frozen sleeves whose own mechanisms are hedger demand, risk transfer and other structural premia.",
+    "EXPECTED_HOLDING_HORIZON": "Sleeve allocations are held one calendar month and rebalanced at the first common session of each month; sleeves keep their own internal cadence.",
+    "EXPECTED_COST_SURVIVABILITY": "Monthly allocation turnover between a handful of sleeves is small, so the 2 bp overlay and its 4 bp stress rung cost well under 0.1 %/yr; the 50 bp financing spread above 1x costs at most 0.25 %/yr at the 1.5x cap.",
+    "WHAT_DECISION_THIS_EXPERIMENT_WILL_CHANGE": "Decides whether combining the estate's frozen non-closed sleeves produces a governed portfolio-level TRUE_FORWARD challenger; a DATA_HOLD or NO_EDGE closes the composite route until at least three eligible sleeves with long common history exist, and the run moves to structural forced-flow research.",
+    "SUCCESS_PATH_TO_CAPITAL": "Qualify on the first 70 % of common sessions, confirm on the untouched last 30 % and on full history, then a human-gated portfolio-level TRUE_FORWARD registration; capital eligibility only after forward evidence under R51 and R50.",
+    "KILL_RULE": "DATA_HOLD if the inventory re-derived from the canonical global frontier differs from the preregistered eligible set, fewer than 3 sleeves or 3 distinct mechanism classes are selected, a selected return path is unavailable, the bill rate is missing on more than 1 % of sessions, or common history is below 2,268 sessions with qualification below 1,500 or confirmation below 600 sessions. NO_EDGE if on qualification at 2 bp overlay the composite has net annualised excess below 5.0 %, Sharpe below 1.00, NW t < 2.50, maximum drawdown worse than -15 %, a non-positive half, SPY-regression alpha below 3.0 %/yr or its HAC t < 2.00, Sharpe below volatility-matched SPY Sharpe + 0.25, absolute SPY correlation above 0.60, a sleeve above 60 % of absolute contribution, or at 4 bp net below 4.0 % or Sharpe below 0.80; or if the untouched confirmation has net below 4.0 %, Sharpe below 0.80, NW t < 2.00, drawdown worse than -15 %, SPY alpha below 2.5 %/yr or HAC t < 1.50, non-positive net at 4 bp, or a sleeve above 60 %; or if full common history has net below 5.0 %, Sharpe below 1.0, drawdown worse than -15 % or non-positive net at 4 bp.",
+    "TIME_OR_DATA_BUDGET": "One working day; owned inputs only: the canonical global frontier, the frozen sleeve paths through their own owners (Alpha Recovery cadence and options surface), FRED DTB3 from the R36 acquisition and Norgate SPY total return; $0.",
+    "WHY_NOT_DUPLICATIVE": "No composite of frozen sleeves exists in ResearchMemory or the repository. The components are not re-tested and are not rescued: REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1 and r51_fx_xs_carry_cip keep their own forward clocks and evidence labels, FX_CARRY is the generic passive-increment family the frontier says does not close the dated-contract candidate, and the closed COMMODITY_CURVE_CARRY_SPREADS, CROSS_ASSET_TREND_AND_XS_MOMENTUM and MACHINE_REPRESENTATION_SEARCH sleeves are excluded by the frozen eligibility rule rather than combined. The domain carries no ranking bonus."
+   },
+   "score_inputs": {"mechanism_strength": 0.50, "unpriced_at_entry": 0.30, "adjacent_evidence": 0.30, "gross_edge": 0.40, "cost_survivability": 0.85, "pit_quality": 0.70, "effective_sample": 0.30, "survivorship_quality": 0.80, "independence": 0.50, "incremental_portfolio_value": 0.80, "live_candidate_decision_value": 0.30, "implementation_days": 1, "data_cost_usd": 0},
+   "data": {"owned": ["canonical global multi-asset frontier artifact", "Alpha Recovery cadence FX carry path and options surface SPY skew path", "FRED DTB3 (R36 acquisition)", "Norgate SPY total return"], "free_acquisition": [], "paid": []},
+   "requires_purchase": false,
+   "reopen": null,
+   "executor": null
   }
  ],
  "global_reconciliation": {
@@ -1077,6 +1119,59 @@
      "human_gate": null
     },
     "data_requirement": "owned Norgate US equities total return, ex-dividend dates and S&P 500 membership including delisted names; no purchase"
+   },
+   {
+    "candidate_id": "GC_XA_ORTHOGONAL_MULTI_ASSET_COMPOSITE",
+    "title": "Orthogonal multi-asset composite of the strongest frozen, economically distinct Alpha sleeves",
+    "disposition": "OPEN",
+    "asset_class": "CROSS_ASSET",
+    "information_asset_classes": [
+     "EQUITY_INDEX",
+     "FX"
+    ],
+    "mechanism_class": "RISK_TRANSFER_PREMIUM",
+    "information_object": "ALPHA_AGENT_FROZEN_SLEEVES:INVERSE_VOLATILITY_COMPOSITE_OF_FROZEN_RETURN_PATHS",
+    "members": [
+     "ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_V1"
+    ],
+    "closed_families": [
+     "FX_CARRY",
+     "COMMODITY_CURVE_CARRY_SPREADS",
+     "CROSS_ASSET_TREND_AND_XS_MOMENTUM",
+     "MACHINE_REPRESENTATION_SEARCH"
+    ],
+    "historical": {
+     "summary": "Never tested in the estate: no composite of frozen sleeves exists in ResearchMemory or the repository (sweep 2026-09-15). Declared by ALPHA_COMPOSITE_STRIKE_SEP15_V1 after three NO_EDGE verdicts. The frozen inventory over the canonical frontier found two eligible sleeves (SPY reversed skew, dated-contract FX carry) against a minimum of three.",
+     "evidence": [
+      "research/preregistration/ORTHOGONAL_MULTI_ASSET_ALPHA_COMPOSITE_PREREGISTRATION.md",
+      "D:/Stock_Prediction_app_data/r59_autonomous_alpha/agent/global_multi_asset_frontier.json"
+     ],
+     "net_after_cost_pa": null,
+     "t_stat": null,
+     "increment_pa": null,
+     "increment_t": null,
+     "increment_control": "cash, SPY total return, volatility-matched SPY and each selected sleeve (declared)",
+     "untouched_confirmation": "NONE",
+     "multiplicity": "NOT_RUN",
+     "max_drawdown": null,
+     "cost_survives_2x": null,
+     "pit": "PIT_MARKET_OBSERVABLE"
+    },
+    "judgement": {
+     "diversification": 0.9,
+     "liquidity_capacity": 0.6,
+     "probability_alive": 0.2,
+     "rationale": "a composite of genuinely different premia would diversify every book in the estate, but only two frozen sleeves survive their own evidence, one of them on a sign found post hoc with under four years of history, so the probability that a qualifying composite exists today is low"
+    },
+    "next_action": {
+     "kind": "PREREGISTERED_HISTORICAL_TEST",
+     "description": "Execute the preregistered composite: re-derive the frozen inventory from the canonical global frontier, apply the mechanical selection rule and, only if at least three sleeves with enough common history remain, build the inverse-volatility composite and read qualification before the untouched 30 % confirmation.",
+     "research_days": 1,
+     "data_cost_usd": 0,
+     "information_gain": 0.3,
+     "human_gate": null
+    },
+    "data_requirement": "owned frozen sleeve return paths through their canonical owners, FRED DTB3 (R36 acquisition) and Norgate SPY total return; no purchase"
    },
    {
     "candidate_id": "GC_EQIDX_INDEX_TREND_TIMING",
