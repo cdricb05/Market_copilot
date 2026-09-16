@@ -194,6 +194,41 @@ def _hermetic_forward_evidence_stores(tmp_path_factory, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_stage8_store(tmp_path_factory, monkeypatch) -> None:
+    """S25 re-arm - never let the LIVE Stage-8 tournament store leak into a test.
+
+    ``alpha_agent.stage26_forward_runtime`` falls back to
+    ``D:\\Stock_Prediction_app_data\\alpha_agent\\stage8`` when
+    ``PAPER_TRADER_STAGE8_STORE_DIR`` is unset, and its accrual stage inside
+    ``alpha_agent.r52.runtime.research_runtime_cycle`` consults it BY DEFAULT -
+    correct in production, unacceptable in a test.
+
+    Two distinct harms, both permanent. A test that drove a research cycle
+    against the real root would open the operator's live ``tournament.sqlite``
+    READ-WRITE (``CandidateRegistry`` runs its schema script on connect), and a
+    test that wrote its own governance record there would stamp the real
+    prospective epoch floor first-write-wins - fixing the live epoch to a
+    fixture's frozen clock and silently deciding which sessions the governed
+    runtime may ever collect. A shadow book's marks are append-only and
+    immutable, so neither is undoable.
+
+    Every test therefore starts against an EMPTY Stage-8 root in its own temp
+    root, which is also the exact fail-closed case: no governance record means
+    no authorisation, so the stage reports AWAITING_ACTIVATION and writes
+    nothing. A test that needs the store sets the env var itself, or passes
+    ``store_root=`` explicitly; both win over this fixture.
+    """
+    env_var = "PAPER_TRADER_STAGE8_STORE_DIR"
+    production_default = str(
+        Path(r"D:\Stock_Prediction_app_data\alpha_agent\stage8"))
+    current = os.environ.get(env_var)
+    if not current or Path(current) == Path(production_default):
+        monkeypatch.setenv(
+            env_var, str(tmp_path_factory.mktemp("stage8_hermetic")))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """
     Clear the lru_cache on get_settings() before every test.
