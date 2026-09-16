@@ -1,0 +1,154 @@
+{
+ "schema_version": "s25_prospective_rearm_governance/1",
+ "run_id": "S25_CANONICAL_FORWARD_REARM_SEP16_V1",
+ "composition_owner": "alpha_agent.stage26_forward_runtime",
+
+ "_what_this_file_is": [
+  "The HUMAN governance decision, recorded in git so it is reviewable and",
+  "versioned. It authorises nothing by itself: the runtime stage fails closed",
+  "until scripts/rearm_s25_prospective_collection.py writes the ACTIVATION",
+  "record onto the store, which is what stamps the prospective epoch floor.",
+  "The decision travels in the repository; the epoch floor is stamped once at",
+  "deployment, from the data, and is immutable thereafter."
+ ],
+
+ "decision": "REARM_PROSPECTIVE_COLLECTION_ONLY",
+ "decision_date": "2026-09-16",
+ "decided_by": "HUMAN_GOVERNANCE_DECISION",
+
+ "authorisation_excludes": [
+  "does NOT reset the candidate",
+  "does NOT reset its historical inception",
+  "does NOT erase the missing 21 sessions",
+  "does NOT backfill a mark",
+  "does NOT promote the strategy",
+  "does NOT make it capital eligible"
+ ],
+
+ "candidate_identity": "UNCHANGED",
+ "strategy_identity": "UNCHANGED",
+ "membership": "UNCHANGED",
+
+ "identity": {
+  "candidate_id": "c9_qualityprofi_e490533606",
+  "strategy_name": "s25_operating_profitability",
+  "shadow_book_id": "sb_c9_qualityprofi_e490533606",
+  "strategy_spec_hash": "67f0314106f9ce56806170669719a8cc3b035cd16469e984939c11c42956245e",
+  "original_inception": "2026-08-16",
+  "membership_count": 100,
+  "membership_shape": "50 LONG / 50 SHORT, dollar-neutral",
+  "horizon": "h3m / 63 sessions, quarterly",
+  "benchmark": "SPY",
+  "cost_bps": 50.0,
+  "notional": 100000.0,
+  "verified_on_disk": true
+ },
+
+ "forfeited_sessions": {
+  "first": "2026-08-17",
+  "last": "2026-09-15",
+  "count": 21,
+  "calendar": "NYSE",
+  "state": "PERMANENTLY_FORFEITED",
+  "backfill": "FORBIDDEN",
+  "historical_pnl_reconstructed": false,
+  "_why": [
+   "The owned trailing panel prices all 100 frozen names and SPY on 100% of",
+   "these 21 sessions, so the data to reconstruct them exists. That is",
+   "exactly why the rule matters: a mark written now for 2026-08-17 would be",
+   "a retrospective computation wearing the label of a prospective one, and",
+   "the only property this book exists to measure is that its outcomes were",
+   "unobservable when its specification was frozen."
+  ]
+ },
+
+ "root_cause": {
+  "mark_producer": "alpha_agent.tournament.advance_shadow_books",
+  "producer_defect": "NONE - the producer was correct and remains unchanged",
+  "retired_host": "AlphaAgent-Collect",
+  "retired_host_state": "Disabled",
+  "retired_host_last_run": "2026-08-03",
+  "days_disabled_before_inception": 13,
+  "statement": "the mark producer's host was retired 13 days before the book existed, so the book never had one opportunity to accrue a mark",
+  "remedy": "re-parent the FROZEN producer onto the ONE canonical runtime",
+  "retired_host_revived": false
+ },
+
+ "prospective_epoch": {
+  "original_strategy_inception": "2026-08-16",
+  "observation_epoch_starts": "the first eligible completed session STRICTLY AFTER the epoch floor stamped at activation",
+  "epoch_floor_rule": "max(2026-09-15, the latest completed session in the owned panel at activation)",
+  "epoch_floor_is_derived_not_declared": true,
+  "observation_epoch_is_not_inception": true,
+  "_why_two_dates": [
+   "Silently pretending collection began in August would make a re-armed",
+   "clock indistinguishable from a book that had been accruing for a month.",
+   "The strategy identity keeps ONE inception; the OBSERVATION epoch is",
+   "governance metadata recorded around that same identity."
+  ]
+ },
+
+ "frozen_horizon_contract": {
+  "inspected": true,
+  "rule": "COUNT_OF_LEGITIMATELY_COLLECTED_MARKS",
+  "rule_is": "B - number of legitimately collected marks",
+  "rule_is_not": "A - elapsed eligible market sessions since inception",
+  "source_contract": "alpha_agent.stage26_challenger_expansion.forward_evidence_contract",
+  "source_quote": "forward_observations counts recorded marks; a horizon with fewer marks than its length is PENDING, never scored",
+  "source_implementation": "alpha_agent.tournament.ShadowBook.replay -> forward_observations = len(marks)",
+  "consequence": "a 21-session gap does not corrupt the h63 clock, because the clock counts marks and zero marks is zero progress",
+  "redefinition_required": false,
+  "gate_rewritten": false,
+  "blocked_by_frozen_horizon_contract": false
+ },
+
+ "runtime": {
+  "canonical_runtime": "PaperTrader-ResearchRuntime",
+  "entrypoint": "scripts/run_research_runtime.py",
+  "host_stage": "alpha_agent.r52.runtime.research_runtime_cycle -> stage26_prospective_mark",
+  "mark_owner": "alpha_agent.tournament.advance_shadow_books",
+  "new_runtime_created": false,
+  "new_scheduler_created": false,
+  "new_accrual_owner_created": false,
+  "new_registry_created": false,
+  "new_research_memory_created": false,
+  "new_forward_ledger_created": false,
+  "second_candidate_for_the_same_signal": false
+ },
+
+ "collection_rules": {
+  "marks_per_invocation_max": 1,
+  "session_selected": "the NEWEST completed eligible session",
+  "catch_up_over_missed_sessions": false,
+  "historical_loop": false,
+  "replay_over_missed_dates": false,
+  "idempotent": true,
+  "restart_safe": true,
+  "duplicate_same_session_mark": "impossible - ShadowBook.record_mark refuses a date at or before the latest mark",
+  "guards": [
+   "guard 1: the prospective epoch floor, stamped once at activation",
+   "guard 2: an explicit refusal of any session inside 2026-08-17..2026-09-15",
+   "guard 3 (pre-existing, frozen): ShadowBook.record_mark refuses a date at or before inception or the latest mark"
+  ],
+  "_why_guard_1_is_not_optional": [
+   "ShadowBook.record_mark alone does NOT protect the forfeited window. With",
+   "zero marks recorded its only bound is inception 2026-08-16, so the frozen",
+   "producer would accept 2026-09-15. At the time of this repair the owned",
+   "panel's newest session WAS 2026-09-15 and every post-inception session it",
+   "could price was one of the 21 - so wiring the producer up without a floor",
+   "would have minted a forfeited session as its first 'forward' mark."
+  ]
+ },
+
+ "safety": {
+  "live_checkout_modified": false,
+  "real_mark_written": false,
+  "forward_backfill": false,
+  "portfolio_mutation": false,
+  "orders": false,
+  "fills": false,
+  "promotion": false,
+  "capital_allocated": false,
+  "paid_data_cost_usd": 0
+ }
+}

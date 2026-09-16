@@ -158,6 +158,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
     advance_result = None
     forf = None
     canon = None
+    s25 = None
     vel = None
     frontier = None
     integrity = None
@@ -323,6 +324,57 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 5a4. the FROZEN Stage-26 book gets its host back -------------- #
+        # s25_operating_profitability was frozen on 2026-08-16 and accrued
+        # ZERO marks, because the only production host of its mark producer -
+        # the AlphaAgent-Collect task - was disabled THIRTEEN DAYS BEFORE the
+        # book existed, and this runtime never inherited the responsibility.
+        # The producer was never broken; its host was retired underneath it.
+        #
+        # So the responsibility is re-parented here, on this cadence and under
+        # this lock, exactly like the two adapter stages above: the retired
+        # task stays disabled, no second scheduler appears, and the mark is
+        # still written by alpha_agent.tournament.advance_shadow_books into the
+        # SAME shadow book under the SAME frozen h63 clock. The stage marks AT
+        # MOST ONE session per invocation, never catches up over sessions it
+        # missed, and refuses the 21 permanently forfeited ones outright.
+        #
+        # It fails closed by default: with no governed re-arm authorisation on
+        # the store it reports AWAITING_ACTIVATION and writes nothing.
+        try:
+            from .. import stage26_forward_runtime as S26F
+            s25 = S26F.advance(now=started.isoformat())
+            s25_st = str(s25.get("state"))
+            if s25_st in S26F.PROGRESS_STATES:
+                s25_state = SUCCESS
+            elif s25_st in S26F.BLOCKED_STATES:
+                s25_state = DATA_BLOCKED
+            elif s25_st in S26F.INTEGRITY_STATES:
+                s25_state = FAILED_INTEGRITY
+            elif s25_st == S26F.STATE_FAILED:
+                s25_state = FAILED_RETRYABLE
+            else:
+                s25_state = NOT_DUE
+            stages.append(_stage(
+                "stage26_prospective_mark", s25_state,
+                challenger_id=s25.get("challenger_id"),
+                advance_state=s25_st,
+                original_inception=s25.get("original_inception"),
+                prospective_epoch_floor=s25.get(
+                    "prospective_epoch_floor_session"),
+                evidence_session=s25.get("evidence_session"),
+                marks_before=s25.get("marks_before"),
+                marks_written=s25.get("marks_written_this_run"),
+                sessions_skipped=s25.get("n_sessions_skipped"),
+                h63_maturity_rule=s25.get("h63_maturity_rule"),
+                backfill=s25.get("backfill"),
+                detail=s25.get("detail")))
+        except Exception as exc:          # noqa: BLE001
+            s25 = None
+            stages.append(_stage("stage26_prospective_mark", FAILED_RETRYABLE,
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 5b. the canonical prospective registrations advance ----------- #
         # R62.2. A registration made by the canonical registrar names its
         # accrual owner and its maturation owner, and before this stage nothing
@@ -397,11 +449,12 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  "n_total_forfeitures")},
                          emission_policy=policy,
                          canonical_forward_accrual=_canonical_digest(canon),
+                         stage26_prospective_mark=_stage26_digest(s25),
                          promotion_ready_count=(frontier or {}).get(
                              "promotion_ready_count"))
         _journal(body)
         _write_health(body, contract, advance_result, forf, frontier,
-                      integrity, velocity=vel, canonical=canon)
+                      integrity, velocity=vel, canonical=canon, stage26=s25)
         return body
     finally:
         RL.release_path(_lock_file(), holder)
@@ -429,6 +482,28 @@ def _canonical_digest(c) -> dict:
         "n_armed_for_a_future_session", "predictions_emitted_total",
         "matured_observations_total",
         "effective_independent_observations_total", "forfeitures_total")}
+
+
+def _stage26_digest(s) -> dict:
+    """What the re-armed Stage-26 forward stream looks like, in every run.
+
+    This block is deliberately UNCONDITIONAL. The reason S25's clock could stop
+    for 31 days unnoticed is that no read model this runtime writes had to say
+    anything about it: an owner nothing reads reports nothing, so silence looked
+    like health. A stalled or unauthorised stream now has to say so by name in
+    the artifact the running runtime produces every cycle.
+    """
+    if not s:
+        return {"state": "NOT_RUN",
+                "why": "the stage did not run in this cycle"}
+    return {k: s.get(k) for k in (
+        "state", "challenger_id", "strategy_name", "shadow_book_id",
+        "original_inception", "prospective_epoch_floor_session",
+        "evidence_session", "threshold_session", "panel_latest_session",
+        "marks_before", "marks_after", "marks_written_this_run",
+        "n_sessions_skipped", "identity_verified", "h63_maturity_rule",
+        "governance_decision", "forfeited_sessions", "backfill", "reason",
+        "detail")}
 
 
 def _run_body(run_id: str, state: str, started: _dt.datetime, trigger: str,
@@ -484,7 +559,8 @@ def _next_invocation(now: _dt.datetime) -> dict:
 
 
 def _write_health(run_body: dict, contract, advance_result, forf, frontier,
-                  integrity, velocity=None, canonical=None) -> None:
+                  integrity, velocity=None, canonical=None,
+                  stage26=None) -> None:
     now = CK.now_utc()
     prior = read_json(runtime_dir() / HEALTH_ARTIFACT, default=None) or {}
     a = advance_result or {}
@@ -566,6 +642,18 @@ def _write_health(run_body: dict, contract, advance_result, forf, frontier,
             "n_armed_for_a_future_session"),
         canonical_forward_effective_independent_observations=(
             (canonical or {}).get("effective_independent_observations_total")),
+        # ---- the re-armed Stage-26 forward stream ----------------------- #
+        # Its OWN block, and always present. This stream's marks live in the
+        # legacy shadow book under the frozen h63 mark-count clock, so folding
+        # them into either counter above would sum two different evidence
+        # identities. It is reported even when the stage did not run, because
+        # an owner nobody has to mention is an owner that can stop unnoticed -
+        # which is precisely how this book lost 21 collectable sessions.
+        stage26_prospective_mark=_stage26_digest(stage26),
+        stage26_stream_state=(stage26 or {}).get("state", "NOT_RUN"),
+        stage26_marks=(stage26 or {}).get("marks_after",
+                                          (stage26 or {}).get("marks_before")),
+        stage26_forward_backfill_forbidden=True,
         accountability_start_date=ACCOUNTABILITY_START_DATE,
         runtime_lock=RL.state_path(_lock_file()),
         advance_lock=RL.state(),
