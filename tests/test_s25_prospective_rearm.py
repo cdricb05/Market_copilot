@@ -140,10 +140,19 @@ def _panel(sessions: list, *, flat: bool = False, members=None) -> dict:
     return {"series": series, "manifest": {"path": "<fixture>"}}
 
 
-def _activate(store: Path, *, latest="2026-09-16") -> dict:
+#: The REAL activation instant, 16:15:01 ET on a Wednesday - after the exchange
+#: close and before the owned-data cutoff. Passed explicitly so no test in this
+#: file depends on the wall clock: a floor derived from ``datetime.now()`` is a
+#: time bomb, and this suite already exists because a clock was got wrong once.
+ACTIVATION_AT = "2026-09-16T20:15:01.093648+00:00"
+
+
+def _activate(store: Path, *, latest="2026-09-15", now=ACTIVATION_AT) -> dict:
+    """Activate at ``now``. ``latest`` is the PANEL's newest session, which is
+    recorded as provenance and no longer sets the floor."""
     return S26F.activate(latest_completed_session=latest,
                          confirm=S26F.ACTIVATE_CONFIRM_TOKEN,
-                         store_root=store)
+                         now=now, store_root=store)
 
 
 def _advance(store: Path, sessions: list, **kw) -> dict:
@@ -270,17 +279,17 @@ def test_a_restart_writes_no_duplicate(store):
 
 
 def test_activation_is_first_write_wins_and_never_moves_the_floor(store):
-    first = _activate(store, latest="2026-09-16")
+    first = _activate(store)
     assert first["state"] == "ACTIVATED"
     floor = first["governance"]["prospective_epoch_floor_session"]
-    second = _activate(store, latest="2026-12-31")
+    second = _activate(store, latest="2026-12-31", now="2026-12-31T22:00:00+00:00")
     assert second["state"] == "ALREADY_ACTIVE"
     assert second["wrote"] is False
     assert (second["governance"]["prospective_epoch_floor_session"] == floor)
 
 
 def test_activation_requires_the_explicit_confirmation_token(store):
-    res = S26F.activate(latest_completed_session="2026-09-16", store_root=store)
+    res = S26F.activate(latest_completed_session="2026-09-15", store_root=store)
     assert res["state"] == "REFUSED"
     assert res["wrote"] is False
     assert not S26F.governance_path(store).exists()
@@ -316,8 +325,14 @@ def test_a_panel_offering_only_forfeited_sessions_yields_no_mark(store):
 
 
 def test_the_floor_cannot_be_lowered_into_the_gap_by_a_stale_panel(store):
-    """A panel two weeks behind at activation must not reopen the gap."""
-    res = _activate(store, latest="2026-09-01")
+    """A panel two weeks behind at activation must not reopen the gap.
+
+    The clock is set to just after the close on 2026-09-15 - the last forfeited
+    session - so the two terms of the floor coincide there and the assertion is
+    about the FIRST term holding, not about the clock rescuing it.
+    """
+    res = _activate(store, latest="2026-09-01",
+                    now="2026-09-15T20:30:00+00:00")
     floor = res["governance"]["prospective_epoch_floor_session"]
     assert floor == FORFEITED_LAST
     assert _advance(store, FORFEITED_21)["state"] == S26F.STATE_NOT_DUE
@@ -710,14 +725,18 @@ def test_the_governance_record_states_what_it_does_not_authorise(store):
 
 
 def test_the_prospective_epoch_is_recorded_separately_from_inception(store):
-    gov = _activate(store, latest="2026-09-16")["governance"]
+    gov = _activate(store, latest="2026-09-15")["governance"]
     assert gov["original_inception"] == INCEPTION
+    # The floor is the CLOCK's session, not the panel's - and the record keeps
+    # both, so the lag that caused the original defect is visible in it.
     assert gov["prospective_epoch_floor_session"] == "2026-09-16"
-    assert gov["latest_completed_session_at_activation"] == "2026-09-16"
+    assert gov["latest_completed_eligible_session_at_activation"] == "2026-09-16"
+    assert gov["latest_completed_session_at_activation"] == "2026-09-15"
+    assert gov["owned_panel_lagged_the_exchange_at_activation"] is True
     assert gov["prospective_epoch_floor_session"] != gov["original_inception"]
 
 
-def test_the_epoch_floor_is_the_later_of_the_gap_and_the_panel():
+def test_the_epoch_floor_is_the_later_of_the_gap_and_the_completed_session():
     assert S26F.epoch_floor_for("2026-09-01") == FORFEITED_LAST
     assert S26F.epoch_floor_for(FORFEITED_LAST) == FORFEITED_LAST
     assert S26F.epoch_floor_for("2026-09-16") == "2026-09-16"

@@ -19,6 +19,13 @@ WHAT IT GUARANTEES
       ``alpha_agent.tournament.advance_shadow_books``.
     * NO SECOND REGISTRY. This holds no state, creates no table and registers
       no identity. It returns what the Stage-8 owner already says.
+    * RAW IS DISTINGUISHED FROM GOVERNED. Where a governed prospective epoch
+      exists for a book, the count this seam publishes as forward evidence is
+      the count of marks STRICTLY AFTER that epoch - never the raw row count.
+      A mark whose session had already completed when collection was authorised
+      is preserved, reported, and excluded from evidence. The classification
+      belongs to ``alpha_agent.stage26_forward_runtime`` (the owner of the epoch
+      concept) and is asked for here, never reimplemented.
 """
 from __future__ import annotations
 
@@ -85,7 +92,28 @@ def read_book(root, shadow_book_id: str) -> dict:
     return r59.read_json(book_path(root, shadow_book_id)) or {}
 
 
-def records(root: Path, *, today: Optional[str] = None) -> Optional[list]:
+def _governed_view(root, book: dict, shadow_book_id: str, provider=None):
+    """The RAW-vs-VALID split for a book that has a governed prospective epoch.
+
+    ``None`` for every book that has none - this seam asserts no classification
+    of its own, and a book no governance owner speaks for is reported exactly as
+    it is stored. The provider is imported lazily because the epoch's owner
+    imports THIS module, and injected in tests.
+    """
+    if provider is None:
+        from .. import stage26_forward_runtime as S26F   # noqa: PLC0415
+        provider = S26F.governed_mark_view
+    try:
+        return provider(root, book, shadow_book_id)
+    except Exception:                                    # noqa: BLE001
+        # A read model may not fail closed INTO SILENCE about a book it can see,
+        # so an unreadable governance store degrades to "ungoverned" - which
+        # reports the raw count under its own honest name, not as evidence.
+        return None
+
+
+def records(root: Path, *, today: Optional[str] = None,
+            governed_view=None) -> Optional[list]:
     """Every shadow-booked Stage-25/26 challenger the legacy registry holds.
 
     Returns ``None`` when the registry is absent or unreadable, so the caller
@@ -111,9 +139,24 @@ def records(root: Path, *, today: Optional[str] = None) -> Optional[list]:
         book = read_book(root, str(r["shadow_book_id"]))
         inc = book.get("inception") or {}
         spec = inc.get("spec") or {}
-        marks = len(book.get("marks") or [])
+        rows_raw = book.get("marks") or []
+        raw = len(rows_raw)
         inception = inc.get("date") or r["inception_date"]
         days = days_since(inception, today)
+
+        # The GOVERNED count where a prospective epoch exists, the raw count
+        # where none does. ``marks`` keeps its name and becomes the governed
+        # number, so an existing consumer cannot keep reading a quarantined
+        # observation as evidence simply by not knowing about the new keys.
+        gv = _governed_view(root, book, str(r["shadow_book_id"]),
+                            provider=governed_view)
+        valid_dates = list((gv or {}).get("valid_mark_dates") or ())
+        governed = (gv or {}).get("valid_marks")
+        marks = raw if governed is None else int(governed)
+        last_mark = ((rows_raw[-1] or {}).get("date") if raw else None)
+        if gv is not None:
+            last_mark = valid_dates[-1] if valid_dates else None
+
         out.append({"challenger_id": str(r["candidate_id"]),
                     "name": r["name"],
                     "family": r["family"],
@@ -128,8 +171,16 @@ def records(root: Path, *, today: Optional[str] = None) -> Optional[list]:
                     "membership": len(inc.get("membership") or []),
                     "benchmark": inc.get("benchmark"),
                     "marks": marks,
-                    "last_mark": ((book.get("marks") or [])[-1] or {}).get("date")
-                    if marks else None,
+                    "raw_marks": raw,
+                    "valid_marks": governed,
+                    "quarantined_marks": (gv or {}).get("quarantined_marks"),
+                    "quarantined_mark_dates":
+                        list((gv or {}).get("quarantined_mark_dates") or ()),
+                    "governed_epoch_applied": bool((gv or {}).get("governed")),
+                    "effective_prospective_epoch_floor_session":
+                        (gv or {}).get(
+                            "effective_prospective_epoch_floor_session"),
+                    "last_mark": last_mark,
                     "days_since_inception": days,
                     "stream_state": stream_state(status=r["status"], marks=marks,
                                                  days=days)})

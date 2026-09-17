@@ -362,8 +362,12 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 original_inception=s25.get("original_inception"),
                 prospective_epoch_floor=s25.get(
                     "prospective_epoch_floor_session"),
+                effective_prospective_epoch_floor=s25.get(
+                    "effective_prospective_epoch_floor_session"),
                 evidence_session=s25.get("evidence_session"),
                 marks_before=s25.get("marks_before"),
+                valid_marks=s25.get("valid_marks_before"),
+                quarantined_marks=s25.get("quarantined_marks"),
                 marks_written=s25.get("marks_written_this_run"),
                 sessions_skipped=s25.get("n_sessions_skipped"),
                 h63_maturity_rule=s25.get("h63_maturity_rule"),
@@ -499,8 +503,18 @@ def _stage26_digest(s) -> dict:
     return {k: s.get(k) for k in (
         "state", "challenger_id", "strategy_name", "shadow_book_id",
         "original_inception", "prospective_epoch_floor_session",
+        # The EFFECTIVE floor is reported beside the stored one, because the
+        # immutable activation record carries a floor that is no longer the one
+        # in force and a read model that published only the stored value would
+        # keep restating the defect it was corrected for.
+        "effective_prospective_epoch_floor_session", "epoch_floor_was_corrected",
+        "session_boundary_owner", "calendar_owner",
         "evidence_session", "threshold_session", "panel_latest_session",
-        "marks_before", "marks_after", "marks_written_this_run",
+        # RAW beside GOVERNED, never one in place of the other.
+        "marks_before", "marks_after", "raw_marks", "valid_marks_before",
+        "valid_marks_after", "quarantined_marks", "quarantined_mark_dates",
+        "quarantine_class", "quarantine_reason",
+        "marks_written_this_run",
         "n_sessions_skipped", "identity_verified", "h63_maturity_rule",
         "governance_decision", "forfeited_sessions", "backfill", "reason",
         "detail")}
@@ -651,8 +665,19 @@ def _write_health(run_body: dict, contract, advance_result, forf, frontier,
         # which is precisely how this book lost 21 collectable sessions.
         stage26_prospective_mark=_stage26_digest(stage26),
         stage26_stream_state=(stage26 or {}).get("state", "NOT_RUN"),
+        # RAW row count, named as raw. It is NOT the evidence count.
         stage26_marks=(stage26 or {}).get("marks_after",
                                           (stage26 or {}).get("marks_before")),
+        stage26_raw_marks=(stage26 or {}).get("raw_marks"),
+        # The GOVERNED count: marks strictly after the EFFECTIVE epoch. A health
+        # reader that sums forward evidence must sum this one.
+        stage26_valid_marks=(stage26 or {}).get(
+            "valid_marks_after", (stage26 or {}).get("valid_marks_before")),
+        stage26_quarantined_marks=(stage26 or {}).get("quarantined_marks"),
+        stage26_effective_epoch_floor=(stage26 or {}).get(
+            "effective_prospective_epoch_floor_session"),
+        stage26_epoch_floor_was_corrected=(stage26 or {}).get(
+            "epoch_floor_was_corrected"),
         stage26_forward_backfill_forbidden=True,
         accountability_start_date=ACCOUNTABILITY_START_DATE,
         runtime_lock=RL.state_path(_lock_file()),

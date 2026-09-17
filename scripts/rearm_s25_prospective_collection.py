@@ -15,10 +15,22 @@ can be reviewed before any evidence begins to accrue.
 
 WHY THE FLOOR IS DERIVED AND NOT TYPED
 --------------------------------------
-The floor is ``max(2026-09-15, the latest completed session in the owned
-panel)``. The first term is the last permanently forfeited session, so a stale
-panel can never lower the floor into the 21-session gap; the second means an
-already-closed session cannot be left collectable. Both terms are recorded.
+The floor is ``max(2026-09-15, the latest completed ELIGIBLE session at the
+activation wall clock)``. The first term is the last permanently forfeited
+session, so a stale view can never lower the floor into the 21-session gap; the
+second means a session that had ALREADY CLOSED when collection was authorised
+cannot be left collectable. Both terms are recorded, and neither is typed in.
+
+THE SECOND TERM IS A CLOCK QUESTION, NOT A DATA QUESTION
+--------------------------------------------------------
+It was originally the OWNED PANEL's newest session, and that was wrong: a panel
+lags the exchange, so at 16:15 ET the panel could still be a session behind
+while that session had closed 15 minutes earlier - leaving an already-completed
+session collectable once the data caught up. The term now comes from
+``engine.market_session`` + ``engine.exchange_calendar``, against the EXCHANGE
+CLOSE. The panel's newest session is still read and recorded, but only as
+PROVENANCE: it shows how far the data lagged, and it may block a mark later
+without ever authorising one.
 
 USAGE (Windows PowerShell)
 
@@ -74,9 +86,10 @@ def main(argv=None) -> int:
                          default=str))
         return 0
 
-    # The latest COMPLETED session comes from the owned panel's benchmark axis -
-    # the same axis the accrual stage itself uses, so the floor and the
-    # collection rule can never disagree about what "now" means.
+    # The owned panel's newest benchmark session - the same axis the accrual
+    # stage uses, read here for PROVENANCE. It records how far the data lagged
+    # the exchange at activation; it does NOT set the epoch floor, which
+    # ``activate`` derives from the canonical session and calendar owners.
     try:
         from paper_trader.api import price_panel as PP        # noqa: PLC0415
         panel = PP.load_owned_current_panel()
@@ -84,9 +97,9 @@ def main(argv=None) -> int:
                  .get(S26F.BENCHMARK) or {}).get("dates") or []
         latest = str(dates[-1])[:10] if dates else ""
     except Exception as exc:                                  # noqa: BLE001
-        print("%s - the owned panel could not be read (%s: %s); the epoch "
-              "floor must be derived from it, so nothing was written"
-              % (FAILED, type(exc).__name__, str(exc)[:160]))
+        print("%s - the owned panel could not be read (%s: %s); its newest "
+              "session is recorded as activation provenance, so nothing was "
+              "written" % (FAILED, type(exc).__name__, str(exc)[:160]))
         return 1
 
     res = S26F.activate(latest_completed_session=latest,
@@ -105,8 +118,10 @@ def main(argv=None) -> int:
         return 0
     if state == "ACTIVATED":
         print(json.dumps(gov, indent=1, default=str))
-        print("%s - %s (latest completed session at activation: %s)"
+        print("%s - %s (latest completed ELIGIBLE session at activation: %s; "
+              "owned panel newest session: %s)"
               % (ACTIVATED, floor,
+                 gov.get("latest_completed_eligible_session_at_activation"),
                  gov.get("latest_completed_session_at_activation")))
         return 0
     print("%s - unexpected activation state %s" % (FAILED, state))

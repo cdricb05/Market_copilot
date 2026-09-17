@@ -117,14 +117,56 @@ one** — all 100 names and SPY at 100 % coverage on every single one.
 ### Three independent guards
 
 1. **The prospective epoch floor** — stamped once at activation, first-write-wins.
-   Derived as `max(2026-09-15, latest completed session in the owned panel)`.
-   The first term means a *stale* panel at activation cannot lower the floor into
-   the gap; the second means an already-closed session cannot be left collectable.
+   Derived as `max(2026-09-15, the latest completed ELIGIBLE session at the
+   activation wall clock)`. The first term means a *stale* view at activation
+   cannot lower the floor into the gap; the second means a session that had
+   already closed when collection was authorised cannot be left collectable.
 2. **An explicit refusal of the declared window** `2026-08-17..2026-09-15`,
    applied *before* a session can be chosen, so it holds even if the stored floor
    has been moved or corrupted. A test tampers with the floor and proves it.
 3. **The pre-existing frozen guard** — `record_mark` refuses any date at or
    before inception or the latest mark. Untouched, and still proven to raise.
+
+### The second term was originally wrong: data arrival is not a session clock
+
+**`S25_EPOCH_BOUNDARY_AND_SINGLE_AGENT_FIX_SEP17_V1` (2026-09-17).** The second
+term was first implemented as *the owned panel's newest session*, and a panel
+lags the exchange. Activation ran at `2026-09-16T20:15:01Z` — **16:15:01 ET** —
+so the 2026-09-16 NYSE session had closed fifteen minutes earlier, while the
+panel's newest bar was still 2026-09-15. The floor was stamped one session too
+low, and 2026-09-16 would have been marked as *prospective* evidence the moment
+the panel caught up. An observation is prospective only if its outcome was
+unobservable when the observer committed; 2026-09-16's outcome was already fixed.
+
+The boundary question splits in two, and only one half belongs to the data:
+
+| Question | Owner | May it authorise a mark? |
+|---|---|---|
+| Had the session already **completed** at activation? | `engine.market_session.resolve_expected_session` + `engine.exchange_calendar`, against **`REGULAR_CLOSE_ET` (16:00 ET)** | it sets the floor |
+| Can a legitimate post-floor session be **priced** now? | `api.price_panel` | **no** — it may only ever *block* |
+
+Using `DEFAULT_CLOSE_CUTOFF_ET` (17:30 ET) here is the same defect one level up:
+that cutoff is a *data-arrival grace period*, and 16:15 ET falls between the two.
+No second calendar was introduced — the epoch owner declares no holiday, weekend
+or cutoff of its own.
+
+**The original activation record is immutable and was not rewritten.** It states
+truthfully what was done, wrong floor included; rewriting it would destroy the
+only evidence that the defect existed. The correction is an **append-only**
+document beside it, `s25_prospective_epoch_correction.json`, and the corrected
+floor is *declared in code* as well — bound to that one record by its activation
+timestamp and by the floor it stamped — so "2026-09-16 can never be collected"
+survives the deletion of a JSON file. A correction can only ever **raise** a
+floor.
+
+**Raw marks are distinguished from valid TRUE_FORWARD marks.** A mark at or
+before the effective epoch is a `NONCOUNTING_PRE_EFFECTIVE_EPOCH_OBSERVATION`:
+**preserved** exactly as recorded — never deleted, edited or restated — counted
+in `raw_marks`, and counted toward *none* of forward observations, effective
+observations, the h63 clock, promotion evidence or capital eligibility. Every
+governed read model (`stage26_forward_runtime.status`, `r59.stage25_owner.records`,
+the runtime health block and run journal) publishes both counts, so
+`ShadowBook.replay`'s raw count can never be read silently as evidence.
 
 ---
 

@@ -74,10 +74,39 @@ So two INDEPENDENT guards stand between this stage and a back-fill:
 
 1.  a PROSPECTIVE EPOCH FLOOR, stamped once into the governance record when the
     repair is activated, below which no session is collectable. It is derived as
-    ``max(the last forfeited session, the latest completed session at
-    activation)`` - so a stale panel at activation can never lower it;
+    ``max(the last forfeited session, the latest completed ELIGIBLE session at
+    the activation wall clock)`` - so neither a stale panel nor a panel that has
+    run ahead can move it;
 2.  an explicit refusal of any session inside the declared forfeited window,
     which holds even if the floor were wrong.
+
+THE SECOND DEFECT: DATA ARRIVAL IS NOT A SESSION CLOCK
+------------------------------------------------------
+The first activation derived the second term of that floor from the OWNED
+PANEL's newest session, and a panel lags the exchange. At the real activation
+instant - ``2026-09-16T20:15:01Z``, which is **16:15:01 ET** - the 2026-09-16
+NYSE session had closed 15 minutes earlier, yet the panel's newest bar was
+still 2026-09-15. The floor was therefore stamped at 2026-09-15 and 2026-09-16
+was left collectable: the moment the panel caught up, an ALREADY-COMPLETED
+session would have been marked as prospective evidence. An observation is
+prospective only if its outcome was unobservable when the observer committed,
+and 2026-09-16's outcome was fixed before the commit was written.
+
+So the boundary question splits in two, and only one half belongs to the data:
+
+*   WAS THE SESSION ALREADY COMPLETE when collection was authorised? That is a
+    CLOCK AND CALENDAR question, answered by the canonical owners
+    ``engine.market_session.resolve_expected_session`` and
+    ``engine.exchange_calendar`` - and answered against the EXCHANGE CLOSE
+    (``market_session.REGULAR_CLOSE_ET``, 16:00 ET), never against
+    ``DEFAULT_CLOSE_CUTOFF_ET`` (17:30 ET), which is a DATA-ARRIVAL grace
+    period. Using the arrival cutoff here is the defect itself, one level up.
+*   CAN A LEGITIMATE POST-FLOOR SESSION BE PRICED right now? That one is the
+    panel's, and it may only ever BLOCK a mark - never authorise one.
+
+No second calendar is introduced. This module owns no holiday table, no
+weekend rule and no cutoff of its own; it asks the owners and records who it
+asked.
 
 NO CATCH-UP, EVER
 -----------------
@@ -176,6 +205,72 @@ H63_MATURITY_RULE_SOURCE = (
 
 
 # --------------------------------------------------------------------------- #
+# 1b. THE SESSION BOUNDARY - borrowed from the canonical owners, never invented
+# --------------------------------------------------------------------------- #
+#: The ONE owner of "which session had completed at this instant". Named in every
+#: record this module writes so a reader can see the boundary was not guessed.
+SESSION_BOUNDARY_OWNER = \
+    "paper_trader.engine.market_session.resolve_expected_session"
+#: The ONE authoritative NYSE calendar. This module declares no holiday itself.
+CALENDAR_OWNER = "paper_trader.engine.exchange_calendar"
+#: The boundary is the EXCHANGE CLOSE, not the owned-data arrival cutoff. This is
+#: the whole correction: ``DEFAULT_CLOSE_CUTOFF_ET`` (17:30 ET) exists so an
+#: operator is not told a session is ready before its EOD bars could have landed,
+#: and using it to decide whether a session had HAPPENED is what let a completed
+#: session stay collectable. 16:15 ET is after the close and before the cutoff.
+SESSION_BOUNDARY_RULE = "EXCHANGE_REGULAR_CLOSE_ET_NOT_OWNED_DATA_ARRIVAL_CUTOFF"
+EPOCH_FLOOR_RULE = (
+    "max(last_permanently_forfeited_session,"
+    " latest_completed_eligible_session_at_activation_wall_clock)")
+
+#: The calendar query window is spelled as "from the start of LAST year", which
+#: needs no date arithmetic at all. Only closures BETWEEN the resolved session
+#: and the clock's own date can matter - at most a couple of weeks - so this is
+#: enormously generous, and it deliberately avoids computing a date here: date
+#: arithmetic in this module is the machinery a catch-up would need, and its
+#: absence is a structural invariant the suite enforces.
+_CALENDAR_LOOKBACK_YEARS = 1
+
+
+# --------------------------------------------------------------------------- #
+# 1c. THE CORRECTION TO THE ONE RECORD THAT WAS WRITTEN WITH THE DEFECT
+# --------------------------------------------------------------------------- #
+#: The live activation record is IMMUTABLE - it states truthfully what was done,
+#: including the floor that was wrong - so the correction is declared here and
+#: recorded beside it, rather than rewritten into it.
+#:
+#: It is BOUND TO THAT ONE RECORD by its activation timestamp and by the floor it
+#: stamped, so it can never be applied to a different activation, and it only
+#: ever RAISES a floor. It is declared in code rather than living only in the
+#: correction artifact because "2026-09-16 can never be collected" must survive
+#: the deletion of a JSON file: a rule that depends on an artifact being present
+#: is exactly the kind of silence this book already lost 21 sessions to.
+#:
+#: The VALUE is not a guess and not a hard-code around the bug: it is what
+#: ``latest_completed_eligible_session(DEFECTIVE_ACTIVATION_AT)`` derives from
+#: the canonical owners, and a test recomputes it from them rather than trusting
+#: this literal.
+DEFECTIVE_ACTIVATION_AT = "2026-09-16T20:15:01.093648+00:00"
+DEFECTIVE_ACTIVATION_FLOOR = "2026-09-15"
+CORRECTED_ACTIVATION_FLOOR = "2026-09-16"
+CORRECTION_ID = "S25_EPOCH_BOUNDARY_AND_SINGLE_AGENT_FIX_SEP17_V1"
+CORRECTION_DEFECT = \
+    "STALE_PANEL_COULD_LEAVE_AN_ALREADY_COMPLETED_SESSION_COLLECTABLE"
+CORRECTION_SCHEMA_VERSION = "s25_prospective_epoch_correction.v1"
+GOVERNANCE_CORRECTION_ARTIFACT = "s25_prospective_epoch_correction.json"
+CORRECTION_CONFIRM_TOKEN = "CORRECT_S25_PROSPECTIVE_EPOCH"
+
+#: A mark whose session had already completed when collection was authorised. It
+#: is PRESERVED (an evidence row is never deleted or restated) and it counts
+#: toward the RAW total only. It is not TRUE_FORWARD evidence, so it counts
+#: toward none of: effective observations, the h63 clock, promotion evidence or
+#: capital eligibility.
+QUARANTINE_CLASS = "NONCOUNTING_PRE_EFFECTIVE_EPOCH_OBSERVATION"
+QUARANTINE_REASON = \
+    "SESSION_COMPLETED_BEFORE_GOVERNED_PROSPECTIVE_ACTIVATION_BOUNDARY"
+
+
+# --------------------------------------------------------------------------- #
 # 2. THE STATE VOCABULARY
 # --------------------------------------------------------------------------- #
 STATE_AWAITING_ACTIVATION = "AWAITING_ACTIVATION"
@@ -208,6 +303,7 @@ R_FORFEITED_WINDOW = "SESSION_IS_INSIDE_THE_PERMANENTLY_FORFEITED_WINDOW"
 R_NO_PANEL = "OWNED_PRICE_PANEL_UNAVAILABLE"
 R_NO_BENCHMARK = "BENCHMARK_HAS_NO_SESSION_AXIS_IN_THE_PANEL"
 R_COVERAGE = "PRICED_COVERAGE_BELOW_THE_FROZEN_NAV_KERNEL_FLOOR"
+R_PRE_EFFECTIVE_EPOCH = "SESSION_IS_AT_OR_BEFORE_THE_EFFECTIVE_PROSPECTIVE_EPOCH"
 
 ACTIVATE_CONFIRM_TOKEN = "REARM_S25_PROSPECTIVE_COLLECTION"
 
@@ -295,17 +391,355 @@ def is_forfeited_session(session: Optional[str]) -> bool:
 def epoch_floor_for(latest_completed_session: Optional[str]) -> str:
     """The prospective epoch floor, derived at activation - never declared.
 
-    ``max(the last forfeited session, the latest completed session now)``. The
-    first term means a STALE panel at activation cannot lower the floor into the
-    forfeited window; the second means a panel that has run ahead cannot leave
-    an already-closed session collectable.
+    ``max(the last forfeited session, the latest completed ELIGIBLE session at
+    the activation wall clock)``. The first term means a stale view at
+    activation cannot lower the floor into the forfeited window; the second
+    means a session that had ALREADY CLOSED when collection was authorised
+    cannot be left collectable.
+
+    PURE. The argument must be the CLOCK's answer, from
+    :func:`latest_completed_eligible_session` - not the owned panel's newest
+    bar, which lags the exchange and was the original defect.
     """
     latest = str(latest_completed_session or "")[:10]
     return max(FORFEITED_LAST, latest) if latest else FORFEITED_LAST
 
 
-def activate(*, latest_completed_session: str, confirm: Optional[str] = None,
-             now: Optional[str] = None, store_root=None,
+def _coerce_now(now=None) -> "_dt.datetime":
+    """A timezone-aware instant from ``None`` / ISO string / datetime."""
+    if now is None:
+        return _dt.datetime.now(_dt.timezone.utc)
+    if isinstance(now, _dt.datetime):
+        ts = now
+    else:
+        ts = _dt.datetime.fromisoformat(str(now).replace("Z", "+00:00"))
+    return ts if ts.tzinfo else ts.replace(tzinfo=_dt.timezone.utc)
+
+
+def latest_completed_eligible_session(now=None, *, resolver=None) -> str:
+    """The latest ELIGIBLE session that had COMPLETED at ``now``. Delegated.
+
+    This is the half of the boundary the DATA may not answer, so it is asked of
+    the canonical owners and of nothing else:
+
+    * ``engine.exchange_calendar`` supplies the AUTHORITATIVE closures, so a
+      holiday is never mistaken for a session that could close;
+    * ``engine.market_session.resolve_expected_session`` walks the clock back to
+      the session that actually traded.
+
+    The cutoff handed over is ``market_session.REGULAR_CLOSE_ET`` - the EXCHANGE
+    CLOSE. ``DEFAULT_CLOSE_CUTOFF_ET`` is a data-arrival grace period and using
+    it here would reintroduce the defect one level up: at 16:15 ET the session
+    has happened whether or not its bars have landed.
+
+    ``resolver`` is for hermetic tests and takes the same instant; production
+    never passes it. No holiday, weekend or cutoff rule is implemented here.
+    """
+    ts = _coerce_now(now)
+    if resolver is not None:
+        return str(resolver(ts))[:10]
+    from paper_trader.engine import exchange_calendar as XC   # noqa: PLC0415
+    from paper_trader.engine import market_session as MS      # noqa: PLC0415
+    today = MS.to_eastern(ts).date()
+    non_sessions = XC.non_sessions_between(
+        "%04d-01-01" % (today.year - _CALENDAR_LOOKBACK_YEARS),
+        today.isoformat())
+    return MS.resolve_expected_session(
+        ts, close_cutoff_et=MS.REGULAR_CLOSE_ET,
+        non_sessions=non_sessions).market_date_iso
+
+
+# --------------------------------------------------------------------------- #
+# 3b. THE APPEND-ONLY CORRECTION, AND THE EFFECTIVE FLOOR IT PRODUCES
+# --------------------------------------------------------------------------- #
+def correction_path(store_root=None) -> Path:
+    """Beside the activation record, in the SAME governance store. Not inside
+    it: the activation record is immutable."""
+    return store_dir(store_root) / GOVERNANCE_CORRECTION_ARTIFACT
+
+
+def load_corrections(store_root=None) -> Optional[dict]:
+    """The stored correction log, or ``None`` when none has been recorded."""
+    p = correction_path(store_root)
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def declared_correction_floor(gov: Optional[dict]) -> Optional[str]:
+    """The DECLARED correction for the one record written with the defect.
+
+    Returns the corrected floor when ``gov`` IS that record - matched on BOTH
+    its activation timestamp and the floor it stamped - and ``None`` otherwise.
+    A later activation, a re-activation with a different timestamp or a record
+    whose floor has since been raised is left completely alone.
+    """
+    if not gov:
+        return None
+    if str(gov.get("activated_at") or "") != DEFECTIVE_ACTIVATION_AT:
+        return None
+    if str(gov.get("prospective_epoch_floor_session") or "")[:10] \
+            != DEFECTIVE_ACTIVATION_FLOOR:
+        return None
+    return CORRECTED_ACTIVATION_FLOOR
+
+
+def effective_epoch_floor(gov: Optional[dict],
+                          corrections: Optional[dict] = None) -> Optional[str]:
+    """The floor that GOVERNS collection now: the highest of every source.
+
+    ``max(the stored floor, the declared correction for that stored record,
+    every recorded correction's effective floor)``.
+
+    MONOTONIC BY CONSTRUCTION - a correction can only ever RAISE the floor, so
+    no artifact, and no replay of one, can reopen a session that has already
+    been governed out. Returns ``None`` only when there is no activation at all,
+    which is the fail-closed state in which nothing is collectable anyway.
+    """
+    if not gov:
+        return None
+    floors = [str(gov.get("prospective_epoch_floor_session") or "")[:10]]
+    declared = declared_correction_floor(gov)
+    if declared:
+        floors.append(declared)
+    for entry in ((corrections or {}).get("corrections") or ()):
+        val = str((entry or {}).get(
+            "effective_prospective_epoch_floor_session") or "")[:10]
+        if val:
+            floors.append(val)
+    live = [f for f in floors if f]
+    return max(live) if live else None
+
+
+def governed_epoch(store_root=None, *, gov=None,
+                   corrections=None) -> dict:
+    """The governed prospective epoch for this store, and where it came from.
+
+    READ-ONLY. One place every read model asks, so the original floor, the
+    correction and the effective floor can never be reported inconsistently by
+    two different surfaces.
+    """
+    gov = load_governance(store_root) if gov is None else gov
+    corrections = (load_corrections(store_root) if corrections is None
+                   else corrections)
+    stored = str((gov or {}).get("prospective_epoch_floor_session") or "")[:10]
+    effective = effective_epoch_floor(gov, corrections)
+    recorded = [e.get("correction_id")
+                for e in ((corrections or {}).get("corrections") or ())]
+    return {
+        "activated": bool(gov),
+        "activated_at": (gov or {}).get("activated_at"),
+        "original_prospective_epoch_floor_session": stored or None,
+        "effective_prospective_epoch_floor_session": effective,
+        "epoch_floor_was_corrected": bool(effective and stored
+                                          and effective > stored),
+        "declared_correction_applies": bool(declared_correction_floor(gov)),
+        "recorded_correction_ids": [c for c in recorded if c],
+        "correction_artifact_present": bool(corrections),
+        "epoch_floor_rule": EPOCH_FLOOR_RULE,
+        "session_boundary_owner": SESSION_BOUNDARY_OWNER,
+        "session_boundary_rule": SESSION_BOUNDARY_RULE,
+        "calendar_owner": CALENDAR_OWNER,
+        "first_valid_evidence_session": (
+            "the first eligible completed session STRICTLY AFTER %s" % effective
+            if effective else None),
+        "backfill": "FORBIDDEN",
+    }
+
+
+def classify_marks(marks, effective_floor: Optional[str]) -> dict:
+    """Split RECORDED marks into VALID TRUE_FORWARD and QUARANTINED. PURE.
+
+    A mark dated at or before the effective epoch is a NONCOUNTING
+    PRE-EFFECTIVE-EPOCH OBSERVATION: its session had already completed when
+    collection was authorised, so it is not forward evidence. It is PRESERVED
+    exactly as recorded - this function reads, splits and counts, and never
+    deletes, edits, reorders or restates a row.
+
+    With no effective floor (no activation) NOTHING is asserted to be valid:
+    the fail-closed default treats every recorded mark as unclassified rather
+    than as evidence.
+    """
+    rows = list(marks or ())
+    dates = [str((m or {}).get("date") or "")[:10] for m in rows]
+    if not effective_floor:
+        return {"raw_marks": len(rows), "raw_mark_dates": dates,
+                "valid_marks": None, "valid_mark_dates": [],
+                "quarantined_marks": None, "quarantined_mark_dates": [],
+                "governed": False}
+    valid = [d for d in dates if d and d > effective_floor]
+    quarantined = [d for d in dates if d and d <= effective_floor]
+    return {"raw_marks": len(rows), "raw_mark_dates": dates,
+            "valid_marks": len(valid), "valid_mark_dates": valid,
+            "quarantined_marks": len(quarantined),
+            "quarantined_mark_dates": quarantined,
+            "governed": True,
+            "quarantine_class": QUARANTINE_CLASS if quarantined else None,
+            "quarantine_reason": QUARANTINE_REASON if quarantined else None}
+
+
+def governed_mark_view(store_root, book: Optional[dict],
+                       shadow_book_id: str) -> Optional[dict]:
+    """The governed RAW-vs-VALID split for the ONE identity this module governs.
+
+    Returns ``None`` for any other shadow book, so a read model that asks about
+    every book gets an answer only where a governed prospective epoch exists and
+    is never handed a classification this module has no authority to make.
+    """
+    if str(shadow_book_id) != SHADOW_BOOK_ID:
+        return None
+    epoch = governed_epoch(store_root)
+    view = classify_marks((book or {}).get("marks") or [],
+                          epoch["effective_prospective_epoch_floor_session"])
+    return {**view,
+            "effective_prospective_epoch_floor_session":
+                epoch["effective_prospective_epoch_floor_session"],
+            "original_prospective_epoch_floor_session":
+                epoch["original_prospective_epoch_floor_session"],
+            "epoch_floor_was_corrected": epoch["epoch_floor_was_corrected"]}
+
+
+def record_epoch_correction(*, confirm: Optional[str] = None,
+                            now: Optional[str] = None, store_root=None,
+                            correction_id: str = CORRECTION_ID,
+                            resolver=None,
+                            operator: str = "HUMAN_GOVERNANCE_DECISION") -> dict:
+    """Record the APPEND-ONLY governance correction. First-write-wins per id.
+
+    It NEVER touches the activation record: that document states truthfully what
+    was done, wrong floor included, and rewriting it would destroy the only
+    evidence that the defect existed. The correction is a new document beside it
+    that says what the boundary should have been and why.
+
+    APPEND-ONLY. An existing entry is never edited, reordered or removed; a
+    re-run with the same ``correction_id`` appends nothing and reports
+    ``ALREADY_RECORDED``. The correction can only RAISE the floor, and a request
+    that would lower one is refused rather than applied.
+    """
+    if confirm != CORRECTION_CONFIRM_TOKEN:
+        return {"state": "REFUSED", "reason": "CONFIRMATION_TOKEN_REQUIRED",
+                "expected": CORRECTION_CONFIRM_TOKEN, "wrote": False}
+    gov = load_governance(store_root)
+    if not gov:
+        return {"state": "REFUSED", "reason": R_NO_ACTIVATION, "wrote": False,
+                "detail": ("there is no activation record to correct; a "
+                           "correction may not create one")}
+    existing = load_corrections(store_root) or {}
+    entries = list(existing.get("corrections") or ())
+    if any(str((e or {}).get("correction_id")) == str(correction_id)
+           for e in entries):
+        return {"state": "ALREADY_RECORDED", "wrote": False,
+                "correction_id": correction_id,
+                "corrections": existing,
+                "effective_prospective_epoch_floor_session":
+                    effective_epoch_floor(gov, existing)}
+
+    stored = str(gov.get("prospective_epoch_floor_session") or "")[:10]
+    activated_at = str(gov.get("activated_at") or "")
+    # The corrected boundary is DERIVED from the canonical owners against the
+    # activation's own wall clock. Nothing is typed in, and the activation
+    # timestamp is the record's, not this run's.
+    clock_session = latest_completed_eligible_session(activated_at,
+                                                      resolver=resolver)
+    corrected = epoch_floor_for(clock_session)
+    if corrected <= stored:
+        return {"state": "NOT_REQUIRED", "wrote": False,
+                "original_prospective_epoch_floor_session": stored,
+                "canonical_completed_session_at_activation": clock_session,
+                "effective_prospective_epoch_floor_session": stored,
+                "detail": ("the stored floor already governs the session that "
+                           "had completed at activation; a correction may only "
+                           "raise a floor")}
+
+    book = S25O.read_book(store_dir(store_root), SHADOW_BOOK_ID)
+    split = classify_marks(book.get("marks") or [], corrected)
+    entry = {
+        "correction_id": correction_id,
+        "schema_version": CORRECTION_SCHEMA_VERSION,
+        "composition_owner": COMPOSITION_OWNER,
+        "recorded_at": now or _now_iso(),
+        "recorded_by": operator,
+
+        # --- the original record: PRESERVED, never rewritten -------------- #
+        "original_activation_record": "PRESERVED",
+        "original_activation_artifact": GOVERNANCE_ARTIFACT,
+        "original_activation_mutated": False,
+        "activation_timestamp": activated_at,
+        "original_prospective_epoch_floor_session": stored,
+        "original_latest_completed_session_at_activation":
+            gov.get("latest_completed_session_at_activation"),
+
+        # --- the defect, named ------------------------------------------- #
+        "defect": CORRECTION_DEFECT,
+        "defect_detail": (
+            "the floor's second term was the OWNED PANEL's newest session, and a"
+            " panel lags the exchange; at %s (16:15:01 ET) the %s session had"
+            " closed 15 minutes earlier and the panel's newest bar was still"
+            " %s, so an already-completed session was left collectable"
+            % (activated_at, clock_session, stored)),
+
+        # --- the corrected boundary, DERIVED ----------------------------- #
+        "canonical_completed_market_session_at_activation": clock_session,
+        "effective_prospective_epoch_floor_session": corrected,
+        "first_valid_evidence_session":
+            "the first eligible completed session STRICTLY AFTER %s" % corrected,
+        "epoch_floor_rule": EPOCH_FLOOR_RULE,
+        "session_boundary_owner": SESSION_BOUNDARY_OWNER,
+        "session_boundary_rule": SESSION_BOUNDARY_RULE,
+        "calendar_owner": CALENDAR_OWNER,
+
+        # --- what a pre-epoch mark becomes, if one ever exists ----------- #
+        "quarantine_class": QUARANTINE_CLASS,
+        "quarantine_reason": QUARANTINE_REASON,
+        "quarantined_counts_toward": ["RAW_MARK_COUNT"],
+        "quarantined_counts_toward_none_of": [
+            "TRUE_FORWARD_OBSERVATIONS", "EFFECTIVE_OBSERVATIONS",
+            "H63_LEGITIMATE_MARKS", "PROMOTION_EVIDENCE",
+            "CAPITAL_ELIGIBILITY_EVIDENCE"],
+        "raw_marks_at_correction": split["raw_marks"],
+        "raw_mark_dates_at_correction": split["raw_mark_dates"],
+        "valid_marks_at_correction": split["valid_marks"],
+        "quarantined_mark_dates_at_correction":
+            split["quarantined_mark_dates"],
+        "evidence_row_deleted": False,
+        "evidence_row_restated": False,
+
+        # --- the identity, UNCHANGED ------------------------------------- #
+        "candidate_id": CANDIDATE_ID,
+        "strategy_name": STRATEGY_NAME,
+        "shadow_book_id": SHADOW_BOOK_ID,
+        "strategy_spec_hash": STRATEGY_SPEC_HASH,
+        "original_inception": ORIGINAL_INCEPTION,
+        "candidate_identity": "UNCHANGED",
+        "strategy_identity": "UNCHANGED",
+        "membership_state": "UNCHANGED",
+        "membership": MEMBERSHIP_SIZE,
+
+        "backfill": "FORBIDDEN",
+        "safety": _safety(),
+    }
+    doc = {
+        "schema_version": CORRECTION_SCHEMA_VERSION,
+        "composition_owner": COMPOSITION_OWNER,
+        "append_only": True,
+        "corrects_artifact": GOVERNANCE_ARTIFACT,
+        "corrects_artifact_mutated": False,
+        "candidate_id": CANDIDATE_ID,
+        "shadow_book_id": SHADOW_BOOK_ID,
+        "corrections": entries + [entry],
+    }
+    _atomic_write_json(correction_path(store_root), doc)
+    return {"state": "CORRECTED", "wrote": True, "correction_id": correction_id,
+            "correction": entry, "corrections": doc,
+            "original_prospective_epoch_floor_session": stored,
+            "canonical_completed_session_at_activation": clock_session,
+            "effective_prospective_epoch_floor_session": corrected}
+
+
+def activate(*, latest_completed_session: str = "",
+             confirm: Optional[str] = None,
+             now: Optional[str] = None, store_root=None, resolver=None,
              operator: str = "HUMAN_GOVERNANCE_DECISION") -> dict:
     """Authorise PROSPECTIVE collection for the EXISTING S25 identity. Once.
 
@@ -313,6 +747,13 @@ def activate(*, latest_completed_session: str, confirm: Optional[str] = None,
     re-running deployment can never move the epoch floor forward or backward.
     It writes ONE governance document and nothing else - no mark, no book, no
     candidate, no registration.
+
+    THE FLOOR COMES FROM THE CLOCK AND THE CALENDAR, NOT FROM THE PANEL.
+    ``latest_completed_session`` is the owned panel's newest session and is
+    recorded for PROVENANCE ONLY - so a later reader can see how far the data
+    lagged the exchange at activation. It no longer contributes to the floor,
+    because a panel that lags would leave an already-completed session
+    collectable, which is the defect this signature change closes.
     """
     if confirm != ACTIVATE_CONFIRM_TOKEN:
         return {"state": "REFUSED", "reason": "CONFIRMATION_TOKEN_REQUIRED",
@@ -321,7 +762,10 @@ def activate(*, latest_completed_session: str, confirm: Optional[str] = None,
     if existing:
         return {"state": "ALREADY_ACTIVE", "wrote": False,
                 "governance": existing}
-    floor = epoch_floor_for(latest_completed_session)
+    activated_at = now or _now_iso()
+    eligible = latest_completed_eligible_session(activated_at, resolver=resolver)
+    floor = epoch_floor_for(eligible)
+    panel_latest = str(latest_completed_session or "")[:10] or None
     record = {
         "schema_version": SCHEMA_VERSION,
         "composition_owner": COMPOSITION_OWNER,
@@ -357,10 +801,19 @@ def activate(*, latest_completed_session: str, confirm: Optional[str] = None,
         # starts here, and the two are recorded separately so no reader can
         # mistake a re-armed clock for a book that has been accruing since
         # August.
-        "activated_at": now or _now_iso(),
-        "latest_completed_session_at_activation":
-            str(latest_completed_session or "")[:10] or None,
+        "activated_at": activated_at,
+        # The CLOCK's answer - the term that actually sets the floor.
+        "latest_completed_eligible_session_at_activation": eligible,
+        # The PANEL's newest session - provenance only. The gap between this and
+        # the line above IS the lag that the original rule mistook for a clock.
+        "latest_completed_session_at_activation": panel_latest,
+        "owned_panel_lagged_the_exchange_at_activation": bool(
+            panel_latest and panel_latest < eligible),
         "prospective_epoch_floor_session": floor,
+        "epoch_floor_rule": EPOCH_FLOOR_RULE,
+        "session_boundary_owner": SESSION_BOUNDARY_OWNER,
+        "session_boundary_rule": SESSION_BOUNDARY_RULE,
+        "calendar_owner": CALENDAR_OWNER,
         "first_collectable_session":
             "the first eligible completed session STRICTLY AFTER %s" % floor,
         "observation_epoch_is_not_inception": True,
@@ -519,8 +972,19 @@ def advance(*, now: Optional[str] = None, store_root=None, panel_loader=None,
                 "detail": ("prospective collection is not authorised on this "
                            "store; no session is collectable and no mark can "
                            "be written")}
-    floor = str(gov.get("prospective_epoch_floor_session") or "")[:10]
-    out["prospective_epoch_floor_session"] = floor
+    # The GOVERNING floor is the EFFECTIVE one - the stored floor raised by any
+    # declared or recorded correction. Reading the stored floor directly here is
+    # what would let a session that had already closed at activation be marked
+    # once the panel caught up. Both are reported: an operator must be able to
+    # see that the floor in the immutable record is not the floor in force.
+    epoch = governed_epoch(store_root, gov=gov)
+    floor = epoch["effective_prospective_epoch_floor_session"] or ""
+    out["prospective_epoch_floor_session"] = epoch[
+        "original_prospective_epoch_floor_session"]
+    out["effective_prospective_epoch_floor_session"] = floor
+    out["epoch_floor_was_corrected"] = epoch["epoch_floor_was_corrected"]
+    out["session_boundary_owner"] = SESSION_BOUNDARY_OWNER
+    out["calendar_owner"] = CALENDAR_OWNER
     out["original_inception"] = ORIGINAL_INCEPTION
     out["governance_decision"] = gov.get("decision")
 
@@ -538,7 +1002,17 @@ def advance(*, now: Optional[str] = None, store_root=None, panel_loader=None,
     marks = book.get("marks") or []
     last_recorded = (marks[-1].get("date") if marks
                      else (book.get("inception") or {}).get("date"))
+    # RAW vs VALID, stated every cycle. ``marks_before`` stays the RAW count -
+    # it is literally what is on disk - but it is never the governed evidence
+    # count, which is why the valid/quarantined split travels beside it.
+    split = classify_marks(marks, floor)
     out["marks_before"] = len(marks)
+    out["raw_marks"] = split["raw_marks"]
+    out["valid_marks_before"] = split["valid_marks"]
+    out["quarantined_marks"] = split["quarantined_marks"]
+    out["quarantined_mark_dates"] = split["quarantined_mark_dates"]
+    out["quarantine_class"] = split.get("quarantine_class")
+    out["quarantine_reason"] = split.get("quarantine_reason")
     out["last_recorded"] = last_recorded
     out["identity_verified"] = True
 
@@ -591,6 +1065,19 @@ def advance(*, now: Optional[str] = None, store_root=None, panel_loader=None,
                 "reason": R_FORFEITED_WINDOW,
                 "detail": "session %s is not after inception %s"
                           % (session, ORIGINAL_INCEPTION)}
+    # The EFFECTIVE epoch, checked again immediately before the write. The
+    # resolver already thresholds on it, so this is unreachable through
+    # resolve_evidence_session - and that is the point: the guard belongs next
+    # to the write as well as next to the filter, because the session that must
+    # never be marked here (2026-09-16) is one the panel will eventually be able
+    # to price perfectly well.
+    if floor and session <= floor:
+        return {**out, "state": STATE_REFUSED_RETROACTIVE,
+                "reason": R_PRE_EFFECTIVE_EPOCH,
+                "detail": ("session %s had already completed when prospective "
+                           "collection was authorised (effective epoch floor "
+                           "%s) and can never be TRUE_FORWARD evidence"
+                           % (session, floor))}
 
     # --- (f) the FROZEN producer does the writing ------------------------ #
     # Only reached once a legal, strictly-prospective session exists, so the
@@ -639,8 +1126,10 @@ def advance(*, now: Optional[str] = None, store_root=None, panel_loader=None,
     status = str(mine[0].get("status"))
     if status == "ADVANCED":
         after = S25O.read_book(root, SHADOW_BOOK_ID)
+        after_split = classify_marks(after.get("marks") or [], floor)
         return {**out, "state": STATE_ADVANCED, "marks_written_this_run": 1,
-                "marks_after": len(after.get("marks") or []),
+                "marks_after": after_split["raw_marks"],
+                "valid_marks_after": after_split["valid_marks"],
                 "detail": "one prospective mark recorded for %s" % session}
     if status == "DATA_HOLD":
         return {**out, "state": STATE_DATA_BLOCKED, "reason": R_COVERAGE,
@@ -665,10 +1154,22 @@ def status(*, store_root=None, today: Optional[str] = None) -> dict:
     """
     root = store_dir(store_root)
     gov = load_governance(store_root)
+    corrections = load_corrections(store_root)
+    epoch = governed_epoch(store_root, gov=gov, corrections=corrections)
     book = S25O.read_book(root, SHADOW_BOOK_ID)
     inc = (book.get("inception") or {})
     marks = book.get("marks") or []
     days = S25O.days_since(inc.get("date") or ORIGINAL_INCEPTION, today)
+    # THE GOVERNED COUNT IS THE VALID COUNT. ``ShadowBook.replay`` reports
+    # ``forward_observations = len(marks)`` and that stays true of the RAW
+    # store, but a mark whose session had already closed at activation is not
+    # forward evidence, so every governed number below is derived from the
+    # VALID split and the raw count is published beside it under its own name.
+    split = classify_marks(marks, epoch["effective_prospective_epoch_floor_session"])
+    raw = split["raw_marks"]
+    valid = split["valid_marks"]
+    governed = valid if valid is not None else 0
+    valid_dates = split["valid_mark_dates"]
     return {
         "schema_version": SCHEMA_VERSION,
         "challenger_id": CANDIDATE_ID,
@@ -679,17 +1180,40 @@ def status(*, store_root=None, today: Optional[str] = None) -> dict:
         "membership": len(inc.get("membership") or []),
         "horizon_days": HORIZON_DAYS,
         "h63_maturity_rule": H63_MATURITY_RULE,
-        "marks": len(marks),
-        "last_mark": (marks[-1].get("date") if marks else None),
-        "forward_observations": len(marks),
-        "horizon_pending": len(marks) < HORIZON_DAYS,
+
+        # --- RAW: what is literally on disk ---------------------------- #
+        "raw_marks": raw,
+        "raw_mark_dates": split["raw_mark_dates"],
+
+        # --- GOVERNED: what is TRUE_FORWARD evidence ------------------- #
+        "valid_marks": valid,
+        "valid_mark_dates": valid_dates,
+        "quarantined_marks": split["quarantined_marks"],
+        "quarantined_mark_dates": split["quarantined_mark_dates"],
+        "quarantine_class": split.get("quarantine_class"),
+        "quarantine_reason": split.get("quarantine_reason"),
+
+        # ``marks`` and ``forward_observations`` are the GOVERNED count, so a
+        # reader that never learns the new key names cannot be handed a
+        # quarantined observation as evidence.
+        "marks": governed,
+        "last_mark": (valid_dates[-1] if valid_dates else None),
+        "forward_observations": governed,
+        "h63_valid_marks": governed,
+        "effective_observations": governed,
+        "horizon_pending": governed < HORIZON_DAYS,
         "days_since_inception": days,
         "stream_state": S25O.stream_state(
-            status="ACTIVE" if inc else None, marks=len(marks), days=days),
+            status="ACTIVE" if inc else None, marks=governed, days=days),
         "rearmed": bool(gov),
         "governance_decision": (gov or {}).get("decision"),
         "prospective_epoch_floor_session":
-            (gov or {}).get("prospective_epoch_floor_session"),
+            epoch["original_prospective_epoch_floor_session"],
+        "effective_prospective_epoch_floor_session":
+            epoch["effective_prospective_epoch_floor_session"],
+        "epoch_floor_was_corrected": epoch["epoch_floor_was_corrected"],
+        "first_valid_evidence_session": epoch["first_valid_evidence_session"],
+        "governed_epoch": epoch,
         "forfeited_sessions": {"first": FORFEITED_FIRST, "last": FORFEITED_LAST,
                                "count": FORFEITED_SESSION_COUNT,
                                "state": "PERMANENTLY_FORFEITED"},
@@ -716,4 +1240,15 @@ __all__ = ["SCHEMA_VERSION", "COMPOSITION_OWNER", "MARK_OWNER", "RUNTIME_OWNER",
            "store_dir", "governance_path", "load_governance",
            "is_forfeited_session", "epoch_floor_for", "activate",
            "resolve_evidence_session", "panel_close_provider", "advance",
-           "status"]
+           "status",
+           # Release S25-epoch-fix - the session boundary and its correction.
+           "SESSION_BOUNDARY_OWNER", "CALENDAR_OWNER", "SESSION_BOUNDARY_RULE",
+           "EPOCH_FLOOR_RULE", "DEFECTIVE_ACTIVATION_AT",
+           "DEFECTIVE_ACTIVATION_FLOOR", "CORRECTED_ACTIVATION_FLOOR",
+           "CORRECTION_ID", "CORRECTION_DEFECT", "CORRECTION_SCHEMA_VERSION",
+           "GOVERNANCE_CORRECTION_ARTIFACT", "CORRECTION_CONFIRM_TOKEN",
+           "QUARANTINE_CLASS", "QUARANTINE_REASON", "R_PRE_EFFECTIVE_EPOCH",
+           "latest_completed_eligible_session", "correction_path",
+           "load_corrections", "declared_correction_floor",
+           "effective_epoch_floor", "governed_epoch", "classify_marks",
+           "governed_mark_view", "record_epoch_correction"]
