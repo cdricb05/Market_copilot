@@ -324,6 +324,44 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 5a3b. the managed-futures trend owner freezes its boundary ---- #
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1. The second non-equity forward
+        # pipeline (ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1) is a per-session
+        # release exactly like the FX carry cadence: the accrual stage below may
+        # not take its decision, so its owner is asked here, inside this lock and
+        # on this cadence, AFTER the FX owner and BEFORE the accrual. Idempotent
+        # (first-write-wins freeze), never backfills, spends nothing, and
+        # refreshes owned vendor settlements only on the live clock, in a child.
+        try:
+            from ..alpha_recovery import futures_trend_runtime as FTR
+            ft = FTR.advance(now=started.isoformat())
+            ft_st = str(ft.get("state"))
+            if ft_st in FTR.PROGRESS_STATES:
+                ft_state = SUCCESS
+            elif ft_st in FTR.MISSED_STATES:
+                ft_state = FORFEITED
+            elif ft_st in FTR.DATA_WAIT_STATES:
+                ft_state = DATA_BLOCKED
+            elif ft_st in FTR.FAILURE_STATES:
+                ft_state = FAILED_RETRYABLE
+            else:
+                ft_state = NOT_DUE
+            stages.append(_stage(
+                "futures_trend_prospective_decision", ft_state,
+                challenger_id=ft.get("challenger_id"),
+                advance_state=ft_st,
+                entry_session=ft.get("entry_session"),
+                newest_published_session=ft.get("newest_published_session"),
+                marks_refreshed=bool((ft.get("marks_refresh") or {}).get("ran")),
+                paid_dollars=ft.get("paid_dollars"),
+                frozen=ft_st in FTR.PROGRESS_STATES,
+                detail=ft.get("detail")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("futures_trend_prospective_decision",
+                                 FAILED_RETRYABLE,
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 5a4. the FROZEN Stage-26 book gets its host back -------------- #
         # s25_operating_profitability was frozen on 2026-08-16 and accrued
         # ZERO marks, because the only production host of its mark producer -

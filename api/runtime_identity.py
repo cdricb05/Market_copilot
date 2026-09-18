@@ -151,12 +151,24 @@ RUNTIME_CONTRACT = {
                         "with scripts\\manage_information_collection.ps1 "
                         "-Action Restart -Execute."),
     },
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - since Release 59 the research
+    # runtime is a PERSISTENT worker (``scripts/run_research_runtime.py --mode
+    # persistent`` under the PaperTrader-ResearchRuntime task), not a bounded
+    # invocation that re-imports on every run. It pins its module graph at start
+    # exactly like the backend and the collection worker, and it held pre-fix
+    # imports for a full cycle after the S25 re-arm landed. Declaring it
+    # NOT_APPLICABLE let that staleness read as health. Its loaded identity is
+    # the ``worker_identity.source`` the worker captured ONCE at start and wrote
+    # to its status artifact (``alpha_agent.r59.runtime``), read by
+    # ``api.research_runtime.load_research_worker_identity``.
     RUNTIME_RESEARCH: {
-        "label": "Prospective research runtime (scheduled)",
-        "identity_required": False,
-        "lifecycle": "SCHEDULED_INVOCATION",
-        "startup_owner": "PaperTrader-ResearchRuntime scheduled task",
-        "remediation": None,
+        "label": "Persistent research runtime (autonomous worker)",
+        "identity_required": True,
+        "lifecycle": "LONG_LIVED",
+        "startup_owner": "scripts/manage_research_runtime.ps1",
+        "remediation": ("Restart the canonical research runtime with "
+                        "scripts\\manage_research_runtime.ps1 -Action Restart "
+                        "-Execute."),
     },
     RUNTIME_INTRADAY_EMISSION: {
         "label": "Intraday prospective emission (scheduled)",
@@ -389,6 +401,44 @@ def capture_loaded_identity(*, repo_root=None, runner: Optional[Callable] = None
 def loaded_identity() -> dict:
     """This process's frozen loaded identity, capturing it if nothing has yet."""
     return capture_loaded_identity()
+
+
+def loaded_identity_from_worker_status(worker_identity: Optional[dict]) -> Optional[dict]:
+    """Shape a persistent worker's start-time capture into a LOADED identity.
+
+    ``alpha_agent.r59.runtime`` captures ``worker_identity.source`` ONCE when the
+    worker starts (through the injected canonical reader) and writes it to the
+    status artifact; a later source change never rewrites it. That is exactly the
+    loaded-identity contract, so it is projected onto this module's shape here -
+    by the ONE identity owner - rather than compared by a caller. Returns None
+    when the worker recorded no commit, which classifies as UNKNOWN, never
+    ALIGNED.
+    """
+    wid = worker_identity or {}
+    src = wid.get("source") or {}
+    commit = src.get("commit") or None
+    if not commit:
+        return None
+    return {
+        "identity_kind": "LOADED_RUNTIME_IDENTITY",
+        "owner": OWNER,
+        "schema_version": SCHEMA_VERSION,
+        "contract_id": CONTRACT_ID,
+        "repo_root": src.get("repo_root"),
+        "commit": str(commit),
+        "commit_short": _short(commit),
+        "branch": src.get("branch"),
+        "dirty_at_capture": src.get("dirty"),
+        "resolved_from": src.get("resolved_from"),
+        "captured_at": wid.get("started_at"),
+        "pid": wid.get("pid"),
+        "instance_id": wid.get("instance_id"),
+        "captured_by": wid.get("owner") or "alpha_agent.r59.runtime",
+        "captured_once_per_process": True,
+        "changes_when_source_changes": False,
+        "note": ("Captured by the research worker when it started and written to "
+                 "its status artifact; a later edit or commit does not change it."),
+    }
 
 
 def reset_loaded_identity_for_tests() -> None:
@@ -697,6 +747,7 @@ __all__ = [
     "RUNTIME_BACKEND", "RUNTIME_COLLECTION", "RUNTIME_RESEARCH",
     "RUNTIME_INTRADAY_EMISSION", "RUNTIME_CONTRACT",
     "read_source_identity", "capture_loaded_identity", "loaded_identity",
+    "loaded_identity_from_worker_status",
     "reset_loaded_identity_for_tests", "classify_alignment",
     "build_runtime_alignment",
     # Release 62.1 — the current / historical identity split.

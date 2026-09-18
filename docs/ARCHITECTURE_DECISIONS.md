@@ -3893,3 +3893,102 @@ the owner's own words (`is_ledger_row: false`, `backfilled: false`,
 `history_rewritten: false`), the audit asserts `backfill_routes == []`, and the
 repair is forward-going: the next governed cycle writes a real row and the
 projection retires itself for that session.
+
+## MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 (2026-09-18)
+
+### D-MACA-1 - one risk-contribution field, one threshold rule, one owner (CONFIRMED)
+
+**Decision.** `engine.holding_opportunity_cost` owns the per-name
+risk-contribution constraint end to end: the review-row field
+(`risk_contribution_pct`), the reader (`review_risk_contribution`), the limit
+(`risk_contribution_limit(n) = excess_multiple / n_covariance_names`) and the
+breach test. The Release-47 repair kernel's `max_name_risk_contribution` is a
+reused mirror at N = 25 and is overridden by the caller with the owner's limit for
+the target being repaired. The repair kernel never lists `RISK_CONTRIBUTION_CAP`
+as verified; the covariance owner re-measures it.
+
+**Evidence.** The 2026-09-17 proposal published `RISK_CONTRIBUTION_CAP` as checked
+with zero violations while the consumer read a key (`risk_contribution`) no
+publisher wrote, and the two owners tripped at 0.25 and 3/N - two thresholds,
+two-fold apart, for one constraint.
+
+**Consequence.** A constraint has exactly one spelling and one number per object
+judged; a verification lists only what the verifier could compute.
+
+### D-MACA-2 - the proposed target is judged by the policy that asked for it (CONFIRMED)
+
+**Decision.** The complete target's own per-name risk shares are measured by the
+same covariance kernel and judged against the same governed limit as the held
+book (`RISK_CONTRIBUTION_CAP_BREACH_BLOCKS_CHANGE`). A breach reshapes the target
+through bounded repair rounds with re-measured shares and cross-round weight
+ceilings; a target that still breaches is withheld.
+
+**Evidence.** The Sep-17 target "resolved" DDOG's breach by denominator dilution
+while creating two unreported breaches (SNDK 0.176, ALAB 0.174 vs 0.125). The
+repaired kernel finds exactly those two on the live inputs, caps them and produces
+a READY target with the largest share 0.1156.
+
+**Consequence.** "Resolves a breach" means the proposed book honours the policy,
+not that the held book's row changed. Two latent kernel defects (a dilution
+transfer opening a position beyond the count cap; repair rounds refilling a name an
+earlier round cut) are fixed and regression-tested.
+
+### D-MACA-3 - forward-outcome evidence deduplicates on the axis that varies (CONFIRMED)
+
+**Decision.** The observation identity keeps binding the evidence SOURCE (never a
+mutable store state), capture is guarded on both the observation id and the
+ECONOMIC identity, governance reads the deduplicated view, and every historical
+duplicate is preserved and annotated.
+
+**Evidence.** 8,550 persisted rows for 950 distinct observations, multiplicity up
+to 19, from a fingerprint that hashed the price store's `updated_at`.
+
+**Consequence.** Idempotency is a property of the identity axis, not of a
+comparison; an append-only store needs the dedup axis declared next to it.
+
+### D-MACA-4 - a horizon number travels with its role (CONFIRMED)
+
+**Decision.** The FX carry cadence identity declares ONE horizon contract: the
+frozen record's `horizon_sessions = 1` is the information-label horizon, its
+`trade_every_sessions = 5` the holding horizon; a forward observation is one
+decision held five sessions; every consumer's number is checked against the
+contract for its role, and both the producer and the accrual fail closed on an
+incoherent set. No immutable artifact is rewritten to make the numbers agree.
+
+**Evidence.** The registration (1) and the policy (5) read as a conflict because
+a bare integer cannot say what it counts.
+
+**Consequence.** A registration's `horizon_sessions` is published beside its role
+(`horizon_roles`) on every accrual row; a release whose declared holding period
+disagrees with its evaluation horizon may not emit.
+
+### D-MACA-5 - capital eligibility is derived from a declared gate, never typed (CONFIRMED)
+
+**Decision.** `api.capital_eligibility_gate` declares each research sleeve's
+operational-signal candidate, the frozen forward-evidence thresholds (mirroring
+the R46 forward gates by horizon) and the requirement of a CONDITIONAL
+OPERATIONAL APPROVAL written by the operator in advance and bound to the exact
+registration identity. `api.investability_registry` derives
+`MODEL_APPROVED_FOR_OPERATION` from a PASSED gate, so admission to the frontier,
+the cross-asset risk state and the allocator needs no separate operator action
+once the pre-declared condition is met; a NOT_PASSED gate publishes the exact
+remaining requirements, and the frontier's admission ledger explains every zero.
+
+**Evidence.** Since Release 50 every non-equity sleeve has had every plumbing
+capability and one blocker typed into a Python record; nothing could ever flow
+through the cross-asset feature.
+
+**Consequence.** The human decision moves EARLIER (the conditional approval, with
+frozen thresholds); the evaluation is automatic; promotion by editing a record is
+gone. `AUTOMATIC_PROMOTION = NO`: no sleeve becomes eligible without a human record
+that predates the evidence.
+
+### D-MACA-6 - the persistent research worker is a long-lived runtime (CONFIRMED)
+
+**Decision.** `RUNTIME_RESEARCH` requires a loaded identity; it is read from the
+worker's own start-time capture (status artifact + lease), and `/v1/ready` serves
+the backend's loaded commit so the canonical restart owner proves alignment
+instead of inferring it from a process start time.
+
+**Evidence.** The worker pins imports at start (R59) and held pre-fix imports for
+a full cycle after the S25 re-arm landed while reported NOT_APPLICABLE.

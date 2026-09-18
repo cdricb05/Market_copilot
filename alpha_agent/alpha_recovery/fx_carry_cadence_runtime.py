@@ -881,6 +881,26 @@ def advance(*, now=None, execute: bool = True,
     if not registration_session or not scope:
         return {**out, "state": ST_BLOCKED, "detail": "the declared policy carries no registration "
                                                        "session or scope"}
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the horizon contract is judged BEFORE
+    # any decision can be frozen: the frozen record (label 1 / hold 5), the declared
+    # policy (evaluation 5 / cadence 5) and the registration (label 1) must each
+    # carry the contract's number for their role. An incoherent set refuses to
+    # produce forward evidence; nothing immutable is rewritten to make it cohere.
+    coherence = FXC.horizon_coherence(
+        record=_read_json(FXC.record_dir() / FXC.RECORD_FILE), policy=pol,
+        registration={"horizon_sessions": ident.get("horizon_sessions")}
+        if ident.get("horizon_sessions") is not None else None)
+    out["horizon_contract"] = {k: coherence[k] for k in ("state", "canonical", "conflicts",
+                                                         "observed_consumers")}
+    if coherence["state"] == FXC.HC_INCOHERENT:
+        return {**out, "state": ST_BLOCKED,
+                "detail": ("the horizon contract is incoherent across %d consumer(s): %s; "
+                           "no decision is frozen until every artifact carries the frozen "
+                           "identity's number for its role"
+                           % (len(coherence["conflicts"]),
+                              "; ".join("%s=%r (canonical %r, %s)"
+                                        % (c["consumer"], c["observed"], c["canonical"], c["role"])
+                                        for c in coherence["conflicts"])))}
     store = Path(store) if store else curves_dir()
     injected = scorer is not None or refresher is not None
     fx = _side_effects_allowed(ts, injected)

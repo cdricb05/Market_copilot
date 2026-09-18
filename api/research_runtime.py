@@ -68,6 +68,56 @@ def load_runtime_health() -> dict:
     }
 
 
+def load_research_worker_identity() -> dict:
+    """MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - WHICH release the persistent
+    research worker LOADED, read from what it wrote at start.
+
+    The R59 worker captures its source identity once at start (through the
+    canonical reader the entrypoint injects) and persists it in
+    ``runtime_status.json`` and in its lease; neither is rewritten when the tree
+    changes. This read composes those two files and nothing else: no process
+    table, no git, no heartbeat-derived inference. The alignment verdict belongs
+    to ``api.runtime_identity``; this only supplies the captured facts. Degrades
+    to ``loaded=None`` (UNKNOWN, never ALIGNED) when nothing was recorded.
+    """
+    base = {"owner": OWNER, "runtime": "research_runtime",
+            "identity_owner": "alpha_agent.r59.runtime (worker_identity.source, "
+                              "captured at worker start)",
+            "loaded": None, "process": {}, "available": False}
+    try:
+        from paper_trader.alpha_agent.r46 import runlock as RL
+        from paper_trader.alpha_agent.r59 import runtime as R59RT
+        from paper_trader.api import runtime_identity as rid
+    except Exception as exc:  # noqa: BLE001 - a read surface never crashes
+        return dict(base, unavailable_reason=str(exc)[:160])
+    try:
+        persisted = R59RT.read_status() or {}
+    except Exception as exc:  # noqa: BLE001
+        return dict(base, unavailable_reason=str(exc)[:160])
+    try:
+        lease = RL.state_path(R59RT.lease_path(create=False)) or {}
+    except Exception:  # noqa: BLE001
+        lease = {}
+    wid = dict(persisted.get("worker_identity") or {})
+    if not wid.get("source") and persisted.get("source_identity"):
+        wid["source"] = persisted.get("source_identity")
+    loaded = rid.loaded_identity_from_worker_status(wid)
+    process = {
+        "pid": wid.get("pid") or lease.get("pid"),
+        "instance_id": wid.get("instance_id"),
+        "started_at": wid.get("started_at") or persisted.get("started_at"),
+        "host": wid.get("host"),
+        # Liveness is shown BESIDE the verdict, never used to reach it.
+        "worker_state": persisted.get("worker_state"),
+        "lease_held": bool(lease.get("held")),
+        "lease_pid_alive": lease.get("pid_alive"),
+        "last_heartbeat": lease.get("heartbeat_at_utc") or persisted.get("last_heartbeat"),
+        "current_lane": persisted.get("current_lane"),
+    }
+    return dict(base, loaded=loaded, process=process, available=True,
+                status_artifact=str(R59RT.status_path(create=False)))
+
+
 #: Release 53.1 emission-status artifact name (written by
 #: scripts/run_intraday_emission.py, the PaperTrader-IntradayEmission task).
 INTRADAY_EMISSION_ARTIFACT = "R53_1_INTRADAY_EMISSION_STATUS.json"
@@ -142,4 +192,5 @@ def load_intraday_emission_status() -> dict:
 
 
 __all__ = ["OWNER", "ROUTE", "INTRADAY_EMISSION_ARTIFACT",
-           "load_runtime_health", "load_intraday_emission_status"]
+           "load_runtime_health", "load_intraday_emission_status",
+           "load_research_worker_identity"]

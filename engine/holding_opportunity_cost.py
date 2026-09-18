@@ -428,6 +428,82 @@ def compute_risk_contributions(*, weights: dict[str, float],
 
 
 # --------------------------------------------------------------------------- #
+# THE per-name risk-contribution CONTRACT (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1)
+#
+# One field name, one threshold rule, one owner. Before this release the review
+# rows published ``risk_contribution_pct`` while the Release-47 repair kernel read
+# the bare key ``risk_contribution`` - so the RISK_CONTRIBUTION_CAP constraint was
+# asserted as checked and never evaluated - and the two owners declared two
+# thresholds two-fold apart (3/N here, a flat 0.25 in the repair kernel). This
+# module is the policy owner of the constraint (the constraint inventory names it
+# as such); every consumer reads the field through :func:`review_risk_contribution`
+# and the limit through :func:`risk_contribution_limit`.
+# --------------------------------------------------------------------------- #
+#: The canonical review-row key a per-name risk-contribution share travels under.
+RISK_CONTRIBUTION_FIELD = "risk_contribution_pct"
+RISK_CONTRIBUTION_POLICY_OWNER = CALCULATION_OWNER
+#: How the limit is formed. Portfolio-size robust by construction: a name may not
+#: carry more than ``risk_contribution_excess_multiple`` times the equal-weight
+#: share of the covariance universe it is measured in.
+RISK_CONTRIBUTION_LIMIT_BASIS = "EXCESS_MULTIPLE_OVER_EQUAL_WEIGHT_SHARE_OF_COVARIANCE_NAMES"
+
+
+def review_risk_contribution(review: Optional[dict]) -> Optional[float]:
+    """The per-name risk-contribution share ONE review row publishes, or None.
+
+    The ONLY sanctioned way to read the share off a review row. It reads the
+    canonical key and nothing else: a consumer that spelled the key differently
+    is exactly the defect this contract closes.
+    """
+    return _f((review or {}).get(RISK_CONTRIBUTION_FIELD))
+
+
+def risk_contribution_limit(*, n_covariance_names: int,
+                            policy: Optional[dict] = None) -> dict:
+    """THE governed per-name risk-contribution limit for a book whose covariance
+    universe holds ``n_covariance_names`` names.
+
+    ``limit = risk_contribution_excess_multiple / n`` (None when the covariance
+    universe is empty, because then no share exists to judge). Declared once and
+    returned as data so a consumer can publish WHICH limit it applied and on how
+    many names it was evaluated: the before-book and the after-target may hold a
+    different covariance universe, and the limit follows the object being judged.
+    """
+    pol = policy or default_policy()
+    multiple = float(pol.get("risk_contribution_excess_multiple", 3.0))
+    try:
+        n = int(n_covariance_names or 0)
+    except (TypeError, ValueError):
+        n = 0
+    limit = (multiple / n) if n > 0 else None
+    return {
+        "owner": RISK_CONTRIBUTION_POLICY_OWNER,
+        "field": RISK_CONTRIBUTION_FIELD,
+        "basis": RISK_CONTRIBUTION_LIMIT_BASIS,
+        "excess_multiple": multiple,
+        "n_covariance_names": n,
+        "equal_weight_share": _r((1.0 / n) if n > 0 else None, 8),
+        "limit": _r(limit, 8),
+        "state": "AVAILABLE" if limit is not None else "UNAVAILABLE_NO_COVARIANCE_UNIVERSE",
+    }
+
+
+def risk_contribution_breaches(*, contributions: dict, limit: Optional[float],
+                               tol: float = 1e-12) -> list[dict]:
+    """Every name whose share exceeds ``limit``. Pure; sorted by ticker."""
+    if limit is None:
+        return []
+    out = []
+    for tk in sorted(k for k in (contributions or {}) if k):
+        share = _f((contributions or {}).get(tk))
+        if share is not None and share > float(limit) + tol:
+            out.append({"ticker": tk, "risk_contribution_pct": _r(share, 6),
+                        "limit": _r(float(limit), 8),
+                        "excess": _r(share - float(limit), 6)})
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Stable hashing (assessment_hash excludes generated_at / volatile keys)
 # --------------------------------------------------------------------------- #
 _VOLATILE_KEYS = frozenset({"generated_at", "evaluated_at", "loaded_at", "built_at",
@@ -599,11 +675,14 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
     risk = compute_risk_contributions(weights=weights, aligned_returns=aligned_returns,
                                       policy=pol)
     risk_contrib = risk["contributions"]
-    # Effective single-name risk-contribution trip: the smaller of the absolute ceiling
-    # and (excess multiple / equal-weight share). Portfolio-size robust (Workstream D).
+    # Effective single-name risk-contribution trip: THE ONE governed per-name
+    # risk-contribution policy (:func:`risk_contribution_limit`), evaluated on the
+    # covariance universe of THIS book. Portfolio-size robust (Workstream D); every
+    # other consumer (the Release-47 repair kernel, the complete-target gate)
+    # delegates to the same function rather than declaring a second threshold.
     _n_cov = len(risk.get("included_tickers") or [])
-    eff_risk_threshold = (pol["risk_contribution_excess_multiple"] / _n_cov
-                          if _n_cov > 0 else None)
+    _rc_limit = risk_contribution_limit(n_covariance_names=_n_cov, policy=pol)
+    eff_risk_threshold = _rc_limit["limit"]
 
     # --- concentration inputs (sector weights, HHI share) -------------------- #
     # Track B — sector is resolved ONCE per holding, before any aggregation:
@@ -849,6 +928,9 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         "previous_ranking_state": prev_state,
         "previous_ranking_reason": prev_reason,
         "risk_contribution_state": risk["state"],
+        # THE limit this assessment judged every held name against, as data, so a
+        # downstream consumer can cite the SAME number instead of declaring its own.
+        "risk_contribution_limit": _rc_limit,
         "liquidity_names_unavailable": sum(1 for r in reviews
                                            if r["liquidity_state"] == LIQ_UNAVAILABLE),
         "data_gaps": sorted(data_gaps),

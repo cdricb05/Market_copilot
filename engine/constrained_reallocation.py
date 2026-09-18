@@ -226,7 +226,16 @@ def default_policy() -> dict[str, Any]:
         # No single name may account for more than this share of total portfolio
         # risk. Breaching it REDUCES that name and redistributes the released
         # capital - it never rejects the portfolio.
-        "max_name_risk_contribution": 0.25,                 # new
+        #
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: this is a REUSED MIRROR, not a
+        # threshold of its own. The policy owner is
+        # ``engine.holding_opportunity_cost.risk_contribution_limit`` (excess
+        # multiple 3.0 over the equal-weight share of the covariance universe); the
+        # value here is that rule at the default ``target_position_count`` (3/25),
+        # and the caller overrides it with the owner's limit for the exact target
+        # being repaired. Until this release the kernel declared 0.25 while the
+        # owner tripped at 3/N - two thresholds, two-fold apart, for one constraint.
+        "max_name_risk_contribution": 3.0 / 25,             # reused: hoc.risk_contribution_limit(N=25)
         # A weight the book would never actually hold is not a target.
         "min_position_weight": 0.005,                       # new: 0.5% of NAV
         # Cash is a real asset choice, so the bounds are wide by declaration: the
@@ -689,7 +698,8 @@ def name_caps(*, candidates: list, nav: Optional[float],
 def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
                           candidates: list, nav: Optional[float],
                           risk_contributions: Optional[dict] = None,
-                          policy: Optional[dict] = None) -> dict:
+                          policy: Optional[dict] = None,
+                          weight_ceilings: Optional[dict] = None) -> dict:
     """Solve the best FEASIBLE constrained target, starting from the ideal one.
 
     ``candidates`` is the eligible universe as the scoring owner publishes it:
@@ -703,6 +713,13 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
 
     Deterministic: candidates are ordered by (score desc, rank asc, ticker asc) and
     every tie is broken by ticker.
+
+    ``weight_ceilings`` (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1) are per-name
+    ceilings a PREVIOUS repair round established when it reduced a name for its
+    risk contribution. A later round re-measured the target and is repairing a
+    different name; without the ceilings the released capital would flow straight
+    back into the name the earlier round had just cut, and the rounds would chase
+    each other. A ceiling only ever LOWERS a cap.
     """
     pol = dict(default_policy())
     if policy:
@@ -712,6 +729,12 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
     sector_of = {c["ticker"]: (c.get("sector") or "Unknown") for c in cands}
     score_of = {c["ticker"]: (_f(c.get("score")) or 0.0) for c in cands}
     caps, cap_binding = name_caps(candidates=cands, nav=nav, policy=pol)
+    ceilings_applied = {}
+    for tk, ceil in (weight_ceilings or {}).items():
+        c = _f(ceil)
+        if tk in caps and c is not None and c < caps[tk]:
+            caps[tk] = max(0.0, c)
+            ceilings_applied[tk] = _r(caps[tk], 8)
     # Release 50 - instrument metadata (equity defaults for rows without it) and
     # the cross-asset room function every placement below respects.
     meta = candidate_meta(cands)
@@ -1013,6 +1036,7 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
         "constraint_adjustments": adjustments,
         "constraint_adjustment_count": len(adjustments),
         "constraints_that_reshaped": sorted({a["constraint"] for a in adjustments}),
+        "weight_ceilings_applied": ceilings_applied,
         "redistributed_weight": _r(redistributed, 8),
         "released_weight": _r(released, 8),
         "turnover": turnover_block,
@@ -1129,6 +1153,7 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
         return w
     sector_cap = float(policy["sector_cap_fraction"])
     min_w = float(policy["min_position_weight"])
+    max_positions = int(policy.get("target_position_count") or 0)
     for _ in range(int(policy["max_repair_rounds"])):
         hhi_after = herfindahl(_pos(w)) or 0.0
         if hhi_after - hhi_before <= limit + 1.0e-12:
@@ -1142,9 +1167,18 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
             used_sector[sector_of.get(tk, "Unknown")] = (
                 used_sector.get(sector_of.get(tk, "Unknown"), 0.0) + v)
         step = min(w[donor], max(min_w, 0.01))
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - a dilution step is a TRANSFER
+        # inside the feasible set, so it may not open a position the position-count
+        # limit forbids. Until this release it could hand 1% to a NEW name when the
+        # book already held the maximum, and the solver then verified its own
+        # target as infeasible (MAX_POSITION_COUNT) and withheld a decision a
+        # feasible target existed for.
+        at_max = bool(max_positions > 0 and len(live) >= max_positions)
         recipient = None
         for tk in order:
             if tk == donor:
+                continue
+            if at_max and w.get(tk, 0.0) <= _TOL:
                 continue
             sec = sector_of.get(tk, UNCLASSIFIED_SECTOR)
             sec_room = (float("inf") if sec == UNCLASSIFIED_SECTOR
@@ -1402,7 +1436,17 @@ def verify_feasibility(*, weights: dict, caps: dict, sector_of: dict,
     return {
         "valid": not violations,
         "violations": violations,
-        "checked": list(RESHAPING_CONSTRAINT_CODES),
+        # HONEST COVERAGE (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1). This function
+        # can verify every constraint that is arithmetic over weights. It CANNOT
+        # verify the per-name risk-contribution cap: a share is a property of the
+        # covariance of the repaired target, which only the covariance owner can
+        # re-measure. Listing it as "checked" here was how the 2026-09-17 proposal
+        # published a RISK_CONTRIBUTION_CAP verification that was never evaluated.
+        "checked": [c for c in RESHAPING_CONSTRAINT_CODES if c != C_RISK_CONTRIBUTION],
+        "re_measured_by_covariance_owner": [C_RISK_CONTRIBUTION],
+        "re_measurement_owner": ("engine.reallocation_proposal (risk block, per-name "
+                                 "contributions of the complete target) using "
+                                 "engine.holding_opportunity_cost.risk_contribution_limit"),
         "gross_exposure": _r(invested, 6),
         "net_exposure": _r(invested, 6),
         "cash_weight": _r(cash, 6),

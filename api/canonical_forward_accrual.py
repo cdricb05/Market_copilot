@@ -180,8 +180,24 @@ DATA_BLOCK_REASONS = (BLOCK_SPEC_UNRESOLVABLE, BLOCK_SPEC_MISSING,
 INTEGRITY_LIFECYCLE_CLOSED = "LIFECYCLE_STATE_IS_NOT_ADOPTABLE"
 INTEGRITY_HASH_MISMATCH = "FROZEN_RECORD_HASH_DOES_NOT_MATCH_THE_REGISTRATION"
 INTEGRITY_NO_IDENTITY = "REGISTRATION_DOES_NOT_NAME_A_COMPLETE_IDENTITY"
+#: MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - a per-session release whose declared
+#: execution contract says the book is HELD for N sessions must mature its
+#: observations after N sessions. A policy whose evaluation horizon disagrees
+#: with its own declared holding period would either discard part of every
+#: decision's P&L path or count overlapping windows as independent evidence;
+#: neither may become forward evidence, so the registration is refused whole.
+INTEGRITY_HORIZON_INCOHERENT = "DECLARED_EVALUATION_HORIZON_DISAGREES_WITH_DECLARED_HOLDING_PERIOD"
 INTEGRITY_REASONS = (INTEGRITY_LIFECYCLE_CLOSED, INTEGRITY_HASH_MISMATCH,
-                     INTEGRITY_NO_IDENTITY)
+                     INTEGRITY_NO_IDENTITY, INTEGRITY_HORIZON_INCOHERENT)
+
+#: The two ROLES a "horizon" number can play on a registration. The registrar
+#: copies the frozen record's ``horizon_sessions`` verbatim; for a release whose
+#: record measures ONE-session labels of a book HELD for several sessions, that
+#: number is the information-label horizon and the accrual matures on the
+#: holding period the release declared. Both are published so no reader has to
+#: infer which one a bare integer means.
+HORIZON_ROLE_LABEL = "INFORMATION_LABEL_HORIZON"
+HORIZON_ROLE_HOLDING = "HOLDING_HORIZON"
 
 #: Emission outcomes.
 EMIT_WROTE = "EMITTED"
@@ -1322,6 +1338,36 @@ def assess_registration(*, registration: dict, series: dict,
     cadence = origin.get("cadence_sessions") or horizon
     out["horizon_sessions"] = horizon
     out["cadence_sessions"] = cadence
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - WHICH horizon is which, as data, and
+    # a fail-closed check that the release's own declarations agree. The
+    # registration's integer is the frozen record's label horizon; the accrual
+    # matures on the release's declared evaluation horizon, which must equal the
+    # holding period its execution contract declares (when it declares one).
+    declared_hold = _declared_execution_contract(reg).get("holding_sessions")
+    reg_h = reg.get("horizon_sessions")
+    out["horizon_roles"] = {
+        "registration_horizon_sessions": reg_h,
+        "registration_horizon_role": (
+            HORIZON_ROLE_HOLDING if (reg_h is not None and horizon is not None
+                                     and int(reg_h) == int(horizon))
+            else HORIZON_ROLE_LABEL),
+        "evaluation_horizon_sessions": horizon,
+        "evaluation_horizon_role": HORIZON_ROLE_HOLDING,
+        "declared_holding_sessions": declared_hold,
+        "cadence_sessions": cadence,
+        "coherent": (declared_hold is None or horizon is None
+                     or int(declared_hold) == int(horizon)),
+        "note": ("a forward observation is one frozen decision held for the evaluation "
+                 "horizon; the registration's integer is the frozen record's own field "
+                 "and is not rewritten"),
+    }
+    if not out["horizon_roles"]["coherent"]:
+        return {**out, "state": ACC_INTEGRITY_BLOCKED,
+                "latest_blocker": INTEGRITY_HORIZON_INCOHERENT,
+                "detail": ("the release declares a %s-session holding period but a "
+                           "%s-session evaluation horizon; no observation is emitted or "
+                           "matured until the declarations agree"
+                           % (declared_hold, horizon))}
     # The observation calendar needs the instrument SCOPE, not a weight book. A
     # per-session release has no standing book at this point, so the scope comes
     # from the resolver's declaration or from the registrar's own immutable
@@ -1743,6 +1789,8 @@ def accrual_projection(advance: Optional[dict] = None, **kwargs) -> dict:
         if not ih:
             continue
         out[str(ih)] = {
+            "challenger_id": r.get("challenger_id"),
+            "asset_class": r.get("asset_class"),
             "current_accrual_state": r.get("state"),
             "accrual_state_vocabulary": list(ACCRUAL_STATES),
             "predictions_emitted": r.get("predictions_emitted"),
@@ -1755,10 +1803,56 @@ def accrual_projection(advance: Optional[dict] = None, **kwargs) -> dict:
             "next_eligible_observation_session": r.get(
                 "next_eligible_observation_session"),
             "latest_blocker": r.get("latest_blocker"),
+            "horizon_sessions": r.get("horizon_sessions"),
+            "cadence_sessions": r.get("cadence_sessions"),
+            "horizon_roles": r.get("horizon_roles"),
+            "registration_session": r.get("registration_session"),
+            # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the matured net returns,
+            # summarised by the evidence owner so the capital-eligibility gate can
+            # read a forward edge and its t-statistic without loading a panel.
+            "forward_economics": forward_economics(r.get("maturation") or []),
             "accrual_owner": COMPOSITION_OWNER,
             "backfilled": False,
         }
     return out
+
+
+def forward_economics(maturation: list) -> dict:
+    """The matured net-of-cost returns of ONE registration, summarised. Pure.
+
+    One matured emission is one decision; its ``net_cumulative_return`` over the
+    holding horizon is one observation. The mean per decision, its t-statistic
+    against a zero (cash) control and the positive share are the facts the
+    capital-eligibility gate judges. Nothing here is annualised or extrapolated,
+    and a pending emission contributes nothing.
+    """
+    rows = [m for m in (maturation or []) if m.get("matured")]
+    rets = []
+    for m in rows:
+        v = _f(m.get("net_cumulative_return"))
+        if v is not None:
+            rets.append(v)
+    n = len(rets)
+    mean = (sum(rets) / n) if n else None
+    t = None
+    if n >= 3 and mean is not None:
+        var = sum((x - mean) ** 2 for x in rets) / (n - 1)
+        se = (var / n) ** 0.5 if var > 0 else 0.0
+        t = (mean / se) if se > 0 else None
+    return {
+        "matured_decisions": n,
+        "net_cumulative_returns": [round(x, 8) for x in rets],
+        "mean_net_return_per_decision": (round(mean, 8) if mean is not None else None),
+        "t_stat_net_vs_zero": (round(t, 4) if t is not None else None),
+        "positive_share": (round(sum(1 for x in rets if x > 0) / n, 4) if n else None),
+        "first_decision_session": (min(str(m.get("decision_session")) for m in rows)
+                                   if rows else None),
+        "last_maturity_session": (max(str(m.get("maturity_session")) for m in rows
+                                      if m.get("maturity_session")) if rows else None),
+        "control": "ZERO_RETURN_CASH",
+        "annualised": False,
+        "owner": COMPOSITION_OWNER,
+    }
 
 
 def _projection_path(store_dir_override=None) -> Path:

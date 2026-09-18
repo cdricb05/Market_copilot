@@ -4084,3 +4084,43 @@ path produces yet — until one does, later cadence boundaries will read
 `AWAITING_NEW_GOVERNED_FREEZE` rather than accruing. Canonical forward evidence
 is deliberately reported apart from R46 and R56 evidence and is not yet named in
 a single declared evidence-identity vocabulary, which is the next release's work.
+
+## MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - proposal integrity + real non-equity capital competition (2026-09-18)
+
+Full narrative: `docs/RELEASE_MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1.md`.
+
+**Owners changed.** `engine/holding_opportunity_cost.py` owns the per-name
+risk-contribution contract (`RISK_CONTRIBUTION_FIELD`, `review_risk_contribution`,
+`risk_contribution_limit`, `risk_contribution_breaches`); `engine/reallocation_proposal.py`
+publishes before/after per-name shares, judges the complete target on
+`RISK_CONTRIBUTION_CAP_BREACH_BLOCKS_CHANGE`, repairs it in bounded rounds with
+cross-round `weight_ceilings` (`engine/constrained_reallocation.py::solve_feasible_target`)
+and publishes `risk_contribution_policy`; `engine/reassessment_outcomes.py` +
+`api/reassessment_outcomes.py` deduplicate on the ECONOMIC identity and hash the
+evidence source; `api/workflow_state.py::governed_proposal_economics` owns the
+economics a surface renders; `api/runtime_identity.py` treats the research worker
+as LONG_LIVED and `api/research_runtime.py::load_research_worker_identity` reads
+its start-time capture; `/v1/ready` serves the loaded commit and
+`scripts/restart_paper_trader_backend.ps1` proves it.
+
+**Owners added.** `api/capital_eligibility_gate.py` (the declared,
+evidence-gated door to capital eligibility; the ONE confirmed operator write is
+the conditional operational approval); `alpha_agent/alpha_recovery/futures_trend_challenger.py`
+and `futures_trend_runtime.py` (the managed-futures time-series trend challenger
+`ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1`, per-session TRUE_FORWARD producer);
+`scripts/run_futures_trend_forward_cycle.py`, `scripts/register_futures_trend_challenger.py`,
+`scripts/audit_multi_asset_capital_pipeline.py`,
+`scripts/validate_multi_asset_capital_activation.py`. `alpha_agent/r52/runtime.py`
+gained stage `futures_trend_prospective_decision` (after the FX stage, before the
+accrual). `api/investability_registry.py` gained `sleeve_managed_futures_trend`,
+`operational_signal_candidate` per sleeve, gate-derived approval and the
+`non_equity_admission_ledger`; `api/opportunity_frontier.py` publishes the ledger and
+`eligible_non_equity_count_explanation`; `api/canonical_forward_accrual.py` publishes
+`horizon_roles`, `forward_economics` per identity and the
+`DECLARED_EVALUATION_HORIZON_DISAGREES_WITH_DECLARED_HOLDING_PERIOD` integrity blocker.
+
+**Live state at hand-off.** Operational asset classes remain `US_EQUITY` + `CASH`;
+`frontier_eligible_non_equity_count = 0`, now explained per sleeve; FX carry gate
+NOT_PASSED (0 forward observations; no conditional approval); the futures trend
+challenger frozen (391 monthly decisions 1995-2026, 3.64 %/yr net vs cash, t 2.64,
+lockbox 2023+ negative) and registered prospectively with zero observations.

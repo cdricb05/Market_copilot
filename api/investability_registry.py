@@ -64,6 +64,11 @@ PIT_OK = "PIT_OK"
 PIT_UNKNOWN = "PIT_UNKNOWN"
 
 R_NO_APPROVED_SIGNAL = "NO_APPROVED_OPERATIONAL_SIGNAL"
+#: MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - a sleeve WITH a registered operational-signal
+#: candidate whose declared evidence gate has not been passed yet. Distinct from
+#: R_NO_APPROVED_SIGNAL (nothing is accruing at all): here the exact remaining gate is
+#: published beside the reason.
+R_GATE_NOT_PASSED = "CAPITAL_ELIGIBILITY_GATE_NOT_PASSED"
 R_DATA_UNAVAILABLE = "OWNED_DATA_UNAVAILABLE_IN_THIS_PROCESS"
 R_MARK_UNAVAILABLE = "NO_TRUSTWORTHY_CURRENT_MARK"
 R_ACCOUNTING = "ACCOUNTING_SEMANTICS_NOT_DEFINABLE_WITHOUT_FABRICATION"
@@ -107,13 +112,18 @@ def _owners(*, mark, signal, score, risk="engine.cross_asset_risk "
 
 
 def _futures_sleeve(sleeve_id: str, label: str, asset_class: str, roots: list,
-                    research: dict, blocker_note: str, currency: str = "USD") -> dict:
+                    research: dict, blocker_note: str, currency: str = "USD",
+                    operational_signal_candidate: Optional[dict] = None) -> dict:
     return {
         "sleeve_id": sleeve_id, "label": label, "asset_class": asset_class,
         "strategy_family": research.get("family") or "NONE_APPROVED",
         "instrument_type": ic.IT_FUTURE, "currency": currency,
         "instrument_ids": ["&" + r for r in roots],
         "representative_instrument": "&" + roots[0],
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the registered forward challenger
+        # whose evidence can make this sleeve eligible through the declared gate
+        # (api.capital_eligibility_gate). None means no candidate is accruing.
+        "operational_signal_candidate": operational_signal_candidate,
         "owners": _owners(
             mark="api.paper_trading_desk via api.market_reference_data (owned Norgate settlement)",
             signal=research.get("signal_owner"),
@@ -254,11 +264,36 @@ def declared_sleeves() -> list[dict]:
         _futures_sleeve("sleeve_fx_futures", "FX futures (CME)",
                         ic.AC_FX_FUTURES, ["6E", "6J", "6B", "6A", "6C", "6S", "6M", "6N", "DX"],
                         {"family": "CROSS-SECTIONAL MOMENTUM / CARRY (research)",
-                         "state": "R46_PROSPECTIVE_TOURNAMENT + R36/R43 historical",
-                         "challengers": ["r46_fx_xs_mom_252"],
+                         "state": "R46_PROSPECTIVE_TOURNAMENT + R36/R43 historical + "
+                                  "ALPHA_RECOVERY FX carry cadence TRUE_FORWARD (registered 2026-09-14)",
+                         "challengers": ["r46_fx_xs_mom_252",
+                                         "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7"],
                          "verdict": "FORWARD_PENDING / TOO_EARLY; R36 FX carry IC was historical only",
                          "signal_owner": None},
-                        why_r46),
+                        why_r46,
+                        operational_signal_candidate={
+                            "challenger_id": "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
+                            "gate_owner": "api.capital_eligibility_gate"}),
+        _futures_sleeve("sleeve_managed_futures_trend",
+                        "Managed futures - time-series trend across liquid commodity, rates, "
+                        "FX and equity-index futures",
+                        "MULTI_ASSET_FUTURES",
+                        ["CL", "GC", "ZN", "6E", "ES", "ZW", "HG", "ZB", "6J", "NG"],
+                        {"family": "TIME_SERIES_TREND (managed futures)",
+                         "state": "ALPHA_RECOVERY futures TS trend challenger (this release): "
+                                  "historical point-in-time validation + frozen identity + "
+                                  "prospective registration",
+                         "challengers": ["ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1",
+                                         "r46_fut_ts_mom_252 (R46 cohort, FORWARD_PENDING)"],
+                         "verdict": "FORWARD_PENDING; historical result is never forward evidence",
+                         "signal_owner": None},
+                        "the sleeve's operational signal is a registered prospective challenger "
+                        "with zero forward observations; capital eligibility is derived from the "
+                        "declared evidence gate and a pre-declared conditional approval, never "
+                        "from the historical result.",
+                        operational_signal_candidate={
+                            "challenger_id": "ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1",
+                            "gate_owner": "api.capital_eligibility_gate"}),
         _futures_sleeve("sleeve_international_index_futures", "International equity index futures (non-USD)",
                         ic.AC_INTL_EQUITY_INDEX_FUTURES, ["FDAX", "FESX", "NIY", "HSI", "FSMI"],
                         {"family": "NONE", "state": "NO_RESEARCH_CANDIDATE", "challengers": [],
@@ -407,20 +442,86 @@ def _classify(rec: dict, probed: dict, approval: Optional[dict]) -> dict:
 # --------------------------------------------------------------------------- #
 # The read model
 # --------------------------------------------------------------------------- #
+def _gate_evaluations(gate_evaluations: Optional[dict]) -> dict:
+    """``sleeve_id -> gate evaluation`` from the ONE gate owner (degrade-safe)."""
+    if gate_evaluations is not None:
+        return dict(gate_evaluations)
+    try:
+        from paper_trader.api import capital_eligibility_gate as ceg
+        return ceg.evaluate_all()
+    except Exception as exc:  # noqa: BLE001 - an unreadable gate is a closed gate
+        return {"__error__": str(exc)[:160]}
+
+
+def _gate_derived_approval(rec: dict, gate: Optional[dict],
+                           signal_loader: Optional[Callable]) -> Optional[dict]:
+    """A PASSED gate becomes the approval record the classifier reads.
+
+    Nothing is typed into the registry: the state is DERIVED from the gate owner's
+    verdict, the evidence it cites and the human pre-authorisation it verified.
+    The operational signal is the candidate's latest frozen decision, read through
+    the gate owner's one signal reader (long legs only, rank-normalised).
+    """
+    if not gate or gate.get("state") != "GATE_PASSED":
+        return None
+    try:
+        from paper_trader.api import capital_eligibility_gate as ceg
+        cand = ceg.candidate_for_sleeve(rec["sleeve_id"]) or {}
+        signal = (signal_loader(cand) if signal_loader is not None
+                  else ceg.operational_signal_scores(cand))
+    except Exception as exc:  # noqa: BLE001
+        signal = {"scores": {}, "state": "SIGNAL_UNREADABLE", "detail": str(exc)[:160]}
+    return {
+        "model_approval_state": APPROVED,
+        "approval_evidence": {
+            "state": "CAPITAL_ELIGIBILITY_GATE_PASSED",
+            "derived_by": "api.capital_eligibility_gate",
+            "challenger_id": gate.get("challenger_id"),
+            "registration_identity_hash": (gate.get("evidence") or {}).get(
+                "registration_identity_hash"),
+            "thresholds": gate.get("thresholds"),
+            "forward_economics": (gate.get("evidence") or {}).get("forward_economics"),
+            "conditional_approval": (gate.get("evidence") or {}).get("conditional_approval"),
+            "verdict": "OPERATIONAL_BY_DECLARED_GATE",
+            "automatic_promotion": False,
+        },
+        "signal_scores": dict(signal.get("scores") or {}),
+        "operational_signal": {k: signal.get(k) for k in
+                               ("decision_session", "decision_record_hash", "state",
+                                "score_basis", "not_expressible")},
+    }
+
+
 def load_investability_registry(*, approvals: Optional[dict] = None,
                                 probe: bool = True, as_of: Optional[str] = None,
-                                nav: Optional[float] = None) -> dict:
+                                nav: Optional[float] = None,
+                                gate_evaluations: Optional[dict] = None,
+                                signal_loader: Optional[Callable] = None) -> dict:
     """The ONE registry read. ``approvals`` is an INJECTION seam for hermetic tests
     (``{sleeve_id: {"model_approval_state": ..., "approval_evidence": ...,
     "signal_scores": {...}}}``); production passes nothing and reads the declared
-    states. There is no route, file or flag through which a caller can promote."""
+    states. There is no route, file or flag through which a caller can promote.
+
+    MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - a sleeve that declares an
+    operational-signal candidate is ALSO judged by the ONE capital-eligibility
+    gate owner; a PASSED gate derives ``APPROVED_FOR_OPERATION`` (with the
+    evidence and the pre-declared human approval it rests on) so the sleeve
+    competes for capital on the next read without a separate operator action.
+    ``gate_evaluations`` / ``signal_loader`` are hermetic seams over that owner.
+    An explicit ``approvals`` injection for a sleeve always wins over its gate.
+    """
     approvals = dict(approvals or {})
+    gates = _gate_evaluations(gate_evaluations)
     rows = []
     for rec in declared_sleeves():
         sid = rec["sleeve_id"]
         appr = approvals.get(sid)
+        gate = gates.get(sid) if isinstance(gates, dict) else None
+        derived = None
+        if appr is None and rec.get("operational_signal_candidate"):
+            derived = _gate_derived_approval(rec, gate, signal_loader)
         probed = _probe_sleeve(rec, probe=probe, as_of=as_of)
-        cls = _classify(rec, probed, appr)
+        cls = _classify(rec, probed, appr or derived)
         row = dict(rec)
         row.pop("declared_capabilities", None)
         row.update(cls)
@@ -432,8 +533,31 @@ def load_investability_registry(*, approvals: Optional[dict] = None,
                                             {"state": "INJECTED_FOR_HERMETIC_TEST"})
             row["approval_injected"] = True
             row["signal_scores"] = dict(appr.get("signal_scores") or {})
+        elif derived:
+            row["approval_evidence"] = dict(derived["approval_evidence"])
+            row["approval_injected"] = False
+            row["approval_derived_from_gate"] = True
+            row["signal_scores"] = dict(derived.get("signal_scores") or {})
+            row["operational_signal"] = derived.get("operational_signal")
         else:
             row["approval_injected"] = False
+        if rec.get("operational_signal_candidate"):
+            row["capital_eligibility_gate"] = (
+                {k: gate.get(k) for k in ("state", "passed", "remaining", "remaining_codes",
+                                          "thresholds", "evidence", "challenger_id",
+                                          "evaluated_at", "detail")}
+                if gate else {"state": "GATE_UNAVAILABLE",
+                              "detail": (gates.get("__error__") if isinstance(gates, dict)
+                                         else "gate owner not evaluated")})
+            if not row["capital_eligible"] and row.get("capital_ineligible_reason") == R_NO_APPROVED_SIGNAL:
+                row["capital_ineligible_reason"] = R_GATE_NOT_PASSED
+                row["capital_eligibility_blocker"] = {
+                    "reason": R_GATE_NOT_PASSED,
+                    "gate_state": (gate or {}).get("state"),
+                    "remaining": (gate or {}).get("remaining_codes") or [],
+                    "exact_gate": (gate or {}).get("remaining") or [],
+                    "owner": "api.capital_eligibility_gate",
+                }
         rows.append(row)
     eligible = [r for r in rows if r["capital_eligible"]]
     ineligible = [r for r in rows if not r["capital_eligible"]]
@@ -456,9 +580,28 @@ def load_investability_registry(*, approvals: Optional[dict] = None,
         "eligibility_policy": {
             "capital_eligible_is_derived": True,
             "rule": "every capability TRUE and MODEL_APPROVED_FOR_OPERATION",
+            "approval_is_derived_from": (
+                "a declared record (US equities, cash) OR the ONE capital-eligibility gate "
+                "(api.capital_eligibility_gate): frozen forward-evidence thresholds met by "
+                "the candidate's canonical accrual AND a pre-declared conditional operational "
+                "approval bound to that registration"),
+            "gate_owner": "api.capital_eligibility_gate",
+            "no_separate_operator_action_after_the_gate": True,
             "silent_exclusion": False,
             "extensible": "a new sleeve is a new declared record; no asset class is hard-coded",
         },
+        # The non-equity admission ledger: WHY each research sleeve is or is not
+        # competing, in one place, so a zero can never hide behind a feature name.
+        "non_equity_admission_ledger": [
+            {"sleeve_id": r["sleeve_id"], "asset_class": r["asset_class"],
+             "capital_eligible": r["capital_eligible"],
+             "reason": r.get("capital_ineligible_reason"),
+             "operational_signal_candidate": (r.get("operational_signal_candidate") or {}).get(
+                 "challenger_id"),
+             "gate_state": (r.get("capital_eligibility_gate") or {}).get("state"),
+             "gate_remaining": (r.get("capital_eligibility_gate") or {}).get("remaining_codes"),
+             "model_approval_state": r["model_approval_state"]}
+            for r in rows if r["asset_class"] not in (ic.AC_US_EQUITY, ic.AC_CASH)],
         "promotion_governance": dict(PROMOTION_GOVERNANCE),
         "approvals_injected": sorted(approvals),
         "reference_data": mrd.provider_state() if probe else {"state": "NOT_PROBED"},
@@ -545,7 +688,8 @@ def activation_attempts(registry: Optional[dict] = None) -> list[dict]:
 
 __all__ = [
     "PHASE", "OWNER", "SCHEMA_VERSION", "ROUTE", "CAPABILITIES", "APPROVED", "RESEARCH_ONLY",
-    "NOT_REGISTERED", "APPROVAL_VOCAB", "R_NO_APPROVED_SIGNAL", "R_DATA_UNAVAILABLE",
+    "NOT_REGISTERED", "APPROVAL_VOCAB", "R_NO_APPROVED_SIGNAL", "R_GATE_NOT_PASSED",
+    "R_DATA_UNAVAILABLE",
     "R_MARK_UNAVAILABLE", "R_ACCOUNTING", "R_CAPABILITY", "PROMOTION_GOVERNANCE",
     "declared_sleeves", "load_investability_registry", "sleeve_map",
     "eligible_non_equity_instruments", "activation_attempts",

@@ -391,6 +391,17 @@ class ReadyOut(BaseModel):
     ready: bool = True
     readiness_kind: str = "service"
     reason: Optional[str] = None
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the release THIS process loaded,
+    # served on the canonical readiness route so the restart owner (and any
+    # out-of-process gate) can PROVE the backend runs the deployed commit instead
+    # of inferring it from a process start time. Frozen at import by
+    # api.runtime_identity.capture_loaded_identity; never re-read here.
+    loaded_commit: Optional[str] = None
+    loaded_commit_short: Optional[str] = None
+    loaded_branch: Optional[str] = None
+    loaded_captured_at: Optional[str] = None
+    loaded_pid: Optional[int] = None
+    loaded_identity_owner: Optional[str] = None
 
 
 class AuthCheckOut(BaseModel):
@@ -4292,6 +4303,7 @@ def ready() -> ReadyOut:
                 % (type(exc).__name__, str(exc)[:160]),
             },
         )
+    _ident = _BACKEND_RELEASE_IDENTITY or {}
     return ReadyOut(
         status="ok",
         service=_SERVICE_NAME,
@@ -4300,6 +4312,12 @@ def ready() -> ReadyOut:
         ready=True,
         readiness_kind="service",
         reason=None,
+        loaded_commit=_ident.get("commit"),
+        loaded_commit_short=_ident.get("commit_short"),
+        loaded_branch=_ident.get("branch"),
+        loaded_captured_at=_ident.get("captured_at"),
+        loaded_pid=_ident.get("pid"),
+        loaded_identity_owner=_ident.get("owner"),
     )
 
 

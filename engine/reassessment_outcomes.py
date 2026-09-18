@@ -464,6 +464,96 @@ def observation_id(identity: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# ECONOMIC identity (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1)
+#
+# ``observation_identity`` binds an observation to the EVIDENCE it was measured
+# on, which is right for immutability: a later, different price history for the
+# same recommendation is a conflict to report, not a row to overwrite. But it is
+# the wrong DEDUPLICATION axis. The live store held 8,550 rows for 950 distinct
+# recommendation-horizon pairs because the evidence fingerprint carried the price
+# store's mutable ``updated_at``: every capture run minted a new fingerprint, a
+# new observation_id, and one more copy of every economically identical row -
+# multiplicity 1..19, linear in the number of runs. Governance then read 125
+# matured observations where 50 existed, flipped an evidence gate, and summed an
+# opportunity cost over the duplicates.
+#
+# The ECONOMIC identity is the axis that actually varies between two distinct
+# observations: WHICH reassessment (id + hash, because a same-session reversion
+# is different evidence - R54.2), WHICH holding, WHICH recommendation, WHICH
+# horizon, WHICH book. Two rows sharing it are ONE observation observed twice.
+# --------------------------------------------------------------------------- #
+ECONOMIC_IDENTITY_FIELDS = (
+    "active_book_id", "reassessment_id", "reassessment_hash",
+    "eligible_market_date", "ticker", "recommendation", "horizon_eligible_closes",
+)
+DEDUPLICATION_AXIS = "ECONOMIC_IDENTITY (%s)" % ", ".join(ECONOMIC_IDENTITY_FIELDS)
+
+
+def economic_identity(obs: dict) -> dict:
+    """The fields that make two matured observations DIFFERENT evidence."""
+    return {k: (obs or {}).get(k) for k in ECONOMIC_IDENTITY_FIELDS}
+
+
+def economic_observation_key(obs: dict) -> str:
+    """ONE stable string per economic identity (the deduplication key)."""
+    return stable_hash(economic_identity(obs))
+
+
+def deduplicate_observations(rows: list) -> dict:
+    """Collapse persisted rows to ONE authoritative row per economic identity.
+
+    The FIRST-RECORDED row wins (``recorded_at`` ascending, then observation_id
+    for a deterministic tie), because it is the one written when the horizon
+    first matured; later copies added no information. Nothing is deleted or
+    rewritten here - this is a READ projection over an append-only store, and
+    every duplicate is returned beside the row it duplicates so the audit trail
+    stays complete. A duplicate whose economic fields agree but whose realised
+    spread differs is reported as a CONFLICT, never silently dropped.
+    """
+    ordered = sorted((r for r in (rows or []) if isinstance(r, dict)),
+                     key=lambda r: (str(r.get("recorded_at") or ""),
+                                    str(r.get("observation_id") or "")))
+    first: dict[str, dict] = {}
+    duplicates: list[dict] = []
+    conflicts: list[dict] = []
+    multiplicity: dict[str, int] = {}
+    for r in ordered:
+        key = economic_observation_key(r)
+        multiplicity[key] = multiplicity.get(key, 0) + 1
+        if key not in first:
+            first[key] = r
+            continue
+        keeper = first[key]
+        duplicates.append({"observation_id": r.get("observation_id"),
+                           "duplicate_of": keeper.get("observation_id"),
+                           "economic_key": key,
+                           "recorded_at": r.get("recorded_at")})
+        if r.get("realized_spread") != keeper.get("realized_spread"):
+            conflicts.append({"observation_id": r.get("observation_id"),
+                              "kept_observation_id": keeper.get("observation_id"),
+                              "economic_key": key,
+                              "kept_realized_spread": keeper.get("realized_spread"),
+                              "duplicate_realized_spread": r.get("realized_spread"),
+                              "reason": "SAME_ECONOMIC_IDENTITY_DIFFERENT_METRICS"})
+    authoritative = list(first.values())
+    authoritative.sort(key=lambda r: (r.get("eligible_market_date") or "",
+                                      r.get("ticker") or "",
+                                      r.get("horizon_eligible_closes") or 0))
+    return {
+        "rows": authoritative,
+        "persisted_rows": len(ordered),
+        "distinct_economic_observations": len(first),
+        "duplicate_rows": len(duplicates),
+        "duplicates": duplicates,
+        "conflicts": conflicts,
+        "max_multiplicity": (max(multiplicity.values()) if multiplicity else 0),
+        "dedup_axis": DEDUPLICATION_AXIS,
+        "first_recorded_wins": True,
+        "history_preserved": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Evidence sufficiency + policy intelligence (Workstreams G + H)
 # --------------------------------------------------------------------------- #
 def classify_evidence(matured_count: int) -> dict:
@@ -667,6 +757,8 @@ __all__ = [
     "POLICY_INSUFFICIENT_EVIDENCE", "POLICY_STABLE", "POLICY_REVIEW_CANDIDATE",
     "POLICY_RESEARCH_REQUIRED",
     "REC_HOLD", "REC_REDUCE", "REC_EXIT", "REC_REPLACE", "REC_ADD",
+    "ECONOMIC_IDENTITY_FIELDS", "DEDUPLICATION_AXIS", "economic_identity",
+    "economic_observation_key", "deduplicate_observations",
     "MEASURED_RECOMMENDATIONS", "default_policy", "stable_hash", "maturity_date",
     "forward_return", "resolve_governance", "build_observation",
     "observation_identity", "observation_id", "classify_evidence",

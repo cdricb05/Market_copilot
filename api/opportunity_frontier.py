@@ -131,9 +131,71 @@ def load_opportunity_frontier(*, portfolio_state: Optional[dict] = None,
         "risk_state_hash": (risk_state or {}).get("risk_state_hash"),
         "non_equity_reviews": frontier_reviews(fr, positions),
         "candidate_rows_for_proposal": kernel.candidate_rows_for_proposal(fr),
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the admission ledger. A frontier
+        # whose eligible_non_equity_count is 0 says, per sleeve, WHY: no candidate
+        # accruing, a gate not yet passed (with the exact remaining requirements),
+        # or instruments listed but not executable at this NAV. A zero is never
+        # again hidden behind a nominal "cross-asset" feature.
+        "non_equity_admission_ledger": non_equity_admission_ledger(registry, fr),
     })
+    fr["eligible_non_equity_count_explanation"] = _explain_non_equity_count(fr)
     return fr
 
 
+def non_equity_admission_ledger(registry: dict, frontier: dict) -> list[dict]:
+    """Per research sleeve: eligibility, blocker, gate state, rows listed / admitted."""
+    rows = (frontier or {}).get("rows") or []
+    by_sleeve: dict[str, dict] = {}
+    for r in rows:
+        if r.get("instrument_type") in (ic.IT_CASH, ic.IT_CASH_EQUITY):
+            continue
+        b = by_sleeve.setdefault(str(r.get("sleeve_id")), {"listed": 0, "admitted": 0, "reasons": {}})
+        b["listed"] += 1
+        if r.get("eligible"):
+            b["admitted"] += 1
+        elif r.get("eligibility_reason"):
+            b["reasons"][r["eligibility_reason"]] = b["reasons"].get(r["eligibility_reason"], 0) + 1
+    out = []
+    for s in (registry or {}).get("sleeves") or []:
+        if s.get("asset_class") in (ic.AC_US_EQUITY, ic.AC_CASH):
+            continue
+        gate = s.get("capital_eligibility_gate") or {}
+        b = by_sleeve.get(s["sleeve_id"], {"listed": 0, "admitted": 0, "reasons": {}})
+        out.append({
+            "sleeve_id": s["sleeve_id"], "asset_class": s.get("asset_class"),
+            "capital_eligible": bool(s.get("capital_eligible")),
+            "blocker": s.get("capital_ineligible_reason"),
+            "operational_signal_candidate": (s.get("operational_signal_candidate") or {}).get(
+                "challenger_id"),
+            "gate_state": gate.get("state"),
+            "gate_remaining": gate.get("remaining_codes") or [],
+            "instruments_listed": b["listed"], "instruments_admitted": b["admitted"],
+            "instrument_ineligibility_reasons": b["reasons"],
+        })
+    return out
+
+
+def _explain_non_equity_count(frontier: dict) -> str:
+    n = int((frontier or {}).get("eligible_non_equity_count") or 0)
+    ledger = (frontier or {}).get("non_equity_admission_ledger") or []
+    if n > 0:
+        admitted = [l["sleeve_id"] for l in ledger if l["instruments_admitted"]]
+        return ("%d non-equity instrument(s) are eligible, from sleeve(s) %s; they compete "
+                "for capital on the sleeve-normalised rank basis." % (n, ", ".join(admitted)))
+    parts = []
+    for l in ledger:
+        if l["capital_eligible"]:
+            why = ("sleeve eligible but %d listed instrument(s) failed: %s"
+                   % (l["instruments_listed"], l["instrument_ineligibility_reasons"] or "no instrument"))
+        elif l.get("operational_signal_candidate"):
+            why = "gate %s (%s)" % (l.get("gate_state"), ", ".join(l.get("gate_remaining") or []) or "-")
+        else:
+            why = l.get("blocker") or "no candidate"
+        parts.append("%s: %s" % (l["sleeve_id"], why))
+    return ("0 non-equity instruments are eligible. Per sleeve - " + "; ".join(parts)
+            if parts else "0 non-equity instruments are eligible; the registry declares no "
+                          "research sleeve.")
+
+
 __all__ = ["PHASE", "OWNER", "ROUTE", "REVIEW_OWNER", "frontier_reviews",
-           "load_opportunity_frontier"]
+           "load_opportunity_frontier", "non_equity_admission_ledger"]

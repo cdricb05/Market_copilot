@@ -1219,6 +1219,22 @@ def _runtime_alignment_block(live_information: dict,
                                      current_collection)["service"] or {})
     worker_loaded = svc.get("loaded_release") or (
         live_information.get("collection_loaded_release"))
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the persistent research worker is
+    # a LONG-LIVED runtime too. Its loaded identity is what IT captured at start
+    # (api.research_runtime reads the artifact; api.runtime_identity shapes it);
+    # an unreadable artifact leaves the row UNKNOWN, never NOT_APPLICABLE and
+    # never ALIGNED.
+    research_loaded, research_process = None, {}
+    try:
+        from paper_trader.api import research_runtime as rr
+        _rw = rr.load_research_worker_identity()
+        research_loaded = _rw.get("loaded")
+        research_process = dict(_rw.get("process") or {})
+        if not _rw.get("available"):
+            research_process["identity_unavailable_reason"] = _rw.get(
+                "unavailable_reason")
+    except Exception as exc:  # noqa: BLE001 - an unreadable worker is UNKNOWN
+        research_process = {"identity_unavailable_reason": str(exc)[:160]}
     try:
         composed = rid.build_runtime_alignment(runtimes=[
             {"runtime": rid.RUNTIME_BACKEND,
@@ -1236,7 +1252,8 @@ def _runtime_alignment_block(live_information: dict,
                      "collection_service_state"),
                  "worker_activity": svc.get("worker_activity") or
                                     live_information.get("worker_activity")}},
-            {"runtime": rid.RUNTIME_RESEARCH, "loaded": None, "process": {}},
+            {"runtime": rid.RUNTIME_RESEARCH, "loaded": research_loaded,
+             "process": research_process},
             {"runtime": rid.RUNTIME_INTRADAY_EMISSION, "loaded": None,
              "process": {}},
         ])

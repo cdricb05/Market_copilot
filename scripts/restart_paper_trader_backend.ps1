@@ -326,6 +326,48 @@ function Invoke-CanonicalGet([string]$Path, [int]$TimeoutSec = 15) {
     }
 }
 
+# The commit the CHECKOUT is at, read from git's own files (a linked worktree's .git is a
+# pointer file; a branch ref may live in the common dir or in packed-refs). Returns $null
+# when it cannot be resolved - reported, never guessed.
+function Get-SourceCommit([string]$Root) {
+    try {
+        $dot = Join-Path $Root ".git"
+        if (-not (Test-Path $dot)) { return $null }
+        $gitDir = $dot
+        if (Test-Path $dot -PathType Leaf) {
+            $ptr = (Get-Content $dot -Raw).Trim()
+            if (-not $ptr.StartsWith("gitdir:")) { return $null }
+            $gitDir = $ptr.Substring(7).Trim()
+            if (-not [System.IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $Root $gitDir }
+        }
+        $head = (Get-Content (Join-Path $gitDir "HEAD") -Raw).Trim()
+        if (-not $head.StartsWith("ref:")) { return $head }
+        $ref = $head.Substring(4).Trim()
+        $roots = @($gitDir)
+        $common = Join-Path $gitDir "commondir"
+        if (Test-Path $common) {
+            $c = (Get-Content $common -Raw).Trim()
+            if (-not [System.IO.Path]::IsPathRooted($c)) { $c = Join-Path $gitDir $c }
+            $roots += (Resolve-Path $c).Path
+        }
+        foreach ($r in $roots) {
+            $loose = Join-Path $r ($ref -replace "/", "\")
+            if (Test-Path $loose -PathType Leaf) { return (Get-Content $loose -Raw).Trim() }
+            $packed = Join-Path $r "packed-refs"
+            if (Test-Path $packed) {
+                foreach ($line in (Get-Content $packed)) {
+                    if ($line.StartsWith("#") -or -not $line.Trim()) { continue }
+                    $parts = $line.Trim() -split "\s+", 2
+                    if ($parts.Count -eq 2 -and $parts[1] -eq $ref) { return $parts[0] }
+                }
+            }
+        }
+        return $null
+    } catch {
+        return $null
+    }
+}
+
 # A 404 on a canonical readiness route is NOT a slow start. It is the wrong path, and it
 # is the exact defect this owner exists to prevent - so it fails immediately and by name
 # instead of silently retrying forty times.
@@ -465,6 +507,35 @@ print(json.dumps({'status': r['status'], 'ok': bool(r['ok']),
     Write-Host ("  " + $CANONICAL_HEALTH_PATH + " -> 200")
     $null = Wait-ForCanonicalRoute $CANONICAL_READY_PATH $ReadyTimeoutSec "the readiness probe"
     Write-Host ("  " + $CANONICAL_READY_PATH + " -> 200")
+
+    # ======================================================================= #
+    # 5b. LOADED RELEASE IDENTITY (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1).
+    #     The backend serves the commit it LOADED on the canonical readiness route.
+    #     A restart that leaves a process executing a different commit than the
+    #     checkout is the stale-runtime incident; it is PROVEN here from the served
+    #     identity, never inferred from a process start time. A source commit this
+    #     host cannot resolve is reported, and the served identity still stands.
+    # ======================================================================= #
+    Write-Section "LOADED RELEASE IDENTITY"
+    $readyRead = Invoke-CanonicalGet $CANONICAL_READY_PATH 15
+    $loadedCommit = $null
+    try { $loadedCommit = [string](($readyRead.body | ConvertFrom-Json).loaded_commit) } catch { $loadedCommit = $null }
+    if ($loadedCommit) { $loadedCommit = $loadedCommit.Trim() }
+    $sourceCommit = Get-SourceCommit $RepoRoot
+    Write-Host ("  loaded commit : " + $(if ($loadedCommit) { $loadedCommit } else { "NOT SERVED" }))
+    Write-Host ("  source commit : " + $(if ($sourceCommit) { $sourceCommit } else { "UNRESOLVED" }))
+    if (-not $loadedCommit) {
+        Show-StartupDiagnostics "the canonical readiness route served no loaded_commit"
+        Fail "the restarted backend does not serve its loaded release identity"
+    }
+    if ($sourceCommit -and ($loadedCommit -ne $sourceCommit)) {
+        Show-StartupDiagnostics ("loaded commit " + $loadedCommit + " differs from the checkout's " +
+                                 $sourceCommit)
+        Fail ("the restarted backend loaded commit " + $loadedCommit + " but the checkout is at " +
+              $sourceCommit + " - a stale runtime, not a current one")
+    }
+    Write-Host ("  runtime alignment: " + $(if ($sourceCommit) { "ALIGNED (loaded commit == source commit)" }
+                                          else { "LOADED IDENTITY SERVED; the source commit could not be resolved on this host" }))
 
     # ======================================================================= #
     # 6. EXACTLY ONE LISTENER, and it must be the process this script launched.

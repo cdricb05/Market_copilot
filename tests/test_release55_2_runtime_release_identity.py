@@ -361,13 +361,48 @@ class TestAlignmentFailsClosed:
     def test_a_scheduled_runtime_is_not_applicable_not_unknown(self):
         composed = rid.build_runtime_alignment(
             source=_source(REV_B),
-            runtimes=[{"runtime": rid.RUNTIME_RESEARCH, "loaded": None},
-                      {"runtime": rid.RUNTIME_INTRADAY_EMISSION,
+            runtimes=[{"runtime": rid.RUNTIME_INTRADAY_EMISSION,
                        "loaded": None}])
         for row in composed["runtimes"]:
             assert row["verdict"] == rid.ALIGNMENT_NOT_APPLICABLE
             assert row["reason"] == rid.REASON_NOT_REQUIRED
         assert composed["unknown_runtimes"] == []
+
+    def test_the_persistent_research_worker_is_a_required_long_lived_runtime(self):
+        """MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - since R59 the research runtime
+        is a persistent worker that pins its imports at start. It can go stale
+        exactly like the backend, so it is REQUIRED: no recorded identity is
+        UNKNOWN (never NOT_APPLICABLE, never ALIGNED)."""
+        contract = rid.RUNTIME_CONTRACT[rid.RUNTIME_RESEARCH]
+        assert contract["identity_required"] is True
+        assert contract["lifecycle"] == "LONG_LIVED"
+        assert "manage_research_runtime.ps1" in contract["startup_owner"]
+        composed = rid.build_runtime_alignment(
+            source=_source(REV_B),
+            runtimes=[{"runtime": rid.RUNTIME_RESEARCH, "loaded": None}])
+        row = composed["runtimes"][0]
+        assert row["verdict"] == rid.ALIGNMENT_UNKNOWN
+        assert composed["unknown_runtimes"] == [rid.RUNTIME_RESEARCH]
+        assert composed["proven"] is False
+
+    def test_a_worker_status_capture_is_shaped_by_the_identity_owner(self):
+        wid = {"instance_id": "abc", "pid": 4242, "host": "h",
+               "started_at": "2026-09-17T08:46:18+00:00",
+               "owner": "alpha_agent.r59.runtime",
+               "source": {"repo_root": "X", "commit": REV_B, "commit_short": REV_B[:12],
+                          "branch": "b", "dirty": False,
+                          "resolved_from": "GIT_DIRECTORY_READ"}}
+        loaded = rid.loaded_identity_from_worker_status(wid)
+        assert loaded["identity_kind"] == "LOADED_RUNTIME_IDENTITY"
+        assert loaded["commit"] == REV_B and loaded["pid"] == 4242
+        assert loaded["captured_at"] == "2026-09-17T08:46:18+00:00"
+        assert loaded["changes_when_source_changes"] is False
+        row = rid.classify_alignment(loaded=loaded, source=_source(REV_B))
+        assert row["verdict"] == rid.ALIGNMENT_ALIGNED
+        stale = rid.classify_alignment(loaded=loaded, source=_source(REV_A))
+        assert stale["verdict"] == rid.ALIGNMENT_STALE
+        # No recorded commit is no identity: UNKNOWN, never a guess.
+        assert rid.loaded_identity_from_worker_status({"source": {}}) is None
 
     def test_proven_is_false_while_any_required_runtime_is_unknown(self):
         composed = rid.build_runtime_alignment(

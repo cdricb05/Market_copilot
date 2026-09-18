@@ -400,7 +400,14 @@ def test_15c_there_is_exactly_one_operator_adoption_entrypoint():
         elif "adopt_prospective_freeze(" in text:
             injectors.append(path.name)
     assert operator_paths == ["adopt_prospective_freeze.py"], operator_paths
-    assert injectors == ["run_research_runtime.py"], injectors
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the managed-futures trend challenger is
+    # an immutable FILE record (like the FX carry cadence one), so the operator door
+    # answers UNKNOWN_CHALLENGER_ID for it and its registration door composes the
+    # adoption owner directly with the record owner's freeze row. It carries no
+    # operator token, derives its clock from current_prospective_boundary(), and
+    # writes no registry row of its own.
+    assert sorted(injectors) == sorted(["register_futures_trend_challenger.py",
+                                        "run_research_runtime.py"]), injectors
     assert PA.OPERATOR_ADOPTION_ENTRYPOINT == \
         "scripts/adopt_prospective_freeze.py"
 

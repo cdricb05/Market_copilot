@@ -1,5 +1,53 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-09-18
+- **Updated by phase:** **MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - RESTORE PROPOSAL
+  INTEGRITY AND MAKE NON-EQUITY CAPITAL COMPETITION REAL (single agent, Windows
+  PowerShell only, linked worktree
+  `D:\paper_trader_multi_asset_capital_activation_r55_v1` on branch
+  `multi-asset-capital-activation-r55-v1`, built over live `47b9129`).**
+  Full narrative: `docs/RELEASE_MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1.md`.
+
+  **What was wrong.** The 2026-09-17 proposal published `RISK_CONTRIBUTION_CAP`
+  as verified while the repair kernel read a key no publisher wrote (so the cap
+  was never evaluated), two owners declared two thresholds two-fold apart for
+  one constraint, the proposed target created two unreported per-name breaches
+  (SNDK, ALAB), the outcome-evidence store held 8,550 rows for 950 observations
+  because its identity hashed a mutable `updated_at`, the workflow surface
+  rendered the reassessment's 0.0 / 0.0 / $0.00 as the proposal's economics, the
+  backend and the collection worker were provably STALE while the persistent
+  research worker was reported NOT_APPLICABLE, the FX registration said H1 while
+  its policy said 5, and `frontier_eligible_non_equity_count` had been 0 on every
+  proposal ever built because eligibility was DATA typed into a Python record.
+
+  **What landed.** ONE risk-contribution contract owned by
+  `engine.holding_opportunity_cost`; the AFTER-target per-name risk gate with
+  bounded, ceiling-carrying repair rounds (reproduced live: ALAB and SNDK capped,
+  largest share 0.1156 < 0.125, READY with new hash `30dd415ea6f3`; nothing
+  persisted, nothing approved); economic-identity dedup with history preserved;
+  `governed_proposal_economics` as the one owner of rendered economics; the
+  research worker as a required LONG_LIVED runtime and `/v1/ready` serving the
+  loaded commit (the restart owner now proves alignment); the FX HORIZON CONTRACT
+  (label 1 / hold 5, CONSISTENT live) with fail-closed guards in producer and
+  accrual; `api.capital_eligibility_gate` (declared candidates, frozen forward
+  thresholds mirroring R46, a required pre-declared conditional operational
+  approval; the registry DERIVES approval from a PASSED gate; the frontier explains
+  every zero through `non_equity_admission_ledger`); the managed-futures
+  time-series trend challenger `ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1` (87 owned
+  futures markets, 391 decisions, 3.64 %/yr net vs cash, t 2.64, lockbox 2023+
+  negative - disclosed) with its per-session TRUE_FORWARD producer, r52 stage and
+  registration door; the multi-asset acceptance (equity + cash + one qualified
+  non-equity sleeve on ONE frontier, funded by the proposal and the allocator
+  within policy; an unqualified sleeve excluded fail-closed).
+
+  **Honest result.** Operational asset classes stay `US_EQUITY` + `CASH`.
+  `FX_CAPITAL_ELIGIBLE = FALSE`: the exact gate is 40 effective independent
+  5-session decisions, 60 raw, 180 calendar days, t >= 2.5 vs cash, and the
+  operator's conditional approval - plus, at $98k NAV, no owned FX contract fits
+  the 10 % name cap. No order, no fill, no promotion, no backfill, $0 spent.
+
+## Release 62.2 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-09-09
 - **Updated by phase:** **R62.2 - THE AUTOMATIC FORWARD ACCRUAL LOOP (single
   agent, Windows PowerShell only, isolated worktree

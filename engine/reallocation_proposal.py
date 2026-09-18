@@ -85,9 +85,20 @@ CT_SECTOR_CAP = "SECTOR_CAP_BREACH_BLOCKS_CHANGE"
 #: the sector cap: it routes the target to the Release-47 re-optimiser, and only an
 #: empty feasible set withholds the decision.
 CT_CROSS_ASSET_CAP = "CROSS_ASSET_CAP_BREACH_BLOCKS_CHANGE"
+#: MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the per-name risk-contribution cap judged
+#: on the COMPLETE TARGET. The held book's breach (HOC: RISK_CONTRIBUTION_BREACH)
+#: asks for a target; THIS code says the target itself, re-measured by the same
+#: covariance kernel against the same governed limit
+#: (``engine.holding_opportunity_cost.risk_contribution_limit``), still breaches.
+#: A RESHAPING limit: it routes the target back through the Release-47 repair
+#: kernel with the AFTER-target shares, and only a target that still breaches after
+#: the bounded repair rounds is withheld. The 2026-09-17 proposal published a
+#: "resolved" DDOG breach beside two NEW, unreported breaches (SNDK, ALAB) because
+#: nothing measured the target it proposed.
+CT_RISK_CONTRIBUTION = "RISK_CONTRIBUTION_CAP_BREACH_BLOCKS_CHANGE"
 COMPLETE_TARGET_CONSTRAINT_CODES = (CT_TURNOVER_BUDGET, CT_CONCENTRATION,
                                     CT_RISK_DETERIORATION, CT_SECTOR_CAP,
-                                    CT_CROSS_ASSET_CAP)
+                                    CT_CROSS_ASSET_CAP, CT_RISK_CONTRIBUTION)
 
 #: Release 50 - instrument fields a universe / position row MAY carry. A row without
 #: them is a US cash equity, the pre-R50 contract.
@@ -236,6 +247,19 @@ def default_policy() -> dict[str, Any]:
                                "DEFAULT_NON_EQUITY": 0.25},
         "non_usd_currency_cap": 0.20,
         "collateral_cap_fraction": 0.25,
+        # --- MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: after-target risk contribution --- #
+        # The per-name limit is the HOC owner's rule (excess multiple over the
+        # equal-weight share of the covariance universe), MIRRORED here so it is
+        # visible in the payload and folded into the proposal hash, and read by the
+        # SAME function (hoc.risk_contribution_limit) the held book is judged with.
+        "risk_contribution_excess_multiple": hoc_kernel.default_policy()[
+            "risk_contribution_excess_multiple"],                # reused: HOC owner
+        # The repair kernel reduces an over-cap name by cap/share to FIRST ORDER; the
+        # covariance owner then re-measures the repaired target, and a residual or
+        # newly created breach is repaired again with the re-measured shares. Bounded
+        # so the loop is deterministic and finite; a target that still breaches after
+        # the last round is WITHHELD (fail closed), never approved.
+        "max_risk_contribution_repair_rounds": 3,                 # new
     }
 
 
@@ -303,20 +327,27 @@ def _portfolio_volatility(*, weights: dict, aligned_returns: dict, policy: dict)
     total_w = sum(pos.values())
     if not pos or total_w <= 0:
         return {"volatility": None, "variance_daily": None, "state": "UNAVAILABLE",
-                "covered_weight": 0.0, "included_tickers": [], "observations_used": 0}
+                "covered_weight": 0.0, "included_tickers": [], "observations_used": 0,
+                "contributions": {}}
     risk = hoc_kernel.compute_risk_contributions(
         weights=pos, aligned_returns=aligned_returns or {}, policy=policy)
     included = risk.get("included_tickers") or []
     covered = sum(pos.get(tk, 0.0) for tk in included) / total_w if total_w > 0 else 0.0
     var_daily = risk.get("portfolio_variance_daily")
+    # The per-name shares the SAME kernel call produced. Before this release they
+    # were computed and discarded, so nothing ever measured the target's own shares.
+    contributions = {tk: v for tk, v in (risk.get("contributions") or {}).items()
+                     if tk in included and _f(v) is not None}
     if risk.get("state") != "AVAILABLE" or var_daily is None or var_daily < 0:
         return {"volatility": None, "variance_daily": var_daily, "state": "UNAVAILABLE",
                 "covered_weight": round(covered, 6), "included_tickers": included,
-                "observations_used": risk.get("observations_used", 0)}
+                "observations_used": risk.get("observations_used", 0),
+                "contributions": {}}
     vol = math.sqrt(var_daily * _TRADING_DAYS_YEAR)
     return {"volatility": vol, "variance_daily": var_daily, "state": "AVAILABLE",
             "covered_weight": round(covered, 6), "included_tickers": included,
-            "observations_used": risk.get("observations_used", 0)}
+            "observations_used": risk.get("observations_used", 0),
+            "contributions": contributions}
 
 
 def _effective_volatility(prim: dict, cov_floor: float) -> tuple[str, Optional[float]]:
@@ -508,16 +539,56 @@ def _cr_candidates(*, universe_rows: list, urows: dict, held_set: set,
     return [out[tk] for tk in sorted(out)]
 
 
+#: Where the per-name risk-contribution shares handed to the repair kernel came from.
+RC_SOURCE_AFTER_TARGET = "COMPLETE_TARGET_RE_MEASURED_BY_COVARIANCE_OWNER"
+RC_SOURCE_HOC_HELD_BOOK = "HOC_HELD_BOOK_REVIEW_ROWS_FALLBACK"
+RC_SOURCE_NONE = "UNAVAILABLE"
+
+
+def _repair_risk_inputs(*, measured: dict, hoc_reviews: list) -> dict:
+    """The per-name risk-contribution shares and the governed limit the repair
+    kernel must use for THIS target.
+
+    The shares of the object being repaired - the complete (ideal or previously
+    repaired) target - come first: they are re-measured by the covariance owner in
+    the risk block. Only when that measurement is UNAVAILABLE (no covariance
+    universe for the target) does the held book's HOC review row serve as a
+    fallback, read through the ONE canonical field adapter and never through a
+    spelling of this module's own. The limit is the policy owner's, evaluated on
+    the covariance universe of the same object.
+    """
+    rsk = measured.get("risk") or {}
+    after = dict(rsk.get("risk_contributions_after") or {})
+    limit_block = rsk.get("risk_contribution_limit_after") or {}
+    limit = _f(limit_block.get("limit"))
+    if after:
+        return {"contributions": after, "limit": limit, "source": RC_SOURCE_AFTER_TARGET,
+                "limit_block": limit_block}
+    fallback = {}
+    for r in (hoc_reviews or []):
+        tk = r.get("ticker")
+        v = hoc_kernel.review_risk_contribution(r)
+        if tk and v is not None:
+            fallback[tk] = v
+    return {"contributions": fallback, "limit": limit,
+            "source": RC_SOURCE_HOC_HELD_BOOK if fallback else RC_SOURCE_NONE,
+            "limit_block": limit_block}
+
+
 def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
                               held_set: set, universe_rows: list, urows: dict,
                               sector_of: dict, hoc_reviews: list, pct_fn,
-                              nav: Optional[float], policy: dict) -> dict:
+                              nav: Optional[float], policy: dict,
+                              weight_ceilings: Optional[dict] = None) -> dict:
     """Repair the complete target when - and only when - a portfolio limit breaches.
 
     Returns a ledger of what the repair did. ``applied`` is False when nothing was
     breached (the ideal target is already feasible and is used verbatim) or when the
     repair could not produce a feasible target at all, which is the ONE case that
     still ends in the fail-closed WITHHELD path.
+
+    ``weight_ceilings`` are the per-name ceilings earlier risk-contribution repair
+    rounds established (see build_proposal); a later round may never refill them.
     """
     limits = measured["limits"]
     breach_codes = sorted({b.get("code") for b in (limits.get("breaches") or [])})
@@ -544,14 +615,19 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
 
     cands = _cr_candidates(universe_rows=universe_rows, urows=urows,
                            held_set=held_set, sector_of=sector_of, pct_fn=pct_fn)
-    contrib = {r.get("ticker"): _f(r.get("risk_contribution"))
-               for r in (hoc_reviews or []) if r.get("ticker")
-               and _f(r.get("risk_contribution")) is not None}
+    # THE risk-contribution contract: the target's own re-measured shares, the
+    # policy owner's limit for that target, one field adapter. Until this release
+    # the kernel read a key no publisher wrote, so ``contrib`` was always empty and
+    # RISK_CONTRIBUTION_CAP was asserted as checked and never applied.
+    rc = _repair_risk_inputs(measured=measured, hoc_reviews=hoc_reviews)
+    proj = constraint_policy_projection(policy)
+    if rc["limit"] is not None:
+        proj["max_name_risk_contribution"] = rc["limit"]
     solution = _cr.solve_feasible_target(
         current_weight=current_weight,
         ideal_weight=_positive(measured["proposed_weight"]),
-        candidates=cands, nav=nav, risk_contributions=contrib,
-        policy=constraint_policy_projection(policy))
+        candidates=cands, nav=nav, risk_contributions=rc["contributions"],
+        policy=proj, weight_ceilings=weight_ceilings)
     base.update({
         "applied": bool(solution["feasible"]),
         "best_feasible_target": solution["best_feasible_target"],
@@ -565,6 +641,14 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
         "solution_hash": solution["solution_hash"],
         "feasible_set_empty": not solution["feasible"],
         "blockers": solution["blockers"],
+        "risk_contribution_inputs": {
+            "source": rc["source"],
+            "field": hoc_kernel.RISK_CONTRIBUTION_FIELD,
+            "policy_owner": hoc_kernel.RISK_CONTRIBUTION_POLICY_OWNER,
+            "limit_applied": _r(rc["limit"], 8),
+            "limit": rc["limit_block"],
+            "names_supplied": len(rc["contributions"]),
+        },
     })
     return base
 
@@ -1005,6 +1089,7 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         measured=measured, current_weight=current_weight, held_set=held_set,
         universe_rows=universe_rows, urows=urows, sector_of=sector_of,
         hoc_reviews=hoc_reviews, pct_fn=_pct, nav=nav, policy=pol)
+    reoptimisation["risk_contribution_repair_rounds"] = []
     if reoptimisation["applied"]:
         repaired = _measure(reoptimisation["best_feasible_target"])
         if repaired["hard_violations"]:
@@ -1013,6 +1098,76 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         else:
             measured = repaired
             reoptimisation["repaired_limits"] = repaired["limits"]
+            # --- MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: the AFTER-target gate ---- #
+            # The repair reduced an over-cap name to FIRST ORDER (weight x cap/share)
+            # and redistributed the released capital - which can leave a residual
+            # breach or create a new one. The covariance owner re-measured the
+            # repaired target above; while it still breaches the governed per-name
+            # limit, repair it again with the RE-MEASURED shares, a bounded number
+            # of times. A target that still breaches afterwards is withheld below.
+            max_rounds = int(pol.get("max_risk_contribution_repair_rounds") or 0)
+
+            def _rc_ceilings(ledger_rows: list, acc: dict) -> dict:
+                # Every name a round reduced for its risk contribution keeps that
+                # reduced weight as a ceiling in every later round, so released
+                # capital can never be handed straight back to it.
+                for adj in ledger_rows or []:
+                    if adj.get("constraint") == _cr.C_RISK_CONTRIBUTION and adj.get("ticker"):
+                        after = _f(adj.get("after"))
+                        if after is not None:
+                            acc[adj["ticker"]] = min(acc.get(adj["ticker"], float("inf")), after)
+                return acc
+
+            ceilings = _rc_ceilings(reoptimisation.get("constraint_adjustments"), {})
+            for round_no in range(1, max_rounds + 1):
+                still = [b for b in (measured["limits"].get("breaches") or [])
+                         if b.get("code") == CT_RISK_CONTRIBUTION]
+                if not still:
+                    break
+                again = _reoptimise_if_infeasible(
+                    measured=measured, current_weight=current_weight,
+                    held_set=held_set, universe_rows=universe_rows, urows=urows,
+                    sector_of=sector_of, hoc_reviews=hoc_reviews, pct_fn=_pct,
+                    nav=nav, policy=pol, weight_ceilings=dict(ceilings))
+                ceilings = _rc_ceilings(again.get("constraint_adjustments"), ceilings)
+                ledger = {"round": round_no,
+                          "breaches_before": (still[0].get("value")
+                                              if still else None),
+                          "applied": bool(again.get("applied")),
+                          "risk_contribution_inputs": again.get(
+                              "risk_contribution_inputs")}
+                if not again.get("applied"):
+                    ledger["stopped"] = "REPAIR_KERNEL_FOUND_NO_FEASIBLE_TARGET"
+                    reoptimisation["risk_contribution_repair_rounds"].append(ledger)
+                    break
+                rep2 = _measure(again["best_feasible_target"])
+                if rep2["hard_violations"]:
+                    ledger["stopped"] = "REPAIRED_TARGET_VIOLATES_CONSTRAINTS"
+                    reoptimisation["risk_contribution_repair_rounds"].append(ledger)
+                    break
+                measured = rep2
+                ledger["breaches_after"] = [
+                    b.get("value") for b in (rep2["limits"].get("breaches") or [])
+                    if b.get("code") == CT_RISK_CONTRIBUTION]
+                reoptimisation["risk_contribution_repair_rounds"].append(ledger)
+                # The ledger of the WHOLE repair: the final target, every adjustment
+                # in order, every constraint that reshaped, the final verification.
+                reoptimisation["best_feasible_target"] = again["best_feasible_target"]
+                reoptimisation["constraint_adjustments"] = (
+                    list(reoptimisation.get("constraint_adjustments") or [])
+                    + list(again.get("constraint_adjustments") or []))
+                reoptimisation["constraints_that_reshaped"] = sorted(
+                    set(reoptimisation.get("constraints_that_reshaped") or [])
+                    | set(again.get("constraints_that_reshaped") or []))
+                for k in ("mandatory_exits", "released_weight", "redistributed_weight",
+                          "turnover", "verification", "solution_hash",
+                          "feasible_set_empty", "blockers",
+                          "risk_contribution_inputs"):
+                    if k in again:
+                        reoptimisation[k] = again[k]
+                reoptimisation["repaired_limits"] = rep2["limits"]
+            reoptimisation["risk_contribution_weight_ceilings"] = {
+                tk: _r(v, 8) for tk, v in sorted(ceilings.items())}
 
     allocations = measured["allocations"]
     proposed_weight = measured["proposed_weight"]
@@ -1136,6 +1291,27 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         # --- Release 47 ------------------------------------------------------ #
         "constraint_inventory": _cr.constraint_inventory(constraint_policy_projection(pol)),
         "constraint_reoptimization": reoptimisation,
+        # --- MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: ONE risk-contribution contract - #
+        # The field every publisher writes and every consumer reads, the policy
+        # owner, the limit applied to THIS target, and the target's own shares and
+        # breaches after every repair round. What the operator can now check that
+        # the 2026-09-17 proposal could not show: whether the proposed book itself
+        # honours the same per-name risk policy that asked for it.
+        "risk_contribution_policy": {
+            "owner": hoc_kernel.RISK_CONTRIBUTION_POLICY_OWNER,
+            "field": hoc_kernel.RISK_CONTRIBUTION_FIELD,
+            "basis": hoc_kernel.RISK_CONTRIBUTION_LIMIT_BASIS,
+            "limit_after_target": risk.get("risk_contribution_limit_after"),
+            "limit_held_book": risk.get("risk_contribution_limit_before"),
+            "after_target_state": risk.get("risk_contribution_state_after"),
+            "after_target_breaches": risk.get("risk_contribution_breaches_after") or [],
+            "held_book_breaches": risk.get("risk_contribution_breaches_before") or [],
+            "largest_after_target_share": risk.get("largest_risk_contribution_after"),
+            "repair_rounds": len(reoptimisation.get("risk_contribution_repair_rounds") or []),
+            "max_repair_rounds": pol.get("max_risk_contribution_repair_rounds"),
+            "after_target_gate_evaluated": True,
+            "verified_by_repair_kernel": False,
+        },
         "switching_economics": switching,
         "reallocation_outcome": verdict,
         "outcome": verdict["outcome"],
@@ -1315,6 +1491,26 @@ def _risk_block(*, current_weight: dict, proposed_weight: dict, sector_of: dict,
     vol_delta = (vol_after - vol_before) if (vol_before is not None
                                              and vol_after is not None) else None
 
+    # --- MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: per-name shares of BOTH books ---- #
+    # The same kernel call that produced the volatility produced every name's share
+    # of it. The AFTER shares are judged against the policy owner's limit for the
+    # target's OWN covariance universe (3/N_after, never the held book's 3/N_before),
+    # so the number the repair kernel reduces to and the number this gate judges
+    # by are one number. Published as data, breaches included, so the operator
+    # sees what the target actually does to per-name risk instead of what the held
+    # book did.
+    rc_before = {tk: _r(v, 6) for tk, v in sorted((vb.get("contributions") or {}).items())}
+    rc_after = {tk: _r(v, 6) for tk, v in sorted((va.get("contributions") or {}).items())}
+    rc_limit_after = hoc_kernel.risk_contribution_limit(
+        n_covariance_names=len(va.get("included_tickers") or []), policy=policy)
+    rc_limit_before = hoc_kernel.risk_contribution_limit(
+        n_covariance_names=len(vb.get("included_tickers") or []), policy=policy)
+    rc_breaches_after = hoc_kernel.risk_contribution_breaches(
+        contributions=va.get("contributions") or {}, limit=rc_limit_after.get("limit"))
+    rc_breaches_before = hoc_kernel.risk_contribution_breaches(
+        contributions=vb.get("contributions") or {}, limit=rc_limit_before.get("limit"))
+    rc_state_after = ("AVAILABLE" if rc_after else "UNAVAILABLE")
+
     # current-holding drawdown exposure (Slice 6 supplies per-holding 60d drawdown).
     dd_vals = [_f(r.get("drawdown_60d")) for r in hoc_reviews
                if r.get("ticker") in held_set and _f(r.get("drawdown_60d")) is not None]
@@ -1362,6 +1558,17 @@ def _risk_block(*, current_weight: dict, proposed_weight: dict, sector_of: dict,
         "liquidity_coverage_known": liq_known,
         "liquidity_coverage_total": liq_total,
         "risk_data_gaps": sorted(set(gaps)),
+        # --- the per-name risk-contribution contract (one owner, one field) ------ #
+        "risk_contribution_policy_owner": hoc_kernel.RISK_CONTRIBUTION_POLICY_OWNER,
+        "risk_contribution_field": hoc_kernel.RISK_CONTRIBUTION_FIELD,
+        "risk_contributions_before": rc_before,
+        "risk_contributions_after": rc_after,
+        "risk_contribution_limit_before": rc_limit_before,
+        "risk_contribution_limit_after": rc_limit_after,
+        "risk_contribution_breaches_before": rc_breaches_before,
+        "risk_contribution_breaches_after": rc_breaches_after,
+        "risk_contribution_state_after": rc_state_after,
+        "largest_risk_contribution_after": _r(max(rc_after.values()) if rc_after else None, 6),
     }, gaps
 
 
@@ -1604,6 +1811,27 @@ def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
                 "detail": ("The complete target breaches %d cross-asset limit(s): %s."
                            % (len(ca_breaches), ", ".join(b["code"] for b in ca_breaches)))})
 
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the per-name risk-contribution cap,
+    # judged on the COMPLETE TARGET's own re-measured shares against the policy
+    # owner's limit for the target's covariance universe (both published by the
+    # risk block; nothing is recomputed here). The same governed policy the held
+    # book was judged by; a target that violates it is not a resolution of the
+    # held book's breach, it is a new one.
+    rc_breaches = list(risk.get("risk_contribution_breaches_after") or [])
+    rc_limit = (risk.get("risk_contribution_limit_after") or {}).get("limit")
+    if rc_breaches:
+        breaches.append({
+            "code": CT_RISK_CONTRIBUTION, "object": "COMPLETE_TARGET",
+            "value": [b["ticker"] for b in rc_breaches],
+            "limit": _r(_f(rc_limit), 8),
+            "per_name": rc_breaches,
+            "policy_owner": risk.get("risk_contribution_policy_owner"),
+            "detail": ("The complete target gives %d name(s) more than the governed "
+                       "per-name risk-contribution limit %s: %s."
+                       % (len(rc_breaches), _r(_f(rc_limit), 6),
+                          ", ".join("%s %.4f" % (b["ticker"], b["risk_contribution_pct"])
+                                    for b in rc_breaches)))})
+
     return {
         "owner": CALCULATION_OWNER,
         "object": "COMPLETE_TARGET",
@@ -1619,6 +1847,9 @@ def evaluate_complete_target_limits(*, turnover: dict, risk: dict,
         "sector_concentration_before": _r(sec_b, 6),
         "sector_concentration_after": _r(sec_a, 6),
         "sector_cap_fraction": _r(cap, 6),
+        "risk_contribution_limit": _r(_f(rc_limit), 8),
+        "risk_contribution_breaches": rc_breaches,
+        "risk_contribution_policy_owner": risk.get("risk_contribution_policy_owner"),
         "breaches": breaches,
         "all_ok": not breaches,
         "withheld": bool(breaches),

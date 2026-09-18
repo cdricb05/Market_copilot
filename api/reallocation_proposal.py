@@ -417,6 +417,14 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "frontier_rows_admitted": [r["ticker"] for r in frontier_rows],
         "registry_capital_eligible_sleeve_ids": list(
             (fr.get("registry_identity") or {}).get("capital_eligible_sleeve_ids") or []),
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - WHY the count is what it is,
+        # carried into the proposal so a zero is explained where it is read.
+        "frontier_non_equity_admission": [
+            {k: l.get(k) for k in ("sleeve_id", "asset_class", "capital_eligible", "blocker",
+                                   "gate_state", "gate_remaining", "instruments_listed",
+                                   "instruments_admitted")}
+            for l in (fr.get("non_equity_admission_ledger") or [])],
+        "frontier_non_equity_count_explanation": fr.get("eligible_non_equity_count_explanation"),
         # Stage 19.1: the corporate-action registry the CURRENT holdings/NAV in this
         # contract were projected through. Bound into the proposal identity so a later
         # registration provably invalidates this proposal.
@@ -595,6 +603,8 @@ def _compact_input_contract(ic: dict) -> dict:
         "frontier_rows_admitted": list(ic.get("frontier_rows_admitted") or []),
         "registry_capital_eligible_sleeve_ids": list(
             ic.get("registry_capital_eligible_sleeve_ids") or []),
+        "frontier_non_equity_admission": list(ic.get("frontier_non_equity_admission") or []),
+        "frontier_non_equity_count_explanation": ic.get("frontier_non_equity_count_explanation"),
     }
 
 

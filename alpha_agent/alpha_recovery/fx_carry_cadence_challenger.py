@@ -57,6 +57,157 @@ FROZEN_TRADE_EVERY = 5
 FROZEN_NO_TRADE_BAND = 0.25
 FROZEN_HORIZON = 1
 
+# --------------------------------------------------------------------------- #
+# THE HORIZON CONTRACT (MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1)
+#
+# The frozen record carries TWO session counts and they answer two different
+# questions. ``horizon_sessions = 1`` is the scorer's INFORMATION-LABEL horizon:
+# the cell was measured on one-session returns of a book that is rebalanced every
+# ``trade_every_sessions = 5`` sessions. FIVE is the HOLDING horizon: the frozen
+# weights are held unchanged between boundaries. The canonical registrar copied
+# the record's ``horizon_sessions`` (1) into the immutable registration, and the
+# prospective-decision policy declared ``evaluation_horizon_sessions = 5`` (the
+# hold) - so a reader saw "H1" on one artifact and "5" on the next and read a
+# conflict where there were two roles of one frozen identity.
+#
+# The frozen identity is authoritative and nothing immutable is rewritten. This
+# block names every consumer's number AND its role, once, and
+# :func:`horizon_coherence` judges every artifact against it. A forward
+# observation is ONE frozen decision held for the holding horizon, so it matures
+# after 5 sessions and the evidence gate is the 5-session gate; maturing it after
+# the 1-session label would discard four fifths of every decision's P&L path and
+# count five overlapping windows as independent evidence.
+# --------------------------------------------------------------------------- #
+HORIZON_ROLE_LABEL = "INFORMATION_LABEL_HORIZON"
+HORIZON_ROLE_HOLDING = "HOLDING_HORIZON"
+HORIZON_ROLES = (HORIZON_ROLE_LABEL, HORIZON_ROLE_HOLDING)
+HORIZON_CONTRACT = {
+    "challenger_id": CHALLENGER_ID,
+    "frozen_identity_is_authoritative": True,
+    "new_challenger_identity_created": False,
+    "immutable_artifacts_rewritten": False,
+    "information_label_horizon_sessions": FROZEN_HORIZON,
+    "holding_horizon_sessions": FROZEN_TRADE_EVERY,
+    "rebalance_cadence_sessions": FROZEN_TRADE_EVERY,
+    "evaluation_horizon_sessions": FROZEN_TRADE_EVERY,
+    "evidence_gate_horizon_sessions": FROZEN_TRADE_EVERY,
+    "forward_observation_unit": "ONE_FROZEN_DECISION_HELD_FOR_THE_HOLDING_HORIZON",
+    "consumers": {
+        "frozen_record.forward_specification.horizon_sessions": {
+            "value": FROZEN_HORIZON, "role": HORIZON_ROLE_LABEL,
+            "owner": "the immutable frozen record (alpha_recovery forward package)"},
+        "frozen_record.forward_specification.trade_every_sessions": {
+            "value": FROZEN_TRADE_EVERY, "role": HORIZON_ROLE_HOLDING,
+            "owner": "the immutable frozen record (alpha_recovery forward package)"},
+        "registration.horizon_sessions": {
+            "value": FROZEN_HORIZON, "role": HORIZON_ROLE_LABEL,
+            "owner": "api.forward_challenger_registry (immutable; copied from the record)"},
+        "registration.identity.model_family": {
+            "value": "XS_LONG_SHORT_RISK_CONTROLLED_CADENCE_%d" % FROZEN_TRADE_EVERY,
+            "role": HORIZON_ROLE_HOLDING,
+            "owner": "api.forward_challenger_registry (immutable)"},
+        "policy.evaluation_horizon_sessions": {
+            "value": FROZEN_TRADE_EVERY, "role": HORIZON_ROLE_HOLDING,
+            "owner": "alpha_agent.alpha_recovery.prospective_decision (immutable policy)"},
+        "policy.rebalance_cadence_sessions": {
+            "value": FROZEN_TRADE_EVERY, "role": HORIZON_ROLE_HOLDING,
+            "owner": "alpha_agent.alpha_recovery.prospective_decision (immutable policy)"},
+        "policy.execution_contract.holding_sessions": {
+            "value": FROZEN_TRADE_EVERY, "role": HORIZON_ROLE_HOLDING,
+            "owner": "alpha_agent.alpha_recovery.fx_carry_cadence_runtime.execution_contract"},
+        "accrual.horizon_sessions": {
+            "value": FROZEN_TRADE_EVERY, "role": HORIZON_ROLE_HOLDING,
+            "owner": "api.canonical_forward_accrual (reads the policy's evaluation horizon)"},
+    },
+    "why_the_registration_says_1": (
+        "the registrar copies the frozen record's horizon_sessions verbatim; that field "
+        "is the scorer's information-label horizon and was never the holding period"),
+    "why_maturity_is_5_not_1": (
+        "a forward observation is one frozen decision held for five sessions; maturing "
+        "it after one session would discard four fifths of each decision's P&L path and "
+        "count five overlapping windows as independent evidence"),
+}
+
+#: The consumer fields :func:`horizon_coherence` checks: (name, path, expected, role).
+_HORIZON_CHECKS = (
+    ("frozen_record.forward_specification.horizon_sessions",
+     ("record", "forward_specification", "horizon_sessions"), FROZEN_HORIZON, HORIZON_ROLE_LABEL),
+    ("frozen_record.forward_specification.trade_every_sessions",
+     ("record", "forward_specification", "trade_every_sessions"), FROZEN_TRADE_EVERY,
+     HORIZON_ROLE_HOLDING),
+    ("registration.horizon_sessions", ("registration", "horizon_sessions"), FROZEN_HORIZON,
+     HORIZON_ROLE_LABEL),
+    ("policy.evaluation_horizon_sessions", ("policy", "evaluation_horizon_sessions"),
+     FROZEN_TRADE_EVERY, HORIZON_ROLE_HOLDING),
+    ("policy.rebalance_cadence_sessions", ("policy", "rebalance_cadence_sessions"),
+     FROZEN_TRADE_EVERY, HORIZON_ROLE_HOLDING),
+    ("policy.execution_contract.holding_sessions",
+     ("policy", "execution_contract", "holding_sessions"), FROZEN_TRADE_EVERY,
+     HORIZON_ROLE_HOLDING),
+    ("accrual.horizon_sessions", ("accrual", "horizon_sessions"), FROZEN_TRADE_EVERY,
+     HORIZON_ROLE_HOLDING),
+)
+
+HC_CONSISTENT = "CONSISTENT"
+HC_INCOHERENT = "INCOHERENT"
+HC_UNOBSERVED = "UNOBSERVED"
+HORIZON_COHERENCE_STATES = (HC_CONSISTENT, HC_INCOHERENT, HC_UNOBSERVED)
+
+
+def _dig(root: dict, path: tuple):
+    cur = root
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def horizon_coherence(*, record: Optional[dict] = None, registration: Optional[dict] = None,
+                      policy: Optional[dict] = None, accrual: Optional[dict] = None) -> dict:
+    """Every consumer's horizon number against the ONE contract, with its ROLE. Pure.
+
+    An artifact that is not supplied is UNOBSERVED for its rows (never assumed
+    consistent). The state is CONSISTENT only when every observed number equals
+    the contract's value for its role; one disagreement is INCOHERENT, and the
+    FX producer refuses to freeze a decision while it stands.
+    """
+    roots = {"record": record or {}, "registration": registration or {},
+             "policy": policy or {}, "accrual": accrual or {}}
+    checks = []
+    for name, path, expected, role in _HORIZON_CHECKS:
+        observed = _dig(roots, path)
+        try:
+            ok = None if observed is None else int(observed) == int(expected)
+        except (TypeError, ValueError):
+            ok = False
+        checks.append({"consumer": name, "role": role, "observed": observed,
+                       "canonical": expected, "consistent": ok})
+    observed = [c for c in checks if c["observed"] is not None]
+    conflicts = [c for c in observed if c["consistent"] is False]
+    if not observed:
+        state = HC_UNOBSERVED
+    elif conflicts:
+        state = HC_INCOHERENT
+    else:
+        state = HC_CONSISTENT
+    return {
+        "owner": CALCULATION_OWNER,
+        "challenger_id": CHALLENGER_ID,
+        "state": state,
+        "state_vocabulary": list(HORIZON_COHERENCE_STATES),
+        "canonical": {"information_label_horizon_sessions": FROZEN_HORIZON,
+                      "holding_horizon_sessions": FROZEN_TRADE_EVERY,
+                      "evaluation_horizon_sessions": FROZEN_TRADE_EVERY,
+                      "rebalance_cadence_sessions": FROZEN_TRADE_EVERY},
+        "checks": checks,
+        "conflicts": conflicts,
+        "observed_consumers": len(observed),
+        "frozen_identity_is_authoritative": True,
+        "immutable_artifacts_rewritten": False,
+        "contract": HORIZON_CONTRACT,
+    }
+
 #: The same release label as every Alpha Recovery registration, so the canonical
 #: accrual owner resolves this challenger's decisions from the campaign's own
 #: decision owner and from nowhere else.
@@ -252,4 +403,7 @@ def freeze_row(resolved: Optional[dict] = None) -> dict:
 __all__ = ["CALCULATION_OWNER", "CHALLENGER_ID", "RECORD_HASH", "FREEZE_RECORD_HASH", "RECORD_FILE",
            "RELEASE", "VENUE", "INCEPTION", "MODEL_FAMILY", "AUTHORISATION", "EVIDENCE_AT_INCEPTION",
            "FORWARD_EMISSION_REQUIREMENT", "SAFETY", "verify_record", "resolve_universe", "resolve",
-           "cost_model", "freeze_row", "REGISTRATION_OWNER", "REGISTRATION_ARTIFACT"]
+           "cost_model", "freeze_row", "REGISTRATION_OWNER", "REGISTRATION_ARTIFACT",
+           "HORIZON_CONTRACT", "HORIZON_ROLE_LABEL", "HORIZON_ROLE_HOLDING", "HORIZON_ROLES",
+           "HC_CONSISTENT", "HC_INCOHERENT", "HC_UNOBSERVED", "HORIZON_COHERENCE_STATES",
+           "horizon_coherence"]

@@ -1957,6 +1957,15 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
         "expected_net_improvement": dec.get("expected_net_improvement"),
         "expected_one_way_turnover": dec.get("expected_one_way_turnover"),
         "expected_transaction_cost_usd": dec.get("expected_transaction_cost_usd"),
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - WHO owns the three numbers above.
+        # The workflow composer hands this card the session's governed economics
+        # (the proposal's complete-target switching economics when a proposal
+        # exists) and names the owner; an older caller that passes only the
+        # reassessment's own decision block reads its own owner and basis.
+        "economics_owner": dec.get("economics_owner") or (
+            "engine.portfolio_reassessment (pre-proposal release-set estimate, "
+            "non-binding)"),
+        "economics_basis": dec.get("economics_basis") or "PRE_PROPOSAL_RELEASE_SET_ESTIMATE",
         "improvement_basis": kernel.IMPROVEMENT_BASIS,
         "strongest_opportunity": dec.get("strongest_evidence"),
         "blockers": dec.get("blockers") or [],

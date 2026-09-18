@@ -194,18 +194,25 @@ RELEASE_SET_BLOCKER_CODES = (GATE_IMPROVEMENT_UNMEASURABLE, GATE_BELOW_NET_HURDL
 #: owner on the complete target, re-optimised by the Release-47 kernel, never raised
 #: here.
 GATE_CROSS_ASSET_CAP = "CROSS_ASSET_CAP_BREACH_BLOCKS_CHANGE"
+#: MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the per-name risk-contribution cap judged
+#: on the COMPLETE TARGET (after-target shares re-measured by the covariance owner
+#: against ``engine.holding_opportunity_cost.risk_contribution_limit``). This kernel
+#: judges the held book's shares (RISK_CONTRIBUTION_BREACH asks for a target); the
+#: proposal owner judges the target's own shares, once, on the complete target.
+GATE_RISK_CONTRIBUTION_CAP = "RISK_CONTRIBUTION_CAP_BREACH_BLOCKS_CHANGE"
 #: The four constraints Release 29.3 MOVED out of this kernel (they were blockers
 #: here on Aug-17); the ownership statement names exactly these as "deferred".
 MOVED_COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
                                           GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET)
 #: The cross-asset limit was never a reassessment constraint: it is NATIVE to the
 #: complete-target owner (Release 50), so it is agreed with that owner but never
-#: listed as a constraint this kernel gave up.
-NATIVE_COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CROSS_ASSET_CAP,)
+#: listed as a constraint this kernel gave up. The after-target risk-contribution
+#: cap is native for the same reason: a target's shares exist only once the target does.
+NATIVE_COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CROSS_ASSET_CAP, GATE_RISK_CONTRIBUTION_CAP)
 #: The AGREED set (identical on both owners - audited as a literal, so it is one).
 COMPLETE_TARGET_CONSTRAINT_CODES = (GATE_CONCENTRATION, GATE_RISK_DETERIORATION,
                                     GATE_SECTOR_CAP, CHURN_TURNOVER_BUDGET,
-                                    GATE_CROSS_ASSET_CAP)
+                                    GATE_CROSS_ASSET_CAP, GATE_RISK_CONTRIBUTION_CAP)
 
 # --- Release 47 — the PER-NAME form of the same three limits ----------------- #
 #: A held name can breach the name-weight, sector-weight or risk-contribution cap on

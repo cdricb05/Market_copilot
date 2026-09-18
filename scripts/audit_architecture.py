@@ -4622,10 +4622,22 @@ def check_information_collection_ownership(files: list[Path],
                                            (IC_KERNEL,))
     second_collection_owners = _second_owners("def run_collection_iteration(",
                                               (IC_OWNER,))
+    # A script whose NAME contains "collection" is not thereby a collection
+    # worker. ``rearm_s25_prospective_collection.py`` is the governance-record
+    # writer for the Stage-26 prospective MARK stream (S25 re-arm, 2026-09-16);
+    # it never imports the collection owner, runs no iteration and holds no
+    # worker lock. It is excluded by name here and PROVEN below to import
+    # neither ``information_collection`` nor ``run_collection_iteration``.
+    _not_collection_workers = ("scripts/rearm_s25_prospective_collection.py",)
     second_worker_scripts = sorted(
         _rel(fp) for fp in (REPO_ROOT / "scripts").glob("*.py")
         if "collection" in fp.name.lower()
-        and _rel(fp) not in (IC_WORKER, "scripts/collection_service_control.py"))
+        and _rel(fp) not in (IC_WORKER, "scripts/collection_service_control.py")
+        and not (_rel(fp) in _not_collection_workers
+                 and "information_collection" not in fp.read_text(
+                     encoding="utf-8", errors="replace")
+                 and "run_collection_iteration(" not in fp.read_text(
+                     encoding="utf-8", errors="replace")))
 
     # (3) composition, not duplication.
     owner_forbidden_calls = sorted(t for t in IC_OWNER_FORBIDDEN if t in owner)

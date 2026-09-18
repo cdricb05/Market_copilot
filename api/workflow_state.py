@@ -3309,6 +3309,77 @@ DECISION_PROVENANCE_LIVE_PRE_DRC = "LIVE_PRE_DRC_SIGNAL"
 DECISION_PROVENANCE_VOCABULARY = (DECISION_PROVENANCE_GOVERNED,
                                   DECISION_PROVENANCE_LIVE_PRE_DRC)
 
+#: MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - WHO owns the economics an operator reads.
+#: Two owners publish an "expected net improvement" and they answer different
+#: questions: the reassessment's number is a PRE-PROPOSAL estimate over the
+#: per-name actionable set (0.0 when that set is empty and a target is asked for
+#: on a constraint breach alone); the proposal's number is the binding switching
+#: economics of the COMPLETE constrained target. On 2026-09-17 this surface
+#: rendered the reassessment's 0.0 / 0.0 / $0.00 as "the proposal" while the
+#: sibling decision lane in the SAME document carried +0.054 / 0.35 / $86.15.
+ECONOMICS_OWNER_PROPOSAL = ("engine.reallocation_proposal (complete-target switching "
+                            "economics, binding)")
+ECONOMICS_OWNER_REASSESSMENT = ("engine.portfolio_reassessment (pre-proposal release-set "
+                                "estimate, non-binding)")
+ECONOMICS_BASIS_PROPOSAL = "COMPLETE_TARGET_SWITCHING_ECONOMICS"
+ECONOMICS_BASIS_REASSESSMENT = "PRE_PROPOSAL_RELEASE_SET_ESTIMATE"
+
+
+def governed_proposal_economics(*, reassessment_summary: Optional[dict],
+                                portfolio_decision_lane: Optional[dict]) -> dict:
+    """The ONE set of economics a workflow surface may render for the session.
+
+    When the governed proposal owner has produced a proposal for the session
+    (the decision lane carries its hash and its switching economics), the
+    proposal's numbers are THE numbers, and the reassessment's pre-proposal
+    estimate travels beside them under its own name and basis. When no proposal
+    exists the reassessment's estimate is all there is, and it is labelled as
+    such. No number is recomputed here; each is copied from its owner.
+    """
+    prs = reassessment_summary or {}
+    lane = portfolio_decision_lane or {}
+    pre = {
+        "expected_net_improvement": prs.get("expected_net_improvement"),
+        "expected_one_way_turnover": prs.get("expected_one_way_turnover"),
+        "expected_transaction_cost_usd": prs.get("expected_transaction_cost_usd"),
+        "owner": ECONOMICS_OWNER_REASSESSMENT,
+        "basis": ECONOMICS_BASIS_REASSESSMENT,
+        "non_binding": True,
+        "scope": "PER_NAME_ACTIONABLE_RELEASE_SET",
+    }
+    has_proposal = (bool(lane.get("proposal_hash"))
+                    and lane.get("proposal_available", True) is not False)
+    proposal_numbers = {
+        "expected_net_improvement": lane.get("score_improvement_net_of_cost"),
+        "expected_one_way_turnover": lane.get("one_way_turnover"),
+        "expected_transaction_cost_usd": lane.get("estimated_transaction_cost"),
+    }
+    if has_proposal and any(v is not None for v in proposal_numbers.values()):
+        return {
+            **proposal_numbers,
+            "economics_owner": ECONOMICS_OWNER_PROPOSAL,
+            "economics_basis": ECONOMICS_BASIS_PROPOSAL,
+            "economics_binding": True,
+            "governed_proposal_hash": lane.get("proposal_hash"),
+            "reassessment_pre_proposal_estimate": pre,
+            "economics_note": (
+                "The proposal owner's complete-target switching economics. The "
+                "reassessment's pre-proposal estimate is a different, non-binding "
+                "quantity and is carried beside them, never in their place."),
+        }
+    return {
+        "expected_net_improvement": pre["expected_net_improvement"],
+        "expected_one_way_turnover": pre["expected_one_way_turnover"],
+        "expected_transaction_cost_usd": pre["expected_transaction_cost_usd"],
+        "economics_owner": ECONOMICS_OWNER_REASSESSMENT,
+        "economics_basis": ECONOMICS_BASIS_REASSESSMENT,
+        "economics_binding": False,
+        "governed_proposal_hash": None,
+        "reassessment_pre_proposal_estimate": pre,
+        "economics_note": ("No governed proposal exists for this session; these are the "
+                           "reassessment's pre-proposal estimates and are non-binding."),
+    }
+
 
 def build_canonical_portfolio_decision(*, reassessment_summary: dict,
                                        reallocation_operator_state: Any,
@@ -3331,6 +3402,8 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
     """
     prs = reassessment_summary or {}
     lane = portfolio_decision_lane or {}
+    econ = governed_proposal_economics(reassessment_summary=prs,
+                                       portfolio_decision_lane=lane)
     prs_state = prs.get("reassessment_state") or PRS_NOT_RUN
     pd_state = lane.get("portfolio_decision_state")
     mex = list(prs.get("mandatory_exit_tickers") or [])
@@ -3485,11 +3558,18 @@ def build_canonical_portfolio_decision(*, reassessment_summary: dict,
         "constraint_philosophy": (
             "A normal portfolio constraint reshapes the solution; it does not "
             "freeze the portfolio. Only a declared true blocker stops a decision."),
-        "expected_net_improvement": prs.get("expected_net_improvement"),
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the economics come from the owner
+        # that owns them for THIS session (see governed_proposal_economics), and the
+        # payload says which owner that is.
+        "expected_net_improvement": econ["expected_net_improvement"],
         "net_improvement_hurdle": prs.get("net_improvement_hurdle"),
-        "expected_one_way_turnover": prs.get("expected_one_way_turnover"),
+        "expected_one_way_turnover": econ["expected_one_way_turnover"],
         "turnover_budget": prs.get("turnover_budget"),
-        "expected_transaction_cost_usd": prs.get("expected_transaction_cost_usd"),
+        "expected_transaction_cost_usd": econ["expected_transaction_cost_usd"],
+        "economics_owner": econ["economics_owner"],
+        "economics_basis": econ["economics_basis"],
+        "economics_binding": econ["economics_binding"],
+        "reassessment_pre_proposal_estimate": econ["reassessment_pre_proposal_estimate"],
         "mandatory_exit_tickers": mex,
         "mandatory_exit_obligation": mex_policy.get("obligation") or "NONE",
         "mandatory_exit_statement": mex_policy.get("statement"),
@@ -4535,6 +4615,34 @@ def load_workflow_state(
     # over values the reassessment owner computed: no second action is added, and the
     # action code / contract are unchanged (still ONE primary action).
     if overall == MANUAL_REVIEW_REQUIRED and reassessment_manual_review:
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the numbers the operator reads
+        # here are the governed proposal's complete-target economics when a
+        # proposal exists; the reassessment's pre-proposal estimate is a different
+        # quantity and rendered 0.0 / 0.0 over a +0.054 / 0.35 proposal on 09-17.
+        _econ = governed_proposal_economics(
+            reassessment_summary=reassessment_summary,
+            portfolio_decision_lane=portfolio_decision_lane)
+        if _econ["economics_binding"]:
+            _econ_text = (
+                "The governed proposal for %s clears the portfolio-level economic gate "
+                "after switching cost, turnover, concentration and churn controls: "
+                "expected net improvement %s score points, expected one-way turnover "
+                "%s, estimated transaction cost $%s (complete-target switching "
+                "economics owned by the proposal owner)."
+                % (eligible_date or "the eligible session",
+                   _econ["expected_net_improvement"],
+                   _econ["expected_one_way_turnover"],
+                   _econ["expected_transaction_cost_usd"]))
+        else:
+            _econ_text = (
+                "The portfolio reassessment for %s found a change that clears the "
+                "portfolio-level economic gate after switching cost, turnover, "
+                "concentration and churn controls (pre-proposal estimate: expected net "
+                "improvement %s score points; expected one-way turnover %s; the binding "
+                "economics are the complete target's once the proposal owner produces it)."
+                % (eligible_date or "the eligible session",
+                   _econ["expected_net_improvement"],
+                   _econ["expected_one_way_turnover"]))
         primary = dict(
             primary,
             label="Review the proposed portfolio change",
@@ -4543,15 +4651,8 @@ def load_workflow_state(
             destination=DEST_PORTFOLIO_MANAGER,
             focus="reassessment",
             explanation=(
-                "The portfolio reassessment for %s found a change that clears the "
-                "portfolio-level economic gate after switching cost, turnover, "
-                "concentration and churn controls (expected net improvement %s score "
-                "points; expected one-way turnover %s). Review the proposal — nothing is "
-                "approved, no order plan is confirmed and no order is created "
-                "automatically."
-                % (eligible_date or "the eligible session",
-                   reassessment_summary.get("expected_net_improvement"),
-                   reassessment_summary.get("expected_one_way_turnover"))))
+                "%s Review the proposal — nothing is approved, no order plan is "
+                "confirmed and no order is created automatically." % _econ_text))
         primary = assert_primary_action_contract(primary)
     # Release 46.2 — the OTHER manual-review reason: a retained holding breaches a hard
     # portfolio constraint. The action code stays ACTION_MANUAL_REVIEW (one primary
@@ -4802,17 +4903,22 @@ def load_workflow_state(
     # reassessment owner (never here) so the operator wording, the single action and the
     # Stage-19 precedence suppression all have exactly one source. The UI renders it
     # verbatim and derives nothing.
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - ONE set of economics for the session,
+    # from the owner that owns them (the governed proposal when it exists).
+    session_economics = governed_proposal_economics(
+        reassessment_summary=reassessment_summary,
+        portfolio_decision_lane=portfolio_decision_lane)
     reassessment_presentation = _safe(
         lambda: _import_reassessment().build_presentation(
             state=reassessment_state,
             reassessment={"decision": {
                 "holdings_evaluated": reassessment_summary.get("holdings_evaluated"),
-                "expected_net_improvement": reassessment_summary.get(
-                    "expected_net_improvement"),
-                "expected_one_way_turnover": reassessment_summary.get(
-                    "expected_one_way_turnover"),
-                "expected_transaction_cost_usd": reassessment_summary.get(
-                    "expected_transaction_cost_usd"),
+                "expected_net_improvement": session_economics["expected_net_improvement"],
+                "expected_one_way_turnover": session_economics["expected_one_way_turnover"],
+                "expected_transaction_cost_usd": session_economics[
+                    "expected_transaction_cost_usd"],
+                "economics_owner": session_economics["economics_owner"],
+                "economics_basis": session_economics["economics_basis"],
                 "blockers": reassessment_summary.get("blockers") or []},
                 "attention": {"count": reassessment_summary.get("attention_count") or 0},
                 "explanation": reassessment_summary.get("explanation")},
@@ -4839,10 +4945,19 @@ def load_workflow_state(
         "proposal_required": reassessment_proposal_required,
         "holdings_evaluated": reassessment_summary.get("holdings_evaluated") or 0,
         "attention_count": reassessment_summary.get("attention_count") or 0,
-        "expected_net_improvement": reassessment_summary.get("expected_net_improvement"),
-        "expected_one_way_turnover": reassessment_summary.get("expected_one_way_turnover"),
-        "expected_transaction_cost_usd": reassessment_summary.get(
-            "expected_transaction_cost_usd"),
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the session's governed economics
+        # (the proposal's when one exists), with the reassessment's own pre-proposal
+        # estimate carried beside them under its own name. A lane that rendered
+        # 0.0 / 0.0 / $0.00 beside a +0.054 / 0.35 / $86.15 proposal was two owners
+        # disagreeing inside one document.
+        "expected_net_improvement": session_economics["expected_net_improvement"],
+        "expected_one_way_turnover": session_economics["expected_one_way_turnover"],
+        "expected_transaction_cost_usd": session_economics["expected_transaction_cost_usd"],
+        "economics_owner": session_economics["economics_owner"],
+        "economics_basis": session_economics["economics_basis"],
+        "economics_binding": session_economics["economics_binding"],
+        "reassessment_pre_proposal_estimate": session_economics[
+            "reassessment_pre_proposal_estimate"],
         "blockers": reassessment_summary.get("blockers") or [],
         "reason_codes": reassessment_summary.get("reason_codes") or [],
         "explanation": reassessment_summary.get("explanation"),

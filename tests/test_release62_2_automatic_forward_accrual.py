@@ -362,7 +362,10 @@ def test_03d_a_run_after_midnight_forfeits_rather_than_stamping_late(stores):
 def test_03b_the_emission_is_strictly_earlier_than_its_session(stores):
     write_frozen_decision(stores["r58"])
     reg = register()
-    advance("2026-09-09", today="2026-09-09", execute=True)
+    # The emission clock is pinned with the session (the suite's own rule); the
+    # emitter stamps ``emitted_at`` from ``now``, not from the wall clock.
+    advance("2026-09-09", today="2026-09-09", execute=True,
+            now="2026-09-09T20:00:00+00:00")
     row = CFA.load_emissions(reg["identity"]["identity_hash"])[0]
     # Emitted on the 9th, stamped for the 10th: the emitter has seen neither
     # the entry mark nor any outcome.
@@ -996,7 +999,10 @@ def test_26f_the_outcomes_route_reads_the_artifact_not_the_panel():
 def test_26b_without_a_projection_the_registrar_still_reports_its_own_zeros(stores):
     write_frozen_decision(stores["r58"])
     reg = register()
-    row = FCR.registration_row(reg)
+    # ``today`` pinned to the registration day (the suite's own rule): on the
+    # wall clock the first eligible session (2026-09-10) is long past and the
+    # registrar legitimately answers ACCRUING_NO_MATURED_OBSERVATION_YET.
+    row = FCR.registration_row(reg, today=REGISTERED_ON)
     assert row["predictions_emitted"] == 0
     assert row["accrual_projection_supplied"] is False
     assert row["evidence_status"] == FCR.EV_AWAITING_FIRST_SESSION

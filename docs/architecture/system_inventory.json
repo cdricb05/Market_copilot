@@ -4614,6 +4614,31 @@
    "migration_priority": 1,
    "risk": "low",
    "notes": "Cash is a real asset choice at a DECLARED zero return; the position count is emergent from the weight caps and the legacy 25-name target is retained and reported as a construction default, never silently deleted. Risk prices (gamma/phi/delta/tail) are CALIBRATED from walk-forward validation evidence, never hand-picked. It is NOT a proposal engine and NOT a decision owner."
+  },
+  {
+   "path": "api/capital_eligibility_gate.py",
+   "system": "infrastructure",
+   "classification": "KEEP",
+   "target_owner": "api/capital_eligibility_gate.py",
+   "duplicate_with": [],
+   "responsibility": "MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the ONE declared, evidence-gated door through which a research sleeve becomes CAPITAL ELIGIBLE. Declares, as data, each research sleeve's operational-signal candidate (a canonical forward registration), the FROZEN forward-evidence thresholds it must clear (mirrored from the R46 forward-evidence contract by horizon: effective independent observations, raw matured observations, calendar days, net edge per decision and its t-statistic against the zero-return cash control), and the requirement that a CONDITIONAL OPERATIONAL APPROVAL - a human governance record written in advance and bound to that exact registration identity - exists. Evaluates the gate from persisted facts (the accrual projection, the registration, the approval record); api.investability_registry DERIVES MODEL_APPROVED_FOR_OPERATION from a PASSED gate so the sleeve enters the frontier, the cross-asset risk state and the zero-base allocator on the next read with no separate operator action. A NOT_PASSED gate publishes the exact remaining requirements by name and number. Also reads a PASSED sleeve's operational signal (the latest frozen prospective decision, long legs only, rank-normalised).",
+   "direct_reads": [
+    "forward_challenger_registry.load_registrations (the registration identity)",
+    "canonical_forward_accrual.load_accrual_projection (matured / effective observations, forward economics)",
+    "D:/Stock_Prediction_app_data/capital_eligibility/conditional_operational_approvals/<sleeve_id>.json (the human pre-authorisation; env PAPER_TRADER_CAPITAL_ELIGIBILITY_DIR)",
+    "alpha_agent.alpha_recovery.prospective_decision.list_decisions (lazy; a PASSED sleeve's latest frozen decision)"
+   ],
+   "direct_writes": [
+    "the ONE confirmed operator write: declare_conditional_operational_approval (first-write-wins, immutable, requires CONFIRM_CONDITIONAL_OPERATIONAL_APPROVAL). Every read writes nothing. No PostgreSQL / order / fill / target / holding / cash / NAV write, no promotion, no proposal approval."
+   ],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_multi_asset_capital_activation_r55_v1.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "The human decision is the conditional approval, taken BEFORE the evidence exists with frozen thresholds; this module only checks whether the pre-declared condition has been met. It cannot lower a threshold or approve a sleeve whose approval names another challenger. Research statistics never become expected returns: a passed gate admits the sleeve on OPERATIONAL_SLEEVE_NORMALISED_RANK. Declared candidates: sleeve_fx_futures -> ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 (5-session gate), sleeve_managed_futures_trend -> ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1 (21-session gate, judged by the 20-session row)."
   }
  ]
 }

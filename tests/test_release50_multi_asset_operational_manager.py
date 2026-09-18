@@ -354,7 +354,11 @@ class TestRegistry:
         assert reg["capital_eligible_sleeve_ids"] == [IC.DEFAULT_EQUITY_SLEEVE, IC.CASH_SLEEVE]
         assert reg["non_equity_eligible_sleeve_ids"] == []
         for row in reg["capital_ineligible"]:
-            assert row["reason"] == ir.R_NO_APPROVED_SIGNAL
+            # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1: a sleeve WITH a declared
+            # operational-signal candidate names the exact remaining evidence gate
+            # (CAPITAL_ELIGIBILITY_GATE_NOT_PASSED) instead of the bare "no approved
+            # signal"; a sleeve with no candidate at all keeps the bare reason.
+            assert row["reason"] in (ir.R_NO_APPROVED_SIGNAL, ir.R_GATE_NOT_PASSED)
             assert "MODEL_APPROVED_FOR_OPERATION" in row["missing_capabilities"]
             # every PLUMBING capability holds; only the signal / approval side is missing
             assert set(row["missing_capabilities"]) <= {"MODEL_APPROVED_FOR_OPERATION", "SIGNAL_AVAILABLE",

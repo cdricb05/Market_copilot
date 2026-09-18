@@ -135,10 +135,34 @@ def _default_evidence_loader(desk_dir=None) -> dict:
             "horizons": list(fps.HORIZONS),
             "price_source": fps.PRICE_STORE_FILE,
             "evidence_owner": "api.forward_prediction_skill",
-            "evidence_fingerprint": kernel.stable_hash(
-                {"updated_at": store.get("updated_at"),
-                 "tickers": len(series),
-                 "calendar_last": (store.get("series") or {}) and None})}
+            # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the fingerprint names the
+            # evidence SOURCE (which owner, which store, which horizon taxonomy),
+            # never a mutable property of the store's contents. Until this release it
+            # hashed the price store's ``updated_at``, so every capture run minted a
+            # new identity for every already-recorded observation and appended one
+            # more copy of each (8,550 rows for 950 observations live). A source
+            # identity is stable across runs, so an identical observation resolves to
+            # the SAME observation_id and the append guard finally holds; a revised
+            # price history for the same source is then a reported CONFLICT on the
+            # same id, which is exactly what the immutability contract promises.
+            "evidence_fingerprint": evidence_source_fingerprint(
+                price_source=fps.PRICE_STORE_FILE,
+                evidence_owner="api.forward_prediction_skill",
+                horizons=list(fps.HORIZONS))}
+
+
+def evidence_source_fingerprint(*, price_source: str, evidence_owner: str,
+                                horizons: list) -> str:
+    """The stable identity of the evidence SOURCE an observation is measured on.
+
+    Deliberately excludes every value that changes when the store is refreshed
+    (``updated_at``, the number of tickers, the last calendar session): those
+    describe the store's state, not the evidence's identity, and hashing them was
+    the defect that multiplied the live store 9x.
+    """
+    return kernel.stable_hash({"price_source": str(price_source),
+                               "evidence_owner": str(evidence_owner),
+                               "horizons": sorted(int(h) for h in (horizons or []))})
 
 
 def _default_lineage_loader(desk_dir=None) -> dict:
@@ -254,30 +278,50 @@ def capture_matured_outcomes(*, outcome_dir=None, active_book_id: Optional[str] 
     ev_fp = (built["evidence"] or {}).get("evidence_fingerprint")
     existing = load_observations(outcome_dir=outcome_dir)
     by_id = {r.get("observation_id"): r for r in existing}
+    # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - the SECOND guard, on the axis that
+    # actually varies between two distinct observations. The observation_id guard
+    # alone could never match a row recorded under an earlier (mutable) fingerprint,
+    # so the 7,600 historical duplicates would keep multiplying on every run even
+    # with a stable fingerprint. An economically identical observation is already
+    # recorded; it is skipped, and the earlier row stands, whatever id it carries.
+    by_econ = {kernel.economic_observation_key(r): r for r in existing}
 
-    appended, conflicts = [], []
+    appended, conflicts, skipped_econ = [], [], 0
     for obs in built["observations"]:
         if obs.get("maturity") != kernel.MAT_MATURE:
             continue
         identity = kernel.observation_identity(obs, evidence_fingerprint=ev_fp)
         oid = kernel.observation_id(identity)
-        if oid in by_id:
-            prior = by_id[oid]
+        prior = by_id.get(oid)
+        if prior is None:
+            prior = by_econ.get(kernel.economic_observation_key(obs))
+            if prior is not None:
+                skipped_econ += 1
+        if prior is not None:
             if prior.get("realized_spread") != obs.get("realized_spread"):
                 conflicts.append({
                     "observation_id": oid, "kept": "EXISTING",
+                    "kept_observation_id": prior.get("observation_id"),
                     "reason": "IMMUTABLE_OBSERVATION_NEVER_REWRITTEN"})
             continue
-        appended.append({**obs, "observation_id": oid, "identity": identity,
-                         "recorded_at": _now_iso(now), "immutable": True,
-                         "backfilled": False})
+        row = {**obs, "observation_id": oid, "identity": identity,
+               "economic_identity_key": kernel.economic_observation_key(obs),
+               "recorded_at": _now_iso(now), "immutable": True,
+               "backfilled": False}
+        appended.append(row)
+        by_id[oid] = row
+        by_econ[row["economic_identity_key"]] = row
 
     if appended:
         _atomic_write_json(_observations_path(outcome_dir), existing + appended)
+    dedup = kernel.deduplicate_observations(existing + appended)
     return {
         "status": "OK", "phase": PHASE, "owner": OWNER,
         "observations_newly_matured": len(appended),
         "observations_total": len(existing) + len(appended),
+        "distinct_economic_observations": dedup["distinct_economic_observations"],
+        "duplicate_rows_preserved": dedup["duplicate_rows"],
+        "economically_identical_skipped_this_run": skipped_econ,
         "pending_observation_count": sum(
             1 for o in built["observations"]
             if o.get("maturity") == kernel.MAT_NOT_YET_MATURE),
@@ -287,7 +331,9 @@ def capture_matured_outcomes(*, outcome_dir=None, active_book_id: Optional[str] 
         "conflicts": conflicts,
         "performed_write": bool(appended),
         "append_only": True, "rewrote_existing_evidence": False,
+        "idempotent_on": ["observation_id", kernel.DEDUPLICATION_AXIS],
         "evidence_fingerprint": ev_fp,
+        "evidence_fingerprint_is_source_identity": True,
     }
 
 
@@ -328,8 +374,14 @@ def load_reassessment_outcomes(*, outcome_dir=None, desk_dir=None,
     """The Stage-21 summary read: scorecard + policy intelligence + evidence state."""
     generated_at = _now_iso(now)
     try:
-        persisted = observations if observations is not None else load_observations(
+        persisted_raw = observations if observations is not None else load_observations(
             outcome_dir=outcome_dir, active_book_id=active_book_id)
+        # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - governance reads the CANONICAL
+        # deduplicated view: one row per economic identity. The persisted history
+        # keeps every duplicate for audit (load_outcome_history), but a scorecard
+        # that counted them read 125 matured observations where 50 existed.
+        dedup = kernel.deduplicate_observations(persisted_raw)
+        persisted = dedup["rows"]
         # Pending / blocked rows are derived live (they are not persisted, by design)
         # so the operator can see honestly what is still ripening.
         live = build_observations(active_book_id=active_book_id, policy=policy,
@@ -357,6 +409,18 @@ def load_reassessment_outcomes(*, outcome_dir=None, desk_dir=None,
         "policy_intelligence": intelligence,
         "evidence_state": ev_state,
         "evidence_sufficient": not insufficient,
+        # The store and the view it was read through, so a count can never again be
+        # mistaken for the number of rows on disk.
+        "evidence_store": {
+            "persisted_rows": dedup["persisted_rows"],
+            "distinct_economic_observations": dedup["distinct_economic_observations"],
+            "duplicate_rows_preserved": dedup["duplicate_rows"],
+            "max_multiplicity": dedup["max_multiplicity"],
+            "conflicts": dedup["conflicts"],
+            "dedup_axis": dedup["dedup_axis"],
+            "governance_reads": "DEDUPLICATED_ECONOMIC_VIEW",
+            "history_preserved": True,
+        },
         "maturity_vocabulary": list(kernel.MATURITY_VOCAB),
         "governance_vocabulary": list(kernel.GOVERNANCE_VOCAB),
         "measurement_basis_vocabulary": list(kernel.BASIS_VOCAB),
@@ -416,17 +480,54 @@ def _annotate_assessment_versions(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _annotate_economic_duplicates(rows: list[dict]) -> list[dict]:
+    """PROJECTION-ONLY duplicate annotation on the ECONOMIC axis.
+
+    Every row names its economic identity key, whether it is the first-recorded
+    row for that identity, and - when it is not - which observation it
+    duplicates. Nothing on disk is deduplicated, deleted or rewritten.
+    """
+    dedup = kernel.deduplicate_observations(rows)
+    dup_of = {d["observation_id"]: d["duplicate_of"] for d in dedup["duplicates"]}
+    out = []
+    for r in rows:
+        oid = r.get("observation_id")
+        out.append({
+            **r,
+            "economic_identity_key": kernel.economic_observation_key(r),
+            "economic_duplicate_of": dup_of.get(oid),
+            "is_first_recorded_for_economic_identity": oid not in dup_of,
+        })
+    return out
+
+
+def load_authoritative_observations(*, outcome_dir=None,
+                                    active_book_id: Optional[str] = None) -> dict:
+    """The CANONICAL deduplicated view: one row per economic identity, first
+    recorded wins, history untouched. What every governance consumer reads."""
+    return kernel.deduplicate_observations(
+        load_observations(outcome_dir=outcome_dir, active_book_id=active_book_id))
+
+
 def load_outcome_history(*, outcome_dir=None, active_book_id: Optional[str] = None,
                          limit: int = 500, now: Optional[datetime] = None) -> dict:
     """The full, append-only outcome observation history (audit surface)."""
-    rows = _annotate_assessment_versions(
-        load_observations(outcome_dir=outcome_dir, active_book_id=active_book_id))
+    raw = load_observations(outcome_dir=outcome_dir, active_book_id=active_book_id)
+    rows = _annotate_economic_duplicates(_annotate_assessment_versions(raw))
+    dedup = kernel.deduplicate_observations(raw)
     return {
         "phase": PHASE, "owner": OWNER, "schema_version": SCHEMA_VERSION,
         "status": "OK", "generated_at": _now_iso(now),
         "active_book_id": active_book_id,
         "rows": rows[-limit:] if limit else rows,
         "row_count": len(rows),
+        "distinct_economic_observations": dedup["distinct_economic_observations"],
+        "duplicate_rows_preserved": dedup["duplicate_rows"],
+        "dedup_axis": dedup["dedup_axis"],
+        "economic_duplicate_note": (
+            "Rows sharing an economic_identity_key are ONE observation recorded more "
+            "than once (a pre-R55 capture defect); governance reads the first-recorded "
+            "row only. Duplicates are preserved here for audit and never deleted."),
         "append_only": True, "backfilled": False,
         "version_axis_note": (
             "Rows that look identical can be distinct immutable evidence from "
@@ -456,5 +557,6 @@ __all__ = [
     "OUTCOME_POLICY_VERSION", "OUTCOME_DIR_ENV",
     "build_observations", "capture_matured_outcomes", "capture_for_daily_close",
     "load_observations", "load_reassessment_outcomes", "load_outcome_history",
-    "load_outcome_observation",
+    "load_outcome_observation", "load_authoritative_observations",
+    "evidence_source_fingerprint",
 ]
