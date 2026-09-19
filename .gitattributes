@@ -1,0 +1,4 @@
+# Hash-bound research code. Pre-registrations in the research memory bind the
+# sha256 of these files, so their bytes must survive a checkout unchanged:
+# no end-of-line conversion, whatever core.autocrlf says.
+research/agents/campaign_r56_v2/*.py -text
