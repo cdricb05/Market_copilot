@@ -1,0 +1,47 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "handoff_contracts",
+  "handoff_contracts_version": "2.0",
+  "description": "Directed handoff graph. Each edge carries an artifact and a gate that MUST hold before the receiver may act. The gates are enforced in code by alpha_agent.agents_v2.pipeline; this file is the specification that code is tested against.",
+  "gates": {
+    "agenda": "the director has pre-registered the experiment and named its owning agent",
+    "data_certified": "data-foundation-agent certified the dataset PIT_SAFE with a known availability instant",
+    "universe_defined": "a point-in-time universe exists over a certified dataset, with its execution representation declared",
+    "features_published": "a versioned leak-safe feature set exists over a defined universe",
+    "candidate_submitted": "the owning signal agent recorded a measured HISTORICAL result under the frozen spec, sign and cost model",
+    "skeptic_survived": "validation-skeptic-agent passed the canonical statistical gate AND every adversarial check with a measured value",
+    "risk_acceptable": "risk-portfolio-agent accepted a skeptic survivor on portfolio risk",
+    "meta_reviewed": "meta-model-ensemble-agent reviewed validated survivors only",
+    "final_tournament": "the director ranks validated survivors against each other and against the estate's live candidates",
+    "director_cleared": "the director cleared one validated, meta-reviewed survivor; the research memory records QUALIFIED",
+    "published": "signal-publishing-agent wrote the research candidate artifact with safety labels",
+    "governed_forward_request": "the freeze and its adoption are performed by their canonical owners; the observation clock is today's prospective boundary or later",
+    "escalation": "unresolved dispute or exception routed to the director"
+  },
+  "edges": [
+    {"from": "quant-research-director", "to": "data-foundation-agent", "artifact": "assignment_manifest.json", "gate": "agenda"},
+    {"from": "data-foundation-agent", "to": "universe-construction-agent", "artifact": "data_certification.json", "gate": "data_certified"},
+    {"from": "universe-construction-agent", "to": "feature-library-agent", "artifact": "universe_definition.json", "gate": "universe_defined"},
+    {"from": "feature-library-agent", "to": "momentum-signal-agent", "artifact": "feature_catalog.json", "gate": "features_published"},
+    {"from": "feature-library-agent", "to": "reversal-signal-agent", "artifact": "feature_catalog.json", "gate": "features_published"},
+    {"from": "feature-library-agent", "to": "trend-breadth-signal-agent", "artifact": "feature_catalog.json", "gate": "features_published"},
+    {"from": "feature-library-agent", "to": "volatility-liquidity-agent", "artifact": "feature_catalog.json", "gate": "features_published"},
+    {"from": "momentum-signal-agent", "to": "validation-skeptic-agent", "artifact": "candidate_result.json", "gate": "candidate_submitted"},
+    {"from": "reversal-signal-agent", "to": "validation-skeptic-agent", "artifact": "candidate_result.json", "gate": "candidate_submitted"},
+    {"from": "trend-breadth-signal-agent", "to": "validation-skeptic-agent", "artifact": "candidate_result.json", "gate": "candidate_submitted"},
+    {"from": "volatility-liquidity-agent", "to": "validation-skeptic-agent", "artifact": "candidate_result.json", "gate": "candidate_submitted"},
+    {"from": "validation-skeptic-agent", "to": "risk-portfolio-agent", "artifact": "skeptic_review.json", "gate": "skeptic_survived"},
+    {"from": "validation-skeptic-agent", "to": "quant-research-director", "artifact": "skeptic_review.json", "gate": "escalation"},
+    {"from": "risk-portfolio-agent", "to": "meta-model-ensemble-agent", "artifact": "risk_review.json", "gate": "risk_acceptable"},
+    {"from": "meta-model-ensemble-agent", "to": "quant-research-director", "artifact": "meta_review.json", "gate": "final_tournament"},
+    {"from": "meta-model-ensemble-agent", "to": "signal-publishing-agent", "artifact": "meta_review.json", "gate": "meta_reviewed"},
+    {"from": "quant-research-director", "to": "signal-publishing-agent", "artifact": "research_director_decision.json", "gate": "director_cleared"},
+    {"from": "signal-publishing-agent", "to": "alpha_agent.r59.handlers.freeze_qualified", "artifact": "prospective_registration_request.json", "gate": "governed_forward_request"},
+    {"from": "signal-publishing-agent", "to": "quant-research-director", "artifact": "research_candidate.json", "gate": "published"}
+  ],
+  "bypass_rules": [
+    "No edge leads from a signal agent to risk-portfolio-agent, meta-model-ensemble-agent, signal-publishing-agent or the director. The skeptic is the only door.",
+    "No edge leads from any agent to an operational owner (orders, fills, holdings, targets, proposals, capital eligibility).",
+    "An external canonical owner may appear only as the TARGET of governed_forward_request."
+  ]
+}

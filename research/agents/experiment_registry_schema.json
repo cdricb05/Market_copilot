@@ -1,0 +1,37 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "experiment_registry_schema",
+  "schema_version": "2.0",
+  "title": "Agent experiment ledger - a PROJECTION over the one research memory",
+  "registry_owner": "alpha_agent.r59.memory.ResearchMemory",
+  "projection_owner": "alpha_agent.agents_v2.pipeline.AgentPipeline.ledger",
+  "single_registry_rule": "There is ONE research registry. An agent experiment IS a row of ResearchMemory.hypotheses (release=AGENTS_V2, generation_method=CLAUDE_AGENT_PREREGISTERED) plus its journal in ResearchMemory.events (kind prefix AGENTS_V2_). This file defines how the eighteen ledger fields are READ from that memory. It defines no table, no file and no second store.",
+  "failure_visibility_rule": "A killed, rejected, held or abandoned experiment stays in the ledger and in the search burden forever. No verb deletes, hides or overwrites one.",
+  "required_at_preregistration": ["AGENT", "HYPOTHESIS", "ASSET_CLASS", "FAMILY", "FEATURE_SET", "HORIZON", "PARAMETERS", "DISCOVERY_SAMPLE", "EVALUATION_SAMPLE", "COST_MODEL", "EXPECTED_SIGN", "FROZEN_THRESHOLDS"],
+  "fields": {
+    "EXPERIMENT_ID": {"source": "hypotheses.hypothesis_id", "set_by": "preregister", "rule": "content-derived from family key + frozen spec; minted BEFORE evaluation; two distinct specs never share an id"},
+    "AGENT": {"source": "hypotheses.origin (AGENTS_V2:<agent>)", "set_by": "preregister", "rule": "the ONE signal agent that may submit this experiment's result"},
+    "HYPOTHESIS": {"source": "hypotheses.title + spec.hypothesis", "set_by": "preregister", "rule": "an economic or statistical claim with a declared sign, stated before any result exists"},
+    "ASSET_CLASS": {"source": "hypotheses.asset_class", "set_by": "preregister", "vocabulary": ["US_EQUITY", "EQUITY_INDEX_FUTURES", "RATES_FUTURES", "COMMODITY_FUTURES", "FX_FUTURES", "VOLATILITY", "CREDIT_PROXY", "CROSS_ASSET"]},
+    "FAMILY": {"source": "hypotheses.economic_family", "set_by": "preregister", "rule": "must be routed to the owning agent by agent_contracts.family_routing"},
+    "FEATURE_SET": {"source": "spec.feature_set_id -> AGENTS_V2_FEATURES_PUBLISHED event", "set_by": "preregister", "rule": "must name a feature set the feature-library-agent published over a defined universe over a certified dataset"},
+    "HORIZON": {"source": "hypotheses.horizon_sessions", "set_by": "preregister", "rule": "holding period in sessions; 1-5 is the H1-H5 band; horizon variants of one idea share ONE family key"},
+    "PARAMETERS": {"source": "spec.parameters", "set_by": "preregister", "rule": "frozen; a submitted result whose spec hash differs is refused"},
+    "DISCOVERY_SAMPLE": {"source": "spec.discovery_sample", "set_by": "preregister"},
+    "EVALUATION_SAMPLE": {"source": "spec.evaluation_sample", "set_by": "preregister", "rule": "validation + lockbox windows; the lockbox is read once"},
+    "PIT_STATUS": {"source": "AGENTS_V2_DATA_CERTIFIED event of the feature set's dataset", "set_by": "certify_data", "vocabulary": ["PIT_SAFE", "NOT_PIT_SAFE"], "rule": "an experiment over a NOT_PIT_SAFE dataset cannot be pre-registered"},
+    "TURNOVER": {"source": "hypotheses.turnover_cost_json.turnover", "set_by": "submit_candidate"},
+    "COST_MODEL": {"source": "spec.cost_model (frozen) and hypotheses.turnover_cost_json.cost_model (measured under)", "set_by": "preregister", "rule": "the result must be measured under the pre-registered cost model"},
+    "RESULT": {"source": "hypotheses.outcome + statistic_json + economics_json", "set_by": "skeptic_review / director_clear", "vocabulary": ["REJECTED", "NO_ALPHA_EVIDENCE", "QUALIFIED", "DATA_HOLD", "FORWARD_FROZEN", "NEEDS_MORE_EVIDENCE"]},
+    "SKEPTIC_VERDICT": {"source": "hypotheses.robustness_json.skeptic_verdict", "set_by": "skeptic_review", "vocabulary": ["NOT_REVIEWED", "KILLED", "SURVIVED"]},
+    "RISK_VERDICT": {"source": "AGENTS_V2_RISK_REVIEW event", "set_by": "risk_review", "vocabulary": ["NOT_REVIEWED", "REJECTED", "ACCEPTABLE"]},
+    "SURVIVOR_STATE": {"source": "derived", "vocabulary": ["PREREGISTERED", "CANDIDATE_SUBMITTED", "DATA_HOLD", "KILLED_BY_SKEPTIC", "SKEPTIC_SURVIVOR", "REJECTED_BY_RISK", "VALIDATED_SURVIVOR", "META_REVIEWED", "REJECTED_BY_DIRECTOR", "DIRECTOR_CLEARED", "PUBLISHED"]},
+    "FORWARD_STATE": {"source": "derived from AGENTS_V2_FORWARD_REQUEST event and the frozen challenger row", "vocabulary": ["NONE", "REQUESTED", "FROZEN_AWAITING_ADOPTION_OWNER", "FROZEN_ADOPTION_NOT_COMPLETED", "FORWARD_REGISTERED"], "rule": "this ledger never stores a forward score; forward evidence is measured by api.canonical_forward_accrual"}
+  },
+  "candidate_result_contract": {
+    "required": ["experiment_id", "spec_hash", "signal_sign", "evidence_kind", "cost_model", "turnover", "layers"],
+    "evidence_kind": "must be HISTORICAL; a candidate claiming forward evidence is refused",
+    "layers": "the alpha_agent.r57.engine layer statistics D (discovery), V (validation), L (lockbox) exactly as the kernel reports them, so the ONE canonical gate alpha_agent.r59.engines.gate can read them",
+    "data_hold": "a result with state DATA_HOLD carries a reason and no layers, and settles as DATA_HOLD"
+  }
+}

@@ -4124,3 +4124,35 @@ accrual). `api/investability_registry.py` gained `sleeve_managed_futures_trend`,
 NOT_PASSED (0 forward observations; no conditional approval); the futures trend
 challenger frozen (391 monthly decisions 1995-2026, 3.64 %/yr net vs cash, t 2.64,
 lockbox 2023+ negative) and registered prospectively with zero observations.
+
+
+## PAPER_TRADER_ALPHA_AGENTS_V2 - the ported twelve-agent research system (2026-09-19)
+
+**What it is.** Twelve Claude research agents (`.claude/agents/*.md`: director,
+data foundation, universe construction, feature library, four signal agents,
+validation skeptic, risk/portfolio, meta-model/ensemble, signal publishing)
+governed by seven contracts in `research/agents/`. They ORCHESTRATE; they own no
+durable state.
+
+**Owners added.** `alpha_agent/agents_v2/__init__.py` (identity, roster, the NAMES
+of the canonical owners, safety block); `alpha_agent/agents_v2/contracts.py`
+(reads and validates the specification; pure stdlib);
+`alpha_agent/agents_v2/pipeline.py` (role-checked handoffs over the one
+`ResearchMemory`; every calculation delegated); `scripts/alpha_agents_v2.py` (the
+PowerShell entrypoint; read-only commands open the memory through its read-only
+handle). No `api/` or `engine/` module was added or changed, no route, no UI
+surface, no runtime stage.
+
+**Flow.** director `preregister` -> `certify_data` -> `define_universe` ->
+`publish_features` -> signal agents `submit_candidate` (parallel) ->
+`skeptic_review` -> `risk_review` -> `meta_review` -> `director_clear` ->
+`publish_candidate` -> `request_forward_registration` ->
+`alpha_agent.r59.handlers.freeze_qualified` -> `api.prospective_adoption` ->
+`api.forward_challenger_registry` -> `api.canonical_forward_accrual` ->
+`alpha_agent.r52.runtime` (maturation) -> `api.capital_eligibility_gate`.
+
+**Known limit.** A forward registration whose frozen-decision producer does not
+exist accrues nothing: `api.canonical_forward_accrual` resolves a frozen decision
+only for releases in `FROZEN_DECISION_OWNERS`, and reports the rest DATA_BLOCKED.
+The publishing request therefore carries `FORWARD_PRODUCER_REQUIRED` until a
+producer module is named. A book is never guessed.

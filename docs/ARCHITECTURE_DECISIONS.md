@@ -3992,3 +3992,79 @@ instead of inferring it from a process start time.
 
 **Evidence.** The worker pins imports at start (R59) and held pre-fix imports for
 a full cycle after the S25 re-arm landed while reported NOT_APPLICABLE.
+
+
+## PAPER_TRADER_ALPHA_AGENTS_V2 (2026-09-19)
+
+### D-AAV2-1 - a retired restriction is named, never silently overridden (CONFIRMED)
+
+**Decision.** The ported agent system is a NEW versioned identity,
+`PAPER_TRADER_ALPHA_AGENTS_V2`. `research/agents/governance_contract.json` lists
+each retired Phase 8-A restriction beside the rule that replaces it and the
+authority that retired it, and lists every preserved safety principle. The
+Phase 8-A contract is not edited and stays in force in its own repository.
+
+**Evidence.** A prior run stopped before its first experiment because obeying the
+Phase 8-A definitions and doing Paper Trader research were mutually exclusive, and
+a self-authored scope overlay would have lifted guardrails nobody had agreed to lift.
+
+**Consequence.** An agent may never widen the contract on its own authority; a
+scope change is a new contract version. `alpha_agent.agents_v2.contracts.validate`
+fails on a definition carrying retired Phase 8-A text.
+
+### D-AAV2-2 - the agents orchestrate; alpha_agent / R59 own durable state (CONFIRMED)
+
+**Decision.** An agent experiment IS a `ResearchMemory.hypotheses` row
+(`release=AGENTS_V2`) and its history IS a run of `AGENTS_V2_*` rows in that
+memory's `events` journal. `alpha_agent.agents_v2.pipeline` is a projection: it
+creates no database, no table and no file registry.
+
+**Evidence.** Every release from R31 to R58 wrote conclusions into its own silo;
+R59 exists because of it. A second registry would have recreated the defect inside
+the release that ported the agents.
+
+**Consequence.** Agent experiments are charged to the same counted search burden
+as every other hypothesis, are de-duplicated by the same identity, and appear in
+the same graveyard. The 18 ledger fields are READ from the memory.
+
+### D-AAV2-3 - the skeptic delegates the statistical verdict and is the only door (CONFIRMED)
+
+**Decision.** `skeptic_review` calls `alpha_agent.r59.engines.gate` with the
+denominator from `alpha_agent.r59.handlers.search_denominator`, then requires
+every adversarial check to be reported passed WITH a measured value and evidence.
+The default verdict is KILLED. `risk_review` admits skeptic survivors only,
+`meta_review` validated survivors only, and only `director_clear` writes QUALIFIED.
+
+**Consequence.** There is no second gate to drift from the first. The gate-schema
+hash is bound at pre-registration and a review under a different hash is refused,
+which is what "thresholds frozen before final evaluation" means in code.
+
+### D-AAV2-4 - the publishing boundary is a request, and a backfill cannot be asked for (CONFIRMED)
+
+**Decision.** `signal-publishing-agent` may publish a research candidate artifact
+and raise a governed prospective registration request. The freeze is performed by
+`alpha_agent.r59.handlers.freeze_qualified`. The request has no date argument, and
+`effective_from`, `inception`, `backfill` and the like are refused by name. The
+agents' entrypoint NEVER adopts: it composes no adoption owner, takes no
+confirmation token and has no execute mode. It names the challenger id and the ONE
+operator door, `scripts/adopt_prospective_freeze.py`, which a human runs.
+
+**Evidence.** The first draft gave `scripts/alpha_agents_v2.py` an
+`--execute --confirm` mode. `test_15c_there_is_exactly_one_operator_adoption_entrypoint`
+failed on it: that was a second operator door. The capability was removed, not
+allow-listed. The pipeline still accepts an INJECTED adoption owner, so a canonical
+composing entrypoint and the hermetic tests can drive the real
+`api.prospective_adoption`.
+
+**Consequence.** Orders, fills, proposal approval, champion promotion and capital
+eligibility have no verb in the pipeline, so they cannot be reached by a wrong
+argument. Capital eligibility stays with `api.capital_eligibility_gate`.
+
+### D-AAV2-5 - a subagent cannot launch a subagent, so the director emits a manifest (CONFIRMED)
+
+**Decision.** `quant-research-director` pre-registers, assigns and rules; it emits
+an assignment manifest that the session orchestrator dispatches, launching the four
+signal agents in one parallel batch.
+
+**Evidence.** Claude Code subagents cannot spawn subagents. A director definition
+that pretended otherwise would have had the director run every experiment itself.

@@ -1,5 +1,53 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-09-19
+- **Updated by phase:** **PORT_AND_ACTIVATE_PAPER_TRADER_ALPHA_AGENTS_R56_V1 - THE
+  TWELVE QUANT RESEARCH AGENTS, PORTED INTO PAPER TRADER AS
+  `PAPER_TRADER_ALPHA_AGENTS_V2` (single agent, Windows PowerShell only, live
+  checkout on `stage19-controlled-rebalance` over `b5c0610`; no runtime module
+  touched, no service restarted).** Full narrative:
+  `docs/PAPER_TRADER_ALPHA_AGENTS_V2.md`.
+
+  **What was wrong.** The twelve named research agents and their six contracts
+  lived only in `C:\Users\binis\Stock_Prediction_app_push` under a "Phase 8-A"
+  contract that forbade Paper Trader, commit and push, restricted research to
+  S&P 500 / long-only / monthly / five price families, forbade fundamentals and
+  regime work, granted the Bash tool and made signal publishing preview-only
+  forever. A Paper Trader session had no registered research agents at all, and a
+  run that tried to use them stopped before its first experiment.
+
+  **What landed.** A NEW versioned identity, not an override:
+  `research/agents/governance_contract.json` names all 14 retired restrictions
+  and the authority that retired them, and keeps 20 safety principles. Twelve
+  Paper-Trader-native definitions in `.claude/agents/` (PowerShell only, no Bash).
+  Seven contracts in `research/agents/`. `alpha_agent/agents_v2/` - a governed
+  PROJECTION over the one research memory (`alpha_agent.r59.memory`): it enforces
+  who may hand what to whom and journals every handoff in that memory's own
+  `events` table. No second registry, gate, queue or forward clock: the
+  statistical verdict is `alpha_agent.r59.engines.gate`, the denominator is
+  `alpha_agent.r59.handlers.search_denominator`, the freeze is
+  `alpha_agent.r59.handlers.freeze_qualified`, and forward adoption is the
+  INJECTED `api.prospective_adoption`. `scripts/alpha_agents_v2.py` is the one
+  PowerShell entrypoint for the agents and it NEVER adopts: it freezes, names the
+  challenger id and points at the one operator door,
+  `scripts/adopt_prospective_freeze.py`, which a human runs.
+
+  **Honest result.** `tests/test_paper_trader_alpha_agents_v2.py` proves the four
+  multi-asset handoffs (equity, FX futures, commodity futures, H1-H5), that a
+  signal agent cannot bypass the skeptic, that the skeptic kills by default, that
+  risk sees survivors only and meta validated survivors only, that publishing has
+  no order / fill / approval / promotion / capital verb, that a qualified
+  candidate reaches the REAL forward registrar with no backfill, and that
+  failures stay recorded. The preparatory census
+  (`research/agents/NEXT_CAMPAIGN_CENSUS.json`, read-only, zero budget spent)
+  found the estate deep but NARROW: 8,445 settled hypotheses, 0 qualified, 97%
+  price-state, 96% at H21, every equity test on the S&P 500 large-cap panel, and
+  12 hypotheses on the R38 dated-contract layer. Thirteen non-repeat proposals are
+  queued for the first agent-native campaign. No order, no fill, no promotion, no
+  backfill, no operational rebalance, $0 spent.
+
+## MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 (superseded as the current phase; result unchanged)
+
 - **Last updated:** 2026-09-18
 - **Updated by phase:** **MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - RESTORE PROPOSAL
   INTEGRITY AND MAKE NON-EQUITY CAPITAL COMPETITION REAL (single agent, Windows

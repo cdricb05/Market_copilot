@@ -110,6 +110,25 @@ Use these project-level assets when relevant:
 - .claude\agents\browser-acceptance-tester.md
 - .claude\skills\trading-cockpit-redesign\SKILL.md
 
+### Research agents (PAPER_TRADER_ALPHA_AGENTS_V2)
+
+Twelve quant research agents live in `.claude\agents\` and are governed by
+`research\agents\governance_contract.json` (read `docs\PAPER_TRADER_ALPHA_AGENTS_V2.md`
+before an alpha campaign): quant-research-director, data-foundation-agent,
+universe-construction-agent, feature-library-agent, momentum-signal-agent,
+reversal-signal-agent, trend-breadth-signal-agent, volatility-liquidity-agent,
+validation-skeptic-agent, risk-portfolio-agent, meta-model-ensemble-agent,
+signal-publishing-agent.
+
+- They ORCHESTRATE. Durable research state is owned by `alpha_agent.r59` and is
+  written only through `scripts\alpha_agents_v2.py`. Never build a second registry,
+  gate, queue or forward clock.
+- PowerShell only. No agent is granted Bash; tell any spawned subagent so.
+- The director pre-registers and rules; the session orchestrator dispatches the
+  four signal agents in ONE parallel batch. The skeptic is the only door downstream.
+- Read `research\agents\NEXT_CAMPAIGN_CENSUS.json` before proposing a hypothesis:
+  8,445 are already settled and a renamed dead idea is refused.
+
 ## Browser acceptance requirement
 
 After UI changes, validate with Playwright MCP at:

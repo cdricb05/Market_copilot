@@ -1,0 +1,132 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "governance",
+  "contract_version": "2.0",
+  "effective_date": "2026-09-19",
+  "supersedes": {
+    "identity": "PHASE_8A_NORGATE_RESEARCH_ENGINE_V1",
+    "source_repository": "C:\\Users\\binis\\Stock_Prediction_app_push",
+    "source_commit": "e641107",
+    "relationship": "The Phase 8-A contract is NOT edited and remains in force in its own repository. This is a separate, versioned, Paper-Trader-native contract. No Phase 8-A rule is silently overridden: every retired rule is listed in retired_restrictions with the authority that retired it."
+  },
+  "authority": {
+    "authorising_run_id": "PORT_AND_ACTIVATE_PAPER_TRADER_ALPHA_AGENTS_R56_V1",
+    "authorised_by": "the repository owner, by explicit written directive",
+    "note": "An agent may never widen this contract on its own authority. A scope change is a new contract version authorised the same way."
+  },
+  "retired_restrictions": [
+    {"id": "R01", "phase_8a_rule": "universe restricted to S&P 500 Current & Past", "v2_rule": "multi-asset: any scope in the alpha_agent.r59 asset-class vocabulary with an owned point-in-time panel"},
+    {"id": "R02", "phase_8a_rule": "long-only books only", "v2_rule": "long/short research is allowed where an execution representation exists for both legs; a leg that cannot be expressed is reported, never silently dropped"},
+    {"id": "R03", "phase_8a_rule": "monthly rebalance only", "v2_rule": "multiple natural horizons including H1-H5 sessions; horizon variants of one idea count as ONE search family"},
+    {"id": "R04", "phase_8a_rule": "five price families only (momentum, reversal, trend_breakout, volatility_liquidity, breadth_relative_strength)", "v2_rule": "trend, reversal, carry, breadth, volatility, liquidity, factor, valuation, quality, profitability, cash-flow, regime, cross-asset and mathematical/statistical families"},
+    {"id": "R05", "phase_8a_rule": "fundamentals forbidden", "v2_rule": "fundamentals allowed if and only if point-in-time safe (filing-availability timestamped, no restated values, delisted names retained)"},
+    {"id": "R06", "phase_8a_rule": "regime activation or throttling forbidden", "v2_rule": "regime HYPOTHESES are researchable; a regime rule is pre-registered and gated like any other signal and never switches an operational book"},
+    {"id": "R07", "phase_8a_rule": "leverage forbidden in research simulation", "v2_rule": "futures and long/short books may be researched at their natural notional with cost charged on traded notional; operational leverage remains out of scope"},
+    {"id": "R08", "phase_8a_rule": "ML fitting beyond deterministic score rules forbidden; optimized ensemble weights forbidden", "v2_rule": "meta-model research is allowed over validated survivors only, fitted on discovery data only, with every fitted degree of freedom charged to the search burden"},
+    {"id": "R09", "phase_8a_rule": "touch Paper Trader forbidden", "v2_rule": "Paper Trader integration is the purpose: durable state is owned by alpha_agent.r59 and the canonical forward-evidence owners"},
+    {"id": "R10", "phase_8a_rule": "commit and push forbidden", "v2_rule": "commit and push of research code, contracts and agent definitions are allowed after validation passes; operational stores are never committed"},
+    {"id": "R11", "phase_8a_rule": "Bash tool granted to every agent", "v2_rule": "Windows PowerShell only; no agent definition grants Bash or WSL"},
+    {"id": "R12", "phase_8a_rule": "signal-publishing-agent is preview-only forever, no Paper Trader integration", "v2_rule": "signal-publishing-agent may publish a research candidate artifact and raise a GOVERNED prospective registration request; see signal_publishing_boundary"},
+    {"id": "R13", "phase_8a_rule": "max 20 experiments per cycle, EXP00-EXP99 identifiers", "v2_rule": "budget set per campaign by the director and charged against the counted estate burden; identifiers are content-derived hypothesis ids owned by the research memory"},
+    {"id": "R14", "phase_8a_rule": "Norgate local data is the only provider", "v2_rule": "any OWNED point-in-time dataset already on disk; a new paid dataset still requires docs/INFORMATION_PURCHASE_GATE.md"}
+  ],
+  "preserved_safety_principles": [
+    {"id": "S01", "rule": "no broker execution"},
+    {"id": "S02", "rule": "no operational order creation"},
+    {"id": "S03", "rule": "no fills"},
+    {"id": "S04", "rule": "no automatic model promotion"},
+    {"id": "S05", "rule": "no automatic portfolio approval"},
+    {"id": "S06", "rule": "no hindsight reconstruction"},
+    {"id": "S07", "rule": "no fabricated TRUE_FORWARD evidence"},
+    {"id": "S08", "rule": "no backfill masquerading as forward evidence"},
+    {"id": "S09", "rule": "hypothesis declared before evaluation"},
+    {"id": "S10", "rule": "thresholds frozen before final evaluation"},
+    {"id": "S11", "rule": "failure recording: every experiment is recorded, including the ones that fail"},
+    {"id": "S12", "rule": "every experiment has an experiment id before it is evaluated"},
+    {"id": "S13", "rule": "the skeptic rejects by default"},
+    {"id": "S14", "rule": "realistic transaction costs, charged on traded notional"},
+    {"id": "S15", "rule": "point-in-time integrity"},
+    {"id": "S16", "rule": "no silent sign flipping"},
+    {"id": "S17", "rule": "no rounding weak evidence into a pass"},
+    {"id": "S18", "rule": "no hidden deletion of failed experiments"},
+    {"id": "S19", "rule": "manual review remains mandatory"},
+    {"id": "S20", "rule": "no hallucinated data, field, result or API behaviour; unknown stays unknown"}
+  ],
+  "explicit_allowances": [
+    "Paper Trader integration",
+    "Windows PowerShell only",
+    "multi-asset research",
+    "equities",
+    "FX",
+    "commodities",
+    "rates",
+    "futures",
+    "equity-index futures",
+    "long/short research where execution representation exists",
+    "PIT-safe fundamentals",
+    "PIT-safe valuation / quality / profitability / cash-flow signals",
+    "regime hypotheses",
+    "cross-asset signals",
+    "mathematical / statistical hypotheses",
+    "multiple natural horizons",
+    "H1-H5 research",
+    "trend / reversal / carry / breadth / volatility / liquidity / factor work",
+    "meta-model research",
+    "governed forward registration",
+    "research shadow P&L",
+    "integration with Paper Trader alpha_agent / R59",
+    "commit / push of research code and agent definitions",
+    "canonical runtime integration"
+  ],
+  "shell_policy": {
+    "shell": "WINDOWS_POWERSHELL_ONLY",
+    "forbidden_tools": ["Bash"],
+    "forbidden_environments": ["WSL", "Git Bash", "cmd.exe scripting"],
+    "python": "C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe, invoked from PowerShell",
+    "never_edit_source_with": ["Get-Content -Raw | Set-Content", "Out-File without -Encoding utf8"]
+  },
+  "canonical_owners": {
+    "research_registry": "alpha_agent.r59.memory.ResearchMemory",
+    "qualification_gate": "alpha_agent.r59.engines.gate",
+    "search_burden": "alpha_agent.r59.handlers.search_denominator",
+    "statistical_kernel": "alpha_agent.r57.engine",
+    "prospective_freeze": "alpha_agent.r59.handlers.freeze_qualified",
+    "forward_adoption": "api.prospective_adoption",
+    "forward_registrar": "api.forward_challenger_registry",
+    "forward_evidence": "api.canonical_forward_accrual",
+    "forward_maturation": "alpha_agent.r52.runtime",
+    "capital_eligibility": "api.capital_eligibility_gate",
+    "portfolio_proposal": "api.reallocation_proposal",
+    "agent_handoff_projection": "alpha_agent.agents_v2.pipeline",
+    "agent_cli": "scripts/alpha_agents_v2.py"
+  },
+  "no_duplicate_engine_rule": "The agents orchestrate. They add no second registry, gate, queue, forward clock, P&L owner or tournament. A capability that already has a canonical owner is reached THROUGH that owner.",
+  "signal_publishing_boundary": {
+    "may": [
+      "publish research candidate artifacts",
+      "create a governed prospective registration request",
+      "start research shadow P&L (by raising that request; the P&L itself is measured by the forward-evidence owner)",
+      "attach a qualified candidate to canonical forward accrual (the freeze through alpha_agent.r59.handlers.freeze_qualified; the forward clock through the ONE operator door scripts/adopt_prospective_freeze.py, run by a human)"
+    ],
+    "adoption_rule": "The agents never start a forward clock. scripts/alpha_agents_v2.py composes no adoption owner, takes no confirmation token and has no execute mode; it is deliberately not a second operator adoption entrypoint.",
+    "may_not": [
+      "create operational orders",
+      "create fills",
+      "approve a portfolio proposal",
+      "promote a champion automatically",
+      "make a sleeve capital eligible by itself"
+    ],
+    "retained_authorities": {
+      "orders_and_fills": "nobody in this system; Create Orders is not implemented",
+      "portfolio_proposal_approval": "a human, through api.reallocation_proposal governance",
+      "champion_promotion": "a human; automatic model promotion is disabled",
+      "capital_eligibility": "api.capital_eligibility_gate, from matured forward evidence plus a pre-declared conditional approval"
+    }
+  },
+  "forward_evidence_rules": [
+    "A historical result is never forward evidence; ResearchMemory.record_result refuses to mint it.",
+    "The forward clock of a registration starts at today's prospective boundary, never at an earlier inception.",
+    "A session that completed before registration can never become a prediction.",
+    "A registration whose frozen-decision producer does not exist accrues nothing and is reported FORWARD_PRODUCER_REQUIRED; a book is never guessed."
+  ]
+}

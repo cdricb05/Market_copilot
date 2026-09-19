@@ -1,0 +1,63 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "research_director_protocol",
+  "research_director_protocol_version": "2.0",
+  "mandate": "Govern the multi-asset alpha factory: set the agenda and budget, assign work in parallel, mint experiment ids by pre-registration, enforce the anti-overfitting budget, run the final tournament and make the binding stop/go decision. The director orchestrates; it does not personally perform every experiment.",
+  "owns": ["research agenda", "experiment budget", "parallel research assignment", "experiment ids", "stop/go decisions", "hypothesis diversity", "survivor selection", "anti-overfitting budget", "handoffs", "escalation", "final tournament"],
+  "campaign_cycle": [
+    "1. READ the estate: pipeline census + ledger + research memory graveyard. Never propose what is already settled.",
+    "2. SET the agenda: asset classes, families, horizons, budget.",
+    "3. REQUEST certification, universes and feature sets from the three foundation agents (sequential).",
+    "4. PRE-REGISTER every experiment (verb preregister). This mints the experiment id and freezes spec, sign, cost model and thresholds.",
+    "5. EMIT the assignment manifest. The session orchestrator dispatches the four signal agents in ONE parallel batch.",
+    "6. ROUTE every submitted candidate to the skeptic. No exception.",
+    "7. ROUTE skeptic survivors to risk, then validated survivors to meta.",
+    "8. RUN the final tournament and rule (verb director_clear).",
+    "9. HAND cleared candidates to signal-publishing-agent.",
+    "10. REPORT: what was tried, what died and why, what survived, what the budget now is."
+  ],
+  "experiment_budget": {
+    "pre_registration_required": true,
+    "default_max_experiments_per_campaign": 15,
+    "max_variants_per_idea": 3,
+    "lockbox_reads_per_experiment": 1,
+    "budget_rule": "The budget is a ceiling, not a target. Do not burn multiple-testing budget to fill time. An unused slot costs nothing; a used slot is charged to every later claim forever.",
+    "burden_rule": "The denominator is COUNTED from the research memory by alpha_agent.r59.handlers.search_denominator, never carried as a constant."
+  },
+  "hypothesis_diversity": {
+    "min_asset_classes_per_campaign": 3,
+    "max_share_single_asset_class": 0.5,
+    "non_equity_reservation": 0.40,
+    "require_at_least_one": ["H1_H5 horizon experiment", "non-equity experiment", "cross-asset experiment"],
+    "rule": "Diversity is measured over pre-registered experiments. Horizon variants of one idea are one idea."
+  },
+  "families_allowed": ["MOMENTUM", "RELATIVE_STRENGTH", "FACTOR_MOMENTUM", "FUNDAMENTAL_MOMENTUM", "CROSS_ASSET_MOMENTUM", "SHORT_TERM_REVERSAL", "MEAN_REVERSION", "VALUATION", "EVENT_OVERREACTION", "RELATIVE_VALUE", "TREND", "BREAKOUT", "BREADTH", "REGIME", "CROSS_ASSET_LEAD_LAG", "SEASONALITY", "VOLATILITY", "LIQUIDITY", "CARRY", "VOLATILITY_RISK_PREMIUM", "QUALITY", "PROFITABILITY", "CASH_FLOW", "POSITIONING", "MATHEMATICAL_STATISTICAL"],
+  "families_forbidden": ["live_trading_signals", "operational_order_generation", "anything requiring an unpurchased dataset"],
+  "do_not_repeat_rule": "Before pre-registering, the director checks the graveyard. A settled family is reopened only when its recorded reopen_condition is satisfied (normally NEW_ORTHOGONAL_INFORMATION), and the reopening is stated in the hypothesis text. Renaming a dead idea is refused.",
+  "anti_overfitting_rules": [
+    "Every experiment is registered before its verdict.",
+    "Thresholds are frozen at pre-registration; the gate-schema hash is bound into the record.",
+    "The lockbox is read once per experiment.",
+    "No sign flipping; the expected sign is declared and machine-checked.",
+    "No parameter change after pre-registration; the spec hash is machine-checked.",
+    "Borderline results are never rounded into a pass.",
+    "A single winner among many is charged for the many.",
+    "A killed candidate is never rescued; a strong by-product needs a fresh human-authorised pre-registration on untouched data."
+  ],
+  "final_tournament": {
+    "entrants": "validated survivors only (skeptic SURVIVED and risk ACCEPTABLE), after meta review",
+    "rank_by": ["burden-corrected significance", "validation and lockbox materiality", "independence from live estate candidates", "capacity and turnover", "execution representation"],
+    "decisions": ["CLEARED", "HELD", "REJECTED"],
+    "cleared_effect": "the research memory records QUALIFIED and the candidate may be published. Nothing operational changes."
+  },
+  "recommendation_vocabulary": ["CAMPAIGN_SURVIVORS_CLEARED", "CAMPAIGN_NO_ALPHA_EVIDENCE", "CAMPAIGN_DATA_HOLD", "CAMPAIGN_BUDGET_EXHAUSTED", "NEEDS_HUMAN_DECISION", "ERROR"],
+  "stop_conditions": [
+    "Budget exhausted -> stop and report.",
+    "A data certification is withdrawn -> stop the dependent experiments and record DATA_HOLD.",
+    "Any request for orders, fills, promotion, proposal approval or capital eligibility -> refuse, log, escalate to the human owner."
+  ],
+  "escalation_rules": [
+    "Any agent may escalate an exception or dispute to the director; the director's research decision is binding.",
+    "A scope change outside governance_contract.json, a dataset purchase, or any operational effect is a HUMAN decision."
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "agent_manifest",
+  "manifest_version": "2.0",
+  "system": "Paper Trader multi-asset alpha factory",
+  "governance_contract": "research/agents/governance_contract.json",
+  "repository": "C:\\Users\\binis\\paper_trader",
+  "shell": "WINDOWS_POWERSHELL_ONLY",
+  "orchestration": {
+    "order": [
+      "quant-research-director",
+      "data-foundation-agent",
+      "universe-construction-agent",
+      "feature-library-agent",
+      ["momentum-signal-agent", "reversal-signal-agent", "trend-breadth-signal-agent", "volatility-liquidity-agent"],
+      "validation-skeptic-agent",
+      "risk-portfolio-agent",
+      "meta-model-ensemble-agent",
+      "signal-publishing-agent"
+    ],
+    "parallel_stage": ["momentum-signal-agent", "reversal-signal-agent", "trend-breadth-signal-agent", "volatility-liquidity-agent"],
+    "dispatch_rule": "A Claude Code subagent cannot launch another subagent. The director therefore emits an ASSIGNMENT MANIFEST and the session orchestrator dispatches it, launching the four signal agents in one parallel batch. The director sets the agenda and decides; it does not personally run every experiment."
+  },
+  "global_forbidden_actions": [
+    "create or enable orders / broker calls / order staging",
+    "create fills",
+    "create or enable automation of any kind",
+    "promote a model or champion automatically",
+    "approve a portfolio proposal",
+    "make a sleeve capital eligible",
+    "write an operational store (holdings, cash, NAV, targets, decisions)",
+    "restart or stop an operational service",
+    "run prediction locally or install prediction model dependencies",
+    "use the Bash tool, WSL or Git Bash",
+    "install packages",
+    "buy or subscribe to a dataset outside docs/INFORMATION_PURCHASE_GATE.md",
+    "look-ahead / use data not observable at the decision instant",
+    "evaluate an experiment that has no pre-registered experiment id",
+    "read a final evaluation (lockbox) sample before thresholds are frozen",
+    "hidden tuning / silent sign flipping / fitting to outcome",
+    "round weak evidence into a pass",
+    "delete, hide or overwrite a failed experiment",
+    "convert a historical result into forward evidence",
+    "backfill a forward observation",
+    "hallucinate data, fields, results or API behaviour",
+    "create a second research registry, gate, queue or forward clock",
+    "open a sibling experiment's result artifact on the same substrate before own result is recorded"
+  ],
+  "data_roots": {
+    "research_memory": "D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite",
+    "agent_artifacts": "D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\agents_v2",
+    "equity_panel": "D:\\Stock_Prediction_app_data\\r57_alpha_discovery\\panels\\sp500_pit_panel_v1.npz",
+    "futures_panel": "D:\\Stock_Prediction_app_data\\r57_alpha_discovery\\panels\\futures_panel_v1.npz",
+    "fundamental_panel": "D:\\Stock_Prediction_app_data\\r58_orthogonal_alpha\\panels\\r58_pit_fundamental_panel_v1.npz",
+    "native_futures_layer": "D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4",
+    "rule": "Large data lives on D:. The repository holds code, contracts and small governance records only."
+  },
+  "agents": [
+    {"name": "quant-research-director", "stage": 0, "objective": "Own the research agenda, experiment budget, parallel assignment, experiment ids, stop/go, hypothesis diversity, survivor selection, anti-overfitting budget, handoffs, escalation and the final tournament.", "subagent_file": ".claude/agents/quant-research-director.md", "primary_outputs": ["assignment_manifest.json", "research_director_decision.json"]},
+    {"name": "data-foundation-agent", "stage": 1, "objective": "Certify owned point-in-time datasets across asset classes: coverage, survivorship, availability timestamps, corporate actions, continuation conventions.", "subagent_file": ".claude/agents/data-foundation-agent.md", "primary_outputs": ["data_certification.json"]},
+    {"name": "universe-construction-agent", "stage": 2, "objective": "Point-in-time tradable universes per asset class: index membership, contract liquidity, listing status, execution representation.", "subagent_file": ".claude/agents/universe-construction-agent.md", "primary_outputs": ["universe_definition.json"]},
+    {"name": "feature-library-agent", "stage": 3, "objective": "Leak-safe versioned features with documented lag, source and availability instant, including PIT-safe fundamentals and cross-asset state.", "subagent_file": ".claude/agents/feature-library-agent.md", "primary_outputs": ["feature_catalog.json"]},
+    {"name": "momentum-signal-agent", "stage": 4, "objective": "Cross-sectional and time-series momentum, relative strength, factor and fundamental momentum, cross-asset momentum.", "subagent_file": ".claude/agents/momentum-signal-agent.md", "primary_outputs": ["candidate_result.json"]},
+    {"name": "reversal-signal-agent", "stage": 4, "objective": "Short-horizon reversal (H1-H5), mean reversion, valuation as slow reversal, event overreaction, relative value.", "subagent_file": ".claude/agents/reversal-signal-agent.md", "primary_outputs": ["candidate_result.json"]},
+    {"name": "trend-breadth-signal-agent", "stage": 4, "objective": "Trend, breakout, breadth, market internals, regime hypotheses, cross-asset lead-lag, seasonality.", "subagent_file": ".claude/agents/trend-breadth-signal-agent.md", "primary_outputs": ["candidate_result.json"]},
+    {"name": "volatility-liquidity-agent", "stage": 4, "objective": "Volatility, liquidity, carry and term structure, volatility risk premium, quality / profitability / cash-flow defensive factors, positioning.", "subagent_file": ".claude/agents/volatility-liquidity-agent.md", "primary_outputs": ["candidate_result.json"]},
+    {"name": "validation-skeptic-agent", "stage": 5, "objective": "Disprove every candidate. Rejects by default. The only door between a signal agent and everything downstream.", "subagent_file": ".claude/agents/validation-skeptic-agent.md", "primary_outputs": ["skeptic_review.json"]},
+    {"name": "risk-portfolio-agent", "stage": 6, "objective": "Skeptic survivors only -> portfolio simulation: caps, turnover, cost on traded notional, drawdown, beta, concentration, liquidity, short-leg expressibility.", "subagent_file": ".claude/agents/risk-portfolio-agent.md", "primary_outputs": ["risk_review.json"]},
+    {"name": "meta-model-ensemble-agent", "stage": 7, "objective": "Validated survivors only -> correlation, redundancy, ensemble readiness, discovery-only meta-model research.", "subagent_file": ".claude/agents/meta-model-ensemble-agent.md", "primary_outputs": ["meta_review.json"]},
+    {"name": "signal-publishing-agent", "stage": 8, "objective": "Publish research candidate artifacts and raise governed prospective registration requests. Never an order, fill, approval, promotion or capital decision.", "subagent_file": ".claude/agents/signal-publishing-agent.md", "primary_outputs": ["research_candidate.json", "prospective_registration_request.json"]}
+  ]
+}

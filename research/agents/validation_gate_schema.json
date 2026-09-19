@@ -1,0 +1,56 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "validation_gate_schema",
+  "validation_gate_schema_version": "2.0",
+  "description": "What the validation-skeptic-agent applies to every candidate. The verdict is KILLED unless the canonical statistical gate passes AND every required adversarial check is reported passed WITH a measured value. The sha256 of this file is bound into every pre-registration; a review under a different hash is refused, which is what 'thresholds frozen before final evaluation' means in code.",
+  "default_verdict": "KILLED",
+  "canonical_statistical_gate": {
+    "owner": "alpha_agent.r59.engines.gate",
+    "burden_owner": "alpha_agent.r59.handlers.search_denominator",
+    "rule": "The skeptic DELEGATES the statistical verdict. It never re-implements it and never relaxes it.",
+    "inherited_thresholds": {
+      "source": "alpha_agent.r59 (inherited from R57/R58 so results stay comparable)",
+      "burden_corrected_significance_q": 0.10,
+      "lockbox_observation_floor_periods": 36,
+      "lockbox_observation_floor_days": 30,
+      "materiality_floor_ann_net_excess": 0.015,
+      "materiality_floor_net_sharpe": 0.40,
+      "validation_materiality_fraction_of_floor": 0.25,
+      "max_turnover_per_decision_one_side": 0.40
+    },
+    "checks": ["has_lockbox_observations", "lockbox_material", "validation_same_sign", "validation_material", "lockbox_t_positive", "burden_corrected_significant"],
+    "observation_rule": "EFFECTIVE observations are used when the evaluator reports them; an overlapping-window book's raw period count is not its sample size.",
+    "burden_rule": "Every candidate is charged for its family's prior tests, for every settled agent experiment in the campaign, and for its own within-family multiplicity (a horizon sweep of four is four draws)."
+  },
+  "adversarial_checks": {
+    "report_shape": {"passed": "boolean", "measured": "number or string, REQUIRED", "evidence": "artifact path or short statement, REQUIRED"},
+    "unmeasured_rule": "A check reported passed without a measured value counts as FAILED.",
+    "required": [
+      {"id": "pit_integrity", "attack": "every input was observable at the decision instant; fundamentals use filing availability, never period end; delisted names and expired contracts retained"},
+      {"id": "leakage_pass", "attack": "the signal is unchanged when all data after t is destroyed; the return is realised strictly after t, from an executable entry"},
+      {"id": "placebo_clean", "attack": "the candidate beats a permuted-signal placebo on the same panel and cost model by the pre-registered margin"},
+      {"id": "cost_robust", "attack": "the lockbox net result stays positive at twice the pre-registered cost"},
+      {"id": "subperiod_stable", "attack": "the effect is not produced by one subperiod, one instrument or one event"},
+      {"id": "not_a_duplicate_identity", "attack": "the realised decision-by-decision ordering is not a monotone re-expression of a settled hypothesis (rank fingerprint / |Spearman| >= 0.999)"}
+    ],
+    "machine_checked": [
+      {"id": "sign_consistent", "rule": "the submitted signal_sign equals the pre-registered expected_sign; computed by the pipeline, not reported by an agent"},
+      {"id": "cost_model_frozen", "rule": "the submitted cost model equals the pre-registered cost model; computed by the pipeline"},
+      {"id": "turnover_within_ceiling", "rule": "measured turnover per decision (one side) <= max_turnover_per_decision_one_side; computed by the pipeline"}
+    ]
+  },
+  "placebo_margin": {"net_sharpe": 0.25, "ann_net_excess": 0.01},
+  "cost_models": {
+    "US_EQUITY": {"rate_per_side": 0.00125, "basis": "traded notional", "owner": "alpha_agent.r59.EQ_COST_RATE_PER_SIDE"},
+    "FUTURES_DEFAULT": {"rate_per_side": 0.0002, "basis": "traded notional", "owner": "alpha_agent.r59.FUT_COST_RATE_PER_SIDE"},
+    "FUTURES_PER_MARKET": {"rate_per_side": "per market, 2-15 bp", "basis": "traded notional", "owner": "R38 native_contract_layer cost_bps_per_side", "rule": "preferred over the flat default wherever it is owned"}
+  },
+  "verdict_vocabulary": ["KILLED", "SURVIVED"],
+  "outcome_mapping": {
+    "KILLED_statistical": "NO_ALPHA_EVIDENCE",
+    "KILLED_adversarial": "REJECTED",
+    "SURVIVED": "NEEDS_MORE_EVIDENCE until risk, meta and director have ruled; only director_clear writes QUALIFIED",
+    "DATA_HOLD": "DATA_HOLD"
+  },
+  "no_rescue_rule": "A killed candidate is never re-run with altered parameters, a flipped sign, a different sample or a softer cost to obtain a pass. A control or by-product that looks strong is not adoptable; it needs a fresh human-authorised pre-registration on untouched data."
+}
