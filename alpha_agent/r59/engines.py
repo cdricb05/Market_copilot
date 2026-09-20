@@ -708,6 +708,152 @@ def run_equity_hypothesis(*, feature: str, sign: float, label: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Materiality helpers - the floor travels with the metric
+# --------------------------------------------------------------------------- #
+def _as_float(v):
+    """``float(v)`` or None. A missing or non-numeric metric is NOT material."""
+    try:
+        if v is None:
+            return None
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None                       # NaN is not a number
+
+
+def _primary(by_metric: dict):
+    """The metric a human reads first. Return materiality outranks Sharpe
+    because every book in this estate reports it; it is a PRESENTATION choice
+    and never a grading one - :func:`gate` grades every reported metric."""
+    for k in r59.GATE_MATERIALITY_FLOORS:
+        if by_metric.get(k) is not None:
+            return by_metric[k]
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Sequential D/V/L reveal - a layer must be EARNED before it is measured
+# --------------------------------------------------------------------------- #
+class StageRefusal(RuntimeError):
+    """A stage was asked for out of order, or without the metrics to judge it."""
+
+
+def stage_advance(stage: str, stats: dict, *, expected_sign: int = 1) -> dict:
+    """May the NEXT layer be revealed, given ``stage``'s measured statistics?
+
+    Discovery and validation are pass-throughs, not verdicts: the verdict is
+    :func:`gate`, and it only ever runs on the lockbox. What this rule decides
+    is whether the estate has earned the right to LOOK at the next layer, and
+    it is deliberately weak - the same fraction of the metric's own floor that
+    :func:`gate` already demands of validation - because a strong barrier here
+    would become a second, softer gate.
+
+    ``L`` never advances: there is nothing after the lockbox.
+    """
+    if stage not in r59.STAGES:
+        raise StageRefusal("unknown stage %r" % (stage,))
+    if int(expected_sign) not in (1, -1):
+        raise StageRefusal("expected_sign must be +1 or -1")
+    stats = stats or {}
+    metrics = [k for k in r59.GATE_MATERIALITY_FLOORS if k in stats]
+    by_metric = {k: _as_float(stats.get(k)) for k in metrics}
+    floors = {k: r59.STAGE_ADVANCE_FRACTION
+              * float(r59.GATE_MATERIALITY_FLOORS[k]) for k in metrics}
+    # The book is ALWAYS measured in the pre-registered direction, so a
+    # candidate whose sign was declared -1 still reports a positive number
+    # when it works. A sign flip is caught by the pipeline's sign_consistent
+    # machine check, not re-litigated here.
+    reasons = []
+    if not metrics:
+        reasons.append("no materiality metric reported")
+    for k in metrics:
+        if by_metric[k] is None:
+            reasons.append("%s is not a number" % k)
+        elif by_metric[k] < floors[k]:
+            reasons.append("%s %.6g < advance floor %.6g"
+                           % (k, by_metric[k], floors[k]))
+    periods = stats.get("effective_observations")
+    if periods is None:
+        periods = stats.get("days", stats.get("periods"))
+    if not periods:
+        reasons.append("no observations in the layer")
+    advance = stage != "L" and not reasons
+    return {"stage": stage, "advance": bool(advance),
+            "is_terminal_stage": stage == "L",
+            "next_stage": (r59.STAGES[r59.STAGES.index(stage) + 1]
+                           if stage != "L" else None),
+            "metrics": list(metrics), "measured": by_metric,
+            "advance_floors": floors,
+            "observations": int(periods or 0),
+            "halt_reasons": reasons}
+
+
+# --------------------------------------------------------------------------- #
+# Placebo - COST-NEUTRAL by construction
+# --------------------------------------------------------------------------- #
+#: How far two cost drags may differ and still count as cost-matched.
+PLACEBO_COST_TOLERANCE = 1e-4
+
+
+def cost_drag(stats: dict) -> float:
+    """What the book paid, per the metric it reports. ``gross - net``."""
+    stats = stats or {}
+    if stats.get("ann_cost_drag") is not None:
+        d = _as_float(stats.get("ann_cost_drag"))
+        if d is not None:
+            return d
+    for gross, net in (("ann_gross_excess", "ann_net_excess"),
+                       ("gross_sharpe", "net_sharpe")):
+        g, n = _as_float(stats.get(gross)), _as_float(stats.get(net))
+        if g is not None and n is not None:
+            return g - n
+    raise StageRefusal("layer reports no gross/net pair, so its cost drag "
+                       "cannot be measured and a cost-neutral placebo "
+                       "comparison cannot be made")
+
+
+def placebo_verdict(candidate: dict, placebo: dict, *, margins: dict,
+                    tolerance: float = PLACEBO_COST_TOLERANCE) -> dict:
+    """Did the candidate beat a permuted-signal placebo ON EQUAL COST?
+
+    A permuted signal has no persistence, so it churns: it pays MORE cost than
+    the book it is testing. Comparing the two on NET therefore credits the
+    candidate for trading less, which is a turnover difference and not
+    predictive content. The caller must re-simulate the placebo with its cost
+    scaled to the candidate's realised drag (``books.placebo_cost_neutral``);
+    this function REFUSES a comparison whose drags do not match, so a
+    cost-advantaged placebo can never be presented as a clean one.
+    """
+    c_drag, p_drag = cost_drag(candidate), cost_drag(placebo)
+    if abs(c_drag - p_drag) > float(tolerance):
+        raise StageRefusal(
+            "placebo is not cost-neutral: candidate drag %.6g vs placebo "
+            "%.6g (tolerance %.6g). Re-run the placebo cost-matched."
+            % (c_drag, p_drag, tolerance))
+    metrics = [k for k in r59.GATE_MATERIALITY_FLOORS
+               if k in candidate and k in placebo]
+    detail, failed = {}, []
+    for k in metrics:
+        c, p = _as_float(candidate.get(k)), _as_float(placebo.get(k))
+        need = float((margins or {}).get(k, 0.0))
+        got = None if (c is None or p is None) else (c - p)
+        detail[k] = {"candidate": c, "placebo": p, "margin": got,
+                     "required_margin": need,
+                     "passed": got is not None and got >= need}
+        if not detail[k]["passed"]:
+            failed.append(k)
+    clean = bool(metrics) and not failed
+    if not metrics:
+        failed.append("no shared materiality metric")
+    return {"placebo_clean": clean, "cost_basis": "COST_NEUTRAL",
+            "candidate_cost_drag": c_drag, "placebo_cost_drag": p_drag,
+            "cost_drag_gap": c_drag - p_drag, "by_metric": detail,
+            "failed_metrics": failed,
+            "measured": (detail.get(metrics[0], {}).get("margin")
+                         if metrics else None)}
+
+
+# --------------------------------------------------------------------------- #
 # Gate - one verdict rule for every engine
 # --------------------------------------------------------------------------- #
 def gate(result: dict, *, prior_burden: int, family_tests: int = 1) -> dict:
@@ -729,12 +875,24 @@ def gate(result: dict, *, prior_burden: int, family_tests: int = 1) -> dict:
     # books are different objects (a dollar-PnL book has a Sharpe, a top-N
     # book has an excess return); both are read here so one gate serves both.
     l_t = L.get("t_net") if "t_net" in L else L.get("t_net_excess")
-    v_t = V.get("t_net") if "t_net" in V else V.get("t_net_excess")
     l_p = L.get("p_one_sided")
-    l_material = (L.get("net_sharpe") if "net_sharpe" in L
-                  else L.get("ann_net_excess"))
-    v_material = (V.get("net_sharpe") if "net_sharpe" in V
-                  else V.get("ann_net_excess"))
+    # MATERIALITY. The floor travels WITH the metric (r59.GATE_MATERIALITY_
+    # FLOORS). The previous rule read the metric from ``net_sharpe`` when that
+    # key existed but chose the floor from whether ``ann_net_excess`` existed,
+    # so a layer carrying BOTH tested a Sharpe of 0.30 against a 1.5%/yr return
+    # floor and passed. Every materiality metric the evaluator reports is now
+    # tested against ITS OWN floor, and all of them must clear: an evaluator
+    # that reports two metrics is making two claims, not offering a choice.
+    # The SAME metrics are read from validation, so the two layers can never be
+    # graded on different scales.
+    metrics = [k for k in r59.GATE_MATERIALITY_FLOORS if k in L]
+    l_by_metric = {k: _as_float(L.get(k)) for k in metrics}
+    v_by_metric = {k: _as_float(V.get(k)) for k in metrics}
+    floors = {k: float(r59.GATE_MATERIALITY_FLOORS[k]) for k in metrics}
+    v_floors = {k: r59.VALIDATION_MATERIALITY_FRACTION * floors[k]
+                for k in metrics}
+    l_material = _primary(l_by_metric)
+    v_material = _primary(v_by_metric)
     # Prefer EFFECTIVE observations when the evaluator reports them. An
     # overlapping-window book's raw period count is not its sample size, and
     # applying the floor to the raw count let a book with ~14 independent
@@ -743,21 +901,21 @@ def gate(result: dict, *, prior_burden: int, family_tests: int = 1) -> dict:
            else (L.get("days") if "days" in L else L.get("periods")))
     raw_obs = L.get("days") if "days" in L else L.get("periods")
 
-    floor = r59.GATE_MATERIALITY if "ann_net_excess" in L else 0.40
     # A material validation result, not merely a positive one. An effect that
     # is ~0 in validation and large in the lockbox is period-specific, and
     # "v > 0" waves through a validation return of 0.2%.
-    v_floor = 0.25 * floor
     checks = {
         "has_lockbox_observations": bool(obs) and int(obs) >= (
             30 if "days" in L else r59.OBS_FLOOR),
-        "lockbox_material": (l_material is not None
-                             and float(l_material) >= floor),
-        "validation_same_sign": (v_material is not None and l_material is not None
-                                 and float(v_material) > 0
-                                 and float(l_material) > 0),
-        "validation_material": (v_material is not None
-                                and float(v_material) >= v_floor),
+        "lockbox_material": bool(metrics) and all(
+            l_by_metric[k] is not None and l_by_metric[k] >= floors[k]
+            for k in metrics),
+        "validation_same_sign": bool(metrics) and all(
+            l_by_metric[k] is not None and v_by_metric[k] is not None
+            and l_by_metric[k] > 0 and v_by_metric[k] > 0 for k in metrics),
+        "validation_material": bool(metrics) and all(
+            v_by_metric[k] is not None and v_by_metric[k] >= v_floors[k]
+            for k in metrics),
         "lockbox_t_positive": l_t is not None and float(l_t) > 0,
     }
     # Burden-corrected significance: Bonferroni over the family's own tests
@@ -782,5 +940,13 @@ def gate(result: dict, *, prior_burden: int, family_tests: int = 1) -> dict:
         "lockbox_observations": obs,
         "lockbox_raw_periods": raw_obs,
         "overlap_factor": L.get("overlap_factor"),
-        "validation_materiality_floor": v_floor,
+        # Every metric that was graded, with the floor it was graded against.
+        # A reader can no longer be unsure which number met which threshold.
+        "materiality_metrics": list(metrics),
+        "lockbox_materiality_by_metric": l_by_metric,
+        "validation_materiality_by_metric": v_by_metric,
+        "materiality_floors": floors,
+        "validation_materiality_floors": v_floors,
+        "validation_materiality_floor": (_primary(v_floors)
+                                         if metrics else None),
     }

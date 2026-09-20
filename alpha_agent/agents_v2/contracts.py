@@ -38,6 +38,9 @@ RETIRED_PHRASES = (
     "D:\\Stock_Prediction_app_data\\research_panels",
 )
 
+#: Verbs every signal agent owns, because they measure their own experiment.
+SHARED_SIGNAL_VERBS = ("reveal_stage", "submit_candidate")
+
 #: Downstream stages no signal agent may hand to directly.
 _DOWNSTREAM_OF_SKEPTIC = ("risk-portfolio-agent", "meta-model-ensemble-agent",
                           PUBLISHING, "quant-research-director")
@@ -164,10 +167,14 @@ def validate(contract_dir: Optional[Path] = None,
         if v not in seen_verbs:
             problems.append("verb %s is owned by no agent" % v)
     for v, owners in seen_verbs.items():
-        if v == "submit_candidate":
+        # The two MEASUREMENT verbs belong to exactly the four signal agents;
+        # every other verb has exactly one owner. ``reveal_stage`` is shared
+        # for the same reason ``submit_candidate`` is: the agent that measures
+        # a layer is the agent that owns the experiment.
+        if v in SHARED_SIGNAL_VERBS:
             if set(owners) != set(SIGNAL_AGENTS):
-                problems.append("submit_candidate must belong to exactly the "
-                                "four signal agents")
+                problems.append("%s must belong to exactly the four signal "
+                                "agents" % v)
         elif len(owners) != 1:
             problems.append("verb %s has %d owners" % (v, len(owners)))
 

@@ -1,0 +1,638 @@
+{
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "experiments": 10,
+ "by_state": {
+  "HALTED": 9,
+  "MEASURED": 1
+ },
+ "lockboxes_computed": 1,
+ "halted_before_lockbox": 9,
+ "results": [
+  {
+   "experiment_id": "H_eacf4f2e_dd4787adc546",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0258265 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.025826539257634624,
+     "ann_gross_excess": -0.00980671738597209,
+     "ann_cost_drag": 0.016019821871662544,
+     "mean_oneway_turnover_per_period": 0.33149119124774096,
+     "max_dd": -0.17394406374951754,
+     "hit_rate": 0.4430379746835443,
+     "t_net_excess": -1.1703229013961463,
+     "p_one_sided": 0.8790644754402095,
+     "halves_ann_net_excess": [
+      -0.023410117745456364,
+      -0.028182550232008444
+     ],
+     "ann_rebalance_cost_drag": 0.005873162133555334,
+     "ann_roll_cost_drag": 0.010146659738107204,
+     "ann_vol_net": 0.056621769031565884,
+     "period_ir_ann": -0.4561238495257305,
+     "median_live_markets": 66.0,
+     "median_positions": 36.0,
+     "flat_decisions": 2,
+     "mean_gross_notional": 0.9746835443037974
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_7f7cdc392f88",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0241572 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.0241572032962441,
+     "ann_gross_excess": -0.008786037564493667,
+     "ann_cost_drag": 0.015371165731750434,
+     "mean_oneway_turnover_per_period": 0.24952832009477519,
+     "max_dd": -0.17091761511033177,
+     "hit_rate": 0.45569620253164556,
+     "t_net_excess": -1.3512758699547893,
+     "p_one_sided": 0.9116964606485283,
+     "halves_ann_net_excess": [
+      -0.0370105014745509,
+      -0.011625237572394965
+     ],
+     "ann_rebalance_cost_drag": 0.004713105573147912,
+     "ann_roll_cost_drag": 0.010658060158602526,
+     "ann_vol_net": 0.04586966361360573,
+     "period_ir_ann": -0.5266487999506204,
+     "median_live_markets": 66.0,
+     "median_positions": 36.0,
+     "flat_decisions": 1,
+     "mean_gross_notional": 0.9873417721518988
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_cf148e90_bb573b2d2093",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0308378 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.030837822571329,
+     "ann_gross_excess": -0.021733436844841657,
+     "ann_cost_drag": 0.009104385726487339,
+     "mean_oneway_turnover_per_period": 0.16789664220003214,
+     "max_dd": -0.20373817577084463,
+     "hit_rate": 0.34177215189873417,
+     "t_net_excess": -2.043449396589242,
+     "p_one_sided": 0.9794960140740264,
+     "halves_ann_net_excess": [
+      -0.006885165413967564,
+      -0.05419166329975639
+     ],
+     "ann_rebalance_cost_drag": 0.002014759706400386,
+     "ann_roll_cost_drag": 0.00708962602008695,
+     "ann_vol_net": 0.03872065903872469,
+     "period_ir_ann": -0.7964178125296878,
+     "median_live_markets": 66.0,
+     "median_positions": 14.0,
+     "flat_decisions": 5,
+     "mean_gross_notional": 0.9367088607594937
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_973b93bc_61298a993f59",
+   "state": "MEASURED",
+   "campaign_id": "R57_ALPHA_WAVE2",
+   "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+   "owning_agent": "momentum-signal-agent",
+   "book": "FUTURES_DATED_CONTRACT",
+   "executor": "w2_07",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_MOMENTUM",
+   "horizon_sessions": 21,
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": 0.008172646614303744,
+     "ann_gross_excess": 0.020009558263305624,
+     "ann_cost_drag": 0.011836911649001882,
+     "mean_oneway_turnover_per_period": 0.23910568607649002,
+     "max_dd": -0.1368149138508834,
+     "hit_rate": 0.4810126582278481,
+     "t_net_excess": 0.340278881165955,
+     "p_one_sided": 0.36682325982091957,
+     "halves_ann_net_excess": [
+      0.011338284055682924,
+      0.005086150108959041
+     ],
+     "ann_rebalance_cost_drag": 0.003562109644896719,
+     "ann_roll_cost_drag": 0.008274802004105162,
+     "ann_vol_net": 0.06162410812323985,
+     "period_ir_ann": 0.1326209313725005,
+     "median_live_markets": 66.0,
+     "median_positions": 60.0,
+     "flat_decisions": 1,
+     "mean_gross_notional": 0.9873417721518988
+    },
+    "V": {
+     "periods": 60,
+     "overlap_factor": 1.0,
+     "effective_observations": 60,
+     "first": "2018-01-15",
+     "last": "2022-10-19",
+     "ann_net_excess": 0.0652655110839436,
+     "ann_gross_excess": 0.07700909801729891,
+     "ann_cost_drag": 0.0117435869333553,
+     "mean_oneway_turnover_per_period": 0.225614174134447,
+     "max_dd": -0.13440020430472954,
+     "hit_rate": 0.5333333333333333,
+     "t_net_excess": 1.6983677595625895,
+     "p_one_sided": 0.04471918657598994,
+     "halves_ann_net_excess": [
+      0.04276961987792778,
+      0.08776140228995943
+     ],
+     "ann_rebalance_cost_drag": 0.0034619242998240683,
+     "ann_roll_cost_drag": 0.008281662633531237,
+     "ann_vol_net": 0.08592845604155244,
+     "period_ir_ann": 0.7595331522351936,
+     "median_live_markets": 67.0,
+     "median_positions": 61.0,
+     "flat_decisions": 0,
+     "mean_gross_notional": 1.0
+    },
+    "L": {
+     "periods": 44,
+     "overlap_factor": 1.0,
+     "effective_observations": 44,
+     "first": "2023-01-16",
+     "last": "2026-07-07",
+     "ann_net_excess": 0.06339649518051801,
+     "ann_gross_excess": 0.07517872333264704,
+     "ann_cost_drag": 0.011782228152129034,
+     "mean_oneway_turnover_per_period": 0.17201267570553835,
+     "max_dd": -0.1164997616549458,
+     "hit_rate": 0.6363636363636364,
+     "t_net_excess": 1.446267481236889,
+     "p_one_sided": 0.0740510964614763,
+     "halves_ann_net_excess": [
+      0.07592574563435915,
+      0.05086724472667692
+     ],
+     "ann_rebalance_cost_drag": 0.002491534887453173,
+     "ann_roll_cost_drag": 0.00929069326467586,
+     "ann_vol_net": 0.08393678736475738,
+     "period_ir_ann": 0.7552885590560064,
+     "median_live_markets": 68.0,
+     "median_positions": 62.0,
+     "flat_decisions": 0,
+     "mean_gross_notional": 1.0
+    }
+   },
+   "turnover": 0.17201267570553835,
+   "machine_checks": {
+    "signal_sign": 1
+   },
+   "adversarial": {
+    "placebo_clean": {
+     "passed": true,
+     "measured": 0.04871641916106549,
+     "evidence": "cost-neutral placebo, 3 permutations, strongest seed 303; candidate drag 0.0117822 vs placebo drag 0.0117822",
+     "detail": {
+      "verdict": {
+       "placebo_clean": true,
+       "cost_basis": "COST_NEUTRAL",
+       "candidate_cost_drag": 0.011782228152129034,
+       "placebo_cost_drag": 0.011782228152129034,
+       "cost_drag_gap": 0.0,
+       "by_metric": {
+        "ann_net_excess": {
+         "candidate": 0.06339649518051801,
+         "placebo": 0.014680076019452523,
+         "margin": 0.04871641916106549,
+         "required_margin": 0.01,
+         "passed": true
+        }
+       },
+       "failed_metrics": [],
+       "measured": 0.04871641916106549
+      },
+      "runs": [
+       {
+        "seed": 101,
+        "cost_mult": 0.6327904648482047,
+        "raw_cost_drag": 0.01861947802098343,
+        "matched_cost_drag": 0.011782228152129034
+       },
+       {
+        "seed": 202,
+        "cost_mult": 0.6148578036140757,
+        "raw_cost_drag": 0.019162525193425563,
+        "matched_cost_drag": 0.011782228152129037
+       },
+       {
+        "seed": 303,
+        "cost_mult": 0.6223834940715799,
+        "raw_cost_drag": 0.01893081719608388,
+        "matched_cost_drag": 0.011782228152129034
+       }
+      ]
+     }
+    },
+    "cost_robust": {
+     "passed": true,
+     "measured": 0.05161426702838898,
+     "evidence": "lockbox re-run at 2x the pre-registered cost model",
+     "detail": {
+      "doubled_cost_lockbox": {
+       "periods": 44,
+       "overlap_factor": 1.0,
+       "effective_observations": 44,
+       "first": "2023-01-16",
+       "last": "2026-07-07",
+       "ann_net_excess": 0.05161426702838898,
+       "ann_gross_excess": 0.07517872333264704,
+       "ann_cost_drag": 0.023564456304258064,
+       "mean_oneway_turnover_per_period": 0.17201267570553835,
+       "max_dd": -0.12101790207813978,
+       "hit_rate": 0.6363636363636364,
+       "t_net_excess": 1.1766161664675625,
+       "p_one_sided": 0.1196743711072505,
+       "halves_ann_net_excess": [
+        0.06387454278294376,
+        0.0393539912738342
+       ],
+       "ann_rebalance_cost_drag": 0.004983069774906346,
+       "ann_roll_cost_drag": 0.01858138652935172,
+       "ann_vol_net": 0.08399833320038973,
+       "period_ir_ann": 0.6144677526547574,
+       "median_live_markets": 68.0,
+       "median_positions": 62.0,
+       "flat_decisions": 0,
+       "mean_gross_notional": 1.0
+      }
+     }
+    },
+    "subperiod_stable": {
+     "passed": true,
+     "measured": 0.05086724472667692,
+     "evidence": "both halves of the lockbox layer, measured by the book",
+     "detail": {
+      "halves": [
+       0.07592574563435915,
+       0.05086724472667692
+      ]
+     }
+    }
+   },
+   "lockbox_computed": true
+  },
+  {
+   "experiment_id": "H_08fe9399_b5ed6f210b60",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.00651489 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 337,
+     "overlap_factor": 1.0,
+     "effective_observations": 337,
+     "first": "2011-07-01",
+     "last": "2017-12-14",
+     "ann_net_excess": -0.0065148919496858994,
+     "ann_gross_excess": 0.01859622645162283,
+     "ann_cost_drag": 0.02511111840130873,
+     "mean_oneway_turnover_per_period": 0.25509126805166493,
+     "max_dd": -0.1372829725323762,
+     "hit_rate": 0.5222551928783383,
+     "t_net_excess": -0.33154257295370104,
+     "p_one_sided": 0.6298826555071795,
+     "halves_ann_net_excess": [
+      -0.015892233703787305,
+      0.0028069625751012974
+     ],
+     "ann_rebalance_cost_drag": 0.0163288233127502,
+     "ann_roll_cost_drag": 0.008782295088558528,
+     "ann_vol_net": 0.050812152866373965,
+     "period_ir_ann": -0.12821523163599846,
+     "median_live_markets": 66.0,
+     "median_positions": 65.0,
+     "flat_decisions": 0,
+     "mean_gross_notional": 1.0
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_ffb4e5ba_7ddd7a91c31b",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.00234039 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.0023403896239300825,
+     "ann_gross_excess": 0.011109673496501368,
+     "ann_cost_drag": 0.013450063120431451,
+     "mean_oneway_turnover_per_period": 0.27632684012110464,
+     "max_dd": -0.10245188164316188,
+     "hit_rate": 0.4936708860759494,
+     "t_net_excess": -0.13194278263932557,
+     "p_one_sided": 0.552485225615878,
+     "halves_ann_net_excess": [
+      -0.003953027268780906,
+      -0.0007680679202005324
+     ],
+     "ann_rebalance_cost_drag": 0.004572481537776078,
+     "ann_roll_cost_drag": 0.008877581582655373,
+     "ann_vol_net": 0.0455119504181451,
+     "period_ir_ann": -0.05142362835315877,
+     "median_live_markets": 66.0,
+     "median_positions": 63.0,
+     "flat_decisions": 1,
+     "mean_gross_notional": 0.9873417721518988
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_e490a5b8_5c87b7dbcae0",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0115041 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.011504060178996012,
+     "ann_gross_excess": 0.002300151725042574,
+     "ann_cost_drag": 0.013804211904038589,
+     "mean_oneway_turnover_per_period": 0.23358311889910316,
+     "max_dd": -0.20670837433648914,
+     "hit_rate": 0.4177215189873418,
+     "t_net_excess": -0.4485138086238276,
+     "p_one_sided": 0.6731087886351537,
+     "halves_ann_net_excess": [
+      0.023518953798038672,
+      -0.04565149880660482
+     ],
+     "ann_rebalance_cost_drag": 0.0036414838322997942,
+     "ann_roll_cost_drag": 0.010162728071738795,
+     "ann_vol_net": 0.06581096349647961,
+     "period_ir_ann": -0.17480461564145602,
+     "median_live_markets": 66.0,
+     "median_positions": 58.0,
+     "flat_decisions": 0,
+     "mean_gross_notional": 1.0
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_978d5ea8_d60dbafd2eda",
+   "state": "HALTED",
+   "halted_at": "V",
+   "halt_reasons": [
+    "ann_net_excess 0.00103907 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 32,
+     "first": "2015-04-07",
+     "last": "2017-11-02",
+     "ann_net_excess": 0.013414409563491816,
+     "ann_gross_excess": 0.014773246994883643,
+     "ann_strat_net": 0.10998781756987981,
+     "ann_bench_net": 0.096573408006388,
+     "ann_cost_drag": 0.0013588374313918267,
+     "mean_oneway_turnover_per_period": 0.06593750000000001,
+     "strat_max_dd": -0.10581636946654172,
+     "bench_max_dd": -0.12097362592056327,
+     "hit_rate": 0.53125,
+     "t_net_excess": 0.8232711857271608,
+     "p_one_sided": 0.20517689779154633,
+     "halves_ann_net_excess": [
+      -0.005714289663651255,
+      0.032543108790634885
+     ],
+     "median_universe": 505.0,
+     "min_universe": 501,
+     "median_held": 100.0
+    },
+    "V": {
+     "periods": 59,
+     "first": "2018-01-04",
+     "last": "2022-11-04",
+     "ann_net_excess": 0.0010390743652840644,
+     "ann_gross_excess": 0.0025583644431468986,
+     "ann_strat_net": 0.10750671795269673,
+     "ann_bench_net": 0.10646764358741265,
+     "ann_cost_drag": 0.0015192900778628342,
+     "mean_oneway_turnover_per_period": 0.05406779661016949,
+     "strat_max_dd": -0.22243754688681305,
+     "bench_max_dd": -0.22674999800221873,
+     "hit_rate": 0.576271186440678,
+     "t_net_excess": 0.03620255452229594,
+     "p_one_sided": 0.4855604245560429,
+     "halves_ann_net_excess": [
+      0.030931467371820436,
+      -0.027856905541034427
+     ],
+     "median_universe": 505.0,
+     "min_universe": 503,
+     "median_held": 100.0
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_75c76250_38fcc4f75d68",
+   "state": "HALTED",
+   "halted_at": "V",
+   "halt_reasons": [
+    "ann_net_excess -0.00262347 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 32,
+     "first": "2015-04-07",
+     "last": "2017-11-02",
+     "ann_net_excess": 0.004360399146206645,
+     "ann_gross_excess": 0.006009861577598475,
+     "ann_strat_net": 0.10093380715259465,
+     "ann_bench_net": 0.096573408006388,
+     "ann_cost_drag": 0.001649462431391831,
+     "mean_oneway_turnover_per_period": 0.075625,
+     "strat_max_dd": -0.06963212090643323,
+     "bench_max_dd": -0.12097362592056327,
+     "hit_rate": 0.5,
+     "t_net_excess": 0.16796699592293735,
+     "p_one_sided": 0.43330462179331386,
+     "halves_ann_net_excess": [
+      0.03722906014244279,
+      -0.02850826185002949
+     ],
+     "median_universe": 505.0,
+     "min_universe": 501,
+     "median_held": 100.0
+    },
+    "V": {
+     "periods": 59,
+     "first": "2018-01-04",
+     "last": "2022-11-04",
+     "ann_net_excess": -0.002623472664396882,
+     "ann_gross_excess": -0.0007177419085679493,
+     "ann_strat_net": 0.10384417092301576,
+     "ann_bench_net": 0.10646764358741265,
+     "ann_cost_drag": 0.0019057307558289379,
+     "mean_oneway_turnover_per_period": 0.06694915254237288,
+     "strat_max_dd": -0.21607757050008203,
+     "bench_max_dd": -0.22674999800221873,
+     "hit_rate": 0.5084745762711864,
+     "t_net_excess": -0.12044956560345406,
+     "p_one_sided": 0.5479364852510156,
+     "halves_ann_net_excess": [
+      0.010148911204880226,
+      -0.01497011040469809
+     ],
+     "median_universe": 505.0,
+     "min_universe": 503,
+     "median_held": 100.0
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  },
+  {
+   "experiment_id": "H_961e502f_197d38ad81cc",
+   "state": "HALTED",
+   "halted_at": "V",
+   "halt_reasons": [
+    "ann_net_excess -0.0120838 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": 0.011168453649430183,
+     "ann_gross_excess": 0.025410084225711328,
+     "ann_cost_drag": 0.014241630576281146,
+     "mean_oneway_turnover_per_period": 0.1942900507601072,
+     "max_dd": -0.07867527099709304,
+     "hit_rate": 0.5443037974683544,
+     "t_net_excess": 0.6022021924475249,
+     "p_one_sided": 0.2735197782323092,
+     "halves_ann_net_excess": [
+      0.02837847939687009,
+      -0.005611321454323734
+     ],
+     "ann_rebalance_cost_drag": 0.003586104028109135,
+     "ann_roll_cost_drag": 0.010655526548172013,
+     "ann_vol_net": 0.04758539037435157,
+     "period_ir_ann": 0.23470341551405988,
+     "median_live_markets": 66.0,
+     "median_positions": 36.0,
+     "flat_decisions": 2,
+     "mean_gross_notional": 0.9746835443037974
+    },
+    "V": {
+     "periods": 60,
+     "overlap_factor": 1.0,
+     "effective_observations": 60,
+     "first": "2018-01-15",
+     "last": "2022-10-19",
+     "ann_net_excess": -0.012083796264394236,
+     "ann_gross_excess": 0.002099816662257914,
+     "ann_cost_drag": 0.014183612926652146,
+     "mean_oneway_turnover_per_period": 0.1790078068264343,
+     "max_dd": -0.11495484486927954,
+     "hit_rate": 0.43333333333333335,
+     "t_net_excess": -0.4104319756220572,
+     "p_one_sided": 0.6592554529296495,
+     "halves_ann_net_excess": [
+      0.002050359886721265,
+      -0.02621795241550973
+     ],
+     "ann_rebalance_cost_drag": 0.0033327305737109666,
+     "ann_roll_cost_drag": 0.010850882352941179,
+     "ann_vol_net": 0.06583353997332032,
+     "period_ir_ann": -0.18355075952609126,
+     "median_live_markets": 67.0,
+     "median_positions": 36.0,
+     "flat_decisions": 1,
+     "mean_gross_notional": 0.9833333333333333
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE"
+  }
+ ],
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

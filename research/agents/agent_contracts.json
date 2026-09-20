@@ -16,7 +16,7 @@
     "certify_data": "certify one owned dataset as point-in-time safe (or not)",
     "define_universe": "declare one point-in-time universe over a certified dataset",
     "publish_features": "publish one versioned leak-safe feature set over a defined universe",
-    "submit_candidate": "record the measured result of one pre-registered experiment",
+    "reveal_stage": "measure and reveal ONE evaluation layer (D, then V, then L) of one pre-registered experiment; a later layer is refused until the earlier one earned it", "submit_candidate": "record the measured result of one pre-registered experiment, assembled from the layers already revealed in order",
     "skeptic_review": "kill or pass one candidate; rejects by default",
     "risk_review": "accept or reject one skeptic survivor on portfolio risk",
     "meta_review": "record ensemble readiness over validated survivors only",
@@ -87,7 +87,7 @@
     {
       "name": "momentum-signal-agent",
       "objective": "Momentum family candidates.",
-      "pipeline_verbs": ["submit_candidate"],
+      "pipeline_verbs": ["reveal_stage", "submit_candidate"],
       "allowed_actions": ["evaluate ONLY experiments the director pre-registered and assigned to this agent", "use the alpha_agent.r57.engine statistical kernel and alpha_agent.r59.engines evaluators", "report discovery / validation / lockbox layers, turnover and cost"],
       "forbidden_actions": ["evaluate an unregistered idea", "change a pre-registered parameter", "flip the declared sign", "self-approve", "hand a candidate to anyone but the skeptic", "read the lockbox layer of an experiment whose discovery layer is unmeasured"],
       "input_artifacts": ["assignment_manifest.json", "feature_catalog.json", "universe_definition.json"],
@@ -100,7 +100,7 @@
     {
       "name": "reversal-signal-agent",
       "objective": "Reversal family candidates, including H1-H5.",
-      "pipeline_verbs": ["submit_candidate"],
+      "pipeline_verbs": ["reveal_stage", "submit_candidate"],
       "allowed_actions": ["evaluate ONLY experiments the director pre-registered and assigned to this agent", "use the alpha_agent.r57.engine statistical kernel and alpha_agent.r59.engines evaluators", "report layers, turnover and cost; annualise by HOLDING PERIOD and report EFFECTIVE observations for overlapping windows"],
       "forbidden_actions": ["evaluate an unregistered idea", "change a pre-registered parameter", "flip the declared sign", "self-approve", "hand a candidate to anyone but the skeptic", "assume a close-to-close fill for an H1 signal computed on that close"],
       "input_artifacts": ["assignment_manifest.json", "feature_catalog.json", "universe_definition.json"],
@@ -113,7 +113,7 @@
     {
       "name": "trend-breadth-signal-agent",
       "objective": "Trend / breadth / regime / cross-asset lead-lag candidates.",
-      "pipeline_verbs": ["submit_candidate"],
+      "pipeline_verbs": ["reveal_stage", "submit_candidate"],
       "allowed_actions": ["evaluate ONLY experiments the director pre-registered and assigned to this agent", "use the alpha_agent.r57.engine statistical kernel and alpha_agent.r59.engines evaluators", "research regime hypotheses as pre-registered signals"],
       "forbidden_actions": ["evaluate an unregistered idea", "change a pre-registered parameter", "flip the declared sign", "self-approve", "hand a candidate to anyone but the skeptic", "define a regime using data after the decision instant", "switch any operational book on a regime"],
       "input_artifacts": ["assignment_manifest.json", "feature_catalog.json", "universe_definition.json"],
@@ -126,7 +126,7 @@
     {
       "name": "volatility-liquidity-agent",
       "objective": "Volatility / liquidity / carry / defensive-factor candidates.",
-      "pipeline_verbs": ["submit_candidate"],
+      "pipeline_verbs": ["reveal_stage", "submit_candidate"],
       "allowed_actions": ["evaluate ONLY experiments the director pre-registered and assigned to this agent", "use the alpha_agent.r57.engine statistical kernel and alpha_agent.r59.engines evaluators", "use the R38 native contract layer for real term structure and per-market cost"],
       "forbidden_actions": ["evaluate an unregistered idea", "change a pre-registered parameter", "flip the declared sign", "self-approve", "hand a candidate to anyone but the skeptic", "compute carry from close_b / _CCB (the same front contract under a second back-adjustment)", "charge a flat futures cost where a per-market cost is owned"],
       "input_artifacts": ["assignment_manifest.json", "feature_catalog.json", "universe_definition.json"],

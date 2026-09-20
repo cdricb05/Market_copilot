@@ -39,6 +39,8 @@ RESEARCH ONLY. Reads the frozen R38 layer; writes nothing outside the R59 root.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import warnings
 from typing import Optional
@@ -72,6 +74,11 @@ AG_GROUPS = ("GRAINS_AND_OILSEEDS", "SOFTS", "LIVESTOCK")
 _CACHE: dict = {}
 
 
+def _sha256(path) -> str:
+    from pathlib import Path as _P
+    return hashlib.sha256(_P(path).read_bytes()).hexdigest()
+
+
 # --------------------------------------------------------------------------- #
 # Substrate
 # --------------------------------------------------------------------------- #
@@ -79,11 +86,68 @@ def available() -> bool:
     return NATIVE_LAYER_DIR.exists() and R38_PANEL.exists()
 
 
-def load_layer() -> dict:
-    """market -> aligned arrays on ONE shared session grid.
+#: The R38 build's own record of which market files belong to the layer.
+LAYER_MANIFEST = NATIVE_LAYER_DIR / "layer_manifest.json"
+
+
+class UncertifiedLayer(RuntimeError):
+    """The layer directory does not match its manifest."""
+
+
+def layer_certification(verify_hashes: bool = True) -> dict:
+    """Which market files this layer is ENTITLED to load, and which it is not.
+
+    The layer directory is a build output, and a build output accumulates.
+    ``FGBL.csv`` is a live example: a leftover of an earlier build, absent from
+    ``layer_manifest.json``, carrying no ``ret2`` column and no cost row. A
+    loader that globbed ``*.csv`` swept it in as market number 69, shifting
+    every downstream row index and charging it the panel's maximum cost as
+    though it were a certified market.
+
+    ``orphans``    on disk, not in the manifest      -> NEVER loaded
+    ``missing``    in the manifest, not on disk      -> the layer is broken
+    ``mismatched`` on disk, wrong sha256             -> the layer is broken
+    """
+    if not LAYER_MANIFEST.exists():
+        raise UncertifiedLayer(
+            "no layer manifest at %s: the R38 native contract layer cannot be "
+            "certified, and an uncertified layer is not loaded" % LAYER_MANIFEST)
+    manifest = json.loads(LAYER_MANIFEST.read_text(encoding="utf-8"))
+    listed = manifest.get("markets") or {}
+    on_disk = {p.stem: p for p in sorted(NATIVE_LAYER_DIR.glob("*.csv"))}
+    certified, missing, mismatched, unbuilt = [], [], [], []
+    for market, row in sorted(listed.items()):
+        path = on_disk.get(market)
+        if path is None:
+            missing.append(market)
+        elif row.get("state") != "OK":
+            unbuilt.append(market)
+        elif verify_hashes and row.get("sha256") and \
+                _sha256(path) != row["sha256"]:
+            mismatched.append(market)
+        else:
+            certified.append(market)
+    orphans = sorted(set(on_disk) - set(listed))
+    return {"ok": not missing and not mismatched,
+            "manifest": str(LAYER_MANIFEST),
+            "manifest_sha256": _sha256(LAYER_MANIFEST),
+            "hashes_verified": bool(verify_hashes),
+            "certified_markets": certified, "orphans": orphans,
+            "missing": missing, "mismatched": mismatched,
+            "not_built": unbuilt,
+            "files_on_disk": len(on_disk), "markets_listed": len(listed)}
+
+
+def load_layer(verify_hashes: bool = True) -> dict:
+    """market -> aligned arrays on ONE shared session grid. CERTIFIED ONLY.
 
     Alignment is on the union of dates actually present, so a market that was
     not trading on a session is a MASK (NaN), never a forward fill.
+
+    Only markets the layer manifest lists in state OK are loaded. An orphan
+    CSV cannot enter a measured result through this owner, and there is no
+    argument that lets one in: the certification IS the load rule, not an
+    overlay a caller may decline.
     """
     if "layer" in _CACHE:
         return _CACHE["layer"]
@@ -92,10 +156,16 @@ def load_layer() -> dict:
                                 % NATIVE_LAYER_DIR)
     import pandas as pd
 
+    cert = layer_certification(verify_hashes=verify_hashes)
+    if not cert["ok"]:
+        raise UncertifiedLayer(
+            "R38 layer does not match its manifest: %d missing, %d mismatched"
+            % (len(cert["missing"]), len(cert["mismatched"])))
     frames = {}
-    for p in sorted(NATIVE_LAYER_DIR.glob("*.csv")):
+    for market in cert["certified_markets"]:
+        p = NATIVE_LAYER_DIR / ("%s.csv" % market)
         df = pd.read_csv(p, parse_dates=["Date"])
-        frames[p.stem] = df
+        frames[market] = df
 
     all_dates = sorted({d for df in frames.values()
                         for d in df["Date"].dt.strftime("%Y-%m-%d")})
@@ -131,13 +201,35 @@ def load_layer() -> dict:
 
     layer = {"symbols": syms, "dates": np.array(all_dates),
              "ret": ret, "ret2": ret2, "slope": slope,
-             "open_interest": oi, "volume": vol, "roll": roll}
+             "open_interest": oi, "volume": vol, "roll": roll,
+             "certification": cert, "orphans_excluded": cert["orphans"]}
     _CACHE["layer"] = layer
     return layer
 
 
+#: What ``cost_bps_per_side`` IS. The R38 build states it
+#: (``alpha_agent.r38.contract.COST_MODEL_STATE``): a per-cost-group MODEL, not
+#: an observed fill. Calling it "measured" in a docstring is how a modelled
+#: number acquires the authority of a measurement in a downstream artifact.
+COST_MODEL_STATE = "MODELLED_NOT_OBSERVED"
+
+
+def cost_provenance() -> dict:
+    """Where the per-side cost comes from, and what it is not."""
+    return {"cost_model_state": COST_MODEL_STATE,
+            "source": "R38 native_contract_layer cost_bps_per_side",
+            "basis": "traded notional",
+            "measured": False,
+            "unknown_market_rule": "charged the panel MAXIMUM, never the "
+                                   "cheapest"}
+
+
 def load_meta() -> dict:
-    """market -> economic group, asset class and MEASURED per-side cost."""
+    """market -> economic group, asset class and MODELLED per-side cost.
+
+    The cost is MODELLED_NOT_OBSERVED (see :func:`cost_provenance`). It is a
+    per-cost-group model the R38 build assigned, never a measured fill.
+    """
     if "meta" in _CACHE:
         return _CACHE["meta"]
     import pandas as pd
@@ -166,8 +258,10 @@ def group_members(group: str) -> list:
 
 
 def cost_vector() -> np.ndarray:
-    """Per-market cost per side, as a fraction. Markets absent from the R38
-    panel are charged the panel's MAXIMUM, never its cheapest."""
+    """Per-market MODELLED cost per side, as a fraction.
+
+    MODELLED_NOT_OBSERVED - see :func:`cost_provenance`. Markets absent from
+    the R38 panel are charged the panel's MAXIMUM, never its cheapest."""
     layer = load_layer()
     meta = load_meta()
     known = [m["cost_bps_per_side"] for m in meta.values()]

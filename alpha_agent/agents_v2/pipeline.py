@@ -11,7 +11,12 @@ hand WHAT to WHOM, and in what order:
                                          gate-schema hash BEFORE evaluation
     data / universe /   certify_data -> define_universe -> publish_features
     features                             (each refuses without its predecessor)
-    signal agents       submit_candidate  (own experiments only, frozen spec)
+    signal agents       reveal_stage      D, then V, then L - a later layer
+                                          is refused until the earlier one
+                                          earned it, and a layer that does not
+                                          advance SETTLES the experiment
+    signal agents       submit_candidate  (own experiments only, frozen spec,
+                                          assembled from revealed layers only)
     skeptic             skeptic_review    rejects by default; the ONLY door
     risk                risk_review       skeptic survivors only
     meta                meta_review       validated survivors only
@@ -57,6 +62,7 @@ EV_DATA = "AGENTS_V2_DATA_CERTIFIED"
 EV_UNIVERSE = "AGENTS_V2_UNIVERSE_DEFINED"
 EV_FEATURES = "AGENTS_V2_FEATURES_PUBLISHED"
 EV_PREREG = "AGENTS_V2_PREREGISTERED"
+EV_STAGE = "AGENTS_V2_STAGE_REVEALED"
 EV_CANDIDATE = "AGENTS_V2_CANDIDATE_SUBMITTED"
 EV_SKEPTIC = "AGENTS_V2_SKEPTIC_REVIEW"
 EV_RISK = "AGENTS_V2_RISK_REVIEW"
@@ -297,6 +303,14 @@ class AgentPipeline:
         spec["mechanism"] = spec_in.get("mechanism", "")
         spec["long_short"] = bool(spec_in.get("long_short", False))
         spec["within_family_tests"] = int(spec_in.get("within_family_tests", 1))
+        # THE BURDEN FLAG, frozen here and never chosen at review time. A
+        # candidate selected out of a generated or swept space is charged the
+        # estate's prior machine-representation search in its asset class
+        # (alpha_agent.r59.handlers.search_denominator). Until R57 the one
+        # caller passed a hard-coded False, so that prior was unreachable for
+        # every agent experiment however the candidate had been found.
+        spec["generative_search"] = bool(spec_in.get("generative_search",
+                                                     False))
         # What a forward registration will need to NAME this book. Carried in
         # the frozen spec because api.prospective_adoption reads the identity
         # from the freeze and defaults nothing into existence.
@@ -339,6 +353,104 @@ class AgentPipeline:
                 "owning_agent": owner, "spec_hash": _spec_hash(spec),
                 "already_registered": already,
                 "frozen_gate_schema_hash": spec["frozen_gate_schema_hash"]}
+
+    # -- signal agents: SEQUENTIAL reveal ------------------------------------ #
+    def _stage_events(self, experiment_id: str) -> list:
+        return [r["detail"] for r in self._events(EV_STAGE, experiment_id)]
+
+    def _owning_agent(self, agent: str, experiment_id: str) -> dict:
+        row = self._experiment(experiment_id)
+        spec = row.get("spec") or {}
+        if spec.get("owning_agent") != agent:
+            raise PipelineRefusal(
+                "NOT_THE_OWNING_AGENT",
+                "%s is assigned to %s" % (experiment_id,
+                                          spec.get("owning_agent")))
+        return row
+
+    def reveal_stage(self, *, agent: str, experiment_id: str, stage: str,
+                     spec_hash: str, stats: Optional[dict] = None,
+                     evaluator: str = "") -> dict:
+        """Measure and reveal ONE evaluation layer.
+
+        The three layers are a TIME partition, so a book run over the whole
+        grid produces all three at once - which is exactly how the lockbox
+        came to be read before the earlier layers had earned it. Here a layer
+        is revealed only when its predecessor advanced, and the runner that
+        calls this verb measures no further than the layer it is revealing.
+
+        A layer that does not advance HALTS the experiment: it is settled
+        NO_ALPHA_EVIDENCE, it still counts to the search burden, and the
+        lockbox is never computed at all.
+        """
+        self._require(agent, "reveal_stage")
+        row = self._owning_agent(agent, experiment_id)
+        spec = row.get("spec") or {}
+        if spec_hash != _spec_hash(spec):
+            raise PipelineRefusal(
+                "SPEC_CHANGED_AFTER_PREREGISTRATION",
+                "a layer was not measured under the frozen spec")
+        if stage not in r59.STAGES:
+            raise PipelineRefusal("UNKNOWN_STAGE",
+                                  "%r is not one of %s" % (stage, r59.STAGES))
+        if self._latest(EV_CANDIDATE, experiment_id) is not None:
+            raise PipelineRefusal("CANDIDATE_ALREADY_SUBMITTED",
+                                  "the result is final; a layer cannot be "
+                                  "re-revealed after submission")
+        revealed = self._stage_events(experiment_id)
+        seen = [e["stage"] for e in revealed]
+        if stage in seen:
+            raise PipelineRefusal(
+                "STAGE_ALREADY_REVEALED",
+                "%s was revealed once; a second measurement of the same layer "
+                "is a second draw and needs a second pre-registration"
+                % stage)
+        if any(not e.get("advance") for e in revealed):
+            raise PipelineRefusal(
+                "EXPERIMENT_HALTED",
+                "%s stopped at layer %s; a halted experiment is settled, not "
+                "continued" % (experiment_id,
+                               [e["stage"] for e in revealed
+                                if not e.get("advance")]))
+        expected = r59.STAGES[len(seen)]
+        if stage != expected:
+            raise PipelineRefusal(
+                "STAGE_OUT_OF_ORDER",
+                "the next unrevealed layer is %s, not %s; %s is revealed "
+                "before %s so the lockbox is never read first"
+                % (expected, stage, " then ".join(r59.STAGES), stage))
+        try:
+            adv = E.stage_advance(stage, stats or {},
+                                  expected_sign=int(spec["expected_sign"]))
+        except E.StageRefusal as exc:
+            raise PipelineRefusal("STAGE_NOT_JUDGEABLE", str(exc)) from exc
+        detail = {"agent": agent, "stage": stage, "stats": stats or {},
+                  "advance": bool(adv["advance"]),
+                  "is_terminal_stage": bool(adv["is_terminal_stage"]),
+                  "halt_reasons": adv["halt_reasons"],
+                  "advance_floors": adv["advance_floors"],
+                  "stats_hash": r59.stable_hash(stats or {}),
+                  "evaluator": evaluator}
+        self.mem.event(EV_STAGE, subject=experiment_id, detail=detail)
+        halted = not adv["advance"] and not adv["is_terminal_stage"]
+        if halted:
+            self.mem.record_result(
+                experiment_id, outcome=r59.HO_NO_ALPHA_EVIDENCE,
+                evidence_maturity="HISTORICAL",
+                economics={"layers": {e["stage"]: e["stats"]
+                                      for e in revealed + [detail]}},
+                robustness={"skeptic_verdict": "NOT_REVIEWED",
+                            "sequential_reveal": "HALTED_AT_%s" % stage,
+                            "stages_revealed": seen + [stage]},
+                reason_rejected="HALTED_AT_%s: %s"
+                                % (stage, "; ".join(adv["halt_reasons"])),
+                reopen_condition="NEW_ORTHOGONAL_INFORMATION")
+        return {"experiment_id": experiment_id, "stage": stage,
+                "advance": bool(adv["advance"]), "halted": bool(halted),
+                "next_stage": adv["next_stage"] if adv["advance"] else None,
+                "halt_reasons": adv["halt_reasons"],
+                "next": ("validation-skeptic-agent"
+                         if adv["is_terminal_stage"] else None)}
 
     # -- signal agents ------------------------------------------------------- #
     def submit_candidate(self, *, agent: str, experiment_id: str,
@@ -385,6 +497,25 @@ class AgentPipeline:
             raise PipelineRefusal(
                 "LAYERS_MISSING",
                 "a measured candidate reports the kernel's D/V/L layers")
+        # SEQUENTIAL REVEAL. The submitted layers must be the layers that were
+        # revealed through ``reveal_stage``, in order, byte for byte. Without
+        # this, staging would be advisory: an agent could reveal D and then
+        # submit a lockbox nobody ever earned.
+        revealed = {e["stage"]: e for e in self._stage_events(experiment_id)}
+        order = [e["stage"] for e in self._stage_events(experiment_id)]
+        if order != list(r59.STAGES):
+            raise PipelineRefusal(
+                "LAYERS_NOT_SEQUENTIALLY_REVEALED",
+                "layers revealed %s; %s must be revealed in that order "
+                "through reveal_stage before a candidate exists"
+                % (order or "none", " -> ".join(r59.STAGES)))
+        drifted = [s for s in r59.STAGES
+                   if r59.stable_hash(layers.get(s) or {})
+                   != revealed[s]["stats_hash"]]
+        if drifted:
+            raise PipelineRefusal(
+                "SUBMITTED_LAYER_DIFFERS_FROM_REVEALED",
+                "layer(s) %s do not match what was revealed" % drifted)
         if turnover is None or cost_model is None:
             raise PipelineRefusal("TURNOVER_OR_COST_MISSING",
                                   "turnover and cost model are mandatory")
@@ -417,9 +548,13 @@ class AgentPipeline:
                 "THRESHOLDS_CHANGED_AFTER_PREREGISTRATION",
                 "the gate schema is not the one frozen at pre-registration")
 
+        # The generative prior is read from the FROZEN pre-registration, not
+        # hard-coded here. ``search_denominator`` additionally charges it when
+        # the attributed family is itself a machine-representation family.
         den = H.search_denominator(
             self.mem, family_key=row["family_key"],
-            asset_class=row["asset_class"], machine_generated=False,
+            asset_class=row["asset_class"],
+            machine_generated=bool(spec.get("generative_search", False)),
             campaign_method=GENERATION_METHOD,
             within_family_tests=int(spec.get("within_family_tests", 1)))
         g = E.gate({"layers": cand["layers"]}, prior_burden=den["total"],
@@ -716,6 +851,11 @@ class AgentPipeline:
         fwd = self._latest(EV_FORWARD, hid)
         skeptic = rob.get("skeptic_verdict") or "NOT_REVIEWED"
         risk_v = (risk or {}).get("verdict") or "NOT_REVIEWED"
+        stages = [e["detail"] for e in self._events(EV_STAGE, hid)]
+        revealed = [s["stage"] for s in stages]
+        halted = next((s["stage"] for s in stages
+                       if not s.get("advance") and not s.get(
+                           "is_terminal_stage")), None)
 
         if self._latest(EV_PUBLISHED, hid) is not None:
             state = "PUBLISHED"
@@ -737,6 +877,13 @@ class AgentPipeline:
             state = "DATA_HOLD"
         elif cand:
             state = "CANDIDATE_SUBMITTED"
+        elif halted:
+            # A cell that stopped at D or V is SETTLED: it has an outcome, it
+            # counts to the search burden, and it never reaches the skeptic
+            # because the pipeline admits only a measured candidate. Reporting
+            # it as PREREGISTERED would tell a reader nine experiments were
+            # still pending when in fact nine had already answered.
+            state = "HALTED_AT_%s" % halted
         else:
             state = "PREREGISTERED"
         tc = h.get("turnover_cost") or {}
@@ -761,6 +908,13 @@ class AgentPipeline:
             "RISK_VERDICT": risk_v,
             "SURVIVOR_STATE": state,
             "FORWARD_STATE": (fwd or {}).get("forward_state") or "NONE",
+            # Appended AFTER the eighteen the release brief requires, so that
+            # list stays exactly where and as it was. These three make the
+            # sequential reveal legible: without them a cell that stopped at
+            # discovery is indistinguishable from one that never started.
+            "STAGES_REVEALED": revealed,
+            "HALTED_AT": halted,
+            "LOCKBOX_COMPUTED": "L" in revealed,
         }
 
 
@@ -769,6 +923,7 @@ _VERBS = {
     "define_universe": AgentPipeline.define_universe,
     "publish_features": AgentPipeline.publish_features,
     "preregister": AgentPipeline.preregister,
+    "reveal_stage": AgentPipeline.reveal_stage,
     "submit_candidate": AgentPipeline.submit_candidate,
     "skeptic_review": AgentPipeline.skeptic_review,
     "risk_review": AgentPipeline.risk_review,

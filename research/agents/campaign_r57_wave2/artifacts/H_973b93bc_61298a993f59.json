@@ -1,0 +1,209 @@
+{
+ "experiment_id": "H_973b93bc_61298a993f59",
+ "state": "MEASURED",
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+ "owning_agent": "momentum-signal-agent",
+ "book": "FUTURES_DATED_CONTRACT",
+ "executor": "w2_07",
+ "asset_class": "CROSS_ASSET",
+ "economic_family": "CROSS_ASSET_MOMENTUM",
+ "horizon_sessions": 21,
+ "layers": {
+  "D": {
+   "periods": 79,
+   "overlap_factor": 1.0,
+   "effective_observations": 79,
+   "first": "2011-07-01",
+   "last": "2017-10-17",
+   "ann_net_excess": 0.008172646614303744,
+   "ann_gross_excess": 0.020009558263305624,
+   "ann_cost_drag": 0.011836911649001882,
+   "mean_oneway_turnover_per_period": 0.23910568607649002,
+   "max_dd": -0.1368149138508834,
+   "hit_rate": 0.4810126582278481,
+   "t_net_excess": 0.340278881165955,
+   "p_one_sided": 0.36682325982091957,
+   "halves_ann_net_excess": [
+    0.011338284055682924,
+    0.005086150108959041
+   ],
+   "ann_rebalance_cost_drag": 0.003562109644896719,
+   "ann_roll_cost_drag": 0.008274802004105162,
+   "ann_vol_net": 0.06162410812323985,
+   "period_ir_ann": 0.1326209313725005,
+   "median_live_markets": 66.0,
+   "median_positions": 60.0,
+   "flat_decisions": 1,
+   "mean_gross_notional": 0.9873417721518988
+  },
+  "V": {
+   "periods": 60,
+   "overlap_factor": 1.0,
+   "effective_observations": 60,
+   "first": "2018-01-15",
+   "last": "2022-10-19",
+   "ann_net_excess": 0.0652655110839436,
+   "ann_gross_excess": 0.07700909801729891,
+   "ann_cost_drag": 0.0117435869333553,
+   "mean_oneway_turnover_per_period": 0.225614174134447,
+   "max_dd": -0.13440020430472954,
+   "hit_rate": 0.5333333333333333,
+   "t_net_excess": 1.6983677595625895,
+   "p_one_sided": 0.04471918657598994,
+   "halves_ann_net_excess": [
+    0.04276961987792778,
+    0.08776140228995943
+   ],
+   "ann_rebalance_cost_drag": 0.0034619242998240683,
+   "ann_roll_cost_drag": 0.008281662633531237,
+   "ann_vol_net": 0.08592845604155244,
+   "period_ir_ann": 0.7595331522351936,
+   "median_live_markets": 67.0,
+   "median_positions": 61.0,
+   "flat_decisions": 0,
+   "mean_gross_notional": 1.0
+  },
+  "L": {
+   "periods": 44,
+   "overlap_factor": 1.0,
+   "effective_observations": 44,
+   "first": "2023-01-16",
+   "last": "2026-07-07",
+   "ann_net_excess": 0.06339649518051801,
+   "ann_gross_excess": 0.07517872333264704,
+   "ann_cost_drag": 0.011782228152129034,
+   "mean_oneway_turnover_per_period": 0.17201267570553835,
+   "max_dd": -0.1164997616549458,
+   "hit_rate": 0.6363636363636364,
+   "t_net_excess": 1.446267481236889,
+   "p_one_sided": 0.0740510964614763,
+   "halves_ann_net_excess": [
+    0.07592574563435915,
+    0.05086724472667692
+   ],
+   "ann_rebalance_cost_drag": 0.002491534887453173,
+   "ann_roll_cost_drag": 0.00929069326467586,
+   "ann_vol_net": 0.08393678736475738,
+   "period_ir_ann": 0.7552885590560064,
+   "median_live_markets": 68.0,
+   "median_positions": 62.0,
+   "flat_decisions": 0,
+   "mean_gross_notional": 1.0
+  }
+ },
+ "turnover": 0.17201267570553835,
+ "machine_checks": {
+  "signal_sign": 1
+ },
+ "adversarial": {
+  "placebo_clean": {
+   "passed": true,
+   "measured": 0.04871641916106549,
+   "evidence": "cost-neutral placebo, 3 permutations, strongest seed 303; candidate drag 0.0117822 vs placebo drag 0.0117822",
+   "detail": {
+    "verdict": {
+     "placebo_clean": true,
+     "cost_basis": "COST_NEUTRAL",
+     "candidate_cost_drag": 0.011782228152129034,
+     "placebo_cost_drag": 0.011782228152129034,
+     "cost_drag_gap": 0.0,
+     "by_metric": {
+      "ann_net_excess": {
+       "candidate": 0.06339649518051801,
+       "placebo": 0.014680076019452523,
+       "margin": 0.04871641916106549,
+       "required_margin": 0.01,
+       "passed": true
+      }
+     },
+     "failed_metrics": [],
+     "measured": 0.04871641916106549
+    },
+    "runs": [
+     {
+      "seed": 101,
+      "cost_mult": 0.6327904648482047,
+      "raw_cost_drag": 0.01861947802098343,
+      "matched_cost_drag": 0.011782228152129034
+     },
+     {
+      "seed": 202,
+      "cost_mult": 0.6148578036140757,
+      "raw_cost_drag": 0.019162525193425563,
+      "matched_cost_drag": 0.011782228152129037
+     },
+     {
+      "seed": 303,
+      "cost_mult": 0.6223834940715799,
+      "raw_cost_drag": 0.01893081719608388,
+      "matched_cost_drag": 0.011782228152129034
+     }
+    ]
+   }
+  },
+  "cost_robust": {
+   "passed": true,
+   "measured": 0.05161426702838898,
+   "evidence": "lockbox re-run at 2x the pre-registered cost model",
+   "detail": {
+    "doubled_cost_lockbox": {
+     "periods": 44,
+     "overlap_factor": 1.0,
+     "effective_observations": 44,
+     "first": "2023-01-16",
+     "last": "2026-07-07",
+     "ann_net_excess": 0.05161426702838898,
+     "ann_gross_excess": 0.07517872333264704,
+     "ann_cost_drag": 0.023564456304258064,
+     "mean_oneway_turnover_per_period": 0.17201267570553835,
+     "max_dd": -0.12101790207813978,
+     "hit_rate": 0.6363636363636364,
+     "t_net_excess": 1.1766161664675625,
+     "p_one_sided": 0.1196743711072505,
+     "halves_ann_net_excess": [
+      0.06387454278294376,
+      0.0393539912738342
+     ],
+     "ann_rebalance_cost_drag": 0.004983069774906346,
+     "ann_roll_cost_drag": 0.01858138652935172,
+     "ann_vol_net": 0.08399833320038973,
+     "period_ir_ann": 0.6144677526547574,
+     "median_live_markets": 68.0,
+     "median_positions": 62.0,
+     "flat_decisions": 0,
+     "mean_gross_notional": 1.0
+    }
+   }
+  },
+  "subperiod_stable": {
+   "passed": true,
+   "measured": 0.05086724472667692,
+   "evidence": "both halves of the lockbox layer, measured by the book",
+   "detail": {
+    "halves": [
+     0.07592574563435915,
+     0.05086724472667692
+    ]
+   }
+  }
+ },
+ "lockbox_computed": true,
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

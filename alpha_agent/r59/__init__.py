@@ -195,6 +195,20 @@ HORIZON = 21
 BH_Q = 0.10
 OBS_FLOOR = 36
 GATE_MATERIALITY = 0.015          # annualised net excess
+GATE_MATERIALITY_SHARPE = 0.40    # net Sharpe, for a book that reports one
+#: Materiality floor PER REPORTED METRIC. R57 fixed 0.015 for an excess-return
+#: book and 0.40 for a Sharpe book; the gate used to pick the METRIC from one
+#: key and the FLOOR from another, so a layer carrying BOTH compared a Sharpe
+#: against 0.015. The floor now travels WITH the metric name.
+GATE_MATERIALITY_FLOORS = {"ann_net_excess": GATE_MATERIALITY,
+                           "net_sharpe": GATE_MATERIALITY_SHARPE}
+#: Validation must be MATERIAL, not merely positive: this fraction of the
+#: lockbox floor, applied to the SAME metric.
+VALIDATION_MATERIALITY_FRACTION = 0.25
+#: A layer is only revealed when the previous one earned it. Discovery and
+#: validation advance on the same fraction of their own metric's floor.
+STAGE_ADVANCE_FRACTION = VALIDATION_MATERIALITY_FRACTION
+STAGES = ("D", "V", "L")
 GATE_MAX_TURNOVER = 0.40          # per decision, one side
 EQ_COST_RATE_PER_SIDE = 0.00125
 FUT_COST_RATE_PER_SIDE = 0.0002

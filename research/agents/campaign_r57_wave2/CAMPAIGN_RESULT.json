@@ -1,0 +1,566 @@
+{
+ "kind": "ALPHA_CAMPAIGN_RESULT",
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "run_id": "R57_RESEARCH_ENGINE_REPAIR_AND_ALPHA_WAVE2",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "engine": "R57-repaired: sequential D/V/L reveal, per-metric materiality floors, cost-neutral placebo, certified-only R38 layer, reachable generative burden prior",
+ "runner": "alpha_agent.agents_v2.runner (local deterministic execution)",
+ "experiments_preregistered": 10,
+ "experiments_run": 10,
+ "by_state": {
+  "HALTED_AT_D": 6,
+  "KILLED_BY_SKEPTIC": 1,
+  "HALTED_AT_V": 3
+ },
+ "lockboxes_computed": 1,
+ "halted_before_lockbox": 9,
+ "killed_by_skeptic": 1,
+ "skeptic_survivors": 0,
+ "rejected_by_risk": 0,
+ "validated_survivors": 0,
+ "director_cleared": 0,
+ "forward_requests_created": 0,
+ "asset_classes_tested": [
+  "COMMODITY_FUTURES",
+  "CROSS_ASSET",
+  "EQUITY_INDEX_FUTURES",
+  "US_EQUITY"
+ ],
+ "non_equity_experiments": 8,
+ "h1_h5_experiments": 1,
+ "ALPHA_WAVE2_RESULT": "NO_ROBUST_ALPHA_FOUND",
+ "safety": {
+  "orders": 0,
+  "fills": 0,
+  "operational_rebalance": false,
+  "auto_promotion": false,
+  "backfill": false,
+  "new_paid_data_cost_usd": 0,
+  "research_only": true,
+  "paper_only": true
+ },
+ "no_rescue_rule": "No killed or halted cell is re-run with altered parameters, a flipped sign, a different sample or a softer cost. The by-products the skeptic surfaced (softs-excluded and energy-excluded books) are by-products of a kill, not candidates.",
+ "cells": [
+  {
+   "experiment_id": "H_eacf4f2e_dd4787adc546",
+   "executor": "w2_02",
+   "label": "FUT_RISK_TRANSFER_CHURN_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "LIQUIDITY",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0258265 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.016019821871662544,
+     "ann_gross_excess": -0.00980671738597209,
+     "ann_net_excess": -0.025826539257634624,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      -0.023410117745456364,
+      -0.028182550232008444
+     ],
+     "max_dd": -0.17394406374951754,
+     "mean_oneway_turnover_per_period": 0.33149119124774096,
+     "p_one_sided": 0.8790644754402095,
+     "periods": 79,
+     "t_net_excess": -1.1703229013961463
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_7f7cdc392f88",
+   "executor": "w2_01",
+   "label": "FUT_CURVE_HEDGING_CONCENTRATION_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0241572 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.015371165731750434,
+     "ann_gross_excess": -0.008786037564493667,
+     "ann_net_excess": -0.0241572032962441,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      -0.0370105014745509,
+      -0.011625237572394965
+     ],
+     "max_dd": -0.17091761511033177,
+     "mean_oneway_turnover_per_period": 0.24952832009477519,
+     "p_one_sided": 0.9116964606485283,
+     "periods": 79,
+     "t_net_excess": -1.3512758699547893
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_cf148e90_bb573b2d2093",
+   "executor": "w2_08",
+   "label": "FUT_BETTING_AGAINST_VOLATILITY_INTL_INDEX",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "economic_family": "VOLATILITY",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0308378 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.009104385726487339,
+     "ann_gross_excess": -0.021733436844841657,
+     "ann_net_excess": -0.030837822571329,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      -0.006885165413967564,
+      -0.05419166329975639
+     ],
+     "max_dd": -0.20373817577084463,
+     "mean_oneway_turnover_per_period": 0.16789664220003214,
+     "p_one_sided": 0.9794960140740264,
+     "periods": 79,
+     "t_net_excess": -2.043449396589242
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_973b93bc_61298a993f59",
+   "executor": "w2_07",
+   "label": "XA_COMPLEX_LEAVE_ONE_OUT_MOMENTUM",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_MOMENTUM",
+   "horizon_sessions": 21,
+   "survivor_state": "KILLED_BY_SKEPTIC",
+   "stages_revealed": [
+    "D",
+    "V",
+    "L"
+   ],
+   "halted_at": null,
+   "lockbox_computed": true,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "burden_corrected_significant; subperiod_stable; SKEPTIC_KILL: CONCENTRATION: one of the eight scoring economic groups produces 84% of the lockbox. Leave-one-group-out on SOFTS (10 of 68 markets) takes the lockbox from +6.34%/yr, t 1.446, to +1.01%/yr, t 0.199, so the pre-registered CROSS_ASSET claim is not supported by the cross-section that was traded.",
+   "skeptic_verdict": "KILLED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": 0.17201267570553835,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.011836911649001882,
+     "ann_gross_excess": 0.020009558263305624,
+     "ann_net_excess": 0.008172646614303744,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      0.011338284055682924,
+      0.005086150108959041
+     ],
+     "max_dd": -0.1368149138508834,
+     "mean_oneway_turnover_per_period": 0.23910568607649002,
+     "p_one_sided": 0.36682325982091957,
+     "periods": 79,
+     "t_net_excess": 0.340278881165955
+    },
+    "L": {
+     "ann_cost_drag": 0.011782228152129034,
+     "ann_gross_excess": 0.07517872333264704,
+     "ann_net_excess": 0.06339649518051801,
+     "effective_observations": 44,
+     "halves_ann_net_excess": [
+      0.07592574563435915,
+      0.05086724472667692
+     ],
+     "max_dd": -0.1164997616549458,
+     "mean_oneway_turnover_per_period": 0.17201267570553835,
+     "p_one_sided": 0.0740510964614763,
+     "periods": 44,
+     "t_net_excess": 1.446267481236889
+    },
+    "V": {
+     "ann_cost_drag": 0.0117435869333553,
+     "ann_gross_excess": 0.07700909801729891,
+     "ann_net_excess": 0.0652655110839436,
+     "effective_observations": 60,
+     "halves_ann_net_excess": [
+      0.04276961987792778,
+      0.08776140228995943
+     ],
+     "max_dd": -0.13440020430472954,
+     "mean_oneway_turnover_per_period": 0.225614174134447,
+     "p_one_sided": 0.04471918657598994,
+     "periods": 60,
+     "t_net_excess": 1.6983677595625895
+    }
+   },
+   "statistic": {
+    "burden_corrected_p": 1.0,
+    "burden_denominator": 18,
+    "lockbox_observations": 44,
+    "lockbox_p_one_sided": 0.0740510964614763,
+    "lockbox_t": 1.446267481236889
+   },
+   "search_denominator": {
+    "campaign_cells": 16,
+    "family": 0,
+    "generative_charge_applied": false,
+    "generative_search": 0,
+    "in_machine_representation_space": false,
+    "machine_generated": false,
+    "total": 17,
+    "within_family_tests": 2
+   },
+   "statistical_checks": {
+    "burden_corrected_significant": false,
+    "has_lockbox_observations": true,
+    "lockbox_material": true,
+    "lockbox_t_positive": true,
+    "validation_material": true,
+    "validation_same_sign": true
+   },
+   "adversarial_checks": {
+    "cost_robust": true,
+    "leakage_pass": true,
+    "not_a_duplicate_identity": true,
+    "pit_integrity": true,
+    "placebo_clean": true,
+    "subperiod_stable": false
+   }
+  },
+  {
+   "experiment_id": "H_08fe9399_b5ed6f210b60",
+   "executor": "w2_05",
+   "label": "XA_FLOW_DRIVEN_WEEKLY_REVERSAL",
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "MEAN_REVERSION",
+   "horizon_sessions": 5,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.00651489 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.02511111840130873,
+     "ann_gross_excess": 0.01859622645162283,
+     "ann_net_excess": -0.0065148919496858994,
+     "effective_observations": 337,
+     "halves_ann_net_excess": [
+      -0.015892233703787305,
+      0.0028069625751012974
+     ],
+     "max_dd": -0.1372829725323762,
+     "mean_oneway_turnover_per_period": 0.25509126805166493,
+     "p_one_sided": 0.6298826555071795,
+     "periods": 337,
+     "t_net_excess": -0.33154257295370104
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_ffb4e5ba_7ddd7a91c31b",
+   "executor": "w2_04",
+   "label": "XA_RISK_TRANSFER_CHURN_ALL_MARKETS",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "LIQUIDITY",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.00234039 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.013450063120431451,
+     "ann_gross_excess": 0.011109673496501368,
+     "ann_net_excess": -0.0023403896239300825,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      -0.003953027268780906,
+      -0.0007680679202005324
+     ],
+     "max_dd": -0.10245188164316188,
+     "mean_oneway_turnover_per_period": 0.27632684012110464,
+     "p_one_sided": 0.552485225615878,
+     "periods": 79,
+     "t_net_excess": -0.13194278263932557
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_e490a5b8_5c87b7dbcae0",
+   "executor": "w2_06",
+   "label": "XA_DOLLAR_FUNDING_SLOW_DIFFUSION",
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_LEAD_LAG",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_D",
+   "stages_revealed": [
+    "D"
+   ],
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0115041 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.013804211904038589,
+     "ann_gross_excess": 0.002300151725042574,
+     "ann_net_excess": -0.011504060178996012,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      0.023518953798038672,
+      -0.04565149880660482
+     ],
+     "max_dd": -0.20670837433648914,
+     "mean_oneway_turnover_per_period": 0.23358311889910316,
+     "p_one_sided": 0.6731087886351537,
+     "periods": 79,
+     "t_net_excess": -0.4485138086238276
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_978d5ea8_d60dbafd2eda",
+   "executor": "w2_09",
+   "label": "EQ_OPERATING_PROFITABILITY_MULTIYEAR_TREND",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "FUNDAMENTAL_MOMENTUM",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_V",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "halted_at": "V",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_V: ann_net_excess 0.00103907 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.0013588374313918267,
+     "ann_gross_excess": 0.014773246994883643,
+     "ann_net_excess": 0.013414409563491816,
+     "halves_ann_net_excess": [
+      -0.005714289663651255,
+      0.032543108790634885
+     ],
+     "mean_oneway_turnover_per_period": 0.06593750000000001,
+     "p_one_sided": 0.20517689779154633,
+     "periods": 32,
+     "t_net_excess": 0.8232711857271608
+    },
+    "V": {
+     "ann_cost_drag": 0.0015192900778628342,
+     "ann_gross_excess": 0.0025583644431468986,
+     "ann_net_excess": 0.0010390743652840644,
+     "halves_ann_net_excess": [
+      0.030931467371820436,
+      -0.027856905541034427
+     ],
+     "mean_oneway_turnover_per_period": 0.05406779661016949,
+     "p_one_sided": 0.4855604245560429,
+     "periods": 59,
+     "t_net_excess": 0.03620255452229594
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_75c76250_38fcc4f75d68",
+   "executor": "w2_10",
+   "label": "EQ_OPERATING_PROFITABILITY_STABILITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "QUALITY",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_V",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "halted_at": "V",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_V: ann_net_excess -0.00262347 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.001649462431391831,
+     "ann_gross_excess": 0.006009861577598475,
+     "ann_net_excess": 0.004360399146206645,
+     "halves_ann_net_excess": [
+      0.03722906014244279,
+      -0.02850826185002949
+     ],
+     "mean_oneway_turnover_per_period": 0.075625,
+     "p_one_sided": 0.43330462179331386,
+     "periods": 32,
+     "t_net_excess": 0.16796699592293735
+    },
+    "V": {
+     "ann_cost_drag": 0.0019057307558289379,
+     "ann_gross_excess": -0.0007177419085679493,
+     "ann_net_excess": -0.002623472664396882,
+     "halves_ann_net_excess": [
+      0.010148911204880226,
+      -0.01497011040469809
+     ],
+     "mean_oneway_turnover_per_period": 0.06694915254237288,
+     "p_one_sided": 0.5479364852510156,
+     "periods": 59,
+     "t_net_excess": -0.12044956560345406
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  },
+  {
+   "experiment_id": "H_961e502f_197d38ad81cc",
+   "executor": "w2_03",
+   "label": "FUT_BASIS_UNCERTAINTY_PREMIUM_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "VOLATILITY",
+   "horizon_sessions": 21,
+   "survivor_state": "HALTED_AT_V",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "halted_at": "V",
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_V: ann_net_excess -0.0120838 < advance floor 0.00375",
+   "skeptic_verdict": "NOT_REVIEWED",
+   "risk_verdict": "NOT_REVIEWED",
+   "forward_state": "NONE",
+   "turnover": null,
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.014241630576281146,
+     "ann_gross_excess": 0.025410084225711328,
+     "ann_net_excess": 0.011168453649430183,
+     "effective_observations": 79,
+     "halves_ann_net_excess": [
+      0.02837847939687009,
+      -0.005611321454323734
+     ],
+     "max_dd": -0.07867527099709304,
+     "mean_oneway_turnover_per_period": 0.1942900507601072,
+     "p_one_sided": 0.2735197782323092,
+     "periods": 79,
+     "t_net_excess": 0.6022021924475249
+    },
+    "V": {
+     "ann_cost_drag": 0.014183612926652146,
+     "ann_gross_excess": 0.002099816662257914,
+     "ann_net_excess": -0.012083796264394236,
+     "effective_observations": 60,
+     "halves_ann_net_excess": [
+      0.002050359886721265,
+      -0.02621795241550973
+     ],
+     "max_dd": -0.11495484486927954,
+     "mean_oneway_turnover_per_period": 0.1790078068264343,
+     "p_one_sided": 0.6592554529296495,
+     "periods": 60,
+     "t_net_excess": -0.4104319756220572
+    }
+   },
+   "statistic": {},
+   "search_denominator": null,
+   "statistical_checks": null,
+   "adversarial_checks": null
+  }
+ ]
+}

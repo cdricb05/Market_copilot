@@ -1,0 +1,173 @@
+{
+ "contract": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "agent": "validation-skeptic-agent",
+ "run_id": "R57_RESEARCH_ENGINE_REPAIR_AND_ALPHA_WAVE2",
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "reviewed_at_utc": "2026-09-20",
+ "gate_schema": "research/agents/validation_gate_schema.json (v2.1, hash bound at pre-registration; pipeline accepted, so the frozen hash matched)",
+ "candidates_reviewed": 1,
+ "candidates_not_reviewed": {
+  "count": 9,
+  "reason": "HALTED by the sequential D/V/L reveal (6 at discovery, 3 at validation) and already SETTLED NO_ALPHA_EVIDENCE with skeptic_verdict NOT_REVIEWED. Their lockboxes were never computed and cannot be inspected, quoted or re-used. They are NOT hidden: they are the denominator below."
+ },
+
+ "review": {
+  "experiment_id": "H_973b93bc_61298a993f59",
+  "executor": "w2_07",
+  "label": "XA_COMPLEX_LEAVE_ONE_OUT_MOMENTUM",
+  "owning_agent": "momentum-signal-agent",
+  "book": "FUTURES_DATED_CONTRACT",
+  "asset_class": "CROSS_ASSET",
+  "economic_family": "CROSS_ASSET_MOMENTUM",
+  "horizon_sessions": 21,
+  "cadence_sessions": 21,
+
+  "SKEPTIC_VERDICT": "KILLED",
+  "recorded_outcome": "NO_ALPHA_EVIDENCE",
+  "next": null,
+  "handoff": "STOPS HERE. risk-portfolio-agent is not reached; gate skeptic_survived not granted.",
+
+  "measured_layers": {
+   "D": {"effective_observations": 79, "ann_net_excess": 0.008172646614303744, "t_net_excess": 0.340278881165955, "turnover_oneway": 0.23910568607649002},
+   "V": {"effective_observations": 60, "ann_net_excess": 0.0652655110839436, "t_net_excess": 1.6983677595625895, "turnover_oneway": 0.225614174134447},
+   "L": {"effective_observations": 44, "ann_net_excess": 0.06339649518051801, "t_net_excess": 1.446267481236889, "turnover_oneway": 0.17201267570553835, "ann_cost_drag": 0.011782228152129034}
+  },
+  "independent_reproduction": {
+   "performed": true,
+   "script": "alpha_agent.agents_v2.books.run_stage(stage='L') re-run by the skeptic on the same certified panel",
+   "lockbox_ann_net_excess": 0.06339649518051801,
+   "lockbox_t_net_excess": 1.446267481236889,
+   "matches_submitted_artifact": true
+  },
+
+  "canonical_statistical_gate": {
+   "owner": "alpha_agent.r59.engines.gate",
+   "delegated": true,
+   "reimplemented_by_skeptic": false,
+   "qualified": false,
+   "checks": {
+    "has_lockbox_observations": true,
+    "lockbox_material": true,
+    "validation_same_sign": true,
+    "validation_material": true,
+    "lockbox_t_positive": true,
+    "burden_corrected_significant": false
+   },
+   "lockbox_observations": 44,
+   "lockbox_t": 1.446267481236889,
+   "lockbox_p_one_sided": 0.0740510964614763,
+   "burden_corrected_p": 1.0,
+   "burden_corrected_significance_q": 0.10,
+   "burden_denominator": 18
+  },
+
+  "search_denominator_charged": {
+   "owner": "alpha_agent.r59.handlers.search_denominator",
+   "family": 0,
+   "generative_search": 0,
+   "machine_generated": false,
+   "in_machine_representation_space": false,
+   "generative_charge_applied": false,
+   "campaign_cells": 16,
+   "within_family_tests": 2,
+   "total": 17,
+   "gate_denominator": 18,
+   "composition": "16 settled campaign cells under the same generation method (R56 V2's 7 + Wave 2's 9 halted cells) + 1 for the cell's own declared within-family multiplicity (within_family_tests = 2, charged as n-1) + 0 family prior (CROSS_ASSET_MOMENTUM had no prior settled test under this family key) + 0 generative prior (the pre-registration declares generative_search = false and CROSS_ASSET_MOMENTUM is not a machine-representation family); alpha_agent.r59.engines.gate then charges family_tests = 1 on top, giving 18.",
+   "honest_reading": "This is the best of ten Wave-2 draws, charged as such. A one-sided p of 0.0741 needs the denominator to be at most 1 to clear q = 0.10."
+  },
+
+  "machine_checks": {
+   "sign_consistent": true,
+   "cost_model_frozen": true,
+   "turnover_within_ceiling": true
+  },
+
+  "adversarial_checks": {
+   "pit_integrity": {
+    "passed": true,
+    "measured": 0.0,
+    "method": "POISON. Every finite ret in grid slots [t+1, end] replaced with noise, finiteness pattern preserved so no eligibility mask could move; the executor's own weights vector recomputed on all 44 lockbox decisions.",
+    "evidence": "max |dw| = 0.0 exactly, 44/44 decisions. Code facts: score reads _log_sum_return(ret, t-253, t-22) so the newest slot read is t-23; universe_all_traded counts OWN sessions in [t-252, t-1] and volume through t-2 (panels.py:150-190); the only t-dated read is live_markets = isfinite(ret[:, t]) (campaign_r56_v2/evaluator.py:78-85), a liveness flag known at the settlement of t, which IS the entry instant. layer['own'] == isfinite(ret) elementwise, so no forward fill (25.4% of grid slots are NaN); all 68 certified dated-contract markets retained, expired contracts included."
+   },
+   "leakage_pass": {
+    "passed": true,
+    "measured": 0.0,
+    "method": "TRUNCATION + POWER CONTROL. (1) Poison the SKIPPED most recent month, slots [t-22, t]. (2) Poison the window the signal claims to read, [t-253, t-22).",
+    "evidence": "(1) max |dw| = 0.0 on 44/44 lockbox decisions, so the 12-2 window genuinely excludes the last month. (2) weights moved on 44/44 decisions, min |dw| 0.0354, max 0.1455, so the zero in (1) is a real exclusion and not a dead test. Forward return is ret[:, t+1 : t+1+horizon] (campaign_r56_v2/evaluator.py:93), realised strictly after t from the settlement entry."
+   },
+   "placebo_clean": {
+    "passed": true,
+    "measured": 0.04871641916106549,
+    "method": "ADOPTED FROM THE ENGINE AFTER INDEPENDENT REPRODUCTION. alpha_agent.r59.engines.placebo_verdict over alpha_agent.agents_v2.books.placebo_cost_neutral, 3 cross-sectional permutations, COST-NEUTRAL (R57 repair A4).",
+    "evidence": "Re-running the strongest placebo (seed 303) at the artifact's cost_mult 0.6223834940715799 reproduced ann_net_excess 0.014680076019452523 EXACTLY and cost drag 0.011782228152129034 = the candidate's to 1e-15. Margin 4.87%/yr against the frozen 1%/yr floor. Permutation fairness measured rather than assumed: permuted_score_fn shuffles finite entries across all 68 rows and the book zeroes anything landing on a non-live market, so the placebo could have carried less gross exposure; measured placebo mean_gross_notional 0.9716 / 0.9822 / 0.9738 vs the candidate's 1.0 - a worst-case 2.8% shortfall worth at most ~0.04pp on a 1.47%/yr placebo, immaterial to a 4.87pp margin."
+   },
+   "cost_robust": {
+    "passed": true,
+    "measured": 0.05161426702838898,
+    "method": "lockbox re-run at 2x the pre-registered FUTURES_PER_MARKET_R38_PLUS_ROLL_V1 model",
+    "evidence": "artifacts/H_973b93bc_61298a993f59.json lines 145-177: +5.16%/yr, t 1.177, drag 2.36%/yr against gross +7.52%/yr. Turnover 0.172 one-way is far inside the 0.40 ceiling. Cost is not what this book lives or dies on."
+   },
+   "subperiod_stable": {
+    "passed": false,
+    "measured": 0.010109649270422459,
+    "method": "LEAVE-ONE-ECONOMIC-GROUP-OUT on the lockbox, added by the skeptic because the runner measured the TIME axis only and the frozen attack is 'not one subperiod, ONE INSTRUMENT or one event'. A group-level construction hides in the cross-section, not in the calendar.",
+    "evidence": "Time axis PASSES: lockbox halves +7.59%/yr and +5.09%/yr, both positive. Cross-section axis FAILS: only 8 of 12 economic groups ever score (>= 3 members required), and removing SOFTS alone - 10 of 68 markets - collapses the lockbox from +6.34%/yr, t 1.446, to +1.01%/yr, t 0.199. One group of ten softs contracts produces 84% of the effect. Removing ENERGY instead IMPROVES it to +8.88%/yr, t 2.195, so the other seven groups do not carry a consistent cross-asset effect. The pre-registered claim is CROSS_ASSET; what was measured is a softs claim over a 2023-2026 lockbox - the same post-2022 softs regime that killed R56's basis-momentum cell.",
+    "leave_one_group_out_lockbox_ann_net_excess": {
+     "SOFTS": 0.010109649270422459,
+     "GRAINS_AND_OILSEEDS": 0.04832625299473233,
+     "INTL_INDEX_FUTURES": 0.05239195304668354,
+     "PRECIOUS_METALS": 0.06523085776553611,
+     "LIVESTOCK": 0.06619790588802689,
+     "TREASURY_FUTURES": 0.06942822887459657,
+     "FX_FUTURES": 0.07014843816107459,
+     "ENERGY": 0.08881279222694904,
+     "EMISSIONS": 0.06339649518051801,
+     "INDUSTRIAL_METALS": 0.06339649518051801,
+     "INTL_INDEX_FUTURES_EMERGING": 0.06339649518051801,
+     "VIX_FUTURES_TERM_STRUCTURE": 0.06339649518051801
+    },
+    "note": "The four groups with an unchanged number have fewer than 3 members and were never scorable."
+   },
+   "not_a_duplicate_identity": {
+    "passed": true,
+    "measured": 0.9849665354654857,
+    "threshold": "|Spearman| >= 0.999 is a monotone re-expression (frozen; neither relaxed nor tightened)",
+    "method": "Reconstructed the realised per-decision cross-sectional ordering on the IDENTICAL universe and decision grid (184 scored decisions across D/V/L) and rank-correlated it against three real neighbours. Rank correlation of realised WEIGHTS vs the score is 1.000, confirming a pure rank book, so the ordering IS the decision.",
+    "neighbours": {
+     "own_12_2_momentum": {"mean_spearman_all": 0.4016240520261743, "mean_spearman_lockbox": 0.36570397455954884, "max_abs": 0.766737176097303, "fraction_of_decisions_ge_0.999": 0.0},
+     "economic_group_mean_12_2_momentum_including_self": {"mean_spearman_all": 0.9375181816296083, "mean_spearman_lockbox": 0.9416170380233659, "median_all": 0.9501859928933113, "max_abs": 0.9849665354654857, "fraction_of_decisions_ge_0.999": 0.0},
+     "within_group_12_2_reversal": {"mean_spearman_all": 0.28614840856220214, "max_abs": 0.748051948051948, "fraction_of_decisions_ge_0.999": 0.0}
+    },
+    "evidence": "PASSES the frozen rule: no decision reaches 0.999 against any neighbour. But the number is reported, not rounded: algebraically f_i = group_mean + (group_mean - r_i)/(k-1), and the measurement confirms it - 94% of the ordering's rank information is plain complex-level 12-2 momentum, the leave-one-out step adds about 6%, and against the market's OWN momentum the correlation is only 0.40, so the construction is genuinely not own momentum. It is group momentum with a small within-group reversal tilt."
+   }
+  },
+
+  "kill_reason": "CONCENTRATION: one of the eight scoring economic groups produces 84% of the lockbox. Leave-one-group-out on SOFTS (10 of 68 markets) takes the lockbox from +6.34%/yr, t 1.446, to +1.01%/yr, t 0.199, so the pre-registered CROSS_ASSET claim is not supported by the cross-section that was traded.",
+  "failed": ["burden_corrected_significant", "subperiod_stable", "SKEPTIC_KILL: concentration"],
+  "no_rescue": "This verdict is final. The candidate is not re-runnable with a narrowed universe, a different sign, a softer cost or a longer sample. A SOFTS-only book is not adoptable as a by-product of this test; it would need a fresh human-authorised pre-registration on untouched data."
+ },
+
+ "multiple_testing_exposure": {
+  "campaign_cells_settled_under_this_method": 16,
+  "wave2_pre_registered": 10,
+  "wave2_halted_before_lockbox": 9,
+  "wave2_reaching_the_skeptic": 1,
+  "wave2_survivors": 0,
+  "statement": "One candidate of ten reached a lockbox and it is the maximum of that draw. Its unadjusted lockbox p of 0.0741 is exactly the kind of number a best-of-ten selection produces by chance; corrected for the 18 charged tests it is 1.0. The director should discount it accordingly."
+ },
+
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "manual_review_required": true,
+  "durable_state_written_only_via": "scripts/alpha_agents_v2.py skeptic_review (PIPELINE_OK)"
+ }
+}

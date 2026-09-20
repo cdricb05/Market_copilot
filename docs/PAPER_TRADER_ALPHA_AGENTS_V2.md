@@ -36,9 +36,12 @@ An agent may never widen the contract itself. A scope change is a new version.
 | Identity, roster, owner names | `alpha_agent/agents_v2/__init__.py` |
 | Specification reader + validator | `alpha_agent/agents_v2/contracts.py` |
 | Governed handoff pipeline | `alpha_agent/agents_v2/pipeline.py` |
-| PowerShell entrypoint | `scripts/alpha_agents_v2.py` |
-| Acceptance tests | `tests/test_paper_trader_alpha_agents_v2.py` |
+| Live book owner (delegates to frozen evidence) | `alpha_agent/agents_v2/books.py` |
+| Local campaign execution path | `alpha_agent/agents_v2/runner.py` |
+| PowerShell entrypoints | `scripts/alpha_agents_v2.py`, `scripts/run_agents_v2_campaign.py` |
+| Acceptance tests | `tests/test_paper_trader_alpha_agents_v2.py`, `tests/test_release57_research_engine_repair.py` |
 | Preparatory census | `research/agents/NEXT_CAMPAIGN_CENSUS.json` |
+| Settled campaigns | `research/agents/campaign_r56_v2/` (frozen evidence), `research/agents/campaign_r57_wave2/` |
 
 ## 3. Who owns what
 
@@ -68,7 +71,9 @@ data-foundation-agent          certify_data
 universe-construction-agent    define_universe      (refused without certification)
 feature-library-agent          publish_features     (refused without a universe)
         |
-momentum | reversal | trend-breadth | volatility-liquidity      submit_candidate
+momentum | reversal | trend-breadth | volatility-liquidity      reveal_stage
+        |                                                       D, then V, then L
+        |                                                       submit_candidate
         |                                                       (parallel batch)
 validation-skeptic-agent       skeptic_review   KILLED by default; the ONLY door
 risk-portfolio-agent           risk_review      skeptic survivors only
@@ -80,6 +85,47 @@ signal-publishing-agent        publish_candidate, request_forward_registration
 A Claude Code subagent cannot launch a subagent. The director therefore emits an
 assignment manifest and the session orchestrator dispatches the four signal
 agents in one parallel batch.
+
+### Agents DECIDE, the local engine EXECUTES (R57)
+
+The twelve agents own the agenda, the hypotheses, the parameters, the gates,
+the interpretation of a nontrivial result and every publish decision. They do
+NOT narrate deterministic work. Universes, features, books, D/V/L slicing,
+cost arithmetic, cost-neutral placebos, doubled cost, subperiods and gate
+evaluation run locally through `alpha_agent/agents_v2/runner.py`, which returns
+ONE compact machine-readable summary per experiment.
+
+A campaign is therefore three artifacts and one command:
+
+```
+research/agents/campaign_<id>/campaign_agenda.json   the director's freeze, as DATA
+research/agents/campaign_<id>/executors.py           the hypotheses, as code
+research/agents/campaign_<id>/campaign_spec.json     experiment id -> executor
+```
+
+```powershell
+& $py scripts\preregister_wave2.py                  # foundation chain + freeze
+& $py scripts\run_agents_v2_campaign.py --spec <campaign_spec.json> `
+      --out results.json --artifacts artifacts\
+```
+
+### Sequential D/V/L reveal (R57)
+
+`reveal_stage` measures ONE evaluation layer. Validation is measured only if
+discovery earned it; the lockbox only if validation earned it. The advance test
+is deliberately weak - 25% of that metric's own materiality floor - because it
+decides only whether the estate has earned the right to LOOK at the next layer;
+the verdict remains `alpha_agent.r59.engines.gate` on the lockbox alone.
+
+A layer that does not advance HALTS the experiment: it is settled
+NO_ALPHA_EVIDENCE, it still counts to the search burden, and **the lockbox is
+never computed at all**, so it cannot be inspected, quoted or reused. The
+ledger reports such a cell as `HALTED_AT_D` / `HALTED_AT_V` with
+`LOCKBOX_COMPUTED: false` - never as `PREREGISTERED`, which would tell a reader
+it was still pending.
+
+In Wave 2 this was not a formality: 9 of 10 cells halted before the lockbox
+(6 at discovery, 3 at validation) and only one lockbox was ever computed.
 
 ## 5. The publishing boundary
 
@@ -112,7 +158,7 @@ $py  = 'C:\Users\binis\paper_trader\.venv-win\Scripts\python.exe'
 $cli = 'C:\Users\binis\paper_trader\scripts\alpha_agents_v2.py'
 & $py $cli validate-contracts
 & $py $cli status
-& $py $cli census --out D:\Temp\census.json
+& $py $cli census --out D:\Temp\census.json   # NEVER over NEXT_CAMPAIGN_CENSUS.json
 & $py $cli preregister --agent quant-research-director --input prereg.json
 & $py $cli ledger
 ```

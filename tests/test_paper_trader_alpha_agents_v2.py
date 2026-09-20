@@ -57,21 +57,33 @@ def pipe(tmp_path, monkeypatch):
 
 def _strong(kind: str) -> dict:
     if kind == "equity":
-        return {"D": {"ann_net_excess": 0.05, "t_net_excess": 4.0},
-                "V": {"ann_net_excess": 0.04, "t_net_excess": 3.0},
+        return {"D": {"ann_net_excess": 0.05, "t_net_excess": 4.0,
+                      "periods": 70},
+                "V": {"ann_net_excess": 0.04, "t_net_excess": 3.0,
+                      "periods": 55},
                 "L": {"ann_net_excess": 0.06, "t_net_excess": 4.5,
                       "p_one_sided": 1e-6, "periods": 40}}
-    return {"D": {"net_sharpe": 0.9, "t_net": 4.0},
-            "V": {"net_sharpe": 0.8, "t_net": 3.0},
+    return {"D": {"net_sharpe": 0.9, "t_net": 4.0, "days": 1600},
+            "V": {"net_sharpe": 0.8, "t_net": 3.0, "days": 1200},
             "L": {"net_sharpe": 1.1, "t_net": 4.2, "p_one_sided": 1e-6,
                   "days": 700}}
 
 
 def _weak() -> dict:
-    return {"D": {"net_sharpe": 0.5, "t_net": 2.0},
-            "V": {"net_sharpe": 0.05, "t_net": 0.3},
+    """Advances D and V - so the lockbox is legitimately reached - and then
+    fails the gate ON THE LOCKBOX, which is the only layer that decides."""
+    return {"D": {"net_sharpe": 0.5, "t_net": 2.0, "days": 1600},
+            "V": {"net_sharpe": 0.15, "t_net": 1.1, "days": 1200},
             "L": {"net_sharpe": 0.10, "t_net": 0.6, "p_one_sided": 0.27,
                   "days": 700}}
+
+
+def _halts_at(stage: str) -> dict:
+    """Layers whose ``stage`` is too weak to earn the next one."""
+    out = _weak()
+    out[stage] = dict(out[stage])
+    out[stage]["net_sharpe"] = 0.0
+    return out
 
 
 def _all_checks_pass() -> dict:
@@ -160,14 +172,32 @@ def _preregister(pipe, name: str) -> dict:
     return pipe.perform(A.DIRECTOR, "preregister", _prereg_payload(case))
 
 
-def _submit(pipe, name: str, reg: dict, *, layers=None, sign=1, cost=None,
-            turnover=0.20) -> dict:
+def _reveal(pipe, name: str, reg: dict, *, layers=None) -> dict:
+    """Walk D -> V -> L through the governed reveal. Returns the last result."""
     case = CASES[name]
+    layers = layers if layers is not None else _strong(case["layers"])
+    out: dict = {}
+    for stage in r59.STAGES:
+        out = pipe.perform(case["owner"], "reveal_stage", dict(
+            experiment_id=reg["experiment_id"], spec_hash=reg["spec_hash"],
+            stage=stage, stats=layers.get(stage) or {},
+            evaluator="alpha_agent.r57.engine"))
+        if not out["advance"]:
+            break
+    return out
+
+
+def _submit(pipe, name: str, reg: dict, *, layers=None, sign=1, cost=None,
+            turnover=0.20, reveal=True) -> dict:
+    case = CASES[name]
+    layers = layers if layers is not None else _strong(case["layers"])
+    if reveal:
+        _reveal(pipe, name, reg, layers=layers)
     return pipe.perform(case["owner"], "submit_candidate", dict(
         experiment_id=reg["experiment_id"], spec_hash=reg["spec_hash"],
         signal_sign=sign, evidence_kind="HISTORICAL",
         cost_model=cost or case["cost"], turnover=turnover,
-        layers=layers or _strong(case["layers"]),
+        layers=layers,
         evaluator="alpha_agent.r57.engine"))
 
 
@@ -350,12 +380,16 @@ def test_09_the_ledger_is_the_one_research_memory_not_a_second_registry(pipe):
     schema = C.load_contract("experiment_registry_schema.json")
     assert schema["registry_owner"] == A.RESEARCH_REGISTRY_OWNER
     assert set(schema["fields"]) == set(pipe.ledger()[0])
-    # exactly the fields the release brief requires of every experiment
-    assert list(pipe.ledger()[0]) == [
+    # exactly the fields the release brief requires of every experiment, in
+    # order and FIRST; R57's sequential reveal appends three derived fields
+    # after them, so the brief's eighteen stay exactly where they were.
+    assert list(pipe.ledger()[0])[:18] == [
         "EXPERIMENT_ID", "AGENT", "HYPOTHESIS", "ASSET_CLASS", "FAMILY",
         "FEATURE_SET", "HORIZON", "PARAMETERS", "DISCOVERY_SAMPLE",
         "EVALUATION_SAMPLE", "PIT_STATUS", "TURNOVER", "COST_MODEL", "RESULT",
         "SKEPTIC_VERDICT", "RISK_VERDICT", "SURVIVOR_STATE", "FORWARD_STATE"]
+    assert list(pipe.ledger()[0])[18:] == [
+        "STAGES_REVEALED", "HALTED_AT", "LOCKBOX_COMPUTED"]
     # the package creates no database and no table of its own
     for py in PACKAGE_DIR.glob("*.py"):
         src = py.read_text(encoding="utf-8")

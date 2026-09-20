@@ -1,0 +1,91 @@
+{
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "executor_module": "research/agents/campaign_r57_wave2/executors.py",
+ "review_order": [
+  "w2_02",
+  "w2_01",
+  "w2_08",
+  "w2_07",
+  "w2_05",
+  "w2_04",
+  "w2_06",
+  "w2_09",
+  "w2_10",
+  "w2_03"
+ ],
+ "review_order_rule": "BINDING, and also the EXECUTION order, because a halted cell settles and counts to the burden just like a reviewed one. Ordered by ex-ante conviction so the strongest ideas pay the smallest denominator, with every declared variant reviewed AFTER its parent (w2_04 after w2_02; w2_10 after w2_09).",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION. NEW_PAID_DATA_COST = $0.",
+ "experiments": [
+  {
+   "experiment_id": "H_eacf4f2e_dd4787adc546",
+   "executor": "w2_02",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_RISK_TRANSFER_CHURN_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_7f7cdc392f88",
+   "executor": "w2_01",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_CURVE_HEDGING_CONCENTRATION_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_cf148e90_bb573b2d2093",
+   "executor": "w2_08",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_BETTING_AGAINST_VOLATILITY_INTL_INDEX",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_973b93bc_61298a993f59",
+   "executor": "w2_07",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_COMPLEX_LEAVE_ONE_OUT_MOMENTUM",
+   "owning_agent": "momentum-signal-agent"
+  },
+  {
+   "experiment_id": "H_08fe9399_b5ed6f210b60",
+   "executor": "w2_05",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_FLOW_DRIVEN_WEEKLY_REVERSAL",
+   "owning_agent": "reversal-signal-agent"
+  },
+  {
+   "experiment_id": "H_ffb4e5ba_7ddd7a91c31b",
+   "executor": "w2_04",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_RISK_TRANSFER_CHURN_ALL_MARKETS",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_e490a5b8_5c87b7dbcae0",
+   "executor": "w2_06",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_DOLLAR_FUNDING_SLOW_DIFFUSION",
+   "owning_agent": "trend-breadth-signal-agent"
+  },
+  {
+   "experiment_id": "H_978d5ea8_d60dbafd2eda",
+   "executor": "w2_09",
+   "book": "EQUITY_TOPN",
+   "label": "EQ_OPERATING_PROFITABILITY_MULTIYEAR_TREND",
+   "owning_agent": "momentum-signal-agent"
+  },
+  {
+   "experiment_id": "H_75c76250_38fcc4f75d68",
+   "executor": "w2_10",
+   "book": "EQUITY_TOPN",
+   "label": "EQ_OPERATING_PROFITABILITY_STABILITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_961e502f_197d38ad81cc",
+   "executor": "w2_03",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_BASIS_UNCERTAINTY_PREMIUM_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent"
+  }
+ ]
+}

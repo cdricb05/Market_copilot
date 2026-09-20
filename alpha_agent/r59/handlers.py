@@ -105,33 +105,64 @@ def campaign_cells(mem: M.ResearchMemory, generation_method: str) -> int:
                and h.get("outcome") is not None)
 
 
+#: The economic family every generated representation is registered under.
+MACHINE_FAMILY_PREFIX = "MACHINE_REPRESENTATION"
+
+
+def is_machine_family(family_key: str) -> bool:
+    """Does ``family_key`` name a generated-representation family?"""
+    return str(family_key).split("|")[0].startswith(MACHINE_FAMILY_PREFIX)
+
+
 def search_denominator(mem: M.ResearchMemory, *, family_key: str,
                        asset_class: str, machine_generated: bool,
                        campaign_method: Optional[str] = None,
                        within_family_tests: int = 1) -> dict:
     """How many tests this claim must be charged for.
 
-    Two components, both real:
+    Three components, all real:
 
     * the ATTRIBUTED family's own prior burden - if a candidate re-expresses
       the liquidity factor, it is charged for every liquidity test already run;
     * for a machine candidate, the GENERATIVE search that produced it - the
       machine grammar in this scope emits candidates by the dozen, and a
       t-statistic picked out of that pile is not worth what an isolated
-      pre-registered test would be.
+      pre-registered test would be;
+    * the cells this campaign has already prosecuted under the same method.
 
     Charging only the family burden would let a generator run hundreds of
     candidates and present the best one as if it had been the only one tried.
+
+    THE GENERATIVE CHARGE APPLIES WHEN EITHER IS TRUE:
+
+    * the caller declares the candidate machine-generated; or
+    * the attributed family IS a generated-representation family - a
+      hand-written hypothesis that lands inside the space the grammar already
+      swept was still selected against that sweep, whoever typed it.
+
+    The second rule exists because the flag alone made the machine prior
+    structurally unreachable for every agent experiment: the one caller on the
+    AGENTS_V2 path passed a hard-coded ``False``, so no pre-registered
+    candidate could ever be charged for the 7,000+ representations the estate
+    has already run. The flag is now DERIVED from the frozen pre-registration
+    (``generative_search``), and this rule catches the case the flag misses.
+
+    The candidate's OWN family is never counted twice: it is already the
+    ``family`` component, so it is excluded from the generative sum.
     """
     b = mem.burden()
     by_family = b.get("by_family") or {}
     family = int(by_family.get(family_key, 0))
+    in_machine_space = is_machine_family(family_key)
+    charge_generative = bool(machine_generated) or in_machine_space
     generative = 0
-    if machine_generated:
+    if charge_generative:
         for key, n in by_family.items():
+            if key == family_key:
+                continue                      # already charged as ``family``
             parts = key.split("|")
             if len(parts) >= 3 and parts[2] == asset_class and \
-                    parts[0].startswith("MACHINE_REPRESENTATION"):
+                    parts[0].startswith(MACHINE_FAMILY_PREFIX):
                 generative += int(n)
     campaign = (campaign_cells(mem, campaign_method) if campaign_method
                 else 0)
@@ -140,6 +171,9 @@ def search_denominator(mem: M.ResearchMemory, *, family_key: str,
     # taken four draws, and must be charged for four.
     total = family + generative + campaign + max(0, within_family_tests - 1)
     return {"family": family, "generative_search": generative,
+            "machine_generated": bool(machine_generated),
+            "in_machine_representation_space": in_machine_space,
+            "generative_charge_applied": bool(charge_generative),
             "campaign_cells": campaign,
             "within_family_tests": int(within_family_tests),
             "total": int(total)}
