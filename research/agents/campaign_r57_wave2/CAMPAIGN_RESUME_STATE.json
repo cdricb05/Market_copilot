@@ -1,0 +1,277 @@
+{
+ "kind": "CAMPAIGN_RESUME_STATE",
+ "owner": "alpha_agent.agents_v2.briefs",
+ "brief_version": "R58_AGENT_CONTEXT_CONTRACT_V1",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "run_id": "PAPER_TRADER_AGENT_EFFICIENCY_AND_MODEL_ROUTING_V1",
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "state": {
+  "campaign_id": "R57_ALPHA_WAVE2",
+  "experiments_preregistered": 10,
+  "experiments_in_spec": 10,
+  "assigned_by_agent": {
+   "volatility-liquidity-agent": 6,
+   "momentum-signal-agent": 2,
+   "reversal-signal-agent": 1,
+   "trend-breadth-signal-agent": 1
+  },
+  "unmeasured_by_agent": {},
+  "measured": [
+   "H_973b93bc_61298a993f59"
+  ],
+  "halted": 9,
+  "awaiting_skeptic": [],
+  "skeptic_survivors": [],
+  "awaiting_risk": [],
+  "validated_survivors": [],
+  "meta_reviewed": [],
+  "director_cleared": [],
+  "data_certified": true,
+  "universe_defined": true,
+  "features_published": true
+ },
+ "experiments": [
+  {
+   "experiment_id": "H_eacf4f2e_dd4787adc546",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "LIQUIDITY",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_7f7cdc392f88",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_cf148e90_bb573b2d2093",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "economic_family": "VOLATILITY",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_973b93bc_61298a993f59",
+   "preregistered": true,
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_MOMENTUM",
+   "stages_revealed": [
+    "D",
+    "V",
+    "L"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_08fe9399_b5ed6f210b60",
+   "preregistered": true,
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "MEAN_REVERSION",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_ffb4e5ba_7ddd7a91c31b",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "LIQUIDITY",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_e490a5b8_5c87b7dbcae0",
+   "preregistered": true,
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_LEAD_LAG",
+   "stages_revealed": [
+    "D"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_978d5ea8_d60dbafd2eda",
+   "preregistered": true,
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "FUNDAMENTAL_MOMENTUM",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_75c76250_38fcc4f75d68",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "QUALITY",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  },
+  {
+   "experiment_id": "H_961e502f_197d38ad81cc",
+   "preregistered": true,
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "VOLATILITY",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "settled": true
+  }
+ ],
+ "next_roles_to_spawn": [
+  "quant-research-director"
+ ],
+ "roles_not_to_spawn": [
+  {
+   "role": "data-foundation-agent",
+   "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+  },
+  {
+   "role": "universe-construction-agent",
+   "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+  },
+  {
+   "role": "feature-library-agent",
+   "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+  },
+  {
+   "role": "momentum-signal-agent",
+   "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+  },
+  {
+   "role": "reversal-signal-agent",
+   "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+  },
+  {
+   "role": "trend-breadth-signal-agent",
+   "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+  },
+  {
+   "role": "volatility-liquidity-agent",
+   "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+  },
+  {
+   "role": "validation-skeptic-agent",
+   "reason": "NO_MEASURED_CANDIDATE_EVERY_EXPERIMENT_HALTED_OR_SETTLED"
+  },
+  {
+   "role": "risk-portfolio-agent",
+   "reason": "SKEPTIC_KILLED_EVERY_CANDIDATE"
+  },
+  {
+   "role": "meta-model-ensemble-agent",
+   "reason": "FEWER_THAN_TWO_VALIDATED_SURVIVORS_NOTHING_TO_COMBINE"
+  },
+  {
+   "role": "signal-publishing-agent",
+   "reason": "NO_DIRECTOR_CLEARANCE"
+  }
+ ],
+ "model_routing": {
+  "quant-research-director": {
+   "model": "opus",
+   "effort": "high"
+  },
+  "data-foundation-agent": {
+   "model": "haiku",
+   "effort": "low"
+  },
+  "universe-construction-agent": {
+   "model": "haiku",
+   "effort": "low"
+  },
+  "feature-library-agent": {
+   "model": "haiku",
+   "effort": "low"
+  },
+  "momentum-signal-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "reversal-signal-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "trend-breadth-signal-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "volatility-liquidity-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "validation-skeptic-agent": {
+   "model": "opus",
+   "effort": "high"
+  },
+  "risk-portfolio-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "meta-model-ensemble-agent": {
+   "model": "sonnet",
+   "effort": "medium"
+  },
+  "signal-publishing-agent": {
+   "model": "haiku",
+   "effort": "low"
+  }
+ },
+ "deterministic_execution_owner": "alpha_agent.agents_v2.runner",
+ "full_transcript_required_to_resume": false,
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

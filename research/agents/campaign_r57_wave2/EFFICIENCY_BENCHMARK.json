@@ -1,0 +1,349 @@
+{
+ "kind": "AGENT_EFFICIENCY_BENCHMARK",
+ "owner": "alpha_agent.agents_v2.efficiency",
+ "version": "R58_AGENT_EFFICIENCY_BENCHMARK_V1",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "run_id": "PAPER_TRADER_AGENT_EFFICIENCY_AND_MODEL_ROUTING_V1",
+ "campaign_id": "R57_ALPHA_WAVE2",
+ "proxy": "CONTEXT_PAYLOAD_BYTES",
+ "proxy_note": "Deterministic byte proxy over real files. NOT a token count; Claude Code exposes no per-subagent token meter locally.",
+ "token_counts_available": false,
+ "invocations": {
+  "definition": "roles a session would launch for this campaign; STRUCTURAL, not an observed transcript count",
+  "before_agent_invocations": 12,
+  "before_note": "no spawn gate existed; the whole roster was available",
+  "after_agent_invocations": 1,
+  "after_spawn": [
+   "quant-research-director"
+  ],
+  "after_skip": [
+   {
+    "role": "data-foundation-agent",
+    "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+   },
+   {
+    "role": "universe-construction-agent",
+    "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+   },
+   {
+    "role": "feature-library-agent",
+    "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED"
+   },
+   {
+    "role": "momentum-signal-agent",
+    "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+   },
+   {
+    "role": "reversal-signal-agent",
+    "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+   },
+   {
+    "role": "trend-breadth-signal-agent",
+    "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+   },
+   {
+    "role": "volatility-liquidity-agent",
+    "reason": "ALL_ASSIGNED_EXPERIMENTS_ALREADY_MEASURED"
+   },
+   {
+    "role": "validation-skeptic-agent",
+    "reason": "NO_MEASURED_CANDIDATE_EVERY_EXPERIMENT_HALTED_OR_SETTLED"
+   },
+   {
+    "role": "risk-portfolio-agent",
+    "reason": "SKEPTIC_KILLED_EVERY_CANDIDATE"
+   },
+   {
+    "role": "meta-model-ensemble-agent",
+    "reason": "FEWER_THAN_TWO_VALIDATED_SURVIVORS_NOTHING_TO_COMBINE"
+   },
+   {
+    "role": "signal-publishing-agent",
+    "reason": "NO_DIRECTOR_CLEARANCE"
+   }
+  ],
+  "reduction_pct": 91.7
+ },
+ "context_proxy": {
+  "before_bytes": 1540634,
+  "after_bytes": 9332,
+  "reduction_pct": 99.4,
+  "brief_effect_only": {
+   "note": "all twelve roles spawned in BOTH arms; the only change priced here is estate payload -> brief",
+   "before_bytes": 1540634,
+   "after_bytes": 37941,
+   "reduction_pct": 97.5
+  },
+  "spawn_gate_effect_only": {
+   "note": "briefs in BOTH arms; the only change priced here is twelve spawns -> the spawn plan",
+   "before_bytes": 37941,
+   "after_bytes": 9332,
+   "reduction_pct": 75.4
+  },
+  "before_by_role": [
+   {
+    "role": "quant-research-director",
+    "bytes": 171174,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249,
+     "census": 19977,
+     "canonical_docs": 29689
+    }
+   },
+   {
+    "role": "data-foundation-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "universe-construction-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "feature-library-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "momentum-signal-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "reversal-signal-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "trend-breadth-signal-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "volatility-liquidity-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "validation-skeptic-agent",
+    "bytes": 139390,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249,
+     "campaign_result": 17882
+    }
+   },
+   {
+    "role": "risk-portfolio-agent",
+    "bytes": 136498,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249,
+     "canonical_docs": 14990
+    }
+   },
+   {
+    "role": "meta-model-ensemble-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   },
+   {
+    "role": "signal-publishing-agent",
+    "bytes": 121508,
+    "parts": {
+     "inherited_claude_md": 12825,
+     "contract_set": 62290,
+     "campaign_agenda": 26144,
+     "result_bundle": 20249
+    }
+   }
+  ],
+  "after_by_role": [
+   {
+    "role": "quant-research-director",
+    "bytes": 9332,
+    "parts": {
+     "brief": 9332
+    }
+   },
+   {
+    "role": "data-foundation-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "universe-construction-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "feature-library-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "momentum-signal-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "reversal-signal-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "trend-breadth-signal-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "volatility-liquidity-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "validation-skeptic-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "risk-portfolio-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "meta-model-ensemble-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   },
+   {
+    "role": "signal-publishing-agent",
+    "bytes": 0,
+    "parts": {
+     "brief": 0
+    },
+    "not_spawned": true
+   }
+  ]
+ },
+ "handoff_bytes": {
+  "before_bytes": 76156,
+  "after_bytes": 9332,
+  "reduction_pct": 87.7
+ },
+ "duplicate_context_removed": {
+  "inherited_claude_md_per_spawn": 12825,
+  "spawns": 12,
+  "total_bytes": 153900,
+  "mechanism": "omitClaudeMd: true in every research agent definition"
+ },
+ "full_memory_reads_required_by_director": 0,
+ "full_census_reads_required_by_director": 0,
+ "skeptic_recomputes_machine_tests": false,
+ "deterministic_tasks_done_locally": 17,
+ "deterministic_tasks_done_by_agent": 0,
+ "judgment_retained_by_agents": 6,
+ "campaign_state": {
+  "campaign_id": "R57_ALPHA_WAVE2",
+  "experiments_preregistered": 10,
+  "experiments_in_spec": 10,
+  "assigned_by_agent": {
+   "volatility-liquidity-agent": 6,
+   "momentum-signal-agent": 2,
+   "reversal-signal-agent": 1,
+   "trend-breadth-signal-agent": 1
+  },
+  "unmeasured_by_agent": {},
+  "measured": [
+   "H_973b93bc_61298a993f59"
+  ],
+  "halted": 9,
+  "awaiting_skeptic": [],
+  "skeptic_survivors": [],
+  "awaiting_risk": [],
+  "validated_survivors": [],
+  "meta_reviewed": [],
+  "director_cleared": [],
+  "data_certified": true,
+  "universe_defined": true,
+  "features_published": true
+ }
+}

@@ -109,6 +109,63 @@ research/agents/campaign_<id>/campaign_spec.json     experiment id -> executor
       --out results.json --artifacts artifacts\
 ```
 
+### Cheap where it is mechanical, expensive where it judges (R58)
+
+R57 moved the deterministic COMPUTATION local. R58 moved the control plane's
+cost down without moving any judgment. Three things changed.
+
+**Model and effort routing.** Every role used to run on the session's model at
+the session's effort. Each definition now declares its own, in fields the
+installed Claude Code's agent schema actually carries (`model`, `effort`,
+`maxTurns`, `omitClaudeMd` - see `routing.MODEL_ROUTING_EVIDENCE`):
+
+| Tier | Roles | Model | Effort |
+| --- | --- | --- | --- |
+| High reasoning | `quant-research-director`, `validation-skeptic-agent` | `opus` | `high` |
+| Medium | the four signal agents, `risk-portfolio-agent`, `meta-model-ensemble-agent` | `sonnet` | `medium` |
+| Structured | `data-foundation-agent`, `universe-construction-agent`, `feature-library-agent`, `signal-publishing-agent` | `haiku` | `low` |
+
+`alpha_agent/agents_v2/routing.py` OWNS that table; the frontmatter is its
+rendering, and `contracts.validate()` fails the build when the two disagree.
+
+**Context contracts.** A role is handed a BRIEF, never the estate. Every brief
+carries one envelope (RUN_ID, CAMPAIGN_ID, EXPERIMENT_ID, SOURCE_AGENT,
+TARGET_AGENT, DECISION_REQUIRED, FACTS, METRICS, FAILED_GATES,
+ARTIFACT_POINTERS, SAFETY_STATE), stays inside a 500-word prose budget, and is
+a PROJECTION over state the R59 memory already owns - never a second truth
+source. The director reads a compact research state instead of a full memory
+or census read; a signal agent sees only the experiments assigned to it; and
+the skeptic receives ONE bundle in which `placebo_clean`, `cost_robust` and
+`subperiod_stable` are already MEASURED by `runner.adversarial_pack` and the
+statistical verdict is already ruled by `r59.engines.gate`. The skeptic answers
+five questions and does not re-narrate a machine test.
+
+Every definition runs with `omitClaudeMd: true`: the project CLAUDE.md is 11,829
+bytes of UI redesign workflow and backend restart rules that no researcher
+needs, and it was being paid for on every spawn. The non-negotiables it carried
+are REQUIRED SECTIONS of each definition already.
+
+**Spawn discipline.** The pipeline refused an illegal downstream write, but it
+refused it after the subagent had loaded its context. `routing.spawn_plan` now
+rules BEFORE a subagent exists, from memory state, with a reason code for every
+skip: a halted discovery spawns no skeptic; a killed candidate spawns no risk
+agent; meta needs at least two validated survivors to be a real combination
+question; publishing needs a director clearance. No research agent is granted a
+delegation tool, so the session orchestrator remains the only dispatcher.
+
+```powershell
+& $py scripts\agents_v2_brief.py --routing                      # the policy, verified
+& $py scripts\agents_v2_brief.py --spawn-plan --spec <spec.json>
+& $py scripts\agents_v2_brief.py --role validation-skeptic-agent `
+      --spec <spec.json> --results <results.json>
+& $py scripts\agents_v2_brief.py --resume --spec <spec.json> `
+      --out research\agents\campaign_<id>\CAMPAIGN_RESUME_STATE.json
+```
+
+`CAMPAIGN_RESUME_STATE.json` is what a new session reads after `/compact` or a
+context loss. The chat transcript is not the system of record and is not needed
+to resume.
+
 ### Sequential D/V/L reveal (R57)
 
 `reveal_stage` measures ONE evaluation layer. Validation is measured only if

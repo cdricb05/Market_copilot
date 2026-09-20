@@ -19,10 +19,12 @@ from typing import Optional
 
 from . import (AGENT_DEFINITION_DIR, AGENT_SYSTEM_VERSION, CONTRACT_DIR,
                CONTRACT_FILES, PUBLISHING, ROSTER, SIGNAL_AGENTS, SKEPTIC)
+from . import routing as R
 
 #: Sections every Paper-Trader-native agent definition must carry.
 REQUIRED_SECTIONS = (
-    "## Mission", "## When to invoke", "## Allowed inputs",
+    "## Mission", "## When to invoke", "## Context contract",
+    "## Allowed inputs",
     "## Required outputs", "## Prohibited actions", "## Validation gates",
     "## Handoff contract", "## Canonical owners",
     "## Failure-reporting requirements", "## PowerShell-only rule",
@@ -222,6 +224,13 @@ def validate(contract_dir: Optional[Path] = None,
             problems.append("%s: grants the Bash tool" % name)
         if "PowerShell" not in d["tools"]:
             problems.append("%s: does not grant PowerShell" % name)
+        # A research agent may not launch another agent: the session
+        # orchestrator is the only dispatcher, and a self-dispatching agent
+        # would escape the spawn discipline entirely.
+        for tool in R.DELEGATION_TOOLS:
+            if tool in d["tools"]:
+                problems.append("%s: grants the delegation tool %s"
+                                % (name, tool))
         if AGENT_SYSTEM_VERSION not in d["body"]:
             problems.append("%s: does not name %s"
                             % (name, AGENT_SYSTEM_VERSION))
@@ -232,4 +241,8 @@ def validate(contract_dir: Optional[Path] = None,
             if phrase in d["body"]:
                 problems.append("%s: carries retired Phase 8-A text %r"
                                 % (name, phrase))
+    # The committed model/effort routing must BE the routing Claude Code
+    # loads. ``routing`` owns the policy; this is where a drifted definition
+    # is caught.
+    problems.extend(R.routing_problems(ddir))
     return problems

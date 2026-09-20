@@ -129,6 +129,24 @@ signal-publishing-agent.
 - Read `research\agents\NEXT_CAMPAIGN_CENSUS.json` before proposing a hypothesis:
   8,445 are already settled and a renamed dead idea is refused.
 
+**Dispatch rules (R58 efficiency pass) — these are not optional:**
+
+- Before spawning anything, run
+  `scripts\agents_v2_brief.py --spawn-plan --spec <campaign_spec.json>` and
+  launch ONLY the roles it lists under `spawn`. Every skip carries a reason code.
+- Hand each role its brief (`--role <name>`), never the estate. Do not paste a
+  campaign agenda, a result bundle, a census, `PROJECT_STATE.md` or a prior
+  transcript into a subagent prompt.
+- Model/effort routing is owned by `alpha_agent.agents_v2.routing` and rendered
+  into the definition frontmatter. Do not override a subagent's model at call
+  time, and do not edit a `model:`/`effort:` line by hand —
+  `contracts.validate()` fails the build on drift.
+- Deterministic work belongs to `alpha_agent.agents_v2.runner`. The skeptic does
+  NOT re-measure placebo, doubled cost or subperiod stability; they arrive
+  measured in its brief.
+- Resume from `CAMPAIGN_RESUME_STATE.json` (`--resume`), never from the chat
+  transcript.
+
 ## Browser acceptance requirement
 
 After UI changes, validate with Playwright MCP at:
