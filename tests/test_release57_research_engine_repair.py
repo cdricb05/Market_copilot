@@ -382,7 +382,14 @@ def test_a4_a_permutation_destroys_only_the_cross_sectional_assignment():
 
 def test_a4_the_schema_declares_the_cost_neutral_rule():
     schema = C.Contracts().gate_schema()
-    assert schema["validation_gate_schema_version"] == "2.1"
+    # 2.1 is the version that introduced the cost-neutral placebo. What this
+    # test protects is that the RULE is still declared, not that the schema
+    # has stopped evolving - R61 raised it to 2.2 to replace the turnover
+    # scalar with an annualised cost budget, and pinning the exact string
+    # would have made every later correction look like a regression here.
+    version = tuple(int(p) for p in
+                    schema["validation_gate_schema_version"].split("."))
+    assert version >= (2, 1)
     assert schema["placebo"]["cost_basis"] == "COST_NEUTRAL"
     assert schema["placebo"]["owner"] == \
         "alpha_agent.r59.engines.placebo_verdict"

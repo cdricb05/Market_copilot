@@ -1,9 +1,16 @@
 {
   "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
   "contract": "validation_gate_schema",
-  "validation_gate_schema_version": "2.1",
+  "validation_gate_schema_version": "2.2",
   "description": "What the validation-skeptic-agent applies to every candidate. The verdict is KILLED unless the canonical statistical gate passes AND every required adversarial check is reported passed WITH a measured value. The sha256 of this file is bound into every pre-registration; a review under a different hash is refused, which is what 'thresholds frozen before final evaluation' means in code.",
-  "version_2_1_changes": ["materiality: the floor now travels WITH the metric, and EVERY reported materiality metric is graded against its own floor (2.0 could read the metric from net_sharpe and the floor from ann_net_excess, comparing a Sharpe to 0.015)", "placebo: the comparison is COST-NEUTRAL by construction - the placebo is re-simulated with its cost scaled to the candidate's realised drag, so the margin measures predictive content and not the candidate's lower turnover", "reveal: D, V and L are revealed SEQUENTIALLY and a later layer is never measured until the earlier one earned it", "burden: the generative (machine-representation) prior is charged whenever the candidate is declared generative-search OR its attributed family is itself a machine-representation family"],
+  "version_2_2_changes": [
+  "cost: the universal economic qualification gate is no longer a raw one-way TURNOVER scalar. It is an ANNUALISED COST-BUDGET computed from the cell's own frozen cost model and rebalance frequency (alpha_agent.r61.cost_budget). The 0.40 scalar was horizon-blind and cost-blind: it priced a liquid futures book at a mid-cap equity cost and killed two of R60's four non-equity cells before any return was scored, for money futures do not spend.",
+  "diagnostic: raw one-way turnover is still measured and still reported, and gates NOTHING. max_turnover_per_decision_one_side is retained ONLY as a labelled diagnostic so a reader can see what the retired gate would have said.",
+  "fail-closed: a cost budget that cannot be computed - a frozen cost model stating a per-instrument vector with no measured effective rate supplied - is COST_BUDGET_NOT_EVALUABLE, and that is a FAILED machine check. A cost that could not be computed was not paid by nobody; it was not checked.",
+  "pre-measurement halts: a cell that stops before any return exists is settled through pipeline.record_pre_measurement_halt, which may write DATA_HOLD or REJECTED and may NEVER write NO_ALPHA_EVIDENCE. A cell that computed no return has said nothing about alpha.",
+  "drawdown: strategy drawdown and excess drawdown are two CONCEPTS with one owner (alpha_agent.r61.drawdown). The risk agent rules on the canonical concept and a surface may not read a drawdown that was never measured."
+ ],
+ "version_2_1_changes": ["materiality: the floor now travels WITH the metric, and EVERY reported materiality metric is graded against its own floor (2.0 could read the metric from net_sharpe and the floor from ann_net_excess, comparing a Sharpe to 0.015)", "placebo: the comparison is COST-NEUTRAL by construction - the placebo is re-simulated with its cost scaled to the candidate's realised drag, so the margin measures predictive content and not the candidate's lower turnover", "reveal: D, V and L are revealed SEQUENTIALLY and a later layer is never measured until the earlier one earned it", "burden: the generative (machine-representation) prior is charged whenever the candidate is declared generative-search OR its attributed family is itself a machine-representation family"],
   "default_verdict": "KILLED",
   "canonical_statistical_gate": {
     "owner": "alpha_agent.r59.engines.gate",
@@ -18,7 +25,14 @@
       "materiality_floor_net_sharpe": 0.40,
       "validation_materiality_fraction_of_floor": 0.25,
       "stage_advance_fraction_of_floor": 0.25,
-      "max_turnover_per_decision_one_side": 0.40
+      "max_annualized_cost_drag": 0.03,
+      "max_annualized_cost_drag_owner": "alpha_agent.r61.cost_budget",
+      "max_annualized_cost_drag_version": "R61_ANNUALISED_COST_BUDGET_V1",
+      "max_annualized_cost_drag_derivation": "2.0 x materiality_floor_ann_net_excess (0.015). A cell may spend on trading at most twice what it must ultimately deliver net; at the ceiling the required GROSS premium is 4.5%/yr merely to reach the 1.5%/yr floor the candidate has to clear anyway. The multiple is a declared appetite fixed against a constant frozen long before this release and for an unrelated reason. No measured return enters the derivation, and it was NOT chosen by looking at what r60_05, r60_07 or r60_08 produced.",
+      "max_annualized_cost_drag_formula": "one_way_turnover * 2 * cost_per_side * rebalances_per_year + additional_ann_cost_drag, where rebalances_per_year = 252 / rebalance_interval_sessions, cost_per_side is a RATE on traded notional (25 bp/side = 0.0025), and additional_ann_cost_drag carries a dated-contract futures book's ROLL cost.",
+      "max_annualized_cost_drag_continuity": "Monthly equity at 25 bp/side sitting exactly on the RETIRED 0.40 scalar costs 0.40 x 2 x 0.0025 x 12 = 2.4%/yr, just inside this ceiling. The new gate agrees with the old one in the world the scalar was calibrated for and differs exactly where the scalar was blind: a different cost, or a different frequency.",
+      "max_turnover_per_decision_one_side": 0.40,
+      "max_turnover_per_decision_one_side_status": "RETIRED AS A GATE IN SCHEMA 2.2 - DIAGNOSTIC ONLY. Superseded by max_annualized_cost_drag. Reported so a reader can see what the retired gate would have said; nothing in the governed path may refuse a cell on it."
     },
     "checks": ["has_lockbox_observations", "lockbox_material", "validation_same_sign", "validation_material", "lockbox_t_positive", "burden_corrected_significant"],
     "materiality_rule": "The floor travels WITH the metric: ann_net_excess is graded against materiality_floor_ann_net_excess and net_sharpe against materiality_floor_net_sharpe. A layer that reports BOTH is making two claims and must clear BOTH floors; validation is read on the SAME metrics as the lockbox, so the two layers can never be graded on different scales. A layer that reports NO materiality metric is not material.",
@@ -40,7 +54,7 @@
     "machine_checked": [
       {"id": "sign_consistent", "rule": "the submitted signal_sign equals the pre-registered expected_sign; computed by the pipeline, not reported by an agent"},
       {"id": "cost_model_frozen", "rule": "the submitted cost model equals the pre-registered cost model; computed by the pipeline"},
-      {"id": "turnover_within_ceiling", "rule": "measured turnover per decision (one side) <= max_turnover_per_decision_one_side; computed by the pipeline"}
+      {"id": "cost_budget_within_ceiling", "rule": "projected annualised cost drag <= max_annualized_cost_drag, computed by alpha_agent.r61.cost_budget from the cell's OWN frozen cost model and rebalance frequency; computed by the pipeline, never reported by an agent. A budget that cannot be computed is COST_BUDGET_NOT_EVALUABLE and FAILS - it fails closed, because a cost that was not checked was not met."}
     ]
   },
   "placebo": {

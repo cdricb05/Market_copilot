@@ -46,6 +46,8 @@ from .. import r59
 from ..r59 import engines as E
 from ..r59 import handlers as H
 from ..r59 import memory as M
+from ..r61 import cost_budget as CB
+from ..r61 import halts as HALT
 from . import (AGENT_SYSTEM_VERSION, CAPITAL_ELIGIBILITY_OWNER,
                FORWARD_ADOPTION_OWNER, FORWARD_EVIDENCE_OWNER,
                FORWARD_MATURATION_OWNER, FORWARD_REGISTRAR_OWNER,
@@ -71,6 +73,9 @@ EV_DIRECTOR = "AGENTS_V2_DIRECTOR_DECISION"
 EV_PUBLISHED = "AGENTS_V2_CANDIDATE_PUBLISHED"
 EV_FORWARD = "AGENTS_V2_FORWARD_REQUEST"
 EV_REFUSED = "AGENTS_V2_REFUSED"
+#: R61 Workstream E. A cell that stopped BEFORE any return existed settles
+#: here, because ``reveal_stage`` judges a measured layer and a halt has none.
+EV_PREMEASUREMENT_HALT = HALT.EV_PREMEASUREMENT_HALT
 
 PIT_SAFE = "PIT_SAFE"
 NOT_PIT_SAFE = "NOT_PIT_SAFE"
@@ -452,6 +457,116 @@ class AgentPipeline:
                 "next": ("validation-skeptic-agent"
                          if adv["is_terminal_stage"] else None)}
 
+    def record_pre_measurement_halt(
+            self, *, agent: str, experiment_id: str, spec_hash: str,
+            halt_reason: str, measured_metric: str, measured_value,
+            frozen_threshold, frozen_threshold_owner: str = "",
+            detail: str = "", superseded_by: str = "") -> dict:
+        """Settle an experiment that stopped BEFORE any return was measured.
+
+        ``reveal_stage`` judges a measured layer, so it cannot settle a cell
+        that never produced one. Four of R60's eight cells halted on a
+        coverage floor or a pre-registered economic constraint and stayed OPEN
+        in the memory forever - which also meant they were never counted in
+        ``ResearchMemory.burden``, understating the estate's own denominator.
+
+        This verb is the ONE canonical way to record that, and it is strict:
+
+        * it refuses once ANY layer has been revealed, because then the halt
+          was not pre-measurement and ``reveal_stage`` owns it;
+        * it refuses a candidate that was already submitted;
+        * it is IDEMPOTENT - a second call returns the first record and writes
+          nothing, so a resumed campaign cannot double-charge the burden;
+        * the outcome is chosen by the declared mapping in
+          :mod:`alpha_agent.r61.halts`, and NO_ALPHA_EVIDENCE is not reachable
+          from here. A cell that computed no return has said nothing about
+          alpha, and filing silence as evidence of absence is the exact
+          mislabelling the R60 director refused.
+        """
+        self._require(agent, "record_pre_measurement_halt")
+        row = self._owning_agent(agent, experiment_id)
+        spec = row.get("spec") or {}
+        if spec_hash != _spec_hash(spec):
+            raise PipelineRefusal(
+                "SPEC_CHANGED_AFTER_PREREGISTRATION",
+                "a halt was not recorded under the frozen spec")
+
+        prior = self._latest(EV_PREMEASUREMENT_HALT, experiment_id)
+        if prior is not None:
+            return {"experiment_id": experiment_id,
+                    "state": "ALREADY_RECORDED",
+                    "record": prior.get("record"),
+                    "outcome": prior.get("record", {}).get("outcome")}
+        if self._stage_events(experiment_id):
+            raise PipelineRefusal(
+                "NOT_A_PRE_MEASUREMENT_HALT",
+                "%s already revealed %s; a halt after a layer was measured is "
+                "settled by reveal_stage, not here"
+                % (experiment_id,
+                   [e["stage"] for e in self._stage_events(experiment_id)]))
+        if self._latest(EV_CANDIDATE, experiment_id) is not None:
+            raise PipelineRefusal("CANDIDATE_ALREADY_SUBMITTED",
+                                  "the result is final")
+        if row.get("outcome"):
+            raise PipelineRefusal(
+                "ALREADY_SETTLED",
+                "%s is already %s" % (experiment_id, row.get("outcome")))
+
+        try:
+            record = HALT.build(
+                experiment_id=experiment_id, halt_reason=halt_reason,
+                measured_metric=measured_metric, measured_value=measured_value,
+                frozen_threshold=frozen_threshold,
+                frozen_threshold_owner=frozen_threshold_owner,
+                detail=detail, superseded_by=superseded_by)
+        except HALT.HaltRefusal as exc:
+            raise PipelineRefusal("HALT_NOT_ADMISSIBLE", str(exc)) from exc
+
+        self.mem.record_result(
+            experiment_id, outcome=record["outcome"],
+            evidence_maturity="HISTORICAL",
+            economics={"layers": {},
+                       "pre_measurement_halt": True,
+                       "alpha_layer_consumed": record["alpha_layer_consumed"],
+                       "lockbox_consumed": record["lockbox_consumed"]},
+            robustness={"skeptic_verdict": "NOT_REVIEWED",
+                        "sequential_reveal": "NOT_STARTED",
+                        "stages_revealed": [],
+                        "pre_measurement_halt": record},
+            reason_rejected=HALT.reason_for_memory(record),
+            reopen_condition=HALT.reopen_condition_for(record))
+        detail_ev = {"agent": agent, "record": record,
+                     "outcome": record["outcome"],
+                     "burden_treatment": record["burden_treatment"]}
+        self.mem.event(EV_PREMEASUREMENT_HALT, subject=experiment_id,
+                       detail=detail_ev)
+        return {"experiment_id": experiment_id, "state": "RECORDED",
+                "record": record, "outcome": record["outcome"],
+                "burden_treatment": record["burden_treatment"],
+                "next": None}
+
+    def open_pre_measurement_halts(self) -> list:
+        """Pre-registered experiments that are neither measured nor halted.
+
+        An experiment with no revealed layer, no candidate and no outcome is
+        OPEN: something stopped it and nothing recorded what. This is the
+        reader that proves the gap is closed.
+        """
+        out = []
+        for row in self.mem.list_hypotheses(limit=99999, unsettled_only=True):
+            hid = row.get("hypothesis_id")
+            if (row.get("generation_method") or "") != GENERATION_METHOD:
+                continue
+            if self._stage_events(hid) or \
+                    self._latest(EV_CANDIDATE, hid) is not None:
+                continue
+            out.append({"experiment_id": hid,
+                        "title": row.get("title"),
+                        "asset_class": row.get("asset_class"),
+                        "owning_agent": (row.get("spec") or {})
+                        .get("owning_agent")})
+        return out
+
     # -- signal agents ------------------------------------------------------- #
     def submit_candidate(self, *, agent: str, experiment_id: str,
                          spec_hash: str, signal_sign: int = 0,
@@ -460,7 +575,10 @@ class AgentPipeline:
                          turnover: Optional[float] = None,
                          layers: Optional[dict] = None,
                          state: str = "MEASURED", reason: str = "",
-                         evaluator: str = "") -> dict:
+                         evaluator: str = "",
+                         effective_cost_per_side: Optional[float] = None,
+                         additional_ann_cost_drag: Optional[float] = None
+                         ) -> dict:
         self._require(agent, "submit_candidate")
         row = self._experiment(experiment_id)
         spec = row.get("spec") or {}
@@ -522,7 +640,17 @@ class AgentPipeline:
         detail = {"agent": agent, "state": "MEASURED",
                   "signal_sign": int(signal_sign), "cost_model": cost_model,
                   "turnover": float(turnover), "layers": layers,
-                  "evaluator": evaluator}
+                  "evaluator": evaluator,
+                  # R61 cost budget inputs. ``effective_cost_per_side`` is
+                  # REQUIRED when the frozen cost model states a per-instrument
+                  # vector rather than a scalar rate - the skeptic's budget
+                  # check fails closed without it rather than charging zero.
+                  "effective_cost_per_side": (
+                      None if effective_cost_per_side is None
+                      else float(effective_cost_per_side)),
+                  "additional_ann_cost_drag": (
+                      None if additional_ann_cost_drag is None
+                      else float(additional_ann_cost_drag))}
         self.mem.event(EV_CANDIDATE, subject=experiment_id, detail=detail)
         return {"experiment_id": experiment_id, "state": "CANDIDATE_SUBMITTED",
                 "next": "validation-skeptic-agent"}
@@ -560,12 +688,28 @@ class AgentPipeline:
         g = E.gate({"layers": cand["layers"]}, prior_burden=den["total"],
                    family_tests=1)
 
-        ceiling = self.contracts.gate_schema()["canonical_statistical_gate"][
-            "inherited_thresholds"]["max_turnover_per_decision_one_side"]
+        # THE ECONOMIC CONSTRAINT, R61. The retired scalar ceiling of 0.40
+        # one-way turnover priced a liquid futures book at a mid-cap equity
+        # cost and killed two of R60's four non-equity cells for money futures
+        # do not spend. What binds is COST, so the budget is an annualised
+        # drag computed from the cell's OWN frozen cost model and rebalance
+        # frequency (alpha_agent.r61.cost_budget). Raw turnover survives as a
+        # reported diagnostic and gates nothing.
+        thresholds = self.contracts.gate_schema()[
+            "canonical_statistical_gate"]["inherited_thresholds"]
+        budget_ceiling = float(thresholds["max_annualized_cost_drag"])
+        budget = CB.evaluate_frozen_spec(
+            spec, one_way_turnover=cand["turnover"],
+            cost_per_side=cand.get("effective_cost_per_side"),
+            additional_ann_cost_drag=float(
+                cand.get("additional_ann_cost_drag") or 0.0),
+            ceiling=budget_ceiling)
         machine = {
             "sign_consistent": cand["signal_sign"] == spec["expected_sign"],
             "cost_model_frozen": cand["cost_model"] == spec["cost_model"],
-            "turnover_within_ceiling": cand["turnover"] <= float(ceiling),
+            # NOT_EVALUABLE fails closed: a budget that could not be computed
+            # has not been met.
+            "cost_budget_within_ceiling": bool(budget["passed"]),
         }
         adversarial = {}
         for cid in self.contracts.required_adversarial_checks():
@@ -597,7 +741,10 @@ class AgentPipeline:
                        "validation_materiality": g["validation_materiality"],
                        "layers": cand["layers"]},
             turnover_cost={"turnover": cand["turnover"],
-                           "cost_model": cand["cost_model"]},
+                           "cost_model": cand["cost_model"],
+                           "cost_budget": budget,
+                           "cost_budget_owner": CB.COST_BUDGET_OWNER,
+                           "cost_budget_version": CB.COST_BUDGET_VERSION},
             robustness={"skeptic_verdict": verdict,
                         "statistical_gate_owner": E.CALCULATION_OWNER,
                         "statistical_checks": g["checks"],
@@ -608,7 +755,8 @@ class AgentPipeline:
             reason_rejected=None if survived else "; ".join(failed),
             reopen_condition="NEW_ORTHOGONAL_INFORMATION")
         detail = {"agent": agent, "verdict": verdict, "failed": failed,
-                  "outcome": outcome, "search_denominator": den}
+                  "outcome": outcome, "search_denominator": den,
+                  "cost_budget": budget}
         self.mem.event(EV_SKEPTIC, subject=experiment_id, detail=detail)
         return {"experiment_id": experiment_id, **detail,
                 "next": "risk-portfolio-agent" if survived else None}
@@ -924,6 +1072,8 @@ _VERBS = {
     "publish_features": AgentPipeline.publish_features,
     "preregister": AgentPipeline.preregister,
     "reveal_stage": AgentPipeline.reveal_stage,
+    "record_pre_measurement_halt":
+        AgentPipeline.record_pre_measurement_halt,
     "submit_candidate": AgentPipeline.submit_candidate,
     "skeptic_review": AgentPipeline.skeptic_review,
     "risk_review": AgentPipeline.risk_review,

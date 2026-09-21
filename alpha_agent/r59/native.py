@@ -49,6 +49,7 @@ import numpy as np
 
 from .. import r59
 from ..r57 import engine as K
+from ..r61 import drawdown as DD
 
 CALCULATION_OWNER = "alpha_agent.r59.native"
 
@@ -395,8 +396,16 @@ def _layer_stats(res: dict, layer: str) -> dict:
     ppy = 252.0 / float(res["horizon"])
     lag = max(0, int(math.ceil(res["horizon"] / res["cadence"])) - 1)
     st = K.nw_tstat(ex, lag=lag)
-    nav = np.cumprod(1.0 + ex)
-    dd = float((nav / np.maximum.accumulate(nav) - 1.0).min()) if len(nav) else None
+    # DRAWDOWN IS OWNED, NOT RECOMPUTED (R61 Workstream D). Two repairs:
+    # the accumulator now starts at the capital at risk (the local one started
+    # its peak at the first NAV point, so a loss in the first period reported
+    # exactly 0.0000), and the key is named for the concept it actually holds.
+    # ``max_dd`` here was ALWAYS the drawdown of the EXCESS series; this book's
+    # control is cash, so the strategy and excess paths coincide - by a
+    # property of this book, not by definition, which is why both are reported.
+    dd_block = DD.layer_drawdowns(strategy_returns=res["strat_net"][sel],
+                                  benchmark_returns=res["bench_net"][sel])
+    dd = dd_block[DD.EXCESS_MAX_DRAWDOWN]
     half = len(ex) // 2
     # EFFECTIVE observations. With cadence 5 and horizon 63 each decision's
     # window overlaps the next twelve, so 177 rows are worth about fourteen
@@ -415,6 +424,12 @@ def _layer_stats(res: dict, layer: str) -> dict:
         "ann_cost_drag": float((exg - ex).mean() * ppy),
         "mean_oneway_turnover_per_period":
             float(res["turnover_oneway"][sel].mean()),
+        # Canonical concepts (R61); ``max_dd`` remains as an ALIAS of the
+        # excess concept so every prior reader still works.
+        DD.STRATEGY_MAX_DRAWDOWN: dd_block[DD.STRATEGY_MAX_DRAWDOWN],
+        DD.BENCHMARK_MAX_DRAWDOWN: dd_block[DD.BENCHMARK_MAX_DRAWDOWN],
+        DD.EXCESS_MAX_DRAWDOWN: dd_block[DD.EXCESS_MAX_DRAWDOWN],
+        "drawdown_owner": dd_block["drawdown_owner"],
         "max_dd": dd,
         "hit_rate": float((ex > 0).mean()),
         "t_net_excess": st["t"], "p_one_sided": st["p_one_sided"],

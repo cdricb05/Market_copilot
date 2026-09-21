@@ -14774,6 +14774,172 @@ def _r60_ui_panel(ui: str) -> str:
     return ui[start:end]
 
 
+def check_release61_apparatus_calibration(files: list[Path]) -> dict:
+    """R61 invariants - the research apparatus was measured, and the four
+    defects that measurement exposed stay closed.
+
+    The dangerous outcomes this forbids, one per group:
+
+    * A SECOND ECONOMIC QUALIFICATION GATE. The raw one-way turnover scalar
+      priced a liquid futures book at a mid-cap equity cost and killed two of
+      R60's four non-equity cells before any return was scored. It is retired
+      to a DIAGNOSTIC and replaced by one annualised cost budget with one
+      owner. A reappearance of ``turnover_within_ceiling`` as a governed
+      machine check, or a second module computing a cost drag, is a drift back
+      to the defect.
+
+    * A DRAWDOWN THAT WAS NEVER MEASURED, RENDERED AS ZERO. Two local
+      accumulators disagreed and one of them could report 0.0000 on a stream
+      that lost thirty percent in its first period. Both layer-statistics
+      owners must now DELEGATE, and no ``np.maximum.accumulate(nav)`` may
+      remain in either.
+
+    * A CELL THAT CAN NEVER SETTLE. A halt before measurement had no path
+      through the memory, so four R60 cells stayed open and were never charged
+      to the burden. There is one verb, it writes through the EXISTING memory,
+      and it may never write NO_ALPHA_EVIDENCE - a cell that computed no
+      return has said nothing about alpha.
+
+    * A CALIBRATION THAT BECOMES AN ALPHA EXPERIMENT. The power harness may
+      not pre-register, submit a candidate, record a result or freeze a
+      forward. If it could, a synthetic signal could enter the estate's
+      record as a finding.
+
+    * A RESEARCH JOB NOBODY CAN ACCOUNT FOR. One worker registry, and NOTHING
+      in it or in the operator surface may terminate a process.
+    """
+    out: dict = {}
+    root = REPO_ROOT
+
+    # -- A: one cost-budget owner, and the scalar is retired ---------------- #
+    cb = _read("alpha_agent/r61/cost_budget.py")
+    out["cost_budget_owner_present"] = bool(cb)
+    gate_schema = root / "research" / "agents" / "validation_gate_schema.json"
+    try:
+        schema = json.loads(gate_schema.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        schema = {}
+    th = ((schema.get("canonical_statistical_gate") or {})
+          .get("inherited_thresholds") or {})
+    out["gate_schema_declares_cost_budget"] = bool(
+        th.get("max_annualized_cost_drag"))
+    out["gate_schema_cost_budget_owner"] = th.get(
+        "max_annualized_cost_drag_owner") == "alpha_agent.r61.cost_budget"
+    out["turnover_scalar_marked_retired"] = "RETIRED" in str(
+        th.get("max_turnover_per_decision_one_side_status") or "")
+    machine_ids = [c.get("id") for c in
+                   ((schema.get("adversarial_checks") or {})
+                    .get("machine_checked") or [])]
+    out["machine_check_is_the_cost_budget"] = (
+        "cost_budget_within_ceiling" in machine_ids)
+    out["retired_machine_check_absent"] = (
+        "turnover_within_ceiling" not in machine_ids)
+    pipeline = _read("alpha_agent/agents_v2/pipeline.py")
+    out["pipeline_uses_cost_budget"] = "cost_budget_within_ceiling" in pipeline
+    out["pipeline_turnover_gate_absent"] = (
+        '"turnover_within_ceiling":' not in pipeline)
+    # A second module computing the canonical drag would be a second gate.
+    second_cost = []
+    for p in files:
+        rel = _rel(p)
+        if rel in ("alpha_agent/r61/cost_budget.py",
+                   "scripts/audit_architecture.py") \
+                or rel.startswith("tests/"):
+            continue
+        src = p.read_text(encoding="utf-8", errors="ignore")
+        if "annualized_rebalance_cost_drag" in src and \
+                "r61" not in src and "cost_budget" not in src:
+            second_cost.append(rel)
+    out["second_cost_budget_owner_modules"] = sorted(second_cost)
+
+    # -- D: one drawdown owner, two named concepts -------------------------- #
+    dd = _read("alpha_agent/r61/drawdown.py")
+    out["drawdown_owner_present"] = bool(dd)
+    out["drawdown_declares_both_concepts"] = all(
+        k in dd for k in ("strategy_max_drawdown", "excess_max_drawdown"))
+    delegating, local = [], []
+    for rel in ("alpha_agent/r57/engine.py", "alpha_agent/r59/native.py"):
+        src = _read(rel)
+        (delegating if "DD.layer_drawdowns" in src else local).append(rel)
+        if "np.maximum.accumulate(nav)" in src:
+            local.append(rel)
+    out["layer_stats_owners_delegate"] = sorted(delegating)
+    out["layer_stats_owners_with_local_drawdown"] = sorted(set(local))
+    out["risk_brief_reads_canonical_drawdown"] = "DD.risk_view" in _read(
+        "alpha_agent/agents_v2/briefs.py")
+
+    # -- E: one halt path, and NO_ALPHA_EVIDENCE is unreachable ------------- #
+    halts = _read("alpha_agent/r61/halts.py")
+    out["halt_owner_present"] = bool(halts)
+    out["halt_writes_no_second_registry"] = not (
+        "sqlite3" in halts or "CREATE TABLE" in halts)
+    out["halt_forbids_no_alpha_evidence"] = (
+        "HO_NO_ALPHA_EVIDENCE" in halts and "FORBIDDEN_OUTCOMES" in halts)
+    out["pipeline_owns_the_halt_verb"] = (
+        "def record_pre_measurement_halt" in pipeline)
+    try:
+        contracts = json.loads(
+            (root / "research" / "agents" / "agent_contracts.json")
+            .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        contracts = {}
+    granted = sorted(a["name"] for a in (contracts.get("agents") or [])
+                     if "record_pre_measurement_halt"
+                     in (a.get("pipeline_verbs") or []))
+    out["halt_verb_granted_to"] = granted
+    out["halt_verb_granted_to_signal_agents_only"] = granted == sorted(
+        ("momentum-signal-agent", "reversal-signal-agent",
+         "trend-breadth-signal-agent", "volatility-liquidity-agent"))
+
+    # -- B: the calibration is not an alpha experiment ---------------------- #
+    forbidden_calls = []
+    for name in ("power.py", "calibration_panels.py", "identity_audit.py"):
+        src = _read("alpha_agent/r61/%s" % name)
+        for verb in ("preregister", "submit_candidate", "record_result",
+                     "freeze_forward", "request_forward_registration"):
+            if verb in src:
+                forbidden_calls.append("%s:%s" % (name, verb))
+    out["calibration_forbidden_calls"] = sorted(forbidden_calls)
+    power = _read("alpha_agent/r61/power.py")
+    out["calibration_declares_not_an_alpha_experiment"] = (
+        "is_alpha_experiment" in power and "RHO_GRID" in power)
+    out["calibration_detection_is_the_governed_path"] = all(
+        t in power for t in ("stage_advance", "E.gate"))
+
+    # -- G: one worker registry, and nothing kills ------------------------- #
+    workers = _read("alpha_agent/r61/workers.py")
+    operator = _read("scripts/r61_research_workers.py")
+    out["worker_registry_present"] = bool(workers)
+    kill_terms = ("taskkill", "TerminateProcess", "os.kill", "Stop-Process",
+                  "signal.SIGKILL", "proc.kill")
+    out["worker_registry_kill_verbs"] = sorted(
+        t for t in kill_terms if t in workers)
+    out["operator_surface_kill_verbs"] = sorted(
+        t for t in kill_terms if t in operator)
+    out["worker_registry_defeats_pid_reuse"] = (
+        "process_created_filetime" in workers)
+    second_registry = sorted(
+        _rel(p) for p in files
+        if _rel(p) not in ("alpha_agent/r61/workers.py",)
+        and not _rel(p).startswith("tests/")
+        and "REGISTRY_VERSION = \"R61_LOCAL_WORKER_REGISTRY" in
+        p.read_text(encoding="utf-8", errors="ignore"))
+    out["second_worker_registry_modules"] = second_registry
+
+    # -- F: routing unchanged, task size bounded ---------------------------- #
+    routing = _read("alpha_agent/agents_v2/routing.py")
+    out["routing_tiers_unchanged"] = all(
+        t in routing for t in ('TIER_HIGH: {"model": "opus"',
+                               'TIER_STRUCTURED: {"model": "haiku"'))
+    assignments = _read("alpha_agent/r61/assignments.py")
+    out["assignment_splitter_present"] = bool(assignments)
+    out["assignment_reads_turn_budget_from_routing"] = (
+        "RT.ROUTING[role][\"maxTurns\"]" in assignments)
+    out["assignment_bounds_one_source"] = (
+        "MAX_SOURCES_PER_ASSIGNMENT = 1" in assignments)
+    return out
+
+
 def check_release60_alphaagent_outcomes(files: list[Path]) -> dict:
     """Release 60 invariants — the research record became legible without the
     act of reading it changing anything.
@@ -16492,6 +16658,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release59_persistent_research_runtime(files),
         "release60_alphaagent_outcomes":
             check_release60_alphaagent_outcomes(files),
+        "release61_apparatus_calibration":
+            check_release61_apparatus_calibration(files),
         "release62_1_canonical_forward_evidence":
             check_release62_1_canonical_forward_evidence(files),
         "release62_1_1_forward_activation_integrity":
@@ -20406,6 +20574,62 @@ BLOCKING_INVARIANTS = (
     # Research workspace extended rather than a second dashboard added, with
     # every prior deep link intact; and the inventory carrying the nine
     # research concepts it had never recorded.
+    # --- Release 61: the research apparatus was MEASURED, and the four
+    # defects that measurement exposed stay closed. The dangerous outcomes are
+    # a second economic qualification gate (the retired turnover scalar coming
+    # back as a governed check, or a second module computing the canonical
+    # drag); a drawdown that was never measured being rendered as zero; a cell
+    # that halts before measurement having no way to settle and therefore
+    # never being charged to the burden; a synthetic calibration signal
+    # entering the estate's record as a finding; and a research job nobody can
+    # account for, or a registry that can terminate one.
+    ("release61_apparatus_calibration", "cost_budget_owner_present", True),
+    ("release61_apparatus_calibration",
+     "gate_schema_declares_cost_budget", True),
+    ("release61_apparatus_calibration", "gate_schema_cost_budget_owner", True),
+    ("release61_apparatus_calibration",
+     "turnover_scalar_marked_retired", True),
+    ("release61_apparatus_calibration",
+     "machine_check_is_the_cost_budget", True),
+    ("release61_apparatus_calibration",
+     "retired_machine_check_absent", True),
+    ("release61_apparatus_calibration", "pipeline_uses_cost_budget", True),
+    ("release61_apparatus_calibration",
+     "pipeline_turnover_gate_absent", True),
+    ("release61_apparatus_calibration",
+     "second_cost_budget_owner_modules", []),
+    ("release61_apparatus_calibration", "drawdown_owner_present", True),
+    ("release61_apparatus_calibration",
+     "drawdown_declares_both_concepts", True),
+    ("release61_apparatus_calibration",
+     "layer_stats_owners_with_local_drawdown", []),
+    ("release61_apparatus_calibration",
+     "risk_brief_reads_canonical_drawdown", True),
+    ("release61_apparatus_calibration", "halt_owner_present", True),
+    ("release61_apparatus_calibration",
+     "halt_writes_no_second_registry", True),
+    ("release61_apparatus_calibration",
+     "halt_forbids_no_alpha_evidence", True),
+    ("release61_apparatus_calibration", "pipeline_owns_the_halt_verb", True),
+    ("release61_apparatus_calibration",
+     "halt_verb_granted_to_signal_agents_only", True),
+    ("release61_apparatus_calibration", "calibration_forbidden_calls", []),
+    ("release61_apparatus_calibration",
+     "calibration_declares_not_an_alpha_experiment", True),
+    ("release61_apparatus_calibration",
+     "calibration_detection_is_the_governed_path", True),
+    ("release61_apparatus_calibration", "worker_registry_present", True),
+    ("release61_apparatus_calibration", "worker_registry_kill_verbs", []),
+    ("release61_apparatus_calibration", "operator_surface_kill_verbs", []),
+    ("release61_apparatus_calibration",
+     "worker_registry_defeats_pid_reuse", True),
+    ("release61_apparatus_calibration",
+     "second_worker_registry_modules", []),
+    ("release61_apparatus_calibration", "routing_tiers_unchanged", True),
+    ("release61_apparatus_calibration", "assignment_splitter_present", True),
+    ("release61_apparatus_calibration",
+     "assignment_reads_turn_budget_from_routing", True),
+    ("release61_apparatus_calibration", "assignment_bounds_one_source", True),
     ("release60_alphaagent_outcomes", "owner_present", True),
     ("release60_alphaagent_outcomes", "route_get_only", True),
     ("release60_alphaagent_outcomes", "forbidden_routes_present", []),

@@ -19,6 +19,7 @@ import math
 
 import numpy as np
 
+from ..r61 import drawdown as DD
 from . import (DISCOVERY_START, EQ_COST_RATE_PER_SIDE, EQ_MIN_ADV,
                EQ_MIN_HISTORY, EQ_MIN_PRICE, EQ_TOP_N, LOCKBOX_START,
                VALIDATION_START)
@@ -199,10 +200,16 @@ def layer_stats(res: dict, layer: str) -> dict:
     lag = max(0, int(math.ceil(res["horizon"] / res["cadence"])) - 1)
     st = nw_tstat(ex_net, lag=lag)
 
-    def _dd(rets):
-        nav = np.cumprod(1.0 + rets)
-        peak = np.maximum.accumulate(nav)
-        return float((nav / peak - 1.0).min()) if len(nav) else None
+    # DRAWDOWN IS OWNED, NOT RECOMPUTED (R61 Workstream D). The local
+    # accumulator this replaces started its peak at the FIRST NAV point, so
+    # the capital at risk never entered the comparison and a loss in the first
+    # period was invisible: [-0.30, +0.05, +0.05, +0.05] reported exactly
+    # 0.0000. It also never produced an EXCESS drawdown at all, which is the
+    # concept the gate's own metric (ann_net_excess) belongs to - so a reader
+    # asking this layer for the drawdown of the thing being graded got nothing,
+    # and nothing renders as zero.
+    dd = DD.layer_drawdowns(strategy_returns=res["strat_net"][sel],
+                            benchmark_returns=res["bench_net"][sel])
 
     return {
         "periods": int(sel.sum()),
@@ -213,8 +220,14 @@ def layer_stats(res: dict, layer: str) -> dict:
         "ann_bench_net": float(res["bench_net"][sel].mean() * ppy),
         "ann_cost_drag": float((ex_gross - ex_net).mean() * ppy),
         "mean_oneway_turnover_per_period": float(res["turnover_oneway"][sel].mean()),
-        "strat_max_dd": _dd(res["strat_net"][sel]),
-        "bench_max_dd": _dd(res["bench_net"][sel]),
+        # Canonical concepts (R61). The two legacy keys below remain as
+        # ALIASES so every prior reader still works.
+        DD.STRATEGY_MAX_DRAWDOWN: dd[DD.STRATEGY_MAX_DRAWDOWN],
+        DD.BENCHMARK_MAX_DRAWDOWN: dd[DD.BENCHMARK_MAX_DRAWDOWN],
+        DD.EXCESS_MAX_DRAWDOWN: dd[DD.EXCESS_MAX_DRAWDOWN],
+        "drawdown_owner": dd["drawdown_owner"],
+        "strat_max_dd": dd[DD.STRATEGY_MAX_DRAWDOWN],
+        "bench_max_dd": dd[DD.BENCHMARK_MAX_DRAWDOWN],
         "hit_rate": float((ex_net > 0).mean()),
         "t_net_excess": st["t"], "p_one_sided": st["p_one_sided"],
         "halves_ann_net_excess": [

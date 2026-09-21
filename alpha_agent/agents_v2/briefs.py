@@ -47,6 +47,7 @@ from typing import Any, Optional
 from .. import r59
 from ..r59 import engines as E
 from ..r59 import handlers as H
+from ..r61 import drawdown as DD
 from . import (AGENT_SYSTEM_VERSION, CONTRACT_DIR, DATA_FOUNDATION, DIRECTOR,
                FEATURES, GENERATION_METHOD, META, PUBLISHING, RISK, SAFETY,
                SIGNAL_AGENTS, SKEPTIC, UNIVERSE)
@@ -579,9 +580,16 @@ def risk_brief(pipe, *, run_id: str, campaign_id: str,
         facts={"skeptic_verdict": verdict.get("verdict"),
                "asset_class": row.get("asset_class"),
                "economic_family": row.get("economic_family")},
+        # THE RISK AGENT RULES ON DRAWDOWN, so it is handed the CANONICAL
+        # concept rather than a raw layer dict whose drawdown key means a
+        # different thing in each book (R61 Workstream D). ``rulable`` is
+        # false when the concept was never measured, and a false there is a
+        # blocker - not a zero.
         metrics={"lockbox": (cand.get("layers") or {}).get("L") or {},
+                 "drawdown": DD.risk_view((cand.get("layers") or {}).get("L")),
                  "turnover": cand.get("turnover"),
-                 "cost_model": cand.get("cost_model")},
+                 "cost_model": cand.get("cost_model"),
+                 "cost_budget": (verdict.get("cost_budget") or {})},
         pointers={"sleeve_contract": "docs/STRATEGY_SLEEVE_CONTRACT.md",
                   "governance": "docs/DAILY_MULTI_ASSET_GOVERNANCE.md"})
 

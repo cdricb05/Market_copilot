@@ -1,0 +1,54 @@
+{
+ "action": "R61_ANNOTATE_EVIDENCE_STATE",
+ "dry_run": false,
+ "basis_momentum_evidence_state": "NOT_TESTABLE_WITH_CURRENT_PANEL",
+ "vocabulary": [
+  "NOT_TESTABLE_WITH_CURRENT_PANEL",
+  "DEAD_IN_THIS_ESTATE"
+ ],
+ "results": [
+  {
+   "experiment_id": "H_7994380d_cf2e4efaaa5a",
+   "executor": "r60_01",
+   "label": "FUT_BASIS_MOMENTUM_COMMODITY",
+   "panel": "COMMODITY_FUTURES",
+   "measured": "D +1.09%/yr t 0.596, V -0.82%/yr t -0.283; halted at V",
+   "state": "ANNOTATED",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "evidence_state": "NOT_TESTABLE_WITH_CURRENT_PANEL",
+   "measured_columns_unchanged": true,
+   "mde_80_rho": 0.07884615384615384,
+   "mde_80_ann_net_excess": 0.06561931753495832
+  },
+  {
+   "experiment_id": "H_58d49e5c_079c8b4dbce5",
+   "executor": "r60_06",
+   "label": "XA_BASIS_MOMENTUM_REPLICATION",
+   "panel": "CROSS_ASSET_FUTURES",
+   "measured": "D -0.89%/yr t -0.682; halted at D",
+   "state": "ANNOTATED",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "evidence_state": "NOT_TESTABLE_WITH_CURRENT_PANEL",
+   "measured_columns_unchanged": true,
+   "mde_80_rho": 0.10961538461538464,
+   "mde_80_ann_net_excess": 0.029813499377944756
+  }
+ ],
+ "rule": "A null is evidence of absence only ABOVE the panel's measured minimum detectable effect. Below it the null is silence, and filing silence as a finding is the mislabelling this corrects.",
+ "release": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "run_id": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "generated_at": "2026-09-21T15:06:08+00:00",
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "promotes": false,
+  "registers_alpha_hypotheses": false,
+  "consumes_alpha_lockbox": false,
+  "charges_search_burden": false,
+  "creates_forward_requests": false,
+  "backfill": false
+ },
+ "artifact_hash": "800194464eab86b1fb4223de3d3660da822acb98de54c0f5ddcaef068149c85c"
+}

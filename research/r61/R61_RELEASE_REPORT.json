@@ -1,0 +1,497 @@
+{
+ "release": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "purpose": "Measure whether the Paper Trader research apparatus can detect realistic alpha when realistic alpha is present, and repair the four defects R60 exposed while measuring it.",
+ "workstream_a_cost_budget": {
+  "TURNOVER_GATE_OLD": "raw one-way turnover ceiling 0.40 per decision, one side, applied campaign-wide across every asset class and horizon",
+  "TURNOVER_GATE_NEW": "annualised cost-budget ceiling 0.0300 (2.0 x the frozen materiality floor 0.0150)",
+  "COST_BUDGET_OWNER": "alpha_agent.r61.cost_budget",
+  "version": "R61_ANNUALISED_COST_BUDGET_V1",
+  "formula": "one_way_turnover * 2 * cost_per_side * rebalances_per_year + additional_ann_cost_drag",
+  "r60_reproduction": {
+   "r60_08_eq_h5": 0.21924,
+   "r60_05_commodity": 0.007176,
+   "r60_07_index": 0.007344
+  },
+  "retired_scalar_status": "DIAGNOSTIC_ONLY",
+  "r60_halts_rerun": false
+ },
+ "workstream_b_power": {
+  "POWER_CALIBRATION_VERSION": "R61_SYNTHETIC_IC_POWER_CALIBRATION_V1",
+  "pre_registration_hash": "ba08508b7e176007acfd9a3edf6762aec72ef6f7961269949899aa54672378d0",
+  "cells_run": 6000,
+  "seeds_per_point": 120,
+  "effect_grid": [
+   0.0,
+   0.005,
+   0.01,
+   0.02,
+   0.03,
+   0.05,
+   0.075,
+   0.1,
+   0.15,
+   0.2
+  ],
+  "detection_rule": "D advances -> V advances -> L measured -> engines.gate(qualified). A halt at D or V is a MISS. Discovery-only success is NOT a detection.",
+  "primary_burden_denominator": 1,
+  "panels": {
+   "US_LARGE_CAP": {
+    "instrument_count": 1897,
+    "decision_count": 181,
+    "effective_observations": 43.0,
+    "cost_model": "US_EQUITY_12_5BP_V1",
+    "burden_used": 1,
+    "seeds": 120,
+    "false_positive_rate_at_rho_zero": 0.0,
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.035277777777777776,
+     "mde_ann_net_excess": 0.03241336525940869,
+     "mde_ann_gross_excess": 0.05934863858229808,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.04527777777777778,
+     "mde_ann_net_excess": 0.048484839904565744,
+     "mde_ann_gross_excess": 0.07539223755078175,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.04861111111111112,
+     "mde_ann_net_excess": 0.05384199811961811,
+     "mde_ann_gross_excess": 0.08074010387360965,
+     "reached": true
+    }
+   },
+   "EXTENSION_EQUITY": {
+    "instrument_count": 2947,
+    "decision_count": 182,
+    "effective_observations": 44.0,
+    "cost_model": "EQ_EXT_25BP_V1",
+    "burden_used": 1,
+    "seeds": 120,
+    "false_positive_rate_at_rho_zero": 0.0,
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.04,
+     "mde_ann_net_excess": 0.03757458270032857,
+     "mde_ann_gross_excess": 0.0910146264881773,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.04692307692307693,
+     "mde_ann_net_excess": 0.05308949263448213,
+     "mde_ann_gross_excess": 0.10655549796079242,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.04923076923076923,
+     "mde_ann_net_excess": 0.05826112927919997,
+     "mde_ann_gross_excess": 0.1117357884516641,
+     "reached": true
+    }
+   },
+   "COMMODITY_FUTURES": {
+    "instrument_count": 39,
+    "decision_count": 187,
+    "effective_observations": 44.0,
+    "cost_model": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "burden_used": 1,
+    "seeds": 120,
+    "false_positive_rate_at_rho_zero": 0.0,
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.060454545454545455,
+     "mde_ann_net_excess": 0.046413091050350574,
+     "mde_ann_gross_excess": 0.06952451934869538,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.07884615384615384,
+     "mde_ann_net_excess": 0.06561931753495832,
+     "mde_ann_gross_excess": 0.0888040878731151,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.0903846153846154,
+     "mde_ann_net_excess": 0.07669656586481047,
+     "mde_ann_gross_excess": 0.09970749624790844,
+     "reached": true
+    }
+   },
+   "EQUITY_INDEX_FUTURES": {
+    "instrument_count": 14,
+    "decision_count": 187,
+    "effective_observations": 44.0,
+    "cost_model": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "burden_used": 1,
+    "seeds": 120,
+    "false_positive_rate_at_rho_zero": 0.0,
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.10964912280701755,
+     "mde_ann_net_excess": 0.03041820147190577,
+     "mde_ann_gross_excess": 0.04525958227741113,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.1412280701754386,
+     "mde_ann_net_excess": 0.04316935874390911,
+     "mde_ann_gross_excess": 0.05808666350792786,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.15909090909090912,
+     "mde_ann_net_excess": 0.050117637741281716,
+     "mde_ann_gross_excess": 0.06506359634643472,
+     "reached": true
+    }
+   },
+   "CROSS_ASSET_FUTURES": {
+    "instrument_count": 28,
+    "decision_count": 187,
+    "effective_observations": 44.0,
+    "cost_model": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "burden_used": 1,
+    "seeds": 120,
+    "false_positive_rate_at_rho_zero": 0.0,
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.08012820512820512,
+     "mde_ann_net_excess": 0.019508087970603986,
+     "mde_ann_gross_excess": 0.030570951524082075,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.10961538461538464,
+     "mde_ann_net_excess": 0.029813499377944756,
+     "mde_ann_gross_excess": 0.04069765561904638,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.1326923076923077,
+     "mde_ann_net_excess": 0.03849089650638726,
+     "mde_ann_gross_excess": 0.0493605786141572,
+     "reached": true
+    }
+   }
+  },
+  "PANELS_WELL_POWERED": [
+   "CROSS_ASSET_FUTURES"
+  ],
+  "PANELS_UNDERPOWERED": [
+   "US_LARGE_CAP",
+   "EXTENSION_EQUITY",
+   "COMMODITY_FUTURES",
+   "EQUITY_INDEX_FUTURES"
+  ],
+  "reference_used": 0.03,
+  "classification_sensitivity": {
+   "below_2.0_pct": [],
+   "below_3.0_pct": [
+    "CROSS_ASSET_FUTURES"
+   ],
+   "below_4.0_pct": [
+    "CROSS_ASSET_FUTURES"
+   ],
+   "below_5.0_pct": [
+    "CROSS_ASSET_FUTURES",
+    "EQUITY_INDEX_FUTURES",
+    "US_LARGE_CAP"
+   ],
+   "below_6.0_pct": [
+    "CROSS_ASSET_FUTURES",
+    "EQUITY_INDEX_FUTURES",
+    "EXTENSION_EQUITY",
+    "US_LARGE_CAP"
+   ]
+  },
+  "reference_status": "A YARDSTICK, NOT A GATE. The director did not formally justify 3% before results were seen, so no panel is graded by it; it is reported so the curve can be read."
+ },
+ "workstream_c_identity": {
+  "IDENTITY_BRIDGE_RESULT": "IDENTITY_BRIDGE_FAIL",
+  "identity_map_hash": "d9a0587100c1d0ea3fcb8012fbbdfcbdd34bc0ef7c41bb11a2f12eacee09bf70",
+  "coverage": {
+   "symbols": 2947,
+   "resolved": 2809,
+   "resolved_share": 0.9531727180183237,
+   "delisted": 1484,
+   "delisted_resolved_share": 0.9083557951482479,
+   "live_resolved_share": 0.9986329460013671,
+   "by_channel": {
+    "TICKER": 1439,
+    "NAME": 1370,
+    "UNRESOLVED": 138
+   }
+  },
+  "failed_checks": [
+   "name_channel_false_match_rate_live",
+   "ambiguous_key_share",
+   "attrition_forward_return_gap"
+  ],
+  "unmeasurable_checks": [],
+  "checks": [
+   {
+    "check": "name_channel_false_match_rate_live",
+    "measured": 0.14145234493192133,
+    "frozen_threshold": 0.02,
+    "direction": "max",
+    "measurable": true,
+    "passed": false,
+    "note": ""
+   },
+   {
+    "check": "temporal_implausibility_rate",
+    "measured": 0.010334996436208126,
+    "frozen_threshold": 0.05,
+    "direction": "max",
+    "measurable": true,
+    "passed": true,
+    "note": ""
+   },
+   {
+    "check": "ambiguous_key_share",
+    "measured": 0.23389106443574226,
+    "frozen_threshold": 0.1,
+    "direction": "max",
+    "measurable": true,
+    "passed": false,
+    "note": ""
+   },
+   {
+    "check": "extreme_decile_concentration_multiple",
+    "measured": 0.9892521647375034,
+    "frozen_threshold": 2.0,
+    "direction": "max",
+    "measurable": true,
+    "passed": true,
+    "note": ""
+   },
+   {
+    "check": "delisted_terminal_return_coverage",
+    "measured": 1.0,
+    "frozen_threshold": 0.95,
+    "direction": "min",
+    "measurable": true,
+    "passed": true,
+    "note": ""
+   },
+   {
+    "check": "share_count_sign_error_rate",
+    "measured": 0.0,
+    "frozen_threshold": 0.005,
+    "direction": "max",
+    "measurable": true,
+    "passed": true,
+    "note": ""
+   },
+   {
+    "check": "share_count_reverting_spike_rate",
+    "measured": 2.0772386574114144e-05,
+    "frozen_threshold": 0.01,
+    "direction": "max",
+    "measurable": true,
+    "passed": true,
+    "note": ""
+   },
+   {
+    "check": "attrition_forward_return_gap",
+    "measured": 0.7561012738548458,
+    "frozen_threshold": 0.05,
+    "direction": "max",
+    "measurable": true,
+    "passed": false,
+    "note": ""
+   }
+  ],
+  "EXTENSION_UNIVERSE_REUSE_ALLOWED": false,
+  "thresholds": {
+   "max_name_channel_false_match_rate_live": 0.02,
+   "max_temporal_implausibility_rate": 0.05,
+   "max_ambiguous_key_share": 0.1,
+   "max_extreme_decile_concentration_multiple": 2.0,
+   "min_delisted_terminal_return_coverage": 0.95,
+   "max_share_count_sign_error_rate": 0.005,
+   "max_share_count_reverting_spike_rate": 0.01,
+   "max_attrition_forward_return_gap": 0.05
+  }
+ },
+ "workstream_d_drawdown": {
+  "CANONICAL_STRATEGY_MAX_DRAWDOWN_OWNER": "alpha_agent.r61.drawdown",
+  "CANONICAL_EXCESS_DRAWDOWN_OWNER": "alpha_agent.r61.drawdown",
+  "concepts": [
+   "strategy_max_drawdown",
+   "benchmark_max_drawdown",
+   "excess_max_drawdown"
+  ],
+  "risk_ruling_concept": "strategy_max_drawdown",
+  "legacy_aliases": {
+   "strat_max_dd": "strategy_max_drawdown",
+   "bench_max_dd": "benchmark_max_drawdown",
+   "max_dd": "excess_max_drawdown"
+  },
+  "root_causes_fixed": [
+   "the accumulator started its peak at the FIRST NAV point, so a loss in period one was invisible: [-0.30,+0.05,+0.05,+0.05] reported exactly 0.0000",
+   "one key name meant two concepts (futures max_dd was the EXCESS series, equity strat_max_dd the STRATEGY series) and the equity layer had no excess drawdown at all, so a reader asking for it got nothing - and nothing renders as 0.0000"
+  ]
+ },
+ "workstream_e_halts": {
+  "PRE_MEASUREMENT_HALT_OWNER": "alpha_agent.agents_v2.pipeline.AgentPipeline.record_pre_measurement_halt",
+  "record_builder": "alpha_agent.r61.halts",
+  "OPEN_PREMEASUREMENT_HALTS": 0,
+  "open_ids": [],
+  "settled": [
+   {
+    "experiment_id": "H_63012714_9e5453e70d5c",
+    "label": "EQ_DIVIDEND_DECLARATION_DRIFT",
+    "executor": "r60_04",
+    "owning_agent": "momentum-signal-agent",
+    "state": "ALREADY_RECORDED",
+    "outcome": "DATA_HOLD",
+    "burden_treatment": null
+   },
+   {
+    "experiment_id": "H_b5e5e7c0_f3e92699f95c",
+    "label": "FUT_OPEN_INTEREST_GROWTH_COMMODITY",
+    "executor": "r60_05",
+    "owning_agent": "volatility-liquidity-agent",
+    "state": "ALREADY_RECORDED",
+    "outcome": "REJECTED",
+    "burden_treatment": null
+   },
+   {
+    "experiment_id": "H_47e2cf84_49076c9d82f0",
+    "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH",
+    "executor": "r60_07",
+    "owning_agent": "volatility-liquidity-agent",
+    "state": "ALREADY_RECORDED",
+    "outcome": "REJECTED",
+    "burden_treatment": null
+   },
+   {
+    "experiment_id": "H_2da223a3_b3a63be33bcc",
+    "label": "EQ_EXTENSION_H5_IMMEDIACY_REVERSAL",
+    "executor": "r60_08",
+    "owning_agent": "reversal-signal-agent",
+    "state": "ALREADY_RECORDED",
+    "outcome": "REJECTED",
+    "burden_treatment": null
+   }
+  ],
+  "burden_contribution_of_these_cells": 4,
+  "burden_note": "These four cells halted before any return existed and could not settle, so ResearchMemory.burden - which counts WHERE outcome IS NOT NULL - never charged them. Recording them raised the estate denominator from 8409 to 8413. This script is idempotent, so a LATER run shows a delta of zero; the durable fact is that all four are now settled and counted.",
+  "burden_total_now": 8413
+ },
+ "workstream_f_assignments": {
+  "DATA_FOUNDATION_MODEL": "haiku",
+  "DATA_FOUNDATION_MAX_TURNS": 15,
+  "DATA_FOUNDATION_TASK_SPLITTING": "R61_BOUNDED_FOUNDATION_ASSIGNMENT_V1, max 1 source(s) and 4 questions per assignment, artifact required by turn 7",
+  "DIRECTOR_MODEL": "opus",
+  "SKEPTIC_MODEL": "opus",
+  "routing_unchanged": true
+ },
+ "workstream_g_workers": {
+  "registry_owner": "alpha_agent.r61.workers",
+  "PAPER_TRADER_BACKGROUND_PYTHON_PROCESSES": 0,
+  "ORPHANED_WORKERS": [],
+  "MAX_CONCURRENT_HEAVY_JOBS": 2,
+  "by_state": {
+   "RUNNING": 0,
+   "COMPLETED": 2,
+   "FAILED": 0,
+   "INTERRUPTED": 0
+  },
+  "workers": [
+   {
+    "registry_owner": "alpha_agent.r61.workers",
+    "registry_version": "R61_LOCAL_WORKER_REGISTRY_V1",
+    "run_id": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+    "worker_id": "r61_identity_audit",
+    "kind": "HEAVY",
+    "pid": 70696,
+    "parent_pid": 28184,
+    "process_created_filetime": 134344760712823724,
+    "started_at": "2026-09-21T14:54:31+00:00",
+    "log_path": "D:\\Stock_Prediction_app_data\\r61_apparatus_calibration\\logs\\identity_audit.log",
+    "state": "COMPLETED",
+    "finished_at": "2026-09-21T14:55:15+00:00",
+    "exit_detail": null,
+    "release": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+    "generated_at": "2026-09-21T14:54:31+00:00",
+    "safety": {
+     "research_only": true,
+     "paper_only": true,
+     "creates_orders": false,
+     "creates_fills": false,
+     "promotes": false,
+     "registers_alpha_hypotheses": false,
+     "consumes_alpha_lockbox": false,
+     "charges_search_burden": false,
+     "creates_forward_requests": false,
+     "backfill": false
+    },
+    "artifact_hash": "0fead2cd7b64215700906e5dc2ceed3a8aaed4860dfedbebe990ebddd2c3df7b",
+    "observed_state": "COMPLETED",
+    "stale": false
+   },
+   {
+    "registry_owner": "alpha_agent.r61.workers",
+    "registry_version": "R61_LOCAL_WORKER_REGISTRY_V1",
+    "run_id": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+    "worker_id": "r61_power_calibration",
+    "kind": "HEAVY",
+    "pid": 63360,
+    "parent_pid": 39296,
+    "process_created_filetime": 134344756284363964,
+    "started_at": "2026-09-21T14:47:08+00:00",
+    "log_path": "D:\\Stock_Prediction_app_data\\r61_apparatus_calibration\\logs\\power_calibration.log",
+    "state": "COMPLETED",
+    "finished_at": "2026-09-21T15:03:16+00:00",
+    "exit_detail": null,
+    "release": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+    "generated_at": "2026-09-21T14:47:08+00:00",
+    "safety": {
+     "research_only": true,
+     "paper_only": true,
+     "creates_orders": false,
+     "creates_fills": false,
+     "promotes": false,
+     "registers_alpha_hypotheses": false,
+     "consumes_alpha_lockbox": false,
+     "charges_search_burden": false,
+     "creates_forward_requests": false,
+     "backfill": false
+    },
+    "artifact_hash": "3576ec0035bbf785506e9558f8539cca8d3c7620b682fdb4c7e4169ba887880a",
+    "observed_state": "COMPLETED",
+    "stale": false
+   }
+  ],
+  "operator_command": "scripts/r61_research_workers.py"
+ },
+ "BASIS_MOMENTUM_EVIDENCE_STATE": "NOT_TESTABLE_WITH_CURRENT_PANEL",
+ "safety": {
+  "NEW_ALPHA_HYPOTHESES_REGISTERED": 0,
+  "NEW_ALPHA_LOCKBOXES_CONSUMED": 0,
+  "FORWARD_REQUESTS_CREATED": 0,
+  "ORDERS": 0,
+  "FILLS": 0,
+  "OPERATIONAL_REBALANCE": "NO",
+  "AUTO_PROMOTION": "NO",
+  "BACKFILL": "NO",
+  "NEW_PAID_DATA_COST": "$0"
+ },
+ "run_id": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "generated_at": "2026-09-21T15:27:21+00:00",
+ "artifact_hash": "dbd91cb64c2499205b560b8a7d68ead4cf137696d0014782c0685c1fbbb7d0fb"
+}

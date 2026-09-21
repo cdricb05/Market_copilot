@@ -559,11 +559,23 @@ def test_15_sign_flips_cost_swaps_and_turnover_are_machine_checked(pipe):
         experiment_id=cheap["experiment_id"], checks=_all_checks_pass()))
     assert "cost_model_frozen" in out["failed"]
 
+    # A book that churns is still refused - but on ECONOMICS, not on a raw
+    # turnover scalar. R61 retired ``turnover_within_ceiling`` because 0.60
+    # one-way means three different burdens at three different cost levels,
+    # and the scalar killed two of R60's futures cells for money futures do
+    # not spend. The constraint is now the annualised cost drag this turnover
+    # actually implies under the cell's OWN frozen cost model and cadence.
     churn = _preregister(pipe, "h1_h5")
     _submit(pipe, "h1_h5", churn, turnover=0.95)
     out = pipe.perform(A.SKEPTIC, "skeptic_review", dict(
         experiment_id=churn["experiment_id"], checks=_all_checks_pass()))
-    assert "turnover_within_ceiling" in out["failed"]
+    assert "cost_budget_within_ceiling" in out["failed"]
+    assert "turnover_within_ceiling" not in out["failed"]
+    budget = out["cost_budget"]
+    assert budget["state"] == "COST_BUDGET_EXCEEDED"
+    assert budget["measured"] > budget["frozen_threshold"]
+    # raw turnover survives as a labelled diagnostic and gates nothing
+    assert budget["diagnostic_retired_turnover_ceiling"] == 0.40
 
 
 def test_16_thresholds_are_frozen_at_preregistration(pipe):

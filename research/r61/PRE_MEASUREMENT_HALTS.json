@@ -1,0 +1,73 @@
+{
+ "action": "R61_SETTLE_PRE_MEASUREMENT_HALTS",
+ "owner": "alpha_agent.agents_v2.pipeline.record_pre_measurement_halt",
+ "dry_run": false,
+ "results": [
+  {
+   "experiment_id": "H_63012714_9e5453e70d5c",
+   "label": "EQ_DIVIDEND_DECLARATION_DRIFT",
+   "executor": "r60_04",
+   "owning_agent": "momentum-signal-agent",
+   "state": "ALREADY_RECORDED",
+   "outcome": "DATA_HOLD",
+   "burden_treatment": null
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_f3e92699f95c",
+   "label": "FUT_OPEN_INTEREST_GROWTH_COMMODITY",
+   "executor": "r60_05",
+   "owning_agent": "volatility-liquidity-agent",
+   "state": "ALREADY_RECORDED",
+   "outcome": "REJECTED",
+   "burden_treatment": null
+  },
+  {
+   "experiment_id": "H_47e2cf84_49076c9d82f0",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH",
+   "executor": "r60_07",
+   "owning_agent": "volatility-liquidity-agent",
+   "state": "ALREADY_RECORDED",
+   "outcome": "REJECTED",
+   "burden_treatment": null
+  },
+  {
+   "experiment_id": "H_2da223a3_b3a63be33bcc",
+   "label": "EQ_EXTENSION_H5_IMMEDIACY_REVERSAL",
+   "executor": "r60_08",
+   "owning_agent": "reversal-signal-agent",
+   "state": "ALREADY_RECORDED",
+   "outcome": "REJECTED",
+   "burden_treatment": null
+  }
+ ],
+ "burden_total_before_this_run": 8413,
+ "burden_total_after_this_run": 8413,
+ "burden_delta_this_run": 0,
+ "cells_now_settled_and_charged": [
+  "H_63012714_9e5453e70d5c",
+  "H_b5e5e7c0_f3e92699f95c",
+  "H_47e2cf84_49076c9d82f0",
+  "H_2da223a3_b3a63be33bcc"
+ ],
+ "burden_contribution_of_these_cells": 4,
+ "burden_note": "These four cells halted before any return existed and could not settle, so ResearchMemory.burden - which counts WHERE outcome IS NOT NULL - never charged them. Recording them raised the estate denominator from 8409 to 8413. This script is idempotent, so a LATER run shows a delta of zero; the durable fact is that all four are now settled and counted.",
+ "open_pre_measurement_halts_before": [],
+ "open_pre_measurement_halts_after": [],
+ "note": "Each halt is recorded AS IT FIRED, under the threshold frozen at the time. The three turnover halts stand under the retired 0.40 scalar and are NOT re-evaluated under R61's cost budget; a replacement would be a NEW pre-registration with a new experiment id.",
+ "release": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "run_id": "R61_RESEARCH_APPARATUS_CALIBRATION_AND_REPAIR",
+ "generated_at": "2026-09-21T15:24:42+00:00",
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "promotes": false,
+  "registers_alpha_hypotheses": false,
+  "consumes_alpha_lockbox": false,
+  "charges_search_burden": false,
+  "creates_forward_requests": false,
+  "backfill": false
+ },
+ "artifact_hash": "194efe2e915a23e9960f17207ac390433a5f2f67b3b02c521c2ef4cd156cfb50"
+}

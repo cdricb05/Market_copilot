@@ -4639,6 +4639,34 @@
    "migration_priority": 1,
    "risk": "low",
    "notes": "The human decision is the conditional approval, taken BEFORE the evidence exists with frozen thresholds; this module only checks whether the pre-declared condition has been met. It cannot lower a threshold or approve a sleeve whose approval names another challenger. Research statistics never become expected returns: a passed gate admits the sleeve on OPERATIONAL_SLEEVE_NORMALISED_RANK. Declared candidates: sleeve_fx_futures -> ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 (5-session gate), sleeve_managed_futures_trend -> ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1 (21-session gate, judged by the 20-session row)."
+  },
+  {
+   "path": "alpha_agent/r61/",
+   "system": "research",
+   "classification": "KEEP",
+   "target_owner": "alpha_agent/r61/",
+   "duplicate_with": [],
+   "responsibility": "Release 61 Research Apparatus Calibration and Repair. Owns the ANNUALISED COST-BUDGET gate that replaces the retired one-way turnover scalar (cost_budget), the synthetic-IC power-calibration harness and its frozen effect grid (power) over the five real panels (calibration_panels), the canonical drawdown owner and its two named concepts - strategy and excess (drawdown), the canonical PRE_MEASUREMENT_HALT record for a cell that stopped before any return existed (halts), the extension-universe identity bridge audit and its pre-registered thresholds (identity_audit), the bounded data-foundation assignment splitter (assignments), and the ONE local research worker registry (workers).",
+   "direct_reads": [
+    "D:/Stock_Prediction_app_data/r57_alpha_discovery/panels/* - the owned S&P 500 and futures PIT panels, read-only",
+    "D:/Stock_Prediction_app_data/alpha_agent/r60_extension/* - the R60 mid/small extension price and fundamental panels, read-only",
+    "D:/Stock_Prediction_app_data/alpha_agent/identity/sec_issuer_history.sqlite - SEC issuer/name/ticker history, opened read-only for the bridge audit",
+    "Norgate Data local databases via norgatedata (security name, first/last quoted date), read-only",
+    "the R38 certified dated-contract layer through alpha_agent.r59.native, read-only"
+   ],
+   "direct_writes": [
+    "D:/Stock_Prediction_app_data/r61_apparatus_calibration/** - power-calibration and identity-audit artifacts, worker registry rows and run logs, under its own research root ONLY",
+    "research/r61/*.json - the small committed release artifacts",
+    "the ONE canonical ResearchMemory, via alpha_agent.agents_v2.pipeline only, to settle a PRE_MEASUREMENT_HALT and to annotate an evidence state. No second registry, no operational store, no PostgreSQL, no order, no proposal, no promotion."
+   ],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_release61_apparatus_calibration.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "RESEARCH INFRASTRUCTURE ONLY. Registers no hypothesis, charges no research-family burden for its own measurement, consumes no lockbox, creates no forward request and rewrites no historical result. Measured the estate's own detection floor for the first time: 6,000 governed D/V/L runs over five real panels at 120 seeds per point on a frozen ten-point effect grid, with detection defined as the FULL qualification path. The false-positive rate at a zero effect is 0/120 on every panel - the gate invents nothing - and MDE_80 in net annual excess is 4.85% on US large cap, 5.31% on the extension universe, 6.56% on commodity futures, 4.32% on equity-index futures and 2.98% on cross-asset futures, all at the most favourable burden denominator of 1. Four repairs landed with it: the turnover scalar became an annualised cost budget (0.40 one-way -> 3.0%/yr drag, 2x the frozen materiality floor), the drawdown accumulator that reported 0.0000 on a stream losing 30% in its first period was corrected and split into two named concepts with one owner, the four R60 cells that could never settle were recorded as PRE_MEASUREMENT_HALTs (burden 8409 -> 8413), and the extension identity bridge was audited against pre-registered thresholds and FAILED - name-channel false-match rate 14.15% against a 2% threshold, so the substrate stays frozen. Guarded by check_release61_apparatus_calibration (30 blocking invariants)."
   }
  ]
 }

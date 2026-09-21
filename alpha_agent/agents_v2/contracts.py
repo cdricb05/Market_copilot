@@ -41,7 +41,11 @@ RETIRED_PHRASES = (
 )
 
 #: Verbs every signal agent owns, because they measure their own experiment.
-SHARED_SIGNAL_VERBS = ("reveal_stage", "submit_candidate")
+#: ``record_pre_measurement_halt`` belongs here for the same reason: the agent
+#: that would have measured the cell is the one that discovers it cannot be
+#: measured, and a halt with no owner is how four of R60's cells stayed open.
+SHARED_SIGNAL_VERBS = ("reveal_stage", "record_pre_measurement_halt",
+                       "submit_candidate")
 
 #: Downstream stages no signal agent may hand to directly.
 _DOWNSTREAM_OF_SKEPTIC = ("risk-portfolio-agent", "meta-model-ensemble-agent",
