@@ -3427,6 +3427,45 @@
     .pmr-econ .m .v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
     .pmr-econ .m .s { font-size: 10.5px; color: var(--label, #7a8fb0); }
 
+    /* ---------- R62 Proposal Decision Review (before the Approve gate) ------- */
+    /* The operator must be able to read the whole decision without opening Audit &
+       Details, at 1920x1080 and without scrolling the three states apart: they sit
+       in ONE row and only stack on a narrow viewport. */
+    .pdr { border: 1px solid rgba(59,130,246,.45); border-radius: 8px; padding: 12px 16px; margin: 0 0 14px; }
+    .pdr-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .pdr-hd .t { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 700; }
+    .pdr-verdict { font-size: 20px; font-weight: 900; letter-spacing: .01em; margin: 2px 0 2px; }
+    .pdr-verdict[data-v="FULL_TARGET_REVIEWABLE"] { color: var(--ok, #22c55e); }
+    .pdr-verdict[data-v="MINIMAL_REPAIR_PREFERRED"] { color: var(--warning, #f59e0b); }
+    .pdr-verdict[data-v="DEFER_WEAK_INCREMENTAL_EDGE"] { color: var(--warning, #f59e0b); }
+    .pdr-verdict[data-v="BLOCKED_CONSTRAINT_OR_DATA"] { color: var(--danger, #ef4444); }
+    .pdr-verdict[data-v="NO_CHANGE_REQUIRED"] { color: var(--label, #7a8fb0); }
+    .pdr-why { font-size: 12px; line-height: 1.6; color: var(--text-accent, #a8b8d8); max-width: 1180px; }
+    .pdr-why p { margin: 0 0 6px; }
+    .pdr-states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0 0; }
+    .pdr-st { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 10px 12px; }
+    .pdr-st.is-proposal { border-color: rgba(59,130,246,.45); }
+    .pdr-st.is-recommended { border-color: rgba(245,158,11,.55); }
+    .pdr-st .h { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 800; color: var(--label, #7a8fb0); margin-bottom: 6px; display: flex; justify-content: space-between; gap: 6px; }
+    .pdr-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .pdr-kv .k { color: var(--label, #7a8fb0); }
+    .pdr-kv .v { font-weight: 700; }
+    .pdr-cs { font-size: 11px; margin-top: 6px; line-height: 1.5; }
+    .pdr-cs.ok { color: var(--ok, #22c55e); }
+    .pdr-cs.bad { color: var(--danger, #ef4444); }
+    .pdr-sub { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 800; color: var(--label, #7a8fb0); margin: 12px 0 6px; }
+    .pdr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .pdr-ch { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 8px 10px; }
+    .pdr-row { display: grid; grid-template-columns: 58px 74px 1fr; gap: 6px; font-size: 11.5px; padding: 3px 0; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); font-variant-numeric: tabular-nums; }
+    .pdr-row .tk { font-weight: 800; }
+    .pdr-row .ac { color: var(--text-accent, #a8b8d8); }
+    .pdr-row .rs { color: var(--label, #7a8fb0); }
+    .pdr-ev { display: flex; gap: 22px; flex-wrap: wrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .pdr-ev .k { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--label, #7a8fb0); }
+    .pdr-ev .v { font-weight: 800; }
+    .pdr-note { font-size: 11px; color: var(--label, #7a8fb0); line-height: 1.55; margin-top: 6px; }
+    @media (max-width: 1400px) { .pdr-states { grid-template-columns: 1fr; } .pdr-cols { grid-template-columns: 1fr; } }
+
     /* ---------- Current vs Best Feasible (the R47 card, re-presented) --------- */
     #r47-pipeline, #r47-governance { display: block !important; grid-template-columns: none !important; }
     .r47-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 10px; }
@@ -27626,6 +27665,7 @@ async function loadPortfolioManager() {
   try { loadPortfolioReassessment(); } catch (e) {}  // Stage 20 active portfolio assessment
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
+  try { _pdrLoad(); } catch (e) {}                // R62 proposal decision review (before Approve)
   try { loadZeroBaseTarget(); } catch (e) {}      // Release 30 zero-base target (review-only)
   try { loadRebalanceLifecycle(); } catch (e) {}   // Stage 19 controlled rebalance lifecycle + CA integrity
   try { loadReassessmentOutcomes(); } catch (e) {}  // Stage 21 decision outcome evidence (read-only)
@@ -28402,6 +28442,7 @@ function loadOperationalBook() {
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     try { loadReallocationProposal(); } catch (e) {} // Slice 7: the ONE reallocation proposal
     try { _r47Load(); } catch (e) {}               // Release 47: the ONE constrained-reallocation decision
+    try { _pdrLoad(); } catch (e) {}               // R62: the ONE proposal decision review
     try { loadMaterialInformation(); } catch (e) {} // Release 30: what arrived and what it changed
     try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
     try { loadOperatorPresentation(); } catch (e) {} // Release 49: the ONE reconciled operator presentation
@@ -28418,6 +28459,7 @@ function loadOperationalBook() {
     try { loadUniverseScoring(); } catch (e) {}
     try { loadReallocationProposal(); } catch (e) {}
     try { _r47Load(); } catch (e) {}
+    try { _pdrLoad(); } catch (e) {}
     try { loadMaterialInformation(); } catch (e) {}
     try { loadOperatorPresentation(); } catch (e) {}
     try { loadActiveManagerState(); } catch (e) {} return null; });
@@ -28853,6 +28895,224 @@ function _r47Load() {
   return p;
 }
 window._r47Load = _r47Load;
+
+// =====================================================================
+// R62 — PROPOSAL DECISION REVIEW (read-only, rendered BEFORE the Approve
+// gate on the Reallocation / Manual Review screen).
+//
+// GET /v1/operations/proposal-decision-review. The browser classifies
+// NOTHING and decides NOTHING: the verdict, the reason codes, the three
+// states, the mandatory / discretionary split and the plain-English
+// explanation are all produced by api.proposal_decision_review and
+// rendered verbatim. No action, no button that changes state, no dialog.
+// =====================================================================
+function _pdrLoad() {
+  if (window._pdrInFlight) return window._pdrInFlight;
+  var p = _mhzGet('/v1/operations/proposal-decision-review').then(function (d) {
+    window._pdrInFlight = null; window._pdrData = d; _pdrRender(d); return d;
+  }).catch(function () {
+    window._pdrInFlight = null; _pdrRender(null); return null;
+  });
+  window._pdrInFlight = p;
+  return p;
+}
+window._pdrLoad = _pdrLoad;
+
+function _pdrPct(v, dp) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  return isFinite(n) ? (n * 100).toFixed(dp === undefined ? 1 : dp) + '%' : '—';
+}
+function _pdrNum(v, dp) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  return isFinite(n) ? n.toFixed(dp === undefined ? 3 : dp) : '—';
+}
+function _pdrUsd(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _pdrKv(k, v, title) {
+  return '<div class="pdr-kv" title="' + escapeHtml(title || k) + '">'
+    + '<span class="k">' + escapeHtml(k) + '</span>'
+    + '<span class="v">' + escapeHtml(v) + '</span></div>';
+}
+function _pdrWords(s) {
+  return String(s || '').replace(/_/g, ' ').toLowerCase().replace(/^./, function (c) { return c.toUpperCase(); });
+}
+
+// ONE state column. Every number comes from the backend's own state block.
+function _pdrStateCol(st, recommended, proposal) {
+  if (!st) return '';
+  var cs = st.constraint_status || {};
+  var open = (cs.obligations_remaining || []).length;
+  var cls = 'pdr-st' + (proposal ? ' is-proposal' : '') + (recommended ? ' is-recommended' : '');
+  var badge = recommended ? '<span class="cc-badge" title="The review verdict points here. It is a recommendation for manual review, never an approval.">RECOMMENDED REVIEW PATH</span>'
+    : (proposal ? '<span class="cc-badge muted" title="The standing canonical reallocation proposal, read verbatim.">THE PROPOSAL</span>' : '');
+  var ok = (open === 0 && cs.valid === true);
+  var csText = (open === 0 && cs.valid === true)
+    ? 'No open obligation'
+    : (open + ' open obligation' + (open === 1 ? '' : 's')
+       + ((cs.obligations_remaining || []).length
+          ? ': ' + (cs.obligations_remaining || []).map(function (o) { return o.ticker; }).join(', ') : ''));
+  var volTitle = 'Capital basis: the invested sleeve scaled by the invested share (cash carries no variance). Invested-sleeve figure: '
+    + _pdrPct(st.portfolio_volatility);
+  return '<div class="' + cls + '">'
+    + '<div class="h"><span>' + escapeHtml(st.label || st.state) + '</span>' + badge + '</div>'
+    + _pdrKv('Positions', st.positions === null || st.positions === undefined ? '—' : String(st.positions))
+    + _pdrKv('Changes', st.changes === null || st.changes === undefined ? '—' : String(st.changes))
+    + _pdrKv('Turnover', _pdrPct(st.one_way_turnover), 'One-way turnover against the current book.')
+    + _pdrKv('Estimated cost', _pdrUsd(st.estimated_cost), 'Modelled transition cost — the proposal owner’s own cost model.')
+    + _pdrKv('Score', _pdrNum(st.score, 4), 'Combined percentile, normalised over invested weight. Never a return.')
+    + _pdrKv('Improvement net of cost', _pdrNum(st.score_improvement_net_of_cost, 4),
+             'Score improvement over the current book, net of the modelled cost.')
+    + _pdrKv('Risk (capital)', _pdrPct(st.portfolio_volatility_capital_basis), volTitle)
+    + _pdrKv('Concentration', _pdrNum(st.concentration, 4), 'Herfindahl index over the target weights.')
+    + _pdrKv('Cash', _pdrPct(st.cash_weight), 'Uninvested share of NAV.')
+    + _pdrKv('Expected return', _pdrWords(st.expected_return_state || 'NOT_CALIBRATED'),
+             'No validated forecast model exists, so no dollar expectation is published.')
+    + '<div class="pdr-cs ' + (ok ? 'ok' : 'bad') + '">' + escapeHtml(csText) + '</div>'
+    + '</div>';
+}
+
+function _pdrChangeRow(c) {
+  var w = _pdrPct(c.current_weight) + ' → ' + _pdrPct(c.proposed_weight);
+  var why = _pdrWords(c.primary_reason)
+    + (c.partially_discharges_obligation ? ' (partial)' : '')
+    + (c.forced_change ? '' :
+       (c.net_score_improvement !== null && c.net_score_improvement !== undefined
+        ? ' · net ' + _pdrNum(c.net_score_improvement) + ' vs hurdle ' + _pdrNum(c.per_name_hurdle)
+        : ' · first-order net ' + _pdrNum(c.first_order_net_contribution)))
+    + (c.rank === null || c.rank === undefined ? '' : ' · rank #' + c.rank)
+    + (c.rank_change ? ' (' + (c.rank_change > 0 ? '+' : '') + c.rank_change + ')' : '')
+    + (c.signal_state ? ' · ' + _pdrWords(c.signal_state) : '')
+    + ((c.constraint_limited_size || []).length
+       ? ' · size limited by ' + c.constraint_limited_size.map(_pdrWords).join(', ') : '');
+  return '<div class="pdr-row" title="' + escapeHtml((c.proposal_reason_codes || []).join(', ')
+    + (c.reason_owner ? ' — owner ' + c.reason_owner : '')) + '">'
+    + '<span class="tk">' + escapeHtml(c.ticker) + '</span>'
+    + '<span class="ac">' + escapeHtml(c.action || '') + '</span>'
+    + '<span class="rs">' + escapeHtml(w + ' · ' + why) + '</span></div>';
+}
+
+function _pdrEvidence(ev) {
+  if (!ev) return '<div class="pdr-note">No decision evidence was read.</div>';
+  if (!ev.available) {
+    return '<div class="pdr-note"><b>EVIDENCE_INSUFFICIENT</b> — '
+      + escapeHtml(ev.message || 'no matured decision-outcome evidence was available; no confidence is invented.')
+      + '</div>';
+  }
+  var cells = (ev.buckets || []).map(function (b) {
+    var v;
+    if (b.evidence_class === 'EXIT') {
+      v = (b.observations || 0) + ' obs · ' + (b.avoided_loss_count || 0) + ' avoided / '
+        + (b.missed_upside_count || 0) + ' missed';
+    } else {
+      v = (b.wins || 0) + ' win / ' + (b.losses || 0) + ' loss'
+        + (b.hit_rate === null || b.hit_rate === undefined ? '' : ' · hit ' + _pdrPct(b.hit_rate, 0));
+    }
+    return '<div title="' + escapeHtml(b.note || '') + '"><div class="k">'
+      + escapeHtml(_pdrWords(b.evidence_class)) + ' (' + (b.applies_to_changes || 0) + ' change'
+      + ((b.applies_to_changes === 1) ? '' : 's') + ')</div><div class="v">' + escapeHtml(v) + '</div></div>';
+  }).join('');
+  var cautions = (ev.cautions || []).map(function (c) {
+    return '<div class="pdr-note">⚠ <b>' + escapeHtml(c.code) + '</b> — ' + escapeHtml(c.detail || '') + '</div>';
+  }).join('');
+  return '<div class="pdr-ev">' + cells + '</div>' + cautions
+    + '<div class="pdr-note">' + escapeHtml(ev.state || '') + ' · '
+    + escapeHtml(String(ev.matured_observations === null || ev.matured_observations === undefined ? '—' : ev.matured_observations))
+    + ' matured observations at the ' + escapeHtml(String(ev.primary_horizon || '—'))
+    + '-session horizon. This evidence informs the review; it never rewrites a past decision and never overrides the proposal.</div>';
+}
+
+function _pdrRender(d) {
+  var host = document.getElementById('pm-pdr-host');
+  if (!host) return;
+  var r = d && d.review;
+  if (!d || d.status !== 'OK' || !r) {
+    host.innerHTML = '<div class="pdr"><div class="pdr-hd">'
+      + '<span class="t">Proposal decision review</span>'
+      + '<span class="cc-badge muted">UNAVAILABLE</span></div>'
+      + '<div class="pdr-why">' + escapeHtml((d && d.message)
+        || 'The proposal decision review did not load. Nothing is fabricated.') + '</div></div>';
+    host.setAttribute('data-pdr-verdict', '');
+    return;
+  }
+  var v = r.review_verdict || {};
+  var states = r.states || {};
+  var cl = r.change_classification || {};
+  var incr = (r.marginal_economics || {}).full_target_vs_minimum_repair || {};
+  var recommended = ({
+    MINIMAL_REPAIR_PREFERRED: 'MINIMUM_REPAIR',
+    FULL_TARGET_REVIEWABLE: 'FULL_TARGET',
+    NO_CHANGE_REQUIRED: 'CURRENT',
+    DEFER_WEAK_INCREMENTAL_EDGE: 'CURRENT'
+  })[v.verdict] || null;
+
+  var cols = (r.state_order || ['CURRENT', 'MINIMUM_REPAIR', 'FULL_TARGET']).map(function (k) {
+    return _pdrStateCol(states[k], k === recommended, k === 'FULL_TARGET');
+  }).join('');
+
+  var mand = (cl.mandatory_changes || []).map(_pdrChangeRow).join('')
+    || '<div class="pdr-note">No change in this proposal is forced by a constraint or a governance rule.</div>';
+  var disc = (cl.discretionary_changes || []).map(_pdrChangeRow).join('')
+    || '<div class="pdr-note">No discretionary change in this proposal.</div>';
+
+  var why = '<div class="pdr-why">'
+    + (r.explanation && r.explanation.paragraphs || []).map(function (p) {
+        return '<p>' + escapeHtml(p) + '</p>'; }).join('')
+    + '</div>';
+
+  var diff = '<div class="pdr-ev">'
+    + '<div title="One-way turnover of the step FROM the repaired book TO the full target."><div class="k">Extra turnover</div><div class="v">' + _pdrPct(incr.additional_one_way_turnover) + '</div></div>'
+    + '<div title="Modelled transaction cost of that extra trading."><div class="k">Extra cost</div><div class="v">' + _pdrUsd(incr.additional_estimated_cost) + '</div></div>'
+    + '<div title="Extra score the full target buys over the repaired book, before cost."><div class="k">Extra score</div><div class="v">' + _pdrNum(incr.incremental_score_improvement, 4) + '</div></div>'
+    + '<div title="That extra score net of the cost of the extra trading."><div class="k">Net of cost</div><div class="v">' + _pdrNum(incr.incremental_score_improvement_net_of_cost, 4) + '</div></div>'
+    + '<div title="The EXISTING frozen switching hurdle, applied to the increment. No new threshold is introduced by this review."><div class="k">Hurdle</div><div class="v">' + _pdrNum((incr.hurdle_contract || {}).hurdle, 4) + '</div></div>'
+    + '<div title="Whether the increment clears that hurdle."><div class="k">Clears hurdle</div><div class="v">' + (incr.clears_incremental_hurdle === true ? 'YES' : incr.clears_incremental_hurdle === false ? 'NO' : '—') + '</div></div>'
+    + '<div title="Portfolio volatility difference on the capital basis."><div class="k">Risk delta</div><div class="v">' + _pdrPct(incr.volatility_delta_capital_basis, 2) + '</div></div>'
+    + '<div title="Extra positions the full target holds over the repaired book."><div class="k">Positions</div><div class="v">' + (incr.positions_delta === null || incr.positions_delta === undefined ? '—' : (incr.positions_delta > 0 ? '+' : '') + incr.positions_delta) + '</div></div>'
+    + '</div>';
+  var comp = incr.score_comparability || {};
+  var compNote = comp.code
+    ? '<div class="pdr-note">⚠ <b>' + escapeHtml(comp.code) + '</b> — ' + escapeHtml(comp.detail || '') + '</div>'
+    : '';
+
+  host.setAttribute('data-pdr-verdict', v.verdict || '');
+  host.innerHTML = '<div class="pdr">'
+    + '<div class="pdr-hd"><span class="t">Proposal decision review</span>'
+    + '<span class="cc-badge" title="Produced by ' + escapeHtml(r.calculation_owner || '') + ' from the persisted proposal, the opportunity-cost assessment and the matured outcome evidence.">DETERMINISTIC</span>'
+    + '<span class="cc-badge" title="No language model is called at runtime. The explanation is assembled from structured reason codes and backend facts.">NO LLM</span>'
+    + '<span class="cc-badge">PREVIEW ONLY</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span>'
+    + '<button type="button" class="btn-sm" id="pdr-refresh" onclick="_pdrLoad()" title="Reload the read-only proposal decision review.">↻ Refresh</button>'
+    + '</div>'
+    + '<div class="pdr-note">Recommended review path — a recommendation for manual review only. It approves nothing, creates no order plan and executes nothing.</div>'
+    + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
+    + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'
+    // The three states sit directly under the verdict: at 1920x1080 the comparison
+    // an operator has to make is the first thing on the screen, and the reasoning
+    // that justifies it follows immediately below it rather than pushing it away.
+    + '<div class="pdr-states">' + cols + '</div>'
+    + '<div class="pdr-sub">Why this review path</div>'
+    + why
+    + '<div class="pdr-sub">Why the full target differs from the minimum repair</div>'
+    + diff + compNote
+    + '<div class="pdr-sub">What the proposal changes</div>'
+    + '<div class="pdr-cols">'
+    + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--danger,#ef4444);">Mandatory · ' + (cl.mandatory_change_count || 0) + '</div>' + mand + '</div>'
+    + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--info,#3b82f6);">Discretionary · ' + (cl.discretionary_change_count || 0) + '</div>' + disc + '</div>'
+    + '</div>'
+    + '<div class="pdr-note">' + escapeHtml(cl.forced_classification_note || '') + '</div>'
+    + '<div class="pdr-sub">Historical evidence relevant to this proposal</div>'
+    + _pdrEvidence(r.historical_evidence)
+    + '</div>';
+}
+window._pdrRender = _pdrRender;
+
 
 function _r47Num(v, digits) {
   if (v === null || v === undefined || v === '') return '—';
@@ -29756,11 +30016,18 @@ function _opRenderReallocationView(p) {
       + '</summary>' + analysis + '</details>';
   }
   host.setAttribute('data-target-class', ds.target_class || '');
+  // R62 — the Proposal Decision Review sits between the decision and the analysis,
+  // so the operator reads WHAT TO REVIEW before Changes / Target / Economics and
+  // long before the Approve gate. This renderer owns the host element only; the
+  // review's own renderer fills it from its own backend read.
   host.innerHTML = dec
     + rejBanner
+    + '<div id="pm-pdr-host"></div>'
     + analysis
     + '<div class="pmr-sec"><div class="pmr-t">Governance</div><div class="pmr-gov">' + steps + '</div>' + govNote + govLink
     + '<div class="r47-quiet" style="margin-top:8px;">' + _opEsc(gov.note || '') + '</div></div>';
+  // The host was just recreated; refill it from whatever the review read last.
+  try { if (typeof _pdrRender === 'function') _pdrRender(window._pdrData); } catch (e) {}
 }
 
 // AUDIT — the raw owner states behind the reconciled presentation (never normal prose).

@@ -1,5 +1,60 @@
 # PROJECT_STATE
 
+- **Last updated:** 2026-09-21
+- **Updated by phase:** **R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW - THE LAST MILE
+  BEFORE THE APPROVE GATE: PAPER TRADER ADJUDICATES ITS OWN PROPOSAL (single
+  agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`
+  over `5e2aba3`).** Full narrative:
+  `docs/RELEASE_R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW.md`.
+
+  **What was wrong.** Every fact an operator needs to judge a reallocation
+  proposal already existed, in eight different read models, and nothing combined
+  them. The proposal published 35.0% turnover, $86.06 and +0.056 against a 0.050
+  hurdle; the opportunity-cost assessment published a DDOG risk-contribution
+  breach and eleven holdings past the exit buffer; the outcome store held 1,025
+  matured observations. The last mile - *which of these changes are forced, what
+  would merely REPAIRING the book cost, and does the full target earn the
+  difference* - was done by hand, or by asking a language model to read the JSON.
+
+  **What landed.** `engine.proposal_decision_review` (the pure adjudication
+  kernel) and `api.proposal_decision_review` (the read owner,
+  `GET /v1/operations/proposal-decision-review`), plus the operator block that
+  renders them on the Reallocation screen BEFORE Approve. Three comparable states:
+  CURRENT and FULL_TARGET read VERBATIM from the immutable artifact, MINIMUM_REPAIR
+  derived from canonical primitives only - exit what the governed retention /
+  eligibility rules no longer admit, reduce what breaches a mandatory limit to that
+  limit (risk contribution by the reallocation kernel's OWN first-order rule,
+  re-measured by the canonical risk owner), and release everything freed to CASH,
+  because a repair restores validity and the global allocator owns capital
+  deployment. Every change carries exactly one primary reason and a FORCED /
+  DISCRETIONARY verdict; the increment of the full target OVER the repair is priced
+  with the proposal owner's own cost model and judged against the EXISTING frozen
+  switching hurdle (`new_threshold_introduced: false`). No second proposal engine,
+  opportunity-cost engine, risk engine or evidence store: the canonical primitives
+  reproduce the persisted artifact's own published score, turnover, concentration,
+  volatility and risk contributions to the last digit.
+
+  **Honest result on the live Sep-18 proposal** (read-only; still READY /
+  PROPOSAL_REVIEW_REQUIRED, unapproved, 0 orders and 0 fills created):
+  `MINIMAL_REPAIR_PREFERRED`. 12 open obligations (1 hard RISK_CONTRIBUTION_CAP +
+  11 retention failures); 10 mandatory / 14 discretionary changes; the minimum
+  repair costs 21.6% turnover and $52.99 and closes all 12, while the full target
+  adds 21.2% turnover and $52.22 for **-0.019** net score against a 0.050 hurdle
+  and still leaves LH and VLO unrepaired. Three findings nobody had surfaced: the
+  full target does not close every obligation it was built for; the DDOG breach is
+  closed by COMPOSITION and not by a trade (so satisfaction is judged on the
+  resulting book, never by matching trades); and the two owners genuinely disagree
+  about what is mandatory - which the review reports rather than blends. Declared
+  limitation: the canonical score is normalised over INVESTED weight, so a
+  comparison across materially different uninvested capital carries
+  `SCORE_BASIS_EXCLUDES_UNINVESTED_CAPITAL` and says plainly that expected return
+  is NOT_CALIBRATED; cash has no percentile in the eligible universe and none is
+  invented. `runtime_llm_dependency = NONE`. No order, no fill, no approval, no
+  promotion, no artifact mutated, $0 spent.
+
+## PORT_AND_ACTIVATE_PAPER_TRADER_ALPHA_AGENTS_R56_V1 (superseded as the
+current phase; result unchanged)
+
 - **Last updated:** 2026-09-19
 - **Updated by phase:** **PORT_AND_ACTIVATE_PAPER_TRADER_ALPHA_AGENTS_R56_V1 - THE
   TWELVE QUANT RESEARCH AGENTS, PORTED INTO PAPER TRADER AS

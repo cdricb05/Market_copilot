@@ -1991,3 +1991,33 @@ def _empty_result(pol: dict, ic: dict, state: str, blockers: list,
     }
     result["proposal_hash"] = stable_hash(result)
     return result
+
+
+# --------------------------------------------------------------------------- #
+# PUBLIC ALIASES for the canonical primitives this kernel owns
+# (R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW)
+#
+# The proposal decision review has to price a SECOND portfolio state (the minimum
+# constraint repair) on exactly the basis this owner used for the proposal, or the
+# two states would not be comparable and the review would become a second
+# proposal engine by the back door. It therefore calls THESE functions rather
+# than reimplementing annualised portfolio volatility, the coverage reconciliation,
+# the concentration index or the turnover/cost model. Same code, same numbers:
+# `portfolio_volatility` reproduces this artifact's own published
+# `portfolio_volatility_before` to the last published digit, and
+# `turnover_and_cost` its own `estimated_transaction_cost`.
+#
+# Aliases only - no behaviour is added, and no caller of the private names changes.
+# --------------------------------------------------------------------------- #
+#: Annualised portfolio volatility + the per-name risk shares, from date-aligned
+#: daily returns, through the Slice-6 covariance kernel.
+portfolio_volatility = _portfolio_volatility
+#: Reconcile the raw covariance result with the coverage gate into ONE (state, value).
+effective_volatility = _effective_volatility
+#: Herfindahl concentration index over a weight map.
+herfindahl = _herfindahl
+#: Largest single weight in a weight map.
+largest_weight = _largest_weight
+#: Gross buys / sells, traded notional, one- and two-way turnover and the modelled
+#: transaction cost (per-instrument rate when the row declares one, desk rate otherwise).
+turnover_and_cost = _turnover_and_cost

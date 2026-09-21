@@ -215,6 +215,7 @@ from paper_trader.api import opportunity_frontier as _frontier
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
+from paper_trader.api import proposal_decision_review as _pdreview
 from paper_trader.api import portfolio_reassessment as _reassess
 from paper_trader.api import portfolio_decision as _pdecision
 from paper_trader.api import portfolio_decision_outcome as _pdo
@@ -6606,6 +6607,51 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/operations/proposal-decision-review",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_proposal_decision_review() -> dict:
+    """R62 canonical PORTFOLIO PROPOSAL DECISION REVIEW (read-only).
+
+    The last mile of the reallocation workflow: Paper Trader adjudicating its OWN
+    standing proposal, so an operator no longer has to combine the facts by hand -
+    and so no language model is needed to interpret them. It answers, before the
+    Approve gate: which of the proposed changes are FORCED by a constraint or a
+    governance rule and which are DISCRETIONARY; what the MINIMUM CONSTRAINT REPAIR
+    of the current book would look like, cost and leave behind; what the FULL
+    ZERO-BASE TARGET adds over that repair in turnover, transaction cost, score and
+    risk; which matured decision evidence bears on it; and which review path the
+    governed policy recommends, with the reasoning in plain English.
+
+    Three states are compared - CURRENT (do nothing), MINIMUM_REPAIR and
+    FULL_TARGET. CURRENT and FULL_TARGET are read VERBATIM from the immutable
+    proposal artifact; MINIMUM_REPAIR is derived with the SAME canonical primitives
+    (``engine.constrained_reallocation`` for constraints, caps, turnover,
+    concentration and the portfolio score; ``engine.holding_opportunity_cost`` for
+    the per-name risk-contribution contract and the covariance;
+    ``engine.reallocation_proposal`` for volatility and the transaction-cost model;
+    ``engine.reassessment_outcomes`` for the matured evidence). There is no second
+    proposal engine, opportunity-cost engine, risk engine or evidence store here,
+    and the repair never deploys capital: everything it releases goes to cash.
+
+    DETERMINISTIC AND OFFLINE - ``runtime_llm_dependency`` is NONE: no LLM call, no
+    prompt, no network. The verdict is a RECOMMENDATION FOR MANUAL REVIEW from a
+    fixed vocabulary (FULL_TARGET_REVIEWABLE / MINIMAL_REPAIR_PREFERRED /
+    DEFER_WEAK_INCREMENTAL_EDGE / BLOCKED_CONSTRAINT_OR_DATA / NO_CHANGE_REQUIRED)
+    and introduces no threshold of its own: the bar it applies to the full target's
+    increment over the repair is the existing frozen switching hurdle.
+
+    STRICTLY READ-ONLY. It runs no engine and writes nothing: it never approves,
+    rejects, supersedes, regenerates or mutates the proposal it reviews, creates no
+    operational or alpha target, no order plan, no order and no fill, changes no
+    holding, cash or NAV, promotes no model and enables no automation. Manual
+    approval remains mandatory and this surface sits entirely BEFORE that gate.
+    """
+    return _pdreview.load_proposal_decision_review()
 
 
 @app.get(

@@ -889,6 +889,11 @@
    "system": "infrastructure"
   },
   {
+   "prefix": "/v1/operations/proposal-decision-review",
+   "owner": "api/proposal_decision_review.py",
+   "system": "infrastructure"
+  },
+  {
    "prefix": "/v1/operations/portfolio-decision-outcomes",
    "owner": "api/portfolio_decision_outcome.py",
    "system": "infrastructure"
@@ -4667,6 +4672,63 @@
    "migration_priority": 1,
    "risk": "low",
    "notes": "RESEARCH INFRASTRUCTURE ONLY. Registers no hypothesis, charges no research-family burden for its own measurement, consumes no lockbox, creates no forward request and rewrites no historical result. Measured the estate's own detection floor for the first time: 6,000 governed D/V/L runs over five real panels at 120 seeds per point on a frozen ten-point effect grid, with detection defined as the FULL qualification path. The false-positive rate at a zero effect is 0/120 on every panel - the gate invents nothing - and MDE_80 in net annual excess is 4.85% on US large cap, 5.31% on the extension universe, 6.56% on commodity futures, 4.32% on equity-index futures and 2.98% on cross-asset futures, all at the most favourable burden denominator of 1. Four repairs landed with it: the turnover scalar became an annualised cost budget (0.40 one-way -> 3.0%/yr drag, 2x the frozen materiality floor), the drawdown accumulator that reported 0.0000 on a stream losing 30% in its first period was corrected and split into two named concepts with one owner, the four R60 cells that could never settle were recorded as PRE_MEASUREMENT_HALTs (burden 8409 -> 8413), and the extension identity bridge was audited against pre-registered thresholds and FAILED - name-channel false-match rate 14.15% against a 2% threshold, so the substrate stays frozen. Guarded by check_release61_apparatus_calibration (30 blocking invariants)."
+  },
+  {
+   "path": "api/proposal_decision_review.py",
+   "system": "infrastructure",
+   "classification": "KEEP",
+   "target_owner": "api/proposal_decision_review.py",
+   "duplicate_with": [],
+   "responsibility": "R62 read / composition owner for the PORTFOLIO PROPOSAL DECISION REVIEW. Performs NO business calculation. Sources the standing proposal and its read state from api.reallocation_proposal (read contract for the STATE, immutable artifact for the FACTS - the flattened read view does not republish every block), the opportunity-cost assessment BOUND to that proposal by its own hoc_assessment_hash from api.holding_opportunity_cost, the matured decision evidence from api.reassessment_outcomes and the owned return panel from api.price_panel (memoised by proposal hash), then calls the pure engine.proposal_decision_review kernel and publishes the result plus a compact summary. Writes NOTHING and never touches the proposal it reviews.",
+   "direct_reads": [
+    "api.reallocation_proposal.load_reallocation_proposal + load_latest_artifact",
+    "api.holding_opportunity_cost.load_latest_artifact / load_artifact_versions / load_artifact_by_id (the BOUND assessment version)",
+    "api.reassessment_outcomes.load_reassessment_outcomes (matured evidence)",
+    "api.price_panel.load_operational_price_panel + aligned_returns"
+   ],
+   "direct_writes": [
+    "NOTHING. No artifact, no index, no ledger, no PostgreSQL, no order / fill / target / holding / cash / NAV. It never approves, rejects, supersedes, regenerates or mutates the proposal it reviews."
+   ],
+   "endpoints": [
+    "/v1/operations/proposal-decision-review"
+   ],
+   "ui_consumers": [
+    "_pdrLoad",
+    "_pdrRender"
+   ],
+   "tests": [
+    "tests/test_r62_proposal_decision_review.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "R54 ownership classification: READ_COMPOSER (it composes reads and owns no business calculation). GET-only, strictly read-only, degrade-safe and idempotent: the review is a projection of evidence, never an event, so the same standing proposal returns the same payload. runtime_llm_dependency is NONE - no LLM call, no prompt, no network in this path. It sits entirely BEFORE the manual Approve gate and weakens none of the existing gates: Review -> Approve -> Confirm order plan -> Await next close -> Paper execution is unchanged."
+  },
+  {
+   "path": "engine/proposal_decision_review.py",
+   "system": "infrastructure",
+   "classification": "KEEP",
+   "target_owner": "engine/proposal_decision_review.py",
+   "duplicate_with": [],
+   "responsibility": "R62 CANONICAL PORTFOLIO PROPOSAL DECISION REVIEW kernel: the pure, deterministic ADJUDICATION of a standing reallocation proposal. Not an optimiser and not a second proposal engine - it performs no allocation search, proposes no holding, deploys no capital and introduces no threshold. It builds three comparable states (CURRENT and FULL_TARGET read VERBATIM from the immutable proposal artifact; MINIMUM_REPAIR derived by reducing only what breaches a mandatory limit or a governed retention / eligibility rule and releasing everything freed to CASH), classifies every proposed change into exactly one primary reason and into FORCED vs DISCRETIONARY, prices the FULL target's increment over the repair (extra turnover, extra transaction cost, extra score net of that cost, risk delta) against the EXISTING frozen switching hurdle, ingests the matured decision-outcome evidence as information that never overrides the proposal, and emits ONE deterministic review verdict (FULL_TARGET_REVIEWABLE / MINIMAL_REPAIR_PREFERRED / DEFER_WEAK_INCREMENTAL_EDGE / BLOCKED_CONSTRAINT_OR_DATA / NO_CHANGE_REQUIRED) with a plain-English explanation assembled from structured reason codes. Pure: no I/O, no clock, no network, NO LLM.",
+   "direct_reads": [
+    "the proposal artifact handed to it (no store access of its own)",
+    "engine.constrained_reallocation (constraint inventory, name_caps, candidate_meta, verify_feasibility, one_way_turnover, weighted_score) - reused",
+    "engine.holding_opportunity_cost (risk-contribution contract, covariance, retention / liquidity verdicts) - reused",
+    "engine.reallocation_proposal (portfolio_volatility, effective_volatility, herfindahl, turnover_and_cost) - reused through that owner's public aliases"
+   ],
+   "direct_writes": [
+    "NOTHING. Pure function: no artifact, no index, no ledger, no PostgreSQL, no order / fill / target / holding / cash / NAV, no model promotion."
+   ],
+   "endpoints": [],
+   "ui_consumers": [
+    "_pdrRender"
+   ],
+   "tests": [
+    "tests/test_r62_proposal_decision_review.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "The last mile BEFORE the Approve gate: Paper Trader adjudicating its own proposal so an operator no longer has to combine the facts by hand and no language model is needed to interpret them. Two declared versions: REVIEW_POLICY_VERSION (proposal_decision_review_policy.v1) and REPAIR_SCOPE_VERSION (proposal_repair_scope.v1). The repair scope has two tiers, each owned elsewhere: HARD_CONSTRAINT_VIOLATION (the constraint kernel's own independent verifier, plus the risk-contribution contract for the one limit that verifier declares it cannot check) and GOVERNANCE_RETENTION_FAILURE (the opportunity-cost owner's BROKEN verdict). An obligation is judged satisfied on the RESULTING BOOK, never by matching trades, so a breach the target closes through composition counts and one it leaves open is reported. Fails CLOSED: a repair whose risk was never measured, or that cannot close every obligation, returns BLOCKED_CONSTRAINT_OR_DATA rather than a recommendation. Asset-agnostic - instrument metadata on the proposal rows drives caps, cross-asset groups and per-instrument cost rates, so a futures / FX / cash book is adjudicated by the same code. Review-only: approves nothing, creates no order plan, confirms nothing, executes nothing, promotes nothing and mutates no artifact."
   }
  ]
 }

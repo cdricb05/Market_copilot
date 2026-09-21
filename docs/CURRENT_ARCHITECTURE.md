@@ -1006,6 +1006,66 @@ flowchart LR
   exists; inventory drift = 0. Review-only, preview-first, paper-only, manual review
   mandatory. The Persistent Alpha Research Agent (Slice 8 / Milestone 4) has LANDED (below).
 
+### Canonical Portfolio Proposal Decision Review (R62, LANDED)
+- **Two owners.** The pure adjudication kernel `engine/proposal_decision_review.py`
+  (`proposal_decision_review.v1`) and the read/composition owner
+  `api/proposal_decision_review.py` serving GET-only
+  `/v1/operations/proposal-decision-review`. This is the LAST MILE BEFORE the
+  Approve gate: Paper Trader adjudicating its own standing proposal so an operator
+  does not have to combine eight read models by hand, and so no language model is
+  needed to interpret them. `runtime_llm_dependency = NONE`.
+- **Not an optimiser.** No allocation search, no proposed holding, no capital
+  deployed, no threshold of its own. It compares THREE states: `CURRENT` and
+  `FULL_TARGET` read VERBATIM from the immutable proposal artifact, and
+  `MINIMUM_REPAIR` derived from canonical primitives only. The repair exits what
+  the governed retention / eligibility rules no longer admit, reduces what breaches
+  a mandatory limit to that limit (risk contribution by the reallocation kernel's
+  OWN first-order rule `w x limit/share`, re-measured by the canonical risk owner
+  each round), and releases everything freed to CASH — a repair restores validity
+  and the global allocator owns capital deployment (Release-32 design rule).
+- **Repair scope** (`proposal_repair_scope.v1`), two tiers, each owned elsewhere:
+  `HARD_CONSTRAINT_VIOLATION` (weight arithmetic by
+  `engine.constrained_reallocation.verify_feasibility`; the per-name
+  risk-contribution limit by the `engine.holding_opportunity_cost` contract, which
+  that verifier explicitly declares it cannot check) and
+  `GOVERNANCE_RETENTION_FAILURE` (the opportunity-cost owner's own `BROKEN`
+  verdict). An obligation is judged satisfied on the RESULTING BOOK, never by
+  matching trades, so a breach the target closes through composition counts and one
+  it leaves open is reported.
+- **Reuse, not rebuild.** `engine.constrained_reallocation` (constraint inventory,
+  `name_caps`, `candidate_meta`, `verify_feasibility`, `one_way_turnover`,
+  `weighted_score`), `engine.holding_opportunity_cost` (risk-contribution contract,
+  covariance, retention/liquidity verdicts), `engine.reallocation_proposal`
+  (`portfolio_volatility`, `effective_volatility`, `herfindahl`,
+  `turnover_and_cost`) and `engine.reassessment_outcomes` (matured evidence). Those
+  two owners gained PUBLIC ALIASES for primitives they already owned; no behaviour
+  was added and no existing caller changed. Proof of identity: the primitives
+  reproduce a persisted artifact's own published score / turnover / HHI /
+  volatility / risk contributions to the last digit.
+- **Verdict** from a fixed vocabulary (`FULL_TARGET_REVIEWABLE`,
+  `MINIMAL_REPAIR_PREFERRED`, `DEFER_WEAK_INCREMENTAL_EDGE`,
+  `BLOCKED_CONSTRAINT_OR_DATA`, `NO_CHANGE_REQUIRED`) on a declared, total ladder.
+  The bar applied to the full target's increment over the repair is the EXISTING
+  frozen switching hurdle (`new_threshold_introduced: false`). Fails CLOSED: a
+  repair whose risk was never measured, or that cannot close every obligation,
+  BLOCKS rather than recommending. Matured evidence INFORMS and never overrides —
+  the verdict is byte-identical under favourable and adverse evidence.
+- **Declared limitation.** The canonical portfolio score is normalised over
+  INVESTED weight, so a comparison across materially different uninvested capital
+  carries `SCORE_BASIS_EXCLUDES_UNINVESTED_CAPITAL`: cash has no percentile in the
+  eligible universe and none is invented, and expected return stays
+  `NOT_CALIBRATED`. Volatility is published on both the canonical invested-sleeve
+  basis and a capital basis (invested sleeve scaled by the invested share, under
+  the stated assumption that cash carries no variance).
+- **UI.** Rendered on the Reallocation / Manual Review screen between Decision and
+  Changes — verdict, three states side by side at 1920x1080, the plain-English
+  paragraphs, the increment, the forced/discretionary split and the relevant
+  matured evidence. No new action, no dialog, no approval affordance. Review-only:
+  approves nothing, creates no order plan, confirms nothing, executes nothing,
+  mutates no artifact. Gates unchanged: Review -> Approve -> Confirm order plan ->
+  Await next close -> Paper execution.
+- **Tests:** `tests/test_r62_proposal_decision_review.py`.
+
 ### Canonical Persistent Alpha Research Agent (Slice 8, LANDED — Phase 29I, Milestone 4)
 - **Two owners.** The pure deterministic evaluation kernel `engine/research_agent.py`
   (`evaluate`, no I/O) is the SOLE research-state calculation owner; `api/research_agent.py`

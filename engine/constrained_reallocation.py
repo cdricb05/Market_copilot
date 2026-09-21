@@ -1346,6 +1346,14 @@ def _weighted_score(weights: dict, score_of: dict) -> Optional[float]:
     return acc if seen else None
 
 
+#: PUBLIC ALIAS (R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW). The proposal decision
+#: review scores a SECOND portfolio state (the minimum constraint repair) and must
+#: score it on exactly this basis, or the states would not be comparable. It calls
+#: this function rather than reimplementing the score: the same call reproduces a
+#: persisted proposal's own published score_before / score_after to the last digit.
+weighted_score = _weighted_score
+
+
 # --------------------------------------------------------------------------- #
 # Feasibility verification (independent of the solver that produced the weights)
 # --------------------------------------------------------------------------- #
