@@ -1,0 +1,38 @@
+{
+  "assignment_id": "DF5_LIGHT_PROBES",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "terms_of_trade_panel_v1",
+  "SOURCE": "NORGATE_CASH_COMMODITY_TERMS_OF_TRADE_FOR_FX",
+  "OWNERSHIP_ENTITLEMENT": "Norgate local subscription",
+  "COST_USD": 0,
+  "HISTORY_START": "1982-07-01",
+  "HISTORY_END": "2026-08-31",
+  "INSTRUMENTS_ISSUERS": "RBA commodity indices (AUD, USD); per-metal series (LME, CFR China); FX spot rates for AUD, CAD, NZD, NOK, BRL, CLP, MXN",
+  "PIT_AVAILABILITY_RULE": "NOT_MEASURED",
+  "SURVIVORSHIP_STATE": "NONE",
+  "DELISTED_INACTIVE_COVERAGE": "N/A",
+  "MISSINGNESS": "NOT_MEASURED",
+  "REVISION_BEHAVIOR": "NOT_MEASURED",
+  "LICENSE_USAGE_CONSTRAINTS": "Norgate local installation",
+  "the_one_number": "NOT_MEASURED",
+  "measurements": [
+    {
+      "what": "RBA series frequency (distinct values vs rows per year), release lag, and export-basket coverage for commodity currencies other than AUD",
+      "how_measured": "Attempted norgatedata API query of $RBACPU (1982-2026); enumerated 10 RBA series and confirmed commodity currency pairs (AUD, CAD, NZD, NOK, BRL, CLP, MXN) exist in Forex Spot database",
+      "result": "API call incomplete within turn budget; phase 1 evidence shows RBA series end 2026-08-31 (~3 weeks before today 2026-09-20), consistent with monthly data carried forward on daily index"
+    }
+  ],
+  "CERTIFICATION": "DATA_HOLD",
+  "certification_reason": "The critical measurements (RBA frequency, release lag, non-AUD commodity currency equivalence) were not completed within the turn budget. Phase 1 evidence suggests monthly data on daily cadence (last date ~21 days before today), but the actual publication lag, distinct-value count per year, and whether export-basket series exist for CAD, NZD, NOK, BRL, CLP, or MXN remain unverified. Decision rule requires settling whether the construct is expressible as designed for multi-currency relative-value modeling.",
+  "limitations_that_must_travel_with_it": [
+    "Turn budget exhausted before measurement completed",
+    "Frequency and lag measurements required to apply decision rule"
+  ],
+  "hypotheses_unblocked": [],
+  "hypotheses_blocked": [
+    "PH11: cross-currency commodity terms-of-trade relative-value construct (hold pending frequency and lag verification)",
+    "PH14: hold pending completion of DF5B"
+  ]
+}

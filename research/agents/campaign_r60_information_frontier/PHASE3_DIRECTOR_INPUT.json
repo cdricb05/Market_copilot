@@ -1,0 +1,434 @@
+{
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "phase": 3,
+ "produced_by": "SESSION_ORCHESTRATOR",
+ "purpose": "The director's Phase-3 selection input. Certification verdicts and MEASURED substrate facts only - not the estate, not the nine certification files, not the Phase-1 audit in full.",
+ "certification_verdicts": [
+  {
+   "file": "CERTIFICATION_DF1_EXTENSION_UNIVERSE.json",
+   "DATASET_ID": "us_equity_extension_pit_panel_v1",
+   "CERTIFICATION": "PIT_SAFE",
+   "reason": "Norgate 'S&P MidCap 400 Current & Past' + 'S&P SmallCap 600 Current & Past' watchlists are survivorship-safe (delisted names retained), carry daily membership flags (PIT observable), span 2004-2026 with stable median cross-section 255 names/year after tradability filter, all fields are true timeseri",
+   "supersedes": null,
+   "unblocked": [
+    "PH01",
+    "PH02",
+    "PH03",
+    "PH04",
+    "PH12",
+    "PH13"
+   ],
+   "blocked": [],
+   "note": "ids only - this certification's free-text hypothesis descriptions were relabels and are not carried",
+   "limitations": [
+    "Per-symbol first_quoted_date governs usable depth, not panel start. Symbols IPO'd after 2010 will have shorter history.",
+    "Norgate membership history is vendor-reconstructed; membership revisions between indices are invisible. This does not affect PIT status (each date shows constituent status as of that date) but index-membership flag should not be forward-filled beyond availability.",
+    "Dividend field populated only on ex-dividend dates; zero otherwise. Do not impute.",
+    "Turnover is total-return adjusted (point-in-time); Close is adjusted; Unadjusted Close is unadjusted. Use Unadjusted Close for volume-weighted calculations requiring no survivorship adjustment.",
+    "Test sample 500 symbols; full 3,640-symbol panel estimated at 5-10 min ingestion. Recommend scheduling outside peak campaign hours."
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF2_LME_PHYSICAL.json",
+   "DATASET_ID": "physical_commodity_state_panel_v1",
+   "CERTIFICATION": "DATA_HOLD",
+   "reason": "Publication lag for LME warehouse stocks is the critical gate: it was not measured in phase 1 and Norgate vendor API does not provide per-bar timestamps. The director flagged this as 'MEDIUM PIT concern' and precisely the source where a lag error manufactures a false t-statistic. Until the lag is me",
+   "supersedes": null,
+   "unblocked": [],
+   "blocked": [
+    "PH05",
+    "PH06",
+    "PH14"
+   ],
+   "note": "",
+   "limitations": [
+    "Publication lag NOT measured; director proposed one-session default but it must be pre-registered before use",
+    "Per-bar publication timestamps not available from Norgate vendor API; exact observation date vs. publication date cannot be distinguished",
+    "Revision behavior of warehouse stock series NOT measured; assume potential for revision until proven otherwise",
+    "Transaction costs (cost_bps_per_side) for HG or any tradable NOT measured",
+    "History overlap between HG futures and @CUWS warehouse stock NOT calculated",
+    "Tradable cross-section confirmed at N=1 (copper only); precious metals have no corresponding warehouse stocks"
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF3_FUTURES_PAIRS.json",
+   "DATASET_ID": "futures_front_deferred_pair_panel_v1",
+   "CERTIFICATION": "DATA_HOLD",
+   "reason": "The assignment mandate is to demonstrate a buildable (front, first-deferred) PAIR with both legs' closes AND both open interests observed with proper lag, per market per date. The materialised native_contract_layer CSVs contain held contract only; the deferred contract must come from Norgate Futures",
+   "supersedes": null,
+   "unblocked": [
+    "PH07"
+   ],
+   "blocked": [
+    "PH08",
+    "PH15"
+   ],
+   "note": "ids only - this certification's free-text hypothesis descriptions were relabels and are not carried",
+   "limitations": [
+    "NOT_MEASURED: (front, first-deferred) pair never successfully built from Norgate Futures database; closes and OIs on same dates not demonstrated",
+    "NOT_MEASURED: deferred leg selection rule (next month assumed, not confirmed empirically across 69 markets)",
+    "NOT_MEASURED: open_interest lag (census states >=1 session; actual Norgate OI provisioning lag never measured)",
+    "NOT_MEASURED: pair_coverage (how many markets, over how many years, support both legs with non-zero OI)",
+    "NOT_MEASURED: cost_bps_per_side per-market availability from Norgate metadata (asserted 2-15bp, not re-confirmed)",
+    "UNRESOLVED: last_oi=0.0 on 2026-08-21 CL-2026V \u2014 is it genuine zero or missing value? If missing and used in growth denominators, basis momentum calculation is compromised"
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF3B_DEFERRED_LEG.json",
+   "DATASET_ID": "r38_native_contract_layer_with_deferred_leg_v1",
+   "CERTIFICATION": "PIT_SAFE",
+   "reason": "Deferred leg is genuine (distinct from front, 98.6% paired population), deep (67/68 markets at >=2k paired sessions), and novel (not a duplicate of settled carry family). Basis momentum feature computable on 187 decisions (2011-07-01 .. 2026-07-07), with median 66 scorable markets per decision. Open",
+   "supersedes": "CERTIFICATION_DF3_FUTURES_PAIRS.json",
+   "unblocked": [
+    "PH07",
+    "PH08",
+    "PH15"
+   ],
+   "blocked": [],
+   "note": "ids only - this certification's free-text hypothesis descriptions were relabels and are not carried",
+   "limitations": [
+    "One market below 2,000 paired sessions (not named; Norgate-side market thinness, early-history phenomenon)",
+    "open_interest == 0.0 is MISSING everywhere, not only on newest row; 6,664 in-history zeros across 23 markets must be treated as missing in basis-OI, OI-growth, and OI-concentration calculations",
+    "OI_LAG = 2 sessions with provisional newest row; do not use OI on date T for any calculation at date T or T-1",
+    "SIGNAL_LAG_SESSIONS = 1 for ret and ret2; basis momentum at date T uses 21-session windows ending T-1",
+    "Layer materialized 2026-08-22; live data beyond 2026-08-21 is not in scope for historical backtest",
+    "Duplicate-identity pre-test (Spearman vs. carry) is exploratory only and does not rule on novelty (memory's check, skeptic's attack)"
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF4A_COMPANYFACTS.json",
+   "DATASET_ID": "extension_pit_fundamental_panel_v1",
+   "CERTIFICATION": "PIT_SAFE_WITH_LIMITATIONS",
+   "reason": "FSDS + companyfacts structure is sound for PIT fundamentals with 99.4% mid/small-cap join rate and complete survivorship retention. Filing dates ('filed') are proper availability stamps. However, common-shares-outstanding field availability as history (not current scalar) was NOT confirmed within tu",
+   "supersedes": null,
+   "unblocked": [
+    "PH03"
+   ],
+   "blocked": [
+    "PH04"
+   ],
+   "note": "",
+   "limitations": [
+    "Shares outstanding field (us-gaap:CommonStockSharesIssued or similar) must be confirmed as a time series (multiple filed dates per CIK) before PH04 net-share-issuance can be calculated. If only a current scalar exists, PH04 is look-ahead and must be rejected.",
+    "Field coverage histogram (revenues, gross profit, total assets, shares outstanding by year 2010-2026) not measured. Assume non-uniform coverage; microcaps file fewer tagged facts than large-caps.",
+    "96 mid/small-cap CIKs in FSDS but not companyfacts.zip are likely very recent delistings or inactive filers; universe definition must exclude or mark inactive as appropriate.",
+    "Delisted flag itself not available in company_tickers.json; survivorship retained via full FSDS history but estate must determine inclusion/exclusion rules for inactive CIKs."
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF4B_COMMENT_LETTERS.json",
+   "DATASET_ID": "sec_comment_letter_event_panel_v1",
+   "CERTIFICATION": "DATA_HOLD",
+   "reason": "The critical trap identified by the census is UNRESOLVED: edgar_full_index 'Date Filed' field must be verified as the PUBLIC DISSEMINATION date (not the SEC staff letter date) before this source can be used. SEC releases comment letters publicly ~20 business days after review closure. If 'Date Filed",
+   "supersedes": null,
+   "unblocked": [],
+   "blocked": [
+    "PH10"
+   ],
+   "note": "",
+   "limitations": [
+    "BLOCKING ISSUE: Date Filed = dissemination date must be verified. Cross-reference sample UPLOAD/CORRESP events against sec.gov EDGAR submission page details or comment-letter archives to confirm public release timestamp vs. letter date. If Date Filed is letter date, REJECT entire source.",
+    "CIK\u2192ticker join rate not measured. Estimate ~60% of events on tradable equity; remainder on funds, banks, other filers. Cannot build tradable event book without join.",
+    "Event count per year is substantial (18K-35K annually) and may support cross-sectional book, but this depends on (a) Date Filed validation and (b) successful ticker join."
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF4C_SHARES_HISTORY.json",
+   "DATASET_ID": "extension_pit_fundamental_panel_v1",
+   "CERTIFICATION": "PIT_SAFE_WITH_LIMITATIONS",
+   "reason": "Shares outstanding is confirmed as genuine filed-stamped history with multiple distinct filing dates per issuer. Restatement and negative-share traps are documented and the pre-registered rules to handle them are explicit. However, per-field coverage by year (2009\u20132026) and ticker\u2192CIK join against t",
+   "supersedes": "the PH04 block in CERTIFICATION_DF4A_COMPANYFACTS.json",
+   "unblocked": [
+    "PH04"
+   ],
+   "blocked": [],
+   "note": "",
+   "limitations": [
+    "Field coverage by year and by issuer is not measured. Assume non-uniform coverage; smaller-cap filers may have fewer tagged facts per period. Executor must handle missing data explicitly and not assume dense coverage.",
+    "Ticker\u2192CIK join validated at 99.4% against FSDS-derived mid/small-cap set, not against the certified Norgate extension symbol list. Estate must reconcile the two join paths and confirm no tickers are silently missing or misaligned.",
+    "96 mid/small-cap CIKs in FSDS are not yet in companyfacts.zip (0.6%); likely recent delistings or inactive filers. Estate must decide inclusion/exclusion rules and communicate them to executors.",
+    "Restatement rule (latest-filed-as-of-t) and non-positive-share filter are required; they must be pre-registered in the executor's code and not left to discovery at evaluation time."
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF5A_EODHD_DIVIDENDS.json",
+   "DATASET_ID": "us_equity_dividend_announcement_panel_v1",
+   "CERTIFICATION": "PIT_SAFE",
+   "reason": "The EODHD /div endpoint provides declarationDate for 100% of dividend records across all years sampled (2020-2026), well above the 80% non-null threshold required for usability. This is the ANNOUNCEMENT date (distinct from ex-date) and is reliably populated.",
+   "supersedes": null,
+   "unblocked": [
+    "PH09"
+   ],
+   "blocked": [],
+   "note": "ids only - this certification's free-text hypothesis descriptions were relabels and are not carried",
+   "limitations": []
+  },
+  {
+   "file": "CERTIFICATION_DF5B_TERMS_OF_TRADE.json",
+   "DATASET_ID": "terms_of_trade_panel_v1",
+   "CERTIFICATION": "DATA_HOLD",
+   "reason": "The critical measurements (RBA frequency, release lag, non-AUD commodity currency equivalence) were not completed within the turn budget. Phase 1 evidence suggests monthly data on daily cadence (last date ~21 days before today), but the actual publication lag, distinct-value count per year, and whet",
+   "supersedes": null,
+   "unblocked": [],
+   "blocked": [
+    "PH11",
+    "PH14"
+   ],
+   "note": "",
+   "limitations": [
+    "Turn budget exhausted before measurement completed",
+    "Frequency and lag measurements required to apply decision rule"
+   ]
+  },
+  {
+   "file": "CERTIFICATION_DF5C_FINRA_SHORT_VOLUME.json",
+   "DATASET_ID": "finra_short_volume_panel_v1",
+   "CERTIFICATION": "DATA_HOLD",
+   "reason": "The critical measurement\u2014whether the FINRA CDN archive reaches back to approximately 2009 or earlier\u2014was not completed within the turn budget. Network reachability and archive depth are required to apply the decision rule (reaches ~2009 -> PIT_SAFE; does not -> PROSPECTIVE_ONLY and PH16 drops from c",
+   "supersedes": null,
+   "unblocked": [],
+   "blocked": [
+    "PH16"
+   ],
+   "note": "",
+   "limitations": [
+    "Turn budget exhausted before network probes completed",
+    "Archive reach verification required to determine PIT_SAFE vs PROSPECTIVE_ONLY"
+   ]
+  }
+ ],
+ "live_hypotheses": [
+  {
+   "provisional_id": "PH01",
+   "label": "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "LIQUIDITY",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": 1,
+   "hypothesis": "In the S&P MidCap 400 + SmallCap 600 PIT universe, a long-short book that buys the least liquid quintile and sells the most liquid quintile - liquidity measured as a turnover-scaled Amihud-style illiquidity rank, sector-neutralised - earns a positive net return over 21 sessions after realistic small-cap costs.",
+   "economic_mechanism": "Compensation for the expected cost of trading. An investor who must be able to exit quickly pays a premium for liquid names; the marginal holder of an illiquid name must be paid to bear exit risk. The premium is a price of a real service, not a forecast.",
+   "information_edge": "Not new information - a new POPULATION. The premium is measured where limits to arbitrage bind, instead of among the 500 most-arbitraged securities on earth.",
+   "why_market_may_not_fully_price_it": "Because harvesting it requires accepting the very illiquidity being paid for. Large institutions cannot size into it, so the premium is not competed away; it is structurally unattractive rather than unknown.",
+   "not_a_repeat_because": "The estate's LIQUIDITY_PREMIUM near-miss (lockbox t 2.89, killed by burden correction) was measured on the S&P 500. LIQUIDITY is not in the closed_mechanism_ledger for US_EQUITY at all. The population is the hypothesis.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH02",
+   "label": "EQ_EXTENSION_RESIDUAL_MOMENTUM",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "MOMENTUM",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": 1,
+   "hypothesis": "In the extension universe, ranking on 12-month-minus-1-month momentum measured in RESIDUAL space - after removing market and sector return - produces a positive net long-short return over 21 sessions.",
+   "economic_mechanism": "Slow diffusion of firm-specific news. Residualising strips the market and sector components, so what remains is idiosyncratic underreaction rather than a disguised beta or sector bet.",
+   "information_edge": "Coverage: mid and small caps are followed by fewer analysts, so firm-specific information diffuses more slowly than in the large-cap names the estate has already mined 1,858 times.",
+   "why_market_may_not_fully_price_it": "Attention is scarce and is allocated to large caps. Nobody is paid to be the marginal informed holder of a $900m company.",
+   "not_a_repeat_because": "PRICE_STATE_EQUITY_FACTORS is closed on the S&P 500 panel. This is a different population and an explicitly residualised construct. It is nonetheless the WEAKEST novelty claim in the pool - it is still a price formula, only on a new panel - and should be dropped first if budget is tight.",
+   "prior": "LOW"
+  },
+  {
+   "provisional_id": "PH03",
+   "label": "EQ_EXTENSION_GROSS_PROFITABILITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "PROFITABILITY",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": 1,
+   "hypothesis": "In the extension universe, a long-short book ranked on gross profits scaled by total assets - built only from SEC facts whose filed date precedes the decision date - earns a positive net return over 21 sessions.",
+   "economic_mechanism": "Gross profitability is the cleanest available measure of productive efficiency, sitting above the accounting lines most exposed to managerial discretion. Profitable firms out-earn unprofitable ones and the market underweights the persistence.",
+   "information_edge": "PIT fundamentals for a population where accounting quality is more dispersed and analyst coverage thinner, from companyfacts rather than the 885-name S&P 500 fundamental panel.",
+   "why_market_may_not_fully_price_it": "Small-cap fundamentals are expensive to process relative to the position size they can support.",
+   "not_a_repeat_because": "PIT_FUNDAMENTALS_AND_VALUATION is closed with the explicit scope qualifier '(S&P 500)'. This is the extension universe and a profitability rather than valuation construct.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH04",
+   "label": "EQ_EXTENSION_NET_SHARE_ISSUANCE",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "CORPORATE_FINANCING",
+   "horizon_sessions": 63,
+   "long_short": true,
+   "expected_sign": -1,
+   "hypothesis": "In the extension universe, firms that INCREASED shares outstanding over the prior year underperform firms that reduced them, over 63 sessions, with the share count taken from the latest SEC filing whose filed date precedes the decision date.",
+   "economic_mechanism": "Managers issue equity when they believe it is expensive and repurchase when they believe it is cheap. The share count is a revealed managerial valuation opinion, backed by the firm's own money - not a forecast, an action.",
+   "information_edge": "The issuance decision is disclosed on the cover page of every filing but is not a headline number; it is buried where nobody in this estate has ever looked. Small caps issue and dilute far more aggressively than large caps, so the signal has more variance to work with.",
+   "why_market_may_not_fully_price_it": "The dilution is gradual and the disclosure is unglamorous; there is no announcement moment to react to.",
+   "not_a_repeat_because": "No issuance or corporate-financing family appears anywhere in the closed_mechanism_ledger. Explicitly NOT built from nd.sharesoutstanding, which the probe proved is a current scalar (263909000.0, '2026-07-31') and would be look-ahead contaminated.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH07",
+   "label": "FUT_OPEN_INTEREST_GROWTH_CROSS_SECTION",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": -1,
+   "hypothesis": "Ranking futures markets by the trailing growth in EXCHANGE open interest on the held contract - observed with the mandated one-session delay - and going short the markets with the fastest open-interest expansion against long the markets with contracting open interest earns a positive net return over 21 sessions.",
+   "economic_mechanism": "Rapid open-interest growth means new capital is crowding into a position. Crowded positions are fragile: they need continued inflow to sustain the price, and they unwind violently. Open interest measures how much capital must eventually exit.",
+   "information_edge": "Real exchange open interest per dated contract, present in the R38 native layer (CL.csv carries an open_interest column across 10,897 sessions and 521 contracts) and in all 27,451 dated Norgate symbols. Twelve hypotheses have ever touched this layer, against 5,846 on the back-adjusted panel.",
+   "why_market_may_not_fully_price_it": "Open interest is published with a one-session provisional lag and is revised, so it is awkward to use and most systematic participants ignore it in favour of price.",
+   "not_a_repeat_because": "COT_HEDGING_PRESSURE is closed, and this must not use CFTC trader categories at all - it is total exchange open interest, a different quantity from a different publisher on a daily rather than weekly clock.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH08",
+   "label": "FUT_BASIS_MOMENTUM_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "CARRY",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": 1,
+   "hypothesis": "The difference between the cumulative return of the front contract and that of the first-deferred contract over the trailing quarter - basis momentum - predicts the next 21 sessions of front-contract return cross-sectionally across commodity markets.",
+   "economic_mechanism": "Basis momentum captures the CHANGE in the shape of the curve, which reflects the evolving imbalance between hedging demand at different maturities, rather than the static level of the carry.",
+   "information_edge": "It is only computable with a genuine deferred leg. The census records that futures_panel_v1 cannot supply one; the 27,451 dated Norgate contracts can.",
+   "why_market_may_not_fully_price_it": "It requires simultaneously maintaining two contract series per market with correct roll handling, which is an infrastructure cost most participants avoid.",
+   "not_a_repeat_because": "COMMODITY_CURVE_CARRY_SPREADS is closed on the slope LEVEL; this is the second difference - the change in the front-deferred relation - and CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59 was withdrawn on ~14 effective observations, not settled on economics. The distinction must be stated in the pre-registered text and the effective-observation count must be reported up front, or the skeptic will kill it for the same reason.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH09",
+   "label": "EQ_DIVIDEND_CHANGE_ANNOUNCEMENT_DRIFT",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "EVENT_OVERREACTION",
+   "horizon_sessions": 63,
+   "long_short": true,
+   "expected_sign": 1,
+   "hypothesis": "Firms that ANNOUNCE a dividend increase or initiation - dated by declaration date, not ex-date - outperform firms announcing a cut or omission over the following 63 sessions, with entry at the next open after the declaration.",
+   "economic_mechanism": "Dividend policy is sticky and management is reluctant to cut. Raising the dividend is therefore a costly, credible commitment about expected future cash flow; cutting it is a confession. The action is expensive to fake.",
+   "information_edge": "The declaration date. Verified on disk to exist in the EODHD /div payload and to be carried into the record's availability stamp (JPM: ex-date 2026-07-06, declarationDate 2026-05-18 -> available_at 2026-05-18) - a seven-week gap that any ex-date-based study would have got backwards.",
+   "why_market_may_not_fully_price_it": "Dividend announcements are unscheduled, unglamorous, and scattered across the calendar; they attract none of the attention an earnings date does.",
+   "not_a_repeat_because": "DIVIDEND_MONTH_DEMAND_PREMIUM is closed - that is seasonal demand for yield around the ex-date, a flow story with no announcement in it. This is an information event dated by the announcement.",
+   "prior": "MEDIUM"
+  },
+  {
+   "provisional_id": "PH12",
+   "label": "EQ_EXTENSION_H5_LIQUIDITY_PROVISION_REVERSAL",
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "SHORT_TERM_REVERSAL",
+   "horizon_sessions": 5,
+   "long_short": true,
+   "expected_sign": -1,
+   "hypothesis": "In the extension universe, stocks with the largest 5-session decline on elevated own-name turnover reverse over the following 5 sessions, entered at the next open, and the reversal survives a doubled small-cap cost assumption.",
+   "economic_mechanism": "Payment for immediacy. A seller who must exit now moves the price against themselves; whoever absorbs the inventory is compensated when the price recovers. The compensation is larger where market-making capital is scarcer.",
+   "information_edge": "H1-H5 is 0.45% of the entire estate (38 tests) and equity short-horizon reversal is closed only on the S&P 500. Turnover, not signal, is the binding constraint, so the cost model is the experiment.",
+   "why_market_may_not_fully_price_it": "Providing immediacy in small caps requires balance sheet and risk tolerance that is genuinely scarce; the compensation is a real fee for a real service, not a mispricing.",
+   "not_a_repeat_because": "SHORT_HORIZON_REVERSAL_GAP_FADE is closed with the explicit scope qualifier '(S&P 500)'. Must be pre-registered with the doubled-cost adversarial result reported as a primary, not a footnote - a 5-session small-cap book is exactly where a cost assumption manufactures alpha.",
+   "prior": "LOW"
+  },
+  {
+   "provisional_id": "PH13",
+   "label": "EQ_EXTENSION_IDIOSYNCRATIC_VOLATILITY",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "VOLATILITY",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": -1,
+   "hypothesis": "In the extension universe, stocks in the highest quintile of residual (idiosyncratic) volatility underperform the lowest quintile over 21 sessions, sector-neutral.",
+   "economic_mechanism": "Lottery preference plus short-sale constraints. Investors overpay for the small chance of a large payoff, and the overpricing cannot be arbitraged away because the expensive names are the hardest to borrow. Both forces are strongest in small caps.",
+   "information_edge": "Population, again, plus the fact that VOLATILITY carries a search burden of 13 across the whole estate - it is the least-mined asset class we own.",
+   "why_market_may_not_fully_price_it": "The correction requires shorting small, volatile, hard-to-borrow stocks - precisely the trade that is most expensive and most career-hazardous to hold.",
+   "not_a_repeat_because": "No idiosyncratic-volatility family appears in the closed_mechanism_ledger for US_EQUITY; PRICE_STATE_EQUITY_FACTORS is closed on the S&P 500 panel. This is nonetheless a price-derived construct and should be treated as a lower-novelty entry, behind PH01 and PH03.",
+   "prior": "LOW"
+  },
+  {
+   "provisional_id": "PH15",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_CONCENTRATION",
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "economic_family": "POSITIONING",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": -1,
+   "hypothesis": "Across international equity index futures (FDAX, FESX, FCE, FSMI, HSI, KOS, SNK, SCN, SXF, AWM, GWM), the trailing growth in exchange open interest on the held contract predicts lower subsequent 21-session returns cross-sectionally.",
+   "economic_mechanism": "Same crowding mechanism as PH07, applied where capital flows are lumpier: international index futures are the vehicle for cross-border allocation, so open-interest expansion is a direct measure of foreign capital arriving, and arriving capital eventually leaves.",
+   "information_edge": "Real per-contract open interest across fifteen non-US index markets in the R38 dated layer; EQUITY_INDEX_FUTURES carries 923 settled tests, all price-state.",
+   "why_market_may_not_fully_price_it": "Cross-border allocation decisions are made on quarterly committee cycles, so the flow is predictable in direction and slow in execution.",
+   "not_a_repeat_because": "EQUITY_INDEX_CROSS_ASSET_CARRY_R64 is closed - this is not carry and must not reduce to it. INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE is closed - this is not trend. It is a positioning quantity. This is a SECOND application of the PH07 mechanism to a different asset class and counts against the 3-variants-per-idea limit; drop it if PH07 is running and budget is tight.",
+   "prior": "LOW"
+  }
+ ],
+ "dead_hypotheses": {
+  "PH05": "LME DATA_HOLD - publication lag unmeasurable, only copper tradable, cross-sectional book not expressible",
+  "PH06": "LME DATA_HOLD - same",
+  "PH10": "SEC comment letters DATA_HOLD - `Date Filed` not shown to be the public dissemination date; an event not observable when it appears is not tradable",
+  "PH11": "terms-of-trade DATA_HOLD - frequency/lag/multi-currency unmeasured",
+  "PH14": "depends on LME and terms-of-trade, both DATA_HOLD",
+  "PH16": "FINRA DATA_HOLD - archive reach unmeasured, 34 sessions on disk"
+ },
+ "measured_substrate_facts": {
+  "us_equity_extension_pit_panel_v1": {
+   "state": "BUILT AND ACCEPTED",
+   "path": "D:\\Stock_Prediction_app_data\\alpha_agent\\r60_extension\\us_equity_extension_pit_panel_v1.npz",
+   "names": 2947,
+   "sessions": 5714,
+   "date_range": "2004-01-02 .. 2026-09-18",
+   "decision_grid": "182 decisions, 2011-07-01 .. 2026-08-14",
+   "tradable_cross_section_per_decision": "median 1000, min 978, max 1004; ZERO decisions below 150",
+   "correction_to_certification": "DF1 reported 'median 255 names/year' from a 500-symbol SAMPLE; that was symbols-appearing-in-a-year, not the daily tradable cross-section. The built panel gives a median of 1000 names per decision, which is what MidCap400 + SmallCap600 should give.",
+   "survivorship": "2,687 names were ever members; 1,683 have membership ending before the panel end (removed or delisted) and a 400-name sample was priced on its LAST membership session in 400 of 400 cases",
+   "tradability_filter": "unadjusted price >= $1.00 and median 63-session dollar turnover >= $100k, window closed at t-1; chosen from data alone, no return scored",
+   "cost_model": "EQ_EXT_COST_RATE = 25 bp/side already defined in the frozen evaluator",
+   "books_available": "EQUITY_TOPN (H21) and EQUITY_DAILY_TRANCHE (H1-H5, next-open entry via op_tr, hold band, embargo) - both universe-agnostic, no new book code needed"
+  },
+  "r38_native_contract_layer_with_deferred_leg_v1": {
+   "state": "CERTIFIED PIT_SAFE, loaded through its canonical owner",
+   "markets": 68,
+   "sessions": 12632,
+   "date_range": "1977-11-21 .. 2026-08-21",
+   "deferred_leg": "ret2 populated on 98.6% of ret; provably distinct from ret (2.51% exactly equal, max diff 0.626); 67 of 68 markets carry >= 2,000 paired sessions",
+   "basis_momentum_grid": "187 decisions, 2011-07-01 .. 2026-07-07; median 66 scorable markets per decision",
+   "duplicate_identity_pretest": "basis momentum vs the SETTLED carry slope level: per-decision Spearman mean 0.214, median 0.220, |rho| >= 0.999 on 0 of 185 decisions. DISTINCT. Measured BEFORE pre-registration, so the campaign does not spend a burden charge to learn it.",
+   "open_interest_rule": "open_interest == 0 is MISSING everywhere (63 provisional newest rows + 6,664 in-history zeros across 23 markets). panels.futures_layer() applies it at load.",
+   "cost_model": "per-market cost_bps_per_side 2-15bp from native.load_meta()"
+  },
+  "extension_pit_fundamental_panel_v1": {
+   "state": "CERTIFIED PIT_SAFE_WITH_LIMITATIONS",
+   "join": "ticker->CIK 99.4% on an FSDS-derived mid/small-cap CIK set (NOT yet against the Norgate extension symbol list)",
+   "shares_outstanding": "GENUINE filed-stamped history: median 36 observations per issuer, 2009-2026; present for 142/220 sampled issuers (primary CommonStockSharesOutstanding, legitimate fallback dei:EntityCommonStockSharesOutstanding)",
+   "mandatory_rules": [
+    "restatement: latest-filed-as-of-t",
+    "drop non-positive share counts BEFORE any ratio - a sampled issuer carries -25,878,050 later corrected to +25,878,050, and a ratio spanning that sign flip parks the name at a cross-sectional extreme every decision"
+   ],
+   "unmeasured": "per-field coverage BY YEAR; this is why the certification is WITH_LIMITATIONS"
+  },
+  "us_equity_dividend_announcement_panel_v1": {
+   "state": "CERTIFIED PIT_SAFE",
+   "measured": "100% non-null declarationDate, 525 records, 25 names",
+   "ORCHESTRATOR_CAVEAT": "the sample covered 2020-2026 and 25 names only, while discovery starts 2011-07-01. Pre-2020 declaration-date coverage is ASSERTED, NOT MEASURED. Treat as a real risk to PH09's discovery sample and consider a truncated sample start or a coverage pre-check in the executor."
+  }
+ },
+ "budget_reality": {
+  "live_count": 10,
+  "non_equity_live": [
+   "PH07",
+   "PH08",
+   "PH15"
+  ],
+  "non_equity_share_if_all_live": 0.3,
+  "target_was": 0.5,
+  "why_missed": "The two DEEP non-equity information sources both failed certification: LME physical inventory (lag unmeasurable, single tradable metal) and terms-of-trade (frequency/lag unmeasured). This is a data outcome, not a selection choice. DO NOT pad the campaign with price formulas to reach a ratio - that is the exact failure this campaign exists to avoid.",
+  "one_legitimate_addition_available": "The census carries XA_BASIS_MOMENTUM_REPLICATION (its rank 7) as a PRE-DECLARED replication of basis momentum on a DISJOINT instrument set (rates, FX, equity-index futures rather than commodities). It is its own family key, is charged to the burden separately, and is evidence ONLY if the commodity cell is measured first and is not used to tune it. Adding it would make the campaign 4 non-equity of 11 and add a CROSS_ASSET cell. Your call, on the merits."
+ },
+ "gate_constants_this_campaign_is_judged_against": {
+  "materiality": "ann_net_excess >= 0.015/yr OR net_sharpe >= 0.4",
+  "stage_advance_floor": "0.25 x materiality = 0.00375/yr to earn the next layer",
+  "turnover_ceiling": "0.40 one-way per decision",
+  "effective_observation_floor": 36,
+  "samples": "D 2011-07-01..2018-01-01, V ..2023-01-01, L ..present",
+  "sequential_reveal": "D -> V -> L; a halted cell NEVER computes its lockbox"
+ },
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL. NEW_PAID_DATA_COST = $0."
+}

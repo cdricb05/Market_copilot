@@ -1,0 +1,83 @@
+{
+  "assignment_id": "DF3_FUTURES_PAIRS",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "futures_front_deferred_pair_panel_v1",
+  "SOURCE": "R38_NATIVE_DATED_CONTRACT_LAYER_PLUS_NORGATE_FUTURES_DB",
+  "OWNERSHIP_ENTITLEMENT": "OWNED",
+  "COST_USD": 0,
+  "HISTORY_START": "1983-03-30",
+  "HISTORY_END": "2026-08-21",
+  "INSTRUMENTS_ISSUERS": "69 futures markets (CME, CBOT, NYMEX, ICE, international exchanges); sample: CL (Crude), ZB (10Y Bond), 6A/6B/6C/6J/6M/6N/6S (FX), ZN/ZF/ZT/UB/TN (Rates), FDAX/FESX/FCE/FSMI/FTDX/HSI/HTW/KOS/SCN/SNK/SSG/SXF/VX and commodity complex (CC, CT, DC, GC, GF, HE, HG, HO, KC, LE, LBR, LCC, LFT, LRC, LSU, LWB, MWE, NG, OJ, PA, PL, RB, RS, SB, SI, YAP, ZC, ZL, ZM, ZO, ZR, ZS, ZW); coverage via layer_manifest.json",
+  "PIT_AVAILABILITY_RULE": {
+    "close": "Daily, observed on maturity of contract price data (native_contract_layer carries held contract only; deferred contract data availability NOT YET DEMONSTRATED)",
+    "open_interest": "Daily, PROVISIONAL on newest row (must observe with >=1 session delay per census); last_oi = 0.0 on final row 2026-08-21 (CL-2026V) interpretation NOT SETTLED",
+    "roll": "OBSERVABLE_FIRST_NOTICE_LAST_TRADE with 2-session first-notice buffer and 5-session last-trade buffer per layer_manifest.json"
+  },
+  "deferred_leg_selection_rule": "NOT_MEASURED (next monthly delivery contract after held contract assumed, but NOT empirically confirmed against Norgate dated symbols for all 69 markets)",
+  "agrees_with_r38_roll_dates": "NOT_MEASURED (roll dates visible in CL.csv e.g. 2026-08-14 CL-2026U→CL-2026V, but Norgate pairing rule never verified)",
+  "open_interest_lag_defensible_sessions": "NOT_MEASURED (census states >=1 session delay; actual Norgate dated-contract OI lag profile unknown)",
+  "last_oi_zero_explanation": "OBSERVED FACT: CL.csv row 2026-08-21 shows open_interest=0.0 on CL-2026V (held contract, final row in materialised layer). Interpretation: either (a) genuine zero OI on final trading day before layer materialization cutoff (2026-08-22), or (b) missing/provisional value imputed as 0.0. NOT CONFIRMED which. If (b), then zero used as denominator in basis momentum or other calculations manufactures false signal.",
+  "pair_coverage_markets_by_year": "NOT_MEASURED (materialised native_contract_layer extends 1983–2026 but contains held contract only; full (front, deferred) pair with both closes AND both OIs per market per date never successfully built from Norgate Futures database)",
+  "markets_with_full_pair": [],
+  "markets_without_pair": "NOT_MEASURED",
+  "SURVIVORSHIP_STATE": "Native_contract_layer manifests 69 markets with rolls; delisted/expired contracts tracked via held contract sequence but deferred leg survivorship (dropped due to expiry without roll) NOT CONFIRMED",
+  "DELISTED_INACTIVE_COVERAGE": "NOT_MEASURED",
+  "MISSINGNESS": "KNOWN: materialised native_contract_layer carries ONE row per date (held contract only, no deferred column). Norgate Futures database (~27,451 dated symbols) intended to supply deferred leg but PAIRING LOGIC NOT EXECUTED.",
+  "REVISION_BEHAVIOR": "NOT_MEASURED (Norgate revision policy for dated-contract OI not examined)",
+  "LICENSE_USAGE_CONSTRAINTS": "Norgate Software License: read-only research, no redistribution, no production use",
+  "cost_bps_per_side_available": "ASSERTED as 2-15bp per census (CME published schedule), but NOT re-confirmed per-market from Norgate metadata",
+  "build_cost": "Materialisation of (front, deferred) pair per market per date for full 1983–2026 period: estimated 150–300 CPU-hours (Norgate API calls for ~27k dated symbols + cross-pairing + OI lag application); cost_bps computation: additional 20 CPU-hours per market",
+  "measurements": [
+    {
+      "what": "Native_contract_layer completeness",
+      "how_measured": "Read layer_manifest.json; sample CL.csv head/tail",
+      "result": "69 markets present, all state=OK, CL: 10897 rows 1983-03-30..2026-08-21 (521 rolls), ZB: 12196 rows 1978-03-10..2026-08-21 (187 rolls)"
+    },
+    {
+      "what": "Contract encoding format",
+      "how_measured": "Decoded CL.csv held column (e.g., 'CL-1983M', 'CL-2026U')",
+      "result": "Format confirmed: <MARKET>-<YEAR><MONTHCODE> (e.g., CL-2026U=Sept2026 Crude, CL-2026V=Oct2026 Crude); month codes H-Z follow CME standard"
+    },
+    {
+      "what": "Norgate Futures database availability",
+      "how_measured": "Attempted nd.price_timeseries() calls in Python probe (v1.0.74); alpha_agent.r57.futures imports norgatedata and uses ng.price_timeseries()",
+      "result": "Database reachable; API version/parameter issues encountered in probe; existing alpha_agent code (r57/futures.py) confirms working integrations"
+    },
+    {
+      "what": "Sample roll date observable",
+      "how_measured": "CL.csv tail rows: 2026-08-13 CL-2026U (close=81.25, OI=129927), 2026-08-14 CL-2026V (close=81.47, OI=248143)",
+      "result": "Roll from U (Sept) to V (Oct) occurs 2026-08-14; volume continuous (~250k); OI jump reflects switch to new contract month"
+    },
+    {
+      "what": "Open interest zero value",
+      "how_measured": "CL.csv final row (2026-08-21): Date=2026-08-21, held=CL-2026V, close=87.06, open_interest=0.0",
+      "result": "Zero OI on final row; layer materialized 2026-08-22, so final day may reflect provisional/pending OI or genuine end-of-month flatness; NOT YET EXPLAINED"
+    },
+    {
+      "what": "Deferred contract pairing demonstration",
+      "how_measured": "Python probe attempted to fetch CL-2026V and hypothetical next-month contract (CL-2026Z for Dec) from Norgate; failed due to API parameter mismatch",
+      "result": "FAILED: did not successfully build (front, deferred) pair with both Close and OI on same date range for any market"
+    }
+  ],
+  "CERTIFICATION": "DATA_HOLD",
+  "certification_reason": "The assignment mandate is to demonstrate a buildable (front, first-deferred) PAIR with both legs' closes AND both open interests observed with proper lag, per market per date. The materialised native_contract_layer CSVs contain held contract only; the deferred contract must come from Norgate Futures database (27,451 dated symbols). While evidence confirms (a) Norgate Futures database is reachable, (b) contract naming pattern is correct (CL-2026U/-2026V encoding verified), (c) roll dates are observable (CL 2026-08-14), and (d) the last_oi=0.0 anomaly is real (2026-08-21), the CRITICAL UNMET GATE is: I did NOT successfully build and display a working (front, deferred) pair with both Close and OI on the same dates for any market across any roll cycle. Without that working demonstration, basis momentum (the core use case) cannot be certified computable. The zero-OI on the final row, if it represents a missing value, is also a signal-manufacturing risk until resolved. Verdict: DATA_HOLD pending successful Norgate pair construction and OI lag settlement.",
+  "limitations_that_must_travel_with_it": [
+    "NOT_MEASURED: (front, first-deferred) pair never successfully built from Norgate Futures database; closes and OIs on same dates not demonstrated",
+    "NOT_MEASURED: deferred leg selection rule (next month assumed, not confirmed empirically across 69 markets)",
+    "NOT_MEASURED: open_interest lag (census states >=1 session; actual Norgate OI provisioning lag never measured)",
+    "NOT_MEASURED: pair_coverage (how many markets, over how many years, support both legs with non-zero OI)",
+    "NOT_MEASURED: cost_bps_per_side per-market availability from Norgate metadata (asserted 2-15bp, not re-confirmed)",
+    "UNRESOLVED: last_oi=0.0 on 2026-08-21 CL-2026V — is it genuine zero or missing value? If missing and used in growth denominators, basis momentum calculation is compromised",
+    "KNOWN RISK: materialised layer stops at 2026-08-21; Norgate live database extends to ~2026-09-18; layer is ~1 month stale"
+  ],
+  "hypotheses_unblocked": [
+    "PH07 (if not basis-momentum-dependent)"
+  ],
+  "hypotheses_blocked": [
+    "PH08 (basis momentum requires deferred-leg pair; not demonstrated)",
+    "PH15 (if basis-momentum-dependent)"
+  ],
+  "next_action_recommended": "Re-run Norgate pair probe with corrected API (ng.PaddingType.NONE) to build sample pairs for CL (1983+) and ZB (1978+) across >=2 roll cycles; measure actual OI lag by comparing consecutive dated contracts; classify last_oi=0.0 as genuine vs. missing; then re-certify as PIT_SAFE or PIT_SAFE_WITH_LIMITATIONS once paired data is in hand."
+}

@@ -1,0 +1,193 @@
+{
+ "experiment_id": "H_644bcffe_280bc903ae38",
+ "state": "MEASURED",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+ "owning_agent": "reversal-signal-agent",
+ "book": "EQUITY_TOPN",
+ "executor": "r60_02",
+ "asset_class": "US_EQUITY",
+ "economic_family": "VALUATION",
+ "horizon_sessions": 21,
+ "layers": {
+  "D": {
+   "periods": 77,
+   "first": "2011-07-01",
+   "last": "2017-11-02",
+   "ann_net_excess": 0.019026881832984288,
+   "ann_gross_excess": 0.025849388779252254,
+   "ann_strat_net": 0.15298848658677544,
+   "ann_bench_net": 0.13396160475379115,
+   "ann_cost_drag": 0.0068225069462679745,
+   "mean_oneway_turnover_per_period": 0.12688311688311688,
+   "strat_max_dd": -0.17909903504797464,
+   "bench_max_dd": -0.2029494639550038,
+   "hit_rate": 0.5714285714285714,
+   "t_net_excess": 1.2807991671698298,
+   "p_one_sided": 0.10013210832891403,
+   "halves_ann_net_excess": [
+    0.004351314127502853,
+    0.03332615293063286
+   ],
+   "median_universe": 999.0,
+   "min_universe": 993,
+   "median_held": 100.0
+  },
+  "V": {
+   "periods": 59,
+   "first": "2018-01-04",
+   "last": "2022-11-04",
+   "ann_net_excess": 0.0407877385090266,
+   "ann_gross_excess": 0.04645370473421256,
+   "ann_strat_net": 0.14347674343794797,
+   "ann_bench_net": 0.10268900492892136,
+   "ann_cost_drag": 0.005665966225185953,
+   "mean_oneway_turnover_per_period": 0.10186440677966103,
+   "strat_max_dd": -0.39725095901955343,
+   "bench_max_dd": -0.34559933104820995,
+   "hit_rate": 0.5254237288135594,
+   "t_net_excess": 1.2782785552481912,
+   "p_one_sided": 0.10057561319064923,
+   "halves_ann_net_excess": [
+    -0.004814710620920301,
+    0.0848701060013086
+   ],
+   "median_universe": 999.0,
+   "min_universe": 978,
+   "median_held": 100.0
+  },
+  "L": {
+   "periods": 44,
+   "first": "2023-01-06",
+   "last": "2026-08-14",
+   "ann_net_excess": 0.02168742092841099,
+   "ann_gross_excess": 0.026939964716259715,
+   "ann_strat_net": 0.1463768895981611,
+   "ann_bench_net": 0.12468946866975006,
+   "ann_cost_drag": 0.0052525437878487265,
+   "mean_oneway_turnover_per_period": 0.09568181818181819,
+   "strat_max_dd": -0.20422740829627817,
+   "bench_max_dd": -0.1944696781044306,
+   "hit_rate": 0.5227272727272727,
+   "t_net_excess": 0.756065428762584,
+   "p_one_sided": 0.22480498410560223,
+   "halves_ann_net_excess": [
+    0.05423825939581619,
+    -0.010863417538994214
+   ],
+   "median_universe": 1002.0,
+   "min_universe": 998,
+   "median_held": 100.0
+  }
+ },
+ "turnover": 0.09568181818181819,
+ "machine_checks": {
+  "signal_sign": -1
+ },
+ "adversarial": {
+  "placebo_clean": {
+   "passed": true,
+   "measured": 0.02048727775461082,
+   "evidence": "cost-neutral placebo, 3 permutations, strongest seed 202; candidate drag 0.00525254 vs placebo drag 0.00525254",
+   "detail": {
+    "verdict": {
+     "placebo_clean": true,
+     "cost_basis": "COST_NEUTRAL",
+     "candidate_cost_drag": 0.0052525437878487265,
+     "placebo_cost_drag": 0.00525254378784872,
+     "cost_drag_gap": 6.071532165918825e-18,
+     "by_metric": {
+      "ann_net_excess": {
+       "candidate": 0.02168742092841099,
+       "placebo": 0.00120014317380017,
+       "margin": 0.02048727775461082,
+       "required_margin": 0.01,
+       "passed": true
+      }
+     },
+     "failed_metrics": [],
+     "measured": 0.02048727775461082
+    },
+    "runs": [
+     {
+      "seed": 101,
+      "cost_mult": 0.09932130392083484,
+      "raw_cost_drag": 0.05288436196966691,
+      "matched_cost_drag": 0.005252543787848736
+     },
+     {
+      "seed": 202,
+      "cost_mult": 0.09898948303889457,
+      "raw_cost_drag": 0.05306163469693964,
+      "matched_cost_drag": 0.00525254378784872
+     },
+     {
+      "seed": 303,
+      "cost_mult": 0.09937255083724714,
+      "raw_cost_drag": 0.0528570892423942,
+      "matched_cost_drag": 0.005252543787848731
+     }
+    ]
+   }
+  },
+  "cost_robust": {
+   "passed": true,
+   "measured": 0.016434877140562274,
+   "evidence": "lockbox re-run at 2x the pre-registered cost model",
+   "detail": {
+    "doubled_cost_lockbox": {
+     "periods": 44,
+     "first": "2023-01-06",
+     "last": "2026-08-14",
+     "ann_net_excess": 0.016434877140562274,
+     "ann_gross_excess": 0.026939964716259715,
+     "ann_strat_net": 0.140635980507252,
+     "ann_bench_net": 0.12420110336668971,
+     "ann_cost_drag": 0.010505087575697439,
+     "mean_oneway_turnover_per_period": 0.09568181818181819,
+     "strat_max_dd": -0.20645762256492917,
+     "bench_max_dd": -0.19457036814743867,
+     "hit_rate": 0.5227272727272727,
+     "t_net_excess": 0.5749194224960862,
+     "p_one_sided": 0.28267289681084606,
+     "halves_ann_net_excess": [
+      0.049268118262108127,
+      -0.01639836398098358
+     ],
+     "median_universe": 1002.0,
+     "min_universe": 998,
+     "median_held": 100.0
+    }
+   }
+  },
+  "subperiod_stable": {
+   "passed": false,
+   "measured": -0.010863417538994214,
+   "evidence": "both halves of the lockbox layer, measured by the book",
+   "detail": {
+    "halves": [
+     0.05423825939581619,
+     -0.010863417538994214
+    ]
+   }
+  }
+ },
+ "lockbox_computed": true,
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

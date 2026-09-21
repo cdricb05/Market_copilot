@@ -1,0 +1,36 @@
+{
+  "assignment_id": "DF4C_SHARES_HISTORY_RECERTIFICATION",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "extension_pit_fundamental_panel_v1",
+  "supersedes": "the PH04 block in CERTIFICATION_DF4A_COMPANYFACTS.json",
+  "shares_outstanding_is_history": true,
+  "shares_evidence_assessment": "Every observation carries its own filed date. Of 142 issuers with CommonStockSharesOutstanding in the 220-issuer sample, 136 (96%) carry more than one distinct filed date. Median 36 observations per issuer; date span 2009–2026. This is genuine filed-stamped history, not a current scalar.",
+  "primary_concept": "us-gaap:CommonStockSharesOutstanding",
+  "fallback_concept_legitimate": true,
+  "fallback_concept_and_rule": "dei:EntityCommonStockSharesOutstanding present in 70% of sample (155/220) with 97% carrying multiple filed dates (150/155). Fallback is legitimate; executor may use dei concept to fill CommonStockSharesOutstanding gaps, explicitly noting the substitution.",
+  "restatement_rule": "Latest-filed-as-of-decision-date (inherited from r58_pit_fundamental_panel_v1). For any decision date t, select the most recent observation whose filed <= t. Both original and restated values remain in companyfacts.zip; executor logic must filter to latest filing date per fiscal period. Example: Byrna Technologies CIK0001354866, fiscal end 2010-11-30 filed twice (2011-10-17 and 2012-03-13) with different values; use the 2012-03-13 value if t >= 2012-03-13, else use 2011-10-17.",
+  "non_positive_share_filter": "Pre-registered filter applied BEFORE any issuance ratio or cross-sectional rank is computed: drop all observations with CommonStockSharesOutstanding <= 0. This is not a discovered rule at evaluation time; it is declared and must be hardcoded. Rationale: negative or zero shares produce spurious ratio values and extreme ranks. Example: Byrna end=2010-11-30 val=-25878050 later corrected to +25878050; the negative value, if included in a year-over-year issuance ratio, creates an enormous false signal.",
+  "PIT_AVAILABILITY_RULE": "Filing date ('filed' field in companyfacts.json). Availability instant = the date the fact was filed with SEC, not the fiscal-period date or acceptance timestamp. Facts are available for decision use only as of and after their filed date.",
+  "expected_cross_section_note": "CommonStockSharesOutstanding present in 142/220 issuers (65%); dei:EntityCommonStockSharesOutstanding present in 155/220 (70%). Missing observations must be handled explicitly in cross-sectional calculations: either excluded from ranking/scoring, or marked as unknown/NA. Do not forward-fill or impute missing values without explicit documentation.",
+  "CERTIFICATION": "PIT_SAFE_WITH_LIMITATIONS",
+  "certification_reason": "Shares outstanding is confirmed as genuine filed-stamped history with multiple distinct filing dates per issuer. Restatement and negative-share traps are documented and the pre-registered rules to handle them are explicit. However, per-field coverage by year (2009–2026) and ticker→CIK join against the certified Norgate extension symbol list were not measured. These gaps warrant a _WITH_LIMITATIONS_ designation and must be noted for downstream executors.",
+  "limitations_that_must_travel_with_it": [
+    "Field coverage by year and by issuer is not measured. Assume non-uniform coverage; smaller-cap filers may have fewer tagged facts per period. Executor must handle missing data explicitly and not assume dense coverage.",
+    "Ticker→CIK join validated at 99.4% against FSDS-derived mid/small-cap set, not against the certified Norgate extension symbol list. Estate must reconcile the two join paths and confirm no tickers are silently missing or misaligned.",
+    "96 mid/small-cap CIKs in FSDS are not yet in companyfacts.zip (0.6%); likely recent delistings or inactive filers. Estate must decide inclusion/exclusion rules and communicate them to executors.",
+    "Restatement rule (latest-filed-as-of-t) and non-positive-share filter are required; they must be pre-registered in the executor's code and not left to discovery at evaluation time."
+  ],
+  "hypotheses_affected": {
+    "PH03_EQ_EXTENSION_GROSS_PROFITABILITY": "Already unblocked; no change",
+    "PH04_EQ_EXTENSION_NET_SHARE_ISSUANCE": "UNBLOCKED on evidence, conditional on restatement rule and pre-registered non-positive-share filter"
+  },
+  "hypotheses_unblocked": ["PH04"],
+  "hypotheses_blocked": [],
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "new_paid_data_cost_usd": 0
+  }
+}

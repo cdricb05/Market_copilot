@@ -1,0 +1,153 @@
+{
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "experiment_id": "H_644bcffe_280bc903ae38",
+  "label": "EQ_EXTENSION_NET_SHARE_ISSUANCE",
+  "produced_by": "validation-skeptic-agent",
+  "verdict": "KILLED",
+  "killed_by": "ATTACK_1_LOCKBOX_T_IS_NOISE",
+  "outcome_class": "NO_ALPHA_EVIDENCE",
+  "gate_authority": {
+    "owner": "alpha_agent.r59.engines.gate",
+    "qualified": false,
+    "outcome": "NO_ALPHA_EVIDENCE",
+    "failed_gates": ["burden_corrected_significant"],
+    "lockbox_t": 0.756065428762584,
+    "lockbox_p_one_sided": 0.22480498410560223,
+    "burden_denominator": 1,
+    "burden_corrected_p": 0.22480498410560223,
+    "note": "The gate verdict was read, not recomputed. The candidate fails the canonical gate at a burden denominator of 1, i.e. it fails BEFORE any multiple-testing discount is applied against it. No adversarial finding below can rescue it and none is offered as a rescue."
+  },
+  "checks": {
+    "pit_integrity": {
+      "passed": true,
+      "measured": "latest-filed-as-of-t applied at BOTH ends of the ratio; D/V/L are disjoint chronological slices 2011-07-01..2017-11-02, 2018-01-04..2022-11-04, 2023-01-06..2026-08-14; lockbox_raw_periods 44 == lockbox_observations 44, overlap_factor null, so a 21-session hold on a 21-session step is non-overlapping and the effective-observation count is not inflated",
+      "evidence": "SKEPTIC_BRIEF.json FACTS.HYPOTHESIS / FROZEN_SPEC and METRICS.GATE_RESULT.lockbox_raw_periods; no leakage flag in KNOWN_FAILURE_FLAGS",
+      "reasoning": "S_{t-252} being the as-of-known count rather than today's restated count is the correct construction, and because the as-of filter is applied at BOTH endpoints a later restatement cannot propagate backwards into the historical leg. This check is a PASS on construction, not on outcome, and it does not offset the statistical failure."
+    },
+    "leakage_pass": {
+      "passed": true,
+      "measured": "no forward-looking term in log(S_t / S_{t-252}); universe is Current & Past membership (survivorship-corrected); expected_sign -1 frozen in the executor before scoring; sign_consistent true, cost_model_frozen true (EQ_EXT_25BP_V1, 25 bp/side)",
+      "evidence": "SKEPTIC_BRIEF.json FACTS.FROZEN_SPEC and FACTS.KNOWN_FAILURE_FLAGS",
+      "reasoning": "No evaluation-time sign flip, no post-hoc cost choice, no forward membership. The residual leakage surface is the identity bridge (attack 3), which is a substrate-quality risk rather than a demonstrated leak, and is recorded as INCONCLUSIVE rather than passed."
+    },
+    "placebo_clean": {
+      "passed": true,
+      "measured": "cost-neutral placebo, strongest of three seeds, clean",
+      "evidence": "alpha_agent.agents_v2.runner.adversarial_pack (forwarded unchanged from the measured pack supplied with this review)"
+    },
+    "cost_robust": {
+      "passed": true,
+      "measured": 0.0164,
+      "evidence": "alpha_agent.agents_v2.runner.adversarial_pack: +1.64%/yr net excess at doubled cost (50 bp/side); one-way turnover 0.0957 vs ceiling 0.40 (forwarded unchanged)"
+    },
+    "subperiod_stable": {
+      "passed": false,
+      "measured": [0.05423825939581619, -0.010863417538994214],
+      "evidence": "alpha_agent.agents_v2.runner.adversarial_pack / METRICS.L_RESULT.halves_ann_net_excess: lockbox halves +5.42%/yr and -1.09%/yr, a sign flip within the lockbox"
+    },
+    "not_a_duplicate_identity": {
+      "passed": false,
+      "measured": "economic_family VALUATION, already settled by this estate on the S&P 500; the only novelty asserted is the POPULATION (MidCap400+SmallCap600), and novel_identity is null (unasserted) in KNOWN_FAILURE_FLAGS",
+      "evidence": "SKEPTIC_BRIEF.json FACTS.CANDIDATE.economic_family and FACTS.KNOWN_FAILURE_FLAGS.novel_identity; estate rule: a new population is not a reopen condition on its own",
+      "reasoning": "Net share issuance is a distinct MEASUREMENT from price-based valuation, but it is routed into and scored against the same VALUATION family the estate has already settled, and the applicant's stated novelty is the panel, not the information. On the estate's own rule that a new population is not a reopen condition, the factor is not established as new. I cannot pass this check, and because ResearchMemory left novel_identity null I do not assert it as an independent kill either."
+    }
+  },
+  "attacks": [
+    {
+      "attack": "1. THE LOCKBOX t IS 0.756 - is this evidence of anything?",
+      "finding": "Lockbox t_net_excess 0.7561 on 44 non-overlapping periods, one-sided p 0.2248. Burden denominator is 1, so the burden-corrected p is IDENTICAL to the raw p: 0.2248 against a frozen q of 0.10. The candidate is not merely undone by a multiple-testing discount - it fails with no discount applied at all.",
+      "verdict": "FAIL",
+      "reasoning": "Plainly: NO. A t of 0.756 is not evidence of anything. It is what a zero-alpha series looks like roughly one time in four. The +2.17%/yr lockbox return clearing a 1.5%/yr materiality floor is a statement about the SIZE of a number whose SIGN is not established; clearing a materiality floor with an unestablished sign is exactly the false-survivor shape the floor exists to be paired against, not a substitute for significance. Note also that neither earlier layer was significant on its own (D p 0.1001, V p 0.1006, both marginally ABOVE 0.10), so there is no prior-layer strength to lend the lockbox credibility. This attack alone kills the candidate."
+    },
+    {
+      "attack": "2. SUBPERIOD INSTABILITY - a period or a premium?",
+      "finding": "Lockbox halves +5.42%/yr then -1.09%/yr. The instability is not confined to the lockbox: V halves are -0.48%/yr then +8.49%/yr, D halves +0.44%/yr then +3.33%/yr. Across the six half-slices of the three layers, two are negative and the positive ones range over an order of magnitude.",
+      "verdict": "FAIL",
+      "reasoning": "A premium is a thing you can find in most halves of most samples. This is one sign-flipping half in the lockbox on top of a sign-flipping half in validation, with the whole-layer result driven by whichever half happens to be positive. That is a PERIOD. The estate has already killed a candidate on precisely this shape (R57 leave-one-group-out). The consistency is an artifact of aggregation: every layer's headline is positive while its own halves disagree with each other, which is the signature of a small number of strong periods rather than a persistent tilt. Independently sufficient to kill."
+    },
+    {
+      "attack": "3. THE NEW SUBSTRATE - identity bridge by issuer name, 9.2% unbridged delisted tail",
+      "finding": "First test this estate has ever run below the S&P 500. Delisted names are resolved by ISSUER NAME against former-name records: 90.8% of delisted, 99.9% of live. A 9.2% unbridged delisted tail therefore exists, and it is a NON-RANDOM tail concentrated in exactly the corporate-action-heavy names this feature is most sensitive to.",
+      "verdict": "INCONCLUSIVE",
+      "reasoning": "I cannot measure this from the brief, and I will not pass it. The mechanism of harm is specific and plausible. A wrong name-match splices firm A's share count at t onto firm B's share count at t-252, and because the feature is a RATIO of the two counts, a mismatch does not produce a small error - it produces an enormous spurious log ratio, which lands the name at an EXTREME of the ranking. A rank book that takes the bottom 100 of ~1000 is therefore a selection mechanism BIASED TOWARD mis-bridged names, not neutral to them. Separately, the unbridged 9.2% is disproportionately merger, acquisition and buyout terminations, which are also disproportionately cases where the acquirer had been REPURCHASING - so the missing tail is correlated with both the feature and the outcome. Corporate actions that change share count without economic issuance (splits, stock-financed M&A, reverse splits) are a second unaudited contaminant on the same feature. This is a real and unquantified substrate risk; it is not the stated kill only because attack 1 is decisive and no measurement was required to reach it."
+    },
+    {
+      "attack": "4. PIT INTEGRITY OF THE FEATURE - can a restatement leak backwards?",
+      "finding": "latest-filed-as-of-t is applied at BOTH endpoints, so S_{t-252} is the count that was on file 252 sessions earlier, not today's restated view of it. Layers are disjoint in calendar time and periods are non-overlapping (44 raw == 44 effective, overlap_factor null).",
+      "verdict": "PASS",
+      "reasoning": "This is the correct construction and it does deliver what is claimed: a restatement filed at t cannot propagate into the t-252 leg because the t-252 leg is itself resolved under an as-of filter at t-252. The one residual I flag without measuring: 'latest filed as of t' with no filing-date lag buffer assumes the filing is ACTIONABLE on its filed date, which is optimistic but not backward leakage. PIT is the one thing this candidate does right."
+    },
+    {
+      "attack": "5. THE NON-POSITIVE SHARE FILTER - is dropping them enough?",
+      "finding": "A sampled issuer carries -25,878,050 shares, later corrected to +25,878,050 - a sign error, not a missing value. The pre-registered filter drops non-positive counts at both ends before the ratio.",
+      "verdict": "INCONCLUSIVE",
+      "reasoning": "Dropping them is necessary and pre-registered, so I raise no pre-registration objection. But the filter treats a SYMPTOM. A sign-flip error of that form is not a parsing edge case confined to negatives - it is evidence that the extraction pipeline can emit magnitudes with wrong signs or wrong scale, and the ERRORS THAT SURVIVE THE FILTER ARE THE POSITIVE ONES. A share count off by a factor of 1000 (units error) or attributed to the wrong entity remains positive and passes the filter untouched, and as in attack 3 the ratio construction converts it into an extreme rank. A rank book CONCENTRATES such errors by construction rather than diversifying them: 100 names drawn from the tail of a distribution whose tail is where the bad data lives. The filter is a floor on visible corruption, not a bound on total corruption. The negative count being 'later corrected' to the same magnitude also shows the source is restated, which is benign for PIT (attack 4) but confirms the raw feed is noisy."
+    },
+    {
+      "attack": "6. DISGUISED DUPLICATION - the settled VALUATION factor re-expressed?",
+      "finding": "economic_family is VALUATION, a family this estate has already settled on the S&P 500. The routing note concedes the family choice was forced: CORPORATE_FINANCING is not a routed family and would be refused. novel_identity is null (unasserted) in KNOWN_FAILURE_FLAGS. The asserted novelty is the population, and the estate's rule is that a new POPULATION is not a reopen condition on its own.",
+      "verdict": "FAIL",
+      "reasoning": "Ruling: the INFORMATION is genuinely different, the FACTOR is not established as different. Net share issuance is a managerial action, mechanically distinct from any price-based valuation ratio, and I will not pretend it is the same series. But it is scored inside the settled VALUATION family, and the routing note admits the family was assigned by elimination rather than by economics - which means the estate has no evidence at all about where this sits relative to its settled factor, because it was never placed on economic grounds. Absent a measured correlation or a spanning test against the settled S&P 500 valuation factor, duplication is UNREFUTED, and the applicant's own novelty claim rests on the population, which the estate's rule explicitly disallows on its own. I will not pass a duplication check on an argument that the family label was a routing convenience."
+    },
+    {
+      "attack": "7. MAX DRAWDOWN REPORTED AS 0.0000 ON ALL THREE LAYERS",
+      "finding": "NOT REPRODUCED IN MY BUNDLE - and this itself is a defect. SKEPTIC_BRIEF.json reports NON-ZERO drawdowns on every layer: strat_max_dd D -0.1791, V -0.3973, L -0.2042; bench_max_dd D -0.2029, V -0.3456, L -0.1945. There is no 0.0000 max-drawdown field anywhere in my review bundle. The 0.0000 figure therefore originates in some OTHER surface - an excess-return drawdown series not carried in the brief - and the two surfaces disagree.",
+      "verdict": "FAIL",
+      "reasoning": "Two findings. First, on the merits: 0.0000 max drawdown on a long-only equity book is impossible, and if that field exists it is a reporting defect - almost certainly an uninitialised or never-populated excess-return drawdown accumulator, since the STRATEGY and BENCHMARK drawdowns in the brief are plainly computed and plausible (V's -39.7% strat vs -34.6% bench across 2018-2022 is exactly the right shape and magnitude for a 100-name mid/small-cap book through COVID). Second, and more serious for governance: the review bundle I was handed and the surface the director was handed DISAGREE about a reported metric, which is a bundle-integrity defect independent of this candidate. Does it undermine my ability to rule? NO. The gate rules on ann_net_excess and its t-statistic, neither of which depends on the drawdown field, and the kill is driven by lockbox t 0.756 / p 0.2248 which is computed from the return series the brief does carry and which is internally consistent with its own halves and hit rate. The defect must be fixed before any candidate is ever ruled ON a drawdown, but it does not touch this ruling."
+    }
+  ],
+  "economic_credibility": "The MECHANISM is the most credible thing about this candidate and I say so without softening the kill. Managers issuing equity when they judge it expensive and repurchasing when they judge it cheap is a revealed preference backed by the firm's own capital - an action, not a forecast - and net share issuance is among the better-documented cross-sectional equity effects in the published literature, which cuts BOTH ways: a well-known effect is also one whose premium may already be arbitraged, and a well-known effect is one a researcher is primed to find. Two specific credibility debits. (1) The family routing was admitted to be by elimination - CORPORATE_FINANCING is not routed, so VALUATION was taken - which means the economic claim and the scoring family were never reconciled. (2) The construction is long-only bottom-100 against an equal-weight universe, so what is actually being harvested is the SHORT side of the published effect (avoiding issuers) expressed as a long tilt; the published effect is generally stronger on the issuance leg than the repurchase leg, which is consistent with the weak magnitude observed and is an economic reason to EXPECT the thin result seen here rather than a reason to discount it. Credible mechanism, unsupported by this evidence.",
+  "independence_from_operational_portfolio": "Not established, and the estate should treat it as unknown rather than as independent. The candidate is scored inside the settled VALUATION family and no correlation, spanning or overlap measurement against the estate's settled S&P 500 valuation factor was supplied. The universes are disjoint by construction (MidCap400+SmallCap600 vs S&P 500), which bounds NAME overlap at approximately zero but bounds FACTOR overlap at nothing - the two books can be disjoint in holdings and near-identical in exposure. ResearchMemory left novel_identity null, so the estate's own identity check made no assertion either way. Moot for this candidate given the kill; it is a gap the estate must close before the first extension-universe candidate ever survives.",
+  "reporting_defects_found": [
+    {
+      "defect": "MAX_DRAWDOWN_SURFACE_DISAGREEMENT",
+      "severity": "GOVERNANCE_HIGH_CANDIDATE_LOW",
+      "detail": "The director's surface reports max drawdown 0.0000 on all three layers; SKEPTIC_BRIEF.json reports non-zero strat_max_dd (-0.1791 / -0.3973 / -0.2042) and bench_max_dd (-0.2029 / -0.3456 / -0.1945). A 0.0000 max drawdown on a long-only equity book is not attainable and indicates an uninitialised or unpopulated EXCESS-return drawdown accumulator distinct from the strategy/benchmark drawdowns the brief carries.",
+      "impact_on_this_ruling": "NONE. The gate rules on ann_net_excess and t_net_excess; no drawdown field enters the kill.",
+      "required_fix": "Reconcile the two reporting surfaces and populate or remove the excess-return drawdown field before any candidate is ruled on a drawdown-based criterion."
+    },
+    {
+      "defect": "ADVERSARIAL_PACK_FIELDS_NULL_IN_BRIEF",
+      "severity": "GOVERNANCE_MEDIUM",
+      "detail": "PLACEBO_RESULT, DOUBLE_COST_RESULT and SUBPERIOD_RESULT are all {passed: null, measured: null, evidence: \"\"} in SKEPTIC_BRIEF.json, while the measured values (placebo clean, +1.64%/yr at 2x cost, halves +5.42%/-1.09%) were delivered out-of-band in the task message. The brief is contracted to BE the complete review bundle; an out-of-band channel for measured attack results is an integrity hazard because an unmeasured null is indistinguishable from a suppressed failure.",
+      "impact_on_this_ruling": "NONE. The subperiod value is independently recoverable from METRICS.L_RESULT.halves_ann_net_excess inside the brief and matches, and the kill does not rest on the pack.",
+      "required_fix": "alpha_agent.agents_v2.briefs must populate the adversarial_pack fields in the brief itself."
+    },
+    {
+      "defect": "BURDEN_DENOMINATOR_MOVED_BETWEEN_BRIEF_AND_REVIEW",
+      "severity": "GOVERNANCE_MEDIUM",
+      "detail": "SKEPTIC_BRIEF.json METRICS.BURDEN reports campaign_cells 0, total 0, and GATE_RESULT.burden_denominator 1. The pipeline's own skeptic_review response reports campaign_cells 20, total 20. The brief therefore showed the reviewer a SMALLER search burden than the estate actually charges - the direction that flatters a candidate.",
+      "impact_on_this_ruling": "NONE, and the direction is safe: a larger denominator only moves this candidate further from significance. It failed at a denominator of 1.",
+      "required_fix": "The brief must be built from the same search_denominator call the review is charged against, or a candidate could in principle be reviewed under an understated burden."
+    }
+  ],
+  "multiple_testing_exposure": {
+    "burden_denominator_at_gate_time": 1,
+    "burden_denominator_at_review_time": 20,
+    "within_family_tests": 1,
+    "generative_search": false,
+    "campaign_cells_in_brief": 0,
+    "campaign_cells_at_review": 20,
+    "director_note": "The gate ruled this candidate unqualified at a denominator of 1 - that is, it failed at p 0.2248 with NO multiple-testing discount applied against it at all. When the review was recorded, alpha_agent.r59.handlers.search_denominator returned campaign_cells 20, total 20, because the R60 campaign sweep had by then been charged. The direction is one-way: a larger denominator moves this candidate FURTHER from significance, never toward it, so the kill is robust to the discrepancy and is if anything understated. The director should note the inverse of the usual lucky-winner warning: there is no luck here to discount. The director SHOULD note that the other 19 cells of this sweep are now charged against every R60 survivor.",
+    "discrepancy_flag": "BURDEN_DENOMINATOR_MOVED_BETWEEN_BRIEF_AND_REVIEW"
+  },
+  "what_would_change_my_mind": "Nothing about THIS candidate: a verdict is final, and re-running it with an altered parameter, sign, sample, cost or universe is prohibited by the no-rescue rule. It is now graveyard, and it stays in the denominator of every later extension-universe claim. What would change my mind about the HYPOTHESIS FAMILY, as a genuinely new pre-registered experiment and not a resubmission: (1) a lockbox t comfortably above the burden-corrected threshold on a sample long enough that both halves carry the same sign - not a larger point estimate, a stabler one; (2) a substrate audit that bounds the identity-bridge error rate by CUIP/PERMNO rather than issuer name, and shows the unbridged 9.2% delisted tail is not correlated with the feature; (3) a corporate-action scrub separating economic issuance and repurchase from splits, reverse splits and stock-financed M&A, since the raw ratio cannot tell them apart; (4) a measured correlation and spanning test against the estate's settled S&P 500 VALUATION factor, establishing the information rather than only the population as new; (5) an excess-return drawdown series that is actually populated.",
+  "recommendation_to_director": "KILL and record NO_ALPHA_EVIDENCE - the canonical gate already ruled it unqualified at a burden denominator of 1, meaning it fails with no multiple-testing discount applied against it, and the sign-flipping lockbox halves confirm a period rather than a premium; treat the two reporting defects and the unaudited identity bridge as campaign-level blockers to fix BEFORE any further candidate is scored on this new mid/small-cap substrate, because a first result on a new panel is where a substrate defect most easily masquerades as alpha.",
+  "safety_state": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "promotes_model": false,
+    "approves_proposal": false,
+    "makes_sleeve_capital_eligible": false,
+    "backfills_forward_evidence": false,
+    "mutates_operational_store": false
+  },
+  "handoff": {
+    "to": "quant-research-director",
+    "risk_portfolio_agent_gate_skeptic_survived": false,
+    "stops_here": true
+  }
+}

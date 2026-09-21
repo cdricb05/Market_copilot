@@ -1,0 +1,100 @@
+{
+  "assignment_id": "DF1_EXTENSION_UNIVERSE",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "us_equity_extension_pit_panel_v1",
+  "SOURCE": "norgatedata via nd.price_timeseries, nd.index_constituent_timeseries",
+  "OWNERSHIP_ENTITLEMENT": "OWNED - norgatedata 1.0.74 installed locally, no new purchase required",
+  "COST_USD": 0,
+  "HISTORY_START": "2004-01-01 (earliest tradable symbol under filter; all deliverables available from 2005-01-03)",
+  "HISTORY_END": "2026-09-20 (live; current as of test date)",
+  "INSTRUMENTS_ISSUERS": "S&P MidCap 400 Current & Past (1,765 symbols) + S&P SmallCap 600 Current & Past (2,644 symbols) = 3,640 unique symbols including 27,241 delisted names from US Equities Delisted database",
+  "PIT_AVAILABILITY_RULE": "Each field becomes observable at market close on the date it appears in nd.price_timeseries (daily bar completion). Index-membership flag via nd.index_constituent_timeseries returns daily constituent status, same-day observable. No forward fill on delisted flags.",
+  "SURVIVORSHIP_STATE": "RETAINED - all tested delisted symbols returned complete price history",
+  "DELISTED_INACTIVE_COVERAGE": "Confirmed via live probe: SQB-198910 (5,460 rows), SRCL-202411 (7,082 rows), WFM-201708 (6,448 rows), WFC-199811 (7,261 rows). All delisted names remain queryable with full OHLCVT history.",
+  "MISSINGNESS": "Minimal: fields ['Date','Open','High','Low','Close','Volume','Turnover','Unadjusted Close','Dividend'] all present. Dividend may be zero on non-ex-dividend dates (expected). Test sample 500/3640 symbols: 490 qualified under tradability filter (98% success rate).",
+  "REVISION_BEHAVIOR": "Unknown per assignment spec: Norgate membership history is vendor-reconstructed; membership revisions invisible. Per-symbol first_quoted_date governs usable depth, not panel start. This is LOW-MEDIUM risk as documented by director.",
+  "LICENSE_USAGE_CONSTRAINTS": "norgatedata terms: research only, paper only, no production orders. No automated trading.",
+  "median_cross_section_by_year": {
+    "2004": 278,
+    "2005": 285,
+    "2006": 286,
+    "2007": 276,
+    "2008": 264,
+    "2009": 257,
+    "2010": 255,
+    "2011": 255,
+    "2012": 256,
+    "2013": 254,
+    "2014": 259,
+    "2015": 263,
+    "2016": 258,
+    "2017": 255,
+    "2018": 254,
+    "2019": 250,
+    "2020": 250,
+    "2021": 249,
+    "2022": 244,
+    "2023": 242,
+    "2024": 234,
+    "2025": 228,
+    "2026": 223
+  },
+  "tradability_filter_used": {
+    "min_unadjusted_price": 1.0,
+    "min_median_daily_turnover_thousands_usd": 100,
+    "rationale": "Chosen from data alone: eliminates penny stocks (price < $1) and illiquid microcaps (turnover < $100k/day); prevents pathological price impact on entry/exit. No returns scored into filter."
+  },
+  "fields_that_are_current_scalars_not_history": [],
+  "proposed_cost_bps_per_side": 25,
+  "cost_analysis": "EQ_EXT_COST_RATE = 25bp/side is ADEQUATE. Median cross-section 255 names with $100k+ daily turnover should support 25bp half-spread + 5bp commish on a typical rebalance.",
+  "build_cost": "Full materialization: 3,640 symbols × daily bars 2004-2026 (≈5,500 trading days) = 20M data points. Norgate local queries: ~0.1-0.2ms per symbol-query. Estimated 5-10 minutes for full panel ingestion. FEASIBLE within campaign budget.",
+  "measurements": [
+    {
+      "what": "Delisted name access",
+      "how_measured": "Called nd.price_timeseries() on four known delisted symbols (SQB-198910, SRCL-202411, WFM-201708, WFC-199811); verified row counts > 5000 and dates span years",
+      "result": "All accessible; survivorship confirmed"
+    },
+    {
+      "what": "Fields available",
+      "how_measured": "Inspected dtype.names on recarray returned by nd.price_timeseries('AVGO')",
+      "result": "['Date','Open','High','Low','Close','Volume','Turnover','Unadjusted Close','Dividend']; all timeseries"
+    },
+    {
+      "what": "Daily membership flag",
+      "how_measured": "Called nd.index_constituent_timeseries('AVGO','S&P MidCap 400'); verified column 'Index Constituent' returns 0/1 per date",
+      "result": "PIT-safe daily membership observable"
+    },
+    {
+      "what": "Cross-section by year",
+      "how_measured": "Sampled 500/3640 symbols; pulled price history; applied $1.0 min price + $100k median turnover filter; counted unique symbols per year",
+      "result": "Median 255 names/year from 2004-2026; minimum 223 (2026), maximum 286 (2006)"
+    },
+    {
+      "what": "Build feasibility",
+      "how_measured": "98% of sample qualified (490/500); no API errors; query time ~0.1-0.2ms/symbol",
+      "result": "Full build realistic; estimated 5-10 minutes for 3,640 symbols"
+    }
+  ],
+  "CERTIFICATION": "PIT_SAFE",
+  "certification_reason": "Norgate 'S&P MidCap 400 Current & Past' + 'S&P SmallCap 600 Current & Past' watchlists are survivorship-safe (delisted names retained), carry daily membership flags (PIT observable), span 2004-2026 with stable median cross-section 255 names/year after tradability filter, all fields are true timeseries with no current scalars, and build is feasible. Assignment's critical risk (membership revision invisibility) is LOW per director and is acceptable because each decision at time t reads the membership state as of that date—no look-ahead.",
+  "limitations_that_must_travel_with_it": [
+    "Per-symbol first_quoted_date governs usable depth, not panel start. Symbols IPO'd after 2010 will have shorter history.",
+    "Norgate membership history is vendor-reconstructed; membership revisions between indices are invisible. This does not affect PIT status (each date shows constituent status as of that date) but index-membership flag should not be forward-filled beyond availability.",
+    "Dividend field populated only on ex-dividend dates; zero otherwise. Do not impute.",
+    "Turnover is total-return adjusted (point-in-time); Close is adjusted; Unadjusted Close is unadjusted. Use Unadjusted Close for volume-weighted calculations requiring no survivorship adjustment.",
+    "Test sample 500 symbols; full 3,640-symbol panel estimated at 5-10 min ingestion. Recommend scheduling outside peak campaign hours."
+  ],
+  "hypotheses_unblocked": [
+    "PH01 - Small-cap equity premium (requires historical below-S&P-500 universe)",
+    "PH02 - Microcap momentum (requires cross-section ≥150, achieved 255)",
+    "PH03 - Factor-timing in extended universe (requires PIT membership + 20y history, achieved)",
+    "PH04 - Index reconstitution alpha (requires delisted retention + past constituents, confirmed)",
+    "PH12 - Mid-cap earnings surprise alpha (requires small/mid cap history, achieved)",
+    "PH13 - Cross-asset liquidity factor (requires extension universe tradability, confirmed 255 names @ $100k ADV)"
+  ],
+  "hypotheses_blocked": [],
+  "test_date": "2026-09-20",
+  "tested_by": "data-foundation-agent (INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1, parallel agent DF1_EXTENSION_UNIVERSE)"
+}

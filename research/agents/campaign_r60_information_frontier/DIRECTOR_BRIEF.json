@@ -1,0 +1,277 @@
+{
+ "RUN_ID": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "CAMPAIGN_ID": "R60_INFORMATION_FRONTIER",
+ "EXPERIMENT_ID": "",
+ "SOURCE_AGENT": "SESSION_ORCHESTRATOR",
+ "TARGET_AGENT": "quant-research-director",
+ "DECISION_REQUIRED": "Set the campaign agenda: which hypotheses to pre-register, to which signal agent, at what budget. Rule the tournament on return.",
+ "FACTS": {
+  "open_information_families": {
+   "best_unexplored_equity_domain": "UNIVERSE EXTENSION below the S&P 500 (mid/small-cap point-in-time members). Every one of 1858 equity tests was large-cap, where anomalies are most arbitraged. The strongest human-authored large-cap near-miss was LIQUIDITY_PREMIUM (lockbox t 2.89, killed only by burden correction), a premium whose documented home is small caps. Second: never-used free event information (SEC comment letters, dividend-change announcements).",
+   "best_unexplored_futures_domain": "The R38 native DATED-CONTRACT layer beyond slope level: 12 hypotheses against 5846 on the back-adjusted panel. Basis-momentum and exchange open-interest dynamics need the deferred contract and real OI, which only this layer has.",
+   "best_h1_h5_domain": "H1-H5 is 0.45% of the estate (38 tests). Equity H1-H5 on PRICE ALONE in the S&P 500 is closed, and futures intraday is closed. What is open is H1-H5 liquidity-provision reversal on the extension universe with an executable next-open entry, and H1-H5 reversal conditioned on never-used non-price information (FINRA short-volume share). Turnover, not signal, is the binding constraint.",
+   "best_cross_asset_domain": "The three families the R59 frontier itself lists as open and could never execute (its governor had no futures feature declared): CROSS_ASSET_RELATIVE_VALUE first (terms-of-trade commodity-currency spreads), then CROSS_ASSET_LEAD_LAG as ONE pre-declared economic channel. CROSS_ASSET_REGIME_CONDITIONING is de-prioritised: it is premium timing, dead three times."
+  },
+  "exhausted_families": {
+   "closed_mechanisms": 8,
+   "ledger_pointer": "NEXT_CAMPAIGN_CENSUS.json#must_not_repeat.closed_mechanism_ledger",
+   "structural_rule": "A settled family reopens ONLY on its recorded reopen condition (NEW_ORTHOGONAL_INFORMATION), stated in the hypothesis text. Renaming a dead idea is refused by the director and the duplicate-identity check."
+  },
+  "available_datasets": [
+   {
+    "dataset": "sp500_pit_panel_v1",
+    "asset_class": "US_EQUITY",
+    "state": "OWNED, heavily mined"
+   },
+   {
+    "dataset": "r58_pit_fundamental_panel_v1",
+    "asset_class": "US_EQUITY",
+    "state": "OWNED, mined on S&P 500 only"
+   },
+   {
+    "dataset": "futures_panel_v1",
+    "asset_class": "all futures",
+    "state": "OWNED, heavily mined"
+   },
+   {
+    "dataset": "R38 native_contract_layer",
+    "asset_class": "all futures",
+    "state": "OWNED, 12 hypotheses only"
+   },
+   {
+    "dataset": "SEC companyfacts store",
+    "asset_class": "US_EQUITY",
+    "state": "FREE_AVAILABLE"
+   },
+   {
+    "dataset": "EODHD dividend/split history, full universe",
+    "asset_class": "US_EQUITY",
+    "state": "ALREADY_OWNED_UNUSED (16-year history confirmed for a probe name)"
+   },
+   {
+    "dataset": "FINRA daily short volume",
+    "asset_class": "US_EQUITY",
+    "state": "FREE_AVAILABLE, 1 hypothesis"
+   },
+   {
+    "dataset": "Nasdaq trading halts",
+    "asset_class": "US_EQUITY",
+    "state": "FREE_AVAILABLE, 0 hypotheses"
+   },
+   {
+    "dataset": "SEC EDGAR full index (UPLOAD / CORRESP comment letters)",
+    "asset_class": "US_EQUITY",
+    "state": "FREE, never used"
+   },
+   {
+    "dataset": "CFTC COT, FRED/ALFRED macro, Cboe indices, TreasuryDirect",
+    "asset_class": "cross-asset",
+    "state": "OWNED, closed as timing information"
+   },
+   {
+    "dataset": "EODHD news (full universe), earnings BMO/AMC flag, Form 4 parse",
+    "asset_class": "US_EQUITY",
+    "state": "PROSPECTIVE-ONLY (no usable history)"
+   }
+  ],
+  "blocked_datasets": [
+   "Unconditional month-end ZN long (+1.47%/yr net, t 3.20 as a CONTROL): adoptable only by a human-authorised fresh pre-registration on untouched 2017-2026.",
+   "Single-name options history purchase: PURCHASE_NOT_GLOBALLY_JUSTIFIED.",
+   "Analyst revision vintages: INADEQUATE, STOP BEFORE PURCHASE.",
+   "OPRA subscription: answered NO (next-open entry keeps 98.7% of the edge)."
+  ],
+  "queued_hypotheses": [
+   {
+    "rank": 1,
+    "proposal": "FUT_BASIS_MOMENTUM_COMMODITY",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "COMMODITY_FUTURES",
+    "family": "CARRY",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 2,
+    "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "US_EQUITY",
+    "family": "LIQUIDITY",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 3,
+    "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+    "agent": "reversal-signal-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "RELATIVE_VALUE",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 4,
+    "proposal": "FUT_OPEN_INTEREST_GROWTH",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "COMMODITY_FUTURES",
+    "family": "POSITIONING",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 5,
+    "proposal": "EQ_EXTENSION_RESIDUAL_MOMENTUM",
+    "agent": "momentum-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "MOMENTUM",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 6,
+    "proposal": "EQ_SEC_COMMENT_LETTER_DRIFT",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "EVENT_OVERREACTION",
+    "horizon_sessions": 63
+   },
+   {
+    "rank": 7,
+    "proposal": "XA_BASIS_MOMENTUM_REPLICATION",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "CARRY",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 8,
+    "proposal": "EQ_DIVIDEND_CHANGE_ANNOUNCEMENT_DRIFT",
+    "agent": "momentum-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "FUNDAMENTAL_MOMENTUM",
+    "horizon_sessions": 63
+   },
+   {
+    "rank": 9,
+    "proposal": "EQ_EXTENSION_H5_LIQUIDITY_PROVISION_REVERSAL",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "SHORT_TERM_REVERSAL",
+    "horizon_sessions": 5
+   },
+   {
+    "rank": 10,
+    "proposal": "XA_LEAD_LAG_SINGLE_CHANNEL",
+    "agent": "trend-breadth-signal-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "CROSS_ASSET_LEAD_LAG",
+    "horizon_sessions": 3
+   },
+   {
+    "rank": 11,
+    "proposal": "EQ_EXTENSION_GROSS_PROFITABILITY",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "US_EQUITY",
+    "family": "PROFITABILITY",
+    "horizon_sessions": 21
+   },
+   {
+    "rank": 12,
+    "proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "SHORT_TERM_REVERSAL",
+    "horizon_sessions": 5
+   },
+   {
+    "rank": 13,
+    "proposal": "EQ_POST_HALT_H3",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "EVENT_OVERREACTION",
+    "horizon_sessions": 3
+   }
+  ],
+  "current_campaign": {
+   "campaign_id": "R60_INFORMATION_FRONTIER",
+   "experiments_preregistered": 0,
+   "experiments_in_spec": 0,
+   "assigned_by_agent": {},
+   "unmeasured_by_agent": {},
+   "measured": [],
+   "halted": 0,
+   "awaiting_skeptic": [],
+   "skeptic_survivors": [],
+   "awaiting_risk": [],
+   "validated_survivors": [],
+   "meta_reviewed": [],
+   "director_cleared": [],
+   "data_certified": true,
+   "universe_defined": true,
+   "features_published": true
+  }
+ },
+ "METRICS": {
+  "hypotheses_settled": null,
+  "qualified_survivors": null,
+  "search_burden_total": 8405,
+  "burden_by_asset_class": {
+   "CROSS_ASSET": 2448,
+   "US_EQUITY": 1826,
+   "COMMODITY_FUTURES": 1621,
+   "EQUITY_INDEX_FUTURES": 923,
+   "RATES_FUTURES": 864,
+   "FX_FUTURES": 692,
+   "VOLATILITY": 13,
+   "CREDIT_PROXY": 1
+  },
+  "honest_prior": "0 of None hypotheses have qualified"
+ },
+ "FAILED_GATES": [],
+ "ARTIFACT_POINTERS": {
+  "census": "C:\\Users\\binis\\paper_trader\\research\\agents\\NEXT_CAMPAIGN_CENSUS.json",
+  "charter": "docs/PROJECT_CHARTER.md",
+  "frontier": "docs/PNL_OPPORTUNITY_FRONTIER.md",
+  "sleeve_contract": "docs/STRATEGY_SLEEVE_CONTRACT.md",
+  "protocol": "research/agents/research_director_protocol.json"
+ },
+ "SAFETY_STATE": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ },
+ "AGENT_SYSTEM_VERSION": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "BRIEF_OWNER": "alpha_agent.agents_v2.briefs",
+ "BRIEF_VERSION": "R58_AGENT_CONTEXT_CONTRACT_V1",
+ "DO_NOT_RECOMPUTE": {
+  "arithmetic": "alpha_agent.agents_v2.runner",
+  "statistics": "alpha_agent.r59.engines.gate",
+  "ranking": "alpha_agent.agents_v2.books",
+  "backtests": "alpha_agent.agents_v2.books",
+  "feature_computation": "campaign executor module",
+  "transaction_costs": "alpha_agent.agents_v2.books",
+  "universe_filtering": "campaign executor module",
+  "date_slicing": "alpha_agent.agents_v2.runner",
+  "placebo": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "doubled_cost": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "subperiod_stability": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "duplicate_identity": "alpha_agent.r59.memory.ResearchMemory.is_novel",
+  "threshold_comparison": "alpha_agent.r59.engines.gate",
+  "experiment_state_lookup": "alpha_agent.r59.memory.ResearchMemory",
+  "burden_calculation": "alpha_agent.r59.handlers.search_denominator",
+  "stage_advance_rule": "alpha_agent.r59.engines.stage_advance",
+  "result_formatting": "alpha_agent.agents_v2.briefs"
+ },
+ "MODEL_ROUTING": {
+  "model": "opus",
+  "effort": "high",
+  "tier": "HIGH_REASONING"
+ },
+ "FULL_MEMORY_DUMP_REQUIRED": false,
+ "FULL_CENSUS_READ_REQUIRED": false
+}

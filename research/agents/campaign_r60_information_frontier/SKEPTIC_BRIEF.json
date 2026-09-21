@@ -1,0 +1,239 @@
+{
+ "RUN_ID": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "CAMPAIGN_ID": "R60_INFORMATION_FRONTIER",
+ "EXPERIMENT_ID": "H_644bcffe_280bc903ae38",
+ "SOURCE_AGENT": "reversal-signal-agent",
+ "TARGET_AGENT": "validation-skeptic-agent",
+ "DECISION_REQUIRED": "PASS or KILL this candidate. Answer only the five questions.",
+ "FACTS": {
+  "CANDIDATE": {
+   "experiment_id": "H_644bcffe_280bc903ae38",
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "VALUATION",
+   "horizon_sessions": 21
+  },
+  "HYPOTHESIS": "In the MidCap400+SmallCap600 extension universe, firms that INCREASED shares outstanding over the prior year underperform: a long-only book of the 100 names with the LOWEST net share issuance (the repurchasers), equal-weighted against the equal-weight eligible universe, earns a positive 21-session excess return net of 25 bp per side. Expected sign is -1 on the feature; the long-only book therefore holds the bottom of the feature, exactly as the settled EQ_OPERATING_PROFITABILITY_STABILITY construction did, and NO SIGN IS FLIPPED AT EVALUATION.",
+  "ECONOMIC_MECHANISM": "Managers issue equity when they believe it is expensive and repurchase when they believe it is cheap. The share count is a revealed managerial valuation opinion backed by the firm's own money - an action, not a forecast. That is why the routed family is VALUATION and not CORPORATE_FINANCING, which is not a routed family and would be refused.",
+  "FROZEN_SPEC": {
+   "expected_sign": -1,
+   "cost_model": {
+    "basis": "traded notional",
+    "cost_model_id": "EQ_EXT_25BP_V1",
+    "note": "25 bp/side, double the S&P 500 rate, set before any return was scored because the extension universe is mid and small caps.",
+    "owner": "EQ_EXT_COST_RATE in the frozen R60 evaluator",
+    "rate_per_side": 0.0025
+   },
+   "frozen_gate_schema_hash": "fff8f77404ba8d867a7c67a9216e11be057eb8e44f389bed5afddc6899d608df",
+   "generative_search": false,
+   "within_family_tests": 1
+  },
+  "KNOWN_FAILURE_FLAGS": {
+   "sign_consistent": true,
+   "cost_model_frozen": true,
+   "novel_identity": null
+  },
+  "QUESTIONS": [
+   "Is there a hidden research flaw not captured mechanically?",
+   "Is the economic mechanism credible?",
+   "Is performance overly dependent on one instrument, regime or group?",
+   "Is there evidence of disguised duplication or a factor proxy?",
+   "PASS or KILL, with a concise reason."
+  ]
+ },
+ "METRICS": {
+  "D_RESULT": {
+   "ann_bench_net": 0.13396160475379115,
+   "ann_cost_drag": 0.0068225069462679745,
+   "ann_gross_excess": 0.025849388779252254,
+   "ann_net_excess": 0.019026881832984288,
+   "ann_strat_net": 0.15298848658677544,
+   "bench_max_dd": -0.2029494639550038,
+   "first": "2011-07-01",
+   "halves_ann_net_excess": [
+    0.004351314127502853,
+    0.03332615293063286
+   ],
+   "hit_rate": 0.5714285714285714,
+   "last": "2017-11-02",
+   "mean_oneway_turnover_per_period": 0.12688311688311688,
+   "median_held": 100.0,
+   "median_universe": 999.0,
+   "min_universe": 993,
+   "p_one_sided": 0.10013210832891403,
+   "periods": 77,
+   "strat_max_dd": -0.17909903504797464,
+   "t_net_excess": 1.2807991671698298
+  },
+  "V_RESULT": {
+   "ann_bench_net": 0.10268900492892136,
+   "ann_cost_drag": 0.005665966225185953,
+   "ann_gross_excess": 0.04645370473421256,
+   "ann_net_excess": 0.0407877385090266,
+   "ann_strat_net": 0.14347674343794797,
+   "bench_max_dd": -0.34559933104820995,
+   "first": "2018-01-04",
+   "halves_ann_net_excess": [
+    -0.004814710620920301,
+    0.0848701060013086
+   ],
+   "hit_rate": 0.5254237288135594,
+   "last": "2022-11-04",
+   "mean_oneway_turnover_per_period": 0.10186440677966103,
+   "median_held": 100.0,
+   "median_universe": 999.0,
+   "min_universe": 978,
+   "p_one_sided": 0.10057561319064923,
+   "periods": 59,
+   "strat_max_dd": -0.39725095901955343,
+   "t_net_excess": 1.2782785552481912
+  },
+  "L_RESULT": {
+   "ann_bench_net": 0.12468946866975006,
+   "ann_cost_drag": 0.0052525437878487265,
+   "ann_gross_excess": 0.026939964716259715,
+   "ann_net_excess": 0.02168742092841099,
+   "ann_strat_net": 0.1463768895981611,
+   "bench_max_dd": -0.1944696781044306,
+   "first": "2023-01-06",
+   "halves_ann_net_excess": [
+    0.05423825939581619,
+    -0.010863417538994214
+   ],
+   "hit_rate": 0.5227272727272727,
+   "last": "2026-08-14",
+   "mean_oneway_turnover_per_period": 0.09568181818181819,
+   "median_held": 100.0,
+   "median_universe": 1002.0,
+   "min_universe": 998,
+   "p_one_sided": 0.22480498410560223,
+   "periods": 44,
+   "strat_max_dd": -0.20422740829627817,
+   "t_net_excess": 0.756065428762584
+  },
+  "GATE_RESULT": {
+   "qualified": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "checks": {
+    "has_lockbox_observations": true,
+    "lockbox_material": true,
+    "validation_same_sign": true,
+    "validation_material": true,
+    "lockbox_t_positive": true,
+    "burden_corrected_significant": false
+   },
+   "failed_gates": [
+    "burden_corrected_significant"
+   ],
+   "lockbox_t": 0.756065428762584,
+   "lockbox_p_one_sided": 0.22480498410560223,
+   "burden_denominator": 1,
+   "burden_corrected_p": 0.22480498410560223,
+   "lockbox_materiality": 0.02168742092841099,
+   "validation_materiality": 0.0407877385090266,
+   "lockbox_observations": 44,
+   "lockbox_raw_periods": 44,
+   "overlap_factor": null,
+   "materiality_metrics": [
+    "ann_net_excess"
+   ],
+   "lockbox_materiality_by_metric": {
+    "ann_net_excess": 0.02168742092841099
+   },
+   "validation_materiality_by_metric": {
+    "ann_net_excess": 0.0407877385090266
+   },
+   "materiality_floors": {
+    "ann_net_excess": 0.015
+   },
+   "validation_materiality_floors": {
+    "ann_net_excess": 0.00375
+   },
+   "validation_materiality_floor": 0.00375
+  },
+  "PLACEBO_RESULT": {
+   "passed": null,
+   "measured": null,
+   "evidence": ""
+  },
+  "DOUBLE_COST_RESULT": {
+   "passed": null,
+   "measured": null,
+   "evidence": ""
+  },
+  "SUBPERIOD_RESULT": {
+   "passed": null,
+   "measured": null,
+   "evidence": ""
+  },
+  "DEPENDENCE_DIAGNOSTICS": {
+   "turnover": 0.09568181818181819,
+   "halves": [
+    0.05423825939581619,
+    -0.010863417538994214
+   ]
+  },
+  "BURDEN": {
+   "family": 0,
+   "generative_search": 0,
+   "machine_generated": false,
+   "in_machine_representation_space": false,
+   "generative_charge_applied": false,
+   "campaign_cells": 0,
+   "within_family_tests": 1,
+   "total": 0
+  }
+ },
+ "FAILED_GATES": [
+  "burden_corrected_significant"
+ ],
+ "ARTIFACT_POINTERS": {
+  "result_artifact": "research/agents/R60_INFORMATION_FRONTIER/artifacts/H_644bcffe_280bc903ae38.json",
+  "gate_owner": "alpha_agent.r59.engines.gate",
+  "attack_owner": "alpha_agent.agents_v2.runner.adversarial_pack"
+ },
+ "SAFETY_STATE": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ },
+ "AGENT_SYSTEM_VERSION": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "BRIEF_OWNER": "alpha_agent.agents_v2.briefs",
+ "BRIEF_VERSION": "R58_AGENT_CONTEXT_CONTRACT_V1",
+ "DO_NOT_RECOMPUTE": {
+  "arithmetic": "alpha_agent.agents_v2.runner",
+  "statistics": "alpha_agent.r59.engines.gate",
+  "ranking": "alpha_agent.agents_v2.books",
+  "backtests": "alpha_agent.agents_v2.books",
+  "feature_computation": "campaign executor module",
+  "transaction_costs": "alpha_agent.agents_v2.books",
+  "universe_filtering": "campaign executor module",
+  "date_slicing": "alpha_agent.agents_v2.runner",
+  "placebo": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "doubled_cost": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "subperiod_stability": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "duplicate_identity": "alpha_agent.r59.memory.ResearchMemory.is_novel",
+  "threshold_comparison": "alpha_agent.r59.engines.gate",
+  "experiment_state_lookup": "alpha_agent.r59.memory.ResearchMemory",
+  "burden_calculation": "alpha_agent.r59.handlers.search_denominator",
+  "stage_advance_rule": "alpha_agent.r59.engines.stage_advance",
+  "result_formatting": "alpha_agent.agents_v2.briefs"
+ },
+ "MODEL_ROUTING": {
+  "model": "opus",
+  "effort": "high",
+  "tier": "HIGH_REASONING"
+ },
+ "SKEPTIC_RECOMPUTES_MACHINE_TESTS": false
+}

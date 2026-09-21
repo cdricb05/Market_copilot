@@ -1,0 +1,62 @@
+{
+ "assignment_id": "DF4_SEC_STORES",
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "role": "data-foundation-agent",
+ "phase": 2,
+ "sources": [
+  {
+   "source_id": "SEC_BULK_COMPANYFACTS_AND_FSDS_FULL_UNIVERSE",
+   "dataset_id_proposed": "extension_pit_fundamental_panel_v1",
+   "exact_question_for_foundation": "For the extension universe symbol list from question 1, what fraction of names resolve to a CIK with usable XBRL facts in companyfacts.zip, and for those, what fraction have a filed-date-stamped value for the handful of fields a profitability/issuance factor needs (revenues, gross profit or cost of revenue, total assets, and common shares outstanding) in each year 2010-2026? Also settle whether num.txt is genuinely absent from financial_statement_data_sets (only sub.txt was found in the inspected quarter).",
+   "blocks_which_hypotheses": [
+    "PH03",
+    "PH04"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "SEC_BULK_COMPANYFACTS_AND_FSDS_FULL_UNIVERSE",
+    "tier": "T1",
+    "what_information": "SEC XBRL company facts for EVERY filer, with the filing date attached, plus the SEC Financial Statement Data Sets submission index (adsh, cik, name, sic, form, period, filed, accepted) by quarter. This is what makes PIT fundamentals possible on the extension universe rather than only on the 885 large caps of r58_pit_fundamental_panel_v1.",
+    "asset_classes": [
+     "US_EQUITY"
+    ],
+    "pit_concern": "LOW. 'filed' and 'accepted' timestamps are exact and are the correct availability stamp. The known hazard is restatement: the estate's existing rule (latest-filed as of the decision date) must be reused, not reinvented.",
+    "survivorship_concern": "LOW for the facts themselves; the survivorship risk sits in the universe join, which is rank 1's problem.",
+    "depth_found": "companyfacts.zip = 1,393,191,546 bytes (1.39 GB, all CIKs) and submissions.zip = 1,554,960,246 bytes, both dated 2026-08-02, with .manifest.json and .checkpoint.json beside them. financial_statement_data_sets = 68 quarter dirs, 2009q2..2026q1; the inspected quarter contained ONLY manifest.json and sub.txt (1,858,872 bytes, 6,305 rows, cols adsh/cik/name/sic/.../form/period/fy/fp/filed/accepted/...). Sample row: adsh 0000002488-25-000166, AMD, 10-Q, period 20250930, filed 20251105, accepted 2025-11-04 18:08:00.",
+    "evidence": "Directory listing of D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk (560 files, 6,282,227,399 bytes total) and a header/row-count parse of financial_statement_data_sets\\<qtr>\\sub.txt.",
+    "inferred_not_verified": [
+     "CIK coverage of companyfacts.zip in terms of how many extension-universe TICKERS actually resolve to a CIK with usable facts (the ticker<->CIK map exists - company_tickers.json was fetched - but the join rate was not measured).",
+     "That num.txt is absent from the FSDS quarters generally; only one quarter was inspected and it held sub.txt alone. If num.txt is truly absent everywhere, all numeric facts must come from companyfacts.zip.",
+     "Per-field completeness for microcaps (small filers file fewer tagged facts)."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  },
+  {
+   "source_id": "SEC_EDGAR_FULL_INDEX_COMMENT_LETTERS",
+   "dataset_id_proposed": "sec_comment_letter_event_panel_v1",
+   "exact_question_for_foundation": "Extract every UPLOAD and CORRESP row from all 71 quarters of edgar_full_index (2009q1-2026q3), join CIK to ticker, and report: (a) total events, (b) events joined to a tradable US equity, (c) events per year, (d) the distribution of events per name. And settle the census's stated trap: is the index 'Date Filed' the PUBLIC DISSEMINATION date or the letter date? If it is the letter date, this source is look-ahead-contaminated and dies here.",
+   "blocks_which_hypotheses": [
+    "PH10"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "SEC_EDGAR_FULL_INDEX_COMMENT_LETTERS",
+    "tier": "T1",
+    "what_information": "The complete EDGAR quarterly filing index - CIK, company, form type, date filed, path - from which SEC-initiated review correspondence (form UPLOAD, the staff's letter; form CORRESP, the issuer's reply) can be extracted with an exact dissemination date.",
+    "asset_classes": [
+     "US_EQUITY"
+    ],
+    "pit_concern": "MEDIUM-HIGH, and the census already names the trap: availability is the EDGAR dissemination date, NOT the letter date, because the SEC publicly releases review correspondence only after the review closes (historically ~20 business days). The index 'Date Filed' field must be verified to be the dissemination date and not the letter date before this is usable.",
+    "survivorship_concern": "LOW. The index is exhaustive by construction.",
+    "depth_found": "edgar_full_index = 71 quarter dirs, 2009q1..2026q3, each with master.idx + manifest.json. The 2026q2 master.idx holds 352,947 rows spanning 2026-04-01..2026-06-30, of which UPLOAD = 351 and CORRESP = 526. The root store also holds master.idx at 14,756,817 bytes.",
+    "evidence": "Directory listing of D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk\\edgar_full_index plus a full form-type histogram parse of the 2026q2 master.idx. Top forms that quarter: 4 (103,084), 424B2 (49,609), 144 (19,324), 8-K (18,300), NPORT-P (14,055), 3 (11,064), D (10,680), 13F-HR (9,307), SCHEDULE 13G (8,726), 6-K (7,554), 10-Q (5,473), SCHEDULE 13D/A (2,116).",
+    "inferred_not_verified": [
+     "That the index 'Date Filed' equals the public dissemination date for UPLOAD/CORRESP.",
+     "The CIK->ticker join rate for comment-letter filers.",
+     "Event count after joining to a tradable universe: ~877 UPLOAD+CORRESP per quarter implies on the order of 60,000 raw events over 17 years, but across ~14,000 filers and with two forms per review, the per-name event count may be too thin for a cross-sectional book at any single horizon."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  }
+ ]
+}

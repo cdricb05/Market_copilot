@@ -1,0 +1,91 @@
+{
+ "assignment_id": "DF5_LIGHT_PROBES",
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "role": "data-foundation-agent",
+ "phase": 2,
+ "sources": [
+  {
+   "source_id": "EODHD_DIVIDEND_DECLARATION_HISTORY",
+   "dataset_id_proposed": "us_equity_dividend_announcement_panel_v1",
+   "exact_question_for_foundation": "Under the EXISTING EODHD subscription at $0, pull /div history for a stratified sample of ~200 extension-universe names including delisted tickers and report ONE number: the fraction of dividend rows that carry a non-null declarationDate, by year. On disk only 11 dividend records exist and roughly half of the sampled rows had declarationDate null. Below about 80% non-null this source is unusable, because substituting the ex-date for the declaration date is a silent look-ahead.",
+   "blocks_which_hypotheses": [
+    "PH09"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "EODHD_DIVIDEND_DECLARATION_HISTORY",
+    "tier": "T2",
+    "what_information": "Dividend and split history for the full US universe under the existing EODHD subscription, with a DECLARATION date distinct from the ex-date - i.e. the timestamp of the management ANNOUNCEMENT, which is the information event.",
+    "asset_classes": [
+     "US_EQUITY"
+    ],
+    "pit_concern": "MEDIUM, and now precisely characterised. The declaration date IS present in the EODHD /div payload and IS already mapped to the record's availability stamp - but it is NOT always populated. Of the four records inspected, JPM (ex 2026-07-06) carried declarationDate 2026-05-18 -> available_at 2026-05-18, one AAPL record carried declarationDate 2026-07-30 -> available_at 2026-07-30, and two AAPL records carried declarationDate null -> available_at null. A null declaration date on a historical pull is a silent look-ahead trap if the ex-date is substituted.",
+    "survivorship_concern": "MEDIUM-HIGH. EODHD is symbol-keyed and a historical pull naturally covers surviving tickers; delisted-name coverage was not established. The Norgate 'Current & Past' watchlist must supply the symbol list, not EODHD.",
+    "depth_found": "ON DISK: only 11 DIVIDEND records exist, all source_id='eodhd', provenance 'EODHD /div', under ingestion\\normalized\\CORPORATE_ACTION across 8 date partitions 2026-07-06..2026-11-19. The raw store shows exactly 11 calls to https://eodhd.com/api/div/<SYM>.US. There is NO dividend history on disk; the 16-year claim is an API-entitlement claim, not a materialised one.",
+    "evidence": "Parsed every record under D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion\\normalized\\CORPORATE_ACTION: 11 records, event_type DIVIDEND only, payload keys [currency,date,declarationDate,event_time,paymentDate,period,publication_time,recordDate,unadjustedValue,value]. Raw endpoint histogram over 3,424 eodhd metadata files (business_date 2026-07-28..2026-09-19): news 2,608, eod/<SYM>.US 693, fundamentals/<SYM>.US 97, calendar/earnings 14, div/<SYM>.US 11, insider-transactions 1.",
+    "inferred_not_verified": [
+     "That the EODHD subscription permits a full-universe historical /div pull at $0 (no purchase was made and no API call was issued this phase).",
+     "The declarationDate non-null RATE on a deep historical pull - the single number that decides whether this source is usable. Measured only on 4 sampled records, where it was roughly half.",
+     "Delisted-ticker coverage.",
+     "Whether split history is equally complete."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  },
+  {
+   "source_id": "NORGATE_CASH_COMMODITY_TERMS_OF_TRADE_FOR_FX",
+   "dataset_id_proposed": "terms_of_trade_panel_v1",
+   "exact_question_for_foundation": "The RBA commodity index series ($RBACPU etc., 11,178 rows, 1982-07-01..2026-08-31) end three weeks before today, which suggests a MONTHLY statistic on a daily index. What is the true frequency and the release lag after month end? And is there an export-basket series for any commodity currency other than AUD? If the answer is 'monthly, lagged, Australia only', the terms-of-trade construct must be rebuilt from the daily per-commodity physical series (@FE, @YCX, @CU, @AL) weighted by export share, or abandoned.",
+   "blocks_which_hypotheses": [
+    "PH11",
+    "PH14"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "NORGATE_CASH_COMMODITY_TERMS_OF_TRADE_FOR_FX",
+    "tier": "T1",
+    "what_information": "Daily RBA commodity price indices in USD and AUD (headline, rural, non-rural, base metals, bulk commodities) plus iron ore CFR China, thermal coal and LME metals in AUD and CAD - i.e. a directly-measured export-price basket for the commodity currencies, on the same clock as the FX futures we can trade (6A AUD, 6C CAD, 6N NZD, 6M MXN).",
+    "asset_classes": [
+     "FX_FUTURES",
+     "CROSS_ASSET",
+     "COMMODITY_FUTURES"
+    ],
+    "pit_concern": "MEDIUM-HIGH. The RBA series run to 2026-08-31 while today is 2026-09-20, which is consistent with a MONTHLY index carried forward on a daily index - i.e. the daily stamp may be an interpolation/step of a monthly statistic, with a publication lag of days to weeks after month end. Nothing about the release lag was measured. This is the single biggest risk on this source and it must be settled before any pre-registration. The per-metal LME AUD/CAD series are daily and do not have this problem.",
+    "survivorship_concern": "NONE.",
+    "depth_found": "$RBACPU / $RBACPA / $RBARCPU / $RBARCPA / $RBANRCPU / $RBANRCPA / $RBABMU / $RBABMA / $RBABCU / $RBABCA: 11,178 rows each, 1982-07-01..2026-08-31. @FE iron ore CFR China 4,497 rows 2008-11-17..2026-09-18 (@FECAD 6,771 rows from 2000-01-04). @YCX thermal coal 6,868 rows 2000-02-21..2026-09-11. @CUAUD/@ALAUD/@NIAUD/@PBAUD/@SNAUD/@ZNAUD ~8,390 rows each from 1993-07-01. @WTIAUD 8,957 rows from 1991-01-02; @WTICAD 9,208 rows from 1990-01-02. Forex Spot database = 57 symbols including $USDX and 26 USD crosses both ways.",
+    "evidence": "Same full enumeration of nd.database_symbols('Cash Commodities') and nd.database_symbols('Forex Spot') described in rank 2; names and row/date counts are verbatim probe output.",
+    "inferred_not_verified": [
+     "The true publication frequency and release lag of the RBA index series (the 2026-08-31 last date strongly suggests monthly; NOT confirmed).",
+     "Whether an equivalent export-basket series exists for CAD, NZD, BRL, CLP or MXN, or whether only Australia is covered - which would leave a cross-section of one and force a single-name time-series construct.",
+     "Tradability mapping: 6A/6C/6N/6M are in the R38 native layer by file name; per-market cost was not re-read."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  },
+  {
+   "source_id": "FINRA_REGSHO_DAILY_SHORT_VOLUME_ARCHIVE",
+   "dataset_id_proposed": "finra_short_volume_panel_v1",
+   "exact_question_for_foundation": "Does https://cdn.finra.org/equity/regsho/daily/CNMSshvol<YYYYMMDD>.txt serve the archive back beyond 2026-07-23 at $0, and how far? Only 34 sessions exist on disk. If the archive goes back to roughly 2009, this becomes a first-class source; if it does not, it is prospective-only and drops out of this campaign entirely.",
+   "blocks_which_hypotheses": [
+    "PH12"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "FINRA_REGSHO_DAILY_SHORT_VOLUME_ARCHIVE",
+    "tier": "T3",
+    "what_information": "Per-symbol daily short-sale VOLUME and total volume from FINRA's consolidated Reg SHO daily files - the share of the day's tape that was sold short. A flow, not a position.",
+    "asset_classes": [
+     "US_EQUITY"
+    ],
+    "pit_concern": "LOW once acquired. FINRA publishes the daily file after the close for the same session, so it is observable before the next open.",
+    "survivorship_concern": "LOW for the files themselves (they are market-wide tapes); the join must use a PIT universe.",
+    "depth_found": "ESSENTIALLY NONE ON DISK. normalized\\SHORT_VOLUME holds 34 files across 34 date partitions, 2026-07-23..2026-09-18, 447,836,569 bytes. raw\\finra holds 68 files = 34 payloads + 34 metadata, each ~531 KB; the metadata fingerprint is GET https://cdn.finra.org/equity/regsho/daily/CNMSshvol20260723.txt, license note 'FINRA Reg SHO daily short-sale volume files - official public data. Daily short-sale VOLUME, not short interest.' Two months of history is not a research sample.",
+    "evidence": "File/partition census of ingestion\\normalized\\SHORT_VOLUME and endpoint histogram of ingestion\\raw\\finra metadata (34 files, business_date 2026-07-23..2026-09-18).",
+    "inferred_not_verified": [
+     "That the FINRA CDN serves the daily archive back to roughly 2009 at $0 (public data, no entitlement needed) - BELIEVED but NOT tested this phase; no network call was made.",
+     "The per-file symbol coverage and its overlap with an extension universe.",
+     "Whether a multi-thousand-file backfill is within the campaign's time budget."
+    ],
+    "verdict": "RESERVE"
+   }
+  }
+ ]
+}

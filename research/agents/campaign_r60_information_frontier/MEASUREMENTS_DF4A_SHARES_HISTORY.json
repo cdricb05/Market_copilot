@@ -1,0 +1,54 @@
+{
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "produced_by": "SESSION_ORCHESTRATOR (local deterministic execution)",
+ "owner_rule": "AGENTS DECIDE, LOCAL PYTHON EXECUTES. Measurements only; the certification RULING belongs to data-foundation-agent and is not made here.",
+ "subject": "SEC companyfacts - is common shares outstanding available AS HISTORY?",
+ "resolves_open_item_in": "CERTIFICATION_DF4A_COMPANYFACTS.json (which blocked PH04 on NOT_MEASURED)",
+
+ "why_this_exists": "PH04 (net share issuance) was blocked because it was not established whether a shares-outstanding field is genuine filed-stamped history or a CURRENT SCALAR. The estate has a recorded scar on exactly this field shape - a current scalar used as history is look-ahead that no later test catches - so the question was worth settling rather than assuming in either direction.",
+
+ "method": "Read-only sample of D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk\\companyfacts.zip (20,144 CIK entries). 220 CIKs drawn at seed 20260921. Nothing extracted to disk. A concept counts as HISTORY only when it carries MORE THAN ONE DISTINCT `filed` date for that issuer.",
+
+ "measurements": [
+  {"what": "store size",
+   "how_measured": "zipfile namelist filtered to CIK*.json",
+   "result": "20,144 issuer entries"},
+
+  {"what": "shares concepts present, filed-stamped, and multi-filing (= history)",
+   "how_measured": "per sampled issuer, presence of the concept, presence of a `filed` field on its observations, and count of DISTINCT filed dates",
+   "result": "of 220 issuers parsed - CommonStockSharesOutstanding present 142, filed-stamped 142, HISTORY 136; CommonStockSharesIssued 141/141/136; WeightedAverageNumberOfSharesOutstandingBasic 134/134/125; WeightedAverageNumberOfDilutedSharesOutstanding 128/128/120; dei:EntityCommonStockSharesOutstanding 155/155/150"},
+
+  {"what": "depth of the series",
+   "how_measured": "observation count per issuer for CommonStockSharesOutstanding",
+   "result": "min 1, median 36, max 139 observations per issuer; filed-date span across sampled issuers 2009 .. 2026"},
+
+  {"what": "VERDICT ON THE BLOCKING QUESTION",
+   "how_measured": "the three counts above read together",
+   "result": "Shares outstanding is GENUINE FILED-STAMPED HISTORY, not a current scalar. Every observation carries its own `filed` date and the overwhelming majority of issuers carry many distinct filing dates. PH04 is expressible."}
+ ],
+
+ "two_traps_the_sample_exposed": [
+  {"trap": "RESTATEMENT - the same fiscal period appears more than once under different filings",
+   "evidence": "Byrna Technologies (CIK0001354866): end=2010-11-30 appears twice, filed 2011-10-17 (10-Q) and filed 2012-03-13 (10-K), carrying DIFFERENT values.",
+   "required_handling": "The estate's existing latest-filed-as-of-t restatement rule must be applied. A decision at t reads the most recent observation whose `filed` <= t, never the value later assigned to that period."},
+
+  {"trap": "NEGATIVE SHARE COUNTS - a plain data error that a ratio would amplify",
+   "evidence": "Byrna Technologies: end=2010-11-30 val=-25878050, later corrected to +25878050 under a different accession.",
+   "required_handling": "Non-positive share counts must be dropped by a DECLARED filter before any issuance ratio is formed. A year-over-year issuance ratio spanning a sign flip produces an enormous spurious value, and a cross-sectional rank book would place that name at an extreme every time. This filter must be pre-registered, not discovered during evaluation."}
+ ],
+
+ "what_this_does_not_settle": [
+  "Per-field coverage BY YEAR for the extension universe was not measured here; CERTIFICATION_DF4A_COMPANYFACTS.json carries it as NOT_MEASURED and the director should treat PH03/PH04 coverage as a limitation that travels.",
+  "The ticker -> CIK join for the extension universe specifically. DF4A measured 99.4% against an FSDS-derived mid/small-cap CIK set, not against the certified Norgate extension symbol list.",
+  "Nothing here rules on whether net share issuance has alpha."
+ ],
+
+ "hypotheses_affected": {
+  "PH04_EQ_EXTENSION_NET_SHARE_ISSUANCE": "UNBLOCKED on evidence, conditional on the restatement rule and the declared non-positive-share filter travelling with the dataset"
+ },
+
+ "safety": {"research_only": true, "paper_only": true, "orders": 0, "fills": 0,
+            "new_paid_data_cost_usd": 0, "backfill": false,
+            "durable_writes": "NONE - read-only measurement"}
+}

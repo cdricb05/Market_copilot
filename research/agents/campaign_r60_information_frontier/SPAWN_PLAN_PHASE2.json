@@ -1,0 +1,199 @@
+{
+ "routing_owner": "alpha_agent.agents_v2.routing",
+ "routing_version": "R58_AGENT_MODEL_ROUTING_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "roles": [
+  {
+   "role": "quant-research-director",
+   "decision": "SPAWN",
+   "reason": "DIRECTOR_OWNS_THE_AGENDA",
+   "model": "opus",
+   "effort": "high",
+   "facts": {
+    "campaign_id": "R60_INFORMATION_FRONTIER"
+   }
+  },
+  {
+   "role": "data-foundation-agent",
+   "decision": "SPAWN",
+   "reason": "FOUNDATION_STAGE_NOT_YET_SATISFIED",
+   "model": "haiku",
+   "effort": "low",
+   "facts": {
+    "data_certified": false
+   }
+  },
+  {
+   "role": "universe-construction-agent",
+   "decision": "SKIP",
+   "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED",
+   "model": "haiku",
+   "effort": "low",
+   "facts": {
+    "universe_defined": true
+   }
+  },
+  {
+   "role": "feature-library-agent",
+   "decision": "SKIP",
+   "reason": "FOUNDATION_STAGE_ALREADY_SATISFIED",
+   "model": "haiku",
+   "effort": "low",
+   "facts": {
+    "features_published": true
+   }
+  },
+  {
+   "role": "momentum-signal-agent",
+   "decision": "SKIP",
+   "reason": "NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "assigned": 0,
+    "unmeasured": 0
+   }
+  },
+  {
+   "role": "reversal-signal-agent",
+   "decision": "SKIP",
+   "reason": "NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "assigned": 0,
+    "unmeasured": 0
+   }
+  },
+  {
+   "role": "trend-breadth-signal-agent",
+   "decision": "SKIP",
+   "reason": "NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "assigned": 0,
+    "unmeasured": 0
+   }
+  },
+  {
+   "role": "volatility-liquidity-agent",
+   "decision": "SKIP",
+   "reason": "NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "assigned": 0,
+    "unmeasured": 0
+   }
+  },
+  {
+   "role": "validation-skeptic-agent",
+   "decision": "SKIP",
+   "reason": "NO_MEASURED_CANDIDATE_EVERY_EXPERIMENT_HALTED_OR_SETTLED",
+   "model": "opus",
+   "effort": "high",
+   "facts": {
+    "awaiting_review": 0,
+    "halted_before_lockbox": 0
+   }
+  },
+  {
+   "role": "risk-portfolio-agent",
+   "decision": "SKIP",
+   "reason": "SKEPTIC_KILLED_EVERY_CANDIDATE",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "survivors_awaiting_risk": 0
+   }
+  },
+  {
+   "role": "meta-model-ensemble-agent",
+   "decision": "SKIP",
+   "reason": "FEWER_THAN_TWO_VALIDATED_SURVIVORS_NOTHING_TO_COMBINE",
+   "model": "sonnet",
+   "effort": "medium",
+   "facts": {
+    "validated_survivors": 0,
+    "minimum": 2
+   }
+  },
+  {
+   "role": "signal-publishing-agent",
+   "decision": "SKIP",
+   "reason": "NO_DIRECTOR_CLEARANCE",
+   "model": "haiku",
+   "effort": "low",
+   "facts": {
+    "director_cleared": 0
+   }
+  }
+ ],
+ "spawn": [
+  "quant-research-director",
+  "data-foundation-agent"
+ ],
+ "skip": [
+  "universe-construction-agent",
+  "feature-library-agent",
+  "momentum-signal-agent",
+  "reversal-signal-agent",
+  "trend-breadth-signal-agent",
+  "volatility-liquidity-agent",
+  "validation-skeptic-agent",
+  "risk-portfolio-agent",
+  "meta-model-ensemble-agent",
+  "signal-publishing-agent"
+ ],
+ "agent_invocations_planned": 2,
+ "roles_available": 12,
+ "spawned_by": "SESSION_ORCHESTRATOR_ONLY",
+ "agent_may_spawn_agent": false,
+ "state": {
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "experiments_preregistered": 0,
+  "experiments_in_spec": 0,
+  "assigned_by_agent": {},
+  "unmeasured_by_agent": {},
+  "measured": [],
+  "halted": 0,
+  "awaiting_skeptic": [],
+  "skeptic_survivors": [],
+  "awaiting_risk": [],
+  "validated_survivors": [],
+  "meta_reviewed": [],
+  "director_cleared": [],
+  "data_certified": false,
+  "universe_defined": true,
+  "features_published": true,
+  "substrate_required": {
+   "datasets": [
+    "us_equity_extension_pit_panel_v1",
+    "physical_commodity_state_panel_v1",
+    "futures_front_deferred_pair_panel_v1",
+    "extension_pit_fundamental_panel_v1",
+    "us_equity_dividend_announcement_panel_v1",
+    "sec_comment_letter_event_panel_v1",
+    "terms_of_trade_panel_v1",
+    "finra_short_volume_panel_v1"
+   ],
+   "universes": [],
+   "feature_sets": []
+  },
+  "substrate_missing": {
+   "datasets": [
+    "us_equity_extension_pit_panel_v1",
+    "physical_commodity_state_panel_v1",
+    "futures_front_deferred_pair_panel_v1",
+    "extension_pit_fundamental_panel_v1",
+    "us_equity_dividend_announcement_panel_v1",
+    "sec_comment_letter_event_panel_v1",
+    "terms_of_trade_panel_v1",
+    "finra_short_volume_panel_v1"
+   ],
+   "universes": [],
+   "feature_sets": []
+  }
+ }
+}

@@ -48,8 +48,8 @@ from .. import r59
 from ..r59 import engines as E
 from ..r59 import handlers as H
 from . import (AGENT_SYSTEM_VERSION, CONTRACT_DIR, DATA_FOUNDATION, DIRECTOR,
-               FEATURES, META, PUBLISHING, RISK, SAFETY, SIGNAL_AGENTS, SKEPTIC,
-               UNIVERSE)
+               FEATURES, GENERATION_METHOD, META, PUBLISHING, RISK, SAFETY,
+               SIGNAL_AGENTS, SKEPTIC, UNIVERSE)
 from . import routing as RT
 from .pipeline import (EV_CANDIDATE, EV_DATA, EV_DIRECTOR, EV_FEATURES,
                        EV_META, EV_RISK, EV_SKEPTIC, EV_STAGE, EV_UNIVERSE,
@@ -146,6 +146,45 @@ def _experiment_ids(spec: Optional[dict]) -> list:
     return [r["experiment_id"] for r in spec.get("experiments") or ()]
 
 
+#: What a campaign spec calls the substrate it needs, and which event answers
+#: it. A campaign that names nothing keeps the estate-wide answer.
+REQUIRES_KEYS = (("datasets", "data_certified"),
+                 ("universes", "universe_defined"),
+                 ("feature_sets", "features_published"))
+
+
+def _required(spec: Optional[dict], key: str) -> list:
+    req = ((spec or {}).get("requires") or {}).get(key) or ()
+    return [str(x) for x in req]
+
+
+def _foundation_done(pipe, spec: Optional[dict], event: str,
+                     key: str) -> bool:
+    """Is the substrate THIS campaign needs already in the memory?
+
+    The other facts in ``campaign_state`` are scoped to the campaign's own
+    experiment ids; these three were not, so once ANY dataset had ever been
+    certified the spawn gate skipped the data-foundation agent for every
+    campaign that followed - including one whose entire premise is data the
+    estate has never certified. ``preregister`` still refuses without the
+    feature set -> universe -> PIT_SAFE dataset chain, so the campaign would
+    have been blocked at write time by the agent the gate would not spawn.
+
+    A spec therefore DECLARES what it requires:
+
+        "requires": {"datasets": [...], "universes": [...],
+                     "feature_sets": [...]}
+
+    and the role is skipped only when every declared id is already recorded.
+    A spec that declares nothing keeps the estate-wide answer, so every
+    existing campaign spec reads exactly as it did before.
+    """
+    need = _required(spec, key)
+    if not need:
+        return bool(pipe._events(event))
+    return all(pipe._latest(event, i) is not None for i in need)
+
+
 def campaign_state(pipe, campaign_id: str,
                    spec: Optional[dict] = None) -> dict:
     """The compact state a spawn decision and a resume are made from.
@@ -208,15 +247,62 @@ def campaign_state(pipe, campaign_id: str,
         "validated_survivors": sorted(validated),
         "meta_reviewed": sorted(meta),
         "director_cleared": sorted(cleared),
-        "data_certified": bool(pipe._events(EV_DATA)),
-        "universe_defined": bool(pipe._events(EV_UNIVERSE)),
-        "features_published": bool(pipe._events(EV_FEATURES)),
+        "data_certified": _foundation_done(pipe, spec, EV_DATA,
+                                           "datasets"),
+        "universe_defined": _foundation_done(pipe, spec, EV_UNIVERSE,
+                                             "universes"),
+        "features_published": _foundation_done(pipe, spec, EV_FEATURES,
+                                               "feature_sets"),
+        "substrate_required": {k: _required(spec, k)
+                               for k, _ in REQUIRES_KEYS},
+        "substrate_missing": {
+            k: [i for i in _required(spec, k)
+                if pipe._latest(ev, i) is None]
+            for k, ev in (("datasets", EV_DATA),
+                          ("universes", EV_UNIVERSE),
+                          ("feature_sets", EV_FEATURES))},
     }
 
 
 # --------------------------------------------------------------------------- #
 # Director: the compact research state (Workstream F)
 # --------------------------------------------------------------------------- #
+#: How many dataset rows the director's brief inlines. The census's dataset
+#: list GROWS every time a campaign certifies something - R60 alone added four
+#: - so a brief that inlined all of them had an unbounded prose budget and
+#: would breach the handoff contract on some future campaign for no reason
+#: anyone would connect to the cause. The brief carries the most decision-
+#: relevant rows and a pointer to the rest; the census is on disk and the
+#: director already holds its path in ARTIFACT_POINTERS.
+MAX_BRIEF_DATASETS = 12
+
+#: A dataset the director can still DO something with sorts before one that is
+#: closed, mined out or already spoken for. Matched case-insensitively against
+#: the row's ``state``.
+_SPENT_MARKERS = ("heavily mined", "closed", "exhausted", "prospective-only")
+
+
+def _dataset_rank(row: dict) -> tuple:
+    state = str(row.get("state") or "").lower()
+    spent = any(m in state for m in _SPENT_MARKERS)
+    unused = ("unused" in state or "never" in state or "0 hypotheses" in state
+              or "free" in state)
+    return (1 if spent else 0, 0 if unused else 1)
+
+
+def _dataset_digest(census: dict) -> list:
+    """The dataset rows worth spending brief budget on, most actionable first.
+
+    Ordering is STABLE (a sort by rank alone, preserving census order within a
+    rank), so two runs against the same census produce the same brief.
+    """
+    rows = list(census.get("available_pit_datasets") or ())
+    ranked = sorted(rows, key=_dataset_rank)
+    return [{"dataset": d.get("dataset"), "asset_class": d.get("asset_class"),
+             "state": d.get("state")}
+            for d in ranked[:MAX_BRIEF_DATASETS]]
+
+
 def _census(contract_dir: Optional[Path] = None) -> dict:
     p = Path(contract_dir or CONTRACT_DIR) / CENSUS_FILE
     if not p.exists():
@@ -258,10 +344,9 @@ def director_brief(pipe, *, run_id: str, campaign_id: str,
                                   % CENSUS_FILE,
                 "structural_rule": must.get("rule") or "",
             },
-            "available_datasets": [
-                {"dataset": d.get("dataset"), "asset_class": d.get("asset_class"),
-                 "state": d.get("state")}
-                for d in (census.get("available_pit_datasets") or ())],
+            "available_datasets": _dataset_digest(census),
+            "available_datasets_pointer":
+                "%s#available_pit_datasets" % CENSUS_FILE,
             "blocked_datasets": (census.get("must_not_repeat") or {}).get(
                 "human_gated_not_for_the_agents") or [],
             "queued_hypotheses": [
@@ -400,10 +485,19 @@ def skeptic_brief(pipe, *, run_id: str, campaign_id: str, experiment_id: str,
     den = None
     gate = None
     try:
+        # THE SAME CALL THE REVIEW IS CHARGED AGAINST, campaign_method
+        # included. Omitting it left ``campaign_cells`` at 0 here while
+        # ``pipeline.skeptic_review`` charged the campaign's real cell count
+        # (20 on R60's single reviewed candidate), so the skeptic was shown a
+        # SMALLER search burden than the verdict was actually computed with -
+        # always in the direction that flatters the candidate. A brief that
+        # understates the denominator is not a compact brief, it is a
+        # misleading one.
         den = H.search_denominator(
             pipe.mem, family_key=row.get("family_key") or "",
             asset_class=row.get("asset_class") or "",
             machine_generated=bool(spec.get("generative_search", False)),
+            campaign_method=GENERATION_METHOD,
             within_family_tests=int(spec.get("within_family_tests", 1)))
         if layers:
             gate = E.gate({"layers": layers}, prior_burden=den["total"],

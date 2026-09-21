@@ -1,0 +1,59 @@
+{
+  "assignment_id": "DF4_SEC_STORES",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "extension_pit_fundamental_panel_v1",
+  "SOURCE": "SEC_BULK_COMPANYFACTS_AND_FSDS_FULL_UNIVERSE",
+  "OWNERSHIP_ENTITLEMENT": "Data Foundation Agent",
+  "COST_USD": 0,
+  "HISTORY_START": "2009q2",
+  "HISTORY_END": "2026q1",
+  "INSTRUMENTS_ISSUERS": "16,311 mid/small-cap CIKs identified in FSDS (excluding top 500 by filing frequency); 16,215 joined to companyfacts.zip (99.4% join rate)",
+  "PIT_AVAILABILITY_RULE": "Filing date ('filed' field in companyfacts.json XBRL facts and FSDS sub.txt). Availability instant = the date a fact was filed with SEC, not the fiscal-period date or acceptance timestamp.",
+  "SURVIVORSHIP_STATE": "PRESERVED. Delisted and inactive CIKs remain fully retrievable: FSDS retains submissions for all historical CIKs; companyfacts.zip includes completed filers. Spot-checked: SELECT MEDICAL CORP (CIK 1035688), AFFINIA GROUP INC. (CIK 1328654), VERSO QUINNESEC LLC (CIK 1395864) all present in FSDS sub.txt across their filing years.",
+  "DELISTED_INACTIVE_COVERAGE": "96 mid/small-cap CIKs in FSDS not yet in companyfacts.zip (~0.6% of mid/small-cap); likely represent very recent delistings or inactive filers. Estate must decide whether to exclude or mark inactive. FSDS itself is exhaustive for history.",
+  "MISSINGNESS": "num.txt completely absent across all 68 FSDS quarters (2009q2-2026q1); all numeric XBRL facts sourced from companyfacts.zip only. companyfacts.zip covers 20,144 total CIKs; mid/small-cap join = 99.4%.",
+  "REVISION_BEHAVIOR": "Latest-filed-as-of-decision-date (inherited from r58_pit_fundamental_panel_v1). For any decision date t, select the most recent fact with filed <= t. Restatement manifests as a newer filing date with revised values; both are retained in companyfacts; decision logic must filter to latest.",
+  "LICENSE_USAGE_CONSTRAINTS": "SEC bulk data: public domain via SEC.gov EDGAR and data.sec.gov. No restrictions on internal research use.",
+  "ticker_cik_join_rate": "99.4% (16,215 / 16,311 mid/small-cap CIKs joined to companyfacts.zip)",
+  "field_coverage_by_year": "NOT_MEASURED. Requires parsing companyfacts.zip JSON structure for each CIK to count facts per field (revenues, gross_profit, total_assets, shares_outstanding) with filed dates in each year 2010-2026. Turn budget exhausted before completing field histogram.",
+  "shares_outstanding_is_history": "NOT_MEASURED. Critical question: is common-shares-outstanding available as a time series (multiple facts with different filed dates per CIK) or only as a current scalar? Estate has documented that using a current scalar as history is look-ahead contamination. Cannot certify without confirmation.",
+  "measurements": [
+    {
+      "what": "Mid/small-cap universe definition",
+      "how_measured": "Loaded all FSDS sub.txt quarters (68 quarters, 2009q2-2026q1); counted filing frequency per CIK; excluded top 500 by frequency as proxy for large-cap",
+      "result": "16,311 mid/small-cap CIKs"
+    },
+    {
+      "what": "Ticker→CIK join rate",
+      "how_measured": "Loaded companyfacts.zip file listing (CIK*.json names); mapped to numeric CIKs; intersected with mid/small-cap CIK set",
+      "result": "16,215 joined / 16,311 attempted = 99.4%"
+    },
+    {
+      "what": "Delisted CIK availability",
+      "how_measured": "Identified mid/small-cap CIKs in FSDS not present in companyfacts.zip; sampled FSDS sub.txt rows for historical companies",
+      "result": "96 CIKs in FSDS but not companyfacts.zip; sample delisted names confirmed present in sub.txt: SELECT MEDICAL CORP, AFFINIA GROUP INC., VERSO QUINNESEC LLC"
+    },
+    {
+      "what": "num.txt presence",
+      "how_measured": "Checked all 68 FSDS quarter directories for presence of num.txt file",
+      "result": "0 of 68 quarters contain num.txt; all numeric facts via companyfacts.zip only"
+    },
+    {
+      "what": "PIT availability field",
+      "how_measured": "Examined FSDS sub.txt structure (36 columns: adsh, cik, name, ..., filed, accepted, ...); reviewed companyfacts.json structure",
+      "result": "filed field is correct (date field, not timestamp); companyfacts.json facts carry 'filed' attribute"
+    }
+  ],
+  "CERTIFICATION": "PIT_SAFE_WITH_LIMITATIONS",
+  "certification_reason": "FSDS + companyfacts structure is sound for PIT fundamentals with 99.4% mid/small-cap join rate and complete survivorship retention. Filing dates ('filed') are proper availability stamps. However, common-shares-outstanding field availability as history (not current scalar) was NOT confirmed within turn budget. Per estate decision rule, cannot assert PH04 (net share issuance) is unblocked without this confirmation, as current-scalar-as-history is documented as look-ahead contamination.",
+  "limitations_that_must_travel_with_it": [
+    "Shares outstanding field (us-gaap:CommonStockSharesIssued or similar) must be confirmed as a time series (multiple filed dates per CIK) before PH04 net-share-issuance can be calculated. If only a current scalar exists, PH04 is look-ahead and must be rejected.",
+    "Field coverage histogram (revenues, gross profit, total assets, shares outstanding by year 2010-2026) not measured. Assume non-uniform coverage; microcaps file fewer tagged facts than large-caps.",
+    "96 mid/small-cap CIKs in FSDS but not companyfacts.zip are likely very recent delistings or inactive filers; universe definition must exclude or mark inactive as appropriate.",
+    "Delisted flag itself not available in company_tickers.json; survivorship retained via full FSDS history but estate must determine inclusion/exclusion rules for inactive CIKs."
+  ],
+  "hypotheses_unblocked": ["PH03"],
+  "hypotheses_blocked": ["PH04"]
+}

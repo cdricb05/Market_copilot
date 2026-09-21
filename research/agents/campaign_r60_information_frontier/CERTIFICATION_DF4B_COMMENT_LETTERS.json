@@ -1,0 +1,86 @@
+{
+  "assignment_id": "DF4_SEC_STORES",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "sec_comment_letter_event_panel_v1",
+  "SOURCE": "SEC_EDGAR_FULL_INDEX_COMMENT_LETTERS",
+  "OWNERSHIP_ENTITLEMENT": "Data Foundation Agent",
+  "COST_USD": 0,
+  "HISTORY_START": "2009q1",
+  "HISTORY_END": "2026q3",
+  "INSTRUMENTS_ISSUERS": "410,767 UPLOAD+CORRESP events spanning 45,207 unique CIKs across 71 quarters (2009q1-2026q3)",
+  "PIT_AVAILABILITY_RULE": "UNRESOLVED. The census and brief state the critical trap: SEC staff comment letters (UPLOAD, CORRESP forms) are released to public AFTER the review closes, typically ~20 business days after letter date. The availability instant should be the PUBLIC DISSEMINATION date, not the internal letter date. The edgar_full_index 'Date Filed' field must be verified to equal dissemination date; if it equals letter date instead, the source is look-ahead contaminated and not usable.",
+  "SURVIVORSHIP_STATE": "COMPLETE by construction. edgar_full_index is exhaustive quarterly filing index; all UPLOAD+CORRESP events present for all quarters.",
+  "DELISTED_INACTIVE_COVERAGE": "Full index coverage; does not filter by active/delisted status. CIK includes all filers (equity, funds, banks, other entities).",
+  "MISSINGNESS": "No known data gaps; UPLOAD and CORRESP forms extracted from 71 complete quarterly master.idx files.",
+  "REVISION_BEHAVIOR": "Comment-letter events are not revised; each is a discrete filing. No restatement logic needed.",
+  "LICENSE_USAGE_CONSTRAINTS": "SEC EDGAR: public domain via sec.gov. No restrictions on internal research use.",
+  "events_total": "410,767 UPLOAD + CORRESP events across 71 quarters (2009q1-2026q3)",
+  "events_by_year": {
+    "2009": 30415,
+    "2010": 35073,
+    "2011": 35189,
+    "2012": 31375,
+    "2013": 33065,
+    "2014": 25050,
+    "2015": 25738,
+    "2016": 23332,
+    "2017": 22985,
+    "2018": 18310,
+    "2019": 15495,
+    "2020": 18213,
+    "2021": 22951,
+    "2022": 19375,
+    "2023": 18533,
+    "2024": 19881,
+    "2025": 13300,
+    "2026": 2487
+  },
+  "events_per_issuer_top10": [
+    {"cik": "1100663", "event_count": 238},
+    {"cik": "1314414", "event_count": 218},
+    {"cik": "5272", "event_count": 166},
+    {"cik": "1355064", "event_count": 148},
+    {"cik": "1415726", "event_count": 143},
+    {"cik": "1217286", "event_count": 140},
+    {"cik": "1318342", "event_count": 134},
+    {"cik": "1350487", "event_count": 132},
+    {"cik": "1137360", "event_count": 130},
+    {"cik": "822977", "event_count": 125}
+  ],
+  "events_joined_tradable": "NOT_MEASURED. Cannot join without CIK→ticker mapping and active US equity filter. Estimate ~60% of CIKs are equity filers; remainder are funds, banks, other entities. Turn budget exhausted before completing join.",
+  "date_filed_is_dissemination_date": "NOT_DETERMINED",
+  "date_filed_evidence": "CRITICAL QUESTION UNRESOLVED. The brief and census explicitly state this as a trap. Evidence needed: (1) Cross-reference a sample of UPLOAD/CORRESP 'Date Filed' values from edgar_full_index master.idx against SEC staff's actual dissemination dates (available via sec.gov comment-letter archives or EDGAR submission details); (2) Verify ~20-day lag between letter date and public release. If 'Date Filed' in master.idx equals letter date rather than dissemination date, all events are LOOK-AHEAD CONTAMINATED (observable after decision date, not at decision date). Without this verification, source cannot be certified PIT-SAFE.",
+  "measurements": [
+    {
+      "what": "Total UPLOAD+CORRESP events",
+      "how_measured": "Parsed all 71 quarterly master.idx files from edgar_full_index (2009q1-2026q3); extracted rows where form type = 'UPLOAD' or 'CORRESP'",
+      "result": "410,767 events total across 18 calendar years"
+    },
+    {
+      "what": "Distribution by year",
+      "how_measured": "Extracted 'Date Filed' field (YYYYMM-DD format) from each event; grouped by year from filing date",
+      "result": "Peak 2011: 35,189 events; recent years 2025-2026: declining (13,300 and 2,487 partial year)"
+    },
+    {
+      "what": "Events per CIK distribution",
+      "how_measured": "Grouped all UPLOAD+CORRESP events by CIK; ranked by count",
+      "result": "45,207 unique CIKs; top 10 range 238 down to 125 events per CIK; long tail distribution"
+    },
+    {
+      "what": "Date Filed field verification",
+      "how_measured": "Inspected sample master.idx rows; confirmed 'Date Filed' format (e.g., 2009-01-23, 2009-03-30); no cross-reference to actual SEC dissemination dates completed",
+      "result": "Field exists and is parseable; but cannot confirm whether it represents letter date or dissemination date without external evidence"
+    }
+  ],
+  "CERTIFICATION": "DATA_HOLD",
+  "certification_reason": "The critical trap identified by the census is UNRESOLVED: edgar_full_index 'Date Filed' field must be verified as the PUBLIC DISSEMINATION date (not the SEC staff letter date) before this source can be used. SEC releases comment letters publicly ~20 business days after review closure. If 'Date Filed' is the letter date, all 410,767 events are look-ahead contaminated (not observable at decision time). Without this verification, source cannot be certified PIT-SAFE and PH10 remains blocked. Turn budget exhausted before completing external validation against SEC archives.",
+  "limitations_that_must_travel_with_it": [
+    "BLOCKING ISSUE: Date Filed = dissemination date must be verified. Cross-reference sample UPLOAD/CORRESP events against sec.gov EDGAR submission page details or comment-letter archives to confirm public release timestamp vs. letter date. If Date Filed is letter date, REJECT entire source.",
+    "CIK→ticker join rate not measured. Estimate ~60% of events on tradable equity; remainder on funds, banks, other filers. Cannot build tradable event book without join.",
+    "Event count per year is substantial (18K-35K annually) and may support cross-sectional book, but this depends on (a) Date Filed validation and (b) successful ticker join."
+  ],
+  "hypotheses_unblocked": [],
+  "hypotheses_blocked": ["PH10"]
+}

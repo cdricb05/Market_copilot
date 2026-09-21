@@ -1,0 +1,39 @@
+{
+ "assignment_id": "DF2_LME_PHYSICAL",
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "role": "data-foundation-agent",
+ "phase": 2,
+ "sources": [
+  {
+   "source_id": "NORGATE_LME_PHYSICAL_INVENTORY_AND_CASH_BASIS",
+   "dataset_id_proposed": "physical_commodity_state_panel_v1",
+   "exact_question_for_foundation": "For @ALWS/@CUWS/@NIWS/@PBWS/@SNWS/@ZNWS/@AAWS/@NAWS/@COWS and the paired @XX / @XX03S cash and 3-month series: what is the OBSERVABILITY LAG - on what calendar date is each day's value first published - and are the series ever revised? Then: which of these metals maps to an instrument this estate can actually trade with a known cost_bps_per_side? If only copper (HG) and the precious metals are tradable, the tradable cross-section is too small for a cross-sectional book and the construct must become a small-N or single-name design.",
+   "blocks_which_hypotheses": [
+    "PH05",
+    "PH06",
+    "PH14"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "NORGATE_LME_PHYSICAL_INVENTORY_AND_CASH_BASIS",
+    "tier": "T1",
+    "what_information": "Daily LME warehouse opening STOCKS (physical inventory) for aluminium, copper, nickel, lead, tin, zinc, cobalt and aluminium alloy, PLUS the matching LME Official Cash and 3-Months Seller prices, plus physical spot benchmarks for crude (WTI, Brent FOB), Henry Hub gas, heating oil, RBOB, iron ore CFR China, thermal coal, uranium and cash grain (Central Illinois corn #2 yellow, soybeans #1 yellow).",
+    "asset_classes": [
+     "COMMODITY_FUTURES",
+     "CROSS_ASSET"
+    ],
+    "pit_concern": "MEDIUM. LME 'Warehouse Opening Stocks' are published each morning for the prior session; the publication lag was NOT measured this phase. A one-session observation delay (the same discipline the census already imposes on R38 open interest) is the safe default and must be pre-registered. Cash grain and physical crude assessments are survey prices with an assessment lag that was not measured.",
+    "survivorship_concern": "LOW. These are continuously published market-wide series, not a selected cross-section.",
+    "depth_found": "@ALWS / @CUWS / @NIWS / @PBWS / @SNWS / @ZNWS: 7,251 rows each, 1998-01-06..2026-09-18. @AAWS 6,195 rows 2002-03-13..2026-09-18. @NAWS 6,162 rows 2002-05-01..2026-09-18. @COWS 4,137 rows 2010-05-05..2026-09-18. Cash/3M pairs @AL,@CU,@NI,@PB,@SN,@ZN and @AL03S..@ZN03S: 8,389-8,390 rows each, 1993-07-01..2026-09-18. @WTI 10,904 rows 1983-03-30..2026-09-18; @BFOE 10,010 rows 1987-05-20..2026-09-10; @HHNG 8,799 rows 1991-08-12..2026-09-18; @HO 10,126 rows 1986-06-02; @RBOB 5,005 rows 2006-10-12; @FE (iron ore CFR China 62%) 4,497 rows 2008-11-17; @YCX thermal coal 6,868 rows 2000-02-21; @U3O8 uranium 10,021 rows 1988-02-29; @C2Y corn cash 9,949 rows 1987-02-02; @S1Y soybean cash 9,949 rows 1987-02-02; $LMEX 10,639 rows 1984-07-02.",
+    "evidence": "nd.database_symbols('Cash Commodities') returned 100 symbols; every symbol was then resolved with nd.security_name() and nd.price_timeseries(start_date='1900-01-01', pandas-dataframe), and the row count and first/last index date above are what the probe printed. Names verbatim from the probe: '@ALWS  Aluminium - LME Warehouse Opening Stocks', '@CUWS  Copper - LME Warehouse Opening Stocks', '@CU03S Copper - LME 03 Months Seller', '@CU  Copper - LME Official Cash', '@BFOE Brent Crude Europe FOB Spot', '@C2Y Corn #2 Yellow Central Illinois Average Price Spot'. All carry cols ['Open','High','Low','Close'].",
+    "inferred_not_verified": [
+     "The publication/availability lag of LME warehouse stocks and of the physical assessments (NOT measured; must be settled before any hypothesis using them is pre-registered).",
+     "Whether the WS series are ever revised or restated.",
+     "The mapping from each LME metal to a TRADABLE instrument in our estate. Only copper (HG) and the precious metals (GC, SI, PL, PA) are confirmed present in the R38 native layer; aluminium, nickel, lead, tin and zinc are almost certainly NOT tradable in this estate, which could collapse the tradable cross-section to a handful of names.",
+     "Unit consistency of WS series across metals."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  }
+ ]
+}

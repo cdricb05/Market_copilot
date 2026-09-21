@@ -1,0 +1,41 @@
+{
+ "assignment_id": "DF1_EXTENSION_UNIVERSE",
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "role": "data-foundation-agent",
+ "phase": 2,
+ "sources": [
+  {
+   "source_id": "NORGATE_EXTENSION_UNIVERSE_WATCHLISTS",
+   "dataset_id_proposed": "us_equity_extension_pit_panel_v1",
+   "exact_question_for_foundation": "Can you materialise a survivorship-safe PIT panel for 'S&P MidCap 400 Current & Past' + 'S&P SmallCap 600 Current & Past' (1,765 + 2,644 symbols) with daily total-return Close, Volume, Turnover, Unadjusted Close and a daily index-membership flag from nd.index_constituent_timeseries - and after a tradability filter (minimum unadjusted price and minimum median dollar turnover), what is the MEDIAN DAILY CROSS-SECTION SIZE per year from 2005 to 2026? A median cross-section below ~300 names, or a start year later than ~2010, materially changes what this campaign can test.",
+   "blocks_which_hypotheses": [
+    "PH01",
+    "PH02",
+    "PH03",
+    "PH04",
+    "PH12",
+    "PH13"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "NORGATE_EXTENSION_UNIVERSE_WATCHLISTS",
+    "tier": "T1",
+    "what_information": "Point-in-time, survivorship-safe membership and total-return price/volume/turnover for the US equity universe BELOW the S&P 500: S&P MidCap 400, S&P SmallCap 600, S&P Composite 1500, Russell 2000, Russell Micro Cap - current AND past constituents including every delisted name.",
+    "asset_classes": [
+     "US_EQUITY"
+    ],
+    "pit_concern": "LOW-MEDIUM. nd.index_constituent_timeseries returns a daily membership flag, which is genuine PIT membership. Two real risks: (a) Norgate's index-membership history is reconstructed by the vendor, so a membership revision is invisible; (b) the probe returned 'Index Constituent' for a symbol whose own quote history starts 2016-10-18, so per-symbol first_quoted_date - not the panel start - governs usable depth.",
+    "survivorship_concern": "LOW. The 'Current & Past' watchlists carry delisted securities with a delisting-date suffix (probe evidence: SQB-198910, SRCL-202411, WFM-201708, WFC-199811), and the US Equities Delisted database has 27,241 symbols. Survivorship is addressable. The real hazard is the OPPOSITE: microcap/delisted names carry look-ahead-free but untradable prices, so the price-impact and min-ADV filter, not survivorship, is the binding constraint.",
+    "depth_found": "S&P MidCap 400 Current & Past = 1,765 symbols; S&P SmallCap 600 Current & Past = 2,644; Russell 2000 Current & Past = 11,130; S&P Composite 1500 Current & Past = 4,268; Russell Micro Cap Current & Past = 7,906; S&P 500 Current & Past = 1,899. Current: MidCap 400 = 400, SmallCap 600 = 602, Russell 2000 = 1,948. US Equities db = 14,717 symbols, US Equities Delisted = 27,241.",
+    "evidence": "Read-only probe of the local Norgate install (norgatedata 1.0.74, C:\\Users\\binis\\paper_trader\\.venv-win\\Lib\\site-packages\\norgatedata). nd.status()=True. nd.databases() = ['Cash Commodities','Continuous Futures','Economic','Forex Spot','Futures','US Equities','US Equities Delisted','US Indices','World Indices']. nd.watchlists() returned 65 names including 'S&P MidCap 400 Current & Past', 'S&P SmallCap 600 Current & Past', 'Russell 2000 Current & Past', 'Russell 3000 Current & Past', 'Russell Micro Cap Current & Past', 'S&P Composite 1500 Current & Past'. Counts above are len(nd.watchlist_symbols(...)). nd.index_constituent_timeseries('AA','S&P MidCap 400') -> 2,492 rows, 2016-10-18..2026-09-18, col ['Index Constituent'], sum=1,191 member-days. nd.price_timeseries('AA') -> 2,492 rows with ['Open','High','Low','Close','Volume','Turnover','Unadjusted Close','Dividend']. Contrast with what is ALREADY MATERIALISED on disk: D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion\\normalized\\UNIVERSE_MEMBERSHIP holds 2,773 records, ALL index_name='S&P 500', 742 distinct tickers, spans 2015-01-02..2026-08-07; MARKET_BAR holds 23,827 files over 2,945 date dirs 2015-01-02..2026-09-18 but a single date dir (2015\\01\\02, 8 shards) yields only 790 distinct tickers of which 186 carry a delisting suffix - i.e. the materialised panel IS the S&P 500 PIT panel and nothing below it.",
+    "inferred_not_verified": [
+     "That total-return adjustment, Turnover and Dividend fields are populated as densely for microcaps as for AA.",
+     "That the extension panel can be materialised inside the campaign's time budget (1,765 + 2,644 symbol-histories, or 11,130 for Russell 2000).",
+     "Per-symbol first_quoted_date distribution, hence the true usable start year of a mid/small-cap panel.",
+     "Realistic cross-section size after a tradability filter (min price, min ADV/turnover)."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  }
+ ]
+}

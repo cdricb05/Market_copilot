@@ -1,0 +1,157 @@
+{
+  "assignment_id": "DF2_LME_PHYSICAL",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "physical_commodity_state_panel_v1",
+  "SOURCE": "NORGATE_LME_PHYSICAL_INVENTORY_AND_CASH_BASIS",
+  "OWNERSHIP_ENTITLEMENT": "Norgate World Futures (Silver Package), purchased before Release 38, expiry 2027-02-22",
+  "COST_USD": 0,
+  "HISTORY_START": {
+    "@ALWS/@CUWS/@NIWS/@PBWS/@SNWS/@ZNWS": "1998-01-06",
+    "@AAWS": "2002-03-13",
+    "@NAWS": "2002-05-01",
+    "@COWS": "2010-05-05",
+    "cash_3m_pairs": "1993-07-01"
+  },
+  "HISTORY_END": "2026-09-18",
+  "INSTRUMENTS_ISSUERS": "@ALWS (Aluminium WS), @CUWS (Copper WS), @NIWS (Nickel WS), @PBWS (Lead WS), @SNWS (Tin WS), @ZNWS (Zinc WS), @AAWS (Cobalt WS), @NAWS (Aluminium Alloy WS), @COWS (Cobalt WS), plus @AL/@CU/@NI/@PB/@SN/@ZN cash and @AL03S/@CU03S/@NI03S/@PB03S/@SN03S/@ZN03S 3-month Seller prices",
+  "PIT_AVAILABILITY_RULE": "NOT_MEASURED - LME stocks published each morning for prior session; lag not measured this phase. Director identified as MEDIUM PIT concern requiring pre-registration.",
+  "publication_lag_evidence": "Director phase-1 evidence states 'LME Warehouse Opening Stocks are published each morning for the prior session; the publication lag was NOT measured this phase.' Norgate vendor API does NOT provide per-bar publication timestamps (norgate_local.py line 164). Safe default proposed: one-session delay (matching R38 open interest discipline) but must be pre-registered before any hypothesis using these data proceeds.",
+  "publication_lag_defensible_sessions": "NOT_MEASURED - cannot defend any specific lag without measured evidence",
+  "revision_behavior_evidence": "NOT_MEASURED - no evidence gathered on whether LME warehouse stock series are revised after publication",
+  "SURVIVORSHIP_STATE": "RETAINED",
+  "DELISTED_INACTIVE_COVERAGE": "All warehouse stock symbols are continuously published market-wide series (not a selected cross-section). Norgate vendor retains delisted/inactive securities by design (norgate_local.py line 161).",
+  "MISSINGNESS": "Main 6 metals (@ALWS/@CUWS/@NIWS/@PBWS/@SNWS/@ZNWS): 7,251 rows each, 1998-01-06..2026-09-18. Extended series (@AAWS/@NAWS/@COWS) have shorter history starting 2002/2010. Cash/3M pairs available 1993-07-01..2026-09-18.",
+  "REVISION_BEHAVIOR": "NOT_MEASURED",
+  "LICENSE_USAGE_CONSTRAINTS": "Norgate World Futures Silver Package subscription; research only, paper only, no order creation",
+  "tradable_intersection": [
+    {
+      "metal": "COPPER",
+      "stocks_symbol": "@CUWS",
+      "tradable_symbol": "HG",
+      "cost_bps_per_side": "NOT_MEASURED",
+      "overlap_start": "NOT_MEASURED",
+      "overlap_end": "NOT_MEASURED"
+    },
+    {
+      "metal": "GOLD",
+      "stocks_symbol": "NOT_APPLICABLE",
+      "tradable_symbol": "GC",
+      "cost_bps_per_side": "NOT_MEASURED",
+      "overlap_start": "NOT_APPLICABLE - no LME warehouse stock for gold",
+      "overlap_end": "NOT_APPLICABLE"
+    },
+    {
+      "metal": "SILVER",
+      "stocks_symbol": "NOT_APPLICABLE",
+      "tradable_symbol": "SI",
+      "cost_bps_per_side": "NOT_MEASURED",
+      "overlap_start": "NOT_APPLICABLE - no LME warehouse stock for silver",
+      "overlap_end": "NOT_APPLICABLE"
+    },
+    {
+      "metal": "PLATINUM",
+      "stocks_symbol": "NOT_APPLICABLE",
+      "tradable_symbol": "PL",
+      "cost_bps_per_side": "NOT_MEASURED",
+      "overlap_start": "NOT_APPLICABLE - no LME warehouse stock for platinum",
+      "overlap_end": "NOT_APPLICABLE"
+    },
+    {
+      "metal": "PALLADIUM",
+      "stocks_symbol": "NOT_APPLICABLE",
+      "tradable_symbol": "PA",
+      "cost_bps_per_side": "NOT_MEASURED",
+      "overlap_start": "NOT_APPLICABLE - no LME warehouse stock for palladium",
+      "overlap_end": "NOT_APPLICABLE"
+    },
+    {
+      "metal": "ALUMINIUM",
+      "stocks_symbol": "@ALWS",
+      "tradable_symbol": "NOT_TRADABLE",
+      "cost_bps_per_side": "N/A",
+      "overlap_start": "N/A",
+      "overlap_end": "N/A"
+    },
+    {
+      "metal": "NICKEL",
+      "stocks_symbol": "@NIWS",
+      "tradable_symbol": "NOT_TRADABLE",
+      "cost_bps_per_side": "N/A",
+      "overlap_start": "N/A",
+      "overlap_end": "N/A"
+    },
+    {
+      "metal": "LEAD",
+      "stocks_symbol": "@PBWS",
+      "tradable_symbol": "NOT_TRADABLE",
+      "cost_bps_per_side": "N/A",
+      "overlap_start": "N/A",
+      "overlap_end": "N/A"
+    },
+    {
+      "metal": "TIN",
+      "stocks_symbol": "@SNWS",
+      "tradable_symbol": "NOT_TRADABLE",
+      "cost_bps_per_side": "N/A",
+      "overlap_start": "N/A",
+      "overlap_end": "N/A"
+    },
+    {
+      "metal": "ZINC",
+      "stocks_symbol": "@ZNWS",
+      "tradable_symbol": "NOT_TRADABLE",
+      "cost_bps_per_side": "N/A",
+      "overlap_start": "N/A",
+      "overlap_end": "N/A"
+    }
+  ],
+  "cross_section_size_tradable": 1,
+  "cross_sectional_book_expressible": false,
+  "measurements": [
+    {
+      "what": "Publication lag defensibility",
+      "how_measured": "Inspected norgate_local.py vendor API contract and director phase-1 evidence; Norgate does not provide per-bar publication timestamps",
+      "result": "NOT_MEASURED - lag asserted but not evidenced"
+    },
+    {
+      "what": "Warehouse stock series retention",
+      "how_measured": "Reviewed director phase-1 probe results and Norgate vendor design (norgate_local.py)",
+      "result": "All symbols retained; continuously published market-wide series with no survivorship selection"
+    },
+    {
+      "what": "Tradable metal mapping",
+      "how_measured": "Reviewed R38 contract.py symbol enumeration and director phase-1 evidence",
+      "result": "HG (copper) confirmed in R38 native layer; GC/SI/PL/PA present but no LME warehouse stocks exist for precious metals; Al/Ni/Pb/Sn/Zn stated NOT tradable in this estate"
+    },
+    {
+      "what": "Cost and overlap establishment",
+      "how_measured": "Attempted to locate cost_bps_per_side data in R38 panels and estate definitions",
+      "result": "NOT_MEASURED - costs not accessed; overlap periods not calculated"
+    },
+    {
+      "what": "Revision behavior",
+      "how_measured": "Searched director evidence and Norgate vendor documentation",
+      "result": "NOT_MEASURED - no evidence that warehouse stocks are or are not revised"
+    }
+  ],
+  "CERTIFICATION": "DATA_HOLD",
+  "certification_reason": "Publication lag for LME warehouse stocks is the critical gate: it was not measured in phase 1 and Norgate vendor API does not provide per-bar timestamps. The director flagged this as 'MEDIUM PIT concern' and precisely the source where a lag error manufactures a false t-statistic. Until the lag is measured and pre-registered, any hypothesis using these data carries unknown observability risk. Additionally, tradable cross-section collapses to copper only (HG) with no cost data measured, making hypothesis expressibility doubtful. Data ownership and history are sound; the gate is observability and cost certification.",
+  "limitations_that_must_travel_with_it": [
+    "Publication lag NOT measured; director proposed one-session default but it must be pre-registered before use",
+    "Per-bar publication timestamps not available from Norgate vendor API; exact observation date vs. publication date cannot be distinguished",
+    "Revision behavior of warehouse stock series NOT measured; assume potential for revision until proven otherwise",
+    "Transaction costs (cost_bps_per_side) for HG or any tradable NOT measured",
+    "History overlap between HG futures and @CUWS warehouse stock NOT calculated",
+    "Tradable cross-section confirmed at N=1 (copper only); precious metals have no corresponding warehouse stocks",
+    "Only HG can currently be expressed as a hypothesis; cross-sectional book over 6 metals NOT expressible with current tradability",
+    "Unit consistency of warehouse stock series across metals NOT verified"
+  ],
+  "hypotheses_unblocked": [],
+  "hypotheses_blocked": [
+    "PH05",
+    "PH06",
+    "PH14"
+  ]
+}

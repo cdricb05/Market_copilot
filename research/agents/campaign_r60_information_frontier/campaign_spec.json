@@ -1,0 +1,102 @@
+{
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "executor_module": "research/agents/campaign_r60_information_frontier/executors.py",
+ "review_order": [
+  "r60_01",
+  "r60_02",
+  "r60_03",
+  "r60_04",
+  "r60_05",
+  "r60_06",
+  "r60_07",
+  "r60_08"
+ ],
+ "review_order_rule": "BINDING, and also the EXECUTION order, because a halted cell settles and charges the burden denominator exactly like a reviewed one. Ordered by ex-ante conviction so the strongest ideas pay the smallest denominator: the two cells resting on information the estate has never held (the deferred leg, r60_01; filed share-count history, r60_02) go first, the two other genuine-information cells next (r60_03, r60_04), then the positioning cells (r60_05), then the declared variants after their parents (r60_06 after r60_01; r60_07 after r60_05), and the lowest-conviction price-and-turnover cell last (r60_08).",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL. NEW_PAID_DATA_COST = $0.",
+ "requires": {
+  "datasets": [
+   "us_equity_extension_pit_panel_v1",
+   "r38_native_contract_layer_with_deferred_leg_v1",
+   "extension_pit_fundamental_panel_v1",
+   "us_equity_dividend_announcement_panel_v1"
+  ],
+  "universes": [
+   "r60_eq_extension_core",
+   "r60_eq_extension_fundamental",
+   "r60_eq_extension_dividend_events",
+   "r60_commodity_paired_leg",
+   "r60_commodity_oi_covered",
+   "r60_intl_index_oi_covered",
+   "r60_xa_nonco_paired_leg"
+  ],
+  "feature_sets": [
+   "fs_r60_01_basis_momentum_commodity",
+   "fs_r60_02_net_share_issuance",
+   "fs_r60_03_gross_profitability",
+   "fs_r60_04_dividend_declaration_drift",
+   "fs_r60_05_oi_growth_commodity",
+   "fs_r60_06_basis_momentum_xa",
+   "fs_r60_07_oi_growth_intl_index",
+   "fs_r60_08_h5_immediacy_reversal"
+  ]
+ },
+ "experiments": [
+  {
+   "experiment_id": "H_7994380d_cf2e4efaaa5a",
+   "executor": "r60_01",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_BASIS_MOMENTUM_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_644bcffe_280bc903ae38",
+   "executor": "r60_02",
+   "book": "EQUITY_TOPN",
+   "label": "EQ_EXTENSION_NET_SHARE_ISSUANCE",
+   "owning_agent": "reversal-signal-agent"
+  },
+  {
+   "experiment_id": "H_046fd2ca_d9a622443dad",
+   "executor": "r60_03",
+   "book": "EQUITY_TOPN",
+   "label": "EQ_EXTENSION_GROSS_PROFITABILITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_63012714_9e5453e70d5c",
+   "executor": "r60_04",
+   "book": "EQUITY_TOPN",
+   "label": "EQ_DIVIDEND_DECLARATION_DRIFT",
+   "owning_agent": "momentum-signal-agent"
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_f3e92699f95c",
+   "executor": "r60_05",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_OPEN_INTEREST_GROWTH_COMMODITY",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_58d49e5c_079c8b4dbce5",
+   "executor": "r60_06",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_BASIS_MOMENTUM_REPLICATION",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_47e2cf84_49076c9d82f0",
+   "executor": "r60_07",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "H_2da223a3_b3a63be33bcc",
+   "executor": "r60_08",
+   "book": "EQUITY_DAILY_TRANCHE",
+   "label": "EQ_EXTENSION_H5_IMMEDIACY_REVERSAL",
+   "owning_agent": "reversal-signal-agent"
+  }
+ ]
+}

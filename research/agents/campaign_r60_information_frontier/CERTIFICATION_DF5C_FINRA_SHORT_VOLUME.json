@@ -1,0 +1,37 @@
+{
+  "assignment_id": "DF5_LIGHT_PROBES",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "finra_short_volume_panel_v1",
+  "SOURCE": "FINRA_REGSHO_DAILY_SHORT_VOLUME_ARCHIVE",
+  "OWNERSHIP_ENTITLEMENT": "Public data, $0 cost",
+  "COST_USD": 0,
+  "HISTORY_START": "2026-07-23",
+  "HISTORY_END": "2026-09-18",
+  "INSTRUMENTS_ISSUERS": "US equities (FINRA consolidated Reg SHO daily files, symbol-level short volume)",
+  "PIT_AVAILABILITY_RULE": "Published by FINRA after market close for the same session; observable before next open",
+  "SURVIVORSHIP_STATE": "Market-wide tape, all tradeable symbols",
+  "DELISTED_INACTIVE_COVERAGE": "Files cover only symbols with short volume on the date",
+  "MISSINGNESS": "34 sessions on disk (2026-07-23..2026-09-18)",
+  "REVISION_BEHAVIOR": "Daily files are final after publication",
+  "LICENSE_USAGE_CONSTRAINTS": "FINRA public data, no entitlement required",
+  "the_one_number": "NOT_MEASURED",
+  "measurements": [
+    {
+      "what": "Does https://cdn.finra.org/equity/regsho/daily/CNMSshvol<YYYYMMDD>.txt serve the archive beyond 2026-07-23? How far back does it reach?",
+      "how_measured": "Attempted HTTP HEAD/GET probes of historical FINRA CDN endpoints; turn budget exhausted before probes completed",
+      "result": "34 sessions on disk (2026-07-23..2026-09-18); archive reach not tested"
+    }
+  ],
+  "CERTIFICATION": "DATA_HOLD",
+  "certification_reason": "The critical measurement—whether the FINRA CDN archive reaches back to approximately 2009 or earlier—was not completed within the turn budget. Network reachability and archive depth are required to apply the decision rule (reaches ~2009 -> PIT_SAFE; does not -> PROSPECTIVE_ONLY and PH16 drops from campaign). Without this measurement, certification cannot be made.",
+  "limitations_that_must_travel_with_it": [
+    "Turn budget exhausted before network probes completed",
+    "Archive reach verification required to determine PIT_SAFE vs PROSPECTIVE_ONLY"
+  ],
+  "hypotheses_unblocked": [],
+  "hypotheses_blocked": [
+    "PH16: short-volume-based trading signal (hold pending archive depth verification)"
+  ]
+}

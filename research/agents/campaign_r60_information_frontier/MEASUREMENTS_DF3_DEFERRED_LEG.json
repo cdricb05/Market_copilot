@@ -1,0 +1,70 @@
+{
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "produced_by": "SESSION_ORCHESTRATOR (local deterministic execution)",
+ "owner_rule": "AGENTS DECIDE, LOCAL PYTHON EXECUTES. This file carries MEASUREMENTS only. The certification RULING belongs to data-foundation-agent and is not made here.",
+ "subject": "R38_NATIVE_DATED_CONTRACT_LAYER - the deferred leg",
+ "supersedes_claim_in": "CERTIFICATION_DF3_FUTURES_PAIRS.json",
+
+ "why_this_exists": "Phase 1 and DF3 both concluded the deferred leg was absent because the materialised per-market CSVs carry ONE close column - the held contract's. That is true of the PRICE LEVEL and irrelevant to basis momentum, which is a difference of RETURNS. alpha_agent/r59/native.py line 16 documents `ret2` as the SECOND (deferred) contract return, and the census itself names the dataset as 'R38 native_contract_layer (held, ret2)'. DF3's DATA_HOLD rested on the wrong column. No new data was acquired to settle this; the certified layer already carried the leg.",
+
+ "method": "alpha_agent.r59.native.load_layer(verify_hashes=True) - the canonical certified loader, manifest-verified, orphan CSVs excluded. No second reader was written.",
+
+ "measurements": [
+  {"what": "layer shape",
+   "how_measured": "load_layer(verify_hashes=True)",
+   "result": "68 certified markets, 12,632 sessions, 1977-11-21 .. 2026-08-21"},
+
+  {"what": "deferred-leg population",
+   "how_measured": "count of finite ret2 cells against finite ret cells",
+   "result": "ret finite 640,584; ret2 finite 631,582 = 98.6% of ret; both finite 631,574"},
+
+  {"what": "is ret2 merely ret under a second name (the documented close_b trap)",
+   "how_measured": "elementwise difference on the 631,574 cells where both are finite",
+   "result": "mean -8.44e-06, std 4.661e-03, max|.| 0.6263; np.allclose = False; exactly-equal share 0.0251. The two legs are DISTINCT series, not one series twice."},
+
+  {"what": "per-market paired depth",
+   "how_measured": "count of sessions per market where ret and ret2 are both finite",
+   "result": "67 of 68 markets have >= 2,000 paired sessions; the deepest (ZM, ZS, ZL, ZC, ZW, ZB) carry ~12,200 from 1978"},
+
+  {"what": "paired coverage by year",
+   "how_measured": "markets with >= 1 paired session per calendar year",
+   "result": "15 markets in 1978 rising to 66-68 from 2010 onward; 67 markets in 2019-2021, 68 in 2022-2026"},
+
+  {"what": "basis-momentum computability on the decision grid",
+   "how_measured": "21-session trailing sum of ret minus 21-session trailing sum of ret2, closed at t-1 (SIGNAL_LAG_SESSIONS = 1), requiring >= 80% finite in the window, evaluated on native.decision_indices at CADENCE 21 / HORIZON 21 from DISCOVERY_START",
+   "result": "187 decisions, 2011-07-01 .. 2026-07-07; scorable markets per decision median 66, min 64, max 68"},
+
+  {"what": "DUPLICATE IDENTITY against the settled CARRY family",
+   "how_measured": "per-decision Spearman rank correlation between the basis-momentum feature and the layer's slope_ann LEVEL (the construction CARRY_SLOPE / COMMODITY_CURVE_CARRY_SPREADS already settled), on the 185 decisions carrying >= 12 comparable markets",
+   "result": "mean 0.2137, median 0.2201, min -0.2296, max 0.5622; |rho| >= 0.999 on 0 of 185 decisions. DISTINCT from the settled carry level - this is the attack the census named as the skeptic's focus, and it is measured BEFORE pre-registration rather than after a burden charge."},
+
+  {"what": "open_interest population",
+   "how_measured": "count of finite open_interest cells",
+   "result": "640,656 finite = 100.0% of finite ret"},
+
+  {"what": "THE last_oi = 0.0 QUESTION (DF3 could not resolve it)",
+   "how_measured": "located every open_interest cell equal to zero and classified it as the market's newest finite row or an in-history row",
+   "result": "6,727 zero cells. 63 of them are the NEWEST finite row of 63 of the 68 markets - one per market, which is the provisional final row, not a genuine zero. The remaining 6,664 are IN-HISTORY zeros spread across 23 markets."},
+
+  {"what": "implied handling rule for open interest",
+   "how_measured": "derived from the zero placement above plus the layer's documented provisional-newest-row behaviour",
+   "result": "open_interest == 0 must be treated as MISSING everywhere, not only on the newest row. A zero used as a level, or as the denominator of a growth rate, manufactures signal. 23 markets carry in-history zeros, so a newest-row-only rule is insufficient."}
+ ],
+
+ "what_this_does_not_settle": [
+  "The open-interest OBSERVABILITY LAG is not re-derived here. The estate's recorded rule (OI_LAG = 2 sessions, open interest provisional on the newest row) stands and must be applied; this file confirms the provisional newest row exists and is encoded as zero.",
+  "Per-market cost_bps_per_side was not re-measured. native.load_meta() carries it (2-15 bp observed across FX 3.0, grains 8.0, energy 5.0, softs 10.0).",
+  "Nothing here rules on whether basis momentum has alpha. It rules only that the feature is COMPUTABLE, DEEP and NOT a duplicate identity."
+ ],
+
+ "hypotheses_affected": {
+  "PH08_FUT_BASIS_MOMENTUM_COMMODITY": "computable on certified data; 187 decisions; distinct from settled carry",
+  "PH07_FUT_OPEN_INTEREST_GROWTH_CROSS_SECTION": "computable ONLY with the zero-as-missing rule applied",
+  "PH15_FUT_INTL_INDEX_OPEN_INTEREST_CONCENTRATION": "same zero-as-missing rule applies"
+ },
+
+ "safety": {"research_only": true, "paper_only": true, "orders": 0, "fills": 0,
+            "new_paid_data_cost_usd": 0, "backfill": false,
+            "durable_writes": "NONE - read-only measurement, nothing was certified, registered or promoted"}
+}

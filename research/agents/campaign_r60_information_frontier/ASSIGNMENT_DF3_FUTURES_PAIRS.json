@@ -1,0 +1,41 @@
+{
+ "assignment_id": "DF3_FUTURES_PAIRS",
+ "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "role": "data-foundation-agent",
+ "phase": 2,
+ "sources": [
+  {
+   "source_id": "R38_NATIVE_DATED_CONTRACT_LAYER_PLUS_NORGATE_FUTURES_DB",
+   "dataset_id_proposed": "futures_front_deferred_pair_panel_v1",
+   "exact_question_for_foundation": "The materialised native_contract_layer CSVs carry ONE row per date (the held contract only) and no deferred-contract price, so basis momentum cannot be computed from them. Can you build, per market and per date, a (front, first-deferred) PAIR from the Norgate 'Futures' database (27,451 dated symbols, naming pattern CL-2026V confirmed), carrying both closes plus both open interests observed with the mandated one-session delay - and how many markets have a deferred leg with non-trivial open interest and volume across the full sample? The probe read last_oi = 0.0 on two sampled CL contracts and that needs explaining before any deferred leg is costed.",
+   "blocks_which_hypotheses": [
+    "PH07",
+    "PH08"
+   ],
+   "director_evidence_from_phase_1": {
+    "source_id": "R38_NATIVE_DATED_CONTRACT_LAYER_PLUS_NORGATE_FUTURES_DB",
+    "tier": "T1",
+    "what_information": "Per-market daily series on the actually-held dated contract with REAL exchange volume and open interest and the observable roll, and - separately - the full Norgate 'Futures' database of 27,451 individually addressable dated contracts, each with Open/High/Low/Close/Volume/Open Interest, which is what a front-vs-deferred basis construct needs.",
+    "asset_classes": [
+     "COMMODITY_FUTURES",
+     "EQUITY_INDEX_FUTURES",
+     "RATES_FUTURES",
+     "FX_FUTURES",
+     "VOLATILITY"
+    ],
+    "pit_concern": "MEDIUM. The census states open interest is provisional and must be observed with a one-session delay; that rule must be carried into every pre-registration. The materialised layer stops at 2026-08-21 while the live Norgate database runs to 2026-09-18, so the layer is stale by roughly a month.",
+    "survivorship_concern": "LOW. Contracts are enumerated by delivery month, not selected; the layer_manifest records contracts_used per market (159 for 6A, 187 for 6B/6C) and a declared roll policy.",
+    "depth_found": "native_contract_layer holds 69 market CSVs + layer_manifest.json (18,910 bytes) at D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4\\native_contract_layer. CL.csv = 10,897 data rows, 1983-03-30..2026-08-21, 521 distinct held contracts, ZERO duplicate dates, cols Date,ret,close,held,volume,open_interest,ret2,slope_ann. Manifest: roll_policy OBSERVABLE_FIRST_NOTICE_LAST_TRADE with 2/5-session buffers, returns_are_excess_of_collateral=true, vendor_continuous_series_used=false, per-market rows/first_date/last_date/contracts_used/sha256. Markets present include 6A/6B/6C/6E/6J/6M/6N/6S (FX), ZB/ZN/ZF/ZT/UB/TN (rates), FDAX/FESX/FCE/FSMI/FTDX/HSI/HTW/KOS/SCN/SNK/SSG/YAP/SXF/AWM/GWM (international equity index), VX (VIX futures), and the commodity complex. Norgate live: nd.database_symbols('Futures') = 27,451 dated contracts (e.g. '6A-1987H'); nd.price_timeseries('CL-2026V') = 2,179 rows 2018-01-22..2026-09-18 with ['Open','High','Low','Close','Volume','Open Interest']; 'CL-2026Z' = 2,219 rows 2017-11-21..2026-09-18. nd.futures_market_session_symbols() = 124 sessions.",
+    "evidence": "Directory listing + Import-Csv row/date/dup analysis of CL.csv; Get-Content of layer_manifest.json head; read-only nd probes listed above.",
+    "inferred_not_verified": [
+     "CRITICAL: the materialised layer carries ONE row per date (the held contract) and NO deferred-contract price column, so basis momentum CANNOT be computed from the CSVs as they stand. It is feasible only by pulling the deferred contract from the Norgate Futures database (27,451 dated symbols confirmed reachable) and pairing it to the held contract per date. That pairing has NOT been built.",
+     "Whether the CL-YYYY<monthcode> naming generalises cleanly across all 69 markets and all delivery-month codes.",
+     "Liquidity of the deferred leg (last_oi read 0.0 on the sampled contracts, which needs explaining before any deferred-leg trade is costed).",
+     "Per-market cost_bps_per_side (the census states 2-15bp; not re-read this phase)."
+    ],
+    "verdict": "SHORTLIST"
+   }
+  }
+ ]
+}

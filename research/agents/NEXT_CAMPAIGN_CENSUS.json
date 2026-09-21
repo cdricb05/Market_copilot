@@ -35,7 +35,11 @@
     {"dataset": "Nasdaq trading halts", "asset_class": "US_EQUITY", "state": "FREE_AVAILABLE, 0 hypotheses", "verify": "history depth; likely prospective-only"},
     {"dataset": "SEC EDGAR full index (UPLOAD / CORRESP comment letters)", "asset_class": "US_EQUITY", "state": "FREE, never used", "pit": "availability = EDGAR dissemination date, NOT letter date (public release lags the review)"},
     {"dataset": "CFTC COT, FRED/ALFRED macro, Cboe indices, TreasuryDirect", "asset_class": "cross-asset", "state": "OWNED, closed as timing information"},
-    {"dataset": "EODHD news (full universe), earnings BMO/AMC flag, Form 4 parse", "asset_class": "US_EQUITY", "state": "PROSPECTIVE-ONLY (no usable history)"}
+    {"dataset": "EODHD news (full universe), earnings BMO/AMC flag", "asset_class": "US_EQUITY", "state": "PROSPECTIVE-ONLY (no usable history)"},
+    {"dataset": "SEC bulk Form 4 data sets", "asset_class": "US_EQUITY", "state": "OWNED_WITH_HISTORY", "r60": "R60 CORRECTION: the prior 'Form 4 parse: PROSPECTIVE-ONLY (no usable history)' was FALSE. 69 quarters 2009q1-2026q1, exact FILING_DATE, AFF10B5ONE flag. INSIDER_FORM4_ALL nevertheless stays closed after 19 failed tests: a new population is not its recorded reopen condition."},
+    {"dataset": "EODHD dividend declarations", "asset_class": "US_EQUITY", "state": "PIT_SAFE_R60", "r60": "100% non-null declarationDate on 525 rows; measured on 2020-2026 and 25 names only, so pre-2020 coverage is unmeasured."},
+    {"dataset": "R38 deferred leg (ret2)", "asset_class": "all futures", "state": "PIT_SAFE_R60", "r60": "ret2 IS the deferred contract return and was present all along: 98.6% populated, provably distinct from ret, 67/68 markets with >=2,000 paired sessions. Basis momentum is computable. open_interest==0 is MISSING everywhere (63 provisional newest rows + 6,664 in-history zeros across 23 markets)."},
+    {"dataset": "us_equity_extension_pit_panel_v1", "asset_class": "US_EQUITY", "state": "BUILT_PIT_SAFE_R60", "r60": "S&P MidCap 400 + SmallCap 600 Current & Past. 2,947 names, 2004-2026, median 1,000 tradable names per decision over 182 decisions, delisted retained. The first substrate in this estate below the S&P 500."}
   ],
   "experiments_already_tried": "See must_not_repeat. The research memory holds the full list; the 49-row CLOSED_MECHANISM_LEDGER is the semantic summary.",
   "must_not_repeat": {
@@ -55,6 +59,22 @@
       "VOLATILITY": ["VX_TERM_CARRY", "VX_CONDITIONAL_SHORT_VOL_R41", "VOLATILITY_EXPECTATIONS_IV_R63"],
       "CROSS_ASSET": ["MACHINE_REPRESENTATION_SEARCH", "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45", "MACRO_TIMING_LANES_R63", "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59 (the withdrawn survivor: ~14 effective observations)", "CROSS_ASSET_TREND_AND_XS_MOMENTUM (trend challenger already registered forward)", "INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE", "CRYPTO_FUNDING_CARRY", "PORTFOLIO_SYNTHESIS_COMBINATIONS", "CROSS_MARKET_PREDICTION_R33_R34 (ML, 611 tests)", "MARKET_IMPLIED_RISK_PREMIA_R35", "FUTURES_INTRADAY_8_FAMILIES", "MICROSTRUCTURE_ORDER_FLOW", "FIBONACCI_NAMED_TECHNICAL_LEVELS", "MONTH_END_BALANCED_REBALANCING_FLOW"],
       "CREDIT_PROXY": ["CREDIT_SPREAD_TIMING"]
+    },
+    "r60_settled": {
+      "campaign": "R60_INFORMATION_FRONTIER (INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1)",
+      "result": "NO_ROBUST_ALPHA_FOUND. 8 pre-registered, 8 run, 1 lockbox, 0 skeptic survivors, 0 cleared, 0 forward requests. These 8 cells now sit in the burden denominator of every future claim in their families.",
+      "settled_families": {
+        "FUT_BASIS_MOMENTUM_COMMODITY": "HALTED_AT_V. ANNOTATED UNDERPOWERED, NOT DEAD - |t| < 0.69 on all three reads (D +1.09%/yr t 0.596; V -0.82%/yr t -0.283), a band that cannot separate zero from the published 5-10%/yr. BLOCKED, not reopenable: no re-parameterisation on the same panel. Settled only by a pre-registered minimum-detectable-effect curve. Do NOT read this as evidence of absence.",
+        "XA_BASIS_MOMENTUM_REPLICATION": "HALTED_AT_D (-0.89%/yr t -0.682). Same UNDERPOWERED annotation; disjoint rates/FX/index instrument set.",
+        "EQ_EXTENSION_NET_SHARE_ISSUANCE": "Reached LOCKBOX (+2.17%/yr, t 0.756) and KILLED_BY_SKEPTIC on the lockbox t at a burden denominator of 1 - it failed with NO multiple-testing discount applied against it. Sign-flipping halves in both lockbox and validation.",
+        "EQ_EXTENSION_GROSS_PROFITABILITY": "HALTED_AT_D, wrong sign.",
+        "EQ_DIVIDEND_DECLARATION_DRIFT": "HALTED BEFORE MEASUREMENT on its own pre-registered coverage gate: declarationDate non-null 2011 = 0.7165, 2012 = 0.7819 against a 0.80 floor frozen before measurement. 2013+ clear at ~0.99.",
+        "FUT_OPEN_INTEREST_GROWTH / INTL_INDEX variant / EQ_EXTENSION_H5_IMMEDIACY_REVERSAL": "HALTED BEFORE MEASUREMENT on the 0.40 one-way turnover ceiling (0.598 / 0.612 / 0.870). See turnover_ceiling_defect."
+      },
+      "turnover_ceiling_defect": "The scalar 0.40 one-way ceiling is TWO different economic constraints and misspecified as one. Measured: the equity H5 cell at 0.870 turnover and 25bp/side costs 21.9%/yr and is genuinely inexpressible; the two futures cells at ~0.60 turnover and 5bp/side cost only 0.72%/yr and were killed by a ceiling calibrated for equities. That destroyed two of four non-equity cells before any return was scored. The halts STAND (they were pre-registered); the replacement is a per-cell NET COST BUDGET (turnover x cost/side x 2 x rebalances/yr), to be fixed campaign-wide and pinned by a test BEFORE any cell registers under it, so no ceiling is chosen after a turnover is seen.",
+      "substrate_state": "us_equity_extension_pit_panel_v1 is RETAINED but FROZEN PENDING AUDIT. Not falsified - none of the three deaths on it is attributable to the panel. But its identity bridge resolves delisted names by ISSUER NAME and is unaudited, and a RATIO feature converts a mis-match into a rank EXTREME, so a bottom-100 book selects TOWARD mis-bridged names. Until audited, success on it is uninterpretable and failure uninformative.",
+      "identity_bridge_audit_must_establish": "false-match rate against a permanent identifier (CUSIP/PERMNO/FIGI) with a CI; whether the 9.2% unbridged delisted attrition is conditionally ignorable by termination reason; extreme-decile contamination by low-confidence bridges; PIT separation of splits and stock-financed M&A from economic issuance; characterisation of sign/units/attribution errors that SURVIVE the non-positive filter; real delisting returns rather than truncation; a versioned hashed bridge artifact; pre-registered pass/fail thresholds.",
+      "open_reporting_defect": "max_drawdown is written as 0.0000 on the excess-return series in the cell artifacts while the skeptic's bundle carries plausible values (strat -0.1791 / -0.3973 / -0.2042). NOT blocking at discovery because no gate reads drawdown; BLOCKING the moment a candidate reaches the risk agent."
     },
     "human_gated_not_for_the_agents": [
       "Unconditional month-end ZN long (+1.47%/yr net, t 3.20 as a CONTROL): adoptable only by a human-authorised fresh pre-registration on untouched 2017-2026.",

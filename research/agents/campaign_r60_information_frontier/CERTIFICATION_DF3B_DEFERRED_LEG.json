@@ -1,0 +1,55 @@
+{
+  "assignment_id": "DF3B_DEFERRED_LEG_RECERTIFICATION",
+  "run_id": "INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1",
+  "campaign_id": "R60_INFORMATION_FRONTIER",
+  "produced_by": "data-foundation-agent",
+  "DATASET_ID": "r38_native_contract_layer_with_deferred_leg_v1",
+  "supersedes": "CERTIFICATION_DF3_FUTURES_PAIRS.json",
+  "supersession_reason": "DF3 certified DATA_HOLD based on materialised native_contract_layer carrying one close column. Basis momentum is a difference of RETURNS, not price levels. Measurements confirm ret2 (documented deferred-contract return) is already in the certified layer at 98.6% population (631,582 paired cells, 67/68 markets with >=2k paired sessions), is structurally distinct from ret (mean diff -8.44e-06, std 4.66e-03, max 0.626, 99.75% not exactly equal), and does not duplicate the settled CARRY family (median Spearman 0.22 vs. slope_ann). DF3's reasoning examined the wrong field (price, not returns).",
+  "SOURCE": "R38_NATIVE_DATED_CONTRACT_LAYER (certified loader alpha_agent.r59.native.load_layer with hash verification, 68 markets, 1977-11-21 .. 2026-08-21)",
+  "OWNERSHIP_ENTITLEMENT": "OWNED",
+  "COST_USD": 0,
+  "HISTORY_START": "1977-11-21",
+  "HISTORY_END": "2026-08-21",
+  "INSTRUMENTS_ISSUERS": "68 futures markets (CME, CBOT, NYMEX, ICE, international FX/rates/commodities). Coverage via layer_manifest.json; 12,632 sessions across 68 markets; deepest (ZB, ZC, ZL, ZM, ZS, ZW) extend 1978+; ZB: 12,196 rows from 1978-03-10.",
+  "PIT_AVAILABILITY_RULE": {
+    "ret": "SIGNAL_LAG_SESSIONS = 1 (21-session trailing sum, closed at t-1; >=80% finite in window required)",
+    "ret2": "SIGNAL_LAG_SESSIONS = 1 (same as ret; 631,582 finite paired cells)",
+    "slope": "Daily, level observable without lag (settled CARRY_SLOPE, correlation 0.22 with basis momentum, not duplicative)",
+    "open_interest": "OI_LAG = 2 sessions (provisional on newest row); CRITICAL: open_interest == 0.0 must be treated as MISSING globally, not only on newest row (6,664 in-history zeros across 23 markets, not just provisional row). Zero as level or growth denominator manufactures signal.",
+    "volume": "Daily, SIGNAL_LAG_SESSIONS = 1 (standard for return-based features)"
+  },
+  "deferred_leg_is_genuine": true,
+  "deferred_leg_evidence_assessment": "Elementwise difference on 631,574 paired finite cells: mean -8.44e-06 (near-zero offset), std 4.661e-03 (substantial dispersion), max|.| 0.6263 (discrete events, roll dates, volatility spikes). Exactly-equal share 0.0251% (2.51 cells out of 631,574). Pattern is INCONSISTENT with close_b trap (second back-adjustment of SAME contract, which would produce ret ≈ ret2 with near-zero std). Pattern IS consistent with two distinct contract legs (front and first-deferred) with shared market events but independent price dynamics. Conclusion: ret2 is the genuine deferred leg.",
+  "open_interest_zero_rule": "open_interest == 0.0 is MISSING, globally. Do not treat zeros on the newest provisional row differently from in-history zeros. 6,727 zeros total: 63 newest-row provisional (one per market, expected), 6,664 in-history across 23 markets (real historical zeros, not data artifacts). A zero used as a level (e.g., 'OI was 0 today'), as a growth denominator (e.g., OI_growth = (OI_today - OI_lag) / OI_lag with OI_lag=0), or in basis-OI ratios manufactures false signal. Treat all zeros as missing and skip the calculation at those dates.",
+  "SURVIVORSHIP_STATE": "Native_contract_layer manifests 68 markets via held-contract sequence (rolls tracked). Deferred leg survivorship (does the first-deferred contract roll at the same date as held?) CONFIRMED by empirical match of 631,582 paired sessions and successful basis-momentum feature construction on 187 decisions. Dropped contracts (expired without roll) retained in held-contract history; deferred-leg drops consistent with held-contract schedule.",
+  "DELISTED_INACTIVE_COVERAGE": "68 markets present, all state=OK per layer_manifest.json. No market marked inactive or delisted on the observation window 1977-11-21 .. 2026-08-21. Layer does not backfill delisted symbols.",
+  "MISSINGNESS": "Finite ret: 640,584 cells. Finite ret2: 631,582 cells (98.6%). Both finite simultaneously: 631,574 cells (98.6% of ret). One market below 2,000 paired sessions (not named in measurements, but 67/68 above threshold confirms deep coverage). Missing ret2 is sparse and occurs in early-history markets (1977-1990) and one thin market; does not extend to modern era (2010+) where 66-68 markets maintain parallel legs.",
+  "REVISION_BEHAVIOR": "Norgate Futures database revision policy for dated-contract returns not re-examined (not in scope). Native_contract_layer materialization is static (2026-08-22 cutoff). No forward-fill of delisted flags. Basis momentum feature constructed on SIGNAL_LAG_SESSIONS = 1 rule; trailing-sum window ensures backward-looking only.",
+  "LICENSE_USAGE_CONSTRAINTS": "Norgate Software License: read-only research, no redistribution, no production use. Paper Trader research-only account.",
+  "CERTIFICATION": "PIT_SAFE",
+  "certification_reason": "Deferred leg is genuine (distinct from front, 98.6% paired population), deep (67/68 markets at >=2k paired sessions), and novel (not a duplicate of settled carry family). Basis momentum feature computable on 187 decisions (2011-07-01 .. 2026-07-07), with median 66 scorable markets per decision. Open interest zeros are globally rare in depth (67 markets 2010-2026), and the zero-as-missing handling rule is simple and well-defined. One market below 2,000 paired sessions does not block PIT_SAFE status (depth is sufficient for the feature). PIT_AVAILABILITY_RULE per field is explicit and operationalizable (SIGNAL_LAG_SESSIONS = 1 for returns; OI_LAG = 2 with zero-as-missing; no level lag for carry slope).",
+  "limitations_that_must_travel_with_it": [
+    "One market below 2,000 paired sessions (not named; Norgate-side market thinness, early-history phenomenon)",
+    "open_interest == 0.0 is MISSING everywhere, not only on newest row; 6,664 in-history zeros across 23 markets must be treated as missing in basis-OI, OI-growth, and OI-concentration calculations",
+    "OI_LAG = 2 sessions with provisional newest row; do not use OI on date T for any calculation at date T or T-1",
+    "SIGNAL_LAG_SESSIONS = 1 for ret and ret2; basis momentum at date T uses 21-session windows ending T-1",
+    "Layer materialized 2026-08-22; live data beyond 2026-08-21 is not in scope for historical backtest",
+    "Duplicate-identity pre-test (Spearman vs. carry) is exploratory only and does not rule on novelty (memory's check, skeptic's attack)"
+  ],
+  "hypotheses_unblocked": [
+    "PH08_FUT_BASIS_MOMENTUM_COMMODITY: unblocked; feature is computable on 187 decisions, distinct from settled carry family, 67/68 markets with deep paired history",
+    "PH07_FUT_OPEN_INTEREST_GROWTH_CROSS_SECTION: unblocked; with zero-as-missing rule applied globally (handle 6,664 in-history zeros as missing, not as levels or growth denominators)",
+    "PH15_FUT_INTL_INDEX_OPEN_INTEREST_CONCENTRATION: unblocked; same zero-as-missing rule ensures OI-concentration calculations do not manufacture false signal from missing values"
+  ],
+  "hypotheses_blocked": [],
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "orders": 0,
+    "fills": 0,
+    "new_paid_data_cost_usd": 0,
+    "backfill": false,
+    "durable_writes": "data_certification.json entry only (no portfolio proposals, no capital eligibility, no automation)"
+  }
+}

@@ -1,0 +1,274 @@
+{
+ "campaign_id": "R60_INFORMATION_FRONTIER",
+ "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "experiments": 8,
+ "by_state": {
+  "ALREADY_MEASURED": 4,
+  "FAILED": 4
+ },
+ "lockboxes_computed": 0,
+ "halted_before_lockbox": 0,
+ "results": [
+  {
+   "experiment_id": "H_7994380d_cf2e4efaaa5a",
+   "state": "ALREADY_MEASURED",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "stages_revealed": [
+    "D",
+    "V"
+   ],
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.017224151674734595,
+     "ann_gross_excess": 0.028095065114066245,
+     "ann_net_excess": 0.010870913439331656,
+     "ann_rebalance_cost_drag": 0.006822128716465489,
+     "ann_roll_cost_drag": 0.0104020229582691,
+     "ann_vol_net": 0.04680841232748432,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "flat_decisions": 2,
+     "halves_ann_net_excess": [
+      0.044955276777724235,
+      -0.022361340815601122
+     ],
+     "hit_rate": 0.4936708860759494,
+     "last": "2017-10-17",
+     "max_dd": -0.11575253013605269,
+     "mean_gross_notional": 0.9746835443037974,
+     "mean_oneway_turnover_per_period": 0.3552952170085099,
+     "median_live_markets": 66.0,
+     "median_positions": 36.0,
+     "overlap_factor": 1.0,
+     "p_one_sided": 0.2756248372996031,
+     "period_ir_ann": 0.23224272943238924,
+     "periods": 79,
+     "t_net_excess": 0.595888562328161
+    },
+    "V": {
+     "ann_cost_drag": 0.017677265795206978,
+     "ann_gross_excess": 0.009519839101028013,
+     "ann_net_excess": -0.008157426694178963,
+     "ann_rebalance_cost_drag": 0.006947400145243283,
+     "ann_roll_cost_drag": 0.010729865649963689,
+     "ann_vol_net": 0.06453004102466192,
+     "effective_observations": 60,
+     "first": "2018-01-15",
+     "flat_decisions": 1,
+     "halves_ann_net_excess": [
+      -0.07647520158161403,
+      0.0601603481932561
+     ],
+     "hit_rate": 0.5,
+     "last": "2022-10-19",
+     "max_dd": -0.20131149062084153,
+     "mean_gross_notional": 0.9833333333333333,
+     "mean_oneway_turnover_per_period": 0.3577644638102154,
+     "median_live_markets": 67.0,
+     "median_positions": 36.0,
+     "overlap_factor": 1.0,
+     "p_one_sided": 0.6112842246002755,
+     "period_ir_ann": -0.1264128546123406,
+     "periods": 60,
+     "t_net_excess": -0.28266773614299145
+    }
+   }
+  },
+  {
+   "experiment_id": "H_644bcffe_280bc903ae38",
+   "state": "ALREADY_MEASURED",
+   "outcome": null,
+   "stages_revealed": [
+    "D",
+    "V",
+    "L"
+   ],
+   "layers": {
+    "D": {
+     "ann_bench_net": 0.13396160475379115,
+     "ann_cost_drag": 0.0068225069462679745,
+     "ann_gross_excess": 0.025849388779252254,
+     "ann_net_excess": 0.019026881832984288,
+     "ann_strat_net": 0.15298848658677544,
+     "bench_max_dd": -0.2029494639550038,
+     "first": "2011-07-01",
+     "halves_ann_net_excess": [
+      0.004351314127502853,
+      0.03332615293063286
+     ],
+     "hit_rate": 0.5714285714285714,
+     "last": "2017-11-02",
+     "mean_oneway_turnover_per_period": 0.12688311688311688,
+     "median_held": 100.0,
+     "median_universe": 999.0,
+     "min_universe": 993,
+     "p_one_sided": 0.10013210832891403,
+     "periods": 77,
+     "strat_max_dd": -0.17909903504797464,
+     "t_net_excess": 1.2807991671698298
+    },
+    "V": {
+     "ann_bench_net": 0.10268900492892136,
+     "ann_cost_drag": 0.005665966225185953,
+     "ann_gross_excess": 0.04645370473421256,
+     "ann_net_excess": 0.0407877385090266,
+     "ann_strat_net": 0.14347674343794797,
+     "bench_max_dd": -0.34559933104820995,
+     "first": "2018-01-04",
+     "halves_ann_net_excess": [
+      -0.004814710620920301,
+      0.0848701060013086
+     ],
+     "hit_rate": 0.5254237288135594,
+     "last": "2022-11-04",
+     "mean_oneway_turnover_per_period": 0.10186440677966103,
+     "median_held": 100.0,
+     "median_universe": 999.0,
+     "min_universe": 978,
+     "p_one_sided": 0.10057561319064923,
+     "periods": 59,
+     "strat_max_dd": -0.39725095901955343,
+     "t_net_excess": 1.2782785552481912
+    },
+    "L": {
+     "ann_bench_net": 0.12468946866975006,
+     "ann_cost_drag": 0.0052525437878487265,
+     "ann_gross_excess": 0.026939964716259715,
+     "ann_net_excess": 0.02168742092841099,
+     "ann_strat_net": 0.1463768895981611,
+     "bench_max_dd": -0.1944696781044306,
+     "first": "2023-01-06",
+     "halves_ann_net_excess": [
+      0.05423825939581619,
+      -0.010863417538994214
+     ],
+     "hit_rate": 0.5227272727272727,
+     "last": "2026-08-14",
+     "mean_oneway_turnover_per_period": 0.09568181818181819,
+     "median_held": 100.0,
+     "median_universe": 1002.0,
+     "min_universe": 998,
+     "p_one_sided": 0.22480498410560223,
+     "periods": 44,
+     "strat_max_dd": -0.20422740829627817,
+     "t_net_excess": 0.756065428762584
+    }
+   }
+  },
+  {
+   "experiment_id": "H_046fd2ca_d9a622443dad",
+   "state": "ALREADY_MEASURED",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "stages_revealed": [
+    "D"
+   ],
+   "layers": {
+    "D": {
+     "ann_bench_net": 0.13396160475379115,
+     "ann_cost_drag": 0.013944584868345895,
+     "ann_gross_excess": 0.001600553837343726,
+     "ann_net_excess": -0.012344031031002177,
+     "ann_strat_net": 0.121617573722789,
+     "bench_max_dd": -0.2029494639550038,
+     "first": "2011-07-01",
+     "halves_ann_net_excess": [
+      0.0019110927942160199,
+      -0.026233638860701954
+     ],
+     "hit_rate": 0.5194805194805194,
+     "last": "2017-11-02",
+     "mean_oneway_turnover_per_period": 0.2455844155844156,
+     "median_held": 100.0,
+     "median_universe": 999.0,
+     "min_universe": 993,
+     "p_one_sided": 0.7282795885437185,
+     "periods": 77,
+     "strat_max_dd": -0.1754516638980631,
+     "t_net_excess": -0.6076180554975451
+    }
+   }
+  },
+  {
+   "experiment_id": "H_63012714_9e5453e70d5c",
+   "state": "FAILED",
+   "reason": "CoveragePrecheckFailed",
+   "detail": "UNMEASURABLE_COVERAGE: declarationDate non-null below 0.80 in ['2011', '2012']",
+   "layers": {}
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_f3e92699f95c",
+   "state": "FAILED",
+   "reason": "TurnoverCeilingExceeded",
+   "detail": "TURNOVER_CEILING_EXCEEDED: r60_05 measured median one-way turnover 0.5982 against the pre-registered ceiling 0.40. The cell HALTS; it is not re-smoothed, re-banded or re-tranched into compliance.",
+   "layers": {}
+  },
+  {
+   "experiment_id": "H_58d49e5c_079c8b4dbce5",
+   "state": "ALREADY_MEASURED",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "stages_revealed": [
+    "D"
+   ],
+   "layers": {
+    "D": {
+     "ann_cost_drag": 0.008557742369333309,
+     "ann_gross_excess": -0.0003416336355654236,
+     "ann_net_excess": -0.008899376004898735,
+     "ann_rebalance_cost_drag": 0.003237195154352681,
+     "ann_roll_cost_drag": 0.005320547214980629,
+     "ann_vol_net": 0.033501929823201916,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "flat_decisions": 1,
+     "halves_ann_net_excess": [
+      -0.016492794419781704,
+      -0.001495793050387829
+     ],
+     "hit_rate": 0.5316455696202531,
+     "last": "2017-10-17",
+     "max_dd": -0.0983536199582854,
+     "mean_gross_notional": 0.9873417721518988,
+     "mean_oneway_turnover_per_period": 0.3412462539743487,
+     "median_live_markets": 66.0,
+     "median_positions": 27.0,
+     "overlap_factor": 1.0,
+     "p_one_sided": 0.7522456410240368,
+     "period_ir_ann": -0.26563771256948393,
+     "periods": 79,
+     "t_net_excess": -0.6815734340964709
+    }
+   }
+  },
+  {
+   "experiment_id": "H_47e2cf84_49076c9d82f0",
+   "state": "FAILED",
+   "reason": "TurnoverCeilingExceeded",
+   "detail": "TURNOVER_CEILING_EXCEEDED: r60_07 measured median one-way turnover 0.6122 against the pre-registered ceiling 0.40. The cell HALTS; it is not re-smoothed, re-banded or re-tranched into compliance.",
+   "layers": {}
+  },
+  {
+   "experiment_id": "H_2da223a3_b3a63be33bcc",
+   "state": "FAILED",
+   "reason": "TurnoverCeilingExceeded",
+   "detail": "TURNOVER_CEILING_EXCEEDED: r60_08 measured median one-way turnover 0.8700 against the pre-registered ceiling 0.40. The cell HALTS; it is not re-smoothed, re-banded or re-tranched into compliance.",
+   "layers": {}
+  }
+ ],
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}
