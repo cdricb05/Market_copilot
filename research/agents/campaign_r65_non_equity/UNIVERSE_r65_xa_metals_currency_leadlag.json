@@ -1,0 +1,40 @@
+{
+  "universe_id": "r65_xa_metals_currency_leadlag",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "universe-construction-agent",
+  "as_of": "2026-09-22",
+  "source_dataset": "r38_native_contract_layer_with_deferred_leg_v1",
+  "construction_rule": "Cross-asset lead-lag: industrial metals composite (lead variable) and commodity-exporting-nation currencies (lag variable). LEAD: equal-weighted composite of certified industrial metals (HG copper). TRIGGER: top-decile absolute return of lead, measured to session t. LAG: commodity-currency futures (AUD, CAD, NZD certified on R38) entered at next available session, held 3 sessions. OBSERVABILITY: last session on which BOTH metals composite and traded currency are quoted; mixed-calendar rule applied.",
+  "observability_instant": "t-2 for OI; signal instant is last session where both metals and FX quoted (mixed-calendar observability). Both metals and FX trade different schedules; decision uses union grid (15 exchanges, 260-261 sessions/yr).",
+  "zero_is_missing_rule": "open_interest == 0 is MISSING data. Usable OI >= 80% floor per market-session over decision-eligible range. Mixed-calendar rule: currency unscorable if OI missing on >20% of triggered decisions.",
+  "n_instruments": 4,
+  "lead_component": {
+    "name": "industrial_metals_composite",
+    "construction": "equal-weighted daily return of HG (copper), measured to t",
+    "trigger_rule": "top_decile of absolute 3-session return (252-session rolling distribution)",
+    "trigger_frequency_expectation": "fires on ~10% of decisions (sparse by design)"
+  },
+  "instruments": [
+    {"market": "HG", "asset_class": "COMMODITY", "role": "LEAD_VARIABLE", "economic_group": "INDUSTRIAL_METALS", "oi_coverage_pct": 97.64, "cost_bps_per_side": 8.0},
+    {"market": "6A", "asset_class": "FX", "role": "LAG_VARIABLE", "economic_group": "COMMODITY_CURRENCY_AUD", "oi_coverage_pct": 100.0, "cost_bps_per_side": 3.0},
+    {"market": "6C", "asset_class": "FX", "role": "LAG_VARIABLE", "economic_group": "COMMODITY_CURRENCY_CAD", "oi_coverage_pct": 100.0, "cost_bps_per_side": 3.0},
+    {"market": "6N", "asset_class": "FX", "role": "LAG_VARIABLE", "economic_group": "COMMODITY_CURRENCY_NZD", "oi_coverage_pct": 97.65, "cost_bps_per_side": 3.0}
+  ],
+  "excluded": [
+    {"candidate_markets": "6B (GBP), 6E/6J (JPY), 6M (MXN), 6S (CHF)", "reason": "Not commodity-exporting nations' primary currencies. GBP commodity importer; JPY traded currency but Japan not commodity exporter; MXN and CHF not certified as primary commodity-exporter currency on R38. Only AUD (Australia), CAD (Canada), NZD (New Zealand) qualify per director's specification."}
+  ],
+  "execution_representation": "futures_notional",
+  "short_leg_expressible": true,
+  "lead_lag_expressible": true,
+  "hold_period_sessions": 3,
+  "rebalance_frequency_per_year": 84.0,
+  "limitations": [
+    "Sparse by design: top-decile trigger fires ~10% of sessions (rough 84 rebalances/yr)",
+    "Mixed-calendar observability: metals trade US hours, FX trade 24-hour currency futures; decision instant is last session both are quoted",
+    "Open interest is provisional at t-1; observability_instant t-2 is binding for OI checks",
+    "Cost binding constraint: at 0.20%/yr roll + 3-session h budget, max mean turnover per period is 0.333 at 5bp, 0.167 at 10bp; sparse book expected to stay within ceiling",
+    "Metals composite is single market (HG); no group demeaning; if HG unscorable on decision, entire book is flat",
+    "Currency unscorable if >20% of triggered decisions missing OI; market then treated NaN (no forward-fill look-ahead)"
+  ],
+  "STATE": "UNIVERSE_DEFINED"
+}

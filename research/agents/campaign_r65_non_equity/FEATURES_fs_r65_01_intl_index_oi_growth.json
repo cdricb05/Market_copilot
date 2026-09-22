@@ -1,0 +1,92 @@
+{
+  "feature_set_id": "fs_r65_01_intl_index_oi_growth",
+  "version": "R65_V1",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "feature-library-agent",
+  "state": "FEATURES_PUBLISHED",
+  "source_dataset": "r38_native_contract_layer_with_deferred_leg_v1",
+  "universe_id": "r65_intl_index_oi_covered",
+
+  "pit_safety_argument": "The feature reads two backward-looking mean calculations on held-dated-contract open interest (OI), closing window at t-2 to observe OI with one-session provisional-OI delay. No data reads forward of t-2. All inputs are observed at filing time (exchange publishes OI daily at session close). The ranking and long/short construction are deterministic functions of historical data only. No restated or reforecasted inputs. The feature is point-in-time safe.",
+
+  "duplication_argument_vs_settled_aggregate": "Two prior rows are settled NO_ALPHA_EVIDENCE in the family POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT: H_b5e5e7c0_483c5c1043eb (aggregate whole-curve open interest, all listed contract months summed) and H_b5e5e7c0_7f7cdc392f88 (front-contract share of whole-curve OI). This feature HELD-DATED-CONTRACT exchange open interest growth is distinct from both: it reads the single contract month the book actually holds, not a sum across all months, and not a ratio. The R60 director's duplicate check already ruled this identity distinct when r60_05 was completed. This feature is the asset-class variant (EQUITY_INDEX_FUTURES vs COMMODITY_FUTURES) of that ruling and does not collapse to the settled aggregate.",
+
+  "zero_is_missing_rule": "Exchange open interest = 0 is MISSING, not zero positioning. The R38 dataset carries 63 provisional newest rows plus 6,664 in-history zeros across 23 markets. When computing the 21-session and 63-session means, zero OI observations are treated as missing and excluded from the denominator. Any decision-date observation where the holding market's OI is zero or missing is marked unscorable. If the share of decision-eligible market-sessions carrying usable, non-zero, non-provisional open interest is below 0.80, the cell halts as DATA_HOLD.",
+
+  "features": [
+    {
+      "name": "oi_growth_21_63_mean_ratio_held_contract",
+      "formula_plain_english": "For each international index futures market on the held dated contract: compute the trailing 21-session mean of exchange open interest (sessions ending at t-2), divide by the trailing 63-session mean of exchange open interest (sessions ending at t-2). Rank markets by this ratio. Go SHORT the markets with fastest OI growth (highest ratio), LONG the markets with slowest growth (lowest ratio), using rank weights (share of total absolute rank exposure). No group demeaning applied (single economic group: equity indices).",
+      "contract_legs": ["held_dated_contract - the contract actually in the book, with real roll dates"],
+      "inputs": [
+        {
+          "name": "exchange_open_interest_held_contract",
+          "description": "Exchange-reported open interest for the held dated contract, daily at session close",
+          "lag_sessions": 2,
+          "lag_rationale": "R38 OI is provisional and must be observed with one-session delay per NEXT_CAMPAIGN_CENSUS.json#available_pit_datasets. Two sessions ensures the data is revised-safe and the windows do not overlap with the decision instant t.",
+          "source": "R38 native dated-contract layer, exchange daily feed",
+          "availability_instant": "Session t-1 (next business day after session t closes), revised-safe at session t-2",
+          "data_property": "Non-null when exchange records it; zero = missing, not positioning"
+        },
+        {
+          "name": "window_21_session_mean",
+          "description": "Arithmetic mean of exchange open interest over 21 sessions ending at t-2",
+          "lag_sessions": 2,
+          "source": "Computed from exchange_open_interest_held_contract, rolling 21-session window",
+          "availability_instant": "Computable at any t >= 21 sessions after market inception",
+          "exclusion_rule": "Excludes zero-is-missing rows; if fewer than 3 non-zero observations in the 21-session window, the denominator is insufficient and the market is unscorable"
+        },
+        {
+          "name": "window_63_session_mean",
+          "description": "Arithmetic mean of exchange open interest over 63 sessions ending at t-2",
+          "lag_sessions": 2,
+          "source": "Computed from exchange_open_interest_held_contract, rolling 63-session window",
+          "availability_instant": "Computable at any t >= 63 sessions after market inception",
+          "exclusion_rule": "Excludes zero-is-missing rows; if fewer than 10 non-zero observations in the 63-session window, the denominator is insufficient and the market is unscorable"
+        }
+      ],
+      "winsorisation": "No explicit winsorisation applied. Ratio clipping is implicit: if the 21-session mean is zero-is-missing, the market is unscorable; if the 63-session mean is zero-is-missing, the market is unscorable. The ratio is thus bounded [0.00, infinity); no clipping to [0,1].",
+      "scaling_cross_sectional_treatment": "Rank-weighted long/short: each market receives a weight proportional to its rank (1 to N), with fastest growers receiving negative weight (SHORT), slowest receiving positive weight (LONG). Weights are normalized to sum to zero in absolute value. This is a pure rank scheme with no factor demeaning.",
+      "sparse_column_rule": "Open interest columns are dense on major exchanges (most decisions have most markets scorable). If a market's OI is missing on >20% of decisions, the market is excluded from the universe. The flatten-only-scaler rule does not apply here because OI is a real position metric, not a sparse event flag. If OI = 0 (missing), the market contributes nothing to the rank on that decision.",
+      "leak_conditions": [
+        "Any forward read of exchange OI after t-2 (would require information not knowable at decision time)",
+        "Using aggregate whole-curve open interest instead of held-contract OI (would collapse to settled null H_b5e5e7c0_483c5c1043eb)",
+        "Reading revised-retroactive open interest not yet published at t-2 (revisions are incorporated session-by-session as exchanges publish them)",
+        "Winsorising the zero observations (0 is missing, not an outlier)"
+      ]
+    }
+  ],
+
+  "pre_registered_halt_conditions": [
+    "COST_BUDGET: if alpha_agent.r61.cost_budget.evaluate_cost_budget returns COST_BUDGET_EXCEEDED or COST_BUDGET_NOT_EVALUABLE at measured one-way turnover and measured notional-weighted effective per-market rate, halt before any return is scored. Ceiling 0.03/yr.",
+    "OPEN_INTEREST_COVERAGE: if usable non-zero, non-provisional OI coverage falls below 0.80 over decision-eligible market-sessions, halt as DATA_HOLD. Floor 0.80 is frozen here.",
+    "MIN_MARKETS: if median count of scorable markets per decision falls below the FUTURES_DATED_CONTRACT book's declared minimum, the book refuses and the cell settles BOOK_REFUSED.",
+    "STAGE_ADVANCE: alpha_agent.r59.engines.stage_advance is sole authority. A halt at D or V settles as recorded.",
+    "SIGN: expected_sign -1 is frozen. A result of opposite sign (positive net excess) is a FAILURE."
+  ],
+
+  "expected_effect_vs_panel_materiality": {
+    "panel": "EQUITY_INDEX_FUTURES (14 instruments, 187 decisions, ~44 effective lockbox observations)",
+    "mde_80_at_burden_1": "IC 0.1412 / 4.32%/yr net",
+    "honest_ex_ante_estimate": "IC below 0.05, well under 50% detection point. LIKELY UNDERPOWERED.",
+    "documented_prior": "Zero measured returns in this family. Cell is completion of R60 pre-measurement reject; reopen condition satisfied by corrected cost constraint."
+  },
+
+  "limitations": [
+    "The feature reads only the held-dated-contract OI, not the full term structure. Information in deferred-month open interest is not captured.",
+    "No intra-session microstructure; daily close OI only.",
+    "One-session OI delay means the feature cannot react to intra-day OI acceleration; it is backward-looking only.",
+    "Ranking is cross-sectional; no time-series autoregression of OI growth itself.",
+    "Expected sign is known to be negative (crowding and unwind effect); a positive sign on discovery is a falsification."
+  ],
+
+  "declared_trigger": "Not applicable; this is a rank-weighted long/short book. It trades every decision.",
+
+  "leakage_check": "PASS. All inputs are backward-looking historical means. Windows close at t-2. No forward data. No unobservable restated revisions. No conditioning on future information. The feature is locked in before the decision at t.",
+
+  "pit_availability_rule": "R38 OI revised-safe at session t-2; no PIT revisions are observed later.",
+
+  "missingness_rule": "exchange_open_interest_held_contract = 0 is MISSING. Handled explicitly: 0 rows are excluded from mean calculations and markets with zero OI are marked unscorable on that decision.",
+
+  "revision_behavior": "R38 OI is provisional at publication (session t-1) and revised at session t-2. The feature reading at t-2 observes the revised OI; no future revisions affect it."
+}

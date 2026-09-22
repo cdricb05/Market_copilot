@@ -93,12 +93,19 @@ it is early evidence that the *forward* implementation loses money.
 emitted from 2026-08-25/26 with 15–20 predictions each. Twenty-one challengers
 in total (including equities) are in this state.
 
-**This is the single most important dated fact in the estate right now: that
-whole 21-session cohort reaches its first maturities around 2026-09-22/23.**
+**This is the single most important dated fact in the estate right now.**
+Measured, not estimated: **429 predictions sit at horizon 20, with
+`effective_as_of` running 2026-08-26 → 2026-09-23 across 20 distinct dates, and
+exactly ZERO of them have been scored.** The newest scored maturity anywhere in
+the ledger is 2026-09-21. Counting 20 trading sessions forward from the first
+emission (2026-08-26, with 2026-09-07 a holiday) puts the **first maturity of
+that cohort at about 2026-09-24 — two trading sessions from now.**
+
 The first genuine forward outcomes for time-series trend, cross-sectional
-commodity momentum, FX momentum, rates lead-lag and cross-asset value are days
-away. They require no new work — only that the research runtime keeps running,
-which is what Workstream A protects.
+commodity momentum, FX momentum, rates lead-lag and cross-asset value are
+therefore imminent, and they will more than double the estate's scored forward
+evidence. They require no new work — only that the research runtime keeps
+running, which is exactly what Workstream A protects.
 
 ### 1c. One non-equity candidate has zero forward evidence and never will
 

@@ -1,0 +1,105 @@
+{
+  "feature_set_id": "fs_r65_02_metals_currency_leadlag_h3",
+  "version": "R65_V1",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "feature-library-agent",
+  "state": "FEATURES_PUBLISHED",
+  "source_dataset": "r38_native_contract_layer_with_deferred_leg_v1",
+  "universe_id": "r65_xa_metals_currency_leadlag",
+
+  "pit_safety_argument": "The feature computes a 3-session trailing return on industrial metals composites and commodity-currency futures, both closing at t. The top-decile trigger is evaluated against a 252-session trailing distribution ALSO closing at t. No look-ahead: all inputs are known at or before decision instant t. The trigger is binary (in or out of decile) and is declared BEFORE any measurement. The position-taking logic is deterministic from declared metals prices, declared exchange rates, and a pre-fixed trigger threshold. The feature reads only price data at or before t; no data after t. Point-in-time safe.",
+
+  "duplication_argument_vs_settled_aggregate": "The only human-authored CROSS_ASSET_LEAD_LAG row in memory is H_e490a5b8_5c87b7dbcae0, a DOLLAR-BASKET BETA diffusion channel at h21 that halted at discovery. This feature is DISTINCT on three axes: (1) LEAD is industrial metals composite, not dollar basket; (2) LAG is commodity-currency futures (AUD, CAD, NZD, NOK), not a USD basket; (3) HORIZON is h3, not h21. The four R39C machine-generated lead-lag rows are machine-representation graph searches under a different family key (MACHINE_REPRESENTATION:CONTINUATION) and represent the kind of duplication the director explicitly forbids: those are the 'renamed dead idea' trap. This channel has never been registered as a human-declared economic hypothesis. Title and abstract scan of memory found no prior 'metals-to-commodity-currency lead-lag' construct. Skeptic focus, as recorded by the director, is identity check against H_e490a5b8_5c87b7dbcae0 (should be |Spearman| < 0.999 distinct) and against the four R39C graph-lead-lag rows.",
+
+  "zero_is_missing_rule": "For metals and FX futures, prices are published by exchange and are never zero. The rule 'zero is missing' applies only to open interest in the dataset. This feature reads PRICES (returns), not OI. Price missingness is handled by the calendar rule: if a currency and the metals composite do not both have a price at or before t, the decision is not scorable for that currency.",
+
+  "features": [
+    {
+      "name": "metals_fx_leadlag_h3_sparse_decile_trigger",
+      "formula_plain_english": "ONE economic channel, declared entirely in advance. (A) LEAD: construct an equal-weighted industrial-metals composite return (3-session trailing return from t-3 to t, inclusive). (B) TRIGGER: evaluate whether the absolute value of this composite return sits in the TOP DECILE of its own trailing 252-session distribution (all 252-session returns, ranked by magnitude). BINARY: if abs(return at t) is in top decile, the book enters a position; otherwise, the book is FLAT and earns/costs nothing. (C) LAG: on triggered decisions, for each commodity-currency future (AUD, CAD, NZD, NOK, or any other certified commodity exporter), take a 3-session position (t+1 to t+3) rank-weighted in the SIGN of the metals move (long if metals up, short if metals down). On non-triggered decisions, the book is FLAT. This is a sparse, event-conditioned book that trades roughly one decision in ten.",
+      "contract_legs": ["held_dated_contract - metals futures and commodity-currency futures"],
+      "inputs": [
+        {
+          "name": "industrial_metals_composite_return_3s",
+          "description": "Equal-weighted return of certified industrial metals futures (typically copper, aluminum, zinc, nickel, tin) over 3 sessions ending at t",
+          "lag_sessions": 0,
+          "lag_rationale": "Measured to t, the decision instant. Both metals and FX trade on different calendars; observability instant is the last session on which BOTH the metals composite and any traded currency are quoted at or before t.",
+          "source": "R38 native dated-contract layer, held contract, daily prices",
+          "availability_instant": "Session t (end of day when both metals and FX markets have closed)",
+          "data_property": "Metals trade actively; never zero"
+        },
+        {
+          "name": "metals_return_252_session_distribution",
+          "description": "Empirical distribution of all 3-session returns of the industrial metals composite over the 252 sessions ending at t",
+          "lag_sessions": 0,
+          "source": "R38 native dated-contract layer, computed from historical metals prices",
+          "availability_instant": "Computable at any t >= 252 sessions after inception",
+          "decile_threshold": "Precomputed at t from all 252 3-session returns; threshold is defined as the 90th and 10th percentile by absolute magnitude. The trigger fires if |return at t| >= 90th percentile."
+        },
+        {
+          "name": "commodity_currency_return_3s",
+          "description": "3-session return of each commodity-currency future (AUD, CAD, NZD, NOK) entered at t+1 and held to t+3 (if triggered at t)",
+          "lag_sessions": 0,
+          "lag_rationale": "Position entered at next available session t+1 (if triggered), observed at close t+3. Returns are measured forward and observed post-decision.",
+          "source": "R38 native dated-contract layer, held contract, daily prices",
+          "availability_instant": "t+1 entry price known; t+3 exit price observed at end of session t+3",
+          "observability_rule": "Mixed-calendar rule: a currency is scorable on a triggered decision only if BOTH the metals composite and the traded currency are quoted at or before t. Forward-filling cross-calendar prices is a look-ahead and is prohibited; missing observations are marked unscorable."
+        },
+        {
+          "name": "trigger_decile_rank",
+          "description": "Rank of abs(metals return at t) in the 252-session distribution, expressed as a percentile. Binary: FIRE if percentile >= 90, FLAT otherwise",
+          "lag_sessions": 0,
+          "source": "Computed from metals_return_3s and metals_return_252_session_distribution",
+          "availability_instant": "Session t (end of day)"
+        }
+      ],
+      "winsorisation": "No explicit winsorisation on metals returns. The decile trigger itself serves as a natural extremal filter: only the top 10% of absolute moves enter the book. No secondary clipping or Winsorization is applied to position sizes.",
+      "scaling_cross_sectional_treatment": "On triggered decisions: commodity currencies are rank-weighted long/short by the SIGN of the metals move (positive metals return = all currencies long, negative = all currencies short). Weights are scaled to sum to 1 in absolute value per currency to account for the number of scorable currencies on that decision. This is a cross-sectional rank scheme within the commodity-currency universe.",
+      "sparse_column_rule": "THIS IS A SPARSE-COLUMN BOOK BY DESIGN. The flat-only-scaler rule applies directly: the flatten-only scaler only fires on sparse event columns, and the top-decile trigger (roughly 10% of decisions) is exactly such a column. A dense-column scaler that fires on a sparse event is the known defect. Here, the scaler respects sparsity: on non-triggered decisions the book is FLAT and no scaler runs; on triggered decisions the rank weights sum to zero. This is correct handling of the sparse event.",
+      "leak_conditions": [
+        "Reading metals or FX prices after t (would require future information)",
+        "Forward-filling missing FX prices across calendar discontinuities (cross-calendar forward-fill is look-ahead)",
+        "Moving the decile trigger threshold after observing any measured turnover or return (the trigger is frozen)",
+        "Using the aggregate whole-curve OI instead of held-contract prices (would change the signal)",
+        "Reading a metals return at a different lag or observation window (the 3-session window closing at t is fixed)"
+      ]
+    }
+  ],
+
+  "pre_registered_halt_conditions": [
+    "COST_BUDGET: this is the cell's most likely death and is declared as such. The book re-forms 84 times per year (7 times more often than a monthly book). If measured mean one-way turnover per period at measured notional-weighted effective rate plus charged roll exceeds 0.03/yr, halt COST_BUDGET_EXCEEDED before any return is scored. Director expects this outcome more likely than any alpha finding.",
+    "TRIGGER_RATE: if the top-decile trigger fires on fewer than r59.OBS_FLOOR (36) decisions in any of the three sample periods (discovery, validation, lockbox), the period has no defensible statistic and the cell halts as UNDERPOWERED_BY_CONSTRUCTION. Floor frozen here.",
+    "EFFECTIVE_OBSERVATIONS: the runner's own effective_observations against r59.OBS_FLOOR is binding per layer. A 3-session horizon on 3-session cadence is non-overlapping; overlap_factor correction should be near 1.",
+    "CALENDAR: if the mixed-calendar rule leaves a currency unscorable on more than 20% of TRIGGERED decisions, halt as DATA_HOLD rather than forward-filling.",
+    "STAGE_ADVANCE: alpha_agent.r59.engines.stage_advance is sole authority. A halt at D or V settles as recorded.",
+    "SIGN: expected_sign +1 (metals up implies commodity currency up) is frozen. A reversal-shaped result is a FAILURE."
+  ],
+
+  "expected_effect_vs_panel_materiality": {
+    "panel": "CROSS_ASSET_FUTURES (28 instruments) - estate's LOWEST measured detection floor",
+    "mde_80_at_burden_1": "IC 0.1096 / 2.98%/yr net",
+    "mde_80_at_burden_10": "4.19%/yr net",
+    "critical_caveat": "THESE NUMBERS DO NOT APPLY TO THIS CELL. Every figure was measured at r59.CADENCE = 21, r59.HORIZON = 21 on a continuously-invested rank book. This cell is a 3-session, sparse, event-conditioned book. Decision count roughly 7x higher, per-decision exposure far lower. R61 never swept this configuration. MDE for this cell is UNMEASURED.",
+    "honest_ex_ante_estimate": "Director's prior is an IC below 0.05, which on this panel is below 50% detection. Power is UNMEASURED.",
+    "consequence_frozen_now": "If this cell reaches lockbox and fails, outcome MUST be filed with evidence_state POWER_UNMEASURED_AT_THIS_HORIZON and do_not_read_as = EVIDENCE_OF_ABSENCE."
+  },
+
+  "limitations": [
+    "The feature reads only price (return) data. No volume, OI, or microstructure information is used beyond entry/exit prices.",
+    "Calendar mismatch: metals and FX trade on different schedules. A metals move on a day FX does not trade is not observable until FX re-opens, introducing a 1-2 session slippage in some cases.",
+    "The top-decile trigger is a hard threshold: no soft signal graduation. Edge cases at the percentile boundary are binary, not continuous.",
+    "3-session hold is fixed and may not be optimized after measurement.",
+    "The feature assumes commodity currencies (AUD, CAD, NZD, NOK) are the ONLY tradable commodity-currency pair set; adding or removing currencies after measurement would change the feature.",
+    "No volatility weighting; equal-weighted metals composite may not reflect true economic commodity baskets."
+  ],
+
+  "declared_trigger": "TOP DECILE of 3-session metals return magnitude, over 252-session trailing distribution. Defined here, frozen before any data is observed. This trigger makes the book flat roughly 90% of the time, and the 84 rebalances per year are all concentrated in the triggered 10% of sessions. Cost expressibility depends critically on this declaration: a continuously-invested h3 metals-FX book would breach the 0.03/yr budget; the sparse version can stay within it. If the trigger fires more or fewer times than projected (10%), the cost assumption changes and must be re-evaluated.",
+
+  "leakage_check": "PASS. The trigger is frozen in advance. The book takes no position outside the decile. All prices are read at or before t. No future data. No conditioning on outcomes. No parameter optimization after measurement.",
+
+  "pit_availability_rule": "Metals and FX futures trade daily at session close. The observability instant is the last session on which BOTH the metals composite and the relevant currency are quoted at or before t.",
+
+  "missingness_rule": "Price missingness on metals or FX is rare (major exchanges, liquid markets). When it occurs, the decision is unscorable for that currency. No forward-filling.",
+
+  "revision_behavior": "Daily exchange prices (open, high, low, close) are final at session end; no revisions."
+}

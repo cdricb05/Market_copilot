@@ -86,6 +86,11 @@ So the gate holds back ~283 s and always pays ~9 s. On the current hourly
 cadence that is ~7,000 s/day → ~220 s/day for an idle estate, a **~97%
 reduction**, with no owner that holds a live window ever skipped.
 
+These pre-implementation estimates were confirmed on the live worker once the
+per-stage instrumentation landed: see **Measured Windows acceptance** below,
+where the gated set measured 821.5 s against 14.8 s for the three ungated
+owners, and a gated invocation came in at 12.8 s against 837 s.
+
 ---
 
 ## The design
@@ -226,9 +231,86 @@ level, so a quiet estate can be told from a gated one.
 
 ---
 
+## Measured Windows acceptance, on the deployed worker
+
+The worker was restarted onto the committed tree through the canonical owner
+(`scripts/manage_research_runtime.ps1 -Action Restart -Execute`) and reported
+`C:\Users\binis\paper_trader @ 8ce63b95b311 dirty=False`,
+`maturation: COMMITTED_CLEAN_SOURCE`.
+
+### Cycle 1 — the live worker, first invocation under the new commit
+
+`r52run_20260922T214304Z`, trigger `R59_PERSISTENT_RUNTIME`, `RUN_COMPLETED`,
+**837 s**. Gate verdict `RUN_NO_PRIOR_FINGERPRINT` — no bookmark existed, so
+everything ran, which is the correct first-invocation behaviour.
+
+| stage | state | duration_ms |
+|---|---|---|
+| runtime_lock | SUCCESS | 0.5 |
+| timing_contract | SUCCESS | 209.1 |
+| chain_integrity | SUCCESS | 349.4 |
+| next_open_prospective_decision | DATA_BLOCKED | 9,157.9 |
+| fx_carry_cadence_prospective_decision | NOT_DUE | 540.7 |
+| futures_trend_prospective_decision | NOT_DUE | 5,115.0 |
+| **maturation_eligibility** | SUCCESS | **72.3** |
+| **tournament_advance** | SUCCESS | **803,649.2** |
+| forfeiture_sweep | SUCCESS | 97.8 |
+| stage26_prospective_mark | NOT_DUE | 1,608.0 |
+| canonical_forward_accrual | NOT_DUE | 9,932.9 |
+| velocity_operational | SUCCESS | 91.7 |
+| promotion_frontier | SUCCESS | 6,102.6 |
+
+```
+GATED set   (6 stages) : 821.5 s   98.2% of the cycle
+UNGATED set (3 stages) :  14.8 s    1.8%
+the gate itself        :   0.072 s
+```
+
+`tournament_advance` alone is **96% of the entire cycle**. The release's central
+claim — that the cost is concentrated in the gated set and the window-owning
+owners are cheap — is now measured on the live estate rather than asserted.
+
+This cycle did real work: it scored **6 new forward outcomes** (h1/h5, maturity
+2026-09-22), taking the R46 outcome ledger from 190 to 196 rows.
+
+### Cycle 2 — one further invocation, inputs unchanged
+
+`r52run_20260922T215704Z`, **12.8 s**, `RUN_COMPLETED`,
+`maturation_was_gated: true`, gate verdict **`SKIP_INPUTS_UNCHANGED`** on 16
+terms, **0 changed, 0 unresolved**.
+
+| stage | state | duration_ms |
+|---|---|---|
+| runtime_lock / timing_contract / chain_integrity | SUCCESS | 0.5 / 248.9 / 275.4 |
+| next_open_prospective_decision | DATA_BLOCKED | 7,013.5 |
+| fx_carry_cadence_prospective_decision | NOT_DUE | 508.8 |
+| futures_trend_prospective_decision | NOT_DUE | 4,705.7 |
+| maturation_eligibility | SKIPPED_INPUTS_UNCHANGED | 34.3 |
+| tournament_advance | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+| forfeiture_sweep | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+| stage26_prospective_mark | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+| canonical_forward_accrual | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+| velocity_operational | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+| promotion_frontier | SKIPPED_INPUTS_UNCHANGED | 0.0 |
+
+**837 s → 12.8 s, a 98.5% reduction**, with all three window-owning per-session
+owners still executed. The bookmark's digest was unchanged by the skip and
+`skips_since_last_run` advanced to 1, proving a skip cannot make a stale
+bookmark look fresh.
+
+### Stability of the fingerprint
+
+Sampled five times over 240 s of idle on the live estate: **one distinct
+digest**, warm cost 0.027–0.033 s. No other process writes the watched stores
+on a short cycle, which is the precondition the whole design rests on.
+
+---
+
 ## Validation
 
-- `tests/test_release65_maturation_eligibility.py` — **30 tests, all green.**
+- `tests/test_release65_maturation_eligibility.py` — **31 tests, all green**,
+  including an end-to-end gated cycle whose six expensive owners are replaced
+  by tripwires that fail the test if called.
 - Existing suites touching this path — **508 passed**, 1 pre-existing
   environmental failure
   (`test_a_development_worktree_may_never_be_promoted_into_a_service`, which

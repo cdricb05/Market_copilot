@@ -1,0 +1,37 @@
+{
+  "universe_id": "r65_intl_index_oi_covered",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "universe-construction-agent",
+  "as_of": "2026-09-22",
+  "source_dataset": "r38_native_contract_layer_with_deferred_leg_v1",
+  "construction_rule": "All certified INTERNATIONAL_EQUITY asset class markets from R38 native dated-contract layer with OI coverage >= 80% over the decision sample. Held contract open interest only, one-session observability delay honored.",
+  "observability_instant": "t-2 (latest usable session is t-2; exchange OI for session s published s+1, signal lag s, union = s+2)",
+  "zero_is_missing_rule": "open_interest == 0 is MISSING data, not zero positioning. Usable OI = non-zero, non-NaN OI observations. Decision-eligible market-sessions with usable OI >= 80% floor, frozen before measurement.",
+  "n_instruments": 14,
+  "instruments": [
+    {"market": "FCE", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "EUR_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "FDAX", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "EUR_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "FESX", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "EUR_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "FSMI", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "EUR_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "FTDX", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "HSI", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "HTW", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "KOS", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "LFT", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "SCN", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "SNK", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 98.23, "cost_bps_per_side": 5.0},
+    {"market": "SSG", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "SXF", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 100.0, "cost_bps_per_side": 5.0},
+    {"market": "YAP", "asset_class": "INTERNATIONAL_EQUITY", "economic_group": "ASIA_INDICES", "oi_coverage_pct": 99.81, "cost_bps_per_side": 5.0}
+  ],
+  "excluded": [],
+  "execution_representation": "futures_notional",
+  "short_leg_expressible": true,
+  "limitations": [
+    "Held contract open interest only; aggregate-curve OI requires separate dataset",
+    "Open interest is provisional (newest session rows at 0.0 until next session)",
+    "Observability instant t-2 is binding; cannot use t-1 or t OI",
+    "One market (SNK) has 98.23% coverage and one (YAP) 99.81%; both above 80% floor"
+  ],
+  "STATE": "UNIVERSE_DEFINED"
+}
