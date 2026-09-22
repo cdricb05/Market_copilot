@@ -98,13 +98,121 @@ PDS_HOLD_CURRENT_BOOK = "HOLD_CURRENT_BOOK"
 #: there is nothing to re-review here, because the newer decision already answered
 #: the portfolio question.
 PDS_SUPERSEDED = "PROPOSAL_SUPERSEDED_BY_NEWER_DECISION"
+#: R63 — the proposal is intact and reviewable, but it is bound to a session that
+#: is no longer the latest the operational workflow is ready for. It remains
+#: immutable historical evidence and stays fully READABLE; it is simply no longer
+#: a decision anyone may act on with live capital. Distinct from PDS_STALE (the
+#: proposal changed under the operator) and from PDS_SUPERSEDED (a newer governed
+#: decision already answered the question): here nothing changed and nothing
+#: answered it — the world simply moved on to a later session.
+PDS_SESSION_STALE = "PROPOSAL_SESSION_STALE"
+#: R63 — the operator's governed selection for this session is CURRENT (keep the
+#: book). There is no target to approve; the no-change decision is the outcome.
+PDS_SELECTION_IS_NO_CHANGE = "SELECTED_TARGET_IS_NO_CHANGE"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
     PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
-    PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_UNAVAILABLE)
+    PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_SESSION_STALE,
+    PDS_SELECTION_IS_NO_CHANGE, PDS_UNAVAILABLE)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
+
+# --------------------------------------------------------------------------- #
+# R63 — DECISION FRESHNESS
+#
+# A persisted proposal does not become actionable merely by continuing to exist.
+# The 2026-09-18 proposal survived the 2026-09-21 close: it is still perfectly
+# readable evidence, and it is no longer a decision about the current book.
+#
+# NO second calendar, session authority or clock is introduced here. The latest
+# eligible session is asked of the ONE owner that already computes it
+# (``api.workflow_state``, which composes ``engine.market_session`` through
+# ``api.data_freshness``); this module only COMPARES two dates it is given.
+# --------------------------------------------------------------------------- #
+FRESHNESS_CURRENT = "CURRENT"
+FRESHNESS_STALE = "STALE"
+FRESHNESS_UNVERIFIABLE = "UNVERIFIABLE"
+FRESHNESS_VOCAB = (FRESHNESS_CURRENT, FRESHNESS_STALE, FRESHNESS_UNVERIFIABLE)
+
+#: The operator action a stale decision points at. Reuses the existing operator
+#: action token owned by ``api.workflow_state`` (``OP_ACTION_RUN_CYCLE``) rather
+#: than coining a new one.
+NEXT_ACTION_RUN_PORTFOLIO_CYCLE = "RUN_PORTFOLIO_CYCLE"
+SESSION_AUTHORITY_OWNER = "api.workflow_state"
+SESSION_CALENDAR_OWNER = "engine.market_session"
+
+
+def latest_eligible_session(*, workflow_state: Optional[dict] = None,
+                            loader: Optional[Callable] = None) -> Optional[str]:
+    """THE latest session the operational workflow is ready to act on, or None.
+
+    Delegated, never derived. ``action_session_market_date`` is the value the
+    workflow-state owner already publishes for exactly this question: during a
+    catch-up it is the OLDEST unclosed completed session (the one the operator
+    must actually run), and otherwise the latest eligible session. Returns None
+    when the owner cannot answer, so the caller can fail closed on its own terms.
+    """
+    ws = workflow_state
+    if ws is None:
+        try:
+            if loader is None:
+                from paper_trader.api import workflow_state as _ws  # lazy: cycle
+                loader = _ws.load_workflow_state
+            ws = loader()
+        except Exception:  # noqa: BLE001 - never let a read break a decision path
+            return None
+    return ((ws or {}).get("action_session_market_date")
+            or (ws or {}).get("eligible_market_date") or None)
+
+
+def decision_freshness(*, bound_session: Optional[str],
+                       latest_session: Optional[str]) -> dict:
+    """Is a decision bound to ``bound_session`` still actionable? PURE date compare.
+
+    Fails closed in both directions: an unknown session on either side is
+    UNVERIFIABLE and is NOT actionable, because "we could not tell" must never
+    read as "yes".
+    """
+    b = (bound_session or "").strip() or None
+    l = (latest_session or "").strip() or None
+    if b is None or l is None:
+        state = FRESHNESS_UNVERIFIABLE
+    elif b == l:
+        state = FRESHNESS_CURRENT
+    elif b < l:
+        state = FRESHNESS_STALE
+    else:
+        # The bound session is AHEAD of what the workflow says is actionable. That
+        # is not freshness, it is an inconsistency, and it is never actionable.
+        state = FRESHNESS_UNVERIFIABLE
+    actionable = state == FRESHNESS_CURRENT
+    return {
+        "state": state,
+        "vocabulary": list(FRESHNESS_VOCAB),
+        "bound_session": b,
+        "latest_eligible_session": l,
+        "actionable": actionable,
+        "target_selection_allowed": actionable,
+        "approval_allowed": actionable,
+        "order_plan_confirmation_allowed": actionable,
+        "next_required_action": (None if actionable
+                                 else NEXT_ACTION_RUN_PORTFOLIO_CYCLE),
+        "session_authority_owner": SESSION_AUTHORITY_OWNER,
+        "session_calendar_owner": SESSION_CALENDAR_OWNER,
+        "readable_as_history": True,
+        "immutable": True,
+        "detail": (
+            "The proposal's session is the latest the workflow is ready to act on."
+            if state == FRESHNESS_CURRENT else
+            ("This decision is bound to session %s, but the latest eligible "
+             "session is %s. It remains immutable, readable historical evidence "
+             "and can no longer be selected, approved or confirmed. Run the "
+             "portfolio cycle for the current session to produce a fresh "
+             "decision." % (b, l)) if state == FRESHNESS_STALE else
+            ("The bound session (%s) could not be reconciled with the latest "
+             "eligible session (%s), so no action is permitted." % (b, l))),
+    }
 
 # Structural (membership) vs resize action tokens (mirror engine.reallocation_proposal).
 _MEMBERSHIP_ACTIONS = ("EXIT", "ADD", "REPLACE_IN", "REPLACE_OUT")
@@ -115,6 +223,12 @@ DECISION_DIR_ENV = "PAPER_TRADER_PORTFOLIO_DECISION_DIR"
 _DEFAULT_DECISION_DIR = Path(r"D:\Stock_Prediction_app_data\portfolio_decisions")
 _RECORDS_FILE = "decisions.json"
 _INDEX_FILE = "index.json"
+#: R63 — target selections live in the SAME governance ledger root as the
+#: decisions they precede. They are a governance artifact, never a second
+#: proposal store: a selection references the immutable proposal, it never
+#: replaces it and it holds no target this system did not already compute.
+_SELECTIONS_FILE = "target_selections.json"
+_SELECTION_INDEX_FILE = "target_selection_index.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -141,6 +255,14 @@ def _records_path(decision_dir=None) -> Path:
 
 def _index_path(decision_dir=None) -> Path:
     return _decision_dir(decision_dir) / _INDEX_FILE
+
+
+def _selections_path(decision_dir=None) -> Path:
+    return _decision_dir(decision_dir) / _SELECTIONS_FILE
+
+
+def _selection_index_path(decision_dir=None) -> Path:
+    return _decision_dir(decision_dir) / _SELECTION_INDEX_FILE
 
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
@@ -481,7 +603,11 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     supersession: Optional[dict] = None,
                     now: Optional[datetime] = None,
                     portfolio_state: Optional[dict] = None,
-                    portfolio_state_loader: Optional[Callable] = None) -> dict:
+                    portfolio_state_loader: Optional[Callable] = None,
+                    expected_selection_id: Optional[str] = None,
+                    latest_session: Optional[str] = None,
+                    workflow_state: Optional[dict] = None,
+                    enforce_session_freshness: bool = True) -> dict:
     """Record a durable manual portfolio-reallocation decision, bound to the EXACT
     current immutable proposal. Idempotent: an identical decision on the same proposal
     hash reuses the existing record (no duplicate). A different decision on the same
@@ -615,6 +741,62 @@ def record_decision(*, decision: str, confirm: Optional[str],
                            "change; there is nothing to approve.",
                 "materiality": materiality, "binding": binding}
 
+    # --- R63 session-freshness gate: fail closed ------------------------------ #
+    # A proposal does not stay actionable merely by remaining persisted. Once a
+    # later session is the one the workflow is ready to act on, this proposal is
+    # historical evidence: still readable, never approvable. It is NOT rewritten,
+    # regenerated, rejected or superseded to satisfy this gate; only the ability
+    # to ACT on it expires.
+    #
+    # It sits AFTER the structural and economic guards above deliberately. Those
+    # refusals - withheld, hold-current-book, immaterial - are properties of the
+    # proposal ITSELF and are true in every session, so they are the more
+    # specific and more useful answer. Safety is identical either way: every one
+    # of these paths refuses and writes nothing. Nothing can reach a write
+    # without passing this gate.
+    freshness = decision_freshness(
+        bound_session=binding.get("eligible_market_date"),
+        latest_session=(latest_session if latest_session is not None
+                        else (latest_eligible_session(workflow_state=workflow_state)
+                              if enforce_session_freshness else
+                              binding.get("eligible_market_date"))))
+    if enforce_session_freshness and not freshness["approval_allowed"]:
+        return {**base, "status": PDS_SESSION_STALE, "freshness": freshness,
+                "binding": binding, "current_proposal_hash": current_hash,
+                "next_required_action": freshness["next_required_action"],
+                "message": freshness["detail"]}
+
+    # --- R63: approval must consume EXACTLY the governed selection ------------ #
+    # When the operator has selected a target, the approval gate approves THAT
+    # target. It may never fall back to the standing full target, because the
+    # operator would then have approved something they explicitly did not choose.
+    selection = load_target_selection(
+        active_book_id=binding.get("active_book_id"),
+        eligible_market_date=binding.get("eligible_market_date"),
+        decision_dir=decision_dir)
+    if decision == DECISION_APPROVE and selection is not None:
+        sb = selection.get("binding") or {}
+        mismatches = [
+            (name, exp, act) for name, exp, act in (
+                ("proposal_hash", sb.get("proposal_hash"), current_hash),
+                ("selection_id", expected_selection_id or sb.get("selection_id")
+                 or selection.get("selection_id"), selection.get("selection_id")),
+            ) if exp is not None and act is not None and exp != act]
+        if mismatches:
+            return {**base, "status": PDS_STALE, "binding": binding,
+                    "selection": selection, "mismatches": mismatches,
+                    "current_proposal_hash": current_hash,
+                    "message": ("The governed target selection does not match the "
+                                "proposal being approved (%s). Re-select a target "
+                                "against the current review before approving."
+                                % ", ".join(m[0] for m in mismatches))}
+        if selection.get("selected_target") == TARGET_CURRENT:
+            return {**base, "status": PDS_SELECTION_IS_NO_CHANGE, "binding": binding,
+                    "selection": selection,
+                    "message": ("The governed selection for this session is CURRENT "
+                                "(keep the book unchanged). There is no target to "
+                                "approve; record the no-change decision instead.")}
+
     # Stale guard: the operator must be approving the proposal they actually reviewed.
     if expected_proposal_hash is not None and expected_proposal_hash != current_hash:
         return {**base, "status": PDS_STALE,
@@ -695,6 +877,292 @@ def record_decision(*, decision: str, confirm: Optional[str],
 
 
 # --------------------------------------------------------------------------- #
+# R63 — GOVERNED TARGET SELECTION (between REVIEW and APPROVE)
+#
+# The R62 review can say "the minimum repair is the better review path", but
+# until now the approval path only knew ONE target: the standing proposal's full
+# target. An operator who agreed with the review had no way to act on it.
+#
+# This adds exactly ONE governed step. It is NOT an approval, NOT an order plan
+# and NOT an optimisation: the three targets all come from the review, which
+# derived them from the immutable proposal. A selection RECORDS WHICH ONE the
+# operator wants to put in front of the existing Approve gate, and binds every
+# identity that makes that choice meaningful, so a later approval cannot silently
+# consume a different target than the one that was chosen.
+#
+# The three manual gates stay independent and in order:
+#   Review -> SELECT TARGET -> Approve -> Confirm order plan -> next close
+# --------------------------------------------------------------------------- #
+TARGET_CURRENT = "CURRENT"
+TARGET_MINIMUM_REPAIR = "MINIMUM_REPAIR"
+TARGET_FULL_TARGET = "FULL_TARGET"
+TARGET_VOCAB = (TARGET_CURRENT, TARGET_MINIMUM_REPAIR, TARGET_FULL_TARGET)
+
+#: A selection is an explicit operator act and carries its own token, distinct
+#: from the approval token so neither can ever be replayed as the other.
+SELECTION_CONFIRM_TOKEN = "CONFIRM_PORTFOLIO_TARGET_SELECTION"
+
+TS_CREATED = "CREATED"
+TS_REUSED = "REUSED_EXISTING"
+TS_REVISED = "REVISED"
+TS_NOT_RECORDED = "NOT_RECORDED"
+TS_NOT_SELECTABLE = "TARGET_NOT_SELECTABLE"
+TS_STALE = "STALE_REVIEW_SELECTION_REFUSED"
+TS_SESSION_STALE = PDS_SESSION_STALE
+TS_NO_REVIEW = "NO_REVIEW_AVAILABLE"
+SELECTION_STATUS_VOCAB = (TS_CREATED, TS_REUSED, TS_REVISED, TS_NOT_RECORDED,
+                          TS_NOT_SELECTABLE, TS_STALE, TS_SESSION_STALE, TS_NO_REVIEW)
+
+
+def load_target_selection(*, active_book_id: Optional[str],
+                          eligible_market_date: Optional[str],
+                          decision_dir=None) -> Optional[dict]:
+    """The latest governed target selection for an exact (book, session), or None.
+    PURE reader; never raises."""
+    try:
+        index = _load_json(_selection_index_path(decision_dir)) or {}
+        ptr = index.get(_index_key(active_book_id, eligible_market_date))
+        if not ptr:
+            return None
+        sid = ptr.get("selection_id")
+        rows = _load_json(_selections_path(decision_dir)) or []
+        for rec in reversed(rows):
+            if rec.get("selection_id") == sid:
+                return rec
+        return ptr.get("record")
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
+
+
+def _selection_binding(*, review_envelope: dict, option: dict,
+                       target: str) -> dict:
+    """Every identity a selection must bind, read from the review envelope.
+
+    If any of these moves, the selection no longer describes the world it was made
+    in and the approval below refuses it.
+    """
+    rev = (review_envelope or {}).get("review") or {}
+    ident = rev.get("reviewed_proposal") or {}
+    inputs = (review_envelope or {}).get("inputs") or {}
+    return {
+        "proposal_id": (review_envelope or {}).get("proposal_id"),
+        "proposal_hash": (review_envelope or {}).get("proposal_hash")
+                         or ident.get("proposal_hash"),
+        "review_hash": (review_envelope or {}).get("review_hash"),
+        "hoc_assessment_hash": (inputs.get("hoc_assessment_hash_used")
+                                or inputs.get("hoc_assessment_hash_bound_by_proposal")
+                                or ident.get("hoc_assessment_hash")),
+        "eligible_market_date": (ident.get("eligible_market_date")
+                                 or (review_envelope or {}).get("eligible_market_date")),
+        "active_book_id": (ident.get("active_book_id")
+                           or ((review_envelope or {}).get("active_book") or {}).get("id")),
+        "portfolio_state_hash": ident.get("portfolio_state_hash"),
+        "corporate_actions_hash": ident.get("corporate_actions_hash"),
+        "universe_scoring_hash": ident.get("universe_scoring_hash"),
+        "proposal_read_state": (review_envelope or {}).get("proposal_read_state"),
+        "review_verdict": (rev.get("review_verdict") or {}).get("verdict"),
+        "selected_target": target,
+        # The identity of the TARGET itself, so an approval can prove it is
+        # approving the same weights the operator saw.
+        "selected_target_hash": _target_hash(option),
+    }
+
+
+def _target_hash(option: Optional[dict]) -> Optional[str]:
+    """A stable identity for ONE selected target's economically meaningful facts."""
+    if not option:
+        return None
+    try:
+        return _cr.stable_hash({
+            "target": option.get("target"),
+            "positions": option.get("positions"),
+            "changes": option.get("changes"),
+            "one_way_turnover": option.get("one_way_turnover"),
+            "estimated_cost": option.get("estimated_cost"),
+            "score": option.get("score"),
+            "cash_weight": option.get("cash_weight"),
+            "concentration": option.get("concentration"),
+            "obligations_remaining": option.get("mandatory_obligations_remaining"),
+        })
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def record_target_selection(*, target: str, confirm: Optional[str],
+                            review_envelope: Optional[dict] = None,
+                            expected_proposal_hash: Optional[str] = None,
+                            expected_review_hash: Optional[str] = None,
+                            expected_hoc_assessment_hash: Optional[str] = None,
+                            actor: Optional[str] = None,
+                            decision_dir=None,
+                            latest_session: Optional[str] = None,
+                            workflow_state: Optional[dict] = None,
+                            enforce_session_freshness: bool = True,
+                            now: Optional[datetime] = None) -> dict:
+    """Record WHICH reviewed target the operator wants to take to the Approve gate.
+
+    Selection is NOT approval. It creates no order plan, no order and no fill, and
+    it moves no capital. It is idempotent: selecting the same target against the
+    same identities returns the same governed outcome and writes no second
+    artifact. A CONFLICTING selection is an explicit revision - a new immutable
+    record, pointer advanced, history preserved.
+
+    Fails closed on every identity that could have moved underneath the operator
+    (proposal, review, opportunity-cost assessment) and on session freshness.
+    """
+    ts = _now_iso(now)
+    base = {"owner": OWNER, "phase": "R63", "recorded": False, "reused": False,
+            "revised": False, "selected": False, "evaluated_at": ts,
+            "target_vocabulary": list(TARGET_VOCAB),
+            "status_vocabulary": list(SELECTION_STATUS_VOCAB),
+            "is_an_approval": False, "approves_proposal": False,
+            "creates_order_plan": False, "creates_orders": False,
+            "creates_fills": False, "executes": False, "deploys_capital": False,
+            "mutates_proposal": False, "decided_by_llm": False,
+            "manual_approval_still_required": True}
+
+    if confirm != SELECTION_CONFIRM_TOKEN:
+        return {**base, "status": TS_NOT_RECORDED,
+                "message": ("Target selection requires the explicit confirmation "
+                            "token %s." % SELECTION_CONFIRM_TOKEN)}
+    if target not in TARGET_VOCAB:
+        return {**base, "status": TS_NOT_RECORDED,
+                "message": ("Unknown target %r. One of %s is required."
+                            % (target, ", ".join(TARGET_VOCAB)))}
+
+    env = review_envelope or {}
+    rev = env.get("review") or {}
+    selection_block = rev.get("target_selection") or {}
+    options = {o.get("target"): o for o in (selection_block.get("options") or [])}
+    if not options:
+        return {**base, "status": TS_NO_REVIEW,
+                "message": ("No proposal decision review is available, so there is "
+                            "nothing to select. Run the portfolio cycle first.")}
+
+    binding = _selection_binding(review_envelope=env, option=options.get(target),
+                                 target=target)
+
+    # --- session freshness: a persisted proposal is not actionable forever ----- #
+    freshness = decision_freshness(
+        bound_session=binding.get("eligible_market_date"),
+        latest_session=(latest_session if latest_session is not None
+                        else (latest_eligible_session(workflow_state=workflow_state)
+                              if enforce_session_freshness else
+                              binding.get("eligible_market_date"))))
+    if enforce_session_freshness and not freshness["target_selection_allowed"]:
+        return {**base, "status": TS_SESSION_STALE, "freshness": freshness,
+                "binding": binding,
+                "next_required_action": freshness["next_required_action"],
+                "message": freshness["detail"]}
+
+    # --- stale-identity guards: fail closed, write nothing --------------------- #
+    for label, expected, actual, code in (
+            ("proposal", expected_proposal_hash, binding.get("proposal_hash"),
+             "PROPOSAL_HASH_MISMATCH"),
+            ("review", expected_review_hash, binding.get("review_hash"),
+             "REVIEW_HASH_MISMATCH"),
+            ("opportunity-cost assessment", expected_hoc_assessment_hash,
+             binding.get("hoc_assessment_hash"), "HOC_ASSESSMENT_HASH_MISMATCH")):
+        if expected is not None and expected != actual:
+            return {**base, "status": TS_STALE, "binding": binding,
+                    "reason_code": code, "expected": expected, "actual": actual,
+                    "freshness": freshness,
+                    "message": ("The %s changed since it was reviewed, so this "
+                                "selection would bind evidence the operator never "
+                                "saw. Re-review before selecting." % label)}
+
+    option = options.get(target) or {}
+    if not option.get("selectable"):
+        return {**base, "status": TS_NOT_SELECTABLE, "binding": binding,
+                "target": target, "freshness": freshness,
+                "blockers": list(option.get("blockers") or []),
+                "blocker_codes": list(option.get("blocker_codes") or []),
+                "message": ("%s cannot be selected: %s"
+                            % (target,
+                               "; ".join(b.get("detail") or b.get("code") or ""
+                                         for b in (option.get("blockers") or []))
+                               or "the backend marked it not selectable."))}
+
+    existing = load_target_selection(
+        active_book_id=binding.get("active_book_id"),
+        eligible_market_date=binding.get("eligible_market_date"),
+        decision_dir=decision_dir)
+
+    # Idempotent: the same target against the same identities is the same governed
+    # outcome. No duplicate artifact is written.
+    if existing and existing.get("selected_target") == target \
+            and (existing.get("binding") or {}).get("proposal_hash") == binding.get("proposal_hash") \
+            and (existing.get("binding") or {}).get("review_hash") == binding.get("review_hash"):
+        return {**base, "status": TS_REUSED, "recorded": True, "reused": True,
+                "selected": True, "record": existing, "binding": binding,
+                "target": target, "freshness": freshness}
+
+    revised = bool(existing)
+    selection_id = "psel_%s_%s_%s_%s" % (
+        binding.get("eligible_market_date") or "nodate",
+        binding.get("active_book_id") or "book",
+        target.lower(),
+        (binding.get("proposal_hash") or "")[:12])
+    if revised:
+        selection_id += "_r%d" % (int((existing or {}).get("revision", 0)) + 1)
+
+    record = {
+        "selection_id": selection_id,
+        "owner": OWNER,
+        "phase": "R63",
+        "artifact_kind": "proposal_review_selection",
+        "artifact_doc": ("A GOVERNANCE artifact. It references the immutable "
+                         "proposal and the review that adjudicated it; it "
+                         "replaces neither and computes no target of its own."),
+        "selected_target": target,
+        "selected_target_label": option.get("label"),
+        "selected_at": ts,
+        "actor": actor or "operator",
+        "revision": (int((existing or {}).get("revision", 0)) + 1) if revised else 0,
+        "supersedes_selection_id": (existing or {}).get("selection_id") if revised else None,
+        "binding": binding,
+        # The economics the operator was shown AT selection time, frozen with the
+        # choice so the approval gate can prove what was agreed to.
+        "selected_target_economics": {
+            k: option.get(k) for k in (
+                "positions", "changes", "one_way_turnover", "estimated_cost",
+                "score", "score_improvement_net_of_cost", "portfolio_volatility",
+                "portfolio_volatility_capital_basis", "concentration",
+                "largest_position", "cash_weight",
+                "mandatory_obligations_remaining")},
+        "mandatory_obligations_remaining": list(option.get("obligations_remaining") or []),
+        "review_verdict": binding.get("review_verdict"),
+        "review_recommended_target": selection_block.get("recommended_target"),
+        "followed_recommendation": bool(
+            selection_block.get("recommended_target") == target),
+        "is_defer": bool(option.get("is_defer")),
+        "freshness": freshness,
+        "confirm_token": SELECTION_CONFIRM_TOKEN,
+        "is_an_approval": False,
+        "creates_order_plan": False,
+        "creates_orders": False,
+    }
+
+    rows = _load_json(_selections_path(decision_dir)) or []
+    if not isinstance(rows, list):
+        rows = []
+    rows.append(record)
+    _atomic_write_json(_selections_path(decision_dir), rows)
+    index = _load_json(_selection_index_path(decision_dir)) or {}
+    index[_index_key(binding.get("active_book_id"),
+                     binding.get("eligible_market_date"))] = {
+        "selection_id": selection_id, "selected_target": target,
+        "proposal_hash": binding.get("proposal_hash"),
+        "review_hash": binding.get("review_hash"),
+        "selected_at": ts, "record": record}
+    _atomic_write_json(_selection_index_path(decision_dir), index)
+    return {**base, "status": (TS_REVISED if revised else TS_CREATED),
+            "recorded": True, "selected": True, "revised": revised,
+            "record": record, "binding": binding, "target": target,
+            "freshness": freshness}
+
+
+# --------------------------------------------------------------------------- #
 # Decision-state derivation (the separate portfolio-decision review lane)
 # --------------------------------------------------------------------------- #
 _STATE_META = {
@@ -715,10 +1183,25 @@ _DECISION_TO_STATE = {DECISION_APPROVE: PDS_APPROVED, DECISION_REJECT: PDS_REJEC
                       DECISION_HOLD: PDS_HELD}
 
 
+def _session_blocks_approval(freshness: Optional[dict]) -> bool:
+    """True only when a freshness verdict was SUPPLIED and it refuses approval."""
+    if not freshness:
+        return False
+    return not bool(freshness.get("approval_allowed"))
+
+
 def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
-                          decision_record: Optional[dict]) -> dict:
+                          decision_record: Optional[dict],
+                          freshness: Optional[dict] = None) -> dict:
     """Compose the SEPARATE portfolio-decision review state from (a) the current proposal
-    and (b) the latest recorded decision. Pure; no io."""
+    and (b) the latest recorded decision. Pure; no io.
+
+    R63: ``freshness`` is the session verdict from :func:`decision_freshness`. When
+    it says the bound session is no longer actionable this read reports
+    ``approvable = False``, because the write path refuses it. A read model that
+    advertised an approvable proposal the backend would then refuse is exactly the
+    kind of hidden state this project treats as a defect - a surface would render
+    an Approve affordance that cannot succeed."""
     summ = proposal_summary or {}
     available = bool(summ.get("reallocation_proposal_available"))
     current_hash = summ.get("reallocation_proposal_hash")
@@ -855,9 +1338,18 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
             summ.get("reallocation_constraint_reoptimized")),
         "switching_hurdle": summ.get("reallocation_switching_hurdle"),
         "clears_switching_hurdle": summ.get("reallocation_clears_switching_hurdle"),
+        # R63 - session freshness can only ever REMOVE approvability. An unknown
+        # verdict is treated as "no information" here (the write path still fails
+        # closed on it), so a caller that supplies no session sees the pre-R63
+        # answer rather than a silent False.
         "approvable": bool(available and materiality["material"] and not ca_stale
                            and not superseded and not withheld
-                           and not hold_current_book),
+                           and not hold_current_book
+                           and not _session_blocks_approval(freshness)),
+        "freshness": dict(freshness or {}),
+        "session_actionable": (None if not freshness
+                               else bool(freshness.get("approval_allowed"))),
+        "next_required_action": (freshness or {}).get("next_required_action"),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),
@@ -975,10 +1467,17 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
                             reassessment_dir=None, drc_dir=None,
                             supersession: Optional[dict] = None,
                             now: Optional[datetime] = None,
-                            portfolio_state_loader: Optional[Callable] = None) -> dict:
+                            portfolio_state_loader: Optional[Callable] = None,
+                            latest_session: Optional[str] = None,
+                            workflow_state: Optional[dict] = None,
+                            enforce_session_freshness: bool = True) -> dict:
     """The read contract. READ-ONLY: reads the immutable proposal summary + the latest
     recorded decision and composes the separate portfolio-decision review lane (plus a
-    read-only order-plan preview when the current proposal is APPROVED). Degrade-safe."""
+    read-only order-plan preview when the current proposal is APPROVED). Degrade-safe.
+
+    R63: publishes the session-freshness verdict and withholds ``approvable`` when
+    the bound session is no longer the one the workflow is ready to act on, so no
+    surface can offer an Approve the write path would refuse."""
     generated_at = _now_iso(now)
     try:
         ps = portfolio_state if portfolio_state is not None else (
@@ -1026,9 +1525,26 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
                                     sup.get("superseded")),
                                 "reallocation_proposal_supersession": dict(sup)}
 
+    # R63 — the session verdict this read publishes, resolved on the same terms as
+    # the supersession block above: the PRODUCTION-DEFAULT read resolves it from
+    # the canonical session owner, while an injected hermetic world stays a
+    # constructed world unless the caller states its session. It can only ever
+    # REMOVE approvability, and the write path fails closed independently.
+    fresh = None
+    if latest_session is not None or workflow_state is not None:
+        fresh = decision_freshness(
+            bound_session=eligible,
+            latest_session=(latest_session if latest_session is not None
+                            else latest_eligible_session(
+                                workflow_state=workflow_state)))
+    elif enforce_session_freshness and _loaded_summary_default:
+        fresh = decision_freshness(
+            bound_session=eligible, latest_session=latest_eligible_session())
+
     lane = derive_decision_state(has_active_book=bool(active_book_id),
                                  proposal_summary=proposal_summary,
-                                 decision_record=decision_record)
+                                 decision_record=decision_record,
+                                 freshness=fresh)
 
     order_plan_preview = None
     if lane["portfolio_decision_state"] == PDS_APPROVED:

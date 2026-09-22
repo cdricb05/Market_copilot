@@ -101,13 +101,16 @@ VERDICT_LABELS = {
 # Change classification. Exactly ONE primary reason per proposed change, and every
 # reason is one an existing owner can actually support.
 # --------------------------------------------------------------------------- #
-REASON_MANDATORY = "MANDATORY_CONSTRAINT_REPAIR"
+# The five OBLIGATION reasons are re-exported from the canonical mandatory-repair
+# contract (R63), never forked. The remaining four classify a CHANGE rather than
+# an obligation, so they stay owned here.
+REASON_MANDATORY = _hoc.OBLIGATION_REASON_MANDATORY
 REASON_OPPORTUNITY = "OPPORTUNITY_IMPROVEMENT"
 REASON_RISK = "RISK_REDUCTION"
-REASON_CONCENTRATION = "CONCENTRATION_REPAIR"
-REASON_LIQUIDITY = "LIQUIDITY_REPAIR"
-REASON_UNIVERSE = "UNIVERSE_INELIGIBILITY"
-REASON_RETENTION = "RETENTION_RULE_FAILURE"
+REASON_CONCENTRATION = _hoc.OBLIGATION_REASON_CONCENTRATION
+REASON_LIQUIDITY = _hoc.OBLIGATION_REASON_LIQUIDITY
+REASON_UNIVERSE = _hoc.OBLIGATION_REASON_UNIVERSE
+REASON_RETENTION = _hoc.OBLIGATION_REASON_RETENTION
 REASON_REOPTIMIZATION = "PORTFOLIO_REOPTIMIZATION"
 REASON_OTHER = "OTHER_EXISTING_CANONICAL_REASON"
 REASON_VOCAB = (REASON_MANDATORY, REASON_OPPORTUNITY, REASON_RISK,
@@ -151,12 +154,13 @@ CONSTRAINT_REASON = {
 #: arithmetic over weights, and by the ``engine.holding_opportunity_cost``
 #: risk-contribution contract for the one limit that verifier declares it cannot
 #: check.
-TIER_HARD = "HARD_CONSTRAINT_VIOLATION"
+#: R63 - re-exported from the canonical mandatory-repair contract, never forked.
+TIER_HARD = _hoc.OBLIGATION_TIER_HARD
 #: A held name the canonical opportunity-cost decision policy classifies as BROKEN:
 #: it is outside the book's own retention rules (it fell beyond the exit buffer) or
 #: outside the eligible universe. HOC owns the verdict; this kernel only reads it.
-TIER_GOVERNANCE = "GOVERNANCE_RETENTION_FAILURE"
-TIER_VOCAB = (TIER_HARD, TIER_GOVERNANCE)
+TIER_GOVERNANCE = _hoc.OBLIGATION_TIER_GOVERNANCE
+TIER_VOCAB = tuple(_hoc.OBLIGATION_TIER_VOCAB)
 
 #: What a repair does with the capital it releases. Declared, not discovered.
 RELEASED_CAPITAL_DESTINATION = "CASH"
@@ -171,15 +175,15 @@ REPAIR_DOC = (
     "owns capital deployment."
 )
 
-REPAIR_ACTION_EXIT = "EXIT_TO_ZERO"
-REPAIR_ACTION_REDUCE = "REDUCE_TO_LIMIT"
+#: R63 - re-exported from the canonical mandatory-repair contract, never forked.
+REPAIR_ACTION_EXIT = _hoc.REQUIRED_ACTION_EXIT
+REPAIR_ACTION_REDUCE = _hoc.REQUIRED_ACTION_REDUCE
 #: The obligation is real and the owner that raised it is named, but the COMPLIANT
 #: weight cannot be derived from the persisted evidence this review is allowed to
 #: read. Reducing "somewhat" would not be minimal and would not be a repair, so the
 #: review says it cannot size it and fails closed instead of guessing.
-REPAIR_ACTION_NOT_SIZEABLE = "NOT_SIZEABLE_FROM_PERSISTED_EVIDENCE"
-REPAIR_ACTION_VOCAB = (REPAIR_ACTION_EXIT, REPAIR_ACTION_REDUCE,
-                       REPAIR_ACTION_NOT_SIZEABLE)
+REPAIR_ACTION_NOT_SIZEABLE = _hoc.REQUIRED_ACTION_NOT_SIZEABLE
+REPAIR_ACTION_VOCAB = tuple(_hoc.REQUIRED_ACTION_VOCAB)
 
 #: Risk measurement states for a state this kernel had to measure itself.
 RISK_MEASURED = "MEASURED"
@@ -346,31 +350,36 @@ def _hoc_reviews(hoc_assessment: Optional[dict]) -> dict:
             if r.get("ticker")}
 
 
+#: Where the constraint CODE comes from when the opportunity-cost owner leaves it
+#: unset. The owner spells its own governance codes; a code that names a
+#: CONSTRAINT belongs to the constraint kernel's inventory, so it is attached
+#: here rather than duplicated there.
+_CONSTRAINT_CODE_FOR_REASON = {
+    _hoc.OBLIGATION_REASON_UNIVERSE: _cr.C_ELIGIBLE_UNIVERSE,
+    _hoc.OBLIGATION_REASON_LIQUIDITY: _cr.C_LIQUIDITY_PARTICIPATION,
+}
+
+
+def _as_tuple(got: Optional[dict]) -> Optional[tuple]:
+    """Adapt one canonical obligation into this kernel's published row shape."""
+    if not got:
+        return None
+    code = got.get("constraint_code") or _CONSTRAINT_CODE_FOR_REASON.get(
+        got.get("reason_code"))
+    return (got["obligation_type"], got["reason_code"], code, got["detail"])
+
+
 def _retention_obligation(review: dict) -> Optional[tuple]:
     """``(tier, reason, constraint_code, detail)`` when the opportunity-cost owner
     has classified this holding as outside the book's rules, else ``None``.
 
-    The verdict is HOC's, not this kernel's: ``deterioration_state == BROKEN`` is
-    the owner's own statement that the holding is no longer one the book retains.
-    The reason codes it publishes separate the two causes.
+    R63: the classification is now DELEGATED to the canonical mandatory-repair
+    contract on the opportunity-cost owner, so the reallocation kernel and this
+    review read one interpretation instead of two that happened to agree. The
+    verdict was always HOC's - ``deterioration_state == BROKEN`` - and this
+    function is now only the adapter onto the row shape published here.
     """
-    if (review or {}).get("deterioration_state") != _hoc.DET_BROKEN:
-        return None
-    codes = list(review.get("deterioration_reason_codes")
-                 or review.get("reason_codes") or [])
-    ineligible = [c for c in codes
-                  if c == "NOT_ELIGIBLE" or str(c).startswith("INELIGIBLE_")]
-    if ineligible:
-        return (TIER_GOVERNANCE, REASON_UNIVERSE, _cr.C_ELIGIBLE_UNIVERSE,
-                "The eligible universe no longer admits this holding (%s)."
-                % ", ".join(sorted(ineligible)))
-    if "FELL_BELOW_EXIT_BUFFER" in codes:
-        return (TIER_GOVERNANCE, REASON_RETENTION, "RETENTION_EXIT_BUFFER",
-                "The holding fell beyond the book's exit buffer, so the governed "
-                "retention rule no longer retains it.")
-    return (TIER_GOVERNANCE, REASON_RETENTION, "RETENTION_RULE",
-            "The opportunity-cost owner classifies this holding as BROKEN (%s)."
-            % (", ".join(sorted(codes)) or "no code published"))
+    return _as_tuple(_hoc.retention_obligation(review))
 
 
 def _liquidity_obligation(review: dict) -> Optional[tuple]:
@@ -378,17 +387,9 @@ def _liquidity_obligation(review: dict) -> Optional[tuple]:
 
     The review reads persisted evidence only, so it never re-derives an ADV figure
     to price a participation cap; it reuses the liquidity STATE the assessment
-    published for that holding.
+    published for that holding. Delegated to the canonical contract (R63).
     """
-    if (review or {}).get("liquidity_state") != _hoc.LIQ_ILLIQUID:
-        return None
-    return (TIER_HARD, REASON_LIQUIDITY, _cr.C_LIQUIDITY_PARTICIPATION,
-            "The opportunity-cost owner classifies this holding as ILLIQUID "
-            "(estimated days to liquidate %s). It publishes the liquidity STATE, "
-            "not the participation-compliant weight, so this review can name the "
-            "obligation but cannot size the repair for it."
-            % (review.get("estimated_days_to_liquidate")
-               if review.get("estimated_days_to_liquidate") is not None else "unknown"))
+    return _as_tuple(_hoc.liquidity_obligation(review))
 
 
 def held_book_risk_state(proposal: dict) -> dict:
@@ -1540,8 +1541,9 @@ VERDICT_LADDER = (
     ("2", VERDICT_NO_CHANGE_REQUIRED,
      "Nothing obliges a change and the proposal moves nothing material."),
     ("3", VERDICT_FULL_TARGET_REVIEWABLE,
-     "The step from the minimum repair to the full target clears the existing "
-     "switching hurdle after the cost of the extra trading."),
+     "The full target resolves every mandatory repair obligation AND the step "
+     "from the minimum repair to it clears the existing switching hurdle after "
+     "the cost of the extra trading."),
     ("4", VERDICT_MINIMAL_REPAIR_PREFERRED,
      "A repair obligation is open and the full target's increment over the repair "
      "does not clear the hurdle."),
@@ -1591,6 +1593,13 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
     incr = (margins or {}).get("full_target_vs_minimum_repair") or {}
     clears = incr.get("clears_incremental_hurdle")
     full_changes = int(states[STATE_FULL_TARGET].get("changes") or 0)
+    # R63 - THE invariant: a full target may not be published as reviewable while
+    # it knowingly leaves an obligation an owner has already ruled. Before this
+    # release this was computed and reported as an observation that never changed
+    # the verdict, which is precisely how the 2026-09-18 target could have been
+    # recommended with LH and VLO still past the exit buffer. It now BINDS, and
+    # the fall-through is the repair, never the unrepaired target.
+    full_target_open = list(incr.get("obligations_left_open_by_full_target") or [])
 
     if verdict is None:
         codes.append("REPAIR_OBLIGATION_OPEN" if repair_required
@@ -1600,9 +1609,17 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
             codes.append("NO_MATERIAL_CHANGE_PROPOSED")
             verdict = VERDICT_NO_CHANGE_REQUIRED
         # --- rung 3 ------------------------------------------------------------ #
-        elif clears is True:
+        elif clears is True and not full_target_open:
             codes.append("INCREMENTAL_NET_IMPROVEMENT_CLEARS_HURDLE")
             verdict = VERDICT_FULL_TARGET_REVIEWABLE
+        elif full_target_open:
+            codes.append("FULL_TARGET_NOT_REVIEWABLE_OBLIGATIONS_OPEN")
+            codes.extend(sorted({"UNRESOLVED_%s" % (o.get("constraint_code")
+                                                    or o.get("primary_reason")
+                                                    or "OBLIGATION")
+                                 for o in full_target_open}))
+            verdict = (VERDICT_MINIMAL_REPAIR_PREFERRED if repair_required
+                       else VERDICT_DEFER_WEAK_INCREMENTAL_EDGE)
         else:
             codes.append("INCREMENTAL_NET_IMPROVEMENT_BELOW_HURDLE" if clears is False
                          else "INCREMENTAL_NET_IMPROVEMENT_NOT_MEASURABLE")
@@ -1610,8 +1627,9 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
             verdict = (VERDICT_MINIMAL_REPAIR_PREFERRED if repair_required
                        else VERDICT_DEFER_WEAK_INCREMENTAL_EDGE)
 
-    # Observations that travel WITH the verdict without ever changing it.
-    full_open = incr.get("obligations_left_open_by_full_target") or []
+    # Observations that travel WITH the verdict without ever changing it. (The
+    # one exception is the reviewability invariant above, which BINDS by design.)
+    full_open = full_target_open
     if full_open:
         codes.append("FULL_TARGET_LEAVES_OBLIGATIONS_OPEN")
     vd = _f(margins.get("full_target_vs_current", {}).get("volatility_delta"))
@@ -1651,6 +1669,8 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
                 incr.get("incremental_score_improvement_net_of_cost"),
             "hurdle": (incr.get("hurdle_contract") or {}).get("hurdle"),
             "score_comparability": comp,
+            "full_target_obligations_left_open": full_target_open,
+            "full_target_reviewable": not full_target_open,
         },
         "review_policy_version": REVIEW_POLICY_VERSION,
         "repair_scope_version": REPAIR_SCOPE_VERSION,
@@ -1668,6 +1688,137 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
         "deploys_capital": False,
         "mutates_proposal": False,
         "manual_approval_still_required": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# TARGET SELECTABILITY (R63) - WHICH of the three states the operator may select
+#
+# The backend decides this and publishes the reason. A browser may render the
+# answer but never derive it: a disabled control whose rule lives in JavaScript is
+# a rule nobody can test and nobody can audit.
+#
+# Selecting is NOT approving. Nothing here approves a proposal, creates an order
+# plan, creates an order or moves capital; it decides only which target the
+# operator is ALLOWED to put in front of the existing Approve gate.
+# --------------------------------------------------------------------------- #
+SELECT_BLOCK_NOT_REVIEWABLE = "PROPOSAL_NOT_REVIEWABLE"
+SELECT_BLOCK_OBLIGATIONS_OPEN = "MANDATORY_REPAIR_OBLIGATIONS_UNRESOLVED"
+SELECT_BLOCK_REPAIR_UNVERIFIED = "MINIMUM_REPAIR_NOT_VERIFIED"
+SELECT_BLOCK_REPAIR_UNMEASURED = "MINIMUM_REPAIR_RISK_NOT_MEASURED"
+SELECT_BLOCK_NO_CHANGE = "TARGET_MOVES_NOTHING"
+SELECT_BLOCKER_VOCAB = (SELECT_BLOCK_NOT_REVIEWABLE, SELECT_BLOCK_OBLIGATIONS_OPEN,
+                        SELECT_BLOCK_REPAIR_UNVERIFIED, SELECT_BLOCK_REPAIR_UNMEASURED,
+                        SELECT_BLOCK_NO_CHANGE)
+
+#: Which state each verdict points at. A recommendation only - the operator
+#: selects, and nothing here pre-selects anything.
+VERDICT_RECOMMENDS = {
+    VERDICT_FULL_TARGET_REVIEWABLE: STATE_FULL_TARGET,
+    VERDICT_MINIMAL_REPAIR_PREFERRED: STATE_MINIMUM_REPAIR,
+    VERDICT_DEFER_WEAK_INCREMENTAL_EDGE: STATE_CURRENT,
+    VERDICT_NO_CHANGE_REQUIRED: STATE_CURRENT,
+    VERDICT_BLOCKED_CONSTRAINT_OR_DATA: None,
+}
+
+
+def target_selection_options(*, states: dict, verdict: dict, margins: dict,
+                             repair: dict, read_state: Optional[str]) -> dict:
+    """The three targets with a SELECTABLE verdict and a named reason for each.
+
+    Deterministic and total: every option lands on selectable or not, and a
+    non-selectable option always carries at least one blocker the operator can
+    read. Pure - this kernel holds no clock, so session freshness is applied by
+    the read owner ON TOP of this and may only ever REMOVE selectability.
+    """
+    reviewable = read_state not in NON_REVIEWABLE_READ_STATES
+    incr = (margins or {}).get("full_target_vs_minimum_repair") or {}
+    full_open = list(incr.get("obligations_left_open_by_full_target") or [])
+    repair_open = list((states[STATE_MINIMUM_REPAIR].get("constraint_status") or {}
+                        ).get("obligations_remaining") or [])
+    repair_measured = (repair.get("risk_measurement_state") == RISK_MEASURED
+                       or not (repair.get("adjustments") or []))
+    recommended = VERDICT_RECOMMENDS.get(verdict.get("verdict"))
+
+    def _blockers(state: str) -> list:
+        out = []
+        if not reviewable:
+            out.append({"code": SELECT_BLOCK_NOT_REVIEWABLE,
+                        "detail": ("The standing proposal is not in a reviewable "
+                                   "state (%s)." % read_state)})
+        if state == STATE_MINIMUM_REPAIR:
+            if not repair_measured:
+                out.append({"code": SELECT_BLOCK_REPAIR_UNMEASURED,
+                            "detail": ("The repaired book's risk was never "
+                                       "measured, so the repair is not proven "
+                                       "valid.")})
+            if repair_open:
+                out.append({"code": SELECT_BLOCK_REPAIR_UNVERIFIED,
+                            "instruments": sorted({o.get("ticker") for o in repair_open
+                                                   if o.get("ticker")}),
+                            "detail": ("Even the smallest valid change set leaves "
+                                       "%d obligation(s) open." % len(repair_open))})
+        if state == STATE_FULL_TARGET and full_open:
+            out.append({"code": SELECT_BLOCK_OBLIGATIONS_OPEN,
+                        "instruments": sorted({o.get("ticker") for o in full_open
+                                               if o.get("ticker")}),
+                        "obligations": full_open,
+                        "detail": ("%d mandatory repair obligation(s) remain "
+                                   "unresolved: %s."
+                                   % (len(full_open),
+                                      ", ".join(sorted({str(o.get("ticker"))
+                                                        for o in full_open}))))})
+        return out
+
+    options = []
+    for state in STATE_ORDER:
+        st = states[state] or {}
+        blockers = _blockers(state)
+        cs = st.get("constraint_status") or {}
+        options.append({
+            "target": state,
+            "label": STATE_LABELS[state],
+            "recommended": bool(recommended == state),
+            "selectable": not blockers,
+            "blockers": blockers,
+            "blocker_codes": sorted({b["code"] for b in blockers}),
+            # The facts the operator compares BEFORE selecting. Read from the
+            # states this review already built; nothing is recomputed here.
+            "positions": st.get("positions"),
+            "changes": st.get("changes"),
+            "one_way_turnover": st.get("one_way_turnover"),
+            "estimated_cost": st.get("estimated_cost"),
+            "score": st.get("score"),
+            "score_improvement_net_of_cost": st.get("score_improvement_net_of_cost"),
+            "portfolio_volatility": st.get("portfolio_volatility"),
+            "portfolio_volatility_capital_basis":
+                st.get("portfolio_volatility_capital_basis"),
+            "concentration": st.get("concentration"),
+            "largest_position": st.get("largest_position"),
+            "cash_weight": st.get("cash_weight"),
+            "mandatory_obligations_remaining": len(cs.get("obligations_remaining") or []),
+            "obligations_remaining": list(cs.get("obligations_remaining") or []),
+            "is_defer": state == STATE_CURRENT,
+        })
+    return {
+        "owner": CALCULATION_OWNER,
+        "decided_by_backend": True,
+        "decided_by_llm": False,
+        "options": options,
+        "option_order": list(STATE_ORDER),
+        "recommended_target": recommended,
+        "auto_selected": False,
+        "auto_selection_doc": ("The recommended target is identified, never "
+                               "pre-selected. Selection is an explicit operator "
+                               "act."),
+        "blocker_vocabulary": list(SELECT_BLOCKER_VOCAB),
+        "selectable_targets": sorted(o["target"] for o in options if o["selectable"]),
+        "full_target_reviewable": not full_open,
+        "reviewability_invariant":
+            "FULL_TARGET_SELECTABLE => ALL_MANDATORY_REPAIR_OBLIGATIONS_RESOLVED",
+        "selection_is_approval": False,
+        "selection_creates_order_plan": False,
+        "selection_creates_orders": False,
     }
 
 
@@ -1954,6 +2105,9 @@ def build_review(*, proposal: dict, hoc_assessment: Optional[dict] = None,
     explanation = explain(verdict=verdict, states=states, obligations=obligations,
                           classification=classification, margins=margins,
                           evidence=evidence, withheld=withheld)
+    selection = target_selection_options(states=states, verdict=verdict,
+                                         margins=margins, repair=repair,
+                                         read_state=read_state)
     return {
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
@@ -1974,6 +2128,7 @@ def build_review(*, proposal: dict, hoc_assessment: Optional[dict] = None,
         "historical_evidence": evidence,
         "review_verdict": verdict,
         "explanation": explanation,
+        "target_selection": selection,
         "tier_vocabulary": list(TIER_VOCAB),
         "repair_action_vocabulary": list(REPAIR_ACTION_VOCAB),
         "runtime_llm_dependency": "NONE",

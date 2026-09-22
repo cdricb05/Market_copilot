@@ -153,7 +153,10 @@ def _aug12(tmp: Path, *, marked=None, proposal_hash="AUG12_HASH",
     dec = _decision(proposal_hash=proposal_hash, decision=decision)
     kwargs = dict(desk_dir=sdir, active_book_id=BOOK_ID, eligible_market_date=ELIGIBLE,
                   artifact=art, decision_record=dec, plan_dir=tmp / "plans",
-                  actions_dir=tmp / "ca")
+                  actions_dir=tmp / "ca",
+                  # R63: this hermetic world's latest eligible session IS the bound
+                  # one, so the fail-closed freshness gate is exercised, not bypassed.
+                  latest_session=ELIGIBLE)
     return sdir, book, art, dec, kwargs
 
 

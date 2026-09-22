@@ -29027,6 +29027,161 @@ function _pdrEvidence(ev) {
     + '-session horizon. This evidence informs the review; it never rewrites a past decision and never overrides the proposal.</div>';
 }
 
+// --------------------------------------------------------------------------- //
+// R63 — GOVERNED TARGET SELECTION (rendered between Review and Approve)
+//
+// Every selectability verdict and every reason below is READ from the backend.
+// Nothing here decides whether a target may be selected: a rule that lived in
+// this file would be a rule no test could reach and no audit could see.
+// Selecting is not approving; this block creates no order plan and no order.
+// --------------------------------------------------------------------------- //
+function _pdrSelBtn(o, sel) {
+  var isSel = sel && sel.selected_target === o.target;
+  var label = ({
+    CURRENT: 'Keep current / Defer',
+    MINIMUM_REPAIR: 'Select minimum repair',
+    FULL_TARGET: 'Select full target'
+  })[o.target] || ('Select ' + (o.label || o.target));
+  var firstBlocker = (o.blockers || [])[0] || {};
+  // A disabled control ALWAYS says why, in the backend's own words.
+  var why = (o.blockers || []).map(function (b) {
+    return '<div class="pdr-note" style="margin:2px 0 0 0;">⛔ <b>'
+      + escapeHtml(b.code || '') + '</b> — ' + escapeHtml(b.detail || '') + '</div>';
+  }).join('');
+  var facts = '<div class="pdr-ev" style="grid-template-columns:repeat(4,1fr);margin-top:4px;">'
+    + '<div><div class="k">Positions</div><div class="v">' + (o.positions === null || o.positions === undefined ? '—' : o.positions) + '</div></div>'
+    + '<div><div class="k">Turnover</div><div class="v">' + _pdrPct(o.one_way_turnover) + '</div></div>'
+    + '<div><div class="k">Est. cost</div><div class="v">' + _pdrUsd(o.estimated_cost) + '</div></div>'
+    + '<div><div class="k">Net of cost</div><div class="v">' + _pdrNum(o.score_improvement_net_of_cost, 4) + '</div></div>'
+    + '<div><div class="k">Risk</div><div class="v">' + _pdrPct(o.portfolio_volatility_capital_basis, 2) + '</div></div>'
+    + '<div><div class="k">Concentration</div><div class="v">' + _pdrNum(o.concentration, 4) + '</div></div>'
+    + '<div><div class="k">Cash</div><div class="v">' + _pdrPct(o.cash_weight) + '</div></div>'
+    + '<div title="Mandatory repair obligations this target would leave open."><div class="k">Obligations left</div><div class="v">'
+    + (o.mandatory_obligations_remaining === null || o.mandatory_obligations_remaining === undefined
+       ? '—' : o.mandatory_obligations_remaining) + '</div></div>'
+    + '</div>';
+  return '<div class="pdr-ch" data-target="' + escapeHtml(o.target) + '"'
+    + ' data-selectable="' + (o.selectable ? 'true' : 'false') + '">'
+    + '<div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;">'
+    + escapeHtml(o.label || o.target)
+    + (o.recommended ? ' <span class="cc-badge ok" title="The review recommends this path. It is identified, never pre-selected.">RECOMMENDED</span>' : '')
+    + (isSel ? ' <span class="cc-badge ok">SELECTED</span>' : '')
+    + '</div>'
+    + facts
+    // The handler is attached ONLY when the backend says the target is
+    // selectable, so a non-selectable option carries no path to the write at all
+    // rather than relying on the `disabled` attribute alone.
+    + '<button type="button" class="btn-sm" style="margin-top:6px;width:100%;"'
+    + ' id="pdr-select-' + escapeHtml(o.target) + '"'
+    + (o.selectable
+       ? ' onclick="_pdrSelect(\'' + escapeHtml(o.target) + '\')"'
+       : ' disabled')
+    + ' title="' + escapeHtml(o.selectable
+        ? 'Record this as the target to take to the Approve gate. This is NOT an approval and creates no order plan.'
+        // Parenthesised: `+` binds tighter than `||`, so without these the left
+        // operand would be the truthy "Not selectable. undefined" and the
+        // fallback could never fire.
+        : ('Not selectable. ' + (firstBlocker.detail || firstBlocker.code
+                                 || 'the backend marked it not selectable.')))
+    + '">'
+    + escapeHtml(label) + (o.selectable ? '' : ' — NOT SELECTABLE') + '</button>'
+    + why
+    + '</div>';
+}
+
+function _pdrFreshnessLine(d) {
+  var f = (d && d.freshness) || {};
+  if (f.actionable !== false) return '';
+  return '<div class="pdr-note" style="border-left:3px solid var(--danger,#ef4444);'
+    + 'padding-left:8px;font-weight:700;">'
+    + '⚠ NOT ACTIONABLE — bound to session ' + escapeHtml(f.bound_session || '?')
+    + ', latest eligible session is ' + escapeHtml(f.latest_eligible_session || '?')
+    + '. No target can be selected, approved or confirmed.'
+    + (f.next_required_action
+       ? ' <b>NEXT REQUIRED ACTION: ' + escapeHtml(f.next_required_action) + '</b>'
+       : '')
+    + ' <span class="cc-badge">HISTORICAL EVIDENCE</span></div>';
+}
+
+function _pdrSelection(d) {
+  var ts = (d && d.target_selection) || {};
+  var opts = ts.options || [];
+  if (!opts.length) return '';
+  var f = (d && d.freshness) || {};
+  var sel = (d && d.selection) || null;
+  var stale = f.actionable === false;
+  var banner = stale
+    ? '<div class="pdr-note" style="border-left:3px solid var(--danger,#ef4444);padding-left:8px;">'
+      + '⚠ <b>NOT ACTIONABLE</b> — ' + escapeHtml(f.detail || '')
+      + (f.next_required_action
+         ? '<br><b>NEXT REQUIRED ACTION:</b> ' + escapeHtml(f.next_required_action) : '')
+      + '</div>'
+    : '';
+  var chosen = sel
+    ? '<div class="pdr-note">✔ <b>SELECTED TARGET:</b> '
+      + escapeHtml(sel.selected_target_label || sel.selected_target || '')
+      + ' · selection ' + escapeHtml(sel.selection_id || '')
+      + ' — selection is not approval; the Approve gate below is still required.</div>'
+    : '<div class="pdr-note">SELECTED TARGET: <b>none</b> — awaiting an explicit operator choice. '
+      + 'The recommended path is identified above but is never pre-selected.</div>';
+  return '<div class="pdr-sub">Select target to review'
+    + ' <span class="cc-badge">SELECTION IS NOT APPROVAL</span>'
+    + ' <span class="cc-badge">NO ORDERS</span>'
+    + ' <span class="cc-badge">MANUAL REVIEW</span></div>'
+    + banner
+    + '<div class="pdr-cols" style="grid-template-columns:repeat(3,1fr);">'
+    + opts.map(function (o) { return _pdrSelBtn(o, sel); }).join('')
+    + '</div>'
+    + chosen
+    + '<div id="pdr-select-result"></div>';
+}
+
+function _pdrSelect(target) {
+  var d = window._pdrData || {};
+  var host = document.getElementById('pdr-select-result');
+  var say = function (cls, msg) {
+    if (host) host.innerHTML = '<div class="pdr-note" style="border-left:3px solid '
+      + (cls === 'ok' ? 'var(--ok,#22c55e)' : 'var(--danger,#ef4444)')
+      + ';padding-left:8px;">' + escapeHtml(msg) + '</div>';
+  };
+  // Defence in depth: re-read the BACKEND's selectability for this target before
+  // sending anything. The button is only wired when selectable, but this function
+  // is reachable as window._pdrSelect, and the request it makes is a write. The
+  // backend fails closed on its own; this simply refuses to ask.
+  var opt = (((d.target_selection || {}).options) || []).filter(
+    function (o) { return o.target === target; })[0];
+  if (!opt || !opt.selectable) {
+    say('bad', 'Not selectable: ' + (((opt || {}).blockers || [])
+      .map(function (b) { return b.code; }).join('; ')
+      || 'the backend does not offer this target.'));
+    return;
+  }
+  say('ok', 'Recording selection…');
+  // No browser dialog of any kind: the confirmation is the explicit token sent
+  // below, and the outcome is rendered inline where the operator is looking.
+  fetch('/v1/operations/portfolio-decision/select-target', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target: target,
+      confirmation: ((d.governance || {}).selection_confirm_token
+                     || 'CONFIRM_PORTFOLIO_TARGET_SELECTION'),
+      expected_proposal_hash: d.proposal_hash || null,
+      expected_review_hash: d.review_hash || null,
+      expected_hoc_assessment_hash: ((d.inputs || {}).hoc_assessment_hash_used || null)
+    })
+  }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+    .then(function (r) {
+      var j = r.j || {};
+      if (j.selected) { say('ok', 'Selected ' + target + ' · ' + (j.status || '')); }
+      else { say('bad', (j.message || j.detail || 'Selection refused.') + ' [' + (j.status || 'REFUSED') + ']'); }
+      return _pdrLoad();
+    })
+    .catch(function (e) { say('bad', 'Selection request failed: ' + e); });
+}
+window._pdrSelect = _pdrSelect;
+
+
 function _pdrRender(d) {
   var host = document.getElementById('pm-pdr-host');
   if (!host) return;
@@ -29044,12 +29199,16 @@ function _pdrRender(d) {
   var states = r.states || {};
   var cl = r.change_classification || {};
   var incr = (r.marginal_economics || {}).full_target_vs_minimum_repair || {};
-  var recommended = ({
-    MINIMAL_REPAIR_PREFERRED: 'MINIMUM_REPAIR',
-    FULL_TARGET_REVIEWABLE: 'FULL_TARGET',
-    NO_CHANGE_REQUIRED: 'CURRENT',
-    DEFER_WEAK_INCREMENTAL_EDGE: 'CURRENT'
-  })[v.verdict] || null;
+  // R63 — the recommended target is the BACKEND's, read from the target-selection
+  // contract. The literal map that used to live here was a second copy of a rule
+  // the kernel owns; it is kept only as a fallback for an older payload.
+  var recommended = ((d.target_selection || r.target_selection || {}).recommended_target)
+    || ({
+      MINIMAL_REPAIR_PREFERRED: 'MINIMUM_REPAIR',
+      FULL_TARGET_REVIEWABLE: 'FULL_TARGET',
+      NO_CHANGE_REQUIRED: 'CURRENT',
+      DEFER_WEAK_INCREMENTAL_EDGE: 'CURRENT'
+    })[v.verdict] || null;
 
   var cols = (r.state_order || ['CURRENT', 'MINIMUM_REPAIR', 'FULL_TARGET']).map(function (k) {
     return _pdrStateCol(states[k], k === recommended, k === 'FULL_TARGET');
@@ -29093,6 +29252,10 @@ function _pdrRender(d) {
     + '<div class="pdr-note">Recommended review path — a recommendation for manual review only. It approves nothing, creates no order plan and executes nothing.</div>'
     + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
     + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'
+    // R63 — actionability belongs at the TOP of the card. An operator who came
+    // here to choose a target must learn that nothing is selectable before
+    // reading the comparison, not after scrolling past it.
+    + _pdrFreshnessLine(d)
     // The three states sit directly under the verdict: at 1920x1080 the comparison
     // an operator has to make is the first thing on the screen, and the reasoning
     // that justifies it follows immediately below it rather than pushing it away.
@@ -29107,6 +29270,9 @@ function _pdrRender(d) {
     + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--info,#3b82f6);">Discretionary · ' + (cl.discretionary_change_count || 0) + '</div>' + disc + '</div>'
     + '</div>'
     + '<div class="pdr-note">' + escapeHtml(cl.forced_classification_note || '') + '</div>'
+    // R63 — the governed selection step sits between the review and the Approve
+    // gate, so the operator chooses WHICH reviewed target goes to approval.
+    + _pdrSelection(d)
     + '<div class="pdr-sub">Historical evidence relevant to this proposal</div>'
     + _pdrEvidence(r.historical_evidence)
     + '</div>';
@@ -30065,7 +30231,7 @@ function _opRenderRawStates(p) {
 var _PM_VIEWS = ['overview', 'reallocation', 'performance', 'audit'];
 var _PM_VIEW_NOTE = {
   overview: 'What we own · what we should own · whether to change',
-  reallocation: 'Decision · changes · target · economics · governance',
+  reallocation: 'Decision · changes · SELECT TARGET · economics · governance',
   performance: 'Read-only analytics of the executed paper book',
   audit: 'Evidence, raw proposals, the controlled rebalance, model target, paper desk, corporate actions, methodology, raw states'
 };

@@ -10232,9 +10232,17 @@ def check_release47_constrained_reallocation(files: list[Path]) -> dict:
                                    and ck.count("def decide_outcome(") == 1)
 
     # (6) HOLD_CURRENT_BOOK is a taken decision, never an approvable one.
+    # The invariant is that ``hold_current_book`` PARTICIPATES in the approvable
+    # conjunction. It is checked by extracting that expression rather than by
+    # matching an incidental closing parenthesis, so a later release may add a
+    # further condition to the conjunction (R63 added session freshness) without
+    # silently disarming this invariant.
+    _approvable_expr = re.search(r'"approvable":\s*bool\((.*?)\),\s*\n',
+                                 pd_src, re.S)
     hold_not_approvable = all([
         "PDS_HOLD_CURRENT_BOOK" in pd_src,
-        "and not hold_current_book)" in pd_src,
+        bool(_approvable_expr
+             and "not hold_current_book" in _approvable_expr.group(1)),
         'if summ.get("reallocation_outcome") == _cr.OUTCOME_HOLD_CURRENT_BOOK:'
         in pd_src,
         "HOLD_CURRENT_BOOK_EXPOSED_AS_APPROVABLE" in ws_src,
@@ -11881,7 +11889,14 @@ def check_release54_2_3_2_decision_supersession(files: list[Path]) -> dict:
         "load_decision_supersession(" in pd_src
         and "This proposal was superseded by a newer authoritative" in pd_src
         and '"status": PDS_SUPERSEDED' in pd_src)
-    lane_state_in_vocab = "PDS_SUPERSEDED, PDS_UNAVAILABLE)" in pd_src
+    # The lane state must be a DECLARED member of the decision-state vocabulary.
+    # Checked by membership in the tuple rather than by a literal neighbouring
+    # spelling, so a later release may add a state (R63 added PDS_SESSION_STALE
+    # and PDS_SELECTION_IS_NO_CHANGE) without silently disarming this invariant.
+    _vocab_m = re.search(r"DECISION_STATE_VOCAB\s*=\s*\((.*?)\)", pd_src, re.S)
+    lane_state_in_vocab = bool(
+        _vocab_m and "PDS_SUPERSEDED" in
+        {t.strip() for t in _vocab_m.group(1).replace("\n", " ").split(",")})
 
     # (c) the proposal read owner delegates and renders.
     realloc_renders = all(t in rp_src for t in (

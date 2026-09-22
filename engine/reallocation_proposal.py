@@ -579,7 +579,8 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
                               held_set: set, universe_rows: list, urows: dict,
                               sector_of: dict, hoc_reviews: list, pct_fn,
                               nav: Optional[float], policy: dict,
-                              weight_ceilings: Optional[dict] = None) -> dict:
+                              weight_ceilings: Optional[dict] = None,
+                              mandatory_obligations: Optional[list] = None) -> dict:
     """Repair the complete target when - and only when - a portfolio limit breaches.
 
     Returns a ledger of what the repair did. ``applied`` is False when nothing was
@@ -592,6 +593,13 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
     """
     limits = measured["limits"]
     breach_codes = sorted({b.get("code") for b in (limits.get("breaches") or [])})
+    # R63 - an obligation an owner has already ruled is, by itself, a reason to run
+    # the repair. Before this release the repair ran ONLY on a measured limit
+    # breach, so an ideal target that happened to be feasible while still holding a
+    # name the retention rules no longer admit was published unrepaired.
+    obligations = [dict(o) for o in (mandatory_obligations or [])]
+    open_against_ideal = hoc_kernel.obligations_open_against(
+        obligations=obligations, weights=_positive(measured["proposed_weight"]))
     base = {
         "owner": _cr.CALCULATION_OWNER,
         "constraint_policy_version": _cr.CONSTRAINT_POLICY_VERSION,
@@ -607,10 +615,16 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
         "constraint_adjustments": [],
         "mandatory_exits": [],
         "incumbency_policy": _cr.INCUMBENCY_POLICY,
+        "mandatory_obligations": obligations,
+        "mandatory_obligation_count": len(obligations),
+        "mandatory_obligation_owners": sorted({(o.get("source_owner") or "UNKNOWN")
+                                               for o in obligations}),
+        "obligations_open_against_ideal_target": open_against_ideal,
+        "repair_triggered_by_obligation": bool(open_against_ideal and not breach_codes),
         "doc": ("A normal portfolio constraint reshapes the solution. Only an empty "
                 "feasible set withholds a portfolio decision."),
     }
-    if not breach_codes:
+    if not breach_codes and not open_against_ideal:
         return base
 
     cands = _cr_candidates(universe_rows=universe_rows, urows=urows,
@@ -627,13 +641,25 @@ def _reoptimise_if_infeasible(*, measured: dict, current_weight: dict,
         current_weight=current_weight,
         ideal_weight=_positive(measured["proposed_weight"]),
         candidates=cands, nav=nav, risk_contributions=rc["contributions"],
-        policy=proj, weight_ceilings=weight_ceilings)
+        policy=proj, weight_ceilings=weight_ceilings,
+        mandatory_obligations=obligations)
     base.update({
         "applied": bool(solution["feasible"]),
         "best_feasible_target": solution["best_feasible_target"],
         "constraint_adjustments": solution["constraint_adjustments"],
         "constraints_that_reshaped": solution["constraints_that_reshaped"],
         "mandatory_exits": solution["mandatory_exits"],
+        # R63 diagnostics. Read defensively: these describe HOW the mandatory tier
+        # was formed, and a solution that does not carry them (a kernel stub, an
+        # older shape) must still produce a proposal rather than crash the build.
+        "capacity_mandatory_exits": solution.get("capacity_mandatory_exits",
+                                                 solution["mandatory_exits"]),
+        "governance_mandatory_exits": solution.get("governance_mandatory_exits") or [],
+        "obligation_ceilings_applied": solution.get("obligation_ceilings_applied") or {},
+        # Judged on the RESULTING book, never by matching trades: a breach can be
+        # closed by composition without the name ever being traded.
+        "obligations_open_after_repair": hoc_kernel.obligations_open_against(
+            obligations=obligations, weights=solution["best_feasible_target"]),
         "released_weight": solution["released_weight"],
         "redistributed_weight": solution["redistributed_weight"],
         "turnover": solution["turnover"],
@@ -1085,10 +1111,21 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     # not "withhold and keep the incumbents", it is "solve the best FEASIBLE target
     # under that limit". Only when the feasible set is genuinely EMPTY does the old
     # fail-closed WITHHELD path remain.
+    # R63 - the opportunity-cost owner's OWN repair obligations, read as a
+    # structured handoff rather than re-derived here. They enter the repair
+    # kernel's existing mandatory tier, so a governed retention or eligibility
+    # failure is taken BEFORE any discretionary trade and can never be deferred to
+    # fit the turnover budget. This kernel reaches no verdict of its own about
+    # them; it carries the owner's.
+    mandatory_obligations = hoc_kernel.governance_repair_obligations(
+        holding_reviews=hoc_reviews, current_weights=current_weight,
+        evidence_hash=ic.get("hoc_assessment_hash"))
+
     reoptimisation = _reoptimise_if_infeasible(
         measured=measured, current_weight=current_weight, held_set=held_set,
         universe_rows=universe_rows, urows=urows, sector_of=sector_of,
-        hoc_reviews=hoc_reviews, pct_fn=_pct, nav=nav, policy=pol)
+        hoc_reviews=hoc_reviews, pct_fn=_pct, nav=nav, policy=pol,
+        mandatory_obligations=mandatory_obligations)
     reoptimisation["risk_contribution_repair_rounds"] = []
     if reoptimisation["applied"]:
         repaired = _measure(reoptimisation["best_feasible_target"])
@@ -1128,7 +1165,8 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                     measured=measured, current_weight=current_weight,
                     held_set=held_set, universe_rows=universe_rows, urows=urows,
                     sector_of=sector_of, hoc_reviews=hoc_reviews, pct_fn=_pct,
-                    nav=nav, policy=pol, weight_ceilings=dict(ceilings))
+                    nav=nav, policy=pol, weight_ceilings=dict(ceilings),
+                    mandatory_obligations=mandatory_obligations)
                 ceilings = _rc_ceilings(again.get("constraint_adjustments"), ceilings)
                 ledger = {"round": round_no,
                           "breaches_before": (still[0].get("value")
@@ -1232,6 +1270,13 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
     # answer to a normal cap.
     complete_target_limits = measured["limits"]
 
+    # R63 - does the target this kernel is about to publish actually resolve every
+    # obligation its own opportunity-cost owner ruled? Judged on the RESULTING
+    # book: a breach can be closed by composition without the name being traded,
+    # and an owner that judged by matching trades would call such a book unrepaired.
+    obligations_open_after_target = hoc_kernel.obligations_open_against(
+        obligations=mandatory_obligations, weights=_positive(proposed_weight))
+
     # --- Release 47: switching economics + the ONE authoritative outcome ----- #
     # Every economic input here is DELEGATED: the score comes from the signal block,
     # the turnover and the cost from the turnover block, the volatility from the risk
@@ -1319,8 +1364,11 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
         # A proposal is offered for approval only when the state permits it AND the
         # switching economics say the change is worth paying for. HOLD_CURRENT_BOOK
         # is a decision the system has already taken; it is not outstanding work.
+        # R63 adds the third condition: a target that still leaves a ruled repair
+        # obligation open is not offered for approval, however good its economics.
         "approvable": bool(proposal_state in APPROVABLE_STATES
-                           and verdict["outcome"] == _cr.OUTCOME_PROPOSAL_READY),
+                           and verdict["outcome"] == _cr.OUTCOME_PROPOSAL_READY
+                           and not obligations_open_after_target),
         "withheld_reasons": complete_target_limits["breaches"],
         "data_gaps": data_gaps,
         "diagnostics": {
@@ -1341,6 +1389,44 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
             "recommendation_counts": ic.get("hoc_recommendation_counts") or {},
             "data_gaps": hoc_gaps,
         },
+        # --- R63: the mandatory-repair contract, carried on the proposal -------- #
+        # ONE authoritative interpretation. The obligations are the opportunity-cost
+        # owner's own rulings; what is published here is whether THIS target
+        # resolves them, judged on the resulting book rather than by matching
+        # trades. A target that leaves one open is not reviewable (see
+        # ``full_target_reviewable`` below) and fails closed.
+        "mandatory_repair": {
+            "contract_version": hoc_kernel.MANDATORY_REPAIR_CONTRACT_VERSION,
+            "owner": hoc_kernel.CALCULATION_OWNER,
+            "handoff_owner": CALCULATION_OWNER,
+            "constraint_owner": _cr.CALCULATION_OWNER,
+            "obligations": mandatory_obligations,
+            "obligation_count": len(mandatory_obligations),
+            "tier_vocabulary": list(hoc_kernel.OBLIGATION_TIER_VOCAB),
+            "required_action_vocabulary": list(hoc_kernel.REQUIRED_ACTION_VOCAB),
+            "obligations_open_against_target": obligations_open_after_target,
+            "obligations_open_count": len(obligations_open_after_target),
+            "obligations_resolved": not obligations_open_after_target,
+            "governance_mandatory_exits":
+                reoptimisation.get("governance_mandatory_exits") or [],
+            "capacity_mandatory_exits":
+                reoptimisation.get("capacity_mandatory_exits") or [],
+            "mandatory_precedes_discretionary": True,
+            "turnover_can_defer_mandatory_repair": False,
+            "mandatory_turnover": (reoptimisation.get("turnover") or {}).get(
+                "mandatory_turnover"),
+            "normal_turnover_budget": (reoptimisation.get("turnover") or {}).get(
+                "normal_turnover_budget"),
+            "excess_required_by_mandatory_repair":
+                (reoptimisation.get("turnover") or {}).get(
+                    "excess_required_by_mandatory_repair"),
+            "turnover_budget_subordinated_to_mandatory_repair": bool(
+                (reoptimisation.get("turnover") or {}).get(
+                    "turnover_budget_subordinated_to_mandatory_repair")),
+        },
+        # The invariant: a target may not be offered for review while it knowingly
+        # leaves an obligation an owner has already ruled. Fail closed.
+        "full_target_reviewable": not obligations_open_after_target,
         "safety": _safety(),
         "provenance": _provenance(ic),
     }

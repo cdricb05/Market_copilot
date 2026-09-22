@@ -504,6 +504,277 @@ def risk_contribution_breaches(*, contributions: dict, limit: Optional[float],
 
 
 # --------------------------------------------------------------------------- #
+# THE MANDATORY-REPAIR OBLIGATION CONTRACT (R63)
+#
+# ONE authoritative interpretation of "this holding MUST be repaired".
+#
+# Before this release two owners disagreed. This module ruled a holding BROKEN -
+# outside the governed retention or eligibility rules - while the Release-47
+# constraint kernel reserved its own mandatory tier for names the universe or a
+# cap cannot hold AT ALL. A retention exit therefore arrived in the reallocation
+# kernel as a DISCRETIONARY leg and the turnover budget was free to defer it.
+# That is how the 2026-09-18 full target shipped with LH and VLO still past the
+# exit buffer and published ``mandatory_turnover = 0.0``.
+#
+# The verdict is, and stays, THIS module's: ``deterioration_state == BROKEN`` is
+# the decision policy's own statement that the book no longer retains a holding.
+# What this contract adds is a STRUCTURED HANDOFF of that existing verdict, so a
+# downstream owner consumes the decision instead of re-deriving (or ignoring) it.
+# Nothing here re-decides anything, and no new mandatory condition is invented:
+# every row below is produced from a verdict an owner already published.
+#
+# The contract is ASSET-AGNOSTIC. It reads a decided review row, not an equity
+# feature; an owner that rules on futures, FX, rates or a cross-asset sleeve
+# publishes rows through :func:`obligations_from_ruled_rows` on identical terms.
+# --------------------------------------------------------------------------- #
+MANDATORY_REPAIR_CONTRACT_VERSION = "mandatory_repair_obligations.v1"
+
+#: The two tiers. Each is owned by the module that decides it: the HARD tier by
+#: the constraint kernel and the risk-contribution contract above, the GOVERNANCE
+#: tier by this module's decision policy.
+OBLIGATION_TIER_HARD = "HARD_CONSTRAINT_VIOLATION"
+OBLIGATION_TIER_GOVERNANCE = "GOVERNANCE_RETENTION_FAILURE"
+OBLIGATION_TIER_VOCAB = (OBLIGATION_TIER_HARD, OBLIGATION_TIER_GOVERNANCE)
+
+#: The reason vocabulary. These are the EXISTING reason codes the owners already
+#: publish; this contract adds none.
+OBLIGATION_REASON_MANDATORY = "MANDATORY_CONSTRAINT_REPAIR"
+OBLIGATION_REASON_CONCENTRATION = "CONCENTRATION_REPAIR"
+OBLIGATION_REASON_LIQUIDITY = "LIQUIDITY_REPAIR"
+OBLIGATION_REASON_UNIVERSE = "UNIVERSE_INELIGIBILITY"
+OBLIGATION_REASON_RETENTION = "RETENTION_RULE_FAILURE"
+
+#: What the owner requires. ``NOT_SIZEABLE`` is an honest third state: the owner
+#: names the obligation but publishes no compliant weight for it, so a consumer
+#: may NEVER silently promote it to an exit.
+REQUIRED_ACTION_EXIT = "EXIT_TO_ZERO"
+REQUIRED_ACTION_REDUCE = "REDUCE_TO_LIMIT"
+REQUIRED_ACTION_NOT_SIZEABLE = "NOT_SIZEABLE_FROM_PERSISTED_EVIDENCE"
+REQUIRED_ACTION_VOCAB = (REQUIRED_ACTION_EXIT, REQUIRED_ACTION_REDUCE,
+                         REQUIRED_ACTION_NOT_SIZEABLE)
+
+#: The retention codes THIS owner spells (the governed retention rule is its own
+#: policy, not an entry in the constraint kernel's inventory). A code that names a
+#: CONSTRAINT - the eligible universe, a liquidity participation cap - belongs to
+#: the constraint kernel and is deliberately left None here for that owner to
+#: attach, so neither module forks the other's vocabulary.
+RETENTION_CODE_EXIT_BUFFER = "RETENTION_EXIT_BUFFER"
+RETENTION_CODE_RULE = "RETENTION_RULE"
+
+#: The fields every obligation row carries, declared once so a consumer can
+#: assert the shape rather than guess it.
+MANDATORY_REPAIR_OBLIGATION_FIELDS = (
+    "instrument_id", "ticker", "asset_class", "sleeve_id",
+    "tier", "obligation_type", "reason_code", "source_owner",
+    "required_action", "current_weight", "max_valid_weight", "required_exit",
+    "evidence_id", "evidence_hash", "detail",
+)
+
+
+def retention_obligation(review: Optional[dict]) -> Optional[dict]:
+    """The governed retention / eligibility obligation on ONE review row, or None.
+
+    The verdict is this module's own and is merely READ here:
+    ``deterioration_state == BROKEN`` is the decision policy's statement that the
+    holding is no longer one the book retains. The reason codes it already
+    publishes separate the two causes - the eligible universe no longer admits
+    the name, or it fell beyond the governed exit buffer.
+    """
+    r = review or {}
+    if r.get("deterioration_state") != DET_BROKEN:
+        return None
+    codes = list(r.get("deterioration_reason_codes") or r.get("reason_codes") or [])
+    ineligible = [c for c in codes
+                  if c == "NOT_ELIGIBLE" or str(c).startswith("INELIGIBLE_")]
+    if ineligible:
+        # The code for "the universe does not admit this name" belongs to the
+        # constraint kernel's inventory, so it is left for that owner to attach.
+        return {"obligation_type": OBLIGATION_TIER_GOVERNANCE,
+                "reason_code": OBLIGATION_REASON_UNIVERSE,
+                "constraint_code": None,
+                "required_action": REQUIRED_ACTION_EXIT,
+                "detail": ("The eligible universe no longer admits this holding (%s)."
+                           % ", ".join(sorted(ineligible)))}
+    if "FELL_BELOW_EXIT_BUFFER" in codes:
+        return {"obligation_type": OBLIGATION_TIER_GOVERNANCE,
+                "reason_code": OBLIGATION_REASON_RETENTION,
+                "constraint_code": RETENTION_CODE_EXIT_BUFFER,
+                "required_action": REQUIRED_ACTION_EXIT,
+                "detail": ("The holding fell beyond the book's exit buffer, so the "
+                           "governed retention rule no longer retains it.")}
+    return {"obligation_type": OBLIGATION_TIER_GOVERNANCE,
+            "reason_code": OBLIGATION_REASON_RETENTION,
+            "constraint_code": RETENTION_CODE_RULE,
+            "required_action": REQUIRED_ACTION_EXIT,
+            "detail": ("The opportunity-cost owner classifies this holding as "
+                       "BROKEN (%s)." % (", ".join(sorted(codes)) or "no code published"))}
+
+
+def liquidity_obligation(review: Optional[dict]) -> Optional[dict]:
+    """The liquidity obligation on ONE review row, or None.
+
+    This module publishes the liquidity STATE, not the participation-compliant
+    weight, so the obligation can be NAMED but not SIZED from a review row alone.
+    It is therefore ``NOT_SIZEABLE`` here: the constraint kernel's own
+    participation cap sizes it, and no consumer may turn this into a forced exit.
+    """
+    r = review or {}
+    if r.get("liquidity_state") != LIQ_ILLIQUID:
+        return None
+    days = r.get("estimated_days_to_liquidate")
+    return {"obligation_type": OBLIGATION_TIER_HARD,
+            "reason_code": OBLIGATION_REASON_LIQUIDITY,
+            "constraint_code": None,
+            "required_action": REQUIRED_ACTION_NOT_SIZEABLE,
+            "detail": ("The opportunity-cost owner classifies this holding as "
+                       "ILLIQUID (estimated days to liquidate %s). It publishes "
+                       "the liquidity STATE, not the participation-compliant "
+                       "weight, so this contract names the obligation but cannot "
+                       "size the repair for it."
+                       % (days if days is not None else "unknown"))}
+
+
+#: The probes, in the order a row is tested. Declared as data so a consumer can
+#: publish WHICH probes ran rather than assume the set.
+GOVERNANCE_OBLIGATION_PROBES = (retention_obligation, liquidity_obligation)
+
+
+def obligations_from_ruled_rows(*, rows: list, current_weights: Optional[dict] = None,
+                                evidence_hash: Optional[str] = None,
+                                evidence_id: Optional[str] = None,
+                                source_owner: Optional[str] = None) -> list[dict]:
+    """Project ALREADY-RULED review rows into canonical obligation rows.
+
+    ``rows`` are decided review rows - this function runs no policy and reaches no
+    verdict; it reads the verdict each row already carries. Any owner that rules
+    on an instrument (equity, futures, FX, rates, volatility, a cross-asset
+    sleeve) may publish through this function, which is why the row key is
+    ``instrument_id`` and ``ticker`` is carried alongside it for the equity
+    spelling every existing consumer uses.
+
+    Sorted by (tier, reason, instrument) so the projection is deterministic.
+    """
+    owner = source_owner or CALCULATION_OWNER
+    cw = {k: _f(v) for k, v in (current_weights or {}).items()}
+    out: list[dict] = []
+    for row in (rows or []):
+        r = dict(row or {})
+        tk = r.get("instrument_id") or r.get("ticker")
+        if not tk:
+            continue
+        for probe in GOVERNANCE_OBLIGATION_PROBES:
+            got = probe(r)
+            if not got:
+                continue
+            weight = cw.get(tk)
+            if weight is None:
+                weight = _f(r.get("current_weight"))
+            exits = got["required_action"] == REQUIRED_ACTION_EXIT
+            out.append({
+                "instrument_id": tk,
+                "ticker": tk,
+                "asset_class": r.get("asset_class"),
+                "sleeve_id": r.get("sleeve_id"),
+                "tier": got["obligation_type"],
+                "obligation_type": got["obligation_type"],
+                "reason_code": got["reason_code"],
+                "source_owner": owner,
+                "required_action": got["required_action"],
+                "current_weight": _r(weight, 8),
+                # The largest weight that still satisfies the obligation. A forced
+                # exit is 0.0; an obligation this owner cannot size publishes None
+                # rather than a number nobody measured.
+                "max_valid_weight": (0.0 if exits else None),
+                "required_exit": bool(exits),
+                "evidence_id": evidence_id,
+                "evidence_hash": evidence_hash,
+                "detail": got["detail"],
+                # Carried so a consumer can show the operator the owner's own words
+                # without reaching back into the assessment.
+                "current_rank": r.get("current_rank"),
+                "deterioration_state": r.get("deterioration_state"),
+                "hoc_recommendation": r.get("recommendation"),
+                "reason_codes": list(r.get("reason_codes") or []),
+            })
+    out.sort(key=lambda o: (
+        OBLIGATION_TIER_VOCAB.index(o["tier"]) if o["tier"] in OBLIGATION_TIER_VOCAB else 9,
+        o.get("reason_code") or "", o.get("instrument_id") or ""))
+    return out
+
+
+def governance_repair_obligations(*, assessment: Optional[dict] = None,
+                                  holding_reviews: Optional[list] = None,
+                                  current_weights: Optional[dict] = None,
+                                  evidence_hash: Optional[str] = None,
+                                  evidence_id: Optional[str] = None) -> list[dict]:
+    """THE canonical mandatory-repair obligations this owner asserts over a book.
+
+    Pass either a whole ``assessment`` (its ``holding_reviews`` and
+    ``assessment_hash`` are read) or the ``holding_reviews`` directly. The result
+    is the structured handoff the reallocation kernel consumes: every row is a
+    decision THIS module already made, carried forward unchanged.
+    """
+    a = assessment or {}
+    rows = holding_reviews if holding_reviews is not None else (a.get("holding_reviews") or [])
+    return obligations_from_ruled_rows(
+        rows=rows, current_weights=current_weights,
+        evidence_hash=(evidence_hash if evidence_hash is not None
+                       else a.get("assessment_hash")),
+        evidence_id=evidence_id, source_owner=CALCULATION_OWNER)
+
+
+def forced_weight_ceilings(obligations: Optional[list]) -> dict:
+    """``{instrument: max_valid_weight}`` for every obligation that HAS a sizeable
+    ceiling. An obligation the owner could not size contributes nothing, so a
+    consumer can never silently read "unsized" as "exit"."""
+    out: dict = {}
+    for o in (obligations or []):
+        tk = (o or {}).get("instrument_id") or (o or {}).get("ticker")
+        ceil = _f((o or {}).get("max_valid_weight"))
+        if not tk or ceil is None:
+            continue
+        out[tk] = min(out[tk], ceil) if tk in out else ceil
+    return out
+
+
+def required_exit_instruments(obligations: Optional[list]) -> list:
+    """Sorted instruments an owner requires to leave the book entirely."""
+    return sorted({(o or {}).get("instrument_id") or (o or {}).get("ticker")
+                   for o in (obligations or [])
+                   if (o or {}).get("required_action") == REQUIRED_ACTION_EXIT
+                   and ((o or {}).get("instrument_id") or (o or {}).get("ticker"))})
+
+
+def obligations_open_against(*, obligations: Optional[list],
+                             weights: Optional[dict],
+                             tol: float = 1e-9) -> list[dict]:
+    """Which obligations a RESULTING book still leaves open.
+
+    Satisfaction is judged on the resulting book, never by matching trades: a
+    breach can be closed by composition (a name's risk share can fall below its
+    limit without that name ever being traded), and an owner that judged by trades
+    would call such a book unrepaired. An obligation whose compliant weight this
+    contract could not size is reported as open unless the name is gone.
+    """
+    w = {k: (_f(v) or 0.0) for k, v in (weights or {}).items()}
+    out = []
+    for o in (obligations or []):
+        tk = (o or {}).get("instrument_id") or (o or {}).get("ticker")
+        if not tk:
+            continue
+        held = w.get(tk, 0.0)
+        ceil = _f((o or {}).get("max_valid_weight"))
+        if ceil is None:
+            # Unsized: only a full exit can prove it closed from here.
+            if held > tol:
+                out.append(dict(o))
+            continue
+        if held > float(ceil) + tol:
+            out.append(dict(o))
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Stable hashing (assessment_hash excludes generated_at / volatile keys)
 # --------------------------------------------------------------------------- #
 _VOLATILE_KEYS = frozenset({"generated_at", "evaluated_at", "loaded_at", "built_at",

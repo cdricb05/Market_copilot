@@ -699,7 +699,8 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
                           candidates: list, nav: Optional[float],
                           risk_contributions: Optional[dict] = None,
                           policy: Optional[dict] = None,
-                          weight_ceilings: Optional[dict] = None) -> dict:
+                          weight_ceilings: Optional[dict] = None,
+                          mandatory_obligations: Optional[list] = None) -> dict:
     """Solve the best FEASIBLE constrained target, starting from the ideal one.
 
     ``candidates`` is the eligible universe as the scoring owner publishes it:
@@ -720,21 +721,64 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
     different name; without the ceilings the released capital would flow straight
     back into the name the earlier round had just cut, and the rounds would chase
     each other. A ceiling only ever LOWERS a cap.
+
+    ``mandatory_obligations`` (R63) are repair obligations an UPSTREAM OWNER has
+    already ruled - rows in the
+    ``engine.holding_opportunity_cost`` mandatory-repair contract. This kernel
+    does not re-decide them and holds no opinion about them; it binds them.
+
+    They exist because this kernel's own mandatory tier is derived from CAPACITY
+    (a held name outside the candidate set, or with a zero cap). A holding the
+    governed retention rules no longer admit but which still HAS capacity was
+    therefore ordered as a discretionary leg, and the turnover budget could defer
+    it - leaving the target in a breach the owner had already declared. An
+    obligation carried here enters the SAME mandatory tier that already exists:
+    a forced ceiling, taken before any discretionary trade, never weighed against
+    the switching hurdle, and never deferred to fit the budget.
     """
     pol = dict(default_policy())
     if policy:
         pol.update(policy)
+
+    # The owner's decision, read as data. ``required_action`` is honoured exactly:
+    # an obligation the owner could NOT size (no ``max_valid_weight``) imposes no
+    # ceiling here, because promoting "unsized" to "exit" would invent a verdict.
+    obligations = [dict(o) for o in (mandatory_obligations or []) if (o or {}).get("ticker")
+                   or (o or {}).get("instrument_id")]
+    forced_ceilings: dict = {}
+    for o in obligations:
+        tk = o.get("instrument_id") or o.get("ticker")
+        ceil = _f(o.get("max_valid_weight"))
+        if ceil is None:
+            continue
+        forced_ceilings[tk] = min(forced_ceilings[tk], ceil) if tk in forced_ceilings else ceil
+    obligation_exits = sorted({(o.get("instrument_id") or o.get("ticker"))
+                               for o in obligations
+                               if _f(o.get("max_valid_weight")) == 0.0})
 
     cands = [dict(c) for c in (candidates or []) if c.get("ticker")]
     sector_of = {c["ticker"]: (c.get("sector") or "Unknown") for c in cands}
     score_of = {c["ticker"]: (_f(c.get("score")) or 0.0) for c in cands}
     caps, cap_binding = name_caps(candidates=cands, nav=nav, policy=pol)
     ceilings_applied = {}
+    obligation_ceilings_applied = {}
     for tk, ceil in (weight_ceilings or {}).items():
         c = _f(ceil)
         if tk in caps and c is not None and c < caps[tk]:
             caps[tk] = max(0.0, c)
             ceilings_applied[tk] = _r(caps[tk], 8)
+    # The capacity this kernel derives ON ITS OWN, snapshotted BEFORE any
+    # owner-ruled ceiling is applied. Without this snapshot a forced exit would
+    # zero the cap and then be reported as a capacity exit - the kernel would
+    # take credit for a decision an upstream owner made, and the seam this
+    # release exists to make visible would be invisible again.
+    caps_before_obligations = dict(caps)
+    # An owner-ruled obligation binds through the SAME ceiling mechanism, so the
+    # whole solve below - placement, redistribution, budget - already respects it.
+    for tk, ceil in sorted(forced_ceilings.items()):
+        if tk in caps and ceil < caps[tk]:
+            caps[tk] = max(0.0, float(ceil))
+            obligation_ceilings_applied[tk] = _r(caps[tk], 8)
     # Release 50 - instrument metadata (equity defaults for rows without it) and
     # the cross-asset room function every placement below respects.
     meta = candidate_meta(cands)
@@ -788,8 +832,19 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
 
     # Mandatory exits: held names the target cannot contain. Their exit is a
     # CONSTRAINT, not an economic choice, so it is never weighed against a hurdle.
-    mandatory_exits = sorted(tk for tk, v in current.items()
-                             if v > _TOL and (tk not in caps or caps[tk] <= 0.0))
+    #
+    # Two sources, ONE tier (R63). Capacity is this kernel's own derivation; the
+    # obligations are an upstream owner's ruling. Before R63 only the first
+    # existed, so a governed retention failure with capacity left ranked as a
+    # discretionary trade and the turnover budget could defer it.
+    capacity_mandatory_exits = sorted(
+        tk for tk, v in current.items()
+        if v > _TOL and (tk not in caps_before_obligations
+                         or caps_before_obligations[tk] <= 0.0))
+    governance_mandatory_exits = sorted(tk for tk in obligation_exits
+                                        if current.get(tk, 0.0) > _TOL
+                                        and tk not in capacity_mandatory_exits)
+    mandatory_exits = sorted(set(capacity_mandatory_exits) | set(governance_mandatory_exits))
 
     # --- 1. per-name cap (name / liquidity participation / ADV floor) ---------- #
     for tk in sorted(w):
@@ -990,7 +1045,7 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
             current=current, target=unconstrained_target, budget=float(budget),
             caps=eff_caps, sector_of=sector_of, score_of=score_of,
             mandatory_exits=set(mandatory_exits), policy=pol, note=_note,
-            room_fn=_room)
+            room_fn=_room, governance_exits=set(governance_mandatory_exits))
         turnover_block.update(tb)
     turnover_block["achieved_one_way_turnover"] = _r(
         one_way_turnover(current, final), 6)
@@ -1032,7 +1087,20 @@ def solve_feasible_target(*, current_weight: dict, ideal_weight: dict,
         "mandatory_exit_doc": (
             "A held name outside the eligible universe (or with zero feasible "
             "capacity) cannot appear in any target. Its exit is a constraint, not an "
-            "economic choice, so it is never weighed against the switching hurdle."),
+            "economic choice, so it is never weighed against the switching hurdle. "
+            "An obligation an upstream owner has already ruled (R63) enters this "
+            "same tier and is likewise never deferred to fit the turnover budget."),
+        # R63 - the two sources of the ONE mandatory tier, kept separable so an
+        # auditor can see which owner forced which exit.
+        "capacity_mandatory_exits": capacity_mandatory_exits,
+        "governance_mandatory_exits": governance_mandatory_exits,
+        "mandatory_obligations_supplied": len(obligations),
+        "mandatory_obligation_owners": sorted({(o.get("source_owner") or "UNKNOWN")
+                                               for o in obligations}),
+        "obligation_ceilings_applied": obligation_ceilings_applied,
+        "obligations_unsized_by_owner": sorted({(o.get("instrument_id") or o.get("ticker"))
+                                                for o in obligations
+                                                if _f(o.get("max_valid_weight")) is None}),
         "constraint_adjustments": adjustments,
         "constraint_adjustment_count": len(adjustments),
         "constraints_that_reshaped": sorted({a["constraint"] for a in adjustments}),
@@ -1208,16 +1276,18 @@ def _dilute_for_concentration(w: dict, *, current: dict, caps: dict,
 def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
                          caps: dict, sector_of: dict, score_of: dict,
                          mandatory_exits: set, policy: dict, note,
-                         room_fn=None) -> tuple:
+                         room_fn=None, governance_exits: Optional[set] = None) -> tuple:
     """The best feasible target INSIDE the turnover budget.
 
     Trades are split in two, and the split is the whole point:
 
     * MANDATORY legs implement a constraint (an ineligible / illiquid holding must
-      leave, a name above its cap must come down). They are not discretionary, so
-      they are taken FIRST and, if they alone exceed the budget, they are still
-      taken - a budget may not trap the book in a constraint breach. That case is
-      recorded explicitly rather than silently.
+      leave, a name above its cap must come down) OR an obligation an upstream
+      owner has already ruled (R63: a governed retention or eligibility failure).
+      They are not discretionary, so they are taken FIRST and, if they alone
+      exceed the budget, they are still taken - a budget may not trap the book in
+      a constraint breach, and it may not knowingly leave a mandatory repair
+      unresolved. That case is recorded explicitly rather than silently.
     * DISCRETIONARY legs are ordered by SCORE IMPROVEMENT PER UNIT OF TURNOVER
       against the current book's own weighted score, and taken while the budget
       lasts. The marginal leg is scaled to fit exactly, so the budget is used, not
@@ -1243,7 +1313,16 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
         if abs(d) <= _TOL:
             continue
         cap = caps.get(tk, 0.0)
-        is_mandatory = bool(tk in mandatory_exits or (cw > cap + _TOL and d < 0))
+        above_cap = bool(cw > cap + _TOL and d < 0)
+        is_mandatory = bool(tk in mandatory_exits or above_cap)
+        # Which rule made this leg mandatory. Published so an auditor never has to
+        # infer it, and so a governance-forced exit is visibly not a cap trim.
+        basis = None
+        if is_mandatory:
+            basis = ("OWNER_RULED_REPAIR_OBLIGATION"
+                     if tk in (governance_exits or frozenset())
+                     else ("HELD_NAME_ABOVE_EFFECTIVE_CAP" if above_cap
+                           else "NO_FEASIBLE_CAPACITY_IN_TARGET"))
         # Density: what the trade does to the portfolio's weighted score per unit
         # of weight moved. Buying above the current average helps; selling below it
         # helps. Both are measured against ONE frozen reference point.
@@ -1254,7 +1333,8 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
                "turnover_cost": _r(abs(d) / 2.0, 8),
                "score": _r(score_of.get(tk), 6),
                "score_improvement_per_turnover_unit": _r(density, 6),
-               "mandatory": is_mandatory}
+               "mandatory": is_mandatory,
+               "mandatory_basis": basis}
         (mandatory if is_mandatory else discretionary).append(leg)
 
     w = dict(current)
@@ -1269,10 +1349,10 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
     if budget_subordinated:
         note(C_TURNOVER_BUDGET, ADJ_TRADES_DEFERRED,
              limit=_r(budget, 6), before=_r(mandatory_turnover, 6),
-             detail=("The constraint-mandated exits alone exceed the turnover "
-                     "budget. A budget may not trap the book in a constraint "
-                     "breach, so they are kept and every discretionary trade is "
-                     "deferred."))
+             detail=("The mandated repairs alone exceed the turnover budget. A "
+                     "budget may not trap the book in a constraint breach or "
+                     "leave a ruled repair obligation open, so they are kept and "
+                     "every discretionary trade is deferred."))
 
     ordered = sorted(discretionary,
                      key=lambda x: (-(x["score_improvement_per_turnover_unit"]
@@ -1316,9 +1396,19 @@ def _fit_turnover_budget(*, current: dict, target: dict, budget: float,
                      "trades with the highest score improvement per unit of "
                      "turnover; the rest are deferred to a later reassessment."))
     w = {tk: v for tk, v in w.items() if v > _TOL}
+    gov = sorted(l["ticker"] for l in mandatory
+                 if l.get("mandatory_basis") == "OWNER_RULED_REPAIR_OBLIGATION")
     return w, {
         "mandatory_turnover": _r(mandatory_turnover, 6),
         "budget_subordinated_to_mandatory_constraints": budget_subordinated,
+        # R63 - the same fact under the name the operator surface publishes, plus
+        # the two figures that make it auditable rather than a bare flag.
+        "turnover_budget_subordinated_to_mandatory_repair": budget_subordinated,
+        "normal_turnover_budget": _r(budget, 6),
+        "excess_required_by_mandatory_repair": _r(
+            max(0.0, mandatory_turnover - budget), 6),
+        "mandatory_trade_count": len(mandatory),
+        "governance_mandatory_trades": gov,
         "accepted_trades": sorted(accepted, key=lambda x: x["ticker"]),
         "deferred_trades": sorted(deferred, key=lambda x: x["ticker"]),
         "accepted_trade_count": len(accepted),

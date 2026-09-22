@@ -1,6 +1,90 @@
 # PROJECT_STATE
 
 - **Last updated:** 2026-09-21
+- **Updated by phase:** **R63_GOVERNED_TARGET_SELECTION_AND_MANDATORY_REPAIR_ALIGNMENT
+  - MANDATORY MEANS MANDATORY, THE OPERATOR CHOOSES THE TARGET, AND A STALE
+  SESSION DECIDES NOTHING (single agent, Windows PowerShell only, live checkout
+  on `stage19-controlled-rebalance` over `c55b944`).** Full narrative:
+  `docs/RELEASE_R63_GOVERNED_TARGET_SELECTION_AND_MANDATORY_REPAIR_ALIGNMENT.md`.
+
+  **What was wrong.** R62 found that two owners disagreed about what is mandatory
+  and, being read-only, reported it instead of resolving it. The reallocation
+  kernel derived its mandatory tier from CAPACITY
+  (`tk not in caps or caps[tk] <= 0.0`), so a holding the governed retention
+  rules no longer admitted but which still HAD capacity became a discretionary
+  leg, was ranked by score-improvement-per-unit-turnover, and was deferred by the
+  35% budget. That is exactly how the 2026-09-18 full target shipped holding VLO
+  at 5.0% and LH only halved - both past the exit buffer - while publishing
+  `mandatory_turnover = 0.0`. Two gaps followed: the approval path knew only the
+  standing full target, so an operator who agreed with the review could not act
+  on it; and a persisted proposal stayed actionable forever.
+
+  **What landed.** ONE canonical mandatory-repair contract
+  (`mandatory_repair_obligations.v1`) published BY the opportunity-cost owner - it
+  projects verdicts that owner already reached and invents no new mandatory
+  condition - carried across the existing HOC -> proposal -> constraint seam and
+  unioned into the reallocation kernel's EXISTING mandatory tier. Mandatory
+  repairs are now taken FIRST, unconditionally, and only the REMAINING budget
+  reaches discretionary trades; when the repairs alone exceed the budget they are
+  kept and `turnover_budget_subordinated_to_mandatory_repair` is published with
+  the three figures. Capacity-mandated and owner-ruled exits stay separable via a
+  caps snapshot taken BEFORE any obligation ceiling, so the kernel never takes
+  credit for a decision an upstream owner made. The R62 ladder's rung 3 now BINDS
+  `obligations_left_open_by_full_target` (it was explicitly an observation that
+  never changed the verdict), and `approvable` gains a third condition: a target
+  that leaves a ruled obligation open is not reviewable and not selectable.
+  A governed `proposal_review_selection` artifact under the EXISTING
+  `api.portfolio_decision` owner adds ONE step - Review -> SELECT TARGET ->
+  Approve -> Confirm order plan -> next close - binding proposal / review / HOC
+  hashes (the unpersisted R62 projection gained a `review_hash`), idempotent,
+  with conflicting reselection preserved as an audited revision; approval
+  consumes exactly that selection and never falls back to the full target.
+  Backend-decided selectability with its reason: the browser renders it and the
+  UI's hard-coded verdict->target map was replaced by the backend value.
+  **R63 addendum - decision freshness:** no second calendar or clock; the latest
+  actionable session is asked of `api.workflow_state.action_session_market_date`
+  (the oldest UNCLOSED completed session during a catch-up, which is the one the
+  operator must run). `decision_freshness()` is a pure comparison that fails
+  closed both ways, and it gates selection, approval and order-plan confirmation.
+
+  **Honest result on the live Sep-18 proposal** (read-only; still unapproved, 0
+  orders, 0 fills, artifact unmutated, cycle NOT rerun): verdict unchanged at
+  `MINIMAL_REPAIR_PREFERRED`. FULL_TARGET is refused on its merits -
+  *2 mandatory repair obligation(s) remain unresolved: LH, VLO* - and THEN every
+  target is refused again by the session gate, because the proposal is bound to
+  2026-09-18 while the latest eligible session is 2026-09-21
+  (`NEXT_REQUIRED_ACTION = RUN_PORTFOLIO_CYCLE`). Both refusals are shown because
+  they are different facts. The stale proposal was not rewritten, regenerated,
+  rejected or superseded to satisfy the gate; only the ability to ACT on it
+  expired. One audit invariant was STRENGTHENED: the supersession lane-state
+  check now parses `DECISION_STATE_VOCAB` and tests membership instead of
+  matching a literal neighbouring spelling. `runtime_llm_dependency = NONE`.
+  Two build lessons kept: a forced ceiling DESTROYS its own attribution (zeroing
+  the cap makes the capacity rule claim the exit, so the caps snapshot must
+  precede every obligation ceiling); and the session gate sits AFTER the
+  structural/economic guards on purpose - placing it first made `record_decision`
+  answer PROPOSAL_SESSION_STALE where thirteen established tests expected the
+  more specific WITHHELD / HOLD_CURRENT_BOOK / NO_MATERIAL_CHANGE, which are
+  properties of the proposal itself and true in every session. Safety is
+  identical (all refuse, none write) and nothing reaches a write without passing
+  the gate. Browser acceptance PASSED at 1920x1080 (103 requests, every one a
+  GET; nothing written; no alert/confirm; no enabled Create Orders; no automation
+  toggle; Daily Plan 1.37 screens) and its three findings were FIXED here, not
+  deferred: a `+`-vs-`||` precedence bug that made a disabled tooltip print
+  "undefined", a click handler attached regardless of selectability (now only
+  wired when the backend says selectable, plus a re-check inside the handler),
+  and actionability moved to the TOP of the card so an operator who came to
+  choose a target does not scroll a 2.8-screen tab to learn nothing is
+  selectable. One PRE-EXISTING incoherence was recorded and deliberately NOT
+  fixed (the Reallocation tab's CHANGES/TARGET cards say "no feasible target"
+  while ECONOMICS publishes that target's turnover and cost; different read
+  owners, neither touched by R63).
+  Tests: `tests/test_r63_governed_target_selection.py` (65).
+
+## R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW (superseded as the current phase;
+result unchanged)
+
+- **Last updated:** 2026-09-21
 - **Updated by phase:** **R62_PORTFOLIO_PROPOSAL_DECISION_REVIEW - THE LAST MILE
   BEFORE THE APPROVE GATE: PAPER TRADER ADJUDICATES ITS OWN PROPOSAL (single
   agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`

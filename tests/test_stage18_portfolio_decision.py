@@ -28,6 +28,12 @@ from paper_trader.api import portfolio_decision as pd
 from paper_trader.api import workflow_state as ws
 
 ROOT = Path(__file__).resolve().parent.parent
+
+#: The session every fixture in this module is bound to. R63 added a fail-closed
+#: session-freshness gate to ``record_decision``; these tests exercise the ledger
+#: against a hermetic world, so they state that world's latest eligible session
+#: explicitly rather than disabling the gate.
+_SESSION = "2026-08-11"
 PD_SRC = (ROOT / "api" / "portfolio_decision.py").read_text(encoding="utf-8")
 
 
@@ -199,7 +205,8 @@ def test_record_binds_all_immutable_hashes(tmp_path):
     art = _artifact()
     r = pd.record_decision(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN,
                            artifact=art, proposal_summary=_summary(),
-                           decision_dir=str(tmp_path), expected_proposal_hash="hash_current")
+                           decision_dir=str(tmp_path), expected_proposal_hash="hash_current",
+                           latest_session=_SESSION)
     assert r["status"] == "CREATED" and r["recorded"] is True
     b = r["record"]["binding"]
     for key in ("proposal_id", "proposal_hash", "eligible_market_date", "active_book_id",
@@ -213,7 +220,7 @@ def test_record_idempotent_no_duplicate(tmp_path):
     art, s = _artifact(), _summary()
     kw = dict(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN, artifact=art,
               proposal_summary=s, decision_dir=str(tmp_path),
-              expected_proposal_hash="hash_current")
+              expected_proposal_hash="hash_current", latest_session=_SESSION)
     r1 = pd.record_decision(**kw)
     r2 = pd.record_decision(**kw)
     assert r1["status"] == "CREATED" and r2["status"] == "REUSED_EXISTING"
@@ -225,7 +232,7 @@ def test_record_stale_rejected_no_write(tmp_path):
     r = pd.record_decision(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN,
                            artifact=_artifact(phash="hash_current"),
                            proposal_summary=_summary(phash="hash_current"),
-                           decision_dir=str(tmp_path),
+                           decision_dir=str(tmp_path), latest_session=_SESSION,
                            expected_proposal_hash="hash_STALE_the_operator_reviewed")
     assert r["status"] == pd.PDS_STALE and r["recorded"] is False
     assert not (tmp_path / "decisions.json").exists()
@@ -235,7 +242,8 @@ def test_record_reject_and_hold_create_no_orders(tmp_path):
     for dec in (pd.DECISION_REJECT, pd.DECISION_HOLD):
         r = pd.record_decision(decision=dec, confirm=pd.CONFIRM_TOKEN, artifact=_artifact(),
                                proposal_summary=_summary(), decision_dir=str(tmp_path),
-                               expected_proposal_hash="hash_current")
+                               expected_proposal_hash="hash_current",
+                               latest_session=_SESSION)
         assert r["recorded"] is True
         assert r["created_orders"] is False and r["created_fills"] is False
         assert r["changed_holdings"] is False and r["changed_nav"] is False
@@ -243,7 +251,8 @@ def test_record_reject_and_hold_create_no_orders(tmp_path):
 
 def test_record_revision_preserved(tmp_path):
     kw = dict(confirm=pd.CONFIRM_TOKEN, artifact=_artifact(), proposal_summary=_summary(),
-              decision_dir=str(tmp_path), expected_proposal_hash="hash_current")
+              decision_dir=str(tmp_path), expected_proposal_hash="hash_current",
+              latest_session=_SESSION)
     pd.record_decision(decision=pd.DECISION_APPROVE, **kw)
     r2 = pd.record_decision(decision=pd.DECISION_HOLD, **kw)
     assert r2["status"] == "REVISED" and r2["revised"] is True
@@ -295,7 +304,7 @@ def test_load_portfolio_decision_exposes_preview_only_when_approved(tmp_path):
     # record approval, then read -> approved + read-only preview
     pd.record_decision(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN, artifact=art,
                        proposal_summary=_summary(), decision_dir=str(tmp_path),
-                       expected_proposal_hash="hash_current")
+                       expected_proposal_hash="hash_current", latest_session=_SESSION)
     lane1 = pd.load_portfolio_decision(portfolio_state=ps, proposal_summary=_summary(),
                                        artifact=art, decision_dir=str(tmp_path))
     assert lane1["portfolio_decision_state"] == pd.PDS_APPROVED

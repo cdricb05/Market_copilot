@@ -33,6 +33,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from paper_trader.engine import constrained_reallocation as _cr
 from paper_trader.engine import proposal_decision_review as kernel
 
 PHASE = "R62"
@@ -154,9 +155,57 @@ def reset_cache() -> None:
 # --------------------------------------------------------------------------- #
 # The read contract
 # --------------------------------------------------------------------------- #
+def _governance(*, review: Optional[dict], bound_session: Optional[str],
+                active_book_id: Optional[str],
+                latest_session: Optional[str] = None,
+                workflow_state: Optional[dict] = None,
+                decision_dir=None) -> dict:
+    """R63 — the governance layer over a review: is this decision still actionable,
+    and which target (if any) has the operator already selected?
+
+    Freshness can only ever REMOVE selectability. The review kernel holds no clock
+    and rules on obligations and economics; a decision bound to a session the
+    workflow has moved past is historical evidence, however sound its economics.
+    """
+    from paper_trader.api import portfolio_decision as _pd  # lazy: import cycle
+    fresh = _pd.decision_freshness(
+        bound_session=bound_session,
+        latest_session=(latest_session if latest_session is not None
+                        else _pd.latest_eligible_session(workflow_state=workflow_state)))
+    selection = _pd.load_target_selection(active_book_id=active_book_id,
+                                          eligible_market_date=bound_session,
+                                          decision_dir=decision_dir)
+    sel_block = dict((review or {}).get("target_selection") or {})
+    if sel_block and not fresh["target_selection_allowed"]:
+        blocker = {"code": _pd.PDS_SESSION_STALE, "detail": fresh["detail"]}
+        opts = []
+        for o in sel_block.get("options") or []:
+            o = dict(o)
+            o["selectable"] = False
+            o["blockers"] = list(o.get("blockers") or []) + [blocker]
+            o["blocker_codes"] = sorted(set(o.get("blocker_codes") or [])
+                                        | {_pd.PDS_SESSION_STALE})
+            opts.append(o)
+        sel_block["options"] = opts
+        sel_block["selectable_targets"] = []
+        sel_block["blocked_by_session_freshness"] = True
+    return {
+        "freshness": fresh,
+        "actionable": bool(fresh["actionable"]),
+        "target_selection": sel_block,
+        "selection": selection,
+        "selected_target": (selection or {}).get("selected_target"),
+        "selection_id": (selection or {}).get("selection_id"),
+        "governance_owner": _pd.OWNER,
+        "selection_confirm_token": _pd.SELECTION_CONFIRM_TOKEN,
+        "approval_confirm_token": _pd.CONFIRM_TOKEN,
+    }
+
+
 def _envelope(*, status: str, generated_at: str, message: str,
               proposal_payload: Optional[dict] = None, review: Optional[dict] = None,
-              inputs: Optional[dict] = None) -> dict:
+              inputs: Optional[dict] = None,
+              governance: Optional[dict] = None) -> dict:
     p = proposal_payload or {}
     art = p.get("artifact") or {}
     return {
@@ -182,6 +231,22 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "proposal_approvable": p.get("approvable"),
         "manual_approval_required": True,
         "review": review,
+        # R63 - the review's IDENTITY. The review is a pure projection and is never
+        # persisted, so it carries no id of its own; this hash is computed over the
+        # payload it just returned. That is sound precisely BECAUSE the projection
+        # is byte-stable for the same inputs: a governed target selection binds it,
+        # and a selection made against a review that no longer reproduces fails
+        # closed rather than approving something nobody reviewed.
+        "review_hash": review_hash(review),
+        "review_identity_owner": OWNER,
+        # R63 — the governance layer: session freshness, the selectability the
+        # BACKEND decided, and any selection the operator has already made.
+        "governance": governance or {},
+        "freshness": (governance or {}).get("freshness") or {},
+        "actionable": bool((governance or {}).get("actionable")),
+        "target_selection": ((governance or {}).get("target_selection")
+                             or (review or {}).get("target_selection") or {}),
+        "selection": (governance or {}).get("selection"),
         "review_policy_version": REVIEW_POLICY_VERSION,
         "repair_scope_version": REPAIR_SCOPE_VERSION,
         "inputs": inputs or {},
@@ -192,6 +257,20 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "business_calculation_owner": False,
         "safety": kernel._safety(),
     }
+
+
+def review_hash(review: Optional[dict]) -> Optional[str]:
+    """A stable identity for ONE review payload, or None when there is no review.
+
+    Reuses the constraint kernel's canonical stable hash (SHA-256 over the payload
+    with volatile keys stripped), so no second hashing convention is introduced.
+    """
+    if not review:
+        return None
+    try:
+        return _cr.stable_hash(review)
+    except Exception:  # noqa: BLE001 - an identity must never break a pure read
+        return None
 
 
 def load_proposal_decision_review(
@@ -209,7 +288,9 @@ def load_proposal_decision_review(
         hoc_loader: Optional[Callable] = None,
         evidence_loader: Optional[Callable] = None,
         returns_loader: Optional[Callable] = None,
-        portfolio_state_loader: Optional[Callable] = None) -> dict:
+        portfolio_state_loader: Optional[Callable] = None,
+        latest_session: Optional[str] = None,
+        workflow_state: Optional[dict] = None) -> dict:
     """THE read: adjudicate the standing proposal. Read-only and degrade-safe.
 
     Every heavy input may be injected, so a caller that has already composed the
@@ -299,9 +380,13 @@ def load_proposal_decision_review(
         read_state=read_state, identity=identity)
 
     verdict = (review.get("review_verdict") or {}).get("verdict")
+    governance = _governance(
+        review=review, bound_session=(identity.get("eligible_market_date") or eligible),
+        active_book_id=book_id, latest_session=latest_session,
+        workflow_state=workflow_state, decision_dir=decision_dir)
     return _envelope(
         status=STATUS_OK, generated_at=generated_at, proposal_payload=payload,
-        review=review,
+        review=review, governance=governance,
         inputs={
             "proposal_hash": identity.get("proposal_hash"),
             "proposal_read_state": read_state,

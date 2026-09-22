@@ -899,7 +899,11 @@ def _setup_execution(tmp: Path):
     kwargs = dict(desk_dir=sdir, active_book_id="alpha_paper_book_1",
                   eligible_market_date="2026-01-10", artifact=art,
                   decision_record=dec, plan_dir=tmp / "plans",
-                  actions_dir=tmp / "ca", outcome_dir=tmp / "evidence")
+                  actions_dir=tmp / "ca", outcome_dir=tmp / "evidence",
+                  # R63: this hermetic world's latest eligible session IS the
+                  # bound one, so the fail-closed freshness gate is exercised
+                  # rather than bypassed.
+                  latest_session="2026-01-10")
     return sdir, book, art, dec, kwargs
 
 

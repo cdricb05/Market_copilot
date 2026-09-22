@@ -107,7 +107,11 @@ def _standard_setup(tmp: Path):
     dec = _decision(book_id="alpha_paper_book_1", eligible="2026-01-10", proposal_hash="HASH_A")
     kwargs = dict(desk_dir=sdir, active_book_id="alpha_paper_book_1",
                   eligible_market_date="2026-01-10", artifact=art, decision_record=dec,
-                  plan_dir=tmp / "plans", actions_dir=tmp / "ca")
+                  plan_dir=tmp / "plans", actions_dir=tmp / "ca",
+                  # R63: this hermetic world's latest eligible session IS the
+                  # bound one, so the fail-closed freshness gate is exercised
+                  # rather than bypassed.
+                  latest_session="2026-01-10")
     return sdir, book, art, dec, kwargs
 
 

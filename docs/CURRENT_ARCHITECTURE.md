@@ -1066,6 +1066,85 @@ flowchart LR
   Await next close -> Paper execution.
 - **Tests:** `tests/test_r62_proposal_decision_review.py`.
 
+### Canonical Mandatory-Repair Contract & Governed Target Selection (R63, LANDED)
+- **The mandatory-repair contract is owned by `engine/holding_opportunity_cost.py`**
+  (`mandatory_repair_obligations.v1`). It is a PROJECTION of verdicts that module
+  already reaches (`deterioration_state == BROKEN`, the eligibility hard codes,
+  the liquidity state); it runs no policy and invents no mandatory condition.
+  Entry points: `retention_obligation`, `liquidity_obligation`,
+  `obligations_from_ruled_rows` (asset-agnostic: any owner that rules on an
+  instrument publishes through it), `governance_repair_obligations`,
+  `forced_weight_ceilings`, `required_exit_instruments`, `obligations_open_against`.
+  Row fields: `instrument_id / ticker / asset_class / sleeve_id / tier /
+  obligation_type / reason_code / source_owner / required_action / current_weight
+  / max_valid_weight / required_exit / evidence_id / evidence_hash`.
+  `NOT_SIZEABLE_FROM_PERSISTED_EVIDENCE` is a real third state — an obligation the
+  owner names but cannot size may NEVER be promoted to an exit.
+- **It binds the EXISTING mandatory tier, not a new one.**
+  `engine.constrained_reallocation.solve_feasible_target(..., mandatory_obligations=)`
+  receives the decision as data (the kernel stays a pure leaf and imports no
+  owner). Obligations bind through the `weight_ceilings` mechanism that already
+  existed, so placement, redistribution and the budget all respect them.
+  Precedence: obligations identified -> minimum valid repair applied FIRST ->
+  mandatory turnover measured -> only the REMAINDER of the budget reaches
+  discretionary trades. When repairs alone exceed the budget they are KEPT and
+  `turnover_budget_subordinated_to_mandatory_repair` /
+  `mandatory_turnover` / `normal_turnover_budget` /
+  `excess_required_by_mandatory_repair` are published. Attribution stays
+  separable (`capacity_mandatory_exits` vs `governance_mandatory_exits`,
+  `mandatory_basis` per leg) via a caps snapshot taken BEFORE any obligation
+  ceiling. A governance exit is automatically exempt from the economic hurdle
+  because `switching_economics` derives `mandatory_only` from that same set.
+- **Reviewability invariant (fail-closed), two places.**
+  `engine.reallocation_proposal` treats an open obligation as itself a reason to
+  run the repair, publishes `mandatory_repair` + `full_target_reviewable`, and
+  `approvable` now also requires that no ruled obligation remains open.
+  `engine.proposal_decision_review.decide` gates rung 3 on
+  `obligations_left_open_by_full_target`. Satisfaction is judged on the RESULTING
+  book, never by matching trades. R62's classifier now DELEGATES to the contract
+  and re-exports its vocabularies rather than forking them.
+- **Governed target selection** is owned by `api/portfolio_decision.py` — the
+  existing portfolio-decision governance owner, same append-only idempotent
+  ledger root. Artifact `proposal_review_selection`
+  (`target_selections.json` / `target_selection_index.json`), token
+  `CONFIRM_PORTFOLIO_TARGET_SELECTION` (distinct from the approval token).
+  `record_target_selection` / `load_target_selection`; targets CURRENT /
+  MINIMUM_REPAIR / FULL_TARGET come from the R62 review and are never recomputed.
+  It binds `proposal_hash`, `review_hash`, `hoc_assessment_hash`, session, book
+  and the selected target's hash, and fails closed if any moved. Idempotent;
+  a conflicting reselection is an audited revision. `record_decision` consumes
+  EXACTLY the selection and never falls back to the standing full target
+  (`SELECTED_TARGET_IS_NO_CHANGE` when CURRENT was selected).
+  `api/proposal_decision_review.py` publishes `review_hash` (the R62 projection is
+  byte-stable but unpersisted, so it had no identity to bind) plus a `governance`
+  block with freshness, backend-decided selectability and the current selection.
+  Route: `POST /v1/operations/portfolio-decision/select-target`.
+  Gate order: Review -> SELECT TARGET -> Approve -> Confirm order plan -> next
+  close. Each gate independent; selecting is not approving.
+- **Decision freshness (R63 addendum).** NO second calendar, session authority or
+  clock: `api.portfolio_decision.latest_eligible_session` delegates to
+  `api.workflow_state`'s `action_session_market_date` (which composes
+  `engine.market_session` via `api.data_freshness`) — during a catch-up that is
+  the OLDEST unclosed completed session, the one the operator must run.
+  `decision_freshness()` is a pure date comparison; `CURRENT` / `STALE` /
+  `UNVERIFIABLE`, and everything but `CURRENT` is non-actionable, so an unknown
+  or inconsistent session can never read as "yes". State `PROPOSAL_SESSION_STALE`
+  gates target selection, approval (checked AHEAD of the economic guards) and
+  order-plan confirmation (`api/rebalance_execution.py`, whose read model also
+  publishes `freshness` / `order_plan_confirmation_allowed`). Deliberately NOT
+  enforced on mark hydration, which commits no capital. A stale proposal stays
+  immutable, readable historical evidence; only the ability to ACT on it expires.
+  `NEXT_REQUIRED_ACTION = RUN_PORTFOLIO_CYCLE`.
+- **UI.** The selection block renders inside the existing R62 card, between
+  *What the proposal changes* and *Historical evidence*, with the actionability
+  line directly under the verdict at the TOP of the card. Selectability and its
+  reason come from the backend; the click handler is attached ONLY when the
+  backend says a target is selectable and `_pdrSelect` re-reads that before it
+  sends, so a non-selectable option carries no path to the write. No browser
+  dialog (`alert`/`confirm`) anywhere. Badges: SELECTION IS NOT APPROVAL, NO
+  ORDERS, MANUAL REVIEW.
+- **Tests:** `tests/test_r63_governed_target_selection.py` (65).
+
 ### Canonical Persistent Alpha Research Agent (Slice 8, LANDED — Phase 29I, Milestone 4)
 - **Two owners.** The pure deterministic evaluation kernel `engine/research_agent.py`
   (`evaluate`, no I/O) is the SOLE research-state calculation owner; `api/research_agent.py`

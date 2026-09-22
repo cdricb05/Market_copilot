@@ -447,9 +447,13 @@ def test_16_stale_proposal_cannot_be_approved(tmp_path, monkeypatch):
     art = _pre_registration_artifact()
     ddir = tmp_path / "decisions"
 
+    # R63: state this world's latest eligible session, so the refusal under test
+    # is the CORPORATE-ACTION staleness this test is about and not the newer
+    # session-freshness gate.
     res = pdec.record_decision(
         decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN, artifact=art,
-        active_book_id=BOOK_ID, eligible_market_date="2026-08-11", decision_dir=ddir)
+        active_book_id=BOOK_ID, eligible_market_date="2026-08-11", decision_dir=ddir,
+        latest_session="2026-08-11")
 
     assert res["status"] == pdec.PDS_STALE
     assert res["recorded"] is False

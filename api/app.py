@@ -7254,6 +7254,27 @@ class PortfolioDecisionRecordRequest(BaseModel):
     requested_by: str = "manual_ui"
 
 
+class TargetSelectionRequest(BaseModel):
+    """R63 governed TARGET SELECTION body (the step between Review and Approve).
+
+    ``target`` must be one of CURRENT / MINIMUM_REPAIR / FULL_TARGET, exactly as the
+    R62 proposal decision review publishes them; ``confirmation`` must equal the
+    selection token (distinct from the approval token, so neither can be replayed
+    as the other). The optional expected hashes bind what the operator actually
+    reviewed: if any of them moved, the selection is refused rather than recorded
+    against evidence nobody saw.
+
+    Selecting is NOT approving: this creates no order plan, no order and no fill.
+    """
+
+    target: str
+    confirmation: str
+    expected_proposal_hash: str | None = None
+    expected_review_hash: str | None = None
+    expected_hoc_assessment_hash: str | None = None
+    requested_by: str = "manual_ui"
+
+
 @app.post(
     "/v1/operations/portfolio-decision/record",
     status_code=status.HTTP_200_OK,
@@ -7291,6 +7312,54 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
     return _pdecision.record_decision(
         decision=body.decision, confirm=body.confirmation,
         expected_proposal_hash=body.expected_proposal_hash, actor=body.requested_by)
+
+
+@app.post(
+    "/v1/operations/portfolio-decision/select-target",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision_select_target(body: TargetSelectionRequest) -> dict:
+    """R63 — record WHICH reviewed target the operator takes to the Approve gate.
+
+    The three targets (CURRENT / MINIMUM_REPAIR / FULL_TARGET) come from the R62
+    proposal decision review; this route recomputes none of them and constructs no
+    portfolio. It records a governed SELECTION that references the immutable
+    proposal and the review that adjudicated it.
+
+    Backend-decided selectability: a target the review marked not selectable — for
+    example a full target that still leaves a mandatory repair obligation open — is
+    refused here with the reason, so no browser has to enforce that rule.
+
+    Fails closed on session freshness and on every bound identity (proposal,
+    review, opportunity-cost assessment). Idempotent: the same selection against
+    the same evidence writes no second artifact; a different one is preserved as an
+    auditable revision.
+
+    Selecting is NOT approving. It creates no order plan, no order and no fill, and
+    it moves no capital. The manual Approve and Confirm-order-plan gates are
+    unchanged and remain independent.
+    """
+    if body.target not in _pdecision.TARGET_VOCAB:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Unknown target. Send one of "
+                    f"{list(_pdecision.TARGET_VOCAB)}."),
+        )
+    if body.confirmation != _pdecision.SELECTION_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit manual confirmation required. Send "
+                    f"{{'confirmation': '{_pdecision.SELECTION_CONFIRM_TOKEN}'}} to "
+                    f"select a target."),
+        )
+    return _pdecision.record_target_selection(
+        target=body.target, confirm=body.confirmation,
+        review_envelope=_pdreview.load_proposal_decision_review(),
+        expected_proposal_hash=body.expected_proposal_hash,
+        expected_review_hash=body.expected_review_hash,
+        expected_hoc_assessment_hash=body.expected_hoc_assessment_hash,
+        actor=body.requested_by)
 
 
 @app.get(

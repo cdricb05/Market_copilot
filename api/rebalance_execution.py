@@ -1090,9 +1090,14 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
                          actions_dir=None, plan_dir=None, active_book_id=None,
                          eligible_market_date=None, portfolio_state=None,
                          portfolio_state_loader=None, artifact=None, decision_record=None,
-                         corporate_actions=None) -> dict:
+                         corporate_actions=None, latest_session=None,
+                         workflow_state=None, enforce_session_freshness: bool = True) -> dict:
     """READ-ONLY rebalance-lifecycle contract. Composes the state, the review-screen order
-    plan (when approved) and the single primary action. Degrade-safe; never writes."""
+    plan (when approved) and the single primary action. Degrade-safe; never writes.
+
+    R63: also publishes the session-freshness verdict, so a surface can show that
+    an approved plan bound to a superseded session is no longer confirmable
+    WITHOUT deriving that rule for itself."""
     generated_at = _iso_now()
     try:
         base = _base_plan(decision_dir=decision_dir, reallocation_dir=reallocation_dir,
@@ -1148,6 +1153,18 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
     if state in (RB_PLAN_CONFIRMED, RB_EXECUTED, RB_NO_CHANGES):
         buildable = False
 
+    # R63 - the SAME freshness verdict the confirm gate applies, published so no
+    # surface has to derive it. It can only ever REMOVE confirmability.
+    freshness = pdec.decision_freshness(
+        bound_session=(bound.get("eligible_market_date") or eligible_market_date),
+        latest_session=(latest_session if latest_session is not None
+                        else (pdec.latest_eligible_session(workflow_state=workflow_state)
+                              if enforce_session_freshness
+                              else (bound.get("eligible_market_date")
+                                    or eligible_market_date))))
+    if enforce_session_freshness and not freshness["order_plan_confirmation_allowed"]:
+        buildable = False
+
     out = {
         "phase": PHASE, "owner": OWNER, "status": "OK", "generated_at": generated_at,
         "rebalance_state": state, "state_vocabulary": list(STATE_VOCAB), "label": label,
@@ -1156,6 +1173,9 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         "primary_action": _PRIMARY_ACTION.get(state),
         "confirm_required_token": CONFIRM_TOKEN,
         "target_mark_refresh_token": HYDRATE_CONFIRM_TOKEN,
+        "freshness": freshness,
+        "order_plan_confirmation_allowed": bool(
+            freshness["order_plan_confirmation_allowed"]),
         "order_plan": plan,
         "executed_order_ids": [o["order_id"] for o in executed],
         "executed_order_status": {o["order_id"]: o["status"] for o in executed},
@@ -1213,6 +1233,9 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                                  portfolio_state_loader=None, artifact=None,
                                  decision_record=None, corporate_actions=None,
                                  outcome_dir=None,
+                                 latest_session: Optional[str] = None,
+                                 workflow_state: Optional[dict] = None,
+                                 enforce_session_freshness: bool = True,
                                  actor: Optional[str] = None, today: Optional[str] = None) -> dict:
     """SECOND explicit confirmation. Only ``confirm == CONFIRM_TOKEN`` on an APPROVED,
     unchanged proposal writes PAPER orders (into the EXISTING desk lifecycle, submitted for
@@ -1248,6 +1271,25 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                 "current_proposal_hash": base.get("current_proposal_hash")}
     if state == RB_UNAVAILABLE:
         return {**base_safety, "status": RB_UNAVAILABLE, "message": base.get("message")}
+
+    # --- R63 session-freshness gate: the LAST gate before the first write ----- #
+    # An approved plan bound to a session the workflow has moved past may not
+    # create paper orders. The approval and the proposal both remain immutable
+    # evidence; only the ability to ACT on them expires.
+    if enforce_session_freshness:
+        bound_session = ((base.get("bound") or {}).get("eligible_market_date")
+                         or eligible_market_date)
+        fresh = pdec.decision_freshness(
+            bound_session=bound_session,
+            latest_session=(latest_session if latest_session is not None
+                            else pdec.latest_eligible_session(
+                                workflow_state=workflow_state)))
+        if not fresh["order_plan_confirmation_allowed"]:
+            return {**base_safety, "status": pdec.PDS_SESSION_STALE,
+                    "rebalance_state": state, "freshness": fresh,
+                    "bound": base.get("bound"),
+                    "next_required_action": fresh["next_required_action"],
+                    "message": fresh["detail"]}
     plan = base.get("plan") or {}
 
     # ----------------------------------------------------------------------- #
@@ -1558,13 +1600,22 @@ def refresh_target_marks(*, confirm: Optional[str] = None, decision_dir=None,
                          portfolio_state=None, portfolio_state_loader=None, artifact=None,
                          decision_record=None, corporate_actions=None, downloader=None,
                          today: Optional[str] = None,
-                         completed_through: Optional[str] = None) -> dict:
+                         completed_through: Optional[str] = None,
+                         latest_session=None, workflow_state=None,
+                         enforce_session_freshness: bool = True) -> dict:
     """Hydrate the owned execution marks the APPROVED reallocation target needs.
 
     Explicit and manual: it requires ``confirm == HYDRATE_CONFIRM_TOKEN``. A GET never
     reaches it, so no page load can call the provider or move a mark. It creates no order,
     no fill and no decision; the only store it can change is the desk mark cache, and only
-    through the canonical owner."""
+    through the canonical owner.
+
+    R63: the session-freshness parameters are accepted so one caller can pass ONE
+    lane keyword set to every function in this module. They are deliberately NOT
+    enforced here: hydrating a mark creates no order and commits no capital, and
+    refusing to refresh a mark on a superseded session would only make the stale
+    state harder to read. The gate binds where it matters - approval and order-plan
+    confirmation."""
     base_safety = {"owner": OWNER, "phase": PHASE, "performed_write": False,
                    "created_orders": False, "created_fills": False,
                    "changed_holdings": False, "changed_cash": False, "changed_nav": False,

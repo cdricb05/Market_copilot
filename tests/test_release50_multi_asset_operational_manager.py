@@ -776,8 +776,11 @@ class TestGovernedExecution:
     def _approve(self, w):
         summ = arp.load_proposal_summary(active_book_id="alpha_paper_book_1", eligible_market_date="2026-08-28",
                                          artifact=w["artifact"])
+        # R63: this world's latest eligible session IS the proposal's session, so
+        # the fail-closed freshness gate is exercised rather than bypassed.
         rec = pdec.record_decision(decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN,
-                                   artifact=w["artifact"], proposal_summary=summ)
+                                   artifact=w["artifact"], proposal_summary=summ,
+                                   latest_session="2026-08-28")
         assert rec["recorded"], rec
         return rec["record"]
 
@@ -803,7 +806,8 @@ class TestGovernedExecution:
         # second confirmation -> orders SUBMITTED, no same-close fill (no hindsight)
         res = rb.confirm_rebalance_order_plan(confirm=rb.CONFIRM_TOKEN, active_book_id="alpha_paper_book_1",
                                               eligible_market_date="2026-08-28", artifact=w["artifact"],
-                                              decision_record=record, portfolio_state=w["ps"], today="2026-08-28")
+                                              decision_record=record, portfolio_state=w["ps"], today="2026-08-28",
+                                              latest_session="2026-08-28")
         n_plan = len(plan["orders"])          # the futures ADD, plus the Stage-19 name-cap trim of AAA
         assert res["status"] == rb.C_CREATED and res["n_orders_created"] == n_plan
         assert res["settlement"]["n_filled"] == 0
@@ -811,7 +815,8 @@ class TestGovernedExecution:
         # Q. replay -> zero duplicate orders, evidence reused
         again = rb.confirm_rebalance_order_plan(confirm=rb.CONFIRM_TOKEN, active_book_id="alpha_paper_book_1",
                                                 eligible_market_date="2026-08-28", artifact=w["artifact"],
-                                                decision_record=record, portfolio_state=w["ps"], today="2026-08-28")
+                                                decision_record=record, portfolio_state=w["ps"], today="2026-08-28",
+                                                latest_session="2026-08-28")
         assert again["status"] == rb.C_REUSED and desk.load_orders()["n_orders"] == n_plan
         # P. the next session settles at the instrument's own settlement, under futures semantics
         desk.sync_marks(tickers=["AAA", "&MES"], start="2026-08-20", downloader=_downloader,
