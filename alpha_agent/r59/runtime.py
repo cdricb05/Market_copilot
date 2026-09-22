@@ -47,7 +47,6 @@ from typing import Optional
 from .. import r59
 from ..r46 import runlock as RL
 from . import frontier as FR
-from . import governor as GOV
 from . import loop as LP
 from . import memory as M
 from . import steele as ST
@@ -71,6 +70,36 @@ HEARTBEAT_SECONDS = 60.0
 #: if every watched source looks quiet.
 MIN_SLEEP_SECONDS = 60.0
 MAX_SLEEP_SECONDS = 3600.0
+
+#: R64 - the floor no CONFIGURATION may go below. ``MIN_SLEEP_SECONDS`` is a
+#: policy an operator may tune; this is a safety property and they may not. A
+#: zero or negative idle interval - from an environment override, a future
+#: config file or an arithmetic slip in an upstream owner - is the exact input
+#: that turns a scheduler into a busy-wait, and R64 measured what that costs:
+#: 4,829 consecutive cycles, every one of them a zero-second sleep.
+ABSOLUTE_MIN_SLEEP_SECONDS = 5.0
+
+#: Operator overrides for the idle policy, read from the environment for the
+#: same reason ``DEPLOYED_ROOT_ENV`` is: a cadence is a property of the
+#: DEPLOYMENT, not of the research package.
+MIN_SLEEP_ENV = "PAPER_TRADER_R59_MIN_SLEEP_SECONDS"
+MAX_SLEEP_ENV = "PAPER_TRADER_R59_MAX_SLEEP_SECONDS"
+
+#: R64 - how an UNCHANGED blocker is paced. Re-asking a question the estate has
+#: already asked N times, and been refused N times, is not research; it is
+#: polling. The wait doubles per consecutive unproductive cycle whose blocked
+#: set is byte-identical, and is capped by the idle ceiling, so the runtime
+#: still re-examines the world at least hourly.
+BACKOFF_MULTIPLIER = 2.0
+
+#: R64 - the belt-and-braces bound. Even if every upstream owner were to
+#: regress at once and keep insisting that executable work exists, this many
+#: consecutive cycles that executed nothing and measured nothing force a wait.
+UNPRODUCTIVE_CYCLES_BEFORE_FORCED_WAIT = 3
+
+#: R64 - a persistent worker may not accumulate one record per cycle forever.
+#: The pre-repair worker held 4,829 of them in a list that only ever grew.
+MAX_CYCLE_RECORDS = 500
 
 #: Optional deployment pin. A deployment path is a property of the DEPLOYMENT,
 #: not of the research package, so it is read from the environment and never
@@ -336,6 +365,15 @@ def status(mem: Optional[M.ResearchMemory] = None,
             "blocker_reason": persisted.get("blocker_reason"),
             "blocker_reasons": dict(persisted.get("blocker_reasons") or {}),
             "wait_detail": persisted.get("wait_detail"),
+            # R64 - the cadence actually in force, and the pacing state behind
+            # it. An operator who can see only "SLEEPING" cannot tell a worker
+            # that is waiting from one that is spinning.
+            "idle_policy": persisted.get("idle_policy"),
+            "effective_sleep_seconds": persisted.get("effective_sleep_seconds"),
+            "unproductive_streak": persisted.get("unproductive_streak"),
+            "blocker_signature": persisted.get("blocker_signature"),
+            "forced_waits": persisted.get("forced_waits"),
+            "cycles_completed": persisted.get("cycles_completed"),
             "data_frontier": persisted.get("data_frontier"),
             "capacity": persisted.get("capacity"),
             "maturation": persisted.get("maturation"),
@@ -448,6 +486,16 @@ def wake_delta(previous: Optional[list], current: list) -> dict:
             "any_change": bool(changed)}
 
 
+def _blocked_rows(queue) -> list:
+    """The blocked jobs as (lane, reason) rows, for the R64 signature. A read;
+    never raises, because observability may not break a research cycle."""
+    try:
+        return [{"lane": j.lane, "reason": j.blocked_reason}
+                for j in queue.blocked_jobs(limit=500)]
+    except Exception:                                    # noqa: BLE001
+        return []
+
+
 def _blocked_summary(queue) -> dict:
     """The canonical classification of everything the queue currently holds
     blocked (R61). A read; never raises, because observability may not break a
@@ -458,6 +506,168 @@ def _blocked_summary(queue) -> dict:
         return BLK.summarise(rows)
     except Exception:                                    # noqa: BLE001
         return {}
+
+
+def idle_policy(min_seconds=None, max_seconds=None) -> dict:
+    """The EFFECTIVE idle configuration, and everything it had to correct.
+
+    R64. The runtime may be tuned, but it may not be tuned into a busy-wait.
+    A requested floor that is zero, negative, non-numeric or simply absurd is
+    CLAMPED to :data:`ABSOLUTE_MIN_SLEEP_SECONDS` and the correction is
+    reported by name, because a silently corrected configuration is how an
+    operator comes to believe a cadence that was never in force.
+    """
+    notes: list = []
+
+    def _read(explicit, env_name, default, label):
+        raw, source = explicit, "ARGUMENT"
+        if raw is None:
+            raw, source = os.environ.get(env_name), "ENVIRONMENT"
+        if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+            return float(default), "DEFAULT"
+        try:
+            return float(raw), source
+        except (TypeError, ValueError):
+            notes.append("%s_NOT_NUMERIC" % label)
+            return float(default), "DEFAULT_AFTER_INVALID"
+
+    requested_min, min_source = _read(min_seconds, MIN_SLEEP_ENV,
+                                      MIN_SLEEP_SECONDS, "MIN")
+    requested_max, max_source = _read(max_seconds, MAX_SLEEP_ENV,
+                                      MAX_SLEEP_SECONDS, "MAX")
+
+    effective_min = requested_min
+    if not (effective_min > 0):
+        notes.append("MIN_NOT_POSITIVE")
+        effective_min = ABSOLUTE_MIN_SLEEP_SECONDS
+    elif effective_min < ABSOLUTE_MIN_SLEEP_SECONDS:
+        notes.append("MIN_BELOW_SAFE_FLOOR")
+        effective_min = ABSOLUTE_MIN_SLEEP_SECONDS
+
+    effective_max = requested_max
+    if not (effective_max > 0):
+        notes.append("MAX_NOT_POSITIVE")
+        effective_max = effective_min
+    if effective_max < effective_min:
+        notes.append("MAX_BELOW_MIN")
+        effective_max = effective_min
+
+    return {"calculation_owner": CALCULATION_OWNER,
+            "min_sleep_seconds": float(effective_min),
+            "max_sleep_seconds": float(effective_max),
+            "absolute_floor_seconds": float(ABSOLUTE_MIN_SLEEP_SECONDS),
+            "requested_min_seconds": float(requested_min),
+            "requested_max_seconds": float(requested_max),
+            "min_source": min_source, "max_source": max_source,
+            "corrections": notes, "was_corrected": bool(notes)}
+
+
+def executable_ready_work(*, session: Optional[dict], runnable_now: int) -> dict:
+    """How much research is ACTUALLY executable, on the evidence of the session
+    that just ran. The R64 repair, and the one rule this module got wrong.
+
+    The pre-repair runtime asked the GOVERNOR how many mandates it could
+    generate and passed that to :func:`plan_sleep` as ``ready_work``. Those are
+    not the same quantity and were never interchangeable:
+
+        the governor answers "are there questions worth asking",
+        the queue answers  "can anything be claimed right now".
+
+    ``governor.stop_reason`` is a pure function of research MEMORY, and memory
+    only changes when work EXECUTES. So once every queued job was held on an
+    external blocker the governor kept returning the same two or three
+    mandates, the runtime kept reading that as "executable research exists",
+    slept zero seconds and started another identical cycle - 4,825 times,
+    every one of them stopping on ``B_EXTERNAL_BLOCKER`` and 4,806 of them
+    executing nothing at all. R61's carefully-written back-off branches were
+    unreachable for the entire life of the worker.
+
+    The session itself is the authority, and it is a trustworthy one:
+    :func:`alpha_agent.r59.loop.run_session` re-measures the frontier,
+    re-generates mandates and re-seeds the queue after EVERY iteration and
+    does not return while anything is claimable. So when it returns:
+
+        ``B_EXTERNAL_BLOCKER``  nothing was claimable and re-seeding did not
+                                help. Executable work is ZERO, whatever the
+                                governor's opinion of the frontier.
+        ``None`` (it raised)    nothing was proven to have executed, and a
+                                crash that is retried with no delay is the
+                                same busy-wait wearing a different hat.
+        anything else           the queue's own claimable depth stands.
+
+    This never delays genuinely executable work: work that is genuinely
+    executable is drained INSIDE the session, with no cycle boundary and no
+    sleep between items.
+    """
+    stop = (session or {}).get("stop_condition") if session is not None else None
+    runnable = max(0, int(runnable_now or 0))
+    if session is None:
+        return {"ready_work": 0, "authority": "SESSION_DID_NOT_COMPLETE",
+                "stop_condition": None, "queue_runnable": runnable,
+                "detail": "the research session raised; nothing was proven to "
+                          "have executed and an undelayed retry is a spin"}
+    if stop == LP.STOP_B:
+        return {"ready_work": 0, "authority": "SESSION_PROVED_EXTERNAL_BLOCKER",
+                "stop_condition": stop, "queue_runnable": runnable,
+                "detail": "the session re-seeded the frontier and still could "
+                          "claim nothing; no mandate the governor can generate "
+                          "is executable until the blocker clears"}
+    return {"ready_work": runnable, "authority": "QUEUE_CLAIMABLE_DEPTH",
+            "stop_condition": stop, "queue_runnable": runnable,
+            "detail": "%d job(s) claimable now" % runnable}
+
+
+def blocker_signature(blocked_summary: Optional[dict] = None,
+                      blocked_rows: Optional[list] = None) -> str:
+    """A stable fingerprint of WHAT is currently blocked.
+
+    Two consecutive cycles with the same signature saw the same wall. That is
+    the only thing that justifies waiting longer the second time, and the only
+    thing that must RESET the wait when it changes.
+    """
+    def _field(row, *names):
+        for name in names:
+            value = (row.get(name) if isinstance(row, dict)
+                     else getattr(row, name, None))
+            if value:
+                return str(value)
+        return ""
+
+    summary = blocked_summary or {}
+    # Accepts either the ``_blocked_rows`` mappings or the ``ResearchJob``
+    # objects ``blocked_jobs`` yields, so a caller cannot get a different
+    # signature for the same wall by reading it through a different handle.
+    rows = sorted((_field(r, "reason", "blocked_reason"), _field(r, "lane"))
+                  for r in (blocked_rows or []))
+    return r59.short_hash({"by_reason": dict(summary.get("by_reason") or {}),
+                           "total": summary.get("blocked_total"),
+                           "rows": rows}, 16)
+
+
+def escalate_idle_backoff(*, base_seconds: float, unproductive_streak: int,
+                          policy: Optional[dict] = None) -> dict:
+    """Bounded exponential back-off over an UNCHANGED blocker (R64).
+
+    The first unproductive cycle waits the planned interval. Each further
+    consecutive cycle that executed nothing, measured nothing and saw the same
+    blocked set doubles it, up to the idle ceiling. A productive cycle or a
+    changed blocker resets the streak, so a frontier that starts moving again
+    is not punished for having once been stuck.
+    """
+    pol = policy or idle_policy()
+    floor = float(pol["min_sleep_seconds"])
+    ceiling = float(pol["max_sleep_seconds"])
+    base = max(float(base_seconds or 0.0), floor)
+    steps = max(0, int(unproductive_streak or 0) - 1)
+    # Bound the exponent before it is applied; 2**streak on a worker that has
+    # been up for a month is an overflow, not a policy.
+    steps = min(steps, 32)
+    seconds = min(ceiling, base * (BACKOFF_MULTIPLIER ** steps))
+    seconds = max(floor, min(ceiling, seconds))
+    return {"sleep_seconds": float(seconds), "base_seconds": float(base),
+            "streak": int(unproductive_streak or 0), "steps_applied": steps,
+            "at_ceiling": bool(seconds >= ceiling),
+            "floor_seconds": floor, "ceiling_seconds": ceiling}
 
 
 def plan_sleep(*, ready_work: int, conditions: list,
@@ -573,6 +783,9 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
                 debug_max_seconds: Optional[float] = None,
                 debug_max_cycles: Optional[int] = None,
                 sleep_fn=time.sleep,
+                clock=time.monotonic,
+                min_sleep_seconds: Optional[float] = None,
+                max_sleep_seconds: Optional[float] = None,
                 install_signal_handlers: bool = True) -> dict:
     """Run the autonomous researcher until asked to stop.
 
@@ -586,8 +799,14 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
     research stage is :func:`alpha_agent.r59.loop.run_session` with NO caps;
     it returns only when the governor is out of mandates or an external
     blocker holds every path.
+
+    ``clock`` and ``sleep_fn`` are injectable together so a test can drive the
+    wait deterministically. They must agree: a ``sleep_fn`` that does not
+    advance ``clock`` describes a machine on which time does not pass, and the
+    runtime would wait in it forever.
     """
-    started = time.monotonic()
+    started = clock()
+    policy = idle_policy(min_sleep_seconds, max_sleep_seconds)
     mem = mem or M.open_memory()
     close_queue = queue is None
     queue = queue or LP.open_queue()
@@ -626,12 +845,17 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
         stopper.install()
 
     cycles: list = []
+    n_cycles_total = 0
     last_conditions: Optional[list] = None
     last_experiment = None
     last_freeze = None
     latest_error = None
     state = W_STARTING
     sleep_plan = {"reason": "STARTING", "sleep_seconds": 0.0}
+    # R64 - the pacing state for a repeated, unchanged blocker.
+    unproductive_streak = 0
+    last_blocker_signature = None
+    forced_waits = 0
 
     def _researching_plan(iteration: Optional[dict] = None) -> dict:
         """R61 — the reason to publish WHILE a research cycle is running.
@@ -679,8 +903,16 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             "blocker_reasons": dict(sleep_plan.get("blocker_reasons") or {}),
             "wait_detail": sleep_plan.get("detail"),
             "latest_error": latest_error,
-            "cycles_completed": len(cycles),
+            "cycles_completed": n_cycles_total,
             "production_iteration_limit": None,
+            # R64 - the EFFECTIVE idle configuration and the pacing state. An
+            # operator who cannot see the cadence in force cannot tell a
+            # healthy waiting worker from the busy-wait this release removed.
+            "idle_policy": policy,
+            "unproductive_streak": unproductive_streak,
+            "blocker_signature": last_blocker_signature,
+            "forced_waits": forced_waits,
+            "effective_sleep_seconds": sleep_plan.get("sleep_seconds"),
             "safety": dict(r59.SAFETY),
         }
         if extra:
@@ -712,7 +944,7 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             stopper.request("LEASE_LOST")
             return False
         if debug_max_seconds is not None and \
-                (time.monotonic() - started) >= float(debug_max_seconds):
+                (clock() - started) >= float(debug_max_seconds):
             stopper.request("OPERATOR_DEBUG_TIME_LIMIT")
             return False
         return not stopper.requested
@@ -729,7 +961,7 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
                               "sleep_seconds": 0.0, "operator_override": True}
                 break
             if debug_max_seconds is not None and \
-                    (time.monotonic() - started) >= float(debug_max_seconds):
+                    (clock() - started) >= float(debug_max_seconds):
                 sleep_plan = {"reason": "OPERATOR_DEBUG_TIME_LIMIT",
                               "sleep_seconds": 0.0, "operator_override": True}
                 break
@@ -763,32 +995,73 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             conditions = wake_conditions(mem, queue)
             delta = wake_delta(last_conditions, conditions)
             last_conditions = conditions
-            runnable = queue.runnable_depth()
-            if runnable == 0:
-                # A drained queue is not an empty frontier: ask the governor.
-                try:
-                    decision = GOV.stop_reason(mem)
-                    if not decision.get("stop"):
-                        runnable = int(decision.get("next_mandates") or 0)
-                except Exception as exc:                 # noqa: BLE001
-                    latest_error = "%s: %s" % (type(exc).__name__,
-                                               str(exc)[:300])
+            blocked_summary = _blocked_summary(queue)
+
+            # R64 - the SESSION decides whether executable research exists, not
+            # the governor's opinion of the frontier. See
+            # :func:`executable_ready_work` for the 4,829-cycle reason why.
+            verdict = executable_ready_work(session=session,
+                                            runnable_now=queue.runnable_depth())
+            runnable = verdict["ready_work"]
+
+            # A cycle that executed nothing and measured nothing produced no
+            # new information, so nothing it could ask next has changed.
+            jobs_executed = int((session or {}).get("jobs_executed") or 0)
+            measured = int((session or {}).get("hypotheses_measured") or 0)
+            productive = bool(jobs_executed or measured)
+            signature = blocker_signature(blocked_summary,
+                                          _blocked_rows(queue))
+            if productive or signature != last_blocker_signature:
+                unproductive_streak = 0 if productive else 1
+            else:
+                unproductive_streak += 1
+            last_blocker_signature = signature
 
             sleep_plan = plan_sleep(ready_work=runnable, conditions=conditions,
-                                    blocked_summary=_blocked_summary(queue))
-            cycles.append({
+                                    max_sleep=policy["max_sleep_seconds"],
+                                    blocked_summary=blocked_summary)
+            sleep_plan["ready_work_authority"] = verdict["authority"]
+            sleep_plan["queue_runnable"] = verdict["queue_runnable"]
+
+            # R64 - the NONZERO WAIT, enforced here and not only upstream.
+            # plan_sleep is the policy owner and this does not second-guess its
+            # state, reason or wake condition; it guarantees the one property
+            # that an upstream regression took away, namely that a cycle which
+            # achieved nothing is never followed immediately by an identical
+            # one. Genuinely claimable work still proceeds with no delay.
+            forced = (not productive and verdict["queue_runnable"] == 0) or \
+                     (unproductive_streak >= UNPRODUCTIVE_CYCLES_BEFORE_FORCED_WAIT)
+            if forced and sleep_plan["sleep_seconds"] <= 0:
+                sleep_plan["sleep_seconds"] = policy["min_sleep_seconds"]
+                sleep_plan["forced_nonzero_wait"] = True
+                forced_waits += 1
+            if sleep_plan["sleep_seconds"] > 0:
+                backoff = escalate_idle_backoff(
+                    base_seconds=sleep_plan["sleep_seconds"],
+                    unproductive_streak=unproductive_streak, policy=policy)
+                sleep_plan["sleep_seconds"] = backoff["sleep_seconds"]
+                sleep_plan["backoff"] = backoff
+
+            n_cycles_total += 1
+            record = {
                 "cycle": cycle,
                 "stop_condition": (session or {}).get("stop_condition"),
-                "jobs_executed": (session or {}).get("jobs_executed"),
-                "hypotheses_measured": (session or {}).get(
-                    "hypotheses_measured"),
+                "jobs_executed": jobs_executed,
+                "hypotheses_measured": measured,
                 "still_ready": (session or {}).get("research_still_ready"),
                 "maturation": mat_result.get("state"),
                 "watched_sources_changed": delta["changed"],
                 "sleep_reason": sleep_plan["reason"],
                 "sleep_seconds": sleep_plan["sleep_seconds"],
-            })
-            _log({"event": "cycle", **cycles[-1]})
+                "ready_work_authority": verdict["authority"],
+                "unproductive_streak": unproductive_streak,
+                "blocker_signature": signature,
+            }
+            cycles.append(record)
+            # A worker that never ends may not hold a record per cycle forever.
+            if len(cycles) > MAX_CYCLE_RECORDS:
+                del cycles[:len(cycles) - MAX_CYCLE_RECORDS]
+            _log({"event": "cycle", **record})
 
             if stopper.requested:
                 break
@@ -802,7 +1075,13 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             woke_early = _sleep_watching(
                 sleep_plan["sleep_seconds"], stopper=stopper, mem=mem,
                 queue=queue, baseline=conditions, beat=_beat,
-                sleep_fn=sleep_fn)
+                sleep_fn=sleep_fn, clock=clock,
+                # R64 - while the SAME wall stands, an information arrival may
+                # not cut the back-off short: that is how a 30-minute collector
+                # tick turns an hourly re-examination back into a poll. New
+                # claimable WORK always wakes immediately; see _sleep_watching.
+                information_dwell_seconds=(sleep_plan["sleep_seconds"]
+                                           if unproductive_streak > 1 else 0.0))
             if woke_early:
                 _log({"event": "woke_early", "changed": woke_early})
     finally:
@@ -822,9 +1101,14 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
         "stopped_because": stopper.reason or sleep_plan.get("reason"),
         "operator_override": bool(sleep_plan.get("operator_override")),
         "production_iteration_limit": None,
+        # The most recent MAX_CYCLE_RECORDS cycles; n_cycles is the true total,
+        # which is why they are separate fields.
         "cycles": cycles,
-        "n_cycles": len(cycles),
-        "elapsed_seconds": round(time.monotonic() - started, 1),
+        "n_cycles": n_cycles_total,
+        "elapsed_seconds": round(clock() - started, 1),
+        "idle_policy": policy,
+        "unproductive_streak": unproductive_streak,
+        "forced_waits": forced_waits,
         "maturation": maturation,
         "latest_error": latest_error,
         "resumable": True,
@@ -840,13 +1124,34 @@ def _iso_in(seconds: float) -> str:
 
 
 def _sleep_watching(seconds: float, *, stopper, mem, queue, baseline, beat,
-                    sleep_fn) -> list:
-    """Sleep in heartbeat slices; return early when a watched source moves."""
-    deadline = time.monotonic() + float(seconds)
-    while time.monotonic() < deadline:
+                    sleep_fn, clock=time.monotonic,
+                    information_dwell_seconds: float = 0.0) -> list:
+    """Sleep in heartbeat slices; return early when a watched source moves.
+
+    R64 separates the two kinds of arrival, because they deserve different
+    answers while the same blocker stands:
+
+        WORK         new CLAIMABLE work. Always wakes the worker at once -
+                     nothing in this release may delay executable research.
+        everything   new INFORMATION. Honoured immediately by default, but
+        else         held until ``information_dwell_seconds`` has elapsed once
+                     the same wall has already refused the estate twice. The
+                     continuous collector rewrites its progress file every
+                     half hour, and a back-off that any such write could cut
+                     short is not a back-off - it is a thirty-minute poll.
+
+    The dwell never loses an arrival: the change is remembered, the worker
+    keeps its lease alive throughout, and it acts the moment the dwell ends.
+    """
+    started = clock()
+    deadline = started + float(seconds)
+    dwell = max(0.0, float(information_dwell_seconds or 0.0))
+    kinds = {c.get("name"): c.get("kind") for c in (baseline or [])}
+    pending: list = []
+    while clock() < deadline:
         if stopper.requested:
             return []
-        slice_s = min(HEARTBEAT_SECONDS, max(0.0, deadline - time.monotonic()))
+        slice_s = min(HEARTBEAT_SECONDS, max(0.0, deadline - clock()))
         if slice_s > 0:
             sleep_fn(slice_s)
         if stopper.requested:
@@ -856,9 +1161,15 @@ def _sleep_watching(seconds: float, *, stopper, mem, queue, baseline, beat,
             return []
         now = wake_conditions(mem, queue)
         delta = wake_delta(baseline, now)
-        if delta["any_change"]:
-            return delta["changed"]
-    return []
+        changed = delta["changed"]
+        if changed:
+            kinds.update({c.get("name"): c.get("kind") for c in now})
+            if any(kinds.get(name) == "WORK" for name in changed):
+                return changed
+            pending = changed
+            if (clock() - started) >= dwell:
+                return changed
+    return pending
 
 
 def _mature_forward_evidence() -> dict:
@@ -912,4 +1223,9 @@ __all__ = ["CALCULATION_OWNER", "WORKER_LEASE_NAME", "STATUS_ARTIFACT",
            "runtime_dir", "lease_path", "status_path", "source_identity",
            "worker_identity",
            "maturation_policy", "read_status", "write_status", "status",
-           "wake_conditions", "wake_delta", "plan_sleep", "run_forever"]
+           "wake_conditions", "wake_delta", "plan_sleep", "run_forever",
+           # R64 - the repaired scheduling contract.
+           "ABSOLUTE_MIN_SLEEP_SECONDS", "MIN_SLEEP_ENV", "MAX_SLEEP_ENV",
+           "BACKOFF_MULTIPLIER", "UNPRODUCTIVE_CYCLES_BEFORE_FORCED_WAIT",
+           "MAX_CYCLE_RECORDS", "idle_policy", "executable_ready_work",
+           "blocker_signature", "escalate_idle_backoff"]

@@ -76,6 +76,34 @@ def _register(mem, **kw):
     return mem.register(**base)
 
 
+class _Clock:
+    """A deterministic monotonic clock whose only way forward is to sleep.
+
+    R64. Before the CPU repair these tests handed ``run_forever`` a no-op
+    ``sleep_fn`` and let it read the wall clock, which was harmless only
+    because the runtime never actually slept: it mistook the governor's
+    mandate potential for claimable work and spun. Now that a blocked or
+    exhausted frontier really does wait, a no-op sleep against the real clock
+    would wait the full hour. Injecting the two together keeps the unit tests
+    instant and makes the waiting itself observable.
+    """
+
+    def __init__(self, start: float = 0.0):
+        self.t = float(start)
+        self.sleeps: list = []
+
+    def __call__(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(float(seconds))
+        self.t += float(seconds)
+
+    @property
+    def slept(self) -> float:
+        return sum(self.sleeps)
+
+
 def _ps(script: Path, *args) -> str:
     out = subprocess.run(_PS + [str(script), *args], capture_output=True,
                          text=True, timeout=180)
@@ -243,8 +271,9 @@ def test_the_runtime_resumes_persisted_state_and_resets_nothing(root,
     monkeypatch.setattr(LP, "run_session", lambda **kw: {
         "stop_condition": LP.STOP_A, "jobs_executed": 0,
         "hypotheses_measured": 0, "research_still_ready": 0})
+    clk = _Clock()
     RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                   sleep_fn=lambda s: None)
+                   sleep_fn=clk.sleep, clock=clk)
 
     mem2 = M.open_memory()
     assert mem2.burden()["total"] == burden_before
@@ -263,11 +292,13 @@ def test_a_second_invocation_resumes_instead_of_starting_over(root,
                 "hypotheses_measured": 0, "research_still_ready": 0}
 
     monkeypatch.setattr(LP, "run_session", _session)
+    clk = _Clock()
     RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                   sleep_fn=lambda s: None)
+                   sleep_fn=clk.sleep, clock=clk)
     first = RT.read_status()
+    clk2 = _Clock()
     RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                   sleep_fn=lambda s: None)
+                   sleep_fn=clk2.sleep, clock=clk2)
     second = RT.read_status()
 
     assert seen == [1, 2]
@@ -291,8 +322,9 @@ def test_a_debug_cap_is_reported_as_an_operator_override(root, monkeypatch):
     monkeypatch.setattr(LP, "run_session", lambda **kw: {
         "stop_condition": LP.STOP_A, "jobs_executed": 0,
         "hypotheses_measured": 0, "research_still_ready": 7})
+    clk = _Clock()
     body = RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                          sleep_fn=lambda s: None)
+                          sleep_fn=clk.sleep, clock=clk)
     assert body["operator_override"] is True
     assert body["production_iteration_limit"] is None
     assert "DEBUG" in str(body["stopped_because"])
@@ -307,8 +339,9 @@ def test_the_research_loop_is_called_without_any_cap(root, monkeypatch):
                 "hypotheses_measured": 0, "research_still_ready": 0}
 
     monkeypatch.setattr(LP, "run_session", _session)
+    clk = _Clock()
     RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                   sleep_fn=lambda s: None)
+                   sleep_fn=clk.sleep, clock=clk)
     assert "max_iterations" not in captured or captured["max_iterations"] is None
     assert "budget_seconds" not in captured or captured["budget_seconds"] is None
     assert captured.get("on_progress") is not None
@@ -589,8 +622,9 @@ def test_the_runtime_skips_maturation_when_it_is_not_allowed(root,
     monkeypatch.setattr(LP, "run_session", lambda **kw: {
         "stop_condition": LP.STOP_A, "jobs_executed": 0,
         "hypotheses_measured": 0, "research_still_ready": 0})
+    clk = _Clock()
     body = RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                          sleep_fn=lambda s: None)
+                          sleep_fn=clk.sleep, clock=clk)
     assert called["n"] == 0
     assert body["maturation"]["allowed"] is False
     assert body["cycles"][0]["maturation"] == "SKIPPED"
@@ -627,8 +661,9 @@ def test_status_reports_every_declared_field(root, monkeypatch):
     monkeypatch.setattr(LP, "run_session", lambda **kw: {
         "stop_condition": LP.STOP_A, "jobs_executed": 2,
         "hypotheses_measured": 9, "research_still_ready": 4})
+    clk = _Clock()
     RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                   sleep_fn=lambda s: None)
+                   sleep_fn=clk.sleep, clock=clk)
     st = RT.status()
     for field in ("worker_state", "worker_identity", "source_identity",
                   "started_at", "last_heartbeat", "current_lane",
