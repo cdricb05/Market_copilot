@@ -368,6 +368,73 @@
   "ADVISORY, NOT A REQUEST TO ACT: all three R65 cells are, on the director's own ex-ante estimate, at or below their panel's measured MDE_80. R61's conclusion stands - 'the estate's constraint is not its hypothesis space. It is that a 44-observation lockbox, a 1.5%/yr materiality floor and a multiplicative burden cannot resolve the size of effect the reachable universe plausibly contains.' R65 does not fix that, and is not presented as fixing it. Raising detection power - longer panels, lower-cost constructions, or a materiality floor argued from first principles - is a human decision about the research programme, not something the director may change under governance_contract.json."
  ],
 
+ "preregistration_outcome_2026_09_22": {
+  "note": "APPENDED after the substrate was published. Nothing above this key was rewritten; the agenda frozen on 2026-09-22 stands as written, and this key records only what happened when it met the published substrate.",
+  "verb": "scripts\\alpha_agents_v2.py preregister --agent quant-research-director, run once per cell in the frozen review_order",
+  "frozen_gate_schema_hash": "c73257e7eb0fe913ef204e4338436251c5239e54c9cfc999fc608410a08fedd4",
+  "minted": [
+   {
+    "executor": "r65_01",
+    "experiment_id": "H_47e2cf84_1c2df9d04b43",
+    "spec_hash": "1c2df9d04b4315eaf14ed530682a2c1a497201310270d56e05979d924aef0d0a",
+    "owning_agent": "volatility-liquidity-agent",
+    "family_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT",
+    "identity_confirmation": "The minted id shares the family prefix H_47e2cf84 with the R60 cell H_47e2cf84_49076c9d82f0, which is the proof it landed in the SAME family and will therefore be charged the correct burden denominator rather than escaping into a fresh family."
+   },
+   {
+    "executor": "r65_03",
+    "experiment_id": "H_b5e5e7c0_dc7ca69afa30",
+    "spec_hash": "dc7ca69afa30f6e2850cf014ac6a8b8bb16c47ddc848f78530cf7cbb1e3760de",
+    "owning_agent": "volatility-liquidity-agent",
+    "family_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT",
+    "identity_confirmation": "Shares the family prefix H_b5e5e7c0 with all three prior commodity open-interest rows (…f3e92699f95c, …483c5c1043eb, …7f7cdc392f88). It is charged against them, as intended."
+   }
+  ],
+  "substrate_deviations_accepted_and_why": [
+   {
+    "what": "r65_commodity_oi_covered EXCLUDED market AFB at 60.07% held-contract OI coverage against the 0.80 floor. Universe is 38 markets, not 39.",
+    "ruling": "ACCEPTED. It is a data-quality screen applied to a threshold the director froze on 2026-09-22, it is computable without reading a single return, and it TIGHTENS the cell rather than relaxing it. The R61 COMMODITY_FUTURES calibration panel was 39 instruments; 38 does not move the MDE reference materially.",
+    "condition_attached": "The per-market universe screen does NOT discharge the CELL-LEVEL 0.80 coverage halt, which remains binding over the surviving 38 markets. Recorded in the frozen spec at parameters.cell_level_coverage_halt_still_binding."
+   },
+   {
+    "what": "In the published commodity universe, INDUSTRIAL_METALS contains only HG, so copper sits out under the single-member-group rule.",
+    "ruling": "ACCEPTED as the frozen rule operating exactly as designed. Recorded in the spec so it cannot later be read as an exclusion chosen after seeing anything."
+   },
+   {
+    "what": "fs_r65_03 contains an internal ambiguity: features[0].formula_plain_english says demean within group then RANK THE DEMEANED RATIOS (global rank), while scaling_cross_sectional_treatment says rank WITHIN group. These are different books.",
+    "ruling": "RESOLVED IN FAVOUR OF THE EARLIER FROZEN TEXT, not of any outcome. The binding construction is demean-within-group then rank globally - what the director froze on 2026-09-22 and what formula_plain_english states. Written into the frozen pre-registration at parameters.construction_order_binding_clarification BEFORE any measurement."
+   }
+  ],
+  "refused": [
+   {
+    "executor": "r65_02",
+    "label": "XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG_H3",
+    "experiment_id": "NONE - NOT REGISTERED",
+    "refused_by": "quant-research-director. This is a DIRECTOR refusal, not a pipeline refusal: preregister was NOT attempted, because with features published, data certified, the family routed and the sign declared it would very likely have SUCCEEDED, minting an id and charging the CROSS_ASSET burden denominator forever for a cell the director had already judged un-freezable. Attempting it would have been the harm.",
+    "blocking_reasons": [
+     "1. THE DECLARED LEAD VARIABLE COLLAPSED TO ONE MARKET. The director froze 'an equal-weighted industrial-metals composite of the certified R38 industrial metals markets'; fs_r65_02 itself lists copper, aluminium, zinc, nickel and tin as typical members. The published universe r65_xa_metals_currency_leadlag delivers 'equal-weighted composite of certified industrial metals (HG copper)' - n=1. A one-market composite is copper, not industrial metals, and that is a change to the ECONOMIC MECHANISM, not to a parameter. A broad industrial-metals demand shock and a copper move are different hypotheses.",
+     "2. THE COLLAPSE CREATES AN IDENTITY COLLISION THE DIRECTOR DID NOT PRE-DECLARE. The memory already holds H_06816d6f_f09c738cd8b7, 'R46 challenger r52_rates_copper_gold_lead', input_data_identity '&ZN, signed by the one-quarter change in ln(&HG/&GC) - the copper/gold ratio', family CROSS_ASSET_LEAD_LAG, outcome FORWARD_FROZEN. A copper-move-signs-another-asset lead-lag channel is ALREADY REGISTERED FORWARD in this estate. The skeptic focus the director requested was against the dollar-beta row H_e490a5b8_5c87b7dbcae0; the copper collapse creates a much nearer relative that was never pre-declared as the thing to attack.",
+     "3. THE OBSERVABILITY INSTANT IS UNRESOLVED, AND THE ARTIFACTS CONTRADICT EACH OTHER. fs_r65_02 sets lag_sessions 0 on the metals composite and asserts 'Session t (end of day when both metals and FX markets have closed)'. Its OWN limitations concede the opposite: 'Calendar mismatch ... introducing a 1-2 session slippage in some cases.' The universe states 'metals trade US hours, FX trade 24-hour currency futures', and its observability_instant field answers a different question (t-2, for open interest, which this PRICE-based cell never reads). Nowhere is the metals close measured against the FX futures close. For a LEAD-LAG cell the entire economic claim IS the lag: if the number of sessions between the signal instant and the first earned return is unmeasured, the cell cannot be distinguished from a one-session look-ahead. At h21 that is a 5% nuisance; at h3, against the book's ret[t+1 : t+1+horizon] convention, it is a third of the horizon and 100% of the mechanism. This is the same defect - an unmeasured publication lag on the signal leg - for which the director refused XA_TERMS_OF_TRADE_RELATIVE_VALUE, and it is refused here for the same reason.",
+     "4. THE DIRECTOR'S OWN CALENDAR HALT IS WIRED TO THE WRONG QUANTITY. The frozen halt was 'if the mixed-calendar rule leaves a currency unscorable on more than 20% of TRIGGERED decisions, HALT as DATA_HOLD'. Both published artifacts express currency scorability in terms of OPEN INTEREST coverage, while fs_r65_02 states plainly 'This feature reads PRICES (returns), not OI'. The halt therefore guards a check this cell never performs."
+    ],
+    "what_the_director_did_not_do": "Did not set lag_sessions to 1, did not edit a published feature set, did not add a halt condition after the fact, and did not relax anything. Feature computation is owned by the feature-library-agent and the campaign executor module; a parameter change made here would be a NEW experiment, and a director quietly repairing a feature set is the hidden tuning this contract forbids.",
+    "remedy": "feature-library-agent re-publishes fs_r65_02 at a new version with (a) a lead variable that is genuinely a multi-market industrial-metals composite, or an honestly relabelled single-market copper channel carrying a pre-declared identity check against H_06816d6f_f09c738cd8b7, and (b) a DERIVED observability instant in the shape the OI cells already use ('exchange OI for session s published s+1, signal lag s, union = s+2'), measuring the metals close against the FX futures close rather than asserting the question away. Only then can the director freeze and mint it."
+   }
+  ],
+  "diversity_gate_consequence": {
+   "state": "FAILED - CAMPAIGN MUST NOT PROCEED TO THE SIGNAL AGENTS ON TWO CELLS",
+   "measured": "With r65_02 refused the campaign is 2 cells in 2 asset classes (EQUITY_INDEX_FUTURES, COMMODITY_FUTURES).",
+   "breaches": [
+    "min_asset_classes_per_campaign: required 3, actual 2.",
+    "require_at_least_one H1_H5 horizon experiment: NOT SATISFIED. r65_02 was the only H1-H5 cell.",
+    "require_at_least_one cross-asset experiment: NOT SATISFIED. r65_02 was the only cross-asset cell.",
+    "max_share_single_asset_class: 0.5 each, at the limit but not above it."
+   ],
+   "why_the_two_were_registered_anyway": "r65_01 and r65_03 are individually sound, their substrate is clean, their observability instant is DERIVED rather than asserted, and their reopen conditions are satisfied. Preregistration is per-cell, so registering them does not foreclose the repair: a re-published fs_r65_02 can be frozen and minted afterwards and diversity restored. Withholding two valid registrations would not have fixed the gate.",
+   "binding_stop_condition": "The campaign does NOT advance to the four signal agents until EITHER fs_r65_02 is re-published to the remedy above and r65_02 is minted, OR the human owner rules explicitly on a diversity exception for a two-cell, two-class campaign. The director does not grant itself that exception: hypothesis diversity is the director's gate, and widening it is a scope change and a human decision."
+  }
+ },
+
  "plain_english": {
   "what_this_campaign_is": "Three small, cheap experiments in markets that are NOT US stocks. Nothing here touches real money, places an order, or changes anything the system does. It is research, and the most likely result - by a wide margin - is that all three find nothing.",
   "why_only_three": "We were offered room for four. We used three. The fourth idea we would have run sits on a data source that our own data team marked 'on hold, not measured', and running an experiment on data nobody has checked is how you get a confident wrong answer. An unused slot costs nothing. A used one makes every future result harder to believe, forever.",

@@ -26,21 +26,21 @@
  },
  "experiments": [
   {
-   "experiment_id": "PENDING_PREREGISTRATION_r65_01",
+   "experiment_id": "H_47e2cf84_1c2df9d04b43",
    "executor": "r65_01",
    "book": "FUTURES_DATED_CONTRACT",
    "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH_COST_HONEST",
    "owning_agent": "volatility-liquidity-agent"
   },
   {
-   "experiment_id": "PENDING_PREREGISTRATION_r65_02",
+   "experiment_id": "REFUSED_BY_DIRECTOR_NOT_REGISTERED",
    "executor": "r65_02",
    "book": "FUTURES_DATED_CONTRACT",
    "label": "XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG_H3",
    "owning_agent": "trend-breadth-signal-agent"
   },
   {
-   "experiment_id": "PENDING_PREREGISTRATION_r65_03",
+   "experiment_id": "H_b5e5e7c0_dc7ca69afa30",
    "executor": "r65_03",
    "book": "FUTURES_DATED_CONTRACT",
    "label": "FUT_COMMODITY_OPEN_INTEREST_GROWTH_COST_HONEST",
