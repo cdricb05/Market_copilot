@@ -3772,7 +3772,10 @@ def check_decision_semantics(*, reallocation_operator_state: Any,
                              summary_claims: Optional[dict] = None,
                              reallocation_outcome: Any = None,
                              feasible_target_exists: Any = None,
-                             constraints_that_reshaped: Any = None) -> list[dict]:
+                             constraints_that_reshaped: Any = None,
+                             full_target_reviewable: Any = None,
+                             mandatory_repair_code: Any = None,
+                             mandatory_obligations_open: Any = None) -> list[dict]:
     """Compare the authoritative owners and return every SEMANTIC contradiction.
 
     Pure; no io, no recomputation of any owner's economics. ``summary_claims`` maps a
@@ -3853,6 +3856,24 @@ def check_decision_semantics(*, reallocation_operator_state: Any,
             "concept": "portfolio_proposal",
             "value_proposal_state": reallocation_operator_state,
             "authoritative_owners": [RP_CANONICAL_OWNER, "api.portfolio_decision"],
+            "surface": "workflow_state"})
+
+    # I9 (R63 live integration). A target that still leaves a mandatory repair
+    #     obligation open - or that carries no verdict on them at all - is never
+    #     approvable. The 2026-09-22 09:03 proposal proved the two surfaces could
+    #     disagree about ONE proposal: the review screen refused its FULL_TARGET
+    #     by name (LH, VLO) while the cockpit rendered the same proposal as
+    #     approvable and executable. Asserted here so that contradiction is a
+    #     reported violation rather than something an operator has to notice.
+    if (proposal_exists and full_target_reviewable is False
+            and (reallocation_approvable or portfolio_decision_approvable)):
+        violations.append({
+            "code": "UNREPAIRED_TARGET_EXPOSED_AS_APPROVABLE",
+            "concept": "portfolio_decision",
+            "value_mandatory_repair_code": mandatory_repair_code,
+            "obligations_open": list(mandatory_obligations_open or []),
+            "authoritative_owners": [RP_CANONICAL_OWNER,
+                                     "engine.holding_opportunity_cost"],
             "surface": "workflow_state"})
 
     # I7 (Release 47). A reshaping constraint may never be presented as a blocker.
@@ -4308,6 +4329,17 @@ def load_workflow_state(
         # supply it, so a degraded read keeps the pre-existing derivation.
         "reallocation_proposal_approvable": (gate or {}).get(
             "reallocation_proposal_approvable"),
+        # R63 live integration — the mandatory-repair verdict travels with the
+        # summary for the same reason the outcome does: the decision lane and
+        # every surface below it must read ONE authoritative answer. Carried as
+        # None when the gate could not supply it, so a degraded read is "no
+        # information" here and the WRITE path stays the thing that fails closed.
+        "reallocation_full_target_reviewable": (gate or {}).get(
+            "reallocation_full_target_reviewable"),
+        "reallocation_mandatory_repair_code": (gate or {}).get(
+            "reallocation_mandatory_repair_code"),
+        "reallocation_mandatory_obligations_open": list(
+            (gate or {}).get("reallocation_mandatory_obligations_open") or []),
     }
     # --- R54.2.3.2 — DECISION-OVER-PROPOSAL SUPERSESSION (Track B continued). ------ #
     # The Release-29.5 governed-evidence verdict is resolved HERE (hoisted; the same
@@ -5170,6 +5202,13 @@ def load_workflow_state(
         current_reassessment_hash=reassessment_summary.get("hoc_assessment_hash"),
         mandatory_exit_tickers=(reassessment_summary.get("mandatory_exit_tickers") or []),
         mandatory_exit_obligation=_mex_policy.get("obligation"),
+        # R63 live integration — the proposal owner's own mandatory-repair verdict.
+        # None when no proposal exists, so I9 stays silent rather than firing on
+        # the absence of a target.
+        full_target_reviewable=rp_summary.get("reallocation_full_target_reviewable"),
+        mandatory_repair_code=rp_summary.get("reallocation_mandatory_repair_code"),
+        mandatory_obligations_open=rp_summary.get(
+            "reallocation_mandatory_obligations_open"),
         # Release 47 — the outcome and the reshaping ledger, read from the proposal
         # owner's summary. The validator compares them; it never re-derives them.
         reallocation_outcome=rp_summary.get("reallocation_outcome"),

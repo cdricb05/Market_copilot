@@ -1525,7 +1525,13 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
                "reallocation_constraint_reoptimized",
                "reallocation_feasible_target_exists",
                "reallocation_switching_hurdle",
-               "reallocation_clears_switching_hurdle"):
+               "reallocation_clears_switching_hurdle",
+               # R63 — the mandatory-repair verdict travels with the outcome, so
+               # the decision lane below never has to re-open the artifact to
+               # learn whether the target it is about to expose is compliant.
+               "reallocation_full_target_reviewable",
+               "reallocation_mandatory_repair_code",
+               "reallocation_mandatory_obligations_open"):
         result[_k] = rp.get(_k)
     # Slice 7 (Phase 29H) is LANDED: the reallocation proposal exists and remains
     # REVIEW ONLY — it is a research proposal that confirms no target and creates no

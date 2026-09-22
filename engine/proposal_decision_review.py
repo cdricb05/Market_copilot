@@ -1703,7 +1703,10 @@ def decide(*, read_state: Optional[str], proposal: dict, obligations: list,
 # operator is ALLOWED to put in front of the existing Approve gate.
 # --------------------------------------------------------------------------- #
 SELECT_BLOCK_NOT_REVIEWABLE = "PROPOSAL_NOT_REVIEWABLE"
-SELECT_BLOCK_OBLIGATIONS_OPEN = "MANDATORY_REPAIR_OBLIGATIONS_UNRESOLVED"
+#: RE-EXPORTED from the contract owner, never re-spelled: the read seams refuse
+#: an unrepaired target with this same code, so one refusal cannot be worded two
+#: ways depending on which surface asked.
+SELECT_BLOCK_OBLIGATIONS_OPEN = _hoc.OBLIGATIONS_UNRESOLVED
 SELECT_BLOCK_REPAIR_UNVERIFIED = "MINIMUM_REPAIR_NOT_VERIFIED"
 SELECT_BLOCK_REPAIR_UNMEASURED = "MINIMUM_REPAIR_RISK_NOT_MEASURED"
 SELECT_BLOCK_NO_CHANGE = "TARGET_MOVES_NOTHING"

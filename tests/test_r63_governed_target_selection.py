@@ -573,7 +573,14 @@ class TestGovernedSelection:
 # =========================================================================== #
 # 6. APPROVAL CONSUMES THE SELECTION — and a stale session never approves
 # =========================================================================== #
-def _artifact(phash="P_HASH", session=SESSION):
+def _artifact(phash="P_HASH", session=SESSION, obligations_resolved=True):
+    """A proposal artifact as ``build_proposal`` actually emits one.
+
+    It carries the mandatory-repair contract, because every proposal the kernel
+    produces does. An artifact WITHOUT it can only be a pre-R63 one, and the read
+    and approval seams refuse those as UNVERIFIABLE — which is the whole subject
+    of ``test_r63_live_integration``.
+    """
     return {"proposal_id": "reap_%s_%s_abc" % (session, BOOK),
             "identity": {"proposal_hash": phash, "eligible_market_date": session,
                          "active_book_id": BOOK, "portfolio_state_hash": "PS",
@@ -582,7 +589,21 @@ def _artifact(phash="P_HASH", session=SESSION):
                          "allocation_policy_version": "v1"},
             "input_contract": {"eligible_market_date": session, "active_book_id": BOOK,
                                "universe_input_contract_hash": "UIC"},
-            "proposal": {"proposal_hash": phash}}
+            "proposal": {
+                "proposal_hash": phash,
+                "mandatory_repair": {
+                    "contract_version": hoc.MANDATORY_REPAIR_CONTRACT_VERSION,
+                    "owner": hoc.CALCULATION_OWNER,
+                    "obligations": [],
+                    "obligation_count": 0,
+                    "obligations_open_against_target": (
+                        [] if obligations_resolved
+                        else [{"ticker": "LH", "instrument_id": "LH"}]),
+                    "obligations_open_count": 0 if obligations_resolved else 1,
+                    "obligations_resolved": obligations_resolved,
+                },
+                "full_target_reviewable": obligations_resolved,
+            }}
 
 
 def _summary(phash="P_HASH"):
@@ -727,23 +748,49 @@ class TestApprovalConsumesSelection:
 # 7. THE LIVE SEP-18 CASE — historical evidence, preserved exactly
 # =========================================================================== #
 class TestSep18AcceptanceCase:
-    """Reads the LIVE persisted proposal. Read-only: it regenerates nothing,
-    mutates nothing, selects nothing and approves nothing."""
+    """Reads the LIVE persisted Sep-18 proposal. Read-only: it regenerates
+    nothing, mutates nothing, selects nothing and approves nothing.
+
+    It pins that EXACT immutable artifact rather than asking for "the standing
+    proposal". The standing proposal is whatever the operator most recently ran -
+    on 2026-09-22 it became a Sep-21 one - and a test that asserts a fixed
+    identity against a moving pointer fails for the healthiest possible reason.
+    The subject here is a specific historical artifact, so it is named.
+    """
+
+    PROPOSAL_ID = "reap_2026-09-18_alpha_paper_book_1_9bd6e73a2ef6"
 
     @pytest.fixture(scope="class")
     def live(self):
-        d = pdrev.load_proposal_decision_review()
+        from paper_trader.api import reallocation_proposal as arp
+
+        path = (arp._artifacts_dir() / ("%s.json" % self.PROPOSAL_ID))
+        if not path.exists():
+            pytest.skip("the Sep-18 acceptance artifact is not in this environment")
+        art = json.loads(path.read_text(encoding="utf-8"))
+        d = pdrev.load_proposal_decision_review(
+            proposal_payload=arp.load_reallocation_proposal(artifact=art),
+            artifact_loader=lambda **kw: art)
         if d.get("status") != "OK":
-            pytest.skip("no live standing proposal in this environment")
+            pytest.skip("the Sep-18 artifact cannot be adjudicated here")
         return d
 
     def test_70_the_proposal_is_unchanged(self, live):
-        assert live["proposal_id"] == "reap_2026-09-18_alpha_paper_book_1_9bd6e73a2ef6"
+        assert live["proposal_id"] == self.PROPOSAL_ID
         assert live["mutates_proposal"] is False and live["writes_nothing"] is True
 
-    def test_71_the_verdict_still_prefers_the_minimum_repair(self, live):
+    def test_71_the_superseded_proposal_still_reports_its_open_obligations(self, live):
+        """Since the 2026-09-21 cycle ran, this proposal is superseded history, so
+        the ladder answers at rung 1 and names WHY. What must not be lost is the
+        finding itself: a superseded proposal still reports that its full target
+        left obligations open. Supersession changes whether it can be ACTED on,
+        never what it says about itself.
+        """
         v = (live["review"]["review_verdict"] or {})
-        assert v["verdict"] == pdr.VERDICT_MINIMAL_REPAIR_PREFERRED
+        assert v["verdict"] == pdr.VERDICT_BLOCKED_CONSTRAINT_OR_DATA
+        assert ("PROPOSAL_NOT_REVIEWABLE_SUPERSEDED_BY_NEWER_DECISION"
+                in v["reason_codes"])
+        assert "FULL_TARGET_LEAVES_OBLIGATIONS_OPEN" in v["reason_codes"]
 
     def test_72_the_full_target_is_blocked_on_LH_and_VLO(self, live):
         ts = live["review"]["target_selection"]

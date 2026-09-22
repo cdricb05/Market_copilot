@@ -91,7 +91,16 @@ def _artifact(*, phash="hash_current", pid="reap_2026-08-11_book_hash_current",
             "allocations": allocs,
             "turnover": {"one_way_turnover": 0.3679, "gross_sells": 4290.0,
                          "gross_buys": 3899.19, "estimated_transaction_cost": 89.63},
-            "portfolio": {"current_cash": 4630.31, "proposed_cash": 2027.24}},
+            "portfolio": {"current_cash": 4630.31, "proposed_cash": 2027.24},
+            # R63 — every proposal the kernel emits carries the mandatory-repair
+            # contract, and an approval is refused without it. This one resolves
+            # its obligations, so the subject of these tests (binding, idempotence,
+            # staleness, revision) is what is actually under test.
+            "mandatory_repair": {"obligations": [], "obligation_count": 0,
+                                 "obligations_open_against_target": [],
+                                 "obligations_open_count": 0,
+                                 "obligations_resolved": True},
+            "full_target_reviewable": True},
     }
 
 

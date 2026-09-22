@@ -87,6 +87,14 @@ _HOLD_OUTCOME_FIELDS = {
     "reallocation_feasible_target_exists": True,
     "reallocation_switching_hurdle": 0.05,
     "reallocation_clears_switching_hurdle": False,
+    # R63 — the canonical summary always forwards the mandatory-repair verdict,
+    # whatever the outcome: it describes the TARGET, not the economics. Both
+    # fixtures model a target that resolves its obligations, so the subject of
+    # these tests stays the outcome/approvability consistency they were written
+    # for rather than an unrepaired book.
+    "reallocation_full_target_reviewable": True,
+    "reallocation_mandatory_repair_code": "MANDATORY_REPAIR_OBLIGATIONS_RESOLVED",
+    "reallocation_mandatory_obligations_open": [],
 }
 _READY_OUTCOME_FIELDS = {
     **_HOLD_OUTCOME_FIELDS,

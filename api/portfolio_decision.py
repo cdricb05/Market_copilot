@@ -52,6 +52,7 @@ from typing import Any, Callable, Optional
 
 from paper_trader.api import reallocation_proposal as realloc
 from paper_trader.engine import constrained_reallocation as _cr
+from paper_trader.engine import holding_opportunity_cost as _hoc
 
 PHASE = "STAGE18"
 OWNER = "api.portfolio_decision"
@@ -109,12 +110,21 @@ PDS_SESSION_STALE = "PROPOSAL_SESSION_STALE"
 #: R63 — the operator's governed selection for this session is CURRENT (keep the
 #: book). There is no target to approve; the no-change decision is the outcome.
 PDS_SELECTION_IS_NO_CHANGE = "SELECTED_TARGET_IS_NO_CHANGE"
+#: R63 live integration — the proposal's own target still leaves a repair
+#: obligation open that engine.holding_opportunity_cost already RULED, or it
+#: predates the contract and carries no verdict at all. Either way the target
+#: may not be approved: approving it would commit capital to a book the system
+#: has itself declared non-compliant. The proposal stays immutable and fully
+#: readable; only approval is refused. Distinct from PDS_CHANGE_WITHHELD (the
+#: kernel could build no compliant target) — here a target exists and is simply
+#: not one the owner's rules permit.
+PDS_REPAIR_OBLIGATIONS_OPEN = _hoc.OBLIGATIONS_UNRESOLVED
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
     PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
     PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_SESSION_STALE,
-    PDS_SELECTION_IS_NO_CHANGE, PDS_UNAVAILABLE)
+    PDS_SELECTION_IS_NO_CHANGE, PDS_REPAIR_OBLIGATIONS_OPEN, PDS_UNAVAILABLE)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
@@ -766,6 +776,37 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 "next_required_action": freshness["next_required_action"],
                 "message": freshness["detail"]}
 
+    # --- R63 live integration: a non-compliant target can never be APPROVED --- #
+    # The reviewability invariant has to bind on the WRITE path, not only in the
+    # review projection. The selection gate below refuses a non-selectable
+    # FULL_TARGET, but it only engages once a selection EXISTS: a caller that
+    # posts this endpoint without selecting anything skipped it entirely and
+    # approved the standing target. On 2026-09-22 that standing target retained
+    # VLO and halved LH against an EXIT_TO_ZERO ruling, and this gate recorded
+    # the approval.
+    #
+    # The verdict is the proposal kernel's own, read back off the immutable
+    # artifact - no second classifier, and no obligation is re-derived here.
+    # Scoped to APPROVE: REJECT and HOLD stay available, because refusing those
+    # too would leave the operator no way to record a judgement on a proposal
+    # they cannot approve.
+    if decision == DECISION_APPROVE:
+        repair = realloc.kernel.mandatory_repair_read_verdict(
+            (artifact or {}).get("proposal") or {})
+        if not repair["reviewable"]:
+            return {**base, "status": PDS_REPAIR_OBLIGATIONS_OPEN,
+                    "binding": binding, "current_proposal_hash": current_hash,
+                    "mandatory_repair_verdict": repair,
+                    "obligations_open": list(repair["instruments"]),
+                    "next_required_action": "RUN_PORTFOLIO_CYCLE",
+                    "message": (
+                        "This target cannot be approved: %s Approving it would "
+                        "commit capital to a book the system has itself ruled "
+                        "non-compliant. The proposal is unchanged and remains "
+                        "readable; select the minimum repair, or run the "
+                        "portfolio cycle for a target that resolves it."
+                        % repair["detail"])}
+
     # --- R63: approval must consume EXACTLY the governed selection ------------ #
     # When the operator has selected a target, the approval gate approves THAT
     # target. It may never fall back to the standing full target, because the
@@ -1338,13 +1379,30 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
             summ.get("reallocation_constraint_reoptimized")),
         "switching_hurdle": summ.get("reallocation_switching_hurdle"),
         "clears_switching_hurdle": summ.get("reallocation_clears_switching_hurdle"),
+        # R63 live integration — the mandatory-repair verdict, carried on the lane
+        # so the cockpit cards and the review screen cannot disagree about the
+        # SAME proposal. Rendered verbatim from the proposal owner's summary.
+        "full_target_reviewable": bool(
+            summ.get("reallocation_full_target_reviewable")),
+        "mandatory_repair_code": summ.get("reallocation_mandatory_repair_code"),
+        "mandatory_obligations_open": list(
+            summ.get("reallocation_mandatory_obligations_open") or []),
+        "mandatory_repair_detail": summ.get("reallocation_mandatory_repair_detail"),
         # R63 - session freshness can only ever REMOVE approvability. An unknown
         # verdict is treated as "no information" here (the write path still fails
         # closed on it), so a caller that supplies no session sees the pre-R63
         # answer rather than a silent False.
+        # R63 live integration adds the obligation term here too, so the state
+        # that drives the Approve control agrees with the write path that would
+        # refuse it, and with the review screen that already refused the target.
+        # Like the session term beside it, only an explicit False removes
+        # approvability: None is "the gate supplied no verdict", not "no", and
+        # the write path is what fails closed on an unverifiable proposal.
         "approvable": bool(available and materiality["material"] and not ca_stale
                            and not superseded and not withheld
                            and not hold_current_book
+                           and summ.get(
+                               "reallocation_full_target_reviewable") is not False
                            and not _session_blocks_approval(freshness)),
         "freshness": dict(freshness or {}),
         "session_actionable": (None if not freshness

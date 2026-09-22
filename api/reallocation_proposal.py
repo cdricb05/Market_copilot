@@ -744,6 +744,14 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                     "root_env": REALLOC_DIR_ENV}
     stale = bool((staleness or {}).get("stale"))
     superseded = bool((supersession or {}).get("superseded"))
+    # --- R63 live integration: the mandatory-repair contract, RENDERED --------- #
+    # The kernel decided this at construction time; this seam only carries the
+    # verdict. Before it did, the read contract dropped ``mandatory_repair`` and
+    # ``full_target_reviewable`` entirely and defaulted ``approvable`` to True,
+    # so a target that left an owner-ruled obligation open was republished as
+    # approvable AND executable while the review screen beside it refused the
+    # very same target. One proposal cannot have two answers.
+    repair = kernel.mandatory_repair_read_verdict(p)
     return {
         # Stage 19.1 — the explicit approvability contract every surface renders.
         "stale": stale,
@@ -758,12 +766,20 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
         # Release 47 narrows both: a proposal is offered for approval only when the
         # kernel's own outcome is PROPOSAL_READY. HOLD_CURRENT_BOOK is a decision the
         # system has already taken, not outstanding operator work.
+        # R63 adds the obligation term, and it fails CLOSED: an artifact that
+        # carries no verdict is refused rather than assumed clean.
         "approvable": ((not stale) and (not superseded)
                        and state in APPROVABLE_READ_STATES
-                       and bool(p.get("approvable", True))),
+                       and bool(p.get("approvable", True))
+                       and repair["reviewable"]),
         "executable": ((not stale) and (not superseded)
                        and state in APPROVABLE_READ_STATES
-                       and bool(p.get("approvable", True))),
+                       and bool(p.get("approvable", True))
+                       and repair["reviewable"]),
+        # The contract itself, so no surface has to infer it from a boolean.
+        "mandatory_repair": p.get("mandatory_repair") or {},
+        "mandatory_repair_verdict": repair,
+        "full_target_reviewable": repair["reviewable"],
         # Release 29.3 — the complete-target limit verdict, rendered verbatim.
         "complete_target_limits": p.get("complete_target_limits") or {},
         "withheld": state == STATE_WITHHELD,
@@ -1171,6 +1187,11 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         "reallocation_proposal_withheld": False,
         "reallocation_withheld_reasons": [],
         "reallocation_proposal_approvable": False,
+        # --- R63 mandatory-repair contract ----------------------------------- #
+        "reallocation_full_target_reviewable": False,
+        "reallocation_mandatory_repair_code": None,
+        "reallocation_mandatory_obligations_open": [],
+        "reallocation_mandatory_repair_detail": None,
         # --- Release 47 ------------------------------------------------------ #
         "reallocation_outcome": None,
         "reallocation_outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
@@ -1204,6 +1225,7 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
     except Exception:  # noqa: BLE001 — never crash a compact summary read
         stale_blk = {"stale": False, "reason": None,
                      "current_corporate_actions_hash": None}
+    _repair = kernel.mandatory_repair_read_verdict(p)
     return {
         "reallocation_proposal_available": True,
         "reallocation_proposal_stale": bool(stale_blk.get("stale")),
@@ -1225,10 +1247,18 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         # Release 47: approvability now also requires the kernel's own outcome to be
         # PROPOSAL_READY. A feasible-but-not-worth-it target is HOLD_CURRENT_BOOK, and
         # HOLD is a decision, not a queue item.
+        # R63: and the target must resolve every obligation the opportunity-cost
+        # owner ruled. Read from the kernel's own published verdict, failing
+        # closed when the artifact predates the contract and carries none.
         "reallocation_proposal_approvable": bool(
             not stale_blk.get("stale")
             and p.get("proposal_state") in APPROVABLE_READ_STATES
-            and p.get("approvable", True)),
+            and p.get("approvable", True)
+            and _repair["reviewable"]),
+        "reallocation_full_target_reviewable": _repair["reviewable"],
+        "reallocation_mandatory_repair_code": _repair["code"],
+        "reallocation_mandatory_obligations_open": list(_repair["instruments"]),
+        "reallocation_mandatory_repair_detail": _repair["detail"],
         "reallocation_outcome": p.get("outcome"),
         "reallocation_outcome_vocabulary": list(_cr.OUTCOME_VOCAB),
         "reallocation_outcome_headline": (p.get("reallocation_outcome") or {}).get(

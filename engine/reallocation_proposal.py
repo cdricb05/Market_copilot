@@ -1435,6 +1435,73 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
 
 
 # --------------------------------------------------------------------------- #
+# R63 — the mandatory-repair contract, read back off a PERSISTED proposal
+# --------------------------------------------------------------------------- #
+def mandatory_repair_read_verdict(proposal: Optional[dict]) -> dict:
+    """Does a persisted proposal's published target resolve every ruled obligation?
+
+    This DERIVES NOTHING. ``build_proposal`` above already asked the question at
+    construction time, judged on the resulting book, from the obligations
+    ``engine.holding_opportunity_cost`` ruled; this reads that published answer
+    back off the artifact so every downstream READ seam - the proposal read
+    contract, the compact summary, the decision owner's approval gate - reaches
+    the same verdict without re-deriving it and without a second classifier.
+
+    The reason it exists at all: an artifact persisted BEFORE this contract
+    carries no answer, and a consumer that defaulted such an artifact to
+    "approvable" would publish an unrepaired target as reviewable. That is
+    exactly what the live 2026-09-22 09:03 artifact did - it left LH at 2.5% and
+    RETAINED VLO against an EXIT_TO_ZERO ruling, and every read seam still
+    called it approvable. An absent contract is therefore UNVERIFIABLE and
+    refused, never assumed satisfied.
+    """
+    p = proposal or {}
+    block = p.get("mandatory_repair")
+    if not isinstance(block, dict) or "obligations_resolved" not in block:
+        return {
+            "reviewable": False,
+            "verifiable": False,
+            "code": hoc_kernel.OBLIGATIONS_UNVERIFIABLE,
+            "vocabulary": list(hoc_kernel.OBLIGATION_READ_VERDICT_VOCAB),
+            "owner": hoc_kernel.CALCULATION_OWNER,
+            "contract_version": hoc_kernel.MANDATORY_REPAIR_CONTRACT_VERSION,
+            "obligations_open": [],
+            "obligations_open_count": None,
+            "obligation_count": None,
+            "instruments": [],
+            "detail": ("This proposal was built before the mandatory-repair "
+                       "contract existed, so whether its target resolves the "
+                       "opportunity-cost owner's rulings cannot be established "
+                       "from the artifact. It is readable history; it is not "
+                       "actionable. Run the portfolio cycle to produce a "
+                       "proposal that carries the contract."),
+        }
+    open_rows = list(block.get("obligations_open_against_target") or [])
+    resolved = bool(block.get("obligations_resolved")) and not open_rows
+    instruments = sorted({(r or {}).get("instrument_id") or (r or {}).get("ticker")
+                          for r in open_rows
+                          if (r or {}).get("instrument_id") or (r or {}).get("ticker")})
+    return {
+        "reviewable": resolved,
+        "verifiable": True,
+        "code": (hoc_kernel.OBLIGATIONS_RESOLVED if resolved
+                 else hoc_kernel.OBLIGATIONS_UNRESOLVED),
+        "vocabulary": list(hoc_kernel.OBLIGATION_READ_VERDICT_VOCAB),
+        "owner": block.get("owner") or hoc_kernel.CALCULATION_OWNER,
+        "contract_version": block.get("contract_version"),
+        "obligations_open": open_rows,
+        "obligations_open_count": len(open_rows),
+        "obligation_count": block.get("obligation_count"),
+        "instruments": instruments,
+        "detail": ("The target resolves every mandatory repair obligation the "
+                   "opportunity-cost owner ruled."
+                   if resolved else
+                   "%d mandatory repair obligation(s) remain unresolved: %s."
+                   % (len(open_rows), ", ".join(instruments) or "unnamed")),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Turnover / cost
 # --------------------------------------------------------------------------- #
 def _turnover_and_cost(*, allocations: list, nav: float, policy: dict,

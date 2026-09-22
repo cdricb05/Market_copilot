@@ -561,6 +561,23 @@ REQUIRED_ACTION_VOCAB = (REQUIRED_ACTION_EXIT, REQUIRED_ACTION_REDUCE,
 RETENTION_CODE_EXIT_BUFFER = "RETENTION_EXIT_BUFFER"
 RETENTION_CODE_RULE = "RETENTION_RULE"
 
+#: Why a CONSUMER of this contract accepts or refuses a target. Declared HERE,
+#: beside the contract itself, so every consumer - the proposal read owner, the
+#: decision owner, the review kernel's selection blocker - spells the refusal
+#: identically instead of forking a private vocabulary.
+#:
+#: ``ABSENT`` is the honest third state and is the whole reason these are read
+#: verdicts rather than a boolean: an artifact persisted BEFORE this contract
+#: existed carries no answer at all. "We could not tell" must never read as
+#: "yes", so an absent contract is refused exactly like an open obligation -
+#: the same fail-closed-in-both-directions idiom ``decision_freshness`` uses for
+#: an unknown session.
+OBLIGATIONS_RESOLVED = "MANDATORY_REPAIR_OBLIGATIONS_RESOLVED"
+OBLIGATIONS_UNRESOLVED = "MANDATORY_REPAIR_OBLIGATIONS_UNRESOLVED"
+OBLIGATIONS_UNVERIFIABLE = "MANDATORY_REPAIR_CONTRACT_ABSENT"
+OBLIGATION_READ_VERDICT_VOCAB = (OBLIGATIONS_RESOLVED, OBLIGATIONS_UNRESOLVED,
+                                 OBLIGATIONS_UNVERIFIABLE)
+
 #: The fields every obligation row carries, declared once so a consumer can
 #: assert the shape rather than guess it.
 MANDATORY_REPAIR_OBLIGATION_FIELDS = (
