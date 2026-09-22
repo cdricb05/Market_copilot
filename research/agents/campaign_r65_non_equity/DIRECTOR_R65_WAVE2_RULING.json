@@ -1,0 +1,283 @@
+{
+  "artifact": "DIRECTOR_R65_WAVE2_RULING",
+  "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "quant-research-director",
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "as_of": "2026-09-22",
+  "head": "b77f3b8",
+  "nature_of_this_artifact": "A RULING plus a RANKED AGENDA. No experiment id is minted here, no experiment is run here, no durable state is written here. Experiment identity is owned by alpha_agent.r59.memory.ResearchMemory and is reached only through scripts/alpha_agents_v2.py preregister. Nothing below is pre-registered.",
+  "new_paid_data_cost_usd": 0,
+
+  "evidence_read": [
+    "BRIEF_director.json (DIRECTOR RESEARCH STATE projection; burden 8413, burden_by_asset_class, available/blocked datasets).",
+    "research/agents/campaign_r65_non_equity/DIRECTOR_AGENDA.json lines 121-140 (apparatus_floor_reference) and 404-435 (prior refusal of r65_02 and the diversity-gate consequence).",
+    "research/agents/campaign_r65_non_equity/UNIVERSE_r65_xa_metals_currency_leadlag.json lines 7, 13, 18-21, 30, 35-36.",
+    "research/agents/campaign_r65_non_equity/UNIVERSE_r65_commodity_oi_covered.json lines 12-49 (the certified 38-market commodity panel with economic_group labels).",
+    "research/agents/campaign_r65_non_equity/FEATURES_fs_r65_03_commodity_oi_growth.json lines 79-87 (panel geometry: 39 instruments, 187 decisions, ~44 effective lockbox observations).",
+    "research/agents/campaign_r56_v2/data_r38.py lines 28-53 (ret/ret2/volume/open_interest semantics and observability), line 125 (AGG_OI_COLUMNS), lines 271-309 (aggregate_market and the n_contracts_oi_positive field).",
+    "READ-ONLY queries against the canonical registry alpha_agent.r59.memory.ResearchMemory, store D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite (mode=ro). No second registry was built and nothing was written.",
+    "scripts/alpha_agents_v2.py status --agent quant-research-director (PIPELINE_OK; 27 experiments; contract_problems empty)."
+  ],
+
+  "DELIVERABLE_1_RULING_ON_R65_02": {
+    "subject": "r65_02 / XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG_H3",
+    "experiment_id": "NONE - NEVER REGISTERED, AND NOW PERMANENTLY REFUSED",
+    "ruling": "REJECTED_PERMANENTLY",
+    "option_selected": "(b) REJECT permanently with a named reopen condition. Option (a) was tested against the certified data and FAILED: no genuinely distinct metals/currency hypothesis is constructible from certified owned data at NEW_PAID_DATA_COST = 0.",
+    "decided_by": "quant-research-director, autonomously and finally, under PAPER_TRADER_ALPHA_AGENTS_V2.",
+
+    "blocking_reason_1_the_mechanism_does_not_exist_in_the_owned_estate": {
+      "finding": "The certified R38 commodity panel contains EXACTLY ONE market whose economic_group is INDUSTRIAL_METALS: HG (copper).",
+      "citation": "UNIVERSE_r65_commodity_oi_covered.json line 24 is the only INDUSTRIAL_METALS row among the 38 certified markets listed at lines 12-49. The other metals present are GC, GWM, PA, PL, SI - all economic_group PRECIOUS_METALS, which are monetary/store-of-value assets and are NOT an industrial-demand signal.",
+      "consequence": "The pre-registered economic mechanism - a BROAD INDUSTRIAL-METALS DEMAND SHOCK transmitting to commodity-exporter currencies - is not instantiable. LME aluminium, zinc, nickel and tin are not in the owned Norgate/R38 estate and acquiring them is a PURCHASE, which the hard constraint forbids. The n=1 collapse the previous director found (UNIVERSE_r65_xa_metals_currency_leadlag.json line 13, 'equal-weighted daily return of HG (copper)') is therefore NOT a construction bug that the feature-library-agent can repair. It is a permanent fact about what this estate owns.",
+      "implication": "Remedy (a) in the prior refusal - 'a lead variable that is genuinely a multi-market industrial-metals composite' - is UNOBTAINABLE at zero cost. It cannot be waited for; it can only be bought. That closes the repair path the prior director left open."
+    },
+
+    "blocking_reason_2_the_only_constructible_variant_is_a_third_copper_channel": {
+      "what_survives": "With the composite impossible, the only constructible cell is the prior refusal's remedy (b): an honestly relabelled SINGLE-MARKET COPPER channel - copper's own return signs AUD/CAD/NZD futures at h3.",
+      "honest_novelty_finding": "This is NOT the existing row renamed, and this director will not assert that it is. The read-only registry query returns H_06816d6f_f09c738cd8b7 ('R46 challenger r52_rates_copper_gold_lead'), family_key CROSS_ASSET_LEAD_LAG|CROSS_ASSET_LEAD_LAG|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT, input_data_identity '&ZN, signed by the one-quarter change in ln(&HG/&GC) - the copper/gold ratio from owned continuous futures', horizon_sessions 20, outcome FORWARD_FROZEN, evidence_maturity PROSPECTIVE_INCEPTION. The candidate differs in signal transform (3-session copper return vs 63-session change in the copper/gold log ratio), in lag asset class (FX_FUTURES vs RATES_FUTURES), in horizon (3 vs 20) and in model family (XS_LONG_SHORT vs DIRECTIONAL_SINGLE_INSTRUMENT). ResearchMemory.is_novel would in all likelihood pass it as a distinct identity.",
+      "why_it_is_refused_anyway": "Novelty is necessary, not sufficient. The CROSS_ASSET_LEAD_LAG family holds exactly TWO rows in 8,472: H_06816d6f_f09c738cd8b7 (copper/gold signs ZN, FORWARD_FROZEN and therefore ALREADY ACCRUING FORWARD EVIDENCE at zero additional burden) and H_e490a5b8_5c87b7dbcae0 (the dollar-beta diffusion channel, NO_ALPHA_EVIDENCE). Spending a third slot in a two-row family on the SAME economic primitive - a copper price move signs another asset's return - when that primitive is already live forward and will be answered for free by api.canonical_forward_accrual, is the definition of burden spent for no incremental information. The budget is a ceiling, not a target.",
+      "additional_finding": "The prior director's own stated diversity arithmetic ('r65_02 is variant 2 of 3', DIRECTOR_AGENDA.json line 100) was computed against the dollar-beta row. It was never computed against the copper row, because the copper collapse had not yet happened when that count was frozen. The variant budget for this family is therefore tighter than the frozen text assumed."
+    },
+
+    "blocking_reason_3_the_cell_has_no_measured_detection_floor_and_a_cost_structure_that_argues_against_it": {
+      "no_floor_exists": "The estate's R61 calibration measured MDE_80 on three panels AT CADENCE 21 AND HORIZON 21 only. The campaign's own frozen text states this explicitly: 'All three floors were measured at cadence 21 and horizon 21, so they apply to r65_01 and r65_03 and NOT to r65_02' (DIRECTOR_AGENDA.json line 139). r65_02 therefore has NO measured detection floor of any kind.",
+      "panel_is_far_narrower_than_any_calibrated_panel": "The CROSS_ASSET_FUTURES floor of 2.98%/yr net was measured on 28 instruments. r65_02's book is 3 instruments (6A, 6C, 6N), and those three are the G10 commodity-currency bloc, which co-moves strongly against USD - so the effective independent breadth is materially below 3. Nothing in the estate has ever measured a floor for a 3-instrument, trigger-sparse, horizon-3 book.",
+      "cost_structure_recorded_not_recomputed": "The published universe declares rebalance_frequency_per_year 84.0 (line 30) and cost_bps_per_side 3.0 on each of 6A/6C/6N (lines 19-21), and then concedes at line 35 that 'max mean turnover per period is 0.333 at 5bp, 0.167 at 10bp; sparse book expected to stay within ceiling'. A top-decile TRIGGER book moves from flat to loaded and back, so its turnover ON A FIRING PERIOD is near 1.0, not 0.333. The universe's own cost note and its own trigger design point in opposite directions. Transaction costs are owned by alpha_agent.agents_v2.books and this director does not compute them; the point is that the artifact does not establish that the book fits its own declared ceiling, and the director will not freeze a cell on an unresolved cost premise.",
+      "verdict": "Pre-registering a cell with no measured floor, a breadth roughly a tenth of the calibrated panel, and an unresolved turnover premise is BUYING AN UNDERPOWERED VERDICT. It would charge the CROSS_ASSET denominator forever to learn nothing that survives the campaign's own frozen UNDERPOWERED / do_not_read_as = EVIDENCE_OF_ABSENCE interpretation rule (DIRECTOR_AGENDA.json line 140)."
+    },
+
+    "defects_that_are_NOT_the_reason_for_rejection": "The prior refusal's reasons 3 and 4 - the unmeasured metals-vs-FX settlement offset and the calendar halt wired to open-interest coverage on a price-only feature - are both genuinely repairable by the feature-library-agent and the data-foundation-agent. They are NOT the basis of this permanent rejection. This director rejects on reason 1 (the mechanism cannot exist in owned data), reason 2 (the only survivor duplicates the economic primitive of a row already accruing forward evidence) and reason 3 (no measured floor for this panel geometry). Repairing the lag and the halt would leave all three standing.",
+
+    "reopen_condition": {
+      "identity": "XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG",
+      "type": "NEW_ORTHOGONAL_INFORMATION",
+      "text": "This hypothesis reopens ONLY when ALL THREE of the following hold simultaneously. (A) NEW_ORTHOGONAL_INFORMATION ON THE LEAD LEG: the certified R38 / Norgate layer, or an equivalent zero-cost owned source, contains at least THREE distinct markets carrying economic_group INDUSTRIAL_METALS and passing the 80% held-contract open-interest floor, so that the lead variable is a genuine multi-market industrial-metals composite and is not copper wearing a composite's name. (B) A MEASURED FLOOR FOR THE ACTUAL PANEL: an R61-class power calibration, owned by alpha_agent.r61.power, has MEASURED an MDE_80 for the panel geometry the cell will actually use - five or fewer FX instruments, horizon five or fewer sessions, trigger-sparse - at the burden denominator alpha_agent.r59.handlers.search_denominator will actually apply. (C) THE FORWARD PRIMITIVE HAS SPOKEN: api.canonical_forward_accrual has accrued enough observations on H_06816d6f_f09c738cd8b7 to state a verdict on the copper-signs-another-asset primitive, so that a third slot in a two-row family buys information the forward clock was not already going to deliver free.",
+      "explicitly_insufficient": [
+        "Re-publishing fs_r65_02 at a new version that merely relabels the lead leg as copper.",
+        "Setting lag_sessions to 1, or measuring the COMEX metals close against the CME FX futures close, or rewiring the calendar halt from open-interest coverage to price scorability. These repair reasons 3 and 4 of the prior refusal and leave reasons 1, 2 and 3 of THIS ruling untouched.",
+        "Substituting precious metals (GC, SI, PL, PA, GWM) for industrial metals. A gold or silver move is a monetary and store-of-value signal, not an industrial-demand signal; that substitution changes the economic mechanism rather than restoring it, and it moves the cell even closer to H_06816d6f_f09c738cd8b7, whose signal leg is literally ln(HG/GC).",
+        "Moving the lag leg from AUD/CAD/NZD to another currency set while keeping copper as the lead. That is a parameter change on a refused mechanism."
+      ]
+    },
+
+    "what_this_director_did_not_do": [
+      "Did NOT request a diversity exception. The brief forbade it and the contract makes widening governance a human decision.",
+      "Did NOT rewrite, reopen, re-parameterise or otherwise touch the frozen pre-registrations H_47e2cf84_1c2df9d04b43 (r65_01) or H_b5e5e7c0_dc7ca69afa30 (r65_03).",
+      "Did NOT attempt preregister on r65_02. With features published and the family routed, the call would probably have SUCCEEDED and minted an id, charging the CROSS_ASSET denominator for a cell already judged un-freezable. Attempting it would have been the harm, exactly as the prior director recorded.",
+      "Did NOT edit a published feature set or universe.",
+      "Did NOT build a second registry. The registry was read in read-only mode and nothing was written."
+    ]
+  },
+
+  "DELIVERABLE_2_WAVE_2_RANKED_AGENDA": {
+    "scope": "Non-equity only. NEW_PAID_DATA_COST = 0 on every entry.",
+
+    "the_power_finding_that_governs_this_entire_ranking": {
+      "measured_floors_at_burden_1": {
+        "CROSS_ASSET_FUTURES": {"rho": 0.1096, "ann_net_excess": 0.0298, "instruments": 28},
+        "EQUITY_INDEX_FUTURES": {"rho": 0.1412, "ann_net_excess": 0.0432, "instruments": 14},
+        "COMMODITY_FUTURES": {"rho": 0.0788, "ann_net_excess": 0.0656, "instruments": 39}
+      },
+      "measured_floors_at_higher_burden": {
+        "CROSS_ASSET_FUTURES": {"burden_10": 0.0419, "burden_100": 0.0532, "burden_1000": 0.0596},
+        "COMMODITY_FUTURES": {"burden_10": 0.1063, "burden_100": 0.1254, "burden_1000": 0.1375},
+        "EQUITY_INDEX_FUTURES": {"burden_10": 0.0635, "burden_100": "NOT_REACHED_ON_GRID", "burden_1000": "NOT_REACHED_ON_GRID"}
+      },
+      "source": "DIRECTOR_AGENDA.json lines 121-138; owner alpha_agent.r61.power.",
+      "ruling_1_the_burden_1_column_is_not_the_operative_floor": "Total search burden in this estate is 8,413, with 2,448 already charged to CROSS_ASSET and 1,621 to COMMODITY_FUTURES. The denominator any wave-2 cell is actually graded at is COUNTED by alpha_agent.r59.handlers.search_denominator at review time and is NOT asserted here - but it will not be 1. Reading the measured grid honestly, a CROSS_ASSET cell should be expected to face a floor nearer 5.3-6.0%/yr net (the burden-100 and burden-1000 columns) than 2.98%. EVERY idea below must be judged against that, and on that basis every idea below is MARGINAL at best. This is stated up front so that no entry can later be read as a promise.",
+      "ruling_2_commodity_only_h21_cross_sections_are_structurally_dead": "COMMODITY_FUTURES needs 6.56%/yr net at burden 1 and 12.5-13.8%/yr at realistic burden, on a panel the estate itself measures at 39 instruments / 187 decisions / ~44 effective lockbox observations (FEATURES_fs_r65_03 lines 80-83). No plausible commodity anomaly survives cost at that magnitude. Any NEW commodity-only h21 cross-sectional proposal is therefore LOW_VALUE BY CONSTRUCTION, whatever its economics. This single finding eliminates the majority of the obvious non-equity ideas and is the main reason this agenda is short.",
+      "ruling_3_stay_on_the_calibration_grid": "All three floors were measured at cadence 21 and horizon 21. Every RECOMMENDED cell below is specified at cadence 21 / horizon 21 DELIBERATELY, so that the measured floor applies to it. Proposing an off-grid cadence or horizon would reproduce exactly the defect for which r65_02 was just rejected, and this director will not apply one standard to a refusal and a looser one to its own agenda.",
+      "ruling_4_why_this_agenda_is_short": "A read-only sweep of the canonical registry returns 78 non-equity hypotheses outside the bulk PRICE_STATE machine sweep, and 6,416 PRICE_STATE nulls across the five non-equity classes. Volume-per-unit-of-open-interest is settled on BOTH the commodity and the all-futures panel; volume-conditioned reversal is settled; basis momentum is settled four times and additionally blocked on power; front-contract share of curve OI is settled; month-end flow is settled in cross-asset, rates and FX; Treasury auction supply concession is settled; scheduled macro-event reaction and the FRED release calendar are closed mechanisms; COT hedging pressure is closed and three COT net-positioning rows are already FORWARD_FROZEN; every VX and CBOE volatility family is closed or null. The non-equity frontier is very nearly exhausted, and the R59 frontier state agrees - every non-equity class is EXHAUSTED except CROSS_ASSET. Padding this list to ten would be burning multiple-testing budget to fill time, which the contract forbids. Three cells are recommended, two are contingent, three are named and rejected."
+    },
+
+    "ranked": [
+      {
+        "rank": 1,
+        "proposal_id": "W2-01",
+        "label": "XA_CURVE_PARTICIPATION_DEPTH",
+        "recommendation": "RECOMMEND_FOR_PREREGISTRATION",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "The fraction of a futures market's LISTED delivery months that actually carry open interest measures how far along the curve the market is willing to warehouse risk, and when that participation depth contracts the market has withdrawn term risk-bearing capacity, so the front contract must pay a larger premium to attract the marginal holder.",
+        "information_family": "EXCHANGE_OPEN_INTEREST_BREADTH (proposed new sub-family of POSITIONING)",
+        "owning_agent": "trend-breadth-signal-agent",
+        "data_state": "ALREADY_OWNED_AND_CERTIFIED",
+        "data_evidence": "The fields n_contracts_oi_positive and n_contracts_summed are computed in research/agents/campaign_r56_v2/data_r38.py lines 303-304 as (oi_m > 0).sum(axis=1) and oi_m.notna().sum(axis=1), declared in AGG_OI_COLUMNS at line 125, and the function docstring at line 274 states 'Reads the locally installed Norgate futures database (owned; no download).' Cost 0 USD.",
+        "observability_instant": "DERIVED, not asserted. data_r38.py line 275 states 'Row s = exchange session s. oi_aggregate for s is observable on s+1.' Adding the R65 house one-session revision guard gives a decision instant of t-2, the identical shape r65_01 and r65_03 already use and the shape r65_02 could not produce.",
+        "expected_instrument_representation": "futures_notional, XS_LONG_SHORT, rank-weighted, group-demeaned within r59 economic group, across the certified all-futures panel (~28 instruments), cadence 21 / horizon 21.",
+        "construction_that_defuses_the_obvious_contaminant": "The signal is the RATIO n_contracts_oi_positive / n_contracts_summed, demeaned against the market's own trailing 252-session norm and then within economic group. Using the ratio rather than the raw count removes exchange listing-policy changes: if an exchange lists 36 months instead of 12, both numerator and denominator move and the ratio is unchanged. A mandatory pre-declared LISTING_REGIME halt must still be frozen, settling DATA_HOLD if the cross-sectional variance is dominated by a handful of step changes.",
+        "novelty_evidence": "ZERO of 8,472 registry rows reference n_contracts_oi_positive, curve listing depth or participation breadth on futures. It is a COUNT of participating delivery months, and is therefore distinct from every settled neighbour: OI level and OI growth (H_b5e5e7c0_483c5c1043eb, H_b5e5e7c0_f3e92699f95c, and the pending r65_03 / r65_01), where OI sits on the curve (H_b5e5e7c0_7f7cdc392f88), volume per unit of OI (H_eacf4f2e_dd4787adc546 and H_ffb4e5ba_7ddd7a91c31b), curve slope (H_fd58f11c_c36a453e556e) and the curve's second moment (H_961e502f_197d38ad81cc). None of those is a count of how many months participate.",
+        "mde_80_for_this_panel": {"burden_1": 0.0298, "burden_10": 0.0419, "burden_100": 0.0532, "burden_1000": 0.0596},
+        "plausibly_above_the_floor": "MARGINAL. A term-capacity-withdrawal premium in the 3-4%/yr range is within the documented range of futures liquidity premia and would clear the burden-1 and burden-10 columns, but it would NOT clear the 5.3-6.0%/yr the realistic denominator implies. Ranked first not because it is likely to qualify, but because it is the only entry whose INFORMATION is genuinely new to this estate, on the estate's best-powered panel, at zero cost, with a derivable observability instant. That is the only defensible reason left to spend burden here.",
+        "restores_diversity": true
+      },
+      {
+        "rank": 2,
+        "proposal_id": "W2-02",
+        "label": "XA_POSITION_CONCENTRATION_CFTC",
+        "recommendation": "RECOMMEND_FOR_PREREGISTRATION_CONDITIONAL_ON_FIELD_CERTIFICATION",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "When the four largest traders hold an unusually large share of a market's open interest, the position is concentrated in few hands and cannot be exited without impact, so the marginal holder demands a larger premium and the market is more exposed to a forced unwind - this is a claim about WHO CROWDS, and is sign-free, since a crowded long and a crowded short both score high.",
+        "information_family": "POSITIONING / CFTC_CONCENTRATION_RATIOS",
+        "owning_agent": "volatility-liquidity-agent",
+        "data_state": "FREE_AND_SOURCE_ALREADY_INGESTED_BUT_FIELDS_NOT_YET_CERTIFIED",
+        "data_evidence": "The CFTC Commitments of Traders report is free and is already an ingested source in this estate (CFTC_POSITIONING and CFTC_COT rows exist across five asset classes, and three CROSS_ASSET POSITIONING rows - H_24eec4ff_0ede3f56f509, H_d1f0b784_a3e17b374b82, H_9bfa8d37_699c54471b0e - are FORWARD_FROZEN on a 'CFTC-mapped liquid continuous futures' universe that is therefore already built). The CONCENTRATION columns specifically have never been read. Cost 0 USD; no purchase.",
+        "mandatory_prerequisite": "data-foundation-agent must certify the concentration columns and DERIVE the observability instant before this is pre-registrable. This director will not freeze it on an asserted instant - that is precisely why r65_02 and XA_TERMS_OF_TRADE were refused.",
+        "why_the_observability_instant_is_derivable_here_and_was_not_for_terms_of_trade": "COT is reported as of Tuesday's close and published by the CFTC on Friday at 15:30 ET on a PUBLISHED, FIXED schedule. The lag is a known constant, so the instant can be derived rather than asserted. Terms-of-trade was refused because its signal leg had an UNMEASURED publication lag; that defect does not apply.",
+        "expected_instrument_representation": "futures_notional, XS_LONG_SHORT, rank-weighted, group-demeaned, on the existing CFTC-mapped cross-asset futures universe, cadence 21 / horizon 21, reading the most recent published COT observation as of t-2.",
+        "why_not_weekly": "COT is a weekly report and a weekly book would have roughly five times the decisions. It would also be OFF the R61 calibration grid, where no MDE_80 has been measured, and would carry roughly five times the turnover. Running it at cadence 21 keeps the measured 2.98%/4.19% floor applicable. A weekly variant may only be proposed AFTER alpha_agent.r61.power measures a floor for weekly cadence.",
+        "novelty_evidence": "ZERO registry rows read CFTC concentration fields. The only rows matching 'concentration' are HM_CLOSED_OVERNIGHT_GAP_CONCENTRATION (US_EQUITY, a different quantity entirely) and H_b5e5e7c0_7f7cdc392f88 (where OI sits on the curve, not who holds it). The three FORWARD_FROZEN POSITIONING rows are NET positioning by trader category - level, flow and commercial - which is a DIRECTIONAL quantity. Concentration is a dispersion quantity and is orthogonal to all three by construction. HM_CLOSED_COT_HEDGING_PRESSURE is closed, but it is a hedging-pressure (directional) mechanism, not a concentration mechanism; its reopen condition is NEW_ORTHOGONAL_INFORMATION and a never-read field of the same report is exactly that.",
+        "mde_80_for_this_panel": {"burden_1": 0.0298, "burden_10": 0.0419, "burden_100": 0.0532, "burden_1000": 0.0596},
+        "plausibly_above_the_floor": "MARGINAL. Crowding and concentration premia are documented in the futures literature but are modest, and the three sibling COT rows are forward-frozen rather than qualified, meaning the family has produced no in-sample qualification yet. Honest prior: unlikely to clear a realistic denominator, worth one slot only because the field is genuinely unread.",
+        "restores_diversity": true
+      },
+      {
+        "rank": 3,
+        "proposal_id": "W2-03",
+        "label": "XA_FUTURES_PRICE_IMPACT_PREMIUM",
+        "recommendation": "RECOMMEND_FOR_PREREGISTRATION",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "A futures market in which a given quantity of traded volume moves the price further is one where liquidity providers are scarcer, and those providers must be compensated for standing in front of order flow, so that compensation should appear as a return premium in the cross-section of futures.",
+        "information_family": "PRICE_AND_EXCHANGE_VOLUME / ILLIQUIDITY",
+        "owning_agent": "volatility-liquidity-agent",
+        "data_state": "ALREADY_OWNED_AND_CERTIFIED",
+        "data_evidence": "R38 native layer fields 'ret' (held contract's settle(s)/its own settle(s-1)-1) and 'volume' (held contract only), documented at research/agents/campaign_r56_v2/data_r38.py lines 28-29 and 42-44, which also record that volume is provisional on the newest vendor row - hence the t-2 read. Cost 0 USD.",
+        "expected_instrument_representation": "futures_notional, XS_LONG_SHORT, rank-weighted, group-demeaned, across the certified all-futures panel (~28 instruments), cadence 21 / horizon 21. Signal is the trailing mean of |ret| divided by notional volume over [t-22, t-2], logged and demeaned within economic group.",
+        "novelty_evidence": "Amihud illiquidity is FORWARD_FROZEN in US_EQUITY (H_2e872afe_18f061d0ad20) and settled null on the equity extension universe (H_69f024c2_8f85f227a789), but has NEVER been asked on futures. It is distinct from the two settled churn rows: churn (H_eacf4f2e_dd4787adc546, H_ffb4e5ba_7ddd7a91c31b) is volume normalised by POSITION SIZE, a turnover rate; this is absolute return normalised by volume, a PRICE-IMPACT rate. Different numerator, different denominator, different economics. It is also distinct from H_08fe9399_b5ed6f210b60, which conditions a REVERSAL on abnormal volume rather than pricing a liquidity-provision premium.",
+        "mde_80_for_this_panel": {"burden_1": 0.0298, "burden_10": 0.0419, "burden_100": 0.0532, "burden_1000": 0.0596},
+        "plausibly_above_the_floor": "MARGINAL AND COST-FRAGILE, and ranked third for that reason. The documented equity illiquidity premium lives in small, illiquid names; the certified futures panel is among the most liquid instruments in the world. Worse, the cross-sectional dispersion in illiquidity is real but the illiquid tail of this panel (LBR, OJ, DC, LCC at 10 bps per side, UNIVERSE_r65_commodity_oi_covered.json lines 17, 28-36) is exactly where the cost is highest, so the long leg will be systematically the expensive leg. A mandatory COST_BUDGET halt at the standard 0.03/yr ceiling must be frozen before measurement, and this director's honest expectation is that the halt is more likely to fire than the gate.",
+        "restores_diversity": true
+      },
+      {
+        "rank": 4,
+        "proposal_id": "W2-04",
+        "label": "XA_REPORTABLE_TRADER_BREADTH",
+        "recommendation": "HOLD_AS_CONTINGENT_VARIANT_DO_NOT_REGISTER_IN_WAVE_2",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "A market whose count of reportable traders is falling is losing risk-bearing participants, so the holders who remain must be paid more to carry the same quantity of risk.",
+        "information_family": "POSITIONING / CFTC_PARTICIPATION_STRUCTURE",
+        "owning_agent": "trend-breadth-signal-agent",
+        "data_state": "FREE_AND_SOURCE_ALREADY_INGESTED_BUT_FIELDS_NOT_YET_CERTIFIED (same COT report as W2-02)",
+        "director_ruling": "W2-02 and W2-04 read DIFFERENT fields of the SAME report and make the same economic argument from two angles - a share held by the top four, and a count of participants. Under the governance rule 'at most 3 variants per idea', they are ONE FAMILY, and they are strongly correlated by construction. Registering both in one wave would spend two slots to ask one question. HOLD W2-04 as the second variant, to be pre-registered only if W2-02 measures and its result makes the participation-structure family worth a second slot.",
+        "mde_80_for_this_panel": {"burden_1": 0.0298, "burden_10": 0.0419},
+        "plausibly_above_the_floor": "MARGINAL, and no better than W2-02."
+      },
+      {
+        "rank": 5,
+        "proposal_id": "W2-05",
+        "label": "XA_SPREADING_POSITION_SHARE",
+        "recommendation": "HOLD_AS_CONTINGENT_VARIANT_DO_NOT_REGISTER_IN_WAVE_2",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "The share of open interest held as calendar spreads - traders simultaneously long one delivery month and short another - measures how much of the market's open interest is term-structure arbitrage rather than directional risk transfer, and when spreading dominates, the directional risk premium available in the front contract is compressed.",
+        "information_family": "POSITIONING / CFTC_PARTICIPATION_STRUCTURE",
+        "owning_agent": "volatility-liquidity-agent",
+        "data_state": "FREE_AND_SOURCE_ALREADY_INGESTED_BUT_FIELDS_NOT_YET_CERTIFIED (same COT report as W2-02 and W2-04)",
+        "director_ruling": "Third variant of the same participation-structure family. It is the most economically interesting of the three, because it is the only one that connects positioning to the TERM STRUCTURE rather than to the front alone, and it is orthogonal to W2-01 in a useful way - W2-01 counts which months carry open interest, W2-05 counts how much of that open interest is held as a spread. But it remains the same report and the same family, and the variant budget is 3. HOLD. If W2-02 measures null, this director's recommendation would be to skip W2-04 and spend the family's remaining slot here instead."
+      },
+      {
+        "rank": 6,
+        "proposal_id": "W2-06",
+        "label": "COMMODITY_WASDE_SUPPLY_REVISION_DRIFT",
+        "recommendation": "REJECT_LOW_VALUE_DO_NOT_REGISTER",
+        "asset_class": "COMMODITY_FUTURES",
+        "economic_mechanism_one_sentence": "The USDA World Agricultural Supply and Demand Estimates report revises physical supply and demand on a pre-scheduled monthly date, and agricultural futures should drift as the revision diffuses into the cross-section of grain, oilseed and softs contracts.",
+        "information_family": "USDA_WASDE (zero rows in the registry; genuinely unasked)",
+        "owning_agent": "momentum-signal-agent",
+        "data_state": "FREE_NOT_YET_INGESTED (cost 0 USD but requires a data-foundation-agent ingestion and certification step)",
+        "rejection_reason": "KILLED ON MEASURED POWER, not on economics. The book is agriculture-only - roughly 20 of the 38 certified commodity markets, and NARROWER than the 39-instrument panel on which the COMMODITY_FUTURES floor was measured. That floor is 6.56%/yr net at burden 1 and 10.63% at burden 10, on a panel the estate measures at 187 decisions and ~44 effective lockbox observations, and the COMMODITY_FUTURES denominator already carries 1,621 charged rows. An agricultural sub-panel is strictly worse than the panel that produced those numbers. No plausible WASDE diffusion effect is 10%/yr net after 8-10 bps per side. Registering it would buy a guaranteed UNDERPOWERED filing and charge the commodity denominator for it.",
+        "would_reconsider_only_if": "alpha_agent.r61.power measures a floor for an event-conditional, agriculture-only panel that is materially below the unconditional commodity floor. Absent that measurement this stays rejected."
+      },
+      {
+        "rank": 7,
+        "proposal_id": "W2-07",
+        "label": "COMMODITY_RIG_COUNT_SUPPLY_RESPONSE",
+        "recommendation": "REJECT_LOW_VALUE_DO_NOT_REGISTER",
+        "asset_class": "COMMODITY_FUTURES",
+        "economic_mechanism_one_sentence": "The weekly Baker Hughes rig count is a directly observed measure of future hydrocarbon supply capacity, and changes in it should predict the energy complex as the supply response is priced.",
+        "information_family": "RIG_COUNT (zero rows; unasked)",
+        "owning_agent": "momentum-signal-agent",
+        "data_state": "FREE_NOT_YET_INGESTED",
+        "rejection_reason": "Same power kill as W2-06, but worse. The energy complex in the certified panel is six markets (BRN, CL, GAS, HO, NG, RB, per UNIVERSE_r65_commodity_oi_covered.json lines 13, 15, 19, 25, 35, 39). A six-instrument cross-section has no measured floor anywhere in this estate and is far narrower than the 39-instrument panel that needs 6.56%/yr. It also duplicates the economic territory of HM_CLOSED_INVENTORY_SURPRISE_EIA, a closed mechanism on the same complex reading the same physical-supply channel."
+      },
+      {
+        "rank": 8,
+        "proposal_id": "W2-08",
+        "label": "XA_FRONT_DEFERRED_RETURN_DISPERSION",
+        "recommendation": "REJECT_DO_NOT_REGISTER",
+        "asset_class": "CROSS_ASSET",
+        "economic_mechanism_one_sentence": "The co-movement between the held contract's return and the first-deferred contract's return measures how much of a market's risk is common across the curve rather than specific to the front, and low co-movement should signal front-specific risk that must be paid for.",
+        "information_family": "FUTURES_DEFERRED_LEG_BASIS",
+        "owning_agent": "volatility-liquidity-agent",
+        "data_state": "ALREADY_OWNED (R38 ret and ret2)",
+        "rejection_reason": "REFUSED AS A RE-PARAMETERISATION OF A BLOCKED AND FOUR-TIMES-SETTLED FAMILY. The front-versus-deferred relationship is settled in H_23b80e40_d75c4d6df130, H_99709bd2_34f1437f9100, H_7994380d_cf2e4efaaa5a and H_58d49e5c_079c8b4dbce5, the curve's SECOND MOMENT is separately settled in H_961e502f_197d38ad81cc ('the log standard deviation of daily changes in the [curve slope]'), and the prior director already refused 'any re-parameterisation of basis momentum on the commodity or cross-asset instrument sets' on the recorded ground that BASIS_MOMENTUM_EVIDENCE_STATE = NOT_TESTABLE_WITH_CURRENT_PANEL - blocked behind POWER, not behind a parameter choice. A correlation is a third moment-like statistic of the same two legs and would be the same idea under a new name. This director declines to re-register a settled idea under a new name."
+      }
+    ],
+
+    "considered_and_eliminated_before_ranking": [
+      "Volume per unit of open interest (risk-transfer churn): SETTLED TWICE, on the commodity panel (H_eacf4f2e_dd4787adc546) and on the all-futures panel (H_ffb4e5ba_7ddd7a91c31b). Both NO_ALPHA_EVIDENCE.",
+      "Volume-conditioned short-horizon reversal: SETTLED (H_08fe9399_b5ed6f210b60, CROSS_ASSET h5).",
+      "Deferred-month share of curve open interest: IDENTICAL to the settled front-contract share (H_b5e5e7c0_7f7cdc392f88); the deferred share is one minus the front share.",
+      "Month-end and index-rebalancing flow: SETTLED in all three non-equity forms - HM_MONTH_END_BALANCED_REBALANCING_FLOW_V1 (CROSS_ASSET h4), HM_TREASURY_INDEX_MONTH_END_DURATION_EXTENSION_V1 (RATES h2), HM_FX_MONTH_END_EQUITY_HEDGE_REBALANCING_V1 (FX h1).",
+      "Treasury auction supply concession: SETTLED (HM_TREASURY_AUCTION_SUPPLY_CONCESSION_V1, RATES h5).",
+      "Scheduled macro-event risk premium and macro-release reaction: CLOSED MECHANISMS (HM_CLOSED_MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45, HM_CLOSED_R32_EVENT_DRIVEN_CALENDAR, HM_CLOSED_MACRO_TIMING_LANES_R63) plus a settled null (HM_SCHEDULED_EVENT_EQUITY_PREMIUM_V1).",
+      "Roll-window pressure and calendar/roll state: CLOSED (HM_COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1, HM_CLOSED_CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59).",
+      "VX and CBOE volatility families: six VOLATILITY_TERM_STRUCTURE nulls plus four closed mechanisms (HM_CLOSED_VX_TERM_CARRY, HM_CLOSED_VX_CONDITIONAL_SHORT_VOL_R41, HM_CLOSED_VOLATILITY_EXPECTATIONS_IV_R63, HM_CLOSED_VOL_TERM_EQUITY_TIMING_R35_R36_R63). The VOLATILITY class carries burden 13 but has no unasked owned field.",
+      "Credit-conditioned non-equity timing: CREDIT_PROXY carries burden 1, but the R59 frontier marks it BLOCKED (no owned substrate), credit spread timing is a CLOSED mechanism, and credit-regime equity timing is already FORWARD_FROZEN (H_a8dab116_5c9b8938f6f6). It is also regime conditioning, which the brief de-prioritises as premium timing that has died three times.",
+      "Futures intraday and overnight-versus-intraday decomposition: CLOSED (HM_CLOSED_FUTURES_INTRADAY_8_FAMILIES) and confirmed closed in the brief.",
+      "Any single-name options or OPRA-based non-equity idea: BLOCKED by the estate's own purchase rulings and outside the zero-cost constraint."
+    ],
+
+    "agent_load": {
+      "trend-breadth-signal-agent": ["W2-01"],
+      "volatility-liquidity-agent": ["W2-02", "W2-03"],
+      "momentum-signal-agent": [],
+      "reversal-signal-agent": [],
+      "note": "momentum-signal-agent and reversal-signal-agent receive NOTHING in wave 2, and this director declines to invent work for them. Non-equity momentum and reversal are the most thoroughly mined territory in the estate: 6,416 PRICE_STATE nulls across the five non-equity classes, with every non-equity class marked EXHAUSTED by the R59 frontier except CROSS_ASSET. Their remaining value is on the US equity extension universe (census ranks 2, 5 and 9), which is out of scope for a non-equity campaign. If the orchestrator's spawn plan requires a four-agent parallel batch, that is a reason to widen the campaign's scope beyond non-equity, and widening scope is a human decision."
+    }
+  },
+
+  "DIVERSITY_GATE_CONSEQUENCE": {
+    "prior_state": "FAILED - two cells in two asset classes (DIRECTOR_AGENDA.json lines 424-434).",
+    "if_W2_01_is_added": {
+      "min_asset_classes_per_campaign": "SATISFIED - 3 (EQUITY_INDEX_FUTURES, COMMODITY_FUTURES, CROSS_ASSET).",
+      "max_share_single_asset_class": "SATISFIED - 1/3 each, below the 0.5 ceiling.",
+      "non_equity_share_at_least_40pct": "SATISFIED - 100%.",
+      "at_least_one_cross_asset": "SATISFIED by W2-01.",
+      "at_least_one_H1_H5": "STILL NOT SATISFIED."
+    },
+    "why_the_H1_H5_gate_cannot_be_closed_at_zero_cost": "Every short-horizon non-equity mechanism in the owned estate is already settled or closed: flow-driven reversal at h5 (null), six VOLATILITY_TERM_STRUCTURE rows at h5 (null), month-end at h1/h2/h4 (null in three classes), Treasury auction concession at h5 (null), roll-window pressure at h7 (null), scheduled-event premium at h1 (null). The only way to manufacture an H1-H5 cell would be to run W2-01 at a horizon of 5 as a second variant - but all three measured MDE_80 floors were measured at horizon 21 ONLY, so an h5 cell would have NO measured detection floor and roughly four times the turnover. That is exactly the defect for which this director has just permanently rejected r65_02, and applying a looser standard to its own agenda than to a refusal would be hidden tuning.",
+    "ruling": "NEEDS_HUMAN_DECISION, on a narrow and specific question - NOT a blanket diversity exception, which this director was forbidden to request and does not request.",
+    "the_exact_question_for_the_human_owner": "R65 can be made a three-cell, three-asset-class, 100%-non-equity campaign that satisfies every diversity gate EXCEPT at_least_one_H1_H5, by adding W2-01. Closing the H1-H5 gate as well would require pre-registering a cell whose detection floor has never been measured. Does the owner (a) accept R65 with the H1-H5 gate unmet and every other gate met, (b) authorise alpha_agent.r61.power to measure an MDE_80 at horizon 5 first, so an H1-H5 cell can be registered against a known floor, or (c) hold R65 at two cells until a measured short-horizon floor exists?",
+    "director_recommendation": "(b). It is the only option that buys a durable capability rather than a one-off waiver, and the absence of a measured short-horizon floor is now the binding constraint on H1-H5 research across this entire estate - the brief itself records that H1-H5 is 0.45% of the estate at 38 tests."
+  },
+
+  "BUDGET": {
+    "experiments_preregistered_this_campaign": 2,
+    "recommended_additional_preregistrations": 1,
+    "recommended_cell": "W2-01 XA_CURVE_PARTICIPATION_DEPTH",
+    "contingent_on_data_certification": ["W2-02", "W2-03"],
+    "held_as_later_variants": ["W2-04", "W2-05"],
+    "rejected": ["r65_02", "W2-06", "W2-07", "W2-08"],
+    "rationale": "The budget is a ceiling, not a target. Three recommended cells against an 8,413-row burden, on an estate whose R59 frontier marks every non-equity class EXHAUSTED except CROSS_ASSET, is the honest number. This director declines to fill a ten-slot agenda."
+  },
+
+  "SAFETY_STATE": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "broker_enabled": false,
+    "promotes_model": false,
+    "automatic_model_promotion_allowed": false,
+    "approves_proposal": false,
+    "makes_sleeve_capital_eligible": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "manual_review_required": true,
+    "durable_state_written_by_this_artifact": "NONE",
+    "experiments_preregistered_by_this_artifact": "NONE",
+    "subagents_spawned": "NONE (agent_may_spawn_agent = false)",
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

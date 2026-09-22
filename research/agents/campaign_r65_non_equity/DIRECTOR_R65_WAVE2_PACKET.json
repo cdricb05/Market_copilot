@@ -1,0 +1,194 @@
+{
+  "artifact": "DIRECTOR_R65_WAVE2_PACKET",
+  "supersedes": "DIRECTOR_R65_WAVE2_RULING.json wave-2 ranking (the r65_02 REJECTED_PERMANENTLY ruling in that file STANDS and is not reopened here)",
+  "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+  "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+  "produced_by": "quant-research-director",
+  "as_of": "2026-09-22",
+  "nature": "A CONDITIONAL registration packet plus two DROPs. Nothing is pre-registered by this artifact, no experiment is run, no durable state is written, no subagent is spawned.",
+  "new_paid_data_cost_usd": 0,
+
+  "coordinator_facts_accepted_not_rederived": {
+    "r65_01": "H_47e2cf84_1c2df9d04b43, 79 effective obs, gross +0.15%/yr, cost 1.52%/yr, NET -1.40%/yr, t=-0.93, halves -4.04%/+1.17%, measured turnover 0.612. Settled NO_ALPHA_EVIDENCE.",
+    "r65_03": "H_b5e5e7c0_dc7ca69afa30, gross -2.47%/yr, cost 2.11%/yr, NET -4.51%/yr, t=-2.59, hit rate 35.4%, BOTH halves negative (-4.56%, -4.47%), measured turnover 0.601. Settled NO_ALPHA_EVIDENCE.",
+    "memory": "8,472 hypotheses, 0 open, burden 8,415.",
+    "w2_01_data_premise_correction": "n_contracts_oi_positive is real and certified but lives in r38_aggregate_oi_v1, built for 39 COMMODITY markets only, and its loader drops that exact column. 29 of the 68 certified-book markets are missing (14 EQUITY_INDEX_FUTURES, 8 FX_FUTURES, 6 RATES_FUTURES, 1 VOLATILITY). Coordinator is building r65_aggregate_oi_cross_asset_v1 at $0 via the IMPORTED data_r38.aggregate_market, with merged loader cross_asset_curve_panel over all 68 markets.",
+    "director_acknowledgement": "My W2-01 data premise was wrong. I cited data_r38.py lines 303-304 as evidence the FIELD EXISTS, which it does, and wrongly inferred the CERTIFIED PANEL exposes it. Field existence is not panel coverage and is not loader coverage. Recorded as a director error, not smoothed over."
+  },
+
+  "THE_FINDING_THAT_GOVERNS_THIS_PACKET": {
+    "statement": "The two R65 measurements are not two isolated nulls. They are the fourth and fifth measured nulls in the exchange-open-interest neighbourhood, and together with the burden now standing at 8,415 they establish that a CADENCE-21 CROSS-SECTIONAL FUTURES BOOK CAN NO LONGER CLEAR ITS OWN DETECTION FLOOR IN THIS ESTATE, whatever its signal.",
+    "the_arithmetic_frozen_before_any_new_measurement": "CROSS_ASSET_FUTURES MDE_80 is 2.98%/yr net at burden 1 but 5.32%/yr at burden 100 and 5.96%/yr at burden 1000 (DIRECTOR_AGENDA.json lines 124-137). CROSS_ASSET already carries 2,448 charged rows, so the operative floor is the 5.3-6.0%/yr column, not 2.98%. The coordinator has now MEASURED what a rank-weighted, group-demeaned, monthly-rebalanced futures book of exactly this shape costs: 1.52%/yr and 2.11%/yr at turnover ~0.60. A cell of this shape must therefore deliver roughly 7-8.5%/yr GROSS to clear its floor NET. The measured gross effects of its two nearest siblings were +0.15%/yr and -2.47%/yr. No non-equity mechanism in 8,415 tests has produced a gross effect within an order of magnitude of 7%/yr.",
+    "consequence": "The binding constraint on this estate is no longer idea supply. It is that burden has risen to where the cadence-21 cross-sectional panel cannot resolve any realistic effect. The only levers that change this are MORE DECISIONS (shorter horizon) and MORE BREADTH (the 68-market panel) - which is exactly what the coordinator is already building. More ideas at cadence 21 do not change it. This packet is therefore short by design and registers nothing today.",
+    "r65_03_is_not_merely_a_null": "Gross -2.47%/yr, t=-2.59, hit rate 35.4%, BOTH halves negative. That is not an underpowered absence of evidence; it is a consistently wrong-signed signal. The fs_r65_03 frozen text already pre-committed the consequence: 'If it fails, director's recommendation for next campaign is to CLOSE POSITIONING|EXCHANGE_OPEN_INTEREST across futures with reopen condition NEW_ORTHOGONAL_INFORMATION.' It failed. This director now makes that recommendation formally."
+  },
+
+  "a_RERANKING": {
+    "W2-01_XA_CURVE_PARTICIPATION_DEPTH": {
+      "verdict": "DO_NOT_REGISTER_TODAY. CONDITIONAL REGISTER, on a numeric trigger frozen below before the floor number exists.",
+      "not_dropped_because": "Its information is still the only genuinely unread field in the owned futures estate: zero of 8,472 rows reference curve participation depth. The count of delivery months carrying open interest is not the held contract's OI level, growth or curve share, and it survives the duplicate-identity check on its own merits.",
+      "not_registered_because": "It sits in the neighbourhood that just produced two more measured nulls, one of them wrong-signed with both halves negative, and it would pay a denominator that puts its floor at 5.3-6.0%/yr net against a measured cost of ~1.5-2.1%/yr. Registering it today would buy a guaranteed UNDERPOWERED filing, which is precisely what the coordinator asked me to refuse.",
+      "what_changes_the_answer": "The coordinator's two measurements in flight: the 68-market panel (breadth 68 vs the 28 on which the floor was measured) and the horizon-5 CROSS_ASSET MDE_80. Both lower the floor. Neither is a governance decision; both are read-only measurements. Decide after the numbers, against the trigger frozen now."
+    },
+    "W2-02_XA_POSITION_CONCENTRATION_CFTC": {
+      "verdict": "DROPPED_PERMANENTLY_FOR_THIS_CAMPAIGN",
+      "answer_to_question_b_does_the_estate_own_cot": "PARTIALLY, AND NOT THE PART W2-02 NEEDS. A certified COT store DOES exist - alpha_agent/r46/cftc.py, raw store D:\\Stock_Prediction_app_data\\prospective_alpha_tournament_r46\\_data_cftc with a capture manifest cftc_captures.json and five annual/current-week captures. load_history() returns 166,641 rows. But the normaliser COLS hard-selects EXACTLY EIGHT FIELDS - as_of, code, name, oi (Open Interest All), nc_long, nc_short, c_long, c_short - and the loaded frame carries exactly those plus capture/acquired_at_utc. THERE ARE NO CONCENTRATION COLUMNS AND NO TRADER-COUNT COLUMNS IN THE OWNED STORE. The 4-and-8-largest-trader concentration ratios and Traders-Total exist in the raw CFTC legacy report but are discarded at parse time and have never been certified.",
+      "second_independent_kill": "The owned history runs 2015-01-06 to 2026-09-15 - about 11.7 years of WEEKLY data. At cadence 21 that is roughly 140 decisions, FEWER than the 187 decisions on which the COMMODITY_FUTURES floor was measured, and far shorter than the R38 panel behind the CROSS_ASSET floor. No MDE_80 has ever been measured for a 2015-start panel. Even with the columns certified, the sample cannot resolve the effect.",
+      "why_this_is_a_drop_and_not_a_data_request": "Recovering the missing columns and the pre-2015 history means a fresh network acquisition from cftc.gov plus a full data-foundation certification. It is free in dollars, but I cannot assert what it would contain or that it would succeed, and the second kill - sample length - would survive the acquisition. The coordinator's rule is binding: not owned, therefore dropped."
+    },
+    "W2-03_XA_FUTURES_PRICE_IMPACT_PREMIUM": {
+      "verdict": "DROPPED",
+      "data_was_fine": "Unlike W2-01, its inputs need no new build: 'ret' and held-contract 'volume' are already in the certified r38_native_contract_layer_with_deferred_leg_v1 across the full book (data_r38.py lines 28-29, 42-44).",
+      "dropped_on_power_not_data": "Same arithmetic as the governing finding. To clear a 5.3-6.0%/yr net floor after ~1.5-2.5%/yr measured cost, the gross Amihud spread must be roughly 7-8.5%/yr. The documented illiquidity premium is 2-4%/yr and lives in microcaps; the certified book is among the most liquid instruments in the world. Worse, its LONG leg is by construction the illiquid tail, which is exactly the 8-10 bps-per-side tail (UNIVERSE_r65_commodity_oi_covered.json lines 17, 28-36), so the measured cost would exceed the 1.5-2.1%/yr the two R65 cells paid. I applied my own rule rather than defending my own rank-3: it cannot plausibly clear its floor, so it is dropped rather than filed UNDERPOWERED.",
+      "reopen_condition": "NEW_ORTHOGONAL_INFORMATION plus a measured MDE_80 at or below 3.0%/yr net for the panel and horizon it would actually use."
+    },
+    "net_result": "ZERO cells registered today. One conditional. Two dropped. This is the honest number and it is not a failure of the agenda - it is the agenda telling the truth about a burden of 8,415."
+  },
+
+  "c_CONDITIONAL_PREREGISTRATION_PAYLOAD_W2_01": {
+    "status": "DO NOT SUBMIT until the REGISTRATION_TRIGGER below evaluates REGISTER on measured numbers.",
+    "verb": "preregister",
+    "cli": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py preregister --agent quant-research-director --input <this payload>.json",
+
+    "MECHANICAL_PRECONDITIONS_THE_PIPELINE_WILL_ENFORCE": [
+      "REQUIRED_PREREG_FIELDS (verified from alpha_agent.agents_v2.pipeline) = owning_agent, hypothesis, asset_class, family, feature_set_id, horizon_sessions, parameters, discovery_sample, evaluation_sample, cost_model, expected_sign. Anything empty raises PIPELINE_REFUSED PREREGISTRATION_INCOMPLETE.",
+      "DO NOT PASS dataset_id, universe_id, pit_status OR frozen_gate_schema_hash. The pipeline DERIVES all four - dataset_id and universe_id from the published feature set, pit_status from the data certification, the gate hash from the contract. Passing them is at best ignored and at worst misleading.",
+      "ONE DATASET ID ONLY. The pipeline resolves cert = latest EV_DATA for feats['dataset_id'] and refuses DATA_NOT_PIT_SAFE unless that single id is PIT_SAFE. The 68-market panel spans TWO stores (frozen r38_aggregate_oi_v1 for 39 commodity markets + new r65_aggregate_oi_cross_asset_v1 for 29). The feature set can name only one. THEREFORE: certify a single merged dataset id - proposed r65_cross_asset_curve_panel_v1 - that declares both components and carries the per-market dataset+vintage provenance. Certifying only the new 29-market store and pointing the feature set at it would silently exclude the 39 commodity markets.",
+      "family must be routed to owning_agent. VERIFIED: trend-breadth-signal-agent is routed ['BREADTH','BREAKOUT','CROSS_ASSET_LEAD_LAG','MATHEMATICAL_STATISTICAL','REGIME','SEASONALITY','TREND']. BREADTH is routed. POSITIONING is NOT routed to this agent - it belongs to volatility-liquidity-agent - so do not relabel the family without also changing the owner.",
+      "asset_class CROSS_ASSET is explicitly exempt from the ASSET_CLASS_FEATURE_MISMATCH check, so the feature set may be declared under any single class.",
+      "expected_sign must be exactly +1 or -1 or the call raises SIGN_NOT_DECLARED.",
+      "Order is certify_data -> define_universe -> publish_features -> preregister. preregister refuses FEATURES_NOT_PUBLISHED otherwise."
+    ],
+
+    "payload": {
+      "owning_agent": "trend-breadth-signal-agent",
+      "asset_class": "CROSS_ASSET",
+      "family": "BREADTH",
+      "information_family": "EXCHANGE_OPEN_INTEREST_BREADTH",
+      "feature_set_id": "fs_r65_04_curve_participation_depth",
+      "horizon_sessions": 21,
+      "long_short": true,
+      "expected_sign": -1,
+      "within_family_tests": 1,
+      "generative_search": false,
+      "instrument_scope": ["r65_curve_depth_cross_asset_68"],
+      "venue": "",
+      "sleeve": "",
+
+      "hypothesis": "Across the 68 markets of the certified futures book, the FRACTION OF LISTED DELIVERY MONTHS THAT CARRY POSITIVE EXCHANGE OPEN INTEREST - n_contracts_oi_positive divided by n_contracts_summed, averaged over the 21 sessions ending at t-2, demeaned against the market's own trailing 252-session norm and then within r59 economic group - predicts the cross-section of 68-market futures returns over the next 21 sessions, net of modelled per-market and roll cost. Measured on a merged panel: the frozen R56 dataset r38_aggregate_oi_v1 for 39 commodity markets and the R65 build r65_aggregate_oi_cross_asset_v1 for the 29 markets it never covered, both produced by the SAME imported data_r38.aggregate_market, with per-market dataset and vintage provenance carried on every row. This universe is the vendor's CURRENT-composition market list and is NOT survivorship-free. Per-market cost is MODELLED, not observed. This reopens the exchange-open-interest neighbourhood - four settled nulls and two pre-measurement rejects - on NEW_ORTHOGONAL_INFORMATION: a COUNT of participating delivery months, a dimensionless bounded statistic computed from the whole-curve OI matrix, never read by any of 8,472 prior hypotheses. Every settled neighbour reads HOW MUCH open interest there is - the level, its growth, or its share of the curve. None reads HOW MANY MONTHS PARTICIPATE.",
+
+      "mechanism": "Term risk-bearing capacity. The number of delivery months a market is willing to carry open interest in measures how far along the curve participants will warehouse risk. When that participation contracts, capacity has been withdrawn from the term structure and the front contract must pay a larger premium to attract the marginal holder. The claim is about the BREADTH of the curve's participation, not about the size or direction of anyone's position, which is why it is a BREADTH family cell and not a POSITIONING one.",
+
+      "discovery_sample": {
+        "start": "DERIVED_AT_REGISTRATION: the first session on which at least 40 of the 68 markets are scorable on the merged panel, read mechanically off the built panel manifest. This is a read, not a choice; the concrete date must be written into the payload before the call and never adjusted afterwards.",
+        "end": "2017-12-31"
+      },
+      "evaluation_sample": {
+        "validation": "2018-01-01",
+        "lockbox": "2023-01-01"
+      },
+      "sample_split_rationale": "The validation and lockbox boundaries are IDENTICAL to the two already-settled R65 cells, so this cell is directly comparable to them and the lockbox is the same untouched period. Only the discovery start differs, because the merged panel reaches back further than the intl-index panel did, and it is derived by a frozen coverage rule rather than chosen.",
+
+      "cost_model": {
+        "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+        "basis": "traded notional",
+        "owner": "R38 native_contract_layer per-market cost vector",
+        "effective_rate_rule": "notional-weighted via alpha_agent.r61.cost_budget.effective_cost_per_side. Never a uniform rate, never a default.",
+        "roll_cost_rule": "Charged explicitly as additional_ann_cost_drag; may not be left at 0.0.",
+        "measured_sibling_reference": "The two settled R65 cells of this exact book shape measured 1.52%/yr and 2.11%/yr at turnover 0.612 and 0.601. This cell is expected to land in the same range; a materially lower figure is a reason to audit the turnover computation, not to celebrate."
+      },
+
+      "parameters": {
+        "label": "XA_CURVE_PARTICIPATION_DEPTH",
+        "executor": "r65_04",
+        "book": "FUTURES_DATED_CONTRACT",
+        "cadence_sessions": 21,
+        "hold_sessions": 21,
+        "weighting": "rank_weighted_long_short",
+        "signal_definition": "depth(m,t) = mean over the 21 sessions ending at t-2 of [ n_contracts_oi_positive(m,s) / n_contracts_summed(m,s) ].",
+        "normalisation_order_binding": "STEP 1 compute depth(m,t). STEP 2 subtract the market's own trailing 252-session mean of depth ending at t-2. STEP 3 subtract the r59 economic-group mean of the step-2 value across scorable members at t. STEP 4 rank the step-3 values GLOBALLY across all scorable markets. This order is binding and is frozen here; any other order is a different cell.",
+        "ratio_rationale": "Using the RATIO of months-with-OI to months-listed rather than the raw count removes exchange listing-policy changes: if an exchange lists 36 delivery months instead of 12, numerator and denominator move together and the ratio is unchanged. The raw count would be contaminated by listing policy and must not be used.",
+        "window_end_offset_sessions": -2,
+        "window_end_rationale": "data_r38.py line 275 states 'Row s = exchange session s. oi_aggregate for s is observable on s+1.' The R65 house one-session revision guard makes the decision instant t-2. The observability instant is DERIVED from the loader's own documented semantics, not asserted.",
+        "trailing_norm_sessions": 252,
+        "group_demeaning": true,
+        "group_demeaning_rationale": "68 markets span equity index, rates, FX, volatility and commodities, whose curve shapes and listing conventions differ structurally. Without group demeaning the signal is an asset-class bet, not a capacity signal. A group with fewer than two scorable markets at a decision contributes nothing; single-member groups demean to zero and must not enter the book as spurious neutrals.",
+        "sign_rule": "expected_sign -1 is FROZEN. The book goes SHORT the markets with the HIGHEST demeaned participation depth and LONG the LOWEST. Economic reason: low participation depth IS the withdrawal of term risk-bearing capacity, and the market that must attract the marginal holder is the one that pays. A positive net excess is a FAILURE, never a re-read, and never a sign flip.",
+        "zero_open_interest_rule": "open_interest == 0 is MISSING, never zero positioning - EXCEPT in the numerator of this feature, where a delivery month with zero open interest is precisely the quantity being counted. THIS IS THE ONE PLACE IN R65 WHERE THE HOUSE ZERO-IS-MISSING RULE IS DELIBERATELY NOT APPLIED, and it is frozen here so it can never be read as a late repair. The rule that DOES apply: a market-session where the whole-curve OI matrix is entirely absent is unscorable, and a market whose matrix is absent on more than 20% of decisions is excluded from the universe.",
+        "halt_open_interest_coverage": "If the share of decision-eligible market-sessions carrying a readable whole-curve OI matrix falls below 0.80, halt as DATA_HOLD. Floor 0.80 frozen before measurement.",
+        "halt_cost_budget": "COST_BUDGET_EXCEEDED or COST_BUDGET_NOT_EVALUABLE from alpha_agent.r61.cost_budget.evaluate_cost_budget halts before any return is scored. Ceiling 0.03/yr.",
+        "halt_min_markets": "Below the FUTURES_DATED_CONTRACT book's declared min_markets the book refuses; the cell settles BOOK_REFUSED.",
+        "halt_provenance": "NEW. If any market's rows cannot be attributed to exactly one of the two component datasets with a vintage, halt as DATA_HOLD. A merged panel whose provenance is ambiguous is not a certified panel.",
+        "halt_listing_regime": "NEW. If more than 20% of the cross-sectional variance of the step-2 value is attributable to step changes in n_contracts_summed, halt as DATA_HOLD: the signal is measuring exchange listing policy, not market behaviour.",
+        "halt_stage_advance": "alpha_agent.r59.engines.stage_advance is the sole authority on D->V->L.",
+        "doubled_cost_adversarial_check": "BLOCKING, not advisory, per the R65 cost_realism_ruling.",
+        "cost_budget_ceiling_ann": 0.03,
+        "cost_budget_owner": "alpha_agent.r61.cost_budget",
+        "cost_per_side_rule": "Notional-weighted effective rate from cost_budget.effective_cost_per_side over the R38 per-market vector. Never a uniform rate, never a default.",
+        "clearing_precondition": "No director_clear and no forward registration until the OBSERVED per-market futures execution cost table (FUTURES_EXECUTION_COST_REALITY, owned Norgate volume/OI, NO_PURCHASE_REQUIRED) exists, is certified, and this cell is re-scored under it and still passes.",
+        "prior_family_state": "BREADTH|EXCHANGE_OPEN_INTEREST_BREADTH|CROSS_ASSET|XS_LONG_SHORT holds ZERO rows. The adjacent POSITIONING|EXCHANGE_OPEN_INTEREST neighbourhood holds four settled nulls (H_b5e5e7c0_483c5c1043eb, H_b5e5e7c0_7f7cdc392f88, H_b5e5e7c0_dc7ca69afa30, H_47e2cf84_1c2df9d04b43) and two pre-measurement rejects (H_b5e5e7c0_f3e92699f95c, H_47e2cf84_49076c9d82f0). The director's position is that this cell is NOT in that family - it counts participating months rather than measuring open-interest size - but the adjacency is recorded here BEFORE measurement so the skeptic attacks the right thing and so no one can later claim it was hidden.",
+        "director_agenda": "research/agents/campaign_r65_non_equity/DIRECTOR_R65_WAVE2_PACKET.json",
+        "frozen_by": "quant-research-director, 2026-09-22, before the 68-market panel was built and before any horizon-5 floor was measured",
+        "power_annotation": "SEE power_annotation_frozen_before_measurement BELOW. Copy it verbatim into this field at registration.",
+        "interpretation_rule_frozen_before_measurement": "SEE e_INTERPRETATION_RULE BELOW. Copy it verbatim into this field at registration."
+      }
+    },
+
+    "REGISTRATION_TRIGGER_FROZEN_BEFORE_THE_NUMBER_EXISTS": {
+      "rule": "REGISTER W2-01 if and only if the MEASURED MDE_80 (ann_net_excess at 80% power) for the actual 68-market panel, at the actual horizon, at the burden denominator alpha_agent.r59.handlers.search_denominator returns for family_key BREADTH|EXCHANGE_OPEN_INTEREST_BREADTH|CROSS_ASSET|XS_LONG_SHORT, is LESS THAN OR EQUAL TO 0.030 (3.0%/yr net). If it is above 0.030, DO NOT REGISTER, and record the cell as BLOCKED_ON_POWER.",
+      "derivation_of_the_0_030_threshold": "Built only from MEASURED quantities, and fixed now so it cannot be fitted to the answer. Measured cost for this exact book shape is 1.52%/yr and 2.11%/yr at turnover ~0.60 - call it 2.0%/yr. The most generous defensible gross effect for a futures term-capacity premium is about 5%/yr. 5.0 minus 2.0 gives 3.0%/yr net as the best case this cell could possibly deliver. If the floor sits above the cell's BEST CASE, the cell cannot clear it under any assumption and registering it would buy a guaranteed UNDERPOWERED filing.",
+      "no_rounding": "0.0301 is ABOVE the threshold and is a DO_NOT_REGISTER. Borderline is never rounded into a pass.",
+      "what_may_not_be_done_if_the_trigger_says_no": "Do not widen the panel further to chase the threshold, do not shorten the horizon to chase it, and do not re-run the power measurement with different settings until it passes. Any such change is a NEW cell with a NEW pre-registration and is charged to the burden. The trigger is evaluated ONCE, against the first measurement produced by alpha_agent.r61.power."
+    }
+  },
+
+  "d_POWER_ANNOTATIONS_BEFORE_MEASUREMENT": {
+    "W2-01": {
+      "published_floor_for_the_nearest_calibrated_panel": "CROSS_ASSET_FUTURES MDE_80 = IC 0.1096 / 2.98%/yr net at burden 1, 4.19% at burden 10, 5.32% at burden 100, 5.96% at burden 1000, measured on 28 instruments at cadence 21 / horizon 21.",
+      "denominator_it_will_actually_pay": "NOT ASSERTED HERE - it is COUNTED by alpha_agent.r59.handlers.search_denominator at review time. But CROSS_ASSET already carries 2,448 charged rows and total burden is 8,415, so the operative column is 5.3-6.0%/yr net, NOT 2.98%.",
+      "the_68_market_panel_helps_but_is_unmeasured": "68 markets is 2.4x the 28 on which the floor was measured, which should lower it. I will not assert by how much. No MDE_80 has ever been measured at 68 markets and the honest annotation cites the 28-instrument published number until alpha_agent.r61.power replaces it.",
+      "can_it_plausibly_clear": "NOT AT CADENCE 21 ON THE PUBLISHED FLOOR. It needs ~7-8.5%/yr gross to clear 5.3-6.0%/yr net after ~2%/yr measured cost, and its best defensible case is ~5%/yr gross. It clears only if the measured floor for the actual panel and horizon comes in at or below 3.0%/yr net. Hence the trigger, not a registration."
+    },
+    "W2-02": {"floor": "NONE EVER MEASURED for a 2015-start weekly COT panel.", "can_it_clear": "UNANSWERABLE, and moot - the concentration columns are not in the owned store. DROPPED."},
+    "W2-03": {"floor": "CROSS_ASSET_FUTURES 2.98%/4.19%/5.32%/5.96%; operative 5.3-6.0%/yr net.", "can_it_clear": "NO. Needs ~7-8.5%/yr gross; documented illiquidity premia are 2-4%/yr in microcaps, and this cell's long leg is the 8-10bps tail so its cost exceeds the 1.5-2.1%/yr measured on the two R65 cells. DROPPED rather than filed UNDERPOWERED."}
+  },
+
+  "e_INTERPRETATION_RULE": {
+    "frozen_before_measurement": true,
+    "text": "If W2-01 is registered and reaches a lockbox and does NOT qualify: if the measured |ann_net_excess| is BELOW the panel MDE_80 at the denominator search_denominator actually used, the outcome MUST be filed with evidence_state UNDERPOWERED and do_not_read_as = EVIDENCE_OF_ABSENCE. It may NOT be reported as evidence that term risk-bearing capacity is unpriced. If the measured |ann_net_excess| is ABOVE that floor and the cell still fails, it IS evidence of absence for this mechanism on this panel, and the family BREADTH|EXCHANGE_OPEN_INTEREST_BREADTH|CROSS_ASSET|XS_LONG_SHORT must be CLOSED with reopen condition NEW_ORTHOGONAL_INFORMATION.",
+    "sign_clause": "A result of POSITIVE net excess is a FAILURE of a cell whose expected_sign is -1. It is never re-read as a discovery with the sign flipped, and never re-registered as the opposite hypothesis without being charged as a new experiment.",
+    "halt_clause": "A halt at DATA_HOLD, BOOK_REFUSED or COST_BUDGET_EXCEEDED settles as recorded by alpha_agent.r59.engines.stage_advance and is NOT a null result about the mechanism. It says the cell could not be measured, not that the effect is absent."
+  },
+
+  "RECOMMENDATION_ON_THE_OI_NEIGHBOURHOOD": {
+    "ruling": "CLOSE POSITIONING|EXCHANGE_OPEN_INTEREST across futures, all asset classes, reopen condition NEW_ORTHOGONAL_INFORMATION.",
+    "basis": "Four settled nulls and two pre-measurement rejects. The best-specified and most recent cell, r65_03, measured gross -2.47%/yr with t=-2.59, hit rate 35.4% and BOTH halves negative - a consistently wrong-signed signal, not an underpowered absence. The prior director pre-committed to exactly this recommendation on exactly this outcome in the frozen fs_r65_03 text, and this director now makes it.",
+    "note": "This ruling does NOT close W2-01, which is BREADTH and counts participating months rather than measuring open-interest size. That distinction is recorded here BEFORE any W2-01 measurement so it cannot be constructed afterwards to rescue a result.",
+    "execution": "This is a recommendation to the memory's owner. It is not written by this artifact; durable state is written only through scripts/alpha_agents_v2.py."
+  },
+
+  "DIVERSITY_GATE": {
+    "state": "min_asset_classes_per_campaign 3 required, 2 actual (EQUITY_INDEX_FUTURES, COMMODITY_FUTURES). at_least_one_cross_asset NOT SATISFIED. at_least_one_H1_H5 NOT SATISFIED.",
+    "ruling": "RECORDED AS UNMET. Not papered over, not excepted, and no H1-H5 cell registered to close it - per the coordinator's instruction and this director's own position. R65 is a two-cell, two-class campaign that produced two measured nulls, and that is the fact of record.",
+    "director_note": "I accept the coordinator's correction that a horizon-5 CROSS_ASSET MDE_80 from alpha_agent.r61.power is a read-only measurement and needs no human decision. My earlier NEEDS_HUMAN_DECISION is WITHDRAWN as to the measurement. What remains a human decision is only whether a campaign may CLOSE with the diversity gate unmet, and that question is now moot in practice because the campaign has already measured out."
+  },
+
+  "SAFETY_STATE": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "broker_enabled": false,
+    "promotes_model": false,
+    "approves_proposal": false,
+    "makes_sleeve_capital_eligible": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "manual_review_required": true,
+    "durable_state_written_by_this_artifact": "NONE",
+    "experiments_preregistered_by_this_artifact": "NONE",
+    "experiments_run_by_this_artifact": "NONE",
+    "subagents_spawned": "NONE",
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

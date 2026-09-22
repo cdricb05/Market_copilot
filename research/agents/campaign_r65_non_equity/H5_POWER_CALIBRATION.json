@@ -1,0 +1,515 @@
+{
+ "generated_at": "2026-09-22T22:48:31Z",
+ "frozen_declaration": {
+  "calibration_id": "R65_HORIZON5_DETECTION_FLOOR_V1",
+  "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+  "owner": "alpha_agent.r61.power",
+  "harness_version": "R61_SYNTHETIC_IC_POWER_CALIBRATION_V1",
+  "is_alpha_search": false,
+  "signal": "SYNTHETIC, known to be synthetic",
+  "changed_from_the_canonical_sweep": {
+   "cadence_sessions": [
+    21,
+    5
+   ],
+   "horizon_sessions": [
+    21,
+    5
+   ]
+  },
+  "unchanged": {
+   "rho_grid": [
+    0.0,
+    0.005,
+    0.01,
+    0.02,
+    0.03,
+    0.05,
+    0.075,
+    0.1,
+    0.15,
+    0.2
+   ],
+   "seeds_per_point": 120,
+   "burden_denominator_grid": [
+    1,
+    10,
+    100,
+    1000
+   ],
+   "power_levels": [
+    0.5,
+    0.8,
+    0.9
+   ],
+   "detection_rule": "D advances -> V advances -> L measured -> engines.gate(qualified). A halt at D or V is a MISS. Discovery-only success is NOT a detection.",
+   "strict_detection_rule": "gate qualified AND both lockbox halves > 0 (subperiod_stable, read from the measured layer)"
+  },
+  "reference_floors_at_h21": {
+   "CROSS_ASSET_FUTURES_MDE_80_burden_1": 0.0298,
+   "COMMODITY_FUTURES_MDE_80_burden_1": 0.0656,
+   "EQUITY_INDEX_FUTURES_MDE_80_burden_1": 0.0432,
+   "note": "quoted for contrast only; a h21 floor does not apply to a h5 cell and that is the whole reason for this run"
+  },
+  "safety": [
+   "RESEARCH ONLY",
+   "PAPER ONLY",
+   "NO ORDERS",
+   "NO PROMOTION",
+   "NO ADOPTION",
+   "PREVIEW ONLY"
+  ]
+ },
+ "panels": {
+  "CROSS_ASSET_FUTURES": {
+   "panel": "CROSS_ASSET_FUTURES",
+   "instrument_count": 28,
+   "decision_count": 787,
+   "median_eligible_per_decision": 28.0,
+   "cost_model": {
+    "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "rate_per_side": "per market, 2-15 bp",
+    "basis": "traded notional",
+    "roll_cost": "charged",
+    "owner": "R38 native_contract_layer cost_bps_per_side"
+   },
+   "cost_per_side": 0.00037857142857142864,
+   "burden_used": 1,
+   "burden_grid": [
+    1,
+    10,
+    100,
+    1000
+   ],
+   "seeds_per_point": 120,
+   "curve": [
+    {
+     "rho": 0.0,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 120,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.005,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 120,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.01,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 119,
+     "halted_at_V": 1,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.02,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 114,
+     "halted_at_V": 6,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.03,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 3,
+     "halted_at_D": 94,
+     "halted_at_V": 23,
+     "median_lockbox_ann_net_excess": 0.001575427208899802,
+     "median_lockbox_ann_gross_excess": 0.03166183777705505,
+     "median_oneway_turnover": 0.6766768086879537
+    },
+    {
+     "rho": 0.05,
+     "seeds": 120,
+     "detections": 20,
+     "detection_rate": 0.16666666666666666,
+     "ci95_lo": 0.11055912012704824,
+     "ci95_hi": 0.24345439391023813,
+     "lockboxes_computed": 61,
+     "halted_at_D": 18,
+     "halted_at_V": 41,
+     "median_lockbox_ann_net_excess": 0.009361335974506156,
+     "median_lockbox_ann_gross_excess": 0.03912184373435859,
+     "median_oneway_turnover": 0.6722668103126562
+    },
+    {
+     "rho": 0.075,
+     "seeds": 120,
+     "detections": 99,
+     "detection_rate": 0.825,
+     "ci95_lo": 0.7472413105195714,
+     "ci95_hi": 0.8825955132940744,
+     "lockboxes_computed": 118,
+     "halted_at_D": 0,
+     "halted_at_V": 2,
+     "median_lockbox_ann_net_excess": 0.02935914697883176,
+     "median_lockbox_ann_gross_excess": 0.059196338683295616,
+     "median_oneway_turnover": 0.6716115136270912
+    },
+    {
+     "rho": 0.1,
+     "seeds": 120,
+     "detections": 119,
+     "detection_rate": 0.9916666666666667,
+     "ci95_lo": 0.9543025846256777,
+     "ci95_hi": 0.9985274821693252,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.04894741767911141,
+     "median_lockbox_ann_gross_excess": 0.07878844016764908,
+     "median_oneway_turnover": 0.671672784559056
+    },
+    {
+     "rho": 0.15,
+     "seeds": 120,
+     "detections": 120,
+     "detection_rate": 1.0,
+     "ci95_lo": 0.9689797289440706,
+     "ci95_hi": 1.0,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.08855695723218379,
+     "median_lockbox_ann_gross_excess": 0.11862584764770193,
+     "median_oneway_turnover": 0.6719025619582863
+    },
+    {
+     "rho": 0.2,
+     "seeds": 120,
+     "detections": 120,
+     "detection_rate": 1.0,
+     "ci95_lo": 0.9689797289440706,
+     "ci95_hi": 1.0,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.12883793023122725,
+     "median_lockbox_ann_gross_excess": 0.15867265479413478,
+     "median_oneway_turnover": 0.6720410101362482
+    }
+   ],
+   "strict_curve": [
+    {
+     "rho": 0.0,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 120,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.005,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 120,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.01,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 119,
+     "halted_at_V": 1,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.02,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 0,
+     "halted_at_D": 114,
+     "halted_at_V": 6,
+     "median_lockbox_ann_net_excess": null,
+     "median_lockbox_ann_gross_excess": null,
+     "median_oneway_turnover": null
+    },
+    {
+     "rho": 0.03,
+     "seeds": 120,
+     "detections": 0,
+     "detection_rate": 0.0,
+     "ci95_lo": 0.0,
+     "ci95_hi": 0.031020271055929513,
+     "lockboxes_computed": 3,
+     "halted_at_D": 94,
+     "halted_at_V": 23,
+     "median_lockbox_ann_net_excess": 0.001575427208899802,
+     "median_lockbox_ann_gross_excess": 0.03166183777705505,
+     "median_oneway_turnover": 0.6766768086879537
+    },
+    {
+     "rho": 0.05,
+     "seeds": 120,
+     "detections": 18,
+     "detection_rate": 0.15,
+     "ci95_lo": 0.09703734033668816,
+     "ci95_hi": 0.22467684940246252,
+     "lockboxes_computed": 61,
+     "halted_at_D": 18,
+     "halted_at_V": 41,
+     "median_lockbox_ann_net_excess": 0.009361335974506156,
+     "median_lockbox_ann_gross_excess": 0.03912184373435859,
+     "median_oneway_turnover": 0.6722668103126562
+    },
+    {
+     "rho": 0.075,
+     "seeds": 120,
+     "detections": 95,
+     "detection_rate": 0.7916666666666666,
+     "ci95_lo": 0.7105215895553653,
+     "ci95_hi": 0.8547165856620093,
+     "lockboxes_computed": 118,
+     "halted_at_D": 0,
+     "halted_at_V": 2,
+     "median_lockbox_ann_net_excess": 0.02935914697883176,
+     "median_lockbox_ann_gross_excess": 0.059196338683295616,
+     "median_oneway_turnover": 0.6716115136270912
+    },
+    {
+     "rho": 0.1,
+     "seeds": 120,
+     "detections": 118,
+     "detection_rate": 0.9833333333333333,
+     "ci95_lo": 0.9412628731870861,
+     "ci95_hi": 0.9954175314588486,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.04894741767911141,
+     "median_lockbox_ann_gross_excess": 0.07878844016764908,
+     "median_oneway_turnover": 0.671672784559056
+    },
+    {
+     "rho": 0.15,
+     "seeds": 120,
+     "detections": 120,
+     "detection_rate": 1.0,
+     "ci95_lo": 0.9689797289440706,
+     "ci95_hi": 1.0,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.08855695723218379,
+     "median_lockbox_ann_gross_excess": 0.11862584764770193,
+     "median_oneway_turnover": 0.6719025619582863
+    },
+    {
+     "rho": 0.2,
+     "seeds": 120,
+     "detections": 120,
+     "detection_rate": 1.0,
+     "ci95_lo": 0.9689797289440706,
+     "ci95_hi": 1.0,
+     "lockboxes_computed": 120,
+     "halted_at_D": 0,
+     "halted_at_V": 0,
+     "median_lockbox_ann_net_excess": 0.12883793023122725,
+     "median_lockbox_ann_gross_excess": 0.15867265479413478,
+     "median_oneway_turnover": 0.6720410101362482
+    }
+   ],
+   "mde": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.06265822784810127,
+     "mde_ann_net_excess": 0.01948680990074697,
+     "mde_ann_gross_excess": 0.04928614497432671,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.07405063291139241,
+     "mde_ann_net_excess": 0.028599736434363705,
+     "mde_ann_gross_excess": 0.05843401609029801,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.08625000000000001,
+     "mde_ann_net_excess": 0.03817386879395761,
+     "mde_ann_gross_excess": 0.06801278435125468,
+     "reached": true
+    }
+   },
+   "mde_strict": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.06363636363636364,
+     "mde_ann_net_excess": 0.020269232885956494,
+     "mde_ann_gross_excess": 0.05007156825196061,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.07608695652173914,
+     "mde_ann_net_excess": 0.030210810922322185,
+     "mde_ann_gross_excess": 0.06004816918261534,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.08913043478260871,
+     "mde_ann_net_excess": 0.040430778244207224,
+     "mde_ann_gross_excess": 0.07027013517445192,
+     "reached": true
+    }
+   },
+   "mde_at_burden_1": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.06265822784810127,
+     "mde_ann_net_excess": 0.01948680990074697,
+     "mde_ann_gross_excess": 0.04928614497432671,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.07405063291139241,
+     "mde_ann_net_excess": 0.028599736434363705,
+     "mde_ann_gross_excess": 0.05843401609029801,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.08625000000000001,
+     "mde_ann_net_excess": 0.03817386879395761,
+     "mde_ann_gross_excess": 0.06801278435125468,
+     "reached": true
+    }
+   },
+   "mde_at_burden_10": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.07966101694915254,
+     "mde_ann_net_excess": 0.03301119744837542,
+     "mde_ann_gross_excess": 0.06284910336681913,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.09491525423728814,
+     "mde_ann_net_excess": 0.044963362621427416,
+     "mde_ann_gross_excess": 0.0748036059674416,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.1,
+     "mde_ann_net_excess": 0.04894741767911141,
+     "mde_ann_gross_excess": 0.07878844016764908,
+     "reached": true
+    }
+   },
+   "mde_at_burden_100": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.088671875,
+     "mde_ann_net_excess": 0.040071482518047194,
+     "mde_ann_gross_excess": 0.06991076918255142,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.11129032258064517,
+     "mde_ann_net_excess": 0.05789150725561163,
+     "mde_ann_gross_excess": 0.08778398379217714,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.13064516129032258,
+     "mde_ann_net_excess": 0.07322423224389771,
+     "mde_ann_gross_excess": 0.10320491571993953,
+     "reached": true
+    }
+   },
+   "mde_at_burden_1000": {
+    "MDE_50": {
+     "power": 0.5,
+     "mde_rho": 0.10241935483870969,
+     "mde_ann_net_excess": 0.05086400830264718,
+     "mde_ann_gross_excess": 0.08071605665861938,
+     "reached": true
+    },
+    "MDE_80": {
+     "power": 0.8,
+     "mde_rho": 0.13145161290322582,
+     "mde_ann_net_excess": 0.07386309578507631,
+     "mde_ann_gross_excess": 0.10384745455026298,
+     "reached": true
+    },
+    "MDE_90": {
+     "power": 0.9,
+     "mde_rho": 0.1411290322580645,
+     "mde_ann_net_excess": 0.08152945827921933,
+     "mde_ann_gross_excess": 0.11155792051414415,
+     "reached": true
+    }
+   },
+   "false_positive_rate_at_rho_zero": 0.0,
+   "effective_observations_lockbox": 188.0,
+   "lockbox_periods": 188.0,
+   "cadence_sessions": 5,
+   "horizon_sessions": 5,
+   "wall_seconds": 272.0
+  }
+ }
+}

@@ -1,0 +1,330 @@
+{
+ "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+ "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+ "generated_at": "2026-09-22T22:35:29Z",
+ "runner": "R57_LOCAL_CAMPAIGN_RUNNER_V1",
+ "calculation_owner": "alpha_agent.agents_v2.runner",
+ "execution_order": [
+  "r65_01",
+  "r65_02",
+  "r65_03"
+ ],
+ "execution_order_rule": "BINDING, and also the EXECUTION order, because a halted cell settles and charges the burden denominator exactly like a reviewed one. Ordered by ex-ante conviction so the strongest idea pays the smallest denominator. r65_01 first: its family (POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT) carries ONE prior row and it is a pre-measurement REJECT with no return ever computed, so the family has said nothing yet, and its recorded reopen condition (NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT) is the one this campaign exists to satisfy. r65_02 second: a genuinely new economic channel on the panel with the estate's lowest measured detection floor (CROSS_ASSET_FUTURES MDE_80 2.98%/yr net at burden 1), but at a horizon the R61 calibration never measured. r65_03 LAST and lowest conviction: its family already carries TWO measured NO_ALPHA_EVIDENCE siblings (H_b5e5e7c0_483c5c1043eb, H_b5e5e7c0_7f7cdc392f88) and the COMMODITY_FUTURES panel has the estate's highest measured floor (MDE_80 6.56%/yr net at burden 1).",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL. NEW_PAID_DATA_COST = $0.",
+ "prechecks": [
+  {
+   "executor": "r65_01",
+   "experiment_id": "H_47e2cf84_1c2df9d04b43",
+   "state": "GATES_PASSED",
+   "coverage": {
+    "coverage": 0.9983033150613417,
+    "eligible_market_sessions": 53634,
+    "covered_market_sessions": 53543,
+    "n_markets": 14,
+    "start": "2011-07-01",
+    "per_market": {
+     "FCE": 0.999742,
+     "FDAX": 0.99974,
+     "FESX": 0.999741,
+     "FSMI": 0.999737,
+     "FTDX": 0.99974,
+     "HSI": 1.0,
+     "HTW": 1.0,
+     "KOS": 1.0,
+     "LFT": 0.999739,
+     "SCN": 0.99974,
+     "SNK": 0.984204,
+     "SSG": 0.999742,
+     "SXF": 0.999736,
+     "YAP": 0.994836
+    },
+    "worst_market": [
+     "SNK",
+     0.9842038216560509
+    ],
+    "floor": 0.8,
+    "passed": true
+   },
+   "cost_precheck": {
+    "n_decisions": 187,
+    "median_oneway_turnover": 0.6122448979591837,
+    "mean_oneway_turnover": 0.6108785938617872,
+    "effective_cost_per_side": 0.0005,
+    "ann_roll_cost_drag": 0.007891064061988431,
+    "ann_rebalance_cost_drag_forecast": 0.007330543126341447,
+    "median_positions": 14.0,
+    "flat_decisions": 4,
+    "periods_per_year": 12.0,
+    "returns_scored": 0,
+    "verdict": {
+     "owner": "alpha_agent.r61.cost_budget",
+     "version": "R61_ANNUALISED_COST_BUDGET_V1",
+     "label": "r65_01",
+     "metric": "annualized_cost_drag",
+     "frozen_threshold": 0.03,
+     "frozen_threshold_derivation": "2.0 x r59.GATE_MATERIALITY (0.0150)",
+     "inputs": {
+      "one_way_turnover": 0.6122448979591837,
+      "cost_per_side": 0.0005,
+      "rebalance_interval_sessions": 21,
+      "rebalances_per_year": 12.0,
+      "additional_ann_cost_drag": 0.007891064061988431,
+      "trading_sessions_per_year": 252.0
+     },
+     "diagnostic_retired_turnover_ceiling": 0.4,
+     "diagnostic_retired_gate_would_halt": true,
+     "diagnostic_note": "RETIRED as the universal economic qualification gate by R61. Reported as a diagnostic only. It was horizon-blind and cost-blind: it priced a liquid futures book at a mid-cap equity cost.",
+     "state": "WITHIN_COST_BUDGET",
+     "passed": true,
+     "measured": 0.015238002837498637,
+     "annualized_rebalance_cost_drag": 0.0073469387755102054,
+     "annualized_roll_or_other_cost_drag": 0.007891064061988431,
+     "required_gross_for_materiality": 0.030238002837498636,
+     "materiality_floor": 0.015,
+     "reasons": []
+    },
+    "retired_turnover_ceiling": 0.4,
+    "would_the_retired_scalar_have_killed_it": true
+   },
+   "universe_id": "r65_intl_index_oi_covered",
+   "min_markets": 8,
+   "demean_key": null
+  },
+  {
+   "executor": "r65_02",
+   "state": "NOT_REGISTERED",
+   "experiment_id": "REFUSED_BY_DIRECTOR_NOT_REGISTERED",
+   "note": "refused by the director before registration; carries no id and charges no burden"
+  },
+  {
+   "executor": "r65_03",
+   "experiment_id": "H_b5e5e7c0_dc7ca69afa30",
+   "state": "GATES_PASSED",
+   "coverage": {
+    "coverage": 0.9935521029415897,
+    "eligible_market_sessions": 142372,
+    "covered_market_sessions": 141454,
+    "n_markets": 38,
+    "start": "2011-07-01",
+    "per_market": {
+     "AWM": 0.963336,
+     "BRN": 0.999744,
+     "CC": 0.999738,
+     "CL": 0.999738,
+     "CT": 0.999738,
+     "DC": 0.999737,
+     "EUA": 0.932851,
+     "GAS": 0.998976,
+     "GC": 0.999738,
+     "GF": 0.999738,
+     "GWM": 0.999739,
+     "HE": 0.999738,
+     "HG": 0.999738,
+     "HO": 0.999738,
+     "KC": 0.999738,
+     "KE": 0.999738,
+     "LBR": 0.999014,
+     "LCC": 0.999739,
+     "LE": 0.999738,
+     "LRC": 0.999477,
+     "LSU": 0.999739,
+     "LWB": 0.907214,
+     "MWE": 0.999738,
+     "NG": 0.999738,
+     "OJ": 0.999738,
+     "PA": 0.999738,
+     "PL": 0.967725,
+     "RB": 0.999738,
+     "RS": 0.999736,
+     "SB": 0.999738,
+     "SI": 0.999738,
+     "ZC": 0.999738,
+     "ZL": 0.999738,
+     "ZM": 0.999738,
+     "ZO": 0.999738,
+     "ZR": 0.999738,
+     "ZS": 0.999738,
+     "ZW": 0.999738
+    },
+    "worst_market": [
+     "LWB",
+     0.9072138003136435
+    ],
+    "floor": 0.8,
+    "passed": true
+   },
+   "cost_precheck": {
+    "n_decisions": 187,
+    "median_oneway_turnover": 0.6013071895424835,
+    "mean_oneway_turnover": 0.5861778588382448,
+    "effective_cost_per_side": 0.0007730025344538087,
+    "ann_roll_cost_drag": 0.00993963926426885,
+    "ann_rebalance_cost_drag_forecast": 0.010874807292544086,
+    "median_positions": 35.0,
+    "flat_decisions": 4,
+    "periods_per_year": 12.0,
+    "returns_scored": 0,
+    "verdict": {
+     "owner": "alpha_agent.r61.cost_budget",
+     "version": "R61_ANNUALISED_COST_BUDGET_V1",
+     "label": "r65_03",
+     "metric": "annualized_cost_drag",
+     "frozen_threshold": 0.03,
+     "frozen_threshold_derivation": "2.0 x r59.GATE_MATERIALITY (0.0150)",
+     "inputs": {
+      "one_way_turnover": 0.6013071895424835,
+      "cost_per_side": 0.0007730025344538087,
+      "rebalance_interval_sessions": 21,
+      "rebalances_per_year": 12.0,
+      "additional_ann_cost_drag": 0.00993963926426885,
+      "trading_sessions_per_year": 252.0
+     },
+     "diagnostic_retired_turnover_ceiling": 0.4,
+     "diagnostic_retired_gate_would_halt": true,
+     "diagnostic_note": "RETIRED as the universal economic qualification gate by R61. Reported as a diagnostic only. It was horizon-blind and cost-blind: it priced a liquid futures book at a mid-cap equity cost.",
+     "state": "WITHIN_COST_BUDGET",
+     "passed": true,
+     "measured": 0.021095126820308126,
+     "annualized_rebalance_cost_drag": 0.011155487556039276,
+     "annualized_roll_or_other_cost_drag": 0.00993963926426885,
+     "required_gross_for_materiality": 0.036095126820308125,
+     "materiality_floor": 0.015,
+     "reasons": []
+    },
+    "retired_turnover_ceiling": 0.4,
+    "would_the_retired_scalar_have_killed_it": true
+   },
+   "universe_id": "r65_commodity_oi_covered",
+   "min_markets": 12,
+   "demean_key": "economic_group"
+  }
+ ],
+ "results": [
+  {
+   "experiment_id": "H_47e2cf84_1c2df9d04b43",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0139811 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.013981087393776428,
+     "ann_gross_excess": 0.0015084725821126613,
+     "ann_cost_drag": 0.015489559975889088,
+     "mean_oneway_turnover_per_period": 0.6314604322741756,
+     "strategy_max_drawdown": -0.15891401318376575,
+     "benchmark_max_drawdown": 0.0,
+     "excess_max_drawdown": -0.15891401318376575,
+     "drawdown_owner": "alpha_agent.r61.drawdown",
+     "max_dd": -0.15891401318376575,
+     "hit_rate": 0.4050632911392405,
+     "t_net_excess": -0.9345347219793678,
+     "p_one_sided": 0.8249859330781198,
+     "halves_ann_net_excess": [
+      -0.04036707717844698,
+      0.011745252646277363
+     ],
+     "ann_rebalance_cost_drag": 0.007577525187290105,
+     "ann_roll_cost_drag": 0.007912034788598983,
+     "ann_vol_net": 0.038385608639012005,
+     "period_ir_ann": -0.36422732084980386,
+     "median_live_markets": 66.0,
+     "median_positions": 14.0,
+     "flat_decisions": 1,
+     "mean_gross_notional": 0.9873417721518988
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "cost_parity": {
+    "tolerance_relative": 0.15,
+    "checks": [
+     {
+      "metric": "ann_roll_cost_drag",
+      "book_mean_over_layers": 0.007912034788598983,
+      "precheck_forecast": 0.007891064061988431,
+      "relative_difference": 0.002650484631433854,
+      "passed": true
+     },
+     {
+      "metric": "ann_rebalance_cost_drag",
+      "book_mean_over_layers": 0.007577525187290105,
+      "precheck_forecast": 0.007330543126341447,
+      "relative_difference": 0.032594027052912325,
+      "passed": true
+     }
+    ],
+    "passed": true
+   }
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_dc7ca69afa30",
+   "state": "HALTED",
+   "halted_at": "D",
+   "halt_reasons": [
+    "ann_net_excess -0.0451384 < advance floor 0.00375"
+   ],
+   "layers": {
+    "D": {
+     "periods": 79,
+     "overlap_factor": 1.0,
+     "effective_observations": 79,
+     "first": "2011-07-01",
+     "last": "2017-10-17",
+     "ann_net_excess": -0.04513839466153989,
+     "ann_gross_excess": -0.024692749863635614,
+     "ann_cost_drag": 0.020445644797904276,
+     "mean_oneway_turnover_per_period": 0.57624349665406,
+     "strategy_max_drawdown": -0.27714826709493745,
+     "benchmark_max_drawdown": 0.0,
+     "excess_max_drawdown": -0.27714826709493745,
+     "drawdown_owner": "alpha_agent.r61.drawdown",
+     "max_dd": -0.27714826709493745,
+     "hit_rate": 0.35443037974683544,
+     "t_net_excess": -2.59315300509424,
+     "p_one_sided": 0.9952449774331544,
+     "halves_ann_net_excess": [
+      -0.045634978146986735,
+      -0.04465422576322921
+     ],
+     "ann_rebalance_cost_drag": 0.010679113657674537,
+     "ann_roll_cost_drag": 0.009766531140229734,
+     "ann_vol_net": 0.04466227996659644,
+     "period_ir_ann": -1.01066033116311,
+     "median_live_markets": 66.0,
+     "median_positions": 35.0,
+     "flat_decisions": 2,
+     "mean_gross_notional": 0.9746835443037974
+    }
+   },
+   "lockbox_computed": false,
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "cost_parity": {
+    "tolerance_relative": 0.15,
+    "checks": [
+     {
+      "metric": "ann_roll_cost_drag",
+      "book_mean_over_layers": 0.009766531140229734,
+      "precheck_forecast": 0.00993963926426885,
+      "relative_difference": 0.017415936276621944,
+      "passed": true
+     },
+     {
+      "metric": "ann_rebalance_cost_drag",
+      "book_mean_over_layers": 0.010679113657674537,
+      "precheck_forecast": 0.010874807292544086,
+      "relative_difference": 0.01799513587737042,
+      "passed": true
+     }
+    ],
+    "passed": true
+   }
+  }
+ ]
+}

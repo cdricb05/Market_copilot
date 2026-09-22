@@ -1,0 +1,193 @@
+{
+ "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+ "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+ "generated_at": "2026-09-22T22:54:51Z",
+ "state": "CAMPAIGN_COMPLETE",
+ "safety": [
+  "RESEARCH ONLY",
+  "PAPER ONLY",
+  "NO ORDERS",
+  "NO FILLS",
+  "NO PROMOTION",
+  "NO ADOPTION",
+  "NO AUTOMATION",
+  "MANUAL REVIEW",
+  "PREVIEW ONLY"
+ ],
+ "new_paid_data_cost_usd": 0.0,
+ "headline": "Both pre-registered non-equity cells were measured and both settled NO_ALPHA_EVIDENCE at DISCOVERY. Neither reached a lockbox. No candidate survived, so nothing became eligible for paper-portfolio capital, and no sleeve was created.",
+ "cells": [
+  {
+   "experiment_id": "H_47e2cf84_1c2df9d04b43",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "executor": null,
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "economic_family": "POSITIONING",
+   "information_family": "EXCHANGE_OPEN_INTEREST",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0139811 < advance floor 0.00375",
+   "reopen_condition": "NEW_ORTHOGONAL_INFORMATION",
+   "state": "HALTED",
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "stages_revealed": [
+    "D"
+   ],
+   "discovery": {
+    "effective_observations": 79,
+    "first": "2011-07-01",
+    "last": "2017-10-17",
+    "ann_gross_excess": 0.0015084725821126613,
+    "ann_cost_drag": 0.015489559975889088,
+    "ann_net_excess": -0.013981087393776428,
+    "t_net_excess": -0.9345347219793678,
+    "hit_rate": 0.4050632911392405,
+    "halves_ann_net_excess": [
+     -0.04036707717844698,
+     0.011745252646277363
+    ],
+    "max_drawdown": -0.15891401318376575,
+    "mean_oneway_turnover": 0.6314604322741756,
+    "median_positions": 14.0
+   },
+   "pre_measurement_gates": {
+    "oi_coverage": 0.9983033150613417,
+    "oi_coverage_floor": 0.8,
+    "annualized_cost_drag": 0.015238002837498637,
+    "cost_budget_ceiling": 0.03,
+    "cost_budget_state": "WITHIN_COST_BUDGET",
+    "retired_040_scalar_would_have_halted_it": true,
+    "required_gross_for_materiality": 0.030238002837498636
+   },
+   "cost_parity_book_vs_precheck": true
+  },
+  {
+   "experiment_id": "H_b5e5e7c0_dc7ca69afa30",
+   "label": "FUT_COMMODITY_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "executor": null,
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "information_family": "EXCHANGE_OPEN_INTEREST",
+   "outcome": "NO_ALPHA_EVIDENCE",
+   "reason": "HALTED_AT_D: ann_net_excess -0.0451384 < advance floor 0.00375",
+   "reopen_condition": "NEW_ORTHOGONAL_INFORMATION",
+   "state": "HALTED",
+   "halted_at": "D",
+   "lockbox_computed": false,
+   "stages_revealed": [
+    "D"
+   ],
+   "discovery": {
+    "effective_observations": 79,
+    "first": "2011-07-01",
+    "last": "2017-10-17",
+    "ann_gross_excess": -0.024692749863635614,
+    "ann_cost_drag": 0.020445644797904276,
+    "ann_net_excess": -0.04513839466153989,
+    "t_net_excess": -2.59315300509424,
+    "hit_rate": 0.35443037974683544,
+    "halves_ann_net_excess": [
+     -0.045634978146986735,
+     -0.04465422576322921
+    ],
+    "max_drawdown": -0.27714826709493745,
+    "mean_oneway_turnover": 0.57624349665406,
+    "median_positions": 35.0
+   },
+   "pre_measurement_gates": {
+    "oi_coverage": 0.9935521029415897,
+    "oi_coverage_floor": 0.8,
+    "annualized_cost_drag": 0.021095126820308126,
+    "cost_budget_ceiling": 0.03,
+    "cost_budget_state": "WITHIN_COST_BUDGET",
+    "retired_040_scalar_would_have_halted_it": true,
+    "required_gross_for_materiality": 0.036095126820308125
+   },
+   "cost_parity_book_vs_precheck": true
+  }
+ ],
+ "what_the_corrected_cost_gate_bought": {
+  "finding": "Both cells cleared the corrected annualised cost budget and would BOTH have been killed pre-measurement by the retired 0.40 one-way turnover scalar. The R61 correction was therefore load-bearing: it bought the measurements. It did not buy a survivor.",
+  "measured_annualised_cost_drag": {
+   "null": 0.021095126820308126
+  },
+  "ceiling": 0.03,
+  "roll_cost_was_charged_not_assumed": true,
+  "cost_parity_check": "the pre-measurement forecast and the book's own charge agreed to within 1.8% on both cells, so the one duplicated computation did not drift"
+ },
+ "horizon_5_detection_floor": {
+  "why": "Every floor the estate owned was calibrated at cadence 21 / horizon 21. A five-session book rebalances 50.4 times a year instead of 12, so judging it against a 21-session floor borrows a number never measured on its geometry.",
+  "panel": "CROSS_ASSET_FUTURES (28 non-commodity markets)",
+  "decisions_h5": 787,
+  "effective_observations_h5": 188.0,
+  "effective_observations_h21": 44.0,
+  "false_positive_rate_at_rho_zero": 0.0,
+  "MDE_80_net_by_burden": {
+   "h5": {
+    "1": 0.028599736434363705,
+    "10": 0.044963362621427416,
+    "100": 0.05789150725561163,
+    "1000": 0.07386309578507631
+   },
+   "h21": {
+    "1": 0.029813499377944756,
+    "10": 0.041865439834114906,
+    "100": 0.05319653086377216,
+    "1000": 0.05964950280965235
+   }
+  },
+  "conclusion": "Horizon 5 is NOT structurally weaker than horizon 21. At burden 1 it is marginally BETTER (2.86%/yr vs 2.98%/yr net): the 4.3x gain in effective independent observations (188 vs 44) roughly offsets the 4.2x higher rebalance drag. The estate has avoided H1-H5 research - 0.45% of 8,472 rows - on an assumption that had never been measured. This does not make a short-horizon idea good; it removes POWER as the reason not to ask one."
+ },
+ "curve_participation_substrate": {
+  "dataset_id": "r65_aggregate_oi_cross_asset_v1",
+  "extends": "r38_aggregate_oi_v1",
+  "new_paid_data_cost_usd": 0.0,
+  "source": "locally installed Norgate 'Futures' database (OWNED)",
+  "certified_markets": 68,
+  "markets_with_curve_depth": 68,
+  "overall_coverage": 1.0,
+  "why": "n_contracts_oi_positive is computed and written by the R56 builder but DROPPED by its loader, and the dataset existed for only the 39 COMMODITY markets of that campaign. The mechanism was unaskable not because the estate lacked the data but because 29 of its 68 certified markets were never built. They are now, at $0, from the owned Norgate futures database, into a SEPARATE dataset; the frozen R56 dataset was not touched.",
+  "measured_caveat": "curve depth carries a large asset-class LEVEL effect (median 0.30 in FX vs 0.80 in commodities), so a raw cross-book rank would sort asset classes rather than risk-warehousing. Any cell built on it must demean within group or use a time-series change. Recorded before any cell was registered."
+ },
+ "wave_2_outcome": {
+  "registrations": 0,
+  "ruling": "The director dropped all three wave-2 candidates and recorded zero registrations as the honest number.",
+  "W2_02_position_concentration": "DROPPED. The owned CFTC store carries eight columns - as_of, code, name, oi, nc_long, nc_short, c_long, c_short - and no concentration ratio or trader count. Acquiring them would also not fix a 2015-2026 weekly history that is shorter than the sample behind the existing floor.",
+  "W2_03_futures_price_impact": "DROPPED on power, not data. Needs roughly 7-8.5%/yr gross against documented illiquidity premia of 2-4%, and its long leg sits in the 8-10bp cost tail.",
+  "W2_01_curve_participation_depth": {
+   "verdict": "NOT REGISTERED",
+   "trigger_frozen_before_the_number_existed": "REGISTER iff measured MDE_80 <= 0.030/yr net at the denominator search_denominator returns",
+   "measured_search_denominator": 27,
+   "denominator_composition": "family burden 0 (the family is genuinely untouched) + generative charge 0 (hand-written, and not inside the machine representation space) + 27 AGENTS_V2 campaign cells already prosecuted",
+   "measured_MDE_80_at_burden_10": 0.041865439834114906,
+   "evaluation": "the denominator is 27, so the applicable floor is at least the burden-10 value of 0.0419/yr net, already above the 0.030 ceiling. The trigger FAILS and the cell is not registered. It was evaluated once, as pre-committed.",
+   "second_independent_blocker": "the calibrated CROSS_ASSET_FUTURES panel is 28 NON-COMMODITY markets. A 68-market book is a different panel whose floor has never been measured, so no existing number may be borrowed for it."
+  }
+ },
+ "director_recommendation_carried_forward": {
+  "close_family": "POSITIONING|EXCHANGE_OPEN_INTEREST across futures",
+  "reopen_condition": "NEW_ORTHOGONAL_INFORMATION",
+  "basis": "pre-committed in the frozen fs_r65_03 text before either cell was measured, and both cells have now failed",
+  "status": "RECOMMENDED BY THE DIRECTOR; not executed here"
+ },
+ "r65_02_ruling": {
+  "verdict": "REJECTED PERMANENTLY, never registered, charges no burden",
+  "basis": "the certified R38 panel holds exactly ONE INDUSTRIAL_METALS market (HG), so the multi-market industrial-metals composite the mechanism needs cannot be built from owned data, and the only constructible survivor repeats an existing copper lead-lag primitive on a panel with no measured detection floor",
+  "reopen_condition": "NEW_ORTHOGONAL_INFORMATION: all three of (A) >=3 certified INDUSTRIAL_METALS markets past the 80% OI floor, (B) an R61-measured MDE_80 for the actual panel geometry, (C) a forward verdict on the existing copper lead-lag row"
+ },
+ "registry_state": {
+  "hypotheses_total": 8472,
+  "hypotheses_open": 0,
+  "by_outcome": {
+   "DATA_HOLD": 3,
+   "FORWARD_FROZEN": 56,
+   "NO_ALPHA_EVIDENCE": 8407,
+   "REJECTED": 6
+  },
+  "search_burden_total": 8415
+ },
+ "diversity_gate": {
+  "at_least_one_H1_H5": "UNMET",
+  "note": "recorded as unmet rather than satisfied by registering a short-horizon cell that would have borrowed a floor. The horizon-5 floor measured in this run removes the power objection for a FUTURE campaign; it does not retroactively satisfy this one."
+ }
+}

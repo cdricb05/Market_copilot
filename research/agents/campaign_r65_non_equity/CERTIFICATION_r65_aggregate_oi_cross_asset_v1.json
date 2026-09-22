@@ -1,0 +1,403 @@
+{
+ "dataset_id": "r65_aggregate_oi_cross_asset_v1",
+ "extends": "r38_aggregate_oi_v1",
+ "new_paid_data_cost_usd": 0.0,
+ "source": "locally installed Norgate 'Futures' database (OWNED)",
+ "start": "2011-07-01",
+ "certified_markets": 68,
+ "markets_with_curve_depth": 68,
+ "overall_coverage": 1.0,
+ "by_asset_class": {
+  "FX_FUTURES": {
+   "markets": 8,
+   "covered": 30504,
+   "eligible": 30504,
+   "coverage": 1.0,
+   "markets_with_data": 8
+  },
+  "COMMODITY_FUTURES": {
+   "markets": 39,
+   "covered": 146245,
+   "eligible": 146245,
+   "coverage": 1.0,
+   "markets_with_data": 39
+  },
+  "EQUITY_INDEX_FUTURES": {
+   "markets": 14,
+   "covered": 53634,
+   "eligible": 53634,
+   "coverage": 1.0,
+   "markets_with_data": 14
+  },
+  "RATES_FUTURES": {
+   "markets": 6,
+   "covered": 21729,
+   "eligible": 21729,
+   "coverage": 1.0,
+   "markets_with_data": 6
+  },
+  "VOLATILITY": {
+   "markets": 1,
+   "covered": 3809,
+   "eligible": 3809,
+   "coverage": 1.0,
+   "markets_with_data": 1
+  }
+ },
+ "provenance": {
+  "AFB": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4249
+  },
+  "AWM": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4249
+  },
+  "BRN": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4295
+  },
+  "CC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4187
+  },
+  "CL": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "CT": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "DC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4173
+  },
+  "EUA": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4262
+  },
+  "GAS": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4295
+  },
+  "GC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "GF": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "GWM": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4206
+  },
+  "HE": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "HG": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "HO": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "KC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4187
+  },
+  "KE": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "LBR": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 1015
+  },
+  "LCC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4202
+  },
+  "LE": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "LRC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4202
+  },
+  "LSU": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4202
+  },
+  "LWB": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4202
+  },
+  "MWE": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "NG": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "OJ": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "PA": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "PL": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "RB": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "RS": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4156
+  },
+  "SB": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4187
+  },
+  "SI": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZC": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZL": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZM": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZO": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZR": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZS": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "ZW": {
+   "dataset": "r38_aggregate_oi_v1",
+   "vendor_database_vintage": "2026-09-19 05:37:53-04:00",
+   "rows": 4188
+  },
+  "6A": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6B": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6C": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6E": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6J": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6M": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6N": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "6S": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "FCE": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4260
+  },
+  "FDAX": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4228
+  },
+  "FESX": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4237
+  },
+  "FSMI": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4180
+  },
+  "FTDX": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4228
+  },
+  "HSI": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4095
+  },
+  "HTW": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4191
+  },
+  "KOS": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4095
+  },
+  "LFT": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4203
+  },
+  "SCN": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4059
+  },
+  "SNK": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4295
+  },
+  "SSG": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4257
+  },
+  "SXF": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4162
+  },
+  "TN": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 2670
+  },
+  "UB": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4185
+  },
+  "VX": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4186
+  },
+  "YAP": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4255
+  },
+  "ZB": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4190
+  },
+  "ZF": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4190
+  },
+  "ZN": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4190
+  },
+  "ZT": {
+   "dataset": "r65_aggregate_oi_cross_asset_v1",
+   "vendor_database_vintage": "2026-09-22 18:30:16-04:00",
+   "rows": 4190
+  }
+ },
+ "availability_rule": "exchange open interest for session s is observable on s+1; a decision at index t reads columns <= t-2",
+ "vintage_caveat": "the two datasets were built at different vendor database vintages; per-market provenance records which produced each row",
+ "safety": [
+  "RESEARCH ONLY",
+  "PAPER ONLY",
+  "NO ORDERS",
+  "NO PURCHASE",
+  "PREVIEW ONLY"
+ ],
+ "r59_constants": {
+  "discovery_start": "2011-07-01",
+  "validation_start": "2018-01-01",
+  "lockbox_start": "2023-01-01"
+ }
+}

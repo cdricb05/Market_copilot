@@ -1,0 +1,104 @@
+{
+ "artifact": "R65_FORWARD_EVIDENCE_STATE",
+ "run_id": "R65_MULTI_ASSET_ALPHA_AND_PNL_OFFENSIVE",
+ "as_of_utc": "2026-09-22T22:00:00Z",
+ "read_only": true,
+ "nothing_was_emitted_matured_or_backfilled_by_this_inspection": true,
+ "safety": ["RESEARCH ONLY", "PAPER ONLY", "NO ORDERS", "NO PROMOTION",
+            "NO ADOPTION", "NO BACKFILL", "MANUAL REVIEW"],
+
+ "question_asked": "What has actually MATURED under the latest eligible market session, rather than what a calendar date suggests should have?",
+
+ "answer": {
+  "matured_observations_total": 0,
+  "effective_independent_observations": 0,
+  "statement": "NOTHING has matured. Zero of the eight registered canonical-forward challengers has produced a single matured forward observation. Every number below is either a pending mark-to-market or a missed opportunity, and neither is evidence."
+ },
+
+ "the_21_session_cohort": {
+  "claim_checked": "a 21-session cohort approaching its first real outcomes",
+  "verdict": "TRUE BUT NOT YET ARRIVED",
+  "decision_session": "2026-09-10",
+  "horizon_sessions": 21,
+  "forward_sessions_observed": 7,
+  "sessions_remaining": 14,
+  "maturity": "after 14 more realised sessions, i.e. approximately 2026-10-09",
+  "members": [
+   {"challenger_id": "R58_FUND_MOMENTUM_VETO_V1", "net_cumulative_return_so_far": 0.0246998},
+   {"challenger_id": "R58_FCF_PURE_V1", "net_cumulative_return_so_far": 0.01384257},
+   {"challenger_id": "R58_SHORT_VOLUME_PRESSURE_V1", "net_cumulative_return_so_far": -0.0046305},
+   {"challenger_id": "R58_DISCLOSURE_INTENSITY_V1", "net_cumulative_return_so_far": -0.00883967}
+  ],
+  "how_these_numbers_must_be_read": "These are MARK-TO-MARKET on an UNMATURED observation at 7 of 21 sessions. They are not forward evidence, they are not a result, they may not be annualised, and they may not be compared with a lockbox number. A 21-session decision is scored when it matures and not before.",
+  "evidence_state": "FORWARD_EVIDENCE_IN_PROGRESS"
+ },
+
+ "defect_found": {
+  "title": "The next-open forward producer has been DATA_BLOCKED on every runtime cycle, so two registered challengers have had four decision sessions pass without a frozen decision - and without a recorded forfeiture.",
+  "severity": "MATERIAL - it silently costs forward observations, which are the estate's scarcest resource",
+  "affected_challengers": [
+   "REVERSED_SPY_PUT_CALL_SKEW_H5",
+   "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1"
+  ],
+  "decision_sessions_that_passed_unfrozen": ["2026-09-14", "2026-09-15",
+                                             "2026-09-21", "2026-09-22"],
+  "evidence_chain": [
+   "api.canonical_forward_accrual reports each of those cells NOT_DUE with reason AWAITING_NEW_GOVERNED_FREEZE: 'the research owner has frozen no decision for <session>; a decision is the originating owner's act and this module may not take one on its behalf'. The accrual owner is behaving CORRECTLY - it refuses to invent a decision.",
+   "The producer that should have frozen one IS being invoked: alpha_agent.r52.runtime runs stage 'next_open_prospective_decision' on every cycle and the stage is UNGATED (alpha_agent.r52.eligibility.UNGATED_STAGES), so the R65 maturation skip gate is not responsible.",
+   "That stage has returned DATA_BLOCKED on every recent cycle (runtime_runs.json: r52run_20260922T215809Z, T215704Z, T214304Z, T212202Z, T201711Z, T201058Z), which maps from next_open_runtime.ADV_AWAITING_SOURCE - the vendor surface the skew feature needs has not published.",
+   "The sibling producers are healthy: fx_carry_cadence_prospective_decision emitted for ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 on 2026-09-22, and futures_trend_prospective_decision is correctly NOT_DUE on its 21-session cadence."
+  ],
+  "second_order_defect": "The run journal records the state DATA_BLOCKED but NOT the 'blocked_on' reason that next_open_runtime returns alongside it. An operator reading the journal can see that the producer is stuck but not on what, which is why this went unnoticed across at least six cycles.",
+  "third_order_defect": "Neither an emission nor a FORFEITURE was recorded for the four missed sessions. canonical_forward_accrual reports forfeitures_total = 0. The record therefore neither contains the evidence nor admits that it was missed - absence of observation has not been turned into observation of absence.",
+  "what_must_NOT_be_done": "The missed sessions may NOT be emitted now. The base variant's window closes at 15:45 ET on its own session and the next-open variant enters at 09:30 ET; freezing a decision for 2026-09-14 today would be backfill, which the estate forbids and which would poison the only forward evidence these challengers can ever produce.",
+  "correct_remedies": [
+   "Surface 'blocked_on' in the runtime journal row and in runtime_health.json, so a stuck producer names its own blocker.",
+   "Record a FORFEITURE for a decision session that passed with no frozen decision, so the denominator stays honest.",
+   "Diagnose the next-open vendor surface. The next decision sessions are approximately 2026-09-28 (base) and 2026-09-29 (next-open); if the surface is still unpublished then, two more observations are lost."
+  ]
+ },
+
+ "canonical_forward_registry": {
+  "registered": 8,
+  "predictions_emitted": 5,
+  "matured": 0,
+  "forfeitures_recorded": 0,
+  "armed_for_a_future_session": 0,
+  "by_state": {"EMITTED": 5, "NOT_DUE": 3},
+  "inert_with_zero_emissions": [
+   {"challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5", "registered": "2026-09-11", "cause": "producer DATA_BLOCKED"},
+   {"challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1", "registered": "2026-09-12", "cause": "producer DATA_BLOCKED"},
+   {"challenger_id": "ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1", "registered": "2026-09-18", "cause": "NOT_DUE on a 21-session cadence - correct, not a defect"}
+  ]
+ },
+
+ "r52_research_shadow_book": {
+  "note": "A SEPARATE and older forward system from the canonical accrual above. Reported because it is the estate's only forward P&L number that is not zero.",
+  "shadow_nav": 1002609.387257,
+  "starting_capital": 1000000.0,
+  "gross_change": 2609.387257,
+  "residual_alpha_vs_cash": -247.236706,
+  "active_challenger_cells": 45,
+  "effective_independent_observations": 55,
+  "accountability_start_date": "2026-08-31",
+  "how_to_read_it": "The shadow book is up $2,609 on $1,000,000 (+0.26%), but against its cash control it is BEHIND by $247. After the control, 45 active cells and 55 effective independent observations have produced nothing. This is the estate's most honest forward number and it is slightly negative.",
+  "counters_needing_one_targeted_follow_up": {
+   "predictions_due": 36,
+   "predictions_emitted_this_cycle": 0,
+   "predictions_forfeited_this_cycle": 9,
+   "forfeited_cells_total": 53,
+   "outcomes_due": 503,
+   "outcomes_scored": 6,
+   "why_flagged": "36 due against 0 emitted with emission_policy mode EMIT_OK_FRESH, and 503 outcomes due against 6 scored, are large enough gaps to deserve one targeted investigation. They are reported as observed counters and are NOT interpreted here, because the run-scoped and cumulative counters are not distinguished in the health document and guessing which is which would be worse than saying so."
+  }
+ },
+
+ "runtime_health": {
+  "runtime_state": "RUN_COMPLETED",
+  "last_successful_utc": "2026-09-22T21:57:01Z",
+  "lanes_due": 7, "lanes_advanced": 7, "lanes_blocked": 0, "lanes_failed": 0,
+  "forward_chain_integrity": true,
+  "maturation_was_gated": true,
+  "verdict": "The R64/R65 CPU safeguards are intact and working: the expensive stages recorded SKIPPED_INPUTS_UNCHANGED while the cheap window-driven producers still ran every cycle. No duplicate worker was launched by this run."
+ }
+}
