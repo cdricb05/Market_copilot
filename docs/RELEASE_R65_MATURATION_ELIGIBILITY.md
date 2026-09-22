@@ -298,6 +298,40 @@ owners still executed. The bookmark's digest was unchanged by the skip and
 `skips_since_last_run` advanced to 1, proving a skip cannot make a stale
 bookmark look fresh.
 
+### Cycle 3 — the LIVE WORKER doing it unassisted
+
+One minute later the worker woke again of its own accord (a watched collection
+source had moved) and ran `r52run_20260922T215809Z`, trigger
+`R59_PERSISTENT_RUNTIME`:
+
+```
+r52run_20260922T214304Z  R59_PERSISTENT_RUNTIME   837 s  RUN_NO_PRIOR_FINGERPRINT
+r52run_20260922T215704Z  R65_LIVE_ACCEPTANCE       13 s  SKIP_INPUTS_UNCHANGED
+r52run_20260922T215809Z  R59_PERSISTENT_RUNTIME     9 s  SKIP_INPUTS_UNCHANGED   <-- the worker itself
+```
+
+**837 s → 9 s on the deployed worker's own wake, with no operator involved.**
+Under the old code that wake would have cost another full cycle. This is the
+defect closed, measured end to end.
+
+### The health document told the truth about it
+
+After the two gated invocations, `runtime_health.json` reads:
+
+```
+runtime_state            RUN_COMPLETED                 <- the last cycle that DID the work
+last_run_id              r52run_20260922T214304Z       <- ditto
+last_invocation_id       r52run_20260922T215809Z       <- the runtime last looked here
+maturation_was_gated     true
+outcomes_scored          6                             <- CARRIED FORWARD, not nulled
+promotion_ready_count    0                             <- carried forward
+maturation_gate          {run: false, reason: SKIP_INPUTS_UNCHANGED,
+                          n_terms: 16, changed_terms: [], unresolved_terms: []}
+```
+
+Not one measured field was overwritten with a `None` by a stage that did not
+run.
+
 ### Stability of the fingerprint
 
 Sampled five times over 240 s of idle on the live estate: **one distinct
