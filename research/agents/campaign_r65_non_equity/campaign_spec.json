@@ -1,0 +1,50 @@
+{
+ "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "executor_module": "research/agents/campaign_r65_non_equity/executors.py",
+ "review_order": [
+  "r65_01",
+  "r65_02",
+  "r65_03"
+ ],
+ "review_order_rule": "BINDING, and also the EXECUTION order, because a halted cell settles and charges the burden denominator exactly like a reviewed one. Ordered by ex-ante conviction so the strongest idea pays the smallest denominator. r65_01 first: its family (POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT) carries ONE prior row and it is a pre-measurement REJECT with no return ever computed, so the family has said nothing yet, and its recorded reopen condition (NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT) is the one this campaign exists to satisfy. r65_02 second: a genuinely new economic channel on the panel with the estate's lowest measured detection floor (CROSS_ASSET_FUTURES MDE_80 2.98%/yr net at burden 1), but at a horizon the R61 calibration never measured. r65_03 LAST and lowest conviction: its family already carries TWO measured NO_ALPHA_EVIDENCE siblings (H_b5e5e7c0_483c5c1043eb, H_b5e5e7c0_7f7cdc392f88) and the COMMODITY_FUTURES panel has the estate's highest measured floor (MDE_80 6.56%/yr net at burden 1).",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL. NEW_PAID_DATA_COST = $0.",
+ "requires": {
+  "datasets": [
+   "r38_native_contract_layer_with_deferred_leg_v1"
+  ],
+  "universes": [
+   "r65_intl_index_oi_covered",
+   "r65_xa_metals_currency_leadlag",
+   "r65_commodity_oi_covered"
+  ],
+  "feature_sets": [
+   "fs_r65_01_intl_index_oi_growth",
+   "fs_r65_02_metals_currency_leadlag_h3",
+   "fs_r65_03_commodity_oi_growth"
+  ]
+ },
+ "experiments": [
+  {
+   "experiment_id": "PENDING_PREREGISTRATION_r65_01",
+   "executor": "r65_01",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "owning_agent": "volatility-liquidity-agent"
+  },
+  {
+   "experiment_id": "PENDING_PREREGISTRATION_r65_02",
+   "executor": "r65_02",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG_H3",
+   "owning_agent": "trend-breadth-signal-agent"
+  },
+  {
+   "experiment_id": "PENDING_PREREGISTRATION_r65_03",
+   "executor": "r65_03",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "FUT_COMMODITY_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "owning_agent": "volatility-liquidity-agent"
+  }
+ ]
+}

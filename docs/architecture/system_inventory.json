@@ -416,12 +416,13 @@
    ],
    "read_owner": "api/research_runtime.py + api/prospective_tournament.py",
    "status": "OWNED",
+   "eligibility_gate": "alpha_agent/r52/eligibility.py (R65). NOT a scheduler and NOT a second timing authority: it owns no cadence, fires nothing and cannot make the runtime run. It answers ONE question for research_runtime_cycle - have any of the inputs the EXPENSIVE stages read moved since the last completed cycle - from the canonical owners only (r46.clock, the derived timing contract, the evidence-chain verifiers, each forward owner's own declared store). The three per-session owners that hold live decision windows (next_open, fx_carry_cadence, futures_trend) are NEVER gated. Fail-open on every path: an unresolved term, an incomplete previous cycle, a per-session owner that just froze a decision, or six hours of silence all run the expensive set.",
    "distinct_concepts_kept_separate": [
     "api/prospective_tournament.py (R46 forward SIGNAL challengers)",
     "api/shadow_portfolio_evidence.py (R56 forward PAPER PORTFOLIO challengers)",
     "api/forward_prediction_skill.py (the DAILY governed TRUE_FORWARD bundle - a third, separate evidence identity that is never summed with the other two)"
    ],
-   "note": "A historical result is never convertible into forward evidence: ResearchMemory.record_result refuses to write FORWARD_CONFIRMED, and freeze_forward stores an inception instant and never a score."
+   "note": "A historical result is never convertible into forward evidence: ResearchMemory.record_result refuses to write FORWARD_CONFIRMED, and freeze_forward stores an inception instant and never a score. R65: the run journal measured that 400 consecutive invocations spent 32.4 CPU-hours to produce a substantive result in 16 of them, so the expensive stages are now gated on an input fingerprint while the window-owning per-session owners still run every invocation; a GATED invocation carries the prior health document forward unchanged rather than overwriting a measurement it did not take."
   },
   {
    "concept": "data_opportunity_frontier",

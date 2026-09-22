@@ -1,0 +1,383 @@
+{
+ "campaign_id": "R65_NON_EQUITY_COST_HONEST_FRONTIER",
+ "run_id": "R65_MULTI_ASSET_ALPHA_ACTIVATION",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "produced_by": "quant-research-director",
+ "frozen_at": "2026-09-22",
+ "frozen_before_any_r65_measurement": true,
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL, NO PURCHASE. NEW_PAID_DATA_COST = $0.",
+
+ "experiment_id_minting_note": "The three experiment_id values in campaign_spec.json are PLACEHOLDERS, not invented ids. alpha_agent.r59.memory.ResearchMemory owns experiment identity and mints it inside the pipeline's preregister verb; the director cannot and must not fabricate one. Attempting the mint now was REFUSED by the governed path, verbatim: PIPELINE_REFUSED FEATURES_NOT_PUBLISHED (fs_r65_01_intl_index_oi_growth). The refusal is correct: preregister requires a PIT_SAFE dataset certification and a published feature set, and the foundation chain for this campaign has not run. The frozen construction, cost budget, halt conditions, expected sign and samples for each cell are recorded in this file under cells[] and are FROZEN AS OF 2026-09-22, before any R65 measurement exists. After data-foundation-agent -> universe-construction-agent -> feature-library-agent complete, the director runs, once per cell and in review_order: scripts\\alpha_agents_v2.py preregister --agent quant-research-director --input <cell payload>, and the minted ids replace the placeholders in campaign_spec.json. No parameter recorded here may change at that point; a change is a NEW experiment charged to the burden.",
+
+ "frozen_samples": {
+  "owner": "alpha_agent.r59 - DISCOVERY_START, VALIDATION_START, LOCKBOX_START, CADENCE, HORIZON, BH_Q, OBS_FLOOR, GATE_MATERIALITY, STAGE_ADVANCE_FRACTION, VALIDATION_MATERIALITY_FRACTION. Read live 2026-09-22; not chosen by this agenda.",
+  "discovery_start": "2011-07-01",
+  "validation_start": "2018-01-01",
+  "lockbox_start": "2023-01-01",
+  "cadence_sessions_default": 21,
+  "horizon_sessions_default": 21,
+  "bh_q": 0.1,
+  "obs_floor": 36,
+  "gate_materiality": 0.015,
+  "stage_advance_fraction": 0.25,
+  "validation_materiality_fraction": 0.25,
+  "lockbox_reads": "ONE per experiment. The lockbox is revealed only after D and V have been earned through alpha_agent.r59.engines.stage_advance."
+ },
+
+ "budget": {
+  "experiments_authorised": 3,
+  "ceiling_offered_by_orchestrator": 4,
+  "slot_deliberately_unspent": 1,
+  "rule": "The budget is a ceiling, not a target. The fourth slot is NOT spent, because the only remaining admissible non-equity candidate (XA_TERMS_OF_TRADE_RELATIVE_VALUE) sits on a substrate whose own certification is DATA_HOLD. Registering it to fill a count would charge the burden denominator of every future claim in CROSS_ASSET|RELATIVE_VALUE for a data question, which is the r60_04 mistake repeated.",
+  "lockbox_reads_per_experiment": 1,
+  "burden_denominator_owner": "alpha_agent.r59.handlers.search_denominator - COUNTED, never asserted by this agenda"
+ },
+
+ "estate_facts_verified_by_the_director": {
+  "search_burden_total_read_live": 8413,
+  "burden_by_asset_class_read_live": {
+   "CROSS_ASSET": 2455,
+   "US_EQUITY": 1835,
+   "COMMODITY_FUTURES": 1628,
+   "EQUITY_INDEX_FUTURES": 925,
+   "RATES_FUTURES": 864,
+   "FX_FUTURES": 692,
+   "VOLATILITY": 13,
+   "CREDIT_PROXY": 1
+  },
+  "source": "alpha_agent.r59.memory.open_memory_readonly().burden(), read 2026-09-22. Read-only; nothing was registered by the check.",
+  "qualified_survivors_all_time": 0,
+  "honest_prior": "Zero of ~8,413 settled hypotheses has ever qualified. The base rate for every cell below is approximately zero, and NO_ALPHA_EVIDENCE across all three is the expected outcome."
+ },
+
+ "verification_of_the_r60_reopen_condition": {
+  "question": "The R60 director's condition for re-registering the two futures cells killed by the 0.40 one-way turnover scalar was: the constraint schema must be corrected CAMPAIGN-WIDE and PINNED BY A TEST FIRST; only then may a new experiment id be minted and charged. Is it satisfied?",
+  "verdict": "SATISFIED. Verified directly, not taken on report.",
+  "evidence": [
+   "alpha_agent\\r61\\cost_budget.py exists and is THE owner. COST_BUDGET_OWNER = 'alpha_agent.r61.cost_budget', COST_BUDGET_VERSION = 'R61_ANNUALISED_COST_BUDGET_V1'. It replaces the scalar with annualized_cost_drag = one_way_turnover * 2 * cost_per_side * rebalances_per_year + additional_ann_cost_drag (lines 163-188).",
+   "The ceiling is CAMPAIGN-WIDE, PREDECLARED and INDEPENDENT OF ANY MEASURED RETURN: COST_BUDGET_CEILING = 2.0 * r59.GATE_MATERIALITY = 0.03 (cost_budget.py:116-117). Confirmed by calling the owner: ceiling 0.03, derivation '2.0 x r59.GATE_MATERIALITY'.",
+   "The retired scalar is explicitly demoted to a diagnostic that nothing in the governed path may act on (cost_budget.py:121-125, 303-308).",
+   "alpha_agent\\agents_v2\\pipeline.py imports it (line 49: 'from ..r61 import cost_budget as CB') and gates on it (line 712: '\"cost_budget_within_ceiling\": bool(budget[\"passed\"])').",
+   "It is PINNED BY TESTS in two files. tests\\test_release61_apparatus_calibration.py exercises the owner directly (lines 107-198), re-prices the three R60 halts (lines 130-134), asserts the new gate reproduces the old one where the old one was calibrated (line 154), and asserts the skeptic machine-check id IS the cost budget (lines 222, 226-229). tests\\test_paper_trader_alpha_agents_v2.py:572 asserts 'cost_budget_within_ceiling' appears in the pipeline's failed-check list.",
+   "docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md lines 140-179 records the repair and the re-pricing: r60_05 0.598 one-way at 5bp x 12/yr = 0.72%/yr (old HALT, new PASS); r60_07 0.612 at 5bp x 12/yr = 0.73%/yr (old HALT, new PASS); r60_08 0.870 at 25bp x 50.4/yr = 21.92%/yr (HALT under both).",
+   "The three R60 halts STAND as recorded and were not re-run (cost_budget.py:97; release doc line 179). The memory rows confirm it: H_b5e5e7c0_f3e92699f95c and H_47e2cf84_49076c9d82f0 are outcome REJECTED with reopen_condition 'NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden. This cell is NOT re-run under a changed ceiling; a ceiling chosen after a measurement is outcome-directed tuning however it is documented'."
+  ],
+  "consequence": "r65_01 and r65_03 are NEW experiment ids under the corrected constraint, charged to the burden. They are not re-runs and nothing about the R60 halts is rewritten."
+ },
+
+ "substrate_rulings": {
+  "us_equity_extension_pit_panel_v1": {
+   "state": "BLOCKED",
+   "verdict_source": "alpha_agent\\r61\\identity_audit.py adjudicate(); result recorded in docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md lines 214-232",
+   "verdict": "IDENTITY_BRIDGE_FAIL. EXTENSION_UNIVERSE_REUSE_ALLOWED = NO. Three pre-registered thresholds were MEASURED and MISSED: name-channel false-match rate (live) 14.15% against 2%; ambiguous-key share 23.39% against 10%; attrition forward-return gap 0.756 against 0.05.",
+   "director_ruling": "Nothing is registered on this substrate in R65. The campaign is non-equity, so this is not binding here, but it is recorded so no later cell drifts onto it."
+  },
+  "terms_of_trade_panel_v1": {
+   "state": "BLOCKED - DATA_HOLD",
+   "verdict_source": "research\\agents\\campaign_r60_information_frontier\\CERTIFICATION_DF5B_TERMS_OF_TRADE.json",
+   "correction_of_an_input_assumption": "The session brief supplied to this director stated that R60 'already certified terms-of-trade data'. THAT IS NOT WHAT THE ARTIFACT SAYS, and the director refuses to act on it. The artifact's CERTIFICATION field reads 'DATA_HOLD' (line 27). PIT_AVAILABILITY_RULE, MISSINGNESS, REVISION_BEHAVIOR and the_one_number are each 'NOT_MEASURED' (lines 13, 16, 17, 19). hypotheses_unblocked is EMPTY and hypotheses_blocked names this exact construct: 'PH11: cross-currency commodity terms-of-trade relative-value construct (hold pending frequency and lag verification)' (lines 33-36).",
+   "director_ruling": "XA_TERMS_OF_TRADE_RELATIVE_VALUE is REFUSED for R65. A relative-value cell whose signal leg has an unmeasured publication lag cannot state its own observability instant, and a cell that cannot state when its information became knowable is not pre-registrable at all. It is handed to the data-foundation-agent as a prerequisite for a FUTURE campaign, not registered now."
+  },
+  "r38_native_contract_layer": {
+   "state": "AVAILABLE, lightly used (12 hypotheses against 5,846 on the back-adjusted panel)",
+   "director_ruling": "ALL THREE R65 cells are placed on the R38 native dated-contract layer and NOT on futures_panel_v1. The R38 layer carries real roll dates and a per-market cost_bps_per_side vector (2-15 bp); futures_panel_v1 does not, and scoring a futures cell at a uniform rate is the failure FUTURES_EXECUTION_COST_REALITY names. See cost_realism_ruling.",
+   "known_trap_carried_into_every_cell": "Open interest is PROVISIONAL and must be observed with a one-session delay (NEXT_CAMPAIGN_CENSUS.json#available_pit_datasets). Separately, open_interest == 0 is MISSING, not zero, everywhere: 63 provisional newest rows plus 6,664 in-history zeros across 23 markets (census, R38 deferred leg entry). A cell that reads a zero as a real observation manufactures an infinite growth ratio and lands that market at a rank extreme."
+  }
+ },
+
+ "diversity_check": {
+  "owner": "research\\agents\\research_director_protocol.json#hypothesis_diversity (not machine-enforced anywhere in alpha_agent\\agents_v2; it is the director's own gate)",
+  "min_asset_classes_per_campaign": {"required": 3, "actual": 3, "classes": ["EQUITY_INDEX_FUTURES", "CROSS_ASSET", "COMMODITY_FUTURES"], "passed": true},
+  "max_share_single_asset_class": {"required": 0.5, "actual": 0.3333, "passed": true},
+  "non_equity_reservation": {"required": 0.40, "actual": 1.0, "passed": true},
+  "at_least_one_h1_h5": {"required": true, "satisfied_by": "r65_02 at horizon_sessions 3", "passed": true},
+  "at_least_one_non_equity": {"passed": true},
+  "at_least_one_cross_asset": {"satisfied_by": "r65_02", "passed": true},
+  "variants_per_idea_cap": {
+   "required": "at most 3 variants per idea; horizon variants of one idea are ONE family",
+   "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT": "3 rows already settled. r65_03 does NOT add a fourth variant; it COMPLETES the third. H_b5e5e7c0_f3e92699f95c was REJECTED before any return was computed, so it occupies a charged slot that produced no measurement, and its own recorded reopen condition authorises exactly this re-registration. This reading is stated here, before any result, so it cannot be constructed afterwards.",
+   "POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT": "1 row, itself a pre-measurement REJECT. r65_01 completes it. No measured return exists in this family.",
+   "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT": "1 row (H_e490a5b8_5c87b7dbcae0, a DOLLAR-beta diffusion channel, HALTED_AT_D). r65_02 is variant 2 of 3 and is a different economic channel.",
+   "passed": true
+  }
+ },
+
+ "duplicate_identity_check": {
+  "how": "Read-only probe of alpha_agent.r59.memory.open_memory_readonly() on 2026-09-22: title scan for OPEN INTEREST / open interest / LEAD LAG / lead lag / TERMS OF TRADE / commodity currenc / metal, a family_key rollup over POSITION / LEAD / RELATIVE_VALUE / CARRY / LIQUID, an information_family census and an H1-H5 census. Nothing was registered. The pipeline's own alpha_agent.r59.memory.ResearchMemory.is_novel runs again at preregister time and is the binding check; this probe exists because is_novel hashes a SPEC and therefore cannot catch a renamed idea with different parameters. Catching that is the director's job.",
+  "findings_that_changed_the_agenda": [
+   "THE CENSUS'S RANK-4 PROPOSAL AS WRITTEN IS A SETTLED NULL. NEXT_CAMPAIGN_CENSUS.json queued_hypotheses rank 4 reads 'Trailing growth in aggregate exchange open interest predicts commodity futures returns'. The memory already holds H_b5e5e7c0_483c5c1043eb: 'P2 Open-interest growth: trailing 252-slot growth in a market's AGGREGATE (all listed contract months) exchange open interest predicts its next-21-session futures return in the commodity cross-section, net of per-market and roll cost', family POSITIONING|EXCHANGE_OPEN_INTEREST, COMMODITY_FUTURES, h21, outcome NO_ALPHA_EVIDENCE, reopen_condition NEW_ORTHOGONAL_INFORMATION. The proposal as phrased is that hypothesis. It is REFUSED in that form, and nothing in R65 supplies NEW_ORTHOGONAL_INFORMATION for it.",
+   "A SECOND COMMODITY OI NULL EXISTS: H_b5e5e7c0_7f7cdc392f88, 'Where a commodity market's open interest sits ON ITS CURVE ... the front-contract share of whole-curve open interest', same family, NO_ALPHA_EVIDENCE.",
+   "A THIRD, ADJACENT NULL: H_eacf4f2e_dd4787adc546, volume per unit of whole-curve open interest (LIQUIDITY|EXCHANGE_VOLUME_AND_OPEN_INTEREST|COMMODITY_FUTURES), NO_ALPHA_EVIDENCE; and its cross-asset generalisation H_ffb4e5ba_7ddd7a91c31b, also NO_ALPHA_EVIDENCE.",
+   "NO prior hypothesis title anywhere in the memory mentions terms of trade, commodity currency, or lead/lag outside the R39C machine graph search and one R46 forward-frozen copper-gold/ZN challenger. The metals-to-commodity-currency channel is genuinely unregistered.",
+   "The single human-authored CROSS_ASSET_LEAD_LAG cell (H_e490a5b8_5c87b7dbcae0) is a DOLLAR-BASKET BETA diffusion channel at h21 that halted at discovery. Different channel, different horizon, different instrument role. Its frozen economics are reused below as the estate's own measured roll-cost evidence, not as a result."
+  ],
+  "what_the_director_refused_on_this_basis": [
+   "FUT_OPEN_INTEREST_GROWTH as the census phrases it (aggregate whole-curve OI growth, commodity cross-section, h21) - REFUSED as a settled NO_ALPHA_EVIDENCE identity.",
+   "Any re-parameterisation of basis momentum on the commodity or cross-asset instrument sets - REFUSED. BASIS_MOMENTUM_EVIDENCE_STATE = NOT_TESTABLE_WITH_CURRENT_PANEL (docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md lines 337-361). It is blocked behind power, not behind a parameter choice. This removes census ranks 1 and 7.",
+   "XA_TERMS_OF_TRADE_RELATIVE_VALUE - REFUSED this campaign on DATA_HOLD (see substrate_rulings)."
+  ]
+ },
+
+ "apparatus_floor_reference": {
+  "source": "docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md lines 42-88; owner alpha_agent.r61.power",
+  "false_positive_rate_at_zero_effect": "0 of 120 on every one of the five panels. The gate does not manufacture survivors.",
+  "MDE_80_at_burden_1": {
+   "COMMODITY_FUTURES": {"rho": 0.0788, "ann_net_excess": 0.0656, "instruments": 39},
+   "EQUITY_INDEX_FUTURES": {"rho": 0.1412, "ann_net_excess": 0.0432, "instruments": 14},
+   "CROSS_ASSET_FUTURES": {"rho": 0.1096, "ann_net_excess": 0.0298, "instruments": 28}
+  },
+  "MDE_80_at_burden_10": {
+   "COMMODITY_FUTURES": 0.1063,
+   "EQUITY_INDEX_FUTURES": 0.0635,
+   "CROSS_ASSET_FUTURES": 0.0419
+  },
+  "MDE_80_at_burden_100_and_1000": {
+   "COMMODITY_FUTURES": [0.1254, 0.1375],
+   "EQUITY_INDEX_FUTURES": ["NOT_REACHED_ON_GRID", "NOT_REACHED_ON_GRID"],
+   "CROSS_ASSET_FUTURES": [0.0532, 0.0596]
+  },
+  "how_this_agenda_uses_it": "As a pre-registered INTERPRETATION rule, never as a pass/fail gate. The burden denominator each cell is actually graded at is COUNTED by alpha_agent.r59.handlers.search_denominator at review time and is NOT asserted here; the burden-1 and burden-10 columns bracket it. All three floors were measured at cadence 21 and horizon 21, so they apply to r65_01 and r65_03 and NOT to r65_02.",
+  "binding_interpretation_rule_frozen_now": "For any R65 cell that reaches a lockbox and does NOT qualify: if the measured |ann_net_excess| is BELOW that panel's MDE_80 at the burden denominator the gate actually used, the outcome MUST be filed with evidence_state UNDERPOWERED and do_not_read_as = EVIDENCE_OF_ABSENCE, exactly as R61 annotated the basis-momentum cells. It may NOT be reported as evidence that the mechanism is absent. This rule is frozen before any R65 number exists."
+ },
+
+ "cost_realism_ruling": {
+  "question_put_to_the_director": "Should FUTURES_EXECUTION_COST_REALITY - a per-market futures execution cost table built from owned Norgate volume and open interest - be a PRE-REQUISITE data-foundation assignment for R65, so the table must exist and be certified BEFORE any futures cell is scored? Or may the cells run on the current flat futures rate with the per-market table as a follow-on re-test?",
+  "ruling": "NEITHER OPTION AS PUT. The question contains a false premise, and the correct answer is a THIRD one, which is stricter than the follow-on and cheaper than the prerequisite. Recorded as: PER_MARKET_COST_MANDATORY_AT_SCORING, OBSERVED_COST_TABLE_MANDATORY_AT_CLEARING.",
+  "the_false_premise": "There is no 'current flat futures rate' in the governed path, and no R65 cell could run on one. (a) The R38 native contract layer already carries a PER-MARKET cost_bps_per_side vector of 2-15 bp (NEXT_CAMPAIGN_CENSUS.json#available_pit_datasets). (b) R60's own frozen cost model, read out of the memory row H_e490a5b8_5c87b7dbcae0, is cost_model_id FUTURES_PER_MARKET_R38_PLUS_ROLL_V1 with rate_per_side 'per market, 2-15 bp (MODELLED_NOT_OBSERVED)' and roll_cost 'charged, interior and at entry'. (c) alpha_agent\\r61\\cost_budget.py:201-221 refuses structurally to coerce that prose into a number, and its docstring says why in terms: 'a reader that coerced that to 0.0 would wave every futures cell through on a cost of nothing'. A caller supplying neither a vector nor a measured effective rate gets COST_BUDGET_NOT_EVALUABLE, and that state FAILS for every governed caller. The flat-rate risk named in the R59 memory entry is a property of futures_panel_v1, the back-adjusted panel. This agenda places all three cells on the R38 native layer, so that exposure does not arise.",
+  "what_is_binding_at_SCORING": [
+   "Every R65 cell is scored under the R38 PER-MARKET cost vector plus a charged roll cost. No cell may be scored at a uniform rate across markets.",
+   "Where the budget needs a scalar, it MUST be the notional-weighted effective rate from alpha_agent.r61.cost_budget.effective_cost_per_side(traded_notional_per_instrument, cost_per_side_vector). Charging the cheapest market's rate flatters the cell; charging the dearest kills it; the weighted rate is the only honest scalar.",
+   "additional_ann_cost_drag MUST carry the roll cost explicitly and may not be left at its 0.0 default. The estate has its own measurement of the size of this term: the R60 cross-asset futures cell H_e490a5b8_5c87b7dbcae0 recorded ann_roll_cost_drag 0.010163 against ann_rebalance_cost_drag 0.003641 at a mean one-way turnover of 0.2336. ROLL COST WAS 2.8x THE REBALANCE COST. A futures cell that omits it understates its burden by more than it reports.",
+   "A cell whose instrument set cannot be mapped onto the R38 per-market vector HALTS as COST_BUDGET_NOT_EVALUABLE. It does not fall back to an average."
+  ],
+  "what_is_binding_at_CLEARING": "The observed per-market cost table (FUTURES_EXECUTION_COST_REALITY, free_proxy = owned Norgate volume and open interest, gate_verdict NO_PURCHASE_REQUIRED) is a BLOCKING PRE-CONDITION on director_clear. The director pre-commits, now and before any R65 result exists: no R65 cell may be ruled CLEARED, and no forward registration may be raised on one, until (i) that table exists and is certified by the data-foundation-agent, (ii) the survivor is re-scored under it through cost_budget.effective_cost_per_side, and (iii) it still passes the frozen 0.03/yr ceiling and the qualification gate. Pre-committing this before results is what makes it a governance rule rather than a post-hoc reason to kill an inconvenient survivor.",
+  "reasoning_on_the_asymmetry": [
+   "The asymmetry is real and it is decisive AT THE CLEARING BOUNDARY, not at the scoring boundary. A false positive here would be the estate's FIRST survivor in ~8,413 tests. It would carry enormous evidential weight precisely because it is unique, and it is the only kind of artifact that travels toward a capital decision. A false negative costs one burden slot and is already, by R61's own finding, the expected outcome of almost any cell on these panels.",
+   "But a prerequisite BUILD before scoring buys very little and costs a lot. The estate is not exposed to a flat rate today (see the false premise), so the marginal improvement the observed table offers is a refinement of a 2-15 bp modelled vector, not the removal of a uniform one. Making it a prerequisite would stall three cells behind a data build, and a data build that stalls a campaign is how R60's budget was exhausted (docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md lines 300-308).",
+   "A pure follow-on re-test is ALSO wrong, and for a reason the question does not name: a re-test is a NEW pre-registration charged to the burden. 'Run flat now, re-test later' therefore spends the slot twice on one idea and would breach the three-variants cap on the second pass. Holding the re-test as a CLEARING pre-condition avoids that: re-scoring an already-measured cell under a stricter cost model is an ADVERSARIAL check on an existing candidate, not a new hypothesis.",
+   "The estate already owns a partial guard and it is made BLOCKING here rather than advisory: alpha_agent.agents_v2.runner.adversarial_pack computes a DOUBLED_COST re-score. At 2x the modelled per-market vector that brackets roughly 4-30 bp/side, which covers most of the plausible observed range for these instrument sets. For every R65 futures cell, a failure of the doubled-cost adversarial check is a KILL, not a note.",
+   "One honesty point that cuts against the director's own ruling and is recorded rather than hidden: the R38 vector is stamped MODELLED_NOT_OBSERVED in the frozen R60 cost model. The estate therefore does not currently know its own futures execution costs from observation, and has recorded that as an open gap. This ruling does not close that gap; it prevents the gap from ever converting into a cleared survivor."
+  ],
+  "handoff": "data-foundation-agent is assigned FUTURES_EXECUTION_COST_REALITY as a parallel, non-blocking task for R65 and a hard prerequisite for any R65 clearing. Zero cost: free_proxy is owned Norgate volume and open interest, gate_verdict NO_PURCHASE_REQUIRED."
+ },
+
+ "cells": [
+  {
+   "executor": "r65_01",
+   "label": "FUT_INTL_INDEX_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "experiment_id": "PENDING_PREREGISTRATION",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "EQUITY_INDEX_FUTURES",
+   "economic_family": "POSITIONING",
+   "information_family": "EXCHANGE_OPEN_INTEREST",
+   "horizon_sessions": 21,
+   "cadence_sessions": 21,
+   "book": "FUTURES_DATED_CONTRACT",
+   "long_short": true,
+   "expected_sign": -1,
+
+   "economic_mechanism_plain_english": "When lots of new money piles into a stock-index futures market - open interest climbing faster than its own recent norm - that market is getting crowded. Crowded positions are the ones that have to be unwound in a hurry, and the unwinding pushes the price the other way. So we bet AGAINST the index futures markets whose open interest has grown fastest, and FOR the ones where it has shrunk. If the mechanism is real it is a crowding-and-unwind effect, not a forecast of economic news.",
+
+   "why_it_is_not_a_repeat": {
+    "claim": "This is the completion of a cell that was killed before it ever produced a number, under a constraint the estate has since ruled misspecified and repaired.",
+    "memory_evidence": "H_47e2cf84_49076c9d82f0 - family POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT - outcome REJECTED, reason TURNOVER_CEILING_EXCEEDED at a measured 0.6122 one-way against the frozen 0.40 scalar, NO RETURN EVER COMPUTED. Its recorded reopen_condition is verbatim: 'NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden.' That condition is now satisfied (see verification_of_the_r60_reopen_condition).",
+    "census_evidence": "NEXT_CAMPAIGN_CENSUS.json#must_not_repeat.closed_mechanism_ledger.EQUITY_INDEX_FUTURES does NOT contain any open-interest mechanism. COT_HEDGING_PRESSURE (closed, COMMODITY_FUTURES) used CFTC TRADER CATEGORIES; aggregate exchange open interest on the held dated contract is different information from a trader-category breakdown.",
+    "family_state": "This family key holds exactly ONE row and it is the pre-measurement reject above. The family has produced zero measured returns and has therefore said nothing about alpha."
+   },
+
+   "pre_registered_construction": "Rank the certified non-US equity index futures markets by the trailing growth in EXCHANGE open interest on the HELD dated contract: the 21-session mean divided by the 63-session mean, both windows ending at t-2. t-2, not t-1, because R38 open interest is provisional and must be observed with a one-session delay, and the window must close before the decision. No group demeaning (single economic group). Go SHORT the fastest open-interest growers and LONG the slowest, rank-weighted. This is the R60 construction unchanged; not one parameter has moved, because moving one would make this a different hypothesis rather than the completion of this one.",
+
+   "pre_registered_cost_budget": {
+    "ceiling": 0.03,
+    "ceiling_owner": "alpha_agent.r61.cost_budget.COST_BUDGET_CEILING = 2.0 * r59.GATE_MATERIALITY",
+    "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "cost_per_side": "PER-MARKET R38 vector; the scalar entering the budget is the notional-weighted effective rate from cost_budget.effective_cost_per_side. Not defaulted, not averaged unweighted.",
+    "rebalances_per_year": 12.0,
+    "roll_cost": "CHARGED explicitly as additional_ann_cost_drag. Not left at 0.0.",
+    "projection_frozen_before_measurement": "At R60's measured 0.612 one-way and a 5 bp effective rate with a 0.30%/yr roll, the owner returns WITHIN_COST_BUDGET at 0.01034/yr drag (required gross for materiality 0.02534). At a 15 bp effective rate with the same roll it returns WITHIN_COST_BUDGET at 0.02503/yr (required gross 0.04003). The cell is therefore expressible across the whole plausible per-market cost range. Computed by calling alpha_agent.r61.cost_budget.evaluate_cost_budget, not by hand.",
+    "note": "Under the RETIRED 0.40 scalar this cell halts. That is recorded as the diagnostic it now is, and it is the entire reason this cell exists."
+   },
+
+   "pre_registered_halt_conditions": [
+    "COST_BUDGET: if evaluate_cost_budget returns COST_BUDGET_EXCEEDED or COST_BUDGET_NOT_EVALUABLE at the measured one-way turnover and the measured notional-weighted effective rate, HALT before any return is scored and settle through AgentPipeline.record_pre_measurement_halt. A budget that could not be computed has not been met.",
+    "OPEN INTEREST COVERAGE: open_interest == 0 is MISSING, never zero. If the share of decision-eligible market-sessions carrying a usable, non-zero, non-provisional open interest observation is below 0.80, HALT as DATA_HOLD. Floor frozen here, before measurement.",
+    "MIN MARKETS: if the median count of live, scorable markets at a decision is below the book's declared min_markets, the book refuses and the cell settles BOOK_REFUSED.",
+    "STAGE ADVANCE: alpha_agent.r59.engines.stage_advance is the sole authority on whether D earns V and V earns L. A halt at D or V settles as recorded and is not appealed.",
+    "SIGN: expected_sign is -1 and is frozen. A result of the opposite sign is a FAILURE, never a re-read."
+   ],
+
+   "expected_effect_vs_panel_mde": {
+    "panel": "EQUITY_INDEX_FUTURES (14 instruments, 187 decisions, ~44 effective lockbox observations)",
+    "mde_80_at_burden_1": "IC 0.1412 / 4.32%/yr net",
+    "mde_80_at_burden_10": "6.35%/yr net",
+    "mde_80_at_burden_100_or_more": "NOT REACHED ANYWHERE ON THE FROZEN EFFECT GRID",
+    "plausible_effect": "A cross-sectional rank IC of 0.14 across fourteen index futures markets is far above anything documented for exchange open-interest positioning. The director's honest ex-ante estimate is an IC below 0.05, which on this panel is well under the 50% detection point.",
+    "verdict": "LIKELY UNDERPOWERED AT 80% POWER, and the cell is registered WITH that annotation rather than dropped.",
+    "why_registered_anyway": "The family contains no measured return at all. The cell is the estate's own unfinished business: the R60 director named it as one of two cells destroyed for nothing, wrote its reopen condition, and R61 built and test-pinned the repair. Leaving it unrun leaves the repair unexercised and leaves a charged burden slot that measured nothing. Running it converts silence into either a measurement or an honestly-labelled underpowered null. It does NOT convert it into evidence of absence - see apparatus_floor_reference.binding_interpretation_rule_frozen_now."
+   },
+
+   "what_would_falsify_it": "A discovery-layer ann_net_excess that is zero or positive (the hypothesis says crowded markets underperform, so a positive net excess on the declared short-the-growers construction falsifies it); a discovery layer that fails the stage_advance floor of 0.25 x materiality; or a lockbox whose burden-corrected one-sided p fails the gate at the denominator search_denominator counts. Any of these kills the cell. None of them may be re-read as a sign choice."
+  },
+
+  {
+   "executor": "r65_02",
+   "label": "XA_METALS_TO_COMMODITY_CURRENCY_LEAD_LAG_H3",
+   "experiment_id": "PENDING_PREREGISTRATION",
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_LEAD_LAG",
+   "information_family": "PRICE_STATE",
+   "horizon_sessions": 3,
+   "cadence_sessions": 3,
+   "book": "FUTURES_DATED_CONTRACT",
+   "long_short": true,
+   "expected_sign": 1,
+
+   "economic_mechanism_plain_english": "Australia, Canada, New Zealand, Norway and Chile export metals and energy. When the price of industrial metals jumps hard, those countries have just become richer, and their currencies should follow. The bet is that the currency does not reprice in the same instant the metal does - that it takes a few days for the information to cross from the commodity pit to the currency market. So: on the rare days when industrial metals make a big move, buy the commodity currencies if metals jumped and sell them if metals fell, hold three sessions, and be in cash the rest of the time. If the currency market is efficient across asset classes, this pays nothing.",
+
+   "why_it_is_not_a_repeat": {
+    "claim": "CROSS_ASSET_LEAD_LAG is one of three families the R59 frontier itself lists as OPEN and could never execute, and this specific channel has never been registered.",
+    "census_evidence": "NEXT_CAMPAIGN_CENSUS.json#estate_facts.r59_frontier_state: CROSS_ASSET is the ONLY asset class that is RESEARCH_READY, with CROSS_ASSET_RELATIVE_VALUE, CROSS_ASSET_LEAD_LAG and CROSS_ASSET_REGIME_CONDITIONING open. queued_hypotheses rank 10 states the not_a_repeat argument: 'R33/R34 was an ML SEARCH over all pairs; this is one channel, declared in advance, with the mixed-calendar observability instant stated.'",
+    "memory_evidence": "The memory's only human-authored row in CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT is H_e490a5b8_5c87b7dbcae0, a DOLLAR-BASKET BETA diffusion channel at h21 that HALTED_AT_D. Different lead variable, different lag variable, different horizon. The four R39C rows carrying RULE:GRAPH_LEADLAG / RULE:GRAPH2_LEADLAG are MACHINE_GENERATED graph searches under economic_family MACHINE_REPRESENTATION:CONTINUATION - a different family key, and the exact thing census must_not_repeat.structural forbids REPEATING, not the thing it forbids declaring by hand. A title scan for 'lead lag', 'commodity currenc' and 'terms of trade' across the whole memory returned NOTHING else.",
+    "closed_ledger_check": "NEXT_CAMPAIGN_CENSUS.json closed_mechanism_ledger.CROSS_ASSET contains CROSS_MARKET_PREDICTION_R33_R34 (ML, 611 tests) and INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE. Neither is a declared single metals-to-commodity-currency channel. OIL_SHOCK_EQUITY_SLOW_DIFFUSION (closed, EQUITY_INDEX_FUTURES) is the nearest relative and it is a DIFFERENT lead variable into a DIFFERENT asset class; it is recorded here so the skeptic can attack the resemblance rather than discover it.",
+    "skeptic_focus_the_director_is_requesting": "Duplicate identity against H_e490a5b8_5c87b7dbcae0 and against the four R39C graph-lead-lag rows at |Spearman| >= 0.999 on the realised position vector. A commodity-currency book conditioned on a metals move can accidentally BE a dollar-beta book, since the dollar is on the other side of every one of these pairs."
+   },
+
+   "pre_registered_construction": "ONE channel, declared entirely in advance. LEAD: an equal-weighted industrial-metals composite of the certified R38 industrial metals markets, its 3-session return measured to t. TRIGGER: the book takes a position only when the absolute value of that 3-session composite return sits in the TOP DECILE of its own trailing 252-session distribution computed from data at or before t. On all other decisions the book is FLAT, and a flat decision earns and costs nothing. LAG: the certified commodity-currency futures (AUD, CAD, NZD, NOK and any other certified commodity exporter), rank-weighted long/short in the SIGN of the metals move, entered at the next available session and held 3 sessions. OBSERVABILITY: metals and FX futures trade on different calendars; the signal instant is the last session on which BOTH the metals composite and the traded currency are quoted at or before t, and any market missing that session is not scorable on that decision. The top-decile trigger is declared HERE, before any turnover or any return has been seen; it is the parameter that sets how often the book trades and it may not be moved afterwards.",
+
+   "pre_registered_cost_budget": {
+    "ceiling": 0.03,
+    "ceiling_owner": "alpha_agent.r61.cost_budget.COST_BUDGET_CEILING",
+    "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "rebalances_per_year": 84.0,
+    "the_binding_constraint": "At a 3-session hold the book re-forms 84 times a year - seven times as often as a monthly book - so cost, not signal, is the binding constraint. Computed through the owner: with a 0.20%/yr roll charge, the MAXIMUM mean one-way turnover per period that stays inside the 0.03/yr ceiling is 0.3333 at a 5 bp effective rate, 0.1667 at 10 bp, and 0.1111 at 15 bp. A continuously-invested h3 futures book would breach the ceiling outright: 0.35 one-way at 5 bp plus 0.20%/yr roll measures 0.0314/yr and returns COST_BUDGET_EXCEEDED.",
+    "why_the_construction_can_still_be_expressible": "Only because the book is SPARSE BY DESIGN. A top-decile trigger puts it in the market on roughly one decision in ten, so its mean one-way turnover per period - which is what the budget charges - is expected in the 0.10-0.25 band, and its roll exposure is proportionally smaller than a fully-invested book's. This is a PROJECTION, not a measurement, and it is written down so it can be wrong in public.",
+    "roll_cost_evidence": "The estate's own measured roll drag on a cross-asset futures book is 1.016%/yr (H_e490a5b8_5c87b7dbcae0, D layer, ann_roll_cost_drag 0.010163) at a mean one-way turnover of 0.2336. Roll was 2.8x the rebalance cost on that book. A sparse book pays proportionally less, but it must CHARGE it, and additional_ann_cost_drag may not be 0.0."
+   },
+
+   "pre_registered_halt_conditions": [
+    "COST_BUDGET: this is the cell's most likely death and it is declared as such. If the measured mean one-way turnover per period at the measured notional-weighted effective per-market rate, plus the charged roll, exceeds 0.03/yr, HALT COST_BUDGET_EXCEEDED before any return is scored. The director expects this outcome to be more likely than any alpha finding, and says so now.",
+    "TRIGGER RATE: if the top-decile trigger fires on fewer decisions than r59.OBS_FLOOR (36) in any of the three layers, the layer has no defensible statistic and the cell HALTS as UNDERPOWERED_BY_CONSTRUCTION. Floor frozen here.",
+    "EFFECTIVE OBSERVATIONS: the runner's own effective_observations against r59.OBS_FLOOR is binding per layer. A 3-session horizon on a 3-session cadence is non-overlapping, so the overlap_factor correction should be near 1; if it is not, the runner's number wins and the director's expectation does not.",
+    "CALENDAR: if the mixed-calendar rule leaves a currency unscorable on more than 20% of triggered decisions, HALT as DATA_HOLD rather than filling forward. A forward-filled cross-calendar price is a look-ahead.",
+    "STAGE ADVANCE: stage_advance is the sole authority. A halt at D or V settles as recorded.",
+    "SIGN: expected_sign is +1 (metals up implies commodity currency up) and is frozen. A reversal-shaped result is a FAILURE, not a reversal hypothesis."
+   ],
+
+   "expected_effect_vs_panel_mde": {
+    "panel": "CROSS_ASSET_FUTURES (28 instruments) - the estate's LOWEST measured detection floor",
+    "mde_80_at_burden_1": "IC 0.1096 / 2.98%/yr net",
+    "mde_80_at_burden_10": "4.19%/yr net",
+    "mde_80_at_burden_100": "5.32%/yr net",
+    "critical_caveat_stated_rather_than_buried": "THESE NUMBERS DO NOT APPLY TO THIS CELL. Every figure in docs\\RELEASE61_RESEARCH_APPARATUS_CALIBRATION.md was measured at r59.CADENCE = 21 and r59.HORIZON = 21 on a continuously-invested rank book. This cell is a 3-session, sparse, event-conditioned book. Its decision count is roughly seven times higher and its per-decision exposure far lower, and R61 never swept that configuration. The MDE for this cell is UNMEASURED, and the director will not interpolate one.",
+    "verdict": "POWER UNMEASURED AT THIS HORIZON AND CONSTRUCTION. Registered with that annotation. The honest reading of the 2.98%/yr figure is that it is the floor for the h21 book on this panel and is the closest available reference point, not this cell's floor.",
+    "consequence_frozen_now": "If this cell reaches a lockbox and fails, its outcome MUST be filed with evidence_state POWER_UNMEASURED_AT_THIS_HORIZON and do_not_read_as = EVIDENCE_OF_ABSENCE. It may not be used to close CROSS_ASSET_LEAD_LAG."
+   },
+
+   "what_would_falsify_it": "Zero or negative discovery-layer net excess on the declared same-sign construction; a lead-lag that vanishes once the traded leg's own 3-session momentum is the comparison; a realised position vector that correlates above 0.999 with a plain short-dollar book (which would mean the cell is a dollar bet wearing a metals costume); or a cost budget breach, which falsifies the cell as EXPRESSIBLE without saying anything about the economics."
+  },
+
+  {
+   "executor": "r65_03",
+   "label": "FUT_COMMODITY_OPEN_INTEREST_GROWTH_COST_HONEST",
+   "experiment_id": "PENDING_PREREGISTRATION",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "information_family": "EXCHANGE_OPEN_INTEREST",
+   "horizon_sessions": 21,
+   "cadence_sessions": 21,
+   "book": "FUTURES_DATED_CONTRACT",
+   "long_short": true,
+   "expected_sign": -1,
+
+   "economic_mechanism_plain_english": "Same crowding idea as r65_01, applied to commodities instead of stock indices: sell the commodity markets where open interest on the contract we actually hold has been growing fastest relative to its own recent norm, buy the ones where it has been shrinking, comparing each market only against others in its own economic group (energy against energy, grains against grains) so we are not just betting on oil.",
+
+   "why_it_is_not_a_repeat": {
+    "claim": "It is the completion of the ONE member of this family that has never produced a return - and the director records openly that its two measured siblings are BOTH null.",
+    "memory_evidence_for": "H_b5e5e7c0_f3e92699f95c - outcome REJECTED, reason TURNOVER_CEILING_EXCEEDED at 0.5982 against the retired 0.40 scalar, no return ever computed, reopen_condition 'NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden.' That condition is satisfied. The feature is the HELD DATED CONTRACT's open-interest growth ratio, group-demeaned.",
+    "memory_evidence_against_stated_rather_than_hidden": "The family POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT already carries TWO MEASURED NULLS on adjacent features: H_b5e5e7c0_483c5c1043eb (aggregate whole-curve OI growth over 252 slots, explicitly net of per-market and roll cost) and H_b5e5e7c0_7f7cdc392f88 (front-contract share of whole-curve OI against its 12-month norm). Both NO_ALPHA_EVIDENCE, both with reopen_condition NEW_ORTHOGONAL_INFORMATION. Two further adjacent nulls exist in LIQUIDITY|EXCHANGE_VOLUME_AND_OPEN_INTEREST (H_eacf4f2e_dd4787adc546 commodity, H_ffb4e5ba_7ddd7a91c31b cross-asset). The census's own rank-4 proposal, phrased as aggregate open-interest growth, IS the first of these and is REFUSED in that form.",
+    "what_makes_this_cell_distinct": "Held-contract open interest is not whole-curve open interest and is not the front share of it. The R60 director's duplicate check already ruled this identity distinct when r60_05 was minted alongside the existing P2 null, and this campaign does not re-open that ruling.",
+    "the_director_downgrades_the_prior": "The census records this proposal's prior as LOW-MEDIUM. Given two measured nulls on adjacent features in the same family and a panel floor of 6.56%/yr, the director's prior is LOW. That downgrade is recorded BEFORE the result."
+   },
+
+   "pre_registered_construction": "Rank commodity markets by the trailing growth in EXCHANGE open interest on the HELD dated contract: 21-session mean over 63-session mean, both windows ending t-2 (the provisional-OI delay), DEMEANED WITHIN ECONOMIC GROUP. Go SHORT the fastest open-interest growers, rank-weighted. Unchanged from R60; no parameter has moved.",
+
+   "pre_registered_cost_budget": {
+    "ceiling": 0.03,
+    "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+    "cost_per_side": "PER-MARKET R38 vector via cost_budget.effective_cost_per_side, notional-weighted.",
+    "rebalances_per_year": 12.0,
+    "projection_frozen_before_measurement": "At R60's measured 0.598 one-way with a 5 bp effective rate and a 0.50%/yr roll charge the owner returns WITHIN_COST_BUDGET at 0.01218/yr (required gross 0.02718). At 15 bp with the same roll: WITHIN_COST_BUDGET at 0.02653/yr (required gross 0.04153). Expressible across the plausible cost range. Computed by calling alpha_agent.r61.cost_budget.evaluate_cost_budget.",
+    "roll_cost": "CHARGED. A commodity book rolls more markets more often than an index book; additional_ann_cost_drag may not be 0.0."
+   },
+
+   "pre_registered_halt_conditions": [
+    "COST_BUDGET: COST_BUDGET_EXCEEDED or COST_BUDGET_NOT_EVALUABLE halts before any return is scored.",
+    "OPEN INTEREST COVERAGE: open_interest == 0 is MISSING. The census records 6,664 in-history zeros across 23 markets plus 63 provisional newest rows. If usable non-zero OI coverage over decision-eligible market-sessions falls below 0.80, HALT as DATA_HOLD. Frozen here.",
+    "GROUP DEMEANING: an economic group with fewer than two scorable markets at a decision contributes nothing and its members are not scorable on that decision. A single-member group demeans to exactly zero and would otherwise enter the book as a spurious neutral.",
+    "MIN MARKETS, STAGE ADVANCE, SIGN: as for r65_01. expected_sign is -1 and is frozen."
+   ],
+
+   "expected_effect_vs_panel_mde": {
+    "panel": "COMMODITY_FUTURES (39 instruments, 187 decisions, ~44 effective lockbox observations) - the estate's HIGHEST measured detection floor",
+    "mde_80_at_burden_1": "IC 0.0788 / 6.56%/yr net",
+    "mde_50_at_burden_1": "IC 0.0605 / 4.64%/yr net",
+    "mde_80_at_burden_10": "10.63%/yr net",
+    "plausible_effect": "The director's honest ex-ante estimate for exchange open-interest growth as a commodity cross-sectional predictor is an IC well below 0.05 and a net premium in the low single digits, if it exists at all. That is below the 50% detection point and far below the 80% point.",
+    "verdict": "STRUCTURALLY UNDERPOWERED. Declared, not discovered afterwards.",
+    "why_registered_anyway_and_the_argument_against": "FOR: it is the last unmeasured member of a family the estate has already paid three burden slots for, its reopen condition was written by the R60 director specifically so the repair could be exercised, and the repair exists and is test-pinned. AGAINST, stated so the skeptic does not have to find it: two measured siblings are null, the panel cannot resolve a plausible effect, and a fourth charged slot in a family that has twice said nothing is close to the definition of waste. The director judges the balance in favour ONLY because the reopen condition is explicit and the cell is the cheapest of the three to run to a halt. It is ordered LAST in review_order so it pays the largest denominator, which is where the lowest-conviction cell belongs.",
+    "consequence_frozen_now": "If this cell reaches a lockbox and fails with |ann_net_excess| below the panel MDE_80 at the denominator actually used, it MUST be filed evidence_state UNDERPOWERED, do_not_read_as EVIDENCE_OF_ABSENCE. If it fails, the director's recommendation to the next campaign - recorded now - is to CLOSE POSITIONING|EXCHANGE_OPEN_INTEREST across futures with reopen condition NEW_ORTHOGONAL_INFORMATION, because the family will then have spent four slots for zero measured signal."
+   },
+
+   "what_would_falsify_it": "Zero or positive discovery-layer net excess on the declared short-the-growers construction; a signal that disappears once group demeaning is applied correctly (which would mean it was a sector bet); a realised rank vector correlating above 0.999 with the already-null whole-curve OI feature of H_b5e5e7c0_483c5c1043eb, which would prove it is that dead idea renamed; or a cost budget breach."
+  }
+ ],
+
+ "assignment_manifest": {
+  "note": "The director does NOT dispatch. This manifest is handed to the session orchestrator, which launches the signal agents in ONE parallel batch, and only those a spawn plan lists.",
+  "sequence_before_any_signal_agent_runs": [
+   "1. data-foundation-agent: certify the R38 native dated-contract layer for this campaign (per-market cost vector, roll schedule, open-interest provisionality and the zero-is-missing rule). ONE source per assignment, per alpha_agent.r61.assignments.",
+   "2. data-foundation-agent (PARALLEL, non-blocking for scoring, BLOCKING for clearing): FUTURES_EXECUTION_COST_REALITY - observed per-market execution cost from owned Norgate volume and open interest. Zero cost, NO_PURCHASE_REQUIRED.",
+   "3. data-foundation-agent (FOR A FUTURE CAMPAIGN, not R65): complete CERTIFICATION_DF5B_TERMS_OF_TRADE - RBA series frequency, publication lag, and whether export-basket series exist for CAD, NZD, NOK, BRL, CLP, MXN. Until that certification is not DATA_HOLD, XA_TERMS_OF_TRADE_RELATIVE_VALUE cannot be pre-registered.",
+   "4. universe-construction-agent: r65_intl_index_oi_covered, r65_xa_metals_currency_leadlag, r65_commodity_oi_covered.",
+   "5. feature-library-agent: fs_r65_01_intl_index_oi_growth, fs_r65_02_metals_currency_leadlag_h3, fs_r65_03_commodity_oi_growth.",
+   "6. quant-research-director: run preregister once per cell, in review_order, against the frozen payloads. Only then do experiment ids exist."
+  ],
+  "parallel_batch": {
+   "volatility-liquidity-agent": ["r65_01", "r65_03"],
+   "trend-breadth-signal-agent": ["r65_02"],
+   "momentum-signal-agent": [],
+   "reversal-signal-agent": []
+  },
+  "agents_not_dispatched": "momentum-signal-agent and reversal-signal-agent receive NO cell. Neither owns a family this bounded non-equity agenda admits (MOMENTUM/RELATIVE_STRENGTH/FACTOR_MOMENTUM/FUNDAMENTAL_MOMENTUM/CROSS_ASSET_MOMENTUM; SHORT_TERM_REVERSAL/MEAN_REVERSION/VALUATION/EVENT_OVERREACTION/RELATIVE_VALUE). reversal-signal-agent would have owned XA_TERMS_OF_TRADE_RELATIVE_VALUE, which is refused on DATA_HOLD. Inventing a cell to give an agent work would be burning multiple-testing budget to fill time."
+ },
+
+ "refusals": [
+  {"refused": "FUT_OPEN_INTEREST_GROWTH as NEXT_CAMPAIGN_CENSUS.json rank 4 phrases it (aggregate exchange open-interest growth, commodity cross-section, h21)", "reason": "It is H_b5e5e7c0_483c5c1043eb, already settled NO_ALPHA_EVIDENCE with reopen_condition NEW_ORTHOGONAL_INFORMATION, which R65 does not supply. Registering it would be a renamed dead idea, and the spec-hash novelty check would not have caught it."},
+  {"refused": "XA_TERMS_OF_TRADE_RELATIVE_VALUE (census rank 3)", "reason": "Its substrate certification is DATA_HOLD with PIT_AVAILABILITY_RULE, MISSINGNESS and REVISION_BEHAVIOR all NOT_MEASURED, and the certification's own hypotheses_blocked names this construct. The director further refuses the briefing statement that this data was 'certified'; the artifact says otherwise."},
+  {"refused": "FUT_BASIS_MOMENTUM_COMMODITY (rank 1) and XA_BASIS_MOMENTUM_REPLICATION (rank 7)", "reason": "BASIS_MOMENTUM_EVIDENCE_STATE = NOT_TESTABLE_WITH_CURRENT_PANEL. Blocked behind power, not a parameter question. The commodity panel needs IC 0.079 for 80% detection and published basis-momentum ICs sit materially below that."},
+  {"refused": "Every cell on us_equity_extension_pit_panel_v1 (census ranks 2, 5, 9, 11)", "reason": "IDENTITY_BRIDGE_FAIL; EXTENSION_UNIVERSE_REUSE_ALLOWED = NO. Also out of scope: this campaign is non-equity."},
+  {"refused": "Spending the fourth authorised slot", "reason": "No admissible fourth non-equity candidate exists that is not a repeat, not blocked on data and not blocked behind power. The budget is a ceiling, not a target."},
+  {"refused": "Minting experiment ids in this artifact", "reason": "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED, verified by attempting it. ResearchMemory owns experiment identity; the director may not fabricate one."}
+ ],
+
+ "escalations_for_the_human_owner": [
+  "The DIRECTOR BRIEF supplied to this agent asserted that R60 'already certified terms-of-trade data'. The artifact it pointed to says CERTIFICATION: DATA_HOLD. The brief-construction path (the session orchestrator's fact list, not alpha_agent.agents_v2.briefs) turned a DATA_HOLD into a certification. That is the class of error that gets a cell registered on unusable data, and it should be corrected at its source.",
+  "NEXT_CAMPAIGN_CENSUS.json queued_hypotheses rank 4 proposes, in its own words, a hypothesis the research memory has already settled as NO_ALPHA_EVIDENCE (H_b5e5e7c0_483c5c1043eb). The census's queue is not passing its own duplicate check. A census that proposes settled work will eventually get settled work registered.",
+  "ADVISORY, NOT A REQUEST TO ACT: all three R65 cells are, on the director's own ex-ante estimate, at or below their panel's measured MDE_80. R61's conclusion stands - 'the estate's constraint is not its hypothesis space. It is that a 44-observation lockbox, a 1.5%/yr materiality floor and a multiplicative burden cannot resolve the size of effect the reachable universe plausibly contains.' R65 does not fix that, and is not presented as fixing it. Raising detection power - longer panels, lower-cost constructions, or a materiality floor argued from first principles - is a human decision about the research programme, not something the director may change under governance_contract.json."
+ ],
+
+ "plain_english": {
+  "what_this_campaign_is": "Three small, cheap experiments in markets that are NOT US stocks. Nothing here touches real money, places an order, or changes anything the system does. It is research, and the most likely result - by a wide margin - is that all three find nothing.",
+  "why_only_three": "We were offered room for four. We used three. The fourth idea we would have run sits on a data source that our own data team marked 'on hold, not measured', and running an experiment on data nobody has checked is how you get a confident wrong answer. An unused slot costs nothing. A used one makes every future result harder to believe, forever.",
+  "cell_1_in_one_sentence": "When too much money crowds into a stock-index futures market, bet against it - because crowded trades have to be unwound, and unwinding moves prices the other way.",
+  "cell_2_in_one_sentence": "Metal-exporting countries get richer when metal prices jump, so on the rare days metals move hard, buy their currencies for three days and sit in cash the rest of the time.",
+  "cell_3_in_one_sentence": "The same crowding bet as cell 1, but in commodities - sell the ones where the crowd is piling in fastest, buy the ones it is leaving.",
+  "what_we_honestly_expect": "Nothing. The house has now run about 8,400 of these tests and not one has passed. Last year we finally measured WHY, and the answer was uncomfortable: our machinery can only reliably see an edge worth roughly 3% to 6.5% a year after costs, and most real market edges are smaller than that. None of these three ideas is likely to be that big. We are running them anyway for a specific reason, stated below.",
+  "why_run_them_at_all": "Two of the three were killed last year by a rule that turned out to be wrong. It priced futures trades as though they cost as much as trading mid-sized company shares, which they do not - by a factor of five. Those two experiments were shut down before they produced a single number. That rule has since been rebuilt, and the rebuild is locked in by tests so nobody can quietly loosen it later. Running these two finishes the job. Whatever they say, we will have a number instead of a gap. The third is a genuinely new idea in the one corner of the map our own records still list as unexplored.",
+  "the_promise_we_are_making_in_advance": "If an experiment comes back empty AND the edge it was looking for was smaller than our machinery can see, we will write it down as 'we could not have seen it', NOT as 'it isn't there'. Those are different statements and the difference matters. We are writing this rule down now, before we have any results, so we cannot choose the flattering interpretation afterwards.",
+  "the_cost_question_in_plain_terms": "Trading costs vary a lot between futures markets - a heavily traded contract is cheap, a thin one is expensive, and the gap is about five to one. If we priced them all the same, a thin market could look like a free lunch when it is nothing of the kind. Our records already vary the cost by market, so we are not making that mistake today. But those per-market costs are ESTIMATED, not observed. So we have committed, in advance: we will not declare ANY of these three a success until we have built the observed cost table from data we already own and re-checked the winner against it. A false alarm is the one mistake this programme cannot afford, because it would be our first ever apparent success and everyone would believe it.",
+  "what_nobody_is_being_asked_to_do": "Nobody is being asked to approve anything, buy any data, spend any money, or trade anything. This document freezes what we will test and how we will judge it, before we test it."
+ }
+}

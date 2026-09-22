@@ -42,6 +42,14 @@ def load_runtime_health() -> dict:
         "route": ROUTE,
         "state": health.get("runtime_state"),
         "runtime_health": health,
+        # R65 - the eligibility gate, surfaced at the top level so an operator
+        # can tell a QUIET estate from a GATED one without reading the whole
+        # health document. ``state`` above deliberately still reports the last
+        # invocation that actually ran the expensive maturation stages, so a
+        # skipped invocation never overwrites a measurement with a silence.
+        "maturation_gate": health.get("maturation_gate"),
+        "maturation_was_gated": health.get("maturation_was_gated"),
+        "last_invocation_utc": health.get("last_invocation_utc"),
         "recent_runs": (runs.get("runs") or [])[-10:],
         "n_runs_total": runs.get("n_runs_total"),
         "forfeitures": {

@@ -9,18 +9,35 @@ It coordinates canonical owners and calculates nothing itself:
     the emission policy for THIS instant;
 3.  verify the shared evidence chains BEFORE writing anything - a broken
     chain fails the run CLOSED (no emission, no scoring, a loud health row);
-4.  run the ONE tournament step (:func:`alpha_agent.r46.advance.advance`) -
+4.  ask the three per-session owners whose decision windows are open right
+    now (next-open, FX carry cadence, futures trend) - ALWAYS, see below;
+5.  decide, from :mod:`alpha_agent.r52.eligibility`, whether the EXPENSIVE
+    stages below could possibly reach a different answer than last time;
+6.  run the ONE tournament step (:func:`alpha_agent.r46.advance.advance`) -
     lanes, scoring, boards, money layer, continuation, emission - with the
     batch emission gated by the derived policy, under the campaign lock the
     advance itself now holds;
-5.  sweep forfeitures (:mod:`alpha_agent.r52.forfeiture`);
-6.  rebuild operational evidence velocity (:mod:`alpha_agent.r52.velocity_ops`);
-7.  refresh the R51 promotion frontier (:mod:`alpha_agent.r52.frontier_refresh`);
-8.  write the ONE runtime health read model and append the run journal row.
+7.  sweep forfeitures (:mod:`alpha_agent.r52.forfeiture`);
+8.  mark the re-armed Stage-26 book and advance the canonical registrations;
+9.  rebuild operational evidence velocity (:mod:`alpha_agent.r52.velocity_ops`);
+10. refresh the R51 promotion frontier (:mod:`alpha_agent.r52.frontier_refresh`);
+11. write the ONE runtime health read model and append the run journal row.
 
 Every stage resolves to exactly one structured state; one lane's failure
 never invalidates an independent lane (the advance already isolates its
 stages, and the runtime isolates its own).
+
+R65 - WHY STEP 5 EXISTS, AND WHAT IT IS NOT. This function is invoked by a
+persistent worker, so it is invoked whether or not the world has moved. The
+run journal measured what that cost: 400 retained invocations over 46.9 hours,
+mean 292 s each, 32.4 CPU-hours in total, and a substantive result in 16 of
+them. The gate is a MEMO, not a schedule: it owns no cadence, fires nothing,
+and can only ever answer "these inputs have not moved". Three properties make
+it safe to trust. The per-session owners in step 4 are never gated, so no
+decision window is ever missed. Any input it cannot resolve, any previous
+cycle that did not complete, and any per-session owner that just froze a
+decision all RUN the expensive work. And a ceiling derived from the timing
+contract's own invocation plan runs it anyway at least every six hours.
 
 RESEARCH ONLY. This function cannot run the portfolio cycle, the daily
 close, a rebalance, an approval or a promotion; it holds no HTTP client and
@@ -29,9 +46,11 @@ imports no operational write path.
 from __future__ import annotations
 
 import datetime as _dt
+import time as _time
 
 from . import (ACCOUNTABILITY_START_DATE, RELEASE, artifact_body, read_json,
                runtime_dir, write_json)
+from . import eligibility as EL
 from . import forfeiture as FF
 from . import frontier_refresh as FR
 from . import timing_contract as TC
@@ -56,8 +75,14 @@ DATA_BLOCKED = "DATA_BLOCKED"
 FORFEITED = "FORFEITED"
 FAILED_RETRYABLE = "FAILED_RETRYABLE"
 FAILED_INTEGRITY = "FAILED_INTEGRITY"
+#: R65. NOT the same thing as NOT_DUE. ``NOT_DUE`` means the stage was asked
+#: and answered that nothing was due; ``SKIPPED_INPUTS_UNCHANGED`` means the
+#: stage was not asked, because every input it reads is byte-identical to the
+#: state the last completed cycle left behind. Conflating the two would let an
+#: unasked question look like an answered one.
+SKIPPED_UNCHANGED = "SKIPPED_INPUTS_UNCHANGED"
 STAGE_STATES = (SUCCESS, NOT_DUE, PIT_BLOCKED, DATA_BLOCKED, FORFEITED,
-                FAILED_RETRYABLE, FAILED_INTEGRITY)
+                FAILED_RETRYABLE, FAILED_INTEGRITY, SKIPPED_UNCHANGED)
 
 #: Runtime-level states.
 RUN_COMPLETED = "RUN_COMPLETED"
@@ -76,6 +101,17 @@ def _lock_file():
 
 def _stage(name: str, state: str, **extra) -> dict:
     return {"stage": name, "state": state, **extra}
+
+
+def _ms(t0: float) -> float:
+    """Wall-clock cost of one stage, in milliseconds.
+
+    R65. The release that gates the expensive stages has to be able to PROVE
+    which stages are the expensive ones, and an operator reading the journal
+    afterwards has to be able to check the claim without instrumenting
+    anything. Measurement is cheap, permanent and recorded per stage per run.
+    """
+    return round((_time.perf_counter() - t0) * 1000.0, 1)
 
 
 def _chains_ok() -> dict:
@@ -129,12 +165,19 @@ def _lifecycle_by_challenger() -> dict:
 def research_runtime_cycle(now: _dt.datetime = None, *,
                            campaign_id: str = CAMPAIGN_ID,
                            trigger: str = "MANUAL",
-                           emit_override: str = None) -> dict:
+                           emit_override: str = None,
+                           force_maturation: bool = False) -> dict:
     """One scheduled research invocation. Idempotent; never backdates.
 
     ``emit_override``: ``None`` (policy decides), ``"NEVER"`` (sweep-only
     invocation), never a force - there is no override that emits when the
     canonical owners refuse.
+
+    ``force_maturation`` (R65): run the expensive stages even when
+    :mod:`alpha_agent.r52.eligibility` finds every input unchanged. It is an
+    operator/test affordance in the ONE direction that is always safe - MORE
+    work, never less. There is deliberately no flag that suppresses a stage
+    the gate says is eligible.
     """
     started = now or CK.now_utc()
     run_id = "r52run_" + started.strftime("%Y%m%dT%H%M%SZ")
@@ -142,17 +185,20 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
 
     # --- 1. one runtime instance at a time --------------------------------- #
     holder = "r52_runtime:%s" % run_id
+    t0 = _time.perf_counter()
     try:
         lock = RL.acquire_path(_lock_file(), holder, wait_s=0,
                                stale_after_s=2 * 3600)
     except RL.AdvanceLockBusy as exc:
         body = _run_body(run_id, RUN_REFUSED_CONCURRENT, started, trigger,
                          [_stage("runtime_lock", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  detail=str(exc)[:220])],
                          concurrent_holder=RL.state_path(_lock_file()))
         _journal(body)
         return body
     stages.append(_stage("runtime_lock", SUCCESS,
+                         duration_ms=_ms(t0),
                          reclaimed=lock.get("reclaimed_stale")))
 
     advance_result = None
@@ -164,23 +210,29 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
     integrity = None
     contract = None
     policy = None
+    gate = None
     try:
         # --- 2. the timing contract, derived fresh ------------------------- #
+        t0 = _time.perf_counter()
         try:
             contract = TC.build(started)
             policy = contract.get("emission_policy_now") or {}
             stages.append(_stage("timing_contract", SUCCESS,
+                                 duration_ms=_ms(t0),
                                  emission_mode=policy.get("mode")))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("timing_contract", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
             policy = {"emit": False, "mode": "POLICY_UNAVAILABLE"}
 
         # --- 3. shared integrity, BEFORE any write ------------------------- #
+        t0 = _time.perf_counter()
         integrity = _chains_ok()
         if not integrity["all_intact"]:
             stages.append(_stage("chain_integrity", FAILED_INTEGRITY,
+                                 duration_ms=_ms(t0),
                                  chains=integrity["chains"]))
             body = _run_body(run_id, RUN_FAILED_INTEGRITY, started, trigger,
                              stages, integrity=integrity,
@@ -189,70 +241,33 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
             _journal(body)
             _write_health(body, contract, None, None, None, integrity)
             return body
-        stages.append(_stage("chain_integrity", SUCCESS))
+        stages.append(_stage("chain_integrity", SUCCESS, duration_ms=_ms(t0)))
 
-        # --- 4. the ONE tournament step ------------------------------------ #
-        emit_batch = bool(policy.get("emit")) and emit_override != "NEVER"
-        try:
-            from ..r46 import advance as AD
-            advance_result = AD.advance(campaign_id, now=started,
-                                        emit_batch=emit_batch,
-                                        lock_holder=holder)
-            st = str(advance_result.get("state"))
-            if st == AD.STATE_ADVANCED:
-                a_state = SUCCESS
-            elif st == AD.STATE_NOTHING_DUE:
-                a_state = NOT_DUE
-            else:
-                a_state = FAILED_RETRYABLE
-            if advance_result.get("concurrent_run_refused"):
-                a_state = FAILED_RETRYABLE
-            stages.append(_stage(
-                "tournament_advance", a_state,
-                advance_state=st,
-                emit_batch_requested=emit_batch,
-                emission_mode=policy.get("mode"),
-                outcomes_scored=advance_result.get(
-                    "tournament_outcomes_scored"),
-                predictions_emitted=advance_result.get(
-                    "tournament_predictions_emitted"),
-                duplicates_skipped=(advance_result.get("emission") or {})
-                .get("n_duplicates_skipped"),
-                n_stage_failures=advance_result.get("n_stage_failures")))
-        except Exception as exc:          # noqa: BLE001
-            stages.append(_stage("tournament_advance", FAILED_RETRYABLE,
-                                 error=type(exc).__name__,
-                                 detail=str(exc)[:220]))
-
-        # --- 5. forfeitures become first-class state ----------------------- #
-        try:
-            forf = FF.sweep(started, scheduler_state=trigger)
-            n_new = int(forf.get("n_appended") or 0)
-            stages.append(_stage("forfeiture_sweep",
-                                 FORFEITED if n_new else SUCCESS,
-                                 n_new_forfeitures=n_new,
-                                 n_total=forf.get("n_total_forfeitures")))
-        except Exception as exc:          # noqa: BLE001
-            stages.append(_stage("forfeiture_sweep", FAILED_RETRYABLE,
-                                 error=type(exc).__name__,
-                                 detail=str(exc)[:220]))
-
-        # --- 5a2. the originating owner freezes its per-session decision --- #
-        # R62.3.3. The accrual owner in 5b advances a MEASUREMENT and says so
-        # plainly: "a decision is the originating owner's act and this module
-        # may not take one on its behalf". For a release that freezes one
-        # decision PER SESSION rather than one at adoption, that leaves a real
-        # gap - nothing would ever call the research owner, and every entry
-        # session would be MISSED while the registration looked merely young.
-        # So the research owner is asked FIRST, inside this same lock and this
-        # same cadence, and its answer is a stage like any other. No second
-        # scheduler, and no decision taken by anyone but the owner of the rule.
+        # --- 4. the originating owner freezes its per-session decision ----- #
+        # R62.3.3. The accrual owner in step 8 advances a MEASUREMENT and says
+        # so plainly: "a decision is the originating owner's act and this
+        # module may not take one on its behalf". For a release that freezes
+        # one decision PER SESSION rather than one at adoption, that leaves a
+        # real gap - nothing would ever call the research owner, and every
+        # entry session would be MISSED while the registration looked merely
+        # young. So the research owner is asked FIRST, inside this same lock
+        # and this same cadence, and its answer is a stage like any other. No
+        # second scheduler, and no decision taken by anyone but the owner of
+        # the rule.
         #
         # The call is idempotent end to end: the publication poll is
         # append-only, the surface append refuses a session it already holds,
         # and the freeze is first-write-wins. Firing it repeatedly inside the
         # nine-and-a-half-hour window is how the window is covered by a
         # schedule instead of by a person.
+        #
+        # R65 - AND THAT IS WHY THIS STAGE AND THE TWO BELOW ARE NEVER GATED.
+        # They own live windows and poll external publication state no local
+        # watermark can see. All three together were measured at ~8 s, against
+        # ~283 s for the stages the eligibility gate holds back. Cheap and
+        # window-driven work runs every invocation; only expensive and
+        # input-driven work is held.
+        t0 = _time.perf_counter()
         try:
             from ..alpha_recovery import next_open_runtime as NOR
             adv = NOR.advance_daily(now=started.isoformat())
@@ -269,6 +284,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 n_state = NOT_DUE
             stages.append(_stage(
                 "next_open_prospective_decision", n_state,
+                duration_ms=_ms(t0),
                 challenger_id=adv.get("challenger_id"),
                 advance_state=a_st,
                 information_session=adv.get("information_session"),
@@ -282,10 +298,11 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("next_open_prospective_decision",
                                  FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 5a3. the FX carry cadence owner freezes its boundary decision - #
+        # --- 5. the FX carry cadence owner freezes its boundary decision --- #
         # ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 was registered for
         # TRUE_FORWARD evidence and accrued nothing, because the accrual stage
         # below may not take a decision on the research owner's behalf and no
@@ -294,6 +311,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         # scheduler. The call is idempotent (first-write-wins freeze), never
         # backfills, spends nothing and refreshes owned vendor settlements only
         # on the live clock.
+        t0 = _time.perf_counter()
         try:
             from ..alpha_recovery import fx_carry_cadence_runtime as FXR
             fx = FXR.advance(now=started.isoformat())
@@ -310,6 +328,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 fx_state = NOT_DUE
             stages.append(_stage(
                 "fx_carry_cadence_prospective_decision", fx_state,
+                duration_ms=_ms(t0),
                 challenger_id=fx.get("challenger_id"),
                 advance_state=fx_st,
                 entry_session=fx.get("entry_session"),
@@ -321,10 +340,11 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("fx_carry_cadence_prospective_decision",
                                  FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 5a3b. the managed-futures trend owner freezes its boundary ---- #
+        # --- 6. the managed-futures trend owner freezes its boundary ------- #
         # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1. The second non-equity forward
         # pipeline (ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1) is a per-session
         # release exactly like the FX carry cadence: the accrual stage below may
@@ -332,6 +352,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         # on this cadence, AFTER the FX owner and BEFORE the accrual. Idempotent
         # (first-write-wins freeze), never backfills, spends nothing, and
         # refreshes owned vendor settlements only on the live clock, in a child.
+        t0 = _time.perf_counter()
         try:
             from ..alpha_recovery import futures_trend_runtime as FTR
             ft = FTR.advance(now=started.isoformat())
@@ -348,6 +369,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 ft_state = NOT_DUE
             stages.append(_stage(
                 "futures_trend_prospective_decision", ft_state,
+                duration_ms=_ms(t0),
                 challenger_id=ft.get("challenger_id"),
                 advance_state=ft_st,
                 entry_session=ft.get("entry_session"),
@@ -359,10 +381,124 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("futures_trend_prospective_decision",
                                  FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 5a4. the FROZEN Stage-26 book gets its host back -------------- #
+        # --- 7. MAY THE EXPENSIVE STAGES BE SKIPPED? ----------------------- #
+        # R65. Everything above this line has already run, and everything
+        # below it costs ~283 s whether or not the world moved. The gate is
+        # asked HERE - after the three per-session owners, so a decision one
+        # of them has just frozen is scored in this same cycle and never
+        # deferred - and it is asked from the canonical owners only. It adds
+        # no cadence: an unresolved input, an incomplete previous cycle, a
+        # per-session owner that moved, or six hours of silence all run the
+        # work anyway. See :mod:`alpha_agent.r52.eligibility`.
+        t0 = _time.perf_counter()
+        try:
+            gate = EL.decide(started, contract=contract, chains=integrity,
+                             ungated_stages=list(stages),
+                             force=bool(force_maturation))
+        except Exception as exc:          # noqa: BLE001
+            # A gate that cannot decide has decided to run. It may never be
+            # the reason evidence was not collected.
+            gate = {"run": True, "reason": EL.RUN_UNRESOLVED,
+                    "error": type(exc).__name__, "detail": str(exc)[:220],
+                    "gated_stages": list(EL.GATED_STAGES),
+                    "ungated_stages": list(EL.UNGATED_STAGES)}
+        stages.append(_stage(
+            "maturation_eligibility",
+            SUCCESS if gate.get("run") else SKIPPED_UNCHANGED,
+            duration_ms=_ms(t0),
+            run=bool(gate.get("run")),
+            gate_reason=gate.get("reason"),
+            changed_terms=gate.get("changed_terms"),
+            unresolved_terms=gate.get("unresolved_terms"),
+            n_terms=gate.get("n_terms"),
+            seconds_since_last_run=gate.get("seconds_since_last_run"),
+            skips_since_last_run=gate.get("skips_since_last_run"),
+            detail=gate.get("detail")))
+
+        if not gate.get("run"):
+            for name in EL.GATED_STAGES:
+                stages.append(_stage(
+                    name, SKIPPED_UNCHANGED, duration_ms=0.0,
+                    detail="not asked: %s" % gate.get("reason")))
+            # A per-session owner that FAILED above still makes this a run
+            # with failures. The gate holds back expensive work; it never
+            # launders a failure into a clean run.
+            gated_failed = [s for s in stages
+                            if s["state"] in (FAILED_RETRYABLE,
+                                              FAILED_INTEGRITY)]
+            body = _run_body(run_id,
+                             (RUN_COMPLETED_WITH_FAILURES if gated_failed
+                              else RUN_COMPLETED),
+                             started, trigger, stages,
+                             integrity=integrity,
+                             emission_policy=policy,
+                             maturation_gate=_gate_digest(gate),
+                             maturation_was_gated=True,
+                             advance=_advance_digest(None),
+                             canonical_forward_accrual=_canonical_digest(None),
+                             stage26_prospective_mark=_stage26_digest(None))
+            _journal(body)
+            EL.record_skip(now=CK.now_utc(), verdict=gate)
+            _touch_health_gated(body, contract, gate, integrity)
+            return body
+
+        # --- 8. the ONE tournament step ------------------------------------ #
+        emit_batch = bool(policy.get("emit")) and emit_override != "NEVER"
+        t0 = _time.perf_counter()
+        try:
+            from ..r46 import advance as AD
+            advance_result = AD.advance(campaign_id, now=started,
+                                        emit_batch=emit_batch,
+                                        lock_holder=holder)
+            st = str(advance_result.get("state"))
+            if st == AD.STATE_ADVANCED:
+                a_state = SUCCESS
+            elif st == AD.STATE_NOTHING_DUE:
+                a_state = NOT_DUE
+            else:
+                a_state = FAILED_RETRYABLE
+            if advance_result.get("concurrent_run_refused"):
+                a_state = FAILED_RETRYABLE
+            stages.append(_stage(
+                "tournament_advance", a_state,
+                duration_ms=_ms(t0),
+                advance_state=st,
+                emit_batch_requested=emit_batch,
+                emission_mode=policy.get("mode"),
+                outcomes_scored=advance_result.get(
+                    "tournament_outcomes_scored"),
+                predictions_emitted=advance_result.get(
+                    "tournament_predictions_emitted"),
+                duplicates_skipped=(advance_result.get("emission") or {})
+                .get("n_duplicates_skipped"),
+                n_stage_failures=advance_result.get("n_stage_failures")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("tournament_advance", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
+        # --- 9. forfeitures become first-class state ----------------------- #
+        t0 = _time.perf_counter()
+        try:
+            forf = FF.sweep(started, scheduler_state=trigger)
+            n_new = int(forf.get("n_appended") or 0)
+            stages.append(_stage("forfeiture_sweep",
+                                 FORFEITED if n_new else SUCCESS,
+                                 duration_ms=_ms(t0),
+                                 n_new_forfeitures=n_new,
+                                 n_total=forf.get("n_total_forfeitures")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("forfeiture_sweep", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
+        # --- 10. the FROZEN Stage-26 book gets its host back --------------- #
         # s25_operating_profitability was frozen on 2026-08-16 and accrued
         # ZERO marks, because the only production host of its mark producer -
         # the AlphaAgent-Collect task - was disabled THIRTEEN DAYS BEFORE the
@@ -379,6 +515,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         #
         # It fails closed by default: with no governed re-arm authorisation on
         # the store it reports AWAITING_ACTIVATION and writes nothing.
+        t0 = _time.perf_counter()
         try:
             from .. import stage26_forward_runtime as S26F
             s25 = S26F.advance(now=started.isoformat())
@@ -395,6 +532,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 s25_state = NOT_DUE
             stages.append(_stage(
                 "stage26_prospective_mark", s25_state,
+                duration_ms=_ms(t0),
                 challenger_id=s25.get("challenger_id"),
                 advance_state=s25_st,
                 original_inception=s25.get("original_inception"),
@@ -414,10 +552,11 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         except Exception as exc:          # noqa: BLE001
             s25 = None
             stages.append(_stage("stage26_prospective_mark", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 5b. the canonical prospective registrations advance ----------- #
+        # --- 11. the canonical prospective registrations advance ----------- #
         # R62.2. A registration made by the canonical registrar names its
         # accrual owner and its maturation owner, and before this stage nothing
         # called either: the four R58 challengers adopted on 2026-09-09 were
@@ -425,6 +564,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         # so the accrual becomes one more stage here rather than a second
         # scheduler. It emits only what is legally due, records what was
         # genuinely missed, and matures what has completed its horizon.
+        t0 = _time.perf_counter()
         try:
             from paper_trader.api import canonical_forward_accrual as CFA
             canon = CFA.advance_canonical_forward_accrual(
@@ -441,6 +581,7 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 c_state = NOT_DUE
             stages.append(_stage(
                 "canonical_forward_accrual", c_state,
+                duration_ms=_ms(t0),
                 registered=canon.get("n_registered"),
                 due_now=canon.get("n_due_now"),
                 emitted=canon.get("n_emitted_this_run"),
@@ -455,27 +596,34 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
         except Exception as exc:          # noqa: BLE001
             canon = None
             stages.append(_stage("canonical_forward_accrual", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 6. operational velocity --------------------------------------- #
+        # --- 12. operational velocity -------------------------------------- #
+        t0 = _time.perf_counter()
         try:
             vel = VO.build(started, campaign_id=campaign_id)
-            stages.append(_stage("velocity_operational", SUCCESS))
+            stages.append(_stage("velocity_operational", SUCCESS,
+                                 duration_ms=_ms(t0)))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("velocity_operational", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
-        # --- 7. the promotion frontier stays current ----------------------- #
+        # --- 13. the promotion frontier stays current ---------------------- #
+        t0 = _time.perf_counter()
         try:
             frontier = FR.refresh(started, campaign_id=campaign_id)
             stages.append(_stage(
                 "promotion_frontier", SUCCESS,
+                duration_ms=_ms(t0),
                 promotion_ready_count=frontier.get("promotion_ready_count"),
                 transitions=frontier.get("packet_state_transitions")))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("promotion_frontier", FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
@@ -490,13 +638,37 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                              "n_total": (forf or {}).get(
                                  "n_total_forfeitures")},
                          emission_policy=policy,
+                         maturation_gate=_gate_digest(gate),
+                         maturation_was_gated=False,
                          canonical_forward_accrual=_canonical_digest(canon),
                          stage26_prospective_mark=_stage26_digest(s25),
                          promotion_ready_count=(frontier or {}).get(
                              "promotion_ready_count"))
         _journal(body)
         _write_health(body, contract, advance_result, forf, frontier,
-                      integrity, velocity=vel, canonical=canon, stage26=s25)
+                      integrity, velocity=vel, canonical=canon, stage26=s25,
+                      gate=gate)
+        # R65 - the bookmark is written LAST, after this cycle's own writes,
+        # so what it records is the state the expensive stages have brought
+        # the world TO. The next invocation compares its own pre-run reading
+        # against it; equal means nothing external moved in between. Writing
+        # it any earlier would record a world this cycle was about to change.
+        try:
+            # The contract is deliberately NOT reused here. The one built at
+            # step 2 describes the instant this cycle STARTED, and a cycle can
+            # run for minutes across a session print or an emission-policy
+            # threshold. Deriving it fresh (and unwritten) costs 5 ms and
+            # stops the bookmark recording a clock the world has left behind.
+            EL.record_cycle(now=CK.now_utc(), run_id=run_id, run_state=state,
+                            print_=EL.fingerprint(CK.now_utc(),
+                                                  contract=None,
+                                                  chains=_chains_ok()),
+                            verdict=gate or {})
+        except Exception as exc:          # noqa: BLE001
+            # A bookmark that cannot be written means the next invocation
+            # finds no prior fingerprint and runs everything. Costly, never
+            # wrong; it may not fail the cycle that has already succeeded.
+            _journal_gate_failure(run_id, exc)
         return body
     finally:
         RL.release_path(_lock_file(), holder)
@@ -558,6 +730,49 @@ def _stage26_digest(s) -> dict:
         "detail")}
 
 
+def _gate_digest(g) -> dict:
+    """What the eligibility gate decided, in the run journal's own terms.
+
+    Deliberately UNCONDITIONAL, for the same reason the Stage-26 block is: a
+    gate nobody has to mention is a gate that can start suppressing work
+    unnoticed. Every run says whether the expensive stages were asked, why,
+    and how long it has been since they last were.
+    """
+    if not g:
+        return {"state": "NOT_EVALUATED",
+                "why": "the gate did not report in this cycle"}
+    return {"run": bool(g.get("run")),
+            "reason": g.get("reason"),
+            "detail": g.get("detail"),
+            "n_terms": g.get("n_terms"),
+            "changed_terms": g.get("changed_terms"),
+            "unresolved_terms": g.get("unresolved_terms"),
+            "progressed_stages": g.get("progressed_stages"),
+            "seconds_since_last_run": g.get("seconds_since_last_run"),
+            "skips_since_last_run": g.get("skips_since_last_run"),
+            "max_skip_seconds": g.get("max_skip_seconds"),
+            "gated_stages": g.get("gated_stages"),
+            "ungated_stages": g.get("ungated_stages"),
+            "is_a_scheduler": False}
+
+
+def _journal_gate_failure(run_id: str, exc: Exception) -> None:
+    """Record a bookmark that could not be written, without failing the run."""
+    try:
+        p = runtime_dir() / "maturation_gate_errors.json"
+        prior = read_json(p, default=None) or {}
+        rows = list(prior.get("rows") or [])
+        rows.append({"run_id": run_id, "at_utc": CK.iso(CK.now_utc()),
+                     "error": type(exc).__name__, "detail": str(exc)[:220]})
+        write_json(p, artifact_body(
+            "r52_maturation_gate_errors/1", CALCULATION_OWNER,
+            statement="a bookmark that could not be written; the next cycle "
+                      "finds no fingerprint and runs every stage",
+            n_total=len(rows), rows=rows[-50:]))
+    except OSError:
+        pass
+
+
 def _run_body(run_id: str, state: str, started: _dt.datetime, trigger: str,
               stages: list, **extra) -> dict:
     return artifact_body(
@@ -585,7 +800,16 @@ def _journal(body: dict) -> None:
     runs.append({k: body.get(k) for k in (
         "run_id", "state", "trigger", "started_utc", "finished_utc",
         "promotion_ready_count")}
-        | {"stages": [{"stage": s.get("stage"), "state": s.get("state")}
+        # R65 - the journal carries the gate verdict and the per-stage cost.
+        # The release that gates expensive work must leave behind the evidence
+        # an operator needs to check both claims: that the skip was justified,
+        # and which stages the cost was actually in.
+        | {"maturation_gate": {
+            k: (body.get("maturation_gate") or {}).get(k)
+            for k in ("run", "reason", "changed_terms",
+                      "seconds_since_last_run", "skips_since_last_run")},
+           "stages": [{"stage": s.get("stage"), "state": s.get("state"),
+                       "duration_ms": s.get("duration_ms")}
                       for s in (body.get("stages") or ())]})
     kept = runs[-_KEEP_RUNS:]
     write_json(p, artifact_body(
@@ -610,9 +834,55 @@ def _next_invocation(now: _dt.datetime) -> dict:
             "date": str(et.date() + _dt.timedelta(days=1))}
 
 
+def _touch_health_gated(run_body: dict, contract, gate, integrity) -> None:
+    """Refresh health on a cycle whose EXPENSIVE stages were not asked.
+
+    A gated cycle may not rebuild the health document from nothing: every
+    measured field in it (predictions emitted, outcomes scored, lanes,
+    frontier, Stage-26 marks, canonical accrual) was produced by stages that
+    did not run, and writing ``None`` over them would turn "not re-measured"
+    into "measured as absent" - the exact class of defect this estate has been
+    bitten by before.
+
+    So the prior document is carried forward UNCHANGED, and only what this
+    cycle genuinely re-established is updated: the clock, the eligible
+    session, the chain integrity it verified before the gate, the next
+    expected invocation, and the gate's own verdict. The four ``last_run_*``
+    fields keep pointing at the last cycle that actually did the work; the new
+    ``last_invocation_*`` fields say when the runtime last looked at all.
+    """
+    prior = read_json(runtime_dir() / HEALTH_ARTIFACT, default=None) or {}
+    if not prior:
+        # Nothing to carry forward. A gated cycle can normally only follow a
+        # completed one, so this means the health document was lost; write a
+        # truthful full document rather than a stub with no schema on it.
+        _write_health(run_body, contract, None, None, None, integrity,
+                      gate=gate)
+        return
+    now = CK.now_utc()
+    body = dict(prior)
+    body["current_time_utc"] = CK.iso(now)
+    body["latest_eligible_session"] = str(TC.owned_last_session() or "")
+    body["forward_chain_integrity"] = (integrity or {}).get("all_intact")
+    body["next_expected_invocation"] = _next_invocation(now)
+    body["last_invocation_id"] = run_body.get("run_id")
+    body["last_invocation_utc"] = run_body.get("finished_utc")
+    body["last_invocation_state"] = run_body.get("state")
+    body["last_invocation_trigger"] = run_body.get("trigger")
+    body["maturation_was_gated"] = True
+    body["maturation_gate"] = _gate_digest(gate)
+    body["maturation_gate_statement"] = (
+        "the expensive maturation stages were not asked in this invocation "
+        "because every input they read is unchanged; every measured field "
+        "below is carried forward from %s and is NOT a fresh measurement"
+        % (prior.get("last_run_id") or "the last completed cycle"))
+    body["emission_policy_now"] = (contract or {}).get("emission_policy_now")
+    write_json(runtime_dir() / HEALTH_ARTIFACT, body)
+
+
 def _write_health(run_body: dict, contract, advance_result, forf, frontier,
                   integrity, velocity=None, canonical=None,
-                  stage26=None) -> None:
+                  stage26=None, gate=None) -> None:
     now = CK.now_utc()
     prior = read_json(runtime_dir() / HEALTH_ARTIFACT, default=None) or {}
     a = advance_result or {}
@@ -717,6 +987,21 @@ def _write_health(run_body: dict, contract, advance_result, forf, frontier,
         stage26_epoch_floor_was_corrected=(stage26 or {}).get(
             "epoch_floor_was_corrected"),
         stage26_forward_backfill_forbidden=True,
+        # ---- the eligibility gate (R65) --------------------------------- #
+        # Its OWN block, always present, for the same reason the Stage-26
+        # block is: work that can be held back has to say so where the
+        # operator already looks, or a gate that starts holding back too much
+        # would look exactly like a quiet estate.
+        last_invocation_id=run_body.get("run_id"),
+        last_invocation_utc=run_body.get("finished_utc"),
+        last_invocation_state=run_body.get("state"),
+        last_invocation_trigger=run_body.get("trigger"),
+        maturation_was_gated=False,
+        maturation_gate=_gate_digest(gate),
+        maturation_gate_statement=(
+            "the expensive maturation stages ran in this invocation; every "
+            "measured field above is a fresh measurement"),
+        emission_policy_now=(contract or {}).get("emission_policy_now"),
         accountability_start_date=ACCOUNTABILITY_START_DATE,
         runtime_lock=RL.state_path(_lock_file()),
         advance_lock=RL.state(),
@@ -736,6 +1021,7 @@ def load_runs() -> dict:
 __all__ = ["CALCULATION_OWNER", "RUNTIME_LOCK_NAME", "RUN_JOURNAL",
            "HEALTH_ARTIFACT", "STAGE_STATES", "RUN_STATES", "SUCCESS",
            "NOT_DUE", "PIT_BLOCKED", "DATA_BLOCKED", "FORFEITED",
+           "SKIPPED_UNCHANGED",
            "FAILED_RETRYABLE", "FAILED_INTEGRITY", "RUN_COMPLETED",
            "RUN_COMPLETED_WITH_FAILURES", "RUN_FAILED_INTEGRITY",
            "RUN_REFUSED_CONCURRENT", "research_runtime_cycle",
