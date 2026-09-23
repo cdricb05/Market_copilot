@@ -1,0 +1,58 @@
+{
+ "schema": "r67_feature_set_leakage_correction/1",
+ "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+ "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+ "correction_date": "2026-09-23",
+ "corrects": "fs_r67_terms_of_trade_residual v1.0.0, hash 3ce44f30704497c216cb6646956581b0849702029cb7743fcb978f88073c3f0e",
+ "raised_by": "quant-research-director, DIRECTOR_R67_RULING_V2.json ground G4",
+ "verified_by": "session orchestrator, independently at source, before accepting the ruling",
+
+ "VERDICT": "THE LEAKAGE CHECK WAS FALSE. fs_r67_terms_of_trade_residual is LEAKY as published and MUST NOT be used to measure anything.",
+
+ "the_defect": {
+  "the_layers_frozen_rule": {
+   "source": "research/agents/campaign_r56_v2/data_r38.py:116-117",
+   "text_verbatim": "#: Scores read data through index t-1 (run_book enters at the settlement of t).\nSIGNAL_LAG_SESSIONS = 1",
+   "meaning": "the position is entered AT the settlement of session t, so a score for decision index t may read data through index t-1 ONLY"
+  },
+  "what_the_feature_actually_does": {
+   "source": "FEATURE_SET.json features[*].formula",
+   "text_verbatim": "residual_6A_t = ret_6A_t - beta_6A_t * (equal_weighted_sum(ret_i_t for i in ['GC', 'HG', 'SI']))",
+   "reads": "ret at t for BOTH the FX leg and every basket leg. Only beta is lagged.",
+   "effective_lag": 0
+  },
+  "the_self_contradiction_inside_one_json_object": "Each feature carries \"lag\": \"1 session\" while its own \"formula\" on the next line is lag 0. The label and the formula disagree in the same object, and the label is the one that is wrong.",
+  "and_the_check_was_granted_against_it": "leakage_check was set to PASS. The pipeline accepted it, because publish_features structurally enforces that the string equals PASS and that every feature carries name/lag/source - it cannot and does not evaluate whether the asserted PASS is true against the data source's own timing rule."
+ },
+
+ "what_was_contaminated": {
+  "experiments_preregistered_against_it": 0,
+  "experiment_ids_minted": 0,
+  "burden_charged": 0,
+  "returns_measured": 0,
+  "lockbox_reads": 0,
+  "estate_burden_before_and_after": 8415,
+  "assessment": "NOTHING IS CONTAMINATED. The cell r67_06 this feature set was built for was REFUSED before pre-registration on seven independent grounds, of which this defect is one. No measurement was ever run against these features, so no result anywhere in the estate depends on them. The damage is confined to one false PASS in the append-only event journal, which this artifact corrects in place beside it."
+ },
+
+ "why_the_event_is_not_deleted": "The research memory event journal is append-only by design and nothing in this system deletes an event. The estate's own correction pattern is an immutable record plus an append-only correction, never a rewrite. This artifact IS that correction, and the release document states it in full.",
+
+ "what_a_corrected_feature_set_would_require": [
+  "every return input shifted to t-1, not only beta: residual_t = ret_fx_{t-1} - beta_{t-1} * basket_ret_{t-1}",
+  "the 'lag' label and the 'formula' must be generated from one another, so they cannot disagree",
+  "open interest, if ever used on this layer, lags TWO sessions, not one: data_r38.OI_PUBLICATION_DELAY_SESSIONS = 1 on top of SIGNAL_LAG_SESSIONS = 1, and the layer already declares OI_LATEST_USABLE_OFFSET = 2",
+  "leakage_check must be justified against the DATA SOURCE's declared timing rule by citation, not asserted in prose"
+ ],
+
+ "the_generalised_lesson": "A leakage check that the author asserts about their own work is not a check. publish_features enforces the SHAPE of the claim (the string is PASS, every feature has name/lag/source) and cannot evaluate its TRUTH against the timing rule of the data source the features are built from. Every future cell on this layer inherits that gap, and this is the second time in one release that a structurally-valid claim carried a false value - the first being a census summary that presented a measured, failed family as unmeasured.",
+
+ "escalation": "H5 - make leakage_check verifiable rather than assertable: validate a published feature set's declared lag against the SIGNAL_LAG_SESSIONS (and where relevant OI_LATEST_USABLE_OFFSET) of the dataset the universe is bound to, and refuse a PASS that contradicts it. Raised by the director; adopted here as the correct remedy. NOT implemented in R67 - it changes a governed pipeline verb and is a human decision.",
+
+ "safety": {
+  "research_only": true,
+  "read_only_except_this_artifact": true,
+  "mutates_no_operational_store": true,
+  "charges_no_burden": true,
+  "mints_no_experiment_id": true
+ }
+}

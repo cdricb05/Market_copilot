@@ -1,0 +1,117 @@
+{
+ "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "state": "AWAITING_DIRECTOR_RULING",
+ "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+ "executor_module": "research/agents/campaign_r67_multi_strategy/executors.py",
+
+ "operator_mandate": "Find alpha across the WHOLE economically meaningful opportunity universe; the research unit is a COMPLETE INVESTABLE STRATEGY, not a predictive signal. Explicitly NOT restricted to interest-rate swaps, fixed income or hedged trades. Explicitly forbidden: manufacturing experiments to satisfy a quota, and renaming a dead idea.",
+
+ "estate_state_at_proposal": {
+  "hypotheses_settled": 8472,
+  "qualified_survivors": 0,
+  "outcomes": {"NO_ALPHA_EVIDENCE": 8407, "FORWARD_FROZEN": 56, "REJECTED": 6, "DATA_HOLD": 3},
+  "search_burden_total": 8415,
+  "distinct_families": 347,
+  "r59_frontier": {
+   "US_EQUITY": "EXHAUSTED", "EQUITY_INDEX_FUTURES": "EXHAUSTED",
+   "RATES_FUTURES": "EXHAUSTED", "COMMODITY_FUTURES": "EXHAUSTED",
+   "FX_FUTURES": "EXHAUSTED", "VOLATILITY": "EXHAUSTED",
+   "CREDIT_PROXY": "BLOCKED_NO_OWNED_SUBSTRATE",
+   "CROSS_ASSET": "RESEARCH_READY"
+  },
+  "honest_prior": "Zero of 8472 qualified. A campaign that ends NO_ALPHA_EVIDENCE after a small number of clean tests is a VALID result, and cash remains a real asset choice."
+ },
+
+ "substrate_findings_new_in_r67": {
+  "SUBSTRATE_ASYMMETRY_IS_THE_CAMPAIGN_THESIS": "The estate's exhaustion is an exhaustion of ONE substrate, not of the opportunity set. 1867 of 8472 settled hypotheses are US_EQUITY and the census records every one of them as large-cap (S&P 500 Current & Past, 1899 symbols). The owned Norgate subscription ALSO carries survivorship-safe point-in-time membership for S&P MidCap 400 Current & Past (1765 symbols) and S&P SmallCap 600 Current & Past (2644 symbols) - 4409 symbols, 2.3x the large-cap substrate, at ZERO incremental cost, with delisted names carried under the -YYYYMM convention. VERIFIED THIS RELEASE by direct norgatedata.watchlist_symbols() call.",
+  "PRIOR_ART_ON_THAT_SUBSTRATE_EXISTS_AND_MUST_BIND": "research/agents/campaign_r56_v2/data_eq_ext.py and universe_eq_ext.py already built a PIT Russell 2000 extension panel, and research/agents/campaign_r60_information_frontier/panels.py already built a PIT S&P MidCap 400 + SmallCap 600 panel. alpha_agent/r61/calibration_panels.py uses the same. The extension universe is ALREADY DONE as infrastructure. What is NOT done is a systematic prosecution of the estate's strongest mechanisms on it. The director must rule on whether a settled large-cap mechanism re-tested on a disjoint PIT universe satisfies the recorded reopen condition NEW_ORTHOGONAL_INFORMATION, or is a duplicate identity. This ruling is the campaign's critical path and no cell may be measured before it.",
+  "DATED_CONTRACT_LAYER_IS_THE_OTHER_THIN_SUBSTRATE": "The census records 12 hypotheses against the R38 native DATED-CONTRACT layer versus 5846 against the back-adjusted continuation panel. Basis-momentum and exchange open-interest dynamics REQUIRE the deferred contract and real OI, which only the dated layer carries. This is new INFORMATION, not merely a new universe, and is therefore the cleanest novelty claim in the campaign."
+ },
+
+ "proposed_cells": [
+  {
+   "executor": "r67_01",
+   "rank_in_census": 1,
+   "label": "COMMODITY_BASIS_MOMENTUM_DATED_LAYER",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "CARRY",
+   "economic_mechanism": "Basis-momentum - the trailing return of the HELD contract minus the trailing return of the DEFERRED contract - is a different quantity from the curve slope LEVEL that COMMODITY_CURVE_CARRY_SPREADS already settled. Slope level says where the curve is; basis-momentum says how the curve is MOVING, which is the hedging-pressure/inventory adjustment channel.",
+   "novelty_claim": "STRONGEST IN CAMPAIGN. Requires the deferred leg, which the back-adjusted continuation panel does not carry, so the 5846 continuation-panel tests could not have expressed it at any parameter.",
+   "complete_trade": "Long-only top-quintile and long/short quintile-spread variants over the certified dated-contract layer, cost charged on traded notional per market, roll cost explicit (R56 V2 measured roll cost at 77% of commodity drag - that finding binds here).",
+   "burden_denominator_warning": "COMMODITY_FUTURES carries 1632 prior tests."
+  },
+  {
+   "executor": "r67_02",
+   "rank_in_census": 4,
+   "label": "COMMODITY_OPEN_INTEREST_POSITIONING",
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "POSITIONING",
+   "economic_mechanism": "Trailing growth in aggregate exchange open interest measures the arrival of risk-transfer demand. Producers hedging into a market pay a premium to speculators who absorb it; the premium should be observable in forward returns when OI is GROWING, not when it is static.",
+   "novelty_claim": "Open interest is never-used owned information. It is not a price transform, so no price-state hypothesis in the estate can be its duplicate.",
+   "complete_trade": "Cross-sectional rank of trailing OI growth across the certified dated-contract markets; long-only and long/short; cost on traded notional.",
+   "burden_denominator_warning": "COMMODITY_FUTURES carries 1632 prior tests."
+  },
+  {
+   "executor": "r67_03",
+   "rank_in_census": 2,
+   "label": "EQUITY_EXTENSION_LIQUIDITY_PREMIUM",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "LIQUIDITY_PREMIUM",
+   "economic_mechanism": "Amihud illiquidity earns a premium because a holder of a thinly traded claim must be paid for the cost of exiting it. The premium's documented home is small caps; the estate has only ever tested it where it is most arbitraged.",
+   "novelty_claim": "CONTESTED - DIRECTOR MUST RULE. LIQUIDITY_PREMIUM is a settled family (R57 E8, plus machine variants). The claim is substrate, not mechanism.",
+   "mandatory_honesty_note": "The estate's strongest unqualified hypothesis is H_66753675_0067804439de, LIQUIDITY_PREMIUM, lockbox t 2.886. Its layer economics are D ann_net_excess -0.0006 (t -0.04, 2011-2017), V +0.0087 (t 0.31, 2018-2022), L +0.1374 (t 2.89, 2023-2026). Twelve years of nothing followed by 3.5 years of strength is a REGIME ARTIFACT unless the extension universe reproduces it out of that window. The burden correction (denominator 306, p 0.597) killed it correctly. This cell may NEVER be reported as reviving it.",
+   "complete_trade": "Long-only top-quintile Amihud on PIT MidCap 400 + SmallCap 600 members excluding PIT S&P 500 members, at a PRE-REGISTERED small-cap cost that must be set before measurement and never tuned."
+  },
+  {
+   "executor": "r67_04",
+   "rank_in_census": 5,
+   "label": "EQUITY_EXTENSION_RESIDUAL_MOMENTUM",
+   "owning_agent": "momentum-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "RESIDUAL_MOMENTUM",
+   "economic_mechanism": "Factor-neutralised 12-1 momentum isolates idiosyncratic continuation from factor beta drift. R57 E3 settled it on large caps.",
+   "novelty_claim": "CONTESTED - same substrate-not-mechanism claim as r67_03.",
+   "complete_trade": "Long-only top-quintile residual momentum on the extension universe, factor residual over the extension universe's own factor set, cost pre-registered."
+  },
+  {
+   "executor": "r67_05",
+   "rank_in_census": 9,
+   "label": "EQUITY_EXTENSION_SHORT_HORIZON_REVERSAL_NEXT_OPEN",
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "SHORT_HORIZON_REVERSAL",
+   "economic_mechanism": "Five-session losers rebound because liquidity provision is paid for absorbing non-informational selling. Entered at the NEXT OPEN so the entry is executable, with a hold band because turnover, not signal, is the binding constraint at H5.",
+   "novelty_claim": "CONTESTED on mechanism; H1-H5 is 0.45% of the estate (38 of 8472 tests) so the HORIZON is genuinely thin even on large caps.",
+   "complete_trade": "Long-only H5 reversal on the extension universe, next-open entry, explicit hold band, cost pre-registered at a small-cap rate. R56 V2 measured H5 reversal cost at 20%/yr on large caps - that finding binds and the cell must clear it."
+  }
+ ],
+
+ "explicitly_not_proposed": {
+  "A_SIXTH_CELL_TO_REACH_A_TARGET": "The operator forbade manufacturing experiments to satisfy a count. Five cells are proposed because five survive the data gate; no more were invented.",
+  "CROSS_ASSET_REGIME_CONDITIONING": "De-prioritised by the census and REFUSED by R66 as the fourth sighting of timing a premium with a conditioning variable. CROSS_ASSET already carries the estate's largest denominator at 2462.",
+  "TREASURY_VS_OTC_SWAP": "REQUIRED_DATA_MISSING, settled by R66. No USD swap fixed rate of any tenor is owned. Not reopened.",
+  "TREASURY_CASH_FUTURES_BASIS": "REQUIRED_DATA_MISSING on CUSIP cash-bond prices AND conversion factors. Settled by R66. Not reopened.",
+  "US_YIELD_CURVE_RV_AND_COMMODITY_CALENDARS": "SETTLED by R43 across 24 declared structures. Not reopened.",
+  "FX_CARRY": "ALREADY REGISTERED FORWARD. The closed ledger's instruction is accrue, do not re-test.",
+  "ANY_HEDGED_MULTI_LEG_STRUCTURE_FOR_OPERATIONAL_CAPITAL": "Governance contract R02 requires that a leg with no execution representation be REPORTED, never silently dropped. api.capital_pool declares short_exposure_supported=false and api.capital_eligibility_gate declares SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK. Every short leg is therefore inexpressible in the operational book TODAY. Long/short research remains permitted under R02 and is reported as research, never as an operationally implementable trade."
+ },
+
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO AUTOMATION, NO BACKFILL. NEW_PAID_DATA_COST = $0 - every substrate named here is already owned.",
+
+ "requires": {
+  "datasets": [
+   "norgate_us_equity_pit_extension_v1",
+   "r38_native_contract_layer_with_deferred_leg_v1",
+   "r38_native_contract_layer_open_interest_v1"
+  ],
+  "universes": ["r67_us_equity_extension_ex_sp500", "r67_commodity_dated_certified"],
+  "feature_sets": ["fs_r67_basis_momentum", "fs_r67_oi_growth", "fs_r67_amihud_ext", "fs_r67_residual_momentum_ext", "fs_r67_h5_reversal_ext"]
+ },
+
+ "review_order": ["r67_01", "r67_02", "r67_03", "r67_04", "r67_05"],
+ "review_order_rule": "BINDING and also the EXECUTION order. The two DATED-LAYER cells run FIRST because their novelty claim rests on new INFORMATION (the deferred leg, real open interest) rather than on a new universe, so they are the only two whose duplicate-identity ruling is not contested. The three extension-universe cells run only after the director has ruled explicitly on whether a disjoint PIT universe satisfies NEW_ORTHOGONAL_INFORMATION; if it does not, all three settle as DUPLICATE_IDENTITY at zero burden and the campaign is two cells, not five."
+}

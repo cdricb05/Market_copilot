@@ -1,0 +1,326 @@
+{
+ "schema": "r67_portfolio_opportunity_cost/1",
+ "composition_owner": "alpha_agent.r67 (composition only)",
+ "source_owners": {
+  "nav_and_capital": "api.capital_pool -> api.paper_trading_desk.book_nav",
+  "opportunity_cost": "api.holding_opportunity_cost",
+  "frontier": "api.opportunity_frontier",
+  "zero_base_target": "api.zero_base_target",
+  "governed_proposal": "api.reallocation_proposal"
+ },
+ "before": {
+  "valuation_date": "2026-09-21",
+  "nav_usd": 99127.48,
+  "cash_usd": 4482.71,
+  "invested_usd": 94644.77,
+  "position_count": 25,
+  "asset_class_exposure": {
+   "US_EQUITY": 0.954778
+  },
+  "non_equity_position_count": 0,
+  "sector_weights": {
+   "Communication Services": 0.035841,
+   "Consumer Discretionary": 0.071047,
+   "Consumer Staples": 0.038173,
+   "Energy": 0.167032,
+   "Financials": 0.039175,
+   "Health Care": 0.156022,
+   "Industrials": 0.146786,
+   "Information Technology": 0.224095,
+   "Real Estate": 0.076607
+  },
+  "max_name_weight": 0.049675,
+  "herfindahl_index": 0.037244
+ },
+ "opportunity_cost_assessment": {
+  "state": "READY",
+  "assessment_hash": "08c167bacaca9a5750f312fb88aff93652eae024d33e3ba25689e3e8f9b1cae9",
+  "recommendation_counts": {
+   "ADD": 10,
+   "EXIT": 11,
+   "HOLD": 6,
+   "REDUCE": 2,
+   "REPLACE": 6
+  },
+  "holdings_reviewed": 25,
+  "addition_candidates": 10,
+  "risk_concentration_top5": [
+   {
+    "ticker": "AMD",
+    "recommendation": "REDUCE",
+    "weight": 0.049675,
+    "risk_contribution_pct": 0.145418,
+    "reason_codes": [
+     "RISK_CONTRIBUTION_BREACH"
+    ]
+   },
+   {
+    "ticker": "DDOG",
+    "recommendation": "REDUCE",
+    "weight": 0.039553,
+    "risk_contribution_pct": 0.141851,
+    "reason_codes": [
+     "RISK_CONTRIBUTION_BREACH"
+    ]
+   },
+   {
+    "ticker": "ANET",
+    "recommendation": "HOLD",
+    "weight": 0.037301,
+    "risk_contribution_pct": 0.087465,
+    "reason_codes": [
+     "RANK_STABLE"
+    ]
+   },
+   {
+    "ticker": "ALAB",
+    "recommendation": "HOLD",
+    "weight": 0.017187,
+    "risk_contribution_pct": 0.079396,
+    "reason_codes": [
+     "RANK_STABLE"
+    ]
+   },
+   {
+    "ticker": "FTNT",
+    "recommendation": "HOLD",
+    "weight": 0.042425,
+    "risk_contribution_pct": 0.077344,
+    "reason_codes": [
+     "RANK_STABLE"
+    ]
+   }
+  ],
+  "risk_contribution_of_top5": 0.531474,
+  "weight_of_top5": 0.186141
+ },
+ "frontier": {
+  "eligible_instrument_count": 200,
+  "eligible_non_equity_count": 0,
+  "expected_return_state": "NOT_CALIBRATED",
+  "candidate_rows_for_proposal": 0,
+  "why_no_non_equity": "0 non-equity instruments are eligible. Per sleeve - sleeve_equity_index_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_rates_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_commodity_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_volatility_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_fx_futures: gate GATE_NOT_PASSED (MIN_EFFECTIVE_INDEPENDENT_OBSERVATIONS, MIN_RAW_MATURED_OBSERVATIONS, MIN_CALENDAR_DAYS_OF_FORWARD_EVIDENCE, MIN_NET_EDGE_PER_DECISION, MIN_T_STAT_NET_VS_CASH_CONTROL, CONDITIONAL_OPERATIONAL_APPROVAL_DECLARED); sleeve_managed_futures_trend: gate GATE_NOT_PASSED (MIN_EFFECTIVE_INDEPENDENT_OBSERVATIONS, MIN_RAW_MATURED_OBSERVATIONS, MIN_CALENDAR_DAYS_OF_FORWARD_EVIDENCE, MIN_NET_EDGE_PER_DECISION, MIN_T_STAT_NET_VS_CASH_CONTROL, CONDITIONAL_OPERATIONAL_APPROVAL_DECLARED); sleeve_international_index_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_crypto_futures: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_fx_spot: NO_APPROVED_OPERATIONAL_SIGNAL; sleeve_event_macro: NO_APPROVED_OPERATIONAL_SIGNAL"
+ },
+ "after_research_preview_only": {
+  "authority_lane": "RESEARCH_PREVIEW",
+  "can_become_a_proposal": false,
+  "forecast_state": "NOT_ACTIVATED",
+  "comparison": {
+   "current": {
+    "position_count": 25,
+    "cash_weight": 0.045222,
+    "cash_dollars": 4482.74,
+    "holdings": [
+     "ABNB",
+     "AIZ",
+     "ALAB",
+     "AMD",
+     "ANET",
+     "CAT",
+     "CVS",
+     "DDOG",
+     "DVA",
+     "DVN",
+     "DXCM",
+     "EOG",
+     "EXPE",
+     "FANG",
+     "FTNT",
+     "GWW",
+     "HST",
+     "ITW",
+     "KEYS",
+     "LH",
+     "LYV",
+     "MNST",
+     "SPG",
+     "VLO",
+     "XYZ"
+    ]
+   },
+   "zero_base": {
+    "target_kind": "ZERO_BASE_TARGET",
+    "retained": [
+     "AMD",
+     "CAT",
+     "DVA",
+     "FTNT",
+     "GWW",
+     "LYV",
+     "SPG"
+    ],
+    "removed": [
+     "ABNB",
+     "AIZ",
+     "ALAB",
+     "ANET",
+     "CVS",
+     "DDOG",
+     "DVN",
+     "DXCM",
+     "EOG",
+     "EXPE",
+     "FANG",
+     "HST",
+     "ITW",
+     "KEYS",
+     "LH",
+     "MNST",
+     "VLO",
+     "XYZ"
+    ],
+    "new": [
+     "ALB",
+     "APA",
+     "CMI",
+     "CTVA",
+     "DD",
+     "DOC",
+     "FLEX",
+     "FRT",
+     "FTV",
+     "HSIC",
+     "IFF",
+     "KIM",
+     "LLY",
+     "MAR",
+     "MO",
+     "PNW",
+     "RL",
+     "ROK",
+     "RVTY",
+     "SNDK",
+     "TECH",
+     "TRGP"
+    ],
+    "retained_count": 7,
+    "removed_count": 18,
+    "new_count": 22,
+    "position_count": 29,
+    "cash_weight": 0.001889,
+    "cash_dollars": 187.24
+   },
+   "implementable": {
+    "target_kind": "IMPLEMENTABLE_TARGET",
+    "retained": [
+     "ABNB",
+     "AIZ",
+     "ALAB",
+     "AMD",
+     "CAT",
+     "CVS",
+     "DVA",
+     "DVN",
+     "EOG",
+     "EXPE",
+     "FANG",
+     "FTNT",
+     "GWW",
+     "HST",
+     "KEYS",
+     "LYV",
+     "MNST",
+     "SPG",
+     "VLO",
+     "XYZ"
+    ],
+    "removed": [
+     "ANET",
+     "DDOG",
+     "DXCM",
+     "ITW",
+     "LH"
+    ],
+    "new": [
+     "DOC",
+     "FTV",
+     "IFF",
+     "LLY",
+     "MAR",
+     "MO",
+     "RL",
+     "TECH",
+     "TRGP"
+    ],
+    "retained_count": 20,
+    "removed_count": 5,
+    "new_count": 9,
+    "position_count": 29,
+    "cash_weight": 0.01004,
+    "cash_dollars": 995.28
+   },
+   "zero_base_vs_implementable": {
+    "in_both": [
+     "AMD",
+     "CAT",
+     "DOC",
+     "DVA",
+     "FTNT",
+     "FTV",
+     "GWW",
+     "IFF",
+     "LLY",
+     "LYV",
+     "MAR",
+     "MO",
+     "RL",
+     "SPG",
+     "TECH",
+     "TRGP"
+    ],
+    "zero_base_only": [
+     "ALB",
+     "APA",
+     "CMI",
+     "CTVA",
+     "DD",
+     "FLEX",
+     "FRT",
+     "HSIC",
+     "KIM",
+     "PNW",
+     "ROK",
+     "RVTY",
+     "SNDK"
+    ],
+    "implementable_only": [
+     "ABNB",
+     "AIZ",
+     "ALAB",
+     "CVS",
+     "DVN",
+     "EOG",
+     "EXPE",
+     "FANG",
+     "HST",
+     "KEYS",
+     "MNST",
+     "VLO",
+     "XYZ"
+    ],
+    "doc": "Names the zero-base target wants but the implementable target does not are exactly the positions whose expected improvement does not cover the cost of getting into them."
+   }
+  },
+  "why_it_has_no_capital_authority": "Computed from a forecasting model that is NOT the approved operational model and is NOT activated. It answers a research question and carries no capital authority: it can never become a proposal or a decision."
+ },
+ "governed_proposal": {
+  "state": "NOT_RUN",
+  "available": false,
+  "approvable": false,
+  "why_not_generated_here": "The governed proposal is produced by the operator's own DB-writing action, POST /v1/operations/daily-research-cycle/run (named by api.holding_opportunity_cost as its sole execution path). R67 is read-only and does not trigger it. The read-only opportunity-cost assessment above is complete and current, and is the input that action consumes."
+ },
+ "safety": {
+  "paper_only": true,
+  "read_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "mutates_holdings": false,
+  "approves_nothing": true,
+  "promotes_nothing": true
+ },
+ "generated_at": "2026-09-23T13:15:40.533976+00:00",
+ "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+ "read_only": true,
+ "registers_no_hypothesis": true,
+ "burden_charged": 0
+}

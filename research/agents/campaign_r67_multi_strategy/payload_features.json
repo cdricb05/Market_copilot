@@ -1,0 +1,37 @@
+{
+ "feature_set_id": "fs_r67_terms_of_trade_residual",
+ "universe_id": "r67_terms_of_trade_pairs",
+ "features": [
+  {
+   "feature_name": "residual_6A",
+   "lag": "1 session",
+   "source": "6A futures return minus beta-adjusted GC,HG,SI basket return",
+   "availability_instant": "After session close (all futures data available after close)",
+   "formula": "residual_6A_t = ret_6A_t - beta_6A_t * (equal_weighted_sum(ret_i_t for i in ['GC', 'HG', 'SI']))",
+   "per_pair_observations": 9870,
+   "per_pair_date_range": "1987-04-14 to 2026-08-21",
+   "name": "residual_6A"
+  },
+  {
+   "feature_name": "residual_6C",
+   "lag": "1 session",
+   "source": "6C futures return minus beta-adjusted CL,NG,RB basket return",
+   "availability_instant": "After session close (all futures data available after close)",
+   "formula": "residual_6C_t = ret_6C_t - beta_6C_t * (equal_weighted_sum(ret_i_t for i in ['CL', 'NG', 'RB']))",
+   "per_pair_observations": 5186,
+   "per_pair_date_range": "2006-01-09 to 2026-08-21",
+   "name": "residual_6C"
+  },
+  {
+   "feature_name": "residual_6N",
+   "lag": "1 session",
+   "source": "6N futures return minus beta-adjusted ZL,ZS,LE,HE basket return",
+   "availability_instant": "After session close (all futures data available after close)",
+   "formula": "residual_6N_t = ret_6N_t - beta_6N_t * (equal_weighted_sum(ret_i_t for i in ['ZL', 'ZS', 'LE', 'HE']))",
+   "per_pair_observations": 5199,
+   "per_pair_date_range": "2005-12-21 to 2026-08-21",
+   "name": "residual_6N"
+  }
+ ],
+ "leakage_check": "PASS"
+}

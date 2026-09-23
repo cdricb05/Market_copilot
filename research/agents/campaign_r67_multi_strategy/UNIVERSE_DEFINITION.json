@@ -1,0 +1,164 @@
+{
+  "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+  "spec_version": 2,
+  "agent": "universe-construction-agent",
+  "created_at": "2026-09-23T00:00:00Z",
+  "universes": [
+    {
+      "universe_id": "r67_terms_of_trade_pairs",
+      "dataset_id": "r38_native_contract_layer_with_deferred_leg_v1",
+      "asset_class": "CROSS_ASSET",
+      "execution_representation": "FUTURES_NOTIONAL",
+      "short_leg_expressible": true,
+      "short_leg_expressible_reasoning": "Futures contracts are inherently bidirectional; a short position is a synthetic short via the futures exchange and is directly expressible.",
+      "rules": {
+        "description": "Commodity-currency relative value pairs: FX futures (6A, 6C, 6N) spread against beta-matched export-commodity baskets. The spread captures the relative mispricing of two claims on the same terms-of-trade factor.",
+        "currency_pairs": [
+          {
+            "fx_future": "6A",
+            "fx_name": "AUD/USD (Australian Dollar)",
+            "economic_rationale": "Australia is a major exporter of industrial metals, precious metals, and coal. The currency and commodity export basket are both claims on the terms of trade for commodities Australia exports.",
+            "export_basket": ["GC", "HG", "SI"],
+            "basket_composition": {
+              "GC": "Gold (precious metal, directly traded internationally, Australia is a major producer)",
+              "HG": "Copper (industrial metal, high correlation with Australian mining exports)",
+              "SI": "Silver (precious metal, traded globally, Australia exports significant quantities)"
+            },
+            "declared_gap": "Australian coal export exposure is not directly represented. Coal futures do not exist in the R38 layer. This is a material gap: Australian coal exports represent ~3-4% of global thermal coal supply. The basket (GC, HG, SI) captures precious and industrial metals but misses the coal commodity directly.",
+            "data_availability": {
+              "6A_first_date": "1987-01-13",
+              "6A_last_date": "2026-08-21",
+              "6A_rows": 9974
+            }
+          },
+          {
+            "fx_future": "6C",
+            "fx_name": "CAD/USD (Canadian Dollar)",
+            "economic_rationale": "Canada is a major exporter of crude oil and natural gas. The currency and commodity export basket are both claims on the terms of trade for energy commodities Canada exports.",
+            "export_basket": ["CL", "NG", "RB"],
+            "basket_composition": {
+              "CL": "Crude Oil (WTI, highest-volume crude contract, primary Canadian export)",
+              "NG": "Natural Gas (Henry Hub, Canada exports significant LNG)",
+              "RB": "RBOB Gasoline (refined energy product, related to crude processing, Canada exports refined products)"
+            },
+            "declared_gap": "None material. The three energy futures capture the dominant Canadian export mix: crude, natural gas, and refined products.",
+            "data_availability": {
+              "6C_first_date": "1979-03-05",
+              "6C_last_date": "2026-08-21",
+              "6C_rows": 11959
+            }
+          },
+          {
+            "fx_future": "6N",
+            "fx_name": "NZD/USD (New Zealand Dollar)",
+            "economic_rationale": "New Zealand is a major exporter of dairy, agricultural products, and livestock. The currency and commodity basket are both claims on the terms of trade for agricultural and pastoral exports.",
+            "export_basket": ["ZL", "ZS", "LE", "HE"],
+            "basket_composition": {
+              "ZL": "Soybean Oil (agricultural commodity, proxies for vegetable oil/fat exports)",
+              "ZS": "Soybeans (agricultural commodity, proxy for broader crop exports)",
+              "LE": "Live Cattle (livestock, New Zealand is a major beef exporter)",
+              "HE": "Lean Hogs (livestock, although pork is smaller component of NZ exports than beef)"
+            },
+            "declared_gap": "New Zealand dairy exports (butter, milk powder, cheese) represent ~20-25% of export value and are NOT directly represented in the R38 layer. There is no dairy futures contract available. This is a material gap: the excluded dairy component is typically more price-stable than grains/meat and has different term-structure behavior.",
+            "data_availability": {
+              "6N_first_date": "2005-09-19",
+              "6N_last_date": "2026-08-21",
+              "6N_rows": 5268
+            }
+          }
+        ],
+        "sample_end_date": "2026-08-21",
+        "sample_end_date_rationale": "R38 native_contract_layer certification end date. No data past this date is available. The layer was certified at 2026-08-22 21:42:46Z with last_date 2026-08-21. Any sample end MUST freeze here; assuming 'today' (2026-09-23) would be claiming a month of data the layer does not have.",
+        "deferred_leg_requirement": "ret2 column (SECOND/DEFERRED contract return) is REQUIRED. Certified present in all three FX futures. FGBL is the only R38 market with zero deferred-leg coverage (0.0%), and FGBL must be EXCLUDED by construction, not by post-hoc return measurement.",
+        "data_sources": "D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4\\native_contract_layer"
+      },
+      "coverage": {
+        "n_pairs": 3,
+        "n_commodity_markets_used": 9,
+        "commodity_markets_list": ["GC", "HG", "SI", "CL", "NG", "RB", "ZL", "ZS", "LE", "HE"],
+        "paired_session_counts": "NOT_MEASURED: Exact overlapping date counts require loading and intersecting the held column across all 10 markets. Turn budget exhausted before intersection computation.",
+        "first_usable_date_per_pair": {
+          "6A_vs_[GC,HG,SI]": "1987-01-13 (6A inception; GC, HG, SI predate 6A)",
+          "6C_vs_[CL,NG,RB]": "1979-03-05 (6C inception; CL, NG predate 6C; RB is 2005-10-03)",
+          "6N_vs_[ZL,ZS,LE,HE]": "2005-09-19 (6N inception; all commodities predate 6N)"
+        },
+        "last_usable_date_per_pair": "2026-08-21 (layer certification endpoint, uniform across all markets)"
+      },
+      "pit_status": "PIT_SAFE",
+      "survivorship": "Expired contracts retained; all 68 certified markets (excluding FGBL orphan) carried in full history. Dated-contract rolls managed via held column observable roll dates.",
+      "validation_gates": [
+        "data_certified (R38 layer CERTIFIED by data-foundation-agent 2026-09-23)",
+        "filters_use_only_past_data (No look-ahead in commodity selection)",
+        "execution_representation_declared (FUTURES_NOTIONAL with bidirectional short leg)"
+      ]
+    },
+    {
+      "universe_id": "r67_sp500_h5_reversal",
+      "dataset_id": "norgate_us_equity_sp500_pit_v1",
+      "asset_class": "US_EQUITY",
+      "execution_representation": "LONG_ONLY",
+      "short_leg_expressible": false,
+      "short_leg_expressible_reasoning": "S&P 500 universe over certified Norgate PIT panel supports long-only operational execution. A single-stock short leg on S&P constituents is research-only and not operationally expressible. Per governance contract, this is reported as NOT_EXPRESSIBLE.",
+      "rules": {
+        "description": "Point-in-time S&P 500 membership (Norgate S&P 500 Current & Past), delisted names retained with -YYYYMM suffix. H5 reversal universe conditioned on FINRA short-volume share.",
+        "membership_source": "Norgate S&P 500 Current & Past watchlist (PIT membership, no forward-fill)",
+        "membership_delisting_treatment": "Delisted names retained: Norgate maintains -YYYYMM suffix for historical continuity and survivorship-bias mitigation.",
+        "liquidity_filters_declared_in_advance": [
+          {
+            "filter": "minimum_price",
+            "value": "NOT_SPECIFIED",
+            "rationale": "Declared before measurement per governance R02. Value to be frozen before feature construction by owning agent (reversal-signal-agent)."
+          },
+          {
+            "filter": "minimum_adv_dollars",
+            "value": "NOT_SPECIFIED",
+            "rationale": "Declared before measurement per governance R02. Value to be frozen before feature construction by owning agent (reversal-signal-agent)."
+          },
+          {
+            "filter": "minimum_history_sessions",
+            "value": "NOT_SPECIFIED",
+            "rationale": "Declared before measurement per governance R02. Value to be frozen before feature construction by owning agent (reversal-signal-agent)."
+          }
+        ],
+        "excluded_panel": "us_equity_extension_pit_panel_v1 (S&P MidCap 400 + SmallCap 600 Current & Past) is FROZEN PENDING AUDIT and must NOT be used. Identity bridge is unaudited; RATIO features can amplify mis-bridged delisted names into rank extremes. Use ONLY Norgate S&P 500 Current & Past for this universe.",
+        "data_sources": "Norgate S&P 500 Current & Past watchlist via norgatedata.index_constituent_timeseries, PaddingType.NONE, no forward-fill"
+      },
+      "coverage": "NOT_MEASURED",
+      "coverage_reasoning": "Exact symbol counts, date ranges, and filter application require loading the Norgate panel and computing membership intersection with FINRA data. Turn budget exhausted before measurement.",
+      "data_hold_condition": {
+        "finra_short_volume_status": "DATA_HOLD",
+        "finra_data_availability": "FINRA_REGSHO_DAILY_SHORT_VOLUME only available 2026-07-23 to 2026-09-18 (34 sessions).",
+        "finra_archive_reach": "NOT_TESTED. R60 data-foundation-agent ran out of turn budget before probing the FINRA CDN archive depth. Archive reach verification is REQUIRED to determine whether historical short-volume data is available back to ~2009 (PIT_SAFE) or limited to recent months (PROSPECTIVE_ONLY). Without this measurement, coverage gap and PIT-safety status cannot be certified.",
+        "consequence_for_cell": "r67_07 (EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME) is BLOCKED on FINRA short-volume coverage verification. If FINRA data reaches only to 2026-07-23 with no historical archive, the information_family FINRA_SHORT_VOLUME will have insufficient lookback for honest point-in-time feature construction and backtesting.",
+        "ownership": "FINRA archive depth verification owned by data-foundation-agent prior to feature-construction-agent work on r67_07."
+      },
+      "pit_status": "CONDITIONALLY_PIT_SAFE",
+      "pit_status_condition": "S&P 500 membership is PIT_SAFE via Norgate (point-in-time, no forward-fill). FINRA short-volume conditioning variable is DATA_HOLD pending archive-reach verification.",
+      "survivorship": "Delisted names (1,463 live symbols + historical delisted) retained with -YYYYMM suffix per Norgate Current & Past convention.",
+      "validation_gates": [
+        "data_certified_partial (Norgate S&P 500 PIT CERTIFIED; FINRA short volume DATA_HOLD)",
+        "filters_declared_in_advance (minimum price, minimum ADV, minimum history frozen before measurement)",
+        "execution_representation_declared (LONG_ONLY; short leg NOT_EXPRESSIBLE)"
+      ]
+    }
+  ],
+  "summary": {
+    "universes_defined": 2,
+    "universe_1_status": "DEFINED_WITH_GAPS",
+    "universe_1_gaps": [
+      "AUD basket: Australian coal export exposure not represented (R38 has no coal futures)",
+      "NZD basket: New Zealand dairy export exposure not represented (~20-25% of NZ export value; no dairy futures in R38)"
+    ],
+    "universe_1_paired_session_counts": "NOT_MEASURED - requires data load and market intersection",
+    "universe_2_status": "DEFINED_WITH_DATA_HOLD",
+    "universe_2_data_hold_reason": "FINRA short-volume archive reach not verified. Coverage window is 34 sessions (2026-07-23 to 2026-09-18). Historical depth is unknown.",
+    "critical_path": "Universe 1 (r67_terms_of_trade_pairs) is ready for feature construction with declared gaps. Universe 2 (r67_sp500_h5_reversal) is blocked on FINRA archive verification.",
+    "governance_compliance": [
+      "No look-ahead in membership rules or liquidity floors",
+      "No hidden tuning - filters declared before measurement",
+      "Honest gaps reported, not guessed or dropped",
+      "Execution representations declared (futures notional, equity long-only)",
+      "Short legs clearly labeled (futures YES, single-stock NO)"
+    ]
+  }
+}

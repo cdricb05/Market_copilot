@@ -1,0 +1,171 @@
+{
+  "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+  "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+  "ruling_agent": "quant-research-director",
+  "ruling_date": "2026-09-23",
+  "supersedes_nothing": "This is an ADDENDUM to DIRECTOR_R67_RULING.json, which stands unamended. It rules on r67_06 only.",
+  "cell_ruled_on": "r67_06 XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+  "spec": "research/agents/campaign_r67_multi_strategy/campaign_spec_v2.json",
+  "feature_set": "research/agents/campaign_r67_multi_strategy/FEATURE_SET.json (fs_r67_terms_of_trade_residual, hash 3ce44f30704497c216cb6646956581b0849702029cb7743fcb978f88073c3f0e)",
+
+  "DECISION": "REFUSE. Refused BEFORE pre-registration, so it mints no experiment id and charges nothing.",
+  "experiment_id_minted": null,
+  "burden_charged": 0,
+  "lockbox_reads": 0,
+  "recommendation": "NEEDS_HUMAN_DECISION (unchanged)",
+
+  "headline": "This is the same cell R66 refused, with the same construction, the same 63-session beta, the same 21-session horizon, the same instruments and a feature set whose name differs from the refused one by two characters. R66 did not merely refuse it - it recorded a REOPEN CONDITION in writing, and r67_06 violates that condition in terms rather than satisfying it. The spec's central claim, that this cell carries zero conditioning variables, is false: mean reversion of a residual IS conditioning on the current deviation, which is verbatim the generalised test R66 recorded for future campaigns.",
+
+  "why_i_did_not_attempt_the_preregister_call": "The foundation chain is now complete, so scripts/alpha_agents_v2.py preregister would have SUCCEEDED had I corrected the owning agent. Calling it would have minted an experiment id and charged the burden before any refusal could take effect, and nothing in this system deletes a minted id. R66 set the precedent in its own words - 'Refused BEFORE pre-registration, so it charges nothing' - and I follow it. A director who registers in order to refuse has already spent the slot.",
+
+  "ANSWER_TO_COORDINATOR_QUESTION_1_IS_IT_QUOTA_DRIVEN": {
+    "question": "You declined to register H4 'precisely because registering them here would be quota-driven.' Judge it afresh.",
+    "answer": "I CONCEDE THE POINT. The quota objection no longer applies and I withdraw it. I am refusing for entirely different and stronger reasons, and I will not reuse a retired argument to decorate a new refusal.",
+    "why_the_quota_objection_dissolves": [
+      "The cell is census rank 3. It was ranked there before R67 existed and above three of the five cells spec v1 proposed. Its selection is not caused by the diversity shortfall; the ranking predates it.",
+      "The decisive test of 'quota-driven' is whether the cell was chosen BECAUSE of the count. It cannot have been, because registering it would NOT fix the count. One cross-asset cell leaves the campaign at ONE asset class against a minimum of three, and at ZERO H1-H5 experiments. A cell that does not satisfy the quota cannot be a quota play.",
+      "My original objection was narrower than it has been read: it was that *I* must not invent an agenda item after seeing the count is zero. The coordinator putting a census-ranked cell through the governed foundation chain is a different act by a different actor for a different reason, and it is legitimate.",
+      "The foundation work is genuinely done and genuinely governed: AGENTS_V2_UNIVERSE_DEFINED r67_terms_of_trade_pairs and AGENTS_V2_FEATURES_PUBLISHED fs_r67_terms_of_trade_residual (leakage_check PASS) are both present in the research memory's event journal. I verified both rather than taking them on report."
+    ],
+    "what_this_means": "Had r67_06 been a sound construction, procedural quota concerns would not have been a reason to refuse it. It is not a sound construction."
+  },
+
+  "ANSWER_TO_COORDINATOR_QUESTION_2_THE_CONDITIONING_DISTINCTION": {
+    "question": "Spec v2 claims this cell carries zero conditioning variables and is a pure relative-value spread. Verify at source and refuse if it does not hold.",
+    "verdict": "THE DISTINCTION DOES NOT HOLD. The claim is false, and it is false in a way the estate has already written down.",
+
+    "the_generalised_test_r66_recorded_for_exactly_this_moment": {
+      "source": "research/agents/campaign_r66_hedged_rv/DIRECTOR_R66_RULING.json, ruling_4_fourth_sighting_audit",
+      "text_verbatim": "If a proposed construction's position size or on/off state is a function of the CURRENT DEVIATION of the spread from its own history, it is premium timing and is refused before it is measured, whatever the family label on the front of it.",
+      "application": "r67_06's position is a function of the current deviation of the residual. FEATURE_SET.json frozen_parameters.expected_sign states it outright: 'mean reversion hypothesis predicts residuals revert, so negative residuals (underpriced FX) should reverse upward.' The sign of the residual at t decides the direction of the trade at t. That is the current deviation of the beta-hedged spread from its own history determining the position. The test is met exactly.",
+      "the_claim_is_self_refuting": "There is no way to trade 'mean reversion of a residual' WITHOUT conditioning on the residual's current deviation. Mean reversion and deviation-conditioning are the same operation described twice. The spec cannot assert a mean-reversion hypothesis and zero conditioning variables in the same cell; one of the two statements has to go, and the feature set's own expected_sign says which one."
+    },
+
+    "what_zero_conditioning_actually_looks_like_in_this_estate": {
+      "source": "DIRECTOR_R66_RULING.json ruling_1_r66_01 frozen_construction.conditioning",
+      "text_verbatim": "NONE. The structure is UNCONDITIONAL and ALWAYS-ON. No z-score, no entry band, no exit band, no momentum overlay, no regime filter, no carry filter, no volatility filter.",
+      "and_on_the_beta": "The lagged rolling beta is a HEDGE RATIO and is not a signal. It may not be thresholded, ranked, z-scored, sign-tested or used to decide whether the position is on. It sets size only.",
+      "contrast": "r66_01 passed because it had no rule deciding WHEN to be on - it was always on, one direction, forever. r67_06 has exactly such a rule: be long the FX leg when the residual is negative. The estate already holds a worked example of a passing cross-asset hedged structure and r67_06 is not built like it."
+    },
+
+    "r66_already_classified_this_exact_construction": {
+      "source": "DIRECTOR_R66_RULING.json ruling_4, field r66_02",
+      "text_verbatim": "IS the fourth sighting. Residual mean-reversion over 21 sessions on a beta-hedged commodity-currency spread reduces to a z-score entry band on a spread. Refused under ruling 2, before pre-registration, before any return.",
+      "identity_of_the_two_cells": {
+        "r66_02_label": "XA_TERMS_OF_TRADE_COMMODITY_CURRENCY_RV",
+        "r67_06_label": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+        "r66_02_feature_set": "fs_r66_02_terms_of_trade_residual",
+        "r67_06_feature_set": "fs_r67_terms_of_trade_residual",
+        "construction": "IDENTICAL in both: beta-hedged commodity-currency spread, residual mean reversion, 21 sessions.",
+        "beta_window": "IDENTICAL: 63 sessions, lagged one session. R66 froze BETA_WIN = 63 with .shift(1); FEATURE_SET.json declares window_length 63, lag 1 session.",
+        "assessment": "The differences between the two cells are the campaign number, the label suffix and two characters of the feature-set id. The construction is unchanged."
+      }
+    },
+
+    "the_recorded_reopen_condition_exists_and_this_cell_fails_it": {
+      "why_this_is_the_strongest_single_ground": "R66 did not leave this family merely refused. It recorded, in writing, the precise form in which it may return. That makes this a do_not_repeat_rule case with an explicit reopen condition, and my contract says a settled family is reopened ONLY when its recorded reopen condition is satisfied.",
+      "condition_verbatim": "If CROSS_ASSET_RELATIVE_VALUE is to be reopened in a later campaign it comes back as an UNCONDITIONAL, ALWAYS-ON hedged carry structure with a sign derived from one named economic channel and NO deviation-based entry rule, pre-registered on its own merits with an MDE curve, and it is a later campaign's decision, not this one's.",
+      "test_of_r67_06_against_each_clause": [
+        {"clause": "UNCONDITIONAL, ALWAYS-ON", "r67_06": "FAILS. The position direction is set by the sign of the current residual."},
+        {"clause": "hedged CARRY structure", "r67_06": "FAILS. It is a mean-reversion structure, not a carry structure. No carry quantity appears anywhere in the feature set."},
+        {"clause": "sign derived from ONE NAMED ECONOMIC CHANNEL", "r67_06": "FAILS. The sign is derived from the statistical property of reversion, not from a named channel. FEATURE_SET.json derives expected_sign from 'mean reversion hypothesis', which is a statistical assertion, not an economic channel."},
+        {"clause": "NO deviation-based entry rule", "r67_06": "FAILS, and this is the clause it violates most directly. The entry rule IS the deviation."},
+        {"clause": "pre-registered with an MDE curve", "r67_06": "FAILS. No minimum-detectable-effect curve is offered anywhere in spec v2 or the feature set."}
+      ],
+      "score": "0 of 5 clauses satisfied. The cell does not partially meet the reopen condition; it meets none of it."
+    }
+  },
+
+  "ADDITIONAL_INDEPENDENT_GROUNDS_EACH_SUFFICIENT_ALONE": {
+
+    "G1_INFORMATION_FAMILY_LAUNDERING": {
+      "severity": "HIGH. This is the third sighting of key-component laundering in R67 and the first that would have evaded my own earlier ruling.",
+      "the_novelty_claim": "campaign_spec_v2.json line 29: 'The director verified that NO TERMS_OF_TRADE information family exists anywhere in the estate, and that the family key carries burden 1.'",
+      "i_did_verify_that_and_it_is_being_misused": "I did measure that no information_family containing TERMS or TOT exists in the memory. That measurement is true. The inference drawn from it is false. No such family exists because the LABEL is new, not because the INFORMATION is new.",
+      "what_the_feature_actually_consumes": "Measured directly from FEATURE_SET.json: every input to every one of the three features is a futures RETURN series - ret_6A/ret_6C/ret_6N and ret of GC,HG,SI / CL,NG,RB / ZL,ZS,LE,HE. There is no trade-balance series, no export-volume series, no commodity-price index weighted by actual export shares, no terms-of-trade data of any kind. The construction is 100 percent price data.",
+      "correct_information_family": "PRICE_STATE. That is what enters the predictor, and CROSS_ASSET carries thousands of PRICE_STATE tests.",
+      "why_this_is_the_same_offence_i_already_refused_twice": "My PART_1 ruling held that the information_family slot is where new information must appear, and that computing the same kind of variable on new rows is not new information. My PART_2_D ruling refused a long-only variant because changing model_family moves a construction onto a burden-0 key. Declaring information_family = TERMS_OF_TRADE for a feature built entirely from returns is the identical move on a different component of the same key: choose a component value no prior test used, arrive at a burden-0 key, and call the zero a novelty result. The spec even quotes my burden measurement as the evidence for it.",
+      "burden_consequence": "A cell whose true key is RELATIVE_VALUE|PRICE_STATE|CROSS_ASSET|<construction> must be charged that key's counted burden, not the burden of a label invented for the occasion."
+    },
+
+    "G2_THE_ROUTING_TRAP_THIRD_SIGHTING": {
+      "measured": "Contracts().families_for() - RELATIVE_VALUE routed to trend-breadth-signal-agent: FALSE. Routed to reversal-signal-agent: TRUE.",
+      "spec_v2_assigns": "trend-breadth-signal-agent (campaign_spec_v2.json line 24)",
+      "census_rank_3_assigns": "reversal-signal-agent",
+      "pipeline_effect": "preregister would have refused FAMILY_NOT_ROUTED_TO_AGENT, exactly as I predicted for r67_02.",
+      "why_it_is_more_than_a_typo": "R66's PRIOR_ART audit flagged this SAME inconsistency on the SAME cell a campaign ago and recorded why it matters: 'those two agents would build materially different trades from the same sentence (a trend overlay versus a reversion band). An unsettled owner is a symptom of an unsettled construction.' The defect has now survived two campaigns and been resubmitted unchanged. The owner is still unsettled, so by R66's reasoning the construction is still unsettled.",
+      "note": "The coordinator explicitly warned me not to fall into this trap. I did not; the spec did, again."
+    },
+
+    "G3_THE_CONSTRUCTION_IS_STILL_OPEN_IN_A_PUBLISHED_HASHED_ARTIFACT": {
+      "finding": "FEATURE_SET.json frozen_parameters - a block headed FROZEN - contains two entries that are not frozen: cost_model 'To be declared by trend-breadth-signal-agent' and passive_control 'To be declared by trend-breadth-signal-agent'.",
+      "why_it_blocks": "The coordinator asks me to freeze the cost model and the passive control. But the feature set is already PUBLISHED and HASHED with those two fields deferred to the signal agent. If I now freeze values here, the pre-registration and the published feature set disagree about who owns them and about whether they were settled at publication.",
+      "and_it_is_R66_reason_3_verbatim": "'a construction that is still open when the ruling is written is a construction that will be finalised in sight of the data.' Two of the six things the coordinator asked me to freeze are, at this moment, recorded in the governing artifact as somebody else's to decide later.",
+      "additional": "Deferring the PASSIVE CONTROL is the more serious of the two. The control is what the increment is measured against; letting the owning agent choose it after the residual is computed is choosing the benchmark in sight of the result."
+    },
+
+    "G4_THE_FEATURE_VIOLATES_THE_LAYER_S_OWN_FROZEN_TIMING_RULE": {
+      "the_estate_rule": "research/agents/campaign_r56_v2/data_r38.py line 117: SIGNAL_LAG_SESSIONS = 1, with the reason at lines 56-58: 'native.run_book compounds ret[t+1 .. t+horizon]: the position is entered AT THE SETTLEMENT OF SESSION t. A score for decision index t must therefore read data through index t-1 only (campaign rule G6).'",
+      "what_the_feature_does": "residual_6A_t = ret_6A_t - beta_6A_t * (equal_weighted_sum(ret_i_t ...)). The returns are read AT t. Only the beta is lagged.",
+      "the_feature_set_admits_it": "leakage_check_details states fx_data_lag '0 sessions', basket_data_lag '0 sessions', and decision_instant_lag 'feature uses data through t-1 for beta, data at t for returns'.",
+      "internal_contradiction_in_the_published_artifact": "Each of the three features declares \"lag\": \"1 session\" while its own formula is lag 0 on both return terms. The label and the formula in the same JSON object disagree.",
+      "consequence": "Under G6 the score at t may read only through t-1, because entry is at the settlement of t. This feature scores on the settlement it trades at. leakage_check PASS was granted against a self-description that contradicts the frozen rule for this exact layer. I do not assert the edge is economically exploitable; I assert the published artifact does not comply with the estate's own timing rule for the data it reads, and that a PASS recorded on that basis is not reliable.",
+      "remedy_if_the_cell_ever_returns": "Either lag both return terms to t-1, or change the evaluator convention - and the evaluator convention is not this campaign's to change."
+    },
+
+    "G5_BREADTH_AND_EFFECTIVE_OBSERVATIONS_DECLARED_NOT_MEASURED": {
+      "structure": "Three pairs. All three are USD crosses. All three are commodity currencies driven by a common global-commodity and global-risk factor. They are not three independent bets.",
+      "overlap": "A 21-session horizon on overlapping windows. Nominal observations 9,870 / 5,186 / 5,199 reduce to roughly 470 / 247 / 248 non-overlapping windows, before any correction for the cross-correlation of the three residuals.",
+      "the_estate_s_own_cautionary_case": "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59 is in the closed CROSS_ASSET ledger as 'the withdrawn survivor: ~14 effective observations' - a lockbox t of 4.74 that evaporated. Thin effective breadth in CROSS_ASSET has already produced one false survivor in this estate.",
+      "what_was_required_and_is_absent": "No effective-observation count and no MDE curve is offered for r67_06. R66's recorded reopen condition names an MDE curve explicitly. Without one, a null result cannot be distinguished from an underpowered one - which is precisely the ambiguity that left basis momentum BLOCKED rather than settled, and which r67_01 was refused over earlier in this same campaign."
+    },
+
+    "G6_THE_6N_DAIRY_GAP": {
+      "coordinator_asked": "Whether the 6N dairy gap is material enough that its result may need to be read separately.",
+      "ruling": "It is material, and the honest treatment is not a separate read - it is that the 6N pair should not be in the cell at all as currently basketed.",
+      "reasoning": "The feature set declares dairy at 20-25 percent of NZ export value with no representation, and the substitute basket is ZL, ZS, LE, HE - soybean oil, soybeans, live cattle, lean hogs. Those are US agricultural contracts standing in for New Zealand dairy. The hedge is not merely incomplete; a quarter of the economic exposure is proxied by a different country's different commodities.",
+      "why_reading_it_separately_would_be_worse": "Three pairs is already thin. Declaring in advance that one of the three may be read separately creates a post-hoc licence to report two-of-three if the third disappoints. That is a subset chosen after the fact. If 6N is sound it is in; if its basket cannot represent its economy it is out. It may not be conditionally in.",
+      "credit_where_due": "The gap was declared BEFORE measurement and in specific numeric terms. That is exactly right and I record it as good practice. It is the response to the gap, not the disclosure of it, that I am ruling on."
+    }
+  },
+
+  "WHAT_I_AM_DELIBERATELY_NOT_DOING": {
+    "not_designing_the_passing_construction": "I will not draft the unconditional always-on structure, its named economic channel or its sign inside the ruling that refuses this one. R66 declined to do this for the same cell and gave the reason I adopt: 'Designing a construction that would pass my own gate, inside the ruling that refuses it, is the director fitting the agenda to a desired count.' The reopen condition already exists, in writing, in R66's ruling. Whoever brings this family back must satisfy it on their own construction, not on one I supplied.",
+    "not_filing_no_alpha_evidence": "Nothing was measured. No return was computed. Filing NO_ALPHA_EVIDENCE for a cell that computed nothing would be a contract violation. r67_06 is REFUSED, not settled, and remains available to a construction that meets the recorded condition.",
+    "not_ruling_on_r67_07": "The coordinator asked me to rule on r67_06. r67_07 EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME is not before me and its foundation chain has not run - spec v2 requires finra_short_volume_v1, r67_sp500_h5_reversal and fs_r67_h5_reversal_short_volume, and the memory's event journal carries only the two CROSS_ASSET events. I note only that its novelty basis is sound on the standard I set in PART_1 (a genuinely new variable enters, so the information_family genuinely changes) and that its binding constraint is the cost freeze, which must be set before any turnover is seen."
+  },
+
+  "BURDEN_AND_STATE_EFFECT": {
+    "experiments_preregistered_in_R67": 0,
+    "experiment_ids_minted": 0,
+    "burden_added_by_R67": 0,
+    "estate_total_burden": 8415,
+    "cross_asset_burden": 2462,
+    "family_key_that_would_have_applied": "RELATIVE_VALUE|PRICE_STATE|CROSS_ASSET|<construction> - the TRUE key, counted by alpha_agent.r59.handlers.search_denominator at registration time. NOT the invented TERMS_OF_TRADE key and NOT a burden of 0 or 1.",
+    "durable_state_written_by_this_ruling": "NONE. No pipeline verb was invoked. The universe and feature-set events already in the journal are the foundation agents' and stand on their own; they are not experiments and charge nothing.",
+    "diversity_position": "UNCHANGED and still NOT SATISFIED: 0 pre-registered experiments, 0 asset classes, 0 H1-H5, 0 cross-asset. I again decline to pad."
+  },
+
+  "ESCALATION_ADDENDUM": {
+    "new_item_H5": {
+      "decision": "Correct the feature-set publication standard so that leakage_check PASS is checked against the DATA SOURCE's declared timing rule, not only against the feature author's own prose.",
+      "evidence": "fs_r67_terms_of_trade_residual was published with leakage_check PASS while its own leakage_check_details record 0-session lags on both return terms, against data_r38.SIGNAL_LAG_SESSIONS = 1 for the layer it reads, and while each feature's declared lag ('1 session') contradicts its own formula.",
+      "why_it_matters_beyond_this_cell": "publish_features is a gate the pipeline enforces structurally - it refuses on leakage_check != PASS and on incomplete lineage - but it cannot detect a PASS asserted against the wrong rule. Every future cell on this layer inherits the defect."
+    },
+    "new_item_H6": {
+      "decision": "Record the R66 reopen condition for CROSS_ASSET_RELATIVE_VALUE where an agenda-setter will actually see it.",
+      "evidence": "The condition is written only inside DIRECTOR_R66_RULING.json. NEXT_CAMPAIGN_CENSUS.json still carries this hypothesis at queued rank 3 with prior LOW-MEDIUM and no mention that it was refused a campaign ago with a five-clause reopen condition attached. That is the same lossy-summary defect I reported for the open-interest family: the census presents a refused design as an open queue item.",
+      "consequence_if_uncorrected": "This cell will be proposed a third time."
+    },
+    "standing_items": "H1 identity-bridge audit, H2 basis-momentum MDE curve, H3 pin the net cost budget, H4 replace the agenda - all unchanged from DIRECTOR_R67_RULING.json. H4's first candidate is now spent: I proposed r67_06 as a candidate and, on verification, it does not survive. That is the system working, not a reversal."
+  },
+
+  "ARTIFACTS_READ_OR_MEASURED_FOR_THIS_ADDENDUM": [
+    "research/agents/campaign_r67_multi_strategy/campaign_spec_v2.json",
+    "research/agents/campaign_r67_multi_strategy/FEATURE_SET.json (all three features, leakage_check_details, frozen_parameters, per_pair_metadata)",
+    "research/agents/campaign_r66_hedged_rv/DIRECTOR_R66_RULING.json (prior_art audit, ruling_1 frozen_construction, ruling_2 in full, ruling_4 fourth-sighting audit and its generalised test)",
+    "research/agents/campaign_r56_v2/data_r38.py lines 54-68 and 109-125 (SIGNAL_LAG_SESSIONS, G6, OI offsets, union session grid)",
+    "alpha_agent/agents_v2/contracts.py Contracts.families_for (RELATIVE_VALUE routing, measured)",
+    "research memory event journal, read-only (AGENTS_V2_UNIVERSE_DEFINED r67_terms_of_trade_pairs; AGENTS_V2_FEATURES_PUBLISHED fs_r67_terms_of_trade_residual leakage_check PASS)"
+  ]
+}

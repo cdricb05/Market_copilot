@@ -1,0 +1,16 @@
+{
+    "asset_classes":  [
+                          "COMMODITY_FUTURES",
+                          "FX_FUTURES",
+                          "RATES_FUTURES",
+                          "EQUITY_INDEX_FUTURES",
+                          "VOLATILITY",
+                          "CROSS_ASSET"
+                      ],
+    "dataset_id":  "r38_native_contract_layer_with_deferred_leg_v1",
+    "survivorship":  "Expired contracts retained; all 68 certified markets carried in full history. FGBL is an uncertified orphan and is excluded.",
+    "pit_status":  "PIT_SAFE",
+    "path":  "D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4\\native_contract_layer",
+    "availability_rule":  "A dated-contract settle is available after that session closes; a feature at decision t may use ret/ret2/open_interest through t only. Layer ends 2026-08-21 and no sample may extend beyond it.",
+    "notes":  "ret2 confirmed as DEFERRED contract return (present in 68 of 69 files; absent only for FGBL). open_interest present in all 69, contract-level. Verified independently this release by direct CSV column inspection. CROSS_ASSET is certified because this ONE layer carries FX and commodity markets on a common calendar, which is exactly what a cross-asset relative-value universe needs; it is not a claim about any market the layer does not contain."
+}

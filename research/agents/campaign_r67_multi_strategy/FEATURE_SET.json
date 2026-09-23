@@ -1,0 +1,161 @@
+{
+  "feature_set_id": "fs_r67_terms_of_trade_residual",
+  "version": "1.0.0",
+  "created_at": "2026-09-23T13:06:48.529221Z",
+  "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+  "cell_id": "r67_06",
+  "label": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+  "universe_id": "r67_terms_of_trade_pairs",
+  "data_source": "r38_native_contract_layer_with_deferred_leg_v1",
+  "data_source_path": "D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4\\native_contract_layer",
+  "data_layer_end_date": "2026-08-21",
+  "hypothesis": "Currency and commodity futures are two claims on the same terms-of-trade factor. The residual after removing commodity beta explains relative mispricing. Mean reversion over 21 sessions.",
+  "economic_family": "RELATIVE_VALUE",
+  "information_family": "TERMS_OF_TRADE",
+  "basket_construction": {
+    "methodology": "Equal-weighted sum of commodity returns",
+    "rationale": "Each commodity represents one facet of the export basket. No fitting to outcome; purely economic reasoning. Equal weight is transparent and defensible.",
+    "weights_per_pair": {
+      "6A": {
+        "GC": 0.3333333333333333,
+        "HG": 0.3333333333333333,
+        "SI": 0.3333333333333333
+      },
+      "6C": {
+        "CL": 0.3333333333333333,
+        "NG": 0.3333333333333333,
+        "RB": 0.3333333333333333
+      },
+      "6N": {
+        "ZL": 0.25,
+        "ZS": 0.25,
+        "LE": 0.25,
+        "HE": 0.25
+      }
+    }
+  },
+  "beta_estimator": {
+    "method": "OLS regression (cov-based)",
+    "formula": "beta_t = cov(fx_ret, basket_ret) / var(basket_ret), estimated over window [t-window, t-1]",
+    "window_length": 63,
+    "window_description": "63 trading days (~3 months at 252 trading days/year)",
+    "lag": "1 session (beta at time t is estimated on data strictly before t)",
+    "lag_rationale": "No look-ahead: at decision time t, beta is estimated using information through t-1"
+  },
+  "residual_formula": "residual_t = fx_return_t - beta_t * basket_return_t",
+  "residual_interpretation": "The part of the FX move NOT explained by commodity basket moves; captures relative mispricing of the two claims",
+  "features": [
+    {
+      "feature_name": "residual_6A",
+      "lag": "1 session",
+      "source": "6A futures return minus beta-adjusted GC,HG,SI basket return",
+      "availability_instant": "After session close (all futures data available after close)",
+      "formula": "residual_6A_t = ret_6A_t - beta_6A_t * (equal_weighted_sum(ret_i_t for i in ['GC', 'HG', 'SI']))",
+      "per_pair_observations": 9870,
+      "per_pair_date_range": "1987-04-14 to 2026-08-21"
+    },
+    {
+      "feature_name": "residual_6C",
+      "lag": "1 session",
+      "source": "6C futures return minus beta-adjusted CL,NG,RB basket return",
+      "availability_instant": "After session close (all futures data available after close)",
+      "formula": "residual_6C_t = ret_6C_t - beta_6C_t * (equal_weighted_sum(ret_i_t for i in ['CL', 'NG', 'RB']))",
+      "per_pair_observations": 5186,
+      "per_pair_date_range": "2006-01-09 to 2026-08-21"
+    },
+    {
+      "feature_name": "residual_6N",
+      "lag": "1 session",
+      "source": "6N futures return minus beta-adjusted ZL,ZS,LE,HE basket return",
+      "availability_instant": "After session close (all futures data available after close)",
+      "formula": "residual_6N_t = ret_6N_t - beta_6N_t * (equal_weighted_sum(ret_i_t for i in ['ZL', 'ZS', 'LE', 'HE']))",
+      "per_pair_observations": 5199,
+      "per_pair_date_range": "2005-12-21 to 2026-08-21"
+    }
+  ],
+  "per_pair_metadata": {
+    "6A": {
+      "name": "AUD/USD",
+      "fx_symbol": "6A",
+      "basket_symbols": [
+        "GC",
+        "HG",
+        "SI"
+      ],
+      "basket_weights": {
+        "GC": 0.3333333333333333,
+        "HG": 0.3333333333333333,
+        "SI": 0.3333333333333333
+      },
+      "total_observations": 9933,
+      "usable_observations": 9870,
+      "first_date_raw": "1987-01-14",
+      "last_date_raw": "2026-08-21",
+      "first_date_after_lag": "1987-04-14",
+      "last_date_after_lag": "2026-08-21",
+      "declared_gaps": "Australian coal export exposure not represented (R38 has no coal futures). Coal represents ~3-4% of global thermal coal supply but is not included in the GC, HG, SI basket."
+    },
+    "6C": {
+      "name": "CAD/USD",
+      "fx_symbol": "6C",
+      "basket_symbols": [
+        "CL",
+        "NG",
+        "RB"
+      ],
+      "basket_weights": {
+        "CL": 0.3333333333333333,
+        "NG": 0.3333333333333333,
+        "RB": 0.3333333333333333
+      },
+      "total_observations": 5249,
+      "usable_observations": 5186,
+      "first_date_raw": "2005-10-04",
+      "last_date_raw": "2026-08-21",
+      "first_date_after_lag": "2006-01-09",
+      "last_date_after_lag": "2026-08-21",
+      "declared_gaps": "None material. CL, NG, RB capture the dominant Canadian export mix: crude, natural gas, and refined products."
+    },
+    "6N": {
+      "name": "NZD/USD",
+      "fx_symbol": "6N",
+      "basket_symbols": [
+        "ZL",
+        "ZS",
+        "LE",
+        "HE"
+      ],
+      "basket_weights": {
+        "ZL": 0.25,
+        "ZS": 0.25,
+        "LE": 0.25,
+        "HE": 0.25
+      },
+      "total_observations": 5262,
+      "usable_observations": 5199,
+      "first_date_raw": "2005-09-20",
+      "last_date_raw": "2026-08-21",
+      "first_date_after_lag": "2005-12-21",
+      "last_date_after_lag": "2026-08-21",
+      "declared_gaps": "New Zealand dairy exports (butter, milk powder, cheese) represent ~20-25% of NZ export value and are NOT represented. No dairy futures contract exists in R38. Dairy is typically more price-stable than grains/meat and has different term-structure behavior."
+    }
+  },
+  "leakage_check": "PASS",
+  "leakage_check_details": {
+    "fx_data_lag": "0 sessions (return calculated from previous close to current close, available after session close)",
+    "basket_data_lag": "0 sessions (all components are futures returns, available after session close)",
+    "beta_lag": "1 session (estimated on data strictly before decision instant t, no forward data used)",
+    "decision_instant_lag": "After session close at time t, feature uses data through t-1 for beta, data at t for returns",
+    "no_look_ahead": "Confirmed: all inputs available before or at decision instant"
+  },
+  "frozen_parameters": {
+    "expected_sign": "Positive: mean reversion hypothesis predicts residuals revert, so negative residuals (underpriced FX) should reverse upward.",
+    "beta_window": "63 trading days (~3 months). Window length frozen to avoid optimization after observing data.",
+    "basket_composition": "Declared per currency pair and frozen before measurement. No adjustment after observing returns.",
+    "basket_weights": "Equal-weight per pair. Frozen before measurement; no optimization to outcome.",
+    "horizon": "21 sessions (1 trading month). Declared in cell specification.",
+    "cost_model": "To be declared by trend-breadth-signal-agent. Feature layer provides residual signal; cost model is separate.",
+    "passive_control": "To be declared by trend-breadth-signal-agent. Feature provides raw residual; signal agent defines the control baseline."
+  },
+  "hash": "3ce44f30704497c216cb6646956581b0849702029cb7743fcb978f88073c3f0e"
+}

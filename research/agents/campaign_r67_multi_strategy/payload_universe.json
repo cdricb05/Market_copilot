@@ -1,0 +1,8 @@
+{
+    "short_leg_expressible":  true,
+    "dataset_id":  "r38_native_contract_layer_with_deferred_leg_v1",
+    "rules":  "Three commodity-currency / export-basket pairs on the R38 certified dated-contract layer, baskets declared in advance from economic reasoning and equal-weighted, never fitted. 6A vs (GC,HG,SI) - declared gap: no coal future is owned, and coal is a material Australian export. 6C vs (CL,NG,RB) - no material gap. 6N vs (ZL,ZS,LE,HE) - declared gap: NO DAIRY future is owned and dairy is 20-25 percent of New Zealand export value, so this pair\u0027s basket is the weakest of the three and its result must be read with that stated. Sample ends 2026-08-21, the layer\u0027s certification endpoint. FGBL excluded as an uncertified orphan. RESEARCH short legs are expressible in futures notional; the OPERATIONAL book is long-only (api.capital_pool short_exposure_supported=false), so no result here may be reported as operationally implementable.",
+    "asset_class":  "CROSS_ASSET",
+    "universe_id":  "r67_terms_of_trade_pairs",
+    "execution_representation":  "FUTURES_NOTIONAL"
+}

@@ -1,0 +1,61 @@
+{
+ "RUN_ID": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+ "CAMPAIGN_ID": "R67_MULTI_STRATEGY_ALPHA",
+ "EXPERIMENT_ID": "",
+ "SOURCE_AGENT": "quant-research-director",
+ "TARGET_AGENT": "universe-construction-agent",
+ "DECISION_REQUIRED": "Declare the point-in-time universe over the certified dataset and its execution representation.",
+ "FACTS": {
+  "items": [],
+  "already_satisfied": false
+ },
+ "METRICS": {},
+ "FAILED_GATES": [],
+ "ARTIFACT_POINTERS": {
+  "campaign_spec": "R67_MULTI_STRATEGY_ALPHA",
+  "schema": "research/agents/agent_contracts.json"
+ },
+ "SAFETY_STATE": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ },
+ "AGENT_SYSTEM_VERSION": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "BRIEF_OWNER": "alpha_agent.agents_v2.briefs",
+ "BRIEF_VERSION": "R58_AGENT_CONTEXT_CONTRACT_V1",
+ "DO_NOT_RECOMPUTE": {
+  "arithmetic": "alpha_agent.agents_v2.runner",
+  "statistics": "alpha_agent.r59.engines.gate",
+  "ranking": "alpha_agent.agents_v2.books",
+  "backtests": "alpha_agent.agents_v2.books",
+  "feature_computation": "campaign executor module",
+  "transaction_costs": "alpha_agent.agents_v2.books",
+  "universe_filtering": "campaign executor module",
+  "date_slicing": "alpha_agent.agents_v2.runner",
+  "placebo": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "doubled_cost": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "subperiod_stability": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "duplicate_identity": "alpha_agent.r59.memory.ResearchMemory.is_novel",
+  "threshold_comparison": "alpha_agent.r59.engines.gate",
+  "experiment_state_lookup": "alpha_agent.r59.memory.ResearchMemory",
+  "burden_calculation": "alpha_agent.r59.handlers.search_denominator",
+  "stage_advance_rule": "alpha_agent.r59.engines.stage_advance",
+  "result_formatting": "alpha_agent.agents_v2.briefs"
+ },
+ "MODEL_ROUTING": {
+  "model": "haiku",
+  "effort": "low",
+  "tier": "LOW_STRUCTURED"
+ }
+}

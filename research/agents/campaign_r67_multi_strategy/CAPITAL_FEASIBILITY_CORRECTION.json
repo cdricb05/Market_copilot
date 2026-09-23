@@ -1,0 +1,930 @@
+{
+ "schema": "r67_capital_feasibility_correction/1",
+ "calculation_owner": "alpha_agent.r67.capital_feasibility",
+ "what_this_corrects": "R66 measured eleven hedged structures and reported the blocker as instrument granularity plus the absence of owned micro-contract data. That is the constraint on the LONG leg's SIZE. It is not the first constraint. Every one of the eleven has a SHORT leg, and the operational book declares short_exposure_supported=false, so each is inexpressible at any size, at any NAV, under any cash policy. R66 never evaluated that constraint. Its verdicts are not disputed and are not recomputed here; what changes is WHOSE RULE produced them, and therefore what would have to change to lift them.",
+ "the_headline_consequence": "R66's single survivor - corn/wheat ZC/ZW, reported as missing by $82 of margin and becoming holdable at a 10% cash policy - is not holdable at any cash policy. No cash policy makes a short leg expressible in a long-only book.",
+ "authorised_policy": {
+  "long_only": true,
+  "short_exposure_supported": false,
+  "short_leg_rule": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK",
+  "nav_usd": 99127.48,
+  "free_cash_usd": 4482.71,
+  "available_capital_usd": 4482.71,
+  "collateral_usd": 0.0,
+  "valuation_date": "2026-09-21",
+  "collateral_semantics": "INITIAL_MARGIN_ENCUMBERS_CASH_NOT_A_CASH_OUTFLOW",
+  "policy_owner": "api.capital_pool + api.capital_eligibility_gate",
+  "max_name_weight": 0.1,
+  "min_position_weight": 0.005,
+  "min_adv_dollar": 10000000.0,
+  "frontier_policy_owner": "api.opportunity_frontier"
+ },
+ "constraint_provenance": {
+  "LONG_ONLY_BOOK": {
+   "owner": "AUTHORISED_POLICY",
+   "binds": true,
+   "source": "api.capital_pool semantics.long_only=True and safety.short_exposure_supported=False; api.capital_eligibility_gate.SHORT_LEG_RULE",
+   "statement": "the operational book may hold no short position; a structure with a short leg is not expressible at any size, at any NAV, under any cash policy",
+   "r66_checked_it": false,
+   "note": "this is the constraint that actually binds every hedged structure R66 measured, and R66 never evaluated it"
+  },
+  "MAX_NAME_WEIGHT": {
+   "owner": "AUTHORISED_POLICY",
+   "binds": true,
+   "source": "api.opportunity_frontier policy.max_name_weight",
+   "statement": "no single name may exceed this fraction of NAV",
+   "r66_checked_it": false
+  },
+  "MIN_POSITION_WEIGHT": {
+   "owner": "AUTHORISED_POLICY",
+   "binds": true,
+   "source": "api.opportunity_frontier policy.min_position_weight",
+   "statement": "a position below this weight is not worth holding",
+   "r66_checked_it": false
+  },
+  "CONTRACT_INDIVISIBILITY": {
+   "owner": "EXCHANGE",
+   "binds": true,
+   "source": "futures_market_registry.json point_value per market",
+   "statement": "a futures contract is an indivisible unit; a hedge ratio must be expressed in integers",
+   "r66_checked_it": true,
+   "note": "R66 got this one exactly right and it is reused unchanged"
+  },
+  "INITIAL_MARGIN": {
+   "owner": "EXCHANGE",
+   "binds": true,
+   "source": "futures_market_registry.json margin per market",
+   "statement": "cash must cover initial margin per contract",
+   "r66_checked_it": true,
+   "limitation": "CURRENT margin applied to a CURRENT question, which is legitimate; it is NOT point-in-time and may never be used to margin a historical position"
+  },
+  "MAX_GROSS_NOTIONAL_OVER_NAV": {
+   "owner": "R66_CONVENTION",
+   "binds": false,
+   "source": "research/agents/campaign_r66_hedged_rv/feasibility.py MAX_GROSS_NOTIONAL_OVER_NAV = 1.0",
+   "statement": "gross notional may not exceed 1.00x NAV",
+   "r66_checked_it": true,
+   "note": "declared by R66 for itself and reported as structural. No authorised policy in api/ contains it. Retained ONLY as a labelled sensitivity; it may not decide a verdict"
+  },
+  "VARIATION_MARGIN_RESERVE": {
+   "owner": "R66_CONVENTION",
+   "binds": false,
+   "source": "research/agents/campaign_r66_hedged_rv/feasibility.py VARIATION_MARGIN_RESERVE_MULTIPLE = 1.0",
+   "statement": "hold initial margin plus 1.0x of it against variation",
+   "r66_checked_it": true,
+   "note": "prudent and unauthorised. A real reserve should be sized from the structure's own drawdown, not from a multiple of margin, which is an exchange number and not a risk measure"
+  },
+  "HEDGE_ERROR_TOLERANCE": {
+   "owner": "RESEARCH_ASSUMPTION",
+   "binds": false,
+   "source": "research/agents/campaign_r66_hedged_rv/feasibility.py HEDGE_ERROR_TOLERANCE = 0.10",
+   "statement": "an integer hedge within 10% of the intended ratio is faithful",
+   "r66_checked_it": true
+  },
+  "VOL_MATCHED_HEDGE_RATIO_AS_DV01_PROXY": {
+   "owner": "RESEARCH_ASSUMPTION",
+   "binds": false,
+   "source": "research/agents/campaign_r66_hedged_rv/feasibility.py hedge_ratio()",
+   "statement": "the hedge ratio equalises DAILY DOLLAR VOLATILITY, and R66 claimed it is close to the DV01 ratio for two points on one issuer's curve",
+   "r66_checked_it": true,
+   "note": "defensible WITHIN one curve and false ACROSS instruments. R66's own Gate A is the proof: ZN against SR3 gave a median vol-matched beta of 15.4 that ADDED variance. A volatility hedge is not a DV01 hedge and this module never calls it one"
+  },
+  "SPAN_SPREAD_CREDIT": {
+   "owner": "RESEARCH_ASSUMPTION",
+   "binds": false,
+   "source": "R66 SPAN_CREDIT_STATE = UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "statement": "no exchange spread-credit table is owned; default credit 0",
+   "r66_checked_it": true,
+   "note": "a 0% credit is the conservative UPPER BOUND on committed capital and R66 was right to default to it"
+  }
+ },
+ "binding_owners": [
+  "AUTHORISED_POLICY",
+  "EXCHANGE"
+ ],
+ "verdict_counts": {
+  "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY": 11
+ },
+ "n_structures": 11,
+ "structures": [
+  {
+   "label": "US_10s30s_CURVE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 325406.25,
+   "gross_notional_over_nav": 3.2827047555329765,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 8196.0,
+   "margin_over_free_cash": 1.8283582921937847,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZB",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 3.2827047555329765,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 16392.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 8196.0,
+      "credit_50_pct": 4098.0,
+      "credit_75_pct": 2049.0
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "US_2s10s_CURVE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 1354328.125,
+   "gross_notional_over_nav": 13.6624892007746,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 12789.0,
+   "margin_over_free_cash": 2.8529617128924243,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZN",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 13.6624892007746,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 25578.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 12789.0,
+      "credit_50_pct": 6394.5,
+      "credit_75_pct": 3197.25
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "US_5s10s_CURVE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 535117.1875,
+   "gross_notional_over_nav": 5.398272885581274,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 8251.0,
+   "margin_over_free_cash": 1.8406276560384232,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZN",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 5.398272885581274,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 16502.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 8251.0,
+      "credit_50_pct": 4125.5,
+      "credit_75_pct": 2062.75
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "US_SWAP_SPREAD_PROXY_r66_01",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 4203246.913909912,
+   "gross_notional_over_nav": 42.402438898980506,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 17499.0,
+   "margin_over_free_cash": 3.90366541667875,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "SR3",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 42.402438898980506,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 34998.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 17499.0,
+      "credit_50_pct": 8749.5,
+      "credit_75_pct": 4374.75
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "AUD_vs_GOLD_TERMS_OF_TRADE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 1323889.9560928345,
+   "gross_notional_over_nav": 13.35542834431819,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 48934.0,
+   "margin_over_free_cash": 10.916164552246297,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "GC",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 13.35542834431819,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 97868.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 48934.0,
+      "credit_50_pct": 24467.0,
+      "credit_75_pct": 12233.5
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "CAD_vs_CRUDE_TERMS_OF_TRADE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 814460.0024223328,
+   "gross_notional_over_nav": 8.21628878714896,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 16720.0,
+   "margin_over_free_cash": 3.7298866087701414,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "CL",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 8.21628878714896,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 33440.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 16720.0,
+      "credit_50_pct": 8360.0,
+      "credit_75_pct": 4180.0
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "CRACK_HO_CL",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 362901.5989303589,
+   "gross_notional_over_nav": 3.6609585851507465,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 20900.0,
+   "margin_over_free_cash": 4.662358260962677,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "CL",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 3.6609585851507465,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 41800.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 20900.0,
+      "credit_50_pct": 10450.0,
+      "credit_75_pct": 5225.0
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "CRUSH_ZM_ZS",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 217810.00366210938,
+   "gross_notional_over_nav": 2.197271671408467,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 9955.0,
+   "margin_over_free_cash": 2.2207548558795907,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZS",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 2.197271671408467,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 19910.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 9955.0,
+      "credit_50_pct": 4977.5,
+      "credit_75_pct": 2488.75
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "FEED_ZC_ZW",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 82450.0,
+   "gross_notional_over_nav": 0.8317572483432445,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 4565.0,
+   "margin_over_free_cash": 1.0183571991050058,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "SINGLE_POSITION_ONLY",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZW",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": false,
+     "measured_over_nav": 0.8317572483432445,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 9130.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 4565.0,
+      "credit_50_pct": 2282.5,
+      "credit_75_pct": 1141.25
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "FEED_ZC_ZM",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 136102.50244140625,
+   "gross_notional_over_nav": 1.3730047655948305,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 7040.0,
+   "margin_over_free_cash": 1.5704785721137438,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "ZM",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 1.3730047655948305,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 14080.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 7040.0,
+      "credit_50_pct": 3520.0,
+      "credit_75_pct": 1760.0
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  },
+  {
+   "label": "LIVE_LE_HE",
+   "calculation_owner": "alpha_agent.r67.capital_feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "n_legs": 2,
+   "n_short_legs": 1,
+   "gross_notional_usd": 336090.00244140625,
+   "gross_notional_over_nav": 3.39048266375183,
+   "net_notional_usd": 0.0,
+   "net_notional_over_nav": 0.0,
+   "initial_margin_usd": 14850.0,
+   "margin_over_free_cash": 3.312728238052428,
+   "valuation_date": "2026-09-21",
+   "verdict_vocabulary": [
+    "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+    "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+    "MARGIN_EXCEEDS_FREE_CASH",
+    "IMPLEMENTABLE_UNDER_AUTHORISED_POLICY"
+   ],
+   "binding_owners": [
+    "AUTHORISED_POLICY",
+    "EXCHANGE"
+   ],
+   "r66_verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "verdict": "NOT_EXPRESSIBLE_UNDER_AUTHORISED_POLICY",
+   "binding_constraint": "LONG_ONLY_BOOK",
+   "binding_constraint_owner": "AUTHORISED_POLICY",
+   "not_expressible_legs": [
+    {
+     "symbol": "HE",
+     "side": "SHORT",
+     "reason": "SHORT_LEG_NOT_EXPRESSIBLE_LONG_ONLY_BOOK"
+    }
+   ],
+   "explanation": "1 of 2 legs are SHORT and the operational book declares short_exposure_supported=false. The structure is not expressible at ANY size, at ANY NAV, under ANY cash policy. Notional and margin are reported below for completeness and decide nothing.",
+   "what_would_change_it": "a human governance decision to support short exposure in the position contract and the NAV replay - NOT a cash policy change, NOT a smaller contract, and NOT more NAV",
+   "governance_contract_note": "retired restriction R02 permits long/short RESEARCH; it requires that an inexpressible leg be REPORTED, which is what this row is",
+   "r66_reported_blocker_was": "instrument granularity and the absence of owned micro-contract data - which is the constraint on the LONG leg's SIZE, one level below this one",
+   "sensitivity": {
+    "is_a_verdict": false,
+    "adopted": false,
+    "requires_human_approval_to_adopt": true,
+    "r66_gross_notional_convention": {
+     "threshold_over_nav": 1.0,
+     "owner": "R66_CONVENTION",
+     "would_refuse": true,
+     "measured_over_nav": 3.39048266375183,
+     "note": "R66 reported this as structural. It is a threshold R66 declared for itself and no authorised policy contains it"
+    },
+    "r66_variation_margin_reserve": {
+     "multiple": 1.0,
+     "owner": "R66_CONVENTION",
+     "cash_required_usd": 29700.0,
+     "would_refuse": true,
+     "note": "sizing a reserve as a multiple of MARGIN uses an exchange number as a risk measure; a reserve sized from the structure's own drawdown would be the honest version"
+    },
+    "span_credit_band": {
+     "owner": "RESEARCH_ASSUMPTION",
+     "credits_considered": [
+      0.0,
+      0.5,
+      0.75
+     ],
+     "committed_capital_usd": {
+      "credit_0_pct": 14850.0,
+      "credit_50_pct": 7425.0,
+      "credit_75_pct": 3712.5
+     },
+     "state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+     "note": "0% is the conservative upper bound and is what binds above"
+    }
+   }
+  }
+ ],
+ "generated_at": "2026-09-23T13:15:01.549361+00:00",
+ "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+ "read_only": true,
+ "registers_no_hypothesis": true,
+ "burden_charged": 0
+}

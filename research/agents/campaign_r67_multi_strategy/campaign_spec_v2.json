@@ -1,0 +1,84 @@
+{
+ "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+ "spec_version": 2,
+ "supersedes": "campaign_spec.json (v1)",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "state": "AWAITING_DIRECTOR_PREREGISTRATION",
+ "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+
+ "why_there_is_a_v2": "The director ruled on v1 and refused all five cells (DIRECTOR_R67_RULING.json). The refusals were correct and are NOT appealed: r67_01's novelty claim was false (basis momentum was already built as bm_252 on this exact layer and settled HALTED_AT_V at -0.82%/yr, with a recorded condition forbidding re-parameterisation on the same panel); r67_02's was false in the opposite direction (the open-interest family is burden 4 and was measured NEGATIVE twice at discovery, -2.42%/yr and -4.51%/yr, against a declared sign of +1 - the census summarised the family from its most recent row and so presented a measured, failed family as unmeasured); r67_03/04 sit on a panel the estate has FROZEN PENDING AUDIT; r67_05's halt was a real 21.9%/yr cost, not a ceiling artifact, and its proposed hold band is a parameter chosen after that cost was seen. v2 carries ONLY the two cells the director itself identified as clearing every blocker it had just applied.",
+
+ "the_contested_ruling_that_now_binds": {
+  "question": "Does re-testing a settled mechanism on a disjoint PIT universe satisfy NEW_ORTHOGONAL_INFORMATION, or is it duplicate identity?",
+  "ruling": "NEITHER. It is REPLICATION - a third category the estate already has precedent for (census rank 7 XA_BASIS_MOMENTUM_REPLICATION; R60 ran three extension re-tests). The reopen condition is about INFORMATION, not SAMPLE. More rows are more OBSERVATIONS, not more information.",
+  "proof_offered": "family_key for the settled record H_66753675_0067804439de and for r67_03 as specified are byte-identical: LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY|RANK_TOPN.",
+  "consequence_that_binds_v2": "A replication inherits its PARENT'S burden denominator and may never be charged against a fresh key. A replication of a NULL must take its expected sign from published literature, never from the parent's layer economics.",
+  "model_family_laundering_refused": "A long-only variant of a mechanism whose every measured prior row is XS_LONG_SHORT lands on a burden-0 key, because model_family is the fourth key component. Measured: POSITIONING|OPEN_INTEREST|COMMODITY_FUTURES|RANK_TOPN = 0 against XS_LONG_SHORT = 4. This would have passed the machine duplicate check and is refused explicitly."
+ },
+
+ "proposed_cells": [
+  {
+   "executor": "r67_06",
+   "label": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+   "rank_in_census": 3,
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "RELATIVE_VALUE",
+   "proposed_information_family": "TERMS_OF_TRADE",
+   "economic_mechanism": "A commodity exporter's currency and its export commodity are two claims on ONE terms-of-trade factor. The spread between a commodity-currency future (6A, 6C, 6N) and a beta-matched basket of the commodity that country exports cancels the common factor, leaving the relative mispricing of the two claims. Mean reversion over 21 sessions.",
+   "novelty_claim": "The director verified that NO TERMS_OF_TRADE information family exists anywhere in the estate, and that the family key carries burden 1. CROSS_ASSET is the ONLY scope the R59 frontier still reports RESEARCH_READY. The feature is already built.",
+   "why_it_is_not_r66_02": "R66 refused its terms-of-trade cell as the fourth sighting of TIMING A PREMIUM WITH A CONDITIONING VARIABLE. This cell carries ZERO conditioning variables and is a pure relative-value spread, not a conditioned premium. The director must re-verify this distinction before pre-registration and refuse the cell if it cannot.",
+   "must_be_frozen_before_measurement": ["expected sign", "beta window and estimator", "the exact commodity basket per currency", "horizon", "cost model on traded notional", "the passive control the increment is measured against"]
+  },
+  {
+   "executor": "r67_07",
+   "label": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+   "rank_in_census": 12,
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "SHORT_HORIZON_REVERSAL",
+   "proposed_information_family": "FINRA_SHORT_VOLUME",
+   "economic_mechanism": "Liquidity provision is paid for absorbing NON-INFORMATIONAL selling. Five-session losers should therefore rebound MORE when the selling was not short-driven (low FINRA short-volume share) and less when it was, because short-driven selling is more likely to carry information.",
+   "novelty_claim": "A NEW VARIABLE enters, so the information_family genuinely changes - which is exactly the distinction the director drew between this cell and the refused extension cells. The census records it as carrying a valid reopen statement for that reason. It runs on the S&P 500 panel, so it does NOT depend on the frozen extension panel.",
+   "clears_both_blockers": "It needs neither the frozen extension panel nor a re-parameterisation of a blocked family.",
+   "turnover_warning": "R56 V2 measured H5 reversal cost at 20%/yr and the census measured the extension variant at 21.9%/yr on 0.870 turnover. Cost is the binding constraint at H5 and must be frozen BEFORE measurement, never chosen after a turnover number is seen.",
+   "must_be_frozen_before_measurement": ["expected sign", "the short-volume share breakpoint", "horizon", "entry convention", "cost model", "any hold band - or the explicit decision to have none"]
+  }
+ ],
+
+ "explicitly_not_proposed": {
+  "A_THIRD_CELL_TO_FIX_THE_DIVERSITY_GATE": "The director declared diversity NOT SATISFIED over zero pre-registered experiments and refused to invent a cell to fix it, on the ground that inventing one AFTER seeing the count is the textbook prohibited act. v2 does not invent one either. Two cells are proposed because two survive.",
+  "EVERY_V1_CELL": "All five are refused in DIRECTOR_R67_RULING.json and none is appealed here.",
+  "ANYTHING_ON_THE_EXTENSION_PANEL": "us_equity_extension_pit_panel_v1 is RETAINED but FROZEN PENDING AUDIT. Its identity bridge resolves delisted names by ISSUER NAME and is unaudited, and a RATIO feature turns a mis-match into a rank EXTREME, so a bottom-decile book selects TOWARD mis-bridged names. Until the audit passes, success on it is uninterpretable and failure uninformative. R67 runs the AUDIT (see audit_track) and registers no experiment on the panel."
+ },
+
+ "audit_track": {
+  "id": "R67_IDENTITY_BRIDGE_AUDIT",
+  "is_an_experiment": false,
+  "charges_burden": 0,
+  "reads_no_evaluation_sample": true,
+  "why": "The director escalated this as H1: the single gate on the estate's best unexplored equity domain. It is a DATA-QUALITY AUDIT, not a hypothesis - it scores no signal, computes no return and reads no lockbox, so it can be executed without pre-registration and without burden.",
+  "must_establish": [
+   "false-match rate against a permanent identifier (CUSIP/PERMNO/FIGI) with a confidence interval",
+   "whether the 9.2% unbridged delisted attrition is conditionally ignorable by termination reason",
+   "extreme-decile contamination by low-confidence bridges",
+   "PIT separation of splits and stock-financed M&A from economic issuance",
+   "characterisation of sign/units/attribution errors that SURVIVE the non-positive filter",
+   "real delisting returns rather than truncation",
+   "a versioned hashed bridge artifact",
+   "pre-registered pass/fail thresholds"
+  ],
+  "the_permanent_identifier_is_already_owned": "SEC Fails-to-Deliver files carry CUSIP and SYMBOL in the SAME ROW at ~99.8% coverage and are free. The estate established this while building the institutional-ownership bridge. So the audit's hardest requirement - a permanent identifier to measure false-match rate against - needs no purchase and no new entitlement."
+ },
+
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO AUTOMATION, NO BACKFILL. NEW_PAID_DATA_COST = $0.",
+
+ "requires": {
+  "datasets": ["r38_native_contract_layer_with_deferred_leg_v1", "norgate_us_equity_sp500_pit_v1", "finra_short_volume_v1"],
+  "universes": ["r67_terms_of_trade_pairs", "r67_sp500_h5_reversal"],
+  "feature_sets": ["fs_r67_terms_of_trade_residual", "fs_r67_h5_reversal_short_volume"]
+ },
+
+ "review_order": ["r67_06", "r67_07"],
+ "review_order_rule": "BINDING and also the EXECUTION order. r67_06 FIRST: CROSS_ASSET is the only RESEARCH_READY frontier scope, its family key carries burden 1, its information family does not exist in the estate at all, and its feature is already built - so it is the cheapest genuine novelty available. r67_07 SECOND: its novelty is equally genuine but its cost model is the binding constraint and a careless freeze there wastes the cell."
+}

@@ -1,0 +1,294 @@
+{
+  "campaign_id": "R67_MULTI_STRATEGY_ALPHA",
+  "run_id": "R67_MULTI_STRATEGY_ALPHA_AND_PORTFOLIO_CAPITAL_ENGINE",
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "ruling_agent": "quant-research-director",
+  "ruling_date": "2026-09-23",
+  "contract": "research/agents/governance_contract.json",
+  "protocol": "research/agents/research_director_protocol.json",
+  "state": "DIRECTOR_RULED",
+  "recommendation": "NEEDS_HUMAN_DECISION",
+
+  "headline": "ZERO of the five proposed cells is admissible as specified. The campaign is not two cells and it is not five cells; it is none. The two cells the spec called uncontested (r67_01, r67_02) are refused on PRIOR ART verified in the research memory, not on data - the R38 dated layer carries both a real deferred leg and real open interest, so neither is DATA_HOLD. The three contested cells are refused neither as NEW_ORTHOGONAL_INFORMATION nor as DUPLICATE_IDENTITY: they are REPLICATIONS, a category the estate has already written down, and they are HELD on an unaudited substrate whose own owner records that success on it is uninterpretable and failure uninformative.",
+
+  "safety": {
+    "research_only": true, "paper_only": true, "creates_orders": false, "creates_fills": false,
+    "promotes_model": false, "approves_proposal": false, "makes_sleeve_capital_eligible": false,
+    "mutates_operational_store": false, "backfills_forward_evidence": false,
+    "new_paid_data_cost_usd": 0, "manual_review_required": true, "shell": "WINDOWS_POWERSHELL_ONLY"
+  },
+
+  "PART_1_THE_CONTESTED_RULING": {
+    "question": "Does re-testing a SETTLED large-cap economic mechanism on a DISJOINT point-in-time universe (S&P MidCap 400 + SmallCap 600 Current and Past, 4409 symbols, excluding PIT S&P 500 members) satisfy the recorded reopen condition NEW_ORTHOGONAL_INFORMATION, or is it a DUPLICATE IDENTITY that the duplicate-identity check must refuse?",
+
+    "ruling": "NEITHER. The question is a false binary and I refuse both of its horns. A disjoint point-in-time universe is NOT NEW_ORTHOGONAL_INFORMATION, and it is NOT duplicate identity. It is an OUT-OF-SAMPLE REPLICATION - a third category the estate has already defined, already used, and already written the discipline for. The three extension cells are registrable IN PRINCIPLE as replications, and are REFUSED IN FACT on grounds that have nothing to do with identity.",
+
+    "reasoning": {
+      "1_why_it_is_NOT_new_orthogonal_information": {
+        "principle": "NEW_ORTHOGONAL_INFORMATION is a condition about INFORMATION, not about SAMPLE. The estate's identity function encodes exactly this distinction and the slot where orthogonal information would have to appear is named: alpha_agent/r59/memory.py lines 163-173, family_key = economic_family|information_family|asset_class|model_family. The place new information enters is the information_family component.",
+        "measurement": "I computed both keys rather than asserting them. The settled hypothesis H_66753675_0067804439de has family_key LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY|RANK_TOPN. r67_03 as specified - Amihud illiquidity, long-only top quintile, US equities - produces the byte-identical key LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY|RANK_TOPN. Not similar. Identical. That family carries 13 prior tests in the research memory.",
+        "conclusion": "Amihud illiquidity computed on mid-caps is the SAME VARIABLE computed on MORE ROWS. More rows are more OBSERVATIONS, not more INFORMATION. The spec's argument that 'new data is, on its face, new information' conflates the two and is refused. A universe swap changes the sample; it does not change what the predictor knows.",
+        "the_estate_proves_the_distinction_is_operative": "NEXT_CAMPAIGN_CENSUS.json queued_hypotheses rank 12, EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME, carries an explicit reopen_statement: 'Reopens SHORT_HORIZON_REVERSAL on its recorded condition NEW_ORTHOGONAL_INFORMATION: FINRA short-volume share has one prior test in the estate.' That reopening is VALID because a genuinely new variable enters the predictor and the information_family changes. The extension cells change no variable at all. The estate therefore already shows what a real NEW_ORTHOGONAL_INFORMATION reopening looks like, and the extension cells are not it."
+      },
+
+      "2_why_it_is_NOT_duplicate_identity": {
+        "principle": "The duplicate-identity check exists to stop the SAME hypothesis being SCORED TWICE and to stop a dead idea being relabelled to escape its burden. A pre-registered test on a disjoint sample does neither. It is scored once, on rows the parent never touched, and it is declared in advance as a re-test rather than disguised as a discovery.",
+        "the_estate_has_already_named_this_category": "NEXT_CAMPAIGN_CENSUS.json queued_hypotheses rank 7, XA_BASIS_MOMENTUM_REPLICATION: 'Pre-registered REPLICATION of rank 1 on a disjoint instrument set. It is its own family key and is charged to the burden; it is evidence only if rank 1 is measured first and not used to tune it.' That is precisely the structure under dispute, already ruled on, already registrable, already charged.",
+        "precedent_in_the_record": "R60 actually ran three extension-universe re-tests of settled large-cap mechanisms (EQ_EXTENSION_NET_SHARE_ISSUANCE, EQ_EXTENSION_GROSS_PROFITABILITY, EQ_EXTENSION_H5_IMMEDIACY_REVERSAL). The estate has already accepted this structure as registrable. A flat DUPLICATE_IDENTITY ruling now would silently overturn that precedent and would also be wrong.",
+        "conclusion": "REFUSING these as duplicate identity would be as much an error as accepting them as discoveries. They are replications."
+      },
+
+      "3_the_replication_discipline_that_binds": {
+        "R1_it_may_never_be_reported_as_a_discovery": "A replication result is evidence ABOUT the parent result. A positive extension result is a replication finding whose prior is the large-cap finding. It is never a fresh alpha claim and never a new family's first success.",
+        "R2_a_replication_of_a_NULL_is_a_replication_of_a_NULL": "This is the sharp point for r67_03 and r67_04. Both parents settled NO_ALPHA_EVIDENCE. You cannot replicate a result that does not exist. Therefore the expected sign must be taken from the PUBLISHED literature (Amihud 2002 for illiquidity; Blitz/Huij/Martens for residual momentum), declared in advance, and NEVER from the parent's own layer economics.",
+        "R3_the_burden_denominator_is_the_PARENT_FAMILY_burden_not_one": "R60 charged EQ_EXTENSION_NET_SHARE_ISSUANCE a denominator of 1, and the census itself flags the consequence: it 'failed with NO multiple-testing discount applied against it.' Charging a replication a fresh denominator of 1 is the laundering the duplicate-identity check was built to stop, arriving through the back door. A replication inherits the parent family's burden. For r67_03 that is 13, not 1.",
+        "R4_the_substrate_must_be_interpretable": "A replication on a substrate whose own certification says failure is uninformative produces nothing in either direction while still consuming multiple-testing budget. That is the definition of burning budget, and my budget rule forbids it."
+      }
+    },
+
+    "binding_effect": "r67_03, r67_04 and r67_05 do NOT settle as DUPLICATE_IDENTITY at zero burden. They settle as described in PART_3 - two HELD pending a named audit, one REFUSED on an independently measured cost wall. None is pre-registered and none charges burden in this campaign."
+  },
+
+  "PART_2_PRIOR_ART_VERIFIED_AT_SOURCE": {
+    "method": "Every claim below was measured or read directly this campaign. Nothing is carried from the spec's framing, and the spec's framing was wrong in four material places.",
+
+    "A_R38_DATED_LAYER_CARRIES_BOTH_DEFERRED_LEG_AND_OPEN_INTEREST": {
+      "verdict": "CONFIRMED. The layer is GOOD. Neither r67_01 nor r67_02 is DATA_HOLD.",
+      "path": "D:/Stock_Prediction_app_data/native_futures_r38/r38_native_futures_information_frontier_v4/native_contract_layer",
+      "schema_measured": "Date,ret,close,held,volume,open_interest,ret2,slope_ann",
+      "markets": 69,
+      "deferred_leg": "ret2 IS the deferred contract return. Semantics confirmed at research/agents/campaign_r56_v2/data_r38.py line 30 ('ret2 = the NEXT LISTED DELIVERY MONTH's settle(s) / ITS OWN settle(s-1) - 1'), at alpha_agent/r59/native.py line 16 ('ret2  SECOND (deferred) contract return'), and at alpha_agent/r38/research_layer.py line 156. Measured coverage: ret2 populated at 77.0 percent or better in 68 of 69 markets, at or above 99 percent in 60 of them.",
+      "open_interest": "REAL and populated. Measured: open_interest strictly positive on 91.7 percent or more of sessions in every one of the 69 markets except AFB at 58.5 percent. No market is empty.",
+      "data_defect_1_FGBL": "FGBL carries ret2 populated at 0.0 percent - it is the only market in the layer with no deferred leg at all. Independently corroborated at research/agents/campaign_r56_v2/features_fut.py line 294, which names 'the FGBL orphan'. Any deferred-leg cell must exclude FGBL by construction, declared before measurement, never on a return.",
+      "data_defect_2_OI_trailing_edge": "Measured: 64 of 69 markets carry open_interest exactly 0.0 on the final session 2026-08-21. open_interest == 0 means MISSING, never zero - already recorded by R60 in NEXT_CAMPAIGN_CENSUS.json ('63 provisional newest rows + 6,664 in-history zeros across 23 markets'). The correct PIT treatment is already owned and frozen: data_r38.OI_LATEST_USABLE_OFFSET = 2, so a feature at decision slot t reads open interest at columns <= t-2 only (features_fut.py TIMING_STATEMENT, lines 147-150). No new lag rule needs inventing and none may be invented.",
+      "data_defect_3_layer_end_date": "The certified layer's last session is 2026-08-21, not today (2026-09-23). Any sample end must be frozen at the layer's measured last session. A cell that silently ends 'today' would be claiming a month of data the layer does not have."
+    },
+
+    "B_r67_01_NOVELTY_CLAIM_IS_FALSE": {
+      "spec_claim": "campaign_spec.json line 41: 'STRONGEST IN CAMPAIGN. Requires the deferred leg, which the back-adjusted continuation panel does not carry, so the 5846 continuation-panel tests could not have expressed it at any parameter.'",
+      "verdict": "FALSE AS STATED. The claim is true about the 5846 continuation-panel tests and irrelevant, because the test was not run on the continuation panel - it was run on THIS dated layer, and it has already been run.",
+      "evidence_feature_already_built": "research/agents/campaign_r56_v2/features_fut.py line 5 declares feature set FS1 FS_FUT_R38_BASIS_MOM_V1 on FUT_R38_COMMODITY_V1. Lines 245-258 define feature_bm_252 = prod(1+ret) - prod(1+ret2) over the paired slots [t-252, t-1]. That is basis momentum, built on the deferred leg, on this exact layer.",
+      "evidence_already_measured": "Research memory, hypothesis H_7994380d_cf2e4efaaa5a, family CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT, horizon 21, outcome NO_ALPHA_EVIDENCE, reason 'HALTED_AT_V: ann_net_excess -0.00815743 < advance floor 0.00375'. The cross-asset replication H_58d49e5c_079c8b4dbce5 also exists, HALTED_AT_D at -0.00889938.",
+      "recorded_reopen_condition": "NEXT_CAMPAIGN_CENSUS.json line 67: 'HALTED_AT_V. ANNOTATED UNDERPOWERED, NOT DEAD ... BLOCKED, not reopenable: no re-parameterisation on the same panel. Settled only by a pre-registered minimum-detectable-effect curve. Do NOT read this as evidence of absence.'",
+      "why_the_proposal_violates_it": "The spec proposes 'Long-only top-quintile and long/short quintile-spread variants over the certified dated-contract layer'. That is a re-parameterisation on the same panel, which the recorded condition refuses in terms."
+    },
+
+    "C_r67_02_NOVELTY_CLAIM_IS_FALSE_AND_THE_CENSUS_SUMMARY_WAS_MISLEADING": {
+      "spec_claim": "campaign_spec.json line 53: 'Open interest is never-used owned information. It is not a price transform, so no price-state hypothesis in the estate can be its duplicate.'",
+      "verdict": "FALSE. Open interest is not never-used. The family has been MEASURED three times on commodity futures and every measured leg came in NEGATIVE against a declared expected sign of +1.",
+      "why_this_was_not_visible_in_the_brief": "The census records only the turnover-ceiling halt (line 72: 'FUT_OPEN_INTEREST_GROWTH ... HALTED BEFORE MEASUREMENT on the 0.40 one-way turnover ceiling'). That is true of ONE row and is not true of the family. Reading the census alone would have led to registering this cell. The research memory is the authority and it disagrees.",
+      "family_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT, burden 4, counted from the memory.",
+      "the_four_commodity_rows": [
+        {"id": "H_b5e5e7c0_7f7cdc392f88", "horizon": 21, "outcome": "NO_ALPHA_EVIDENCE", "reason": "HALTED_AT_D: ann_net_excess -0.0241572 < advance floor 0.00375"},
+        {"id": "H_b5e5e7c0_dc7ca69afa30", "horizon": 21, "outcome": "NO_ALPHA_EVIDENCE", "reason": "HALTED_AT_D: ann_net_excess -0.0451384 < advance floor 0.00375"},
+        {"id": "H_b5e5e7c0_483c5c1043eb", "horizon": 21, "outcome": "NO_ALPHA_EVIDENCE", "reason": "validation_same_sign; validation_material; burden_corrected_significant; subperiod_stable"},
+        {"id": "H_b5e5e7c0_f3e92699f95c", "horizon": 21, "outcome": "REJECTED", "reason": "PRE_MEASUREMENT_HALT/TURNOVER_CEILING_EXCEEDED: median_oneway_turnover_per_decision 0.5982 against the frozen threshold 0.4; no return was ever scored"}
+      ],
+      "note_on_the_shared_family_hash": "All four share the prefix H_b5e5e7c0_, which IS the family hash. They are the same family by the estate's own construction, at the same horizon 21, same model family XS_LONG_SHORT, same information family.",
+      "conclusion": "The turnover-ceiling defect rehabilitates exactly ONE row (f3e92699f95c). It does not rehabilitate the family, because the same signal at the same horizon on the same layer was separately measured at -2.42 percent/yr and -4.51 percent/yr at discovery, in the wrong direction. Reopening on the strength of the ceiling defect while ignoring two measured negative discovery legs would be selecting the one row whose failure can be blamed on governance and discarding the rows whose failure cannot."
+    },
+
+    "D_BOTH_FUTURES_CELLS_PROPOSE_MODEL_FAMILY_LAUNDERING": {
+      "verdict": "A live trap in the spec that I refuse explicitly, because it would have passed the machine duplicate-identity check.",
+      "mechanism": "Both r67_01 and r67_02 propose a LONG-ONLY variant alongside the long/short variant (spec lines 42 and 54). Every measured prior row in both families has model_family XS_LONG_SHORT. model_family is the fourth component of family_key. A long-only variant therefore produces a DIFFERENT family key with burden 0 - measured: POSITIONING|OPEN_INTEREST|COMMODITY_FUTURES|RANK_TOPN has burden 0 against XS_LONG_SHORT's 4.",
+      "ruling": "REFUSED. Changing portfolio construction from long/short to long-only does not change the economic hypothesis; it is a parameter change, and under the no-hidden-tuning rule a parameter change is a new experiment CHARGED TO THE BURDEN, not a new family that escapes it. Registering a long-only variant after the long/short variant measured -2.42 and -4.51 percent/yr is fitting to outcome. No long-only variant of either family may be registered without the parent family's full burden attached."
+    },
+
+    "E_EXTENSION_PANEL_IS_STILL_UNAUDITED": {
+      "verdict": "CONFIRMED UNAUDITED. This is the fact the spec omits entirely.",
+      "spec_omission": "campaign_spec.json line 28 presents the extension universe as 'ALREADY DONE as infrastructure'. It does not mention the freeze.",
+      "recorded_state": "NEXT_CAMPAIGN_CENSUS.json line 75: 'us_equity_extension_pit_panel_v1 is RETAINED but FROZEN PENDING AUDIT ... its identity bridge resolves delisted names by ISSUER NAME and is unaudited, and a RATIO feature converts a mis-match into a rank EXTREME, so a bottom-100 book selects TOWARD mis-bridged names. Until audited, success on it is uninterpretable and failure uninformative.'",
+      "search_performed": "No identity-bridge audit artifact exists anywhere under research/ (recursive search for *identity_bridge* and *BRIDGE_AUDIT* returned nothing). The freeze is still in force.",
+      "renaming_does_not_escape_it": "The spec requests a new dataset id norgate_us_equity_pit_extension_v1. A new id over the same unaudited issuer-name bridge is itself a relabelling and is refused. The audit is the gate, whichever id the panel carries.",
+      "what_the_audit_must_establish": "NEXT_CAMPAIGN_CENSUS.json line 76 already specifies it: false-match rate against a permanent identifier (CUSIP/PERMNO/FIGI) with a CI; whether the 9.2 percent unbridged delisted attrition is conditionally ignorable by termination reason; extreme-decile contamination by low-confidence bridges; PIT separation of splits and stock-financed M&A from economic issuance; characterisation of sign/units/attribution errors surviving the non-positive filter; real delisting returns rather than truncation; a versioned hashed bridge artifact; pre-registered pass/fail thresholds."
+    }
+  },
+
+  "PART_3_CELL_BY_CELL_DISPOSITION": {
+    "summary": {"pre_registered": 0, "refused": 3, "held": 2, "burden_charged_by_this_campaign": 0, "lockbox_reads": 0},
+
+    "r67_01_COMMODITY_BASIS_MOMENTUM_DATED_LAYER": {
+      "disposition": "REFUSED",
+      "code": "PRIOR_ART_REPARAMETERISATION_ON_THE_SAME_PANEL",
+      "not_data_hold": "The deferred leg is present and good. This is a prior-art refusal, which is stronger than DATA_HOLD, not weaker.",
+      "family_key": "CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "burden_if_it_had_been_registered": 1,
+      "reason": "Basis momentum was built as bm_252 on this exact layer and measured as H_7994380d_cf2e4efaaa5a, HALTED_AT_V at -0.82 percent/yr. Its recorded condition says in terms: 'BLOCKED, not reopenable: no re-parameterisation on the same panel.' The proposed quintile variants are a re-parameterisation on the same panel.",
+      "the_ONLY_admissible_reopen_path": {
+        "what": "The recorded condition names its own remedy and nothing else: 'Settled only by a pre-registered minimum-detectable-effect curve.'",
+        "form": "A PRE-REGISTERED MINIMUM-DETECTABLE-EFFECT / POWER CURVE for the commodity dated-layer basis-momentum book: given the panel's effective observation count, market count, cross-sectional dispersion and per-market cost, what annualised net effect could this panel have detected at 80 percent power? The published claim for basis momentum is 5-10 percent/yr; the question is whether this panel can separate that from zero at all.",
+        "governance": "This is a DESIGN POWER STUDY, not an alpha test. It declares no expected sign, scores no return, reads NO lockbox, mints NO alpha experiment id and charges ZERO burden. It cannot produce a t-statistic to mine. It is therefore not a back-door re-run.",
+        "consequence_if_run": "If the curve shows the panel CANNOT detect 5-10 percent/yr, the family is settled UNDERPOWERED-AND-CLOSED and no one wastes another slot on it. If it shows the panel CAN, a future HUMAN-AUTHORISED pre-registration may register the return test with the burden attached. Either way the estate stops guessing.",
+        "authorisation": "I do not register this in R67. It is offered to the human owner as the named remedy."
+      }
+    },
+
+    "r67_02_COMMODITY_OPEN_INTEREST_POSITIONING": {
+      "disposition": "REFUSED",
+      "code": "PRIOR_ART_FAMILY_MEASURED_NEGATIVE",
+      "not_data_hold": "Open interest is present and real in all 69 markets. This is a prior-art refusal.",
+      "family_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "burden": 4,
+      "reason": "The governing rule is my own prohibition: never spend the lockbox on an idea with no discovery evidence. This idea does not merely lack discovery evidence - it has NEGATIVE discovery evidence, measured twice on this layer at -2.42 percent/yr and -4.51 percent/yr against a declared expected sign of +1, with a third cell settling NO_ALPHA_EVIDENCE after reaching validation.",
+      "the_spec_s_best_argument_and_why_it_fails": "The turnover_ceiling_defect (census line 74) is real and I accept it: the futures cells at ~0.60 turnover and 5bp/side cost only 0.72 percent/yr and were killed by a ceiling calibrated for equities. That correctly rehabilitates ONE row. It does not rehabilitate a family whose other three measured rows failed on returns rather than on turnover.",
+      "owner_assignment_defect_noted": "The spec assigns this cell to trend-breadth-signal-agent (line 50). Measured from the contracts: POSITIONING routes to volatility-liquidity-agent, not trend-breadth-signal-agent. Had this cell been registered as specified the pipeline would have refused it FAMILY_NOT_ROUTED_TO_AGENT. The census rank 4 assignment (volatility-liquidity-agent) was correct and the spec regressed it.",
+      "net_cost_budget_still_needed": "The R60 replacement for the retired scalar ceiling - a per-cell NET COST BUDGET = one_way_turnover x cost_per_side x 2 x rebalances_per_year, fixed campaign-wide and pinned by a test BEFORE any cell registers under it - has still not been fixed or pinned anywhere in the estate. It must be, before ANY futures cell registers in any future campaign. It is not fixed here because no futures cell registers here, and fixing a threshold in a campaign that will not use it is how thresholds get quietly calibrated to a later cell."
+    },
+
+    "r67_03_EQUITY_EXTENSION_LIQUIDITY_PREMIUM": {
+      "disposition": "HELD",
+      "code": "SUBSTRATE_FROZEN_PENDING_IDENTITY_BRIDGE_AUDIT",
+      "identity_ruling": "REPLICATION. Not NEW_ORTHOGONAL_INFORMATION, not DUPLICATE_IDENTITY. See PART_1.",
+      "family_key_measured": "LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY|RANK_TOPN - byte-identical to the settled parent H_66753675_0067804439de.",
+      "burden_denominator_that_will_bind": 13,
+      "burden_ruling": "This cell is charged the PARENT FAMILY's burden of 13, NOT a fresh denominator of 1. R60 charged an extension cell a denominator of 1 and the census itself records that it therefore 'failed with NO multiple-testing discount applied against it'. A replication that escapes its parent's burden is laundering arriving through the back door.",
+      "why_held_and_not_refused": "The identity objection does not kill it; the substrate does. The panel is FROZEN PENDING AUDIT and its own certification records that success on it is uninterpretable and failure uninformative. Registering a cell there would consume multiple-testing budget to buy no information in either direction.",
+      "conditions_for_a_future_registration": [
+        "The identity-bridge audit at census line 76 is completed and passes its own pre-registered thresholds.",
+        "Expected sign +1 declared from the PUBLISHED literature (Amihud 2002) and from nothing in the estate.",
+        "Burden denominator 13 attached, not 1.",
+        "Small-cap cost model pre-registered at >= 25 bp/side before measurement and never tuned.",
+        "Reported as a replication of a NULL, never as a revival."
+      ]
+    },
+
+    "r67_04_EQUITY_EXTENSION_RESIDUAL_MOMENTUM": {
+      "disposition": "HELD",
+      "code": "SUBSTRATE_FROZEN_PENDING_IDENTITY_BRIDGE_AUDIT",
+      "identity_ruling": "REPLICATION, on the same reasoning as r67_03.",
+      "burden_denominator_that_will_bind": "The counted burden of the parent MOMENTUM/RESIDUAL family key at registration time, counted by alpha_agent.r59.handlers.search_denominator. NOT 1.",
+      "family_label_defect_noted": "The spec declares economic_family RESIDUAL_MOMENTUM (line 75). That string is not in the protocol's families_allowed list and the pipeline would refuse it. The admissible label is MOMENTUM, routed to momentum-signal-agent.",
+      "conditions_for_a_future_registration": [
+        "The identity-bridge audit is completed and passes.",
+        "Expected sign +1 declared from the published literature, not from the large-cap t 1.67 near-miss.",
+        "Parent family burden attached.",
+        "The factor set used for residualisation is frozen BEFORE measurement; a factor set chosen after seeing the residual is a new experiment."
+      ]
+    },
+
+    "r67_05_EQUITY_EXTENSION_SHORT_HORIZON_REVERSAL_NEXT_OPEN": {
+      "disposition": "REFUSED",
+      "code": "MEASURED_COST_WALL_PLUS_FROZEN_SUBSTRATE",
+      "identity_ruling": "REPLICATION on identity grounds, but identity is not what kills it.",
+      "reason_1_the_cost_wall_is_measured_not_assumed": "Unlike the two futures cells, the equity H5 extension cell's halt was NOT a misspecified-ceiling artifact. The census measured it: 'the equity H5 cell at 0.870 turnover and 25bp/side costs 21.9 percent/yr and is genuinely inexpressible' (line 74). The estate has already ruled this specific cell genuinely inexpressible, on a measurement, not on a governance scalar.",
+      "reason_2_the_hold_band_is_post_hoc": "The spec's remedy is 'a hold band because turnover, not signal, is the binding constraint at H5'. The hold band is a parameter introduced AFTER the turnover of 0.870 was seen. The R60 rule exists precisely to stop this: the replacement budget must be 'pinned by a test BEFORE any cell registers under it, so no ceiling is chosen after a turnover is seen'. A hold band chosen to bring a known 0.870 turnover under a ceiling is the same defect wearing the other hat.",
+      "reason_3": "The substrate freeze applies to it as it does to r67_03 and r67_04.",
+      "note": "The spec is commendably honest here - it states 'R56 V2 measured H5 reversal cost at 20 percent/yr on large caps - that finding binds and the cell must clear it'. It binds, and the cell does not clear it."
+    }
+  },
+
+  "PART_4_RULING_ON_THE_MANDATORY_HONESTY_NOTE": {
+    "hypothesis": "H_66753675_0067804439de",
+    "record_verified_in_the_research_memory": {
+      "economic_family": "LIQUIDITY_PREMIUM", "information_family": "PRICE_STATE",
+      "asset_class": "US_EQUITY", "model_family": "RANK_TOPN", "horizon_sessions": 21,
+      "release": "R59", "outcome": "NO_ALPHA_EVIDENCE", "reason_rejected": "burden_corrected_significant"
+    },
+    "layer_economics_as_recorded_in_the_spec": "D ann_net_excess -0.0006 (t -0.04, 2011-2017), V +0.0087 (t 0.31, 2018-2022), L +0.1374 (t 2.886, 2023-2026).",
+
+    "ruling": "This record may NOT be used as ANY part of a novelty argument or ANY part of a prior-plausibility argument. It is admissible for exactly one purpose, stated below.",
+
+    "reasoning": [
+      "It is a SETTLED NEGATIVE. Its outcome in the research memory is NO_ALPHA_EVIDENCE. A settled negative cannot be the plausibility source for its own successor; that is circular.",
+      "Using the lockbox leg as prior plausibility is conditioning on the outcome. The layer order is D then V then L, so the strong leg is the LAST and most recent one. Twelve years at t -0.04 and t 0.31 followed by 3.5 years at t 2.886 is the signature of a regime artifact or a single favourable window, and selecting the record BECAUSE of its final leg is precisely the fitting-to-outcome the no-hidden-tuning rule forbids.",
+      "The burden correction killed it correctly at denominator 306, p 0.597. A director who re-admits it as 'promising' has overturned a machine gate by narrative, which no agent in this system may do.",
+      "As a NOVELTY argument it is self-defeating rather than merely inadmissible. The record's family key is byte-identical to the proposed cell's. Invoking it therefore proves the cells are the SAME FAMILY - it is evidence for duplication, not for novelty. The spec cannot have it both ways: either the record is relevant, in which case it establishes identity, or it is novel, in which case the record is irrelevant.",
+      "The estate already set the correct prior without it. NEXT_CAMPAIGN_CENSUS.json rank 2 records the prior as 'MEDIUM-LOW after realistic small-cap cost'. That is the number that stands."
+    ],
+
+    "the_one_admissible_use": "As a CONTROL / BENCHMARK ONLY. If the identity-bridge audit ever clears and a replication is registered, the large-cap record is the comparison leg against which the small-cap replication is INTERPRETED, and it is the reason the replication must be pre-registered as a replication of a NULL. It supplies the contrast, never the expectation.",
+
+    "prohibited_phrasings_binding_on_every_downstream_agent": [
+      "Any statement that the extension cell 'revives', 'rescues', 'confirms' or 'is consistent with' H_66753675_0067804439de.",
+      "Any citation of the lockbox t 2.886 as evidence that the premium exists.",
+      "Any use of the L-layer strength to justify the cell's prior, its sign, its cost model or its selection.",
+      "Any report of the extension result that does not also state the parent's D and V legs (t -0.04 and t 0.31)."
+    ]
+  },
+
+  "PART_5_PREREGISTRATION_AND_BURDEN_DENOMINATORS": {
+    "experiments_preregistered": 0,
+    "assignment_manifest": {},
+    "assignment_manifest_note": "EMPTY. No cell is assigned and no signal agent is dispatched for R67 as specified. There is nothing for the orchestrator's parallel batch to carry.",
+
+    "attempted_registration_and_governed_refusal": {
+      "what_i_did": "Before ruling I attempted a real pre-registration of r67_02 with fully frozen parameters, to obtain the governed answer rather than predict it.",
+      "command": "scripts/alpha_agents_v2.py preregister --agent quant-research-director --input <payload.json>",
+      "result": "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED (exit 3, detail 'FEATURES_NOT_PUBLISHED: fs_r67_oi_growth')",
+      "interpretation": "This is the CORRECT sequencing and I report it as a governed answer, not an obstacle. alpha_agent/agents_v2/pipeline.py preregister requires a published feature set, which requires a defined universe, which requires certified data. The brief records data_certified false, universe_defined false, features_published false. No experiment id could have been minted in this campaign even had a cell survived, and none should have been.",
+      "consequence": "The refusal is independent of my ruling. Even a director who accepted all five cells could not have minted an id today. Any claim that R67 cells were pre-registered would be false."
+    },
+
+    "burden_denominators_ruled": {
+      "rule": "The denominator is the ATTRIBUTED FAMILY KEY's own prior burden, COUNTED by alpha_agent.r59.handlers.search_denominator at registration time, never carried as a constant and never the asset-class total. I name the key and the count I measured; the handler remains the authority.",
+      "r67_01": {"family_key": "CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT", "measured_burden": 1, "charged_this_campaign": 0, "reason": "refused before registration"},
+      "r67_02": {"family_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT", "measured_burden": 4, "charged_this_campaign": 0, "reason": "refused before registration"},
+      "r67_03": {"family_key": "LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY|RANK_TOPN", "measured_burden": 13, "charged_this_campaign": 0, "binding_on_any_future_registration": 13, "explicitly_not": 1},
+      "r67_04": {"family_key": "MOMENTUM|<residualised PRICE_STATE>|US_EQUITY|<construction>", "measured_burden": "to be counted at registration", "charged_this_campaign": 0, "binding_rule": "parent family burden, not 1"},
+      "r67_05": {"family_key": "SHORT_TERM_REVERSAL|PRICE_STATE|US_EQUITY|<construction>", "charged_this_campaign": 0, "reason": "refused"},
+      "asset_class_totals_measured_for_context_only": {"CROSS_ASSET": 2462, "US_EQUITY": 1867, "COMMODITY_FUTURES": 1632, "EQUITY_INDEX_FUTURES": 932, "RATES_FUTURES": 868, "FX_FUTURES": 694, "VOLATILITY": 15, "CREDIT_PROXY": 2},
+      "estate_total_burden": 8415,
+      "burden_added_by_R67": 0
+    }
+  },
+
+  "PART_6_DIVERSITY_POSITION_DECLARED_HONESTLY": {
+    "gate": {"min_asset_classes_per_campaign": 3, "max_share_single_asset_class": 0.5, "non_equity_reservation": 0.40, "require_at_least_one": ["H1_H5 horizon experiment", "non-equity experiment", "cross-asset experiment"]},
+    "position": "NOT SATISFIED, AND NOT SATISFIABLE FROM THIS SPEC.",
+    "measured_over_pre_registered_experiments": {
+      "pre_registered_experiments": 0,
+      "asset_classes_represented": 0,
+      "non_equity_share": "undefined over an empty set",
+      "h1_h5_experiments": 0,
+      "cross_asset_experiments": 0
+    },
+    "why_i_am_not_padding": "The protocol measures diversity over PRE-REGISTERED experiments, and the operator explicitly forbade manufacturing experiments to satisfy a quota. The honest report is that the gate is unmet because prior-art verification emptied the agenda, not because the agenda was designed badly on the diversity axis. Inventing a cell now to reach three asset classes would be exactly the prohibited act, and it would be worse here than usual: I would be inventing it AFTER seeing that the count is zero, which is the definition of choosing an experiment to satisfy a threshold.",
+    "what_i_explicitly_did_not_do": "I did not pre-register XA_TERMS_OF_TRADE_RELATIVE_VALUE, EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME or EQ_SEC_COMMENT_LETTER_DRIFT, even though each would have improved the diversity line and each is genuinely open. Adding them here would be quota-driven. They are escalated below as an agenda proposal for the human owner, which is a different act performed for a different reason.",
+    "note_on_the_spec_s_own_diversity": "Even as proposed the spec failed the gate: five cells across two asset classes (3 US_EQUITY at 60 percent, above the 0.5 ceiling; 2 COMMODITY_FUTURES), zero cross-asset experiments, and its only H1-H5 cell was r67_05. The spec's line 94 defends not adding a sixth cell, which is right on the anti-padding principle, but it means the campaign never satisfied min_asset_classes_per_campaign = 3 or the cross-asset requirement at any point."
+  },
+
+  "PART_7_ESCALATION_TO_THE_HUMAN_OWNER": {
+    "why": "Three decisions here are outside my authority and one is a scope question.",
+    "decisions_required": [
+      {"id": "H1", "decision": "Authorise the identity-bridge audit of the US equity PIT extension panel, specified at NEXT_CAMPAIGN_CENSUS.json line 76. It is the single gate holding r67_03 and r67_04, and it blocks the estate's best-ranked unexplored equity domain. Cost: engineering only, no data purchase.", "recommendation": "AUTHORISE. Until it is done, every extension-universe result the estate produces is uninterpretable, so the substrate asymmetry the spec correctly identified cannot be exploited at all."},
+      {"id": "H2", "decision": "Authorise the pre-registered minimum-detectable-effect curve for commodity basis momentum - the reopen path the R60 record names for itself. Non-scoring, zero burden, zero lockbox.", "recommendation": "AUTHORISE. It either closes the family honestly or licenses a future test. It is the cheapest way to stop the estate re-proposing this family every campaign."},
+      {"id": "H3", "decision": "Fix and PIN the per-cell NET COST BUDGET that replaces the retired 0.40 scalar turnover ceiling, before any futures cell registers under it in any campaign.", "recommendation": "AUTHORISE, and do it in a campaign that is NOT using it, so it cannot be calibrated to a cell whose turnover is already known."},
+      {"id": "H4", "decision": "Replace the R67 agenda. The proposed one is spent.", "recommendation": "See replacement_agenda_proposal. I propose, I do not register."}
+    ],
+    "replacement_agenda_proposal": {
+      "status": "PROPOSAL ONLY. Nothing below is pre-registered, assigned or charged. Offered because ruling an agenda empty without naming what is actually open would be an unhelpful refusal.",
+      "candidates": [
+        {"proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE", "census_rank": 3, "asset_class": "CROSS_ASSET", "family": "RELATIVE_VALUE", "owner": "reversal-signal-agent", "measured_burden": "CROSS_ASSET RELATIVE_VALUE|PRICE_STATE|XS_LONG_SHORT carries 1 prior test; no information_family containing TERMS or TOT exists anywhere in the memory", "why": "CROSS_ASSET is the ONLY asset class the R59 frontier rates RESEARCH_READY. The feature tot_cheapness_z_63 is already built (features_fut.py FS3 FS_XA_TOT_RV_V1). Zero data cost. It was ranked ABOVE three of the five cells the spec proposed and the spec dropped it without giving a reason.", "also_fixes": "the cross-asset requirement and min_asset_classes"},
+        {"proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME", "census_rank": 12, "asset_class": "US_EQUITY", "family": "SHORT_TERM_REVERSAL", "owner": "reversal-signal-agent", "why": "This is a GENUINE NEW_ORTHOGONAL_INFORMATION reopening under the standard set in PART_1: a new variable (FINRA short-volume share, 2 prior tests measured in the memory) enters the predictor, so the information_family actually changes. Crucially it runs on sp500_pit_panel_v1, NOT on the frozen extension panel, so it clears both R67 blockers at once.", "also_fixes": "the H1-H5 requirement, without touching the frozen substrate"},
+        {"proposal": "EQ_SEC_COMMENT_LETTER_DRIFT", "census_rank": 6, "asset_class": "US_EQUITY", "family": "EVENT_OVERREACTION", "owner": "reversal-signal-agent", "why": "Never-used free information, not in the closed ledger, on owned S&P-member CIKs. Its own prerequisite is already stated: the owned SEC submissions cover 1080 S&P-member CIKs only, which is the correct universe for a PIT S&P 500 test and a survivorship trap for anything wider."}
+      ],
+      "honest_prior_restated": "Zero of 8472 settled hypotheses have qualified. Nothing above is likely to survive. A campaign that ends NO_ALPHA_EVIDENCE after a small number of clean tests is a valid result, and cash remains a real asset choice."
+    }
+  },
+
+  "PART_8_WHAT_THE_ESTATE_SHOULD_RECORD": {
+    "census_correction_required": {
+      "defect": "NEXT_CAMPAIGN_CENSUS.json line 72 records FUT_OPEN_INTEREST_GROWTH as 'HALTED BEFORE MEASUREMENT on the 0.40 one-way turnover ceiling'. That is true of one hypothesis and false of the family. Three other commodity open-interest positioning hypotheses in the same family key were MEASURED and settled NO_ALPHA_EVIDENCE, two of them at -2.42 and -4.51 percent/yr at discovery.",
+      "consequence_if_uncorrected": "The census ranks this proposal 4th with prior LOW-MEDIUM and presents it as unmeasured. A director reading only the census - which is what the context contract instructs - would register it. I only caught it by querying the research memory directly. The census summary is lossy in a direction that manufactures novelty.",
+      "recommended_fix": "Amend the r60_settled entry to name the ceiling halt as ONE row and to carry the family's measured discovery legs alongside it. The research memory is the authority; the census must not summarise a family's state from its most recent row."
+    },
+    "no_durable_state_written_by_this_ruling": "This ruling writes no row to the research memory, charges no burden, mints no experiment id and settles no hypothesis. The only pipeline call I made was refused (FEATURES_NOT_PUBLISHED). Nothing operational changed. The five proposed cells remain unregistered rather than settled, which is the correct state for ideas that were never measured."
+  },
+
+  "ARTIFACTS_READ_OR_MEASURED": [
+    "research/agents/campaign_r67_multi_strategy/BRIEF_quant-research-director.json",
+    "research/agents/campaign_r67_multi_strategy/campaign_spec.json",
+    "research/agents/research_director_protocol.json",
+    "research/agents/NEXT_CAMPAIGN_CENSUS.json lines 55-107",
+    "D:/Stock_Prediction_app_data/native_futures_r38/r38_native_futures_information_frontier_v4/native_contract_layer (all 69 market CSVs scanned for schema, ret2 coverage, open_interest coverage, contract counts, date span)",
+    "research/agents/campaign_r56_v2/features_fut.py (bm_252, oi_agg_growth_252, tot_cheapness_z_63, TIMING_STATEMENT, FGBL orphan)",
+    "research/agents/campaign_r56_v2/data_r38.py line 30 (ret2 semantics)",
+    "alpha_agent/r59/native.py line 16 (ret2 = SECOND deferred contract return)",
+    "alpha_agent/r38/research_layer.py line 156 (ret2 construction)",
+    "alpha_agent/r59/memory.py lines 163-178 (family_key, hypothesis_id)",
+    "alpha_agent/r59/handlers.py lines 117-157 (search_denominator)",
+    "alpha_agent/agents_v2/pipeline.py lines 91-94, 269-307 (REQUIRED_PREREG_FIELDS, preregister gate chain)",
+    "alpha_agent/agents_v2/contracts.py (family routing per signal agent)",
+    "research memory D:/Stock_Prediction_app_data/r59_autonomous_alpha/research_memory.sqlite (read-only: H_66753675_0067804439de; all EXCHANGE_OPEN_INTEREST and FUTURES_DEFERRED_LEG_BASIS rows; family-key burdens; asset-class totals)"
+  ]
+}
