@@ -1,0 +1,61 @@
+{
+ "schema": "r66_prior_art/1",
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "produced": "BEFORE any R66 return was computed",
+ "why_this_file_exists": "The operator's brief names five hedged relative-value families and asks for at least three complete-trade constructions. Three of the five are ALREADY PROSECUTED. Registering them again under R66 names would be exactly the renamed dead idea the governance contract refuses, so the prior art is written down first and the director rules against it rather than against a hopeful summary.",
+ "the_release_that_already_did_this": {
+  "release": "R43",
+  "campaign_id": "r43_global_alpha_offensive_v1",
+  "frozen_contract_hash": "a34bffd0058a37f6082a1773f57c8727c9f19963f31a64407fc3f0597d7dda29",
+  "terminal_state": "R43_NO_QUALIFIED_ALPHA_AFTER_GLOBAL_OFFENSIVE",
+  "burden": "289 -> 302",
+  "shadows_frozen": 0,
+  "what_it_built": "A full hedged relative-value system with lagged rolling-beta hedge ratios (_rolling_beta, win=BETA_WIN, .shift(1) so the ratio used on t was computable on t-1), committed-capital accounting, and a collateral-remuneration judge with three regimes.",
+  "its_own_answer_7": "DID_RELATIVE_VALUE_OUTPERFORM_DIRECTION = YES. Every candidate that cleared its gate is a relative-value expression; no outright directional book cleared its own control. THE OPERATOR'S CORE THESIS IS ALREADY CONFIRMED BY THE ESTATE.",
+  "its_own_answer_20": "Eleven lanes found the same shape three separate times - in rates RV, in every carry family, and in R42's crypto book: a real and persistent PREMIUM with a timing signal whose increment is indistinguishable from zero. 300 effective trials spent looking for timing alpha over owned information.",
+  "strongest_candidate": {
+   "candidate_id": "c43_986b5eb34ec6",
+   "what": "RATES_RV / FUTURES_CROSS_MARKET_RV / 1s_hold_to_exit",
+   "net_residual_on_committed_capital_ann": 0.041779,
+   "sharpe": 0.6423,
+   "t": 2.6899,
+   "increment_over_volatility_matched_passive_ann": 0.006386,
+   "increment_t": 0.39715,
+   "qualification": "REFUTED_ON_ZONE_C_SIGN_FLIP",
+   "reading": "The structure earns about 4.2%/yr on committed capital. That return is the PASSIVE PREMIUM, not alpha: against a volatility-matched passive long it adds 0.64%/yr at t 0.40, it lost 98.6% of its t when the cross-country leg was dropped, and Zone C refuted it at t -0.16."
+  }
+ },
+ "structures_R43_DECLARED_AND_PROSECUTED": {
+  "rates_same_country_curve": ["US_2s5s ZT/ZF", "US_5s10s ZF/ZN", "US_10s30s ZN/ZB", "US_30sUB ZB/UB", "US_10sTN ZN/TN", "US_2s10s ZT/ZN", "DE_2s5s", "DE_5s10s", "DE_10s30s", "DE_2s10s", "AU_3s10s"],
+  "rates_cross_country_same_tenor": ["XC_US_DE_10y", "XC_US_UK_10y", "XC_US_CA_10y", "XC_US_JP_10y", "XC_US_AU_10y", "XC_DE_UK_10y", "XC_DE_FR_10y", "XC_DE_IT_10y", "XC_DE_JP_10y", "XC_US_DE_2y"],
+  "rates_cross_country_STIR": ["XC_STIR_US_EU ZQ/LEU", "XC_STIR_US_UK SR3/SO3", "XC_STIR_US_AU SR3/YIR"],
+  "commodity_calendar": ["per market, tenor 1v2 and 1v3, from the OWN curve"],
+  "inter_commodity_production_chain": ["CRACK_CL_HO", "CRACK_CL_RB", "SPARK_NG_CL", "CRUSH_ZS_ZM", "CRUSH_ZS_ZL", "FEED_ZC_ZW", "FEED_ZC_ZM", "LIVE_LE_ZC", "LIVE_LE_HE", "METAL_GC_SI", "METAL_GC_PL", "METAL_HG_GC"],
+  "total_rates_structures": 24
+ },
+ "THE_GAP_R66_PROPOSES_TO_FILL": {
+  "claim": "Every one of R43's twenty-four rates structures is either a SAME-COUNTRY CURVE spread or a CROSS-COUNTRY spread of the SAME tenor. Not one pairs a US Treasury future against a US short-rate future.",
+  "verification": "RATES_STRUCTURES is a literal declared list at alpha_agent/r43/rv.py:81-98 and was read in full. The three STIR entries are ZQ/LEU, SR3/SO3, SR3/YIR - all cross-country. There is no (ZN, SR3), no (ZN, ZQ), no (ZF, SR3) and no (ZB, ZQ).",
+  "why_it_is_a_DIFFERENT_MECHANISM_not_a_rename": "A curve spread trades the SHAPE of one issuer's own curve; its risk factor is the slope of government yields. A Treasury-versus-short-rate spread trades the level of GOVERNMENT versus COLLATERALISED/INTERBANK funding at a matched point - the swap spread. Its drivers are balance-sheet cost, collateral scarcity, Treasury supply and the government-interbank basis. Swap spreads have historically gone NEGATIVE, which a curve spread cannot express at all. These are not the same factor and a duplicate-identity check on construction alone would not catch that - which is why the economic argument is written here for the director to rule on rather than asserted later.",
+  "honest_weakness": "The estate has spent 864 tests on RATES_FUTURES and the R59 frontier calls the class EXHAUSTED. A new axis inside an exhausted class carries that denominator. The prior is poor and is declared as poor."
+ },
+ "closed_mechanisms_that_forbid_the_obvious_cells": {
+  "RATES_CARRY_CURVE_RV": "CLOSED (RATES_FUTURES). Forbids re-running the US/DE/AU curve spreads.",
+  "COMMODITY_CURVE_CARRY_SPREADS_slope_LEVEL": "CLOSED (COMMODITY_FUTURES). Forbids ranking on curve slope level.",
+  "INTER_COMMODITY_RV_SEASONALITY": "CLOSED (COMMODITY_FUTURES). Forbids the crack/crush/feed/metals structures.",
+  "FX_CARRY": "REGISTERED FORWARD as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test.",
+  "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59": "The withdrawn survivor, about 14 effective observations.",
+  "structural_prohibition_that_binds_hardest": "TIMING a premium with a conditioning variable. Three independent sightings. Any R66 cell that reduces to a z-score entry band on a spread is the fourth sighting and should be refused before it is measured."
+ },
+ "what_the_census_says_is_OPEN": {
+  "CROSS_ASSET": "The ONLY frontier class in state RESEARCH_READY. CROSS_ASSET_RELATIVE_VALUE (terms-of-trade commodity-currency spreads) is named first, then CROSS_ASSET_LEAD_LAG as ONE pre-declared channel. CROSS_ASSET_REGIME_CONDITIONING is de-prioritised as premium timing, dead three times.",
+  "burden_warning": "CROSS_ASSET already carries 2,448 prior tests, the estate's largest denominator.",
+  "best_unexplored_futures_domain": "The R38 native DATED-CONTRACT layer beyond slope level - 12 hypotheses against 5,846 on the back-adjusted panel."
+ },
+ "the_axis_nobody_has_measured": {
+  "observation": "R43 measured these structures as TIMING signals and reported the unconditional premium only as a CONTROL. The estate therefore knows the premium is real and knows the timing is worthless, and has never asked what the STATIC hedged structure is worth per dollar of COMMITTED CAPITAL to a portfolio that already holds something else.",
+  "why_that_is_not_a_free_pass": "The governance contract forbids adopting a strong-looking control or by-product, and the one unconditional structure the estate did surface (month-end ZN long, +1.47%/yr net, t 3.20 as a control) is HUMAN_GATED: adoptable only by a human-authorised fresh pre-registration on untouched data.",
+  "the_binding_problem": "There is no untouched history left. The estate has consumed 1987-2026 across 8,445 hypotheses and R43 ran to 2026-08-24. Any measurement of these structures on that history is a RE-LOOK and must be labelled one. The only honest route to new evidence on a known premium is PROSPECTIVE registration and forward accrual.",
+  "director_must_rule_on": "whether R66 may measure a static hedged structure at all, and if so whether the result may be reported as anything other than a declared re-look with no discovery status."
+ }
+}

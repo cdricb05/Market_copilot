@@ -68,6 +68,17 @@ APPEND_REFUSED_BUDGET = "REFUSED_EXCEEDS_AUTHORISED_FREE_CREDIT"
 APPEND_BLOCKED_CREDENTIAL = "BLOCKED_CREDENTIAL_ABSENT"
 APPEND_APPENDED = "APPENDED"
 APPEND_NO_ROWS = "BUILT_NO_ROWS"
+#: R66 - the near leg the frozen rule NEEDS could not be priced, so nothing
+#: would have been bought. Before this state the append proceeded with zero
+#: requests, passed the budget gate trivially ($0.00 <= $0.225), downloaded
+#: nothing and surfaced only the downstream symptom BUILT_NO_ROWS - which reads
+#: as "the vendor gave us nothing" when the truth is "we asked for nothing".
+APPEND_NEAR_LEG_NOT_PRICEABLE = "NEAR_LEG_NOT_PRICEABLE"
+
+#: R66 - the ONE surface column this challenger actually scores. A date can be
+#: present in the surface with this field NaN, which is why "the surface ends on
+#: X" and "the feature works through X" are different questions.
+SCORED_FIELD = "skew"
 
 #: Outcome of the WHOLE daily advance. Exactly one is returned per call.
 ADV_FROZEN = "NEXT_OPEN_FROZEN"
@@ -139,6 +150,39 @@ def first_legal_entry_session() -> Optional[str]:
     return NOC.entry_session_for(first_info) if first_info else None
 
 
+def _surface_last_usable_session(surface=None) -> Optional[str]:
+    """The last session whose SCORED FEATURE is finite, not merely present.
+
+    R66 - a second, independent silence, found while proving the first repair.
+    ``_surface_last_session`` returns the last DATE in the surface, and a date
+    can be present with a NaN ``skew``: that is what happens when no expiry on
+    that date qualifies as the near leg, which is precisely the state the band
+    anchor defect produced. So the surface went on advancing its last DATE while
+    the feature had been dead for nine sessions, and the gap the append computed
+    from that date understated the real blind period.
+
+    MEASURED on the archive taken before the repair: last date 2026-09-11, last
+    USABLE session 2026-08-28 - a nine-session divergence nobody could see.
+
+    This is reported, not acted on. Changing which date the gap starts from is a
+    behaviour change to a frozen producer and is not made here; making the
+    divergence visible in the journal is what stops it hiding for nine sessions
+    a second time.
+    """
+    p = surface or OS.surface_path()
+    try:
+        import numpy as _np
+        f = OS.features(rebuild=True, surface=p)
+        if f is None or not len(f) or SCORED_FIELD not in f.columns:
+            return None
+        ok = f[_np.isfinite(f[SCORED_FIELD].astype(float))]
+        if not len(ok):
+            return None
+        return str(ok["date"].iloc[-1])[:10]
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
 def _surface_last_session(surface=None) -> Optional[str]:
     p = surface or OS.surface_path()
     try:
@@ -197,6 +241,16 @@ def append_information_session(information_session: str, *,
 
     last = _surface_last_session(surface)
     out["surface_ends"] = last
+    # R66 - report BOTH. Before the repair these read 2026-09-11 and 2026-08-28:
+    # the surface had gone on advancing its last date for nine sessions while
+    # the scored feature was dead. Reporting one number hid that completely.
+    usable = _surface_last_usable_session(surface)
+    out["surface_last_usable"] = usable
+    if last and usable and usable < last:
+        out["surface_usable_lag_sessions_detected"] = True
+        out["surface_usable_lag_detail"] = (
+            "the surface ends %s but the scored field '%s' is finite only "
+            "through %s" % (last, SCORED_FIELD, usable))
     if last is not None and info <= last:
         return {**out, "state": APPEND_ALREADY_OWNED,
                 "detail": "the owned surface already holds %s" % info}
@@ -240,9 +294,27 @@ def append_information_session(information_session: str, *,
     cap = float(budget_usd) * (1.0 - DA.BUDGET_SAFETY_MARGIN)
     plan["selection"]["estimated_spend_usd"] = band_usd
     plan["selection"]["fits_in_free_credit"] = band_usd <= cap
+    planned = {r["expiry"] for r in plan["requests"]} | {r["expiry"] for r in dropped}
+    unpriceable = sorted(set(needed) - planned)
     out.update({"band_cost_usd": band_usd, "effective_cap_usd": round(cap, 6),
                 "expiries_not_bought": [r["expiry"] for r in dropped],
+                "near_leg_unpriceable": unpriceable,
+                "plan_errors": {k: v for k, v in (plan.get("errors") or {}).items()
+                                if k in set(needed)},
                 "n_requests": len(plan["requests"])})
+
+    if unpriceable:
+        # R66 - REFUSE, do not proceed. ``needed`` is what the frozen rule must
+        # have; an expiry missing from the plan entirely was dropped upstream,
+        # not merely filtered out here. Proceeding would buy nothing and blame
+        # the vendor for it.
+        return {**out, "state": APPEND_NEAR_LEG_NOT_PRICEABLE,
+                "detail": ("the near leg(s) %s could not be priced, so nothing "
+                           "would be bought; %s"
+                           % (", ".join(unpriceable),
+                              "; ".join("%s: %s" % (k, v) for k, v in
+                                        sorted((out["plan_errors"] or {}).items()))
+                              or "no reason was recorded by the planner"))}
 
     spot = OA.acquire_spot(client, SPOT_START, request_end, execute=False,
                            tag=SPOT_TAG, dataset=SPOT_DATASET,
@@ -535,7 +607,11 @@ def advance_daily(*, now: Optional[str] = None,
                     "detail": "the data is in hand; the window opens at %s"
                               % opens.isoformat()}
         return {**out, "state": ADV_AWAITING_SOURCE,
-                "blocked_on": st.get("blocked_on")}
+                "blocked_on": st.get("blocked_on"),
+                # R66 - carry WHOSE blocker it is, so the runtime journal can
+                # separate "the vendor has not published" from "we failed to
+                # collect what the vendor published".
+                "blocked_owner": st.get("blocked_owner")}
 
     if st["entry_state"] != NOC.DECISION_DUE_NOW:
         return {**out, "state": ADV_BLOCKED,

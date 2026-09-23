@@ -1,0 +1,92 @@
+{
+ "schema": "r66_campaign_result/1",
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "run_id": "R66_HEDGED_RELATIVE_VALUE_AND_PORTFOLIO_PNL_OFFENSIVE",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "terminal_state": "R66_NO_CELL_MEASURED_ZERO_BURDEN_CHARGED",
+ "safety": "RESEARCH ONLY. PAPER ONLY. No order, no fill, no promotion, no adoption, no backfill, no automation. NEW_PAID_DATA_COST = $0 for research; $0.0226 of pre-authorised Databento daily-append spend inside the producer's own declared $0.25/session budget gate.",
+
+ "what_was_asked": "Institutional hedged relative value, Treasury-versus-swap named first, at least three complete-trade constructions including two non-equity multi-leg - and explicitly: do not invent a trade to hit the count, and do not disguise settled experiments with new names.",
+
+ "what_happened": "Two of the five named families are DATA-BLOCKED on fields that are not computable from owned data. Three are SETTLED by R43. Exactly one genuinely unrowed axis survived the duplicate-identity check, the director registered it conditionally behind two pre-measurement gates, and it FAILED the first gate before any return was computed. The campaign therefore measured nothing and charged nothing, and the primary deliverable became the portfolio and capital work the director commissioned.",
+
+ "cells": {
+  "r66_01": {
+   "label": "RATES_US_TREASURY_VS_STIR_SWAP_SPREAD_PROXY",
+   "director_decision": "REGISTER_CONDITIONALLY",
+   "distinctness_ruling": "NOT a renamed curve spread. A curve spread trades two points on one issuer's own curve and cannot change sign; a Treasury-versus-short-rate spread trades government against collateralised/interbank funding at a matched point and HAS gone negative post-2008. Verified at source: r43/rv.py:81-98 declares 24 rates structures and not one pairs a US Treasury future with a US short-rate future.",
+   "outcome": "WITHDRAWN_BEFORE_MEASUREMENT at GATE_A_HEDGE_MATERIALITY",
+   "settlement": "DATA_HOLD",
+   "burden_charged": 0,
+   "no_alpha_evidence_filed": false,
+   "gate_a": {
+    "floor": 0.25,
+    "measured_variance_reduction": -0.0504,
+    "max_achievable_variance_reduction_at_any_ratio": 0.1058,
+    "why_no_re_parameterisation": "For a single linear hedge the maximum achievable variance reduction IS the regression R-squared, 0.1058. No beta, no window and no estimator can reach the 0.25 floor with SR3 as the hedge leg, so a second window would be searching for a number the data cannot produce.",
+    "economic_reason": "ZN carries about 6.5 years of duration; SR3 is a 3-month rate future whose daily volatility is 27x smaller. The empirical return beta (median 15.4) is not a DV01 match and subtracting it ADDS variance.",
+    "what_it_would_have_been_if_measured": "the HUMAN_GATED unconditional long-ZN book wearing a hedge as a disguise - which the director named in advance as the exact risk this gate exists to catch."
+   },
+   "independent_confirmation_from_feasibility": "The same structure needs 1 ZN : 17 SR3 - eighteen contracts, $4,203,247 of gross notional, 42.4x the entire NAV. The statistical failure and the feasibility failure have the same cause."
+  },
+  "r66_02": {
+   "label": "XA_TERMS_OF_TRADE_COMMODITY_CURRENCY_RV",
+   "director_decision": "REFUSED_BEFORE_PREREGISTRATION",
+   "reason": "The fourth sighting of TIMING A PREMIUM WITH A CONDITIONING VARIABLE. The census's own wording is that the spread MEAN-REVERTS over 21 sessions, and mean reversion on a beta-hedged residual IS a z-score entry band on a spread - the prohibition with three independent prior sightings (R43, R63 macro timing lanes, index-level implied-state timing). PRIOR_ART.json wrote the refusal instruction and the director applied it to the cell that file proposed.",
+   "burden_charged": 0,
+   "cross_asset_denominator": "stays at 2,448"
+  }
+ },
+
+ "burden": {
+  "charged_by_this_campaign": 0,
+  "RATES_FUTURES": "864, unchanged",
+  "CROSS_ASSET": "2448, unchanged",
+  "reason": "Both gates that stopped a cell were computed from leg variances alone, before any return existed. A cell that computed no return has said nothing about alpha and may not be filed NO_ALPHA_EVIDENCE in either direction."
+ },
+
+ "data_blockers_named_exactly": {
+  "FAMILY_A_TREASURY_VS_OTC_SWAP": {
+   "state": "REQUIRED_DATA_MISSING",
+   "missing": ["swap_fixed_rate_by_tenor", "floating_index_convention", "SOFR_OIS_discount_curve", "term_SOFR"],
+   "evidence": "the owned FRED daily panel carries 39 columns and ZERO swap columns; FRED's DSWP* series were discontinued in 2016 and nothing replaced them here",
+   "note": "This is a DATA blocker. It is not NO_ALPHA_EVIDENCE and must never be reported as one."
+  },
+  "FAMILY_B_TREASURY_CASH_FUTURES_BASIS": {
+   "state": "REQUIRED_DATA_MISSING on two independent fields",
+   "missing": ["CUSIP_level_cash_bond_price", "coupon", "maturity", "accrued_interest", "conversion_factor", "deliverable_basket", "cheapest_to_deliver"],
+   "note": "CTD economics are not computable, not merely unmeasured."
+  },
+  "THE_DEEPER_CAPABILITY_LIMIT": "A genuine fixed-income hedge is a DV01 hedge. DV01 needs duration, which needs either the swap curve or the bond and contract analytics. The estate owns neither, so it can only hedge like-for-like points on the same curve where an empirical return beta happens to approximate the DV01 ratio. Gate A is the measured proof of that limit."
+ },
+
+ "settled_families_not_re_run": {
+  "FAMILY_C_YIELD_CURVE_RV": "RATES_CARRY_CURVE_RV is closed; R43 prosecuted all six US curve spreads (2s5s, 5s10s, 10s30s, 30sUB, 10sTN, 2s10s).",
+  "FAMILY_D_FUTURES_RV": "R43 prosecuted commodity calendar pairs 1v2 and 1v3 per market and twelve production-chain structures; COMMODITY_CURVE_CARRY_SPREADS (slope LEVEL) and INTER_COMMODITY_RV_SEASONALITY are closed.",
+  "FAMILY_E_FX": "FX carry is already REGISTERED FORWARD as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test."
+ },
+
+ "the_operator_thesis_was_already_confirmed": "R43's own answer 7: relative value DID outperform direction - every candidate that cleared its gate is a relative-value expression and no outright directional book cleared its own control. The mandate's core premise is right and the estate had already established it; what R66 adds is that the binding constraint on paper PnL is no longer signal, it is feasibility.",
+
+ "primary_deliverable": {
+  "artifact": "research/agents/campaign_r66_hedged_rv/PORTFOLIO_FEASIBILITY.json",
+  "commissioned_by": "director ruling 6",
+  "burden_charged": 0,
+  "verdicts": {"IMPLEMENTABLE": 0, "SINGLE_POSITION_ONLY": 1, "NOT_IMPLEMENTABLE_AT_THIS_NAV": 10},
+  "headline": "Zero of eleven hedged structures is implementable by a $99,127 book with $4,483 free cash, and the constraint that stops almost all of them is NOT margin.",
+  "the_two_constraints": "MARGIN is a policy constraint that a cash policy can relieve. GROSS NOTIONAL is a structural constraint set by exchange contract size against NAV, and no cash policy changes it - at a 30% cash policy ten of eleven can post margin and ten still carry more market exposure than the whole portfolio.",
+  "the_blocker_named": "Not economics, not evidence, not approval - INSTRUMENT GRANULARITY, plus the absence of owned micro-contract data. The only micros in the 105-market registry are equity index and crypto; there is no micro Treasury and no micro FX."
+ },
+
+ "governance_deviations_escalated_to_the_human": [
+  "DIVERSITY GATE NOT SATISFIED: 1 asset class against a required 3, 0 H1-H5 against 1, 0 cross-asset against 1. The gate is unsatisfiable here by construction - the only fixes are padding the campaign to a quota (forbidden by the protocol budget_rule AND by the operator's own instruction) or widening the contract, which is a human decision. Declared openly, not waived.",
+  "PROSPECTIVE REGISTRATION OF A STATIC HEDGED PREMIUM requires human authorisation AND a live producer. The research substrate is a frozen snapshot at 2026-08-21, one session-month behind the operational book at 2026-09-21, and no forward observation may be claimed from it.",
+  "THE MONTH-END ZN LONG remains HUMAN_GATED and was refused outright by the director for this campaign."
+ ],
+
+ "what_was_NOT_done_and_why": {
+  "no_third_construction": "The operator asked for at least three AND said not to invent one to satisfy the count. Two families are data-blocked, three are settled, and the single surviving axis failed its own pre-measurement gate. Manufacturing a third would have been the exact behaviour the mandate forbids.",
+  "no_re_look_measured": "The director permitted a static re-look ONLY as RE_LOOK_NO_DISCOVERY_STATUS, for sizing and feasibility. With r66_01 withdrawn at Gate A and every structure NOT_IMPLEMENTABLE, a re-look would have produced a number that could inform no decision.",
+  "no_forfeiture_semantics_changed": "forfeitures_total = 0 is correct under the accrual contract as written and was left exactly as written."
+ }
+}

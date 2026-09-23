@@ -1,0 +1,58 @@
+{
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "state": "RULED_AND_CLOSED",
+ "state_note": "The director ruled on this spec (DIRECTOR_R66_RULING.json). r66_01 was REGISTERED CONDITIONALLY behind two pre-measurement gates and then WITHDRAWN at Gate A before any return was computed (GATE_A_HEDGE_MATERIALITY.json). r66_02 was REFUSED before pre-registration as the fourth sighting of premium timing. No experiment id was minted, nothing was written to research memory, and the campaign charged ZERO burden. Outcome: CAMPAIGN_RESULT.json.",
+ "executor_module": "research/agents/campaign_r66_hedged_rv/executors.py",
+ "review_order": [
+  "r66_01",
+  "r66_02"
+ ],
+ "review_order_rule": "BINDING, and also the EXECUTION order, because a halted cell settles and charges the burden denominator exactly like a reviewed one. r66_01 FIRST: it is the only proposed cell whose economic axis has NO prior row anywhere in the estate - R43 declared twenty-four rates structures and every one is a same-country CURVE spread or a cross-COUNTRY spread of the same tenor; not one pairs a US Treasury future against a US short-rate future, which is the swap-spread axis and a different risk factor (collateral, balance sheet, government-vs-interbank funding) rather than curve shape. r66_02 SECOND: CROSS_ASSET_RELATIVE_VALUE is the family the R59 frontier itself lists as RESEARCH_READY and could never execute, but CROSS_ASSET already carries the estate's largest burden (2,448) so its denominator is the most expensive in the estate.",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL. NEW_PAID_DATA_COST = $0.",
+ "operator_mandate": "R66 asked for institutional HEDGED RELATIVE VALUE, naming Treasury-versus-swap first. Two of the five named families are DATA-BLOCKED and three are SETTLED; the honest campaign is therefore small. See DATA_CERTIFICATION.json and PRIOR_ART.json in this directory - both were produced before any return was computed.",
+ "requires": {
+  "datasets": [
+   "r41_curve_store_three_tenor_v1",
+   "r38_native_contract_layer_with_deferred_leg_v1"
+  ],
+  "universes": [
+   "r66_us_treasury_vs_stir",
+   "r66_terms_of_trade_commodity_currency"
+  ],
+  "feature_sets": [
+   "fs_r66_01_swap_spread_carry",
+   "fs_r66_02_terms_of_trade_residual"
+  ]
+ },
+ "experiments": [
+  {
+   "experiment_id": "AWAITING_DIRECTOR_PREREGISTRATION",
+   "executor": "r66_01",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "RATES_US_TREASURY_VS_STIR_SWAP_SPREAD_PROXY",
+   "owning_agent": "volatility-liquidity-agent",
+   "economic_mechanism": "The spread between a government bond yield and the collateralised/interbank rate of the same tenor is not curve shape. It is the price of balance sheet, collateral scarcity and the government-versus-interbank funding basis. Long a Treasury future against a beta-matched short-rate future isolates it.",
+   "instruments": "leg 1 = ZN / ZF / ZB (TREASURY_FUTURES, certified layer, 1982+). leg 2 = SR3 (3-month SOFR, 2018+) or ZQ (30-day Fed Funds, 1988+), both present in the R41 curve store and ABSENT from the R38 certified 68-market layer.",
+   "is_not_an_otc_swap": "A short-rate futures strip is NOT an interest-rate swap. No fixed/floating exchange, no swap curve discounting, no CSA, and no convexity adjustment. This cell is a declared EXCHANGE-TRADED PROXY and may never be reported as the Treasury/swap trade the operator named."
+  },
+  {
+   "experiment_id": "AWAITING_DIRECTOR_PREREGISTRATION",
+   "executor": "r66_02",
+   "book": "FUTURES_DATED_CONTRACT",
+   "label": "XA_TERMS_OF_TRADE_COMMODITY_CURRENCY_RV",
+   "owning_agent": "trend-breadth-signal-agent",
+   "economic_mechanism": "A commodity exporter's currency and its export commodity share one terms-of-trade factor. The hedged pair holds the currency against a beta-matched basket of the commodity it exports, so the common factor cancels and what remains is the relative mispricing of the two claims on the same economic state.",
+   "instruments": "6A/6C/6N (FX_FUTURES) against GC/HG (metals) and CL (energy), all in the certified layer.",
+   "burden_warning": "CROSS_ASSET carries 2,448 prior tests - the estate's largest denominator."
+  }
+ ],
+ "explicitly_not_proposed": {
+  "TREASURY_VS_OTC_SWAP": "REQUIRED_DATA_MISSING. No USD swap fixed rate of any tenor is owned. FRED's DSWP series were discontinued in 2016 and no replacement (ICE swap rate, SOFR OIS curve, term SOFR) is collected. Verified by direct inspection of the owned FRED daily panel: 39 columns, zero swap columns.",
+  "TREASURY_CASH_FUTURES_BASIS": "REQUIRED_DATA_MISSING on two independent fields. No CUSIP-level cash bond price, coupon or maturity is owned, and no conversion factor or deliverable basket exists anywhere in the estate. Cheapest-to-deliver economics are therefore not computable, not merely unmeasured.",
+  "US_YIELD_CURVE_RV": "SETTLED. RATES_CARRY_CURVE_RV is a closed mechanism, and R43 declared and prosecuted all six US curve spreads (2s5s, 5s10s, 10s30s, 30sUB, 10sTN, 2s10s) with lagged rolling-beta hedge ratios. Re-running them under a new name is what the duplicate-identity check exists to refuse.",
+  "COMMODITY_CALENDAR_AND_INTER_COMMODITY": "SETTLED. R43 declared commodity calendar pairs (1v2, 1v3) per market and twelve production-chain structures (crack, crush, feed, livestock, metals). COMMODITY_CURVE_CARRY_SPREADS (slope LEVEL) and INTER_COMMODITY_RV_SEASONALITY are closed mechanisms.",
+  "FX_CARRY": "ALREADY REGISTERED FORWARD as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7. The closed ledger's instruction is accrue, do not re-test.",
+  "A_THIRD_CELL_TO_MEET_A_TARGET": "The operator asked for at least three constructions AND said not to invent one to satisfy the count. Only two survive both the data gate and the duplicate-identity gate, so only two are proposed."
+ }
+}

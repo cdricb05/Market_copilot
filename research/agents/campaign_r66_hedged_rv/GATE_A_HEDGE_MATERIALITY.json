@@ -1,0 +1,55 @@
+{
+ "schema": "r66_pre_measurement_gate/1",
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "cell": "r66_01",
+ "label": "RATES_US_TREASURY_VS_STIR_SWAP_SPREAD_PROXY",
+ "gate": "GATE_A_HEDGE_MATERIALITY",
+ "gate_owner": "quant-research-director, DIRECTOR_R66_RULING.json",
+ "gate_frozen_before_measurement": true,
+ "floor": 0.25,
+ "floor_definition": "the beta-scaled SR3 leg must remove at least 25% of unhedged ZN return variance, or the structure is not a hedged relative-value trade",
+ "what_was_computed": "Leg variances and their covariance ONLY. No position was taken, no signal was scored, no return of any book was computed, and no P&L exists. This is why the gate charges zero burden: a cell that computed no return has said nothing about alpha.",
+ "construction_as_frozen_by_the_director": {
+  "long_leg": "ZN",
+  "short_leg": "SR3, beta-scaled",
+  "hedge_ratio": "lagged rolling OLS beta, BETA_WIN = 63, .shift(1)",
+  "substrate": "r41_curve_store_three_tenor_v1 (SR3 is ABSENT from the certified 68-market layer)",
+  "sample": "2018-05-07 -> 2026-08-21, frozen"
+ },
+ "measurement": {
+  "paired_sessions": 2084,
+  "first_session": "2018-05-08",
+  "last_session": "2026-08-21",
+  "zn_daily_vol": 0.00361,
+  "sr3_daily_vol": 0.00013,
+  "vol_ratio_zn_over_sr3": 27.2,
+  "correlation": 0.3253,
+  "r_squared": 0.1058,
+  "frozen_hedge": {
+   "usable_sessions": 2053,
+   "median_abs_beta": 15.41,
+   "var_zn": 1.30838e-05,
+   "var_zn_minus_beta_sr3": 1.37431e-05,
+   "variance_reduction": -0.0504
+  }
+ },
+ "verdict": "FAIL",
+ "state": "WITHDRAWN_BEFORE_MEASUREMENT",
+ "settlement": "DATA_HOLD",
+ "burden_charged": 0,
+ "no_alpha_evidence_filed": false,
+ "why_no_alpha_evidence_may_not_be_filed": "The cell computed no return. Filing silence as evidence of absence is the exact mislabelling R60's director refused, and the director's R66 ruling repeats the instruction explicitly.",
+ "why_it_failed_and_why_no_re_parameterisation_is_permitted": {
+  "the_frozen_hedge_made_the_position_WORSE": "Variance reduction is NEGATIVE at -5.04%. The rolling beta is estimated on a near-degenerate leg - SR3's daily volatility is 27x smaller than ZN's - so the ratio is numerically unstable (median 15.4 SR3 per ZN) and subtracting it ADDS variance rather than removing it. The hedged position is riskier than the unhedged one.",
+  "and_NO_hedge_ratio_could_have_passed": "This is the decisive point, and it is a mathematical fact about the instrument pair rather than a property of the window chosen. For a single linear hedge the MAXIMUM achievable variance reduction is the R-squared of the regression, which is 0.1058. The floor is 0.25. No value of beta, no window length and no estimation method can reach 25% with SR3 as the hedge leg, so trying another window would not be a second chance - it would be searching for a number the data cannot produce.",
+  "what_the_director_predicted": "The ruling stated the risk exactly: ZN carries about 6.5 years of duration while SR3 is a 3-month rate future, so this is an empirical RETURN beta and not a DV01 match, and if it removed only a trivial share of variance the structure would be 'the HUMAN_GATED unconditional long-ZN book wearing a hedge as a disguise'. At a 10.6% ceiling that is what it is. Measuring it would have been measuring a blocked item under a new name.",
+  "ZQ_is_not_a_fallback": "The ruling named ZQ unauthorised in advance and gave the reason before any measurement: it is an unsecured POLICY rate, it does not express the collateral channel, and it is even less volatile than SR3. The cell is withdrawn, not re-run."
+ },
+ "the_underlying_data_finding": {
+  "statement": "A genuine swap-spread or Treasury/swap trade is hedged on DV01, not on an empirical return beta. DV01 requires duration, which requires either the swap curve or the bond and contract analytics.",
+  "what_is_missing": ["swap_fixed_rate_by_tenor", "contract_DV01", "deliverable_duration", "conversion_factor"],
+  "consequence": "The estate cannot construct a duration-matched fixed-income hedge for ANY structure whose legs differ materially in duration. It can only hedge like-for-like points on the same curve, where the empirical return beta happens to approximate the DV01 ratio. That is a capability limit, not an economic result, and it must never be reported as NO_ALPHA_EVIDENCE.",
+  "classification": "REQUIRED_DATA_MISSING"
+ },
+ "campaign_consequence": "R66 has ZERO measured cells. r66_02 was REFUSED by the director before pre-registration as the fourth sighting of premium timing. r66_01 is WITHDRAWN at Gate A before measurement. Total burden charged by this campaign: 0. RATES_FUTURES stays at 864 and CROSS_ASSET stays at 2,448."
+}

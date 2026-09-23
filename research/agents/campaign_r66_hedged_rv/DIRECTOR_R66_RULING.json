@@ -1,0 +1,243 @@
+{
+  "schema": "r66_director_ruling/1",
+  "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+  "ruling_by": "quant-research-director",
+  "contract": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "ruled_on": "2026-09-22",
+  "state_of_inputs_when_ruled": "campaign_spec.json, DATA_CERTIFICATION.json and PRIOR_ART.json all in state PROPOSED_AWAITING_DIRECTOR_RULING. Zero R66 returns computed. Zero R66 experiments pre-registered. Nothing written to research memory by this ruling.",
+  "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO BACKFILL, NO CAPITAL ELIGIBILITY. NEW_PAID_DATA_COST = $0. This ruling changes nothing operational.",
+
+  "independent_verification_performed_by_the_director": [
+    {
+      "claim": "R43 declared 24 rates structures and not one pairs a US Treasury future with a US short-rate future.",
+      "method": "Read the literal declared list RATES_STRUCTURES at alpha_agent/r43/rv.py:81-98.",
+      "verdict": "CONFIRMED. 24 tuples. Six US same-country curve spreads (ZT/ZF, ZF/ZN, ZN/ZB, ZB/UB, ZN/TN, ZT/ZN), four DE, one AU, ten cross-country same-tenor, and three cross-country STIR (ZQ/LEU, SR3/SO3, SR3/YIR). There is no (ZN,SR3), no (ZN,ZQ), no (ZF,SR3), no (ZB,ZQ). The swap-spread axis has no prior row."
+    },
+    {
+      "claim": "R43 prosecuted these structures as TIMING signals with z-score entry bands.",
+      "method": "Read alpha_agent/r43/rv.py:70-72.",
+      "verdict": "CONFIRMED. The declared bands are BAND_15_05 (enter 1.5 sigma, exit 0.5) and BAND_20_10 (enter 2.0 sigma, exit 1.0). This is the exact apparatus the structural prohibition names, and it is why ruling 4 bites."
+    },
+    {
+      "claim": "RATES_CARRY_CURVE_RV is a closed mechanism in RATES_FUTURES.",
+      "method": "Read NEXT_CAMPAIGN_CENSUS.json must_not_repeat.closed_mechanism_ledger, RATES_FUTURES entry.",
+      "verdict": "CONFIRMED. Closed alongside PRIMARY_DEALER_POSITIONS, TREASURY_AUCTION_SUPPLY_CONCESSION and TREASURY_INDEX_MONTH_END_DURATION_EXTENSION. Its scope is curve SHAPE, which is not the swap-spread axis."
+    },
+    {
+      "claim": "CROSS_ASSET_RELATIVE_VALUE terms-of-trade is not in the closed CROSS_ASSET ledger.",
+      "method": "Read NEXT_CAMPAIGN_CENSUS.json closed_mechanism_ledger CROSS_ASSET (14 entries).",
+      "verdict": "CONFIRMED NOT CLOSED. But the census's own queued formulation (rank 3) is 'the spread ... MEAN-REVERTS over 21 sessions', which is what ruling 2 and ruling 4 turn on, not the closed list."
+    },
+    {
+      "claim": "PORTFOLIO_FEASIBILITY.json exists and is citable.",
+      "method": "Directory listing of research/agents/campaign_r66_hedged_rv.",
+      "verdict": "FALSE. The directory holds exactly three files: campaign_spec.json, DATA_CERTIFICATION.json, PRIOR_ART.json. DATA_CERTIFICATION.instrument_availability_split.micro_contract_finding points at PORTFOLIO_FEASIBILITY.json and that artifact DOES NOT EXIST. Recorded as an input inconsistency, and ruling 6 makes producing it the campaign's primary deliverable."
+    },
+    {
+      "claim": "Owning agent for the terms-of-trade cell.",
+      "method": "Compare campaign_spec.json experiments[1].owning_agent against NEXT_CAMPAIGN_CENSUS.json queued_hypotheses rank 3.",
+      "verdict": "INCONSISTENT. The spec assigns trend-breadth-signal-agent; the census assigns reversal-signal-agent. An unsettled owner is a symptom of an unsettled construction and is cited in ruling 2."
+    }
+  ],
+
+  "ruling_1_r66_01": {
+    "cell": "r66_01 RATES_US_TREASURY_VS_STIR_SWAP_SPREAD_PROXY",
+    "decision": "REGISTER, CONDITIONALLY, AS THE CAMPAIGN'S ONLY MEASURED DISCOVERY CELL",
+    "is_it_a_renamed_curve_spread": "NO. It is a distinct mechanism and I rule it so on economics verified at source, not on the proposal's assertion. A curve spread is two points on ONE issuer's own curve: the traded factor is the slope of government yields, both legs share the same credit, the same funding basis and the same collateral status, and the spread cannot change sign for structural reasons. A Treasury-versus-short-rate spread is one point on the government curve against the collateralised/interbank rate at a matched point: the traded factor is the price of balance sheet, collateral scarcity, Treasury supply and the government-versus-interbank funding basis. That factor HAS gone negative in the post-2008 regime, which a curve spread cannot express at all. RATES_CARRY_CURVE_RV's closed scope is curve shape and does not cover this axis, and the 24-tuple declared list confirms no row exists. This is a new axis inside an exhausted class, not a rename.",
+    "owning_agent": "volatility-liquidity-agent",
+    "frozen_construction": {
+      "long_leg": "ZN (10-year US Treasury future). LONG. Frozen. The 10-year is the canonical swap-spread point and has the deepest paired coverage in the certified layer (11,151 ret / 11,129 ret2, paired fraction 0.998).",
+      "short_leg": "SR3 (3-month SOFR future). SHORT, beta-scaled. Frozen.",
+      "why_SR3_and_not_ZQ_decided_before_any_measurement": "SOFR is a COLLATERALISED overnight rate and is the economically correct expression of the declared mechanism (collateral scarcity, balance-sheet cost, secured-versus-government funding). ZQ is a 30-day Fed Funds future on an UNSECURED policy rate; it measures policy expectations, not the collateral basis, so it does not express the declared channel. ZQ is additionally near-degenerate as a hedge leg: its return volatility is so low that a return-regression hedge ratio against ZN is numerically unstable. The choice is made now, on economics, so it cannot be made later in sight of a result. ZQ is NOT an authorised fallback: if SR3 fails a gate the cell is withdrawn, not re-run on ZQ.",
+      "no_leg_variants": "No ZF, no ZB, no TN long-leg variants. ONE structure. The declared prior is poor and I allot one slot, not three.",
+      "hedge_ratio": "Lagged rolling beta, BETA_WIN = 63 sessions, .shift(1) so the ratio used on session t was computable on t-1. Frozen at one window. No window variants. The beta is a HEDGE and may never be repurposed as a conditioning variable or a signal.",
+      "conditioning": "NONE. The structure is UNCONDITIONAL and ALWAYS-ON. No z-score, no entry band, no exit band, no momentum overlay, no regime filter, no carry filter, no volatility filter. See ruling 4.",
+      "expected_sign": "+1 on the structure as defined: LONG ZN, SHORT the beta-scaled SR3.",
+      "why_that_sign_before_any_measurement": "The convenience-yield channel. Treasury securities carry a safety, liquidity and regulatory-HQLA collateral premium that an interbank/collateralised short-rate claim does not, and the long leg additionally carries the term premium and curve roll-down that a 3-month rate future has no exposure to. A hedged long-government/short-secured-short-rate structure is therefore the a priori positive-carry direction. I declare the honest weakness with the sign: the LEVEL of the swap spread has structurally flipped sign in the post-2008 balance-sheet regime, so this prior is directionally reasoned but weak. That is precisely why the sign is frozen NOW. A negative outcome is a REFUTATION and is reported as one. No sign flip is permitted under any circumstance.",
+      "horizon": "H21 (21 sessions held).",
+      "cadence": "Every 21st session on a FIXED calendar grid anchored to the first session of the frozen sample. Entry at the next open after the decision session.",
+      "why_the_cadence_is_explicitly_not_month_end": "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION is a closed mechanism, and the unconditional month-end ZN long (+1.47%/yr net, t 3.20 as a CONTROL) is a HUMAN_GATED blocked dataset. A month-end-anchored long-ZN structure would sit inside that blocked item. The grid is anchored to sample start, not to the calendar month, so the cell cannot collide with it.",
+      "sample": "2018-05-07 to 2026-08-21, frozen. This is the full SR3 history in the R41 curve store (2,086 rows) intersected with ZN. Approximately 99 non-overlapping H21 observations. Thin, and declared thin.",
+      "substrate": "r41_curve_store_three_tenor_v1. DECLARED EXPLICITLY: SR3 and ZQ are in the 105-market registry and the R41 curve store and are ABSENT from the certified 68-market dated-contract layer. This cell does NOT run on the certified layer and may never be reported as if it did.",
+      "cost_model": "ZN charged the certified rates cost, 2.0 bps per side on traded notional. SR3 is NOT in the certified layer and therefore carries NO certified per-market cost: it is charged the PANEL MAXIMUM cost_bps_per_side, never the cheapest and never the rates 2bp figure, unless and until data-foundation-agent publishes a certified per-market cost for SR3. cost_model_state = MODELLED_NOT_OBSERVED.",
+      "margin_and_committed_capital": "Margins in futures_market_registry.json are CURRENT_ONLY_NOT_POINT_IN_TIME. The exchange SPAN spread credit for a ZN/SR3 structure is UNKNOWN and is material. Any return on committed capital MUST be reported with the margin-offset assumption stated as an assumption, never as data.",
+      "primary_statistic": "THE INCREMENT OVER A VOLATILITY-MATCHED PASSIVE BENCHMARK, not the raw return on committed capital. Frozen now, before measurement.",
+      "why_the_benchmark_is_frozen_now": "This is the single most important freeze in this ruling. R43's strongest candidate (c43_986b5eb34ec6) earned 4.18%/yr on committed capital at t 2.69 and looked like alpha; against a volatility-matched passive long it added 0.64%/yr at t 0.40 and was refuted on a Zone C sign flip. A static hedged structure's honest benchmark is NOT zero, it is the passive alternative. Declaring it before the number exists is what prevents the raw committed-capital figure from being presented as alpha."
+    },
+    "two_pre_return_gates_that_must_pass_before_any_return_is_computed": {
+      "gate_A_hedge_materiality": {
+        "test": "The beta-scaled SR3 short leg must remove at least 25% of the unhedged ZN leg's return variance over the frozen sample.",
+        "computed_from": "LEG VARIANCES AND COVARIANCE ONLY. No signal, no position, no return series, no P&L.",
+        "why": "ZN has roughly 6.5 years of duration; SR3 is a three-month rate future. A single SR3 contract cannot duration-match ZN, so the 'hedge' here is an empirical return beta, not a DV01 match. If that beta removes only a trivial share of ZN's variance, the structure is not a hedged relative-value trade at all - it is the HUMAN_GATED unconditional long ZN book wearing a hedge as a disguise, and measuring it would be measuring a blocked item under a new name.",
+        "on_failure": "The cell is WITHDRAWN BEFORE MEASUREMENT. Verdict DATA_HOLD / STRUCTURE_NOT_HEDGED. Burden charge ZERO. NO_ALPHA_EVIDENCE MAY NOT BE FILED."
+      },
+      "gate_B_minimum_detectable_effect": {
+        "test": "A pre-registered minimum-detectable-effect curve at the frozen sample size, cadence and cost model, computed before any return. The cell proceeds only if the MDE is small enough to separate zero from the economically relevant effect size on the INCREMENT statistic.",
+        "computed_from": "Leg variances, frozen cadence, frozen cost model. No signal, no return.",
+        "why": "R60's FUT_BASIS_MOMENTUM_COMMODITY died at |t| < 0.69, a band that could not separate zero from the published 5-10%/yr effect, and the census records it as UNDERPOWERED, NOT DEAD, BLOCKED, not reopenable, and settled only by a pre-registered MDE curve. That cell now sits in its family's denominator forever having answered nothing. Approximately 99 non-overlapping H21 observations on a 2018-2026 sample is exactly that risk profile. I will not repeat R60's mistake by discovering the power problem after the number exists.",
+        "on_failure": "The cell is WITHDRAWN BEFORE MEASUREMENT. Verdict DATA_HOLD / WITHDRAWN_UNDERPOWERED. Burden charge ZERO. NO_ALPHA_EVIDENCE MAY NOT BE FILED."
+      }
+    },
+    "pre_registration_is_authorised_but_currently_blocked": "The verb preregister may NOT be called yet. The brief's substrate_missing lists r41_curve_store_three_tenor_v1 as an uncertified dataset and both R66 universes and both feature sets as missing. The campaign cycle requires certification, universe and feature sets (step 3) BEFORE pre-registration (step 4). Handoff: data-foundation-agent must certify r41_curve_store_three_tenor_v1 to the same standard as the certified layer - PIT state, point value, margin, and a per-market cost for SR3 - then universe-construction-agent builds r66_us_treasury_vs_stir, then feature-library-agent publishes fs_r66_01_swap_spread_carry. Only then does r66_01 get an experiment id."
+  },
+
+  "ruling_2_r66_02": {
+    "cell": "r66_02 XA_TERMS_OF_TRADE_COMMODITY_CURRENCY_RV",
+    "decision": "REFUSE. Refused BEFORE pre-registration, so it charges nothing.",
+    "reasons_in_order_of_weight": [
+      "IT IS THE FOURTH SIGHTING. The census's own formulation of this hypothesis (queued rank 3) is 'the spread between a commodity-currency future and its terms-of-trade commodity basket MEAN-REVERTS over 21 sessions', and the proposed feature set is named fs_r66_02_terms_of_trade_residual. A mean-reversion trade on a beta-hedged residual IS a z-score entry band on a spread. That is verbatim the structural prohibition that binds hardest: TIMING a premium with a conditioning variable, three independent sightings (R43, R63 macro timing lanes, index-level implied-state timing), premium real, timing signal zero. R43 ran precisely this apparatus - BAND_15_05 and BAND_20_10 at rv.py:70-72 - across 24 rates structures, commodity calendars and 12 production-chain spreads and reached terminal NO_QUALIFIED_ALPHA. The proposal's own PRIOR_ART.json wrote the refusal instruction: 'Any R66 cell that reduces to a z-score entry band on a spread is the fourth sighting and should be refused before it is measured.' I am applying it to the cell that file proposed.",
+      "THE DENOMINATOR IS THE ESTATE'S WORST. CROSS_ASSET carries 2,448 prior tests, the largest in the estate, against a declared prior of LOW-MEDIUM. The effect size required to survive burden correction at that denominator is the highest in the estate, and the proposal offers no reason to expect one.",
+      "THE CONSTRUCTION IS NOT SETTLED. The spec assigns the cell to trend-breadth-signal-agent while the census assigns it to reversal-signal-agent - and those two agents would build materially different trades from the same sentence (a trend overlay versus a reversion band). An unsettled owner is an unsettled construction, and a construction that is still open when the ruling is written is a construction that will be finalised in sight of the data.",
+      "THE BUDGET RULE. An unused slot costs nothing; a used slot is charged to every later claim forever. R60's director refused a cell before it could charge burden and that was correct. This is the same call."
+    ],
+    "economic_channel_if_it_were_ever_reopened": "NOT SUPPLIED, DELIBERATELY. I will not draft a channel and a sign for this cell in this ruling. Designing a construction that would pass my own gate, inside the ruling that refuses it, is the director fitting the agenda to a desired count - and the operator explicitly said not to invent a trade to satisfy a numeric target. If CROSS_ASSET_RELATIVE_VALUE is to be reopened in a later campaign it comes back as an UNCONDITIONAL, ALWAYS-ON hedged carry structure with a sign derived from one named economic channel and NO deviation-based entry rule, pre-registered on its own merits with an MDE curve, and it is a later campaign's decision, not this one's.",
+    "burden_effect": "CROSS_ASSET remains at 2,448. Estate total remains at 8,415. Nothing is filed. NO_ALPHA_EVIDENCE is NOT filed - this cell computed no return and filing it would be a contract violation."
+  },
+
+  "ruling_3_static_unconditional_hedged_structure": {
+    "question": "May R66 measure a STATIC, UNCONDITIONAL hedged structure at all, given the premium is known real, the timing known worthless, the strong-control prohibition, the HUMAN_GATED month-end ZN precedent, and no untouched history remaining?",
+    "decision": "PERMIT, NARROWLY AND IN THREE SEPARATE PARTS. The caller's position is adopted and made binding, and the question is split because the three things it bundles have three different answers.",
+    "part_1_re_measuring_R43s_already_prosecuted_structures_statically": {
+      "decision": "PERMITTED ONLY AS A DECLARED RE-LOOK WITH NO DISCOVERY STATUS. Never as discovery.",
+      "status_it_may_carry": "RE_LOOK_NO_DISCOVERY_STATUS.",
+      "what_that_status_forbids": [
+        "It may NEVER be filed as QUALIFIED.",
+        "It may NEVER enter the final tournament as an entrant or a survivor.",
+        "It may NEVER receive a director_clear ruling.",
+        "It may NEVER be published as a candidate or handed to signal-publishing-agent.",
+        "It may NEVER be described as alpha, as an edge, or as a discovery, in any artifact or any message.",
+        "It may NEVER be filed as NO_ALPHA_EVIDENCE either. A re-look on consumed history is not a discovery test in EITHER direction, and a weak number from it is not evidence of absence any more than a strong number would be evidence of presence."
+      ],
+      "its_only_two_admissible_verdicts": ["RE_LOOK_MEASURED (report the number, labelled)", "WITHDRAWN_UNDERPOWERED"],
+      "what_it_is_legitimately_for": "SIZING AND FEASIBILITY ONLY. It answers 'what is this structure worth per dollar of committed capital to a book that already holds something else', which is a portfolio-construction input. It does not answer 'is there alpha here', and it is not permitted to be read as if it did.",
+      "why_permitted_at_all": "The estate genuinely never asked this question - R43 reported the unconditional structure only as a CONTROL - and the question it answers is a portfolio question, not a discovery question. Refusing a portfolio-sizing measurement because it resembles a discovery test would be the wrong kind of strictness. The protection is the status, not the prohibition.",
+      "burden_charge": "ZERO, because it carries no discovery status. This is conditional: the moment anyone attempts to give it a discovery verdict, a sign, a gate result or a tournament entry, it becomes an experiment and MUST be pre-registered and charged. The zero charge is purchased by the status and is void without it."
+    },
+    "part_2_the_month_end_ZN_long": {
+      "decision": "REFUSED OUTRIGHT. R66 may not measure it, re-measure it, re-look at it, control for it, or construct anything anchored to a month-end calendar that would collide with it.",
+      "reason": "It is a HUMAN_GATED blocked dataset: adoptable only by a human-authorised fresh pre-registration on untouched 2017-2026 data. I am not the authority that can authorise it and no ruling of mine converts it into a research object. Its blocked status is the reason r66_01's cadence is frozen to a sample-anchored grid rather than month-end."
+    },
+    "part_3_r66_01s_own_static_structure": {
+      "decision": "NOT A RE-LOOK. It carries full discovery status, subject to gates A and B.",
+      "reason": "The re-look problem is structure-specific, not data-specific. Every experiment in this estate runs on consumed history; that is not what disqualifies a re-look. What disqualifies it is that the estate ALREADY MEASURED that specific structure and is now returning to a number it has seen. R43 never measured ZN against SR3 - the 24-tuple list confirms it - so the ZN/SR3 history is untouched WITH RESPECT TO THIS STRUCTURE. It is an ordinary novel hypothesis on old data, charged to the RATES_FUTURES denominator like any other. The safeguard against it collapsing into the blocked unconditional ZN long is gate A, which is exactly why gate A exists."
+    },
+    "the_only_route_to_genuine_NEW_evidence_on_a_known_premium": {
+      "route": "PROSPECTIVE registration and forward accrual through the canonical owners: api.prospective_adoption, api.forward_challenger_registry, api.canonical_forward_accrual. No other route exists, because no untouched history remains - the estate has consumed 1987-2026 across 8,445 hypotheses and R43 ran to 2026-08-24.",
+      "authority": "HUMAN. Exactly as for the month-end ZN long. The director may RECOMMEND that the human owner be asked; the director may not authorise it. Recorded here as an escalation, not as a decision.",
+      "a_blocking_prerequisite_the_proposal_does_not_yet_satisfy": "DATA_CERTIFICATION.freshness states the research substrate is a FROZEN SNAPSHOT one session-month behind the operational book (certified layer and R41 curve store last session 2026-08-21; operational portfolio eligible date 2026-09-21), that no R66 cell may claim a forward observation from it, and that a prospective registration needs a LIVE PRODUCER that this snapshot is not. Until a live producer exists for SR3 and ZN in the R41 curve store, a prospective registration for this structure cannot be honestly made even with human authorisation. That gap must be closed before the human is asked, not after."
+    }
+  },
+
+  "ruling_4_fourth_sighting_audit": {
+    "question": "Is any cell at risk of being the FOURTH sighting of timing a premium with a conditioning variable?",
+    "decision": "YES, ONE IS, AND IT IS REFUSED BEFORE MEASUREMENT.",
+    "r66_02": "IS the fourth sighting. Residual mean-reversion over 21 sessions on a beta-hedged commodity-currency spread reduces to a z-score entry band on a spread. Refused under ruling 2, before pre-registration, before any return.",
+    "r66_01": "IS NOT the fourth sighting, and is frozen so that it cannot become one. The structure is UNCONDITIONAL and ALWAYS-ON: it has no entry rule, no exit rule, no threshold and no state variable. There is nothing in it that can be tuned toward a result because there is nothing in it that decides when to be on.",
+    "binding_freezes_that_make_that_true": [
+      "NO z-score, NO entry band, NO exit band, NO signal threshold, NO regime filter, NO volatility filter, NO carry filter, NO momentum overlay, NO macro conditioner. Not one conditioning variable of any kind.",
+      "The lagged rolling beta is a HEDGE RATIO and is not a signal. It may not be thresholded, ranked, z-scored, sign-tested or used to decide whether the position is on. It sets size only.",
+      "BETA_WIN = 63 sessions, .shift(1), ONE value. No window variants, no window sweep, no window chosen after the fact.",
+      "Any proposal from the owning agent to add an entry band, a conditioning variable, a second beta window, a second short leg or a second long leg is A NEW EXPERIMENT requiring fresh pre-registration and its own burden charge. I REFUSE ALL SUCH PROPOSALS IN ADVANCE for this campaign. The owning agent is directed to escalate rather than adjust."
+    ],
+    "the_generalised_test_i_am_recording_for_future_campaigns": "If a proposed construction's position size or on/off state is a function of the CURRENT DEVIATION of the spread from its own history, it is premium timing and is refused before it is measured, whatever the family label on the front of it."
+  },
+
+  "ruling_5_budget": {
+    "cells_authorised_to_be_measured": 1,
+    "is_2_correct": "NO. 2 is wrong because r66_02 is the fourth sighting of a dead mechanism charged against the estate's largest denominator. Measuring it would spend a slot that is charged to every later claim forever, to re-learn something the estate has already learned three times.",
+    "is_0_correct": "NO, though it is defensible. 0 would be right if r66_01 were also a repeat, and it is not: I verified at source that the swap-spread axis has no row anywhere in 8,445 hypotheses, the data to build it exists in the R41 curve store, and the mechanism is a genuinely different risk factor from anything closed. Refusing the one honest unrowed axis in the campaign would be the wrong kind of caution. But note that 0 remains a LIVE OUTCOME: r66_01 must clear gates A and B before it computes anything, and it may well not.",
+    "answer": "ONE, conditionally.",
+    "burden_charge": {
+      "r66_01_if_it_computes_a_return": "+1 to RATES_FUTURES (864 -> 865) and +1 to the estate total (8,415 -> 8,416).",
+      "r66_01_if_withdrawn_at_gate_A_or_gate_B": "ZERO. Both gates are computed from leg variances alone, before any return or position exists, so nothing is learned from the outcome and nothing is charged. Verdict DATA_HOLD, never NO_ALPHA_EVIDENCE.",
+      "r66_02": "ZERO. Refused before pre-registration. CROSS_ASSET stays at 2,448.",
+      "the_ruling_3_re_look": "ZERO while it carries RE_LOOK_NO_DISCOVERY_STATUS, and that zero is void the instant anyone gives it a discovery verdict.",
+      "authoritative_owner": "These are the charges I am authorising, not a computed denominator. alpha_agent.r59.handlers.search_denominator counts the denominator and is the only thing that measures it. I do not re-derive it here."
+    },
+    "budget_rule_applied": "The default ceiling is 15 experiments per campaign. R66 uses 1. The ceiling is a ceiling, not a target, and the 14 unused slots cost nothing. R66 is a small campaign because the honest campaign IS small: two of the operator's five named families are data-blocked on fields that are not computable (not merely unmeasured), and three are settled."
+  },
+
+  "ruling_6_highest_value_use_of_R66": {
+    "question": "Given R43 already answered the operator's core thesis, what is the highest-value thing R66 can do for paper-portfolio PnL - more discovery, or the portfolio and capital work?",
+    "decision": "THE PORTFOLIO AND CAPITAL WORK, DECISIVELY. It is the campaign's primary deliverable; r66_01 is the secondary one.",
+    "evidence": [
+      "The honest prior is 0 qualified out of 8,445 hypotheses. Every R59 frontier class except CROSS_ASSET is EXHAUSTED, and CROSS_ASSET's open family is the one I just refused as premium timing. The marginal expected PnL of one more discovery cell is close to zero and is known to be close to zero.",
+      "R43's own answer 7 already settled the operator's thesis: DID_RELATIVE_VALUE_OUTPERFORM_DIRECTION = YES. Every candidate that cleared its gate was a relative-value expression and no outright directional book cleared its own control. Re-confirming a confirmed thesis buys nothing.",
+      "56 candidates are FORWARD_FROZEN and the estate has never reconciled what they are worth as a PORTFOLIO. That is a large, already-paid-for inventory sitting unpriced.",
+      "FEASIBILITY, not signal, is the binding constraint on paper PnL at this NAV. The book is $99,127 NAV with $4,483 free cash. DATA_CERTIFICATION.instrument_availability_split records that the ONLY micro contracts owned are equity index and crypto: there is NO micro Treasury and NO micro FX contract in the estate. A single ZN contract carries $2,063 margin against $4,483 of free cash, and its notional is of the same order as the entire NAV. A beta-matched ZN/SR3 structure needs several SR3 contracts on top. It is entirely possible that r66_01, even if it wins every gate, is NOT IMPLEMENTABLE at this NAV - and that finding is worth more than the cell's result, costs zero burden, and can be computed today.",
+      "Every committed-capital number this estate has ever reported rests on an unquantified assumption. DATA_CERTIFICATION item 9 states that the exchange SPAN spread credit is UNKNOWN and is 'large for a calendar and material for a curve spread', and that margins are CURRENT_ONLY_NOT_POINT_IN_TIME so the error grows with distance into the past. R43's headline 4.18%/yr on committed capital inherits that. Pinning the margin-offset assumption down re-prices the estate's entire hedged-RV history."
+    ],
+    "primary_deliverable_i_am_commissioning": {
+      "artifact": "research/agents/campaign_r66_hedged_rv/PORTFOLIO_FEASIBILITY.json",
+      "status": "DOES NOT EXIST. DATA_CERTIFICATION.json already cites it as if it did. I verified the directory: three files only. This is an input inconsistency and the fix is to produce the artifact, not to soften the citation.",
+      "required_contents": [
+        "Minimum implementable unit for every hedged structure the estate can express, in contracts, in margin dollars and in notional, against $99,127 NAV and $4,483 free cash.",
+        "An explicit verdict per structure: IMPLEMENTABLE / IMPLEMENTABLE_ONLY_AS_A_SINGLE_POSITION / NOT_IMPLEMENTABLE_AT_THIS_NAV. State the no-micro-Treasury and no-micro-FX finding as the reason where it binds.",
+        "The SPAN spread-margin offset written down as a NAMED ASSUMPTION with its value and its provenance, plus the sensitivity of committed-capital return to it. Never presented as data.",
+        "A diversification and capacity read on the 56 forward-frozen candidates as a portfolio, not as 56 separate claims.",
+        "Explicit statement of what free cash of $4,483 does and does not permit."
+      ],
+      "burden_charge": "ZERO. It is engineering and accounting over owned data. It registers no hypothesis, computes no signal, takes no position, tests nothing, and therefore charges nothing.",
+      "safety": "It creates no order, no fill, no proposal, no promotion and no capital eligibility, and it writes no operational store. It is a research feasibility document and manual review remains mandatory."
+    },
+    "ranking": "If only one of the two can be done in R66, do the portfolio work and drop r66_01. The portfolio work has positive expected value and zero burden cost; r66_01 has a declared poor prior and a permanent burden cost."
+  },
+
+  "diversity_gate": {
+    "status": "NOT SATISFIED. Declared openly, NOT waived by the director, and escalated.",
+    "measured_over_pre_registered_experiments": {
+      "asset_classes": 1,
+      "required": 3,
+      "non_equity_share": "100% (1 of 1), satisfies the 40% reservation and the single-class 50% cap is trivially breached at n=1",
+      "h1_h5_experiments": 0,
+      "required_h1_h5": 1,
+      "cross_asset_experiments": 0,
+      "required_cross_asset": 1
+    },
+    "why_i_am_not_fixing_it": "The only two ways to satisfy it are to add cells from the queue purely to meet a quota, or to widen the contract. The first is forbidden twice over - the protocol's budget_rule says the budget is a ceiling not a target and do not burn multiple-testing budget to fill time, and the operator said explicitly not to invent a trade to satisfy a numeric target. The second is a HUMAN decision and I have no authority to make it. The gate is unsatisfiable by construction here because two of the operator's five named families are data-blocked and three are settled.",
+    "consequence": "R66 is RE-SCOPED from a DISCOVERY campaign to a SINGLE-PROBE PLUS PORTFOLIO-ENGINEERING campaign. If alpha_agent.agents_v2.pipeline refuses the pre-registration on diversity grounds, that refusal is a GOVERNED ANSWER: report the PIPELINE_REFUSED code and escalate to the human owner. It is NOT to be worked around, and it is NOT to be rescued by adding cells."
+  },
+
+  "assignment_manifest": {
+    "note": "Emitted for completeness. It is NOT dispatchable yet: no experiment id exists because pre-registration is blocked on substrate certification. No signal agent may be launched against this manifest until data-foundation-agent, universe-construction-agent and feature-library-agent have returned.",
+    "parallel_batch": [],
+    "blocked_pending_substrate": [
+      {
+        "executor": "r66_01",
+        "experiment_id": "AWAITING_PREREGISTRATION_BLOCKED_ON_SUBSTRATE",
+        "owning_agent": "volatility-liquidity-agent",
+        "book": "FUTURES_DATED_CONTRACT",
+        "asset_class": "RATES_FUTURES",
+        "family": "RELATIVE_VALUE",
+        "blocked_on": ["r41_curve_store_three_tenor_v1 certification incl. per-market cost for SR3", "universe r66_us_treasury_vs_stir", "feature set fs_r66_01_swap_spread_carry"]
+      }
+    ],
+    "refused_not_assigned": [
+      {"executor": "r66_02", "decision": "REFUSED", "assigned_to": null, "burden_charged": 0}
+    ],
+    "non_experiment_work_item": {
+      "item": "PORTFOLIO_FEASIBILITY.json",
+      "owner": "portfolio/feasibility work, NOT a signal agent, NOT an experiment",
+      "burden_charged": 0,
+      "priority": "PRIMARY"
+    }
+  },
+
+  "campaign_recommendation": "CAMPAIGN_DATA_HOLD",
+  "campaign_recommendation_reason": "The single authorised discovery cell cannot execute until r41_curve_store_three_tenor_v1 is certified with a per-market cost for SR3 and both its universe and feature set are published. The campaign's primary deliverable (PORTFOLIO_FEASIBILITY.json) is not blocked and should proceed now.",
+
+  "escalations_to_the_human_owner": [
+    "The diversity gate cannot be satisfied by any honest R66 agenda. Ruling it unsatisfiable-by-construction rather than padding the campaign is a governed deviation and the human owner should see it.",
+    "Any PROSPECTIVE registration of a static hedged premium requires human authorisation, exactly as the month-end ZN long does. The director recommends nothing be registered prospectively until a LIVE PRODUCER exists for the R41 curve store; the current substrate is a frozen snapshot one session-month behind the book and cannot honestly source a forward observation.",
+    "DATA_CERTIFICATION.json cites PORTFOLIO_FEASIBILITY.json, which does not exist. Recorded as an input inconsistency."
+  ],
+
+  "what_this_ruling_did_not_do": [
+    "Did not call preregister. No experiment id was minted. Substrate certification must come first.",
+    "Did not write to the research memory.",
+    "Did not run any experiment, compute any return, or evaluate anything.",
+    "Did not file NO_ALPHA_EVIDENCE for any cell. No R66 cell has computed a return.",
+    "Did not widen governance_contract.json.",
+    "Did not create or recommend an order, a fill, a promotion, a proposal approval or any capital eligibility."
+  ]
+}

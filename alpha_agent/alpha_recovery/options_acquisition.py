@@ -148,12 +148,35 @@ def band_for(level: float) -> list:
 
 
 def underlying_levels() -> "tuple":       # noqa: F821
-    """Dates and approximate SPY levels, from the OWNED ES futures panel.
+    """Dates and approximate SPY levels, for centring the strike band.
 
     SPY tracks SPX and ES tracks SPX, so ES/10 centres a +/-10 % band to well
     inside one strike increment. Using owned data to decide WHAT to buy means
     the band costs nothing to design, and an approximate centre is all a 20 %
     wide band needs.
+
+    R66 - WHY THIS IS NO LONGER THE ES PANEL ALONE
+    ----------------------------------------------
+    ``futures_intraday.panel()`` is a FROZEN one-off research panel. It ends
+    2026-09-10 and nothing refreshes it, which is correct for a frozen panel and
+    fatal as a band anchor: :func:`plan` centres each expiry's band on a median
+    of these levels, and an expiry whose window finds NO owned level is dropped.
+    The daily append then priced zero requests, downloaded nothing, and the
+    challenger reported ``AWAITING_SOURCE_PUBLICATION`` - a vendor-shaped word
+    for a local collection failure. The vendor had published every session.
+
+    The fix EXTENDS the anchor rather than replacing it. Every date the ES panel
+    covers keeps EXACTLY the level it had, so every band centre ever used - and
+    therefore every frozen surface row and every frozen decision - is reproduced
+    byte-identically. Only dates BEYOND the frozen panel, which had no anchor at
+    all and could only be dropped, are supplied from the owned SPY close series
+    that the same append already maintains. That series is the actual underlying
+    rather than a proxy for it, so where the two meet the extension is if
+    anything more accurate: ES/10 = 771.80 on 2026-09-10 against SPY 764.17 on
+    2026-09-11, well inside one 5.00 strike increment of a 20 %-wide band.
+
+    A missing or unreadable spot series is NOT an error here - it simply leaves
+    the anchor as it was, and the caller's own refusal names the consequence.
     """
     import numpy as np
 
@@ -162,7 +185,22 @@ def underlying_levels() -> "tuple":       # noqa: F821
     pn = panel()
     j = pn["instruments"].index("ES")
     close = pn["close"][:, minute_index(16, 0), j]
-    return np.array(pn["dates"]), close / 10.0
+    dates = [str(d)[:10] for d in pn["dates"]]
+    levels = [float(v) for v in (close / 10.0)]
+
+    last_frozen = dates[-1] if dates else ""
+    try:
+        owned = session_closes(tag=SPOT_CORRECTED_TAG,
+                               dataset=SPOT_DATASET_PRE_2024,
+                               schema=SPOT_SCHEMA_INTRADAY)
+    except Exception:                                    # noqa: BLE001
+        owned = {}
+    for d in sorted(owned):
+        if d > last_frozen:
+            dates.append(d)
+            levels.append(float(owned[d]))
+
+    return np.array(dates), np.array(levels, dtype=float)
 
 
 def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
@@ -220,6 +258,18 @@ def plan(client: DA.Client, budget_usd: float, years: int = YEARS,
             # byte-identical to before.
             m = (dates >= s0) & (dates <= s1)
         if not m.any():
+            # R66 - RECORD IT. The sibling failure path below records into
+            # ``errors``; this one used to be a bare ``continue``, so an expiry
+            # that could not be priced left no trace and the caller saw a
+            # successful plan that happened to cost $0. A collection step that
+            # buys nothing must never be indistinguishable from one that had
+            # nothing to buy.
+            errors[exp.isoformat()] = (
+                "no owned underlying level to centre the band on: neither the "
+                "near-dated window [%s, %s] nor the purchase window [%s, %s] "
+                "intersects the owned level series (which ends %s)"
+                % (w0.isoformat(), exp.isoformat(), s0, s1,
+                   (dates[-1] if len(dates) else "EMPTY")))
             continue
         level = float(np.nanmedian(spy[m]))
         strikes = band_for(level)

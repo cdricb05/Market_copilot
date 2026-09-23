@@ -727,10 +727,34 @@ def entry_state(entry_session, *, now: Optional[str] = None,
     if now_dt and cutoff and now_dt < cutoff:
         return {**out, "entry_state": AWAITING_INFORMATION_SESSION}
     if not src["usable_for_a_freeze"]:
+        # R66 - RESOLVE THE DISJUNCTION. This used to report "the vendor has not
+        # published X, OR it has not been appended", which are two different
+        # failures with two different owners. The probe has already answered the
+        # first clause (``src["published"]``), so say which one it is. For eight
+        # days the vendor HAD published and a local collection bug was wearing
+        # the vendor's excuse; naming the owner is what makes that visible on
+        # the first cycle instead of the eighth day.
+        info = ctx["information_session"]
+        pub = src.get("published")
+        if pub is False:
+            why = ("the historical vendor has not published session %s yet "
+                   "(publication_state=%s); no local action can change this"
+                   % (info, src.get("publication_state")))
+        elif pub is True:
+            why = ("session %s IS published by the vendor but is NOT in the "
+                   "owned surface (owned_last_session=%s) - the blocker is "
+                   "LOCAL COLLECTION, not the vendor"
+                   % (info, src.get("owned_last_session")))
+        else:
+            why = ("session %s is not in the owned surface "
+                   "(owned_last_session=%s) and the publication probe returned "
+                   "no verdict (publication_state=%s)"
+                   % (info, src.get("owned_last_session"),
+                      src.get("publication_state")))
         return {**out, "entry_state": AWAITING_SOURCE_PUBLICATION,
-                "blocked_on": ("the historical vendor has not published session "
-                               "%s, or it has not been appended to the owned "
-                               "surface" % ctx["information_session"])}
+                "blocked_on": why, "blocked_owner": (
+                    "VENDOR" if pub is False else
+                    "LOCAL_COLLECTION" if pub is True else "UNDETERMINED")}
     if now_dt and opens and now_dt < opens:
         return {**out, "entry_state": AWAITING_SOURCE_PUBLICATION,
                 "blocked_on": ("the emission window for %s opens at %s"

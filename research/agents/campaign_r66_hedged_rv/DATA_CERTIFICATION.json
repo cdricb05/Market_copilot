@@ -1,0 +1,107 @@
+{
+ "schema": "r66_data_certification/1",
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "produced": "BEFORE any R66 return was computed",
+ "method": "Direct inspection of the owned stores through their canonical owners. Every row count, date range and column list below was printed from the live data, not read from a prior release's documentation.",
+ "verdict_vocabulary": [
+  "ACTUAL_TRADE_DATA_AVAILABLE",
+  "VALID_BUT_LIMITED_RESEARCH_PROXY",
+  "REQUIRED_DATA_MISSING",
+  "PARTIAL"
+ ],
+ "families": {
+  "1_US_TREASURY_CASH_BONDS": {
+   "verdict": "REQUIRED_DATA_MISSING",
+   "missing_fields": ["CUSIP", "clean_price", "coupon", "maturity_date", "accrued_interest"],
+   "evidence": "No instrument-level cash bond series exists in any owned store. The rates data owned is yields (constant maturity) and futures, never a priced bond.",
+   "consequence": "A cash-bond leg cannot be constructed, priced or financed."
+  },
+  "2_TREASURY_YIELDS_CURVE": {
+   "verdict": "VALID_BUT_LIMITED_RESEARCH_PROXY",
+   "owner": "D:/Stock_Prediction_app_data/multi_horizon_alpha_r41/_data_fred/fred_daily_panel.csv",
+   "evidence": "CMT_3M, CMT_1Y, CMT_2Y, CMT_5Y, CMT_7Y, CMT_10Y, CMT_30Y each 9,165 observations 1990-01-02 -> 2026-08-20; CMT_20Y 8,226. Last CMT_10Y = 4.690, CMT_30Y = 5.230, CMT_2Y = 4.190.",
+   "limitation": "A constant-maturity yield is an interpolated statistic, not an executable instrument. It may inform a curve hypothesis and may never be traded as a leg."
+  },
+  "3_USD_INTEREST_RATE_SWAPS": {
+   "verdict": "REQUIRED_DATA_MISSING",
+   "missing_fields": ["swap_fixed_rate_by_tenor", "floating_index_convention", "SOFR_OIS_discount_curve", "term_SOFR"],
+   "evidence": "The owned FRED daily panel carries 39 columns and ZERO swap columns; a search for any column containing SW, OIS or REPO returns the empty list. FRED's DSWP* swap series were discontinued in 2016 and nothing replaced them in this estate.",
+   "consequence": "THE OPERATOR'S HEADLINE TRADE - a 10-year Treasury hedged with a duration-matched 10-year USD swap - CANNOT BE BUILT. This is a data blocker, not an economic finding, and must never be reported as NO_ALPHA_EVIDENCE.",
+   "nearest_owned_instrument": "SR3 (3-month SOFR futures) and ZQ (30-day Fed Funds futures). Both are EXCHANGE-TRADED and are NOT swaps: no fixed/floating exchange, no swap-curve discounting, no CSA, no convexity adjustment."
+  },
+  "4_SOFR_OIS_REPO_FINANCING": {
+   "verdict": "PARTIAL",
+   "present": {
+    "SOFR": "2,094 observations 2018-04-03 -> 2026-08-20, last 3.630",
+    "EFFR": "6,562 observations 2000-07-03 -> 2026-08-20, last 3.630"
+   },
+   "missing_fields": ["term_SOFR_curve", "OIS_curve_by_tenor", "GC_repo_rate", "special_repo_by_CUSIP"],
+   "consequence": "An overnight financing rate is available for the modern period, which is enough to charge carry on a margin book. A REPO-FINANCED CASH BOND POSITION is not financeable: there is no term repo rate and no special-collateral rate."
+  },
+  "5_TREASURY_FUTURES": {
+   "verdict": "ACTUAL_TRADE_DATA_AVAILABLE",
+   "owner": "alpha_agent.r59.native.load_layer (certified) and alpha_agent.r43.panels.futures_daily (R41 curve store, three tenors)",
+   "markets": ["ZT", "ZF", "ZN", "TN", "ZB", "UB"],
+   "evidence": "Certified layer, paired front+deferred sessions: ZN 11,151 ret / 11,129 ret2, paired fraction 0.998, 1982-05-04 -> 2026-08-21. ZB 12,195/12,196 pair 1.000 from 1978-03-13. ZT 9,093/7,002 pair 0.770 from 1990-06-25. ZF 9,621/9,421 pair 0.979. TN 2,669 pair 1.000 from 2016-01-12. UB 4,184 pair 1.000 from 2010-01-12.",
+   "contract_specs": {
+    "ZT": {"point_value": 2000.0, "margin_usd": 1320.0, "cost_bps_per_side": 2.0},
+    "ZF": {"point_value": 1000.0, "margin_usd": 1375.0, "cost_bps_per_side": 2.0},
+    "ZN": {"point_value": 1000.0, "margin_usd": 2063.0, "cost_bps_per_side": 2.0},
+    "TN": {"point_value": 1000.0, "margin_usd": 2805.0, "cost_bps_per_side": 2.0},
+    "ZB": {"point_value": 1000.0, "margin_usd": 4070.0, "cost_bps_per_side": 2.0},
+    "UB": {"point_value": 1000.0, "margin_usd": 5665.0, "cost_bps_per_side": 2.0}
+   },
+   "correction_of_a_subagent_claim": "A subagent reported this layer as FRONT-MONTH ONLY with no simultaneous delivery months, and concluded that all calendar and basis trades were blocked. THAT IS FALSE and was falsified by direct measurement: ret2 is the NEXT LISTED DELIVERY MONTH's own return, populated at 99.8-100% for the rates markets, and the R41 curve store carries a THIRD tenor as well. The same subagent also invented a load_layer(market_id=...) signature that does not exist."
+  },
+  "6_CONVERSION_FACTORS_DELIVERABLE_BASKET_CTD": {
+   "verdict": "REQUIRED_DATA_MISSING",
+   "missing_fields": ["conversion_factor_per_deliverable", "deliverable_basket", "cheapest_to_deliver_identity", "first_notice_date", "delivery_option_value"],
+   "consequence": "Cash-futures basis and CTD economics are NOT COMPUTABLE, not merely unmeasured. Combined with family 1 this closes the Treasury cash-futures basis trade on two independent fields."
+  },
+  "7_FX": {
+   "verdict": "ACTUAL_TRADE_DATA_AVAILABLE for futures; REQUIRED_DATA_MISSING for spot and forward points",
+   "markets": ["6A", "6B", "6C", "6E", "6J", "6M", "6N", "6S"],
+   "evidence": "6E 6,946 paired sessions 1.000 from 1999-01-05; 6B 11,947/11,851 from 1979-08-07; 6C 11,958/11,885; 6J 11,918/11,829; 6A 9,973/9,919. cost_bps_per_side 3.0.",
+   "missing_fields": ["fx_spot_fixing", "forward_points_by_tenor", "foreign_deposit_curve"],
+   "note": "A COVERED carry trade needs spot plus forward points plus two deposit curves and is therefore not constructible as specified. FX carry via futures is separately CLOSED: already registered forward as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7."
+  },
+  "8_COMMODITY_FUTURES_CALENDAR_STRUCTURE": {
+   "verdict": "ACTUAL_TRADE_DATA_AVAILABLE",
+   "evidence": "Paired front/deferred coverage measured: CL 10,896 pair 1.000 from 1983-03-31; NG 9,135 pair 1.000; RB 5,254 pair 1.000; HO 11,986/11,943 pair 0.996; ZC/ZS/ZW/ZM/ZL all >12,000 rows pair >=0.994 from 1978; GC 11,764/11,345 pair 0.964; SI pair 0.929; HG pair 0.954. The R41 curve store adds a third tenor (ret3/c3, slope23_ann).",
+   "note": "Constructible, but the mechanism is SETTLED - see PRIOR_ART.json."
+  },
+  "9_TRANSACTION_COST_AND_MARGIN": {
+   "verdict": "VALID_BUT_LIMITED_RESEARCH_PROXY",
+   "costs": "Per-market cost_bps_per_side on TRADED NOTIONAL, 2bp rates / 3bp FX / 5-15bp commodity. cost_model_state = MODELLED_NOT_OBSERVED. Unknown markets are charged the panel MAXIMUM, never the cheapest.",
+   "margin": "futures_market_registry.json carries point_value, tick_size, margin and currency for 105 markets. R43 recorded pit_state = CURRENT_ONLY_NOT_POINT_IN_TIME and used it as a sanity check only.",
+   "limitation": "Margins are CURRENT, not point-in-time, so a historical return ON COMMITTED CAPITAL computed with them is an approximation whose error grows with distance into the past. No bid/ask, no tick-level slippage and no exchange SPAN spread credit is owned - so a spread's true margin offset (which is large for a calendar and material for a curve spread) is UNKNOWN and must be stated as an assumption, never as data.",
+   "correction_of_a_subagent_claim": "A subagent reported that no margin data is owned. That is false; the registry carries it for 105 markets."
+  }
+ },
+ "instrument_availability_split": {
+  "finding": "The CERTIFIED 68-market dated-contract layer is a SUBSET of the 105-market registry, and the gap matters for this campaign.",
+  "in_certified_layer": {"TREASURY_FUTURES": ["ZT", "ZF", "ZN", "TN", "ZB", "UB"]},
+  "in_registry_and_R41_curve_store_but_NOT_in_the_certified_layer": {
+   "SHORT_RATE_FUTURES": ["SR3", "ZQ"],
+   "INTERNATIONAL_SHORT_RATE": ["CRA", "LEU", "SO3", "YIB", "YIR"],
+   "INTERNATIONAL_GOVERNMENT": ["CGB", "FBTP", "FGBL", "FGBM", "FGBS", "FGBX", "FOAT", "LLG", "SJB", "YXT", "YYT"],
+   "US_INDEX_FUTURES_MICRO": ["M2K", "MES", "MNQ", "MYM"]
+  },
+  "measured_R41_curve_store_coverage": {
+   "SR3": "2,086 rows 2018-05-07 -> 2026-08-21",
+   "ZQ": "9,529 rows 1988-10-03 -> 2026-08-21",
+   "FGBL": "7,033 rows 1999-01-04 -> 2026-08-21",
+   "LLG": "9,729 rows 1988-02-23 -> 2026-08-21",
+   "CGB": "7,475 rows 1996-10-02 -> 2026-08-21"
+  },
+  "consequence": "A US Treasury-versus-US-short-rate structure is constructible ONLY through the R41 curve store, because SR3 and ZQ never entered the certified layer. Any cell using them must declare that substrate explicitly.",
+  "micro_contract_finding": "The only MICRO contracts owned are equity index and crypto. There is NO micro Treasury and NO micro FX contract in the estate, which is decisive for portfolio feasibility - see PORTFOLIO_FEASIBILITY.json."
+ },
+ "freshness": {
+  "certified_layer_last_session": "2026-08-21",
+  "R41_curve_store_last_session": "2026-08-21",
+  "fred_panel_last_session": "2026-08-20",
+  "operational_portfolio_eligible_date": "2026-09-21",
+  "consequence": "The research substrate is a FROZEN SNAPSHOT one month behind the operational book. No R66 cell may claim a forward observation from it, and any prospective registration needs a live producer that this snapshot is not."
+ }
+}

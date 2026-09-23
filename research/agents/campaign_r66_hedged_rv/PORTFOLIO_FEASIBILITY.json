@@ -1,0 +1,771 @@
+{
+ "schema": "r66_portfolio_feasibility/1",
+ "campaign_id": "R66_HEDGED_RELATIVE_VALUE",
+ "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+ "commissioned_by": "quant-research-director, DIRECTOR_R66_RULING.json ruling 6",
+ "read_only": true,
+ "registers_no_hypothesis": true,
+ "burden_charged": 0,
+ "question": "Is a multi-leg futures structure EXPRESSIBLE at this book's size at all? This is prior to, and independent of, whether any of these trades is profitable.",
+ "operational_book": {
+  "nav_usd": 99127.48,
+  "free_cash_usd": 4482.71,
+  "invested_usd": 94644.77,
+  "cash_fraction_of_nav": 0.04522166809849297,
+  "holdings_count": 25,
+  "eligible_market_date": "2026-09-21",
+  "initial_capital": 100000.0,
+  "cumulative_return_pct": -0.8725,
+  "max_drawdown_pct": -4.8724,
+  "benchmark_cumulative_return_pct": 3.4907,
+  "state": "PORTFOLIO_STATE_READY",
+  "owner": "api.portfolio_state"
+ },
+ "declared_assumptions": {
+  "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+  "span_credit_default_used_for_every_verdict": 0.0,
+  "span_credit_sensitivity_reported": [
+   0.0,
+   0.5,
+   0.75
+  ],
+  "span_note": "The estate owns no SPAN parameter file and no exchange spread-credit table. Every committed-capital figure is therefore an UPPER BOUND at 0% credit, and the sensitivity shows how far each verdict depends on an assumption that cannot be verified from owned data.",
+  "margin_pit_state": "CURRENT_ONLY_NOT_POINT_IN_TIME",
+  "margin_source": "R38 futures_market_registry metadata.margin, 105 markets",
+  "hedge_ratio_method": "equalises the two legs' daily dollar volatility over the trailing 504 sessions. A volatility is a risk characteristic, not a performance statistic, so nothing here reads any spread's P&L.",
+  "hedge_error_tolerance": 0.1,
+  "max_gross_notional_over_nav": 1.0,
+  "variation_margin_reserve_multiple": 1.0,
+  "prices_as_of": "2026-08-21, the frozen R38 layer's last settle"
+ },
+ "verdict_counts": {
+  "NOT_IMPLEMENTABLE_AT_THIS_NAV": 10,
+  "SINGLE_POSITION_ONLY": 1
+ },
+ "structures": [
+  {
+   "label": "US_10s30s_CURVE",
+   "long": "ZN",
+   "short": "ZB",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 8196.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 4098.0,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 2049.0,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": true
+    }
+   },
+   "risk_hedge_ratio": 0.531366051086016,
+   "minimum_faithful_expression": {
+    "n_long": 2,
+    "n_short": 1,
+    "hedge_error_fraction": 0.05902908366447094,
+    "total_contracts": 3,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 325406.25,
+   "gross_notional_over_nav": 3.2827047555329765,
+   "net_notional_usd": 107656.25,
+   "net_notional_over_nav": 1.086038402267464,
+   "committed_capital_initial_margin_usd": 8196.0,
+   "committed_capital_over_free_cash": 1.8283582921937847,
+   "cash_needed_with_variation_reserve_usd": 16392.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "C_YIELD_CURVE_RV"
+  },
+  {
+   "label": "US_2s10s_CURVE",
+   "long": "ZT",
+   "short": "ZN",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 12789.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 6394.5,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 3197.25,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 0.5672811249444729,
+   "minimum_faithful_expression": {
+    "n_long": 5,
+    "n_short": 3,
+    "hedge_error_fraction": 0.057676650282925734,
+    "total_contracts": 8,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 1354328.125,
+   "gross_notional_over_nav": 13.6624892007746,
+   "net_notional_usd": 704734.375,
+   "net_notional_over_nav": 7.109374464073938,
+   "committed_capital_initial_margin_usd": 12789.0,
+   "committed_capital_over_free_cash": 2.8529617128924243,
+   "cash_needed_with_variation_reserve_usd": 25578.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "C_YIELD_CURVE_RV"
+  },
+  {
+   "label": "US_5s10s_CURVE",
+   "long": "ZF",
+   "short": "ZN",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 8251.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 4125.5,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 2062.75,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": true
+    }
+   },
+   "risk_hedge_ratio": 0.6632830698187642,
+   "minimum_faithful_expression": {
+    "n_long": 3,
+    "n_short": 2,
+    "hedge_error_fraction": 0.0051012863163038295,
+    "total_contracts": 5,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 535117.1875,
+   "gross_notional_over_nav": 5.398272885581274,
+   "net_notional_usd": 102054.6875,
+   "net_notional_over_nav": 1.0295297277808333,
+   "committed_capital_initial_margin_usd": 8251.0,
+   "committed_capital_over_free_cash": 1.8406276560384232,
+   "cash_needed_with_variation_reserve_usd": 16502.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "C_YIELD_CURVE_RV"
+  },
+  {
+   "label": "US_SWAP_SPREAD_PROXY_r66_01",
+   "long": "ZN",
+   "short": "SR3",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 17499.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 8749.5,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 4374.75,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 16.99155971004246,
+   "minimum_faithful_expression": {
+    "n_long": 1,
+    "n_short": 17,
+    "hedge_error_fraction": 0.0004967342669874171,
+    "total_contracts": 18,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 4203246.913909912,
+   "gross_notional_over_nav": 42.402438898980506,
+   "net_notional_usd": -3986715.663909912,
+   "net_notional_over_nav": -40.21806732008029,
+   "committed_capital_initial_margin_usd": 17499.0,
+   "committed_capital_over_free_cash": 3.90366541667875,
+   "cash_needed_with_variation_reserve_usd": 34998.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "A_TREASURY_VS_SWAP_PROXY"
+  },
+  {
+   "label": "AUD_vs_GOLD_TERMS_OF_TRADE",
+   "long": "6A",
+   "short": "GC",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV",
+    "NOT_HEDGEABLE_WITHIN_TOLERANCE_AT_ANY_SMALL_SIZE"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 48934.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 24467.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 12233.5,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 0.059823409382151145,
+   "minimum_faithful_expression": {
+    "n_long": 12,
+    "n_short": 1,
+    "hedge_error_fraction": 0.39298870114541784,
+    "total_contracts": 13,
+    "within_tolerance": false
+   },
+   "gross_notional_usd": 1323889.9560928345,
+   "gross_notional_over_nav": 13.35542834431819,
+   "net_notional_usd": 398229.9951553345,
+   "net_notional_over_nav": 4.017352152554817,
+   "committed_capital_initial_margin_usd": 48934.0,
+   "committed_capital_over_free_cash": 10.916164552246297,
+   "cash_needed_with_variation_reserve_usd": 97868.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "E_FX_COMMODITY_RV"
+  },
+  {
+   "label": "CAD_vs_CRUDE_TERMS_OF_TRADE",
+   "long": "6C",
+   "short": "CL",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 16720.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 8360.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 4180.0,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 0.09941159187172569,
+   "minimum_faithful_expression": {
+    "n_long": 10,
+    "n_short": 1,
+    "hedge_error_fraction": 0.005918908622181247,
+    "total_contracts": 11,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 814460.0024223328,
+   "gross_notional_over_nav": 8.21628878714896,
+   "net_notional_usd": 640340.0073051453,
+   "net_notional_over_nav": 6.459762795393823,
+   "committed_capital_initial_margin_usd": 16720.0,
+   "committed_capital_over_free_cash": 3.7298866087701414,
+   "cash_needed_with_variation_reserve_usd": 33440.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "E_FX_COMMODITY_RV"
+  },
+  {
+   "label": "CRACK_HO_CL",
+   "long": "HO",
+   "short": "CL",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 20900.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 10450.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 5225.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 2.1335282529971327,
+   "minimum_faithful_expression": {
+    "n_long": 1,
+    "n_short": 2,
+    "hedge_error_fraction": 0.06258565022963965,
+    "total_contracts": 3,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 362901.5989303589,
+   "gross_notional_over_nav": 3.6609585851507465,
+   "net_notional_usd": 14661.608695983887,
+   "net_notional_over_nav": 0.1479066016404723,
+   "committed_capital_initial_margin_usd": 20900.0,
+   "committed_capital_over_free_cash": 4.662358260962677,
+   "cash_needed_with_variation_reserve_usd": 41800.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "D_FUTURES_RV"
+  },
+  {
+   "label": "CRUSH_ZM_ZS",
+   "long": "ZM",
+   "short": "ZS",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 9955.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 4977.5,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 2488.75,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 0.6216010880869693,
+   "minimum_faithful_expression": {
+    "n_long": 3,
+    "n_short": 2,
+    "hedge_error_fraction": 0.07249919513234841,
+    "total_contracts": 5,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 217810.00366210938,
+   "gross_notional_over_nav": 2.197271671408467,
+   "net_notional_usd": -27189.996337890625,
+   "net_notional_over_nav": -0.27429322663998545,
+   "committed_capital_initial_margin_usd": 9955.0,
+   "committed_capital_over_free_cash": 2.2207548558795907,
+   "cash_needed_with_variation_reserve_usd": 19910.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "D_FUTURES_RV"
+  },
+  {
+   "label": "FEED_ZC_ZW",
+   "long": "ZC",
+   "short": "ZW",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "SINGLE_POSITION_ONLY",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 4565.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 2282.5,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 1141.25,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": true
+    }
+   },
+   "risk_hedge_ratio": 0.5530561292384846,
+   "minimum_faithful_expression": {
+    "n_long": 2,
+    "n_short": 1,
+    "hedge_error_fraction": 0.09593263040324451,
+    "total_contracts": 3,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 82450.0,
+   "gross_notional_over_nav": 0.8317572483432445,
+   "net_notional_usd": 14300.0,
+   "net_notional_over_nav": 0.14425868588609334,
+   "committed_capital_initial_margin_usd": 4565.0,
+   "committed_capital_over_free_cash": 1.0183571991050058,
+   "cash_needed_with_variation_reserve_usd": 9130.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "D_FUTURES_RV"
+  },
+  {
+   "label": "FEED_ZC_ZM",
+   "long": "ZC",
+   "short": "ZM",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 7040.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 3520.0,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 1760.0,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": true
+    }
+   },
+   "risk_hedge_ratio": 0.7220615849474383,
+   "minimum_faithful_expression": {
+    "n_long": 3,
+    "n_short": 2,
+    "hedge_error_fraction": 0.07671771970088134,
+    "total_contracts": 5,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 136102.50244140625,
+   "gross_notional_over_nav": 1.3730047655948305,
+   "net_notional_usd": 9022.49755859375,
+   "net_notional_over_nav": 0.09101913574917622,
+   "committed_capital_initial_margin_usd": 7040.0,
+   "committed_capital_over_free_cash": 1.5704785721137438,
+   "cash_needed_with_variation_reserve_usd": 14080.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "D_FUTURES_RV"
+  },
+  {
+   "label": "LIVE_LE_HE",
+   "long": "LE",
+   "short": "HE",
+   "calculation_owner": "research.agents.campaign_r66_hedged_rv.feasibility",
+   "nav_usd": 99127.48,
+   "free_cash_usd": 4482.71,
+   "state": "NOT_HOLDABLE",
+   "verdict": "NOT_IMPLEMENTABLE_AT_THIS_NAV",
+   "blockers": [
+    "INITIAL_MARGIN_EXCEEDS_FREE_CASH",
+    "GROSS_NOTIONAL_EXCEEDS_NAV"
+   ],
+   "span_credit_state": "UNKNOWN_NOT_OWNED_ASSUMPTION_ONLY",
+   "span_credit_sensitivity": {
+    "credit_0_pct": {
+     "committed_capital_usd": 14850.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_50_pct": {
+     "committed_capital_usd": 7425.0,
+     "fits_free_cash": false,
+     "fits_free_cash_with_variation_reserve": false
+    },
+    "credit_75_pct": {
+     "committed_capital_usd": 3712.5,
+     "fits_free_cash": true,
+     "fits_free_cash_with_variation_reserve": false
+    }
+   },
+   "risk_hedge_ratio": 2.2740737007294136,
+   "minimum_faithful_expression": {
+    "n_long": 2,
+    "n_short": 5,
+    "hedge_error_fraction": 0.09934871468682835,
+    "total_contracts": 7,
+    "within_tolerance": true
+   },
+   "gross_notional_usd": 336090.00244140625,
+   "gross_notional_over_nav": 3.39048266375183,
+   "net_notional_usd": 12590.00244140625,
+   "net_notional_over_nav": 0.12700819632866941,
+   "committed_capital_initial_margin_usd": 14850.0,
+   "committed_capital_over_free_cash": 3.312728238052428,
+   "cash_needed_with_variation_reserve_usd": 29700.0,
+   "margin_is_an_upper_bound": "no exchange SPAN spread credit is owned; a real spread would receive an offset, so this overstates committed capital",
+   "as_of": "2026-08-21",
+   "mandate_family": "D_FUTURES_RV"
+  }
+ ],
+ "cash_policy_sensitivity": [
+  {
+   "cash_pct_of_nav": 5,
+   "cash_usd": 4956.37,
+   "pass_initial_margin": 1,
+   "pass_margin_plus_variation_reserve": 0,
+   "pass_everything_incl_gross_notional": 0
+  },
+  {
+   "cash_pct_of_nav": 10,
+   "cash_usd": 9912.75,
+   "pass_initial_margin": 4,
+   "pass_margin_plus_variation_reserve": 1,
+   "pass_everything_incl_gross_notional": 1
+  },
+  {
+   "cash_pct_of_nav": 15,
+   "cash_usd": 14869.12,
+   "pass_initial_margin": 7,
+   "pass_margin_plus_variation_reserve": 2,
+   "pass_everything_incl_gross_notional": 1
+  },
+  {
+   "cash_pct_of_nav": 20,
+   "cash_usd": 19825.5,
+   "pass_initial_margin": 9,
+   "pass_margin_plus_variation_reserve": 4,
+   "pass_everything_incl_gross_notional": 1
+  },
+  {
+   "cash_pct_of_nav": 25,
+   "cash_usd": 24781.87,
+   "pass_initial_margin": 10,
+   "pass_margin_plus_variation_reserve": 5,
+   "pass_everything_incl_gross_notional": 1
+  },
+  {
+   "cash_pct_of_nav": 30,
+   "cash_usd": 29738.24,
+   "pass_initial_margin": 10,
+   "pass_margin_plus_variation_reserve": 7,
+   "pass_everything_incl_gross_notional": 1
+  }
+ ],
+ "findings": {
+  "headline": "ZERO of the eleven structures is implementable by this book today, and the constraint that stops almost all of them is NOT margin.",
+  "two_constraints_that_fail_differently": "MARGIN is a POLICY constraint - it depends on how much cash the book chooses to hold and could be relieved by selling equities. GROSS NOTIONAL is a STRUCTURAL constraint - it is set by the exchange's contract size against this book's NAV and NO cash policy changes it. That is why raising cash to 25% of NAV lets nine of eleven post margin and still leaves one passing everything.",
+  "granularity": "The minimum faithful expression is rarely 1:1. US 2s10s needs 5 ZT : 3 ZN - eight contracts and $1.35M of notional - and AUD/GOLD cannot be hedged within a 10% tolerance at any size up to twelve contracts, because one gold contract ($462,830) is too large to be neutralised by any whole number of AUD contracts.",
+  "one_ZT_is_larger_than_the_whole_book": "One ZT contract is $205,906 of notional against a $99,127 NAV - 2.08x. One ZN is 1.09x. The US Treasury relative-value programme the mandate asked for first is dimensionally incompatible with a $100k account, and it is not close.",
+  "the_leverage_trap": "Return on committed capital is not a portfolio return. The one structure that can fit carries $82,450 of gross notional against $4,565 of margin - about 18:1. A 1% return on gross notional is 0.83% of NAV and simultaneously 18% 'return on committed capital'. The second number is the first multiplied by the margin ratio, and quoting it as portfolio performance would be the undocumented leverage the mandate forbids.",
+  "what_would_fix_it_and_whether_we_own_it": "Micro futures are the instrument class designed for this problem and would cut notional roughly tenfold. The estate owns NO micro Treasury and NO micro FX data: the only micros in the 105-market registry are equity index (MES, MNQ, M2K, MYM) and crypto, and none of them reached the certified 68-market dated-contract layer either.",
+  "the_blocker_named_precisely": "Not economics, not evidence, and not approval - INSTRUMENT GRANULARITY, plus the absence of owned micro-contract data."
+ },
+ "forward_evidence_portfolio": {
+  "owner": "api.canonical_forward_accrual",
+  "generated_at": "2026-09-23T00:59:08.372957+00:00",
+  "n_registered": 8,
+  "predictions_emitted_total": 5,
+  "matured_observations_total": 0,
+  "effective_independent_observations_total": 0,
+  "forfeitures_total": 0,
+  "concentration_by_asset_class": {
+   "US_EQUITY": 4,
+   "FX_FUTURES": 1,
+   "US_ETF": 2,
+   "MULTI_ASSET_FUTURES": 1
+  },
+  "members": [
+   {
+    "challenger_id": "ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1",
+    "asset_class": "MULTI_ASSET_FUTURES",
+    "accrual_state": "NOT_DUE",
+    "predictions_emitted": 0,
+    "pending_observations": 0,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 21,
+    "cadence_sessions": 21,
+    "last_emission_session": null
+   },
+   {
+    "challenger_id": "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
+    "asset_class": "FX_FUTURES",
+    "accrual_state": "EMITTED",
+    "predictions_emitted": 1,
+    "pending_observations": 1,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 5,
+    "cadence_sessions": 5,
+    "last_emission_session": "2026-09-22"
+   },
+   {
+    "challenger_id": "R58_DISCLOSURE_INTENSITY_V1",
+    "asset_class": "US_EQUITY",
+    "accrual_state": "EMITTED",
+    "predictions_emitted": 1,
+    "pending_observations": 1,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 21,
+    "cadence_sessions": 21,
+    "last_emission_session": "2026-09-10"
+   },
+   {
+    "challenger_id": "R58_FCF_PURE_V1",
+    "asset_class": "US_EQUITY",
+    "accrual_state": "EMITTED",
+    "predictions_emitted": 1,
+    "pending_observations": 1,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 21,
+    "cadence_sessions": 21,
+    "last_emission_session": "2026-09-10"
+   },
+   {
+    "challenger_id": "R58_FUND_MOMENTUM_VETO_V1",
+    "asset_class": "US_EQUITY",
+    "accrual_state": "EMITTED",
+    "predictions_emitted": 1,
+    "pending_observations": 1,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 21,
+    "cadence_sessions": 21,
+    "last_emission_session": "2026-09-10"
+   },
+   {
+    "challenger_id": "R58_SHORT_VOLUME_PRESSURE_V1",
+    "asset_class": "US_EQUITY",
+    "accrual_state": "EMITTED",
+    "predictions_emitted": 1,
+    "pending_observations": 1,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 21,
+    "cadence_sessions": 21,
+    "last_emission_session": "2026-09-10"
+   },
+   {
+    "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
+    "asset_class": "US_ETF",
+    "accrual_state": "NOT_DUE",
+    "predictions_emitted": 0,
+    "pending_observations": 0,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 5,
+    "cadence_sessions": 5,
+    "last_emission_session": null
+   },
+   {
+    "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1",
+    "asset_class": "US_ETF",
+    "accrual_state": "NOT_DUE",
+    "predictions_emitted": 0,
+    "pending_observations": 0,
+    "matured_observations": 0,
+    "forfeitures": 0,
+    "horizon_sessions": 5,
+    "cadence_sessions": 5,
+    "last_emission_session": null
+   }
+  ],
+  "diversification_read": "Five of eight registrations are a single asset class (four US_EQUITY plus two US_ETF on the same underlying, SPY), so the prospective book is concentrated in US equity risk and is NOT a diversified portfolio. The only non-equity members are one FX_FUTURES carry and one MULTI_ASSET_FUTURES trend.",
+  "capacity_read": "Capacity is not binding and cannot be, because NOTHING HAS MATURED. matured_observations_total = 0 and effective_independent_observations_total = 0 across all eight registrations, so there is no forward evidence to allocate against - only five pending predictions. No capacity, correlation or diversification statistic computed on this book would be measuring anything yet.",
+  "forfeiture_read": "forfeitures_total = 0 is CORRECT under the accrual contract and is not a cleaned-up counter. The contract reserves forfeiture for a frozen decision whose emission window shut; a cadence boundary at which the owner never froze anything is AWAITING_NEW_GOVERNED_FREEZE, a fact about governance. R66 did not alter that definition."
+ },
+ "what_this_does_not_say": [
+  "It does not say these trades are unprofitable; profitability is a separate question ruled on elsewhere in this campaign.",
+  "It does not say the book should hold more cash; it says what would follow if it did.",
+  "It is not an allocation, a proposal, an approval or a promotion."
+ ]
+}

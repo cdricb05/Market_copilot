@@ -94,6 +94,17 @@ RUN_STATES = (RUN_COMPLETED, RUN_COMPLETED_WITH_FAILURES,
 
 _KEEP_RUNS = 400
 
+#: R66 - what a journalled stage row carries. ``stage``/``state``/``duration_ms``
+#: were the whole row until now; the rest are the fields that name WHY a stage
+#: reported what it did. Any field absent from a given stage is simply omitted,
+#: so rows stay small and no stage is forced to carry another stage's shape.
+_JOURNAL_STAGE_FIELDS = (
+    "stage", "state", "duration_ms",
+    "advance_state", "entry_session", "information_session", "entry_state",
+    "blocked_on", "blocked_owner", "append_state", "append_detail",
+    "publication", "paid_dollars", "frozen", "detail",
+)
+
 
 def _lock_file():
     return runtime_dir() / RUNTIME_LOCK_NAME
@@ -294,6 +305,13 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 append_state=(adv.get("append") or {}).get("state"),
                 paid_dollars=adv.get("paid_dollars"),
                 frozen=bool((adv.get("freeze") or {}).get("frozen")),
+                # R66 - the two fields that name WHY, and WHOSE fault it is.
+                # Both were already in ``adv`` and neither was ever read, so a
+                # local collection bug spent eight days reported as the single
+                # word DATA_BLOCKED.
+                blocked_on=adv.get("blocked_on"),
+                blocked_owner=adv.get("blocked_owner"),
+                append_detail=(adv.get("append") or {}).get("detail"),
                 detail=adv.get("detail")))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("next_open_prospective_decision",
@@ -808,8 +826,13 @@ def _journal(body: dict) -> None:
             k: (body.get("maturation_gate") or {}).get(k)
             for k in ("run", "reason", "changed_terms",
                       "seconds_since_last_run", "skips_since_last_run")},
-           "stages": [{"stage": s.get("stage"), "state": s.get("state"),
-                       "duration_ms": s.get("duration_ms")}
+           # R66 - the journal used to keep THREE fields and throw the rest
+           # away, so eight days of cycles recorded the word DATA_BLOCKED and
+           # never the reason. The allow-list is deliberately small and flat:
+           # enough to name the blocker and its owner without turning the
+           # journal into a second copy of the stage payload.
+           "stages": [{k: s.get(k) for k in _JOURNAL_STAGE_FIELDS
+                       if s.get(k) is not None}
                       for s in (body.get("stages") or ())]})
     kept = runs[-_KEEP_RUNS:]
     write_json(p, artifact_body(

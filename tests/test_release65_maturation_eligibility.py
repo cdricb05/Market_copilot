@@ -413,10 +413,27 @@ def test_26_every_stage_row_carries_its_own_measured_cost():
 
 
 def test_27_the_journal_retains_the_cost_and_the_verdict():
+    """R65's guarantee, re-asserted against R66's wider projection.
+
+    R65 pinned the literal ``'"duration_ms": s.get("duration_ms")'`` because the
+    journal projected exactly three hard-coded fields per stage. R66 replaced
+    those three with an allow-list (``_JOURNAL_STAGE_FIELDS``) after a local
+    collection bug spent eight days recorded as the single word DATA_BLOCKED,
+    with the reason thrown away by that same projection.
+
+    The R65 guarantee is UNCHANGED and is asserted here against the allow-list
+    itself, which is strictly stronger than the old string match: a future
+    change that drops the per-stage cost still fails this test, and so does one
+    that drops the gate verdict.
+    """
     journal = RUNTIME_SRC[RUNTIME_SRC.index("def _journal("):
                           RUNTIME_SRC.index("def _next_invocation(")]
-    assert '"duration_ms": s.get("duration_ms")' in journal
-    assert '"maturation_gate"' in journal
+    assert "_JOURNAL_STAGE_FIELDS" in journal, (
+        "the per-stage projection must go through the declared allow-list")
+    assert "duration_ms" in RT._JOURNAL_STAGE_FIELDS, (
+        "R65: the journal must retain the per-stage COST")
+    assert '"maturation_gate"' in journal, (
+        "R65: the journal must retain the gate VERDICT")
 
 
 def test_28_the_measured_watermark_set_is_resolved_from_its_owners():
