@@ -271,12 +271,24 @@ def test_19_no_order_or_fill_path_is_reachable():
 
 
 def test_20_the_r58_long_only_registrations_are_untouched():
-    """The four R58 challengers keep offset 0 and their own decision grid."""
+    """The four R58 challengers keep offset 0 and their own decision grid.
+
+    R68 NOTE. This test asserted ``declared is False`` as a proxy for "nothing
+    declares an execution contract for these four". R68 gave them the cadence
+    producer their frozen construction always declared, and that producer DOES
+    declare a contract - one whose ``decision_session_is`` is the INFORMATION
+    session and whose boundary is the decision session's own close.
+
+    What the test exists to protect is that their DECISION GRID does not move,
+    and that is asserted directly here instead of through the proxy: the offset
+    is still 0, so every R58 grid is the session-for-session grid it has always
+    been. A contract that declared an offset would fail this.
+    """
     for cid in ("R58_SHORT_VOLUME_PRESSURE_V1", "R58_FCF_PURE_V1"):
         off = CFA.execution_offset_sessions(
             _registration(cid, release="R58", first_session="2026-09-10"))
-        assert off["offset_sessions"] == 0
-        assert off["declared"] is False
+        assert off["offset_sessions"] == 0, cid
+        assert off["decision_session_is"] == "the INFORMATION session", cid
 
 
 # --------------------------------------------------------------------------- #

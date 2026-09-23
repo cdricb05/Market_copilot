@@ -15901,6 +15901,127 @@ def check_release62_2_automatic_forward_accrual(files: list[Path]) -> dict:
     }
 
 
+def check_release68_forward_producer_health(files: list[Path]) -> dict:
+    """R68 invariants - a registration that cannot decide can never look healthy.
+
+    (a) ONE PRODUCER DECLARATION. Which runtime stage produces which challenger
+        is declared in exactly one place. Two lists that can disagree is how
+        four registrations spent thirteen days counted among the healthy.
+
+    (b) EVERY DECLARED STAGE EXISTS IN THE RUNTIME. A stage that is renamed or
+        deleted must fail the build, not silently turn a live producer into a
+        phantom one.
+
+    (c) EVERY PRODUCER RUNS BEFORE THE ACCRUAL. A decision frozen in a cycle
+        must be scored in that same cycle, or it is forfeited with the decision
+        already on disk.
+
+    (d) NO SECOND SCHEDULER AND NO SECOND DECISION STORE. The R58 producer
+        freezes through the estate's ONE prospective-decision owner and runs as
+        a stage of the ONE runtime.
+
+    (e) THE FROZEN RESEARCH PANEL IS NEVER REBUILT IN PLACE. It is the substrate
+        every settled R57/R58 result was measured on.
+
+    (f) NO SECOND SIGNAL IMPLEMENTATION. Every score is the originating owner's.
+
+    (g) THE LEAKAGE CHECK IS VERIFIED, NOT ASSERTED. ``publish_features`` must
+        compare a formula to the dataset's declared timing rule; a release that
+        goes back to trusting the author's string fails here.
+
+    (h) THE CENSUS ANSWERS ON THE FULL MECHANISM KEY.
+
+    (i) NO EXECUTION OR PROMOTION PATH.
+    """
+    health = _read("api/forward_producer_health.py")
+    producer = _read("alpha_agent/r68/r58_cadence_runtime.py")
+    r67 = _read("alpha_agent/r67/forward_producer.py")
+    runtime = _read("alpha_agent/r52/runtime.py")
+    pipeline = _read("alpha_agent/agents_v2/pipeline.py")
+    census = _read("scripts/alpha_agents_v2.py")
+    refresh = _read("scripts/run_r58_forward_panel_refresh.py")
+
+    # (a) one declaration, and R67 reads it rather than keeping a copy.
+    declares = sorted(
+        _rel(fp) for fp in files
+        if not _rel(fp).startswith("tests/")
+        # This check's own source names the constant it is looking for, so it
+        # would report itself as a second declaration owner. Excluded by path,
+        # not by weakening the pattern.
+        and _rel(fp) != "scripts/audit_architecture.py"
+        and "RUNTIME_PRODUCER_STAGES = {" in fp.read_text(
+            encoding="utf-8", errors="replace"))
+    r67_imports_the_declaration = bool(
+        "from paper_trader.api.forward_producer_health import" in r67
+        and "RUNTIME_PRODUCER_STAGES" in r67)
+
+    # (b) + (c) every declared stage is in the runtime, before the accrual.
+    stages = re.findall(r'^\s{4}"([a-z0-9_]+)":\s*\(', health, re.M)
+    missing_stages = sorted(st for st in stages if '"%s"' % st not in runtime)
+    try:
+        accrual_at = runtime.index('"canonical_forward_accrual"')
+        late_stages = sorted(
+            st for st in stages
+            if '"%s"' % st in runtime and runtime.index('"%s"' % st) > accrual_at)
+    except ValueError:
+        late_stages = ["canonical_forward_accrual stage not found"]
+
+    # (d) one decision owner, one scheduler.
+    freezes_through_the_one_owner = bool(
+        "from paper_trader.alpha_agent.alpha_recovery import prospective_decision as PD"
+        in producer and "PD.freeze_decision(" in producer)
+    second_scheduler = sorted(set(
+        t for t in ("schtasks", "Register-ScheduledTask", "threading.Timer",
+                    "sched.scheduler", "APScheduler")
+        if t in producer))
+
+    # (e) the frozen panel is never rebuilt in place.
+    refresh_refuses_the_frozen_root = bool(
+        "DEFAULT_RESEARCH_ROOT" in refresh and "R58_FORWARD_PANEL_FAILED" in refresh)
+    producer_redirects_the_root = "env[R57_ROOT_ENV] = str(panel_root())" in producer
+
+    # (f) no second signal implementation.
+    second_signal = sorted(set(
+        t for t in ("def xs_rank", "def xs_z", "def _book_from_scores",
+                    "np.argsort", "nanmedian", "def eligibility")
+        if t in producer))
+
+    # (g) the leakage check is verified.
+    leakage_is_verified = bool(
+        "check_feature_set(" in pipeline
+        and "LEAKAGE_CHECK_FAILED_VERIFICATION" in pipeline
+        and "leakage_verification" in pipeline)
+
+    # (h) the census answers on the full key.
+    census_uses_the_full_key = bool(
+        "settled_mechanism_keys" in census and "mechanism_state(" in census)
+
+    # (i) nothing executes or promotes.
+    forbidden = sorted(set(
+        t for t in ("create_order(", "create_fill(", "submit_order(",
+                    "promote_champion(", "promote_model(", "activate_sleeve(",
+                    "allocate_capital(", "approve_proposal(", "run_daily_close(")
+        if t in (producer + health + refresh)))
+
+    return {
+        "producer_declaration_owners": declares,
+        "r67_reads_the_one_declaration": r67_imports_the_declaration,
+        "declared_producer_stages": sorted(stages),
+        "declared_stages_missing_from_the_runtime": missing_stages,
+        "producer_stages_after_the_accrual": late_stages,
+        "freezes_through_the_one_decision_owner": freezes_through_the_one_owner,
+        "second_scheduler": second_scheduler,
+        "refresh_refuses_the_frozen_research_root": refresh_refuses_the_frozen_root,
+        "producer_redirects_the_panel_root": producer_redirects_the_root,
+        "second_signal_implementation": second_signal,
+        "leakage_check_is_verified_not_asserted": leakage_is_verified,
+        "census_answers_on_the_full_mechanism_key": census_uses_the_full_key,
+        "lifecycle_states_declared": sorted(
+            re.findall(r'^L_[A-Z_]+ = "([A-Z_]+)"', health, re.M)),
+        "execution_or_promotion_paths": forbidden,
+    }
+
+
 def check_release46_prospective_alpha_tournament(files: list[Path]) -> dict:
     """Release 46 invariants - a forward record that cannot be edited into a win.
 
@@ -16681,6 +16802,8 @@ def run_audit(extra_ps1_dirs=()) -> dict:
             check_release62_1_1_forward_activation_integrity(files),
         "release62_2_automatic_forward_accrual":
             check_release62_2_automatic_forward_accrual(files),
+        "release68_forward_producer_health":
+            check_release68_forward_producer_health(files),
         "release54_active_manager_state":
             check_release54_active_manager_state(files),
         "release54_1_governed_intraday_decision":

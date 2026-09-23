@@ -54,16 +54,35 @@ def _series(ng, symbol: str, adjustment, start: str, end: str):
         timeseriesformat="pandas-dataframe")
 
 
-def build_panel(progress_every: int = 200) -> dict:
-    """Build and cache the panel. Idempotent: an existing cache is returned."""
+def build_panel(progress_every: int = 200, end: str = None,
+                force: bool = False) -> dict:
+    """Build and cache the panel. Idempotent: an existing cache is returned.
+
+    R68 - ``end`` and ``force``, for a FORWARD copy of this panel.
+
+    The R57 research panel is FROZEN at :data:`PANEL_END` (2026-09-03, the last
+    completed session at registration) and must stay frozen: it is the substrate
+    every settled R57/R58 hypothesis was measured on, and moving it would change
+    what those results mean. But the four R58 challengers need a CURRENT
+    cross-section to take their next cadence decision from, and the alternative
+    to these two parameters was a second copy of this builder - which is how an
+    estate ends up with two panel definitions that drift apart.
+
+    So the builder is one; the STORE is two. A caller that passes neither
+    parameter gets byte-for-byte the frozen behaviour: same window, same cache
+    short-circuit. The forward producer points ``research_root()`` at its own
+    directory, passes a live ``end`` and ``force=True``, and the frozen panel is
+    never opened for writing.
+    """
     npz_path = panel_dir() / (PANEL_NAME + ".npz")
     meta_path = panel_dir() / (PANEL_NAME + ".meta.json")
-    if npz_path.exists() and meta_path.exists():
+    if npz_path.exists() and meta_path.exists() and not force:
         return json.loads(meta_path.read_text(encoding="utf-8"))
+    panel_end = str(end) if end else PANEL_END
 
     ng = _ng()
     spy = _series(ng, CALENDAR_SYMBOL, ng.StockPriceAdjustmentType.TOTALRETURN,
-                  PANEL_START, PANEL_END)
+                  PANEL_START, panel_end)
     dates = np.array([d.strftime("%Y-%m-%d") for d in spy.index])
     date_ix = {d: i for i, d in enumerate(dates)}
     n_dates = len(dates)
@@ -82,7 +101,7 @@ def build_panel(progress_every: int = 200) -> dict:
             print("panel %d/%d %s" % (k, n, sym), flush=True)
         try:
             df_tr = _series(ng, sym, ng.StockPriceAdjustmentType.TOTALRETURN,
-                            PANEL_START, PANEL_END)
+                            PANEL_START, panel_end)
         except Exception:                                  # noqa: BLE001
             skipped.append(sym)
             sectors.append(None)
@@ -97,7 +116,7 @@ def build_panel(progress_every: int = 200) -> dict:
         tr[k, ii[ok]] = df_tr["Close"].to_numpy(dtype=np.float32)[ok]
         try:
             df_un = _series(ng, sym, ng.StockPriceAdjustmentType.NONE,
-                            PANEL_START, PANEL_END)
+                            PANEL_START, panel_end)
             ju = np.array([date_ix.get(d.strftime("%Y-%m-%d"), -1)
                            for d in df_un.index])
             oku = ju >= 0
@@ -126,6 +145,8 @@ def build_panel(progress_every: int = 200) -> dict:
                         spy_tr=spy_tr)
     meta = {
         "panel": PANEL_NAME, "built_at": now_iso(),
+        "requested_end": panel_end,
+        "is_frozen_research_window": panel_end == PANEL_END,
         "watchlist": WATCHLIST, "index": INDEX_NAME,
         "n_symbols": n, "n_dates": n_dates,
         "date_start": str(dates[0]), "date_end": str(dates[-1]),

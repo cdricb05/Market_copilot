@@ -12,8 +12,26 @@
     "qualified_survivors": 0,
     "forward_frozen": 56,
     "agent_v2_experiments_in_memory": 0,
-    "burden_by_asset_class": {"CROSS_ASSET": 2448, "US_EQUITY": 1826, "COMMODITY_FUTURES": 1621, "EQUITY_INDEX_FUTURES": 923, "RATES_FUTURES": 864, "FX_FUTURES": 692, "VOLATILITY": 13, "CREDIT_PROXY": 1},
-    "r59_frontier_state": {"US_EQUITY": "EXHAUSTED", "EQUITY_INDEX_FUTURES": "EXHAUSTED", "RATES_FUTURES": "EXHAUSTED", "COMMODITY_FUTURES": "EXHAUSTED", "FX_FUTURES": "EXHAUSTED", "VOLATILITY": "EXHAUSTED", "CREDIT_PROXY": "BLOCKED (no owned substrate)", "CROSS_ASSET": "RESEARCH_READY (CROSS_ASSET_RELATIVE_VALUE, CROSS_ASSET_LEAD_LAG, CROSS_ASSET_REGIME_CONDITIONING open)"}
+    "burden_by_asset_class": {
+      "CROSS_ASSET": 2448,
+      "US_EQUITY": 1826,
+      "COMMODITY_FUTURES": 1621,
+      "EQUITY_INDEX_FUTURES": 923,
+      "RATES_FUTURES": 864,
+      "FX_FUTURES": 692,
+      "VOLATILITY": 13,
+      "CREDIT_PROXY": 1
+    },
+    "r59_frontier_state": {
+      "US_EQUITY": "EXHAUSTED",
+      "EQUITY_INDEX_FUTURES": "EXHAUSTED",
+      "RATES_FUTURES": "EXHAUSTED",
+      "COMMODITY_FUTURES": "EXHAUSTED",
+      "FX_FUTURES": "EXHAUSTED",
+      "VOLATILITY": "EXHAUSTED",
+      "CREDIT_PROXY": "BLOCKED (no owned substrate)",
+      "CROSS_ASSET": "RESEARCH_READY (CROSS_ASSET_RELATIVE_VALUE, CROSS_ASSET_LEAD_LAG, CROSS_ASSET_REGIME_CONDITIONING open)"
+    }
   },
   "the_shape_of_what_was_searched": {
     "finding": "The estate is deep but NARROW. 'EXHAUSTED' is a precise statement about one shape of test, not about every idea.",
@@ -25,21 +43,95 @@
     "futures_substrate": "5846 of 6587 non-equity hypotheses use the back-adjusted continuous panel (103 markets, 2004-2026). The R38 native DATED-CONTRACT layer (held + deferred contract, slope, open interest, volume, real roll dates, per-market cost, 1987-2026) carries only 12."
   },
   "available_pit_datasets": [
-    {"dataset": "sp500_pit_panel_v1", "asset_class": "US_EQUITY", "state": "OWNED, heavily mined", "pit": "Norgate index_constituent_timeseries; total-return; delisted retained"},
-    {"dataset": "r58_pit_fundamental_panel_v1", "asset_class": "US_EQUITY", "state": "OWNED, mined on S&P 500 only", "pit": "SEC filed <= decision date; latest-filed restatement rule; 885 joined (237 delisted); 13 features"},
-    {"dataset": "futures_panel_v1", "asset_class": "all futures", "state": "OWNED, heavily mined", "trap": "close_b is <SYM>_CCB, the SAME front contract under a second back-adjustment, NOT the deferred contract"},
-    {"dataset": "R38 native_contract_layer", "asset_class": "all futures", "state": "OWNED, 12 hypotheses only", "pit": "dated contracts, real roll dates, OI/volume, per-market cost_bps_per_side 2-15bp", "trap": "open interest is provisional: observe with a one-session delay"},
-    {"dataset": "SEC companyfacts store", "asset_class": "US_EQUITY", "state": "FREE_AVAILABLE", "note": "would extend PIT fundamentals beyond S&P 500"},
-    {"dataset": "EODHD dividend/split history, full universe", "asset_class": "US_EQUITY", "state": "ALREADY_OWNED_UNUSED (16-year history confirmed for a probe name)", "verify": "declaration-date availability per row"},
-    {"dataset": "FINRA daily short volume", "asset_class": "US_EQUITY", "state": "FREE_AVAILABLE, 1 hypothesis", "verify": "owned history depth"},
-    {"dataset": "Nasdaq trading halts", "asset_class": "US_EQUITY", "state": "FREE_AVAILABLE, 0 hypotheses", "verify": "history depth; likely prospective-only"},
-    {"dataset": "SEC EDGAR full index (UPLOAD / CORRESP comment letters)", "asset_class": "US_EQUITY", "state": "FREE, never used", "pit": "availability = EDGAR dissemination date, NOT letter date (public release lags the review)"},
-    {"dataset": "CFTC COT, FRED/ALFRED macro, Cboe indices, TreasuryDirect", "asset_class": "cross-asset", "state": "OWNED, closed as timing information"},
-    {"dataset": "EODHD news (full universe), earnings BMO/AMC flag", "asset_class": "US_EQUITY", "state": "PROSPECTIVE-ONLY (no usable history)"},
-    {"dataset": "SEC bulk Form 4 data sets", "asset_class": "US_EQUITY", "state": "OWNED_WITH_HISTORY", "r60": "R60 CORRECTION: the prior 'Form 4 parse: PROSPECTIVE-ONLY (no usable history)' was FALSE. 69 quarters 2009q1-2026q1, exact FILING_DATE, AFF10B5ONE flag. INSIDER_FORM4_ALL nevertheless stays closed after 19 failed tests: a new population is not its recorded reopen condition."},
-    {"dataset": "EODHD dividend declarations", "asset_class": "US_EQUITY", "state": "PIT_SAFE_R60", "r60": "100% non-null declarationDate on 525 rows; measured on 2020-2026 and 25 names only, so pre-2020 coverage is unmeasured."},
-    {"dataset": "R38 deferred leg (ret2)", "asset_class": "all futures", "state": "PIT_SAFE_R60", "r60": "ret2 IS the deferred contract return and was present all along: 98.6% populated, provably distinct from ret, 67/68 markets with >=2,000 paired sessions. Basis momentum is computable. open_interest==0 is MISSING everywhere (63 provisional newest rows + 6,664 in-history zeros across 23 markets)."},
-    {"dataset": "us_equity_extension_pit_panel_v1", "asset_class": "US_EQUITY", "state": "BUILT_PIT_SAFE_R60", "r60": "S&P MidCap 400 + SmallCap 600 Current & Past. 2,947 names, 2004-2026, median 1,000 tradable names per decision over 182 decisions, delisted retained. The first substrate in this estate below the S&P 500."}
+    {
+      "dataset": "sp500_pit_panel_v1",
+      "asset_class": "US_EQUITY",
+      "state": "OWNED, heavily mined",
+      "pit": "Norgate index_constituent_timeseries; total-return; delisted retained"
+    },
+    {
+      "dataset": "r58_pit_fundamental_panel_v1",
+      "asset_class": "US_EQUITY",
+      "state": "OWNED, mined on S&P 500 only",
+      "pit": "SEC filed <= decision date; latest-filed restatement rule; 885 joined (237 delisted); 13 features"
+    },
+    {
+      "dataset": "futures_panel_v1",
+      "asset_class": "all futures",
+      "state": "OWNED, heavily mined",
+      "trap": "close_b is <SYM>_CCB, the SAME front contract under a second back-adjustment, NOT the deferred contract"
+    },
+    {
+      "dataset": "R38 native_contract_layer",
+      "asset_class": "all futures",
+      "state": "OWNED, 12 hypotheses only",
+      "pit": "dated contracts, real roll dates, OI/volume, per-market cost_bps_per_side 2-15bp",
+      "trap": "open interest is provisional: observe with a one-session delay"
+    },
+    {
+      "dataset": "SEC companyfacts store",
+      "asset_class": "US_EQUITY",
+      "state": "FREE_AVAILABLE",
+      "note": "would extend PIT fundamentals beyond S&P 500"
+    },
+    {
+      "dataset": "EODHD dividend/split history, full universe",
+      "asset_class": "US_EQUITY",
+      "state": "ALREADY_OWNED_UNUSED (16-year history confirmed for a probe name)",
+      "verify": "declaration-date availability per row"
+    },
+    {
+      "dataset": "FINRA daily short volume",
+      "asset_class": "US_EQUITY",
+      "state": "FREE_AVAILABLE, 1 hypothesis",
+      "verify": "owned history depth"
+    },
+    {
+      "dataset": "Nasdaq trading halts",
+      "asset_class": "US_EQUITY",
+      "state": "FREE_AVAILABLE, 0 hypotheses",
+      "verify": "history depth; likely prospective-only"
+    },
+    {
+      "dataset": "SEC EDGAR full index (UPLOAD / CORRESP comment letters)",
+      "asset_class": "US_EQUITY",
+      "state": "FREE, never used",
+      "pit": "availability = EDGAR dissemination date, NOT letter date (public release lags the review)"
+    },
+    {
+      "dataset": "CFTC COT, FRED/ALFRED macro, Cboe indices, TreasuryDirect",
+      "asset_class": "cross-asset",
+      "state": "OWNED, closed as timing information"
+    },
+    {
+      "dataset": "EODHD news (full universe), earnings BMO/AMC flag",
+      "asset_class": "US_EQUITY",
+      "state": "PROSPECTIVE-ONLY (no usable history)"
+    },
+    {
+      "dataset": "SEC bulk Form 4 data sets",
+      "asset_class": "US_EQUITY",
+      "state": "OWNED_WITH_HISTORY",
+      "r60": "R60 CORRECTION: the prior 'Form 4 parse: PROSPECTIVE-ONLY (no usable history)' was FALSE. 69 quarters 2009q1-2026q1, exact FILING_DATE, AFF10B5ONE flag. INSIDER_FORM4_ALL nevertheless stays closed after 19 failed tests: a new population is not its recorded reopen condition."
+    },
+    {
+      "dataset": "EODHD dividend declarations",
+      "asset_class": "US_EQUITY",
+      "state": "PIT_SAFE_R60",
+      "r60": "100% non-null declarationDate on 525 rows; measured on 2020-2026 and 25 names only, so pre-2020 coverage is unmeasured."
+    },
+    {
+      "dataset": "R38 deferred leg (ret2)",
+      "asset_class": "all futures",
+      "state": "PIT_SAFE_R60",
+      "r60": "ret2 IS the deferred contract return and was present all along: 98.6% populated, provably distinct from ret, 67/68 markets with >=2,000 paired sessions. Basis momentum is computable. open_interest==0 is MISSING everywhere (63 provisional newest rows + 6,664 in-history zeros across 23 markets)."
+    },
+    {
+      "dataset": "us_equity_extension_pit_panel_v1",
+      "asset_class": "US_EQUITY",
+      "state": "BUILT_PIT_SAFE_R60",
+      "r60": "S&P MidCap 400 + SmallCap 600 Current & Past. 2,947 names, 2004-2026, median 1,000 tradable names per decision over 182 decisions, delisted retained. The first substrate in this estate below the S&P 500."
+    }
   ],
   "experiments_already_tried": "See must_not_repeat. The research memory holds the full list; the 49-row CLOSED_MECHANISM_LEDGER is the semantic summary.",
   "must_not_repeat": {
@@ -51,14 +143,86 @@
       "Rescuing a killed candidate, or adopting a strong-looking control or by-product."
     ],
     "closed_mechanism_ledger": {
-      "US_EQUITY": ["PRICE_STATE_EQUITY_FACTORS", "SHORT_HORIZON_REVERSAL_GAP_FADE (S&P 500)", "SAME_MONTH_SEASONALITY", "SP500_INDEX_ADDITION_DELETION", "OVERNIGHT_GAP_CONCENTRATION", "PIT_FUNDAMENTALS_AND_VALUATION (S&P 500)", "SEC_FILING_BEHAVIOUR_R27", "EVENT_8K_ITEM_CODES", "DISCLOSURE_INTENSITY_R63", "EARNINGS_EVENT_REACTION_SUE", "ANALYST_REVISIONS_SALES_SURPRISE", "NEWS_INTENSITY_SENTIMENT", "INSIDER_FORM4_ALL (19 failed tests)", "OWNERSHIP_BREADTH_13F", "CONTROL_BLOCK_13DG", "FAILS_TO_DELIVER_AND_SHORT_INTEREST", "MACRO_BETA_XS_STAGE15", "INTRADAY_ETF_FAMILIES", "DIVIDEND_MONTH_DEMAND_PREMIUM", "INDEX_MEMBERSHIP_FORCED_FLOW (Russell reconstitution)", "MERGER_ARBITRAGE_CASH_DEAL", "SPINOFF_PARENT_HOLDER_FORCED_SELLING", "PEER_EARNINGS_INFORMATION_TRANSFER (DATA_HOLD)"],
-      "EQUITY_INDEX_FUTURES": ["EQUITY_INDEX_CROSS_ASSET_CARRY_R64", "VOL_TERM_EQUITY_TIMING_R35_R36_R63", "R32_VOLATILITY_RISK_REGIME_BETA_TIMING", "R32_EVENT_DRIVEN_CALENDAR", "SPY_OPTION_SURFACE_CELLS", "R44_SPY_RISK_REVERSAL_VRP", "MARKET_DIRECTION_SPY", "SCHEDULED_EVENT_EQUITY_PREMIUM (FOMC/CPI)", "SPX_TAIL_HEDGE_DEMAND_SKEW", "RELATIVE_INDEX_IMPLIED_VOL", "IMPLIED_CORRELATION_PREMIUM", "OIL_SHOCK_EQUITY_SLOW_DIFFUSION"],
-      "RATES_FUTURES": ["PRIMARY_DEALER_POSITIONS", "RATES_CARRY_CURVE_RV", "TREASURY_AUCTION_SUPPLY_CONCESSION", "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION"],
-      "COMMODITY_FUTURES": ["INVENTORY_SURPRISE_EIA", "COT_HEDGING_PRESSURE", "COMMODITY_CURVE_CARRY_SPREADS (slope LEVEL)", "INTER_COMMODITY_RV_SEASONALITY", "COMMODITY_INDEX_ROLL_WINDOW_PRESSURE"],
-      "FX_FUTURES": ["FX_CARRY (already REGISTERED forward as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test)", "FX_MONTH_END_EQUITY_HEDGE_REBALANCING"],
-      "VOLATILITY": ["VX_TERM_CARRY", "VX_CONDITIONAL_SHORT_VOL_R41", "VOLATILITY_EXPECTATIONS_IV_R63"],
-      "CROSS_ASSET": ["MACHINE_REPRESENTATION_SEARCH", "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45", "MACRO_TIMING_LANES_R63", "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59 (the withdrawn survivor: ~14 effective observations)", "CROSS_ASSET_TREND_AND_XS_MOMENTUM (trend challenger already registered forward)", "INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE", "CRYPTO_FUNDING_CARRY", "PORTFOLIO_SYNTHESIS_COMBINATIONS", "CROSS_MARKET_PREDICTION_R33_R34 (ML, 611 tests)", "MARKET_IMPLIED_RISK_PREMIA_R35", "FUTURES_INTRADAY_8_FAMILIES", "MICROSTRUCTURE_ORDER_FLOW", "FIBONACCI_NAMED_TECHNICAL_LEVELS", "MONTH_END_BALANCED_REBALANCING_FLOW"],
-      "CREDIT_PROXY": ["CREDIT_SPREAD_TIMING"]
+      "US_EQUITY": [
+        "PRICE_STATE_EQUITY_FACTORS",
+        "SHORT_HORIZON_REVERSAL_GAP_FADE (S&P 500)",
+        "SAME_MONTH_SEASONALITY",
+        "SP500_INDEX_ADDITION_DELETION",
+        "OVERNIGHT_GAP_CONCENTRATION",
+        "PIT_FUNDAMENTALS_AND_VALUATION (S&P 500)",
+        "SEC_FILING_BEHAVIOUR_R27",
+        "EVENT_8K_ITEM_CODES",
+        "DISCLOSURE_INTENSITY_R63",
+        "EARNINGS_EVENT_REACTION_SUE",
+        "ANALYST_REVISIONS_SALES_SURPRISE",
+        "NEWS_INTENSITY_SENTIMENT",
+        "INSIDER_FORM4_ALL (19 failed tests)",
+        "OWNERSHIP_BREADTH_13F",
+        "CONTROL_BLOCK_13DG",
+        "FAILS_TO_DELIVER_AND_SHORT_INTEREST",
+        "MACRO_BETA_XS_STAGE15",
+        "INTRADAY_ETF_FAMILIES",
+        "DIVIDEND_MONTH_DEMAND_PREMIUM",
+        "INDEX_MEMBERSHIP_FORCED_FLOW (Russell reconstitution)",
+        "MERGER_ARBITRAGE_CASH_DEAL",
+        "SPINOFF_PARENT_HOLDER_FORCED_SELLING",
+        "PEER_EARNINGS_INFORMATION_TRANSFER (DATA_HOLD)"
+      ],
+      "EQUITY_INDEX_FUTURES": [
+        "EQUITY_INDEX_CROSS_ASSET_CARRY_R64",
+        "VOL_TERM_EQUITY_TIMING_R35_R36_R63",
+        "R32_VOLATILITY_RISK_REGIME_BETA_TIMING",
+        "R32_EVENT_DRIVEN_CALENDAR",
+        "SPY_OPTION_SURFACE_CELLS",
+        "R44_SPY_RISK_REVERSAL_VRP",
+        "MARKET_DIRECTION_SPY",
+        "SCHEDULED_EVENT_EQUITY_PREMIUM (FOMC/CPI)",
+        "SPX_TAIL_HEDGE_DEMAND_SKEW",
+        "RELATIVE_INDEX_IMPLIED_VOL",
+        "IMPLIED_CORRELATION_PREMIUM",
+        "OIL_SHOCK_EQUITY_SLOW_DIFFUSION"
+      ],
+      "RATES_FUTURES": [
+        "PRIMARY_DEALER_POSITIONS",
+        "RATES_CARRY_CURVE_RV",
+        "TREASURY_AUCTION_SUPPLY_CONCESSION",
+        "TREASURY_INDEX_MONTH_END_DURATION_EXTENSION"
+      ],
+      "COMMODITY_FUTURES": [
+        "INVENTORY_SURPRISE_EIA",
+        "COT_HEDGING_PRESSURE",
+        "COMMODITY_CURVE_CARRY_SPREADS (slope LEVEL)",
+        "INTER_COMMODITY_RV_SEASONALITY",
+        "COMMODITY_INDEX_ROLL_WINDOW_PRESSURE"
+      ],
+      "FX_FUTURES": [
+        "FX_CARRY (already REGISTERED forward as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test)",
+        "FX_MONTH_END_EQUITY_HEDGE_REBALANCING"
+      ],
+      "VOLATILITY": [
+        "VX_TERM_CARRY",
+        "VX_CONDITIONAL_SHORT_VOL_R41",
+        "VOLATILITY_EXPECTATIONS_IV_R63"
+      ],
+      "CROSS_ASSET": [
+        "MACHINE_REPRESENTATION_SEARCH",
+        "MACRO_EVENT_ANNOUNCEMENT_REACTION_R44_R45",
+        "MACRO_TIMING_LANES_R63",
+        "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59 (the withdrawn survivor: ~14 effective observations)",
+        "CROSS_ASSET_TREND_AND_XS_MOMENTUM (trend challenger already registered forward)",
+        "INTL_INDEX_TREND_FX_REVERSAL_XA_CURVE",
+        "CRYPTO_FUNDING_CARRY",
+        "PORTFOLIO_SYNTHESIS_COMBINATIONS",
+        "CROSS_MARKET_PREDICTION_R33_R34 (ML, 611 tests)",
+        "MARKET_IMPLIED_RISK_PREMIA_R35",
+        "FUTURES_INTRADAY_8_FAMILIES",
+        "MICROSTRUCTURE_ORDER_FLOW",
+        "FIBONACCI_NAMED_TECHNICAL_LEVELS",
+        "MONTH_END_BALANCED_REBALANCING_FLOW"
+      ],
+      "CREDIT_PROXY": [
+        "CREDIT_SPREAD_TIMING"
+      ]
     },
     "r60_settled": {
       "campaign": "R60_INFORMATION_FRONTIER (INFORMATION_FRONTIER_ALPHA_OFFENSIVE_V1)",
@@ -91,25 +255,414 @@
   },
   "honest_prior": "Zero of 8445 hypotheses qualified. Nothing below is likely to survive; each is listed because it is genuinely NOT a repeat and sits on owned data. A campaign that ends NO_ALPHA_EVIDENCE after ten clean tests is a valid result, and cash remains a real asset choice.",
   "queued_hypotheses": [
-    {"rank": 1, "proposal": "FUT_BASIS_MOMENTUM_COMMODITY", "agent": "volatility-liquidity-agent", "asset_class": "COMMODITY_FUTURES", "family": "CARRY", "horizon_sessions": 21, "long_short": true, "expected_sign": 1, "hypothesis": "Basis-momentum - the trailing return of the held contract minus the trailing return of the deferred contract - predicts cross-sectional commodity futures returns, net of per-market cost.", "dataset": "R38 native_contract_layer (held, ret2)", "not_a_repeat_because": "Closed carry work used the slope LEVEL and roll state; this uses the near-minus-deferred RETURN differential, unavailable on the back-adjusted panel.", "skeptic_focus": "duplicate identity against CARRY_SLOPE and CALENDAR_TERM_STRUCTURE (|Spearman| >= 0.999); effective observations", "prior": "MEDIUM (strongest documented commodity predictor not yet tested here)"},
-    {"rank": 2, "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM", "agent": "volatility-liquidity-agent", "asset_class": "US_EQUITY", "family": "LIQUIDITY", "horizon_sessions": 21, "long_short": false, "expected_sign": 1, "hypothesis": "Amihud illiquidity earns a net premium in point-in-time mid/small-cap index members, long-only top quintile, at a pre-registered small-cap cost.", "dataset": "NEW mid/small-cap PIT panel from Norgate index constituents", "prerequisite": "data-foundation-agent verifies the Norgate S&P 400/600 (or Russell 2000) constituent entitlement and certifies a new panel; cost model pre-registered at >= 25 bp/side", "not_a_repeat_because": "All 1858 equity tests are S&P 500 large-cap.", "prior": "MEDIUM-LOW after realistic small-cap cost"},
-    {"rank": 3, "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE", "agent": "reversal-signal-agent", "asset_class": "CROSS_ASSET", "family": "RELATIVE_VALUE", "horizon_sessions": 21, "long_short": true, "expected_sign": 1, "hypothesis": "The spread between a commodity-currency future (AUD, CAD, NZD) and its terms-of-trade commodity basket mean-reverts over 21 sessions.", "dataset": "futures_panel_v1 + R38 per-market cost", "not_a_repeat_because": "CROSS_ASSET_RELATIVE_VALUE is one of three families the R59 frontier lists as OPEN and never executed.", "prior": "LOW-MEDIUM"},
-    {"rank": 4, "proposal": "FUT_OPEN_INTEREST_GROWTH", "agent": "volatility-liquidity-agent", "asset_class": "COMMODITY_FUTURES", "family": "POSITIONING", "horizon_sessions": 21, "long_short": true, "expected_sign": 1, "hypothesis": "Trailing growth in aggregate exchange open interest predicts commodity futures returns.", "dataset": "R38 native_contract_layer (OI, one-session PIT delay)", "not_a_repeat_because": "COT_HEDGING_PRESSURE used CFTC trader CATEGORIES; aggregate exchange OI growth is different information.", "prior": "LOW-MEDIUM"},
-    {"rank": 5, "proposal": "EQ_EXTENSION_RESIDUAL_MOMENTUM", "agent": "momentum-signal-agent", "asset_class": "US_EQUITY", "family": "MOMENTUM", "horizon_sessions": 21, "long_short": false, "expected_sign": 1, "hypothesis": "Residual (factor-neutralised) 12-1 momentum predicts returns in mid/small-cap PIT members.", "dataset": "the new extension panel (rank 2 prerequisite)", "not_a_repeat_because": "Residual momentum was the best human-authored large-cap price family (t 1.67) and has never been tested outside the S&P 500. The live estate's raw momentum leg is documented buy-side damage; this is the residual form on a new substrate.", "prior": "LOW-MEDIUM"},
-    {"rank": 6, "proposal": "EQ_SEC_COMMENT_LETTER_DRIFT", "agent": "reversal-signal-agent", "asset_class": "US_EQUITY", "family": "EVENT_OVERREACTION", "horizon_sessions": 63, "long_short": false, "expected_sign": -1, "hypothesis": "Public dissemination of an SEC comment-letter thread is followed by negative abnormal drift; avoiding those names improves a long-only book.", "dataset": "EDGAR full index UPLOAD/CORRESP for owned S&P-member CIKs", "prerequisite": "availability instant = EDGAR dissemination date; the owned SEC submissions cover 1080 S&P-member CIKs only, which is the correct universe for a PIT S&P 500 test and a survivorship trap for anything wider", "not_a_repeat_because": "Never used; named in the FTD post-mortem as the next information axis. Not in the closed ledger.", "prior": "LOW-MEDIUM"},
-    {"rank": 7, "proposal": "XA_BASIS_MOMENTUM_REPLICATION", "agent": "volatility-liquidity-agent", "asset_class": "CROSS_ASSET", "family": "CARRY", "horizon_sessions": 21, "long_short": true, "expected_sign": 1, "hypothesis": "Basis-momentum also predicts returns across rates, FX and equity-index futures.", "dataset": "R38 native_contract_layer", "note": "Pre-registered REPLICATION of rank 1 on a disjoint instrument set. It is its own family key and is charged to the burden; it is evidence only if rank 1 is measured first and not used to tune it.", "prior": "LOW"},
-    {"rank": 8, "proposal": "EQ_DIVIDEND_CHANGE_ANNOUNCEMENT_DRIFT", "agent": "momentum-signal-agent", "asset_class": "US_EQUITY", "family": "FUNDAMENTAL_MOMENTUM", "horizon_sessions": 63, "long_short": false, "expected_sign": 1, "hypothesis": "Dividend initiations and increases are followed by positive drift; cuts and omissions by negative drift.", "dataset": "EODHD dividend history (owned, unused)", "prerequisite": "declaration date present per row, else DATA_HOLD", "not_a_repeat_because": "DIVIDEND_MONTH_DEMAND_PREMIUM was a calendar premium; this is a change-in-payout announcement.", "prior": "LOW-MEDIUM"},
-    {"rank": 9, "proposal": "EQ_EXTENSION_H5_LIQUIDITY_PROVISION_REVERSAL", "agent": "reversal-signal-agent", "asset_class": "US_EQUITY", "family": "SHORT_TERM_REVERSAL", "horizon_sessions": 5, "long_short": false, "expected_sign": -1, "hypothesis": "Five-session losers in mid/small-cap PIT members rebound over the next five sessions, entered at the NEXT OPEN, with a hold band to respect the turnover ceiling.", "dataset": "the new extension panel", "not_a_repeat_because": "SHORT_HORIZON_REVERSAL_GAP_FADE is closed on the S&P 500 only. This is the H1-H5 experiment.", "skeptic_focus": "executable entry; turnover ceiling 0.40 per decision; cost at 2x", "prior": "LOW after cost"},
-    {"rank": 10, "proposal": "XA_LEAD_LAG_SINGLE_CHANNEL", "agent": "trend-breadth-signal-agent", "asset_class": "CROSS_ASSET", "family": "CROSS_ASSET_LEAD_LAG", "horizon_sessions": 3, "long_short": true, "expected_sign": 1, "hypothesis": "ONE pre-declared channel: a large industrial-metals move leads commodity-currency futures over the next three sessions.", "dataset": "futures_panel_v1", "not_a_repeat_because": "CROSS_ASSET_LEAD_LAG is R59-open with a single prior test. R33/R34 was an ML SEARCH over all pairs; this is one channel, declared in advance, with the mixed-calendar observability instant stated.", "prior": "LOW"},
-    {"rank": 11, "proposal": "EQ_EXTENSION_GROSS_PROFITABILITY", "agent": "volatility-liquidity-agent", "asset_class": "US_EQUITY", "family": "PROFITABILITY", "horizon_sessions": 21, "long_short": false, "expected_sign": 1, "hypothesis": "PIT gross profitability predicts returns in mid/small-cap members.", "dataset": "extension panel + SEC companyfacts join", "prerequisite": "extend the R58 PIT fundamental join beyond S&P 500 CIKs (heaviest data work in this queue)", "not_a_repeat_because": "PIT_FUNDAMENTALS_AND_VALUATION is closed on the S&P 500 only.", "prior": "LOW-MEDIUM"},
-    {"rank": 12, "proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME", "agent": "reversal-signal-agent", "asset_class": "US_EQUITY", "family": "SHORT_TERM_REVERSAL", "horizon_sessions": 5, "long_short": false, "expected_sign": -1, "hypothesis": "Five-session losers rebound more when the selling was NOT short-driven (low FINRA short-volume share): non-informational selling is what liquidity provision is paid for.", "dataset": "sp500_pit_panel_v1 + FINRA short volume", "prerequisite": "owned FINRA history depth certified", "reopen_statement": "Reopens SHORT_HORIZON_REVERSAL on its recorded condition NEW_ORTHOGONAL_INFORMATION: FINRA short-volume share has one prior test in the estate.", "prior": "LOW"},
-    {"rank": 13, "proposal": "EQ_POST_HALT_H3", "agent": "reversal-signal-agent", "asset_class": "US_EQUITY", "family": "EVENT_OVERREACTION", "horizon_sessions": 3, "long_short": false, "expected_sign": 1, "hypothesis": "Names resuming from a volatility halt after a down move rebound over three sessions.", "dataset": "Nasdaq trading halts (owned, zero tests)", "prerequisite": "history depth; expected outcome is DATA_HOLD until the prospective sample matures", "prior": "UNKNOWN - data first"}
+    {
+      "rank": 1,
+      "proposal": "FUT_BASIS_MOMENTUM_COMMODITY",
+      "agent": "volatility-liquidity-agent",
+      "asset_class": "COMMODITY_FUTURES",
+      "family": "CARRY",
+      "horizon_sessions": 21,
+      "long_short": true,
+      "expected_sign": 1,
+      "hypothesis": "Basis-momentum - the trailing return of the held contract minus the trailing return of the deferred contract - predicts cross-sectional commodity futures returns, net of per-market cost.",
+      "dataset": "R38 native_contract_layer (held, ret2)",
+      "not_a_repeat_because": "Closed carry work used the slope LEVEL and roll state; this uses the near-minus-deferred RETURN differential, unavailable on the back-adjusted panel.",
+      "skeptic_focus": "duplicate identity against CARRY_SLOPE and CALENDAR_TERM_STRUCTURE (|Spearman| >= 0.999); effective observations",
+      "prior": "MEDIUM (strongest documented commodity predictor not yet tested here)",
+      "R68_MECHANISM_CHECK": {
+        "verdict": "SETTLED - THIS PROPOSAL IS NOT UNTESTED",
+        "n_settled_rows_in_research_memory": 1,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1
+        },
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "the_novelty_claim_above_is_false": true,
+        "checked_key": "CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES"
+      }
+    },
+    {
+      "rank": 2,
+      "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+      "agent": "volatility-liquidity-agent",
+      "asset_class": "US_EQUITY",
+      "family": "LIQUIDITY",
+      "horizon_sessions": 21,
+      "long_short": false,
+      "expected_sign": 1,
+      "hypothesis": "Amihud illiquidity earns a net premium in point-in-time mid/small-cap index members, long-only top quintile, at a pre-registered small-cap cost.",
+      "dataset": "NEW mid/small-cap PIT panel from Norgate index constituents",
+      "prerequisite": "data-foundation-agent verifies the Norgate S&P 400/600 (or Russell 2000) constituent entitlement and certifies a new panel; cost model pre-registered at >= 25 bp/side",
+      "not_a_repeat_because": "All 1858 equity tests are S&P 500 large-cap.",
+      "prior": "MEDIUM-LOW after realistic small-cap cost",
+      "R68_MECHANISM_CHECK": {
+        "verdict": "SETTLED - THIS PROPOSAL IS NOT UNTESTED",
+        "n_settled_rows_in_research_memory": 13,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 13
+        },
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "the_novelty_claim_above_is_false": true,
+        "checked_key": "LIQUIDITY_PREMIUM|PRICE_STATE|US_EQUITY",
+        "qualification": "SETTLED AS A MECHANISM, and the proposal never claimed otherwise: its novelty claim is about the SAMPLE (mid/small-cap rather than S&P 500). R67's ruling settled what that is - REPLICATION, a third category, which inherits the parent's burden denominator and may never be charged to a fresh key. So the correction here is not 'this was tested and you missed it' but 'this is a replication and must be budgeted as one'."
+      }
+    },
+    {
+      "rank": 3,
+      "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+      "agent": "reversal-signal-agent",
+      "asset_class": "CROSS_ASSET",
+      "family": "RELATIVE_VALUE",
+      "horizon_sessions": 21,
+      "long_short": true,
+      "expected_sign": 1,
+      "hypothesis": "The spread between a commodity-currency future (AUD, CAD, NZD) and its terms-of-trade commodity basket mean-reverts over 21 sessions.",
+      "dataset": "futures_panel_v1 + R38 per-market cost",
+      "not_a_repeat_because": "CROSS_ASSET_RELATIVE_VALUE is one of three families the R59 frontier lists as OPEN and never executed.",
+      "prior": "LOW-MEDIUM",
+      "R68_MECHANISM_CHECK": {
+        "verdict": "SETTLED - THIS PROPOSAL IS NOT UNTESTED",
+        "n_settled_rows_in_research_memory": 1,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1
+        },
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "the_novelty_claim_above_is_false": false,
+        "checked_key": "RELATIVE_VALUE|None|CROSS_ASSET",
+        "qualification": "COARSER CHECK, AND SAID SO. No information_family was supplied, so this checked (CROSS_ASSET, RELATIVE_VALUE) only - the same partial key whose use is the defect being corrected. It establishes that the ECONOMIC FAMILY carries a settled row, NOT that this exact mechanism is settled. The proposal's own information family (TERMS_OF_TRADE) carries zero rows, which the R68 director verified independently and upheld as genuine novelty. The binding objection to this cell is R66's recorded reopen condition and R67's seven grounds, not a duplicate key."
+      }
+    },
+    {
+      "rank": 4,
+      "proposal": "FUT_OPEN_INTEREST_GROWTH",
+      "agent": "volatility-liquidity-agent",
+      "asset_class": "COMMODITY_FUTURES",
+      "family": "POSITIONING",
+      "horizon_sessions": 21,
+      "long_short": true,
+      "expected_sign": 1,
+      "hypothesis": "Trailing growth in aggregate exchange open interest predicts commodity futures returns.",
+      "dataset": "R38 native_contract_layer (OI, one-session PIT delay)",
+      "not_a_repeat_because": "COT_HEDGING_PRESSURE used CFTC trader CATEGORIES; aggregate exchange OI growth is different information.",
+      "prior": "LOW-MEDIUM",
+      "R68_MECHANISM_CHECK": {
+        "verdict": "SETTLED - THIS PROPOSAL IS NOT UNTESTED",
+        "n_settled_rows_in_research_memory": 4,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 3,
+          "REJECTED": 1
+        },
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION",
+          "NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden. This cell is NOT re-run under a changed ceiling; a ceiling chosen after a measurement is outcome-directed tuning however it is documented"
+        ],
+        "the_novelty_claim_above_is_false": true,
+        "checked_key": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES"
+      }
+    },
+    {
+      "rank": 5,
+      "proposal": "EQ_EXTENSION_RESIDUAL_MOMENTUM",
+      "agent": "momentum-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "MOMENTUM",
+      "horizon_sessions": 21,
+      "long_short": false,
+      "expected_sign": 1,
+      "hypothesis": "Residual (factor-neutralised) 12-1 momentum predicts returns in mid/small-cap PIT members.",
+      "dataset": "the new extension panel (rank 2 prerequisite)",
+      "not_a_repeat_because": "Residual momentum was the best human-authored large-cap price family (t 1.67) and has never been tested outside the S&P 500. The live estate's raw momentum leg is documented buy-side damage; this is the residual form on a new substrate.",
+      "prior": "LOW-MEDIUM",
+      "R68_MECHANISM_CHECK": {
+        "verdict": "SETTLED - THIS PROPOSAL IS NOT UNTESTED",
+        "n_settled_rows_in_research_memory": 2,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1,
+          "FORWARD_FROZEN": 1
+        },
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "the_novelty_claim_above_is_false": true,
+        "checked_key": "RESIDUAL_MOMENTUM|PRICE_STATE|US_EQUITY",
+        "qualification": "SETTLED AS A MECHANISM, same shape as rank 2: a sample claim, not an information claim, and therefore a REPLICATION. Note one of its two settled rows is FORWARD_FROZEN, not a negative verdict."
+      }
+    },
+    {
+      "rank": 6,
+      "proposal": "EQ_SEC_COMMENT_LETTER_DRIFT",
+      "agent": "reversal-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "EVENT_OVERREACTION",
+      "horizon_sessions": 63,
+      "long_short": false,
+      "expected_sign": -1,
+      "hypothesis": "Public dissemination of an SEC comment-letter thread is followed by negative abnormal drift; avoiding those names improves a long-only book.",
+      "dataset": "EDGAR full index UPLOAD/CORRESP for owned S&P-member CIKs",
+      "prerequisite": "availability instant = EDGAR dissemination date; the owned SEC submissions cover 1080 S&P-member CIKs only, which is the correct universe for a PIT S&P 500 test and a survivorship trap for anything wider",
+      "not_a_repeat_because": "Never used; named in the FTD post-mortem as the next information axis. Not in the closed ledger.",
+      "prior": "LOW-MEDIUM"
+    },
+    {
+      "rank": 7,
+      "proposal": "XA_BASIS_MOMENTUM_REPLICATION",
+      "agent": "volatility-liquidity-agent",
+      "asset_class": "CROSS_ASSET",
+      "family": "CARRY",
+      "horizon_sessions": 21,
+      "long_short": true,
+      "expected_sign": 1,
+      "hypothesis": "Basis-momentum also predicts returns across rates, FX and equity-index futures.",
+      "dataset": "R38 native_contract_layer",
+      "note": "Pre-registered REPLICATION of rank 1 on a disjoint instrument set. It is its own family key and is charged to the burden; it is evidence only if rank 1 is measured first and not used to tune it.",
+      "prior": "LOW"
+    },
+    {
+      "rank": 8,
+      "proposal": "EQ_DIVIDEND_CHANGE_ANNOUNCEMENT_DRIFT",
+      "agent": "momentum-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "FUNDAMENTAL_MOMENTUM",
+      "horizon_sessions": 63,
+      "long_short": false,
+      "expected_sign": 1,
+      "hypothesis": "Dividend initiations and increases are followed by positive drift; cuts and omissions by negative drift.",
+      "dataset": "EODHD dividend history (owned, unused)",
+      "prerequisite": "declaration date present per row, else DATA_HOLD",
+      "not_a_repeat_because": "DIVIDEND_MONTH_DEMAND_PREMIUM was a calendar premium; this is a change-in-payout announcement.",
+      "prior": "LOW-MEDIUM"
+    },
+    {
+      "rank": 9,
+      "proposal": "EQ_EXTENSION_H5_LIQUIDITY_PROVISION_REVERSAL",
+      "agent": "reversal-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "SHORT_TERM_REVERSAL",
+      "horizon_sessions": 5,
+      "long_short": false,
+      "expected_sign": -1,
+      "hypothesis": "Five-session losers in mid/small-cap PIT members rebound over the next five sessions, entered at the NEXT OPEN, with a hold band to respect the turnover ceiling.",
+      "dataset": "the new extension panel",
+      "not_a_repeat_because": "SHORT_HORIZON_REVERSAL_GAP_FADE is closed on the S&P 500 only. This is the H1-H5 experiment.",
+      "skeptic_focus": "executable entry; turnover ceiling 0.40 per decision; cost at 2x",
+      "prior": "LOW after cost"
+    },
+    {
+      "rank": 10,
+      "proposal": "XA_LEAD_LAG_SINGLE_CHANNEL",
+      "agent": "trend-breadth-signal-agent",
+      "asset_class": "CROSS_ASSET",
+      "family": "CROSS_ASSET_LEAD_LAG",
+      "horizon_sessions": 3,
+      "long_short": true,
+      "expected_sign": 1,
+      "hypothesis": "ONE pre-declared channel: a large industrial-metals move leads commodity-currency futures over the next three sessions.",
+      "dataset": "futures_panel_v1",
+      "not_a_repeat_because": "CROSS_ASSET_LEAD_LAG is R59-open with a single prior test. R33/R34 was an ML SEARCH over all pairs; this is one channel, declared in advance, with the mixed-calendar observability instant stated.",
+      "prior": "LOW"
+    },
+    {
+      "rank": 11,
+      "proposal": "EQ_EXTENSION_GROSS_PROFITABILITY",
+      "agent": "volatility-liquidity-agent",
+      "asset_class": "US_EQUITY",
+      "family": "PROFITABILITY",
+      "horizon_sessions": 21,
+      "long_short": false,
+      "expected_sign": 1,
+      "hypothesis": "PIT gross profitability predicts returns in mid/small-cap members.",
+      "dataset": "extension panel + SEC companyfacts join",
+      "prerequisite": "extend the R58 PIT fundamental join beyond S&P 500 CIKs (heaviest data work in this queue)",
+      "not_a_repeat_because": "PIT_FUNDAMENTALS_AND_VALUATION is closed on the S&P 500 only.",
+      "prior": "LOW-MEDIUM"
+    },
+    {
+      "rank": 12,
+      "proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+      "agent": "reversal-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "SHORT_TERM_REVERSAL",
+      "horizon_sessions": 5,
+      "long_short": false,
+      "expected_sign": -1,
+      "hypothesis": "Five-session losers rebound more when the selling was NOT short-driven (low FINRA short-volume share): non-informational selling is what liquidity provision is paid for.",
+      "dataset": "sp500_pit_panel_v1 + FINRA short volume",
+      "prerequisite": "owned FINRA history depth certified",
+      "reopen_statement": "Reopens SHORT_HORIZON_REVERSAL on its recorded condition NEW_ORTHOGONAL_INFORMATION: FINRA short-volume share has one prior test in the estate.",
+      "prior": "LOW"
+    },
+    {
+      "rank": 13,
+      "proposal": "EQ_POST_HALT_H3",
+      "agent": "reversal-signal-agent",
+      "asset_class": "US_EQUITY",
+      "family": "EVENT_OVERREACTION",
+      "horizon_sessions": 3,
+      "long_short": false,
+      "expected_sign": 1,
+      "hypothesis": "Names resuming from a volatility halt after a down move rebound over three sessions.",
+      "dataset": "Nasdaq trading halts (owned, zero tests)",
+      "prerequisite": "history depth; expected outcome is DATA_HOLD until the prospective sample matures",
+      "prior": "UNKNOWN - data first"
+    }
   ],
   "recommended_first_campaign": {
     "size": 10,
-    "members_by_rank": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "members_by_rank": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
     "diversity": "5 US_EQUITY (50%), 2 COMMODITY_FUTURES, 3 CROSS_ASSET; 50% non-equity; H1-H5: ranks 9 and 10; cross-asset: ranks 3, 7, 10. Satisfies research_director_protocol.hypothesis_diversity.",
     "critical_path": "data-foundation-agent first: (a) certify the R38 native layer for ranks 1, 4, 7; (b) verify the constituent entitlement and build the extension panel for ranks 2, 5, 9. If the entitlement is absent, ranks 2, 5, 9 and 11 settle DATA_HOLD and ranks 6, 8 and 12 take their place.",
     "budget_rule": "Ten is a ceiling. Ranks 11-13 are reserves, not targets."
+  },
+  "R68_CENSUS_CORRECTION": {
+    "schema": "r68_census_correction/1",
+    "corrected_on": "2026-09-23",
+    "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+    "THE_DEFECT": "This census summarised a family by (asset_class, economic_family) and folded information_family into a set. A mechanism is identified by FOUR parts - the same four alpha_agent.r59.memory.family_key counts for burden - so a measured, failed mechanism could appear in queued_hypotheses as untested. It did, and it was acted on: R67 registered FUT_OPEN_INTEREST_GROWTH's cell on the strength of this document and the director had to refuse it after querying memory directly.",
+    "SIGHTINGS": [
+      "R67 found it on POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES.",
+      "The R68 director independently reproduced it on CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES (queued rank 1) and on FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY."
+    ],
+    "WHAT_R68_CHANGED": [
+      "scripts/alpha_agents_v2.py census now emits settled_mechanisms and settled_mechanism_keys, keyed by the full four-part family key.",
+      "scripts/alpha_agents_v2.py check-mechanism answers 'has this mechanism been prosecuted' for ONE proposal, read-only.",
+      "alpha_agent.r59.memory.mechanism_state is the owner of that question, and is_novel now reports it alongside its own verdict so novel=True cannot be read without seeing a settled sibling."
+    ],
+    "WHY_THE_is_novel_CHANGE_WAS_NEEDED": "MEASURED by the R68 director: is_novel returned {'novel': True} for FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY, a family that demonstrably already carries H_63012714_9e5453e70d5c. It is a (family, spec-hash) identity check, not a family-level duplicate check, and must never be the sole novelty authority.",
+    "n_queued_proposals_checked": 5,
+    "n_novelty_claims_found_false": 2,
+    "checks": [
+      {
+        "proposal": "FUT_BASIS_MOMENTUM_COMMODITY",
+        "rank": 1,
+        "mechanism_key_checked": {
+          "asset_class": "COMMODITY_FUTURES",
+          "economic_family": "CARRY",
+          "information_family": "FUTURES_DEFERRED_LEG_BASIS"
+        },
+        "n_matching_in_memory": 1,
+        "n_settled_in_memory": 1,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1
+        },
+        "best_lockbox_t": null,
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "verdict": "SETTLED_THE_NOVELTY_CLAIM_IS_FALSE"
+      },
+      {
+        "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+        "rank": 2,
+        "mechanism_key_checked": {
+          "asset_class": "US_EQUITY",
+          "economic_family": "LIQUIDITY_PREMIUM",
+          "information_family": "PRICE_STATE"
+        },
+        "n_matching_in_memory": 13,
+        "n_settled_in_memory": 13,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 13
+        },
+        "best_lockbox_t": 2.8860905141116016,
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "verdict": "SETTLED_AS_A_MECHANISM_THE_CLAIM_IS_A_REPLICATION",
+        "R68_QUALIFICATION": "SETTLED AS A MECHANISM, and the proposal never claimed otherwise: its novelty claim is about the SAMPLE (mid/small-cap rather than S&P 500). R67's ruling settled what that is - REPLICATION, a third category, which inherits the parent's burden denominator and may never be charged to a fresh key. So the correction here is not 'this was tested and you missed it' but 'this is a replication and must be budgeted as one'."
+      },
+      {
+        "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+        "rank": 3,
+        "mechanism_key_checked": {
+          "asset_class": "CROSS_ASSET",
+          "economic_family": "RELATIVE_VALUE",
+          "information_family": null
+        },
+        "n_matching_in_memory": 1,
+        "n_settled_in_memory": 1,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1
+        },
+        "best_lockbox_t": -0.2988294294741419,
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "verdict": "ECONOMIC_FAMILY_SETTLED_MECHANISM_NOT_ESTABLISHED",
+        "R68_QUALIFICATION": "COARSER CHECK, AND SAID SO. No information_family was supplied, so this checked (CROSS_ASSET, RELATIVE_VALUE) only - the same partial key whose use is the defect being corrected. It establishes that the ECONOMIC FAMILY carries a settled row, NOT that this exact mechanism is settled. The proposal's own information family (TERMS_OF_TRADE) carries zero rows, which the R68 director verified independently and upheld as genuine novelty. The binding objection to this cell is R66's recorded reopen condition and R67's seven grounds, not a duplicate key."
+      },
+      {
+        "proposal": "FUT_OPEN_INTEREST_GROWTH",
+        "rank": 4,
+        "mechanism_key_checked": {
+          "asset_class": "COMMODITY_FUTURES",
+          "economic_family": "POSITIONING",
+          "information_family": "EXCHANGE_OPEN_INTEREST"
+        },
+        "n_matching_in_memory": 4,
+        "n_settled_in_memory": 4,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 3,
+          "REJECTED": 1
+        },
+        "best_lockbox_t": 1.080405627466133,
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION",
+          "NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden. This cell is NOT re-run under a changed ceiling; a ceiling chosen after a measurement is outcome-directed tuning however it is documented"
+        ],
+        "verdict": "SETTLED_THE_NOVELTY_CLAIM_IS_FALSE"
+      },
+      {
+        "proposal": "EQ_EXTENSION_RESIDUAL_MOMENTUM",
+        "rank": 5,
+        "mechanism_key_checked": {
+          "asset_class": "US_EQUITY",
+          "economic_family": "RESIDUAL_MOMENTUM",
+          "information_family": "PRICE_STATE"
+        },
+        "n_matching_in_memory": 2,
+        "n_settled_in_memory": 2,
+        "outcomes": {
+          "NO_ALPHA_EVIDENCE": 1,
+          "FORWARD_FROZEN": 1
+        },
+        "best_lockbox_t": 1.6697535958224556,
+        "reopen_conditions": [
+          "NEW_ORTHOGONAL_INFORMATION"
+        ],
+        "verdict": "SETTLED_AS_A_MECHANISM_THE_CLAIM_IS_A_REPLICATION",
+        "R68_QUALIFICATION": "SETTLED AS A MECHANISM, same shape as rank 2: a sample claim, not an information claim, and therefore a REPLICATION. Note one of its two settled rows is FORWARD_FROZEN, not a negative verdict."
+      }
+    ],
+    "nothing_was_deleted": "Every original claim, including the false ones, is left in place beside its correction. An append-only correction is the estate's pattern; a rewritten claim teaches nobody anything.",
+    "verdict_breakdown": {
+      "outright_false_novelty_claim": [
+        "FUT_BASIS_MOMENTUM_COMMODITY",
+        "FUT_OPEN_INTEREST_GROWTH"
+      ],
+      "settled_mechanism_proposed_as_a_sample_replication": [
+        "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+        "EQ_EXTENSION_RESIDUAL_MOMENTUM"
+      ],
+      "economic_family_settled_but_mechanism_not_established": [
+        "XA_TERMS_OF_TRADE_RELATIVE_VALUE"
+      ]
+    },
+    "honest_reading": "All five top-ranked proposals carry settled rows on the key checked, but they are NOT five instances of one error. Two (ranks 1 and 4) are outright false novelty claims on the exact mechanism key. Two (ranks 2 and 5) are sample replications whose mechanism is settled and whose budgeting was wrong rather than whose claim was false. One (rank 3) was checked on a COARSER key than the rest and its mechanism is NOT established as settled. Reporting all five as the same failure would be the same kind of overstatement this correction exists to remove."
   }
 }

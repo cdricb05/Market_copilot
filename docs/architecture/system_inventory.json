@@ -4730,6 +4730,73 @@
    "migration_priority": 1,
    "risk": "low",
    "notes": "The last mile BEFORE the Approve gate: Paper Trader adjudicating its own proposal so an operator no longer has to combine the facts by hand and no language model is needed to interpret them. Two declared versions: REVIEW_POLICY_VERSION (proposal_decision_review_policy.v1) and REPAIR_SCOPE_VERSION (proposal_repair_scope.v1). The repair scope has two tiers, each owned elsewhere: HARD_CONSTRAINT_VIOLATION (the constraint kernel's own independent verifier, plus the risk-contribution contract for the one limit that verifier declares it cannot check) and GOVERNANCE_RETENTION_FAILURE (the opportunity-cost owner's BROKEN verdict). An obligation is judged satisfied on the RESULTING BOOK, never by matching trades, so a breach the target closes through composition counts and one it leaves open is reported. Fails CLOSED: a repair whose risk was never measured, or that cannot close every obligation, returns BLOCKED_CONSTRAINT_OR_DATA rather than a recommendation. Asset-agnostic - instrument metadata on the proposal rows drives caps, cross-asset groups and per-instrument cost rates, so a futures / FX / cash book is adjudicated by the same code. Review-only: approves nothing, creates no order plan, confirms nothing, executes nothing, promotes nothing and mutates no artifact."
+  },
+  {
+   "path": "alpha_agent/agents_v2/leakage.py",
+   "system": "research_os",
+   "classification": "KEEP",
+   "target_owner": "alpha_agent/agents_v2/leakage.py",
+   "duplicate_with": [],
+   "responsibility": "Release 68 THE LEAKAGE VERIFIER - the owner of whether a published feature set's declared lag is TRUE, as against well-formed. R67 published fs_r67_terms_of_trade_residual with leakage_check=PASS and the governed pipeline accepted it; the feature set was leaky. Each feature carried 'lag: 1 session' and, on the next line of the same JSON object, a formula reading session t for every return term, against a layer declaring SIGNAL_LAG_SESSIONS = 1. alpha_agent/agents_v2/pipeline.py publish_features could only enforce the SHAPE of the claim - the string equals PASS, every feature carries name, lag and source - and had no way to evaluate its TRUTH against the timing rule of the data. This module reads the FORMULA, derives the newest session index it touches, and refuses any feature that reads data the execution rule forbids or whose declared lag contradicts its own formula. It honours the two-session open-interest offset where a formula touches open interest. A formula it cannot parse is REFUSED, never passed.",
+   "direct_reads": [
+    "the timing_rule recorded on a dataset's certification event by alpha_agent/agents_v2/pipeline.py certify_data; a certification that omits one is held to the STRICTEST default of one session"
+   ],
+   "direct_writes": [],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_release68_research_integrity.py"
+   ],
+   "migration_priority": 2,
+   "risk": "low",
+   "notes": "Release 68. Pure: it reads text and returns a verdict. It answers exactly one question - does this formula read data the execution rule forbids - and is not a substitute for the skeptic's PIT attack. The author's own leakage_check string is reported beside the verdict and never consulted, because a check an author performs on their own work and reports as a string is a claim about a check, not a check."
+  },
+  {
+   "path": "alpha_agent/r68/r58_cadence_runtime.py",
+   "system": "research_os",
+   "classification": "KEEP",
+   "target_owner": "alpha_agent/r68/r58_cadence_runtime.py",
+   "duplicate_with": [],
+   "responsibility": "Release 68 THE R58 CADENCE PRODUCER - the missing prediction path for R58_SHORT_VOLUME_PRESSURE_V1, R58_DISCLOSURE_INTENSITY_V1, R58_FUND_MOMENTUM_VETO_V1 and R58_FCF_PURE_V1. All four were registered on 2026-09-09 with a frozen construction declaring rebalance_cadence_sessions = 21 and no code path able to honour it: alpha_agent/r58/challengers.py freeze() was called ONCE, by hand, on 2026-09-04, and a repository-wide search for a caller found only the module's own docstring and a map entry naming it as an owner. Each emitted exactly one prediction and the accrual owner correctly reported AWAITING_NEW_GOVERNED_FREEZE at every boundary afterwards, forever, against a 60-observation capital floor. At each cadence boundary this module re-scores the frozen specification on information available STRICTLY BEFORE that boundary and hands the book to the estate's one decision-freezing owner. The boundary is counted in eligible sessions from the registrar's own first_eligible_observation_session on the authoritative exchange calendar, asked through api/canonical_forward_accrual.py cadence_boundary_after so the producer and the accrual owner cannot disagree about which session is next. It keeps its OWN forward copy of the R57 panel, refreshed from owned Norgate data by the canonical builder in a CHILD process; the frozen R57 research panel is never opened for writing because it is the substrate every settled R57/R58 result was measured on.",
+   "direct_reads": [
+    "api/forward_challenger_registry.py load_registrations - which R58 registrations exist and are adoptable. This module registers none",
+    "alpha_agent/r58/challengers.py build - the ORIGINATING owner's own scorer. This module contains no z-score, no rank, no universe rule and no weight",
+    "api/canonical_forward_accrual.py cadence_boundary_after and emission_policy - the one grid and the one window authority"
+   ],
+   "direct_writes": [
+    "immutable per-session prospective DECISIONS through alpha_agent/alpha_recovery/prospective_decision.py, under the R58 research root (first write wins; a conflicting second freeze is refused and the held record stands)",
+    "its own FORWARD copy of the R57 price panel under the R68 research root, never the frozen R57 panel directory",
+    "R58_PRODUCER_ACTIVATION_DECISION.json - the governed record of why the four existing identities may continue rather than be superseded, and the one-step procedure for reversing that"
+   ],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_release68_forward_evidence_repair.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "Release 68. Runs as the r58_cadence_prospective_decision stage of alpha_agent/r52/runtime.py, inside the existing runtime lock and before the accrual stage - no second scheduler. Cheap on 19 of every 21 sessions: it reads the registry and the exchange calendar and returns without opening a panel or a vendor connection. RESEARCH ONLY: no order, no fill, no proposal, no approval, no promotion, no capital, no registration, no purchase, no operational-store write, and no backfill - a boundary whose window shut undecided is reported MISSED and is never written late."
+  },
+  {
+   "path": "api/forward_producer_health.py",
+   "system": "research_os",
+   "classification": "KEEP",
+   "target_owner": "api/forward_producer_health.py",
+   "duplicate_with": [],
+   "responsibility": "Release 68 THE PRODUCER-HEALTH OWNER - the ONE place that answers whether each registered forward challenger can actually take its next decision, and whether the thing that takes it is alive. For five releases the estate reported three numbers about its forward book (registered, emitted, matured) and read a low matured count as 'early days'; R67 measured that four of eight registrations had no code path able to produce a second decision, so their matured count was not low but FINAL. Two things made that invisible and this module removes both: 'registered' and 'accruing' were the same word, and nothing asked whether a producer had run. It owns the eight-state registration lifecycle vocabulary (REGISTERED_NOT_ARMED, ARMED_FOR_NEXT_DECISION, ACCRUING, AWAITING_PUBLISHED_DATA, MISSED_DECISION_GAP, PRODUCER_FAILED, SUPERSEDED, RETIRED), in which ACCRUING is unreachable without a live producer by construction; the SINGLE declaration of which runtime stage produces which challenger, which alpha_agent/r67/forward_producer.py now reads rather than copying; the producer heartbeat, read from the runtime's existing run journal; and producer_coverage(), the live invariant that an active registration with no declared production path is a FAILURE rather than a default. It owns no threshold, no accrual counter and no clock: whether an observation is due stays api/canonical_forward_accrual.py's, how long until a capital floor stays alpha_agent/r67/forward_producer.py's, and when anything runs stays alpha_agent/r52/runtime.py's.",
+   "direct_reads": [
+    "api/canonical_forward_accrual.py load_accrual_projection - the persisted accrual read model, cross-checked against its own n_registered roll-up so a concurrent read during a worker write is reported as a READ PROBLEM and never as an empty forward book",
+    "alpha_agent/r52/runtime.py load_runs - the existing run journal, for the per-stage heartbeat. Nothing new is instrumented: the fact was always being written and was never being read"
+   ],
+   "direct_writes": [],
+   "endpoints": [],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_release68_forward_evidence_repair.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "Release 68. Read-only: it emits no prediction, freezes no decision, writes no registration, promotes no model, allocates no capital and creates no order. scripts/audit_architecture.py check_release68_forward_producer_health asserts every stage it declares still exists in alpha_agent.r52.runtime.research_runtime_cycle and runs BEFORE the accrual stage, so a renamed or reordered stage fails the build instead of silently turning a live producer into a phantom one."
   }
  ]
 }

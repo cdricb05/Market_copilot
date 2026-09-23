@@ -1,0 +1,43 @@
+{
+  "artifact": "assignment_manifest",
+  "schema_version": 1,
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "campaign_id": "R68_FORWARD_EVIDENCE_AND_NEW_INFORMATION",
+  "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+  "issued_by": "quant-research-director",
+  "issued_at": "2026-09-23",
+
+  "state": "EMPTY",
+  "parallel_batch": [],
+  "experiment_count": 0,
+
+  "why_empty": "No cell in campaign_spec.json survived pre-registration. r68_03 was REJECTED (the certified R38 layer carries two dated contracts; curvature needs three). r68_01 is HELD pending data certification and three defect repairs. r68_02 was REFUSED AS PROPOSED (its identity is already in memory as H_63012714_9e5453e70d5c, DATA_HOLD). No experiment id exists, so there is nothing any signal agent may own.",
+
+  "signal_agents_to_dispatch": [],
+  "explicit_instruction": "DO NOT launch momentum-signal-agent, reversal-signal-agent, trend-breadth-signal-agent or volatility-liquidity-agent for this campaign. Evaluating anything without an experiment id is prohibited.",
+
+  "blocking_dependency": {
+    "agent": "data-foundation-agent",
+    "must_certify_before_any_assignment_can_be_issued": [
+      "sec_comment_letter_pit_v1 - existence, per-year coverage, and the empirically measured letter-date to dissemination-date lag distribution",
+      "eodhd_dividend_declaration_v1 - declarationDate present per row as the availability instant, per-year coverage on r68_sp500_event_universe against the frozen 0.80 floor"
+    ]
+  },
+
+  "governed_refusals_on_record": [
+    "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: TERM_STRUCTURE_CURVATURE is not routed to trend-breadth-signal-agent",
+    "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: REGULATORY_SCRUTINY_EVENT is not routed to reversal-signal-agent",
+    "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: PAYOUT_POLICY_CHANGE is not routed to volatility-liquidity-agent",
+    "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED: fs_r68_comment_letter_scrutiny"
+  ],
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "promotes_model": false,
+    "allocates_capital": false,
+    "mutates_operational_store": false,
+    "manual_review_required": true
+  }
+}

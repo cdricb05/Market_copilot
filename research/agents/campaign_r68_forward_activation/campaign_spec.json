@@ -1,0 +1,91 @@
+{
+ "campaign_id": "R68_FORWARD_EVIDENCE_AND_NEW_INFORMATION",
+ "spec_version": 1,
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "state": "AWAITING_DIRECTOR_PREREGISTRATION",
+ "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+ "why_this_campaign_exists": "The R59 frontier reports EXHAUSTED for every asset class except CROSS_ASSET, and CROSS_ASSET's two remaining families are (a) CROSS_ASSET_RELATIVE_VALUE, whose terms-of-trade expression R66 and R67 both refused against a recorded reopen condition, and (b) CROSS_ASSET_REGIME_CONDITIONING, which is verbatim the 'timing a premium with a conditioning variable' shape the must_not_repeat ledger records as dead on three independent sightings. The PRICE_STATE substrate is closed: 8,231 of 8,472 hypotheses use it. The only honest remaining move is NEW INFORMATION on an owned or free source, which is the estate's own recorded reopen condition (NEW_ORTHOGONAL_INFORMATION). Every cell below proposes an information family that carries ZERO or near-zero hypotheses in research memory today. No cell proposes a new parameterisation of a settled book, and no cell proposes the frozen mid/small-cap extension panel.",
+ "binding_constraints_inherited": {
+  "from_R67_ruling_v2": "A replication inherits its PARENT'S burden denominator and may never be charged against a fresh key. model_family is the fourth key component, so a long-only variant of a mechanism whose measured rows are all XS_LONG_SHORT is model-family laundering and is refused.",
+  "from_R66": "TIMING A PREMIUM WITH A CONDITIONING VARIABLE is settled dead on three sightings. Mean reversion of a residual IS conditioning on the current deviation.",
+  "from_the_census": "The extension mid/small-cap panel is FROZEN PENDING an identity-bridge audit. No cell here may use it.",
+  "leakage": "fs_r67_terms_of_trade_residual is LEAKY as published (FEATURE_SET_LEAKAGE_CORRECTION.json) and MUST NOT be used to measure anything.",
+  "no_purchase": "No cell may require a paid dataset. Every source below is owned or free.",
+  "no_unbounded_search": "No cell may run a parameter sweep. Every parameter is frozen before measurement."
+ },
+ "proposed_cells": [
+  {
+   "executor": "r68_01",
+   "label": "EQ_SEC_COMMENT_LETTER_SCRUTINY",
+   "owning_agent": "reversal-signal-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "REGULATORY_SCRUTINY_EVENT",
+   "proposed_information_family": "SEC_COMMENT_LETTER",
+   "horizon_sessions": 21,
+   "long_short": false,
+   "expected_sign": -1,
+   "economic_mechanism": "An SEC staff comment letter (EDGAR form type UPLOAD) is a regulator publicly questioning an issuer's accounting or disclosure. It becomes public on the EDGAR DISSEMINATION date, which by SEC policy lags the close of the review by at least 20 business days and is therefore unrelated to the issuer's own news calendar. The hypothesis is that public regulatory scrutiny of accounting raises the market's uncertainty about reported numbers and is followed by relative UNDERperformance over 21 sessions.",
+   "novelty_claim": "SEC_COMMENT_LETTER carries ZERO hypotheses in research memory (verified against the information-family histogram over all 8,472 rows). The census lists 'SEC EDGAR full index (UPLOAD / CORRESP comment letters)' as FREE, never used. This is NEW INFORMATION, not a re-parameterisation.",
+   "distinguish_from_settled": "SEC_FILING_BEHAVIOUR_R27, EVENT_8K_ITEM_CODES and DISCLOSURE_INTENSITY_R63 are all ISSUER-INITIATED disclosure. A comment letter is REGULATOR-INITIATED and is disseminated on a schedule the issuer does not control. The director must verify this distinction is real and refuse the cell if it is not.",
+   "hard_prerequisite": "data-foundation-agent must certify a PIT comment-letter dataset: the availability instant is the EDGAR full-index dissemination date, NEVER the letter date. If owned history is too short or coverage too thin for a cross-section, the correct verdict is DATA_HOLD or a PROSPECTIVE freeze, never NO_ALPHA_EVIDENCE.",
+   "must_be_frozen_before_measurement": ["expected sign", "the scrutiny score definition", "the event window", "horizon", "cost model on traded notional", "the passive control"]
+  },
+  {
+   "executor": "r68_02",
+   "label": "EQ_DIVIDEND_POLICY_CHANGE_ANNOUNCEMENT",
+   "owning_agent": "volatility-liquidity-agent",
+   "asset_class": "US_EQUITY",
+   "economic_family": "PAYOUT_POLICY_CHANGE",
+   "proposed_information_family": "DIVIDEND_DECLARATION",
+   "horizon_sessions": 21,
+   "long_short": false,
+   "expected_sign": 1,
+   "economic_mechanism": "A change in the DECLARED per-share dividend relative to the issuer's own trailing declaration is management committing cash on the strength of information it holds and the market does not. A cut is a credible negative signal and an initiation or material raise a credible positive one. The event is the DECLARATION date, not the ex-date.",
+   "novelty_claim": "DIVIDEND_DECLARATION carries ZERO hypotheses. The census lists EODHD dividend/split history, full universe, as ALREADY_OWNED_UNUSED with a 16-year history confirmed for a probe name.",
+   "distinguish_from_settled": "DIVIDEND_MONTH_DEMAND_PREMIUM (closed) is an EX-DATE CALENDAR demand effect - a price-state/calendar mechanism with no issuer decision in it. This cell is an ISSUER ACTION on the DECLARATION date. The director must verify that the closed record's family key is genuinely different and refuse the cell if it is not.",
+   "hard_prerequisite": "data-foundation-agent must verify the DECLARATION date is present per row and is the availability instant. If only ex-dates are stored, the cell is DATA_HOLD - an ex-date-only dataset cannot express this mechanism and must not be substituted for it.",
+   "must_be_frozen_before_measurement": ["expected sign", "what counts as a material change", "the event window", "horizon", "cost model", "the passive control"]
+  },
+  {
+   "executor": "r68_03",
+   "label": "FUT_DEFERRED_LEG_CURVE_CURVATURE",
+   "owning_agent": "trend-breadth-signal-agent",
+   "asset_class": "COMMODITY_FUTURES",
+   "economic_family": "TERM_STRUCTURE_CURVATURE",
+   "proposed_information_family": "FUTURES_DEFERRED_LEG_BASIS",
+   "horizon_sessions": 21,
+   "long_short": true,
+   "expected_sign": 1,
+   "economic_mechanism": "The estate has measured the SLOPE of the futures curve (CARRY_SLOPE, closed) and the near-minus-deferred RETURN differential (basis momentum, settled HALTED_AT_V). It has never measured CURVATURE - whether the held-to-deferred basis is steep or flat RELATIVE TO THAT MARKET'S OWN history. A market whose curve sits unusually far from its own distribution is one where storage or convenience yield is priced away from its normal state; the hypothesis is that this dispersion mean-reverts and is a cross-sectional predictor net of per-market cost.",
+   "novelty_claim": "FUTURES_DEFERRED_LEG_BASIS carries 2 hypotheses of 8,472. The R38 native dated-contract layer carries 12 of 6,587 non-equity hypotheses. This is the estate's most under-mined OWNED substrate and it needs no new collection.",
+   "distinguish_from_settled": "The director must verify the family key TERM_STRUCTURE_CURVATURE|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|<model_family> against CARRY_SLOPE and CALENDAR_TERM_STRUCTURE, and must refuse the cell if the duplicate-identity check returns |Spearman| >= 0.999 against any settled book. A curvature normalised by a market's own history is NOT the slope level, but that is a claim to be TESTED before pre-registration, not asserted.",
+   "hard_prerequisite": "Open interest, if used at all, lags TWO sessions on this layer (OI_LATEST_USABLE_OFFSET = 2). Signal lag is one session (SIGNAL_LAG_SESSIONS = 1).",
+   "must_be_frozen_before_measurement": ["expected sign", "the curvature estimator", "the normalisation window", "horizon", "per-market cost on traded notional", "the passive control"]
+  }
+ ],
+ "requires": {
+  "datasets": ["sec_comment_letter_pit_v1", "eodhd_dividend_declaration_v1", "r38_native_contract_layer_with_deferred_leg_v1"],
+  "universes": ["r68_sp500_event_universe", "r68_commodity_curve_universe"],
+  "feature_sets": ["fs_r68_comment_letter_scrutiny", "fs_r68_dividend_policy_change", "fs_r68_curve_curvature"]
+ },
+ "review_order": ["r68_03", "r68_01", "r68_02"],
+ "review_order_rule": "r68_03 needs NO new collection and is the cell that guarantees this campaign measures something real, so it is reviewed first. r68_01 and r68_02 both stand or fall on a data certification that costs nothing to attempt and may legitimately end in DATA_HOLD.",
+ "explicitly_not_proposed": [
+  "Any cell on the frozen mid/small-cap extension panel.",
+  "Any re-parameterisation of basis momentum, carry slope, H5 reversal or residual momentum.",
+  "CROSS_ASSET_REGIME_CONDITIONING in any form - it is the settled 'timing a premium' shape.",
+  "The terms-of-trade relative-value cell, refused by R66 and again by R67 against a recorded reopen condition.",
+  "Anything requiring a purchase."
+ ],
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "promotes_model": false,
+  "activates_sleeve": false,
+  "allocates_capital": false,
+  "mutates_operational_store": false,
+  "manual_review_required": true
+ }
+}

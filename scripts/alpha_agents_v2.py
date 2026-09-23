@@ -50,8 +50,42 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+def _check_mechanism(mem, payload: dict) -> dict:
+    """Has THIS mechanism already been prosecuted? Read-only, runs nothing.
+
+    R68. The census used to be the only thing a director consulted, and it
+    summarised a family from a partial key - so a measured, failed mechanism
+    could be presented as untested and was, three times. This asks research
+    memory directly, on the full key, and is what a proposal's novelty claim
+    must be checked against before it is believed.
+    """
+    body = dict(payload or {})
+    state = mem.mechanism_state(
+        asset_class=body.get("asset_class"),
+        economic_family=body.get("economic_family"),
+        information_family=body.get("information_family"),
+        model_family=body.get("model_family"))
+    verdict = ("SETTLED_DO_NOT_REPEAT" if state["mechanism_is_settled"]
+               else ("UNSETTLED_ROWS_EXIST" if state["n_matching"]
+                     else "NO_ROW_IN_MEMORY"))
+    return {
+        "kind": "MECHANISM_CHECK", "read_only": True, "experiments_run": 0,
+        "evaluation_samples_read": 0,
+        "asked": {k: body.get(k) for k in
+                  ("asset_class", "economic_family", "information_family",
+                   "model_family")},
+        "verdict": verdict,
+        "novelty_claim_is_believable": verdict == "NO_ROW_IN_MEMORY",
+        **state,
+        "note": ("a mechanism reopens ONLY on its recorded reopen condition. "
+                 "Renaming either key component is refused by the director and "
+                 "by the duplicate-identity check."),
+    }
+
+
 READ_ONLY_COMMANDS = ("status", "validate-contracts", "ledger", "survivors",
-                      "validated-survivors", "census")
+                      "validated-survivors", "census",
+                      "check-mechanism")
 
 
 def _emit(body) -> None:
@@ -65,6 +99,23 @@ def _census(mem, pipeline, manifest: dict) -> dict:
     rows = mem.list_hypotheses(limit=1000000)
     by_class: dict = {}
     fam_stats: dict = {}
+    # R68 - THE MECHANISM LEDGER, KEYED BY WHAT ACTUALLY IDENTIFIES A MECHANISM.
+    #
+    # THE DEFECT THIS FIXES, MEASURED THREE TIMES. The summary below keys a
+    # family by (asset_class, economic_family) and folds information_family into
+    # a SET. So POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES - 4 settled
+    # rows, two of them measured NEGATIVE at -2.42%/yr and -4.51%/yr against a
+    # declared sign of +1 - was invisible as a closed mechanism, and R67 read the
+    # census and proposed it as untested. Two more were found the same way:
+    # CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES, and
+    # FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY.
+    #
+    # A mechanism is identified by the SAME four parts the burden ledger counts
+    # (alpha_agent.r59.memory.family_key): economic family, INFORMATION family,
+    # asset class and model family. Anything coarser cannot answer "has this
+    # been tested", and a census that cannot answer that question sets agendas
+    # that repeat settled work.
+    mech_stats: dict = {}
     for h in rows:
         ac, oc = h.get("asset_class"), h.get("outcome") or "UNSETTLED"
         by_class.setdefault(ac, {}).setdefault(oc, 0)
@@ -84,6 +135,39 @@ def _census(mem, pipeline, manifest: dict) -> dict:
         if isinstance(t, (int, float)) and (s["best_t"] is None
                                             or t > s["best_t"]):
             s["best_t"] = float(t)
+
+        mkey = (str(ac), str(h.get("economic_family")),
+                str(h.get("information_family")), str(h.get("model_family")))
+        ms = mech_stats.setdefault(mkey, {
+            "n": 0, "settled": 0, "qualified": 0, "frozen": 0, "best_t": None,
+            "outcomes": {}, "reopen": set(), "example_ids": []})
+        ms["n"] += 1
+        if len(ms["example_ids"]) < 3:
+            ms["example_ids"].append(h.get("hypothesis_id"))
+        if h.get("outcome"):
+            ms["settled"] += 1
+            ms["outcomes"][oc] = ms["outcomes"].get(oc, 0) + 1
+            if h.get("reopen_condition"):
+                ms["reopen"].add(str(h.get("reopen_condition")))
+        if h.get("outcome") == r59.HO_QUALIFIED:
+            ms["qualified"] += 1
+        if h.get("outcome") == r59.HO_FORWARD_FROZEN:
+            ms["frozen"] += 1
+        if isinstance(t, (int, float)) and (ms["best_t"] is None
+                                            or t > ms["best_t"]):
+            ms["best_t"] = float(t)
+
+    mechanisms = sorted(
+        ({"asset_class": k[0], "economic_family": k[1],
+          "information_family": k[2], "model_family": k[3],
+          "family_key": "%s|%s|%s|%s" % (k[1], k[2], k[0], k[3]),
+          "n_hypotheses": v["n"], "n_settled": v["settled"],
+          "qualified": v["qualified"], "forward_frozen": v["frozen"],
+          "best_lockbox_t": v["best_t"], "outcomes": v["outcomes"],
+          "reopen_conditions": sorted(v["reopen"]),
+          "example_hypothesis_ids": v["example_ids"]}
+         for k, v in mech_stats.items()),
+        key=lambda d: (-d["n_settled"], d["family_key"]))
     families = sorted(
         ({"asset_class": k[0], "economic_family": k[1],
           "settled": v["settled"], "qualified": v["qualified"],
@@ -108,6 +192,22 @@ def _census(mem, pipeline, manifest: dict) -> dict:
             f for f in families
             if f["settled"] > 0 and f["qualified"] == 0
             and f["forward_frozen"] == 0][:400],
+        # R68 - the ledger an agenda-setter must check a proposal against. Keyed
+        # by the FULL family key, so a mechanism cannot hide inside a coarser
+        # family summary the way exchange open interest did.
+        "settled_mechanisms": [m for m in mechanisms if m["n_settled"] > 0],
+        "settled_mechanism_keys": sorted(m["family_key"] for m in mechanisms
+                                         if m["n_settled"] > 0),
+        "mechanism_key_rule": (
+            "economic_family|information_family|asset_class|model_family - the "
+            "same four parts alpha_agent.r59.memory.family_key counts for "
+            "burden. A proposal whose key appears in settled_mechanism_keys has "
+            "been prosecuted; it reopens only on its recorded reopen condition, "
+            "never by being renamed."),
+        "how_to_check_one_proposal": (
+            "scripts/alpha_agents_v2.py check-mechanism --input <json with "
+            "asset_class, economic_family, information_family and optionally "
+            "model_family>. Read-only; it runs no experiment."),
         "strongest_unqualified": mem.strongest_unqualified(limit=25),
         "forward_frozen": [
             {"hypothesis_id": h["hypothesis_id"], "title": h.get("title"),
@@ -183,6 +283,12 @@ def main(argv=None) -> int:
             _emit(pipe.survivors())
         elif cmd == "validated-survivors":
             _emit(pipe.validated_survivors())
+        elif cmd == "check-mechanism":
+            body = _check_mechanism(mem, json.loads(
+                Path(args.input).read_text(encoding="utf-8-sig"))
+                if args.input else {})
+            _emit(body)
+            return 0
         elif cmd == "census":
             body = _census(mem, pipe, C.load_contract("agent_manifest.json"))
             if args.out:

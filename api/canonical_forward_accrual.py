@@ -242,6 +242,83 @@ RESOLVER_CONTRACT = {
 }
 
 
+#: R68 - WHICH RESEARCH ROOT HOLDS A RELEASE'S PER-SESSION FROZEN DECISIONS.
+#:
+#: ``alpha_agent.alpha_recovery.prospective_decision`` is the estate's ONE
+#: implementation of an immutable, window-bounded, first-write-wins prospective
+#: decision. Until R68 it was reachable here only for ALPHA_RECOVERY_OFFENSIVE,
+#: because its store was hard-wired to that campaign's research root - so the
+#: four R58 challengers, which need the identical contract, had no per-session
+#: path at all and reported AWAITING_NEW_GOVERNED_FREEZE at every boundary
+#: forever. The module now takes a ``root``; this table says which one.
+#:
+#: A release ABSENT from this table has no per-session decision store and
+#: resolves exactly as it did before R68.
+_PER_SESSION_DECISION_ROOTS = {
+    "ALPHA_RECOVERY_OFFENSIVE": ("paper_trader.alpha_agent.alpha_recovery",
+                                 "research_root"),
+    "R58": ("paper_trader.alpha_agent.r58", "research_root"),
+}
+
+
+def per_session_decision_root(release: str):
+    """The research root a release's per-session frozen decisions live under.
+
+    ``None`` for a release that declares no per-session store, which is how
+    every caller below keeps its pre-R68 behaviour for such a release.
+    """
+    entry = _PER_SESSION_DECISION_ROOTS.get(str(release or ""))
+    if not entry:
+        return None
+    module_name, attr = entry
+    try:
+        import importlib
+        return getattr(importlib.import_module(module_name), attr)()
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def _decision_owner(release: str):
+    """``(prospective_decision module, root)`` for a release, or ``(None, None)``."""
+    root = per_session_decision_root(release)
+    if root is None:
+        return None, None
+    try:
+        from paper_trader.alpha_agent.alpha_recovery import (
+            prospective_decision as PD)
+    except Exception:                                       # noqa: BLE001
+        return None, None
+    return PD, root
+
+
+def _release_of(registration: dict) -> str:
+    ident = (registration or {}).get("identity") or {}
+    return str(ident.get("release") or "")
+
+
+def _challenger_of(registration: dict) -> str:
+    reg = registration or {}
+    ident = reg.get("identity") or {}
+    return str(reg.get("challenger_id") or ident.get("challenger_id") or "")
+
+
+def _declared_policy(registration: dict) -> dict:
+    """The emission policy ONE registration's release declared, or ``{}``.
+
+    Asked of the release's OWN decision owner through the root table, so a
+    release that keeps its decisions under a different research root is read
+    the same way as the one that defined the contract.
+    """
+    PD, root = _decision_owner(_release_of(registration))
+    if PD is None:
+        return {}
+    try:
+        return dict(PD.load_policy(_challenger_of(registration),
+                                   root=root) or {})
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -266,13 +343,77 @@ def _iso_date(value: Any) -> Optional[str]:
         return None
 
 
+def _r58_per_session_decision(challenger_id: str, session: str) -> Optional[dict]:
+    """A decision the R58 CADENCE PRODUCER froze FOR one decision session.
+
+    R68 gave the four R58 challengers the cadence producer their frozen
+    construction always declared (``rebalance_cadence_sessions = 21``) and never
+    had. Its decisions are written by the same owner, under the same contract,
+    as every other per-session release - only under the R58 research root.
+
+    The returned ``record_hash`` is the ORIGINAL ADOPTION FREEZE's hash, carried
+    on the decision by its policy identity. That is what keeps the registrar's
+    integrity binding intact: a per-session decision is a new BOOK under the
+    SAME registered specification, so the hash the registration was made against
+    must still be the hash this resolver reports. The decision's own hash is
+    reported separately and is never substituted for it.
+    """
+    PD, root = _decision_owner("R58")
+    if PD is None:
+        return None
+    try:
+        rec = PD.load_decision(str(challenger_id or ""), str(session), root=root)
+    except Exception:                                       # noqa: BLE001
+        return None
+    if not isinstance(rec, dict):
+        return None
+    return {
+        "found": True,
+        "per_session_decision": True,
+        "source": str(PD.decision_path(str(challenger_id), str(session),
+                                       root=root)),
+        "frozen_decision_session": _iso_date(rec.get("eligible_session")),
+        "record_hash": rec.get("freeze_record_hash"),
+        "decision_record_hash": rec.get("record_hash"),
+        "decision_identity_hash": rec.get("decision_identity_hash"),
+        "spec_hash": rec.get("model_spec_hash"),
+        "weights_hash": rec.get("weights_hash"),
+        "weights": dict(rec.get("weights") or {}),
+        "construction": dict(rec.get("construction") or {
+            "rebalance_cadence_sessions": rec.get("rebalance_cadence_sessions"),
+            "evaluation_horizon_sessions": rec.get(
+                "evaluation_horizon_sessions")}),
+        "cadence_sessions": rec.get("rebalance_cadence_sessions"),
+        "horizon_sessions": rec.get("evaluation_horizon_sessions"),
+        "cost_bps_per_side": _f((rec.get("cost_policy") or {}).get("bps_per_side")),
+        "benchmark": rec.get("benchmark"),
+        "inception_rule": rec.get("emission_rule"),
+        "declared_information_cutoff": rec.get("declared_information_cutoff"),
+        "decision_timestamp": rec.get("decision_timestamp"),
+        "source_data_hash": rec.get("source_data_hash"),
+        "feature_state_hash": rec.get("feature_state_hash"),
+        "decision_context": dict(rec.get("decision_context") or {}),
+    }
+
+
 def _r58_frozen_decision(challenger_id: str, session: Optional[str]) -> dict:
     """The R58 frozen decision record, read from the R58 owner's own root.
 
-    R58 froze ONE decision per challenger, at its freeze session. Asking for a
-    later session therefore legitimately finds nothing: R58 took no decision
-    that day, and inventing one is precisely what this estate refuses to do.
+    ``session=None`` asks for the ADOPTION freeze - the one book the registrar
+    registered against - and is answered exactly as it was before R68.
+
+    A named ``session`` asks which book governs that decision session. R58 froze
+    one book at adoption and, since R68, one per cadence boundary. The
+    per-session store is consulted FIRST, because a boundary the producer has
+    decided is governed by that decision and not by the adoption book. A
+    boundary with no frozen decision still reports AWAITING_NEW_GOVERNED_FREEZE:
+    a rebalance is a decision, this module may not take one, and a producer that
+    failed to run is a fact to report rather than a gap to fill.
     """
+    if session is not None:
+        per = _r58_per_session_decision(challenger_id, session)
+        if per is not None:
+            return per
     try:
         from paper_trader.alpha_agent import r58 as R58
         path = R58.research_root() / "challengers" / ("%s.json" % challenger_id)
@@ -415,20 +556,13 @@ def emission_policy(registration: dict) -> dict:
     what every registration made before R62.3 was held to, so widening the
     vocabulary loosens nothing that did not ask to be loosened.
     """
-    reg = registration or {}
-    ident = reg.get("identity") or {}
-    release = str(ident.get("release") or "")
-    challenger_id = reg.get("challenger_id") or ident.get("challenger_id")
-    declared = None
-    if release == "ALPHA_RECOVERY_OFFENSIVE":
-        try:
-            from paper_trader.alpha_agent.alpha_recovery import (
-                prospective_decision as PD)
-            declared = (PD.load_policy(str(challenger_id or "")) or {}).get(
-                "emission_window")
-        except Exception:                                   # noqa: BLE001
-            declared = None
-    return window.normalise_policy(declared)
+    # R68 - asked of the release's OWN decision owner, whichever research root
+    # it keeps its policy under. R58 declares the PRIOR_SESSION_ONLY boundary
+    # explicitly, which normalise_policy resolves to the identical policy an
+    # ABSENT declaration resolves to - so the four R58 registrations are judged
+    # by byte-for-byte the window they have always been judged by.
+    return window.normalise_policy(
+        _declared_policy(registration).get("emission_window"))
 
 
 def emission_window_for(registration: dict, session: str,
@@ -464,19 +598,7 @@ def execution_offset_sessions(registration: dict) -> dict:
     own declared execution contract and never inferred from the challenger's
     name, and a release that declares nothing keeps the old meaning exactly.
     """
-    reg = registration or {}
-    ident = reg.get("identity") or {}
-    release = str(ident.get("release") or "")
-    challenger_id = reg.get("challenger_id") or ident.get("challenger_id")
-    declared = None
-    if release == "ALPHA_RECOVERY_OFFENSIVE":
-        try:
-            from paper_trader.alpha_agent.alpha_recovery import (
-                prospective_decision as PD)
-            declared = (PD.load_policy(str(challenger_id or "")) or {}).get(
-                "execution_contract")
-        except Exception:                                   # noqa: BLE001
-            declared = None
+    declared = _declared_execution_contract(registration)
     if not declared:
         return {"offset_sessions": 0, "declared": False,
                 "decision_session_is": "the INFORMATION session",
@@ -1099,18 +1221,7 @@ def _lifecycle_blocked(registration: dict,
 # --------------------------------------------------------------------------- #
 def _declared_execution_contract(registration: dict) -> dict:
     """The execution contract ONE registration's release declared, or ``{}``."""
-    reg = registration or {}
-    ident = reg.get("identity") or {}
-    if str(ident.get("release") or "") != "ALPHA_RECOVERY_OFFENSIVE":
-        return {}
-    try:
-        from paper_trader.alpha_agent.alpha_recovery import (
-            prospective_decision as PD)
-        cid = reg.get("challenger_id") or ident.get("challenger_id")
-        return dict((PD.load_policy(str(cid or "")) or {}).get(
-            "execution_contract") or {})
-    except Exception:                                       # noqa: BLE001
-        return {}
+    return dict(_declared_policy(registration).get("execution_contract") or {})
 
 
 def valuation_series_for(registration: dict, series: dict) -> dict:
@@ -1134,13 +1245,12 @@ def valuation_series_for(registration: dict, series: dict) -> dict:
 
     reg = registration or {}
     cid = reg.get("challenger_id") or (reg.get("identity") or {}).get("challenger_id")
+    root = per_session_decision_root(_release_of(registration))
+    if root is None:
+        return {}
     try:
-        from paper_trader.alpha_agent import alpha_recovery as AR
-        from paper_trader.alpha_agent.alpha_recovery import (
-            prospective_decision as PD)
-        scope = list((PD.load_policy(str(cid or "")) or {}).get(
-            "instrument_scope") or [])
-        store = AR.research_root() / str(rel)
+        scope = list(_declared_policy(registration).get("instrument_scope") or [])
+        store = Path(root) / str(rel)
     except Exception:                                       # noqa: BLE001
         return {}
     field = str(marks.get("return_field") or "ret1")
@@ -1203,13 +1313,13 @@ def armed_owner_sessions(registration: dict, sessions: list) -> list:
             "accrual_arms_the_owner_frozen_entry_session"):
         return []
     latest = str(sessions[-1])
-    reg = registration or {}
-    cid = reg.get("challenger_id") or (reg.get("identity") or {}).get("challenger_id")
+    PD, root = _decision_owner(_release_of(registration))
+    if PD is None:
+        return []
     try:
-        from paper_trader.alpha_agent.alpha_recovery import (
-            prospective_decision as PD)
         later = sorted(str(r.get("eligible_session"))
-                       for r in PD.list_decisions(str(cid or ""))
+                       for r in PD.list_decisions(_challenger_of(registration),
+                                                  root=root)
                        if str(r.get("eligible_session") or "") > latest)
     except Exception:                                       # noqa: BLE001
         return []
@@ -1255,6 +1365,82 @@ def armed_entry_sessions(registration: dict, sessions: list) -> list:
         if nxt > latest:
             out.append(nxt)
     return out
+
+
+#: R68 - the declaration that lets this module see ONE future cadence boundary.
+#: Opt-in, per release, in its execution contract. A release that does not
+#: declare it gets the realised-calendar grid exactly as before.
+ARMS_CADENCE_GRID = "accrual_arms_the_cadence_grid_from_the_exchange_calendar"
+
+
+def cadence_boundary_after(registration: dict, *, cadence_sessions,
+                           after: Optional[str] = None,
+                           first: Optional[str] = None) -> Optional[str]:
+    """The first cadence boundary strictly after ``after``, on the EXCHANGE calendar.
+
+    Counted in ELIGIBLE SESSIONS from the registrar's own first eligible
+    observation session, using the same authoritative calendar the registrar
+    used to resolve that session and to publish
+    ``next_expected_maturity_session``. So the boundary this returns is the one
+    the registration has declared since the day it was made, and it is knowable
+    weeks before it prints - which is the whole point, because a decision for it
+    must be frozen BEFORE it begins.
+
+    ``None`` when the registration is not on an exchange-session calendar, when
+    no cadence is declared, or when the calendar cannot answer. Every one of
+    those is a refusal to guess.
+    """
+    reg = registration or {}
+    clock = reg.get("observation_clock") or {}
+    if not clock.get("is_exchange_session_calendar"):
+        return None
+    start = _iso_date(first) or first_decision_session(reg)
+    if not start:
+        return None
+    try:
+        step = int(cadence_sessions)
+    except (TypeError, ValueError):
+        return None
+    if step <= 0:
+        return None
+    cur = start
+    # 40 boundaries is ~34 years at a 21-session cadence: far past any horizon
+    # this estate measures, and a hard stop rather than a while-true.
+    for _ in range(40):
+        if after is None or cur > str(after):
+            return cur
+        nxt = _shift_eligible(cur, step)
+        if nxt is None:
+            return None
+        cur = nxt
+    return None
+
+
+def armed_cadence_sessions(registration: dict, sessions: list,
+                           cadence_sessions) -> list:
+    """The ONE not-yet-printed cadence boundary a declaring release may see.
+
+    A realised-session grid learns of a boundary only once it has PRINTED, and
+    a challenger whose emission window shuts when that session begins has by
+    then lost it - so every boundary after the first would be forfeited while
+    its decision sat correctly frozen on disk. :func:`decision_grid` already
+    arms the FIRST boundary from the registrar's calendar answer for exactly
+    this reason ("a challenger waiting for tomorrow is ARMED"); this applies the
+    SAME rule to the later ones, and only for a release that asked for it.
+
+    Nothing is decided here and no window is widened. The armed session enters
+    the grid as a candidate, its window is judged by the one window owner, and
+    it is emitted only if the originating owner froze a decision for it inside
+    that window. At most one future session is ever returned.
+    """
+    if not _declared_execution_contract(registration).get(ARMS_CADENCE_GRID):
+        return []
+    latest = str(sessions[-1]) if sessions else None
+    nxt = cadence_boundary_after(registration, cadence_sessions=cadence_sessions,
+                                 after=latest)
+    if not nxt or (latest is not None and nxt <= latest):
+        return []
+    return [nxt]
 
 
 def assess_registration(*, registration: dict, series: dict,
@@ -1437,6 +1623,16 @@ def assess_registration(*, registration: dict, series: dict,
     grid = decision_grid(reg, sessions=sessions, cadence_sessions=cadence,
                          offset_sessions=int(exec_offset.get("offset_sessions")
                                              or 0))
+    # R68 - append the ONE calendar-armed future boundary, for a release that
+    # declared it. Appended to the GRID rather than to the session list on
+    # purpose: injecting it into ``sessions`` would shift every ``[::cadence]``
+    # index behind it and silently move the grid whenever the panel happened to
+    # lag a session. Empty for every release that declares nothing.
+    cadence_armed = [s for s in armed_cadence_sessions(reg, sessions, cadence)
+                     if not grid or s > grid[-1]]
+    if cadence_armed:
+        out["armed_cadence_sessions"] = list(cadence_armed)
+        grid = list(grid) + list(cadence_armed)
     out["decision_grid"] = list(grid)
     out["first_decision_session"] = grid[0] if grid else None
     out["today"] = today

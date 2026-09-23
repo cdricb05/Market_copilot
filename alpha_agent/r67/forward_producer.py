@@ -72,56 +72,43 @@ P_NONE = "NO_CADENCE_PRODUCER"
 P_UNKNOWN = "PRODUCER_NOT_DETERMINED"
 PRODUCER_STATES = (P_ACCRUING, P_NONE, P_UNKNOWN)
 
-#: The r52 persistent runtime's producer stages, and the challenger each one
-#: re-scores. This is a DECLARATION with provenance, and
-#: ``tests/test_release67_research_to_capital.py`` asserts every stage named
-#: here still exists in ``alpha_agent.r52.runtime.research_runtime_cycle`` - so
-#: a stage that is renamed or deleted fails the build instead of silently
-#: turning a live producer into a phantom one.
-RUNTIME_PRODUCER_STAGES = {
-    "next_open_prospective_decision": (
-        "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1",),
-    "fx_carry_cadence_prospective_decision": (
-        "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",),
-    "futures_trend_prospective_decision": (
-        "ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1",),
-}
+#: R68 - THE DECLARATION MOVED, AND THAT IS THE POINT.
+#:
+#: R67 held this table itself. It was the right place to keep a DIAGNOSIS and
+#: the wrong place to keep a CONTRACT: a release module is written once and
+#: frozen, while "which stage produces which challenger" is a fact every future
+#: release must maintain or the next orphan goes unnoticed for exactly as long
+#: as these four did. It now lives with the health owner, which the architecture
+#: audit and the live invariant both read, and this module reads it from there
+#: so the estate has ONE list rather than two that can disagree.
+#:
+#: R68 also WIRED the four R58 challengers, so the reason code
+#: ``R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME`` no longer describes anything. It is
+#: deliberately not deleted: it is retained below as a historical reason code so
+#: this module's own record of what it found remains readable, while the LIVE
+#: answer comes from the health owner's declaration.
+from paper_trader.api.forward_producer_health import (      # noqa: E402
+    KNOWN_UNPRODUCED, RUNTIME_PRODUCER_STAGES, UNPRODUCED_DETAIL as _HEALTH_DETAIL,
+    UNPRODUCED_IS_A_DEFECT as _HEALTH_DEFECT)
 
-#: Reason codes that are a DEFECT - a capability the estate meant to have and
-#: does not - as against a reason that is correct by design. Counting these
-#: separately is the whole point: "5 have no producer" reads as a catastrophe,
-#: and one of the five is a deliberately superseded record that was never
-#: expected to accrue. Only the other four are a gap.
-UNPRODUCED_IS_A_DEFECT = {
-    "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME": True,
-    "SUPERSEDED_BY_THE_NEXT_OPEN_SIBLING": False,
-}
+#: The reason codes this release MEASURED, retained verbatim. R58's is history
+#: as of R68 and is kept so the finding stays legible, not so it stays true.
+R58_UNWIRED = "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME"
+R58_REPAIRED_BY = "alpha_agent.r68.r58_cadence_runtime"
 
-#: A registered challenger with NO stage in the runtime. Each carries the reason
-#: it has none, so the record is diagnostic rather than a bare absence.
-KNOWN_UNPRODUCED = {
-    "R58_DISCLOSURE_INTENSITY_V1": "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME",
-    "R58_FCF_PURE_V1": "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME",
-    "R58_FUND_MOMENTUM_VETO_V1": "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME",
-    "R58_SHORT_VOLUME_PRESSURE_V1": "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME",
-    "REVERSED_SPY_PUT_CALL_SKEW_H5": "SUPERSEDED_BY_THE_NEXT_OPEN_SIBLING",
-}
+UNPRODUCED_IS_A_DEFECT = dict(_HEALTH_DEFECT)
+UNPRODUCED_IS_A_DEFECT.setdefault(R58_UNWIRED, True)
 
-#: Why each unproduced challenger is in that state, in full.
-UNPRODUCED_DETAIL = {
-    "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME": (
-        "alpha_agent.r58.challengers.freeze(price, session) exists and declares "
-        "CADENCE = 21, but no module in alpha_agent/, scripts/ or api/ calls it. "
-        "The four challenger records on disk were last written 2026-09-04 and "
-        "each emitted exactly one prediction, on 2026-09-10, by the hand that "
-        "registered it. At every cadence boundary since, the accrual owner has "
-        "correctly reported AWAITING_NEW_GOVERNED_FREEZE."),
-    "SUPERSEDED_BY_THE_NEXT_OPEN_SIBLING": (
-        "R62.3.3 froze a zero-subscription sibling that enters at the NEXT OPEN "
-        "and keeps 98.7% of the edge. The producer runs the sibling. This "
-        "registration is retained as an immutable record and is not expected to "
-        "accrue; it is NOT a defect."),
-}
+UNPRODUCED_DETAIL = dict(_HEALTH_DETAIL)
+UNPRODUCED_DETAIL[R58_UNWIRED] = (
+    "AS MEASURED BY R67, AND REPAIRED BY R68. "
+    "alpha_agent.r58.challengers.freeze(price, session) existed and declared "
+    "CADENCE = 21, but no module in alpha_agent/, scripts/ or api/ called it. "
+    "The four challenger records on disk were last written 2026-09-04 and each "
+    "emitted exactly one prediction, on 2026-09-10, by the hand that registered "
+    "it. R68 wired %s as the r58_cadence_prospective_decision stage of the same "
+    "runtime, so all four now have an executable prediction path and this code "
+    "describes a repaired condition rather than a live one." % R58_REPAIRED_BY)
 
 
 def _projection_file_exists() -> bool:

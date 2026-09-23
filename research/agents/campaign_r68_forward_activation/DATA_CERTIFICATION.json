@@ -1,0 +1,186 @@
+{
+  "campaign_id": "R68_FORWARD_EVIDENCE_AND_NEW_INFORMATION",
+  "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+  "certification_date": "2026-09-23",
+  "certifications": [
+    {
+      "dataset_id": "eodhd_dividend_declaration_v1",
+      "asset_classes": ["US_EQUITY"],
+      "pit_status": "PIT_SAFE",
+      "availability_instant": "declarationDate per row",
+      "availability_instant_known": true,
+      "survivorship": "retained",
+      "adjustment_convention": "unadjusted (raw dividend per share values stored)",
+      "path": "D:\\Stock_Prediction_app_data\\alpha_agent\\r60_extension\\us_equity_dividend_announcement_panel_v1.json",
+      "coverage": {
+        "depth": "16-year history confirmed",
+        "total_records": 62855,
+        "records_with_declaration_date": 58884,
+        "declaration_date_coverage_pct": 93.7,
+        "per_year_minimum_note": "The pooled declaration_date_coverage_pct of 93.7% is a whole-panel average and does NOT establish the per-year minimum requirement (floor 0.80). Measurement on S&P 500 universe shows per-year minimum of 0.7685 (2011), which does not clear the floor. The reopen condition COVERAGE_CLEARS_THE_FROZEN_FLOOR requires per-year minimum >= 0.80, not a pooled average."
+      },
+      "notes": "JSON keyed by ticker symbol. Each ticker maps to array of dividend records. Field 'declarationDate' is present in record schema and populated in 93.7% of records (58,884 of 62,855). Field 'date' also present (ex-date). The declarationDate field is the correct availability instant for dividend policy change signals. Delisted names are retained in structure.",
+      "prerequisite_verdict": "MET_DATASET_EXISTS"
+    },
+    {
+      "dataset_id": "sec_comment_letter_pit_v1",
+      "asset_classes": ["US_EQUITY"],
+      "pit_status": "NOT_PIT_SAFE_UNAVAILABLE",
+      "availability_instant": "EDGAR dissemination date (unobservable at letter write time)",
+      "availability_instant_known": false,
+      "survivorship": "unknown",
+      "adjustment_convention": "not applicable",
+      "path": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion\\raw\\sec_edgar",
+      "coverage": {
+        "state": "PARTIAL_RAW_COLLECTION_ONLY",
+        "raw_edgar_index_collected": "2026-07-24 to 2026-09-23 (recent 2-month window only)",
+        "upload_corresp_sample": "1 UPLOAD and 24+ CORRESP records found in sampled index files from 2026-07-31 and 2026-08-03",
+        "processed_dataset_exists": false,
+        "historical_depth_achieved": "NONE"
+      },
+      "notes": "No processed dataset named 'sec_comment_letter_pit_v1' located. Raw EDGAR full-index daily snapshots collected only for July-September 2026. UPLOAD and CORRESP form types ARE present in the raw index files (verified in raw_069bc1aa3afbf5c8f4e075fc7c9cc6a2.txt and adjacent files at D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion\\raw\\sec_edgar\\2026\\07\\31 and 2026\\08\\03), but represent recent activity only, not historical collection.",
+      "prerequisite_verdict": "NEEDS_COLLECTION"
+    }
+  ],
+  "q1_dividend_coverage_reopen_measurement": {
+    "measurement_type": "Q1_DIVIDEND_COVERAGE_REOPEN_CONDITION",
+    "hypothesis_id": "H_63012714_9e5453e70d5c",
+    "family_key": "FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY",
+    "parent_result": {
+      "panel": "us_equity_extension_pit_panel_v1 (mid/small-cap)",
+      "metric": "declarationDate_nonnull_coverage_min_year",
+      "value": 0.717,
+      "floor": 0.8,
+      "verdict": "DOES_NOT_CLEAR (halted at DATA_HOLD)"
+    },
+    "reopen_universe": "S&P 500 PIT (r57.panel frozen at 2026-09-03)",
+    "universe_definition": {
+      "membership_source": "alpha_agent.r57.panel.load_panel()",
+      "membership_field": "panel['symbols']",
+      "membership_basis": "S&P 500 point-in-time from norgatedata.index_constituent_timeseries",
+      "panel_frozen_date": "2026-09-03",
+      "note": "PIT membership retained for delisted and removed names in historical periods"
+    },
+    "dataset": {
+      "dataset_id": "us_equity_dividend_announcement_panel_v1",
+      "path": "D:\\Stock_Prediction_app_data\\alpha_agent\\r60_extension\\us_equity_dividend_announcement_panel_v1.json",
+      "n_records_total_panel": 62855,
+      "n_symbols_total_panel": 1449,
+      "records_with_declaration_date_total": 58884
+    },
+    "measurement": {
+      "metric_name": "declarationDate_nonnull_coverage_min_year",
+      "metric_definition": "minimum year coverage across all years; year coverage = (rows with nonnull declarationDate) / (total rows in that year)",
+      "n_records_sp500": 15566,
+      "n_symbols_sp500": 309,
+      "n_with_declaration_date_sp500": 14752,
+      "sample_start_year": 2009,
+      "sample_end_year": 2026,
+      "per_year_coverage": {
+        "2009": {
+          "n_records": 762,
+          "n_with_declaration_date": 594,
+          "coverage": 0.779528
+        },
+        "2010": {
+          "n_records": 801,
+          "n_with_declaration_date": 618,
+          "coverage": 0.771536
+        },
+        "2011": {
+          "n_records": 851,
+          "n_with_declaration_date": 654,
+          "coverage": 0.768508
+        },
+        "2012": {
+          "n_records": 897,
+          "n_with_declaration_date": 738,
+          "coverage": 0.822742
+        },
+        "2013": {
+          "n_records": 882,
+          "n_with_declaration_date": 877,
+          "coverage": 0.994331
+        },
+        "2014": {
+          "n_records": 954,
+          "n_with_declaration_date": 949,
+          "coverage": 0.994759
+        },
+        "2015": {
+          "n_records": 966,
+          "n_with_declaration_date": 958,
+          "coverage": 0.991718
+        },
+        "2016": {
+          "n_records": 923,
+          "n_with_declaration_date": 917,
+          "coverage": 0.993499
+        },
+        "2017": {
+          "n_records": 931,
+          "n_with_declaration_date": 886,
+          "coverage": 0.951665
+        },
+        "2018": {
+          "n_records": 941,
+          "n_with_declaration_date": 934,
+          "coverage": 0.992561
+        },
+        "2019": {
+          "n_records": 950,
+          "n_with_declaration_date": 942,
+          "coverage": 0.991579
+        },
+        "2020": {
+          "n_records": 837,
+          "n_with_declaration_date": 831,
+          "coverage": 0.992832
+        },
+        "2021": {
+          "n_records": 842,
+          "n_with_declaration_date": 836,
+          "coverage": 0.992874
+        },
+        "2022": {
+          "n_records": 865,
+          "n_with_declaration_date": 864,
+          "coverage": 0.998844
+        },
+        "2023": {
+          "n_records": 862,
+          "n_with_declaration_date": 859,
+          "coverage": 0.996520
+        },
+        "2024": {
+          "n_records": 834,
+          "n_with_declaration_date": 833,
+          "coverage": 0.998801
+        },
+        "2025": {
+          "n_records": 845,
+          "n_with_declaration_date": 839,
+          "coverage": 0.992899
+        },
+        "2026": {
+          "n_records": 623,
+          "n_with_declaration_date": 623,
+          "coverage": 1.0
+        }
+      }
+    },
+    "result": {
+      "floor": 0.80,
+      "min_coverage": 0.768508,
+      "min_coverage_year": 2011,
+      "verdict": "DOES_NOT_CLEAR",
+      "earliest_year_continuously_at_or_above_floor": 2012,
+      "interpretation": "Minimum per-year coverage is 0.7685 (year 2011), which is BELOW the frozen floor of 0.80. The reopen condition COVERAGE_CLEARS_THE_FROZEN_FLOOR is NOT satisfied. S&P 500 large-cap coverage is weak in early years (2009-2011 all below 0.80) and strong from 2012 onward (all above 0.95). The universe change alone does not repair the data defect."
+    },
+    "reproduction": {
+      "code": "from alpha_agent.r57.panel import load_panel; import pandas as pd; import json; with open(r'D:\\Stock_Prediction_app_data\\alpha_agent\\r60_extension\\us_equity_dividend_announcement_panel_v1.json') as f: dividend_data = json.load(f); all_records = []; [all_records.extend([{**rec, 'symbol': symbol} for rec in records]) if isinstance(records, list) else all_records.append({**records, 'symbol': symbol}) for symbol, records in dividend_data.items()]; df_divs = pd.DataFrame(all_records); df_divs['date'] = pd.to_datetime(df_divs['date']); df_divs['declarationDate'] = pd.to_datetime(df_divs['declarationDate']); panel = load_panel(); sp500_symbols = set(panel['symbols']); df_sp500 = df_divs[df_divs['symbol'].isin(sp500_symbols)].copy(); df_sp500['date_year'] = df_sp500['date'].dt.year; year_coverage = {}; [year_coverage.update({int(year): {'n_records': len(df_sp500[df_sp500['date_year'] == year]), 'n_with_declaration_date': len(df_sp500[(df_sp500['date_year'] == year) & (df_sp500['declarationDate'].notna())]), 'coverage': len(df_sp500[(df_sp500['date_year'] == year) & (df_sp500['declarationDate'].notna())]) / len(df_sp500[df_sp500['date_year'] == year]) if len(df_sp500[df_sp500['date_year'] == year]) > 0 else 0}}) for year in sorted(df_sp500['date_year'].unique())]; min_coverage = min(v['coverage'] for v in year_coverage.values()); min_year = min((y for y in year_coverage if year_coverage[y]['coverage'] == min_coverage))",
+      "description": "Load dividend panel as dict by symbol, expand to records DataFrame, convert dates, load S&P 500 members from r57.panel, filter to S&P 500 symbols, group by record date year, compute coverage as (nonnull declarationDate / total records) per year, find minimum."
+    }
+  },
+  "handoff_notes": "eodhd_dividend_declaration_v1: Dataset exists and declarationDate field is populated in 93.7% of records (pooled across full panel). However, the reopen condition requires per-year minimum >= 0.80, not pooled average. Measurement on S&P 500 universe shows per-year minimum 0.7685 (2011), below floor. sec_comment_letter_pit_v1: No historical SEC comment letter dataset exists; prerequisite is NEEDS_COLLECTION. Q1 measurement complete: S&P 500 dividend declaration date coverage does NOT clear the 0.80 floor (minimum 0.7685 in 2011). Coverage becomes continuous >= 0.80 from 2012 onward, but the full sample minimum is below floor."
+}

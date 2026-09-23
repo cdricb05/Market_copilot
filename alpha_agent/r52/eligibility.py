@@ -99,11 +99,20 @@ GATED_STAGES = ("tournament_advance", "forfeiture_sweep",
                 "velocity_operational", "promotion_frontier")
 
 #: The stages that run on every invocation whatever the gate says. Each owns a
-#: live decision window and external publication state; all three together were
-#: measured at ~8 s, against ~283 s for the gated set.
+#: live decision window and external publication state; the first three together
+#: were measured at ~8 s, against ~283 s for the gated set.
+#:
+#: R68 added the fourth. The R58 cadence producer belongs here for the same
+#: reason and costs even less: its boundary is 21 sessions apart, so on 19 of
+#: every 21 sessions it reads the registry and the exchange calendar and returns
+#: without opening a panel or a vendor connection. Gating it would be worse than
+#: pointless - a boundary's emission window shuts when its session begins, so a
+#: cycle that skipped the producer on the one evening that mattered would forfeit
+#: the boundary with nothing to show for the saving.
 UNGATED_STAGES = ("next_open_prospective_decision",
                   "fx_carry_cadence_prospective_decision",
-                  "futures_trend_prospective_decision")
+                  "futures_trend_prospective_decision",
+                  "r58_cadence_prospective_decision")
 
 #: Stage states that mean a per-session owner MOVED - new evidence exists, so
 #: the gated set must run in this same cycle rather than wait for the next one.

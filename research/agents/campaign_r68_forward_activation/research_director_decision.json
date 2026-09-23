@@ -1,0 +1,74 @@
+{
+  "artifact": "research_director_decision",
+  "schema_version": 1,
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "campaign_id": "R68_FORWARD_EVIDENCE_AND_NEW_INFORMATION",
+  "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+  "decided_by": "quant-research-director",
+  "decided_at": "2026-09-23",
+  "full_ruling": "research/agents/campaign_r68_forward_activation/DIRECTOR_R68_RULING.json",
+
+  "what_was_tried": [
+    "r68_03 FUT_DEFERRED_LEG_CURVE_CURVATURE - COMMODITY_FUTURES, horizon 21, proposed as the campaign's guaranteed-measurable cell",
+    "r68_01 EQ_SEC_COMMENT_LETTER_SCRUTINY - US_EQUITY, horizon 21, new free information",
+    "r68_02 EQ_DIVIDEND_POLICY_CHANGE_ANNOUNCEMENT - US_EQUITY, horizon 21, owned-unused information"
+  ],
+
+  "what_died_and_why": [
+    {
+      "cell": "r68_03",
+      "verdict": "REJECTED",
+      "cause": "SUBSTRATE_CANNOT_EXPRESS_THE_MECHANISM. Curvature is a second difference over three curve points; all 69 certified R38 market files carry exactly two dated contracts (column union: Date, close, held, open_interest, ret, ret2, slope_ann, volume). Compounded by DUPLICATE_MECHANISM_UNDER_A_RENAMED_KEY against settled CARRY_SLOPE and CARRY|FUTURES_DEFERRED_LEG_BASIS rows, and by the R66-settled conditioning shape.",
+      "reopen_condition": "A certified THIRD dated contract leg per market."
+    },
+    {
+      "cell": "r68_02",
+      "verdict": "REFUSED_AS_PROPOSED",
+      "cause": "IDENTITY_ALREADY_IN_MEMORY. H_63012714_9e5453e70d5c, FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY, DATA_HOLD on declarationDate coverage 0.717 vs a frozen 0.80 floor. The proposed key renamed both the economic family and the information family.",
+      "reopen_condition": "COVERAGE_CLEARS_THE_FROZEN_FLOOR, minted under the PARENT key, inheriting the parent's burden denominator, sample start fixed from the coverage series before any return is computed."
+    }
+  ],
+
+  "what_survived": [
+    {
+      "cell": "r68_01",
+      "verdict": "HELD",
+      "state": "CONDITIONAL_PREREGISTRATION_APPROVED_IN_PRINCIPLE_NOT_MINTED",
+      "novelty": "UPHELD against research memory directly - SEC_COMMENT_LETTER carries 0 of 8472 rows, and the regulator-initiated vs issuer-initiated distinction was verified row by row against the settled rows' information_objects.",
+      "blocked_by": [
+        "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED: fs_r68_comment_letter_scrutiny",
+        "FAMILY_NOT_ROUTED_TO_AGENT - must be routed to FUNDAMENTAL_MOMENTUM / momentum-signal-agent, which requires no contract widening",
+        "an unverified external PIT claim about EDGAR dissemination lag that data-foundation-agent must establish empirically"
+      ]
+    }
+  ],
+
+  "director_clear_rulings_issued": [],
+  "why_no_director_clear": "director_clear applies only to a validated survivor that the skeptic passed SURVIVED, the risk agent passed ACCEPTABLE and the meta agent passed ENSEMBLE_READY or STANDALONE. No experiment was measured, so no candidate exists and no clearing was possible or attempted.",
+
+  "budget_left": {
+    "experiments_preregistered": 0,
+    "burden_charged": 0,
+    "estate_burden_unchanged_at": 8415,
+    "lockbox_spent": 0,
+    "denominator_owner": "alpha_agent.r59.handlers.search_denominator",
+    "note": "The entire campaign budget and the entire anti-overfitting budget remain unspent. Nothing was minted to fill time or to satisfy a quota."
+  },
+
+  "durable_state_written": false,
+  "durable_state_note": "The only pipeline CLI calls made were preregister attempts, all four of which returned governed refusals before reaching ResearchMemory.register. No hypothesis row, no event and no artifact was written to the research memory by this ruling.",
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "promotes_model": false,
+    "activates_sleeve": false,
+    "allocates_capital": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "manual_review_required": true,
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

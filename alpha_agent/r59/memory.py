@@ -728,22 +728,113 @@ class ResearchMemory:
             conn.close()
 
     # -- novelty ------------------------------------------------------------ #
-    def is_novel(self, *, family: str, spec: Any) -> dict:
+    def mechanism_state(self, *, asset_class: Optional[str] = None,
+                        economic_family: Optional[str] = None,
+                        information_family: Optional[str] = None,
+                        model_family: Optional[str] = None) -> dict:
+        """What the estate already knows about a MECHANISM, not one hypothesis.
+
+        R68. :meth:`is_novel` answers "has this exact (family, spec) pair been
+        tested", which is a different and much narrower question than "has this
+        economic mechanism been prosecuted". MEASURED: ``is_novel`` returned
+        ``novel: True`` for ``FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|
+        US_EQUITY|LONG_ONLY`` while that mechanism already carried a settled row,
+        because the proposed spec hashed differently. A novelty check that can be
+        passed by changing a parameter is not a duplicate check.
+
+        Every filter is optional, so a caller can ask about a whole economic
+        family or narrow to the exact four-part key. Nothing is settled or
+        reopened here; this is a pure read.
+        """
+        rows = self.list_hypotheses(limit=1000000)
+
+        def _m(r):
+            return ((asset_class is None or r.get("asset_class") == asset_class)
+                    and (economic_family is None
+                         or r.get("economic_family") == economic_family)
+                    and (information_family is None
+                         or r.get("information_family") == information_family)
+                    and (model_family is None
+                         or r.get("model_family") == model_family))
+
+        hits = [r for r in rows if _m(r)]
+        settled = [r for r in hits if r.get("outcome")]
+        outcomes: dict = {}
+        best_t = None
+        for r in settled:
+            oc = str(r.get("outcome"))
+            outcomes[oc] = outcomes.get(oc, 0) + 1
+            t = (r.get("statistic") or {}).get("lockbox_t")
+            if isinstance(t, (int, float)) and (best_t is None or t > best_t):
+                best_t = float(t)
+        return {
+            "asset_class": asset_class, "economic_family": economic_family,
+            "information_family": information_family,
+            "model_family": model_family,
+            "n_matching": len(hits), "n_settled": len(settled),
+            "n_unsettled": len(hits) - len(settled),
+            "outcomes": outcomes, "best_lockbox_t": best_t,
+            "mechanism_is_settled": bool(settled),
+            "hypothesis_ids": [r.get("hypothesis_id") for r in hits][:50],
+            "reopen_conditions": sorted({str(r.get("reopen_condition"))
+                                         for r in settled
+                                         if r.get("reopen_condition")}),
+            "family_keys": sorted({str(r.get("family_key")) for r in hits
+                                   if r.get("family_key")})[:25],
+        }
+
+    def is_novel(self, *, family: str, spec: Any,
+                 asset_class: Optional[str] = None,
+                 economic_family: Optional[str] = None,
+                 information_family: Optional[str] = None,
+                 model_family: Optional[str] = None) -> dict:
         """Has this exact hypothesis been tested before, and may it be retried?
 
         A settled hypothesis is NOT novel. It becomes eligible again only
         through an explicit reopen condition, which a caller must satisfy and
         declare - never by simply asking a second time.
+
+        R68 - AND THE MECHANISM IS REPORTED BESIDE THE ANSWER.
+
+        This is an identity check on ``(family, spec)``. It cannot see a sibling
+        that tests the SAME economic mechanism with a different parameter, which
+        is how a settled idea gets re-proposed under a new name. Passing the
+        mechanism coordinates attaches :meth:`mechanism_state` to the result, so
+        a caller physically cannot read ``novel: True`` without also seeing that
+        the mechanism carries settled rows. The verdict itself is unchanged -
+        callers that pass nothing get exactly what they always got - because
+        whether a settled sibling BLOCKS a hypothesis is a director ruling and
+        not this method's to make.
         """
         hid = hypothesis_id(family=family, spec=spec)
         row = self.get(hid)
+        mech = None
+        if any(v is not None for v in (asset_class, economic_family,
+                                       information_family, model_family)):
+            mech = self.mechanism_state(
+                asset_class=asset_class, economic_family=economic_family,
+                information_family=information_family,
+                model_family=model_family)
         if row is None:
-            return {"novel": True, "hypothesis_id": hid, "prior": None}
-        settled = row.get("outcome") is not None
-        return {"novel": not settled, "hypothesis_id": hid, "prior": row,
-                "reopen_condition": row.get("reopen_condition"),
-                "reason": ("already settled as %s" % row.get("outcome"))
-                if settled else "registered but never settled"}
+            out = {"novel": True, "hypothesis_id": hid, "prior": None}
+        else:
+            settled = row.get("outcome") is not None
+            out = {"novel": not settled, "hypothesis_id": hid, "prior": row,
+                   "reopen_condition": row.get("reopen_condition"),
+                   "reason": ("already settled as %s" % row.get("outcome"))
+                   if settled else "registered but never settled"}
+        if mech is not None:
+            out["mechanism"] = mech
+            out["novel_but_the_mechanism_is_settled"] = bool(
+                out["novel"] and mech["mechanism_is_settled"])
+            if out["novel_but_the_mechanism_is_settled"]:
+                out["mechanism_warning"] = (
+                    "this exact (family, spec) pair is new, and the mechanism it "
+                    "belongs to already carries %d settled row(s): %s. A novelty "
+                    "check that can be passed by changing a parameter is not a "
+                    "duplicate check - rule on the mechanism, not on this flag."
+                    % (mech["n_settled"], mech["outcomes"]))
+        return out
 
     # -- graveyard ---------------------------------------------------------- #
     def graveyard(self, *, asset_class: Optional[str] = None,

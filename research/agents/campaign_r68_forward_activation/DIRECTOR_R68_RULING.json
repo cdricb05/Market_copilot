@@ -1,0 +1,324 @@
+{
+  "artifact": "DIRECTOR_R68_RULING",
+  "schema_version": 1,
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "campaign_id": "R68_FORWARD_EVIDENCE_AND_NEW_INFORMATION",
+  "run_id": "R68_FORWARD_EVIDENCE_REPAIR_AND_ALPHA_ACTIVATION",
+  "ruling_agent": "quant-research-director",
+  "ruled_at": "2026-09-23",
+  "review_order_followed": ["r68_03", "r68_01", "r68_02"],
+
+  "headline": "ZERO cells pre-registered. ZERO burden charged. One cell REJECTED outright on a file-level substrate fact, one HELD pending data certification with three defects to repair first, one REFUSED AS PROPOSED as a renamed key over a family that already carries a settled row. The campaign as specified cannot satisfy the diversity gate and no filler cell was invented to make it appear that it could.",
+
+  "novelty_verification_method": {
+    "authority_used": "alpha_agent.r59.memory.ResearchMemory, queried directly read-only at D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite",
+    "census_used": false,
+    "why": "NEXT_CAMPAIGN_CENSUS.json is known-defective: R67 proved it summarises a family from its most recent row and so presented a MEASURED, FAILED family as unmeasured. Every family_key below was resolved against the hypotheses table itself.",
+    "rows_in_memory": 8472,
+    "burden_total_at_ruling": 8415,
+    "independent_confirmation_of_the_census_defect": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT carries 4 settled rows in the burden map, and CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT carries 1 settled NO_ALPHA_EVIDENCE row. Both families are presented as open or near-empty in the brief's queued list (ranks 4 and 1). The defect is reproduced here from memory, not taken on report.",
+    "limitation_found_in_the_duplicate_identity_owner": "ResearchMemory.is_novel returned {'novel': True} for FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY, a family that demonstrably already carries hypothesis H_63012714_9e5453e70d5c. is_novel is a (family, spec) identity check keyed on the spec hash, NOT a family-level duplicate check. It therefore cannot catch key laundering on its own and must not be relied on as the sole novelty authority. Reported, not worked around."
+  },
+
+  "cells": [
+    {
+      "executor": "r68_03",
+      "label": "FUT_DEFERRED_LEG_CURVE_CURVATURE",
+      "verdict": "REJECTED",
+      "experiment_id": null,
+      "burden_charged": 0,
+      "grounds": [
+        {
+          "code": "SUBSTRATE_CANNOT_EXPRESS_THE_MECHANISM",
+          "binding": true,
+          "finding": "Curvature is a second difference over THREE curve points. The certified layer carries exactly TWO dated contracts per market. The union of column names across all 69 certified market files is exactly: Date, close, held, open_interest, ret, ret2, slope_ann, volume. There is no third leg, no second deferred price, and only ONE price level column (close, the front); ret2 is a RETURN, not a price.",
+          "evidence": [
+            "D:\\Stock_Prediction_app_data\\native_futures_r38\\r38_native_futures_information_frontier_v4\\native_contract_layer\\*.csv (69 files, header union verified)",
+            "C:\\Users\\binis\\paper_trader\\alpha_agent\\r59\\native.py lines 14-18 (ret = front, ret2 = SECOND (deferred), slope_ann = slope between the two)",
+            "C:\\Users\\binis\\paper_trader\\alpha_agent\\r59\\native.py lines 178-206 (loader builds ret, ret2, slope only)"
+          ],
+          "consequence": "The spec's assertion that this cell 'needs no new collection' is false. It needs collection that does not exist. The cell's entire novelty rests on the word CURVATURE, which this data cannot express."
+        },
+        {
+          "code": "DUPLICATE_MECHANISM_UNDER_A_RENAMED_KEY",
+          "binding": true,
+          "finding": "What IS computable from two legs is (a) the slope, already materialised as slope_ann, and (b) the front-minus-deferred return differential. The spec's own mechanism paragraph describes neither curvature nor anything new: 'whether the held-to-deferred basis is steep or flat RELATIVE TO THAT MARKET'S OWN history ... this dispersion mean-reverts'. That is slope_ann normalised by its own history.",
+          "settled_parents_verified_in_memory": [
+            {"family_key": "CARRY_SLOPE|PRICE_STATE|COMMODITY_FUTURES|XS_RANK_BOOK", "rows": 4, "outcome": "NO_ALPHA_EVIDENCE"},
+            {"family_key": "CARRY_SLOPE|PRICE_STATE|COMMODITY_FUTURES|VOL_TARGET_BOOK", "rows": 1, "outcome": "NO_ALPHA_EVIDENCE"},
+            {"family_key": "CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT", "rows": 1, "hypothesis_id": "H_7994380d_cf2e4efaaa5a", "outcome": "NO_ALPHA_EVIDENCE", "reason_rejected": "HALTED_AT_V: ann_net_excess -0.00815743 < advance floor 0.00375"},
+            {"model_family_rows": "RULE:CARRY_SLOPE_ANN carries 14 rows estate-wide, all NO_ALPHA_EVIDENCE"}
+          ],
+          "consequence": "Minting TERM_STRUCTURE_CURVATURE against a FRESH burden denominator for a quantity whose parent is settled is the R67-bound laundering with economic_family substituted for model_family. R67 binds that a replication inherits its PARENT'S denominator and may never be charged against a fresh key."
+        },
+        {
+          "code": "R66_SETTLED_CONDITIONING_SHAPE",
+          "binding": true,
+          "finding": "R66 binds: 'TIMING A PREMIUM WITH A CONDITIONING VARIABLE is settled dead on three sightings. Mean reversion of a residual IS conditioning on the current deviation.' The cell's stated mechanism - a basis normalised against its own history that 'mean-reverts' - is verbatim that shape."
+        },
+        {
+          "code": "FAMILY_NOT_ROUTED_TO_AGENT",
+          "binding": true,
+          "governed_refusal": "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: TERM_STRUCTURE_CURVATURE is not routed to trend-breadth-signal-agent",
+          "finding": "TERM_STRUCTURE_CURVATURE is not in the governance contract's family vocabulary for any agent. The family this mechanism actually belongs to, CARRY, is routed to volatility-liquidity-agent, not to the proposed owner. Widening governance_contract.json is a human decision and was not taken."
+        }
+      ],
+      "duplicate_identity_claim_disposition": "The spec asked that the duplicate-identity question against CARRY_SLOPE and CALENDAR_TERM_STRUCTURE be TESTED rather than asserted, with a |Spearman| >= 0.999 refusal threshold. That test is moot and was not run: the signal it would test cannot be constructed, because the third curve point does not exist. Separately, a 0.999 threshold is far too permissive to detect a re-normalisation of an existing quantity and would not have caught this cell even if the data had existed. Had the cell survived on substrate grounds I would have frozen the blocking threshold at |Spearman| >= 0.95 against slope_ann.",
+      "reopen_condition": "A CERTIFIED THIRD DATED CONTRACT LEG per market, collected and PIT-certified by data-foundation-agent. Until such a leg exists, curve curvature is unmeasurable on this estate and must not be re-proposed under any name.",
+      "do_not_repeat": "TERM_STRUCTURE_CURVATURE, CURVE_CURVATURE, BASIS_Z_SCORE or any own-history normalisation of slope_ann proposed against a fresh denominator."
+    },
+
+    {
+      "executor": "r68_01",
+      "label": "EQ_SEC_COMMENT_LETTER_SCRUTINY",
+      "verdict": "HELD",
+      "held_state": "CONDITIONAL_PREREGISTRATION_APPROVED_IN_PRINCIPLE_NOT_MINTED",
+      "experiment_id": null,
+      "burden_charged": 0,
+      "novelty_ruling": "UPHELD",
+      "novelty_evidence": {
+        "information_family_SEC_COMMENT_LETTER_rows": 0,
+        "of_total_rows": 8472,
+        "distinguish_from_settled_verified_row_by_row": "The spec claimed the settled disclosure families are all ISSUER-INITIATED and asked me to refuse the cell if that distinction is not real. I verified it against the spec_json information_objects of every settled row, not against the label: SEC_FILING_BEHAVIOUR_R27 -> SEC_EDGAR_INDEX:FILING_BEHAVIOUR; EVENT_8K_ITEM_CODES -> SEC_8K:ITEM_CODES; DISCLOSURE_INTENSITY_R63 -> SEC_SUBMISSIONS:DISCLOSURE_INTENSITY; PIT_FUNDAMENTALS_AND_VALUATION -> SEC_FSDS:VALUATION, SEC_XBRL:*; POST_FILING_DRIFT -> FILING_EVENT. Every one is issuer output. EDGAR UPLOAD/CORRESP is regulator correspondence disseminated on a schedule the issuer does not control. THE DISTINCTION IS REAL.",
+        "honest_prior_to_be_frozen_into_the_registration": "Four independent mechanisms in the same mechanism_class PUBLIC_SLOW_DISCLOSURE are settled NO_ALPHA_EVIDENCE, at best t 2.40 (filing lag), 1.55 (disclosure intensity), <= 1.22 (8-K item codes) and 0.00 (fundamental change). The closed-mechanism ledger closes NAMED MECHANISMS, not the class, so a new mechanism in this class is permitted - but the prior is poor and is recorded here so it is not rediscovered as a surprise after measurement."
+      },
+      "defects_that_must_be_repaired_before_any_id_is_minted": [
+        {
+          "code": "FAMILY_NOT_ROUTED_TO_AGENT",
+          "governed_refusal": "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: REGULATORY_SCRUTINY_EVENT is not routed to reversal-signal-agent",
+          "remedy": "Route to an existing contract family. I did NOT widen governance_contract.json; a scope change is a human decision."
+        },
+        {
+          "code": "SIGN_AND_FAMILY_INCOHERENCE",
+          "finding": "The claim is 21-session relative UNDERperformance following the event, i.e. drift/CONTINUATION, with expected_sign -1. The estate has a recorded convention on exactly this point, in the spec_json of H_63012714_9e5453e70d5c: 'the routed family is FUNDAMENTAL_MOMENTUM (continuation, expected_sign +1) and NOT EVENT_OVERREACTION, whose sign would be the opposite of the claim.' Under EVENT_OVERREACTION the sign of this cell would have to be +1, which is not the claim. Both the spec and the brief's queued rank 6 route it to reversal-signal-agent/EVENT_OVERREACTION, which is inconsistent with its own sign.",
+          "remedy": "Route as FUNDAMENTAL_MOMENTUM, owner momentum-signal-agent. Resulting family key FUNDAMENTAL_MOMENTUM|SEC_COMMENT_LETTER|US_EQUITY|LONG_ONLY, which is novel (the family's only other information families are DIVIDEND_DECLARATION_EVENTS and FUNDAMENTAL_TIME_SERIES, 1 row each)."
+        },
+        {
+          "code": "MODEL_FAMILY_IS_DERIVED_NOT_CHOSEN",
+          "finding": "alpha_agent\\agents_v2\\pipeline.py line 331 sets model_family = 'XS_LONG_SHORT' if long_short else 'LONG_ONLY'. It cannot be named freely. With long_short=false the cell is LONG_ONLY with expected_sign -1: a book expected to UNDERperform its passive control. That is measurable, but it is an EXCLUSION SCREEN, not a long book.",
+          "remedy": "Freeze this in the registration text so that a qualified negative screen can never later be read as a buy list. No order, no allocation and no promotion is implied by any outcome of this cell."
+        },
+        {
+          "code": "UNVERIFIED_EXTERNAL_PIT_CLAIM",
+          "finding": "The spec asserts that EDGAR dissemination 'by SEC policy lags the close of the review by at least 20 business days and is therefore unrelated to the issuer's own news calendar'. This is the entire point-in-time argument for the cell and I could not verify it from any artifact in this repository. It is UNKNOWN, not established.",
+          "remedy": "data-foundation-agent must establish the letter-date to dissemination-date lag DISTRIBUTION empirically from the EDGAR full index and must not assume the 20-business-day policy. If the lag is not reliably positive and issuer-independent, the availability instant is unsound and the cell dies on PIT grounds, not on alpha grounds."
+        },
+        {
+          "code": "DATA_PREREQUISITE_UNMET",
+          "governed_refusal": "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED: fs_r68_comment_letter_scrutiny",
+          "finding": "sec_comment_letter_pit_v1 and fs_r68_comment_letter_scrutiny are both in the brief's substrate_missing. preregister hard-requires a published feature set over a PIT_SAFE dataset. No id can be minted today by any route."
+        }
+      ],
+      "verdict_if_the_dataset_is_absent_or_too_shallow": {
+        "verdict": "DATA_HOLD",
+        "never": "NO_ALPHA_EVIDENCE",
+        "why": "A cell that never scored a return makes no statement about alpha. Recording absence of data as absence of alpha is how a dataset gap becomes a false negative in the memory.",
+        "if_coverage_is_adequate_only_from_a_later_start": "The sample start is fixed FROM THE COVERAGE SERIES BEFORE ANY RETURN IS COMPUTED, by the same rule the R60 dividend reopen condition specifies. The start date is never chosen after seeing a result.",
+        "if_history_is_adequate_only_going_forward": "A PROSPECTIVE FREEZE via alpha_agent.r59.handlers.freeze_qualified is the correct disposition, not a historical verdict."
+      },
+      "frozen_before_measurement_if_it_proceeds": [
+        "expected_sign = -1, declared now and never flipped",
+        "the scrutiny score definition, declared before the data is inspected",
+        "the event window",
+        "horizon_sessions = 21, single horizon. A later 63-session variant is the SAME family under family_key (horizon is deliberately excluded from the key) and is charged to the SAME denominator, never a new one.",
+        "cost model on traded notional",
+        "the passive control: equal-weight eligible universe",
+        "availability instant = EDGAR full-index dissemination date, NEVER the letter date",
+        "at most 3 variants in this family, per the campaign gate"
+      ]
+    },
+
+    {
+      "executor": "r68_02",
+      "label": "EQ_DIVIDEND_POLICY_CHANGE_ANNOUNCEMENT",
+      "verdict": "REFUSED_AS_PROPOSED",
+      "experiment_id": null,
+      "burden_charged": 0,
+      "novelty_ruling": "OVERTURNED - THE NOVELTY CLAIM IS FALSE",
+      "grounds": [
+        {
+          "code": "IDENTITY_ALREADY_IN_MEMORY",
+          "binding": true,
+          "prior_row": {
+            "hypothesis_id": "H_63012714_9e5453e70d5c",
+            "family_key": "FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY",
+            "outcome": "DATA_HOLD",
+            "reason_rejected": "PRE_MEASUREMENT_HALT/DATA_COVERAGE_FLOOR: declarationDate_nonnull_coverage_min_year 0.717 against the frozen threshold 0.8; no return was ever scored, so no statement is made about alpha",
+            "reopen_condition": "COVERAGE_CLEARS_THE_FROZEN_FLOOR: a NEW pre-registration whose sample start is fixed from the coverage series BEFORE any return is computed",
+            "counts_to_burden": 1,
+            "release": "AGENTS_V2"
+          },
+          "identity_match": "SAME mechanism, dated by DECLARATION date and explicitly 'never by ex-date'; SAME signal name declared_dividend_change_score; SAME horizon 21; SAME expected_sign +1; SAME model_family LONG_ONLY; SAME long-only equal-weight top-100 book against the equal-weight eligible universe.",
+          "aggravating_fact": "The parent is not merely settled, it is STILL LIVE. The agents_v2 ledger shows H_63012714_9e5453e70d5c in SURVIVOR_STATE = PREREGISTERED (27 ledger rows; verified via scripts\\alpha_agents_v2.py ledger). Minting the renamed key would have created a SECOND open experiment id for the same mechanism, running concurrently with the first.",
+          "consequence": "'DIVIDEND_DECLARATION carries ZERO hypotheses' is true only of the renamed string, not of the family. Proposing PAYOUT_POLICY_CHANGE|DIVIDEND_DECLARATION for FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS renames BOTH key components at once and is precisely the R67-bound laundering."
+        },
+        {
+          "code": "DISTINGUISH_FROM_SETTLED_CHECK_PASSED_BUT_AGAINST_THE_WRONG_ROW",
+          "finding": "The spec asked me to verify the cell against DIVIDEND_MONTH_DEMAND_PREMIUM. That check PASSES: HM_DIVIDEND_MONTH_DEMAND_PREMIUM_V1 is MECHANISM:DIVIDEND_MONTH_DEMAND_PREMIUM_V1|NORGATE_PIT_SP500|US_EQUITY|XS_LONG_SHORT_MONTHLY, an ex-date calendar demand effect, genuinely different. But the spec pointed the comparison at the one dividend row that is NOT the problem. The blocking row is the declaration-date row it did not mention.",
+          "consequence": "A distinguish_from_settled clause is only as good as the row it is aimed at. This one was aimed away from the collision."
+        },
+        {
+          "code": "FAMILY_NOT_ROUTED_TO_AGENT",
+          "governed_refusal": "PIPELINE_REFUSED FAMILY_NOT_ROUTED_TO_AGENT: PAYOUT_POLICY_CHANGE is not routed to volatility-liquidity-agent",
+          "finding": "The invented family name is in no agent's vocabulary, and the cell's true family FUNDAMENTAL_MOMENTUM is routed to momentum-signal-agent, not to the proposed owner."
+        }
+      ],
+      "reopen_path_that_is_genuinely_open": {
+        "state": "AVAILABLE, NOT EXERCISED TODAY",
+        "condition_text": "COVERAGE_CLEARS_THE_FROZEN_FLOOR: a NEW pre-registration whose sample start is fixed from the coverage series BEFORE any return is computed",
+        "what_materially_changed_since_the_parent": "The parent ran on instrument_scope r60_eq_extension_dividend_events over us_equity_extension_pit_panel_v1 - the mid/small-cap extension panel, which the census now records as FROZEN PENDING an identity-bridge audit and which this campaign may not use. R68 proposes r68_sp500_event_universe instead. Large-cap declaration-date coverage is plausibly better than mid/small-cap coverage. That is a real change of input_data_identity and a legitimate reopen, NOT a re-parameterisation.",
+        "mandatory_terms_if_it_is_ever_minted": [
+          "It is minted under the PARENT key FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY, owner momentum-signal-agent.",
+          "It INHERITS the parent's burden denominator and is never charged against a fresh key (R67 ruling v2).",
+          "The sample start is fixed from the certified coverage series BEFORE any return is computed.",
+          "If coverage on the S&P 500 universe is below the frozen 0.80 floor, the verdict is DATA_HOLD again - never NO_ALPHA_EVIDENCE.",
+          "If only ex-dates are stored, the cell is DATA_HOLD. An ex-date-only dataset cannot express a declaration-date mechanism and must not be substituted for it."
+        ]
+      },
+      "why_nothing_was_minted_today": "The parent already charged 1 unit of burden on a pre-measurement coverage halt. Minting a second id before coverage is known would burn a second unit to discover a data fact that costs nothing to check first. The budget is a ceiling, not a target.",
+      "asymmetry_with_r68_01_stated_plainly": "r68_01's science is frozen nowhere yet, so its freeze must PRECEDE contact with the data - that is the anti-overfitting discipline. r68_02's science is already frozen verbatim in the parent row, so re-freezing it gains nothing and costs a burden unit. That is why one is held for a freeze-then-certify sequence and the other for a certify-then-freeze sequence."
+    }
+  ],
+
+  "budget_and_burden": {
+    "experiments_preregistered": 0,
+    "experiment_ids_minted": [],
+    "burden_charged_this_ruling": 0,
+    "estate_burden_unchanged_at": 8415,
+    "denominator_owner": "alpha_agent.r59.handlers.search_denominator",
+    "lockbox_spent": 0,
+    "note": "No lockbox was spent because no cell reached discovery evidence. The anti-overfitting budget is preserved in full."
+  },
+
+  "diversity_gate": {
+    "state": "NOT_SATISFIED",
+    "machine_requirement": ">= 3 asset classes, no class above 50%, >= 40% non-equity, >= 1 H1-H5, >= 1 non-equity, >= 1 cross-asset",
+    "as_specified": "2 US_EQUITY cells + 1 COMMODITY_FUTURES cell, every cell at horizon 21. The spec ALREADY failed the H1-H5 gate and the cross-asset gate before any of my refusals.",
+    "after_ruling": "0 experiments, so every diversity gate is vacuously unmet.",
+    "handling": "RECORDED AS A GOVERNANCE EXCEPTION. No cell was invented to fill the quota. A diversity gate is a constraint on a real agenda, not a licence to mint filler.",
+    "live_substitutes_searched_for_and_not_found": [
+      {"queued_rank": 1, "proposal": "FUT_BASIS_MOMENTUM_COMMODITY", "state": "SETTLED", "evidence": "H_7994380d_cf2e4efaaa5a NO_ALPHA_EVIDENCE, HALTED_AT_V, ann_net_excess -0.00815743"},
+      {"queued_rank": 7, "proposal": "XA_BASIS_MOMENTUM_REPLICATION", "state": "SETTLED", "evidence": "H_58d49e5c_079c8b4dbce5 NO_ALPHA_EVIDENCE, HALTED_AT_D, ann_net_excess -0.00889938"},
+      {"queued_rank": 4, "proposal": "FUT_OPEN_INTEREST_GROWTH", "state": "SETTLED", "evidence": "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT carries 4 settled rows in the burden map"},
+      {"queued_rank": 3, "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE", "state": "REFUSED_TWICE_AND_LEAKY", "evidence": "refused by R66 and R67 against a recorded reopen condition; fs_r67_terms_of_trade_residual is LEAKY as published per FEATURE_SET_LEAKAGE_CORRECTION.json and must not measure anything"}
+    ],
+    "finding": "The non-equity and cross-asset frontier is genuinely exhausted on owned substrate. The queued list presents settled families as available because it inherits the census defect. This is a research-state finding, not a scheduling problem."
+  },
+
+  "assignment_manifest_ref": "assignment_manifest.json (EMPTY - there is nothing to assign)",
+
+  "next_actions_for_the_session_orchestrator": {
+    "do_not_dispatch": "The four signal agents. There is no pre-registered experiment for any of them to own. Dispatching them would produce measurement without an experiment id, which is prohibited.",
+    "dispatch": [
+      {
+        "agent": "data-foundation-agent",
+        "question_1": "SEC comment letters: does an EDGAR UPLOAD/CORRESP corpus exist with enough cross-sectional depth on the S&P 500 to support a 21-session event book? Establish the letter-date to dissemination-date lag DISTRIBUTION empirically; do NOT assume the 20-business-day policy. Report coverage by year. Verdict may be DATA_HOLD or PROSPECTIVE freeze; never NO_ALPHA_EVIDENCE.",
+        "question_2": "EODHD dividend declarations: is declarationDate present per row and is it the availability instant, on r68_sp500_event_universe rather than the frozen extension panel? Report declarationDate_nonnull_coverage_min_year by year against the frozen 0.80 floor. If ex-date only, the answer is DATA_HOLD."
+      }
+    ],
+    "housekeeping_observed_not_ruled_on": "The agents_v2 ledger carries 27 rows, none from R68, and FOUR experiments are sitting in SURVIVOR_STATE = PREREGISTERED from prior campaigns: H_63012714_9e5453e70d5c, H_b5e5e7c0_f3e92699f95c, H_47e2cf84_49076c9d82f0, H_2da223a3_b3a63be33bcc. These are outside this ruling's scope but an open pre-registration that is never measured or settled leaves the burden denominator ambiguous. Worth a disposition pass.",
+    "escalate_to_human": [
+      {
+        "item": "FAMILY VOCABULARY",
+        "detail": "Three of three proposed cells named economic families that are in no agent's routed vocabulary. If REGULATORY_SCRUTINY_EVENT is to exist as a family, governance_contract.json must be widened, and that is a human decision. I did not take it. r68_01 can proceed WITHOUT any widening by routing to FUNDAMENTAL_MOMENTUM."
+      },
+      {
+        "item": "CAMPAIGN SPEC QUALITY",
+        "detail": "All three novelty claims in campaign_spec.json were stated as verified against the information-family histogram. One was false (r68_02), one rested on data that does not exist (r68_03), and one was sound (r68_01). The spec author appears to have been reading the defective census. Campaign specs should be built from a direct memory query until the census is repaired."
+      },
+      {
+        "item": "CENSUS REPAIR",
+        "detail": "NEXT_CAMPAIGN_CENSUS.json should not be used to set an agenda until its family summarisation is fixed. Independently confirmed here in two places beyond the open-interest family R67 found."
+      }
+    ]
+  },
+
+  "addendum_01": {
+    "title": "Ruling on whether the r68_02 reopen condition COVERAGE_CLEARS_THE_FROZEN_FLOOR is satisfied by fixing the sample start from a measured coverage series",
+    "ruled_at": "2026-09-23",
+    "question_put": "Does fixing the sample start at 2012 (or 2013) satisfy the reopen condition, or does the condition bind on the full recorded sample so the parent stays DATA_HOLD?",
+
+    "verdict": "DOES_NOT_CLEAR_ON_THE_EVIDENCE_AVAILABLE",
+    "verdict_class": "NEEDS_HUMAN_DECISION / EVIDENCE_NOT_RECORDED",
+    "experiment_id_minted": null,
+    "burden_charged": 0,
+
+    "why_not_the_ground_you_offered": "I am NOT ruling that the condition binds on the full recorded sample. On the interpretive question I would rule the other way (see conditional_ruling below). I am refusing on a prior and more basic ground: the coverage series the ruling would rest on is not a recorded artifact anywhere in this estate.",
+
+    "blocking_finding": {
+      "code": "COVERAGE_SERIES_NOT_IN_ANY_ARTIFACT",
+      "claimed_series": "15,566 records / 309 S&P 500 symbols / 2009-2026; per-year minimum non-null declarationDate 2009 0.7795, 2010 0.7715, 2011 0.7685, 2012 0.8227, 2013-2026 0.9517-1.0000",
+      "searched": [
+        "research\\agents\\campaign_r68_forward_activation\\DATA_CERTIFICATION.json - read in full; contains NO per-year series and NO S&P 500 subset",
+        "repository-wide search for the literal values 0.7685, 0.7795, 0.8227, 15566, 309 and for coverage_by_year / declarationDate_nonnull_coverage_min_year - the ONLY hits are scripts\\r61_settle_premeasurement_halts.py (the parent's own settlement metric name) and this ruling file itself"
+      ],
+      "timestamps": "DATA_CERTIFICATION.json last written 2026-09-23 11:14:43, which PRECEDES this ruling file at 11:19:05. No append occurred after the original ruling. The campaign directory contains no other data-foundation output.",
+      "conclusion": "The figures were reported to me in a message but exist in no produced artifact. Under the no-hallucination rule I may not assert a data field that is not in an artifact I read, and I may not freeze a registration whose entire validity turns on one."
+    },
+
+    "second_independent_defect_found_in_the_certification_that_does_exist": {
+      "code": "PREREQUISITE_MET_DECLARED_AGAINST_THE_WRONG_STATISTIC",
+      "finding": "DATA_CERTIFICATION.json certifies eodhd_dividend_declaration_v1 with prerequisite_verdict MET on the basis of declaration_date_coverage_pct 93.7 (58,884 of 62,855 records). That is a POOLED WHOLE-PANEL average. The frozen floor is defined against declarationDate_nonnull_coverage_min_year - a MINIMUM PER YEAR. A pooled 93.7% is arithmetically consistent with many individual years below 0.80, and on the very numbers now claimed it is: three years sit at 0.77-0.78 while the pooled figure is 93.7%.",
+      "consequence": "The existing certification does not establish the reopen condition and should not be read as having done so. Its prerequisite_verdict MET is unsafe as written and needs restating against the floor's own statistic.",
+      "third_observation": "The certified path is D:\\Stock_Prediction_app_data\\alpha_agent\\r60_extension\\us_equity_dividend_announcement_panel_v1.json, which is the PARENT row's own dataset_id. The change from the frozen extension panel to the S&P 500 is therefore a change of UNIVERSE over the same underlying file, and r68_sp500_event_universe is still unbuilt - universe-construction-agent has produced no artifact."
+    },
+
+    "why_this_is_not_pedantry": "This campaign exists because R67 proved a SUMMARY artifact misreported a family's state, and I was instructed to verify claims against primary evidence rather than summaries. Accepting an unrecorded series on report, in order to freeze a start date that only that series justifies, would reproduce exactly the failure mode the campaign was convened to repair. More concretely: the reopen condition requires the start be 'fixed FROM THE COVERAGE SERIES'. If the series is not an artifact, the start cannot be fixed from it in any AUDITABLE way - nobody can later check that 2012 was the mechanical answer rather than a preference. A frozen parameter whose provenance is a message is not frozen; it is unfalsifiable, and that is the hidden-tuning surface the no-hidden-tuning rule forbids.",
+
+    "conditional_ruling": {
+      "status": "PRE-COMMITTED. Recorded NOW, before any return is computed, so that it is mechanical rather than discretionary once the series is written to an artifact.",
+      "on_the_interpretive_question": "TRIMMING IS AUTHORISED. The condition reads 'COVERAGE_CLEARS_THE_FROZEN_FLOOR: a NEW pre-registration whose sample start is fixed from the coverage series BEFORE any return is computed.' The clause 'whose sample start is fixed from the coverage series' is VACUOUS unless trimming is permitted - if the full recorded sample had to clear the floor, there would be no start to fix and the clause would do no work. The coherent reading is: set the start so that coverage OVER THE SAMPLE USED clears the frozen floor. So the full-sample-minimum reading is wrong and 2009-2011 need not be repaired first.",
+      "on_the_start_date": {
+        "ruling": "THERE IS NO CHOICE BETWEEN 2012 AND 2013, AND OFFERING ONE IS THE DISCRETION I MUST REFUSE.",
+        "frozen_rule": "start = the EARLIEST year from which per-year non-null declarationDate coverage is continuously >= 0.80 through the end of sample.",
+        "why": "The floor was frozen at 0.80 by the parent registration. Given a series, that rule returns exactly one answer and admits no discretion. On the numbers as claimed it returns 2012. Selecting 2013 instead would be applying an UNFROZEN, stricter floor after seeing the series - a free parameter introduced post hoc, and precisely the 'start date chosen after seeing a series' objection made real. The defence against that objection is not to pick the conservative option; it is to have no option.",
+        "start_if_the_claimed_series_is_confirmed": "2012-01-01, and nothing else."
+      },
+      "on_the_shorter_sample_objection": {
+        "partition_boundaries": "The frozen partition boundaries 2018-01-01 (discovery/validation) and 2023-01-01 (validation/lockbox) DO NOT MOVE. Only the start moves.",
+        "consequence": "The truncation falls ENTIRELY on discovery. Validation and lockbox sit wholly inside the 0.95+ coverage region and are untouched. That is the safest possible place for the loss and the lockbox is unaffected.",
+        "binding_disclosure": "Effective observation count must be reported UP FRONT, before any test statistic, against the parent's frozen effective_observation_floor of 36. Below 36, the cell HALTS. The count is computed by alpha_agent.agents_v2.runner, not by me."
+      },
+      "additional_blocking_gate_i_would_freeze": {
+        "code": "MISSINGNESS_MECHANISM_UNTESTED",
+        "finding": "A coverage floor tests the RATE of missingness, not its MECHANISM. At a 2012 coverage of 0.8227, roughly 18% of that year's records are dropped for want of a declaration date. If that missingness is correlated with the event class the signal selects on - initiations, cuts, material raises - the book is SELECTED and the estimate is biased no matter how cleanly the rate clears the floor. Nobody has measured this and it is not answered by the coverage series.",
+        "frozen_pre_measurement_check": "Within the used sample, compare the distribution of the declared dividend change (computable from the dividend records alone, with NO returns) between rows WITH and WITHOUT declarationDate. Frozen before measurement; blocking; settles the cell DATA_HOLD if the missingness is concentrated in the event class the signal selects on.",
+        "why_this_adds_no_tuning_surface": "It can only KILL, never rescue, and it touches no return series."
+      },
+      "on_burden": "A new row under the PARENT key FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY|LONG_ONLY inherits the parent's DENOMINATOR (R67 ruling v2) but is still a SECOND row in that family. Estate burden would go 8,415 -> 8,416. Two attempts at one mechanism will have consumed search and that must remain visible; inheriting a denominator is not the same as being free.",
+      "housekeeping_that_must_be_reconciled_first": "The parent H_63012714_9e5453e70d5c is DATA_HOLD in research memory but still SURVIVOR_STATE = PREREGISTERED in the agents_v2 ledger. Minting a second row before that is reconciled yields TWO LIVE IDS for one mechanism - the exact aggravating fact cited against r68_02 in the main ruling. It must be reconciled THROUGH the pipeline, never by hand."
+    },
+
+    "independent_hard_blocker_regardless_of_this_ruling": {
+      "governed_refusal": "PIPELINE_REFUSED FEATURES_NOT_PUBLISHED: fs_r68_dividend_policy_change",
+      "probe": "preregister attempted via scripts\\alpha_agents_v2.py under the CORRECT parent key (family FUNDAMENTAL_MOMENTUM, information_family DIVIDEND_DECLARATION_EVENTS, owner momentum-signal-agent, long_short false -> model_family LONG_ONLY, start 2012-01-01).",
+      "meaning": "Even had I ruled CLEARS, nothing could be minted today. r68_sp500_event_universe is unbuilt and fs_r68_dividend_policy_change is unpublished; neither universe-construction-agent nor feature-library-agent has produced an artifact. The ruling is therefore not on the critical path - the substrate is."
+    },
+
+    "exact_repair_needed_to_convert_this_into_a_pre_registration": [
+      "1. data-foundation-agent WRITES the per-year coverage series to DATA_CERTIFICATION.json as a recorded artifact: per-year non-null declarationDate coverage on the S&P 500 PIT universe, 2009-2026, with record and symbol counts, and the metric named declarationDate_nonnull_coverage_min_year so it is comparable to the parent's frozen floor.",
+      "2. The same agent RESTATES prerequisite_verdict against that statistic instead of the pooled 93.7%.",
+      "3. universe-construction-agent builds r68_sp500_event_universe; feature-library-agent publishes fs_r68_dividend_policy_change.",
+      "4. The parent's ledger state is reconciled to its memory outcome so there is only ever one live id.",
+      "5. The frozen start rule above is then applied MECHANICALLY - no further director discretion is required or permitted.",
+      "6. The missingness-mechanism check is executed pre-measurement and must pass."
+    ],
+
+    "what_the_release_should_record_if_step_1_is_not_done": "A MEASURED DATA_HOLD is a real result and should be reported as one - but only once the measurement is IN AN ARTIFACT. As of this ruling the estate holds an UNRECORDED claim, which is a weaker thing than a measured DATA_HOLD and must not be written up as one."
+  },
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "promotes_model": false,
+    "activates_sleeve": false,
+    "allocates_capital": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "durable_research_state_written": false,
+    "manual_review_required": true,
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

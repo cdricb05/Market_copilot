@@ -68,25 +68,61 @@ def test_02_the_r58_freeze_producer_exists_and_is_uncalled():
     assert C58.CADENCE == 21, (
         "the R58 challengers declare a 21-session cadence; the orphan finding's "
         "arithmetic depends on it")
-    for cid, code in FP.KNOWN_UNPRODUCED.items():
-        if code == "R58_FREEZE_NEVER_WIRED_TO_THE_RUNTIME":
-            assert cid not in {c for ids in FP.RUNTIME_PRODUCER_STAGES.values()
-                               for c in ids}, (
-                "%s cannot be both orphaned and produced" % cid)
+    # No challenger may be BOTH declared unproduced and declared produced. R68
+    # moved the four R58 ids from the first list to the second, and this asserts
+    # the move was complete rather than additive.
+    produced = {c for ids in FP.RUNTIME_PRODUCER_STAGES.values() for c in ids}
+    for cid in FP.KNOWN_UNPRODUCED:
+        assert cid not in produced, (
+            "%s cannot be both orphaned and produced" % cid)
+    assert "R58_FCF_PURE_V1" in produced, (
+        "R68 wired the R58 cadence producer; this is the assertion that fails "
+        "if it is ever unwired")
 
 
 def test_03_an_orphan_has_no_floor_and_says_why():
-    acc = {"challenger_id": "R58_FCF_PURE_V1", "cadence_sessions": 21,
-           "horizon_sessions": 21, "matured_observations": 0,
-           "predictions_emitted": 1}
+    """The ORPHAN ARITHMETIC, on a challenger that is one.
+
+    R68 NOTE. This test was written against ``R58_FCF_PURE_V1``, which was an
+    orphan when R67 measured it and is not one now: R68 wired
+    ``alpha_agent.r68.r58_cadence_runtime`` as its producer. Re-pointing the
+    test at a name that is still unproduced keeps the ARITHMETIC under test -
+    which is what this test is for - while
+    ``tests/test_release68_forward_evidence_repair.py`` asserts the four R58
+    challengers now reach REACHABLE_ON_CADENCE.
+
+    The distinction matters: left as it was, this test would have gone green
+    again the day somebody unwired them, which is the defect it exists to
+    prevent.
+    """
+    acc = {"challenger_id": "A_CHALLENGER_WITH_NO_DECLARED_PRODUCER",
+           "cadence_sessions": 21, "horizon_sessions": 21,
+           "matured_observations": 0, "predictions_emitted": 1}
     r = FP.time_to_capital_floor(acc)
-    assert r["producer_state"] == FP.P_NONE
+    assert r["producer_state"] != FP.P_ACCRUING
     assert r["floor_reachable"] is False
     assert r["sessions_to_floor"] is None
     assert r["floor_verdict"] == "UNREACHABLE_NO_CADENCE_PRODUCER"
     assert "forfeiture" in r["floor_explanation"].lower(), (
         "the explanation must say this is NOT a forfeiture - R66 settled that "
         "contract and a reader must not be left to guess")
+
+
+def test_03b_the_four_r58_challengers_are_no_longer_orphans():
+    """The SUCCESSFUL state, tested where the defect used to be asserted.
+
+    R67's own finding was that these four could never reach the capital floor at
+    any date. R68 repaired it, and this is the assertion that now fails if the
+    repair is ever undone.
+    """
+    for cid in ("R58_SHORT_VOLUME_PRESSURE_V1", "R58_DISCLOSURE_INTENSITY_V1",
+                "R58_FUND_MOMENTUM_VETO_V1", "R58_FCF_PURE_V1"):
+        r = FP.time_to_capital_floor(
+            {"challenger_id": cid, "cadence_sessions": 21,
+             "horizon_sessions": 21, "matured_observations": 0})
+        assert r["producer_state"] == FP.P_ACCRUING, (cid, r)
+        assert r["floor_verdict"] == "REACHABLE_ON_CADENCE", (cid, r)
+        assert r["sessions_to_floor"] == 60 * 21 + 21
 
 
 def test_04_the_floor_arithmetic_is_cadence_times_observations_plus_horizon():
@@ -123,29 +159,47 @@ def test_06_reconcile_partitions_the_book_without_losing_anyone():
         "its floor stated; extend the map")
 
 
-def test_07_a_by_design_absence_is_not_counted_as_a_defect():
-    """5 without a producer is not 5 defects, and the difference is the point.
+def test_07_a_by_design_absence_is_not_counted_as_a_defect(monkeypatch):
+    """An absence without a producer is not automatically a defect.
 
-    Fed a FIXED projection rather than the live artifact, because the live
-    research worker rewrites that artifact while this test runs - which is how
-    the concurrent-read defect in test_07b was found in the first place.
+    The partition this tests is R67's central point and it is unchanged: a
+    DELIBERATELY superseded record and a genuine orphan are different things and
+    reporting them as one number hides the orphan.
+
+    R68 NOTE. The orphan in this fixture was ``R58_FCF_PURE_V1`` and is now a
+    name with no declared producer at all, because the R58 four have one. What
+    is under test is the PARTITION, not which challengers happened to fail in
+    September.
+
+    Both the projection AND the declaration are injected, because after R68 the
+    estate contains no orphan to point at - and a partition test that needs one
+    to exist would become untestable exactly when the system is healthy.
     """
+    monkeypatch.setitem(FP.KNOWN_UNPRODUCED, "AN_ORPHAN_FOR_THIS_TEST",
+                        "A_PRODUCER_WAS_INTENDED_AND_NEVER_WIRED")
+    monkeypatch.setitem(FP.UNPRODUCED_IS_A_DEFECT,
+                        "A_PRODUCER_WAS_INTENDED_AND_NEVER_WIRED", True)
     proj = {
-        "h1": {"challenger_id": "R58_FCF_PURE_V1", "cadence_sessions": 21,
-               "horizon_sessions": 21, "matured_observations": 0},
+        "h1": {"challenger_id": "AN_ORPHAN_FOR_THIS_TEST",
+               "cadence_sessions": 21, "horizon_sessions": 21,
+               "matured_observations": 0},
         "h2": {"challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
                "cadence_sessions": 5, "horizon_sessions": 5,
                "matured_observations": 0},
         "h3": {"challenger_id": "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
                "cadence_sessions": 5, "horizon_sessions": 5,
                "matured_observations": 0},
+        "h4": {"challenger_id": "R58_FCF_PURE_V1", "cadence_sessions": 21,
+               "horizon_sessions": 21, "matured_observations": 0},
     }
     r = FP.reconcile(accrual_by_identity=proj)
     assert r["n_without_producer"] == 2
     assert r["n_orphaned_defect"] == 1
     assert r["n_without_producer_by_design"] == 1
-    assert r["orphaned_challenger_ids"] == ["R58_FCF_PURE_V1"]
+    assert r["orphaned_challenger_ids"] == ["AN_ORPHAN_FOR_THIS_TEST"]
     assert "REVERSED_SPY_PUT_CALL_SKEW_H5" not in r["orphaned_challenger_ids"]
+    # And the repaired one is counted with the live producers, not the absences.
+    assert r["n_with_live_producer"] == 2
 
 
 def test_07b_a_racy_read_is_reported_not_believed(monkeypatch):

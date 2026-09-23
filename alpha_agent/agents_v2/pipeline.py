@@ -54,6 +54,7 @@ from . import (AGENT_SYSTEM_VERSION, CAPITAL_ELIGIBILITY_OWNER,
                GENERATION_METHOD, OPERATOR_ADOPTION_ENTRYPOINT, ORIGIN_PREFIX,
                PROSPECTIVE_FREEZE_OWNER,
                RELEASE, SAFETY, SIGNAL_AGENTS, SIGNAL_PUBLISHING_BOUNDARY)
+from . import leakage as _leakage
 from .contracts import Contracts
 
 # --------------------------------------------------------------------------- #
@@ -197,7 +198,7 @@ class AgentPipeline:
     def certify_data(self, *, agent: str, dataset_id: str, asset_classes: list,
                      pit_status: str, availability_rule: str,
                      survivorship: str, path: str = "",
-                     notes: str = "") -> dict:
+                     notes: str = "", timing_rule: dict = None) -> dict:
         self._require(agent, "certify_data")
         if pit_status not in (PIT_SAFE, NOT_PIT_SAFE):
             raise PipelineRefusal("BAD_PIT_STATUS", str(pit_status))
@@ -214,6 +215,16 @@ class AgentPipeline:
                   "pit_status": pit_status,
                   "availability_rule": availability_rule,
                   "survivorship": survivorship, "path": path, "notes": notes}
+        # R68 - THE TIMING RULE, AS DATA RATHER THAN AS PROSE.
+        #
+        # ``availability_rule`` is a sentence. A sentence cannot be checked
+        # against a formula, which is why R67's leaky feature set published with
+        # leakage_check=PASS: every party in the chain was describing the timing
+        # to a human and nothing was comparing it to arithmetic. The machine-
+        # readable form is recorded beside the prose and is what
+        # ``publish_features`` verifies against. A certification that omits it
+        # is held to the STRICTEST default (see alpha_agent.agents_v2.leakage).
+        detail["timing_rule"] = dict(timing_rule or {})
         self.mem.event(EV_DATA, subject=dataset_id, detail=detail)
         return {"state": "DATA_CERTIFIED", **detail}
 
@@ -258,11 +269,52 @@ class AgentPipeline:
             raise PipelineRefusal(
                 "FEATURE_LINEAGE_INCOMPLETE",
                 "every feature needs name, lag and source")
+        # R68 - AND NOW THE CLAIM IS CHECKED.
+        #
+        # Everything above this line enforces the SHAPE of the leakage claim:
+        # the string is PASS, every feature has a name, a lag and a source.
+        # R67 satisfied all of it and published a feature set that read session
+        # t against a layer declaring SIGNAL_LAG_SESSIONS = 1, because nothing
+        # compared the declared lag to the formula or to the dataset's own
+        # timing rule. This does. A feature whose formula reads data its
+        # execution rule forbids is refused here, and so is one whose declared
+        # lag and formula contradict each other - the exact shape of the R67
+        # defect, where both lived in the same JSON object.
+        cert = self._latest(EV_DATA, uni["dataset_id"]) or {}
+        verification = _leakage.check_feature_set(
+            features=features, timing_rule=cert.get("timing_rule"),
+            dataset_id=uni["dataset_id"], asserted=leakage_check)
+        if not verification["publishable"]:
+            raise PipelineRefusal(
+                "LEAKAGE_CHECK_FAILED_VERIFICATION",
+                "%s: %s" % (verification["verdict"],
+                            "; ".join("%s - %s" % (f.get("name"), f.get("detail"))
+                                      for f in verification["failures"][:4])))
         detail = {"agent": agent, "feature_set_id": feature_set_id,
                   "universe_id": universe_id,
                   "dataset_id": uni["dataset_id"],
                   "asset_class": uni["asset_class"],
-                  "features": features, "leakage_check": leakage_check}
+                  "features": features, "leakage_check": leakage_check,
+                  "leakage_verification": {
+                      "verified_by": _leakage.CALCULATION_OWNER,
+                      "verdict": verification["verdict"],
+                      # VERIFIED means every feature was checked and passed.
+                      # A set carrying a feature with no formula publishes and
+                      # is NOT verified - the fact travels with the event, and
+                      # preregister copies it into every frozen spec built on
+                      # it, so an unverifiable feature set can never be mistaken
+                      # for a verified one further down the chain.
+                      "verified": verification["verified"],
+                      "n_not_machine_verifiable":
+                          verification["n_not_machine_verifiable"],
+                      "not_machine_verifiable":
+                          verification["not_machine_verifiable"],
+                      "timing_rule_declared":
+                          verification["timing_rule_declared"],
+                      "timing_rule": verification["timing_rule"],
+                      "effective_lag_by_feature": {
+                          r["name"]: r["effective_lag"]
+                          for r in verification["features"]}}}
         self.mem.event(EV_FEATURES, subject=feature_set_id, detail=detail)
         return {"state": "FEATURES_PUBLISHED", **detail}
 
@@ -322,6 +374,14 @@ class AgentPipeline:
         spec["instrument_scope"] = list(spec_in.get("instrument_scope") or [])
         spec["venue"] = spec_in.get("venue") or ""
         spec["sleeve"] = spec_in.get("sleeve") or ""
+        # R68 - whether this experiment's features were MACHINE-VERIFIED for
+        # leakage, frozen into the spec. R67's leaky set published a self-
+        # asserted PASS and nothing downstream could tell. Now every experiment
+        # carries the answer, so an unverifiable feature set is measurable in
+        # the estate rather than invisible in it.
+        _lv = feats.get("leakage_verification") or {}
+        spec["leakage_machine_verified"] = bool(_lv.get("verified"))
+        spec["leakage_verification_verdict"] = _lv.get("verdict")
         spec["pit_status"] = cert["pit_status"]
         spec["dataset_id"] = feats["dataset_id"]
         spec["universe_id"] = feats["universe_id"]

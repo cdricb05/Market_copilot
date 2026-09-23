@@ -146,28 +146,45 @@ def _read(path: Path) -> Optional[dict]:
 # --------------------------------------------------------------------------- #
 # The store
 # --------------------------------------------------------------------------- #
-def decisions_dir(challenger_id: str) -> Path:
-    return research_root() / DECISIONS_SUBDIR / str(challenger_id)
+#: R68 - WHICH RESEARCH ROOT A CHALLENGER'S DECISIONS LIVE UNDER.
+#:
+#: This module is the estate's ONE implementation of "freeze a prospective
+#: decision immutably, inside a declared window, first write wins". It was born
+#: inside the Alpha Recovery campaign and stored under that campaign's root,
+#: which is the only thing about it that was ever campaign-specific. R68 needed
+#: the identical contract for the four R58 challengers, and the alternative to
+#: this parameter was a second copy of 458 lines - which is how the estate
+#: acquires two owners with one defect between them.
+#:
+#: ``root`` is threaded as an OPTIONAL keyword through every path, read and
+#: write. A caller that passes nothing gets ``research_root()``, so every path
+#: this module resolved before R68 resolves to the same bytes.
+def _root(root=None) -> Path:
+    return Path(root) if root is not None else research_root()
 
 
-def policy_path(challenger_id: str) -> Path:
-    return decisions_dir(challenger_id) / POLICY_FILE
+def decisions_dir(challenger_id: str, *, root=None) -> Path:
+    return _root(root) / DECISIONS_SUBDIR / str(challenger_id)
 
 
-def decision_path(challenger_id: str, session: str) -> Path:
-    return decisions_dir(challenger_id) / ("%s.json" % str(session)[:10])
+def policy_path(challenger_id: str, *, root=None) -> Path:
+    return decisions_dir(challenger_id, root=root) / POLICY_FILE
 
 
-def load_policy(challenger_id: str) -> Optional[dict]:
-    return _read(policy_path(challenger_id))
+def decision_path(challenger_id: str, session: str, *, root=None) -> Path:
+    return decisions_dir(challenger_id, root=root) / ("%s.json" % str(session)[:10])
 
 
-def load_decision(challenger_id: str, session: str) -> Optional[dict]:
-    return _read(decision_path(challenger_id, session))
+def load_policy(challenger_id: str, *, root=None) -> Optional[dict]:
+    return _read(policy_path(challenger_id, root=root))
 
 
-def list_decisions(challenger_id: str) -> list:
-    d = decisions_dir(challenger_id)
+def load_decision(challenger_id: str, session: str, *, root=None) -> Optional[dict]:
+    return _read(decision_path(challenger_id, session, root=root))
+
+
+def list_decisions(challenger_id: str, *, root=None) -> list:
+    d = decisions_dir(challenger_id, root=root)
     if not d.exists():
         return []
     rows = [_read(p) for p in sorted(d.glob("*.json")) if p.name != POLICY_FILE]
@@ -179,13 +196,14 @@ def list_decisions(challenger_id: str) -> list:
 # --------------------------------------------------------------------------- #
 # The declaration - written once, before anything is decided
 # --------------------------------------------------------------------------- #
-def declare_policy(*, challenger_id: str, information_cutoff_et,
-                   entry_mark_et, rebalance_cadence_sessions: int,
+def declare_policy(*, challenger_id: str, information_cutoff_et=None,
+                   entry_mark_et=None, rebalance_cadence_sessions: int,
                    evaluation_horizon_sessions: int, cost_policy: dict,
                    instrument_scope: list, identity: Optional[dict] = None,
                    emission_rule: Optional[str] = None,
                    execution_contract: Optional[dict] = None,
-                   now: Optional[str] = None) -> dict:
+                   boundary: Optional[str] = None,
+                   now: Optional[str] = None, root=None) -> dict:
     """Declare the boundary this challenger's decisions are frozen under.
 
     Written ONCE and never amended. Declaring the boundary in advance - before
@@ -201,26 +219,42 @@ def declare_policy(*, challenger_id: str, information_cutoff_et,
     function has always written. This module reads no field of it: the
     challenger that declares the boundary is the challenger that enforces it.
     """
-    existing = load_policy(challenger_id)
+    existing = load_policy(challenger_id, root=root)
     if existing:
         return {"outcome": ALREADY_FROZEN, "idempotent": True,
-                "policy": existing, "path": str(policy_path(challenger_id)),
+                "policy": existing,
+                "path": str(policy_path(challenger_id, root=root)),
                 "detail": "this challenger already declares an emission policy; "
                           "it is immutable and was not rewritten"}
-    window = EW.declare_same_session(information_cutoff_et=information_cutoff_et,
-                                     entry_mark_et=entry_mark_et)
-    if window.get("declaration_state") != EW.DECL_ACCEPTED:
-        return {"outcome": REFUSED_MALFORMED, "declaration": window,
-                "detail": "the declared boundary was not accepted by %s"
-                          % EW.CALCULATION_OWNER}
+    # R68 - a challenger may declare the PRIOR-SESSION boundary explicitly.
+    #
+    # Before R68 this function could only declare a same-session window, so a
+    # challenger whose decision is formed from the previous close and entered at
+    # the next one had no way to say so, even though that is the STRICTEST rule
+    # in the vocabulary and the one every registration made before R62.3 was
+    # held to. The four R58 challengers are exactly that shape. Declaring it
+    # explicitly is not a loosening: ``normalise_policy`` resolves this to the
+    # identical policy an ABSENT declaration resolves to, so the live accrual
+    # owner's window arithmetic is byte-for-byte what it was.
+    if boundary == EW.BOUNDARY_PRIOR_SESSION:
+        window = EW.normalise_policy({"boundary": EW.BOUNDARY_PRIOR_SESSION})
+    else:
+        window = EW.declare_same_session(
+            information_cutoff_et=information_cutoff_et,
+            entry_mark_et=entry_mark_et)
+        if window.get("declaration_state") != EW.DECL_ACCEPTED:
+            return {"outcome": REFUSED_MALFORMED, "declaration": window,
+                    "detail": "the declared boundary was not accepted by %s"
+                              % EW.CALCULATION_OWNER}
     body = {
         "schema": POLICY_SCHEMA,
         "calculation_owner": CALCULATION_OWNER,
         "window_owner": EW.CALCULATION_OWNER,
         "challenger_id": str(challenger_id),
         "emission_window": window,
-        "declared_information_cutoff_et": list(window["information_cutoff_et"]),
-        "entry_mark_et": list(window["entry_mark_et"]),
+        "declared_information_cutoff_et": list(
+            window.get("information_cutoff_et") or []),
+        "entry_mark_et": list(window.get("entry_mark_et") or []),
         "rebalance_cadence_sessions": int(rebalance_cadence_sessions),
         "evaluation_horizon_sessions": int(evaluation_horizon_sessions),
         "cost_policy": dict(cost_policy or {}),
@@ -238,9 +272,9 @@ def declare_policy(*, challenger_id: str, information_cutoff_et,
         body["execution_contract"] = dict(execution_contract)
     body["record_hash"] = stable_hash(
         {k: v for k, v in body.items() if k != "declared_at"})
-    _atomic_write(policy_path(challenger_id), body)
+    _atomic_write(policy_path(challenger_id, root=root), body)
     return {"outcome": FROZEN, "idempotent": False, "policy": body,
-            "path": str(policy_path(challenger_id))}
+            "path": str(policy_path(challenger_id, root=root))}
 
 
 # --------------------------------------------------------------------------- #
@@ -253,7 +287,7 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
                     decision_timestamp: Optional[str] = None,
                     now: Optional[str] = None,
                     policy: Optional[dict] = None,
-                    context: Optional[dict] = None) -> dict:
+                    context: Optional[dict] = None, root=None) -> dict:
     """Freeze ONE immutable prospective decision, or refuse and say why.
 
     ``now`` is the instant the freeze is attempted and is the ONLY clock this
@@ -272,7 +306,7 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
     """
     cid = str(challenger_id)
     session = str(eligible_session)[:10]
-    pol = policy or load_policy(cid)
+    pol = policy or load_policy(cid, root=root)
     ts = now or now_iso()
     decided_at = decision_timestamp or ts
     base = {"challenger_id": cid, "eligible_session": session,
@@ -376,14 +410,14 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
          if k not in ("record_hash", "decision_timestamp", "attempted_at")})
 
     # (d) FIRST WRITE WINS. Identical is idempotent; different is refused.
-    existing = load_decision(cid, session)
+    existing = load_decision(cid, session, root=root)
     if existing:
         same = (existing.get("decision_identity_hash")
                 == body["decision_identity_hash"])
         if same:
             return {**base, "outcome": ALREADY_FROZEN, "frozen": True,
                     "idempotent": True, "decision": existing,
-                    "path": str(decision_path(cid, session)),
+                    "path": str(decision_path(cid, session, root=root)),
                     "detail": ("this exact decision is already frozen for %s; "
                                "a second freeze appends nothing" % session)}
         return {**base, "outcome": REFUSED_CONFLICT, "frozen": False,
@@ -398,20 +432,21 @@ def freeze_decision(*, challenger_id: str, eligible_session: str,
                            "held record stands and is never overwritten"
                            % session)}
 
-    _atomic_write(decision_path(cid, session), body)
+    _atomic_write(decision_path(cid, session, root=root), body)
     return {**base, "outcome": FROZEN, "frozen": True, "idempotent": False,
-            "decision": body, "path": str(decision_path(cid, session))}
+            "decision": body,
+            "path": str(decision_path(cid, session, root=root))}
 
 
 # --------------------------------------------------------------------------- #
 # The read model
 # --------------------------------------------------------------------------- #
 def state(challenger_id: str, *, now: Optional[str] = None,
-          session: Optional[str] = None) -> dict:
+          session: Optional[str] = None, root=None) -> dict:
     """What an operator needs to see: is the boundary reached, and what is held?"""
     cid = str(challenger_id)
-    pol = load_policy(cid)
-    held = list_decisions(cid)
+    pol = load_policy(cid, root=root)
+    held = list_decisions(cid, root=root)
     ts = now or now_iso()
     out = {
         "calculation_owner": CALCULATION_OWNER,
@@ -432,7 +467,7 @@ def state(challenger_id: str, *, now: Optional[str] = None,
                           now=ts)
         out["session"] = session
         out["emission_window"] = cls
-        existing = load_decision(cid, session)
+        existing = load_decision(cid, session, root=root)
         out["decision_for_session"] = existing
         if existing:
             out["state"] = "DECISION_FROZEN"

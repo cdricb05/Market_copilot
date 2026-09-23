@@ -403,6 +403,68 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                                  error=type(exc).__name__,
                                  detail=str(exc)[:220]))
 
+        # --- 6b. the R58 cadence owner freezes its boundary decision ------- #
+        # R68. The fourth per-session owner, and the one that had been missing
+        # since 2026-09-09. The four R58 challengers were registered with a
+        # frozen construction declaring rebalance_cadence_sessions = 21 and no
+        # code path able to honour it, so each emitted once, at adoption, and
+        # the accrual stage below correctly reported AWAITING_NEW_GOVERNED_FREEZE
+        # at every boundary afterwards - forever. Asked here, inside this lock
+        # and on this cadence, AFTER the futures owner and BEFORE the accrual,
+        # exactly like the three above: no second scheduler, and no decision
+        # taken by anyone but the owner of the rule.
+        #
+        # It is CHEAP on almost every invocation and that is by design. Its
+        # boundary is 21 sessions apart, so on 19 of every 21 sessions it reads
+        # the registry and the exchange calendar and returns
+        # R58_HOLDING_NOT_A_REBALANCE_SESSION or R58_BEFORE_THE_FREEZE_LEAD
+        # without opening a panel or a vendor connection. The ~1,900-symbol
+        # Norgate refresh is spent only when a boundary is within reach, and it
+        # is spent in a CHILD process so a vendor hang cannot wedge this lock.
+        t0 = _time.perf_counter()
+        try:
+            from ..r68 import r58_cadence_runtime as R58R
+            r58 = R58R.advance(now=started.isoformat())
+            r58_st = str(r58.get("state"))
+            if r58_st in R58R.PROGRESS_STATES:
+                r58_state = SUCCESS
+            elif r58_st in R58R.MISSED_STATES:
+                r58_state = FORFEITED
+            elif r58_st in R58R.DATA_WAIT_STATES:
+                r58_state = DATA_BLOCKED
+            elif r58_st in R58R.FAILURE_STATES:
+                r58_state = FAILED_RETRYABLE
+            else:
+                r58_state = NOT_DUE
+            rows = r58.get("challengers") or []
+            stages.append(_stage(
+                "r58_cadence_prospective_decision", r58_state,
+                duration_ms=_ms(t0),
+                advance_state=r58_st,
+                n_registered=r58.get("n_registered"),
+                # The five fields an operator needs to tell ARMED from STUCK
+                # without opening an artifact. R66 spent eight days reporting
+                # the single word DATA_BLOCKED for a defect that was named in
+                # the result all along.
+                next_boundaries=sorted({str(r.get("next_boundary"))
+                                        for r in rows
+                                        if r.get("next_boundary")}),
+                forward_panel_last_session=r58.get(
+                    "forward_panel_last_session"),
+                blocked_on=next((r.get("blocked_on") for r in rows
+                                 if r.get("blocked_on")), None),
+                missed_boundaries=[b for r in rows
+                                   for b in (r.get("missed_boundaries") or [])],
+                frozen=sum(1 for r in rows if r.get("frozen")),
+                paid_dollars=r58.get("paid_dollars"),
+                detail=r58.get("detail")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("r58_cadence_prospective_decision",
+                                 FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
         # --- 7. MAY THE EXPENSIVE STAGES BE SKIPPED? ----------------------- #
         # R65. Everything above this line has already run, and everything
         # below it costs ~283 s whether or not the world moved. The gate is
