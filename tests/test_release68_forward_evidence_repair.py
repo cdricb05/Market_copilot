@@ -546,6 +546,48 @@ def test_the_producer_lifecycle_separates_the_eight_states():
     )["lifecycle"] == FPH.L_RETIRED
 
 
+def test_the_journal_carries_what_is_due_next_and_what_was_lost():
+    """An operator must tell ARMED from STUCK without opening an artifact.
+
+    R66 spent eight days reporting the word DATA_BLOCKED because the journal
+    allow-list dropped the fields that named the reason. These three are the
+    same shape: a stage that says only NOT_DUE tells nobody when the next
+    decision is due, and a missed boundary is a PERMANENT loss that must be
+    countable from the journal rather than recoverable only from a store.
+    """
+    from paper_trader.alpha_agent.r52 import runtime as _RT
+    for field in ("next_boundaries", "missed_boundaries",
+                  "forward_panel_last_session"):
+        assert field in _RT._JOURNAL_STAGE_FIELDS, field
+
+
+def test_the_next_due_decision_is_reported_for_every_active_strategy(stores):
+    """Section 4's requirement, and why it needs the producer's own answer.
+
+    The accrual projection sets next_eligible_observation_session only for a
+    cell that is DUE or not yet reached. A boundary that is known, armed and
+    AWAITING_NEW_GOVERNED_FREEZE is neither, so that field reads None - and the
+    producer knows the answer perfectly well. The heartbeat carries it.
+    """
+    beat = {"last_stage_state": "NOT_DUE",
+            "last_advance_state": "R58_BOUNDARY_BEYOND_THE_FREEZE_LEAD",
+            "next_boundaries": ["2026-10-09"]}
+    st = FPH.lifecycle_state({"challenger_id": "R58_FCF_PURE_V1",
+                              "predictions_emitted": 1}, beat=beat)
+    assert st["next_boundary_from_producer"] == "2026-10-09"
+    assert st["next_decision_session"] == "2026-10-09"
+    assert st["next_decision_session_source"] == "PRODUCER_HEARTBEAT"
+
+    # And the accrual's own answer WINS when it has one - the producer's is
+    # reported beside it, never instead of it.
+    st2 = FPH.lifecycle_state(
+        {"challenger_id": "R58_FCF_PURE_V1", "predictions_emitted": 1,
+         "next_eligible_observation_session": "2026-10-12"}, beat=beat)
+    assert st2["next_decision_session"] == "2026-10-12"
+    assert st2["next_boundary_from_producer"] == "2026-10-09"
+    assert "next_decision_session_source" not in st2
+
+
 def test_the_heartbeat_reports_every_declared_stage():
     beat = FPH.heartbeat(runs={"runs": [{
         "run_id": "r1", "started_utc": "2026-09-23T14:50:30Z",

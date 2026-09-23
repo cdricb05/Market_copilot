@@ -306,7 +306,23 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
         out["producer_heartbeat"] = {
             k: beat.get(k) for k in
             ("ran", "last_run_id", "last_run_started_utc", "last_stage_state",
-             "last_advance_state", "blocked_on", "last_detail")}
+             "last_advance_state", "blocked_on", "last_detail",
+             "next_boundaries", "missed_boundaries")}
+        # R68 - NEXT DUE DECISION, from the producer rather than the accrual.
+        #
+        # The accrual projection sets next_eligible_observation_session only for
+        # a cell that is DUE or whose session has not been reached. A boundary
+        # that is known, armed and AWAITING_NEW_GOVERNED_FREEZE is neither, so
+        # the field reads None - and "the next decision is unknown" is a much
+        # worse answer than the one the producer already has. The producer's own
+        # boundary travels on its heartbeat and is reported here beside it,
+        # never instead of it, so the two can be compared rather than confused.
+        nb = beat.get("next_boundaries") or []
+        if nb:
+            out["next_boundary_from_producer"] = sorted(nb)[0]
+            if not out.get("next_decision_session"):
+                out["next_decision_session"] = sorted(nb)[0]
+                out["next_decision_session_source"] = "PRODUCER_HEARTBEAT"
 
     terminal = _lifecycle_terminal(acc)
     if terminal:

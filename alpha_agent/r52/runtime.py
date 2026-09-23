@@ -103,6 +103,13 @@ _JOURNAL_STAGE_FIELDS = (
     "advance_state", "entry_session", "information_session", "entry_state",
     "blocked_on", "blocked_owner", "append_state", "append_detail",
     "publication", "paid_dollars", "frozen", "detail",
+    # R68 - WHAT IS DUE NEXT, and what was permanently lost. The allow-list
+    # above is the R66 repair for a journal that "used to keep THREE fields and
+    # throw the rest away", and it dropped these three for the same reason: a
+    # producer whose stage said only NOT_DUE gave an operator no way to tell
+    # ARMED from STUCK without opening an artifact. A missed boundary in
+    # particular is a permanent loss and must be countable from the journal.
+    "next_boundaries", "missed_boundaries", "forward_panel_last_session",
 )
 
 
