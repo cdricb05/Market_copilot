@@ -2779,6 +2779,72 @@ def _blocked_actions(plan: dict) -> list:
 # Every provider / write boundary is an injectable seam so tests never call a
 # provider, prediction, or a real cycle.
 # --------------------------------------------------------------------------- #
+#: R69 - a cycle that produced a governed reallocation decision but whose proposal
+#: cannot be read back through the OPERATOR'S review endpoint is not ready for
+#: operator action, however sound its research. On 2026-09-22 a cycle completed,
+#: persisted a REALLOCATE proposal over 22 positions, and reported itself complete
+#: while the review screen the operator has to use said the review "did not load".
+#: Nothing in the cycle noticed, because nothing in the cycle had ever asked.
+PROPOSAL_REVIEW_UNREADABLE = "PROPOSAL_REVIEW_UNREADABLE"
+
+#: The verification outcomes, so a manifest states WHY rather than just failing.
+REVIEW_VERIFIED = "REVIEW_READABLE"
+REVIEW_SKIPPED = "SKIPPED_NOT_LIVE_STORE"
+REVIEW_NO_PROPOSAL = "NO_PROPOSAL_TO_VERIFY"
+
+
+def verify_proposal_review_readable(*, expected_proposal_hash,
+                                    loader: Optional[Callable] = None) -> dict:
+    """Read the standing proposal back through the operator's review endpoint.
+
+    This is the acceptance the 2026-09-22 cycle was missing. It asserts THREE
+    things, not one: that the review composes at all; that it reports a complete
+    review rather than an absent proposal or an identity mismatch; and that the
+    proposal it adjudicated is the SAME proposal this run just persisted. It is
+    strictly READ-ONLY - it composes a projection and writes nothing.
+    """
+    if not expected_proposal_hash:
+        return {"checked": False, "readable": None, "outcome": REVIEW_NO_PROPOSAL,
+                "detail": "The run persisted no reallocation proposal."}
+    try:
+        if loader is None:
+            from paper_trader.api import proposal_decision_review as _pdr
+            loader = _pdr.load_proposal_decision_review
+        review = loader() or {}
+    except Exception as exc:  # noqa: BLE001 - an acceptance check never crashes a run
+        return {"checked": True, "readable": False, "outcome": "REVIEW_RAISED",
+                "detail": ("The proposal decision review raised while being read: %s"
+                           % str(exc)[:200]),
+                "expected_proposal_hash": expected_proposal_hash}
+    status = review.get("status")
+    got_hash = review.get("proposal_hash")
+    matched = bool(got_hash and got_hash == expected_proposal_hash)
+    readable = bool(status == "OK" and review.get("review") and matched)
+    out = {
+        "checked": True,
+        "readable": readable,
+        "outcome": REVIEW_VERIFIED if readable else (status or "UNKNOWN"),
+        "review_status": status,
+        "review_state": review.get("review_state"),
+        "review_hash": review.get("review_hash"),
+        "expected_proposal_hash": expected_proposal_hash,
+        "review_proposal_hash": got_hash,
+        "proposal_hash_matched": matched,
+        "route": review.get("route"),
+        "owner": review.get("owner"),
+    }
+    if not readable:
+        if got_hash and not matched:
+            out["detail"] = ("The review endpoint answered for proposal %s, but this run "
+                             "persisted %s." % (got_hash, expected_proposal_hash))
+        elif status != "OK":
+            out["detail"] = ("The review endpoint answered status %s: %s"
+                             % (status, str(review.get("message"))[:200]))
+        else:
+            out["detail"] = "The review endpoint answered OK but carried no review body."
+    return out
+
+
 def run_daily_research_cycle(
     *, confirm: Optional[str] = None, requested_by: str = "manual_ui",
     now: Optional[datetime] = None, reference_today: Any = None,
@@ -3008,6 +3074,31 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                              blockers=[{"code": MANIFEST_CONTRACT_INCOMPLETE,
                                         "detail": problems}], **refs)
                 state = INCONSISTENT
+        # R69 - OPERATOR-READINESS ACCEPTANCE. A terminal-complete run that
+        # persisted a reallocation proposal must be able to read that SAME proposal
+        # back through the operator's review endpoint. Verified only against the
+        # live store (drc_dir is None); a fixture-pinned run records SKIPPED rather
+        # than composing against production.
+        if state in _COMPLETED:
+            if drc_dir is None:
+                review_check = verify_proposal_review_readable(
+                    expected_proposal_hash=rec.get("reallocation_proposal_hash"))
+            else:
+                review_check = {"checked": False, "readable": None,
+                                "outcome": REVIEW_SKIPPED,
+                                "detail": "Run pinned to a fixture store."}
+            if review_check.get("readable") is False:
+                rec = _build(INCONSISTENT,
+                             extra_warnings=[
+                                 "The reallocation proposal was persisted, but it could "
+                                 "not be read back through the operator's proposal "
+                                 "decision review. The research is preserved; the run is "
+                                 "NOT ready for operator action. "
+                                 + str(review_check.get("detail") or "")],
+                             blockers=[{"code": PROPOSAL_REVIEW_UNREADABLE,
+                                        "detail": review_check}], **refs)
+                state = INCONSISTENT
+            rec["proposal_review_verification"] = review_check
         _save_run(rec, drc_dir)
         _update_index(eligible_date=facts["eligible"], idempotency_key=key,
                       input_contract_hash=ich, run_id=run_id, state=state,

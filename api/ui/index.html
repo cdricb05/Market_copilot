@@ -3466,6 +3466,49 @@
     .pdr-note { font-size: 11px; color: var(--label, #7a8fb0); line-height: 1.55; margin-top: 6px; }
     @media (max-width: 1400px) { .pdr-states { grid-template-columns: 1fr; } .pdr-cols { grid-template-columns: 1fr; } }
 
+    /* ---------- R69.1 operator flow: status bar, two steps, collapsed evidence -----
+       The panel used to open with a verdict and bury the one control the operator came
+       for under five sections. It now opens with the five facts needed to act, then
+       STEP 1 (choose) and STEP 2 (the authoritative backend answer), and everything
+       that is evidence rather than action is collapsed. At 1920x1080 both steps are
+       above the fold. */
+    .pdr-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 8px 0 10px;
+               border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 9px 12px; }
+    .pdr-bar .c { min-width: 0; }
+    .pdr-bar .k { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 800; }
+    .pdr-bar .v { font-size: 14px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+    .pdr-bar .s { font-size: 10.5px; color: var(--label, #7a8fb0); overflow-wrap: anywhere; }
+    .pdr-bar .v.ok { color: var(--ok, #22c55e); }
+    .pdr-bar .v.bad { color: var(--danger, #ef4444); }
+    .pdr-bar .v.warn { color: var(--warning, #f59e0b); }
+    .pdr-step { border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 10px 12px; margin: 10px 0 0; }
+    .pdr-step > .sh { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800;
+                      color: var(--label, #7a8fb0); margin-bottom: 7px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pdr-step.is-live { border-color: rgba(59,130,246,.45); }
+    .pdr-step.is-ok { border-color: rgba(34,197,94,.55); }
+    .pdr-step.is-bad { border-color: rgba(239,68,68,.55); }
+    .pdr-step.is-pending { border-color: rgba(245,158,11,.55); }
+    .pdr-stale { border: 1px solid rgba(239,68,68,.55); background: rgba(239,68,68,.08);
+                 border-radius: 8px; padding: 10px 14px; margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; }
+    .pdr-stale b { color: var(--danger, #ef4444); }
+    .pdr-res-t { font-size: 15px; font-weight: 900; margin-bottom: 4px; }
+    .pdr-res-t.ok { color: var(--ok, #22c55e); }
+    .pdr-res-t.bad { color: var(--danger, #ef4444); }
+    .pdr-res-t.pending { color: var(--warning, #f59e0b); }
+    .pdr-idm { font-size: 11px; color: var(--label, #7a8fb0); font-variant-numeric: tabular-nums; line-height: 1.6; }
+    .pdr-idm b { color: var(--text-accent, #a8b8d8); font-weight: 700; }
+    .pdr-cta { margin-top: 8px; font-size: 12px; font-weight: 800; padding: 7px 16px; border-radius: 6px; cursor: pointer;
+               border: 1px solid rgba(34,197,94,.55); background: rgba(34,197,94,.12); color: var(--ok, #22c55e); }
+    .pdr-cta.danger { border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); color: var(--danger, #ef4444); }
+    .pdr-cta.neutral { border-color: rgba(122,143,176,.35); background: rgba(122,143,176,.10); color: var(--text-accent, #a8b8d8); }
+    .pdr-cta[disabled] { opacity: .45; cursor: not-allowed; }
+    .pdr-more { margin-top: 12px; border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); padding-top: 8px; }
+    .pdr-more > summary { cursor: pointer; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+                          font-weight: 800; color: var(--label, #7a8fb0); padding: 5px 0; list-style: revert; }
+    .pdr-more > summary:hover { color: var(--text-accent, #a8b8d8); }
+    @media (max-width: 1500px) { .pdr-bar { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 1000px) { .pdr-bar { grid-template-columns: 1fr; } }
+
     /* ---------- Current vs Best Feasible (the R47 card, re-presented) --------- */
     #r47-pipeline, #r47-governance { display: block !important; grid-template-columns: none !important; }
     .r47-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 10px; }
@@ -26794,18 +26837,77 @@ var _R29_READ_TIMEOUT_MS = 45000;
    reported "the read model did not answer" for a read model that was still
    working. This is a read-only GET budget, not a new behaviour. */
 var _R601_HEAVY_READ_TIMEOUT_MS = 180000;
-function _mhzGet(path, timeoutMs) {
+/* Release 69 - the read path stops swallowing its own failures.
+
+   _mhzGet used to convert EVERY timeout, HTTP error and network fault into a
+   bare `null`, which is the same value a genuinely empty read returns. A panel
+   receiving null could not tell "the backend says there is nothing" from "the
+   browser gave up after 45 seconds", so it printed the same generic sentence for
+   both - and an operator looking at a complete, healthy, persisted proposal was
+   told the review "did not load", with no endpoint, no reason and no way to
+   retry. That is the defect this release repairs.
+
+   _mhzFetch is the owner: it returns a RESULT, never a silent null.
+     { ok, data, httpStatus, httpOk, code, detail, path, budgetMs, elapsedMs }
+   `ok` means a body was parsed; `httpOk` reports the HTTP verdict separately.
+   Every failure is also recorded on window._mhzErrors[path], so any panel - and
+   a browser acceptance test - can read the exact reason after the fact.
+
+   _mhzGet keeps its historical null contract EXACTLY, so no existing caller
+   changes behaviour; it simply no longer loses the reason. */
+window._mhzErrors = window._mhzErrors || {};
+function _mhzFetch(path, timeoutMs) {
   var ctl = (typeof AbortController === 'function') ? new AbortController() : null;
   var budget = (typeof timeoutMs === 'number' && timeoutMs > 0)
     ? timeoutMs : _R29_READ_TIMEOUT_MS;
-  var timer = ctl ? setTimeout(function () { ctl.abort(); }, budget) : null;
+  var nowMs = function () {
+    return (window.performance && performance.now) ? performance.now() : Date.now();
+  };
+  var t0 = nowMs(), timedOut = false;
+  var timer = ctl ? setTimeout(function () { timedOut = true; ctl.abort(); }, budget) : null;
+  function done(res) {
+    if (timer) clearTimeout(timer);
+    res.path = path;
+    res.budgetMs = budget;
+    res.elapsedMs = Math.round(nowMs() - t0);
+    try {
+      if (!res.ok || res.httpOk === false) { window._mhzErrors[path] = res; }
+      else { delete window._mhzErrors[path]; }
+    } catch (e) {}
+    return res;
+  }
   return fetch(path, {
     method: 'GET',
     headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
     signal: ctl ? ctl.signal : undefined
-  }).then(function (r) { return r.json(); })
-    .catch(function () { return null; })
-    .then(function (v) { if (timer) clearTimeout(timer); return v; });
+  }).then(function (r) {
+    return r.json().then(function (d) {
+      return done({ ok: true, data: d, httpStatus: r.status, httpOk: r.ok,
+                    code: r.ok ? 'OK' : ('HTTP_' + r.status),
+                    detail: r.ok ? '' : ('The endpoint answered HTTP ' + r.status + '.') });
+    }, function () {
+      return done({ ok: false, data: null, httpStatus: r.status, httpOk: r.ok,
+                    code: r.ok ? 'BAD_JSON' : ('HTTP_' + r.status),
+                    detail: r.ok
+                      ? 'The endpoint answered, but the body was not valid JSON.'
+                      : ('The endpoint answered HTTP ' + r.status
+                         + ' with no readable body.') });
+    });
+  }, function (e) {
+    return done({ ok: false, data: null, httpStatus: null, httpOk: false,
+                  code: timedOut ? 'TIMEOUT' : 'NETWORK',
+                  detail: timedOut
+                    ? ('No response within the ' + Math.round(budget / 1000)
+                       + 's budget, so the browser stopped waiting. The backend may '
+                       + 'still have been composing the answer.')
+                    : ('The request could not be completed: '
+                       + ((e && e.message) || 'network error') + '.') });
+  });
+}
+function _mhzGet(path, timeoutMs) {
+  return _mhzFetch(path, timeoutMs).then(function (res) {
+    return res.ok ? res.data : null;
+  });
 }
 function _mhzRecBadge(rec) {
   var cls = { BUY_CANDIDATE: 'safe', HOLD: 'muted', REDUCE_CANDIDATE: 'manual',
@@ -27671,14 +27773,28 @@ async function loadPortfolioManager() {
   try { loadReassessmentOutcomes(); } catch (e) {}  // Stage 21 decision outcome evidence (read-only)
   try { loadRebalanceExecutionLineage(); } catch (e) {}  // Stage 21 completed-rebalance lineage
   var res = await Promise.all([
-    _mhzGet('/v1/portfolio-manager/summary'),
-    _mhzGet('/v1/portfolio-manager/actions'),
-    _mhzGet('/v1/portfolio-manager/changes'),
-    _mhzGet('/v1/portfolio-manager/health'),
-    _mhzGet('/v1/portfolio-manager/explanations'),
-    _mhzGet('/v1/portfolio-manager/since-last-review'),
+    // R69 - the summary decides the header badge for the whole screen, so it is
+    // read with the heavy-read budget rather than the shared one. A read that is
+    // merely slow must never be presented as a portfolio manager that is down.
+    _mhzFetch('/v1/portfolio-manager/summary', _R601_HEAVY_READ_TIMEOUT_MS),
+    // R69 - the whole batch, not just the summary. With the failure reason no
+    // longer discarded, a cold browser load of this screen recorded TIMEOUT at
+    // 45002ms / 45014ms on these reads: every panel here is composed by the same
+    // synchronous, thread-pooled backend, and the screen requests ~19 of them at
+    // once, so the shared budget is below their real cold cost. A panel that
+    // renders empty because its read was abandoned would understate the standing
+    // decision, which is the same class of defect this release repairs.
+    _mhzGet('/v1/portfolio-manager/actions', _R601_HEAVY_READ_TIMEOUT_MS),
+    _mhzGet('/v1/portfolio-manager/changes', _R601_HEAVY_READ_TIMEOUT_MS),
+    _mhzGet('/v1/portfolio-manager/health', _R601_HEAVY_READ_TIMEOUT_MS),
+    _mhzGet('/v1/portfolio-manager/explanations', _R601_HEAVY_READ_TIMEOUT_MS),
+    _mhzGet('/v1/portfolio-manager/since-last-review', _R601_HEAVY_READ_TIMEOUT_MS),
   ]);
-  var summary = res[0], actions = res[1], changes = res[2], health = res[3],
+  var summaryRes = res[0];
+  var summary = (summaryRes && summaryRes.ok && summaryRes.httpOk !== false)
+    ? summaryRes.data : null;
+  var summaryErr = summary ? null : summaryRes;
+  var actions = res[1], changes = res[2], health = res[3],
       expl = res[4], since = res[5];
   window._pmData = { summary: summary, actions: actions, changes: changes,
                      health: health, expl: expl, since: since };
@@ -27688,15 +27804,24 @@ async function loadPortfolioManager() {
   });
   var ok = summary && summary.status === 'PM_SUMMARY_READY';
   if (st) {
-    st.textContent = ok ? 'READY' : (summary && summary.status) || 'UNAVAILABLE';
+    // R69 - "the read failed" and "the manager is unavailable" are different
+    // facts and no longer share a label.
+    st.textContent = ok ? 'READY'
+      : (summary && summary.status) ? summary.status
+      : (summaryErr && summaryErr.code === 'TIMEOUT') ? 'READ TIMED OUT'
+      : 'READ FAILED';
     st.className = 'cc-badge ' + (ok ? 'safe' : 'danger');
   }
   if (note) {
     if (ok) {
       note.textContent = 'Connected — live read-only decision data loaded at '
         + new Date().toLocaleTimeString() + '. Paper only; no orders; no automation.';
-    } else if (!summary) {
-      note.textContent = 'Could not reach the portfolio-manager endpoints. Check the connection / API key, then use Refresh.';
+    } else if (summaryErr) {
+      note.textContent = 'The portfolio-manager summary could not be read: '
+        + (summaryErr.code || 'UNKNOWN') + ' on ' + (summaryErr.path || 'the endpoint')
+        + ' after ' + ((summaryErr.elapsedMs || 0) / 1000).toFixed(1) + 's. '
+        + (summaryErr.detail || '')
+        + ' This does not change the persisted decision — use Refresh to retry.';
     } else {
       note.textContent = 'Decision inputs unavailable (' + (summary.status || 'error') + '). Use Refresh to retry.';
     }
@@ -28189,7 +28314,7 @@ var _OTR_NEXT_TEXT = {
 async function loadAlphaTargetReview() {
   var st = document.getElementById('otr-state');
   if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
-  var d = await _mhzGet('/v1/alpha-target/review');
+  var d = await _mhzGet('/v1/alpha-target/review', _R601_HEAVY_READ_TIMEOUT_MS);
   window._otrData = d;
   window._otrPreviewDone = false;
   var facts = document.getElementById('otr-preview-facts');
@@ -28428,7 +28553,7 @@ function _obMoney(x) {
 
 function loadOperationalBook() {
   if (window._obInFlight) return window._obInFlight;   // coalesce concurrent page loads
-  var p = _mhzGet('/v1/operational-book').then(function (d) {
+  var p = _mhzGet('/v1/operational-book', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._obInFlight = null;
     window._obData = d;
     renderOperationalBook(d);
@@ -28573,7 +28698,7 @@ function loadHoldingOpportunityCost() {
   if (window._hocInFlight) return window._hocInFlight;   // single-flight guard
   var note = document.getElementById('hoc-note');
   if (note) note.textContent = 'Loading the read-only Holding Opportunity-Cost review…';
-  var p = _mhzGet('/v1/operations/holding-opportunity-cost').then(function (d) {
+  var p = _mhzGet('/v1/operations/holding-opportunity-cost', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._hocInFlight = null;
     window._hocData = d;
     renderHoldingOpportunityCost(d);
@@ -28855,7 +28980,7 @@ function loadReallocationProposal() {
   if (window._reallocInFlight) return window._reallocInFlight;
   var note = document.getElementById('realloc-note');
   if (note) note.textContent = 'Loading the read-only reallocation proposal…';
-  var p = _mhzGet('/v1/operations/reallocation-proposal').then(function (d) {
+  var p = _mhzGet('/v1/operations/reallocation-proposal', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._reallocInFlight = null;
     window._reallocData = d;
     renderReallocationProposal(d);
@@ -28883,7 +29008,7 @@ window.loadReallocationProposal = loadReallocationProposal;
 // ---------------------------------------------------------------------------
 function _r47Load() {
   if (window._r47InFlight) return window._r47InFlight;
-  var p = _mhzGet('/v1/operations/constrained-reallocation').then(function (d) {
+  var p = _mhzGet('/v1/operations/constrained-reallocation', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._r47InFlight = null; window._r47Data = d; _r47Render(d);
     // Release 49: the Reallocation task view reads these allocation rows verbatim.
     try { if (window._opresData && typeof _opRenderReallocationView === 'function') _opRenderReallocationView(window._opresData); } catch (e) {}
@@ -28906,15 +29031,62 @@ window._r47Load = _r47Load;
 // explanation are all produced by api.proposal_decision_review and
 // rendered verbatim. No action, no button that changes state, no dialog.
 // =====================================================================
+/* Release 69 - this read was given the shared 45s browser budget, while its own
+   cold composition legitimately costs more than that whenever the Portfolio
+   Manager screen loads its other expensive panels at the same time. Measured on
+   the live book: the review answers HTTP 200 with a complete 131KB payload in
+   ~10s on its own, but ~59s while the rest of the screen is loading. The browser
+   aborted at 45s and reported a healthy backend as unavailable.
+
+   The budget is raised to the SAME heavy-read budget an equally expensive route
+   already uses - not to paper over a defect, but because the abort was measuring
+   the wrong thing. The real cost was attacked where it lives:
+   api.proposal_decision_review now reuses its memoised inputs instead of
+   recomposing the proposal payload and the matured evidence on every refresh
+   (~12.7s -> ~1.3s), and the failure reason is now surfaced, not discarded. */
+var _R69_PDR_READ_TIMEOUT_MS = _R601_HEAVY_READ_TIMEOUT_MS;
 function _pdrLoad() {
   if (window._pdrInFlight) return window._pdrInFlight;
-  var p = _mhzGet('/v1/operations/proposal-decision-review').then(function (d) {
-    window._pdrInFlight = null; window._pdrData = d; _pdrRender(d); return d;
-  }).catch(function () {
-    window._pdrInFlight = null; _pdrRender(null); return null;
+  _pdrRenderLoading();
+  var route = '/v1/operations/proposal-decision-review';
+  var p = _mhzFetch(route, _R69_PDR_READ_TIMEOUT_MS).then(function (res) {
+    window._pdrInFlight = null;
+    if (!res.ok || res.httpOk === false) {
+      window._pdrData = null; window._pdrError = res;
+      _pdrRender(null, res); return null;
+    }
+    window._pdrData = res.data; window._pdrError = null;
+    _pdrRender(res.data, null); return res.data;
+  }).catch(function (e) {
+    window._pdrInFlight = null;
+    var res = { ok: false, path: route, code: 'CLIENT_ERROR', httpStatus: null,
+                budgetMs: _R69_PDR_READ_TIMEOUT_MS, elapsedMs: null,
+                detail: 'The review could not be rendered: '
+                        + ((e && e.message) || 'unknown client error') + '.' };
+    window._pdrData = null; window._pdrError = res;
+    try { _pdrRender(null, res); } catch (e2) {}
+    return null;
   });
   window._pdrInFlight = p;
   return p;
+}
+
+/* A long budget must not look like a hang. The operator sees that the read is
+   running, and the Refresh control exists from the very first paint. */
+function _pdrRenderLoading() {
+  var host = document.getElementById('pm-pdr-host');
+  if (!host) return;
+  host.setAttribute('data-pdr-state', 'LOADING');
+  host.innerHTML = '<div class="pdr"><div class="pdr-hd">'
+    + '<span class="t">Proposal decision review</span>'
+    + '<span class="cc-badge muted">LOADING</span>'
+    + '<span class="cc-badge">PREVIEW ONLY</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span>'
+    + '<button type="button" class="btn-sm" id="pdr-refresh" onclick="_pdrLoad()"'
+    + ' title="Reload the read-only proposal decision review.">&#8635; Refresh</button>'
+    + '</div><div class="pdr-why"><p>Reading the standing proposal and composing the '
+    + 'review. Nothing is written and no order is created.</p></div></div>';
 }
 window._pdrLoad = _pdrLoad;
 
@@ -29103,47 +29275,164 @@ function _pdrFreshnessLine(d) {
     + ' <span class="cc-badge">HISTORICAL EVIDENCE</span></div>';
 }
 
+/* Release 69.1 - STEP 1. Only the choice lives here; the ANSWER lives in step 2,
+   because the answer has to outlive this element. Everything about selectability
+   is still the backend's: this reads the reconciled option list the envelope
+   names as authoritative and adds no rule of its own. */
 function _pdrSelection(d) {
   var ts = (d && d.target_selection) || {};
   var opts = ts.options || [];
   if (!opts.length) return '';
   var f = (d && d.freshness) || {};
   var sel = (d && d.selection) || null;
-  var stale = f.actionable === false;
-  var banner = stale
-    ? '<div class="pdr-note" style="border-left:3px solid var(--danger,#ef4444);padding-left:8px;">'
-      + '⚠ <b>NOT ACTIONABLE</b> — ' + escapeHtml(f.detail || '')
-      + (f.next_required_action
-         ? '<br><b>NEXT REQUIRED ACTION:</b> ' + escapeHtml(f.next_required_action) : '')
-      + '</div>'
-    : '';
-  var chosen = sel
-    ? '<div class="pdr-note">✔ <b>SELECTED TARGET:</b> '
-      + escapeHtml(sel.selected_target_label || sel.selected_target || '')
-      + ' · selection ' + escapeHtml(sel.selection_id || '')
-      + ' — selection is not approval; the Approve gate below is still required.</div>'
-    : '<div class="pdr-note">SELECTED TARGET: <b>none</b> — awaiting an explicit operator choice. '
-      + 'The recommended path is identified above but is never pre-selected.</div>';
-  return '<div class="pdr-sub">Select target to review'
-    + ' <span class="cc-badge">SELECTION IS NOT APPROVAL</span>'
-    + ' <span class="cc-badge">NO ORDERS</span>'
-    + ' <span class="cc-badge">MANUAL REVIEW</span></div>'
-    + banner
+  // A historical proposal offers no choice at all. Rendering three dead buttons
+  // under a red banner invites the click that cannot work; the staleness block
+  // above already carries the one action that CAN.
+  if (f.actionable === false) return '';
+  return '<div class="pdr-step is-live" id="pdr-step1">'
+    + '<div class="sh"><span>Step 1 &mdash; choose target</span>'
+    + '<span class="cc-badge">SELECTION IS NOT APPROVAL</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span></div>'
     + '<div class="pdr-cols" style="grid-template-columns:repeat(3,1fr);">'
     + opts.map(function (o) { return _pdrSelBtn(o, sel); }).join('')
-    + '</div>'
-    + chosen
-    + '<div id="pdr-select-result"></div>';
+    + '</div></div>';
 }
 
+/* Release 69.1 - STEP 2: the authoritative backend answer, and the state machine
+   behind it.
+
+   The old code wrote the outcome into a div and then called _pdrLoad(), whose
+   very first act is to replace the panel's innerHTML with the LOADING skeleton.
+   The answer could not survive the reload it triggered, so a refused selection
+   looked exactly like a hanging one: "Recording selection..." was simply the
+   last thing left on screen. On 2026-09-23 that hid six consecutive HTTP 401s.
+
+   The result now lives in module state, OUTSIDE the DOM, and is re-rendered as
+   part of every paint. It survives refresh, re-render and navigation, and is
+   cleared only when the backend reports an identity it no longer belongs to. */
+window._pdrSelectUi = window._pdrSelectUi || null;   /* {phase,target,at,...} */
+
+function _pdrSelSetUi(ui) {
+  window._pdrSelectUi = ui;
+  var host = document.getElementById('pdr-step2');
+  if (host) host.outerHTML = _pdrSelectionResult(window._pdrData);
+}
+
+/* The four states P0-B names: IDLE, PENDING, OK, ERROR. There is no fifth, and
+   no state in which the operator is left reading a verb with no outcome. */
+function _pdrSelectionResult(d) {
+  var ui = window._pdrSelectUi || null;
+  var sel = (d && d.selection) || null;
+  var f = (d && d.freshness) || {};
+  var actionable = f.actionable !== false;
+
+  // A persisted selection the BACKEND reports outranks anything this browser
+  // remembers: it is the durable fact, read back from the governed ledger.
+  if (sel && (!ui || ui.phase !== 'PENDING')) {
+    var canApprove = actionable && sel.selected_target !== 'CURRENT';
+    return '<div class="pdr-step is-ok" id="pdr-step2">'
+      + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span>'
+      // The badge below says NO LIVE BROKER ORDERS, and deliberately not the
+      // orders-are-disabled wording CLAUDE.md lists: paper orders are REAL here
+      // and exist under a governed manual workflow, so only LIVE BROKERAGE orders
+      // are structurally disabled. The repo enforces this in
+      // test_phase27b6_final_ui_consistency::TestOrdersDisabledInvisible, and the
+      // repo is right.
+      + '<span class="cc-badge">CREATES TRADE DECISIONS ONLY</span>'
+      + '<span class="cc-badge">NO ORDERS</span>'
+      + '<span class="cc-badge">NO LIVE BROKER ORDERS</span>'
+      + '<span class="cc-badge">AUTOMATION OFF</span></div>'
+      + '<div class="pdr-res-t ok">&#10004; SELECTED: '
+      + escapeHtml(String(sel.selected_target || '').replace(/_/g, ' ')) + '</div>'
+      + '<div class="pdr-idm">'
+      + 'Selection ID <b>' + escapeHtml(sel.selection_id || '&mdash;') + '</b><br>'
+      + 'Proposal <b>' + escapeHtml(((sel.binding || {}).proposal_id)
+                                    || (d && d.proposal_id) || '&mdash;') + '</b><br>'
+      + 'Status <b>' + (actionable ? 'CURRENT &middot; actionable'
+                                   : 'HISTORICAL &middot; not actionable') + '</b>'
+      + (sel.revision ? (' &middot; revision <b>' + escapeHtml(String(sel.revision)) + '</b>') : '')
+      + '</div>'
+      + (canApprove ? _pdrApproveCta(sel.selected_target) : '')
+      + '<div class="pdr-note">Selection is not approval. Nothing has been approved, '
+      + 'no order plan exists and no order or fill was created.</div>'
+      + '</div>';
+  }
+
+  if (ui && ui.phase === 'PENDING') {
+    return '<div class="pdr-step is-pending" id="pdr-step2">'
+      + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span>'
+      + '<span class="cc-badge">NO ORDERS</span></div>'
+      + '<div class="pdr-res-t pending">&#8987; PENDING &mdash; recording '
+      + escapeHtml(String(ui.target || '').replace(/_/g, ' ')) + '</div>'
+      + '<div class="pdr-note">The request has been sent and the backend has not yet '
+      + 'answered. Nothing is persisted until it does. This message is replaced by the '
+      + 'backend\'s own answer &mdash; it is never the final state.</div></div>';
+  }
+
+  if (ui && ui.phase === 'ERROR') {
+    return '<div class="pdr-step is-bad" id="pdr-step2">'
+      + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span>'
+      + '<span class="cc-badge">NOTHING WAS WRITTEN</span></div>'
+      + '<div class="pdr-res-t bad">&#10008; SELECTION REFUSED &mdash; '
+      + escapeHtml(ui.code || 'ERROR') + '</div>'
+      + '<div class="pdr-idm">Target <b>'
+      + escapeHtml(String(ui.target || '').replace(/_/g, ' ')) + '</b>'
+      + (ui.httpStatus ? (' &middot; HTTP <b>' + escapeHtml(String(ui.httpStatus)) + '</b>') : '')
+      + '</div>'
+      + '<div class="pdr-note">' + escapeHtml(ui.detail || 'The backend refused the selection.')
+      + '</div>'
+      + '<div class="pdr-note"><b>Safe retry:</b> ' + escapeHtml(ui.retry || 'Refresh the review and select again.')
+      + '</div>'
+      + '<button type="button" class="pdr-cta neutral" onclick="_pdrSelClear()"'
+      + ' title="Dismiss this refusal. Nothing was written, so there is nothing to undo.">'
+      + 'Dismiss</button>'
+      + '<div class="pdr-note">No selection, approval, order plan, order or fill was '
+      + 'created. The proposal is unchanged.</div></div>';
+  }
+
+  return '<div class="pdr-step" id="pdr-step2">'
+    + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span></div>'
+    + '<div class="pdr-idm">No target has been selected for this session yet.'
+    + (actionable ? ' Choose one in step 1 above.'
+                  : ' This proposal is historical and can no longer be selected.')
+    + '</div></div>';
+}
+
+/* The correct next control, and ONLY after a selection exists. It is armed in two
+   deliberate steps and uses no browser dialog of any kind. */
+function _pdrApproveCta(target) {
+  var t = String(target || '').replace(/_/g, ' ');
+  return '<button type="button" class="pdr-cta" id="pdr-approve-cta"'
+    + ' onclick="_pdrArmApprove(\'' + escapeHtml(target) + '\')"'
+    + ' title="Record the Stage-18 manual approval of the selected target. This creates'
+    + ' no order, no fill and moves no capital; the order plan is a separate gate.">'
+    + 'APPROVE ' + escapeHtml(t.toUpperCase()) + '</button>'
+    + '<div id="pdr-approve-arm"></div>';
+}
+
+function _pdrSelClear() {
+  window._pdrSelectUi = null;
+  var host = document.getElementById('pdr-step2');
+  if (host) host.outerHTML = _pdrSelectionResult(window._pdrData);
+}
+window._pdrSelClear = _pdrSelClear;
+
+/* Release 69.1 - the selection WRITE.
+
+   Two defects were fixed here, and they compounded into the reported symptom.
+
+   1. This request carried `Content-Type` and nothing else. Every authenticated
+      GET on this screen goes through a helper that injects `X-API-Key`; this POST
+      hand-rolled its headers and omitted it, so the backend answered 401 and
+      never reached the governed write at all. The access log recorded six.
+   2. The refusal it DID receive was written into a div and then erased ~20ms
+      later by the reload this function itself triggers.
+
+   It now uses the same header contract as every other authenticated call, and
+   publishes its outcome to state that outlives the panel. */
 function _pdrSelect(target) {
   var d = window._pdrData || {};
-  var host = document.getElementById('pdr-select-result');
-  var say = function (cls, msg) {
-    if (host) host.innerHTML = '<div class="pdr-note" style="border-left:3px solid '
-      + (cls === 'ok' ? 'var(--ok,#22c55e)' : 'var(--danger,#ef4444)')
-      + ';padding-left:8px;">' + escapeHtml(msg) + '</div>';
-  };
   // Defence in depth: re-read the BACKEND's selectability for this target before
   // sending anything. The button is only wired when selectable, but this function
   // is reachable as window._pdrSelect, and the request it makes is a write. The
@@ -29151,17 +29440,24 @@ function _pdrSelect(target) {
   var opt = (((d.target_selection || {}).options) || []).filter(
     function (o) { return o.target === target; })[0];
   if (!opt || !opt.selectable) {
-    say('bad', 'Not selectable: ' + (((opt || {}).blockers || [])
-      .map(function (b) { return b.code; }).join('; ')
-      || 'the backend does not offer this target.'));
+    _pdrSelSetUi({
+      phase: 'ERROR', target: target, code: 'NOT_SELECTABLE', httpStatus: null,
+      detail: ((opt || {}).blockers || []).map(function (b) {
+        return (b.code || '') + ' - ' + (b.detail || '');
+      }).join('; ') || 'The backend does not offer this target for selection.',
+      retry: 'Run the portfolio cycle for the current session, then select again.'
+    });
     return;
   }
-  say('ok', 'Recording selection…');
+  if (window._pdrSelectInFlight) return;      // no double submission
+  window._pdrSelectInFlight = true;
+  _pdrSelSetUi({ phase: 'PENDING', target: target });
+
   // No browser dialog of any kind: the confirmation is the explicit token sent
   // below, and the outcome is rendered inline where the operator is looking.
-  fetch('/v1/operations/portfolio-decision/select-target', {
+  return fetch('/v1/operations/portfolio-decision/select-target', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       target: target,
       confirmation: ((d.governance || {}).selection_confirm_token
@@ -29170,31 +29466,298 @@ function _pdrSelect(target) {
       expected_review_hash: d.review_hash || null,
       expected_hoc_assessment_hash: ((d.inputs || {}).hoc_assessment_hash_used || null)
     })
-  }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
-    .then(function (r) {
-      var j = r.j || {};
-      if (j.selected) { say('ok', 'Selected ' + target + ' · ' + (j.status || '')); }
-      else { say('bad', (j.message || j.detail || 'Selection refused.') + ' [' + (j.status || 'REFUSED') + ']'); }
-      return _pdrLoad();
-    })
-    .catch(function (e) { say('bad', 'Selection request failed: ' + e); });
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; })
+      .then(function (j) { return { httpOk: res.ok, httpStatus: res.status, j: j }; });
+  }).then(function (r) {
+    window._pdrSelectInFlight = false;
+    var j = r.j || {};
+    if (j.selected) {
+      // The backend recorded it. Hold the OK state until the reload below brings
+      // back the PERSISTED record, which then renders in its place.
+      _pdrSelSetUi({ phase: 'OK', target: target, status: j.status,
+                     selectionId: (j.record || {}).selection_id });
+    } else {
+      _pdrSelSetUi({
+        phase: 'ERROR', target: target,
+        code: j.status || (r.httpOk ? 'REFUSED' : ('HTTP_' + r.httpStatus)),
+        httpStatus: r.httpStatus,
+        detail: j.message || j.detail || 'The backend refused the selection.',
+        retry: (r.httpStatus === 401 || r.httpStatus === 403)
+          ? 'This browser is not authenticated. Enter the API key in the header and '
+            + 'press Connect, then select the target again.'
+          : 'Press Refresh to re-read the review, then select again.'
+      });
+    }
+    return _pdrLoad();
+  }).catch(function (e) {
+    window._pdrSelectInFlight = false;
+    _pdrSelSetUi({
+      phase: 'ERROR', target: target, code: 'CLIENT_ERROR', httpStatus: null,
+      detail: 'The selection request could not be completed: '
+              + ((e && e.message) || 'unknown client error') + '.',
+      retry: 'Check that the backend is running, then select again.'
+    });
+  });
 }
 window._pdrSelect = _pdrSelect;
 
+/* Release 69.1 - the Stage-18 APPROVE gate, offered only once a governed selection
+   exists and only while the decision is actionable.
 
-function _pdrRender(d) {
+   It is armed in two explicit steps and uses no browser-native blocking dialog:
+   those are forbidden on this surface. Approving records a decision bound to
+   the exact proposal hash the operator reviewed. It creates no order, no fill and
+   no capital movement - the order plan is a separate manual gate after this one. */
+function _pdrArmApprove(target) {
+  var host = document.getElementById('pdr-approve-arm');
+  if (!host) return;
+  var t = String(target || '').replace(/_/g, ' ').toUpperCase();
+  host.innerHTML = '<div class="pdr-stale" style="border-color:rgba(245,158,11,.55);'
+    + 'background:rgba(245,158,11,.08);">'
+    + '<b>Confirm approval of ' + escapeHtml(t) + '</b><br>'
+    + 'This records the manual Stage-18 portfolio decision against proposal '
+    + '<b>' + escapeHtml((window._pdrData || {}).proposal_id || '') + '</b>. '
+    + 'It creates no order, no fill and moves no capital. The order plan is a '
+    + 'separate confirmation after this one.'
+    + '<div style="margin-top:8px;display:flex;gap:8px;">'
+    + '<button type="button" class="pdr-cta" style="margin-top:0;"'
+    + ' onclick="_pdrApprove(\'' + escapeHtml(target) + '\')">'
+    + 'CONFIRM APPROVAL</button>'
+    + '<button type="button" class="pdr-cta neutral" style="margin-top:0;"'
+    + ' onclick="document.getElementById(\'pdr-approve-arm\').innerHTML=\'\';">'
+    + 'Cancel</button></div></div>';
+}
+window._pdrArmApprove = _pdrArmApprove;
+
+function _pdrApprove(target) {
+  var d = window._pdrData || {};
+  var host = document.getElementById('pdr-approve-arm');
+  var say = function (cls, title, body) {
+    if (!host) return;
+    host.innerHTML = '<div class="pdr-stale" style="border-color:'
+      + (cls === 'ok' ? 'rgba(34,197,94,.55);background:rgba(34,197,94,.08);'
+                      : 'rgba(239,68,68,.55);background:rgba(239,68,68,.08);') + '">'
+      + '<b>' + escapeHtml(title) + '</b><br>' + escapeHtml(body) + '</div>';
+  };
+  if (window._pdrApproveInFlight) return;
+  window._pdrApproveInFlight = true;
+  say('ok', 'PENDING - recording the approval', 'The backend has not yet answered. '
+    + 'Nothing is persisted until it does.');
+  return fetch('/v1/operations/portfolio-decision', {
+    method: 'POST',
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      decision: 'APPROVE',
+      confirmation: ((d.governance || {}).approval_confirm_token
+                     || 'CONFIRM_PORTFOLIO_REBALANCE_DECISION'),
+      expected_proposal_hash: d.proposal_hash || null
+    })
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; })
+      .then(function (j) { return { httpOk: res.ok, httpStatus: res.status, j: j }; });
+  }).then(function (r) {
+    window._pdrApproveInFlight = false;
+    var j = r.j || {};
+    if (j.recorded) {
+      say('ok', 'APPROVED - ' + (j.status || 'RECORDED'),
+        'The decision is recorded against ' + (d.proposal_id || 'the proposal')
+        + '. No order and no fill were created. The order plan is the next manual '
+        + 'gate; open the rebalance view to review it.');
+    } else {
+      say('bad', 'APPROVAL REFUSED - ' + (j.status || ('HTTP ' + r.httpStatus)),
+        (j.message || j.detail || 'The backend refused the approval.')
+        + ' Nothing was written.');
+    }
+    try { if (typeof loadRebalanceLifecycle === 'function') loadRebalanceLifecycle(); } catch (e) {}
+    return _pdrLoad();
+  }).catch(function (e) {
+    window._pdrApproveInFlight = false;
+    say('bad', 'APPROVAL REQUEST FAILED',
+      'The request could not be completed: ' + ((e && e.message) || 'unknown error')
+      + '. Nothing was written.');
+  });
+}
+window._pdrApprove = _pdrApprove;
+
+/* Release 69.1 - the five facts P0-B requires at the TOP of the panel, in every
+   terminal state. Never empty: a cell whose value the backend did not supply says
+   so rather than rendering a blank. */
+function _pdrStatusBar(d, err) {
+  var f = (d && d.freshness) || {};
+  var sel = (d && d.selection) || null;
+  var actionable = (d && d.actionable === true) || f.actionable === true;
+  var known = !!(d && d.status === 'OK');
+  var cell = function (k, v, cls, s) {
+    return '<div class="c"><div class="k">' + escapeHtml(k) + '</div>'
+      + '<div class="v' + (cls ? ' ' + cls : '') + '">' + v + '</div>'
+      + (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
+  };
+  var sessV = escapeHtml((d && d.eligible_market_date) || f.bound_session || 'unknown');
+  var sessS = f.latest_eligible_session
+    ? ('latest eligible ' + escapeHtml(f.latest_eligible_session)) : '';
+  var statusV = escapeHtml((d && d.proposal_read_state)
+                           || (d && d.review_state)
+                           || (err ? ('READ FAILED - ' + (err.code || 'UNKNOWN')) : 'unknown'));
+  var statusS = (d && d.proposal_id) ? escapeHtml(d.proposal_id) : '';
+  var actV, actC, actS;
+  if (!known) { actV = 'UNKNOWN'; actC = 'warn'; actS = 'the review could not be read'; }
+  else if (actionable) { actV = 'ACTIONABLE'; actC = 'ok'; actS = 'a target may be selected'; }
+  else {
+    actV = 'NOT ACTIONABLE'; actC = 'bad';
+    actS = escapeHtml(f.state ? ('session ' + f.state.toLowerCase()) : 'session moved on');
+  }
+  var selV = sel ? escapeHtml(String(sel.selected_target || '').replace(/_/g, ' ')) : 'none';
+  var selS = sel ? escapeHtml(sel.selection_id || '') : 'no target selected yet';
+  var nextV = f.next_required_action
+    ? escapeHtml(String(f.next_required_action).replace(/_/g, ' '))
+    : (known
+        ? (actionable ? (sel ? 'APPROVE SELECTED TARGET' : 'CHOOSE A TARGET') : 'RUN PORTFOLIO CYCLE')
+        : 'REFRESH THE REVIEW');
+  return '<div class="pdr-bar">'
+    + cell('Session', sessV, '', sessS)
+    + cell('Proposal status', statusV, '', statusS)
+    + cell('Current actionability', actV, actC, actS)
+    + cell('Selected target', selV, sel ? 'ok' : '', selS)
+    + cell('Next required action', nextV, 'warn', '')
+    + '</div>';
+}
+
+/* Release 69.1 - plain English when the decision is historical. It names BOTH
+   dates, says the old proposal is preserved, and carries the one authoritative
+   next action instead of three dead target buttons. */
+function _pdrStaleExplainer(d) {
+  var f = (d && d.freshness) || {};
+  if (f.actionable !== false) return '';
+  var bound = f.bound_session || (d && d.eligible_market_date) || null;
+  var latest = f.latest_eligible_session || null;
+  var pretty = function (iso) {
+    if (!iso) return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+    if (!m) return String(iso);
+    var names = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                 'August', 'September', 'October', 'November', 'December'];
+    return names[Number(m[2]) - 1] + ' ' + String(Number(m[3]));
+  };
+  var bp = pretty(bound), lp = pretty(latest);
+  var sentence = (bp && lp)
+    ? ('This proposal belongs to ' + bp + '. ' + lp + ' is now the latest eligible '
+       + 'session. The old proposal is preserved for review but cannot be selected '
+       + 'or approved.')
+    : (f.detail || 'This proposal is bound to a session the workflow has moved past. '
+       + 'It is preserved for review but cannot be selected or approved.');
+  return '<div class="pdr-stale" id="pdr-stale">'
+    + '<b>&#9888; HISTORICAL &mdash; NOT ACTIONABLE</b><br>'
+    + escapeHtml(sentence)
+    + '<div style="margin-top:8px;">'
+    + '<button type="button" class="pdr-cta danger" style="margin-top:0;"'
+    + ' onclick="runPortfolioCycle(this)"'
+    + ' title="Run the governed portfolio cycle for the current session. It creates'
+    + ' no order and no fill; it produces a fresh proposal to review.">'
+    + 'RUN PORTFOLIO CYCLE</button>'
+    + '<span class="cc-badge" style="margin-left:10px;">PREVIEW ONLY</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">AUTOMATION OFF</span>'
+    + '</div>'
+    + '<div class="pdr-note">The proposal below is immutable historical evidence. '
+    + 'Nothing about it is deleted, rewritten or re-scored.</div>'
+    + '<div id="drc-action-result" style="display:none;font-size:11px;margin-top:6px;"></div>'
+    + '</div>';
+}
+
+/* A collapsed evidence section. Evidence and diagnostics belong BELOW the action,
+   not in front of it. */
+function _pdrMore(title, bodyHtml, openByDefault) {
+  return '<details class="pdr-more"' + (openByDefault ? ' open' : '') + '>'
+    + '<summary>' + escapeHtml(title) + '</summary>'
+    + '<div style="padding-top:6px;">' + bodyHtml + '</div></details>';
+}
+
+
+/* Release 69 - the terminal branch below used to print ONE sentence for five
+   different situations: a genuinely absent proposal, a present proposal whose
+   review could not be composed, a proposal/review identity mismatch, a browser
+   timeout on a healthy backend, and an HTTP or network fault. It also dropped
+   the Refresh control, so the operator's only recovery was to run another
+   Portfolio Cycle - which would have replaced a standing immutable proposal to
+   work around a presentation bug.
+
+   It now names the state the BACKEND reported (review_state), or the exact
+   endpoint and reason the read failed, and always keeps Refresh. It still
+   fabricates nothing and still recommends nothing. */
+function _pdrRender(d, err) {
   var host = document.getElementById('pm-pdr-host');
   if (!host) return;
+  if (err === undefined) err = (d ? null : (window._pdrError || null));
   var r = d && d.review;
   if (!d || d.status !== 'OK' || !r) {
+    var state = (d && d.review_state)
+      || (err ? ('READ_FAILED_' + (err.code || 'UNKNOWN')) : 'UNAVAILABLE');
+    var headline, detail = (d && d.message) || '';
+    if (err) {
+      headline = (err.code === 'TIMEOUT')
+        ? 'The review endpoint did not answer inside the browser budget. This does '
+          + 'not mean the proposal is missing - the backend may have answered after '
+          + 'the browser stopped waiting. Use Refresh.'
+        : 'The review endpoint could not be read.';
+      detail = err.detail || '';
+    } else if (d && d.status === 'NO_PROPOSAL') {
+      headline = 'There is no standing reallocation proposal to review for the '
+        + 'active book and eligible session.';
+    } else if (d && d.status === 'PROPOSAL_IDENTITY_MISMATCH') {
+      headline = 'A proposal is present, but the persisted artifact does not carry '
+        + 'the identity the read contract names. The review is withheld rather than '
+        + 'adjudicating one proposal and labelling it another.';
+    } else {
+      headline = 'The proposal decision review did not load. Nothing is fabricated.';
+    }
+    var diag = '';
+    if (err) {
+      diag = '<div class="pdr-ev">'
+        + '<div title="The exact endpoint that failed."><div class="k">Endpoint</div>'
+        + '<div class="v" style="font-size:9px;">'
+        + escapeHtml(err.path || '/v1/operations/proposal-decision-review')
+        + '</div></div>'
+        + '<div title="Why the read failed."><div class="k">Failure</div><div class="v">'
+        + escapeHtml(err.code || 'UNKNOWN') + '</div></div>'
+        + '<div title="HTTP status, when the server answered at all."><div class="k">HTTP</div>'
+        + '<div class="v">'
+        + (err.httpStatus === null || err.httpStatus === undefined
+            ? '&mdash;' : escapeHtml(String(err.httpStatus))) + '</div></div>'
+        + '<div title="How long the browser waited before giving up."><div class="k">Waited</div>'
+        + '<div class="v">'
+        + (err.elapsedMs === null || err.elapsedMs === undefined
+            ? '&mdash;' : (err.elapsedMs / 1000).toFixed(1) + 's') + '</div></div>'
+        + '<div title="The read budget this request was given."><div class="k">Budget</div>'
+        + '<div class="v">'
+        + (err.budgetMs === null || err.budgetMs === undefined
+            ? '&mdash;' : (err.budgetMs / 1000).toFixed(0) + 's') + '</div></div>'
+        + '</div>';
+    }
     host.innerHTML = '<div class="pdr"><div class="pdr-hd">'
       + '<span class="t">Proposal decision review</span>'
-      + '<span class="cc-badge muted">UNAVAILABLE</span></div>'
-      + '<div class="pdr-why">' + escapeHtml((d && d.message)
-        || 'The proposal decision review did not load. Nothing is fabricated.') + '</div></div>';
+      + '<span class="cc-badge muted" title="The state the backend reported, or the '
+      + 'reason the browser could not read it.">' + escapeHtml(state) + '</span>'
+      + '<span class="cc-badge">PREVIEW ONLY</span>'
+      + '<span class="cc-badge">NO ORDERS</span>'
+      + '<span class="cc-badge">MANUAL REVIEW</span>'
+      + '<button type="button" class="btn-sm" id="pdr-refresh" onclick="_pdrLoad()"'
+      + ' title="Reload the read-only proposal decision review.">&#8635; Refresh</button>'
+      + '</div>'
+      // R69.1 - the five operator facts are rendered even when the review could
+      // not be composed. An unreadable review is itself a state the operator has
+      // to act on, and "what do I do now?" still needs an answer.
+      + _pdrStatusBar(d, err)
+      + '<div class="pdr-why"><p>' + escapeHtml(headline) + '</p>'
+      + (detail ? '<p>' + escapeHtml(detail) + '</p>' : '')
+      + '<p>Nothing was written, no proposal was replaced and no order was created.</p>'
+      + '</div>' + diag
+      + _pdrSelectionResult(d) + '</div>';
     host.setAttribute('data-pdr-verdict', '');
+    host.setAttribute('data-pdr-state', state);
     return;
   }
+  host.setAttribute('data-pdr-state', d.review_state || 'COMPLETE_CURRENT');
   var v = r.review_verdict || {};
   var states = r.states || {};
   var cl = r.change_classification || {};
@@ -29240,6 +29803,16 @@ function _pdrRender(d) {
     : '';
 
   host.setAttribute('data-pdr-verdict', v.verdict || '');
+  // R69.1 - a selection result that belongs to a DIFFERENT proposal than the one
+  // now on screen is not this decision's answer. It is dropped rather than shown
+  // against the wrong identity; the persisted record (if any) renders instead.
+  try {
+    var _ui = window._pdrSelectUi;
+    if (_ui && _ui.phase === 'OK' && d.selection
+        && d.selection.selected_target === _ui.target) {
+      window._pdrSelectUi = null;   // the durable record has arrived; prefer it
+    }
+  } catch (e) {}
   host.innerHTML = '<div class="pdr">'
     + '<div class="pdr-hd"><span class="t">Proposal decision review</span>'
     + '<span class="cc-badge" title="Produced by ' + escapeHtml(r.calculation_owner || '') + ' from the persisted proposal, the opportunity-cost assessment and the matured outcome evidence.">DETERMINISTIC</span>'
@@ -29249,33 +29822,72 @@ function _pdrRender(d) {
     + '<span class="cc-badge">MANUAL REVIEW</span>'
     + '<button type="button" class="btn-sm" id="pdr-refresh" onclick="_pdrLoad()" title="Reload the read-only proposal decision review.">↻ Refresh</button>'
     + '</div>'
-    + '<div class="pdr-note">Recommended review path — a recommendation for manual review only. It approves nothing, creates no order plan and executes nothing.</div>'
-    + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
-    + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'
-    // R63 — actionability belongs at the TOP of the card. An operator who came
-    // here to choose a target must learn that nothing is selectable before
-    // reading the comparison, not after scrolling past it.
-    + _pdrFreshnessLine(d)
-    // The three states sit directly under the verdict: at 1920x1080 the comparison
-    // an operator has to make is the first thing on the screen, and the reasoning
-    // that justifies it follows immediately below it rather than pushing it away.
-    + '<div class="pdr-states">' + cols + '</div>'
-    + '<div class="pdr-sub">Why this review path</div>'
-    + why
-    + '<div class="pdr-sub">Why the full target differs from the minimum repair</div>'
-    + diff + compNote
-    + '<div class="pdr-sub">What the proposal changes</div>'
-    + '<div class="pdr-cols">'
-    + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--danger,#ef4444);">Mandatory · ' + (cl.mandatory_change_count || 0) + '</div>' + mand + '</div>'
-    + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--info,#3b82f6);">Discretionary · ' + (cl.discretionary_change_count || 0) + '</div>' + disc + '</div>'
-    + '</div>'
-    + '<div class="pdr-note">' + escapeHtml(cl.forced_classification_note || '') + '</div>'
-    // R63 — the governed selection step sits between the review and the Approve
-    // gate, so the operator chooses WHICH reviewed target goes to approval.
+    // R69.1 - ONE obvious next action. The five facts an operator needs before
+    // they can do anything come first, then the staleness explanation (if the
+    // decision is historical) or STEP 1, then STEP 2's authoritative answer.
+    // Everything that is evidence rather than action is collapsed below.
+    + _pdrStatusBar(d, null)
+    + _pdrStaleExplainer(d)
     + _pdrSelection(d)
-    + '<div class="pdr-sub">Historical evidence relevant to this proposal</div>'
-    + _pdrEvidence(r.historical_evidence)
+    + _pdrSelectionResult(d)
+    + _pdrMore('Why this review path', ''
+        + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
+        + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'
+        + '<div class="pdr-note">Recommended review path &mdash; a recommendation for '
+        + 'manual review only. It approves nothing, creates no order plan and executes '
+        + 'nothing.</div>' + why)
+    // The actionability warning travels WITH the comparison, not only at the top:
+    // this section is collapsed, so an operator who opens it later must not read
+    // three states as if one of them were still choosable.
+    + _pdrMore('Compare the three states (current / minimum repair / full target)',
+        _pdrFreshnessLine(d) + '<div class="pdr-states">' + cols + '</div>')
+    + _pdrMore('Why the full target differs from the minimum repair', diff + compNote)
+    + _pdrMore('What the proposal changes ('
+        + ((cl.mandatory_change_count || 0) + (cl.discretionary_change_count || 0))
+        + ' changes)', ''
+        + '<div class="pdr-cols">'
+        + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--danger,#ef4444);">Mandatory &middot; ' + (cl.mandatory_change_count || 0) + '</div>' + mand + '</div>'
+        + '<div class="pdr-ch"><div class="h" style="font-size:11px;font-weight:800;margin-bottom:4px;color:var(--info,#3b82f6);">Discretionary &middot; ' + (cl.discretionary_change_count || 0) + '</div>' + disc + '</div>'
+        + '</div>'
+        + '<div class="pdr-note">' + escapeHtml(cl.forced_classification_note || '') + '</div>')
+    + _pdrMore('Historical evidence relevant to this proposal',
+        _pdrEvidence(r.historical_evidence))
+    + _pdrMore('Audit / advanced', _pdrAudit(d))
     + '</div>';
+}
+
+/* Release 69.1 - the diagnostics that used to be interleaved with the decision.
+   They are real evidence and they stay, one click away, where they cannot push
+   the operator's action below the fold. */
+function _pdrAudit(d) {
+  var i = (d && d.inputs) || {};
+  var c = i.composition || {};
+  var f = (d && d.freshness) || {};
+  var row = function (k, v) {
+    return '<div style="display:flex;justify-content:space-between;gap:12px;">'
+      + '<span style="color:var(--label,#7a8fb0);">' + escapeHtml(k) + '</span>'
+      + '<b style="overflow-wrap:anywhere;">' + escapeHtml(v === null || v === undefined || v === '' ? '—' : String(v)) + '</b></div>';
+  };
+  return '<div class="pdr-idm" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;">'
+    + row('Review state', d && d.review_state)
+    + row('Proposal id', d && d.proposal_id)
+    + row('Proposal hash', (d && d.proposal_hash || '').slice(0, 24))
+    + row('Review hash', (d && d.review_hash || '').slice(0, 24))
+    + row('Opportunity-cost hash', (i.hoc_assessment_hash_used || '').slice(0, 24))
+    + row('Selectability authority', (d && d.selectability_authority) || 'target_selection')
+    + row('Session authority owner', f.session_authority_owner)
+    + row('Session calendar owner', f.session_calendar_owner)
+    + row('Return panel owner', i.return_panel_owner)
+    + row('Tickers priced', i.tickers_priced)
+    + row('Covariance lookback', i.covariance_lookback)
+    + row('Outcome evidence', i.outcome_evidence_state)
+    + row('Compose time', c.compose_ms === undefined ? null : (c.compose_ms + ' ms'))
+    + row('Proposal payload', c.proposal_payload)
+    + row('Outcome evidence memo', c.outcome_evidence)
+    + row('Return panel memo', c.return_panel)
+    + '</div>'
+    + '<div class="pdr-note">This read is deterministic and writes nothing. No language '
+    + 'model is called at runtime.</div>';
 }
 window._pdrRender = _pdrRender;
 
@@ -30193,7 +30805,22 @@ function _opRenderReallocationView(p) {
     + '<div class="pmr-sec"><div class="pmr-t">Governance</div><div class="pmr-gov">' + steps + '</div>' + govNote + govLink
     + '<div class="r47-quiet" style="margin-top:8px;">' + _opEsc(gov.note || '') + '</div></div>';
   // The host was just recreated; refill it from whatever the review read last.
-  try { if (typeof _pdrRender === 'function') _pdrRender(window._pdrData); } catch (e) {}
+  // R69 - this refill used to call _pdrRender(window._pdrData) unconditionally.
+  // The review is the SLOWEST read on this screen, so on a cold load the global is
+  // still null when the reallocation renderer recreates the host - and the terminal
+  // "did not load" branch was painted over a read that was still running and about
+  // to succeed. That is the state the 2026-09-22 operator was left looking at, and
+  // it survived every later re-render because each one repeated it.
+  // An in-flight read now yields the LOADING state and is allowed to finish; a host
+  // recreated with no read at all starts one rather than asserting a failure.
+  try {
+    if (typeof _pdrRender === 'function') {
+      if (window._pdrData) { _pdrRender(window._pdrData, null); }
+      else if (window._pdrInFlight) { _pdrRenderLoading(); }
+      else if (window._pdrError) { _pdrRender(null, window._pdrError); }
+      else if (typeof _pdrLoad === 'function') { _pdrLoad(); }
+    }
+  } catch (e) {}
 }
 
 // AUDIT — the raw owner states behind the reconciled presentation (never normal prose).
@@ -30961,8 +31588,8 @@ function _r50RenderRegistry(d) {
 function loadRebalanceLifecycle() {
   if (window._stage19InFlight) return window._stage19InFlight;
   var p = Promise.all([
-    _mhzGet('/v1/operations/rebalance').catch(function () { return null; }),
-    _mhzGet('/v1/operations/corporate-actions').catch(function () { return null; })
+    _mhzGet('/v1/operations/rebalance', _R601_HEAVY_READ_TIMEOUT_MS).catch(function () { return null; }),
+    _mhzGet('/v1/operations/corporate-actions', _R601_HEAVY_READ_TIMEOUT_MS).catch(function () { return null; })
   ]).then(function (res) {
     window._stage19InFlight = null;
     window._stage19Data = res[0];
@@ -32112,7 +32739,8 @@ window.renderZeroBaseTarget = renderZeroBaseTarget;
 
 function loadZeroBaseTarget() {
   if (window._zbInFlight) return window._zbInFlight;
-  var p = _mhzGet('/v1/operations/zero-base-target').then(function (d) {
+  var p = _mhzGet('/v1/operations/zero-base-target', _R601_HEAVY_READ_TIMEOUT_MS)
+    .then(function (d) {
     window._zbInFlight = null; window._zbData = d;
     renderZeroBaseTarget(d); return d;
   }).catch(function () {
@@ -32620,7 +33248,8 @@ function _rsSigned(v) {
 
 function loadPortfolioReassessment() {
   if (window._reassessInFlight) return window._reassessInFlight;
-  var p = _mhzGet('/v1/operations/portfolio-reassessment').then(function (d) {
+  var p = _mhzGet('/v1/operations/portfolio-reassessment', _R601_HEAVY_READ_TIMEOUT_MS)
+    .then(function (d) {
     window._reassessInFlight = null;
     window._reassessData = d;
     renderPortfolioReassessment(d);
@@ -32900,9 +33529,9 @@ function loadReassessmentOutcomes() {
   // rather than a bare fetch wrapper: the Portfolio Manager fires its loaders
   // fire-and-forget inside try/catch, so a ReferenceError here is swallowed silently and
   // the card stays on "Loading..." forever with an empty console.
-  return _mhzGet('/v1/research/reassessment-outcomes').then(function (d) {
+  return _mhzGet('/v1/research/reassessment-outcomes', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     renderReassessmentOutcomes(d);
-    return _mhzGet('/v1/research/reassessment-outcomes/history?limit=200')
+    return _mhzGet('/v1/research/reassessment-outcomes/history?limit=200', _R601_HEAVY_READ_TIMEOUT_MS)
       .then(function (h) { renderOutcomeHistory(h); return d; })
       .catch(function () { renderOutcomeHistory(null); return d; });
   }).catch(function () { renderReassessmentOutcomes(null); return null; });
@@ -33070,7 +33699,7 @@ function renderOutcomeHistory(h) {
 window.renderOutcomeHistory = renderOutcomeHistory;
 
 function loadRebalanceExecutionLineage() {
-  return _mhzGet('/v1/operations/rebalance/execution-lineage').then(function (d) {
+  return _mhzGet('/v1/operations/rebalance/execution-lineage', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     renderRebalanceExecutionLineage(d); return d;
   }).catch(function () { renderRebalanceExecutionLineage(null); return null; });
 }

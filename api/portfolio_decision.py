@@ -1073,7 +1073,23 @@ def record_target_selection(*, target: str, confirm: Optional[str],
 
     env = review_envelope or {}
     rev = env.get("review") or {}
-    selection_block = rev.get("target_selection") or {}
+    # R69.1 - read the RECONCILED option list, not the kernel's raw one.
+    #
+    # The review envelope carries the same three options twice. The kernel copy
+    # under ``review.target_selection`` holds no clock: it rules on obligations
+    # and economics, so it reports ``selectable: True`` even for a proposal bound
+    # to a session the workflow has long moved past. The freshness-reconciled copy
+    # is published at the top level (and under ``governance``) and is the one the
+    # browser renders.
+    #
+    # This gate read the kernel copy, so "backend-decided selectability" was
+    # decided by the one copy that cannot see the session. Nothing unsafe reached
+    # a write - the session-freshness guard below runs FIRST and fails closed -
+    # but a guard that disagrees with the surface it guards is a defect waiting
+    # for the day the order changes. It now reads what the operator was shown.
+    selection_block = (env.get("target_selection")
+                       or (env.get("governance") or {}).get("target_selection")
+                       or rev.get("target_selection") or {})
     options = {o.get("target"): o for o in (selection_block.get("options") or [])}
     if not options:
         return {**base, "status": TS_NO_REVIEW,

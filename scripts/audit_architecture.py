@@ -4079,9 +4079,15 @@ _S21_FIXTURE_INJECTIONS = (
 #: `apiGet` is not defined in that scope; because the Portfolio Manager fires its loaders
 #: fire-and-forget inside try/except, calling it left the card stuck on "Loading..."
 #: forever with an EMPTY console. Only a real browser could see it.
+#: R69 - matched WITHOUT the closing paren. The invariant is that these loaders go
+#: through the canonical helper (`_mhzGet`) and not through `apiGet`; the zero-argument
+#: form was incidental to how they happened to be written. Pinning the closing paren
+#: made the contract fail the moment a read was given an explicit timeout budget, which
+#: is a change the invariant has no opinion about. The helper and the route are still
+#: both required, so `apiGet('/v1/research/reassessment-outcomes')` still fails.
 _S21_UI_LOADER_CALLS = (
-    "_mhzGet('/v1/research/reassessment-outcomes')",
-    "_mhzGet('/v1/operations/rebalance/execution-lineage')",
+    "_mhzGet('/v1/research/reassessment-outcomes'",
+    "_mhzGet('/v1/operations/rebalance/execution-lineage'",
 )
 
 

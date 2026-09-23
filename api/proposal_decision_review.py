@@ -30,6 +30,7 @@ structured reason codes and authoritative backend facts.
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -48,7 +49,38 @@ ROUTE = "/v1/operations/proposal-decision-review"
 STATUS_OK = "OK"
 STATUS_NO_PROPOSAL = "NO_PROPOSAL"
 STATUS_UNAVAILABLE = "UNAVAILABLE"
-STATUS_VOCAB = (STATUS_OK, STATUS_NO_PROPOSAL, STATUS_UNAVAILABLE)
+#: R69 - a proposal that EXISTS but whose artifact does not carry the identity the
+#: read contract names is not an absent proposal, and saying "there is nothing to
+#: review" about a standing proposal is the worst answer this route can give. It
+#: is its own terminal status so an operator, and the acceptance gate, can tell the
+#: two apart.
+STATUS_IDENTITY_MISMATCH = "PROPOSAL_IDENTITY_MISMATCH"
+STATUS_VOCAB = (STATUS_OK, STATUS_NO_PROPOSAL, STATUS_UNAVAILABLE,
+                STATUS_IDENTITY_MISMATCH)
+
+#: The five states an operator surface must be able to tell apart, published as ONE
+#: field so no caller has to re-derive them from a status plus a freshness block.
+REVIEW_STATE_CURRENT = "COMPLETE_CURRENT"
+REVIEW_STATE_HISTORICAL = "COMPLETE_HISTORICAL"
+REVIEW_STATE_NO_PROPOSAL = "PROPOSAL_ABSENT"
+REVIEW_STATE_UNAVAILABLE = "PROPOSAL_PRESENT_REVIEW_UNAVAILABLE"
+REVIEW_STATE_MISMATCH = "PROPOSAL_REVIEW_IDENTITY_MISMATCH"
+REVIEW_STATE_VOCAB = (REVIEW_STATE_CURRENT, REVIEW_STATE_HISTORICAL,
+                      REVIEW_STATE_NO_PROPOSAL, REVIEW_STATE_UNAVAILABLE,
+                      REVIEW_STATE_MISMATCH)
+
+
+def _review_state(*, status: str, review: Optional[dict],
+                  governance: Optional[dict]) -> str:
+    """Collapse (status, review present, session freshness) into ONE named state."""
+    if status == STATUS_IDENTITY_MISMATCH:
+        return REVIEW_STATE_MISMATCH
+    if status == STATUS_NO_PROPOSAL:
+        return REVIEW_STATE_NO_PROPOSAL
+    if status != STATUS_OK or not review:
+        return REVIEW_STATE_UNAVAILABLE
+    return (REVIEW_STATE_CURRENT if bool((governance or {}).get("actionable"))
+            else REVIEW_STATE_HISTORICAL)
 
 #: The return panel is the one genuinely expensive input (it is the operational
 #: price panel the proposal itself was priced from). It is memoised by the exact
@@ -56,6 +88,29 @@ STATUS_VOCAB = (STATUS_OK, STATUS_NO_PROPOSAL, STATUS_UNAVAILABLE)
 #: re-reads it, and a different proposal can never be served another's returns.
 _LOCK = threading.Lock()
 _RETURNS_MEMO: dict[str, Any] = {"key": None, "returns": None}
+
+#: Release 69 - the two OTHER expensive inputs of this read. Measured cold on the
+#: live book, one composition costs ~13.8s: the proposal payload 4.2s, the matured
+#: evidence 2.4s, the return panel 5.7s - and the kernel that does the actual
+#: reasoning costs 0.005s. The panel was already memoised; these two were re-read
+#: in full on every refresh, and re-read AGAIN by the standalone proposal and
+#: outcome routes the same screen calls. Memoising them here removes the redundant
+#: composition without introducing a second owner: each memo still holds exactly
+#: what its canonical owner returned.
+#:
+#: A memo is used ONLY on the live default read path. The instant a caller injects
+#: a payload, a loader, a store directory or a clock, the memo is bypassed - so a
+#: fixture stays hermetic and two tests can never see each other's state.
+#:
+#: Staleness is bounded TWICE. The payload memo is validated against the immutable
+#: artifact index, so a NEW proposal invalidates it immediately; the TTL is the
+#: backstop for a session rollover, which ``_governance`` independently catches by
+#: comparing the bound session with the live latest session - a review bound to a
+#: session the workflow has moved past is returned NOT actionable. A memoised
+#: review can therefore never be served as actionable when it is stale.
+_PAYLOAD_MEMO: dict[str, Any] = {"key": None, "payload": None, "at": 0.0}
+_EVIDENCE_MEMO: dict[str, Any] = {"key": None, "evidence": None, "at": 0.0}
+MEMO_TTL_SECONDS = 90.0
 
 
 def _now_iso(now: Optional[datetime] = None) -> str:
@@ -146,10 +201,74 @@ def _memoised_returns(*, key: Optional[str], tickers: list, as_of: str, lookback
     return got
 
 
+def _current_proposal_id(*, active_book_id, eligible_market_date,
+                         reallocation_dir=None) -> Optional[str]:
+    """The identity of the standing artifact, read from the index alone (~2ms).
+
+    This is the cheap probe that makes the payload memo exact rather than merely
+    time-bounded: if the Daily Research Cycle has persisted a different proposal,
+    the id changes and the memo is dropped on the very next read.
+    """
+    try:
+        from paper_trader.api import reallocation_proposal as rp
+        art = rp.load_latest_artifact(active_book_id=active_book_id,
+                                      eligible_market_date=eligible_market_date,
+                                      reallocation_dir=reallocation_dir)
+        return (art or {}).get("proposal_id")
+    except Exception:  # noqa: BLE001 - a probe never breaks the read it guards
+        return None
+
+
+def _memoised_payload(*, live: bool, loader: Callable, reallocation_dir,
+                      **kw) -> tuple:
+    """(payload, memo_state). ``memo_state`` is published, never hidden."""
+    if not live:
+        return loader(reallocation_dir=reallocation_dir, **kw), "BYPASS"
+    with _LOCK:
+        key, payload, at = (_PAYLOAD_MEMO["key"], _PAYLOAD_MEMO["payload"],
+                            _PAYLOAD_MEMO["at"])
+    if key and payload is not None and (time.monotonic() - at) < MEMO_TTL_SECONDS:
+        book_id, eligible, proposal_id = key
+        if _current_proposal_id(active_book_id=book_id, eligible_market_date=eligible,
+                                reallocation_dir=reallocation_dir) == proposal_id:
+            return payload, "HIT"
+    payload = loader(reallocation_dir=reallocation_dir, **kw)
+    art = (payload or {}).get("artifact") or {}
+    book_id = ((payload or {}).get("active_book") or {}).get("book_id")
+    eligible = (payload or {}).get("eligible_market_date")
+    proposal_id = art.get("proposal_id")
+    if proposal_id:
+        with _LOCK:
+            _PAYLOAD_MEMO["key"] = (book_id, eligible, proposal_id)
+            _PAYLOAD_MEMO["payload"] = payload
+            _PAYLOAD_MEMO["at"] = time.monotonic()
+    return payload, "MISS"
+
+
+def _memoised_evidence(*, live: bool, loader: Callable, active_book_id,
+                       outcome_dir) -> tuple:
+    """(evidence, memo_state). TTL-bounded: matured evidence changes by the day."""
+    if not live:
+        return loader(active_book_id=active_book_id, outcome_dir=outcome_dir), "BYPASS"
+    with _LOCK:
+        key, evidence, at = (_EVIDENCE_MEMO["key"], _EVIDENCE_MEMO["evidence"],
+                             _EVIDENCE_MEMO["at"])
+    if key == active_book_id and evidence is not None             and (time.monotonic() - at) < MEMO_TTL_SECONDS:
+        return evidence, "HIT"
+    evidence = loader(active_book_id=active_book_id, outcome_dir=outcome_dir)
+    with _LOCK:
+        _EVIDENCE_MEMO["key"] = active_book_id
+        _EVIDENCE_MEMO["evidence"] = evidence
+        _EVIDENCE_MEMO["at"] = time.monotonic()
+    return evidence, "MISS"
+
+
 def reset_cache() -> None:
-    """Drop the memoised return panel (tests / a deliberate refresh)."""
+    """Drop every memoised input (tests / a deliberate refresh)."""
     with _LOCK:
         _RETURNS_MEMO["key"], _RETURNS_MEMO["returns"] = None, None
+        _PAYLOAD_MEMO["key"], _PAYLOAD_MEMO["payload"], _PAYLOAD_MEMO["at"] = None, None, 0.0
+        _EVIDENCE_MEMO["key"], _EVIDENCE_MEMO["evidence"], _EVIDENCE_MEMO["at"] = None, None, 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -217,6 +336,9 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "route": ROUTE,
         "status": status,
         "status_vocabulary": list(STATUS_VOCAB),
+        "review_state": _review_state(status=status, review=review,
+                                      governance=governance),
+        "review_state_vocabulary": list(REVIEW_STATE_VOCAB),
         "generated_at": generated_at,
         "message": message,
         "active_book": p.get("active_book") or {},
@@ -246,6 +368,26 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "actionable": bool((governance or {}).get("actionable")),
         "target_selection": ((governance or {}).get("target_selection")
                              or (review or {}).get("target_selection") or {}),
+        # R69.1 - say OUT LOUD which copy of the option list is authoritative.
+        #
+        # This envelope carries the same three options twice: the kernel's copy
+        # under ``review.target_selection``, which holds no clock and therefore
+        # always reports ``selectable: True``, and the freshness-reconciled copy
+        # here and under ``governance``. A reader that picked the kernel copy got
+        # a proposal bound to a session the workflow had moved past, presented as
+        # selectable. One already had - the write gate in api.portfolio_decision.
+        #
+        # The kernel copy is NOT reconciled in place on purpose: ``review_hash``
+        # is computed over ``review``, a governed selection binds that hash, and
+        # folding a clock into it would make the review's identity change with the
+        # calendar rather than with its inputs.
+        "selectability_authority": "target_selection",
+        "selectability_authority_doc": (
+            "Read selectability from the top-level 'target_selection' (identical to "
+            "governance.target_selection). 'review.target_selection' is the kernel's "
+            "pre-freshness copy, kept byte-stable because review_hash is computed over "
+            "it; it reports selectability BEFORE session freshness is applied and must "
+            "not be used to decide whether a target may be selected."),
         "selection": (governance or {}).get("selection"),
         "review_policy_version": REVIEW_POLICY_VERSION,
         "repair_scope_version": REPAIR_SCOPE_VERSION,
@@ -298,9 +440,21 @@ def load_proposal_decision_review(
     a hermetic world without touching a store.
     """
     generated_at = _now_iso(now)
+    _t0 = time.monotonic()
+    # R69 - the memo serves the LIVE default read only. Any injected payload,
+    # loader, store directory or clock bypasses it (see the memo declarations).
+    _payload_live = (proposal_payload is None and proposal_loader is None
+                     and portfolio_state is None and portfolio_state_loader is None
+                     and reallocation_dir is None and reassessment_dir is None
+                     and drc_dir is None and decision_dir is None and now is None)
+    payload_memo = "INJECTED"
     try:
-        payload = proposal_payload if proposal_payload is not None else (
-            proposal_loader or _default_proposal_loader)(
+        if proposal_payload is not None:
+            payload = proposal_payload
+        else:
+            payload, payload_memo = _memoised_payload(
+                live=_payload_live,
+                loader=(proposal_loader or _default_proposal_loader),
                 portfolio_state=portfolio_state, reallocation_dir=reallocation_dir,
                 reassessment_dir=reassessment_dir, drc_dir=drc_dir,
                 decision_dir=decision_dir, now=now,
@@ -317,6 +471,7 @@ def load_proposal_decision_review(
     identity = dict(art_meta.get("identity") or {})
 
     artifact = None
+    identity_mismatch = False
     if proposal is None and art_meta.get("proposal_id"):
         try:
             artifact = (artifact_loader or _default_artifact_loader)(
@@ -330,9 +485,22 @@ def load_proposal_decision_review(
             proposal = artifact.get("proposal")
             identity = dict(artifact.get("identity") or identity)
         else:
+            identity_mismatch = bool(artifact and artifact.get("proposal_id")
+                                     and artifact.get("proposal_id")
+                                     != art_meta.get("proposal_id"))
             artifact = None
 
     if not proposal:
+        if identity_mismatch:
+            return _envelope(
+                status=STATUS_IDENTITY_MISMATCH, generated_at=generated_at,
+                proposal_payload=payload,
+                message=("A reallocation proposal is present for the active book, but "
+                         "the persisted artifact does not carry the proposal identity "
+                         "the read contract names (%s). The review is withheld rather "
+                         "than adjudicating one proposal and labelling it another. "
+                         "Nothing is fabricated."
+                         % (art_meta.get("proposal_id") or "unknown")))
         return _envelope(
             status=STATUS_NO_PROPOSAL, generated_at=generated_at,
             proposal_payload=payload,
@@ -352,12 +520,15 @@ def load_proposal_decision_review(
     used_hoc_hash = (hoc_assessment or {}).get("assessment_hash")
 
     # --- the matured decision evidence ----------------------------------------- #
+    evidence_memo = "INJECTED"
     if outcome_evidence is None:
         try:
-            outcome_evidence = (evidence_loader or _default_evidence_loader)(
+            outcome_evidence, evidence_memo = _memoised_evidence(
+                live=(evidence_loader is None and outcome_dir is None),
+                loader=(evidence_loader or _default_evidence_loader),
                 active_book_id=book_id, outcome_dir=outcome_dir)
         except Exception:  # noqa: BLE001
-            outcome_evidence = None
+            outcome_evidence, evidence_memo = None, "UNAVAILABLE"
 
     # --- the owned returns behind the ONE covariance kernel --------------------- #
     policy = kernel.review_policy(proposal)
@@ -401,6 +572,17 @@ def load_proposal_decision_review(
             "return_panel_owner": "api.price_panel",
             "covariance_lookback": policy.get("covariance_lookback"),
             "tickers_priced": len(tickers),
+            # R69 - the composition is OBSERVABLE. An operator (and an acceptance
+            # test) can see which inputs were recomputed and which were reused,
+            # and how long the whole read took. A memo that cannot be seen is a
+            # memo that hides a regression.
+            "composition": {
+                "proposal_payload": payload_memo,
+                "outcome_evidence": evidence_memo,
+                "return_panel": returns_state,
+                "memo_ttl_seconds": MEMO_TTL_SECONDS,
+                "compose_ms": int(round((time.monotonic() - _t0) * 1000)),
+            },
         },
         message=("Proposal decision review for %s (%s). Recommended review path: %s. "
                  "Manual review only - it approves nothing, creates no order plan and "
@@ -454,4 +636,5 @@ __all__ = [
     "REVIEW_POLICY_VERSION", "REPAIR_SCOPE_VERSION", "ROUTE",
     "STATUS_OK", "STATUS_NO_PROPOSAL", "STATUS_UNAVAILABLE", "STATUS_VOCAB",
     "load_proposal_decision_review", "load_review_summary", "reset_cache",
+    "STATUS_IDENTITY_MISMATCH", "REVIEW_STATE_VOCAB", "MEMO_TTL_SECONDS",
 ]

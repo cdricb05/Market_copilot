@@ -74,12 +74,31 @@ RB_UNAVAILABLE = "REBALANCE_UNAVAILABLE"
 #: faithfully implement the target lands HERE, never in RB_PLAN_REVIEW_REQUIRED.
 RB_BLOCKED_MARKS = "ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS"
 RB_BLOCKED_INCOMPLETE = "ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET"
+#: R69.1 FAIL-CLOSED. This owner reconciles the desk against the proposal artifact's
+#: ``allocations`` - that is, against the FULL TARGET, and only ever against the full
+#: target. The R63 governed selection lets an operator choose CURRENT or
+#: MINIMUM_REPAIR instead, and those targets have no allocation list in the artifact:
+#: the minimum repair is computed inside the (unpersisted) review projection.
+#:
+#: So an approved MINIMUM_REPAIR selection used to yield an order plan for the full
+#: target - 20 names and 35% turnover in place of the 14 names and 21% the operator
+#: chose. The plan was internally consistent and completely wrong.
+#:
+#: Rather than let this owner implement a target it does not hold, it refuses. The
+#: selected target is named, the mismatch is explained, and no confirmable plan is
+#: produced. Building an executable plan for a non-full target needs an owner for
+#: those weights and is deliberately NOT invented here.
+RB_SELECTED_TARGET_NOT_IMPLEMENTABLE = "ORDER_PLAN_BLOCKED_SELECTED_TARGET_NOT_IMPLEMENTABLE"
 STATE_VOCAB = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED, RB_STALE,
                RB_PLAN_REVIEW_REQUIRED, RB_PLAN_CONFIRMED, RB_EXECUTED, RB_NO_CHANGES,
-               RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE)
+               RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE,
+               RB_SELECTED_TARGET_NOT_IMPLEMENTABLE)
 #: The states in which NO order plan may ever be confirmed.
 NON_CONFIRMABLE_STATES = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED,
-                          RB_STALE, RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE)
+                          RB_STALE, RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE,
+                          RB_SELECTED_TARGET_NOT_IMPLEMENTABLE)
+#: The ONE target this owner can implement, because it is the one the artifact carries.
+IMPLEMENTABLE_TARGET = "FULL_TARGET"
 
 # --- Confirm-status codes returned by confirm_rebalance_order_plan ----------------- #
 C_CONFIRM_REQUIRED = "ORDER_PLAN_CONFIRMATION_REQUIRED"
@@ -456,6 +475,31 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
                 "current_proposal_hash": current_hash,
                 "message": ("The proposal changed since it was approved; a fresh review + "
                             "approval is required before an order plan can be built.")}
+
+    # Gate 2b (R69.1): the plan below implements the artifact's allocations - the FULL
+    # TARGET. If the operator's governed selection named a different target, this owner
+    # cannot implement what they chose, and must not hand them the full target's orders
+    # under the approval they gave to something else.
+    _sel = pdec.load_target_selection(
+        active_book_id=bound["active_book_id"],
+        eligible_market_date=bound["eligible_market_date"],
+        decision_dir=decision_dir)
+    _sel_target = (_sel or {}).get("selected_target")
+    if _sel_target is not None and _sel_target != IMPLEMENTABLE_TARGET:
+        return {"state": RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, "bound": bound,
+                "selection": _sel,
+                "selected_target": _sel_target,
+                "implementable_target": IMPLEMENTABLE_TARGET,
+                "next_required_action": "SELECT_FULL_TARGET_OR_RUN_PORTFOLIO_CYCLE",
+                "message": (
+                    "The governed selection for this session is %s, but the order-plan "
+                    "owner can only build a plan from the proposal artifact's "
+                    "allocations, which describe the FULL TARGET. Producing the full "
+                    "target's orders here would execute a target the operator did not "
+                    "select. No order plan is offered and nothing was written. Either "
+                    "select the full target and approve that, or run the portfolio "
+                    "cycle for a proposal whose standing target is the one you want."
+                    % _sel_target)}
 
     # Current desk state (corporate-action corrected holdings / cash / NAV).
     view = _current_desk_view(desk_dir, actions_dir, corporate_actions)
@@ -939,6 +983,13 @@ _PRIMARY_ACTION = {
                        "path": "POST /v1/operations/rebalance/refresh-target-marks"},
     RB_BLOCKED_INCOMPLETE: {"label": "Run the Daily Research Cycle for a fresh proposal",
                             "path": "POST /v1/operations/daily-research-cycle/run"},
+    # R69.1 — the operator selected a target this owner cannot build. The ONE way
+    # forward is a governed re-selection of the target the artifact carries; the
+    # path is the SELECTION route, never a confirm route, because nothing about
+    # this state is confirmable.
+    RB_SELECTED_TARGET_NOT_IMPLEMENTABLE: {
+        "label": "Select the full target, or run the portfolio cycle",
+        "path": "POST /v1/operations/portfolio-decision/select-target"},
 }
 
 
@@ -1142,7 +1193,10 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
              RB_NO_CHANGES: "Holdings already match the approved target",
              RB_UNAVAILABLE: "Rebalance state unavailable",
              RB_BLOCKED_MARKS: "ORDER PLAN BLOCKED — owned marks required",
-             RB_BLOCKED_INCOMPLETE: "ORDER PLAN BLOCKED — incomplete target"}.get(state, state)
+             RB_BLOCKED_INCOMPLETE: "ORDER PLAN BLOCKED — incomplete target",
+             RB_SELECTED_TARGET_NOT_IMPLEMENTABLE:
+                 "ORDER PLAN BLOCKED — the selected target is not the one this "
+                 "owner can build"}.get(state, state)
 
     # Stage 19.2: executability is a property of the PLAN, never of the state name alone.
     # The August-12 defect was precisely a state-derived `True` sitting on top of a plan
@@ -1195,6 +1249,13 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         # Stage 19.1 — why a proposal is stale, and the explicit executability contract.
         "stale_reason": base.get("stale_reason"),
         "corporate_action_staleness": base.get("corporate_action_staleness"),
+        # R69.1 — the governed selection this plan does or does not implement,
+        # published at the TOP level so an operator surface never has to infer
+        # from a state name WHICH target it is looking at.
+        "selection": base.get("selection"),
+        "selected_target": base.get("selected_target"),
+        "implementable_target": base.get("implementable_target"),
+        "next_required_action": base.get("next_required_action"),
         "order_plan_buildable": buildable,
         "confirmation_available": buildable and bool((plan or {}).get("orders")),
         # --- Stage 19.2 fail-closed contract, surfaced at the TOP level so no operator

@@ -864,8 +864,18 @@ class TestSafetyAndOwnership:
         # the browser reads the backend's verdict; it never computes one
         assert "o.selectable" in ui
         assert "obligations_left_open_by_full_target" not in ui
-        # and the forbidden dialogs are absent from the selection path
-        block = ui[ui.index("function _pdrSelBtn"):ui.index("function _pdrRender")]
+        # and the forbidden dialogs are absent from the selection path.
+        #
+        # R69.1 - this slice used to end at "function _pdrRender", which R69's new
+        # "function _pdrRenderLoading" matches as a PREFIX. That loading skeleton is
+        # defined ABOVE _pdrSelBtn, so str.index returned the earlier offset, the
+        # slice inverted to the empty string, and this assertion passed while
+        # testing nothing at all. The end anchor now carries the signature, so it
+        # can only match the real definition.
+        start, end = ui.index("function _pdrSelBtn"), ui.index("function _pdrRender(d, err)")
+        assert start < end, "the selection-path slice must not be empty"
+        block = ui[start:end]
+        assert len(block) > 2000, "the slice must actually cover the selection path"
         assert "alert(" not in block and "confirm(" not in block
 
     def test_83b_a_non_selectable_option_carries_no_path_to_the_write(self):
@@ -900,7 +910,9 @@ class TestSafetyAndOwnership:
         ui = (ROOT / "api" / "ui" / "index.html").read_text(
             encoding="utf-8", errors="replace")
         assert "function _pdrFreshnessLine" in ui
-        render = ui[ui.index("function _pdrRender"):]
+        # R69.1 - anchored on the signature; "function _pdrRender" alone also
+        # matches "function _pdrRenderLoading", which is defined earlier.
+        render = ui[ui.index("function _pdrRender(d, err)"):]
         assert render.index("_pdrFreshnessLine(d)") < render.index("pdr-states"), (
             "the actionability line must render BEFORE the three-state comparison")
         assert "NEXT REQUIRED ACTION" in ui
