@@ -237,7 +237,17 @@ def heartbeat(*, runs: Optional[dict] = None) -> dict:
                         "last_detail": st.get("detail"),
                         "blocked_on": st.get("blocked_on"),
                         "frozen": st.get("frozen"),
-                        "duration_ms": st.get("duration_ms")}
+                        "duration_ms": st.get("duration_ms"),
+                        # WHAT IS DUE NEXT, and what was permanently lost. This
+                        # extraction is an ALLOW-LIST too, and leaving these out
+                        # reproduced the defect one layer up: the journal
+                        # carried next_boundaries and the health read dropped it
+                        # again, so the operator-facing answer was still None
+                        # while the fact sat on disk.
+                        "next_boundaries": st.get("next_boundaries"),
+                        "missed_boundaries": st.get("missed_boundaries"),
+                        "forward_panel_last_session":
+                            st.get("forward_panel_last_session")}
         out[stage] = seen or {
             "last_run_id": None, "last_run_started_utc": None,
             "last_stage_state": None,

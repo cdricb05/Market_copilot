@@ -561,6 +561,34 @@ def test_the_journal_carries_what_is_due_next_and_what_was_lost():
         assert field in _RT._JOURNAL_STAGE_FIELDS, field
 
 
+def test_the_next_due_decision_survives_the_whole_read_path():
+    """END TO END from a REAL journal record, because the halves each passed.
+
+    MEASURED: the journal allow-list was fixed, a live cycle wrote
+    next_boundaries, and the operator-facing answer was STILL None - because
+    heartbeat() builds its own explicit dict and dropped the field again. Two
+    allow-lists, one layer apart, and a test that injected the beat directly
+    proved only that the second half worked. This drives the real journal shape
+    through both.
+    """
+    runs = {"runs": [{
+        "run_id": "r52run_20260923T161111Z",
+        "started_utc": "2026-09-23T16:11:11Z",
+        "stages": [{"stage": "r58_cadence_prospective_decision",
+                    "state": "NOT_DUE",
+                    "advance_state": "R58_BOUNDARY_BEYOND_THE_FREEZE_LEAD",
+                    "next_boundaries": ["2026-10-09"],
+                    "missed_boundaries": [],
+                    "forward_panel_last_session": "2026-09-22"}]}]}
+    beat = FPH.heartbeat(runs=runs)["stages"]["r58_cadence_prospective_decision"]
+    assert beat["next_boundaries"] == ["2026-10-09"], beat
+    assert beat["forward_panel_last_session"] == "2026-09-22"
+    st = FPH.lifecycle_state({"challenger_id": "R58_FCF_PURE_V1",
+                              "predictions_emitted": 1}, beat=beat)
+    assert st["next_decision_session"] == "2026-10-09"
+    assert st["next_decision_session_source"] == "PRODUCER_HEARTBEAT"
+
+
 def test_the_next_due_decision_is_reported_for_every_active_strategy(stores):
     """Section 4's requirement, and why it needs the producer's own answer.
 
