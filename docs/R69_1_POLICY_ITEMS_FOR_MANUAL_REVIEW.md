@@ -3,6 +3,23 @@
 Neither item was changed by this release. No threshold, score, obligation or
 historical proposal economic was altered. Both need an operator decision.
 
+> **Status after R69.2 (2026-09-24)**
+>
+> * **Item 1 (the dynamic risk-contribution denominator) is still OPEN.** R69.2
+>   changed no threshold and no basis. It made the effect VISIBLE instead:
+>   the selected-target panel now publishes the before and after limits, the
+>   covariance-universe size on both sides, risk on both the invested and the
+>   capital basis, concentration, and names every breach that closed while its
+>   position did not move. On 2026-09-22 that is AMD 14.98% → 20.73% and DDOG
+>   13.87% → 20.65% at unchanged weights. The operator decision below is
+>   unchanged and still theirs to make.
+> * **Item 2 (a selected MINIMUM_REPAIR has no implementable order plan) is
+>   RESOLVED.** `engine.selected_target` is the owner those weights lacked;
+>   `api.portfolio_decision` freezes the complete book into the governed
+>   selection, and `api.rebalance_execution` builds the order plan from it. The
+>   sentence "the minimum repair is reviewable and selectable but not
+>   executable" at the end of §2 no longer describes the system.
+
 ---
 
 ## 1. The risk-contribution cap has a dynamic denominator (P0-D)
@@ -105,25 +122,43 @@ changes / 35.0% turnover / $86.36, in place of the 14 names / 11 changes / 21.1%
 turnover / $52.01 the operator selected. The plan was internally consistent and
 bound the right proposal hash. It was simply a different target.
 
-### What this release did about it
+### What R69.1 did about it
 
-Failed closed, and nothing more. `load_rebalance_state` now returns
-`ORDER_PLAN_BLOCKED_SELECTED_TARGET_NOT_IMPLEMENTABLE`, names the selected
-target, offers **no** confirmable plan, and routes the operator to a governed
-re-selection. `tests/test_r69_1_governed_selection_e2e.py::test_20/21` are the
-regression; `test_22/23` prove the FULL_TARGET and no-selection paths are
-unchanged.
+Failed closed, and nothing more. `load_rebalance_state` returned
+`ORDER_PLAN_BLOCKED_SELECTED_TARGET_NOT_IMPLEMENTABLE`, named the selected
+target, offered **no** confirmable plan, and routed the operator to a governed
+re-selection.
 
-### The question for the operator
+R69.2 moved that refusal EARLIER still. A selection that carries no implementable
+book is now refused at the APPROVAL gate (`SELECTED_TARGET_NOT_IMPLEMENTABLE`),
+because R69.1 let the operator be told their choice was approved and only
+refused three steps later. The blocked order-plan state survives for the cases
+that remain genuinely unimplementable: a CURRENT selection, a target whose
+weights the review could not publish, and any selection recorded before R69.2.
+`tests/test_r69_2_selected_target_lifecycle.py` is the regression for the whole
+path.
+
+### The question for the operator — ANSWERED BY R69.2
 
 Building a real minimum-repair order plan needs an **owner for the repaired
-book's weights**. They exist today only inside the review *projection*
-(`review.repair.weight_ceilings` + adjustments), which is recomputed on every
-read and never persisted; the selection record freezes the repair's *economics*
-but not its weight vector.
+book's weights**. They existed only inside the review *projection*
+(`review.states.MINIMUM_REPAIR.weights`), which is recomputed on every read and
+never persisted; the selection record froze the repair's *economics* but not its
+weight vector.
 
-That is a genuine design decision — which artifact owns an implementable
-non-full target, and how its identity is bound to the approval — and it belongs
-in its own release with its own governance, not in a UI repair. Until then, the
-minimum repair is reviewable and selectable but **not executable**, and the
-system now says so instead of executing something else.
+R69.2 gave them that owner. `engine.selected_target` builds one immutable,
+implementable representation per target — reading every weight and every
+economic verbatim from the review, taking each allocation row's instrument
+metadata from the proposal artifact's own row, and labelling each row's action
+with `engine.reallocation_proposal`'s own `reoptimised_action`. It is not an
+optimiser: it computes no weight. The FULL TARGET keeps the artifact's
+allocation list verbatim, so no historical economic moved.
+
+`api.portfolio_decision` freezes that block into the governed selection, binding
+it to the proposal, the review, the opportunity-cost assessment, the portfolio
+state, the session, the book and the selection id. `api.rebalance_execution`
+builds the order plan from the frozen list. A MINIMUM_REPAIR selection now
+produces MINIMUM_REPAIR orders.
+
+What R69.2 did **not** do is touch item 1 above. The dynamic denominator is
+unchanged and still awaiting the operator decision on this page.

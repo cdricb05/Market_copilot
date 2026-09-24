@@ -227,9 +227,25 @@ class TestForbiddenBrowserAffordances(unittest.TestCase):
         self.assertNotIn("confirm(", arm)
 
     def test_43_approve_is_offered_only_after_a_selection_exists(self):
+        """R69.2 moved the rule out of an inline expression and into
+        ``_pdrApproveBlock``, which READS the backend's implementability verdict.
+
+        The property is unchanged and stronger: the control appears only once a
+        selection exists, never for CURRENT, and never for a target the backend
+        says carries no implementable book.
+        """
         result = _slice(_ui(), "function _pdrSelectionResult", "function _pdrApproveCta")
-        self.assertIn("canApprove", result)
-        self.assertIn("actionable && sel.selected_target !== 'CURRENT'", result)
+        self.assertIn("_pdrApproveBlock(d, sel)", result)
+        self.assertNotIn("_pdrApproveCta(", result,
+                         "the CTA must not be reachable without the gate")
+
+        gate = _slice(_ui(), "function _pdrApproveBlock", "function _pdrTargetRows")
+        self.assertIn("if (!t) return '';", gate)          # no selection -> nothing
+        self.assertIn("if (t === 'CURRENT')", gate)        # defer -> nothing
+        self.assertIn("sel.implementable === false", gate)  # backend's verdict
+        self.assertIn("f.actionable === false", gate)      # historical -> nothing
+        self.assertNotIn("confirm(", gate)
+        self.assertNotIn("alert(", gate)
 
     def test_44_the_approve_control_states_it_creates_no_order(self):
         cta = _slice(_ui(), "function _pdrApproveCta", "function _pdrSelClear")
@@ -464,13 +480,18 @@ class TestOrderPlanCannotImplementAnUnselectedTarget(unittest.TestCase):
         self.assertIn(rbx.RB_SELECTED_TARGET_NOT_IMPLEMENTABLE,
                       rbx.NON_CONFIRMABLE_STATES)
 
-    def test_71_only_the_full_target_is_implementable(self):
+    def test_71_the_artifact_target_is_still_named_full_target(self):
+        """R69.2 - ``IMPLEMENTABLE_TARGET`` no longer means "the only one we can
+        build". It names the target the ARTIFACT itself carries, which stays the
+        default for a decision recorded before R69.2."""
         self.assertEqual(rbx.IMPLEMENTABLE_TARGET, "FULL_TARGET")
+        self.assertIn(rbx.TARGET_SOURCE_SELECTED_FROZEN, rbx.TARGET_SOURCE_VOCAB)
+        self.assertIn(rbx.TARGET_SOURCE_LEGACY_NO_SELECTION, rbx.TARGET_SOURCE_VOCAB)
 
     def test_72_the_gate_sits_before_the_plan_is_built(self):
         src = (ROOT / "api" / "rebalance_execution.py").read_text(
             encoding="utf-8", errors="replace")
-        self.assertLess(src.index("RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, \"bound\""),
+        self.assertLess(src.index('if not _spec["implementable"]:'),
                         src.index("plan = _reconcile_order_plan("),
                         "the refusal must precede plan construction")
 
@@ -482,11 +503,31 @@ class TestOrderPlanCannotImplementAnUnselectedTarget(unittest.TestCase):
     def test_74_the_refusal_names_the_selected_target(self):
         src = (ROOT / "api" / "rebalance_execution.py").read_text(
             encoding="utf-8", errors="replace")
-        block = src[src.index("RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, \"bound\""):]
+        block = src[src.index('if not _spec["implementable"]:'):]
         block = block[:block.index("# Current desk state")]
-        self.assertIn('"selected_target": _sel_target', block)
-        self.assertIn("The governed selection for this session is %s", block)
-        self.assertIn("nothing was written", block)
+        self.assertGreater(len(block), 400, "the refusal slice must not be empty")
+        self.assertIn('"selected_target": _sel_target or _spec.get("target")', block)
+        self.assertIn("No order plan can be built for this approval.", block)
+        self.assertIn("no other target was substituted", block)
+
+    def test_75_the_plan_never_reads_the_artifact_allocations_behind_the_spec(self):
+        """R69.2 - ONE function answers "which target", and every consumer takes
+        that answer. Four of five used to read the artifact independently."""
+        src = (ROOT / "api" / "rebalance_execution.py").read_text(
+            encoding="utf-8", errors="replace")
+        body = _slice(src, "def _reconcile_order_plan(",
+                      "# Read contract (Workstream H)")
+        self.assertGreater(len(body), 5000, "the reconciliation slice must not be empty")
+        self.assertIn('allocs = spec.get("allocations")', body)
+        # The ONLY artifact read left is the explicit, documented fallback for a
+        # caller that passes no spec.
+        self.assertEqual(body.count('prop.get("allocations")'), 1,
+                         "the reconciliation must take its target from the spec")
+
+    def test_76_a_selection_revised_after_approval_has_its_own_state(self):
+        self.assertIn(rbx.RB_SELECTION_SUPERSEDED, rbx.STATE_VOCAB)
+        self.assertIn(rbx.RB_SELECTION_SUPERSEDED, rbx.NON_CONFIRMABLE_STATES)
+        self.assertIsNotNone(rbx._PRIMARY_ACTION.get(rbx.RB_SELECTION_SUPERSEDED))
 
 
 class TestSourceSliceAnchorsAreUnambiguous(unittest.TestCase):
@@ -523,7 +564,15 @@ class TestSourceSliceAnchorsAreUnambiguous(unittest.TestCase):
                        "function _pdrSelClear", "function _pdrStatusBar",
                        "function _pdrStaleExplainer", "function _pdrMore(",
                        "function _pdrArmApprove", "window._pdrArmApprove",
-                       "function _pdrAudit", "function _r47Num", RENDER):
+                       "function _pdrAudit", "function _r47Num", RENDER,
+                       # R69.2 anchors. Every one of them carries a distinct
+                       # suffix on purpose: `_pdrApprove` alone is a prefix of
+                       # five functions, and a prefix anchor is exactly the trap
+                       # that hid a vacuous guard for a whole release.
+                       "function _pdrApproveBlock", "function _pdrApproveResult",
+                       "function _pdrApproveSetUi", "function _pdrApproveClear",
+                       "function _pdrTargetRows", "function _pdrRiskContribution",
+                       "function _pdrSelectedTarget", "function _pdrImplLine"):
             self.assertEqual(src.count(anchor), 1, "ambiguous anchor: %s" % anchor)
 
     def test_93_the_r63_guard_now_slices_real_source(self):

@@ -785,7 +785,17 @@ def test_28_no_new_route_and_no_operator_date_field():
                   r"(?:^@app\.|^class )", app_src, re.S | re.M)
     body = m.group(1)
     fields = set(re.findall(r"^\s{4}(\w+)\s*:", body, re.M))
+    # THE invariant this test is named for: the operator may never hand the
+    # server a date or a session. Supersession and freshness are resolved from
+    # the stores, never from a request body.
+    assert not [f for f in fields
+                if re.search(r"date|session|as_of|asof", f)], fields
+    # R69.2 added the two GOVERNED SELECTION identities. They are identity
+    # bindings, not dates: the server still resolves the session, the proposal
+    # and the selection itself, and these only let it refuse a request whose
+    # operator was looking at something else.
     assert fields == {"decision", "confirmation", "expected_proposal_hash",
+                      "expected_selection_id", "expected_selected_target",
                       "requested_by"}
 
 

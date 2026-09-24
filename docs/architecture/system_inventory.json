@@ -4732,6 +4732,36 @@
    "notes": "The last mile BEFORE the Approve gate: Paper Trader adjudicating its own proposal so an operator no longer has to combine the facts by hand and no language model is needed to interpret them. Two declared versions: REVIEW_POLICY_VERSION (proposal_decision_review_policy.v1) and REPAIR_SCOPE_VERSION (proposal_repair_scope.v1). The repair scope has two tiers, each owned elsewhere: HARD_CONSTRAINT_VIOLATION (the constraint kernel's own independent verifier, plus the risk-contribution contract for the one limit that verifier declares it cannot check) and GOVERNANCE_RETENTION_FAILURE (the opportunity-cost owner's BROKEN verdict). An obligation is judged satisfied on the RESULTING BOOK, never by matching trades, so a breach the target closes through composition counts and one it leaves open is reported. Fails CLOSED: a repair whose risk was never measured, or that cannot close every obligation, returns BLOCKED_CONSTRAINT_OR_DATA rather than a recommendation. Asset-agnostic - instrument metadata on the proposal rows drives caps, cross-asset groups and per-instrument cost rates, so a futures / FX / cash book is adjudicated by the same code. Review-only: approves nothing, creates no order plan, confirms nothing, executes nothing, promotes nothing and mutates no artifact."
   },
   {
+   "path": "engine/selected_target.py",
+   "system": "infrastructure",
+   "classification": "KEEP",
+   "target_owner": "engine/selected_target.py",
+   "duplicate_with": [],
+   "responsibility": "R69.2 CANONICAL SELECTED-TARGET REPRESENTATION: the ONE immutable, implementable description of a reviewed target (CURRENT / MINIMUM_REPAIR / FULL_TARGET) - every weight, every allocation row, every economic and the before/after risk-contribution comparison. It is NOT an optimiser and NOT a second review: every weight is READ VERBATIM from engine.proposal_decision_review states[target].weights, every economic is read verbatim from the same state, every allocation row's instrument metadata travels from the immutable proposal artifact's own row, and every row's ACTION label is re-derived by engine.reallocation_proposal's own public reoptimised_action. FULL_TARGET keeps the artifact's allocation list VERBATIM - the projection is proved equivalent to it by test rather than replacing it - so no historical economic can move. CURRENT is represented but declared NOT implementable (TARGET_IS_NO_CHANGE). It exists because the repaired book's weights previously lived only inside the review projection, were recomputed on every read and were persisted nowhere, so an approved MINIMUM_REPAIR produced the FULL TARGET's order plan. Pure: no I/O, no clock, no network, NO LLM; byte-stable for the same inputs, which is what lets a governed selection bind its identity.",
+   "direct_reads": [
+    "the proposal artifact and the review payload handed to it (no store access of its own)",
+    "engine.proposal_decision_review (every weight and every economic; review_policy, current_weights, target_weights) - reused",
+    "engine.reallocation_proposal.reoptimised_action (the canonical action label) - reused through that owner's public alias",
+    "engine.constrained_reallocation.stable_hash (the canonical identity hash) - reused"
+   ],
+   "direct_writes": [
+    "NOTHING. Pure function: no artifact, no index, no ledger, no PostgreSQL, no order / fill / target / holding / cash / NAV, no approval and no order plan."
+   ],
+   "endpoints": [],
+   "ui_consumers": [
+    "_pdrSelectedTarget",
+    "_pdrTargetRows",
+    "_pdrRiskContribution",
+    "_pdrImplLine"
+   ],
+   "tests": [
+    "tests/test_r69_2_selected_target_lifecycle.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "Composed by api.proposal_decision_review and published on the review ENVELOPE as 'selected_targets' - deliberately NOT inside 'review', because review_hash is computed over 'review' and a governed selection binds that hash. The block is bound all the same: it is a pure function of (proposal_hash, review_hash, target) and carries its own selected_target_implementation_hash. api.portfolio_decision freezes it into the immutable governed selection; api.rebalance_execution implements it. The risk-contribution comparison is DISPLAY ONLY: no threshold, basis or obligation is changed by this owner - see docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md."
+  },
+  {
    "path": "alpha_agent/agents_v2/leakage.py",
    "system": "research_os",
    "classification": "KEEP",

@@ -53,6 +53,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import reallocation_proposal as realloc
 from paper_trader.engine import constrained_reallocation as _cr
 from paper_trader.engine import holding_opportunity_cost as _hoc
+from paper_trader.engine import selected_target as _st
 
 PHASE = "STAGE18"
 OWNER = "api.portfolio_decision"
@@ -110,6 +111,19 @@ PDS_SESSION_STALE = "PROPOSAL_SESSION_STALE"
 #: R63 — the operator's governed selection for this session is CURRENT (keep the
 #: book). There is no target to approve; the no-change decision is the outcome.
 PDS_SELECTION_IS_NO_CHANGE = "SELECTED_TARGET_IS_NO_CHANGE"
+#: R69.2 — a NEW approval must name the target it approves. Before this release an
+#: APPROVE posted without a governed selection was recorded, and the order-plan
+#: owner then built the standing FULL TARGET for it: a missing choice silently
+#: became a choice. The proposal is unchanged and still fully readable; only an
+#: unattributed approval is refused. Decisions recorded BEFORE this release are
+#: untouched and stay readable, re-recordable and executable exactly as they were.
+PDS_TARGET_SELECTION_REQUIRED = "TARGET_SELECTION_REQUIRED"
+#: R69.2 — the operator selected a target that carries no implementable book (for
+#: example a minimum repair whose risk the review could never measure). It is
+#: refused HERE, before any approval exists, and the exact reason the selected
+#: target cannot be implemented is named. No approval, order plan or order is
+#: created, and no other target is substituted for the one that was chosen.
+PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE = "SELECTED_TARGET_NOT_IMPLEMENTABLE"
 #: R63 live integration — the proposal's own target still leaves a repair
 #: obligation open that engine.holding_opportunity_cost already RULED, or it
 #: predates the contract and carries no verdict at all. Either way the target
@@ -124,7 +138,9 @@ DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
     PDS_APPROVED, PDS_REJECTED, PDS_HELD, PDS_STALE, PDS_CHANGE_WITHHELD,
     PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_SESSION_STALE,
-    PDS_SELECTION_IS_NO_CHANGE, PDS_REPAIR_OBLIGATIONS_OPEN, PDS_UNAVAILABLE)
+    PDS_SELECTION_IS_NO_CHANGE, PDS_REPAIR_OBLIGATIONS_OPEN,
+    PDS_TARGET_SELECTION_REQUIRED, PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+    PDS_UNAVAILABLE)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
@@ -615,6 +631,7 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     portfolio_state: Optional[dict] = None,
                     portfolio_state_loader: Optional[Callable] = None,
                     expected_selection_id: Optional[str] = None,
+                    expected_selected_target: Optional[str] = None,
                     latest_session: Optional[str] = None,
                     workflow_state: Optional[dict] = None,
                     enforce_session_freshness: bool = True) -> dict:
@@ -815,6 +832,15 @@ def record_decision(*, decision: str, confirm: Optional[str],
         active_book_id=binding.get("active_book_id"),
         eligible_market_date=binding.get("eligible_market_date"),
         decision_dir=decision_dir)
+    # The decision already on file for this exact (book, session). Read here so the
+    # gates below can tell a NEW approval from a replay of one recorded earlier.
+    prior_decision = load_decision_record(
+        active_book_id=binding.get("active_book_id"),
+        eligible_market_date=binding.get("eligible_market_date"),
+        decision_dir=decision_dir)
+    replaying_prior = bool(prior_decision
+                           and prior_decision.get("proposal_hash") == current_hash
+                           and prior_decision.get("decision") == decision)
     if decision == DECISION_APPROVE and selection is not None:
         sb = selection.get("binding") or {}
         mismatches = [
@@ -822,6 +848,12 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 ("proposal_hash", sb.get("proposal_hash"), current_hash),
                 ("selection_id", expected_selection_id or sb.get("selection_id")
                  or selection.get("selection_id"), selection.get("selection_id")),
+                # R69.2 - the operator's browser says which target it was looking
+                # at. If the governed ledger holds a different one, the selection
+                # was revised under them and this approval would attach to a book
+                # they never saw.
+                ("selected_target", expected_selected_target,
+                 selection.get("selected_target")),
             ) if exp is not None and act is not None and exp != act]
         if mismatches:
             return {**base, "status": PDS_STALE, "binding": binding,
@@ -837,6 +869,31 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     "message": ("The governed selection for this session is CURRENT "
                                 "(keep the book unchanged). There is no target to "
                                 "approve; record the no-change decision instead.")}
+        # --- R69.2: a target with no implementable book is refused HERE --------- #
+        # Before approval, not after it, and never by offering another target in
+        # its place. The reason is the one engine.selected_target named.
+        impl_verdict = recorded_selection_implementability(selection)
+        if not impl_verdict["implementable"] and not replaying_prior:
+            reason = impl_verdict["reason"]
+            return {**base, "status": PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+                    "binding": binding, "selection": selection,
+                    "selected_target": selection.get("selected_target"),
+                    "not_implementable_reason": reason,
+                    "not_implementable_detail": impl_verdict["detail"],
+                    "not_implementable_vocabulary": list(
+                        _st.NOT_IMPLEMENTABLE_VOCAB),
+                    "current_proposal_hash": current_hash,
+                    "next_required_action": "SELECT_AN_IMPLEMENTABLE_TARGET",
+                    "message": (
+                        "The governed selection for this session is %s, and it "
+                        "carries no implementable book (%s). Approving it would "
+                        "record a decision no order plan could ever honour, and "
+                        "this gate will not substitute a different target for the "
+                        "one that was chosen. Nothing was written. Select a target "
+                        "the review publishes as implementable, or run the "
+                        "portfolio cycle for a fresh proposal."
+                        % (selection.get("selected_target"),
+                           reason or "reason not published by the review"))}
 
     # Stale guard: the operator must be approving the proposal they actually reviewed.
     if expected_proposal_hash is not None and expected_proposal_hash != current_hash:
@@ -861,6 +918,37 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 "stale_reason": ca_stale.get("reason"),
                 "corporate_action_staleness": ca_stale,
                 "current_proposal_hash": current_hash, "binding": binding}
+
+    # --- R69.2: a NEW approval must name the target it approves ---------------- #
+    # An APPROVE with no governed selection used to be recorded, and the order-plan
+    # owner then built the standing FULL TARGET for it. A missing choice became a
+    # choice, silently.
+    #
+    # It sits HERE, as the last gate before the write, for the same reason the
+    # session-freshness gate sits where it does: every refusal above is a property
+    # of the PROPOSAL itself - superseded, withheld, below the hurdle, immaterial,
+    # stale, corporate-action stale - and each of those is the more specific and
+    # more useful answer. Safety is identical either way, because all of them write
+    # nothing; nothing can reach a write without passing this.
+    #
+    # Scoped to APPROVE, and never to a replay: REJECT and HOLD stay available so
+    # an operator can always record a judgement on a proposal they cannot approve,
+    # and a decision recorded before this release stays readable and idempotently
+    # re-recordable exactly as it was.
+    if decision == DECISION_APPROVE and selection is None and not replaying_prior:
+        return {**base, "status": PDS_TARGET_SELECTION_REQUIRED, "binding": binding,
+                "current_proposal_hash": current_hash,
+                "target_vocabulary": list(TARGET_VOCAB),
+                "selection_confirm_token": SELECTION_CONFIRM_TOKEN,
+                "next_required_action": "SELECT_TARGET",
+                "selection_route": "POST /v1/operations/portfolio-decision/select-target",
+                "message": (
+                    "No governed target selection exists for this session, so there "
+                    "is nothing to approve BY NAME. An approval recorded without one "
+                    "used to be executed as the standing full target, which is not a "
+                    "choice the operator made. Select CURRENT, MINIMUM_REPAIR or "
+                    "FULL_TARGET first; the approval then binds exactly that target. "
+                    "Nothing was written and the proposal is unchanged.")}
 
     # Idempotency: identical decision on the same proposal hash → reuse existing record.
     existing = load_decision_record(active_book_id=binding["active_book_id"],
@@ -899,6 +987,25 @@ def record_decision(*, decision: str, confirm: Optional[str],
                         ("material", "membership_change_count", "resize_change_count",
                          "one_way_turnover")},
         "confirm_token": CONFIRM_TOKEN,
+        # --- R69.2: WHICH target this decision approves ------------------------- #
+        # A decision record used to say only "APPROVE", and the order-plan owner
+        # inferred the target from whatever selection happened to be on file at
+        # the moment it was asked - so a selection revised after the approval
+        # silently changed what had been approved. The approved target is now part
+        # of the immutable decision itself. A record written before this release
+        # carries None here, which is what makes a legacy approval identifiable
+        # rather than merely indistinguishable.
+        "selected_target": (selection or {}).get("selected_target"),
+        "selection_id": (selection or {}).get("selection_id"),
+        "selected_target_hash": ((selection or {}).get("binding")
+                                 or {}).get("selected_target_hash"),
+        "selected_target_implementation_hash": (
+            (selection or {}).get("selected_target_implementation_hash")),
+        "selected_target_implementable": (
+            None if selection is None
+            else bool(recorded_selection_implementability(selection)["implementable"])),
+        "target_selection_owner": OWNER,
+        "target_binding_contract": "R69.2_SELECTED_TARGET_BOUND_TO_DECISION",
     }
 
     # Append-only write: never rewrite a prior record; only append + advance the pointer.
@@ -976,7 +1083,7 @@ def load_target_selection(*, active_book_id: Optional[str],
 
 
 def _selection_binding(*, review_envelope: dict, option: dict,
-                       target: str) -> dict:
+                       target: str, implementation: Optional[dict] = None) -> dict:
     """Every identity a selection must bind, read from the review envelope.
 
     If any of these moves, the selection no longer describes the world it was made
@@ -1006,7 +1113,82 @@ def _selection_binding(*, review_envelope: dict, option: dict,
         # The identity of the TARGET itself, so an approval can prove it is
         # approving the same weights the operator saw.
         "selected_target_hash": _target_hash(option),
+        # R69.2 — the identity of the BOOK, not only of the headline economics.
+        # ``selected_target_hash`` above proves the operator saw the same summary;
+        # this proves they get the same weights. A MINIMUM_REPAIR approval that
+        # produced the FULL TARGET's orders had a perfectly valid economics hash.
+        "selected_target_implementation_hash": (implementation or {}).get(
+            "selected_target_implementation_hash"),
     }
+
+
+def _implementation_for(review_envelope: Optional[dict], target: str) -> Optional[dict]:
+    """The frozen, implementable representation of ONE target, from the envelope.
+
+    Read, never built here: ``engine.selected_target`` owns it and
+    ``api.proposal_decision_review`` composes it. An envelope that predates R69.2
+    carries none, and this returns None rather than fabricating a book.
+    """
+    blocks = (review_envelope or {}).get("selected_targets") or {}
+    got = blocks.get(target)
+    return dict(got) if isinstance(got, dict) and got else None
+
+
+def selection_implementability(*, target: str,
+                               implementation: Optional[dict]) -> dict:
+    """Can an order plan ever be built for this selection? (verdict, reason).
+
+    It agrees with ``api.rebalance_execution.resolve_target`` BY CONSTRUCTION,
+    because the one case it decides without a frozen book is the one that owner
+    also decides without one: the FULL TARGET is implementable from the proposal
+    artifact's own allocations, which is where it has always come from. Every
+    other target needs the book frozen at selection time, and says so when it has
+    none rather than letting the approval gate discover it later.
+    """
+    if implementation is not None:
+        return {"implementable": bool(implementation.get("implementable")),
+                "reason": implementation.get("not_implementable_reason"),
+                "detail": implementation.get("not_implementable_detail"),
+                "authority": _st.CALCULATION_OWNER}
+    if target == TARGET_FULL_TARGET:
+        return {"implementable": True, "reason": None,
+                "detail": ("The full target is implemented from the proposal "
+                           "artifact's own allocations, exactly as it always has "
+                           "been. This selection froze no separate book and needs "
+                           "none."),
+                "authority": "api.reallocation_proposal (artifact allocations)"}
+    if target == TARGET_CURRENT:
+        return {"implementable": False, "reason": _st.NOT_IMPLEMENTABLE_NO_CHANGE,
+                "detail": ("This target IS the current book. There is nothing to "
+                           "buy, nothing to sell and no order plan to build; the "
+                           "decision is to keep the book unchanged."),
+                "authority": _st.CALCULATION_OWNER}
+    return {"implementable": False, "reason": _st.NOT_IMPLEMENTABLE_NO_WEIGHTS,
+            "detail": ("The review this selection was made against published no "
+                       "implementable book for %s, so its exact weights were never "
+                       "frozen and no order plan can be built from it. Re-select "
+                       "the target against the current review." % target),
+            "authority": _st.CALCULATION_OWNER}
+
+
+def recorded_selection_implementability(selection: Optional[dict]) -> dict:
+    """The same verdict, for a selection READ BACK from the governed ledger.
+
+    A record written before R69.2 carries neither the flag nor the book, so the
+    verdict is re-derived from what it does carry - its target - rather than read
+    as a missing ``False``. Getting that wrong would refuse to approve a perfectly
+    implementable full-target selection recorded last week.
+    """
+    sel = selection or {}
+    if sel.get("implementable") is not None and sel.get("implementation_available"):
+        return {"implementable": bool(sel.get("implementable")),
+                "reason": sel.get("not_implementable_reason"),
+                "detail": sel.get("not_implementable_detail"),
+                "authority": sel.get("implementability_authority")
+                             or _st.CALCULATION_OWNER}
+    return selection_implementability(
+        target=sel.get("selected_target"),
+        implementation=sel.get("selected_target_implementation") or None)
 
 
 def _target_hash(option: Optional[dict]) -> Optional[str]:
@@ -1096,8 +1278,15 @@ def record_target_selection(*, target: str, confirm: Optional[str],
                 "message": ("No proposal decision review is available, so there is "
                             "nothing to select. Run the portfolio cycle first.")}
 
+    # R69.2 - the complete book this target describes, exactly as the review the
+    # operator was reading published it. It is FROZEN into the record below, so the
+    # order-plan owner later implements the weights that were on screen rather than
+    # re-deriving a target from a projection that has since moved.
+    implementation = _implementation_for(env, target)
+    implementability = selection_implementability(target=target,
+                                                  implementation=implementation)
     binding = _selection_binding(review_envelope=env, option=options.get(target),
-                                 target=target)
+                                 target=target, implementation=implementation)
 
     # --- session freshness: a persisted proposal is not actionable forever ----- #
     freshness = decision_freshness(
@@ -1147,12 +1336,29 @@ def record_target_selection(*, target: str, confirm: Optional[str],
 
     # Idempotent: the same target against the same identities is the same governed
     # outcome. No duplicate artifact is written.
+    #
+    # R69.2 - with ONE exception, and it is not a loophole. A selection recorded
+    # before this release froze the target's economics but not its weights, so it
+    # carries no implementable book and no order plan can ever be built from it.
+    # Re-selecting the same target against the same evidence, now that the book
+    # IS available, is a genuine governed revision rather than a replay: the
+    # record gains the weights it should always have carried, and the superseded
+    # one is preserved exactly as every other revision is. The reverse never
+    # happens - an implementation is never dropped from a record that has one.
+    _has_impl = bool((existing or {}).get("selected_target_implementation"))
+    _gains_impl = bool(implementation) and not _has_impl
     if existing and existing.get("selected_target") == target \
             and (existing.get("binding") or {}).get("proposal_hash") == binding.get("proposal_hash") \
-            and (existing.get("binding") or {}).get("review_hash") == binding.get("review_hash"):
+            and (existing.get("binding") or {}).get("review_hash") == binding.get("review_hash") \
+            and not _gains_impl:
+        prior = recorded_selection_implementability(existing)
         return {**base, "status": TS_REUSED, "recorded": True, "reused": True,
                 "selected": True, "record": existing, "binding": binding,
-                "target": target, "freshness": freshness}
+                "target": target, "freshness": freshness,
+                "implementable": prior["implementable"],
+                "not_implementable_reason": prior["reason"],
+                "not_implementable_detail": prior["detail"],
+                "implementation_available": _has_impl}
 
     revised = bool(existing)
     selection_id = "psel_%s_%s_%s_%s" % (
@@ -1187,6 +1393,27 @@ def record_target_selection(*, target: str, confirm: Optional[str],
                 "portfolio_volatility_capital_basis", "concentration",
                 "largest_position", "cash_weight",
                 "mandatory_obligations_remaining")},
+        # R69.2 — THE SELECTED TARGET ITSELF, frozen with the choice.
+        #
+        # Until this release a selection froze the target's ECONOMICS and nothing
+        # else. The weights existed only inside the review projection, which is
+        # recomputed on every read and persisted nowhere, so the approval path had
+        # no target to consume and the order-plan owner fell back to the one list
+        # it did hold: the artifact's full target. The operator chose 14 names and
+        # 21% turnover and was handed 20 names and 35%.
+        #
+        # The complete book now travels with the selection: every weight, every
+        # allocation row, every economic and the before/after risk-contribution
+        # comparison, all read verbatim from the review that was on screen. This
+        # record is immutable and append-only; a different choice is a new record.
+        "selected_target_implementation": implementation,
+        "selected_target_implementation_hash": (implementation or {}).get(
+            "selected_target_implementation_hash"),
+        "implementable": bool(implementability["implementable"]),
+        "not_implementable_reason": implementability["reason"],
+        "not_implementable_detail": implementability["detail"],
+        "implementability_authority": implementability["authority"],
+        "implementation_available": implementation is not None,
         "mandatory_obligations_remaining": list(option.get("obligations_remaining") or []),
         "review_verdict": binding.get("review_verdict"),
         "review_recommended_target": selection_block.get("recommended_target"),
@@ -1211,12 +1438,25 @@ def record_target_selection(*, target: str, confirm: Optional[str],
         "selection_id": selection_id, "selected_target": target,
         "proposal_hash": binding.get("proposal_hash"),
         "review_hash": binding.get("review_hash"),
+        "selected_target_implementation_hash": binding.get(
+            "selected_target_implementation_hash"),
+        "implementable": bool(record.get("implementable")),
         "selected_at": ts, "record": record}
     _atomic_write_json(_selection_index_path(decision_dir), index)
     return {**base, "status": (TS_REVISED if revised else TS_CREATED),
             "recorded": True, "selected": True, "revised": revised,
             "record": record, "binding": binding, "target": target,
-            "freshness": freshness}
+            "freshness": freshness,
+            # R69.2 - the surface learns whether the thing it just recorded can
+            # actually be implemented WITHOUT loading the frozen book.
+            "implementable": bool(record.get("implementable")),
+            "not_implementable_reason": record.get("not_implementable_reason"),
+            "not_implementable_detail": record.get("not_implementable_detail"),
+            "implementation_available": implementation is not None,
+            "selected_target_implementation_hash": binding.get(
+                "selected_target_implementation_hash"),
+            "position_count": (implementation or {}).get("position_count"),
+            "selected_target_owner": _st.CALCULATION_OWNER}
 
 
 # --------------------------------------------------------------------------- #

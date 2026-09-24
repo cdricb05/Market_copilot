@@ -2174,3 +2174,12 @@ largest_weight = _largest_weight
 #: Gross buys / sells, traded notional, one- and two-way turnover and the modelled
 #: transaction cost (per-instrument rate when the row declares one, desk rate otherwise).
 turnover_and_cost = _turnover_and_cost
+#: R69.2 — re-derive ONE allocation row's ACTION from the weights that row actually
+#: carries, keeping provenance. ``engine.selected_target`` projects a reviewed target
+#: (the minimum repair) into allocation-shaped rows and must label them with the SAME
+#: rule this kernel applies to its own repaired rows: the label follows the weights,
+#: never the intention. Returning ``None`` still means "there is no row here" (a
+#: non-held name repaired to materially nothing).
+#:
+#: Alias only - no behaviour is added, and no caller of the private name changes.
+reoptimised_action = _reoptimised_action

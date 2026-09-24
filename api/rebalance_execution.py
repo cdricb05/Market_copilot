@@ -88,17 +88,49 @@ RB_BLOCKED_INCOMPLETE = "ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET"
 #: selected target is named, the mismatch is explained, and no confirmable plan is
 #: produced. Building an executable plan for a non-full target needs an owner for
 #: those weights and is deliberately NOT invented here.
+#:
+#: R69.2 RESOLVED IT. ``engine.selected_target`` now owns a complete, immutable
+#: representation of each reviewed target - every weight, every allocation row and
+#: every economic, all read verbatim from the review the operator was shown - and
+#: ``api.portfolio_decision`` freezes it into the governed selection record. This
+#: owner therefore implements the target that was CHOSEN, from the allocation list
+#: frozen with that choice, and the state below survives for the cases that remain
+#: genuinely unimplementable: a CURRENT selection (there is nothing to implement),
+#: a target whose weights the review could not publish, and any selection recorded
+#: before R69.2, which froze no book at all.
 RB_SELECTED_TARGET_NOT_IMPLEMENTABLE = "ORDER_PLAN_BLOCKED_SELECTED_TARGET_NOT_IMPLEMENTABLE"
+#: R69.2 FAIL-CLOSED. The approval named a selection; the governed ledger now holds a
+#: DIFFERENT one. A selection revised after approval used to go unnoticed here, so the
+#: plan quietly followed the newer choice under the older approval. Neither target may
+#: be built: the operator must re-approve the selection they now hold.
+RB_SELECTION_SUPERSEDED = "ORDER_PLAN_BLOCKED_SELECTION_CHANGED_SINCE_APPROVAL"
 STATE_VOCAB = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED, RB_STALE,
                RB_PLAN_REVIEW_REQUIRED, RB_PLAN_CONFIRMED, RB_EXECUTED, RB_NO_CHANGES,
                RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE,
-               RB_SELECTED_TARGET_NOT_IMPLEMENTABLE)
+               RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, RB_SELECTION_SUPERSEDED)
 #: The states in which NO order plan may ever be confirmed.
 NON_CONFIRMABLE_STATES = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED,
                           RB_STALE, RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE,
-                          RB_SELECTED_TARGET_NOT_IMPLEMENTABLE)
-#: The ONE target this owner can implement, because it is the one the artifact carries.
+                          RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, RB_SELECTION_SUPERSEDED)
+#: The target the proposal ARTIFACT itself carries. It stays the default for a
+#: decision recorded before R69.2, and its plan is built from the artifact's own
+#: allocation list exactly as before - not one number of a historical full-target
+#: plan moves because of this release.
 IMPLEMENTABLE_TARGET = "FULL_TARGET"
+
+# --- R69.2: where an order plan's target came from --------------------------- #
+#: The artifact's own allocations, because the operator selected the full target.
+TARGET_SOURCE_SELECTED_FULL = "GOVERNED_SELECTION_FULL_TARGET_ARTIFACT_ALLOCATIONS"
+#: The allocation list frozen INTO the governed selection at selection time.
+TARGET_SOURCE_SELECTED_FROZEN = "GOVERNED_SELECTION_FROZEN_IMPLEMENTATION"
+#: No governed selection exists and the approval predates R69.2. The artifact's full
+#: target is built, exactly as it always was - and this code is published on the read
+#: model, in the plan and in the persisted plan artifact, so the fallback is never
+#: silent. A NEW approval cannot reach this: api.portfolio_decision refuses an
+#: approval with no selection (TARGET_SELECTION_REQUIRED).
+TARGET_SOURCE_LEGACY_NO_SELECTION = "LEGACY_APPROVAL_NO_SELECTION_FULL_TARGET_DEFAULT"
+TARGET_SOURCE_VOCAB = (TARGET_SOURCE_SELECTED_FULL, TARGET_SOURCE_SELECTED_FROZEN,
+                       TARGET_SOURCE_LEGACY_NO_SELECTION)
 
 # --- Confirm-status codes returned by confirm_rebalance_order_plan ----------------- #
 C_CONFIRM_REQUIRED = "ORDER_PLAN_CONFIRMATION_REQUIRED"
@@ -335,6 +367,138 @@ def _implies_trade(row: dict) -> bool:
     return str(row.get("action") or "").upper() in _TRADING_ACTIONS
 
 
+# --------------------------------------------------------------------------- #
+# R69.2 — WHICH TARGET THIS PLAN IMPLEMENTS
+#
+# Exactly one function answers it, and every consumer downstream takes the answer
+# rather than re-deriving it: the reconciliation, the required mark universe, the
+# turnover benchmark, the hydration and the frozen decision evidence. Before this
+# release four of those five read `artifact["proposal"]["allocations"]`
+# independently, which is precisely how an approved MINIMUM_REPAIR came to be
+# measured, marked, priced and executed as the full target.
+# --------------------------------------------------------------------------- #
+def resolve_target(*, artifact: Optional[dict], selection: Optional[dict],
+                   decision_record: Optional[dict] = None) -> dict:
+    """The allocation list an order plan for this approval must implement.
+
+    Deterministic and total: it always lands on either an allocation list or a
+    named refusal, and it never substitutes one target for another.
+    """
+    prop = (artifact or {}).get("proposal") or {}
+    artifact_allocs = list(prop.get("allocations") or [])
+    approved_target = (decision_record or {}).get("selected_target")
+    approved_selection_id = (decision_record or {}).get("selection_id")
+    target = (selection or {}).get("selected_target")
+    out = {
+        "target": target or approved_target,
+        "approved_target": approved_target,
+        "approved_selection_id": approved_selection_id,
+        "selection_id": (selection or {}).get("selection_id"),
+        "selected_target_implementation_hash": (
+            (selection or {}).get("selected_target_implementation_hash")),
+        "approved_target_implementation_hash": (
+            (decision_record or {}).get("selected_target_implementation_hash")),
+        "implementable_target": IMPLEMENTABLE_TARGET,
+        "target_source_vocabulary": list(TARGET_SOURCE_VOCAB),
+        "allocations": None, "one_way_turnover": None,
+        "implementable": False, "source": None, "reason": None, "detail": None,
+        "next_required_action": None,
+    }
+
+    # --- the approval and the standing selection must be the same choice ------- #
+    # An approval that names a selection is an approval of THAT selection. If the
+    # ledger now holds another one, neither may be built under it.
+    if (approved_selection_id and out["selection_id"]
+            and approved_selection_id != out["selection_id"]):
+        out.update({
+            "reason": RB_SELECTION_SUPERSEDED,
+            "next_required_action": "RE_APPROVE_THE_CURRENT_SELECTION",
+            "detail": (
+                "The approval on file was recorded against selection %s, but the "
+                "governed ledger now holds %s (%s). The selection was revised after "
+                "it was approved, so no order plan may be built: doing so would "
+                "implement a target under an approval given to a different one. "
+                "Re-approve the selection you now hold."
+                % (approved_selection_id, out["selection_id"],
+                   target or "target unknown"))})
+        return out
+
+    # --- no governed selection at all ------------------------------------------ #
+    if selection is None and not approved_target:
+        out.update({
+            "target": IMPLEMENTABLE_TARGET, "allocations": artifact_allocs,
+            "one_way_turnover": _proposal_one_way_turnover(artifact),
+            "implementable": bool(artifact_allocs),
+            "source": TARGET_SOURCE_LEGACY_NO_SELECTION,
+            "legacy_default_applied": True,
+            "detail": (
+                "This approval carries no governed target selection, so it predates "
+                "R69.2. The proposal artifact's own FULL TARGET is built for it, "
+                "exactly as it was before this release. A new approval cannot reach "
+                "this path: an approval without a selection is refused."),
+        })
+        return out
+
+    # --- the full target: the artifact's own list, verbatim -------------------- #
+    if (target or approved_target) == IMPLEMENTABLE_TARGET:
+        out.update({
+            "target": IMPLEMENTABLE_TARGET, "allocations": artifact_allocs,
+            "one_way_turnover": _proposal_one_way_turnover(artifact),
+            "implementable": bool(artifact_allocs),
+            "source": TARGET_SOURCE_SELECTED_FULL,
+            "legacy_default_applied": False,
+            "detail": ("The operator selected the full target; the plan is built "
+                       "from the proposal artifact's own allocations."),
+        })
+        if not artifact_allocs:
+            out.update({"reason": RB_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+                        "detail": "The proposal artifact carries no allocations.",
+                        "next_required_action": "RUN_PORTFOLIO_CYCLE"})
+        return out
+
+    # --- a non-full target: the book frozen with the selection ----------------- #
+    impl = (selection or {}).get("selected_target_implementation") or {}
+    if not impl:
+        out.update({
+            "reason": RB_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+            "next_required_action": "RE_SELECT_THE_TARGET",
+            "detail": (
+                "The governed selection for this session is %s, and it froze no "
+                "implementable book. Selections recorded before R69.2 carry the "
+                "target's economics but not its weights, so no order plan can be "
+                "built from one. Re-select the target against the current review - "
+                "the selection then freezes the exact weights you are shown - or "
+                "select the full target instead."
+                % (target or "a non-full target"))})
+        return out
+    if not impl.get("implementable"):
+        out.update({
+            "reason": RB_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+            "not_implementable_reason": impl.get("not_implementable_reason"),
+            "next_required_action": "SELECT_AN_IMPLEMENTABLE_TARGET",
+            "detail": (impl.get("not_implementable_detail")
+                       or ("The selected target %s carries no implementable book."
+                           % target))})
+        return out
+    econ = impl.get("economics") or {}
+    out.update({
+        "target": target, "allocations": list(impl.get("allocations") or []),
+        "one_way_turnover": econ.get("one_way_turnover"),
+        "implementable": True, "source": TARGET_SOURCE_SELECTED_FROZEN,
+        "legacy_default_applied": False,
+        "frozen_position_count": impl.get("position_count"),
+        "frozen_changes": econ.get("changes"),
+        "frozen_estimated_cost": econ.get("estimated_cost"),
+        "frozen_cash_weight": econ.get("cash_weight"),
+        "weights_owner": impl.get("weights_source"),
+        "calculation_owner": impl.get("calculation_owner"),
+        "detail": ("The plan implements the %s the operator selected, from the "
+                   "allocation list frozen into selection %s at selection time."
+                   % (target, out["selection_id"] or "n/a")),
+    })
+    return out
+
+
 def _proposal_one_way_turnover(artifact: Optional[dict]) -> Optional[float]:
     """The APPROVED proposal's own one-way turnover — read from the immutable artifact the
     proposal engine produced. If an older artifact carries no turnover block it is derived
@@ -370,15 +534,22 @@ def _proposal_one_way_turnover(artifact: Optional[dict]) -> Optional[float]:
 # open orders, none of which contains a not-yet-held reallocation target. So the target
 # universe is stated ONCE here and used by BOTH the fail-closed gate and the hydration.
 # --------------------------------------------------------------------------- #
-def target_mark_universe(*, artifact: Optional[dict], holdings: Optional[dict] = None) -> dict:
+def target_mark_universe(*, artifact: Optional[dict], holdings: Optional[dict] = None,
+                         allocations: Optional[list] = None) -> dict:
     """Every ticker that must carry an owned execution mark before the APPROVED proposal can
     be turned into a faithful order plan: every proposed POSITIVE-weight constituent (BUY /
     ADD / INCREASE and any retained name that still needs sizing), every currently held name
     (SELL / REDUCE / EXIT sizing), and the desk's benchmark (existing desk accounting).
-    Pure and read-only."""
+    Pure and read-only.
+
+    R69.2 - ``allocations`` names the SELECTED target's list. Omitted, it falls back to
+    the artifact's own, so every existing caller behaves exactly as before. It matters:
+    a minimum repair that exits eleven names needs marks for a different universe than
+    the full target, and hydrating the wrong one would block a plan that is fine."""
     prop = (artifact or {}).get("proposal") or {}
+    rows = allocations if allocations is not None else (prop.get("allocations") or [])
     target, allocation = [], []
-    for a in prop.get("allocations") or []:
+    for a in rows:
         tk = a.get("ticker")
         if not tk:
             continue
@@ -476,30 +647,36 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
                 "message": ("The proposal changed since it was approved; a fresh review + "
                             "approval is required before an order plan can be built.")}
 
-    # Gate 2b (R69.1): the plan below implements the artifact's allocations - the FULL
-    # TARGET. If the operator's governed selection named a different target, this owner
-    # cannot implement what they chose, and must not hand them the full target's orders
-    # under the approval they gave to something else.
+    # Gate 2b (R69.1, completed by R69.2): WHICH target does this approval implement?
+    #
+    # R69.1 could only refuse anything that was not the artifact's full target,
+    # because the other two targets had no weights anywhere. They do now: the
+    # governed selection freezes the complete book at selection time, so this owner
+    # implements the target that was actually chosen. What it still refuses, and
+    # refuses by name, is a selection with no implementable book, a CURRENT
+    # selection, and a selection that was revised after it was approved.
     _sel = pdec.load_target_selection(
         active_book_id=bound["active_book_id"],
         eligible_market_date=bound["eligible_market_date"],
         decision_dir=decision_dir)
+    _spec = resolve_target(artifact=artifact, selection=_sel,
+                           decision_record=decision_record)
     _sel_target = (_sel or {}).get("selected_target")
-    if _sel_target is not None and _sel_target != IMPLEMENTABLE_TARGET:
-        return {"state": RB_SELECTED_TARGET_NOT_IMPLEMENTABLE, "bound": bound,
+    if not _spec["implementable"]:
+        state = (_spec.get("reason") or RB_SELECTED_TARGET_NOT_IMPLEMENTABLE)
+        return {"state": state, "bound": bound,
                 "selection": _sel,
-                "selected_target": _sel_target,
+                "selected_target": _sel_target or _spec.get("target"),
+                "target_spec": _spec,
+                "target_source": _spec.get("source"),
                 "implementable_target": IMPLEMENTABLE_TARGET,
-                "next_required_action": "SELECT_FULL_TARGET_OR_RUN_PORTFOLIO_CYCLE",
+                "not_implementable_reason": _spec.get("not_implementable_reason"),
+                "next_required_action": _spec.get("next_required_action"),
                 "message": (
-                    "The governed selection for this session is %s, but the order-plan "
-                    "owner can only build a plan from the proposal artifact's "
-                    "allocations, which describe the FULL TARGET. Producing the full "
-                    "target's orders here would execute a target the operator did not "
-                    "select. No order plan is offered and nothing was written. Either "
-                    "select the full target and approve that, or run the portfolio "
-                    "cycle for a proposal whose standing target is the one you want."
-                    % _sel_target)}
+                    "No order plan can be built for this approval. %s Nothing was "
+                    "written, no order exists and no other target was substituted "
+                    "for the one that was selected."
+                    % (_spec.get("detail") or ""))}
 
     # Current desk state (corporate-action corrected holdings / cash / NAV).
     view = _current_desk_view(desk_dir, actions_dir, corporate_actions)
@@ -507,7 +684,8 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
         return {"state": RB_UNAVAILABLE, "bound": bound,
                 "message": "The desk is not ready (no open book or no owned marks)."}
 
-    plan = _reconcile_order_plan(artifact=artifact, bound=bound, view=view)
+    plan = _reconcile_order_plan(artifact=artifact, bound=bound, view=view,
+                                 target_spec=_spec)
     # Stage 19.2 GATE 3 — FAIL CLOSED. A plan that cannot faithfully implement the approved
     # target NEVER reaches the confirmable review state. The partial plan is still returned
     # (it is the explanation the operator needs) but the state itself is non-confirmable.
@@ -517,9 +695,17 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
         state = RB_BLOCKED_MARKS if marks_only else RB_BLOCKED_INCOMPLETE
         return {"state": state, "bound": bound, "plan": plan, "desk_view": view,
                 "decision_record": decision_record, "block_reason_codes": sorted(set(reasons)),
+                "selection": _sel, "selected_target": _spec.get("target"),
+                "target_spec": _spec, "target_source": _spec.get("source"),
+                "artifact": artifact,
                 "message": _blocked_message(plan, state)}
     return {"state": (RB_NO_CHANGES if not plan["orders"] else RB_PLAN_REVIEW_REQUIRED),
             "bound": bound, "plan": plan, "desk_view": view,
+            # R69.2 - the target this plan implements travels with it, so every
+            # consumer below (the read model, the confirm gate, the persisted plan
+            # artifact and the frozen decision evidence) uses the SAME answer.
+            "selection": _sel, "selected_target": _spec.get("target"),
+            "target_spec": _spec, "target_source": _spec.get("source"),
             # Release 47: the immutable proposal travels with the plan so the
             # execution boundary can freeze its economics as decision evidence
             # without re-reading (and possibly re-resolving) a different artifact.
@@ -542,13 +728,22 @@ def _blocked_message(plan: dict, state: str) -> str:
             "the approved proposal. " + " ".join(details))
 
 
-def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
-    """The deterministic, read-only reconciliation of the APPROVED proposed weights against
-    the CURRENT desk (shares / prices / cash), producing whole-share SELL/BUY orders,
+def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict,
+                          target_spec: Optional[dict] = None) -> dict:
+    """The deterministic, read-only reconciliation of the APPROVED SELECTED target's weights
+    against the CURRENT desk (shares / prices / cash), producing whole-share SELL/BUY orders,
     estimated proceeds/purchases/costs, residual cash, before/after weights and the target
-    tracking error. Pure given (artifact, desk view)."""
+    tracking error. Pure given (artifact, desk view, target spec).
+
+    R69.2 - the allocation list comes from ``target_spec`` (``resolve_target``), which is
+    the artifact's own list for a FULL_TARGET approval and the list frozen into the
+    governed selection for any other. Omitted, it falls back to the artifact, so a caller
+    that has not been updated builds precisely the plan it always built."""
     prop = artifact.get("proposal") or {}
-    allocs = prop.get("allocations") or []
+    spec = target_spec or {}
+    allocs = spec.get("allocations")
+    if allocs is None:
+        allocs = prop.get("allocations") or []
     series = view["series"]
     as_of = view["marks_date"]
     nav = float(view["nav"])
@@ -806,7 +1001,8 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     # reason (no owned mark) that is NOT an execution mechanic at all, and the resulting
     # 19.33% plan was still offered for confirmation against a 35.55% approved proposal.
     # ----------------------------------------------------------------------- #
-    universe = target_mark_universe(artifact=artifact, holdings=held)
+    universe = target_mark_universe(artifact=artifact, holdings=held,
+                                    allocations=allocs)
     coverage = mark_coverage(required=universe["required"], series=series, as_of=as_of)
     # The benchmark is desk accounting, not a tradable target: report it, but only the
     # tradable names can block an order plan.
@@ -825,7 +1021,14 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     envelope_dollars = share_slack + est_cost + capital_shortfall
     executability_envelope = _r6(0.5 * envelope_dollars / nav) if nav else None
 
-    proposal_turnover = _proposal_one_way_turnover(artifact)
+    # R69.2 - the benchmark is the turnover of the target being IMPLEMENTED. Measuring
+    # a minimum repair's 21% plan against the full target's 35% would have reported a
+    # 14-point gap and blocked a perfectly faithful plan.
+    proposal_turnover = spec.get("one_way_turnover")
+    if proposal_turnover is None:
+        proposal_turnover = _proposal_one_way_turnover(artifact)
+    proposal_turnover = (None if proposal_turnover is None
+                         else _r6(float(proposal_turnover)))
     turnover_gap = (None if (proposal_turnover is None or planned_turnover is None)
                     else _r6(float(planned_turnover) - float(proposal_turnover)))
 
@@ -947,10 +1150,37 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
                                           "TRANSACTION_COST", "AVAILABLE_CASH",
                                           "COLLATERAL_COVERAGE", "CONCENTRATION_POLICY",
                                           "MIN_ORDER_POLICY"],
+        # --- R69.2: WHICH target this plan implements, on the plan itself ------ #
+        # Not only on the read model above it: the plan is what gets persisted,
+        # stamped onto every order's lineage and frozen as decision evidence, and
+        # a plan that cannot say which target it is is exactly what let 35% of
+        # turnover be executed under an approval of 21%.
+        "implemented_target": spec.get("target") or IMPLEMENTABLE_TARGET,
+        "target_source": spec.get("source") or TARGET_SOURCE_LEGACY_NO_SELECTION,
+        "target_source_vocabulary": list(TARGET_SOURCE_VOCAB),
+        "target_selection_id": spec.get("selection_id"),
+        "selected_target_implementation_hash": spec.get(
+            "selected_target_implementation_hash"),
+        "legacy_default_applied": bool(spec.get("legacy_default_applied")),
+        "target_allocation_count": len(allocs),
     }
     # order_plan_hash binds the entire plan + the bound proposal identity + desk state.
+    #
+    # R69.2 adds the implemented target to that identity for a plan built from a FROZEN
+    # selection, and DELIBERATELY leaves the full-target identity byte-for-byte as it
+    # was. The full target's plan is the one the artifact always described; changing its
+    # hash would re-key every plan id derived from it, and the plan id is what
+    # `_executed_orders_for_plan` matches on for idempotency. A plan confirmed but not
+    # yet settled would stop recognising its own orders and a second confirmation could
+    # duplicate them. Nothing about this release justifies that risk, and the orders
+    # themselves are already inside the identity, so two targets can only collide when
+    # they place exactly the same trades - in which case they ARE the same plan.
     plan_identity = {"bound": bound, "desk_state_hash": view["desk_state_hash"],
                      "marks_date": as_of, "orders": orders, "policy": plan_core["policy"]}
+    if plan_core["target_source"] == TARGET_SOURCE_SELECTED_FROZEN:
+        plan_identity["implemented_target"] = plan_core["implemented_target"]
+        plan_identity["selected_target_implementation_hash"] = plan_core[
+            "selected_target_implementation_hash"]
     order_plan_hash = _stable_hash(plan_identity)
     plan_core["order_plan_hash"] = order_plan_hash
     plan_core["desk_state_hash"] = view["desk_state_hash"]
@@ -990,6 +1220,11 @@ _PRIMARY_ACTION = {
     RB_SELECTED_TARGET_NOT_IMPLEMENTABLE: {
         "label": "Select the full target, or run the portfolio cycle",
         "path": "POST /v1/operations/portfolio-decision/select-target"},
+    # R69.2 - the selection moved after it was approved. The ONE way forward is a
+    # fresh approval of the selection that now stands; nothing here is confirmable.
+    RB_SELECTION_SUPERSEDED: {
+        "label": "Re-approve the target that is now selected",
+        "path": "POST /v1/operations/portfolio-decision/record"},
 }
 
 
@@ -1195,8 +1430,10 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
              RB_BLOCKED_MARKS: "ORDER PLAN BLOCKED — owned marks required",
              RB_BLOCKED_INCOMPLETE: "ORDER PLAN BLOCKED — incomplete target",
              RB_SELECTED_TARGET_NOT_IMPLEMENTABLE:
-                 "ORDER PLAN BLOCKED — the selected target is not the one this "
-                 "owner can build"}.get(state, state)
+                 "ORDER PLAN BLOCKED — the selected target has no implementable book",
+             RB_SELECTION_SUPERSEDED:
+                 "ORDER PLAN BLOCKED — the selection changed after it was approved"
+             }.get(state, state)
 
     # Stage 19.2: executability is a property of the PLAN, never of the state name alone.
     # The August-12 defect was precisely a state-derived `True` sitting on top of a plan
@@ -1256,6 +1493,21 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         "selected_target": base.get("selected_target"),
         "implementable_target": base.get("implementable_target"),
         "next_required_action": base.get("next_required_action"),
+        # R69.2 — WHICH target this plan implements and WHERE its weights came
+        # from, at the top level. An operator surface must never have to infer
+        # from a state name whether it is looking at the repair or the full
+        # target: on 2026-09-22 those are 14 names / 21.1% and 20 names / 35.0%,
+        # and both plans are internally consistent.
+        "implemented_target": (plan or {}).get("implemented_target")
+                              or base.get("selected_target"),
+        "target_source": (plan or {}).get("target_source") or base.get("target_source"),
+        "target_source_vocabulary": list(TARGET_SOURCE_VOCAB),
+        "target_selection_id": (plan or {}).get("target_selection_id"),
+        "selected_target_implementation_hash": (plan or {}).get(
+            "selected_target_implementation_hash"),
+        "legacy_default_applied": bool((plan or {}).get("legacy_default_applied")),
+        "target_spec": base.get("target_spec"),
+        "not_implementable_reason": base.get("not_implementable_reason"),
         "order_plan_buildable": buildable,
         "confirmation_available": buildable and bool((plan or {}).get("orders")),
         # --- Stage 19.2 fail-closed contract, surfaced at the TOP level so no operator
@@ -1571,17 +1823,23 @@ def _freeze_decision_evidence(*, plan: dict, base: dict, bound: dict,
         view = base.get("desk_view") or {}
         series = view.get("series") or {}
         as_of = plan.get("marks_date")
+        # R69.2 - the counterfactual is frozen against the target that was actually
+        # EXECUTED. Recording the full target's weights beside a minimum repair's
+        # fills would make the forward evidence measure a decision nobody took.
+        _spec_allocs = (base.get("target_spec") or {}).get("allocations")
+        exec_allocs = (_spec_allocs if _spec_allocs is not None
+                       else (prop.get("allocations") or []))
         before_w = {k: v for k, v in (plan.get("before_weights") or {}).items()
                     if (v or 0) > 0}
         after_w = {k: v for k, v in (plan.get("after_weights") or {}).items()
                    if (v or 0) > 0}
         proposed_w = {a.get("ticker"): a.get("proposed_weight")
-                      for a in (prop.get("allocations") or [])
+                      for a in exec_allocs
                       if a.get("ticker") and (a.get("proposed_weight") or 0) > 0}
         prices = {}
         instrument_meta = {}
         contracts = view.get("contracts") or {}
-        alloc_by = {a.get("ticker"): a for a in (prop.get("allocations") or []) if a.get("ticker")}
+        alloc_by = {a.get("ticker"): a for a in exec_allocs if a.get("ticker")}
         for tk in sorted(set(before_w) | set(after_w) | set(proposed_w)):
             d = _row_instrument(alloc_by.get(tk) or {"ticker": tk}, contracts.get(tk))
             ue = _unit_economics(d, series, as_of) if as_of else {"price": None, "fx_to_usd": None}
@@ -1639,7 +1897,13 @@ def _freeze_decision_evidence(*, plan: dict, base: dict, bound: dict,
             provenance={"execution_owner": OWNER,
                         "order_plan_hash": plan.get("order_plan_hash"),
                         "marks_date": as_of,
-                        "execution_model": EXECUTION_MODEL},
+                        "execution_model": EXECUTION_MODEL,
+                        # R69.2 - the evidence says which target it measures.
+                        "implemented_target": plan.get("implemented_target"),
+                        "target_source": plan.get("target_source"),
+                        "target_selection_id": plan.get("target_selection_id"),
+                        "selected_target_implementation_hash": plan.get(
+                            "selected_target_implementation_hash")},
             outcome_dir=outcome_dir)
     except Exception as exc:  # noqa: BLE001 - evidence must never break execution
         return {"owner": pdo.OWNER, "frozen": False,
@@ -1708,7 +1972,20 @@ def refresh_target_marks(*, confirm: Optional[str] = None, decision_dir=None,
                                                eligible_market_date=elig,
                                                reallocation_dir=reallocation_dir)
         view = _current_desk_view(desk_dir, actions_dir, corporate_actions)
-        universe = target_mark_universe(artifact=art, holdings=view.get("holdings") or {})
+        # R69.2 - follow the governed selection here too. A superset would be safe
+        # (more marks, never fewer), but an operator reading this list must see the
+        # universe of the target they actually chose, not of the one they did not.
+        _ident = (art or {}).get("identity") or {}
+        _sel = pdec.load_target_selection(
+            active_book_id=_ident.get("active_book_id") or active_book_id,
+            eligible_market_date=(_ident.get("eligible_market_date")
+                                  or eligible_market_date),
+            decision_dir=decision_dir)
+        _spec = resolve_target(artifact=art, selection=_sel,
+                               decision_record=decision_record)
+        universe = target_mark_universe(artifact=art,
+                                        holdings=view.get("holdings") or {},
+                                        allocations=_spec.get("allocations"))
     if before.get("rebalance_state") in (RB_PROPOSAL_REVIEW_REQUIRED, RB_NO_PROPOSAL,
                                          RB_NO_ACTIVE_BOOK, RB_STALE):
         return {**base_safety, "status": H_NOT_APPROVED,
@@ -1764,6 +2041,15 @@ def _persist_plan(plan_dir, plan: dict, bound: dict, lineage: dict, plan_date: s
     rows.append({"order_plan_id": plan["order_plan_id"],
                  "order_plan_hash": plan["order_plan_hash"], "bound": bound,
                  "lineage": lineage, "plan_date": plan_date, "confirmed_at": _iso_now(),
+                 # R69.2 — WHICH target these orders implement, on the immutable
+                 # record itself. A persisted plan that cannot name its target is
+                 # a plan nobody can audit after the fact, and this artifact
+                 # outlives the selection it was built from.
+                 "implemented_target": plan.get("implemented_target"),
+                 "target_source": plan.get("target_source"),
+                 "target_selection_id": plan.get("target_selection_id"),
+                 "selected_target_implementation_hash": plan.get(
+                     "selected_target_implementation_hash"),
                  "orders": plan["orders"], "reconciliation": {
                      k: plan[k] for k in ("estimated_sell_proceeds", "estimated_buy_cost",
                                           "estimated_transaction_cost", "residual_cash",

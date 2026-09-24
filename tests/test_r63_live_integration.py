@@ -244,16 +244,49 @@ class TestApprovalSeam:
         assert list(tmp_path.iterdir()) == []
 
     def test_13_a_compliant_target_is_still_approvable(self, tmp_path):
-        """The gate must not break the normal path."""
+        """The gate must not break the normal path.
+
+        R69.2 - an APPROVE now has to name the target it approves, so the
+        governed FULL_TARGET selection is recorded first. That is the contract,
+        not a workaround: an approval that names nothing used to be executed as
+        the standing full target.
+        """
         art = _artifact(_proposal(obligations=LH_VLO_OBLIGATIONS,
                                   final_weights=LH_VLO_REPAIRED))
+        block = {"options": [{"target": t, "label": t, "selectable": True,
+                              "blockers": [], "blocker_codes": [], "is_defer": False}
+                             for t in pdec.TARGET_VOCAB],
+                 "recommended_target": "FULL_TARGET"}
+        sel = pdec.record_target_selection(
+            target=pdec.TARGET_FULL_TARGET, confirm=pdec.SELECTION_CONFIRM_TOKEN,
+            review_envelope={
+                "status": "OK", "proposal_id": art["proposal_id"],
+                "eligible_market_date": SESSION, "target_selection": block,
+                "review": {"target_selection": block,
+                           "reviewed_proposal": {
+                               "eligible_market_date": SESSION,
+                               "active_book_id": BOOK}}},
+            decision_dir=tmp_path, latest_session=SESSION)
+        assert sel["selected"] is True
+
         res = self._approve(tmp_path, art)
 
         assert res["recorded"] is True
         assert res["status"] == "CREATED"
+        assert res["record"]["selected_target"] == pdec.TARGET_FULL_TARGET
         # Approval still creates no order, no fill and moves no capital.
         assert res["created_orders"] is False
         assert res["created_fills"] is False
+
+    def test_13b_an_approval_that_names_no_target_is_refused(self, tmp_path):
+        """R69.2 - the silent fallback to the standing full target is gone."""
+        art = _artifact(_proposal(obligations=LH_VLO_OBLIGATIONS,
+                                  final_weights=LH_VLO_REPAIRED))
+        res = self._approve(tmp_path, art)
+        assert res["status"] == pdec.PDS_TARGET_SELECTION_REQUIRED
+        assert res["recorded"] is False
+        assert res["next_required_action"] == "SELECT_TARGET"
+        assert list(tmp_path.iterdir()) == []
 
     def test_14_reject_and_hold_stay_available_on_an_unrepaired_target(self, tmp_path):
         """Refusing those too would leave the operator no way to record a judgement."""

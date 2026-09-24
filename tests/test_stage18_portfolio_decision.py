@@ -199,6 +199,48 @@ def test_state_stale_when_decision_bound_to_old_hash():
 
 
 # --------------------------------------------------------------------------- #
+# R69.2 — an APPROVE now has to name the target it approves, so these ledger
+# tests record the governed selection first. They are not about the selection
+# contract (test_r63_governed_target_selection.py and
+# test_r69_2_selected_target_lifecycle.py own that); they are about binding,
+# idempotency, staleness and revision, and they state the precondition the write
+# path requires rather than bypassing it.
+#
+# FULL_TARGET is used because it is implementable from the proposal artifact's own
+# allocations, which is exactly what these fixtures carry.
+# --------------------------------------------------------------------------- #
+def _envelope(*, phash="hash_current", pid="reap_2026-08-11_book_hash_current"):
+    block = {"options": [{"target": t, "label": t, "selectable": True,
+                          "blockers": [], "blocker_codes": [], "is_defer": False}
+                         for t in ("CURRENT", "MINIMUM_REPAIR", "FULL_TARGET")],
+             "recommended_target": "FULL_TARGET"}
+    return {"status": "OK", "proposal_id": pid, "proposal_hash": phash,
+            "review_hash": "rh_1", "eligible_market_date": _SESSION,
+            "proposal_read_state": "READY", "target_selection": block,
+            "governance": {"target_selection": block, "actionable": True},
+            "inputs": {"hoc_assessment_hash_used": "hoc_1"},
+            "review": {"target_selection": block,
+                       "reviewed_proposal": {
+                           "proposal_hash": phash,
+                           "eligible_market_date": "2026-08-11",
+                           "active_book_id": "alpha_paper_book_1",
+                           "hoc_assessment_hash": "hoc_1",
+                           "portfolio_state_hash": "psh_1",
+                           "universe_scoring_hash": "ush_1"},
+                       "review_verdict": {"verdict": "FULL_TARGET_REVIEWABLE"}}}
+
+
+def _select_full_target(tmp_path, *, phash="hash_current"):
+    """Record the governed FULL_TARGET selection these approvals now require."""
+    r = pd.record_target_selection(
+        target=pd.TARGET_FULL_TARGET, confirm=pd.SELECTION_CONFIRM_TOKEN,
+        review_envelope=_envelope(phash=phash), decision_dir=str(tmp_path),
+        latest_session=_SESSION)
+    assert r["selected"] is True, r
+    return r
+
+
+# --------------------------------------------------------------------------- #
 # C. record_decision — binding, idempotency, staleness, safety (temp ledger root)
 # --------------------------------------------------------------------------- #
 def test_record_requires_confirmation(tmp_path):
@@ -212,6 +254,7 @@ def test_record_requires_confirmation(tmp_path):
 
 def test_record_binds_all_immutable_hashes(tmp_path):
     art = _artifact()
+    _select_full_target(tmp_path)
     r = pd.record_decision(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN,
                            artifact=art, proposal_summary=_summary(),
                            decision_dir=str(tmp_path), expected_proposal_hash="hash_current",
@@ -223,10 +266,16 @@ def test_record_binds_all_immutable_hashes(tmp_path):
                 "universe_input_contract_hash"):
         assert b.get(key), "binding missing %s" % key
     assert b["proposal_hash"] == "hash_current"
+    # R69.2 — the decision now names the target it approves, so a selection
+    # revised afterwards can never change what was approved.
+    assert r["record"]["selected_target"] == pd.TARGET_FULL_TARGET
+    assert r["record"]["selection_id"]
+    assert r["record"]["selected_target_implementable"] is True
 
 
 def test_record_idempotent_no_duplicate(tmp_path):
     art, s = _artifact(), _summary()
+    _select_full_target(tmp_path)
     kw = dict(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN, artifact=art,
               proposal_summary=s, decision_dir=str(tmp_path),
               expected_proposal_hash="hash_current", latest_session=_SESSION)
@@ -259,6 +308,7 @@ def test_record_reject_and_hold_create_no_orders(tmp_path):
 
 
 def test_record_revision_preserved(tmp_path):
+    _select_full_target(tmp_path)
     kw = dict(confirm=pd.CONFIRM_TOKEN, artifact=_artifact(), proposal_summary=_summary(),
               decision_dir=str(tmp_path), expected_proposal_hash="hash_current",
               latest_session=_SESSION)
@@ -311,6 +361,7 @@ def test_load_portfolio_decision_exposes_preview_only_when_approved(tmp_path):
     assert lane0["portfolio_decision_state"] == pd.PDS_REVIEW_REQUIRED
     assert lane0["order_plan_preview"] is None
     # record approval, then read -> approved + read-only preview
+    _select_full_target(tmp_path)
     pd.record_decision(decision=pd.DECISION_APPROVE, confirm=pd.CONFIRM_TOKEN, artifact=art,
                        proposal_summary=_summary(), decision_dir=str(tmp_path),
                        expected_proposal_hash="hash_current", latest_session=_SESSION)

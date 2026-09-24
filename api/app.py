@@ -7251,6 +7251,13 @@ class PortfolioDecisionRecordRequest(BaseModel):
     decision: str
     confirmation: str
     expected_proposal_hash: str | None = None
+    #: R69.2 — the governed target selection the operator was looking at when they
+    #: pressed Approve. Both are verified against the selection the server holds: a
+    #: selection revised under the operator is refused rather than approved, and an
+    #: APPROVE with no selection at all is refused with TARGET_SELECTION_REQUIRED
+    #: instead of silently becoming the standing full target.
+    expected_selection_id: str | None = None
+    expected_selected_target: str | None = None
     requested_by: str = "manual_ui"
 
 
@@ -7292,9 +7299,18 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
     idempotent (no duplicate record); a changed decision on the same proposal is preserved
     as an immutable revision.
 
+    R69.2 — an APPROVE must NAME the target it approves. The governed target selection
+    (``POST /v1/operations/portfolio-decision/select-target``) is a precondition of a new
+    approval: without one the request is refused with ``TARGET_SELECTION_REQUIRED`` and
+    nothing is written, because an approval that named nothing used to be executed as the
+    standing full target. ``expected_selection_id`` / ``expected_selected_target`` bind
+    what the operator was actually looking at, so a selection revised underneath them is
+    refused rather than approved. REJECT and HOLD are unaffected, and a decision recorded
+    before R69.2 stays readable and idempotently re-recordable.
+
     It creates NO order/fill/target and changes NO holding/cash/NAV; it never approves
     automatically and never promotes/recalibrates a model. On success it returns the
-    recorded decision + its immutable binding hashes.
+    recorded decision + its immutable binding hashes and the target it approved.
     """
     if body.decision not in _pdecision.DECISION_VOCAB:
         raise HTTPException(
@@ -7309,9 +7325,19 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
                     f"{{'confirmation': '{_pdecision.CONFIRM_TOKEN}'}} to record a "
                     f"portfolio decision."),
         )
+    if (body.expected_selected_target is not None
+            and body.expected_selected_target not in _pdecision.TARGET_VOCAB):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Unknown expected_selected_target. Send one of "
+                    f"{list(_pdecision.TARGET_VOCAB)}."),
+        )
     return _pdecision.record_decision(
         decision=body.decision, confirm=body.confirmation,
-        expected_proposal_hash=body.expected_proposal_hash, actor=body.requested_by)
+        expected_proposal_hash=body.expected_proposal_hash,
+        expected_selection_id=body.expected_selection_id,
+        expected_selected_target=body.expected_selected_target,
+        actor=body.requested_by)
 
 
 @app.post(

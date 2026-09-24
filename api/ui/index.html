@@ -3509,6 +3509,48 @@
     @media (max-width: 1500px) { .pdr-bar { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 1000px) { .pdr-bar { grid-template-columns: 1fr; } }
 
+    /* ---------- R69.2 STEP 3 - the exact target the operator selected -------- */
+    /* The weights themselves were never on screen: the panel showed per-state
+       summaries and the FULL target's change rows, so an operator who selected
+       the minimum repair could not see the book they had chosen. */
+    .pdr-impl { font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+                font-weight: 800; margin-top: 6px; }
+    .pdr-impl.yes { color: var(--ok, #22c55e); }
+    .pdr-impl.no  { color: var(--label, #7a8fb0); }
+    .pdr-wt { max-height: 260px; overflow-y: auto; margin-top: 6px;
+              border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .pdr-wt table { width: 100%; border-collapse: collapse; font-size: 11.5px;
+                    font-variant-numeric: tabular-nums; }
+    .pdr-wt th { position: sticky; top: 0; background: var(--cc-bg, #0d1420);
+                 text-align: right; font-size: 9.5px; letter-spacing: .08em;
+                 text-transform: uppercase; color: var(--label, #7a8fb0);
+                 font-weight: 800; padding: 5px 6px; }
+    .pdr-wt th:first-child, .pdr-wt td:first-child { text-align: left; }
+    .pdr-wt th:last-child, .pdr-wt td:last-child { text-align: left; }
+    .pdr-wt td { text-align: right; padding: 3px 6px;
+                 border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .pdr-wt td.tk { font-weight: 800; }
+    .pdr-wt tr.is-exit td { color: var(--danger, #ef4444); }
+    .pdr-wt tr.is-add td, .pdr-wt tr.is-increase td { color: var(--ok, #22c55e); }
+    .pdr-wt tr.is-reduce td { color: var(--warning, #f59e0b); }
+    .pdr-wt tr.is-retain td { color: var(--label, #7a8fb0); }
+    .pdr-rc { margin-top: 10px; border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16));
+              border-radius: 8px; padding: 8px 10px; }
+    .pdr-rc table { width: 100%; border-collapse: collapse; font-size: 11.5px;
+                    font-variant-numeric: tabular-nums; }
+    .pdr-rc th { text-align: right; font-size: 9.5px; letter-spacing: .08em;
+                 text-transform: uppercase; color: var(--label, #7a8fb0);
+                 font-weight: 800; padding: 4px 6px; }
+    .pdr-rc th:first-child { text-align: left; }
+    .pdr-rc td { text-align: right; padding: 3px 6px;
+                 border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    .pdr-rc td:first-child { text-align: left; color: var(--label, #7a8fb0); }
+    .pdr-rc td.hi { font-weight: 800; }
+    .pdr-warn { margin-top: 8px; border-left: 3px solid var(--warning, #f59e0b);
+                background: rgba(245,158,11,.08); padding: 6px 10px; font-size: 11px;
+                line-height: 1.55; color: var(--text-accent, #a8b8d8); }
+    .pdr-warn b { color: var(--warning, #f59e0b); }
+
     /* ---------- Current vs Best Feasible (the R47 card, re-presented) --------- */
     #r47-pipeline, #r47-governance { display: block !important; grid-template-columns: none !important; }
     .r47-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 10px; }
@@ -29207,7 +29249,27 @@ function _pdrEvidence(ev) {
 // this file would be a rule no test could reach and no audit could see.
 // Selecting is not approving; this block creates no order plan and no order.
 // --------------------------------------------------------------------------- //
-function _pdrSelBtn(o, sel) {
+/* Release 69.2 - whether a target can become an order plan AT ALL, read from the
+   backend's own per-target representation. An operator choosing between three
+   options must not discover at the Approve gate that one of them was never
+   executable. */
+function _pdrImplLine(d, target) {
+  var b = ((d && d.selected_targets) || {})[target];
+  if (!b) return '';
+  if (b.implementable) {
+    return '<div class="pdr-impl yes" title="An order plan can be built for this '
+      + 'target from the weights frozen when it is selected.">&#10004; IMPLEMENTABLE'
+      + ((b.position_count === null || b.position_count === undefined)
+         ? '' : (' &middot; ' + b.position_count + ' positions')) + '</div>';
+  }
+  return '<div class="pdr-impl no" title="'
+    + escapeHtml(b.not_implementable_detail || '') + '">&#9679; NOT IMPLEMENTABLE'
+    + (b.not_implementable_reason
+       ? (' &middot; ' + escapeHtml(String(b.not_implementable_reason).replace(/_/g, ' ')))
+       : '') + '</div>';
+}
+
+function _pdrSelBtn(o, sel, d) {
   var isSel = sel && sel.selected_target === o.target;
   var label = ({
     CURRENT: 'Keep current / Defer',
@@ -29240,6 +29302,7 @@ function _pdrSelBtn(o, sel) {
     + (isSel ? ' <span class="cc-badge ok">SELECTED</span>' : '')
     + '</div>'
     + facts
+    + _pdrImplLine(d, o.target)
     // The handler is attached ONLY when the backend says the target is
     // selectable, so a non-selectable option carries no path to the write at all
     // rather than relying on the `disabled` attribute alone.
@@ -29295,7 +29358,7 @@ function _pdrSelection(d) {
     + '<span class="cc-badge">NO ORDERS</span>'
     + '<span class="cc-badge">MANUAL REVIEW</span></div>'
     + '<div class="pdr-cols" style="grid-template-columns:repeat(3,1fr);">'
-    + opts.map(function (o) { return _pdrSelBtn(o, sel); }).join('')
+    + opts.map(function (o) { return _pdrSelBtn(o, sel, d); }).join('')
     + '</div></div>';
 }
 
@@ -29330,7 +29393,6 @@ function _pdrSelectionResult(d) {
   // A persisted selection the BACKEND reports outranks anything this browser
   // remembers: it is the durable fact, read back from the governed ledger.
   if (sel && (!ui || ui.phase !== 'PENDING')) {
-    var canApprove = actionable && sel.selected_target !== 'CURRENT';
     return '<div class="pdr-step is-ok" id="pdr-step2">'
       + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span>'
       // The badge below says NO LIVE BROKER ORDERS, and deliberately not the
@@ -29352,8 +29414,19 @@ function _pdrSelectionResult(d) {
       + 'Status <b>' + (actionable ? 'CURRENT &middot; actionable'
                                    : 'HISTORICAL &middot; not actionable') + '</b>'
       + (sel.revision ? (' &middot; revision <b>' + escapeHtml(String(sel.revision)) + '</b>') : '')
+      // R69.2 - the identity of the BOOK, not only of the choice. A selection
+      // that froze the exact weights says so; one that did not says that too.
+      + (sel.selected_target_implementation_hash
+         ? ('<br>Target identity <b>'
+            + escapeHtml(String(sel.selected_target_implementation_hash).slice(0, 16))
+            + '</b> &middot; weights frozen with the choice')
+         : '')
       + '</div>'
-      + (canApprove ? _pdrApproveCta(sel.selected_target) : '')
+      // R69.2 - the APPROVE control is offered only for a target that can become
+      // an order plan. The verdict is the backend's.
+      + _pdrApproveBlock(d, sel)
+      // ...and its ANSWER survives the reload the approval triggers.
+      + _pdrApproveResult()
       + '<div class="pdr-note">Selection is not approval. Nothing has been approved, '
       + 'no order plan exists and no order or fill was created.</div>'
       + '</div>';
@@ -29409,6 +29482,195 @@ function _pdrApproveCta(target) {
     + ' no order, no fill and moves no capital; the order plan is a separate gate.">'
     + 'APPROVE ' + escapeHtml(t.toUpperCase()) + '</button>'
     + '<div id="pdr-approve-arm"></div>';
+}
+
+/* Release 69.2 - the APPROVE control is offered ONLY for a target that can
+   actually become an order plan.
+
+   The backend decides it, in two places that agree by construction: the frozen
+   selection publishes `implementable` + `not_implementable_reason`, and
+   api.portfolio_decision refuses the approval of a target that carries no
+   implementable book. This READS that verdict and adds no rule of its own. A
+   button that leads to a refusal three gates later is exactly the misleading
+   Approve button this project forbids. */
+function _pdrApproveBlock(d, sel) {
+  var f = (d && d.freshness) || {};
+  if (f.actionable === false) return '';
+  var t = sel && sel.selected_target;
+  if (!t) return '';
+  if (t === 'CURRENT') {
+    return '<div class="pdr-note">This selection is <b>keep the current book</b>. '
+      + 'There is no target to approve and no order plan to build; the no-change '
+      + 'decision is the outcome.</div>';
+  }
+  if (sel.implementable === false) {
+    return '<div class="pdr-warn"><b>NOT APPROVABLE &mdash; '
+      + escapeHtml(sel.not_implementable_reason || 'NO_IMPLEMENTABLE_BOOK')
+      + '</b><br>' + escapeHtml(sel.not_implementable_detail
+          || 'This selection carries no implementable book, so no order plan could '
+           + 'ever honour it. No approval control is offered.')
+      + '</div>';
+  }
+  return _pdrApproveCta(t);
+}
+
+/* Release 69.2 - STEP 3: the exact book the operator selected.
+
+   Until this release the panel could say WHICH target had been chosen and never
+   WHAT it was: it showed per-state summaries and the FULL target's change rows,
+   so an operator who selected the minimum repair never saw its 14 names.
+
+   Every weight, action and economic below is read from the representation FROZEN
+   into the governed selection at selection time (engine.selected_target). This
+   file derives nothing: weight or cost arithmetic here would be a second
+   optimiser in the one place no test could reach it, which is why the
+   architecture audit forbids that vocabulary in this region outright. */
+function _pdrTargetRows(impl) {
+  var rows = (impl && impl.allocations) || [];
+  if (!rows.length) {
+    return '<div class="pdr-note">This target publishes no allocation row.</div>';
+  }
+  var order = { EXIT: 0, REPLACE_OUT: 1, REDUCE: 2, ADD: 3, REPLACE_IN: 4,
+                INCREASE: 5, RETAIN: 6 };
+  var sorted = rows.slice().sort(function (a, b) {
+    var oa = order[a.action], ob = order[b.action];
+    if (oa === undefined) oa = 9;
+    if (ob === undefined) ob = 9;
+    return (oa - ob) || String(a.ticker).localeCompare(String(b.ticker));
+  });
+  return '<div class="pdr-wt"><table><thead><tr>'
+    + '<th>Ticker</th><th>Now</th><th>Target</th><th>&Delta;</th>'
+    + '<th>Value</th><th>Action</th></tr></thead><tbody>'
+    + sorted.map(function (r) {
+        return '<tr class="is-' + escapeHtml(String(r.action || '').toLowerCase()) + '">'
+          + '<td class="tk">' + escapeHtml(r.ticker || '') + '</td>'
+          + '<td>' + _pdrPct(r.current_weight, 2) + '</td>'
+          + '<td>' + _pdrPct(r.proposed_weight, 2) + '</td>'
+          + '<td>' + _pdrPct(r.delta_weight, 2) + '</td>'
+          + '<td>' + _pdrUsd(r.proposed_market_value) + '</td>'
+          + '<td>' + escapeHtml(String(r.action || '').replace(/_/g, ' ')) + '</td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
+
+/* The risk-contribution sight line. DISPLAY ONLY.
+
+   The declared 3/N policy is untouched by this release. What was missing was not
+   a rule but the ability to SEE that a cap moved because the covariance universe
+   shrank: on 2026-09-22 the minimum repair discharged both RISK_CONTRIBUTION_CAP
+   obligations without touching either breaching name, and the screen said
+   nothing. Both limits, both risk bases and the concentration are now published
+   side by side, and a breach that closed without the position changing is named. */
+function _pdrRiskContribution(risk) {
+  if (!risk || !risk.before || !risk.after) return '';
+  var b = risk.before, a = risk.after;
+  var n = function (v) {
+    return (v === null || v === undefined) ? '&mdash;' : escapeHtml(String(v));
+  };
+  var row = function (label, bv, av, hi, title) {
+    return '<tr' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>'
+      + '<td>' + escapeHtml(label) + '</td>'
+      + '<td' + (hi ? ' class="hi"' : '') + '>' + bv + '</td>'
+      + '<td' + (hi ? ' class="hi"' : '') + '>' + av + '</td></tr>';
+  };
+  var dis = risk.discharged_without_reduction || [];
+  var warn = '';
+  if (dis.length) {
+    warn = '<div class="pdr-warn"><b>&#9888; ' + dis.length + ' BREACH'
+      + (dis.length === 1 ? '' : 'ES')
+      + ' DISCHARGED WITHOUT THE POSITION BEING REDUCED</b><br>'
+      + dis.map(function (x) {
+          return escapeHtml(x.ticker) + ' ' + _pdrPct(x.risk_contribution_before, 2)
+            + ' &rarr; ' + _pdrPct(x.risk_contribution_after, 2)
+            + ' of portfolio risk at an unchanged weight of '
+            + _pdrPct(x.weight_after, 2);
+        }).join('; ')
+      + '. The per-name cap rose from ' + _pdrPct(b.limit, 2) + ' to '
+      + _pdrPct(a.limit, 2) + ' because the covariance universe went from '
+      + n(b.n_covariance_names) + ' names to ' + n(a.n_covariance_names)
+      + '. <b>No threshold was changed by this release</b> &mdash; the declared '
+      + '3/N policy is owned by '
+      + escapeHtml(risk.policy_owner || 'engine.holding_opportunity_cost')
+      + ' and the question is open for manual review in '
+      + escapeHtml(risk.manual_review_reference
+                   || 'docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md') + '.</div>';
+  }
+  return '<div class="pdr-rc">'
+    + '<div class="pdr-sub" style="margin-top:0;">Risk contribution &mdash; current book vs selected target</div>'
+    + '<table><thead><tr><th>Measure</th><th>Before</th><th>After</th></tr></thead><tbody>'
+    + row('Per-name risk cap (3/N)', _pdrPct(b.limit, 2), _pdrPct(a.limit, 2), true,
+          'The governed per-name risk-contribution limit on each book. It follows '
+          + 'the object being judged, so a smaller covariance universe raises it.')
+    + row('Names in covariance universe', n(b.n_covariance_names),
+          n(a.n_covariance_names), false)
+    + row('Cap breaches', n(b.breach_count), n(a.breach_count), true)
+    + row('Risk, invested basis', _pdrPct(b.portfolio_volatility_invested_basis, 2),
+          _pdrPct(a.portfolio_volatility_invested_basis, 2), false,
+          'Annualised volatility of the INVESTED sleeve.')
+    + row('Risk, capital basis', _pdrPct(b.portfolio_volatility_capital_basis, 2),
+          _pdrPct(a.portfolio_volatility_capital_basis, 2), false,
+          'Annualised volatility on total capital (NAV). Cash carries no variance.')
+    + row('Concentration (HHI)', _pdrNum(b.concentration, 4),
+          _pdrNum(a.concentration, 4), false)
+    + row('Largest position', _pdrPct(b.largest_position, 2),
+          _pdrPct(a.largest_position, 2), false)
+    + row('Cash', _pdrPct(b.cash_weight, 2), _pdrPct(a.cash_weight, 2), false)
+    + '</tbody></table>' + warn
+    + '<div class="pdr-note">Read from the canonical risk owner on both sides and '
+    + 'not measured here. No threshold, basis or obligation was changed by this '
+    + 'release.</div></div>';
+}
+
+function _pdrSelectedTarget(d) {
+  var sel = (d && d.selection) || null;
+  if (!sel) return '';
+  var impl = sel.selected_target_implementation;
+  if (!impl) {
+    return '<div class="pdr-step is-bad" id="pdr-step3">'
+      + '<div class="sh"><span>Step 3 &mdash; the exact target you selected</span>'
+      + '<span class="cc-badge">NO IMPLEMENTABLE BOOK</span>'
+      + '<span class="cc-badge">NO ORDERS</span></div>'
+      + '<div class="pdr-note">This selection was recorded before the selected '
+      + 'target had an owner, so it froze the target\'s economics but not its '
+      + 'weights. No order plan can be built from it. Select the target again '
+      + 'against the current review &mdash; the exact book you are shown is then '
+      + 'frozen with the choice.</div></div>';
+  }
+  var e = impl.economics || {};
+  var t = String(impl.target || '').replace(/_/g, ' ');
+  var num = function (v) {
+    return (v === null || v === undefined) ? '&mdash;' : escapeHtml(String(v));
+  };
+  return '<div class="pdr-step" id="pdr-step3">'
+    + '<div class="sh"><span>Step 3 &mdash; the exact target you selected ('
+    + escapeHtml(t) + ')</span>'
+    + '<span class="cc-badge">FROZEN AT SELECTION</span>'
+    + '<span class="cc-badge">PREVIEW ONLY</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span></div>'
+    + '<div class="pdr-ev">'
+    + '<div><div class="k">Positions</div><div class="v">' + num(impl.position_count) + '</div></div>'
+    + '<div><div class="k">Changes</div><div class="v">' + num(e.changes) + '</div></div>'
+    + '<div><div class="k">Turnover</div><div class="v">' + _pdrPct(e.one_way_turnover) + '</div></div>'
+    + '<div><div class="k">Est. cost</div><div class="v">' + _pdrUsd(e.estimated_cost) + '</div></div>'
+    + '<div><div class="k">Cash</div><div class="v">' + _pdrPct(e.cash_weight) + '</div></div>'
+    + '<div><div class="k">Concentration</div><div class="v">' + _pdrNum(e.concentration, 4) + '</div></div>'
+    + '<div title="Mandatory repair obligations this target leaves open."><div class="k">Obligations left</div>'
+    + '<div class="v">' + num(impl.mandatory_obligations_remaining) + '</div></div>'
+    + '</div>'
+    + _pdrTargetRows(impl)
+    + _pdrRiskContribution(impl.risk_contribution)
+    + '<div class="pdr-idm" style="margin-top:8px;">'
+    + 'Target identity <b>'
+    + escapeHtml(String(impl.selected_target_implementation_hash || '').slice(0, 16) || '—')
+    + '</b> &middot; weights from <b>' + escapeHtml(impl.weights_source || 'the review')
+    + '</b> &middot; rows from <b>' + escapeHtml(impl.allocation_source || '—')
+    + '</b></div>'
+    + '<div class="pdr-note">These are the weights an order plan will implement. '
+    + 'Nothing here is an order: the order plan is built only after approval and '
+    + 'confirmed at a separate gate.</div>'
+    + '</div>';
 }
 
 function _pdrSelClear() {
@@ -29530,28 +29792,94 @@ function _pdrArmApprove(target) {
 }
 window._pdrArmApprove = _pdrArmApprove;
 
+/* Release 69.2 - the approval ANSWER has to outlive the reload the approval
+   triggers, for exactly the reason R69.1 documented for the selection: this
+   function calls _pdrLoad(), whose first act is to replace the panel with the
+   loading skeleton, and `#pdr-approve-arm` goes with it. Writing the outcome
+   into that div meant a refused approval looked identical to a hanging one.
+
+   It lives in module state, outside the DOM, and is re-rendered on every paint
+   until the backend's own persisted decision replaces it. Four states, no fifth:
+   IDLE, PENDING, OK, ERROR. */
+window._pdrApproveUi = window._pdrApproveUi || null;
+
+function _pdrApproveSetUi(ui) {
+  window._pdrApproveUi = ui;
+  var host = document.getElementById('pdr-step2');
+  if (host) host.outerHTML = _pdrSelectionResult(window._pdrData);
+}
+
+function _pdrApproveClear() {
+  window._pdrApproveUi = null;
+  var host = document.getElementById('pdr-step2');
+  if (host) host.outerHTML = _pdrSelectionResult(window._pdrData);
+}
+window._pdrApproveClear = _pdrApproveClear;
+
+function _pdrApproveResult() {
+  var ui = window._pdrApproveUi;
+  if (!ui) return '';
+  if (ui.phase === 'PENDING') {
+    return '<div class="pdr-stale" style="border-color:rgba(245,158,11,.55);'
+      + 'background:rgba(245,158,11,.08);"><b>&#8987; PENDING &mdash; recording the '
+      + 'approval of ' + escapeHtml(String(ui.target || '').replace(/_/g, ' '))
+      + '</b><br>The request has been sent and the backend has not yet answered. '
+      + 'Nothing is persisted until it does.</div>';
+  }
+  if (ui.phase === 'OK') {
+    return '<div class="pdr-stale" style="border-color:rgba(34,197,94,.55);'
+      + 'background:rgba(34,197,94,.08);"><b>&#10004; APPROVED &mdash; '
+      + escapeHtml(ui.status || 'RECORDED') + '</b><br>'
+      + escapeHtml(ui.detail || '') + '</div>';
+  }
+  return '<div class="pdr-stale"><b>&#10008; APPROVAL REFUSED &mdash; '
+    + escapeHtml(ui.code || 'ERROR')
+    + (ui.httpStatus ? (' (HTTP ' + escapeHtml(String(ui.httpStatus)) + ')') : '')
+    + '</b><br>' + escapeHtml(ui.detail || 'The backend refused the approval.')
+    + '<br><b>Nothing was written.</b> No decision, order plan, order or fill was '
+    + 'created and the proposal is unchanged.'
+    + '<div style="margin-top:8px;"><button type="button" class="pdr-cta neutral"'
+    + ' style="margin-top:0;" onclick="_pdrApproveClear()"'
+    + ' title="Dismiss this refusal. Nothing was written, so there is nothing to undo.">'
+    + 'Dismiss</button></div></div>';
+}
+
 function _pdrApprove(target) {
   var d = window._pdrData || {};
-  var host = document.getElementById('pdr-approve-arm');
   var say = function (cls, title, body) {
-    if (!host) return;
-    host.innerHTML = '<div class="pdr-stale" style="border-color:'
-      + (cls === 'ok' ? 'rgba(34,197,94,.55);background:rgba(34,197,94,.08);'
-                      : 'rgba(239,68,68,.55);background:rgba(239,68,68,.08);') + '">'
-      + '<b>' + escapeHtml(title) + '</b><br>' + escapeHtml(body) + '</div>';
+    _pdrApproveSetUi({ phase: (cls === 'ok' ? 'OK' : 'ERROR'), target: target,
+                       status: title, detail: body });
   };
   if (window._pdrApproveInFlight) return;
   window._pdrApproveInFlight = true;
-  say('ok', 'PENDING - recording the approval', 'The backend has not yet answered. '
-    + 'Nothing is persisted until it does.');
-  return fetch('/v1/operations/portfolio-decision', {
+  _pdrApproveSetUi({ phase: 'PENDING', target: target });
+  /* Release 69.2 - two defects, and together they made this button incapable of
+     ever approving anything.
+
+     1. It posted to `/v1/operations/portfolio-decision`, which the application
+        declares GET-ONLY. Every press answered 405 Method Not Allowed and never
+        reached the decision owner. The write route has always been
+        `/v1/operations/portfolio-decision/record`.
+     2. It sent `decision: 'APPROVE'`, which is not in DECISION_VOCAB
+        (`APPROVE_FOR_PAPER_REBALANCE`). On the correct route that alone is a 400.
+
+     This is the same class of defect R69.1 fixed for the selection POST: the one
+     authenticated WRITE on this screen was the one nobody had exercised against
+     the live route table.
+
+     The governed selection identity now travels with the approval, so a selection
+     revised under the operator is refused rather than approved. */
+  var sel = d.selection || {};
+  return fetch('/v1/operations/portfolio-decision/record', {
     method: 'POST',
     headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      decision: 'APPROVE',
+      decision: 'APPROVE_FOR_PAPER_REBALANCE',
       confirmation: ((d.governance || {}).approval_confirm_token
                      || 'CONFIRM_PORTFOLIO_REBALANCE_DECISION'),
-      expected_proposal_hash: d.proposal_hash || null
+      expected_proposal_hash: d.proposal_hash || null,
+      expected_selection_id: sel.selection_id || null,
+      expected_selected_target: target || sel.selected_target || null
     })
   }).then(function (res) {
     return res.json().catch(function () { return {}; })
@@ -29560,22 +29888,28 @@ function _pdrApprove(target) {
     window._pdrApproveInFlight = false;
     var j = r.j || {};
     if (j.recorded) {
-      say('ok', 'APPROVED - ' + (j.status || 'RECORDED'),
-        'The decision is recorded against ' + (d.proposal_id || 'the proposal')
-        + '. No order and no fill were created. The order plan is the next manual '
-        + 'gate; open the rebalance view to review it.');
+      _pdrApproveSetUi({
+        phase: 'OK', target: target, status: (j.status || 'RECORDED'),
+        detail: ('The decision is recorded against '
+          + ((j.record || {}).proposal_id || d.proposal_id || 'the proposal')
+          + ' and binds the target ' + ((j.record || {}).selected_target || target)
+          + '. No order and no fill were created. The order plan is the next '
+          + 'manual gate; open the rebalance view to review it.')});
     } else {
-      say('bad', 'APPROVAL REFUSED - ' + (j.status || ('HTTP ' + r.httpStatus)),
-        (j.message || j.detail || 'The backend refused the approval.')
-        + ' Nothing was written.');
+      _pdrApproveSetUi({
+        phase: 'ERROR', target: target,
+        code: (j.status || (r.httpOk ? 'REFUSED' : ('HTTP_' + r.httpStatus))),
+        httpStatus: r.httpStatus,
+        detail: (j.message || j.detail || 'The backend refused the approval.')});
     }
     try { if (typeof loadRebalanceLifecycle === 'function') loadRebalanceLifecycle(); } catch (e) {}
     return _pdrLoad();
   }).catch(function (e) {
     window._pdrApproveInFlight = false;
-    say('bad', 'APPROVAL REQUEST FAILED',
-      'The request could not be completed: ' + ((e && e.message) || 'unknown error')
-      + '. Nothing was written.');
+    _pdrApproveSetUi({
+      phase: 'ERROR', target: target, code: 'CLIENT_ERROR', httpStatus: null,
+      detail: ('The approval request could not be completed: '
+               + ((e && e.message) || 'unknown client error') + '.')});
   });
 }
 window._pdrApprove = _pdrApprove;
@@ -29812,6 +30146,13 @@ function _pdrRender(d, err) {
         && d.selection.selected_target === _ui.target) {
       window._pdrSelectUi = null;   // the durable record has arrived; prefer it
     }
+    // R69.2 - the same rule for the approval banner: an outcome recorded against
+    // a target the governed ledger no longer holds is not this decision's answer.
+    var _au = window._pdrApproveUi;
+    if (_au && d.selection && d.selection.selected_target
+        && _au.target && d.selection.selected_target !== _au.target) {
+      window._pdrApproveUi = null;
+    }
   } catch (e) {}
   host.innerHTML = '<div class="pdr">'
     + '<div class="pdr-hd"><span class="t">Proposal decision review</span>'
@@ -29830,6 +30171,10 @@ function _pdrRender(d, err) {
     + _pdrStaleExplainer(d)
     + _pdrSelection(d)
     + _pdrSelectionResult(d)
+    // R69.2 - STEP 3. The exact weights, economics and risk effect of the target
+    // the operator selected, frozen with the choice. It renders ONLY once a
+    // selection exists, so a first screen without one is unchanged in height.
+    + _pdrSelectedTarget(d)
     + _pdrMore('Why this review path', ''
         + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
         + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'

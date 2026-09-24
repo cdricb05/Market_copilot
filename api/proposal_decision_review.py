@@ -18,7 +18,14 @@ already own them and strictly READ-ONLY:
     ``api.price_panel``, for the eligible session the proposal was built for.
 
 It then calls the pure kernel ``engine.proposal_decision_review`` and publishes the
-result. It writes NOTHING: no artifact, no index, no ledger, no database, no order,
+result. R69.2 adds ONE composition step on top: ``engine.selected_target`` turns each
+of the three reviewed targets into a complete, implementable representation - every
+weight, every allocation row, every economic and the before/after risk-contribution
+comparison - published on the envelope as ``selected_targets``. It computes nothing:
+every number inside those blocks was produced by the kernel above and is read
+verbatim.
+
+It writes NOTHING: no artifact, no index, no ledger, no database, no order,
 no fill, no target. It never approves, rejects, supersedes, regenerates or otherwise
 touches the proposal it reviews - the proposal artifact is opened read-only and the
 review is derived from it every time it is asked for.
@@ -36,6 +43,7 @@ from typing import Any, Callable, Optional
 
 from paper_trader.engine import constrained_reallocation as _cr
 from paper_trader.engine import proposal_decision_review as kernel
+from paper_trader.engine import selected_target as _selected_target
 
 PHASE = "R62"
 OWNER = "api.proposal_decision_review"
@@ -324,7 +332,9 @@ def _governance(*, review: Optional[dict], bound_session: Optional[str],
 def _envelope(*, status: str, generated_at: str, message: str,
               proposal_payload: Optional[dict] = None, review: Optional[dict] = None,
               inputs: Optional[dict] = None,
-              governance: Optional[dict] = None) -> dict:
+              governance: Optional[dict] = None,
+              selected_targets: Optional[dict] = None,
+              review_hash_value: Optional[str] = None) -> dict:
     p = proposal_payload or {}
     art = p.get("artifact") or {}
     return {
@@ -359,8 +369,30 @@ def _envelope(*, status: str, generated_at: str, message: str,
         # is byte-stable for the same inputs: a governed target selection binds it,
         # and a selection made against a review that no longer reproduces fails
         # closed rather than approving something nobody reviewed.
-        "review_hash": review_hash(review),
+        "review_hash": (review_hash_value if review_hash_value is not None
+                        else review_hash(review)),
         "review_identity_owner": OWNER,
+        # R69.2 - the COMPLETE, implementable representation of each reviewed
+        # target: every weight, every allocation row, every economic and the
+        # before/after risk-contribution comparison.
+        #
+        # It is published HERE, on the envelope, and deliberately NOT inside
+        # ``review``. ``review_hash`` is computed over ``review``; a governed
+        # selection binds that hash, and folding a new block into it would change
+        # the identity of every review ever made without one input moving. The
+        # block is bound all the same: it is a pure function of the proposal, the
+        # review and the target, so ``proposal_hash`` + ``review_hash`` + target
+        # determine it exactly, and it carries its own
+        # ``selected_target_implementation_hash`` on top.
+        #
+        # Nothing here is an approval, an order plan or an order.
+        "selected_targets": selected_targets or {},
+        "selected_target_owner": _selected_target.CALCULATION_OWNER,
+        "selected_target_schema_version": _selected_target.SCHEMA_VERSION,
+        "selected_target_order": list(_selected_target.TARGET_ORDER),
+        "implementable_targets": sorted(
+            t for t, b in (selected_targets or {}).items()
+            if (b or {}).get("implementable")),
         # R63 — the governance layer: session freshness, the selectability the
         # BACKEND decided, and any selection the operator has already made.
         "governance": governance or {},
@@ -399,6 +431,31 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "business_calculation_owner": False,
         "safety": kernel._safety(),
     }
+
+
+def _selected_targets(*, proposal: dict, review: dict, identity: dict,
+                      proposal_id: Optional[str], review_hash_value: Optional[str],
+                      active_book_id: Optional[str],
+                      eligible_market_date: Optional[str]) -> dict:
+    """The three target representations, from the ONE kernel that owns them.
+
+    Composition only: every weight and every economic inside these blocks was
+    computed by ``engine.proposal_decision_review`` and is read verbatim. A failure
+    here degrades to an EMPTY map rather than a partial one - a half-built target is
+    exactly the thing this release exists to prevent, and a surface that finds no
+    block simply offers no implementation rather than guessing at one.
+    """
+    try:
+        bound = dict(identity or {})
+        bound.update({"proposal_id": proposal_id, "review_hash": review_hash_value,
+                      "active_book_id": (bound.get("active_book_id")
+                                         or active_book_id),
+                      "eligible_market_date": (bound.get("eligible_market_date")
+                                               or eligible_market_date)})
+        return _selected_target.build_all_selected_targets(
+            proposal=proposal, review=review, identity=bound)
+    except Exception:  # noqa: BLE001 - a pure read never crashes its caller
+        return {}
 
 
 def review_hash(review: Optional[dict]) -> Optional[str]:
@@ -555,9 +612,19 @@ def load_proposal_decision_review(
         review=review, bound_session=(identity.get("eligible_market_date") or eligible),
         active_book_id=book_id, latest_session=latest_session,
         workflow_state=workflow_state, decision_dir=decision_dir)
+    # R69.2 - the three implementable target representations. The review hash is
+    # computed ONCE and travels into both the blocks (which bind it) and the
+    # envelope, so the identity a selection freezes is provably the identity the
+    # operator was served.
+    rhash = review_hash(review)
+    selected_targets = _selected_targets(
+        proposal=proposal, review=review, identity=identity,
+        proposal_id=art_meta.get("proposal_id"), review_hash_value=rhash,
+        active_book_id=book_id, eligible_market_date=eligible)
     return _envelope(
         status=STATUS_OK, generated_at=generated_at, proposal_payload=payload,
         review=review, governance=governance,
+        selected_targets=selected_targets, review_hash_value=rhash,
         inputs={
             "proposal_hash": identity.get("proposal_hash"),
             "proposal_read_state": read_state,
@@ -637,4 +704,5 @@ __all__ = [
     "STATUS_OK", "STATUS_NO_PROPOSAL", "STATUS_UNAVAILABLE", "STATUS_VOCAB",
     "load_proposal_decision_review", "load_review_summary", "reset_cache",
     "STATUS_IDENTITY_MISMATCH", "REVIEW_STATE_VOCAB", "MEMO_TTL_SECONDS",
+    "review_hash",
 ]

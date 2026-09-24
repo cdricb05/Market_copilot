@@ -632,12 +632,55 @@ class TestApprovalConsumesSelection:
         assert not (tmp_path / "decisions.json").exists()
 
     def test_61_approval_after_a_matching_selection_proceeds(self, tmp_path):
-        _select(tmp_path)
+        # R69.2 — FULL_TARGET, because it is implementable from the proposal
+        # artifact's own allocations and needs no frozen book. The minimum
+        # repair's contract is test_61b below.
+        _select(tmp_path, target="FULL_TARGET")
         r = pdec.record_decision(
             decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN,
             artifact=_artifact(), proposal_summary=_summary(),
             decision_dir=str(tmp_path), latest_session=SESSION)
         assert r["recorded"] is True and r["status"] == "CREATED"
+        assert r["record"]["selected_target"] == "FULL_TARGET"
+
+    def test_61b_a_repair_selection_without_a_frozen_book_is_refused(self, tmp_path):
+        """R69.2 — a MINIMUM_REPAIR selected against a review that published no
+        implementable book (every selection recorded before R69.2) is refused
+        BEFORE the approval exists, and the reason is named.
+
+        R69.1 let this approval through and refused three steps later, at the
+        order plan. The operator had already been told their choice was approved.
+        """
+        _select(tmp_path, target="MINIMUM_REPAIR")
+        r = pdec.record_decision(
+            decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN,
+            artifact=_artifact(), proposal_summary=_summary(),
+            decision_dir=str(tmp_path), latest_session=SESSION)
+        assert r["status"] == pdec.PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE
+        assert r["recorded"] is False
+        assert r["selected_target"] == "MINIMUM_REPAIR"
+        assert r["not_implementable_reason"] in r["not_implementable_vocabulary"]
+        assert r["next_required_action"] == "SELECT_AN_IMPLEMENTABLE_TARGET"
+        assert not (tmp_path / "decisions.json").exists()
+
+    def test_61c_an_approve_without_any_selection_is_refused(self, tmp_path):
+        """R69.2 — the silent fallback is gone. No selection, no approval."""
+        r = pdec.record_decision(
+            decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN,
+            artifact=_artifact(), proposal_summary=_summary(),
+            decision_dir=str(tmp_path), latest_session=SESSION)
+        assert r["status"] == pdec.PDS_TARGET_SELECTION_REQUIRED
+        assert r["recorded"] is False
+        assert r["next_required_action"] == "SELECT_TARGET"
+        assert not (tmp_path / "decisions.json").exists()
+        # REJECT and HOLD stay available without a selection: an operator must
+        # always be able to record a judgement on a proposal they cannot approve.
+        for dec in (pdec.DECISION_REJECT, pdec.DECISION_HOLD):
+            h = pdec.record_decision(
+                decision=dec, confirm=pdec.CONFIRM_TOKEN, artifact=_artifact(),
+                proposal_summary=_summary(), decision_dir=str(tmp_path),
+                latest_session=SESSION)
+            assert h["recorded"] is True, dec
 
     def test_62_approval_is_refused_when_the_selection_binds_another_proposal(self, tmp_path):
         _select(tmp_path)  # bound to P_HASH

@@ -308,22 +308,35 @@ def test_13_a_stale_session_refuses_selection_and_approval_alike(tmp_path):
 # =========================================================================== #
 # STAGE 5: the order plan must implement the SELECTED target
 # =========================================================================== #
-def test_20_minimum_repair_fails_closed_at_the_order_plan(tmp_path):
-    """R69.1 - the defect this release found while proving the path.
+def test_20_minimum_repair_without_a_frozen_book_is_refused_before_approval(tmp_path):
+    """R69.1 found it; R69.2 moved the refusal EARLIER.
 
     Selecting the minimum repair and approving it used to produce the FULL
-    TARGET's order plan. It now refuses, names the selected target and offers
-    no confirmable plan.
+    TARGET's order plan. R69.1 refused at the order plan - three steps after the
+    operator had been told their choice was approved.
+
+    The envelope this suite builds carries no ``selected_targets``, which is
+    exactly the shape of every selection recorded before R69.2: the target's
+    economics were frozen, its weights were not. Such a selection can never
+    become an order plan, so the APPROVAL itself is now refused and says why.
+    The lifecycle for a selection that DOES freeze its book is proved in
+    ``test_r69_2_selected_target_lifecycle.py``.
     """
     _, _, art, ddir, kwargs = _world(tmp_path)
-    _select("MINIMUM_REPAIR", ddir, art)
-    dec = _approve(ddir, art)
-    assert dec["recorded"] is True
+    sel = _select("MINIMUM_REPAIR", ddir, art)
+    assert sel["selected"] is True, "the choice is still recordable"
+    assert sel["implementable"] is False
+    assert sel["implementation_available"] is False
 
+    dec = _approve(ddir, art)
+    assert dec["recorded"] is False
+    assert dec["status"] == pdec.PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE
+    assert dec["selected_target"] == "MINIMUM_REPAIR"
+    assert dec["next_required_action"] == "SELECT_AN_IMPLEMENTABLE_TARGET"
+
+    # and with no approval there is no order plan at any point downstream
     st = rb.load_rebalance_state(**kwargs)
-    assert st["rebalance_state"] == rb.RB_SELECTED_TARGET_NOT_IMPLEMENTABLE
-    assert st["selected_target"] == "MINIMUM_REPAIR"
-    assert st["implementable_target"] == "FULL_TARGET"
+    assert st["rebalance_state"] == rb.RB_PROPOSAL_REVIEW_REQUIRED
     assert st.get("order_plan") in (None, {}), "no plan may be offered"
     assert rb.RB_SELECTED_TARGET_NOT_IMPLEMENTABLE in rb.NON_CONFIRMABLE_STATES
 
@@ -351,12 +364,45 @@ def test_22_the_full_target_selection_reaches_a_confirmable_plan(tmp_path):
     assert {o["ticker"] for o in plan["orders"]} == {"AAA", "BBB", "CCC"}
 
 
-def test_23_no_selection_at_all_still_plans_the_standing_target(tmp_path):
-    """Unchanged behaviour: the gate engages only when a selection EXISTS."""
+def test_23_a_new_approval_without_a_selection_is_refused(tmp_path):
+    """R69.2 - the silent fallback is gone.
+
+    R69.1's gate engaged only when a selection EXISTED, so an APPROVE posted
+    without one skipped it entirely and the order-plan owner built the standing
+    full target. A missing choice became a choice. It is refused now, by name,
+    and nothing is written.
+    """
     _, _, art, ddir, kwargs = _world(tmp_path)
-    _approve(ddir, art)
+    dec = _approve(ddir, art)
+    assert dec["recorded"] is False
+    assert dec["status"] == pdec.PDS_TARGET_SELECTION_REQUIRED
+    assert dec["next_required_action"] == "SELECT_TARGET"
     st = rb.load_rebalance_state(**kwargs)
+    assert st["rebalance_state"] == rb.RB_PROPOSAL_REVIEW_REQUIRED
+    assert st.get("order_plan") in (None, {})
+
+
+def test_23b_a_legacy_approval_without_a_selection_still_plans_the_full_target(tmp_path):
+    """R69.2 - historical compatibility, and it is never silent.
+
+    A decision recorded BEFORE this release carries no ``selected_target``. Its
+    order plan is still the artifact's own full target, exactly as it was - but
+    the read model, the plan and the persisted plan artifact all say WHICH
+    fallback produced it.
+    """
+    _, _, art, ddir, kwargs = _world(tmp_path)
+    # A pre-R69.2 decision record: approved, and naming no target at all.
+    legacy = {"record_id": "pdec_legacy", "decision": pdec.DECISION_APPROVE,
+              "proposal_hash": PHASH, "recorded_at": "2026-01-09T12:00:00+00:00",
+              "binding": {"active_book_id": BOOK, "eligible_market_date": SESSION,
+                          "proposal_hash": PHASH}}
+    st = rb.load_rebalance_state(**{**kwargs, "decision_record": legacy})
     assert st["rebalance_state"] == rb.RB_PLAN_REVIEW_REQUIRED
+    assert st["target_source"] == rb.TARGET_SOURCE_LEGACY_NO_SELECTION
+    assert st["legacy_default_applied"] is True
+    assert st["implemented_target"] == "FULL_TARGET"
+    assert st["order_plan"]["target_source"] == rb.TARGET_SOURCE_LEGACY_NO_SELECTION
+    assert {o["ticker"] for o in st["order_plan"]["orders"]} == {"AAA", "BBB", "CCC"}
 
 
 # =========================================================================== #
