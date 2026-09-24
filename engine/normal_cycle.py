@@ -168,6 +168,10 @@ STAGE_FOR_OVERALL_STATE = {
     "WAITING_FOR_SESSION_CLOSE": STAGE_WAIT_FOR_SESSION_CLOSE,
     "WAITING_FOR_OWNED_DATA": STAGE_DAILY_CLOSE,
     "READY_FOR_DAILY_CLOSE": STAGE_DAILY_CLOSE,
+    # R69.3 — a close run in flight IS the Daily Close stage, in progress. It maps to the
+    # same stage its own execution belongs to, exactly as RESEARCH_CYCLE_RUNNING maps to
+    # the research stage; the cycle does not gain a stage because a step is executing.
+    "DAILY_CLOSE_RUNNING": STAGE_DAILY_CLOSE,
     "RESEARCH_CYCLE_REQUIRED": STAGE_DAILY_RESEARCH_CYCLE,
     "RESEARCH_CYCLE_RUNNING": STAGE_DAILY_RESEARCH_CYCLE,
     "RESEARCH_CYCLE_BLOCKED": STAGE_RECOVERY,

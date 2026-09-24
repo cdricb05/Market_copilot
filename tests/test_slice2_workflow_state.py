@@ -668,9 +668,14 @@ def test_66_existing_detailed_panels_and_loaders_intact():
 # Safety / vocabulary invariants
 # =========================================================================== #
 def test_frozen_vocabularies_are_stable():
+    # R69.3 added DAILY_CLOSE_RUNNING. The vocabulary carried a state for a RESEARCH
+    # cycle in flight and none for a CLOSE in flight, so for the 42 minutes that run
+    # dcr_2026-09-23_alpha_paper_book_1_20260924T145906 was executing on 2026-09-24 the
+    # only state available to describe it was READY_FOR_DAILY_CLOSE — which offered the
+    # operator a second close of the session that run was already closing.
     assert set(ws.OVERALL_STATES) == {
         "WAITING_FOR_SESSION_CLOSE", "WAITING_FOR_OWNED_DATA", "RESEARCH_CYCLE_REQUIRED",
-        "RESEARCH_CYCLE_RUNNING", "RESEARCH_CYCLE_BLOCKED",
+        "RESEARCH_CYCLE_RUNNING", "RESEARCH_CYCLE_BLOCKED", "DAILY_CLOSE_RUNNING",
         "PORTFOLIO_REASSESSMENT_REQUIRED", "READY_FOR_DAILY_CLOSE", "DAILY_CYCLE_COMPLETE",
         "DAILY_CYCLE_COMPLETE_EVIDENCE_GAP", "MANUAL_REVIEW_REQUIRED", "INCONSISTENT_STATE"}
     assert set(ws.ASSESSMENT_STATUSES) == {

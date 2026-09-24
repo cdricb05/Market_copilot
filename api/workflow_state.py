@@ -74,6 +74,17 @@ RESEARCH_CYCLE_RUNNING = "RESEARCH_CYCLE_RUNNING"      # Slice 3 (a cycle is in 
 RESEARCH_CYCLE_BLOCKED = "RESEARCH_CYCLE_BLOCKED"      # Slice 3 (e.g. monthly emitter)
 PORTFOLIO_REASSESSMENT_REQUIRED = "PORTFOLIO_REASSESSMENT_REQUIRED"
 READY_FOR_DAILY_CLOSE = "READY_FOR_DAILY_CLOSE"
+# R69.3 — a DAILY CLOSE run is in flight (the close owner's own run record).
+#
+# The symmetric state for the research cycle (RESEARCH_CYCLE_RUNNING) has existed since
+# Slice 3 with the rule "a cycle already in flight is work in progress, not a new
+# instruction". That rule was never applied to the CLOSE. On 2026-09-24 run
+# ``dcr_2026-09-23_alpha_paper_book_1_20260924T145906`` marked the book for 2026-09-23 at
+# 14:59:15Z and appended its journal row at 15:41:56Z — 42 minutes during which this
+# owner published READY_FOR_DAILY_CLOSE, an executable RUN_DAILY_CLOSE primary action,
+# ``daily_close_gate.execution_allowed: true`` and RUN_PORTFOLIO_CYCLE, with the RUN_ID
+# nowhere in the payload. This state closes that asymmetry.
+DAILY_CLOSE_RUNNING = "DAILY_CLOSE_RUNNING"
 DAILY_CYCLE_COMPLETE = "DAILY_CYCLE_COMPLETE"
 DAILY_CYCLE_COMPLETE_EVIDENCE_GAP = "DAILY_CYCLE_COMPLETE_EVIDENCE_GAP"
 MANUAL_REVIEW_REQUIRED = "MANUAL_REVIEW_REQUIRED"
@@ -83,6 +94,7 @@ OVERALL_STATES = (
     INCONSISTENT_STATE,
     WAITING_FOR_SESSION_CLOSE,
     WAITING_FOR_OWNED_DATA,
+    DAILY_CLOSE_RUNNING,
     RESEARCH_CYCLE_RUNNING,
     RESEARCH_CYCLE_BLOCKED,
     RESEARCH_CYCLE_REQUIRED,
@@ -162,6 +174,8 @@ OPERATOR_ACTION_BY_OVERALL = {
     # A cycle already in flight is work in progress, not a new instruction: the
     # operator watches it. It is never presented as "run the cycle" again.
     RESEARCH_CYCLE_RUNNING: OP_ACTION_MONITOR,
+    # R69.3 — the same rule for the close, which is the step that was missing it.
+    DAILY_CLOSE_RUNNING: OP_ACTION_MONITOR,
     MANUAL_REVIEW_REQUIRED: OP_ACTION_REVIEW_PROPOSAL,
     WAITING_FOR_SESSION_CLOSE: OP_ACTION_WAIT_SESSION_CLOSE,
     DAILY_CYCLE_COMPLETE: OP_ACTION_MONITOR,
@@ -293,6 +307,7 @@ ACTION_WAIT_FOR_SESSION_CLOSE = "WAIT_FOR_SESSION_CLOSE"
 ACTION_WAIT_FOR_OWNED_DATA = "WAIT_FOR_OR_REFRESH_OWNED_DATA"
 ACTION_RUN_RESEARCH_CYCLE = "RUN_DAILY_RESEARCH_CYCLE"
 ACTION_MONITOR_RESEARCH_CYCLE = "MONITOR_DAILY_RESEARCH_CYCLE"
+ACTION_MONITOR_DAILY_CLOSE = "MONITOR_DAILY_CLOSE"
 ACTION_RESOLVE_RESEARCH_BLOCKER = "RESOLVE_RESEARCH_CYCLE_BLOCKER"
 ACTION_RUN_PORTFOLIO_REASSESSMENT = "RUN_PORTFOLIO_REASSESSMENT"
 ACTION_RUN_DAILY_CLOSE = "RUN_DAILY_CLOSE"
@@ -1085,7 +1100,8 @@ def build_reallocation_proposal_presentation(
 
 def build_evidence_presentation(*, operational_close_valid: bool, latest_close_date: Any,
                                 evidence_gap: bool, active_book_snapshot_present: bool,
-                                current_session_open: bool) -> dict[str, Any]:
+                                current_session_open: bool,
+                                close_run: Optional[dict] = None) -> dict[str, Any]:
     """Presentation that keeps the still-open CURRENT session distinct from the
     latest completed close's evidence state (Workstream F). A documented gap on a
     valid completed close is ATTENTION-level and never an operational failure.
@@ -1105,12 +1121,22 @@ def build_evidence_presentation(*, operational_close_valid: bool, latest_close_d
                "explanation": "The current market session has been processed."}
 
     if not operational_close_valid:
-        # Release 29.4 — "no completed close has EVER been recorded" and "the most recent
-        # close attempt did not complete" are different facts, and the live 2026-08-18
-        # payload asserted the first while a valid 2026-08-17 close with 6/6 forward
-        # snapshots sat in the journal. A recorded date means a close ran: say what is
-        # actually true about it and never erase it from the operator's evidence.
-        if close_txt:
+        # R69.3 — a THIRD fact this branch used to swallow: the close for that date is
+        # RUNNING RIGHT NOW. "did not complete" is a failure statement, and on 2026-09-24
+        # it was published for 42 minutes about a run that was working correctly and went
+        # on to record its journal row. An in-flight read is not a failed read.
+        if close_run:
+            _rid = (close_run or {}).get("run_id")
+            _ord, _cnt = close_run.get("stage_ordinal"), close_run.get("stage_count")
+            _where = (" (stage %s of %s: %s)" % (_ord, _cnt, close_run.get("stage_label"))
+                      if _ord and _cnt else "")
+            comp = {"state": "IN_PROGRESS", "label": "Close running",
+                    "explanation": ("A Daily Close run is executing now for %s%s. It has "
+                                    "not completed, and it has not failed — no "
+                                    "completed close exists for that session YET."
+                                    % (close_txt or "the bound session", _where)),
+                    "run_id": _rid}
+        elif close_txt:
             comp = {"state": "NOT_COMPLETED", "label": "Last close attempt incomplete",
                     "explanation": "The most recent close attempt (%s) did not complete. "
                                    "No completed operational close has been recorded "
@@ -1669,7 +1695,8 @@ NO_ACTION_TEXT = "No action required right now."
 #: Overall states in which NO normal-path workflow mutation may be offered. The
 #: operator is waiting or reviewing; any execute-looking control here is a defect.
 _PASSIVE_STATES = frozenset({
-    WAITING_FOR_SESSION_CLOSE, RESEARCH_CYCLE_RUNNING, RESEARCH_CYCLE_BLOCKED,
+    WAITING_FOR_SESSION_CLOSE, DAILY_CLOSE_RUNNING,
+    RESEARCH_CYCLE_RUNNING, RESEARCH_CYCLE_BLOCKED,
     PORTFOLIO_REASSESSMENT_REQUIRED, MANUAL_REVIEW_REQUIRED,
     DAILY_CYCLE_COMPLETE, DAILY_CYCLE_COMPLETE_EVIDENCE_GAP})
 
@@ -1959,6 +1986,12 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
         passive = ("Daily Close complete for %s; the Daily Research Cycle is next."
                    % (closed or elig or "the eligible session"))
         badge = "COMPLETE"
+    elif overall == DAILY_CLOSE_RUNNING:
+        # R69.3 — the close itself is running. This is the one state where a close
+        # control must be passive BECAUSE the close is already happening.
+        passive = ("A Daily Close run is already in progress%s — do not start "
+                   "another one." % ((" for %s" % elig) if elig else ""))
+        badge = "RUNNING"
     elif overall == RESEARCH_CYCLE_RUNNING:
         # A run is in flight. This state IS reachable with the close still pending, so
         # the honest statement is about precedence, not about completion.
@@ -2364,7 +2397,8 @@ def build_research_obligation(*, latest_completed_close_date: Any,
                               cycle_blocked: bool = False,
                               cycle_inconsistent: bool = False,
                               catch_up_required: bool = False,
-                              evidence_gap: bool = False) -> dict[str, Any]:
+                              evidence_gap: bool = False,
+                              close_run_in_flight: bool = False) -> dict[str, Any]:
     """The ONE post-close governed-research obligation projection.
 
     Pure: a function of the already-published owner answers. It runs no cycle,
@@ -2404,10 +2438,19 @@ def build_research_obligation(*, latest_completed_close_date: Any,
     if not has_work:
         state = NO_RESEARCH_OBLIGATION
         next_action = _OBLIGATION_NEXT_NONE
-        summary = (
-            "Governed research is current for the completed close at %s."
-            % (_iso(closed) or "the latest session") if research_done_for_close else
-            "No completed operational close is outstanding for governed research.")
+        if research_done_for_close:
+            summary = ("Governed research is current for the completed close at %s."
+                       % (_iso(closed) or "the latest session"))
+        elif close_run_in_flight:
+            # R69.3 — the honest reason. "No completed operational close is outstanding"
+            # is true and reads as "research is fine": on 2026-09-24 it was published
+            # while the close that would CREATE the obligation was still running, next to
+            # a stale price_score_refresh that the running close's own stage rebuilds.
+            summary = ("Not yet determinable: a Daily Close run is still executing, so no "
+                       "completed close exists for governed research to be owed against. "
+                       "The obligation is decided when that run finishes.")
+        else:
+            summary = "No completed operational close is outstanding for governed research."
     elif cycle_running:
         state = RESEARCH_OBLIGATION_OUTSTANDING
         next_action = _OBLIGATION_NEXT_MONITOR
@@ -2477,6 +2520,10 @@ def build_research_obligation(*, latest_completed_close_date: Any,
         # --- what happens next --------------------------------------------- #
         "next_action": next_action,
         "summary": summary,
+        # R69.3 — whether the obligation is merely NOT YET DETERMINABLE because the close
+        # that would create it is still running. Never conflated with "nothing is owed".
+        "close_run_in_flight": bool(close_run_in_flight),
+        "obligation_determinable": not bool(close_run_in_flight),
         "orchestration_path": PORTFOLIO_CYCLE_EXECUTION_CONTRACT["path"],
         "research_specific_route": None,
         "operator_supplies_no_date": True,
@@ -2681,7 +2728,26 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     research_cycle_due_after_close: bool = False,
                     reassessment_blocked: bool = False,
                     catch_up_required: bool = False,
-                    research_obligation_outstanding: bool = False) -> str:
+                    research_obligation_outstanding: bool = False,
+                    close_run_in_flight: bool = False) -> str:
+    # P0.5 — R69.3: A DAILY CLOSE RUN IS EXECUTING RIGHT NOW. Highest priority, above
+    #        even the inconsistency gate, and for the same reason the close owner puts it
+    #        above every one of its own branches: a run in flight is actively mutating the
+    #        state every gate below reads. It marks the book at stage 2 and appends the
+    #        close journal row only at stage 5, so a mid-run reading is INTERNALLY
+    #        INCONSISTENT BY CONSTRUCTION — on 2026-09-24 owned marks stood at 2026-09-23
+    #        while the journal still ended at 2026-09-22 for 42 minutes. Declaring
+    #        INCONSISTENT_STATE there would send the operator to "recovery required" for a
+    #        healthy run, and every other state below either invites a duplicate close or
+    #        claims something the run has not finished deciding.
+    #
+    #        The fact is the close owner's own run record (api.daily_close.
+    #        active_close_run); nothing here infers it from a date, a mark or a NAV.
+    #        An in-progress run is never interrupted — exactly as P3.5 already does for
+    #        the research cycle.
+    if close_run_in_flight:
+        return DAILY_CLOSE_RUNNING
+
     # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
     #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
     #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
@@ -3017,6 +3083,27 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "execution_kind": EXEC_DAILY_RESEARCH_CYCLE,
                 "current_task": task,
                 "headline": headline}
+
+    if overall == DAILY_CLOSE_RUNNING:
+        run = ctx.get("close_run") or {}
+        rid = run.get("run_id") or "the active run"
+        md = run.get("market_date") or ctx.get("eligible_date") or "the eligible session"
+        ordinal, count = run.get("stage_ordinal"), run.get("stage_count")
+        where = ("stage %s of %s (%s)" % (ordinal, count, run.get("stage_label"))
+                 if ordinal and count and run.get("stage_label") else "in progress")
+        return {"action_code": ACTION_MONITOR_DAILY_CLOSE,
+                "label": "Daily Close running",
+                "explanation": (
+                    "A Daily Close run is executing on the server for %s — run %s, "
+                    "%s. Watch its progress and do NOT start another close: a duplicate "
+                    "submission is refused by the single-flight lock and writes nothing. "
+                    "Closing or reloading this page does not stop or affect the run."
+                    % (md, rid, where)),
+                "severity": SEV_INFO, "destination": DEST_DAILY_WORKFLOW,
+                "safe_to_execute": True, "execution_available": False,
+                "manual_confirmation_required": False, "slice3_pending": False,
+                "current_task": "Monitor the running Daily Close.",
+                "headline": "Daily Close is running for %s." % md}
 
     if overall == RESEARCH_CYCLE_RUNNING:
         return {"action_code": ACTION_MONITOR_RESEARCH_CYCLE,
@@ -3748,6 +3835,37 @@ def _is_operational_close_complete(progress) -> bool:
             p.get("final_close_status")) in _CLOSE_COMPLETE_FALLBACK)
 
 
+def _dc_close_running_token():
+    """The Daily Close owner's DAILY_CLOSE_RUNNING token (None if unavailable)."""
+    try:
+        from paper_trader.api import daily_close as _dc
+        return _dc.CLOSE_RUNNING
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _active_close_run(progress) -> Optional[dict]:
+    """R69.3 — ask the Daily Close owner for its IN-FLIGHT run (None when none is).
+
+    The workflow owner composes; it does not re-derive another lane's run record. The
+    degraded fallback is deliberately conservative in the SAFE direction: if the close
+    owner cannot be imported, an in-flight document still suppresses the close CTA rather
+    than inviting a duplicate run.
+    """
+    try:
+        from paper_trader.api import daily_close as _dc
+        return _dc.active_close_run(progress)
+    except Exception:  # noqa: BLE001 — degrade, never crash
+        p = progress if isinstance(progress, dict) else {}
+        if not p.get("running"):
+            return None
+        return {"in_flight": True, "run_id": p.get("run_id"),
+                "market_date": p.get("market_date"), "stage": p.get("stage"),
+                "stage_label": p.get("stage_label"), "stage_ordinal": None,
+                "stage_count": None, "started_at": p.get("started_at"),
+                "owner": "api.daily_close", "degraded_projection": True}
+
+
 def _claims_proposal(value) -> bool:
     """True when a surfaced value asserts a reviewable proposal exists."""
     if not isinstance(value, str):
@@ -4010,6 +4128,7 @@ _EXPECTED_ACTION_FOR = {
     WAITING_FOR_SESSION_CLOSE: ACTION_WAIT_FOR_SESSION_CLOSE,
     WAITING_FOR_OWNED_DATA: ACTION_WAIT_FOR_OWNED_DATA,
     RESEARCH_CYCLE_REQUIRED: ACTION_RUN_RESEARCH_CYCLE,
+    DAILY_CLOSE_RUNNING: ACTION_MONITOR_DAILY_CLOSE,
     RESEARCH_CYCLE_RUNNING: ACTION_MONITOR_RESEARCH_CYCLE,
     RESEARCH_CYCLE_BLOCKED: ACTION_RESOLVE_RESEARCH_BLOCKER,
     PORTFOLIO_REASSESSMENT_REQUIRED: ACTION_RUN_PORTFOLIO_REASSESSMENT,
@@ -4150,6 +4269,17 @@ def load_workflow_state(
     close_done = bool((close_progress or {}).get("done"))
     # Release 29.4 — the DAILY CLOSE OWNER answers this, not a local status mirror.
     operational_close_valid = _is_operational_close_complete(close_progress)
+    # R69.3 — and the SAME owner answers whether one of its runs is executing right now.
+    # This is a projection of its run record, never a local inference from a mark, a NAV
+    # or a date. It is deliberately independent of close VALIDITY: a run in flight has
+    # recorded no completed close, and a completed close has no run in flight.
+    close_run = _active_close_run(close_progress)
+    close_run_in_flight = close_run is not None
+    if close_run_in_flight:
+        # ONE close vocabulary. The progress document's own display literal
+        # ("CLOSE_RUNNING") is not a member of the close owner's close_status vocabulary;
+        # publish the owner's token so no surface has to learn a second spelling.
+        close_status = _dc_close_running_token() or close_status
     latest_close_date = close_market_date
     close_failed = bool(close_final_status in _CLOSE_FAILED_STATUSES)
 
@@ -4572,7 +4702,8 @@ def load_workflow_state(
         input_classification=stale_input_classification,
         cycle_running=cycle_running, cycle_blocked=cycle_blocked,
         cycle_inconsistent=cycle_inconsistent,
-        catch_up_required=catch_up_required, evidence_gap=evidence_gap)
+        catch_up_required=catch_up_required, evidence_gap=evidence_gap,
+        close_run_in_flight=close_run_in_flight)
     research_obligation_outstanding = bool(
         research_obligation["obligation_outstanding"])
     overall = _decide_overall(
@@ -4588,10 +4719,13 @@ def load_workflow_state(
         research_cycle_due_after_close=research_cycle_due_after_close,
         reassessment_blocked=reassessment_blocked,
         catch_up_required=catch_up_required,
-        research_obligation_outstanding=research_obligation_outstanding)
+        research_obligation_outstanding=research_obligation_outstanding,
+        close_run_in_flight=close_run_in_flight)
 
     primary = assert_primary_action_contract(_primary_action(overall, {
         "eligible_date": action_session,
+        # R69.3 — the in-flight run, so the passive action names the RUN_ID and stage.
+        "close_run": close_run,
         "research_cycle_due_after_close": research_cycle_due_after_close,
         "live_pre_drc_signal_present": live_pre_drc_signal_present,
         "reassessment_blocked": reassessment_blocked,
@@ -4878,7 +5012,12 @@ def load_workflow_state(
     completed_summary = {
         "latest_completed_close": {
             "market_date": latest_close_date, "status": close_status,
-            "valid": operational_close_valid},
+            "valid": operational_close_valid,
+            # R69.3 — WHY it is not valid, when that is because a run is still executing.
+            # "valid: false" alone reads as a failure; this says which of the two it is.
+            "in_flight": bool(close_run_in_flight),
+            "in_flight_run_id": (close_run or {}).get("run_id"),
+            "market_date_is_bound_session_not_completed_close": bool(close_run_in_flight)},
         "latest_portfolio_assessment": {
             "market_date": latest_assessment_date,
             # Release 29.3 — scoped to what it actually is (see portfolio_assessment_state).
@@ -5020,6 +5159,7 @@ def load_workflow_state(
         membership_resize_count=hoc_membership_resize)
     evidence_presentation = build_evidence_presentation(
         operational_close_valid=operational_close_valid, latest_close_date=latest_close_date,
+        close_run=close_run,
         evidence_gap=evidence_gap, active_book_snapshot_present=active_book_snapshot_present,
         current_session_open=(session_status == msession.BEFORE_SESSION_CLOSE))
 
@@ -5384,6 +5524,14 @@ def load_workflow_state(
         # Operator Action Integrity (Defect 3): the canonical Daily-Close
         # availability verdict every secondary close surface obeys verbatim.
         "daily_close_gate": _dc_gate,
+        # R69.3 — THE IN-FLIGHT DAILY CLOSE RUN (None when none is executing). Published
+        # at the top level so every surface can name the run the operator must wait for:
+        # RUN_ID, bound session, stage ordinal, stage label and started-at. Before this
+        # existed the RUN_ID was reachable only from the progress route, and only in the
+        # browser tab that had submitted the POST.
+        "close_run": close_run,
+        "close_run_in_flight": close_run_in_flight,
+        "close_run_owner": "api.daily_close",
         "queued_actions": queued,
         "blockers": blockers,
         "warnings": uniq_warnings,
@@ -5707,6 +5855,7 @@ __all__ = [
     "PHASE",
     "WAITING_FOR_SESSION_CLOSE", "WAITING_FOR_OWNED_DATA", "RESEARCH_CYCLE_REQUIRED",
     "RESEARCH_CYCLE_RUNNING", "RESEARCH_CYCLE_BLOCKED",
+    "DAILY_CLOSE_RUNNING",
     "PORTFOLIO_REASSESSMENT_REQUIRED", "READY_FOR_DAILY_CLOSE", "DAILY_CYCLE_COMPLETE",
     "DAILY_CYCLE_COMPLETE_EVIDENCE_GAP", "MANUAL_REVIEW_REQUIRED", "INCONSISTENT_STATE",
     "OVERALL_STATES",

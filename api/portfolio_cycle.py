@@ -197,11 +197,38 @@ def plan_next_step(workflow: Optional[dict]) -> dict[str, Any]:
                 "reason": ("Portfolio reassessment is due and the workflow owner "
                            "declares the Daily Research Cycle its sole execution "
                            "path (%s)." % action_code)}
-    if overall == "RESEARCH_CYCLE_RUNNING":
+    if overall == "DAILY_CLOSE_RUNNING":
+        # R69.3 — the close owner reports one of its runs IN FLIGHT. Without this branch
+        # the new state fell through to the unrecognised-state default and the operator
+        # was told RECOVERY_REQUIRED about a run that was working correctly. A run in
+        # flight is refused BY NAME, exactly as the research cycle already is; the
+        # close's single-flight lock would refuse the write anyway.
+        run = wf.get("close_run") or {}
+        where = ""
+        if run.get("stage_ordinal") and run.get("stage_count"):
+            where = (" (stage %s of %s: %s)" % (run.get("stage_ordinal"),
+                                                run.get("stage_count"),
+                                                run.get("stage_label")))
         return {"step": None, "owner": None,
                 "stop_reason": STOP_CYCLE_ALREADY_RUNNING,
-                "reason": ("A Daily Research Cycle run is already in progress; "
-                           "starting another is refused.")}
+                "reason": ("A Daily Close run is already in progress for %s (run %s)%s; "
+                           "starting another is refused and nothing was written."
+                           % (run.get("market_date") or "the eligible session",
+                              run.get("run_id") or "unknown", where))}
+    if overall == "RESEARCH_CYCLE_RUNNING":
+        # R69.4 — name the run, as the close branch above already does. An operator
+        # who is refused must be able to see WHICH run holds the cycle; on
+        # 2026-09-24 the refusal named nothing and the run itself had gone missing
+        # from the status entirely.
+        rc = wf.get("research_cycle_state") or {}
+        step = rc.get("current_step")
+        return {"step": None, "owner": None,
+                "stop_reason": STOP_CYCLE_ALREADY_RUNNING,
+                "reason": ("A Daily Research Cycle run is already in progress for %s "
+                           "(run %s%s); starting another is refused."
+                           % (rc.get("eligible_market_date") or "the eligible session",
+                              rc.get("run_id") or "unknown",
+                              (", step %s" % step) if step else ""))}
     if overall == "WAITING_FOR_SESSION_CLOSE":
         return {"step": None, "owner": None,
                 "stop_reason": STOP_WAITING_FOR_SESSION_CLOSE,

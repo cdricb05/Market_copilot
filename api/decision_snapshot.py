@@ -89,6 +89,36 @@ _LOCK = threading.Lock()
 _MEMO: dict[str, Any] = {"identity_hash": None, "built_at": 0.0, "payload": None,
                          "hits": 0, "builds": 0}
 
+# R69.4 - SINGLE-FLIGHT: one composition per identity, not one per caller.
+#
+# On 2026-09-24 GET /v1/operations/workflow-state exceeded 90 seconds while the
+# Daily Research Cycle ran, and the reason is in this file rather than in the
+# workflow owner (which costs 1.2s of the composition and 1.9s standalone).
+#
+# The identity is a stat fingerprint over every decision-relevant store, including
+# the desk root - forward_prediction_snapshots.json, forward_close_artifacts.json,
+# forward_prediction_outcomes.json, forward_prediction_prices.json - and the DRC run
+# records. A running cycle rewrites all of them continuously, so during a cycle the
+# identity changes faster than a snapshot can be built and EVERY request misses.
+# That part is correct and is deliberately left alone: nothing stale may be served.
+#
+# What was wrong is what a miss cost. _compose() runs outside _LOCK (rightly - the
+# fast hit path must never queue behind a build), but nothing recorded that a build
+# was ALREADY RUNNING for the same identity. One page load fans out across eleven
+# snapshot-backed routes, so eleven threads each composed all twelve owners at once:
+# measured 9.2-12.0s of GIL-bound Python per composition, multiplied by eleven,
+# competing with the cycle for the same GIL.
+#
+# Callers that want the identity a build is already producing now WAIT for that
+# build instead of starting their own. This changes no invalidation rule and serves
+# nothing staler than before: a coalesced caller receives a payload composed under
+# the very identity_hash it computed. It converts N concurrent compositions into one.
+_INFLIGHT: dict[str, Any] = {}
+
+#: A coalesced caller waits this long before composing for itself, so a wedged
+#: builder degrades to the old behaviour instead of hanging every reader.
+SINGLE_FLIGHT_WAIT_SECONDS = 30.0
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -291,8 +321,13 @@ def _stamp(payload: dict, identity: dict) -> dict:
 
 
 def load_decision_snapshot(*, force: bool = False) -> dict:
-    """The ONE snapshot. Served while its identity matches; regenerated otherwise."""
+    """The ONE snapshot. Served while its identity matches; regenerated otherwise.
+
+    R69.4 - concurrent callers that miss on the SAME identity share one build.
+    """
     ident = snapshot_identity()
+    key = ident["identity_hash"]
+    leader, ticket = True, None
     with _LOCK:
         memo = _MEMO
         fresh = (memo["payload"] is not None and memo["identity_hash"] == ident["identity_hash"]
@@ -305,7 +340,41 @@ def load_decision_snapshot(*, force: bool = False) -> dict:
             out["snapshot_hits"] = memo["hits"]
             out["snapshot_builds"] = memo["builds"]
             return out
-    payload = _stamp(_compose(ident), ident)
+        # A miss. ``force`` always composes for itself and never joins or publishes
+        # to a shared build, so an explicit refresh can never be answered by someone
+        # else's in-flight work.
+        if not force:
+            existing = _INFLIGHT.get(key)
+            if existing is not None:
+                leader, ticket = False, existing
+                ticket["waiters"] += 1
+            else:
+                ticket = {"event": threading.Event(), "payload": None, "waiters": 0}
+                _INFLIGHT[key] = ticket
+
+    if not leader:
+        if ticket["event"].wait(timeout=SINGLE_FLIGHT_WAIT_SECONDS):
+            shared = ticket["payload"]
+            if shared is not None:
+                out = dict(shared)
+                out["served_at"] = _now_iso()
+                out["served_from"] = "SNAPSHOT_COALESCED_WITH_IN_FLIGHT_BUILD"
+                return out
+        # The leader failed or outran the wait: fall through and compose for
+        # ourselves rather than serve nothing.
+        ticket = None
+
+    try:
+        payload = _stamp(_compose(ident), ident)
+    finally:
+        # Release every waiter on success AND on failure; a build that raises must
+        # never leave readers blocked until their timeout.
+        if ticket is not None:
+            with _LOCK:
+                if _INFLIGHT.get(key) is ticket:
+                    del _INFLIGHT[key]
+            ticket["event"].set()
+
     with _LOCK:
         _MEMO.update({"identity_hash": ident["identity_hash"], "built_at": time.monotonic(),
                       "payload": payload, "builds": _MEMO["builds"] + 1})
@@ -313,6 +382,9 @@ def load_decision_snapshot(*, force: bool = False) -> dict:
         payload["served_from"] = "REGENERATED_FROM_CANONICAL_OWNERS"
         payload["snapshot_hits"] = _MEMO["hits"]
         payload["snapshot_builds"] = _MEMO["builds"]
+    if ticket is not None:
+        ticket["payload"] = payload
+        ticket["event"].set()
     return payload
 
 
@@ -342,8 +414,12 @@ def reset() -> None:
     with _LOCK:
         _MEMO.update({"identity_hash": None, "built_at": 0.0, "payload": None,
                       "hits": 0, "builds": 0})
+        stranded = list(_INFLIGHT.values())
+        _INFLIGHT.clear()
+    for ticket in stranded:          # never leave a waiter blocked across a reset
+        ticket["event"].set()
 
 
 __all__ = ["PHASE", "OWNER", "SCHEMA_VERSION", "ROUTE", "SECTIONS", "SECTION_OWNERS",
-           "MAX_AGE_SECONDS", "snapshot_identity", "load_decision_snapshot", "section",
-           "summary", "reset"]
+           "MAX_AGE_SECONDS", "SINGLE_FLIGHT_WAIT_SECONDS", "snapshot_identity",
+           "load_decision_snapshot", "section", "summary", "reset"]

@@ -382,6 +382,16 @@ def _spy_date_at_or_before(desk_marks: Optional[dict], as_of: Any) -> Optional[s
     return best
 
 
+def _close_run_in_flight(daily_close_status: Optional[dict]) -> bool:
+    """R69.3 — True only when the supplied document is a close RUN RECORD reporting a
+    live run. A status/injected shape that carries no run record answers False, so no
+    stored document and no existing test changes meaning."""
+    d = daily_close_status if isinstance(daily_close_status, dict) else {}
+    if not any(k in d for k in ("running", "outcome", "done")):
+        return False       # not a run record at all
+    return bool(d.get("running"))
+
+
 def _extract_dates(*, operational: Optional[dict], inputs: Optional[dict],
                    daily_status: Optional[dict], desk_marks: Optional[dict],
                    daily_close_status: Optional[dict], forward_status: Optional[dict],
@@ -407,11 +417,28 @@ def _extract_dates(*, operational: Optional[dict], inputs: Optional[dict],
 
     close_date = None
     if daily_close_status is not None:
-        # load_close_progress → market_date (last processed / in-flight close date).
-        # Fallbacks accept an injected status-dict shape in tests.
+        # R69.3 — THE FIELD MEANT WHAT ITS NAME SAID, AND THE SOURCE DID NOT.
+        #
+        # The registry row for ``latest_daily_close`` is documented as "Most recent
+        # COMPLETED operational Daily Close", and this resolver fed it
+        # ``load_close_progress().market_date`` — the session a run is BOUND to, whether
+        # or not that run finished. The old comment said so ("last processed / in-flight")
+        # and the consumers still read it as a completed close. On 2026-09-24, while run
+        # dcr_2026-09-23_...T145906 was at stage 3 of 9, this published
+        # ``latest_daily_close = 2026-09-23`` and the D-7 warning below then asserted
+        # "the completed close at 2026-09-23 remains valid" — a close that had not yet
+        # recorded anything. The same value reached portfolio_state.
+        #
+        # An in-flight run's bound session is therefore NOT accepted as a completed close
+        # date; the last COMPLETED one is used instead. An injected status shape that
+        # carries no run record keeps its previous meaning exactly.
         close_date = (daily_close_status.get("market_date")
                       or daily_close_status.get("last_processed_market_date")
                       or daily_close_status.get("latest_eligible_market_date"))
+        if _close_run_in_flight(daily_close_status):
+            close_date = (daily_close_status.get("last_completed_close_date")
+                          or daily_close_status.get("last_processed_market_date")
+                          or None)
 
     # --- RESEARCH: model inputs / research pipeline ------------------------ #
     price_score = inp.get("market_as_of_date")
@@ -536,8 +563,14 @@ def _build_consistency(*, by_id: dict, operational: Optional[dict],
          _spy_date_at_or_before(desk_marks, op.get("desk_mark_date")
                                 or op.get("latest_desk_mark_date")),
          "api.paper_trading_desk", "BENCHMARK_MISMATCH")
+    # R69.3 — compare LIKE WITH LIKE. This row means the most recent COMPLETED close, so
+    # while a run is in flight it must be compared against the close owner's completed
+    # date, never against the session that run is merely BOUND to (which is a different
+    # date for the whole duration of the run, and would raise a false mismatch).
     _cmp("latest_daily_close", by_id["latest_daily_close"]["as_of_date"],
-         (daily_close_status or {}).get("market_date"),
+         ((daily_close_status or {}).get("last_completed_close_date")
+          if _close_run_in_flight(daily_close_status)
+          else (daily_close_status or {}).get("market_date")),
          "api.daily_close", "DAILY_CLOSE_MISMATCH")
     _cmp("target_calculation", by_id["target_calculation"]["as_of_date"],
          ct.get("alpha_market_date"), "api.alpha_target", "TARGET_DATE_MISMATCH")
@@ -808,7 +841,8 @@ def load_data_freshness(
     else:
         weakest_gate = "NONE"
 
-    # D-7: research staleness never invalidates a completed operational close.
+    # D-7: research staleness never invalidates a completed operational close. R69.3 —
+    # and this claim is only made about a close that COMPLETED (see _close_run_in_flight).
     if by_id["latest_daily_close"]["as_of_date"] and not signal_refresh_ready:
         warnings.append(
             "Research/signal readiness is separate from operational-close validity: "

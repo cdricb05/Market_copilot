@@ -9370,8 +9370,9 @@
     <b style="font-size:13px;">DAILY CLOSE RUNNING</b>
     <span class="mono" id="dc-run-elapsed" style="font-size:12px;font-weight:700;">0:00</span>
   </div>
+  <div id="dc-run-identity" class="mono" style="font-size:10.5px;color:var(--label,#94a3b8);margin-top:4px;"></div>
   <div id="dc-run-stage" class="mono" style="font-size:11px;color:var(--label,#94a3b8);margin-top:6px;">Starting&hellip;</div>
-  <div id="dc-run-warning" style="font-size:11px;color:var(--warn,#d97706);margin-top:6px;font-weight:700;">Do not refresh the page and do not click Run Daily Close again &mdash; a full close can take several minutes.</div>
+  <div id="dc-run-warning" style="font-size:11px;color:var(--warn,#d97706);margin-top:6px;font-weight:700;">Do not start another Daily Close &mdash; a duplicate submission is refused and writes nothing. A full close can take several minutes; closing or reloading this page does not stop or affect the run.</div>
   <div id="dc-run-steps" class="mono" style="font-size:10.5px;color:var(--label,#94a3b8);margin-top:6px;line-height:1.6;"></div>
 </div>
 
@@ -37047,6 +37048,9 @@ window.renderOperatorCommand = renderOperatorCommand;
 function renderWorkflowState(d) {
   var html = _wsBannerHtml(d);
   try { renderOperatorCommand(d); } catch (e) {}
+  // R69.3 — attach/detach the running-close card from the CANONICAL payload, so the
+  // RUN_ID and stage are on screen in every tab and survive a reload.
+  try { dcSyncRunningClose(d); } catch (e) {}
   ['wf-cc', 'wf-dw', 'wf-pt', 'wf-pm', 'wf-ra', 'wf-right'].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -37988,6 +37992,17 @@ function _dcReadinessText(d) {
     if (sc.decision_universe_count) parts.push('Decision universe ' + sc.decision_universe_count);
     parts.push('SPY ' + (sc.benchmark_ready ? 'ready' : 'pending'));
     parts.push('Provider-confirmed ' + (pr.provider_latest_date || d.latest_eligible_market_date || '—'));
+  } else if (st === 'DAILY_CLOSE_RUNNING') {
+    // R69.3 — a running close shows the RUN, not an empty readiness line.
+    var _r = d.close_run || {};
+    if (_r.run_id) parts.push('Run ' + _r.run_id);
+    if (_r.market_date) parts.push('Session ' + _r.market_date);
+    if (_r.stage_ordinal && _r.stage_count) {
+      parts.push('Stage ' + _r.stage_ordinal + ' of ' + _r.stage_count +
+                 (_r.stage_label ? (' — ' + _r.stage_label) : ''));
+    }
+    if (_r.started_at) parts.push('Started ' + String(_r.started_at).slice(11, 19) + 'Z');
+    parts.push('Duplicate submission refused — nothing is written');
   } else if (st === 'DATA_BLOCKED') {
     if (sc.valuation_ticker_count != null)
       parts.push('Holdings priced ' + (sc.valuation_priced_count || 0) + '/' + (sc.valuation_ticker_count || 0));
@@ -38619,6 +38634,93 @@ function _dcRenderRunSteps(stages) {
   }).join('<br>');
 }
 
+// R69.3 — THE RUNNING-CLOSE CARD, DRIVEN BY BACKEND STATE.
+//
+// Before this, the progress poll and the overlay lived inside runDailyClose()'s closure,
+// so they existed ONLY in the browser tab that had submitted the POST. A reload, a second
+// tab or a new session saw DAILY_CLOSE_DUE with an enabled "Run the Daily Close" and no
+// RUN_ID anywhere — which is exactly what happened on 2026-09-24 while run
+// dcr_2026-09-23_alpha_paper_book_1_20260924T145906 was 42 minutes into a healthy close.
+//
+// This attaches to whatever run the BACKEND reports (workflow-state.close_run, itself a
+// projection of api.daily_close's run record). It renders verbatim, derives nothing,
+// starts no close and stops no close.
+window._dcAttachPoll = null;
+window._dcAttachRunId = null;
+window._dcAttachTick = null;
+
+function _dcRunIdentityHtml(run) {
+  if (!run) return '';
+  var bits = [];
+  if (run.run_id) bits.push('RUN ' + escapeHtml(String(run.run_id)));
+  if (run.market_date) bits.push('SESSION ' + escapeHtml(String(run.market_date)));
+  if (run.started_at) bits.push('STARTED ' + escapeHtml(String(run.started_at).slice(11, 19)) + 'Z');
+  if (run.stage_ordinal && run.stage_count) {
+    bits.push('STAGE ' + escapeHtml(String(run.stage_ordinal)) + ' of ' + escapeHtml(String(run.stage_count)));
+  }
+  if (run.requested_by) bits.push('BY ' + escapeHtml(String(run.requested_by)));
+  return bits.join(' &middot; ');
+}
+
+// Timers only. Re-attaching to a DIFFERENT run must not hide the card it is about to
+// re-render: browser acceptance caught exactly that — the card was shown, then hidden
+// again by the clear step one line later, so it never survived its own first attach.
+function _dcClearAttachTimers() {
+  if (window._dcAttachPoll) { clearInterval(window._dcAttachPoll); window._dcAttachPoll = null; }
+  if (window._dcAttachTick) { clearInterval(window._dcAttachTick); window._dcAttachTick = null; }
+  window._dcAttachRunId = null;
+}
+
+// Timers AND the card. Only the DETACH path (the backend reports no run in flight, or
+// the run finished) may hide it.
+function _dcStopAttachedRun() {
+  _dcClearAttachTimers();
+  if (_dcRunInFlight) return;            // this tab's own POST owns the overlay
+  var ov = document.getElementById('dc-run-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+// Called from renderWorkflowState with the canonical payload. `close_run` is null unless
+// the close owner reports a live run, so this both attaches AND detaches.
+function dcSyncRunningClose(d) {
+  var run = (d && d.close_run) || null;
+  if (!run || !run.in_flight) { _dcStopAttachedRun(); return; }
+  var ov = document.getElementById('dc-run-overlay');
+  var idEl = document.getElementById('dc-run-identity');
+  var stageEl = document.getElementById('dc-run-stage');
+  if (ov) ov.style.display = '';
+  if (idEl) idEl.innerHTML = _dcRunIdentityHtml(run);
+  if (stageEl && run.stage_label) {
+    stageEl.textContent = 'Current stage: ' + String(run.stage_label);
+  }
+  if (run.stages) { try { _dcRenderRunSteps(run.stages); } catch (e) {} }
+  if (window._dcAttachRunId === run.run_id && window._dcAttachPoll) return;   // already attached
+  _dcClearAttachTimers();              // never hides: the card stays up across re-attach
+  window._dcAttachRunId = run.run_id;
+  var t0 = run.started_at ? Date.parse(run.started_at) : Date.now();
+  window._dcAttachTick = setInterval(function () {
+    var el = document.getElementById('dc-run-elapsed');
+    if (el && isFinite(t0)) el.textContent = _dcFmtElapsed(Date.now() - t0);
+  }, 1000);
+  window._dcAttachPoll = setInterval(async function () {
+    if (_dcRunInFlight) return;          // the submitting tab's own poll is authoritative
+    try {
+      var pr = await call('GET', '/v1/operations/daily-close/progress');
+      var pg = await pr.json();
+      if (!pg || !pg.running) {          // the run finished: re-read the canonical state
+        _dcStopAttachedRun();
+        try { loadWorkflowState(); } catch (e) {}
+        try { loadOperationalBook(); } catch (e) {}
+        return;
+      }
+      var se = document.getElementById('dc-run-stage');
+      if (se && pg.stage_label) se.textContent = 'Current stage: ' + String(pg.stage_label);
+      if (pg.stages) _dcRenderRunSteps(pg.stages);
+    } catch (e) { /* progress is display-only; never a gate */ }
+  }, 5000);
+}
+window.dcSyncRunningClose = dcSyncRunningClose;
+
 function _dcShowRunOutcome(r) {
   if (!r) { toast('Daily close request failed — reload the Daily Close status before acting.', 'err'); return; }
   if (r.status === 'DAILY_CLOSE_IN_PROGRESS') {
@@ -38695,6 +38797,10 @@ async function runDailyClose(btn) {
     _dcRunInFlight = false;
     _dcShowRunOutcome(r);
     try { loadOperationalBook(); } catch (e) {}   // refresh every operator surface
+    // R69.3 — re-read the canonical state so that if the run is STILL executing (a
+    // client timeout is not an outcome) the running-close card re-attaches instead of
+    // the page falling back to an enabled "Run the Daily Close".
+    try { loadWorkflowState(); } catch (e) {}
     // Phase 28C (Workstream H) — repopulate the read-only Daily Alpha Run cockpit
     // from authoritative backend state so its fields are never left blank after a close.
     try { if (typeof loadDailyAlphaStatus === 'function') loadDailyAlphaStatus(); } catch (e) {}

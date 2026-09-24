@@ -148,9 +148,36 @@ CLOSE_PROGRESS_FILE = "daily_close_progress.json"
 CLOSE_IN_PROGRESS = "DAILY_CLOSE_IN_PROGRESS"
 _CLOSE_LOCK = threading.Lock()
 
-#: Progress staleness cutoff: a "running" document older than this is a crash
-#: leftover and is reported as not running.
+#: Progress staleness cutoff for a LEGACY progress document (one written before R69.3
+#: and therefore carrying no heartbeat): a "running" document older than this is a crash
+#: leftover and is reported as not running. Kept at 45 minutes so no stored document and
+#: no injected test shape changes meaning.
 _PROGRESS_STALE_MINUTES = 45
+
+# --------------------------------------------------------------------------- #
+# R69.3 — THE RUN HEARTBEAT.
+#
+# THE DEFECT THIS REPAIRS (live, 2026-09-24). ``_CloseProgress`` stamped ``updated_at``
+# only when a STAGE changed, so that field measured stage duration and was then read as
+# process liveness. Stage RECALCULATE_DECISION_UNIVERSE (the full model-input refresh,
+# one provider request per name) ran for over 40 minutes while ``updated_at`` stood
+# still, so the 45-minute cutoff was about to report a healthy, actively-working run as
+# RUN_FAILED_RECOVERABLE with ``safe_retry_allowed: true`` — telling the operator to
+# retry a live close.
+#
+# The two facts are now SEPARATE and each is measured by what it actually means:
+#   updated_at       the run process is alive        (heartbeat, every 30s)
+#   stage_changed_at the current stage started here  (stage duration)
+#
+# A heartbeat-declaring document is judged live on a SHORT window, which also means a
+# backend restart that kills a run stops the document claiming liveness within minutes
+# instead of 45. A legacy document keeps the 45-minute rule above.
+# --------------------------------------------------------------------------- #
+_HEARTBEAT_SECONDS = 30
+#: How long a heartbeat-declaring document may go unstamped before it is a leftover.
+_HEARTBEAT_LIVENESS_SECONDS = 180
+#: The one live progress writer in this process (the close lock guarantees at most one).
+_ACTIVE_PROGRESS: Any = None
 
 # --------------------------------------------------------------------------- #
 # Stage 21 (Workstream 0B) — DURABLE CLOSE-RUN STATUS.
@@ -275,10 +302,31 @@ PAPER_ORDERS_SUBMITTED = "PAPER_ORDERS_SUBMITTED"
 DATA_BLOCKED = "DATA_BLOCKED"
 ALREADY_PROCESSED = "ALREADY_PROCESSED"
 AWAITING_ELIGIBLE_CLOSE = "AWAITING_ELIGIBLE_CLOSE"
+# R69.3 — A CLOSE RUN IS IN FLIGHT.
+#
+# THE DEFECT THIS REPAIRS (live, 2026-09-24). Run
+# dcr_2026-09-23_alpha_paper_book_1_20260924T145906 started at 14:59:06Z, marked the
+# book for 2026-09-23 (NAV 97,973.38, performance row seq 45 at 14:59:15Z) and was still
+# executing stage 3 of 9 half an hour later. The close journal row is written at stage 5,
+# so ``_last_processed_date`` still answered 2026-09-22 — correctly. But this module never
+# read its OWN run record on the GET path, so ``resolve_daily_close_status`` saw a new
+# unprocessed session and returned ``DAILY_CLOSE_DUE`` with an ENABLED "Run Daily Close"
+# and ``safe_to_rerun_close: true``, while the workflow owner composed
+# READY_FOR_DAILY_CLOSE / RUN_PORTFOLIO_CYCLE. Every operator surface invited a second
+# close of the session a live run was already closing, and none of them showed the RUN_ID.
+#
+# The vocabulary held eleven statuses and not one of them said "a run is in flight". This
+# is that status. It is NOT ``DAILY_CLOSE_IN_PROGRESS``: that token is the POST result the
+# single-flight lock returns to a duplicate submitter. This one is the READ status every
+# passive surface renders, and it is neither processed nor re-runnable — so
+# ``safe_to_rerun_close`` is False by construction and no completed-close claim can be
+# built from it.
+CLOSE_RUNNING = "DAILY_CLOSE_RUNNING"
 
 ALL_CLOSE_STATUSES = (INITIAL_BASELINE_DUE, INITIAL_BASELINE_RECORDED,
                       AWAITING_MARKET_CLOSE, WAITING_FOR_MARKET_DATA,
-                      CLOSE_DUE, CLOSE_COMPLETE_HOLD, CLOSE_COMPLETE_MEMBERSHIP_DRIFT,
+                      CLOSE_DUE, CLOSE_RUNNING,
+                      CLOSE_COMPLETE_HOLD, CLOSE_COMPLETE_MEMBERSHIP_DRIFT,
                       PAPER_ORDERS_SUBMITTED, DATA_BLOCKED, ALREADY_PROCESSED,
                       AWAITING_ELIGIBLE_CLOSE)
 
@@ -461,6 +509,19 @@ _PRESENTATION = {
                         "P&L and evaluate the portfolio."),
         "cycle_label": "DAILY CLOSE DUE",
     },
+    CLOSE_RUNNING: {
+        "label": "DAILY CLOSE RUNNING",
+        "headline": "A DAILY CLOSE IS RUNNING",
+        "severity": SEV_AMBER,
+        "primary_action_label": "Daily Close running",
+        "primary_action_kind": "AWAIT",
+        "current_task": "Wait for the running Daily Close",
+        "next_action": ("A Daily Close run is in flight for this session. Watch its "
+                        "progress and do not start another one — a duplicate "
+                        "submission is refused and writes nothing. Closing or reloading "
+                        "the page does not stop or affect the run."),
+        "cycle_label": "DAILY CLOSE RUNNING",
+    },
     CLOSE_COMPLETE_HOLD: {
         "label": "DAILY REVIEW COMPLETE — HOLD CURRENT PORTFOLIO",
         "headline": "DAILY REVIEW COMPLETE — HOLD CURRENT PORTFOLIO",
@@ -549,7 +610,10 @@ _PRESENTATION = {
 # Statuses whose primary action RUNS the daily close (write).
 _RUNNABLE = (CLOSE_DUE, INITIAL_BASELINE_DUE)
 # Statuses whose primary action is a disabled/await affordance.
-_DISABLED_PRIMARY = (AWAITING_ELIGIBLE_CLOSE, AWAITING_MARKET_CLOSE)
+_DISABLED_PRIMARY = (AWAITING_ELIGIBLE_CLOSE, AWAITING_MARKET_CLOSE,
+                     # R69.3 — a run in flight is a passive affordance by
+                     # construction; never a second executable close.
+                     CLOSE_RUNNING)
 
 _FIRST_MARK_NOTE = (
     "First daily mark after the initial baseline: there is no prior completed "
@@ -628,6 +692,10 @@ class _CloseProgress:
                  requested_by: Optional[str] = None):
         self._path = Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE
         self._started = _now_iso()
+        # The heartbeat thread and the close thread both mutate + write this document.
+        self._doc_lock = threading.Lock()
+        self._stop = threading.Event()
+        self._beat: Optional[threading.Thread] = None
         # Stage 21 (Workstream 0B): the run identity. It is derived from the SAME
         # idempotency key the close itself uses — (book, market_date) — plus the start
         # instant, so a reconnecting GET can prove which attempt it is looking at while
@@ -647,10 +715,17 @@ class _CloseProgress:
             "market_date": market_date,
             "evaluation_date": evaluation_date,
             "started_at": self._started,
+            # R69.3 — LIVENESS (heartbeat), not stage duration. See _HEARTBEAT_SECONDS.
             "updated_at": self._started,
+            "heartbeat_interval_seconds": _HEARTBEAT_SECONDS,
+            "heartbeat_owner": "api.daily_close._CloseProgress",
+            "pid": os.getpid(),
             "completed_at": None,
             "stage": None,
             "stage_label": None,
+            # R69.3 — when the CURRENT stage began. A long stage is honest progress; it
+            # is no longer indistinguishable from a dead process.
+            "stage_changed_at": None,
             "stages": [{"key": k, "label": lbl, "status": "pending"}
                        for k, lbl in CLOSE_STAGES],
             "completed_steps": [],
@@ -668,47 +743,94 @@ class _CloseProgress:
             "final_evidence_status": None,
         }
         self._write()
+        self._start_heartbeat()
 
     @property
     def run_id(self) -> Optional[str]:
         return self._doc.get("run_id")
 
+    def _start_heartbeat(self) -> None:
+        """Stamp ``updated_at`` every ``_HEARTBEAT_SECONDS`` for as long as this run
+        lives, so the read side can tell a long stage from a dead process. Display-only
+        and best-effort: it writes no operational state, holds no gate and takes no
+        decision. Registered module-wide so ``_progress_finalize`` can always stop it."""
+        global _ACTIVE_PROGRESS
+        try:
+            def _pulse() -> None:
+                while not self._stop.wait(_HEARTBEAT_SECONDS):
+                    self._write()
+            self._beat = threading.Thread(target=_pulse, name="daily-close-heartbeat",
+                                          daemon=True)
+            self._beat.start()
+            _ACTIVE_PROGRESS = self
+        except Exception:  # noqa: BLE001 — a missing heartbeat degrades to the legacy rule
+            self._beat = None
+
+    def stop_heartbeat(self) -> None:
+        """Stop pulsing (called exactly once, from ``_progress_finalize``)."""
+        global _ACTIVE_PROGRESS
+        try:
+            self._stop.set()
+            if self._beat is not None:
+                self._beat.join(timeout=2.0)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            self._beat = None
+            if _ACTIVE_PROGRESS is self:
+                _ACTIVE_PROGRESS = None
+
     def mark_write(self, *, journal_row_id: Optional[str] = None) -> None:
         """Record that this run has performed its durable operational write."""
-        self._doc["writes_occurred"] = True
-        if journal_row_id:
-            self._doc["journal_row_id"] = journal_row_id
+        with self._doc_lock:
+            self._doc["writes_occurred"] = True
+            if journal_row_id:
+                self._doc["journal_row_id"] = journal_row_id
         self._write()
 
     def _write(self) -> None:
         try:
-            self._doc["updated_at"] = _now_iso()
-            desk._atomic_write_json(self._path, self._doc)
+            with self._doc_lock:
+                self._doc["updated_at"] = _now_iso()
+                snapshot = dict(self._doc)
+                snapshot["stages"] = [dict(st) for st in (self._doc.get("stages") or [])]
+                snapshot["completed_steps"] = list(self._doc.get("completed_steps") or [])
+            desk._atomic_write_json(self._path, snapshot)
         except Exception:  # noqa: BLE001 — display only, never load-bearing
             pass
 
     def stage(self, key: str) -> None:
         if key not in _STAGE_LABELS:
             return
-        self._doc["stage"] = key
-        self._doc["stage_label"] = _STAGE_LABELS[key]
-        reached = False
-        for s in self._doc["stages"]:
-            if s["key"] == key:
-                s["status"] = "current"
-                reached = True
-            elif not reached and s["status"] != "done":
-                s["status"] = "done"
-            elif reached and s["status"] != "pending":
-                s["status"] = "pending"
-        self._doc["completed_steps"] = [s["key"] for s in self._doc["stages"]
-                                        if s["status"] == "done"]
+        with self._doc_lock:
+            self._doc["stage"] = key
+            self._doc["stage_label"] = _STAGE_LABELS[key]
+            self._doc["stage_changed_at"] = _now_iso()
+            reached = False
+            for s in self._doc["stages"]:
+                if s["key"] == key:
+                    s["status"] = "current"
+                    reached = True
+                elif not reached and s["status"] != "done":
+                    s["status"] = "done"
+                elif reached and s["status"] != "pending":
+                    s["status"] = "pending"
+            self._doc["completed_steps"] = [s["key"] for s in self._doc["stages"]
+                                            if s["status"] == "done"]
         self._write()
 
 
 def _progress_finalize(desk_dir, result: Optional[dict]) -> None:
     """Mark a running progress document finished (called once per POST, under the
     close lock). A missing/already-finished document is left untouched."""
+    # R69.3 — stop the heartbeat BEFORE the terminal write, so a pulse can never
+    # resurrect ``updated_at`` on a document that has already been finalized.
+    live = _ACTIVE_PROGRESS
+    if live is not None:
+        try:
+            live.stop_heartbeat()
+        except Exception:  # noqa: BLE001
+            pass
     try:
         path = Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE
         doc = desk._read_json(path)
@@ -761,21 +883,53 @@ def load_close_progress(desk_dir=None) -> dict:
         return {"status": "NO_CLOSE_PROGRESS", "running": False, "done": False,
                 "outcome": RUN_NOT_STARTED, "run_state_vocabulary": list(RUN_STATE_VOCAB),
                 "run_id": None, "writes_occurred": False,
+                "heartbeat_age_seconds": None, "stage_age_seconds": None,
+                "stage_changed_at": None, "market_date": None,
+                "last_completed_close_date": None,
                 "safe_retry_allowed": True,
                 "retry_guidance": ("No daily close run has been recorded. Running one "
                                    "is safe."),
                 "stages": [{"key": k, "label": lbl, "status": "pending"}
                            for k, lbl in CLOSE_STAGES],
                 **_safety(False)}
+    # R69.3 — the LAST COMPLETED close date, from the close journal this module also
+    # owns. ``market_date`` names the session a run is BOUND to (completed or not), and
+    # every consumer that wanted "the most recent COMPLETED close" was reading that
+    # field. Both facts are now published, each meaning exactly what it is called.
+    try:
+        last_completed = _last_processed_date(desk._desk_dir(desk_dir),
+                                              doc.get("book_id") or "")
+    except Exception:  # noqa: BLE001 — display only, never load-bearing
+        last_completed = None
     running = bool(doc.get("running"))
+    # R69.3 — LIVENESS is measured against the heartbeat when the document declares one
+    # (a short window: a restart that kills a run stops the claim within minutes), and
+    # against the legacy 45-minute cutoff when it does not. ``updated_at`` no longer
+    # doubles as stage duration — ``stage_changed_at`` carries that.
+    hb_interval = doc.get("heartbeat_interval_seconds")
+    try:
+        hb_interval = float(hb_interval) if hb_interval is not None else None
+    except (TypeError, ValueError):
+        hb_interval = None
+    liveness_window = (max(_HEARTBEAT_LIVENESS_SECONDS, 3.0 * hb_interval)
+                       if hb_interval else float(_PROGRESS_STALE_MINUTES) * 60.0)
+    hb_age = None
     stale = False
     if running:
         try:
             updated = datetime.fromisoformat(str(doc.get("updated_at")))
-            age_min = (datetime.now(tz=timezone.utc) - updated).total_seconds() / 60.0
-            stale = age_min > _PROGRESS_STALE_MINUTES
+            hb_age = (datetime.now(tz=timezone.utc) - updated).total_seconds()
+            stale = hb_age > liveness_window
         except (TypeError, ValueError):
             stale = True
+    stage_age = None
+    try:
+        _sc = doc.get("stage_changed_at")
+        if _sc:
+            stage_age = (datetime.now(tz=timezone.utc)
+                         - datetime.fromisoformat(str(_sc))).total_seconds()
+    except (TypeError, ValueError):
+        stage_age = None
     # Stage 21 (Workstream 0B) — the AUTHORITATIVE outcome on reconnect.
     #
     # A client-side HTTP timeout tells the operator nothing about the server-side run,
@@ -819,6 +973,18 @@ def load_close_progress(desk_dir=None) -> dict:
             "run_state_vocabulary": list(RUN_STATE_VOCAB),
             "safe_retry_allowed": safe_retry,
             "retry_guidance": guidance,
+            # --- R69.3: liveness vs stage duration, measured separately -------- #
+            "heartbeat_age_seconds": (None if hb_age is None else round(hb_age, 1)),
+            "heartbeat_interval_seconds": hb_interval,
+            "liveness_window_seconds": round(liveness_window, 1),
+            "liveness_owner": "api.daily_close",
+            "liveness_basis": ("HEARTBEAT" if hb_interval else "LEGACY_UPDATED_AT"),
+            # The session this run is BOUND to is ``market_date``; the most recent
+            # session a close actually COMPLETED is this. They differ during a run.
+            "last_completed_close_date": last_completed,
+            "market_date_is_bound_session": True,
+            "stage_age_seconds": (None if stage_age is None else round(stage_age, 1)),
+            "long_stage_is_not_a_failure": True,
             "client_timeout_is_not_an_outcome": True,
             "idempotency_scope": "operational_book_id + market_date",
             "duplicate_write_possible": False,
@@ -827,13 +993,76 @@ def load_close_progress(desk_dir=None) -> dict:
                 "requested_by", "done", "market_date", "evaluation_date", "started_at",
                 "updated_at", "completed_at", "stage", "stage_label", "stages",
                 "completed_steps", "writes_occurred", "blocker", "failure",
-                "settlement", "journal_row_id", "warning",
+                "settlement", "journal_row_id", "warning", "stage_changed_at", "pid",
                 "final_evidence_status")},
             # Release 29.3 — persisted progress documents predating the vocabulary
             # migration carry the legacy token; normalise it on READ so every consumer
             # sees ONE close vocabulary and no stored byte is rewritten.
             "final_close_status": normalize_close_status(doc.get("final_close_status")),
             **_safety(False)}
+
+
+def _safe_close_progress(desk_dir) -> Optional[dict]:
+    """The probe-free run record, degrade-safe: a progress read can never fail a GET."""
+    try:
+        return load_close_progress(desk_dir=desk_dir)
+    except Exception:  # noqa: BLE001 — display + precedence only
+        return None
+
+
+def active_close_run(progress: Optional[dict]) -> Optional[dict]:
+    """R69.3 — THE ONE projection of a close run that is IN FLIGHT right now.
+
+    ``progress`` is a ``load_close_progress()`` document. Returns None unless that
+    document reports a live run (``running`` is already staleness-adjusted by the
+    loader, so a crashed leftover is NOT live). The projection carries the run
+    identity and the stage position so a passive surface can name the run the
+    operator must wait for instead of offering to start another one.
+
+    It decides nothing about close VALIDITY: a run in flight has recorded no
+    completed close, which is exactly why ``is_operational_close_complete`` stays
+    False for it.
+    """
+    if not isinstance(progress, dict) or not progress.get("running"):
+        return None
+    stages = [st for st in (progress.get("stages") or []) if isinstance(st, dict)]
+    ordinal = None
+    for idx, st in enumerate(stages, start=1):
+        if st.get("status") == "current":
+            ordinal = idx
+            break
+    return {
+        "in_flight": True,
+        "run_id": progress.get("run_id"),
+        "idempotency_key": progress.get("idempotency_key"),
+        "book_id": progress.get("book_id"),
+        "requested_by": progress.get("requested_by"),
+        "market_date": progress.get("market_date"),
+        "evaluation_date": progress.get("evaluation_date"),
+        "started_at": progress.get("started_at"),
+        "updated_at": progress.get("updated_at"),
+        "stage_changed_at": progress.get("stage_changed_at"),
+        "heartbeat_age_seconds": progress.get("heartbeat_age_seconds"),
+        "stage": progress.get("stage"),
+        "stage_label": progress.get("stage_label"),
+        "stage_ordinal": ordinal,
+        "stage_count": len(stages) or len(CLOSE_STAGES),
+        "stages": stages,
+        "completed_steps": list(progress.get("completed_steps") or []),
+        "writes_occurred": bool(progress.get("writes_occurred")),
+        # A run that has not reached RECORD_DECISION has appended no journal row, so
+        # no completed close exists for its bound session however far it has marked.
+        "journal_row_id": progress.get("journal_row_id"),
+        "recorded_close_for_bound_session": bool(progress.get("journal_row_id")),
+        "run_status_path": "GET /v1/operations/daily-close/progress",
+        "duplicate_submission_refused": True,
+        "duplicate_submission_status": CLOSE_IN_PROGRESS,
+        "safe_to_close_the_page": True,
+        "owner": "api.daily_close",
+        "note": ("A Daily Close run is executing on the server. It is the AUTHORITATIVE "
+                 "run for its bound session; a second submission is refused by the "
+                 "single-flight lock and writes nothing."),
+    }
 
 
 def _capture_in_flight(desk_dir, market_date: Optional[str]) -> bool:
@@ -2276,6 +2505,7 @@ def resolve_daily_close_status(
     valuation_complete: bool = True,
     within_trading_day: bool = False,
     forward_tracking: Optional[bool] = None,
+    close_run_in_flight: bool = False,
 ) -> str:
     """Resolve the ONE canonical daily-close status from the current book state.
 
@@ -2300,6 +2530,17 @@ def resolve_daily_close_status(
     # ``book_active`` is False by construction while orders are pending, which is
     # exactly the situation this precedence rule exists to handle. Callers that do not
     # supply it keep the legacy ``book_active`` meaning.
+    # R69.3 — HIGHEST PRECEDENCE: a close run is executing right now.
+    #
+    # Every branch below reads state this run is actively mutating: it marks the book at
+    # stage 2, refreshes the model inputs at stage 3 and appends the journal row only at
+    # stage 5. A mid-run reading is therefore transient BY CONSTRUCTION, and on
+    # 2026-09-24 that transient reading (marks at 2026-09-23, journal at 2026-09-22)
+    # resolved to DAILY_CLOSE_DUE and offered a duplicate close of the very session the
+    # live run was closing. No other status is a safe instruction while the single-flight
+    # lock is held, so this fact outranks all of them and is never inferred from a date.
+    if close_run_in_flight:
+        return CLOSE_RUNNING
     live_book = book_active if forward_tracking is None else bool(forward_tracking)
     new_close_pending = bool(
         initialized and live_book
@@ -2414,6 +2655,10 @@ def _daily_cycle_stages(close_status: str) -> list[dict]:
     C, N, A, P, B = "COMPLETE", "NEEDS_ACTION", "ACTIVE", "PENDING", "BLOCKED"
     if close_status in (CLOSE_DUE, INITIAL_BASELINE_DUE):
         s = [N, P, P, P, P]
+    elif close_status == CLOSE_RUNNING:
+        # R69.3 — stage 1 is ACTIVE (a run is executing it), never NEEDS_ACTION: the
+        # operator has nothing to do and must not be asked to start it again.
+        s = [A, P, P, P, P]
     elif close_status == DATA_BLOCKED:
         s = [B, P, P, P, P]
     elif close_status == WAITING_FOR_MARKET_DATA:
@@ -2759,6 +3004,11 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         # -- Phase 27F readiness blocks (clock / provider / scope / baseline) - #
         "clock": ctx.get("clock"),
         "provider_readiness": ctx.get("provider_readiness"),
+        # R69.3 — the in-flight close run (None when no run is executing). The RUN_ID,
+        # bound session, stage ordinal and started-at an operator needs in order to wait
+        # for a run instead of starting a second one.
+        "close_run": ctx.get("close_run"),
+        "close_run_in_flight": ctx.get("close_run") is not None,
         "market_data_scope": ctx.get("market_data_scope"),
         # R62.1.1 — WHICH KIND of membership difference this close observed, the
         # exact names it affects, and whether it is an integrity problem. The
@@ -2925,9 +3175,21 @@ def load_daily_close(
     # session to process, still needs the provider probed, and may still owe a baseline.
     baseline_required = bool(book["forward_tracking"] and not baseline_recorded)
 
+    # R69.3 — the close owner reads its OWN run record before it resolves a status.
+    # Until this existed the GET was blind to a run it had itself started, so the one
+    # surface that knew the RUN_ID never published it and every other surface offered a
+    # duplicate close. ``active_close_run`` is display + precedence only: it can never
+    # make a close look COMPLETE (see ``is_operational_close_complete``).
+    close_run = active_close_run(_safe_close_progress(desk_dir))
+    close_run_in_flight = close_run is not None
+
     # Provider confirmation (part B) — read-only benchmark probe (only if the book is
     # forward-tracking & the latest eligible date has not already been processed).
-    probe_needed = bool(book["forward_tracking"] and processed_row is None)
+    # R69.3: never probe while a run is in flight — that run is already driving the
+    # provider, the probe would compete with it for the same rate budget, and its answer
+    # cannot change the status (the in-flight gate outranks provider readiness).
+    probe_needed = bool(book["forward_tracking"] and processed_row is None
+                        and not close_run_in_flight)
     probe_result = _run_probe(expected=latest_eligible, ops=ops, desk_dir=desk_dir,
                               downloader=downloader, provider_probe=provider_probe,
                               ref_today=clock.get("reference_today"), warnings=warnings,
@@ -2956,7 +3218,8 @@ def load_daily_close(
         baseline_required=baseline_required, provider_ready=provider_ready,
         cutoff_passed=bool(clock.get("cutoff_passed")), valuation_complete=True,
         within_trading_day=bool(clock.get("within_trading_day")),
-        forward_tracking=book["forward_tracking"])
+        forward_tracking=book["forward_tracking"],
+        close_run_in_flight=close_run_in_flight)
 
     try:
         perf = desk.load_performance(desk_dir)
@@ -2987,6 +3250,7 @@ def load_daily_close(
     # PENDING; a processed date with missing snapshots is an explicit anomaly.
     fpc_md = (fpc or {}).get("market_date")
     context = {"clock": clock, "provider_readiness": provider,
+               "close_run": close_run,
                "market_data_scope": scope, "baseline": baseline,
                "close_dates": close_dates, "model_recalculation": model_recalc,
                "attribution": attribution, "forward_performance": forward,
@@ -3035,6 +3299,8 @@ def _headline_for(close_status: str, market_date: Optional[str],
                   pnl: Optional[dict]) -> Optional[str]:
     """Date-bearing operator headline for the readiness states (Phase 27F)."""
     md = _fmt_md(market_date)
+    if close_status == CLOSE_RUNNING:
+        return "DAILY CLOSE RUNNING FOR %s" % md
     if close_status == INITIAL_BASELINE_DUE:
         return "RECORD INITIAL BASELINE FOR %s" % md
     if close_status == INITIAL_BASELINE_RECORDED:

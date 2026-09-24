@@ -226,7 +226,38 @@ _DEFAULT_DRC_DIR = Path(r"D:\Stock_Prediction_app_data\daily_research_cycle")
 _RUNS_SUBDIR = "runs"
 _INDEX_FILE = "index.json"
 _LOCK_FILE = "research_cycle.lock"
+#: LEGACY liveness rule, retained ONLY for a lock that declares no heartbeat (one
+#: written by pre-R69.4 code). It measures the run's TOTAL AGE, which is not a
+#: statement about whether the process is alive - see below.
 _LOCK_STALE_MINUTES = 45
+
+# R69.4 - THE RUN LOCK HEARTBEAT.
+#
+# On 2026-09-24 run drc_2026-09-23_12bb76e7b466 took 52.7 minutes: 31.3 of them in
+# CAPTURE_FORWARD_EVIDENCE and 20.8 in ADVANCE_PROSPECTIVE_TOURNAMENT, both bound to
+# a degraded provider (the Daily Close that preceded it was slowed the same way and
+# took 73 minutes against a 7-minute norm). The 32 runs before it finished in 4.5 to
+# 23.2 minutes, so a 45-minute constant had never been reached and nothing measured
+# what it would do when it was.
+#
+# What it did: _lock_is_stale asked "how old is this run?" and answered a question
+# nobody had asked - "is this process alive?". At +45:00 the healthy run was declared
+# abandoned. The status owner then skipped the lock branch, found no COMPLETE manifest
+# (the manifest is written at the END), and fell through to NOT_STARTED with
+# run_id=null and executable=True - telling the operator to start a governed research
+# cycle that was at that moment 46 minutes into executing.
+#
+# Duration and liveness are two different facts and are measured separately now:
+#
+#   started_at     when this run began            (duration; a long run is not a failure)
+#   heartbeat_at   the run process is alive       (liveness, re-stamped every 30s)
+#
+# A lock that DECLARES a heartbeat is judged only on that heartbeat, so a run stays
+# live for as long as it is actually working; a lock that declares none keeps the
+# legacy age rule, so an abandoned pre-R69.4 lock is still reclaimable.
+_HEARTBEAT_SECONDS = 30
+#: How long a heartbeat-declaring lock may go unstamped before it is a leftover.
+_HEARTBEAT_LIVENESS_SECONDS = 180
 
 # Read-only downstream-artifact root (Phase 29G.3 — Workstream C). Used ONLY to detect
 # whether an immutable Holding Opportunity-Cost artifact already exists for an eligible
@@ -452,11 +483,110 @@ def _read_lock(drc_dir=None) -> Optional[dict]:
 
 
 def _lock_is_stale(lock: dict) -> bool:
+    """Is the process that holds this lock gone? (R69.4 - NOT "is the run long?")"""
+    interval = lock.get("heartbeat_interval_seconds")
+    if interval:
+        # The lock declares a heartbeat: liveness is the ONLY question, and a run
+        # that is still stamping is live however long it has been working.
+        beat = _parse_dt(lock.get("heartbeat_at")) or _parse_dt(lock.get("started_at"))
+        if beat is None:
+            return True
+        try:
+            window = max(_HEARTBEAT_LIVENESS_SECONDS, 3.0 * float(interval))
+        except (TypeError, ValueError):
+            window = _HEARTBEAT_LIVENESS_SECONDS
+        return (_now() - beat).total_seconds() > window
+    # Legacy lock (no heartbeat declared): the age rule is all there is.
     started = _parse_dt(lock.get("started_at"))
     if started is None:
         return True
     age_min = (_now() - started).total_seconds() / 60.0
     return age_min > _LOCK_STALE_MINUTES
+
+
+def lock_liveness(lock: Optional[dict], *, now: Optional[datetime] = None) -> dict:
+    """The liveness facts of a run lock, so a reader never re-derives them.
+
+    Pure. ``basis`` names which rule decided, and ``long_run_is_not_a_failure``
+    records that duration was deliberately NOT consulted for a heartbeat lock.
+    """
+    if not isinstance(lock, dict):
+        return {"held": False, "live": False, "basis": None, "run_id": None}
+    ref = now or _now()
+
+    def _age(value):
+        parsed = _parse_dt(value)
+        return None if parsed is None else (ref - parsed).total_seconds()
+
+    interval = lock.get("heartbeat_interval_seconds")
+    hb_age = _age(lock.get("heartbeat_at"))
+    run_age = _age(lock.get("started_at"))
+    return {
+        "held": True,
+        "live": not _lock_is_stale(lock),
+        "basis": "HEARTBEAT" if interval else "LEGACY_LOCK_AGE",
+        "run_id": lock.get("run_id"),
+        "eligible_date": lock.get("eligible_date"),
+        "pid": lock.get("pid"),
+        "heartbeat_age_seconds": None if hb_age is None else round(hb_age, 1),
+        "heartbeat_interval_seconds": interval,
+        "liveness_window_seconds": (max(_HEARTBEAT_LIVENESS_SECONDS,
+                                        3.0 * float(interval)) if interval
+                                    else _LOCK_STALE_MINUTES * 60.0),
+        "run_age_seconds": None if run_age is None else round(run_age, 1),
+        "long_run_is_not_a_failure": bool(interval),
+    }
+
+
+# The heartbeat thread. It stamps the lock this process already owns - it is not a
+# second lock, a second store or a second status authority.
+_BEAT_STOP: Optional[threading.Event] = None
+_BEAT_THREAD: Optional[threading.Thread] = None
+_BEAT_DOC_LOCK = threading.Lock()
+
+
+def _stamp_heartbeat(drc_dir=None) -> None:
+    """Re-stamp ``heartbeat_at`` on the held lock, leaving every other field alone."""
+    with _BEAT_DOC_LOCK:
+        current = _read_lock(drc_dir)
+        if not isinstance(current, dict):
+            return                      # the run released the lock; nothing to stamp
+        current["heartbeat_at"] = _now_iso()
+        _atomic_write_json(_lock_path(drc_dir), current)
+
+
+def _start_heartbeat(drc_dir=None) -> None:
+    """Pulse for as long as this process holds the lock. Daemon: it can never keep
+    the interpreter alive, and a failure to start degrades to the legacy age rule."""
+    global _BEAT_STOP, _BEAT_THREAD
+    _stop_heartbeat()
+    stop = threading.Event()
+
+    def _pulse():
+        while not stop.wait(_HEARTBEAT_SECONDS):
+            try:
+                _stamp_heartbeat(drc_dir)
+            except Exception:  # noqa: BLE001 - a missed beat must never fail the run
+                pass
+
+    try:
+        thread = threading.Thread(target=_pulse, name="drc-run-heartbeat", daemon=True)
+        thread.start()
+        _BEAT_STOP, _BEAT_THREAD = stop, thread
+    except Exception:  # noqa: BLE001
+        _BEAT_STOP, _BEAT_THREAD = None, None
+
+
+def _stop_heartbeat() -> None:
+    """Stop pulsing. Called BEFORE the lock file is removed so a late beat can never
+    recreate the lock of a run that has already finished."""
+    global _BEAT_STOP, _BEAT_THREAD
+    stop, thread = _BEAT_STOP, _BEAT_THREAD
+    _BEAT_STOP, _BEAT_THREAD = None, None
+    if stop is not None:
+        stop.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2.0)
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -471,13 +601,25 @@ def _parse_dt(value: Any) -> Optional[datetime]:
 
 def _write_lock(*, idempotency_key: str, eligible_date: str, run_id: str,
                 input_contract_hash: str, drc_dir=None) -> None:
+    now = _now_iso()
     _atomic_write_json(_lock_path(drc_dir), {
         "idempotency_key": idempotency_key, "eligible_date": eligible_date,
         "run_id": run_id, "input_contract_hash": input_contract_hash,
-        "started_at": _now_iso(), "pid": os.getpid()})
+        "started_at": now, "pid": os.getpid(),
+        # R69.4 - declaring these two fields is what opts this lock into the
+        # heartbeat rule; a lock without them keeps the legacy age rule.
+        "heartbeat_at": now,
+        "heartbeat_interval_seconds": _HEARTBEAT_SECONDS,
+        "heartbeat_owner": "api.daily_research_cycle._start_heartbeat"})
+    _start_heartbeat(drc_dir)
 
 
 def _clear_lock(drc_dir=None) -> None:
+    # R69.4 - stop the pulse FIRST. The run path releases the lock at fifteen
+    # different exits; doing it here is what makes every one of them correct, and
+    # stopping before the unlink is what stops a late beat recreating the lock of a
+    # run that has already finished.
+    _stop_heartbeat()
     try:
         _lock_path(drc_dir).unlink()
     except OSError:
@@ -2650,16 +2792,28 @@ def load_daily_research_cycle_status(
 
     # Session is closed with owned data confirmed. Prefer an in-flight / persisted run.
     lock = _read_lock(drc_dir)
-    if lock is not None and not _lock_is_stale(lock):
+    liveness = lock_liveness(lock)
+    if lock is not None and liveness["live"]:
         running = _load_run(lock.get("run_id"), drc_dir)
         state = (running or {}).get("state") if running else PLANNING
         if state not in _RUNNING:
             state = PLANNING
-        return _contract(state=state, facts=facts, plan=plan, run_id=lock.get("run_id"),
-                         current_step=(running or {}).get("current_step"),
-                         step_results=(running or {}).get("step_results") or [],
-                         warnings=warnings + ["A Daily Research Cycle run is in progress."],
-                         monthly_owner=monthly_owner, executable=False)
+        # R69.4 - the operator is told WHICH run holds the cycle and that a long run
+        # is still a working run, so a slow cycle is never read as an absent one.
+        mins = (liveness["run_age_seconds"] or 0.0) / 60.0
+        out = _contract(state=state, facts=facts, plan=plan, run_id=lock.get("run_id"),
+                        current_step=(running or {}).get("current_step"),
+                        step_results=(running or {}).get("step_results") or [],
+                        warnings=warnings + [
+                            "Daily Research Cycle run %s is in progress (started %.0f "
+                            "minute(s) ago, last heartbeat %s second(s) ago). A long run "
+                            "is not a failed run; do not start another cycle."
+                            % (lock.get("run_id"), mins,
+                               liveness["heartbeat_age_seconds"])],
+                        monthly_owner=monthly_owner, executable=False)
+        out["run_in_flight"] = True
+        out["run_liveness"] = liveness
+        return out
 
     # Workstream C: a persisted TERMINAL-COMPLETE manifest for this eligible session is
     # authoritative and is REFLECTED verbatim — never masked by a recomputed input-contract
@@ -2968,6 +3122,11 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
     # --- Concurrency (Workstream L): classify the persisted lock first. ------- #
     lock = _read_lock(drc_dir)
     if lock is not None and not _lock_is_stale(lock):
+        # R69.4 - a live heartbeat holds this gate for the WHOLE run. Before the
+        # heartbeat, a run longer than _LOCK_STALE_MINUTES fell straight through
+        # here into the resume branch below and re-entered a cycle that was still
+        # executing; only the in-process _RUN_LOCK stood between that and two
+        # concurrent writers of one governed manifest.
         if lock.get("idempotency_key") == key:
             return _contract(state=RUN_IN_PROGRESS, facts=facts, plan=plan,
                              run_id=lock.get("run_id"),

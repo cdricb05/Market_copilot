@@ -704,7 +704,36 @@ class TestUiStatic:
         assert 'id="dc-run-elapsed"' in ui_html
         assert 'id="dc-run-overlay"' in ui_html
         assert "_dcFmtElapsed" in ui_html
-        assert "do not click Run Daily Close again" in ui_html
+        # R69.3 rewrote this copy. The old sentence began "Do not refresh the page",
+        # which was FALSE and became actively harmful: on 2026-09-24 the operator did
+        # reload, the closure-scoped poll died with the page, and the cockpit then
+        # offered a second close of the session the live run was still closing. The
+        # card is now driven by backend state and survives a reload; what must NOT be
+        # done is starting another close.
+        assert "Do not start another Daily Close" in ui_html
+        assert "closing or reloading this page does not stop or affect the run" in ui_html
+        assert "Do not refresh the page" not in ui_html
+
+    def test_the_running_close_card_is_driven_by_backend_state(self, ui_html):  # R69.3
+        """It must not live inside the POST's closure: a reload, a second tab or a new
+        session must all see the RUN_ID and the stage."""
+        assert "function dcSyncRunningClose" in ui_html
+        assert "try { dcSyncRunningClose(d); } catch (e) {}" in ui_html, \
+            "the canonical workflow render must attach/detach the card"
+        assert "d.close_run" in ui_html
+        assert 'id="dc-run-identity"' in ui_html
+        assert "_dcRunIdentityHtml" in ui_html
+
+    def test_re_attaching_to_a_run_does_not_hide_the_card(self, ui_html):  # R69.3
+        """Browser acceptance at 1920x1080 caught this: dcSyncRunningClose showed the
+        overlay and then called the clear helper one line later, which hid it again, so
+        the card never survived its own first attach. Clearing TIMERS and hiding the
+        CARD are now two functions, and only the detach path may hide."""
+        assert "function _dcClearAttachTimers" in ui_html
+        assert "_dcClearAttachTimers();              // never hides" in ui_html, \
+            "the re-attach path must clear timers only"
+        assert "if (!run || !run.in_flight) { _dcStopAttachedRun(); return; }" in ui_html, \
+            "only a backend payload with no in-flight run may hide the card"
 
     def test_operational_and_evidence_outcomes_distinct(self, ui_html):  # (46)
         # Phase 28C — the evidence banner renders from the backend split block.

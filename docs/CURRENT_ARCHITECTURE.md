@@ -479,9 +479,48 @@ flowchart TD
   EP --> UI["UI loadWorkflowState() (ONE loader; 6 surfaces; no priority/currency math)"]
 ```
 
+> **R69.3 — a close run in flight (`DAILY_CLOSE_RUNNING`).** `api.daily_close` owns the
+> close RUN RECORD and, until R69.3, never read it on the GET path. On 2026-09-24 run
+> `dcr_2026-09-23_alpha_paper_book_1_20260924T145906` ran for 73 minutes (14:59:06Z →
+> 16:12:30Z); for the first 42 of those the owned marks had advanced to 2026-09-23 while
+> the close journal still ended at 2026-09-22, so the resolver returned `DAILY_CLOSE_DUE`
+> and every surface offered a duplicate close with no RUN_ID anywhere. The vocabulary had
+> `RESEARCH_CYCLE_RUNNING` for the research step and nothing for the close step; it now
+> has both. `api.daily_close.active_close_run()` is the ONE projection of an in-flight
+> run, `close_run` is published by the close and workflow owners, the run record carries
+> a heartbeat so a long stage is no longer indistinguishable from a dead process, and
+> `market_date` (the session a run is BOUND to) is never again read as the most recent
+> COMPLETED close — that is `last_completed_close_date`. No duplicate write was ever
+> possible: the single-flight lock answers a second POST with `DAILY_CLOSE_IN_PROGRESS`.
+
+> **R69.4 — `GET /v1/operations/workflow-state` must stay readable while a cycle runs.**
+> On 2026-09-24 that GET exceeded 90 seconds during the Daily Research Cycle, and the
+> cause is in `api.decision_snapshot`, not in the workflow owner (1.2 s of the
+> composition; 1.9 s standalone). Measured on the live store: an identity HIT costs
+> 0.005 s and a full `_compose()` costs 9.2–12.0 s. The snapshot identity is a stat
+> fingerprint over every decision-relevant store — including the desk root's
+> `forward_prediction_snapshots.json`, `forward_close_artifacts.json`,
+> `forward_prediction_outcomes.json`, `forward_prediction_prices.json` and the DRC run
+> records — which is exactly what a running cycle rewrites continuously, so during a
+> cycle the identity moves faster than a snapshot can be built and EVERY request misses.
+> **That part is correct and is deliberately unchanged: nothing stale may be served.**
+> What was wrong is what a miss COST. `_compose()` runs outside the memo lock (rightly —
+> the fast hit path must never queue behind a build), but nothing recorded that a build
+> for the same identity was already running, so one page load fanned out across the
+> eleven snapshot-backed routes and composed all twelve owners eleven times at once,
+> competing with the cycle for one GIL. R69.4 adds SINGLE-FLIGHT: a caller that misses on
+> an identity another thread is already building WAITS for that build
+> (`SNAPSHOT_COALESCED_WITH_IN_FLIGHT_BUILD`) instead of starting its own. This changes no
+> invalidation rule and serves nothing staler — a coalesced caller receives a payload
+> composed under the very `identity_hash` it computed. Measured after the repair: eleven
+> concurrent reads → ONE composition, 11.8 s wall for all of them. The wait is bounded
+> (`SINGLE_FLIGHT_WAIT_SECONDS`), a failing build releases every waiter, and `force=True`
+> always composes for itself and never joins or publishes to a shared build.
+
 - **Canonical owner** `api/workflow_state.py`: read-only composition; owns the
   frozen overall-state vocabulary (`WAITING_FOR_SESSION_CLOSE`,
-  `WAITING_FOR_OWNED_DATA`, `RESEARCH_CYCLE_REQUIRED`,
+  `WAITING_FOR_OWNED_DATA`, `RESEARCH_CYCLE_REQUIRED`, `RESEARCH_CYCLE_RUNNING`,
+  `RESEARCH_CYCLE_BLOCKED`, `DAILY_CLOSE_RUNNING`,
   `PORTFOLIO_REASSESSMENT_REQUIRED`, `READY_FOR_DAILY_CLOSE`,
   `DAILY_CYCLE_COMPLETE`, `DAILY_CYCLE_COMPLETE_EVIDENCE_GAP`,
   `MANUAL_REVIEW_REQUIRED`, `INCONSISTENT_STATE`), the assessment-currency
@@ -761,6 +800,31 @@ flowchart TD
   audit contract. Read-only status plans deterministically; execution is token-gated
   (`RUN_DAILY_RESEARCH_CYCLE`) and every provider/write boundary is an injectable
   seam.
+> **R69.4 — a research run in flight is proven by a HEARTBEAT, not by its age.**
+> The run lock is the cross-process guard (`_RUN_LOCK` is the in-process one), and
+> `_lock_is_stale` judged it on the wall-clock age of `started_at` against a fixed
+> 45-minute constant. On 2026-09-24 run `drc_2026-09-23_12bb76e7b466` took 52.7
+> minutes — 31.3 in `CAPTURE_FORWARD_EVIDENCE` and 20.8 in
+> `ADVANCE_PROSPECTIVE_TOURNAMENT`, both bound to the same degraded provider that
+> made the preceding Daily Close take 73 minutes against a 7-minute norm. The 32
+> runs before it took 4.5–23.2 minutes, so the constant had never been reached.
+> At +45:00 the healthy run was declared abandoned: the status owner dropped the
+> lock branch, found no `COMPLETE` manifest (it is written at the END of the run),
+> and published `NOT_STARTED` / `run_id=null` / `executable=true` for 7 minutes 39
+> seconds while the cycle was still executing — inviting a second governed research
+> cycle. **Duration and liveness are different facts and are measured separately:**
+> `started_at` is duration (a long run is not a failure) and `heartbeat_at`,
+> re-stamped every 30 s for as long as the process holds the lock, is liveness. A
+> lock that declares a heartbeat is judged only on it; one that does not keeps the
+> legacy age rule, so an abandoned pre-R69.4 lock is still reclaimable. The
+> heartbeat starts in `_write_lock` and stops in `_clear_lock` — the single release
+> point behind all fifteen run exits — and stops *before* the unlink so a late beat
+> cannot resurrect a finished run's lock. `lock_liveness()` publishes the facts
+> (`basis`, `heartbeat_age_seconds`, `run_age_seconds`,
+> `long_run_is_not_a_failure`) so no reader re-derives them. No new state and no UI
+> change was needed: `RESEARCH_CYCLE_RUNNING` → `MONITOR` already existed in
+> `api.workflow_state`; only this owner's report was wrong.
+
 - **The pre-run gate is SESSION-scoped, not clock-scoped (R54.2.2):**
   `_pre_run_state` returned `WAITING_FOR_SESSION_CLOSE` whenever the market was
   open — for the status read AND the run path — so a completed close whose governed
