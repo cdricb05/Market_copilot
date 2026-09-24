@@ -1726,13 +1726,20 @@ VERDICT_RECOMMENDS = {
 
 
 def target_selection_options(*, states: dict, verdict: dict, margins: dict,
-                             repair: dict, read_state: Optional[str]) -> dict:
+                             repair: dict, read_state: Optional[str],
+                             evidence: Optional[dict] = None) -> dict:
     """The three targets with a SELECTABLE verdict and a named reason for each.
 
     Deterministic and total: every option lands on selectable or not, and a
     non-selectable option always carries at least one blocker the operator can
     read. Pure - this kernel holds no clock, so session freshness is applied by
     the read owner ON TOP of this and may only ever REMOVE selectability.
+
+    R69.5 - every option carries ``expected_return_state`` and the matured-evidence
+    cautions alongside its score. The full explanation always said that a score is a
+    percentile and not a return, and that replacements have lost 6 of 6 matured
+    comparisons; this list did not, and this list is what a chooser renders. A number
+    that looks like an edge must travel with what is known about that edge.
     """
     reviewable = read_state not in NON_REVIEWABLE_READ_STATES
     incr = (margins or {}).get("full_target_vs_minimum_repair") or {}
@@ -1773,6 +1780,13 @@ def target_selection_options(*, states: dict, verdict: dict, margins: dict,
                                                         for o in full_open}))))})
         return out
 
+    # R69.5 - the matured-evidence cautions, read from the evidence block this
+    # review already built. Not re-derived, not re-weighted and never turned into a
+    # forecast: the codes and their own detail strings, carried onto the chooser.
+    cautions = [dict(c) for c in ((evidence or {}).get("cautions") or [])
+                if isinstance(c, dict)]
+    caution_codes = sorted({c.get("code") for c in cautions if c.get("code")})
+
     options = []
     for state in STATE_ORDER:
         st = states[state] or {}
@@ -1802,6 +1816,18 @@ def target_selection_options(*, states: dict, verdict: dict, margins: dict,
             "mandatory_obligations_remaining": len(cs.get("obligations_remaining") or []),
             "obligations_remaining": list(cs.get("obligations_remaining") or []),
             "is_defer": state == STATE_CURRENT,
+            # --- R69.5: the score travels with what is known about it ----------- #
+            "expected_return": st.get("expected_return"),
+            "expected_return_state": st.get("expected_return_state"),
+            "score_is_a_percentile_not_a_return": True,
+            "score_converted_to_dollars": False,
+            "score_basis": st.get("score_basis"),
+            "score_excludes_uninvested_capital":
+                st.get("score_excludes_uninvested_capital"),
+            "invested_weight": st.get("invested_weight"),
+            "evidence_cautions": ([] if state == STATE_CURRENT else cautions),
+            "evidence_caution_codes": ([] if state == STATE_CURRENT
+                                       else list(caution_codes)),
         })
     return {
         "owner": CALCULATION_OWNER,
@@ -1822,6 +1848,89 @@ def target_selection_options(*, states: dict, verdict: dict, margins: dict,
         "selection_is_approval": False,
         "selection_creates_order_plan": False,
         "selection_creates_orders": False,
+        # R69.5 - stated once for the whole chooser, not only inside the prose.
+        "expected_return_state": (states[STATE_FULL_TARGET] or {}).get(
+            "expected_return_state"),
+        "score_converted_to_dollars": False,
+        "score_doc": ("Every score here is a combined percentile over INVESTED "
+                      "weight, never a return and never a dollar forecast. Two "
+                      "options that hold different amounts of cash are not directly "
+                      "comparable on it; the marginal economics block publishes that "
+                      "gap by name."),
+        "evidence_cautions": cautions,
+        "evidence_caution_codes": list(caution_codes),
+        "evidence_owner": "api.reassessment_outcomes / engine.reassessment_outcomes",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# R69.5 - WHICH capital this review actually ranged over
+#
+# Release 32 made the objective asset-agnostic: if every investable dollar were
+# cash right now, where should it go? A review that adjudicates three targets all
+# drawn from one sleeve answers a much narrower question than that, and the three
+# states never said so. The allocation-by-asset-class block was on every state and
+# read as a COMPOSITION - "here is what the target holds" - where the operator
+# needed a SCOPE: "here is the only place any of these targets could have put a
+# dollar". This states the difference, entirely from the states' own data.
+# --------------------------------------------------------------------------- #
+#: The label for capital that is not deployed. Cash is a real asset choice
+#: (Release 32) and appears in every allocation map, so it is never counted as
+#: evidence that a second asset class was searched.
+CASH_CLASS_TOKENS = ("CASH", "CASH_USD", "USD_CASH", "cash_usd")
+
+
+def capital_scope(states: dict) -> dict:
+    """The asset classes and sleeves these three targets actually range over.
+
+    Derived, never declared: the classes are read off the states' own
+    ``allocation_by_asset_class`` / ``allocation_by_sleeve`` maps. If a future
+    proposal carries a rates or FX sleeve this block says so without being edited,
+    and if it does not, it refuses to let the absence pass unmentioned.
+    """
+    classes, sleeves = {}, {}
+    for state in STATE_ORDER:
+        st = states.get(state) or {}
+        for k, v in (st.get("allocation_by_asset_class") or {}).items():
+            if k:
+                classes[k] = max(classes.get(k, 0.0), _f(v) or 0.0)
+        for k, v in (st.get("allocation_by_sleeve") or {}).items():
+            if k:
+                sleeves[k] = max(sleeves.get(k, 0.0), _f(v) or 0.0)
+    risk_classes = sorted(k for k in classes
+                          if str(k).upper() not in
+                          {t.upper() for t in CASH_CLASS_TOKENS})
+    single = len(risk_classes) <= 1
+    return {
+        "owner": CALCULATION_OWNER,
+        "derived_from": "the three states' own allocation maps",
+        "declared_here": False,
+        "asset_classes_present": sorted(classes),
+        "risk_asset_classes_present": risk_classes,
+        "risk_asset_class_count": len(risk_classes),
+        "sleeves_present": sorted(sleeves),
+        "max_weight_by_asset_class": {k: _r(v, 6) for k, v in sorted(classes.items())},
+        "single_risk_asset_class": single,
+        "cash_is_an_asset_choice": True,
+        "frontier_optimised": False,
+        "code": ("SINGLE_RISK_ASSET_CLASS_PLUS_CASH" if single
+                 else "MULTIPLE_RISK_ASSET_CLASSES_PRESENT"),
+        "detail": (
+            "Every dollar in all three targets sits in %s or in cash, so this review "
+            "compares allocations WITHIN that opportunity set. It is not evidence "
+            "that the cross-asset opportunity frontier was searched and this one won: "
+            "no rates, FX, commodity, volatility or event sleeve produced a candidate "
+            "for this session, so none was ranked and none was rejected. Cash is a "
+            "real asset choice and is priced as one here; the rest of the frontier is "
+            "simply absent from the comparison."
+            % (", ".join(risk_classes) or "a single sleeve")
+            if single else
+            "These targets range over %d risk asset classes (%s) plus cash. The "
+            "comparison is still between the targets the proposal produced, not a "
+            "proof that the whole cross-asset frontier was searched."
+            % (len(risk_classes), ", ".join(risk_classes))),
+        "charter_reference": "docs/PNL_OPPORTUNITY_FRONTIER.md",
+        "objective_reference": "docs/PROJECT_CHARTER.md",
     }
 
 
@@ -1845,7 +1954,8 @@ def _plural(n: int, one: str, many: Optional[str] = None) -> str:
 
 
 def explain(*, verdict: dict, states: dict, obligations: list, classification: dict,
-            margins: dict, evidence: dict, withheld: dict) -> dict:
+            margins: dict, evidence: dict, withheld: dict,
+            scope: Optional[dict] = None) -> dict:
     """The operator's paragraph. Every sentence is generated from a structured fact
     or reason code above - there is no template of a conclusion anywhere, and no
     language model is consulted at runtime or at build time."""
@@ -2010,7 +2120,14 @@ def explain(*, verdict: dict, states: dict, obligations: list, classification: d
             "%s - no matured decision-outcome evidence was available to this review, "
             "so no confidence is claimed from it." % EVIDENCE_INSUFFICIENT)
 
-    # 8. the recommendation itself
+    # 8. R69.5 - the scope every number above was measured inside
+    if scope:
+        paras.append(
+            "Scope of this comparison: %s All three targets were drawn from the same "
+            "opportunity set, so \"better\" here means better within it, not better "
+            "than everything capital could have been doing." % scope.get("detail"))
+
+    # 9. the recommendation itself
     paras.append(
         "Recommended review path: %s. This is a recommendation for MANUAL REVIEW "
         "only. It approves nothing, creates no order plan, confirms nothing and "
@@ -2105,12 +2222,13 @@ def build_review(*, proposal: dict, hoc_assessment: Optional[dict] = None,
     verdict = decide(read_state=read_state, proposal=proposal,
                      obligations=obligations, repair=repair, states=states,
                      margins=margins)
+    scope = capital_scope(states)
     explanation = explain(verdict=verdict, states=states, obligations=obligations,
                           classification=classification, margins=margins,
-                          evidence=evidence, withheld=withheld)
+                          evidence=evidence, withheld=withheld, scope=scope)
     selection = target_selection_options(states=states, verdict=verdict,
                                          margins=margins, repair=repair,
-                                         read_state=read_state)
+                                         read_state=read_state, evidence=evidence)
     return {
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
@@ -2128,6 +2246,10 @@ def build_review(*, proposal: dict, hoc_assessment: Optional[dict] = None,
         "change_classification": classification,
         "withheld_changes": withheld,
         "marginal_economics": margins,
+        # R69.5 - the opportunity set these three targets were drawn from, stated
+        # rather than implied. A comparison inside one sleeve is not a search of the
+        # cross-asset frontier, and this review will not let that be inferred.
+        "capital_scope": scope,
         "historical_evidence": evidence,
         "review_verdict": verdict,
         "explanation": explanation,

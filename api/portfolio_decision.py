@@ -133,6 +133,16 @@ PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE = "SELECTED_TARGET_NOT_IMPLEMENTABLE"
 #: kernel could build no compliant target) — here a target exists and is simply
 #: not one the owner's rules permit.
 PDS_REPAIR_OBLIGATIONS_OPEN = _hoc.OBLIGATIONS_UNRESOLVED
+#: R69.5 — the selected target clears its own per-name risk-contribution cap only
+#: because that cap ROSE when the covariance universe shrank. Against the limit the
+#: CURRENT book was actually judged against it does not comply, and on 2026-09-23
+#: two of the four offending names are ones the target itself created. That is a
+#: RISK-POLICY question, not a constraint failure: the declared 3/N policy is
+#: correctly applied and this gate changes no threshold, grants no exception and
+#: approves nothing. It withholds approval until an operator rules on the policy and
+#: binds that ruling to the exact instruments, the exact reference limit and the
+#: exact frozen book. REJECT and HOLD stay available throughout.
+PDS_RISK_POLICY_REVIEW_REQUIRED = "SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
@@ -140,7 +150,27 @@ DECISION_STATE_VOCAB = (
     PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_SESSION_STALE,
     PDS_SELECTION_IS_NO_CHANGE, PDS_REPAIR_OBLIGATIONS_OPEN,
     PDS_TARGET_SELECTION_REQUIRED, PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
-    PDS_UNAVAILABLE)
+    PDS_RISK_POLICY_REVIEW_REQUIRED, PDS_UNAVAILABLE)
+
+# --------------------------------------------------------------------------- #
+# R69.5 — the RISK-POLICY ACKNOWLEDGEMENT
+#
+# The token is re-exported from the kernel that defines the state, never
+# re-spelled: one vocabulary, one owner. A ruling is refused unless it names the
+# same instruments, the same reference limit and the same frozen book the operator
+# was shown — so a selection revised underneath a ruling makes that ruling stale
+# and fails the approval closed, exactly as a revised selection does.
+# --------------------------------------------------------------------------- #
+RISK_POLICY_ACK_TOKEN = _st.POLICY_REVIEW_ACK_TOKEN
+#: Why an acknowledgement was not accepted. Structured; never free text.
+ACK_MISSING = "RISK_POLICY_ACKNOWLEDGEMENT_MISSING"
+ACK_BAD_TOKEN = "RISK_POLICY_ACKNOWLEDGEMENT_TOKEN_INVALID"
+ACK_WRONG_BOOK = "RISK_POLICY_ACKNOWLEDGEMENT_BOUND_TO_A_DIFFERENT_BOOK"
+ACK_WRONG_LIMIT = "RISK_POLICY_ACKNOWLEDGEMENT_REFERENCE_LIMIT_MISMATCH"
+ACK_WRONG_INSTRUMENTS = "RISK_POLICY_ACKNOWLEDGEMENT_INSTRUMENTS_MISMATCH"
+ACK_NOT_PUBLISHED = "RISK_POLICY_REVIEW_NOT_PUBLISHED_BY_SELECTION"
+ACK_REASON_VOCAB = (ACK_MISSING, ACK_BAD_TOKEN, ACK_WRONG_BOOK, ACK_WRONG_LIMIT,
+                    ACK_WRONG_INSTRUMENTS, ACK_NOT_PUBLISHED)
 #: The ONLY states in which any surface may expose an approvable proposal action.
 APPROVABLE_DECISION_STATES = (PDS_REVIEW_REQUIRED, PDS_HELD)
 
@@ -632,6 +662,7 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     portfolio_state_loader: Optional[Callable] = None,
                     expected_selection_id: Optional[str] = None,
                     expected_selected_target: Optional[str] = None,
+                    risk_policy_acknowledgement: Optional[dict] = None,
                     latest_session: Optional[str] = None,
                     workflow_state: Optional[dict] = None,
                     enforce_session_freshness: bool = True) -> dict:
@@ -647,7 +678,14 @@ def record_decision(*, decision: str, confirm: Optional[str],
       * the proposal must be materially actionable (nothing to decide otherwise);
       * ``expected_proposal_hash`` (the proposal the operator reviewed) must equal the
         server's CURRENT proposal hash — otherwise ``STALE_PROPOSAL_REVIEW_REQUIRED``
-        (a stale proposal can never be approved against a changed portfolio).
+        (a stale proposal can never be approved against a changed portfolio);
+      * R69.5 — when the selected target satisfies its own per-name risk-contribution
+        cap only because that cap ROSE with a shrinking covariance universe,
+        ``risk_policy_acknowledgement`` must carry an operator ruling bound to the
+        exact frozen book, reference limit and instruments, or the approval is
+        withheld with ``SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW``. The ruling
+        authorises THAT target only: it changes no threshold and grants no standing
+        exception.
     """
     base = {"owner": OWNER, "phase": PHASE, "recorded": False,
             "created_orders": False, "created_fills": False, "changed_holdings": False,
@@ -894,6 +932,52 @@ def record_decision(*, decision: str, confirm: Optional[str],
                         "portfolio cycle for a fresh proposal."
                         % (selection.get("selected_target"),
                            reason or "reason not published by the review"))}
+        # --- R69.5: a cap that cleared itself is a POLICY question ------------- #
+        # The target below is constraint-VALID: its own 3/N cap reports zero
+        # breaches, every mandatory obligation is discharged, and the declared
+        # policy was applied correctly on both sides. It is nonetheless not the
+        # same book the current portfolio was judged as. On 2026-09-23 the full
+        # target carries four names above the 12% limit the current book was held
+        # to — 54.6% of portfolio risk on 14.8% of NAV — and two of the four are
+        # concentrations the target itself created (ALAB raised 1.84% -> 3.21%,
+        # SNDK added at 2.88%), which no denominator argument reaches.
+        #
+        # This gate does not change the cap, grant an exception, judge the target
+        # or prefer another one. It withholds APPROVAL until an operator rules on
+        # the policy, and binds that ruling to the exact frozen book so a selection
+        # revised underneath it makes it stale rather than silently portable.
+        # Scoped to APPROVE and never to a replay, for the same reason every gate
+        # above is: REJECT and HOLD must stay available on a target that cannot be
+        # approved, and a decision recorded earlier stays re-recordable as it was.
+        policy_review = selection_policy_review(selection)
+        if policy_review["required"] and not replaying_prior:
+            ack_verdict = validate_risk_policy_acknowledgement(
+                policy_review=policy_review,
+                acknowledgement=risk_policy_acknowledgement)
+            if not ack_verdict["accepted"]:
+                return {**base, "status": PDS_RISK_POLICY_REVIEW_REQUIRED,
+                        "binding": binding, "selection": selection,
+                        "selected_target": selection.get("selected_target"),
+                        "risk_policy_review": policy_review,
+                        "risk_policy_acknowledgement": ack_verdict,
+                        "risk_policy_owner": _st.RISK_POLICY_OWNER,
+                        "declared_policy_changed": False,
+                        "exception_granted": False,
+                        "current_proposal_hash": current_hash,
+                        "next_required_action": "RECORD_RISK_POLICY_RULING",
+                        "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
+                        "message": (
+                            "The selected %s is valid against its OWN per-name risk "
+                            "limit and is not valid against the limit the current "
+                            "book was judged against. %s Approval is withheld, not "
+                            "refused: nothing was written, no threshold moved, no "
+                            "exception was granted and the target is unchanged. "
+                            "Record the risk-policy ruling (%s), or select a target "
+                            "that complies with the reference limit, or reject / "
+                            "hold this proposal — all three remain available."
+                            % (selection.get("selected_target"),
+                               policy_review.get("detail") or "",
+                               ack_verdict["reason"]))}
 
     # Stale guard: the operator must be approving the proposal they actually reviewed.
     if expected_proposal_hash is not None and expected_proposal_hash != current_hash:
@@ -1006,6 +1090,18 @@ def record_decision(*, decision: str, confirm: Optional[str],
             else bool(recorded_selection_implementability(selection)["implementable"])),
         "target_selection_owner": OWNER,
         "target_binding_contract": "R69.2_SELECTED_TARGET_BOUND_TO_DECISION",
+        # --- R69.5: the risk-policy ruling this approval rests on --------------- #
+        # None when the target complied with the reference limit and no ruling was
+        # ever needed — which is what makes an approval that DID need one findable
+        # for ever, rather than merely indistinguishable from one that did not.
+        "risk_policy_review": (
+            selection_policy_review(selection) if selection is not None else None),
+        "risk_policy_acknowledgement": (
+            dict(risk_policy_acknowledgement)
+            if isinstance(risk_policy_acknowledgement, dict) else None),
+        "risk_policy_contract": "R69.5_REFERENCE_LIMIT_RULING_BOUND_TO_THE_FROZEN_BOOK",
+        "declared_risk_policy_changed": False,
+        "standing_risk_policy_exception_granted": False,
     }
 
     # Append-only write: never rewrite a prior record; only append + advance the pointer.
@@ -1189,6 +1285,126 @@ def recorded_selection_implementability(selection: Optional[dict]) -> dict:
     return selection_implementability(
         target=sel.get("selected_target"),
         implementation=sel.get("selected_target_implementation") or None)
+
+
+# --------------------------------------------------------------------------- #
+# R69.5 — the risk-policy review a selection carries, and the ruling that clears it
+# --------------------------------------------------------------------------- #
+def selection_policy_review(selection: Optional[dict]) -> dict:
+    """Does the FROZEN book in this selection owe a manual risk-policy ruling?
+
+    Read off the selection, never recomputed from the live review: the operator is
+    approving the book they froze, so the question must be asked of THAT book. A
+    selection recorded before R69.5 published no verdict at all, and this reports
+    that as UNPUBLISHED rather than as a quiet ``False`` — the whole defect R69.1
+    documented is a policy effect nobody could see, and inferring "fine" from
+    silence would reproduce it one layer down. Re-selecting the same target against
+    the current review publishes the block and leaves the frozen book's identity
+    hash unchanged, because the hash covers the weights, rows and economics and this
+    verdict changes none of them.
+    """
+    sel = selection or {}
+    impl = sel.get("selected_target_implementation") or {}
+    has_book = bool(isinstance(impl, dict) and impl)
+    review = ((impl.get("risk_contribution") or {}).get("policy_review")
+              if has_book else None)
+    if not has_book:
+        # A selection recorded before R69.2 froze no book at all. R69.2 already
+        # rules on that shape - the minimum repair is refused as unimplementable,
+        # the full target is implemented from the artifact's own allocations as it
+        # always was - and this gate adds no second refusal to it: there is no
+        # frozen book here to judge against any limit, and refusing on an absence
+        # this release created would break a path R69.2 deliberately preserved.
+        # In production such a selection belongs to an earlier session, so the R63
+        # session-freshness gate has already made it unapprovable.
+        return {"published": False, "required": False, "frozen_book_present": False,
+                "reason": None, "state": None, "instruments": [],
+                "reference_limit": None, "governed_limit": None,
+                "implementation_hash": None,
+                "detail": ("This selection froze no book (it predates R69.2), so "
+                           "there is no target representation to judge against the "
+                           "reference limit. Its approval path is unchanged by "
+                           "R69.5."),
+                "owner": _st.CALCULATION_OWNER}
+    if not isinstance(review, dict) or not review:
+        return {"published": False, "required": True, "frozen_book_present": True,
+                "reason": ACK_NOT_PUBLISHED,
+                "state": None, "instruments": [], "reference_limit": None,
+                "governed_limit": None,
+                "implementation_hash": sel.get("selected_target_implementation_hash"),
+                "detail": (
+                    "This selection froze a book before the risk-policy review state "
+                    "existed, so whether that book complies with the limit the "
+                    "current portfolio was judged against was never published. It is "
+                    "not asserted to be compliant and it is not asserted to be in "
+                    "breach. Select the same target again against the current review "
+                    "— the verdict is then part of the frozen book, and the target's "
+                    "identity hash does not move, because that hash covers the "
+                    "weights, the rows and the economics and this verdict changes "
+                    "none of them."),
+                "owner": _st.CALCULATION_OWNER}
+    return {"published": True, "required": bool(review.get("required")),
+            "frozen_book_present": True,
+            "reason": None, "state": review.get("state"),
+            "instruments": sorted(review.get("instruments") or []),
+            "reference_limit": review.get("reference_limit"),
+            "governed_limit": review.get("governed_limit"),
+            "implementation_hash": sel.get("selected_target_implementation_hash"),
+            "decision_required": review.get("decision_required"),
+            "options": list(review.get("options") or []),
+            "manual_review_reference": review.get("manual_review_reference"),
+            "detail": review.get("decision_required"),
+            "owner": review.get("owner") or _st.CALCULATION_OWNER}
+
+
+def validate_risk_policy_acknowledgement(*, policy_review: dict,
+                                         acknowledgement: Optional[dict]) -> dict:
+    """Is this ruling a ruling on THIS book, THIS limit and THESE instruments?
+
+    Fail-closed on every axis. A ruling that names a different reference limit, a
+    different instrument set or a different frozen book is not a weaker ruling — it
+    is a ruling about something else, and accepting it would let a policy decision
+    taken on one target authorise another.
+    """
+    ack = acknowledgement if isinstance(acknowledgement, dict) else None
+    if not ack:
+        return {"accepted": False, "reason": ACK_MISSING,
+                "reason_vocabulary": list(ACK_REASON_VOCAB)}
+    if ack.get("token") != RISK_POLICY_ACK_TOKEN:
+        return {"accepted": False, "reason": ACK_BAD_TOKEN,
+                "reason_vocabulary": list(ACK_REASON_VOCAB),
+                "required_token": RISK_POLICY_ACK_TOKEN}
+    want_hash = policy_review.get("implementation_hash")
+    got_hash = ack.get("selected_target_implementation_hash")
+    if want_hash is not None and got_hash != want_hash:
+        return {"accepted": False, "reason": ACK_WRONG_BOOK,
+                "reason_vocabulary": list(ACK_REASON_VOCAB),
+                "expected_selected_target_implementation_hash": want_hash,
+                "acknowledged_selected_target_implementation_hash": got_hash}
+    want_limit = policy_review.get("reference_limit")
+    got_limit = ack.get("reference_limit")
+    if want_limit is not None and (
+            got_limit is None or abs(float(got_limit) - float(want_limit)) > 1.0e-9):
+        return {"accepted": False, "reason": ACK_WRONG_LIMIT,
+                "reason_vocabulary": list(ACK_REASON_VOCAB),
+                "expected_reference_limit": want_limit,
+                "acknowledged_reference_limit": got_limit}
+    want_names = sorted(policy_review.get("instruments") or [])
+    got_names = sorted(ack.get("instruments") or [])
+    if got_names != want_names:
+        return {"accepted": False, "reason": ACK_WRONG_INSTRUMENTS,
+                "reason_vocabulary": list(ACK_REASON_VOCAB),
+                "expected_instruments": want_names,
+                "acknowledged_instruments": got_names}
+    return {"accepted": True, "reason": None,
+            "reason_vocabulary": list(ACK_REASON_VOCAB),
+            "token": RISK_POLICY_ACK_TOKEN,
+            "reference_limit": want_limit, "instruments": want_names,
+            "selected_target_implementation_hash": want_hash,
+            "ruling": ack.get("ruling"),
+            "ruled_by": ack.get("ruled_by"),
+            "changes_the_declared_policy": False,
+            "grants_a_standing_exception": False}
 
 
 def _target_hash(option: Optional[dict]) -> Optional[str]:

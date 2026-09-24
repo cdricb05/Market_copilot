@@ -45,6 +45,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from paper_trader.engine import constrained_reallocation as _cr
+from paper_trader.engine import holding_opportunity_cost as _hoc
 from paper_trader.engine import proposal_decision_review as _pdr
 from paper_trader.engine import reallocation_proposal as _rp
 
@@ -232,6 +233,280 @@ RISK_POLICY_UNCHANGED_NOTE = (
 #: A name whose obligation closed while its weight did not materially move.
 DISCHARGE_WITHOUT_REDUCTION = "DISCHARGED_BY_UNIVERSE_CHANGE_NOT_BY_REDUCTION"
 
+# --------------------------------------------------------------------------- #
+# R69.5 - the REFERENCE comparison, and the policy-review state it produces
+# --------------------------------------------------------------------------- #
+#: R69.2 made the moving cap visible. It did not make the moving cap ANSWERABLE:
+#: ``discharged_without_reduction`` asks only "did this name's weight move?", so a
+#: token trim removes a name from the list entirely. On 2026-09-23 the full target
+#: trimmed AMD by 0.36 points of NAV - enough to drop it from that list, nowhere
+#: near enough to bring it under the cap the current book was actually judged
+#: against. And the list can say nothing at all about a name that was never in
+#: breach before: the same target raised ALAB from 1.84% to 3.21% of NAV and added
+#: SNDK at 2.88%, and both now carry more portfolio risk than the current book's own
+#: limit allows - concentrations the relaxed cap tolerates and the original does not.
+#:
+#: So this release asks the question the operator actually has: HOLDING THE CAP
+#: STILL, does the target comply? The reference is not a new threshold and not a
+#: second policy. It is the limit ``engine.holding_opportunity_cost`` already
+#: applied to the BEFORE book, reused verbatim, and every breach against it is
+#: measured by that same owner's own ``risk_contribution_breaches``.
+REFERENCE_LIMIT_BASIS = "BEFORE_BOOK_GOVERNED_LIMIT_HELD_CONSTANT"
+#: The reference is not available when either side published no limit.
+REFERENCE_UNAVAILABLE = "UNAVAILABLE_NO_LIMIT_ON_ONE_SIDE"
+#: A name in breach BEFORE whose share is under the BEFORE limit after the change:
+#: the position (or the rest of the book) genuinely carries less risk.
+CLOSED_BY_EXPOSURE = "CLOSED_BY_EXPOSURE_REDUCTION_ALONE"
+#: A name in breach BEFORE that is compliant only because the limit rose. Its share
+#: is still above the limit the breach was raised against.
+CLOSED_BY_LIMIT_RELAXATION = "CLOSED_ONLY_BECAUSE_THE_LIMIT_ROSE"
+#: A name in breach BEFORE and still in breach AFTER, on the target's own limit.
+STILL_IN_BREACH = "STILL_IN_BREACH_ON_THE_GOVERNED_LIMIT"
+#: A name that was NOT in breach against the reference before and IS after. Never a
+#: denominator effect: the target put more risk into that name than the current
+#: book's own limit admits.
+REFERENCE_BREACH_OPENED = "OPENED_AGAINST_THE_REFERENCE_LIMIT"
+
+#: The manual-review states. A target that clears its own 3/N cap only because that
+#: cap moved is NOT refused here and NOT approved here: it is held at a named state
+#: that an operator must rule on. Nothing in this module changes a threshold.
+POLICY_REVIEW_NOT_REQUIRED = "NOT_REQUIRED"
+POLICY_REVIEW_REQUIRED = "RISK_POLICY_REVIEW_REQUIRED_DENOMINATOR_RELAXATION"
+POLICY_REVIEW_VOCAB = (POLICY_REVIEW_NOT_REQUIRED, POLICY_REVIEW_REQUIRED)
+#: The token an operator sends to record that they ruled on the state above. It is
+#: deliberately NOT a button: a policy ruling that can be clicked by reflex is not a
+#: ruling. The approval gate (`api.portfolio_decision`) binds it to the exact
+#: instruments, the exact reference limit and the exact frozen book.
+POLICY_REVIEW_ACK_TOKEN = "ACKNOWLEDGE_RISK_CONTRIBUTION_REFERENCE_BREACH"
+#: The three courses R69.1 put to the operator, carried as DATA so the screen and
+#: the refusal quote the same list. None of them is taken here.
+POLICY_REVIEW_OPTIONS = (
+    "ACCEPT_AS_IS - the cap is a relative-concentration rule, cash is a real asset "
+    "choice, and both limits are published.",
+    "JUDGE_AGAINST_THE_BEFORE_UNIVERSE - a risk-contribution breach must be repaired "
+    "by reducing the breaching name, not by shrinking the universe around it.",
+    "ADD_AN_ABSOLUTE_COMPANION_FLOOR - no name above X% of portfolio risk whatever N "
+    "is.",
+)
+POLICY_REVIEW_REFERENCE_DOC = "docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md"
+
+
+def reference_limit_compliance(*, before: dict, after: dict,
+                               weights_before: dict, weights_after: dict,
+                               band: float = 1.0e-4) -> dict:
+    """Would the AFTER book comply if the per-name cap had NOT moved?
+
+    The reference limit is ``before["limit"]`` - the number the canonical risk owner
+    already applied to the current book - held constant and applied to the target's
+    own contributions. No threshold is invented, nothing is re-measured, and the
+    governed 3/N policy is untouched: this is a COMPARISON, published beside the
+    governed verdict and never in place of it.
+
+    ``indicative_weight_at_reference`` is a FIRST-ORDER figure (scale the weight by
+    ``reference / share``) offered so the operator can see the order of magnitude of
+    the change the reference would demand. It is not a solved target: reducing one
+    name moves every other name's share, and solving that is the optimiser's job,
+    not this kernel's.
+    """
+    ref = _f(before.get("limit"))
+    governed = _f(after.get("limit"))
+    contributions = {k: _f(v) for k, v in (after.get("contributions") or {}).items()}
+    before_contrib = {k: _f(v) for k, v in (before.get("contributions") or {}).items()}
+    if ref is None or governed is None:
+        return {"state": REFERENCE_UNAVAILABLE, "reference_limit": ref,
+                "governed_limit": governed, "basis": REFERENCE_LIMIT_BASIS,
+                "limit_owner": RISK_POLICY_OWNER, "measured_by": RISK_POLICY_OWNER,
+                "reference_is_a_new_threshold": False,
+                "complies_with_reference": None, "breaches": [], "breach_count": 0,
+                "breached_instruments": [], "opened_against_reference": []}
+
+    # The ONE canonical breach function, on the reference limit. Not a second rule:
+    # the same callable the governed verdict on both sides came from.
+    breaches = _hoc.risk_contribution_breaches(contributions=contributions, limit=ref)
+    before_rows = _hoc.risk_contribution_breaches(contributions=before_contrib,
+                                                  limit=ref)
+    before_breached = {b.get("ticker") for b in before_rows}
+    # The same measure on the BEFORE book, so the two sides are comparable: how
+    # much of the portfolio's risk, and how much of its NAV, sat above this limit
+    # then and sits above it now.
+    before_risk = sum(_f(b.get("risk_contribution_pct")) or 0.0 for b in before_rows)
+    before_nav = sum(_f((weights_before or {}).get(b.get("ticker"))) or 0.0
+                     for b in before_rows)
+    rows, risk_share, nav_share = [], 0.0, 0.0
+    for b in breaches:
+        tk = b.get("ticker")
+        share = _f(b.get("risk_contribution_pct"))
+        wa = _f((weights_after or {}).get(tk)) or 0.0
+        wb = _f((weights_before or {}).get(tk)) or 0.0
+        scale = (ref / share) if (share and share > 0) else None
+        rows.append({
+            "ticker": tk,
+            "code": (REFERENCE_BREACH_OPENED if tk not in before_breached
+                     else "CARRIED_FROM_THE_BEFORE_BOOK"),
+            "risk_contribution_before": _r(before_contrib.get(tk), 6),
+            "risk_contribution": _r(share, 6),
+            "reference_limit": _r(ref, 8),
+            "governed_limit": _r(governed, 8),
+            "excess_over_reference": _r(b.get("excess"), 8),
+            "compliant_on_governed_limit": bool(share is not None and share <= governed),
+            "weight_before": _r(wb, 8), "weight_after": _r(wa, 8),
+            "weight_change": _r(wa - wb, 8),
+            # Materiality is decided HERE, by the owner that holds the band, so a
+            # surface can label the row without doing arithmetic of its own. The
+            # architecture audit forbids weight arithmetic in the browser for
+            # exactly this reason: a second rule in the one place no test reaches.
+            "weight_moved": bool(abs(wa - wb) > band),
+            "indicative_weight_at_reference": (None if scale is None
+                                               else _r(wa * scale, 8)),
+            "indicative_weight_change_required": (None if scale is None
+                                                  else _r(wa * scale - wa, 8)),
+            "indicative_basis": ("FIRST_ORDER_PROPORTIONAL_SCALING_OF_THIS_NAME_ONLY"
+                                 "_NOT_A_REOPTIMISATION"),
+            "solved": False,
+        })
+        risk_share += (share or 0.0)
+        nav_share += wa
+    return {
+        "state": "AVAILABLE",
+        "basis": REFERENCE_LIMIT_BASIS,
+        "reference_limit": _r(ref, 8),
+        "reference_limit_source": ("the limit engine.holding_opportunity_cost applied "
+                                   "to the BEFORE book, held constant"),
+        "reference_is_a_new_threshold": False,
+        "governed_limit": _r(governed, 8),
+        "limit_owner": RISK_POLICY_OWNER,
+        "measured_by": RISK_POLICY_OWNER,
+        "measured_here": False,
+        "complies_with_reference": not breaches,
+        "breaches": rows,
+        "breach_count": len(rows),
+        "breached_instruments": sorted({r["ticker"] for r in rows if r["ticker"]}),
+        "opened_against_reference": sorted({r["ticker"] for r in rows
+                                            if r["code"] == REFERENCE_BREACH_OPENED}),
+        "risk_share_of_reference_breaches": _r(risk_share, 6) if rows else 0.0,
+        "nav_share_of_reference_breaches": _r(nav_share, 8) if rows else 0.0,
+        "breached_instruments_before": sorted(t for t in before_breached if t),
+        "breach_count_before": len(before_rows),
+        "risk_share_of_reference_breaches_before": _r(before_risk, 6),
+        "nav_share_of_reference_breaches_before": _r(before_nav, 8),
+    }
+
+
+def discharge_attribution(*, before: dict, after: dict, weights_before: dict,
+                          weights_after: dict) -> list:
+    """For every name in breach BEFORE: what actually closed the breach.
+
+    Two additive effects, both read and neither modelled:
+
+    * ``exposure_effect``  = share_before - share_after  (the book carries less of
+      this name's risk - whether because the position was cut or because the rest of
+      the book changed around it);
+    * ``limit_effect``     = limit_after  - limit_before (the bar moved).
+
+    Their sum must cover the original excess for the breach to close, and which one
+    did the work is the whole question R69.1 raised. A name that is under the BEFORE
+    limit afterwards closed on exposure alone and needs no policy ruling.
+    """
+    lb, la = _f(before.get("limit")), _f(after.get("limit"))
+    cb = {k: _f(v) for k, v in (before.get("contributions") or {}).items()}
+    ca = {k: _f(v) for k, v in (after.get("contributions") or {}).items()}
+    out = []
+    for tk in sorted(before.get("breached_instruments") or []):
+        sb, sa = cb.get(tk), ca.get(tk)
+        if sb is None or lb is None:
+            continue
+        held_after = (_f((weights_after or {}).get(tk)) or 0.0) > _TOL
+        exposure = None if sa is None else _r(sb - sa, 8)
+        limit_eff = None if (lb is None or la is None) else _r(la - lb, 8)
+        if not held_after:
+            code = CLOSED_BY_EXPOSURE
+        elif sa is None or la is None:
+            code = STILL_IN_BREACH
+        elif sa > la + _TOL:
+            code = STILL_IN_BREACH
+        elif sa <= lb + _TOL:
+            code = CLOSED_BY_EXPOSURE
+        else:
+            code = CLOSED_BY_LIMIT_RELAXATION
+        denom = (exposure or 0.0) + (limit_eff or 0.0)
+        out.append({
+            "ticker": tk, "code": code,
+            "excess_over_before_limit": _r(sb - lb, 8),
+            "risk_contribution_before": _r(sb, 6),
+            "risk_contribution_after": _r(sa, 6),
+            "limit_before": _r(lb, 8), "limit_after": _r(la, 8),
+            "weight_before": _r(_f((weights_before or {}).get(tk)) or 0.0, 8),
+            "weight_after": _r(_f((weights_after or {}).get(tk)) or 0.0, 8),
+            "exposed_after": held_after,
+            "exposure_effect": exposure,
+            "limit_effect": limit_eff,
+            "exposure_share_of_closure": (_r(exposure / denom, 6)
+                                          if (exposure is not None and denom > _TOL
+                                              and exposure >= 0.0) else None),
+            "compliant_at_before_limit": (None if sa is None else bool(sa <= lb + _TOL)),
+            "compliant_at_governed_limit": (None if (sa is None or la is None)
+                                            else bool(sa <= la + _TOL)),
+        })
+    return out
+
+
+def policy_review_state(*, reference: dict, attribution: list,
+                        limit_changed: bool) -> dict:
+    """Does this target need a manual RISK-POLICY ruling before it can be approved?
+
+    It does when both are true: the per-name cap ROSE, and the target does not
+    comply with the cap the current book was judged against. That is precisely
+    "compliance depends on denominator-driven cap relaxation" - and it is the only
+    condition under which this state is raised. When the limit did not move, the
+    reference IS the governed limit and any breach is an ordinary mandatory repair
+    that the existing gates already own.
+
+    This grants nothing, changes nothing and refuses nothing. It NAMES a decision.
+    """
+    breached = list(reference.get("breached_instruments") or [])
+    required = bool(limit_changed and breached
+                    and reference.get("state") == "AVAILABLE")
+    relaxation_only = sorted({a["ticker"] for a in (attribution or [])
+                              if a.get("code") == CLOSED_BY_LIMIT_RELAXATION})
+    opened = list(reference.get("opened_against_reference") or [])
+    return {
+        "owner": CALCULATION_OWNER,
+        "policy_owner": RISK_POLICY_OWNER,
+        "state": POLICY_REVIEW_REQUIRED if required else POLICY_REVIEW_NOT_REQUIRED,
+        "vocabulary": list(POLICY_REVIEW_VOCAB),
+        "required": required,
+        "policy_changed_here": False,
+        "exception_granted_here": False,
+        "target_approved_here": False,
+        "declared_policy": {
+            "limit": "risk_contribution_excess_multiple / n_covariance_names (3/N)",
+            "basis": _hoc.RISK_CONTRIBUTION_LIMIT_BASIS,
+            "owner": RISK_POLICY_OWNER,
+            "unchanged_by_this_release": True,
+        },
+        "reference_limit": reference.get("reference_limit"),
+        "governed_limit": reference.get("governed_limit"),
+        "instruments": breached,
+        "instruments_breaching_only_because_the_limit_rose": relaxation_only,
+        "instruments_opened_against_the_reference": opened,
+        "acknowledgement_token": POLICY_REVIEW_ACK_TOKEN,
+        "decision_required": (
+            "Rule on whether a per-name risk-contribution cap with a MOVING "
+            "denominator is the intended governance for this target. %d name(s) "
+            "(%s) sit above the %s limit the current book was judged against and "
+            "are compliant only because the cap rose to %s. Approval is withheld "
+            "until that ruling is recorded; neither the cap nor the target has "
+            "been changed."
+            % (len(breached), ", ".join(breached) or "none",
+               reference.get("reference_limit"), reference.get("governed_limit"))
+            if required else
+            "None. This target complies with the limit the current book was judged "
+            "against, so no risk-policy ruling stands between it and the existing "
+            "approval gates."),
+        "options": list(POLICY_REVIEW_OPTIONS),
+        "manual_review_reference": POLICY_REVIEW_REFERENCE_DOC,
+    }
+
 
 def risk_contribution_comparison(*, before_state: dict, after_state: dict,
                                  policy: dict) -> dict:
@@ -252,7 +527,15 @@ def risk_contribution_comparison(*, before_state: dict, after_state: dict,
             "limit": _f(limit_block.get("limit")),
             "limit_basis": limit_block.get("basis"),
             "n_covariance_names": limit_block.get("n_covariance_names"),
-            "excess_multiple": _f(limit_block.get("risk_contribution_excess_multiple")),
+            # R69.5 - the canonical limit block spells this ``excess_multiple``. It
+            # was read here under the policy KEY's name and so was always None: the
+            # one number that says WHY the limit is what it is never reached a
+            # screen. Both spellings are accepted so a limit block from any caller
+            # still answers.
+            "excess_multiple": _f(limit_block.get("excess_multiple")
+                                  if limit_block.get("excess_multiple") is not None
+                                  else limit_block.get(
+                                      "risk_contribution_excess_multiple")),
             "contributions": {k: _r(v, 6) for k, v in sorted(contributions.items())},
             "breaches": breaches,
             "breach_count": len(breaches),
@@ -294,7 +577,23 @@ def risk_contribution_comparison(*, before_state: dict, after_state: dict,
 
     shares_after = [v for v in after["contributions"].values() if v is not None]
     top2 = sum(sorted(shares_after, reverse=True)[:2]) if shares_after else None
+    # R69.5 - the same two sides, judged a second way: against the limit the BEFORE
+    # book was already held to. Published BESIDE the governed verdict, never in
+    # place of it, and measured by the governed owner's own breach function.
+    limit_changed = bool(before["limit"] is not None and after["limit"] is not None
+                         and after["limit"] > before["limit"] + 1.0e-9)
+    reference = reference_limit_compliance(
+        before=before, after=after, weights_before=w_before, weights_after=w_after,
+        band=band)
+    attribution = discharge_attribution(
+        before=before, after=after, weights_before=w_before, weights_after=w_after)
     return {
+        "reference_compliance": reference,
+        "discharge_attribution": attribution,
+        "policy_review": policy_review_state(
+            reference=reference, attribution=attribution,
+            limit_changed=limit_changed),
+        "limit_relaxed": limit_changed,
         "owner": CALCULATION_OWNER,
         "policy_owner": RISK_POLICY_OWNER,
         "policy_changed_by_this_release": False,
@@ -519,6 +818,17 @@ def summarise(block: Optional[dict]) -> dict:
         "risk_contribution_limit_after": (risk.get("after") or {}).get("limit"),
         "discharged_without_reduction_count":
             risk.get("discharged_without_reduction_count"),
+        # R69.5 - a surface that renders only this summary still learns whether the
+        # target owes a risk-policy ruling, and on how many names.
+        "complies_with_reference_limit":
+            (risk.get("reference_compliance") or {}).get("complies_with_reference"),
+        "reference_limit": (risk.get("reference_compliance") or {}).get("reference_limit"),
+        "reference_breach_count":
+            (risk.get("reference_compliance") or {}).get("breach_count"),
+        "reference_breached_instruments":
+            (risk.get("reference_compliance") or {}).get("breached_instruments"),
+        "risk_policy_review_state": (risk.get("policy_review") or {}).get("state"),
+        "risk_policy_review_required": (risk.get("policy_review") or {}).get("required"),
         "selected_target_implementation_hash":
             b.get("selected_target_implementation_hash"),
     }
@@ -533,6 +843,11 @@ __all__ = [
     "NOT_IMPLEMENTABLE_UNVERIFIED", "NOT_IMPLEMENTABLE_NO_ARTIFACT",
     "NOT_IMPLEMENTABLE_VOCAB", "ECONOMIC_KEYS",
     "RISK_POLICY_OWNER", "RISK_POLICY_UNCHANGED_NOTE", "DISCHARGE_WITHOUT_REDUCTION",
+    "REFERENCE_LIMIT_BASIS", "REFERENCE_UNAVAILABLE", "CLOSED_BY_EXPOSURE",
+    "CLOSED_BY_LIMIT_RELAXATION", "STILL_IN_BREACH", "REFERENCE_BREACH_OPENED",
+    "POLICY_REVIEW_NOT_REQUIRED", "POLICY_REVIEW_REQUIRED", "POLICY_REVIEW_VOCAB",
+    "POLICY_REVIEW_ACK_TOKEN", "POLICY_REVIEW_OPTIONS", "POLICY_REVIEW_REFERENCE_DOC",
+    "reference_limit_compliance", "discharge_attribution", "policy_review_state",
     "project_allocations", "projected_full_target_allocations",
     "risk_contribution_comparison", "selected_target_hash",
     "build_selected_target", "build_all_selected_targets", "summarise",

@@ -13,6 +13,28 @@ historical proposal economic was altered. Both need an operator decision.
 >   position did not move. On 2026-09-22 that is AMD 14.98% → 20.73% and DDOG
 >   13.87% → 20.65% at unchanged weights. The operator decision below is
 >   unchanged and still theirs to make.
+> **Status after R69.5 (2026-09-24)**
+>
+> * **Item 1 is still OPEN, and is now GATED.** R69.5 changed no threshold and no
+>   basis either. It made the effect ANSWERABLE: every target is now also judged
+>   against the limit the CURRENT book was held to, held constant, by the same
+>   owner's own `risk_contribution_breaches`. A target that clears its own cap
+>   only because that cap rose is held at
+>   `SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW` — approval is WITHHELD until an
+>   operator records a ruling bound to the exact frozen book. Nothing is granted,
+>   refused or changed by that gate.
+> * **The 2026-09-23 proposal extends this item beyond what was written below.**
+>   The full target carries FOUR names above the 12% reference (54.6% of portfolio
+>   risk on 14.8% of NAV), and **two of them are concentrations the target itself
+>   created** — ALAB raised 1.84% → 3.21%, SNDK added at 2.88%. No denominator
+>   argument reaches those. The operator question is therefore wider than "may a
+>   repair discharge a breach by exiting other names?": it is also "may a target
+>   open a new concentration that only the relaxed cap admits?".
+> * See `docs/R69_5_PORTFOLIO_DECISION_INTEGRITY.md` for the full measurement and
+>   the exact governance decision required.
+>
+> ---
+>
 > * **Item 2 (a selected MINIMUM_REPAIR has no implementable order plan) is
 >   RESOLVED.** `engine.selected_target` is the owner those weights lacked;
 >   `api.portfolio_decision` freezes the complete book into the governed

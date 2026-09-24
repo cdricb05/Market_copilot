@@ -7258,6 +7258,13 @@ class PortfolioDecisionRecordRequest(BaseModel):
     #: instead of silently becoming the standing full target.
     expected_selection_id: str | None = None
     expected_selected_target: str | None = None
+    #: R69.5 — the operator's ruling on a target that clears its own per-name
+    #: risk-contribution cap only because that cap rose with a shrinking covariance
+    #: universe. Required ONLY in that case, and bound to the exact frozen book:
+    #: ``{"token", "selected_target_implementation_hash", "reference_limit",
+    #: "instruments", "ruling", "ruled_by"}``. It authorises one target; it changes
+    #: no threshold and grants no standing exception. Deliberately not a checkbox.
+    risk_policy_acknowledgement: dict | None = None
     requested_by: str = "manual_ui"
 
 
@@ -7308,6 +7315,13 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
     refused rather than approved. REJECT and HOLD are unaffected, and a decision recorded
     before R69.2 stays readable and idempotently re-recordable.
 
+    R69.5 — a selected target that satisfies its own per-name risk-contribution cap ONLY
+    because that cap rose with a shrinking covariance universe is held at
+    ``SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW`` until the operator records a ruling in
+    ``risk_policy_acknowledgement``, bound to the exact frozen book, reference limit and
+    instruments. Nothing is written while it is withheld, no threshold is changed and no
+    standing exception is granted; REJECT and HOLD stay available throughout.
+
     It creates NO order/fill/target and changes NO holding/cash/NAV; it never approves
     automatically and never promotes/recalibrates a model. On success it returns the
     recorded decision + its immutable binding hashes and the target it approved.
@@ -7337,6 +7351,7 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
         expected_proposal_hash=body.expected_proposal_hash,
         expected_selection_id=body.expected_selection_id,
         expected_selected_target=body.expected_selected_target,
+        risk_policy_acknowledgement=body.risk_policy_acknowledgement,
         actor=body.requested_by)
 
 

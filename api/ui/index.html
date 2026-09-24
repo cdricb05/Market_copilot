@@ -3550,6 +3550,31 @@
                 background: rgba(245,158,11,.08); padding: 6px 10px; font-size: 11px;
                 line-height: 1.55; color: var(--text-accent, #a8b8d8); }
     .pdr-warn b { color: var(--warning, #f59e0b); }
+    /* R69.5 - the risk-policy review. It reads as a HOLD, not as a failure: the
+       target is valid on its own cap and the declared policy is untouched, so it
+       is amber like every other "you must decide" state and never red, which this
+       cockpit reserves for an actual breach. */
+    .pdr-policy { border-left-width: 4px; margin-top: 10px; }
+    .pdr-policy .cc-badge { margin-left: 6px; vertical-align: middle; }
+    .pdr-polt { width: 100%; border-collapse: collapse; font-size: 11px;
+                margin: 8px 0 6px; }
+    .pdr-polt th { text-align: left; font-weight: 700; padding: 3px 8px 3px 0;
+                   color: var(--label, #7a8fb0);
+                   border-bottom: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
+    /* Left-aligned and width-bounded: the surrounding .pdr-rc table is a
+       two-column before/after grid and right-aligns its cells, which pushed these
+       four columns to the far edges of a 1920 panel and broke the reading line. */
+    .pdr-polt td { padding: 3px 8px 3px 0; vertical-align: top; text-align: left; }
+    .pdr-polt th { text-align: left; }
+    .pdr-polt td.tk { font-weight: 800; }
+    .pdr-polt th:nth-child(1), .pdr-polt td:nth-child(1) { width: 70px; }
+    .pdr-polt th:nth-child(2), .pdr-polt td:nth-child(2) { width: 210px; }
+    .pdr-polt th:nth-child(3), .pdr-polt td:nth-child(3) { width: 190px; }
+    .pdr-polopts { margin: 4px 0 8px; padding-left: 18px; }
+    .pdr-polopts li { margin: 2px 0; }
+    .pdr-rc tr.pdr-refhead td { padding-top: 10px; font-weight: 700;
+                                color: var(--label, #7a8fb0);
+                                border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
 
     /* ---------- Current vs Best Feasible (the R47 card, re-presented) --------- */
     #r47-pipeline, #r47-governance { display: block !important; grid-template-columns: none !important; }
@@ -29617,10 +29642,121 @@ function _pdrRiskContribution(risk) {
     + row('Largest position', _pdrPct(b.largest_position, 2),
           _pdrPct(a.largest_position, 2), false)
     + row('Cash', _pdrPct(b.cash_weight, 2), _pdrPct(a.cash_weight, 2), false)
-    + '</tbody></table>' + warn
+    + _pdrReferenceRows(risk)
+    + '</tbody></table>' + warn + _pdrPolicyReview(risk)
     + '<div class="pdr-note">Read from the canonical risk owner on both sides and '
     + 'not measured here. No threshold, basis or obligation was changed by this '
     + 'release.</div></div>';
+}
+
+/* R69.5 - the same two books, judged against the cap that did NOT move.
+
+   The rows above answer "does this target clear its own cap?". They cannot
+   answer the question an operator actually has, which is whether the target is
+   better or whether the bar simply moved under it. These three rows hold the
+   denominator still and re-ask. The reference is not a new threshold: it is the
+   limit engine.holding_opportunity_cost already applied to the current book. */
+function _pdrReferenceRows(risk) {
+  var ref = risk && risk.reference_compliance;
+  if (!ref || ref.state !== 'AVAILABLE') return '';
+  var cell = function (v) {
+    return (v === null || v === undefined) ? '&mdash;' : escapeHtml(String(v));
+  };
+  return '<tr class="pdr-refhead"><td colspan="3">Held at the '
+    + _pdrPct(ref.reference_limit, 2) + ' cap the current book was judged against'
+    + '</td></tr>'
+    + '<tr><td>Breaches at that reference cap</td><td class="hi">'
+    + cell(ref.breach_count_before) + '</td><td class="hi">'
+    + cell(ref.breach_count) + '</td></tr>'
+    + '<tr><td>Portfolio risk carried by those names</td><td>'
+    + _pdrPct(ref.risk_share_of_reference_breaches_before, 1) + '</td><td>'
+    + _pdrPct(ref.risk_share_of_reference_breaches, 1) + '</td></tr>'
+    + '<tr><td>NAV carried by those names</td><td>'
+    + _pdrPct(ref.nav_share_of_reference_breaches_before, 1) + '</td><td>'
+    + _pdrPct(ref.nav_share_of_reference_breaches, 1) + '</td></tr>';
+}
+
+/* R69.5 - the manual decision, stated rather than discharged.
+
+   Deliberately NOT a button. A policy ruling that can be cleared by reflex is
+   not a ruling, so the acknowledgement is recorded through the governed API
+   against the exact frozen book, the exact reference limit and the exact
+   instruments. This panel gains no write control of any kind: it names the
+   decision, names who owns the policy, and says plainly that nothing was
+   changed or granted. */
+function _pdrPolicyReview(risk) {
+  var pol = risk && risk.policy_review;
+  var ref = (risk && risk.reference_compliance) || {};
+  if (!pol) {
+    return '<div class="pdr-note"><b>Risk-policy verdict not published.</b> This '
+      + 'selection froze its book before R69.5, so whether it complies with the '
+      + 'limit the current portfolio was judged against was never recorded. It is '
+      + 'not asserted either way. Select the same target again against the current '
+      + 'review &mdash; the target identity does not change.</div>';
+  }
+  if (!pol.required) return '';
+  var rows = (ref.breaches || []).map(function (r) {
+    var created = r.code === 'OPENED_AGAINST_THE_REFERENCE_LIMIT';
+    // Read, never derived: the kernel holds the materiality band and decides
+    // whether the weight moved. No arithmetic on a weight happens in this file.
+    var moved = r.weight_moved === true;
+    return '<tr><td class="tk">' + escapeHtml(r.ticker || '') + '</td>'
+      + '<td>' + (r.risk_contribution_before === null
+                  || r.risk_contribution_before === undefined
+                  ? '&mdash;' : _pdrPct(r.risk_contribution_before, 2))
+      + ' &rarr; ' + _pdrPct(r.risk_contribution, 2) + '</td>'
+      + '<td>' + _pdrPct(r.weight_before, 2) + ' &rarr; '
+      + _pdrPct(r.weight_after, 2) + '</td>'
+      + '<td>' + (created ? '<b>CREATED BY THIS TARGET</b>'
+                  : moved ? 'reduced, still above the reference'
+                          : 'weight unchanged') + '</td></tr>';
+  }).join('');
+  return '<div class="pdr-warn pdr-policy">'
+    + '<b>&#9888; RISK POLICY REVIEW REQUIRED</b> '
+    + '<span class="cc-badge">APPROVAL WITHHELD</span> '
+    + '<span class="cc-badge">NO THRESHOLD CHANGED</span> '
+    + '<span class="cc-badge">MANUAL REVIEW</span><br>'
+    + 'This target clears its own per-name cap only because that cap rose from '
+    + _pdrPct(ref.reference_limit, 2) + ' to ' + _pdrPct(ref.governed_limit, 2)
+    + ' when the covariance universe changed. Held at '
+    + _pdrPct(ref.reference_limit, 2) + ', ' + (ref.breach_count || 0)
+    + ' name(s) breach:'
+    + '<table class="pdr-polt"><thead><tr><th>Ticker</th>'
+    + '<th>Share of portfolio risk</th><th>Weight</th><th>Why</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>'
+    + 'The declared 3/N policy is <b>unchanged</b> and was correctly applied on '
+    + 'both sides. No threshold was moved, no exception was granted and this '
+    + 'target was neither approved nor refused. Approval is withheld until an '
+    + 'operator rules on the policy:'
+    + '<ul class="pdr-polopts">'
+    + (pol.options || []).map(function (o) {
+        return '<li>' + escapeHtml(o) + '</li>';
+      }).join('')
+    + '</ul>'
+    + 'Policy owner <b>' + escapeHtml(pol.policy_owner
+                                      || 'engine.holding_opportunity_cost')
+    + '</b> &middot; background in '
+    + escapeHtml(pol.manual_review_reference
+                 || 'docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md')
+    + '. The ruling is recorded through the governed decision API, not from this '
+    + 'screen: it must name this exact frozen book, so it cannot be clicked by '
+    + 'reflex and cannot be carried to another target.</div>';
+}
+
+/* R69.5 - which capital the three states actually range over.
+
+   The per-state allocation map reads as a COMPOSITION ("here is what this target
+   holds"). What the operator needs beside a comparison is the SCOPE ("here is the
+   only place any of these targets could have put a dollar"). Derived entirely by
+   the review kernel from the states' own data - if a future proposal carries an FX
+   or rates sleeve this line follows it without being edited. */
+function _pdrScopeLine(r) {
+  var s = r && r.capital_scope;
+  if (!s || !s.detail) return '';
+  var classes = (s.risk_asset_classes_present || []).join(', ') || 'one sleeve';
+  return '<div class="pdr-note" style="margin-bottom:6px;">'
+    + '<b>Scope of this comparison:</b> ' + escapeHtml(classes)
+    + ' + cash. ' + escapeHtml(s.detail) + '</div>';
 }
 
 function _pdrSelectedTarget(d) {
@@ -30186,7 +30322,8 @@ function _pdrRender(d, err) {
     // this section is collapsed, so an operator who opens it later must not read
     // three states as if one of them were still choosable.
     + _pdrMore('Compare the three states (current / minimum repair / full target)',
-        _pdrFreshnessLine(d) + '<div class="pdr-states">' + cols + '</div>')
+        _pdrFreshnessLine(d) + _pdrScopeLine(r)
+        + '<div class="pdr-states">' + cols + '</div>')
     + _pdrMore('Why the full target differs from the minimum repair', diff + compNote)
     + _pdrMore('What the proposal changes ('
         + ((cl.mandatory_change_count || 0) + (cl.discretionary_change_count || 0))

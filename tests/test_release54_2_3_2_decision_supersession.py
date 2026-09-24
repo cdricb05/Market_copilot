@@ -794,9 +794,15 @@ def test_28_no_new_route_and_no_operator_date_field():
     # bindings, not dates: the server still resolves the session, the proposal
     # and the selection itself, and these only let it refuse a request whose
     # operator was looking at something else.
+    #
+    # R69.5 added the RISK-POLICY RULING, on the same terms. It carries no date
+    # and no session; it names the frozen book, the reference limit and the
+    # instruments the server itself published, so the server can refuse a ruling
+    # about a different book. It cannot make anything approvable that was not
+    # already approvable on every other gate - it can only fail one closed.
     assert fields == {"decision", "confirmation", "expected_proposal_hash",
                       "expected_selection_id", "expected_selected_target",
-                      "requested_by"}
+                      "risk_policy_acknowledgement", "requested_by"}
 
 
 def test_29_cross_session_never_runs_backwards(stores):
