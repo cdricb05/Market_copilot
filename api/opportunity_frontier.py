@@ -145,22 +145,46 @@ def load_opportunity_frontier(*, portfolio_state: Optional[dict] = None,
 def non_equity_admission_ledger(registry: dict, frontier: dict) -> list[dict]:
     """Per research sleeve: eligibility, blocker, gate state, rows listed / admitted."""
     rows = (frontier or {}).get("rows") or []
+    navv = _f((frontier or {}).get("nav"))
+    cap = _f(((frontier or {}).get("policy") or {}).get("max_name_weight"))
     by_sleeve: dict[str, dict] = {}
     for r in rows:
         if r.get("instrument_type") in (ic.IT_CASH, ic.IT_CASH_EQUITY):
             continue
-        b = by_sleeve.setdefault(str(r.get("sleeve_id")), {"listed": 0, "admitted": 0, "reasons": {}})
+        b = by_sleeve.setdefault(str(r.get("sleeve_id")),
+                                 {"listed": 0, "admitted": 0, "reasons": {},
+                                  "min_nav": None, "cheapest": None})
         b["listed"] += 1
         if r.get("eligible"):
             b["admitted"] += 1
         elif r.get("eligibility_reason"):
             b["reasons"][r["eligibility_reason"]] = b["reasons"].get(r["eligibility_reason"], 0) + 1
+    # The CHEAPEST unit in a sleeve sets the NAV at which that sleeve first becomes
+    # holdable AT ALL, and this is asked of EVERY non-equity sleeve, including the
+    # ones the capital gate has not passed. Granularity sits below the gate: a
+    # sleeve whose smallest contract cannot fit the name cap stays unfundable on
+    # the day its forward evidence finally arrives. Computing it only for sleeves
+    # that already cleared the gate would surface the wall years after the point
+    # at which knowing about it could change anything. This admits nothing.
+    if cap:
+        for d in ir.eligible_non_equity_instruments(
+                registry, nav=navv, max_name_weight=cap, include_ineligible_sleeves=True):
+            un = _f(d.get("unit_notional_usd"))
+            if un is None:
+                continue
+            b = by_sleeve.setdefault(str(d.get("sleeve_id")),
+                                     {"listed": 0, "admitted": 0, "reasons": {},
+                                      "min_nav": None, "cheapest": None})
+            need = un / cap
+            if b["min_nav"] is None or need < b["min_nav"]:
+                b["min_nav"], b["cheapest"] = need, d.get("instrument_id")
     out = []
     for s in (registry or {}).get("sleeves") or []:
         if s.get("asset_class") in (ic.AC_US_EQUITY, ic.AC_CASH):
             continue
         gate = s.get("capital_eligibility_gate") or {}
-        b = by_sleeve.get(s["sleeve_id"], {"listed": 0, "admitted": 0, "reasons": {}})
+        b = by_sleeve.get(s["sleeve_id"], {"listed": 0, "admitted": 0, "reasons": {},
+                                           "min_nav": None, "cheapest": None})
         out.append({
             "sleeve_id": s["sleeve_id"], "asset_class": s.get("asset_class"),
             "capital_eligible": bool(s.get("capital_eligible")),
@@ -171,6 +195,11 @@ def non_equity_admission_ledger(registry: dict, frontier: dict) -> list[dict]:
             "gate_remaining": gate.get("remaining_codes") or [],
             "instruments_listed": b["listed"], "instruments_admitted": b["admitted"],
             "instrument_ineligibility_reasons": b["reasons"],
+            "minimum_nav_for_one_unit_usd": (round(b["min_nav"], 2)
+                                             if b["min_nav"] is not None else None),
+            "cheapest_instrument_id": b["cheapest"],
+            "nav_multiple_required": (round(b["min_nav"] / navv, 4)
+                                      if (b["min_nav"] is not None and navv) else None),
         })
     return out
 
@@ -191,6 +220,14 @@ def _explain_non_equity_count(frontier: dict) -> str:
             why = "gate %s (%s)" % (l.get("gate_state"), ", ".join(l.get("gate_remaining") or []) or "-")
         else:
             why = l.get("blocker") or "no candidate"
+        # Granularity is the one blocker no amount of evidence clears, so where it
+        # binds the sentence carries the NAV that would, and names the instrument
+        # that sets it. Saying only "not executable" invites a search for a bug.
+        if l.get("minimum_nav_for_one_unit_usd") and "UNIT_NOTIONAL_EXCEEDS_NAME_CAP_AT_NAV" in (
+                l.get("instrument_ineligibility_reasons") or {}):
+            why += (" [cheapest unit %s needs a $%s book at the declared name cap]"
+                    % (l.get("cheapest_instrument_id"),
+                       format(l["minimum_nav_for_one_unit_usd"], ",.0f")))
         parts.append("%s: %s" % (l["sleeve_id"], why))
     return ("0 non-equity instruments are eligible. Per sleeve - " + "; ".join(parts)
             if parts else "0 non-equity instruments are eligible; the registry declares no "

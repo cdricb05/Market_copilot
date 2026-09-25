@@ -620,15 +620,25 @@ def eligible_non_equity_instruments(registry: dict, *, nav: Optional[float] = No
                                     as_of: Optional[str] = None,
                                     max_name_weight: float = 0.10,
                                     metadata_loader: Optional[Callable] = None,
-                                    mark_loader: Optional[Callable] = None) -> list[dict]:
+                                    mark_loader: Optional[Callable] = None,
+                                    include_ineligible_sleeves: bool = False) -> list[dict]:
     """Instrument descriptors of every CAPITAL-ELIGIBLE non-equity sleeve, each with
     its unit notional, capital-usage ratio and whether ONE unit is executable at
     the book's NAV under the name cap (unit granularity is a real capacity limit:
-    a $112k contract cannot be a 4% position of a $99k book)."""
+    a $112k contract cannot be a 4% position of a $99k book).
+
+    ``include_ineligible_sleeves`` additionally describes sleeves the capital gate
+    has NOT passed. It admits nothing - every such row carries
+    ``sleeve_capital_eligible: False`` and no caller may fund one - and exists
+    because granularity sits BELOW the gate: a sleeve whose contract cannot fit
+    the name cap is still unfundable on the day its evidence finally arrives, and
+    an operator who learns that only then has been told years too late."""
     out = []
     md = metadata_loader or mrd.futures_metadata
     for r in (registry or {}).get("sleeves") or []:
-        if not r.get("capital_eligible") or r.get("asset_class") in (ic.AC_US_EQUITY, ic.AC_CASH):
+        if r.get("asset_class") in (ic.AC_US_EQUITY, ic.AC_CASH):
+            continue
+        if not r.get("capital_eligible") and not include_ineligible_sleeves:
             continue
         scores = r.get("signal_scores") or {}
         for sym in (r.get("instrument_ids") or list(scores)):
@@ -652,6 +662,15 @@ def eligible_non_equity_instruments(registry: dict, *, nav: Optional[float] = No
             un = ic.unit_notional_usd(d, mark, fxv) if (mark is not None and fxv is not None) else None
             navv = float(nav) if nav else None
             executable = bool(un is not None and navv and un <= max_name_weight * navv)
+            # A granularity refusal states a threshold and withholds the one number
+            # that would clear it. The NAV at which ONE unit first fits the name cap
+            # is arithmetic on figures already published on this row, and without it
+            # UNIT_NOTIONAL_EXCEEDS_NAME_CAP_AT_NAV reads as a defect to be repaired
+            # rather than as a book too small to hold an exchange-set contract. The
+            # contract size is the exchange's; the cap is a declared policy; only
+            # their ratio says what would have to change, so it is published here.
+            min_nav = (un / float(max_name_weight)
+                       if (un is not None and max_name_weight) else None)
             d = dict(d)
             d.update({
                 "opportunity_score": scores.get(sym),
@@ -663,6 +682,11 @@ def eligible_non_equity_instruments(registry: dict, *, nav: Optional[float] = No
                 "executability_reason": (None if executable else
                                          ("UNIT_NOTIONAL_EXCEEDS_NAME_CAP_AT_NAV" if un is not None
                                           else "MARK_OR_FX_UNAVAILABLE")),
+                "name_cap_usd": (max_name_weight * navv) if navv else None,
+                "minimum_nav_for_one_unit_usd": min_nav,
+                "nav_multiple_required": (round(min_nav / navv, 4)
+                                          if (min_nav is not None and navv) else None),
+                "sleeve_capital_eligible": bool(r.get("capital_eligible")),
             })
             out.append(d)
     return out
