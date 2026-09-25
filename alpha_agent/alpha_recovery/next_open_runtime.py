@@ -395,6 +395,66 @@ def _eligible_range(start: str, end: str) -> list:
     return out
 
 
+def declared_boundaries(*, now: Optional[str] = None) -> dict:
+    """WHAT IS DUE NEXT, and WHAT WAS PERMANENTLY MISSED - this producer's answer.
+
+    The same R68 journal contract the R58 cadence producer already satisfies,
+    and the one this producer needed most: it decides EVERY eligible session, so
+    every session it does not freeze is a boundary permanently lost, and the
+    accrual owner reports each of them as ``AWAITING_NEW_GOVERNED_FREEZE`` -
+    indistinguishable from a challenger healthily waiting for its next turn.
+    Thirty-two of those losses were named in this module's own ``advance_daily``
+    result and reached no durable reader.
+
+    The grid is not a cadence stride but the eligibility rule itself, read from
+    the ONE calendar owner (:mod:`next_open_challenger`) between this
+    challenger's own first legal entry session and today. Pure; writes nothing,
+    judges no window, and reports a boundary as missed only once its entry
+    session is STRICTLY in the past, so today's still-open entry is never
+    counted as lost.
+    """
+    today = str(now or now_iso())[:10]
+    out = {"calculation_owner": CALCULATION_OWNER,
+           "challenger_id": NOC.CHALLENGER_ID,
+           "grid_owner": "%s._eligible_range" % CALCULATION_OWNER,
+           "cadence_sessions": 1,
+           "as_of": today,
+           "next_boundaries": [], "missed_boundaries": [],
+           "frozen_boundaries": [], "forward_panel_last_session": None,
+           "blocked_on": None}
+    try:
+        first = first_legal_entry_session()
+        if not first:
+            out["blocked_on"] = "NO_FIRST_LEGAL_ENTRY_SESSION"
+            return out
+        out["first_legal_entry_session"] = first
+        out["forward_panel_last_session"] = _surface_last_usable_session()
+        frozen = sorted({str(r.get("eligible_session"))
+                         for r in (PD.list_decisions(NOC.CHALLENGER_ID) or [])
+                         if r.get("eligible_session")})
+        out["frozen_boundaries"] = frozen
+        grid = _eligible_range(first, today)
+        out["declared_grid_entry_sessions"] = list(grid)
+        out["missed_boundaries"] = sorted(s for s in grid
+                                          if s < today and s not in frozen)
+        # STRICTLY after today. The CURRENT entry session's live state is a
+        # window judgement, and this function deliberately makes none: the
+        # runtime journal already carries it separately as ``entry_session`` /
+        # ``entry_state``, so listing today here could only contradict it.
+        nxt, ahead = today, []
+        for _ in range(8):
+            nxt = NOC.next_eligible_session(nxt)
+            if not nxt:
+                break
+            ahead.append(nxt)
+            if len(ahead) >= 4:
+                break
+        out["next_boundaries"] = ahead[:4]
+    except Exception as exc:                                  # noqa: BLE001
+        out["blocked_on"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
+    return out
+
+
 def extend_surface(catchup_tag: str) -> dict:
     """Append the freshly built rows to the frozen surface. Never rewrites one.
 

@@ -110,6 +110,12 @@ _JOURNAL_STAGE_FIELDS = (
     # ARMED from STUCK without opening an artifact. A missed boundary in
     # particular is a permanent loss and must be countable from the journal.
     "next_boundaries", "missed_boundaries", "forward_panel_last_session",
+    # R72 - WHOSE grid answered, and why it could not. Added with the three
+    # fields above rather than beside them: a value absent from this allow-list
+    # is dropped on the way to the journal, so a producer that starts declaring
+    # its boundaries and a journal that keeps three of its five fields would
+    # reproduce, one layer down, the very silence R66 and R68 removed.
+    "declared_grid_owner", "boundary_read_error",
 )
 
 
@@ -119,6 +125,39 @@ def _lock_file():
 
 def _stage(name: str, state: str, **extra) -> dict:
     return {"stage": name, "state": state, **extra}
+
+
+def _declared(mod, started, *, missed_now=None) -> dict:
+    """ONE producer's OWN boundary grid, rendered onto the R68 journal seam.
+
+    R68 allow-listed ``next_boundaries``, ``missed_boundaries`` and
+    ``forward_panel_last_session`` above so that "a missed boundary in
+    particular is a permanent loss and must be countable from the journal", and
+    only the R58 cadence stage ever filled them. The other three producers each
+    computed their own grid and printed it on demand, so the loss was real,
+    knowable and unreachable - the same shape of defect as a fact that dies at a
+    lossy projection one function before its reader.
+
+    This adds no clock and no grid: every value is the PRODUCER's own answer.
+    ``missed_now`` is the stage's live window judgement, which the producer's
+    pure grid deliberately does not make, so the session the producer has just
+    declared lost is counted here rather than waiting for tomorrow's sweep.
+    Never raises: a boundary read that fails must not fail the producer stage.
+    """
+    try:
+        b = mod.declared_boundaries(now=started.isoformat()) or {}
+    except Exception as exc:                                  # noqa: BLE001
+        return {"next_boundaries": None, "missed_boundaries": None,
+                "forward_panel_last_session": None,
+                "boundary_read_error": type(exc).__name__}
+    missed = [str(s) for s in (b.get("missed_boundaries") or [])]
+    if missed_now and str(missed_now) not in missed:
+        missed.append(str(missed_now))
+    return {"next_boundaries": b.get("next_boundaries"),
+            "missed_boundaries": sorted(set(missed)),
+            "forward_panel_last_session": b.get("forward_panel_last_session"),
+            "declared_grid_owner": b.get("grid_owner"),
+            "boundary_read_error": b.get("blocked_on")}
 
 
 def _ms(t0: float) -> float:
@@ -319,7 +358,10 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 blocked_on=adv.get("blocked_on"),
                 blocked_owner=adv.get("blocked_owner"),
                 append_detail=(adv.get("append") or {}).get("detail"),
-                detail=adv.get("detail")))
+                detail=adv.get("detail"),
+                **_declared(NOR, started,
+                            missed_now=(adv.get("entry_session")
+                                        if a_st == NOR.ADV_MISSED else None))))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("next_open_prospective_decision",
                                  FAILED_RETRYABLE,
@@ -361,7 +403,11 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 marks_refreshed=bool((fx.get("marks_refresh") or {}).get("ran")),
                 paid_dollars=fx.get("paid_dollars"),
                 frozen=fx_st in FXR.PROGRESS_STATES,
-                detail=fx.get("detail")))
+                detail=fx.get("detail"),
+                **_declared(FXR, started,
+                            missed_now=(fx.get("entry_session")
+                                        if fx_st in FXR.MISSED_STATES
+                                        else None))))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("fx_carry_cadence_prospective_decision",
                                  FAILED_RETRYABLE,
@@ -402,7 +448,11 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 marks_refreshed=bool((ft.get("marks_refresh") or {}).get("ran")),
                 paid_dollars=ft.get("paid_dollars"),
                 frozen=ft_st in FTR.PROGRESS_STATES,
-                detail=ft.get("detail")))
+                detail=ft.get("detail"),
+                **_declared(FTR, started,
+                            missed_now=(ft.get("entry_session")
+                                        if ft_st in FTR.MISSED_STATES
+                                        else None))))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("futures_trend_prospective_decision",
                                  FAILED_RETRYABLE,

@@ -1007,6 +1007,95 @@ def advance(*, now=None, execute: bool = True,
             "detail": "the decision owner refused: %s" % res.get("outcome")}
 
 
+def own_grid_entry_sessions(*, registration_session: str, published: list) -> list:
+    """Every entry session this producer's OWN rebalance index makes a boundary.
+
+    The REALISED half of the grid :func:`schedule_preview` projects forward.
+    Both read the same index (:func:`rebalance_index`) and the same eligibility
+    rule, so the past and the future of the grid can never disagree with each
+    other - which is the whole reason this is not a second calendar.
+
+    An entry session ``s`` is a boundary exactly when the index at the session
+    BEFORE it is a multiple of the cadence, because that prior session is the
+    newest one a decision for ``s`` may legally read. Empty when the producer
+    has no published sessions after its registration.
+    """
+    out, seen = [], set()
+    for t in [d for d in (published or []) if d >= str(registration_session)]:
+        if rebalance_index(published, registration_session, t) % TRADE_EVERY:
+            continue
+        nxt = NOC.next_eligible_session(t)
+        if nxt and nxt not in seen:
+            seen.add(nxt)
+            out.append({"entry_session": nxt, "newest_published_session": t,
+                        "rebalance_index": rebalance_index(
+                            published, registration_session, t)})
+    return out
+
+
+def declared_boundaries(*, now=None, published: Optional[list] = None,
+                        scope: Optional[list] = None) -> dict:
+    """WHAT IS DUE NEXT, and WHAT WAS PERMANENTLY MISSED - this producer's answer.
+
+    R68 allow-listed ``next_boundaries``, ``missed_boundaries`` and
+    ``forward_panel_last_session`` on the runtime journal so that "a missed
+    boundary is a permanent loss and must be countable from the journal". The
+    R58 cadence producer answered; this one never did, so its own grid - which
+    it has always been able to print on demand - reached no reader, and the
+    accrual owner was left to infer a boundary from a stride over realised
+    panel sessions. A fact must travel on the seam its reader uses.
+
+    Nothing new is computed and no window is judged here: the grid is
+    :func:`own_grid_entry_sessions` plus :func:`schedule_preview`, the frozen
+    set is the decision owner's, and a boundary counts as MISSED only once its
+    entry session is STRICTLY in the past, so a boundary whose window is still
+    open is never reported as lost. Pure; writes nothing.
+    """
+    ts = NOC._as_utc(now) if now else None
+    today = (ts.date().isoformat() if ts
+             else datetime.now(timezone.utc).date().isoformat())
+    out = {"calculation_owner": CALCULATION_OWNER,
+           "challenger_id": CHALLENGER_ID,
+           "grid_owner": "%s.own_grid_entry_sessions" % CALCULATION_OWNER,
+           "cadence_sessions": TRADE_EVERY,
+           "as_of": today,
+           "next_boundaries": [], "missed_boundaries": [],
+           "frozen_boundaries": [], "forward_panel_last_session": None,
+           "blocked_on": None}
+    try:
+        pol = PD.load_policy(CHALLENGER_ID) or {}
+        ident = pol.get("identity") or {}
+        reg = str(ident.get("registration_session") or "")
+        sc = list(scope or pol.get("instrument_scope") or [])
+        if not sc:
+            sc = list((FXC.resolve_universe() or {}).get("instruments") or [])
+        if not reg or not sc:
+            out["blocked_on"] = "NO_DECLARED_POLICY_OR_SCOPE"
+            return out
+        pub = list(published if published is not None
+                   else published_sessions(sc))
+        out["forward_panel_last_session"] = pub[-1] if pub else None
+        frozen = sorted({str(r.get("eligible_session"))
+                         for r in (PD.list_decisions(CHALLENGER_ID) or [])
+                         if r.get("eligible_session")})
+        out["frozen_boundaries"] = frozen
+        grid = own_grid_entry_sessions(registration_session=reg, published=pub)
+        out["declared_grid_entry_sessions"] = [g["entry_session"] for g in grid]
+        out["missed_boundaries"] = sorted(
+            g["entry_session"] for g in grid
+            if g["entry_session"] < today and g["entry_session"] not in frozen)
+        # STRICTLY after today: the current session's live state is a window
+        # judgement this function deliberately does not make, and the runtime
+        # journal already carries it separately as ``entry_session``.
+        ahead = [row["entry_session"] for row
+                 in schedule_preview(registration_session=reg, published=pub)
+                 if row.get("entry_session") and row["entry_session"] > today]
+        out["next_boundaries"] = sorted(set(ahead))[:4]
+    except Exception as exc:                                  # noqa: BLE001
+        out["blocked_on"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
+    return out
+
+
 def schedule_preview(*, registration_session: str, published: list, horizon_days: int = 60) -> list:
     """The next rebalance entry sessions, on the exchange calendar (a projection, not a promise)."""
     last = published[-1] if published else registration_session
@@ -1036,5 +1125,6 @@ __all__ = [
     "information_is_final", "locate_window", "rebalance_index", "plan_entry", "previous_book",
     "unlevered_target", "forward_weights", "construction_policy", "policy_declaration",
     "execution_contract", "cost_policy", "advance", "schedule_preview",
+    "own_grid_entry_sessions", "declared_boundaries",
     "refresh_store_in_child", "score_in_child", "reproduce_frozen_cell_in_child",
 ]

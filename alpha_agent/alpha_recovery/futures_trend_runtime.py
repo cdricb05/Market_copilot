@@ -685,6 +685,84 @@ def advance(*, now=None, execute: bool = True,
             "detail": "the decision owner refused: %s" % res.get("outcome")}
 
 
+def own_grid_entry_sessions(*, registration_session: str, published: list) -> list:
+    """Every entry session this producer's OWN rebalance index makes a boundary.
+
+    The realised half of the grid :func:`schedule_preview` projects forward,
+    reading the SAME index (``FXR.rebalance_index``) and the same eligibility
+    rule this module's preview already reads, so the past and the future of the
+    grid cannot disagree. Not a second calendar.
+    """
+    out, seen = [], set()
+    for t in [d for d in (published or []) if d >= str(registration_session)]:
+        idx = FXR.rebalance_index(published, registration_session, t)
+        if idx % TRADE_EVERY:
+            continue
+        nxt = NOC.next_eligible_session(t)
+        if nxt and nxt not in seen:
+            seen.add(nxt)
+            out.append({"entry_session": nxt, "newest_published_session": t,
+                        "rebalance_index": idx})
+    return out
+
+
+def declared_boundaries(*, now=None, published: Optional[list] = None,
+                        scope: Optional[list] = None) -> dict:
+    """WHAT IS DUE NEXT, and WHAT WAS PERMANENTLY MISSED - this producer's answer.
+
+    The same R68 journal contract the R58 cadence producer already satisfies.
+    This registration is the one that PROVED why it is needed: its own grid
+    begins at 2026-10-20 with nothing frozen, while the accrual owner - unable
+    to ask an exchange-calendar boundary function, because this registration
+    observes on its instruments' own realised bar calendar - inferred a
+    boundary of 2026-09-21 from a stride over realised panel sessions and now
+    reports AWAITING_NEW_GOVERNED_FREEZE for a session this producer never
+    intends to serve. Publishing the grid is what lets a reader see that.
+
+    Pure; writes nothing, judges no window, and reports a boundary as missed
+    only once its entry session is STRICTLY in the past.
+    """
+    ts = NOC._as_utc(now) if now else None
+    today = (ts.date().isoformat() if ts
+             else datetime.now(timezone.utc).date().isoformat())
+    out = {"calculation_owner": CALCULATION_OWNER,
+           "challenger_id": CHALLENGER_ID,
+           "grid_owner": "%s.own_grid_entry_sessions" % CALCULATION_OWNER,
+           "cadence_sessions": TRADE_EVERY,
+           "as_of": today,
+           "next_boundaries": [], "missed_boundaries": [],
+           "frozen_boundaries": [], "forward_panel_last_session": None,
+           "blocked_on": None}
+    try:
+        pol = PD.load_policy(CHALLENGER_ID) or {}
+        ident = pol.get("identity") or {}
+        reg = str(ident.get("registration_session") or "")
+        sc = list(scope or pol.get("instrument_scope") or [])
+        if not reg or not sc:
+            out["blocked_on"] = "NO_DECLARED_POLICY_OR_SCOPE"
+            return out
+        pub = list(published if published is not None
+                   else published_sessions(sc))
+        out["forward_panel_last_session"] = pub[-1] if pub else None
+        frozen = sorted({str(r.get("eligible_session"))
+                         for r in (PD.list_decisions(CHALLENGER_ID) or [])
+                         if r.get("eligible_session")})
+        out["frozen_boundaries"] = frozen
+        grid = own_grid_entry_sessions(registration_session=reg, published=pub)
+        out["declared_grid_entry_sessions"] = [g["entry_session"] for g in grid]
+        out["missed_boundaries"] = sorted(
+            g["entry_session"] for g in grid
+            if g["entry_session"] < today and g["entry_session"] not in frozen)
+        # STRICTLY after today, for the reason given in the FX sibling.
+        ahead = [row["entry_session"] for row
+                 in schedule_preview(registration_session=reg, published=pub)
+                 if row.get("entry_session") and row["entry_session"] > today]
+        out["next_boundaries"] = sorted(set(ahead))[:4]
+    except Exception as exc:                                  # noqa: BLE001
+        out["blocked_on"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
+    return out
+
+
 def schedule_preview(*, registration_session: str, published: list, horizon_days: int = 120) -> list:
     """The next rebalance entry sessions on the exchange calendar (a projection)."""
     last = published[-1] if published else registration_session
@@ -714,4 +792,5 @@ __all__ = [
     "class_of_scope", "unlevered_history", "score_decision", "refresh_store_in_child",
     "run_refresh", "seed_store_from_frozen", "cost_policy", "execution_contract",
     "policy_declaration", "marks_refresh_due", "advance", "schedule_preview",
+    "own_grid_entry_sessions", "declared_boundaries",
 ]

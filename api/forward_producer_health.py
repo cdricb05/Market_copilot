@@ -166,6 +166,42 @@ P_NONE = "NO_CADENCE_PRODUCER"
 P_UNKNOWN = "PRODUCER_NOT_DETERMINED"
 PRODUCER_STATES = (P_LIVE, P_NONE, P_UNKNOWN)
 
+# --------------------------------------------------------------------------- #
+# 2b. THE BOUNDARY RECONCILIATION VOCABULARY (R72)
+# --------------------------------------------------------------------------- #
+#: The producer and the accrual owner each answer "which sessions were this
+#: registration's decision boundaries". Until now nobody compared the two
+#: answers, and the comparison is the only thing that can tell a PERMANENT LOSS
+#: from a challenger healthily waiting for its next turn: the accrual reports
+#: both as ``NOT_DUE / AWAITING_NEW_GOVERNED_FREEZE``, deliberately and
+#: correctly, because a boundary at which the owner froze nothing is a fact
+#: about governance and not a forfeiture (R62.2 (d), re-affirmed by R66, and
+#: enforced by ``check_release62_2_automatic_forward_accrual``).
+#:
+#: That contract is not touched here. This module owns the LIFECYCLE question,
+#: so the loss is named HERE, beside the accrual's answer rather than instead of
+#: it - the completion of the comparison R68 set up when it began reporting
+#: ``next_boundary_from_producer`` "so the two can be compared rather than
+#: confused".
+B_AGREED = "PRODUCER_AND_ACCRUAL_AGREE"
+#: The producer's own grid contained a boundary, its session is strictly past,
+#: no decision was ever frozen for it, and the accrual holds no forfeiture for
+#: it. The evidence does not exist and never will, and no counter said so.
+B_UNRECORDED_MISS = "PERMANENT_MISS_NOT_RECORDED_AS_A_FORFEITURE"
+#: The producer declares no grid at all (it failed to read one, or none is
+#: declared). Reported rather than defaulted: an unknown is not an agreement.
+B_NO_GRID = "PRODUCER_DECLARES_NO_BOUNDARY_GRID"
+#: No producer is EXPECTED for this registration, and the absence is declared
+#: and non-defect (``KNOWN_UNPRODUCED`` with ``UNPRODUCED_IS_A_DEFECT`` False).
+#: Distinct from :data:`B_NO_GRID` for the reason ``UNPRODUCED_IS_A_DEFECT``
+#: already gives one layer up - "a deliberately superseded record was never
+#: expected to accrue and reporting it beside a genuine orphan hides the
+#: orphan". A record with no producer has no boundary to lose, so calling its
+#: losses uncountable is a false alarm that would sit in the ledger for ever
+#: and drown the one silence this ledger exists to surface.
+B_NOT_EXPECTED = "NO_PRODUCER_EXPECTED_SO_NO_BOUNDARY_GRID"
+BOUNDARY_STATES = (B_AGREED, B_UNRECORDED_MISS, B_NO_GRID, B_NOT_EXPECTED)
+
 #: Runtime stage states that mean the producer RAN AND FAILED, as against ran
 #: and correctly did nothing. Read from the runtime's own vocabulary.
 _FAILED_STAGE_STATES = ("FAILED_RETRYABLE", "FAILED_INTEGRITY", "FAILED")
@@ -273,6 +309,86 @@ def _lifecycle_terminal(accrual: dict) -> Optional[str]:
     return None
 
 
+def boundary_reconciliation(accrual: dict,
+                            beat: Optional[dict] = None,
+                            *, producer: Optional[dict] = None) -> dict:
+    """Do the producer and the accrual owner agree about what was LOST?
+
+    The producer is the authority on its own grid - the accrual says so in as
+    many words ("a decision is the originating owner's act and this module may
+    not take one on its behalf"), and for a registration that observes on its
+    instruments' own realised bar calendar the accrual cannot even ask an
+    exchange-calendar boundary function. So the producer's declared
+    ``missed_boundaries`` is the count of permanently lost opportunities, and
+    the accrual's ``forfeitures`` is the count it has recorded as such.
+
+    The difference is the number that was invisible. It is reported, never
+    repaired: a forfeiture the accrual declines to record under its own contract
+    is not this module's to write, and recording one here would be a second
+    evidence store. Pure; reads nothing from disk.
+
+    ``producer`` is this registration's :func:`producer_for` verdict, when the
+    caller has one. It is consulted for a single distinction: a registration
+    whose absence of a producer is DECLARED and non-defect has no grid because
+    it is not supposed to have one, and saying its losses "cannot be counted"
+    would be a permanent false alarm rather than a silence worth hearing.
+    """
+    acc = accrual or {}
+    b = beat or {}
+    prod = producer or {}
+    declared = [str(s) for s in (b.get("missed_boundaries") or [])]
+    recorded = int(acc.get("forfeitures") or acc.get("forfeitures_recorded") or 0)
+    has_grid = b.get("missed_boundaries") is not None
+    out = {
+        "producer_declared_missed_boundaries": sorted(set(declared)),
+        "n_producer_declared_missed": len(set(declared)),
+        "n_accrual_recorded_forfeitures": recorded,
+        "producer_next_boundaries": list(b.get("next_boundaries") or []),
+        "accrual_next_eligible_observation_session":
+            acc.get("next_eligible_observation_session"),
+        "boundary_state": B_AGREED,
+        "reconciliation_owner": CALCULATION_OWNER,
+        "the_accrual_contract_is_not_changed_here": True,
+    }
+    # A DECLARED, non-defect absence of a producer answers first: there is no
+    # grid because none was ever expected, which is a different fact from a
+    # declared producer that has gone quiet, and the two must not share a state.
+    if (prod.get("producer_state") == P_NONE
+            and prod.get("reason")
+            and not UNPRODUCED_IS_A_DEFECT.get(prod["reason"], True)):
+        out["boundary_state"] = B_NOT_EXPECTED
+        out["n_unrecorded_permanent_misses"] = 0
+        out["declared_unproduced_reason"] = prod["reason"]
+        out["why"] = ("no producer is expected for this registration (%s), so "
+                      "it has no boundary to lose. Counted as nothing lost "
+                      "rather than as an uncountable silence, which is the "
+                      "distinction UNPRODUCED_IS_A_DEFECT already draws."
+                      % prod["reason"])
+        return out
+    if not has_grid:
+        out["boundary_state"] = B_NO_GRID
+        out["why"] = ("this producer publishes no boundary grid on the runtime "
+                      "journal, so whether it has lost a boundary cannot be "
+                      "answered; an unknown is not an agreement")
+        out["n_unrecorded_permanent_misses"] = None
+        return out
+    unrecorded = max(0, len(set(declared)) - recorded)
+    out["n_unrecorded_permanent_misses"] = unrecorded
+    if unrecorded:
+        out["boundary_state"] = B_UNRECORDED_MISS
+        out["why"] = (
+            "%d boundary(ies) on this producer's OWN grid passed with no frozen "
+            "decision and no recorded forfeiture: %s. The evidence does not "
+            "exist and never will. The accrual reports these as NOT_DUE / "
+            "AWAITING_NEW_GOVERNED_FREEZE, which is correct under its contract "
+            "and is why the loss needs naming here."
+            % (unrecorded, ", ".join(sorted(set(declared))[:12])))
+    else:
+        out["why"] = ("every boundary this producer declares is either frozen, "
+                      "still ahead, or already recorded as a forfeiture")
+    return out
+
+
 def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
     """The producer lifecycle state of ONE registration.
 
@@ -334,6 +450,12 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
                 out["next_decision_session"] = sorted(nb)[0]
                 out["next_decision_session_source"] = "PRODUCER_HEARTBEAT"
 
+    # R72 - the producer's grid against the accrual's forfeiture count. Always
+    # present, so a reader never has to infer from an absence whether the
+    # question was asked.
+    out["boundary_reconciliation"] = boundary_reconciliation(acc, beat,
+                                                             producer=prod)
+
     terminal = _lifecycle_terminal(acc)
     if terminal:
         return {**out, "lifecycle": terminal, "is_a_defect": False,
@@ -355,11 +477,22 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
                 "why": ("the producer stage %s last reported %s: %s"
                         % (prod.get("producer_stage"), stage_state,
                            str((beat or {}).get("last_detail"))[:200]))}
-    if stage_state in _MISSED_STAGE_STATES or (out["forfeitures_recorded"] or 0):
+    # R72 - a PRODUCER-DECLARED permanent miss counts here too, and it has the
+    # same precedence a recorded forfeiture already had (a lost boundary
+    # outranks an emission, which is the existing doctrine, not a new one).
+    # Without this, a registration whose first and only boundary had already
+    # passed unfrozen was reported ARMED_FOR_NEXT_DECISION, "its first boundary
+    # has not come within reach" - a sentence that was false about
+    # ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1 from 2026-09-21 onward.
+    n_unrecorded = (out["boundary_reconciliation"]
+                    .get("n_unrecorded_permanent_misses") or 0)
+    if (stage_state in _MISSED_STAGE_STATES or (out["forfeitures_recorded"] or 0)
+            or n_unrecorded):
         return {**out, "lifecycle": L_MISSED_GAP, "is_a_defect": False,
                 "why": ("a decision window shut with no decision. The "
                         "opportunity is permanently gone and is never "
-                        "backfilled; the producer itself is alive.")}
+                        "backfilled; the producer itself is alive. %s"
+                        % out["boundary_reconciliation"].get("why", ""))}
     if (stage_state in _DATA_STAGE_STATES
             or str(out["accrual_blocker"] or "").startswith("PRICE_PANEL")
             or str(out["current_accrual_state"] or "") == "DATA_BLOCKED"):
@@ -422,6 +555,21 @@ def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
     orphans = [r for r in rows if r["lifecycle"] == L_NOT_ARMED]
     failed = [r for r in rows if r["lifecycle"] == L_PRODUCER_FAILED]
     undeclared = [r for r in rows if r.get("reason") == UNDECLARED]
+    # R72 - the forward estate's PERMANENT LOSSES, totalled. Reported separately
+    # from the lifecycle histogram on purpose: a single lifecycle word per
+    # registration cannot say how many boundaries each one has lost, and the
+    # count is the whole measure of how much forward evidence this estate has
+    # already forfeited without recording it.
+    recon = [r.get("boundary_reconciliation") or {} for r in rows]
+    no_grid = [r["challenger_id"] for r in rows
+               if (r.get("boundary_reconciliation") or {}).get("boundary_state")
+               == B_NO_GRID]
+    n_declared = sum(int(x.get("n_producer_declared_missed") or 0)
+                     for x in recon)
+    n_recorded = sum(int(x.get("n_accrual_recorded_forfeitures") or 0)
+                     for x in recon)
+    n_unrecorded = sum(int(x.get("n_unrecorded_permanent_misses") or 0)
+                       for x in recon)
     by_state = {}
     for r in rows:
         by_state[r["lifecycle"]] = by_state.get(r["lifecycle"], 0) + 1
@@ -448,16 +596,32 @@ def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
                                             for r in undeclared),
         "projection_read_problem": read_problem,
         "every_active_registration_has_a_producer": ok,
+        # R72 - THE PERMANENT LOSS LEDGER, read from the producers themselves.
+        "boundary_state_vocabulary": list(BOUNDARY_STATES),
+        "n_permanent_misses_declared_by_producers": n_declared,
+        "n_permanent_misses_recorded_as_forfeitures": n_recorded,
+        "n_permanent_misses_unrecorded": n_unrecorded,
+        "every_producer_declares_a_boundary_grid": not no_grid,
+        "producers_declaring_no_boundary_grid": sorted(no_grid),
+        "permanent_misses_by_challenger": {
+            r["challenger_id"]:
+                (r.get("boundary_reconciliation") or {})
+                .get("producer_declared_missed_boundaries") or []
+            for r in rows
+            if (r.get("boundary_reconciliation") or {})
+            .get("producer_declared_missed_boundaries")},
         "heartbeat": beats,
         "registrations": rows,
         "read_only": True,
         "writes_nothing": True,
         "emits_no_prediction": True,
-        "headline": _headline(rows, orphans, failed, read_problem),
+        "headline": _headline(rows, orphans, failed, read_problem,
+                              n_unrecorded=n_unrecorded, no_grid=no_grid),
     }
 
 
-def _headline(rows, orphans, failed, read_problem) -> str:
+def _headline(rows, orphans, failed, read_problem, *, n_unrecorded: int = 0,
+              no_grid=()) -> str:
     if read_problem:
         return "THE FORWARD BOOK COULD NOT BE READ RELIABLY: %s" % read_problem
     if not rows:
@@ -475,10 +639,21 @@ def _headline(rows, orphans, failed, read_problem) -> str:
                                                       for r in failed))))
     if not orphans and not failed:
         parts.append("Every one has a declared, executable prediction path.")
+    if n_unrecorded:
+        parts.append(
+            "%d decision boundary(ies) on the producers' OWN grids passed with "
+            "no frozen decision and no recorded forfeiture: that forward "
+            "evidence does not exist and never will." % n_unrecorded)
+    if no_grid:
+        parts.append("%d producer(s) declare no boundary grid, so their losses "
+                     "cannot be counted: %s."
+                     % (len(no_grid), ", ".join(sorted(no_grid))))
     return " ".join(parts)
 
 
 __all__ = [
+    "BOUNDARY_STATES", "B_AGREED", "B_UNRECORDED_MISS", "B_NO_GRID",
+    "B_NOT_EXPECTED", "boundary_reconciliation",
     "SCHEMA_VERSION", "CALCULATION_OWNER", "LIFECYCLE_STATES", "LIVE_STATES",
     "DEFECT_STATES", "L_NOT_ARMED", "L_ARMED", "L_ACCRUING", "L_AWAITING_DATA",
     "L_MISSED_GAP", "L_PRODUCER_FAILED", "L_SUPERSEDED", "L_RETIRED",
