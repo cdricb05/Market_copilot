@@ -123,6 +123,38 @@ CREATE TABLE IF NOT EXISTS provider_usage (
     PRIMARY KEY (provider, data_class)
 );
 
+-- R72. THE DIRECTOR'S RULING ON AN ECONOMIC FAMILY, made durable.
+--
+-- A campaign director rules on families the autonomous loop is blocked on, and
+-- until now that ruling lived only in a campaign JSON file. The governor reads
+-- THIS database, so a family the director had terminally closed kept the
+-- classification its engine's free-text symptom implied - typically
+-- DEPENDENCY_BLOCKED, which clears on INFORMATION - and the runtime went on
+-- sleeping on it. alpha_agent.r59.blockers names that failure in its own
+-- docstring: "sleeping on a TERMINAL one and calling it research is the
+-- failure mode this taxonomy exists to make visible."
+--
+-- A ruling decides nothing about scheduling and creates no hypothesis. It
+-- records WHAT WAS RULED, BY WHOM, WHEN, and WHAT WOULD REOPEN IT, so the
+-- reconciliation can be provenance-carrying rather than an assertion. The
+-- blocker code is drawn from the EXISTING taxonomy - a ruling makes a code
+-- authoritative, it does not add a vocabulary.
+CREATE TABLE IF NOT EXISTS director_rulings (
+    asset_class       TEXT NOT NULL,
+    economic_family   TEXT NOT NULL,
+    verdict           TEXT NOT NULL,
+    blocker_reason    TEXT NOT NULL,
+    rationale         TEXT NOT NULL,
+    reopen_condition  TEXT,
+    campaign_id       TEXT,
+    decided_by        TEXT,
+    decision_date     TEXT,
+    source_artifact   TEXT,
+    detail_json       TEXT,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (asset_class, economic_family)
+);
+
 CREATE TABLE IF NOT EXISTS generator_yield (
     asset_class   TEXT NOT NULL,
     kind          TEXT NOT NULL,
@@ -1051,6 +1083,131 @@ class ResearchMemory:
             return out
         finally:
             conn.close()
+
+    # -- director rulings (R72) --------------------------------------------- #
+    def record_director_ruling(self, *, asset_class: str,
+                               economic_family: str, verdict: str,
+                               blocker_reason: str, rationale: str,
+                               reopen_condition: Optional[str] = None,
+                               campaign_id: Optional[str] = None,
+                               decided_by: Optional[str] = None,
+                               decision_date: Optional[str] = None,
+                               source_artifact: Optional[str] = None,
+                               detail: Optional[dict] = None) -> dict:
+        """Make ONE director ruling on an economic family durably readable.
+
+        The governor and :mod:`alpha_agent.r59.blockers` read this database; a
+        campaign JSON file is not durable research state, and a ruling that
+        never reaches the reader is a ruling nobody made. This is the seam, and
+        it is the same shape as every other defect this estate has found on
+        one: a fact that is real, knowable, and unreachable by its reader.
+
+        ``blocker_reason`` MUST already be in the canonical taxonomy. A ruling
+        makes an existing code AUTHORITATIVE for a family; it may not invent a
+        twelfth reason, because a second vocabulary is a second owner.
+
+        Writes no hypothesis, spends no burden, enqueues nothing and schedules
+        nothing. Re-recording the same family REPLACES its ruling, so the
+        newest director's word stands - and the previous one is kept in the
+        event log rather than silently dropped.
+        """
+        self._guard_write()
+        from . import blockers as _B
+        if blocker_reason not in _B.BLOCKER_REASONS:
+            raise ValueError(
+                "blocker_reason %r is not in the canonical taxonomy %s; a "
+                "ruling makes an existing code authoritative and may not add "
+                "a new one" % (blocker_reason, list(_B.BLOCKER_REASONS)))
+        if not asset_class or not economic_family:
+            raise ValueError("a ruling must name an asset class and a family")
+        if not str(rationale or "").strip():
+            raise ValueError(
+                "a ruling without a rationale cannot be audited later; the "
+                "director's reason is the whole point of recording it")
+        prior = self.director_ruling(asset_class=asset_class,
+                                     economic_family=economic_family)
+        row = (str(asset_class), str(economic_family), str(verdict),
+               str(blocker_reason), str(rationale),
+               (str(reopen_condition) if reopen_condition else None),
+               (str(campaign_id) if campaign_id else None),
+               (str(decided_by) if decided_by else None),
+               (str(decision_date) if decision_date else None),
+               (str(source_artifact) if source_artifact else None),
+               _j(detail or {}), r59.now_iso())
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "INSERT INTO director_rulings (asset_class,"
+                    " economic_family, verdict, blocker_reason, rationale,"
+                    " reopen_condition, campaign_id, decided_by,"
+                    " decision_date, source_artifact, detail_json, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(asset_class, economic_family) DO UPDATE SET"
+                    " verdict=excluded.verdict,"
+                    " blocker_reason=excluded.blocker_reason,"
+                    " rationale=excluded.rationale,"
+                    " reopen_condition=excluded.reopen_condition,"
+                    " campaign_id=excluded.campaign_id,"
+                    " decided_by=excluded.decided_by,"
+                    " decision_date=excluded.decision_date,"
+                    " source_artifact=excluded.source_artifact,"
+                    " detail_json=excluded.detail_json,"
+                    " updated_at=excluded.updated_at", row)
+                conn.commit()
+            finally:
+                conn.close()
+        self.event("DIRECTOR_RULING_RECORDED",
+                   subject="%s|%s" % (asset_class, economic_family),
+                   detail={"verdict": verdict, "blocker_reason": blocker_reason,
+                           "campaign_id": campaign_id,
+                           "decided_by": decided_by,
+                           "reopen_condition": reopen_condition,
+                           "replaced": prior or None})
+        return {"recorded": True, "asset_class": asset_class,
+                "economic_family": economic_family, "verdict": verdict,
+                "blocker_reason": blocker_reason, "replaced": prior or None}
+
+    def director_ruling(self, *, asset_class: str,
+                        economic_family: str) -> Optional[dict]:
+        """The ruling on ONE family, or ``None`` when the director has not ruled.
+
+        ``None`` is a real answer and is never an implied clearance: a family
+        nobody has ruled on keeps whatever its own engine recorded.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM director_rulings WHERE asset_class=?"
+                " AND economic_family=?",
+                (str(asset_class), str(economic_family))).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        d["detail"] = _unj(d.pop("detail_json", None))
+        return d
+
+    def director_rulings(self, *, asset_class: Optional[str] = None) -> list:
+        """Every recorded ruling, newest first."""
+        sql = "SELECT * FROM director_rulings WHERE 1=1"
+        params: list = []
+        if asset_class:
+            sql += " AND asset_class=?"
+            params.append(str(asset_class))
+        sql += " ORDER BY updated_at DESC"
+        conn = self._connect()
+        try:
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["detail"] = _unj(d.pop("detail_json", None))
+            out.append(d)
+        return out
 
     # -- provider utilisation ----------------------------------------------- #
     def set_provider_usage(self, provider: str, data_class: str, *,

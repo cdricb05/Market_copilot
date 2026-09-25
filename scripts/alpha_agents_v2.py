@@ -85,11 +85,38 @@ def _check_mechanism(mem, payload: dict) -> dict:
 
 READ_ONLY_COMMANDS = ("status", "validate-contracts", "ledger", "survivors",
                       "validated-survivors", "census",
-                      "check-mechanism")
+                      "check-mechanism", "blocker-reconciliation")
 
 
 def _emit(body) -> None:
     print(json.dumps(body, indent=1, default=str))
+
+
+def _blocker_reconciliation(mem) -> dict:
+    """The live queue's blocked jobs, against the director's durable rulings.
+
+    READ-ONLY end to end: the queue is opened only to list what is blocked, and
+    every classification is pure. Nothing is enqueued, claimed, unblocked or
+    rewritten, because the worker that holds the lease owns those rows.
+    """
+    from alpha_agent.r59 import blockers as BK                # type: ignore
+    from alpha_agent.r59 import loop as LOOP                  # type: ignore
+
+    out = {"owner": "scripts/alpha_agents_v2.py blocker-reconciliation",
+           "memory": str(mem.db_path), "read_only": True,
+           "mutates_no_job": True, "mutates_no_ruling": True}
+    try:
+        q = LOOP.open_queue()
+    except Exception as exc:                                  # noqa: BLE001
+        return {**out, "queue_read_error": "%s: %s"
+                % (type(exc).__name__, str(exc)[:200])}
+    out["queue"] = str(q.db_path)
+    jobs = q.blocked_jobs(limit=500)
+    rows = [BK.classify_job(j, mem=mem) for j in jobs]
+    out["summary"] = BK.summarise(rows)
+    out["reconciliation"] = BK.reconcile(rows)
+    out["rulings_on_record"] = len(mem.director_rulings())
+    return out
 
 
 def _census(mem, pipeline, manifest: dict) -> dict:
@@ -289,6 +316,46 @@ def main(argv=None) -> int:
                 if args.input else {})
             _emit(body)
             return 0
+        elif cmd == "blocker-reconciliation":
+            # R72, READ-ONLY. What the live queue believes about each blocked
+            # job, against what the director has durably ruled. It mutates no
+            # job and no ruling: the queue row belongs to the worker holding
+            # the lease, and a second writer repairing rows underneath it is a
+            # second owner of the queue.
+            _emit(_blocker_reconciliation(mem))
+
+        elif cmd == "record_ruling":
+            # R72, the ONE write path for a director verdict. Durable research
+            # state is owned by alpha_agent.r59 and written through this
+            # script; a campaign JSON file is not durable state, which is the
+            # whole defect this command closes.
+            if not args.agent:
+                raise P.PipelineRefusal(
+                    "AGENT_REQUIRED", "--agent names the ruling director")
+            if args.agent != "quant-research-director":
+                raise P.PipelineRefusal(
+                    "NOT_THE_DIRECTOR",
+                    "only quant-research-director rules on an economic "
+                    "family; %s may not" % args.agent)
+            if not args.input:
+                raise P.PipelineRefusal(
+                    "INPUT_REQUIRED",
+                    "--input names a JSON file holding the ruling(s)")
+            body = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
+            rulings = body if isinstance(body, list) else body.get("rulings")
+            if not isinstance(rulings, list) or not rulings:
+                raise P.PipelineRefusal(
+                    "NO_RULINGS", "the input declares no 'rulings' list")
+            recorded = [mem.record_director_ruling(**r) for r in rulings]
+            _emit({"agent_system_version": A.AGENT_SYSTEM_VERSION,
+                   "memory": str(mem.db_path),
+                   "recorded_by": args.agent,
+                   "n_recorded": len(recorded),
+                   "rulings": recorded,
+                   "creates_no_hypothesis": True,
+                   "spends_no_burden": True,
+                   "enqueues_nothing": True})
+
         elif cmd == "census":
             body = _census(mem, pipe, C.load_contract("agent_manifest.json"))
             if args.out:

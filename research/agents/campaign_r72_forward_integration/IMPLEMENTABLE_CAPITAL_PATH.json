@@ -1,0 +1,147 @@
+{
+  "schema": "r72_implementable_capital_path/1",
+  "run_id": "R72_FORWARD_OPERATING_PATH",
+  "measured_on": "2026-09-25",
+  "calculation_owner": "session orchestrator, from the declared owners named per row",
+  "method": "READ-ONLY. Every number below was read from the owner named beside it: api.forward_challenger_registry (registrations and instrument scope), alpha_agent.alpha_recovery.prospective_decision (the frozen books), api.investability_registry (instrument descriptors, unit notional, minimum NAV for one unit), api.price_panel (marks). No sleeve was activated, no risk limit changed, no capital approved, no order or proposal created, no registration amended.",
+  "nav_used_usd": 97973.0,
+  "nav_provenance": "the R69.6 measured NAV. No callable on api.portfolio_valuation / api.operational_book / api.portfolio_state returned a live NAV scalar in this session, so the figure is LABELLED as the R69.6 measurement rather than presented as live. Every ratio below scales linearly in NAV and the qualitative verdicts are stated with their NAV multiples so they can be re-read at any NAV.",
+  "name_cap_policy": {
+    "max_name_weight": 0.10,
+    "name_cap_usd": 9797.3,
+    "min_position_weight": 0.005,
+    "min_position_usd": 489.87
+  },
+
+  "the_question_asked": "For each forward-accruing or registered strategy: what economic exposure and what position legs does it ACTUALLY require, and is there a vehicle that expresses them at this NAV under this portfolio's own policy?",
+
+  "headline": "EXACTLY ONE of the eight forward registrations is capital-implementable at this NAV, and it is the one whose forward evidence the operating path is failing to capture. REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1 is a SINGLE-LEG, share-priced US ETF position: one unit is 0.78% of NAV, 12.8 units fit inside the 10% name cap, and one whole unit already clears the 0.5% minimum weight. It has frozen zero decisions and lost eight consecutive entry sessions. The two non-equity strategies that ARE accruing are blocked by three independent walls, the third of which is new and is not a vehicle problem at all.",
+
+  "per_registration": [
+    {
+      "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1",
+      "asset_class": "US_ETF",
+      "required_economic_exposure": "directional US large-cap equity beta, taken on a 5-session horizon, entered at the next eligible session's OPEN",
+      "position_legs": 1,
+      "instrument_scope": ["SPY"],
+      "long_short": false,
+      "vehicle_available": "SPY itself. This is not a proxy: the registration's declared instrument scope IS the share-priced ETF, so no replication assumption is made anywhere.",
+      "instrument_type_needed": "CASH_EQUITY (engine.instrument_contract.IT_CASH_EQUITY, which is declared and exists)",
+      "mark_usd": 767.81,
+      "mark_session": "2026-09-23",
+      "mark_owner": "api.price_panel.load_owned_current_panel",
+      "one_unit_pct_of_nav": 0.784,
+      "units_inside_the_name_cap": 12.8,
+      "units_at_the_minimum_weight": 0.64,
+      "granularity_verdict": "FEASIBLE. One whole unit is 0.784% of NAV, which is ABOVE the 0.5% minimum position weight and FAR BELOW the 10% name cap, so the position is expressible in whole units with no fractional-share assumption.",
+      "nav_multiple_required": 1.0,
+      "data_verdict": "the signal's information surface is the zero-subscription one R62.3.3 froze; R62.3.2 measured that next-open entry keeps 98.7% of the edge WITHOUT the $199/mo OPRA subscription, and that purchase was declined on the evidence.",
+      "cost_and_liquidity_verdict": "SPY is the most liquid US ETF; at 12.8 units ($9,797) market impact is immaterial and no liquidity screen binds. Not restated as a measurement here because no owner was asked for a live spread.",
+      "portfolio_policy_verdict": "COMPATIBLE on granularity, name cap and minimum weight. NOT ASSESSED for sector/risk-contribution interaction, which is the HOC owner's question and needs a live NAV and book.",
+      "why_it_is_still_not_fundable": "The capital eligibility gate requires matured forward observations (MIN_RAW_MATURED = 60). This registration has emitted ZERO predictions and its producer has lost eight consecutive entry sessions (2026-09-15..2026-09-24). Its blocker is the FORWARD PATH, not capital feasibility. That is the single most actionable finding in this document.",
+      "no_sleeve_declares_it": "true - no declared sleeve carries SPY or any CASH_EQUITY ETF. Declaring one is a code AND capital-eligibility change and needs an operator release gate. It was NOT done."
+    },
+    {
+      "challenger_id": "ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7",
+      "asset_class": "FX_FUTURES",
+      "required_economic_exposure": "cross-sectional G10+MXN currency carry, dollar-neutral, expressed in dated FX futures and rebalanced every 5 sessions, held 5 sessions",
+      "instrument_scope": ["6A", "6B", "6C", "6E", "6J", "6M", "6N", "6S", "DX"],
+      "frozen_book_entry_session": "2026-09-22",
+      "position_legs": 6,
+      "legs": {
+        "long": ["6A", "6M", "DX"],
+        "short": ["6C", "6E", "6S"]
+      },
+      "per_leg_abs_weight": 0.6098,
+      "gross_exposure_x_nav": 3.6589,
+      "net_exposure_x_nav": 0.0,
+      "gross_notional_usd": 358476,
+      "per_leg_notional_usd": 59746,
+      "per_leg_x_name_cap": 6.1,
+      "wall_1_capital_gate": "NOT PASSED - 1 prediction emitted, 0 matured, 0 effective independent observations, against MIN_RAW_MATURED = 60.",
+      "wall_2_granularity": "the cheapest unit in sleeve_fx_futures does not fit the 10% name cap at this NAV. Published by R69.6 as minimum_nav_for_one_unit_usd.",
+      "wall_3_policy_incompatibility_of_the_BOOK_ITSELF": "NEW IN R72, AND IT IS NOT A VEHICLE PROBLEM. Every one of the six legs of the frozen book is 6.10x the portfolio's own 10% name cap. A perfectly divisible vehicle - an ETF, a fractional share, a CFD - does not fix this, because the constraint is the STRATEGY's declared leg size, not the contract's granularity. To respect the name cap the book would have to be scaled down 6.1x, which turns a 3.66x-gross book into a 0.60x-gross book: a DIFFERENT strategy, with different expected return and different cost-to-signal ratio, and NOT the one the forward evidence is accruing for.",
+      "etf_proxy_verdict": "REFUSED, on two independent grounds. (1) An FX futures carry return is earned through the interest-rate differential embedded in the forward basis; a currency ETF (FXA/FXE/FXF/FXC) holds spot or deposit exposure and passes local interest through differently or not at all, so it does NOT replicate futures carry - which is exactly the assumption this workstream was told never to make. (2) There is no liquid share-priced vehicle for the 6M (MXN) leg, so even a proxy basket could not express the frozen book's largest-carry leg. A proxy basket would therefore be a NEW strategy needing its own pre-registration and its own forward clock, not an implementation of this one.",
+      "verdict": "NOT IMPLEMENTABLE at this NAV, and wall 3 means it would not become implementable at a larger NAV without rescaling the strategy or raising the name cap - both of which are operator policy decisions, not research findings."
+    },
+    {
+      "challenger_id": "ALPHA_RECOVERY_FUTURES_TS_TREND_H21_V1",
+      "asset_class": "MULTI_ASSET_FUTURES",
+      "required_economic_exposure": "time-series trend across 87 futures markets, long/short, rebalanced every 21 sessions, held 21 sessions",
+      "n_instruments_declared": 87,
+      "frozen_books": 0,
+      "position_legs": "UNKNOWN - no decision has ever been frozen, so the book's leg count and gross exposure are unmeasured. Stating a leg count here would be an invention.",
+      "granularity_verdict": "NOT IMPLEMENTABLE. sleeve_managed_futures_trend declares 10 roots (&CL &GC &ZN &6E &ES &ZW &HG &ZB &6J &NG); R69.6 measured the cheapest at 2.69x this NAV (&ZC $26,375). A diversified trend book over even 10 markets, let alone 87, cannot be expressed at $98k in futures.",
+      "etf_proxy_verdict": "REFUSED. A managed-futures trend book is a multi-leg long/short structure across five asset classes; a single managed-futures ETF (DBMF, KMLM, CTA) is a DIFFERENT manager's strategy with its own signal, and substituting one would measure that manager, not this hypothesis. Per-market ETF proxies do not exist for most of the 87 roots and would not support the short legs.",
+      "verdict": "NOT IMPLEMENTABLE at this NAV by any vehicle available to this estate."
+    },
+    {
+      "challenger_ids": ["R58_SHORT_VOLUME_PRESSURE_V1", "R58_DISCLOSURE_INTENSITY_V1", "R58_FUND_MOMENTUM_VETO_V1", "R58_FCF_PURE_V1"],
+      "asset_class": "US_EQUITY",
+      "required_economic_exposure": "cross-sectional US large-cap equity books on the S&P 500 point-in-time panel, 21-session cadence, 21-session hold",
+      "instrument_scope_on_the_registration": "EMPTY on all four registrations (n_instruments = 0); the book is carried by the frozen construction, not the registration, so the leg count per boundary is not readable from the registry.",
+      "granularity_verdict": "NOT ASSESSED HERE. These are cash-equity books on names the operational panel already prices, so granularity is not the binding constraint; their binding constraint is the same capital gate (0 matured of 60 required) plus whatever the HOC name cap does to a wide cross-sectional book at $98k. Measuring that needs the frozen book per boundary and a live NAV, neither of which this pass read.",
+      "forward_status": "HEALTHY. Each emitted once on 2026-09-10 and the next boundary 2026-10-09 is correctly armed and NOT_DUE. These four are the only registrations whose producer declares a grid AND agrees with the accrual."
+    },
+    {
+      "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5",
+      "status": "SUPERSEDED by the _NEXT_OPEN_V1 sibling and declared as such; retained as an immutable record and not expected to accrue. Not a defect and not a capital candidate."
+    }
+  ],
+
+  "the_non_equity_instrument_universe_as_measured": {
+    "n_descriptors": 60,
+    "by_instrument_type": {"FUTURE": 60},
+    "n_with_one_unit_fitting_the_name_cap_at_this_nav": 1,
+    "the_one": {"instrument_id": "&MBT", "sleeve_id": "sleeve_crypto_futures", "unit_notional_usd": 8436.0, "minimum_nav_for_one_unit_usd": 84360.0},
+    "and_why_it_does_not_help": "R42 rules sleeve_crypto_futures DO_NOT_ACTIVATE, so the single instrument that fits is in the one sleeve the estate has already refused.",
+    "sleeve_fx_spot_declares_zero_instrument_ids": true,
+    "no_declared_sleeve_carries_a_CASH_EQUITY_instrument": true,
+    "consequence": "the only instrument TYPE this book could hold at this size is the one type no non-equity sleeve registers. That was R69.6's finding and it is re-confirmed here unchanged."
+  },
+
+  "what_was_deliberately_not_done": [
+    "No sleeve was activated or created.",
+    "No risk limit, name cap or minimum weight was changed.",
+    "No capital was approved and no capital-eligibility gate was re-evaluated.",
+    "No proxy vehicle was registered as investable - doing so is a code AND capital-eligibility change requiring an operator release gate.",
+    "No registration was amended; registrations are immutable and first-write-wins.",
+    "No order, fill, proposal or approval was created."
+  ],
+
+  "next_actions_in_priority_order": [
+    {
+      "rank": 1,
+      "action": "Repair the forward capture of REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1. It is the ONLY registration that is implementable at this NAV, and it is losing every entry session to a publication-timing dependency. Its evidence is the only forward evidence this estate could both capture AND fund.",
+      "owner": "alpha_agent.alpha_recovery.next_open_runtime + whatever publishes its information surface",
+      "needs_operator_gate": false,
+      "note": "R72 made the loss countable; it did not fix the publication timing, which is a real external dependency."
+    },
+    {
+      "rank": 2,
+      "action": "Decide the FX carry wall-3 question at policy level: is a 3.66x-gross, 6-leg book with 6.1x-name-cap legs a strategy this portfolio intends to fund at all? If not, the forward clock it is spending is being spent on an unfundable hypothesis, which is the R69.6 finding sharpened.",
+      "owner": "operator",
+      "needs_operator_gate": true
+    },
+    {
+      "rank": 3,
+      "action": "If a CASH_EQUITY proxy sleeve is ever wanted, it must be pre-registered as its OWN hypothesis with its OWN forward clock, never as an implementation of an existing futures registration.",
+      "owner": "quant-research-director",
+      "needs_operator_gate": true
+    }
+  ],
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "activates_sleeve": false,
+    "changes_risk_limits": false,
+    "approves_capital": false,
+    "amends_a_registration": false,
+    "mutates_operational_store": false,
+    "manual_review_required": true,
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

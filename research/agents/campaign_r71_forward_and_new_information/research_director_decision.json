@@ -1,0 +1,290 @@
+{
+  "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+  "run_id": "R71_FORWARD_AND_NEW_INFORMATION",
+  "decided_by": "quant-research-director",
+  "decision_date": "2026-09-25",
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "contract": "PAPER_TRADER_ALPHA_AGENTS_V2 governance_contract.json v2.0",
+  "spec": "research/agents/campaign_r71_forward_and_new_information/campaign_spec.json",
+
+  "headline": "NO NEW ALPHA AXIS IS OPEN ON CERTIFIED DATA TODAY. Six cells proposed, zero pre-registered: four DATA_BLOCKED, two REFUSED. Zero multiple-testing budget spent, empty assignment manifest, no signal agent dispatched, no durable research state written. This is a SUCCESS with a named unblocking path, not a failure: two of the six are genuinely new, never-tested information families sitting on data ALREADY ON DISK with exact filing dates, and both are blocked only by free data work plus one human scope answer that has been outstanding since R60.",
+
+  "burden": {
+    "estate_denominator_before": 8415,
+    "estate_denominator_after": 8415,
+    "burden_spent_by_this_campaign": 0,
+    "experiments_preregistered": 0,
+    "reason": "Nothing was registered, so nothing was charged. The budget is a ceiling, not a target; no lockbox look was bought to fill time."
+  },
+
+  "estate_state_taken_as_settled": {
+    "source": "session orchestrator brief + BRIEF_director_r71.json",
+    "r59_runtime": "ALIVE but SLEEPING. queue ready=0, runnable=0, blocked=17 (FAMILY_EXHAUSTED 14, DEPENDENCY_BLOCKED 3). Wake condition NEW_INFORMATION_OR_AN_OPERATOR_DECISION. unproductive_streak=21.",
+    "cumulative": "8,472 hypotheses settled, burden 8,415, 347 families, 8,231 of 8,472 on the PRICE_STATE substrate.",
+    "forward": "8 canonical forward challengers registered; 5 have emitted exactly ONE prediction each, 3 have emitted nothing, 0 have matured, effective_independent_observations_total = 0 across the whole estate.",
+    "predecessor": "R70_NONPRICE_INFORMATION_FRONTIER is ruled and CLOSED. All three cells killed. Zero pre-registrations. Not re-litigated here.",
+    "the_implication_i_acted_on": "The binding constraint on this estate is NOT the supply of ideas and is NOT multiple-testing budget - 8,415 looks have been spent and the budget was untouched again this campaign. It is (a) the absence of any certified non-price information family and (b) forward clock time, of which zero has accrued. Those are the two things this campaign's output attacks."
+  },
+
+  "novelty_method_actually_run": {
+    "tool": "scripts/alpha_agents_v2.py check-mechanism --agent quant-research-director",
+    "read_only": true,
+    "experiments_run": 0,
+    "evaluation_samples_read": 0,
+    "keys_probed": 24,
+    "two_stage_rule": "STAGE 1 is the proposed four-part key. STAGE 2 is the recorded four-part key of every CLOSED mechanism that shares the SOURCE. Stage 1 alone is worthless: my predecessor recorded that NO_ROW_IN_MEMORY 'is exactly what a relabelled information family returns, and it is not believed', and every single one of my seven stage-1 probes returned NO_ROW_IN_MEMORY. Stage 2 is what killed two of my own cells.",
+    "stage_1_results": {
+      "US_EQUITY|PRE_ANNOUNCED_SUPPLY|SEC_FORM144_NOTICE_OF_PROPOSED_SALE|XS_RANK_BOOK": "NO_ROW_IN_MEMORY, n_matching 0",
+      "US_EQUITY|INSIDER_TRADING|FORM4_10B5_1_PLAN_FLAG|XS_LONG_SHORT": "NO_ROW_IN_MEMORY, n_matching 0",
+      "COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND|WEATHER_DEGREE_DAYS|XS_LONG_SHORT": "NO_ROW_IN_MEMORY, n_matching 0",
+      "CROSS_ASSET|RELATIVE_VALUE|TERMS_OF_TRADE|XS_LONG_SHORT": "NO_ROW_IN_MEMORY, n_matching 0",
+      "COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND|AGRICULTURAL_INVENTORY_WASDE|XS_LONG_SHORT": "NO_ROW_IN_MEMORY, n_matching 0",
+      "US_EQUITY|EVENT_OVERREACTION|LULD_TRADING_HALT|XS_RANK_BOOK": "NO_ROW_IN_MEMORY, n_matching 0",
+      "RATES_FUTURES|DELIVERY_OPTION|CTD_INVOICE_SPREAD|XS_LONG_SHORT": "NO_ROW_IN_MEMORY, n_matching 0"
+    },
+    "stage_2_results": {
+      "US_EQUITY|INSIDER_FORM4_ALL": "SETTLED_DO_NOT_REPEAT, n_settled 1, NO_ALPHA_EVIDENCE, HM_CLOSED_INSIDER_FORM4_ALL, key INSIDER_FORM4_ALL|SEC_FORM345|US_EQUITY|CLOSED_MECHANISM_LEDGER, reopen NEW_ORTHOGONAL_INFORMATION",
+      "US_EQUITY|SEC_FILING_BEHAVIOUR_R27": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_SEC_FILING_BEHAVIOUR_R27, key SEC_FILING_BEHAVIOUR_R27|SEC_EDGAR_INDEX|US_EQUITY|CLOSED_MECHANISM_LEDGER",
+      "US_EQUITY|DISCLOSURE_INTENSITY_R63": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_DISCLOSURE_INTENSITY_R63, key DISCLOSURE_INTENSITY_R63|SEC_SUBMISSIONS|US_EQUITY|CLOSED_MECHANISM_LEDGER",
+      "US_EQUITY|FAILS_TO_DELIVER_AND_SHORT_INTEREST": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_FAILS_TO_DELIVER_AND_SHORT_INTEREST, key ...|FINRA|US_EQUITY|CLOSED_MECHANISM_LEDGER",
+      "US_EQUITY|CONTROL_BLOCK_13DG": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_CONTROL_BLOCK_13DG, key CONTROL_BLOCK_13DG|SEC_13DG|US_EQUITY|CLOSED_MECHANISM_LEDGER",
+      "COMMODITY_FUTURES|INVENTORY_SURPRISE_EIA": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_INVENTORY_SURPRISE_EIA, key INVENTORY_SURPRISE_EIA|EIA|COMMODITY_FUTURES|CLOSED_MECHANISM_LEDGER",
+      "CROSS_ASSET|RELATIVE_VALUE": "SETTLED_DO_NOT_REPEAT, n_settled 1, NO_ALPHA_EVIDENCE, H_ce6bca38_61377eec0fdf, best_lockbox_t -0.2988294294741419, key RELATIVE_VALUE|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT",
+      "CREDIT_PROXY|CREDIT_SPREAD_TIMING": "SETTLED_DO_NOT_REPEAT, HM_CLOSED_CREDIT_SPREAD_TIMING, key CREDIT_SPREAD_TIMING|ETF|CREDIT_PROXY|CLOSED_MECHANISM_LEDGER",
+      "US_EQUITY|INSIDER_TRADING (bare family)": "NO_ROW_IN_MEMORY",
+      "COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND (bare family)": "NO_ROW_IN_MEMORY",
+      "US_EQUITY|EVENT_OVERREACTION (bare family)": "NO_ROW_IN_MEMORY",
+      "US_EQUITY|PRE_ANNOUNCED_SUPPLY (bare family)": "NO_ROW_IN_MEMORY",
+      "US_EQUITY|NET_SHARE_ISSUANCE (bare family)": "NO_ROW_IN_MEMORY",
+      "RATES_FUTURES|RELATIVE_VALUE (bare family)": "NO_ROW_IN_MEMORY",
+      "VOLATILITY|TERM_STRUCTURE (bare family)": "NO_ROW_IN_MEMORY - and REJECTED BY ME anyway, see the spec's axes_considered.volatility_term_structure. A NO_ROW verdict on a new-sounding label is not novelty."
+    }
+  },
+
+  "cells": [
+    {
+      "cell_id": "R71_C1_EQ_FORM144_PRE_ANNOUNCED_SUPPLY",
+      "verdict": "DATA_BLOCKED",
+      "identity_key": "PRE_ANNOUNCED_SUPPLY|SEC_FORM144_NOTICE_OF_PROPOSED_SALE|US_EQUITY|XS_RANK_BOOK",
+      "one_line": "Rule 144 notices of PROPOSED affiliate sales as an ex-ante supply-pressure signal, H63, expected sign -1.",
+      "why_it_is_genuinely_new": "Every insider or ownership mechanism this estate has closed is EX POST (Form 4) or a holdings STATE (13F, 13D/G). A Form 144 is a dated public notice of an INTENDED sale, filed before the transaction. R60's own source audit called Rule 144 'the one genuinely untouched item here' (INFORMATION_FRONTIER_AUDIT.json line 312).",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY on the full four-part key and on the bare family. STAGE 2 exposes the real risk: the store is SEC_EDGAR_INDEX, whose mechanism SEC_FILING_BEHAVIOUR_R27 is CLOSED, and SEC_SUBMISSIONS, whose mechanism DISCLOSURE_INTENSITY_R63 is CLOSED.",
+      "killing_evidence": "No AGENTS_V2 dataset certification exists for any Form-144 dataset; no universe is defined on it; no feature set is published. MACHINE-CONFIRMED: scripts/alpha_agents_v2.py preregister returned PIPELINE_REFUSED FEATURES_NOT_PUBLISHED (edgar_form144_v1), exit 3, nothing written. Independently, the estate's own audit records TWO unverified facts that could kill the cell outright: historical 144 density in EDGAR is measured for 2026q2 only (19,324 rows), and machine-parsability at scale for issuer, seller and share count is listed as INFERRED_NOT_VERIFIED (INFORMATION_FRONTIER_AUDIT.json lines 316, 319).",
+      "conditional_refusal_frozen_now": "If the eventual feature is a Form-144 COUNT taken from master.idx with no document-body notional, the cell is REFUSED, not DATA_BLOCKED: a form-type slice of SEC_EDGAR_INDEX filing counts is the same information as two closed mechanisms. This is frozen in advance so the cheap version cannot be substituted after the expensive version proves hard.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "Not reached. Historical depth on owned data is the open question; a forward challenger is not a way to skip it.",
+      "unblocking_action": "71-quarter Form-144 row histogram over the owned master.idx files, plus a parse probe on about 200 sampled 144 documents measuring the extraction rate of issuer, seller and share count. Expected outcome: the cell dies cheaply.",
+      "unblocking_owner": "data-foundation-agent",
+      "unblocking_is_free_and_doable_now": true,
+      "needs_operator_decision": false
+    },
+    {
+      "cell_id": "R71_C2_EQ_FORM4_OPPORTUNISTIC_VS_ROUTINE",
+      "verdict": "DATA_BLOCKED",
+      "escalation": "NEEDS_HUMAN_DECISION",
+      "identity_key": "INSIDER_TRADING|FORM4_10B5_1_PLAN_FLAG|US_EQUITY|XS_LONG_SHORT",
+      "one_line": "Partition insider purchases by the disclosed AFF10B5ONE flag: opportunistic trades informative, pre-arranged plan trades not, H63, expected sign +1.",
+      "why_it_is_genuinely_new": "The routine/opportunistic split is the documented informative partition, and AFF10B5ONE is a DISCLOSED FIELD on the filing, not a transform of price or of transaction value. The data is already on disk with an exact availability stamp: 69 quarters 2009q1..2026q1, SUBMISSION.tsv carrying FILING_DATE, ISSUERCIK, ISSUERTRADINGSYMBOL and AFF10B5ONE (INFORMATION_FRONTIER_AUDIT.json line 297). R60 rated its PIT concern LOW.",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY. STAGE 2 KILLS THE CLAIM AS STATED: US_EQUITY|INSIDER_FORM4_ALL is SETTLED_DO_NOT_REPEAT (HM_CLOSED_INSIDER_FORM4_ALL) and its recorded information family is SEC_FORM345 - the proposed field lives INSIDE the closed mechanism's own source.",
+      "killing_evidence": "Three independent grounds. (1) SCOPE, and it is not mine to settle: whether a new disclosed FIELD inside a closed information family satisfies the reopen condition NEW_ORTHOGONAL_INFORMATION is a question R60's data-foundation audit already escalated to the human in these words - 'the AFF10B5ONE routine/opportunistic split is a new FIELD whose sufficiency is a human scope decision, not mine. Escalated as a note to the human, not proposed' (INFORMATION_FRONTIER_AUDIT.json line 305). No operator answer is recorded anywhere I can read, and I may not widen the reopen rule on my own authority. (2) Orthogonality is ASSERTED, not measured - the identical defect on which my predecessor refused R70_C3. (3) No certification, no universe, no published feature set; the pipeline refuses.",
+      "burden_it_would_inherit": "The PARENT denominator - the 19 INSIDER_FORM4_ALL tests plus the closed ledger row - never a fresh key (R67 replication ruling).",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "A forward challenger is not a way to relitigate a closed mechanism, and 17 years of owned history means the question is answerable historically once the scope question is answered.",
+      "unblocking_action": "MEASURE, do not rule: AFF10B5ONE coverage by year over the 69 owned quarters, and the Spearman rank correlation between the opportunistic-only net-insider-buy feature and the all-transactions net-insider-buy feature used by the closed tests, with the pass threshold FROZEN BEFORE the correlation is computed. This reads no return series and therefore spends ZERO multiple-testing budget. Then the human rules.",
+      "unblocking_owner": "data-foundation-agent measures; the HUMAN rules",
+      "unblocking_is_free_and_doable_now": true,
+      "needs_operator_decision": true,
+      "the_question_for_the_operator": "Does a new disclosed FIELD inside a closed information family (AFF10B5ONE inside SEC_FORM345) satisfy NEW_ORTHOGONAL_INFORMATION for the CLOSED mechanism INSIDER_FORM4_ALL? If YES, this becomes registrable against the parent denominator of 19. If NO, the entire Form 3/4/5 store is permanently shut and should be recorded as such so no future campaign proposes it a third time."
+    },
+    {
+      "cell_id": "R71_C3_FUT_WEATHER_DEGREE_DAY_DEMAND_SHOCK",
+      "verdict": "DATA_BLOCKED",
+      "identity_key": "FUNDAMENTAL_SUPPLY_DEMAND|WEATHER_DEGREE_DAYS|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "one_line": "Population-weighted HDD/CDD anomaly against a rolling normal predicts weather-sensitive energy and agricultural futures, H5-H21, expected sign +1.",
+      "why_it_is_genuinely_new": "Weather is the one first-order PHYSICAL demand shock in energy and agriculture that is neither a price, nor a positioning report, nor an accounting fact - the textbook case of information orthogonal to price state. COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND carries zero rows of any kind.",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY on the four-part key and the bare family. STAGE 2: the adjacent closed mechanism is INVENTORY_SURPRISE_EIA|EIA - a different source and a different economic object (a stock report versus a physical demand driver), so this is not a rename.",
+      "killing_evidence": "The dataset is NOT OWNED - nothing weather-related exists anywhere in this repository - and the free NOAA archive is a REVISED, realised product. The decision-relevant object at a decision instant is the forecast VINTAGE then available, and no free dated archive of CPC 6-10 / 8-14 day outlook vintages can be pointed at. Using a current realised archive is look-ahead of days to weeks: structurally the SAME defect that killed R70_C1 (one vintage, availability instant unrecoverable). The operator has already ruled that an availability timestamp stamped on currently-restated data is not proof of PIT integrity, and that ruling kills the only version buildable today.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "See the campaign-wide forward ruling: no ninth challenger while zero of eight has matured.",
+      "unblocking_action": "Only a PROSPECTIVE vintage capture of the forecast product would make it honest: capture dated CPC outlook vintages daily from today and revisit in 12+ months. There is no historical shortcut. This is a genuinely new data acquisition, free but not free of effort, and it is a lower priority than the two equity cells whose data is already on disk.",
+      "unblocking_owner": "data-foundation-agent, on an operator go",
+      "unblocking_is_free_and_doable_now": false,
+      "needs_operator_decision": true
+    },
+    {
+      "cell_id": "R71_C4_XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+      "verdict": "REFUSED",
+      "identity_key": "RELATIVE_VALUE|TERMS_OF_TRADE|CROSS_ASSET|XS_LONG_SHORT",
+      "one_line": "Commodity-currency future versus its terms-of-trade commodity basket, mean reversion, H21.",
+      "refusal_ground": "INFORMATION_FAMILY_LAUNDERING OF A SETTLED PRICE_STATE MECHANISM",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY. STAGE 2 KILLS IT OUTRIGHT.",
+      "killing_evidence": "CROSS_ASSET|RELATIVE_VALUE returns SETTLED_DO_NOT_REPEAT: n_matching 1, n_settled 1, outcome NO_ALPHA_EVIDENCE, hypothesis H_ce6bca38_61377eec0fdf, best_lockbox_t -0.2988294294741419, recorded family key RELATIVE_VALUE|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT, reopen condition NEW_ORTHOGONAL_INFORMATION. That settled sibling shares THREE of the four key components with my cell and differs only in the information-family LABEL. A terms-of-trade spread built from commodity futures closes and FX futures closes IS price-state information; relabelling PRICE_STATE to TERMS_OF_TRADE while source, asset class, economic family and model family are unchanged is the identical laundering my predecessor refused as R70_C3. R66's recorded reopen condition and R67's seven grounds bind it independently.",
+      "why_i_refused_my_own_top_pick": "This is census rank 3, the top-ranked cross-asset proposal, and the only family the R59 frontier still calls RESEARCH_READY. The R68 census correction recorded that the TERMS_OF_TRADE information family 'carries zero rows' and that the R68 director 'upheld it as genuine novelty' - but that upholding rested on a COARSER check (information_family null). The full four-part probe I ran shows the settled sibling is PRICE_STATE at the same other three coordinates, so the upholding does not survive. Refusing the agenda's favourite is the point of the two-stage rule.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "A forward challenger is not a way to relitigate a settled mechanism.",
+      "unblocking_action": "NONE SHORT OF GENUINELY NON-PRICE TERMS-OF-TRADE INFORMATION. National export and import price indices are monthly, revised, vintage-dependent and not owned. Do not re-propose this cell from futures prices.",
+      "unblocking_owner": "n/a",
+      "unblocking_is_free_and_doable_now": false,
+      "needs_operator_decision": false
+    },
+    {
+      "cell_id": "R71_C5_FUT_WASDE_AGRICULTURAL_INVENTORY_SURPRISE",
+      "verdict": "REFUSED",
+      "identity_key": "FUNDAMENTAL_SUPPLY_DEMAND|AGRICULTURAL_INVENTORY_WASDE|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "one_line": "USDA WASDE ending-stocks surprise predicts grain and oilseed futures, H21.",
+      "refusal_ground": "REPLICATION OF A CLOSED MECHANISM ON A NEW POPULATION",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY. STAGE 2 KILLS IT.",
+      "killing_evidence": "COMMODITY_FUTURES|INVENTORY_SURPRISE_EIA returns SETTLED_DO_NOT_REPEAT: n_settled 1, NO_ALPHA_EVIDENCE, HM_CLOSED_INVENTORY_SURPRISE_EIA, key INVENTORY_SURPRISE_EIA|EIA|COMMODITY_FUTURES|CLOSED_MECHANISM_LEDGER, reopen NEW_ORTHOGONAL_INFORMATION. The closed mechanism IS 'a scheduled official inventory release surprises the market and the surprise predicts futures returns'. Swapping the agency (USDA for EIA) and the commodity set (grains for energy) changes the POPULATION, and this estate has ruled twice that a new population is not the recorded reopen condition: R60 on Form 4 ('a new POPULATION ... is a new sample, not new information', INFORMATION_FRONTIER_AUDIT.json line 305) and R68 on the extension universe. A replication inherits the parent denominator and may never be charged to a fresh key. SECOND, INDEPENDENT GROUND: no USDA/NASS/WASDE store exists in this repository, and the surprise term needs a pre-release analyst consensus, which is a PAID survey - so it would also violate the no-purchase rule. Ground one alone makes it REFUSED rather than merely DATA_BLOCKED.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "A forward challenger is not a way to relitigate a closed mechanism.",
+      "unblocking_action": "NONE. Do not re-propose an inventory-surprise mechanism under a new agency's name.",
+      "unblocking_owner": "n/a",
+      "unblocking_is_free_and_doable_now": false,
+      "needs_operator_decision": false
+    },
+    {
+      "cell_id": "R71_C6_EQ_LULD_HALT_RESUMPTION",
+      "verdict": "DATA_BLOCKED",
+      "identity_key": "EVENT_OVERREACTION|LULD_TRADING_HALT|US_EQUITY|XS_RANK_BOOK",
+      "one_line": "Names resuming from a down-triggered LULD volatility halt rebound over 3 sessions, entered at the NEXT OPEN after resumption, expected sign +1.",
+      "why_it_is_genuinely_new": "A halt is a MARKET-STRUCTURE event, not a price transform: an exchange rule mechanically truncates trading and the reopening auction is a known liquidity vacuum. It is one of only two never-tested free equity information families in the census (0 hypotheses) and is not in the closed ledger. It would also be only the 39th H1-H5 test in an estate of 8,472.",
+      "novelty_check_independently_run": true,
+      "novelty_verdict": "STAGE 1 NO_ROW_IN_MEMORY on the four-part key and on US_EQUITY|EVENT_OVERREACTION. STAGE 2: no closed mechanism shares the exchange-halt source; the adjacent closed rows (OVERNIGHT_GAP_CONCENTRATION, SHORT_HORIZON_REVERSAL_GAP_FADE, INTRADAY_ETF_FAMILIES) are price-state and intraday-price mechanisms.",
+      "killing_evidence": "No owned history, no AGENTS_V2 dataset certification, and the census's own entry for the source says 'verify: history depth; likely prospective-only' (NEXT_CAMPAIGN_CENSUS.json lines 89-94). A backtest is impossible without inventing history, which S06/S08 forbid.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "REFUSED AS PREMATURE - a governance ruling, not a data one. 8 canonical forward challengers are registered; 5 have emitted exactly ONE prediction each, 3 have emitted nothing, 0 have matured, and effective_independent_observations_total = 0 across the whole estate. A 9th registration adds zero measurable evidence, consumes the operator attention the existing 8 need, and would let a campaign that discovered nothing present a registration as an accomplishment. Separately, agents never start a forward clock: governance_contract.signal_publishing_boundary.adoption_rule reserves that to the single operator door scripts/adopt_prospective_freeze.py. The correct action is to let the 8 existing clocks run untouched - thresholds not lowered, evidence not backfilled.",
+      "unblocking_action": "Certify whether ANY dated halt history exists on disk; if it is genuinely prospective-only, record the source as PROSPECTIVE_ONLY in the census so no future campaign proposes it as a backtest. Also fix the per-cell NET COST BUDGET first: an H3 halted-name book is a turnover monster and the R60 scalar 0.40 ceiling is a known defect that already destroyed two of four non-equity cells before a return was scored.",
+      "unblocking_owner": "data-foundation-agent for the history; risk-portfolio-agent for the cost budget",
+      "unblocking_is_free_and_doable_now": true,
+      "needs_operator_decision": false
+    }
+  ],
+
+  "axes_i_was_asked_about_and_ruled_on_without_a_cell": {
+    "rates": "REJECTED. RATES_FUTURES|DELIVERY_OPTION|CTD_INVOICE_SPREAD and RATES_FUTURES|RELATIVE_VALUE both return NO_ROW_IN_MEMORY, so cheapest-to-deliver delivery optionality is genuinely untested - and it is still rejected, because it needs per-CUSIP deliverable-basket prices and conversion factors. The free source (TreasuryDirect) publishes auction results and par yield curves, not daily deliverable-issue prices, and the R38 native layer carries futures without the basket. Blocked at source; and after conversion factors the residual is still a price relationship. TREASURY_AUCTION_SUPPLY_CONCESSION, RATES_CARRY_CURVE_RV, PRIMARY_DEALER_POSITIONS and TREASURY_INDEX_MONTH_END_DURATION_EXTENSION are closed.",
+    "commodities": "ACCEPTED as two cells and then ruled against - C3 DATA_BLOCKED on the vintage trap, C5 REFUSED as a replication. Every owned commodity axis is closed: EIA inventory surprise, COT hedging pressure, curve carry at the slope level, inter-commodity RV seasonality, index roll-window pressure, exchange open interest (4 settled rows, two measured NEGATIVE against a declared +1 sign), deferred-leg basis momentum (CARRY|FUTURES_DEFERRED_LEG_BASIS, settled).",
+    "fx": "REJECTED. FX_CARRY is closed AND already registered forward as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test. FX_MONTH_END_EQUITY_HEDGE_REBALANCING is closed. Genuinely new FX information (cross-currency basis, CLS volumes, reserve composition) is a paid feed or a revised monthly statistic.",
+    "credit": "REJECTED. CREDIT_PROXY carries a burden of 1 and LOOKS empty, but HM_CLOSED_CREDIT_SPREAD_TIMING is SETTLED_DO_NOT_REPEAT with key CREDIT_SPREAD_TIMING|ETF|CREDIT_PROXY|CLOSED_MECHANISM_LEDGER, and the R59 frontier states CREDIT_PROXY is BLOCKED for want of an owned substrate. A cross-sectional credit mechanism needs single-name bond or CDS data, which is a purchase. I did not request it and will not.",
+    "volatility_term_structure": "REJECTED BY ME, and recorded because it is exactly the trap I was warned about. VOLATILITY|TERM_STRUCTURE returns NO_ROW_IN_MEMORY, which makes a curvature or convexity signal on the VIX futures curve LOOK novel. It is not: VX_TERM_CARRY, VX_CONDITIONAL_SHORT_VOL_R41 and VOLATILITY_EXPECTATIONS_IV_R63 are closed, any curvature variant is a re-parameterisation of the same price surface (PRICE_STATE), and R60 already recorded that these aggregate series carry no cross-section so every natural use is index-level TIMING - dead on three independent sightings.",
+    "cross_asset": "ACCEPTED as one cell (C4) and REFUSED. CROSS_ASSET is the only asset class the R59 frontier still calls RESEARCH_READY, and its two remaining open families are both dead on record: relative value is a PRICE_STATE relabel (measured above) and regime conditioning is verbatim the 'timing a premium' shape. CROSS_ASSET_LEAD_LAG (census rank 10) was considered and NOT proposed: one pre-declared channel between industrial metals and commodity currencies is still price state on both legs, which the campaign's own constraint forbids.",
+    "positioning": "REJECTED - EXHAUSTED, not unlucky. Every free positioning source is closed or already spoken for: COT trader categories, aggregate exchange open interest, 13F ownership breadth, 13D/G control blocks, primary dealer positions, fails-to-deliver and short interest, and FINRA daily short volume (R70 DATA_BLOCKED_AND_REDUNDANT, with a live R58 forward challenger holding the slot). There is no free positioning axis left to open.",
+    "corporate_events": "PARTLY ACCEPTED. Closed: index addition/deletion, Russell reconstitution, cash merger arbitrage, spin-off forced selling, 8-K item codes, earnings SUE, analyst revisions, news intensity, peer earnings transfer, and dividend declarations (FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS carries H_63012714_9e5453e70d5c, and EQ_DIVIDEND_DECLARATION_DRIFT already halted on its own pre-registered coverage gate at 0.7165/0.7819 against a 0.80 floor). Genuinely remaining and free: Rule 144 (C1) and trading halts (C6), both proposed, both DATA_BLOCKED. Stock splits were considered and NOT proposed: the owned EODHD split history carries the EX date, not the ANNOUNCEMENT date, so the cell dies on the same availability-instant defect - proposing it would be padding.",
+    "equity_universe_extension": "NOT PROPOSED. The mid/small-cap panel is FROZEN PENDING an identity-bridge audit, and every cell on it (liquidity premium, residual momentum, gross profitability, H5 immediacy reversal) is a REPLICATION of a settled PRICE_STATE mechanism inheriting the parent denominator. 8,231 of 8,472 settled hypotheses are already PRICE_STATE; another one has no value at any t-statistic.",
+    "sec_fundamentals_panel": "NOT PROPOSED. PIT_FUNDAMENTALS_AND_VALUATION is closed on the S&P 500, R58_FCF_PURE_V1 is already FORWARD_FROZEN, and R70_C3 was refused as a rescaling of it. Any new ratio off the same companyfacts store is a rescaling of a settled fundamental."
+  },
+
+  "ruling_on_a_second_edgar_full_index_vintage": {
+    "question": "Is fetching a SECOND EDGAR full-index vintage worth doing now, given the separation from the 2026-08-16 snapshot would currently be only about 5 weeks?",
+    "ruling": "CAPTURE YES, ANALYSE NO, AND R70_C1 IS NOT REOPENED BY IT.",
+    "analysis_now_is_worthless_because": "The value of first-appearance differencing scales with the separation relative to the release lag, and R70 measured that lag directly: UPLOAD rows per quarter collapse monotonically toward the snapshot - 2009q1 3,421; 2015q1 2,494; 2020q1 1,406; 2026q2 351. That right-censoring decays over YEARS, so the censoring horizon is years, not weeks. A 5-to-6 week baseline bounds the release instant only for documents that first appear inside those 5-6 weeks, which is a thin and NON-RANDOM slice - precisely the shortest-lag releases. Imputing a panel-wide release lag from that slice is selection on the dependent variable and would produce a confident wrong answer instead of an honest unknown.",
+    "capture_now_is_still_right_because": "The marginal cost is one HTTP fetch per quarterly index and a few MB. The marginal OPTION value is real and strictly decaying: every month not captured is a month of separation that can never be bought back, and that irreversibility is exactly what made R70_C1 unrecoverable. It is the same discipline as a forward challenger - converting an unrecoverable historical instant into a prospectively recoverable one - except that it costs no multiple-testing budget and starts no forward clock.",
+    "conditions": [
+      "Store the vintage DATED and IMMUTABLE beside the 2026-08-16 snapshot with a manifest recording the fetch instant. Do NOT overwrite the existing snapshot: that would destroy the only baseline and be worse than not fetching at all.",
+      "No pre-registration, no feature, no signal and no hypothesis is attached to the capture.",
+      "Earliest review of R70_C1 is at a separation of at least TWO QUARTERS, i.e. not before roughly 2027-03. Until then R70_C1 stays DATA_BLOCKED and is not re-ruled.",
+      "The CIK identity bridge must be repaired independently - a second vintage does nothing about the 108-of-339 delisted-member resolution failure."
+    ],
+    "scope": "FREE, no entitlement, no paid dataset. The fetch itself is an orchestrator/operator scope decision (the R70 certification recorded that nothing was downloaded). I rule it worth doing and cheap. I did not download it.",
+    "owner": "data-foundation-agent, on an operator go",
+    "priority": "Rank 4 of 6. It is cheap and time-sensitive, but it cannot produce an answer this year, whereas ranks 1-3 can produce answers this week."
+  },
+
+  "highest_value_free_unblocking_action": {
+    "rank": 1,
+    "action": "Build a POINT-IN-TIME CIK <-> ticker bridge from the OWNED bulk Form 4 SUBMISSION.tsv - 69 quarters, 2009q1..2026q1, each row carrying ISSUERCIK, ISSUERTRADINGSYMBOL and an exact FILING_DATE (INFORMATION_FRONTIER_AUDIT.json line 297). Emit a versioned, hashed artifact with a measured false-match rate against a permanent identifier and pre-registered pass thresholds.",
+    "owner": "data-foundation-agent, consumed by universe-construction-agent",
+    "cost": "FREE, owned data, doable now, ZERO multiple-testing budget",
+    "needs_operator_decision": false,
+    "why_it_beats_every_alternative": "It is the shared HARD blocker of every candidate equity information family in this estate - R70_C1 comment letters, R71_C1 Form 144, R71_C2 Form 4, and any FINRA ticker join - and it cannot be substituted. R70 measured the defect at 108 of 339 delisted S&P ever-members failing to resolve, a 31.9% failure rate concentrated on exactly the names that carry the survivorship signal. Without it, no new equity information family can ever be certified PIT-safe. The reason it is FREE is the load-bearing observation: the owned Form 4 bulk store is itself vintage-stamped raw material for the bridge, so unlike SEC company_tickers.json - a current-view snapshot with the same single-vintage disease that killed R70_C1 - it can resolve a name AT THE DATE it was still trading.",
+    "what_it_does_not_do": "It does not make any cell registrable by itself. It moves three blocked cells from 'blocked by an unfixable identity defect' to 'blocked by their own specific, measurable question'."
+  },
+
+  "observation_on_the_agents_v2_ledger": {
+    "measured_by": "scripts/alpha_agents_v2.py status and ledger, read-only",
+    "experiments_in_the_agents_v2_ledger": 27,
+    "by_state": {"KILLED_BY_SKEPTIC": 9, "HALTED_AT_D": 10, "HALTED_AT_V": 4, "PREREGISTERED": 4},
+    "the_four_PREREGISTERED_rows_are_not_dangling_work": "All four carry a settled RESULT and are R60 PRE-MEASUREMENT HALTS whose SURVIVOR_STATE was never advanced: H_63012714_9e5453e70d5c (US_EQUITY FUNDAMENTAL_MOMENTUM, DATA_HOLD on DATA_COVERAGE_FLOOR), and H_b5e5e7c0_f3e92699f95c (COMMODITY_FUTURES POSITIONING), H_47e2cf84_49076c9d82f0 (EQUITY_INDEX_FUTURES POSITIONING) and H_2da223a3_b3a63be33bcc (US_EQUITY SHORT_TERM_REVERSAL), all three REJECTED on PRE_MEASUREMENT_HALT/TURNOVER_CEILING_EXCEEDED.",
+    "why_this_matters_for_the_agenda": "THREE of the 27 agents_v2 experiments - and two of them non-equity - were killed by the scalar 0.40 one-way turnover ceiling that R60 itself diagnosed as two different economic constraints misspecified as one. That is 11% of the entire agents_v2 estate destroyed before a single return was scored, by a gate calibrated for equity costs. It raises the priority of the per-cell NET COST BUDGET (unblocking rank 5 in the spec) from housekeeping to a precondition for any future non-equity cell, and it is free to fix. The halts themselves STAND: they were pre-registered, and re-running a cell under a ceiling chosen after its turnover was seen is outcome-directed tuning however it is documented.",
+    "i_added_nothing_to_this_ledger": true
+  },
+
+  "assignment_manifest": {},
+  "assignment_manifest_is_empty_because": "Zero experiments were pre-registered, so there is no experiment id to assign and no signal agent may evaluate anything. Never evaluate anything without an experiment id.",
+
+  "spawn_ruling": {
+    "machine_authority": "scripts/agents_v2_brief.py --spawn-plan over alpha_agent.agents_v2.routing, run against this campaign's frozen spec",
+    "spawn": ["quant-research-director", "data-foundation-agent"],
+    "agent_invocations_planned": 2,
+    "do_not_spawn": {
+      "momentum-signal-agent": "SKIP / NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+      "reversal-signal-agent": "SKIP / NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+      "trend-breadth-signal-agent": "SKIP / NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+      "volatility-liquidity-agent": "SKIP / NO_ASSIGNED_EXPERIMENTS_IN_THIS_CAMPAIGN",
+      "validation-skeptic-agent": "SKIP / NO_MEASURED_CANDIDATE_EVERY_EXPERIMENT_HALTED_OR_SETTLED",
+      "risk-portfolio-agent": "SKIP / SKEPTIC_KILLED_EVERY_CANDIDATE - and the max_drawdown=0.0000 reporting defect would block it on arrival anyway",
+      "meta-model-ensemble-agent": "SKIP / FEWER_THAN_TWO_VALIDATED_SURVIVORS_NOTHING_TO_COMBINE (0 of a minimum 2)",
+      "signal-publishing-agent": "SKIP / NO_DIRECTOR_CLEARANCE (0 cleared)",
+      "universe-construction-agent": "SKIP - deliberately. It consumes a dataset certification and none exists; requires.universes is left empty for exactly that reason.",
+      "feature-library-agent": "SKIP - deliberately. It consumes a defined universe and none exists for any R71 cell."
+    },
+    "data_foundation_scope": "A bounded, ZERO-BURDEN work order: unblocking ranks 1 (PIT CIK<->ticker bridge from owned Form 4), 2 (Form-144 71-quarter depth histogram plus parse probe) and 3 (AFF10B5ONE coverage by year plus the frozen-threshold orthogonality correlation - MEASURE, do not rule), plus rank 4 (dated EDGAR vintage capture) on an operator go. It may kill a cell outright. It may NOT approve one and it may NOT pre-register anything.",
+    "honest_note_on_the_gate": "The FIRST spawn-plan run on this spec reported data_certified=true and spawned only the director, because the spec had no requires block and alpha_agent.agents_v2.briefs then keeps the estate-wide answer ('a campaign that names nothing keeps the estate-wide answer', briefs.py line 151). That was an artifact of an UNDECLARED requirement, not a fact about R71. I declared the five dataset certifications R71's cells actually need; the gate then reported data_certified=false with all five in substrate_missing and flipped data-foundation-agent to SPAWN. I did not widen the gate - I stopped under-declaring to it."
+  },
+
+  "director_clearances": [],
+  "director_clearances_note": "No CLEARED, HELD or REJECTED ruling on a validated survivor was issued, because no experiment was measured, no candidate reached the skeptic and there is no validated survivor to rule on. CLEARED requires skeptic SURVIVED + risk ACCEPTABLE + meta ENSEMBLE_READY/STANDALONE and is machine-enforced.",
+
+  "validation_gates": {
+    "diversity_gate_status": "VACUOUS - it constrains pre-registered experiments and there are none. Stating it as satisfied would be false. For the record, the six PROPOSED cells span 3 asset classes (US_EQUITY 3, COMMODITY_FUTURES 2, CROSS_ASSET 1), 50% equity, 50% non-equity, one H1-H5 (C6 at H3) and one cross-asset (C4) - so the proposal set would have met the gate had any cell been registrable.",
+    "variant_limit": "Not engaged; no idea has more than one variant.",
+    "cleared_requires": "skeptic SURVIVED + risk ACCEPTABLE + meta ENSEMBLE_READY/STANDALONE, machine-enforced. Not reached."
+  },
+
+  "machine_confirmation": {
+    "probe": "scripts/alpha_agents_v2.py preregister --agent quant-research-director for R71_C1 (feature_set_id edgar_form144_v1)",
+    "result_1": "PIPELINE_REFUSED PREREGISTRATION_INCOMPLETE - missing: discovery_sample, evaluation_sample, family, owning_agent (exit 3)",
+    "result_2": "with those four fields supplied: PIPELINE_REFUSED FEATURES_NOT_PUBLISHED - edgar_form144_v1 (exit 3)",
+    "conclusion": "The pipeline agrees with this ruling and nothing was written. alpha_agent.agents_v2.pipeline.preregister checks the published feature set at line 343-346, before any registry write, so no experiment id was minted and no burden was charged.",
+    "check_mechanism_probes": "24, all read-only, experiments_run 0, evaluation_samples_read 0"
+  },
+
+  "what_would_reopen_each_cell": {
+    "R71_C1": "A certified edgar_form144_notional_v1 dataset: measured 71-quarter row depth, a measured document-body extraction rate for issuer/seller/share count, and the PIT CIK<->ticker bridge. If only a COUNT feature proves extractable, the cell is REFUSED, not reopened.",
+    "R71_C2": "An OPERATOR ANSWER to the scope question escalated at INFORMATION_FRONTIER_AUDIT.json line 305, plus a measured AFF10B5ONE coverage-by-year table and a frozen-threshold orthogonality correlation against the closed all-transactions feature. Registrable then against the PARENT denominator of 19, never a fresh key.",
+    "R71_C3": "12+ months of prospectively captured, dated NOAA forecast vintages. There is no historical shortcut and the current archive is revised.",
+    "R71_C4": "NOTHING from futures prices. Only genuinely non-price terms-of-trade information (national export/import price indices with vintages), which is not owned. Do not re-propose.",
+    "R71_C5": "NOTHING. An inventory-surprise mechanism under a new agency's name is a replication. Do not re-propose.",
+    "R71_C6": "A certified dated halt history. If the source is genuinely prospective-only, record it as PROSPECTIVE_ONLY in the census so it is never proposed as a backtest again. The per-cell net cost budget must also be fixed and pinned BEFORE this cell registers."
+  },
+
+  "honest_conclusion": "NO NEW ALPHA AXIS IS OPEN ON CERTIFIED DATA TODAY. That is the literal answer and I am not softening it. It is not the same as 'no axis exists': two never-tested, genuinely non-price information families - Rule 144 pre-announced supply and the Form 4 10b5-1 partition - sit on data that is ALREADY ON DISK with exact filing dates, and each is blocked by work that is free and takes days, not by a missing dataset purchase. One of the two additionally needs a single human answer that has been outstanding since R60. The estate's deeper problem is not idea supply: it is that 8 forward challengers have produced 0 matured observations and 0 effective independent observations, so nothing registered so far can be judged at all. Registering a 9th is not progress. Letting the 8 run, and spending this cycle on free data certification instead of on lockbox looks, is.",
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "promotes_model": false,
+    "approves_proposal": false,
+    "makes_sleeve_capital_eligible": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "forward_thresholds_lowered": false,
+    "forward_clock_started": false,
+    "burden_reset": false,
+    "paid_dataset_requested": false,
+    "entitlement_requested": false,
+    "durable_state_written": false,
+    "files_written": [
+      "research/agents/campaign_r71_forward_and_new_information/campaign_spec.json",
+      "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json"
+    ],
+    "manual_review_required": true,
+    "shell": "WINDOWS_POWERSHELL_ONLY"
+  }
+}

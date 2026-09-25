@@ -281,6 +281,65 @@ def maturation_policy(identity: Optional[dict] = None) -> dict:
             "detail": None}
 
 
+#: R72 - the worker's loaded revision and the checkout have diverged. The tree
+#: may even be CLEAN: it has simply moved to a commit this process did not
+#: load, so the running modules and the source on disk are two different
+#: programs. Attributing prospective evidence to either would be false.
+SOURCE_MOVED = "SOURCE_MOVED_SINCE_THIS_WORKER_LOADED_IT"
+
+
+def maturation_policy_now(startup_identity: dict, *, reader=None) -> dict:
+    """May this worker advance PROSPECTIVE evidence RIGHT NOW?
+
+    :func:`maturation_policy` answers the question once, about the source as it
+    was when the worker started. That was the whole test for a worker designed
+    to run a cycle and exit. This one is PERSISTENT - it holds its lease for
+    days, across an arbitrary number of cycles - so a single startup answer
+    authorises every later prospective write from whatever the checkout has
+    become in the meantime. A clean-source attestation taken once is not an
+    attestation of the code that actually wrote the row.
+
+    So the check is re-taken at the moment of use, and it is STRICTER than the
+    startup one by exactly one condition: the checkout must still be at the
+    commit this process loaded. A tree that has moved on is not disqualified
+    for being dirty - it may be perfectly clean - but the modules already in
+    memory came from the old revision while anything read from disk now comes
+    from the new one, and that mixture is not a revision at all.
+
+    Fails CLOSED and never raises: an attestation that cannot be taken refuses
+    the write. Historical research is untouched either way; only prospective
+    evidence is gated, which is the contract :func:`maturation_policy` already
+    declares.
+    """
+    startup = (startup_identity or {}).get("source") or {}
+    try:
+        now_src = source_identity(reader)
+    except Exception as exc:                                 # noqa: BLE001
+        return {"allowed": False, "reason": "SOURCE_REVISION_UNRESOLVED",
+                "detail": "the running revision could not be re-established "
+                          "at the moment of use (%s: %s); prospective "
+                          "evidence is refused rather than attributed to "
+                          "unknown code" % (type(exc).__name__, str(exc)[:120]),
+                "rechecked": True}
+    verdict = dict(maturation_policy({"source": now_src}))
+    verdict["rechecked"] = True
+    verdict["startup_commit"] = startup.get("commit")
+    verdict["current_commit"] = now_src.get("commit")
+    verdict["current_dirty"] = now_src.get("dirty")
+    if not verdict.get("allowed"):
+        return verdict
+    was, now = startup.get("commit"), now_src.get("commit")
+    if was and now and was != now:
+        return {**verdict, "allowed": False, "reason": SOURCE_MOVED,
+                "detail": ("this worker loaded %s and the checkout is now at "
+                           "%s; the modules in memory and the source on disk "
+                           "are different programs, so a prospective row "
+                           "could not be attributed to either. Restart the "
+                           "worker to adopt the new revision."
+                           % (str(was)[:12], str(now)[:12]))}
+    return verdict
+
+
 # --------------------------------------------------------------------------- #
 # Status read model (section L). No dashboard - one JSON document.
 # --------------------------------------------------------------------------- #
@@ -819,6 +878,11 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
         if not allow_maturation:
             maturation["reason"] = "DISABLED_BY_OPERATOR"
 
+    # R72 - the startup verdict is also the first value of the re-taken one, so
+    # a status published before any maturation has run reports an attestation
+    # rather than a null. They diverge only once the checkout does.
+    maturation_now = maturation
+
     holder = "r59_research_worker:%s" % identity["instance_id"]
     stopper = _Stopper()
 
@@ -891,6 +955,11 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             "current_lane": lane,
             "lease_held": bool(alive),
             "maturation": maturation,
+            # R72 - the attestation as re-taken at the LAST maturation point,
+            # beside the startup one rather than instead of it. They differ
+            # exactly when the checkout moved under a running worker, and that
+            # is the fact an operator needs to see.
+            "maturation_now": maturation_now,
             "last_completed_experiment": last_experiment,
             "last_challenger_freeze": last_freeze,
             "stop_or_sleep_reason": sleep_plan.get("reason"),
@@ -983,13 +1052,35 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
                 _log({"event": "research_failed", "error": latest_error})
 
             # ---- 2. FORWARD EVIDENCE. Reused, never re-implemented --------- #
-            mat_result = {"state": "SKIPPED", "reason": maturation["reason"]}
-            if maturation.get("allowed") and not stopper.requested:
+            # R72 - the source attestation is RE-TAKEN here, not inherited from
+            # startup. This worker holds its lease for days; the startup answer
+            # describes the code it loaded, not the code the checkout has since
+            # become, and a prospective row is the one thing in this estate
+            # that can never be recomputed later. The operator-disable above
+            # still wins, because a human refusal outranks a clean tree.
+            if allow_maturation is False:
+                gate = dict(maturation)
+            else:
+                gate = maturation_policy_now(identity, reader=identity_reader)
+            mat_result = {"state": "SKIPPED", "reason": gate["reason"]}
+            if gate.get("allowed") and not stopper.requested:
                 state = W_MATURING
                 _beat("r52.forward_evidence", worker_state=state)
                 mat_result = _mature_forward_evidence()
                 if mat_result.get("challenger_review"):
                     last_freeze = mat_result.get("challenger_review")
+            elif gate.get("reason") != maturation.get("reason"):
+                # The source changed UNDER a running worker. Say so once per
+                # cycle, in the log and in the status, rather than silently
+                # doing nothing: a skipped maturation that nobody can see is
+                # the same silence R72 removed from the forward producers.
+                _log({"event": "maturation_refused_after_recheck",
+                      "reason": gate.get("reason"),
+                      "detail": gate.get("detail"),
+                      "startup_commit": gate.get("startup_commit"),
+                      "current_commit": gate.get("current_commit"),
+                      "current_dirty": gate.get("current_dirty")})
+            maturation_now = gate
 
             # ---- 3. MEASURE THE WORLD, then work again or sleep ------------ #
             conditions = wake_conditions(mem, queue)
@@ -1110,6 +1201,7 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
         "unproductive_streak": unproductive_streak,
         "forced_waits": forced_waits,
         "maturation": maturation,
+        "maturation_now": maturation_now,
         "latest_error": latest_error,
         "resumable": True,
         "safety": dict(r59.SAFETY),
@@ -1222,7 +1314,8 @@ __all__ = ["CALCULATION_OWNER", "WORKER_LEASE_NAME", "STATUS_ARTIFACT",
            "W_STOPPED", "W_REFUSED", "W_LEASE_LOST", "CHALLENGER_REVIEW",
            "runtime_dir", "lease_path", "status_path", "source_identity",
            "worker_identity",
-           "maturation_policy", "read_status", "write_status", "status",
+           "maturation_policy", "maturation_policy_now", "SOURCE_MOVED",
+           "read_status", "write_status", "status",
            "wake_conditions", "wake_delta", "plan_sleep", "run_forever",
            # R64 - the repaired scheduling contract.
            "ABSOLUTE_MIN_SLEEP_SECONDS", "MIN_SLEEP_ENV", "MAX_SLEEP_ENV",

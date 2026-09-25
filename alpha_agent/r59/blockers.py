@@ -177,13 +177,32 @@ _RULES: tuple[tuple[str, str], ...] = (
 )
 
 
-def classify(reason: Any, *, payload: Optional[dict] = None) -> dict:
+def classify(reason: Any, *, payload: Optional[dict] = None,
+             ruling: Optional[dict] = None) -> dict:
     """Classify ONE recorded blocker into the canonical taxonomy.
 
     ``payload`` is the blocked job's own mandate body. It is read ONLY for the
     dimensions the operator needs beside the reason (asset class, family,
     mandate id) — never to guess the reason itself, because a category has no
     opinion about why an attempt failed.
+
+    ``ruling`` (R72) is the research director's DURABLE verdict on this job's
+    economic family, read from :meth:`alpha_agent.r59.memory.ResearchMemory
+    .director_ruling`. When one exists it OVERRIDES the text classification,
+    because the recorded sentence is one engine's symptom from one attempt
+    while the ruling is a governance fact about the family. Three cross-asset
+    jobs recorded ``engine returned NO_MEMBERS`` and classified as
+    ``DEPENDENCY_BLOCKED``, which clears on INFORMATION — while the director
+    had ruled that the only information that could reopen them is not owned
+    and must not be re-proposed. That is a TERMINAL state wearing an
+    informational one, and this module's own docstring calls sleeping on it
+    "the failure mode this taxonomy exists to make visible".
+
+    The override never invents a code: a ruling carries one of
+    :data:`BLOCKER_REASONS` and the memory owner refuses to record anything
+    else. Both answers are returned — ``reason_code`` is the authoritative one
+    and ``recorded_reason_code`` is what the text alone said — so a reader can
+    always see that a ruling moved it, and on what authority.
     """
     text = "" if reason is None else str(reason)
     low = text.lower()
@@ -194,8 +213,31 @@ def classify(reason: Any, *, payload: Optional[dict] = None) -> dict:
             code, matched = candidate, fragment
             break
     p = payload or {}
+    recorded_code = code
+    r = ruling or {}
+    ruled = str(r.get("blocker_reason") or "")
+    authority = None
+    if ruled and ruled in BLOCKER_REASONS:
+        code = ruled
+        authority = {
+            "ruled_by": r.get("decided_by"),
+            "verdict": r.get("verdict"),
+            "campaign_id": r.get("campaign_id"),
+            "decision_date": r.get("decision_date"),
+            "rationale": r.get("rationale"),
+            "reopen_condition": r.get("reopen_condition"),
+            "source_artifact": r.get("source_artifact"),
+            "overrode_recorded_code": (recorded_code
+                                       if recorded_code != code else None),
+        }
     return {
         "reason_code": code,
+        # What the recorded sentence alone said. Kept beside the authoritative
+        # answer rather than replaced by it: a reader who cannot see that a
+        # ruling moved the code cannot audit the ruling.
+        "recorded_reason_code": recorded_code,
+        "director_ruling": authority,
+        "is_authoritative": bool(authority),
         "reason_vocabulary": list(BLOCKER_REASONS),
         "clears_on": CLEARANCE[code],
         "clearance_vocabulary": list(CLEARANCE_VOCAB),
@@ -213,8 +255,37 @@ def classify(reason: Any, *, payload: Optional[dict] = None) -> dict:
     }
 
 
-def classify_job(job_row: Any) -> dict:
-    """Classify a queue row (a mapping or a ``ResearchJob``-shaped object)."""
+def ruling_for(payload: Optional[dict], *, mem: Any = None) -> Optional[dict]:
+    """The director's durable ruling for a job's family, if one exists.
+
+    Never raises and never opens a store the caller did not hand it unless it
+    can do so read-only: a blocker classification must not fail, and must not
+    contend with the live worker's writes, merely because it asked a question.
+    """
+    p = payload or {}
+    ac, fam = p.get("asset_class"), p.get("family")
+    if not ac or not fam:
+        return None
+    try:
+        if mem is None:
+            from . import memory as _M
+            mem = _M.open_memory_readonly()
+        return mem.director_ruling(asset_class=str(ac),
+                                   economic_family=str(fam))
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def classify_job(job_row: Any, *, mem: Any = None,
+                 consult_rulings: bool = True) -> dict:
+    """Classify a queue row (a mapping or a ``ResearchJob``-shaped object).
+
+    R72 - the director's durable ruling on the job's family is consulted by
+    default, so every caller that already reads a blocked job gets the
+    authoritative answer without being changed. ``consult_rulings=False``
+    returns the text-only classification, which is what the taxonomy's own
+    unit tests assert about the rules themselves.
+    """
     def _get(name: str):
         if isinstance(job_row, dict):
             return job_row.get(name)
@@ -235,8 +306,10 @@ def classify_job(job_row: Any) -> dict:
                 payload = json.loads(payload)
             except ValueError:
                 payload = None
-    out = classify(_get("blocked_reason"), payload=payload if isinstance(
-        payload, dict) else None)
+    payload = payload if isinstance(payload, dict) else None
+    out = classify(_get("blocked_reason"), payload=payload,
+                   ruling=(ruling_for(payload, mem=mem)
+                           if consult_rulings else None))
     out.update({
         "job_id": _get("job_id"),
         "category": _get("category"),
@@ -275,13 +348,85 @@ def summarise(classified: list) -> dict:
         "time_will_clear": by_clearance.get(CLEARS_ON_TIME, 0),
         "needs_new_information": by_clearance.get(CLEARS_ON_INFORMATION, 0),
         "terminal_without_a_decision": by_clearance.get(CLEARS_TERMINAL, 0),
+        # R72 - how many of the above are the DIRECTOR's answer rather than an
+        # engine sentence, and how many the ruling moved. A reconciliation that
+        # cannot be counted is indistinguishable from one that never ran.
+        "authoritative_from_a_director_ruling": sum(
+            1 for r in (classified or []) if r.get("is_authoritative")),
+        "reclassified_by_a_ruling": sum(
+            1 for r in (classified or [])
+            if (r.get("director_ruling") or {}).get("overrode_recorded_code")),
+    }
+
+
+def reconcile(classified: list) -> dict:
+    """WHAT THE QUEUE BELIEVES vs WHAT THE DIRECTOR RULED, side by side.
+
+    Pure, and deliberately so: it reports the corrected picture and mutates no
+    job. A queue row is the worker's to write, the worker holds the lease, and
+    a second writer reaching into a live queue to "fix" rows is how an estate
+    acquires a second owner. The operator (or the worker's own next pass) acts
+    on this; nothing here acts on its own.
+
+    ``stale`` is the set a reader most needs: jobs whose recorded blocker still
+    says INFORMATION while the director has ruled the family TERMINAL. Each one
+    is a job the runtime would otherwise keep sleeping on, forever.
+    """
+    rows = list(classified or [])
+    stale, ruled, unruled = [], [], []
+    for r in rows:
+        dr = r.get("director_ruling") or {}
+        if not r.get("is_authoritative"):
+            unruled.append(r)
+            continue
+        ruled.append(r)
+        moved = dr.get("overrode_recorded_code")
+        if not moved:
+            continue
+        was = CLEARANCE.get(moved)
+        now = CLEARANCE.get(r.get("reason_code"))
+        if was != now:
+            stale.append({
+                "job_id": r.get("job_id"), "lane": r.get("lane"),
+                "asset_class": r.get("asset_class"), "family": r.get("family"),
+                "recorded_reason_code": moved, "recorded_clears_on": was,
+                "authoritative_reason_code": r.get("reason_code"),
+                "authoritative_clears_on": now,
+                "ruled_by": dr.get("ruled_by"),
+                "verdict": dr.get("verdict"),
+                "campaign_id": dr.get("campaign_id"),
+                "reopen_condition": dr.get("reopen_condition"),
+                "rationale": dr.get("rationale"),
+            })
+    return {
+        "owner": CALCULATION_OWNER,
+        "blocked_total": len(rows),
+        "with_a_director_ruling": len(ruled),
+        "without_a_director_ruling": len(unruled),
+        "reclassified": stale,
+        "n_reclassified": len(stale),
+        "n_now_terminal": sum(1 for s in stale
+                              if s["authoritative_clears_on"] == CLEARS_TERMINAL),
+        "mutates_no_job": True,
+        "why_it_mutates_nothing": (
+            "the queue row belongs to the worker that holds the lease; a "
+            "second writer repairing rows underneath it would be a second "
+            "owner of the queue"),
+        "headline": (
+            "%d of %d blocked jobs carry a director ruling; %d are recorded "
+            "under a clearance the ruling contradicts, and %d of those are in "
+            "fact TERMINAL - work the runtime would otherwise wait on for ever."
+            % (len(ruled), len(rows), len(stale),
+               sum(1 for s in stale
+                   if s["authoritative_clears_on"] == CLEARS_TERMINAL))),
     }
 
 
 __all__ = [
     "CALCULATION_OWNER", "BLOCKER_REASONS", "CLEARANCE", "CLEARANCE_VOCAB",
     "CLEARS_ON_TIME", "CLEARS_ON_INFORMATION", "CLEARS_TERMINAL",
-    "DESCRIPTION", "classify", "classify_job", "summarise",
+    "DESCRIPTION", "classify", "classify_job", "summarise", "reconcile",
+    "ruling_for",
     "WAITING_FOR_MARKET_SESSION", "WAITING_FOR_FORWARD_EVIDENCE",
     "WAITING_FOR_PROVIDER_DATA", "WAITING_FOR_SAMPLE",
     "WAITING_FOR_EXTERNAL_ENTITLEMENT", "FAMILY_EXHAUSTED", "COMPUTE_GATE",

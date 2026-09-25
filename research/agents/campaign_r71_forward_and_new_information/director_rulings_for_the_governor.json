@@ -1,0 +1,60 @@
+{
+  "artifact": "DIRECTOR_RULINGS_FOR_THE_GOVERNOR",
+  "why_this_file_exists": "The R71 director ruled on the three CROSS_ASSET families the R59 queue is blocked on, and the ruling was written only into research_director_decision.json. The governor reads the R59 ResearchMemory, so the ruling reached no reader and the runtime went on sleeping on three jobs whose recorded blocker said 'waiting for information' while the director had ruled that the only information that could reopen them is not owned. This file is the SAME ruling, in the shape the canonical write path (scripts/alpha_agents_v2.py record-ruling --agent quant-research-director) accepts.",
+  "source_of_every_rationale_below": "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json -> axes_i_was_asked_about_and_ruled_on_without_a_cell.cross_asset and what_would_reopen_each_cell.R71_C4",
+  "nothing_here_is_a_new_verdict": "Each rationale is the director's own wording. The only thing added is the canonical blocker code implied by the director's stated reopen condition, so the taxonomy can carry the verdict. No hypothesis is created, no burden is spent, no job is mutated and no experiment identity changes.",
+
+  "rulings": [
+    {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_RELATIVE_VALUE",
+      "verdict": "REFUSED",
+      "blocker_reason": "WAITING_FOR_EXTERNAL_ENTITLEMENT",
+      "rationale": "ACCEPTED as one cell (C4) and REFUSED. Relative value is a PRICE_STATE relabel. What would reopen it: NOTHING from futures prices. Only genuinely non-price terms-of-trade information (national export/import price indices with vintages), which is not owned. Do not re-propose.",
+      "reopen_condition": "OWNED_PIT_NON_PRICE_TERMS_OF_TRADE_VINTAGES",
+      "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+      "decided_by": "quant-research-director",
+      "decision_date": "2026-09-25",
+      "source_artifact": "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json",
+      "detail": {
+        "cell_id": "R71_C4",
+        "identity_key": "CROSS_ASSET|RELATIVE_VALUE|TERMS_OF_TRADE|XS_LONG_SHORT",
+        "why_this_blocker_code": "the director names an information family that is identified but NOT OWNED, and says nothing computable from owned futures prices can reopen it. That is precisely WAITING_FOR_EXTERNAL_ENTITLEMENT - 'the information is identified but the estate is not entitled to it; only the purchase gate can change this state' - and it clears TERMINAL, not on INFORMATION.",
+        "recorded_queue_blocker_before_this_ruling": "DEPENDENCY_BLOCKED (from the free text 'engine returned NO_MEMBERS'), which clears on INFORMATION"
+      }
+    },
+    {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_REGIME_CONDITIONING",
+      "verdict": "REFUSED_AS_A_REPLICATION",
+      "blocker_reason": "SUPERSEDED",
+      "rationale": "CROSS_ASSET is the only asset class the R59 frontier still calls RESEARCH_READY, and its two remaining open families are both dead on record: regime conditioning is verbatim the 'timing a premium' shape.",
+      "reopen_condition": "A_MECHANISM_THAT_IS_NOT_THE_TIMING_A_PREMIUM_SHAPE",
+      "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+      "decided_by": "quant-research-director",
+      "decision_date": "2026-09-25",
+      "source_artifact": "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json",
+      "detail": {
+        "why_this_blocker_code": "the question is already answered by closed mechanisms of the same shape, so the family is not unfinished - it is answered elsewhere. SUPERSEDED clears TERMINAL.",
+        "recorded_queue_blocker_before_this_ruling": "DEPENDENCY_BLOCKED (from the free text 'engine returned NO_MEMBERS'), which clears on INFORMATION"
+      }
+    },
+    {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "verdict": "CONSIDERED_AND_NOT_PROPOSED",
+      "blocker_reason": "WAITING_FOR_EXTERNAL_ENTITLEMENT",
+      "rationale": "CROSS_ASSET_LEAD_LAG (census rank 10) was considered and NOT proposed: one pre-declared channel between industrial metals and commodity currencies is still price state on both legs, which the campaign's own constraint forbids.",
+      "reopen_condition": "OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+      "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+      "decided_by": "quant-research-director",
+      "decision_date": "2026-09-25",
+      "source_artifact": "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json",
+      "detail": {
+        "why_this_blocker_code": "every candidate channel is price state on both legs, and the estate owns no non-price cross-asset information that would give either leg a different substrate. Identified, not owned, terminal until an entitlement or a free certified source changes it.",
+        "recorded_queue_blocker_before_this_ruling": "DEPENDENCY_BLOCKED (from the free text 'engine returned NO_MEMBERS'), which clears on INFORMATION",
+        "note": "this family was ruled WITHOUT a cell, so no burden was ever charged for it and none is charged now"
+      }
+    }
+  ]
+}

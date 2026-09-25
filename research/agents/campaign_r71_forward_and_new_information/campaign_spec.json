@@ -1,0 +1,309 @@
+{
+  "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+  "spec_version": 1,
+  "frozen": true,
+  "frozen_on": "2026-09-25",
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "run_id": "R71_FORWARD_AND_NEW_INFORMATION",
+  "state": "CLOSED_WITHOUT_PREREGISTRATION",
+  "decided_by": "quant-research-director",
+  "experiments_preregistered": 0,
+  "burden_spent": 0,
+  "burden_total_unchanged": 8415,
+
+  "why_this_campaign_exists": "The R59 autonomous runtime is ALIVE but SLEEPING: queue ready=0, runnable=0, blocked=17 (FAMILY_EXHAUSTED 14, DEPENDENCY_BLOCKED 3), unproductive_streak=21, wake condition NEW_INFORMATION_OR_AN_OPERATOR_DECISION. 8,472 hypotheses are settled at a burden of 8,415 and 8,231 of them sit on the PRICE_STATE substrate, so another price-state parameterisation has no value at any t-statistic. The predecessor campaign R70 killed all three of its non-price cells. This campaign therefore asks one question only: is there a GENUINELY NEW economic information family, on owned or free data, that is certifiable point-in-time today? The answer is NO - but two candidates are one free data certification away, and that gap is named exactly.",
+
+  "headline": "NO NEW ALPHA AXIS IS OPEN ON CERTIFIED DATA TODAY. Zero cells pre-registered, zero multiple-testing budget spent, empty assignment manifest, no signal agent dispatched. Two of the six cells are genuinely new information families sitting on data already on disk with exact filing dates; both are blocked only by FREE data work and, for one of them, by an unanswered human scope question that has been open since R60.",
+
+  "binding_constraints_inherited": {
+    "from_the_task": "No new parameterisation of price state, and no rescaling of a settled fundamental. Both were enforced against my OWN proposals - see cells R71_C4 and R71_C5 and axes_considered.volatility_term_structure.",
+    "from_R70": "A check-mechanism verdict of NO_ROW_IN_MEMORY is exactly what a RELABELLED information family returns and is never sufficient evidence of novelty. Every cell below was additionally checked against the recorded four-part keys of the adjacent CLOSED mechanisms.",
+    "from_R68": "A mechanism is identified by four parts (economic_family | information_family | asset_class | model_family). Anything coarser cannot answer 'has this been tested'.",
+    "from_R67": "A replication inherits its PARENT'S burden denominator and may never be charged to a fresh key. A new POPULATION is not the reopen condition NEW_ORTHOGONAL_INFORMATION.",
+    "from_R66": "Timing a premium with a conditioning variable is settled dead on three independent sightings.",
+    "from_R60": "us_equity_extension_pit_panel_v1 is RETAINED but FROZEN PENDING an identity-bridge audit; no cell may use it. The max_drawdown=0.0000 reporting defect is BLOCKING the moment any candidate reaches the risk agent.",
+    "no_purchase": "No cell may require a paid dataset or entitlement. Free/owned only. No entitlement was requested by this campaign.",
+    "no_burden_reset": "The multiple-testing burden is NOT reset and NOT incremented; nothing was registered."
+  },
+
+  "operator_directive_acknowledged": {
+    "net_of_cost": "required",
+    "realistic_turnover": "required - and the R60 scalar 0.40 one-way ceiling is a KNOWN DEFECT (two economic constraints misspecified as one). No cell may register under it until a per-cell NET COST BUDGET is fixed campaign-wide and pinned by a test BEFORE registration.",
+    "effective_sample": "required - effective independent observations, not row counts. effective_independent_observations_total is currently 0 across the whole estate.",
+    "skeptical_validation": "validation-skeptic-agent is the only door",
+    "forward_thresholds": "MUST NOT be lowered; forward evidence MUST NOT be backfilled",
+    "forward_clock": "agents never start one - governance_contract.signal_publishing_boundary.adoption_rule"
+  },
+
+  "requires": {
+    "datasets": [
+      "sec_pit_cik_ticker_bridge_v1",
+      "edgar_form144_notional_v1",
+      "form4_10b5_1_partition_v1",
+      "noaa_degree_days_vintage_v1",
+      "nasdaq_trading_halts_v1"
+    ],
+    "universes": [],
+    "feature_sets": []
+  },
+  "requires_note": "These five dataset certifications are what R71's six cells would need and NONE of them exists, which is why every cell is DATA_BLOCKED or REFUSED and why the spawn gate reports data_certified=false. universes and feature_sets are deliberately left EMPTY: no cell reaches a universe or a feature set, so declaring them would spawn universe-construction-agent and feature-library-agent to consume a certification that does not exist. The first spawn-plan run on this spec reported data_certified=true purely because the requires block was absent and alpha_agent.agents_v2.briefs then keeps the estate-wide answer ('a campaign that names nothing keeps the estate-wide answer', briefs.py line 151). That true was an artifact of an undeclared requirement, not a fact about R71.",
+
+  "novelty_method": {
+    "tool": "scripts/alpha_agents_v2.py check-mechanism --agent quant-research-director",
+    "read_only": true,
+    "experiments_run": 0,
+    "evaluation_samples_read": 0,
+    "keys_probed": 24,
+    "two_stage_rule": "Stage 1: the proposed four-part key. Stage 2: the recorded four-part key of every adjacent CLOSED mechanism that shares the SOURCE. A cell passes only if stage 1 is NO_ROW_IN_MEMORY and stage 2 shows no closed mechanism whose information family is the same source under a different label."
+  },
+
+  "proposed_cells": [
+    {
+      "cell_id": "R71_C1_EQ_FORM144_PRE_ANNOUNCED_SUPPLY",
+      "verdict": "DATA_BLOCKED",
+      "asset_class": "US_EQUITY",
+      "economic_family": "PRE_ANNOUNCED_SUPPLY",
+      "information_family": "SEC_FORM144_NOTICE_OF_PROPOSED_SALE",
+      "model_family": "XS_RANK_BOOK",
+      "identity_key": "PRE_ANNOUNCED_SUPPLY|SEC_FORM144_NOTICE_OF_PROPOSED_SALE|US_EQUITY|XS_RANK_BOOK",
+      "horizon_sessions": 63,
+      "expected_sign": -1,
+      "hypothesis": "Issuers whose trailing 21-session Rule 144 PROPOSED-sale notional, scaled by market capitalisation, is in the top cross-sectional decile underperform over the following 63 sessions; avoiding them improves a long-only book net of cost.",
+      "economic_rationale": "Form 144 is an EX ANTE public notice of an affiliate's INTENDED sale, filed BEFORE the transaction. Every insider or ownership mechanism this estate has closed is ex post (Form 4) or a holdings state (13F, 13D/G). Pre-announced supply is a flow-pressure channel: a dated, public, credible statement of forthcoming supply that no price-state book can observe.",
+      "owned_or_free_source": "OWNED. D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk\\edgar_full_index, 71 quarterly master.idx, 2009q1..2026q3 (evidence: research/agents/campaign_r60_information_frontier/ASSIGNMENT_DF4_SEC_STORES.json line 51). Form 144 = 19,324 rows in 2026q2 (evidence: INFORMATION_FRONTIER_AUDIT.json line 316).",
+      "pit_trap_that_must_be_certified": [
+        "IDENTITY TRAP, and it is the binding one: master.idx gives a filing date and an accession, nothing else. A Form-144 COUNT feature built from the index alone is the SAME information as two CLOSED mechanisms - SEC_FILING_BEHAVIOUR_R27|SEC_EDGAR_INDEX|US_EQUITY|CLOSED_MECHANISM_LEDGER and DISCLOSURE_INTENSITY_R63|SEC_SUBMISSIONS|US_EQUITY|CLOSED_MECHANISM_LEDGER, both SETTLED_DO_NOT_REPEAT. The cell is novel ONLY if the proposed-sale SHARE COUNT and VALUE are extracted from the document body.",
+        "HISTORICAL DEPTH IS UNVERIFIED: 144 density is measured for 2026q2 only. Form 144 was historically permitted on PAPER, so EDGAR density before the electronic-filing mandate must be MEASURED per quarter, never assumed.",
+        "PARSE FEASIBILITY IS UNVERIFIED: R60 recorded 'that Rule 144 filings are machine-parsable at scale for issuer, seller and share count' as INFERRED_NOT_VERIFIED (INFORMATION_FRONTIER_AUDIT.json line 319).",
+        "CIK -> TICKER POINT-IN-TIME BRIDGE: measured DEFECTIVE in R70 at 108 of 339 delisted S&P ever-members failing to resolve to a CIK. A naive join silently drops exactly the departed names.",
+        "An INTENT is not a transaction: amended and rolled notices double-count the same supply, and a proposed sale may never occur."
+      ],
+      "prior": "LOW-MEDIUM",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY, n_matching 0, on PRE_ANNOUNCED_SUPPLY|SEC_FORM144_NOTICE_OF_PROPOSED_SALE|US_EQUITY|XS_RANK_BOOK; also NO_ROW_IN_MEMORY on US_EQUITY|PRE_ANNOUNCED_SUPPLY. STAGE 2: US_EQUITY|SEC_FILING_BEHAVIOUR_R27 = SETTLED_DO_NOT_REPEAT (HM_CLOSED_SEC_FILING_BEHAVIOUR_R27, information family SEC_EDGAR_INDEX); US_EQUITY|DISCLOSURE_INTENSITY_R63 = SETTLED_DO_NOT_REPEAT (HM_CLOSED_DISCLOSURE_INTENSITY_R63, information family SEC_SUBMISSIONS). Same store, different economic content - novel in its notional form, a RENAME in its count-only form.",
+      "killing_evidence_for_this_verdict": "No AGENTS_V2 dataset certification exists for any Form-144 dataset, no universe is defined on it and no feature set is published, so alpha_agent.agents_v2.pipeline.preregister refuses at FEATURES_NOT_PUBLISHED (machine-confirmed below). Historical depth and parse feasibility are both recorded as unverified by the estate's own audit.",
+      "conditional_refusal_recorded_in_advance": "If the eventual feature is a Form-144 COUNT from master.idx with no document-body notional, this cell is REFUSED as a form-type slice of two closed mechanisms, not merely DATA_BLOCKED. Freezing that now prevents the cheap version being substituted later."
+    },
+    {
+      "cell_id": "R71_C2_EQ_FORM4_OPPORTUNISTIC_VS_ROUTINE",
+      "verdict": "DATA_BLOCKED",
+      "escalation": "NEEDS_HUMAN_DECISION - open since R60 and still unanswered",
+      "asset_class": "US_EQUITY",
+      "economic_family": "INSIDER_TRADING",
+      "information_family": "FORM4_10B5_1_PLAN_FLAG",
+      "model_family": "XS_LONG_SHORT",
+      "identity_key": "INSIDER_TRADING|FORM4_10B5_1_PLAN_FLAG|US_EQUITY|XS_LONG_SHORT",
+      "horizon_sessions": 63,
+      "expected_sign": 1,
+      "hypothesis": "Insider purchases NOT made under a pre-arranged 10b5-1 plan (opportunistic) predict positive abnormal returns over 63 sessions, while plan trades do not; the 19 closed all-transaction tests pooled the two populations and averaged an informative signal against an uninformative one.",
+      "economic_rationale": "The routine/opportunistic partition is the documented informative split in the insider-trading literature. AFF10B5ONE is a DISCLOSED FIELD on the filing, not a transform of price or of the transaction value, so it is a candidate for genuinely orthogonal information rather than a re-parameterisation.",
+      "owned_or_free_source": "OWNED WITH HISTORY. D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk\\insider_transactions_data_sets - 69 quarters 2009q1..2026q1, SUBMISSION.tsv carries ACCESSION_NUMBER, FILING_DATE, ISSUERCIK, ISSUERTRADINGSYMBOL and AFF10B5ONE; NONDERIV_TRANS.tsv carries 28 columns including TRANS_CODE, TRANS_SHARES, TRANS_PRICEPERSHARE (evidence: INFORMATION_FRONTIER_AUDIT.json line 297).",
+      "pit_trap_that_must_be_certified": [
+        "PIT is NOT the binding trap here - FILING_DATE is exact and R60 rated the PIT concern LOW. The binding trap is IDENTITY: AFF10B5ONE is a field INSIDE information family SEC_FORM345, whose mechanism INSIDER_FORM4_ALL is CLOSED (HM_CLOSED_INSIDER_FORM4_ALL, key INSIDER_FORM4_ALL|SEC_FORM345|US_EQUITY|CLOSED_MECHANISM_LEDGER, reopen condition NEW_ORTHOGONAL_INFORMATION, 19 failed tests).",
+        "AFF10B5ONE COVERAGE BY YEAR IS UNMEASURED, and the flag's reliability before the 2023 Rule 10b5-1 amendments is unknown. A flag that is mostly blank pre-2015 would make the partition a period indicator in disguise.",
+        "The same CIK -> ticker point-in-time bridge defect as R71_C1."
+      ],
+      "prior": "LOW-MEDIUM",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY, n_matching 0, on INSIDER_TRADING|FORM4_10B5_1_PLAN_FLAG|US_EQUITY|XS_LONG_SHORT, and also on US_EQUITY|INSIDER_TRADING. STAGE 2: US_EQUITY|INSIDER_FORM4_ALL = SETTLED_DO_NOT_REPEAT, n_settled 1, outcome NO_ALPHA_EVIDENCE, hypothesis HM_CLOSED_INSIDER_FORM4_ALL, recorded information family SEC_FORM345. Stage 1 passing is therefore NOT evidence of novelty: the proposed field lives inside the closed mechanism's own source.",
+      "killing_evidence_for_this_verdict": "Three independent grounds. (1) The mechanism is CLOSED and I may not rule on my own authority that a new FIELD inside a closed information family satisfies NEW_ORTHOGONAL_INFORMATION - the R60 data-foundation audit already escalated exactly this question and recorded 'the AFF10B5ONE routine/opportunistic split is a new FIELD whose sufficiency is a human scope decision, not mine. Escalated as a note to the human, not proposed' (INFORMATION_FRONTIER_AUDIT.json line 305). No operator answer is recorded anywhere I can read. (2) Orthogonality is asserted, not measured - the identical defect on which I refused R70_C3. (3) No certification, no universe, no published feature set; the pipeline refuses.",
+      "burden_it_would_inherit": "The parent denominator - the 19 INSIDER_FORM4_ALL tests plus the closed ledger row - NOT a fresh key. It may never be charged as a new family.",
+      "zero_burden_test_that_would_settle_the_scope_question_objectively": "Spearman rank correlation, over the same universe and dates, between (a) the opportunistic-only net-insider-buy feature and (b) the all-transactions net-insider-buy feature used by the closed tests, with a pass threshold FROZEN BEFORE the correlation is computed. This reads no return series, so it spends ZERO multiple-testing budget and converts a matter of taste into a measurement."
+    },
+    {
+      "cell_id": "R71_C3_FUT_WEATHER_DEGREE_DAY_DEMAND_SHOCK",
+      "verdict": "DATA_BLOCKED",
+      "asset_class": "COMMODITY_FUTURES",
+      "economic_family": "FUNDAMENTAL_SUPPLY_DEMAND",
+      "information_family": "WEATHER_DEGREE_DAYS",
+      "model_family": "XS_LONG_SHORT",
+      "identity_key": "FUNDAMENTAL_SUPPLY_DEMAND|WEATHER_DEGREE_DAYS|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "horizon_sessions": 21,
+      "expected_sign": 1,
+      "hypothesis": "Population-weighted heating- and cooling-degree-day anomalies against a rolling 10-year normal predict cross-sectional returns of weather-sensitive energy and agricultural futures against non-weather-sensitive markets over 5 to 21 sessions.",
+      "economic_rationale": "Weather is the one first-order PHYSICAL demand shock in energy and agriculture that is neither a price, nor a positioning report, nor an accounting fact. It is the textbook example of information orthogonal to price state, and the estate has never touched it: COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND carries zero rows of any kind.",
+      "owned_or_free_source": "FREE BUT NOT OWNED. NOAA CPC / NWS degree-day products. Nothing weather-related exists anywhere in this repository.",
+      "pit_trap_that_must_be_certified": [
+        "THE VINTAGE TRAP, and it is fatal today: the degree-day archive you can download now is a REVISED, realised product. The decision-relevant object at a decision instant is the FORECAST vintage then available. Using a current realised archive is look-ahead of days to weeks - structurally the SAME defect that killed R70_C1 (one vintage, availability instant unrecoverable).",
+        "CPC 6-10 and 8-14 day outlook VINTAGES are not retained in any free dated archive I can point to; their availability instants would have to be established prospectively.",
+        "Weather-sensitivity assignment per market must be declared in advance or it becomes an in-sample selection."
+      ],
+      "prior": "MEDIUM on the economics, LOW on being measurable point-in-time",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY, n_matching 0, on FUNDAMENTAL_SUPPLY_DEMAND|WEATHER_DEGREE_DAYS|COMMODITY_FUTURES|XS_LONG_SHORT and on COMMODITY_FUTURES|FUNDAMENTAL_SUPPLY_DEMAND. STAGE 2: COMMODITY_FUTURES|INVENTORY_SURPRISE_EIA = SETTLED_DO_NOT_REPEAT (HM_CLOSED_INVENTORY_SURPRISE_EIA, information family EIA) - adjacent but a different source and a different economic object (a stock report versus a physical demand driver), so not a rename.",
+      "killing_evidence_for_this_verdict": "The dataset is not on disk and the free archive is a revised current-view product. The operator has already ruled that an availability timestamp stamped on currently-restated data is NOT proof of point-in-time integrity; that ruling kills the only version of this cell that could be built today. Fetching is free and requires no entitlement, but it buys a revised archive, not a vintage."
+    },
+    {
+      "cell_id": "R71_C4_XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+      "verdict": "REFUSED",
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "RELATIVE_VALUE",
+      "information_family": "TERMS_OF_TRADE",
+      "model_family": "XS_LONG_SHORT",
+      "identity_key": "RELATIVE_VALUE|TERMS_OF_TRADE|CROSS_ASSET|XS_LONG_SHORT",
+      "horizon_sessions": 21,
+      "expected_sign": 1,
+      "hypothesis": "The spread between a commodity-currency future (AUD, CAD, NZD) and its terms-of-trade commodity basket mean-reverts over 21 sessions.",
+      "economic_rationale": "Stated for completeness: a commodity exporter's currency should track its export basket, and a divergence should close. It is the top-ranked open cross-asset family in the census and the only family the R59 frontier still calls RESEARCH_READY.",
+      "owned_or_free_source": "OWNED (futures_panel_v1 + R38 per-market cost).",
+      "pit_trap_that_must_be_certified": "Not reached. The cell is refused on identity before PIT. Had it been reached: the mixed-calendar observability instant across the FX and commodity legs.",
+      "prior": "LOW-MEDIUM",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY on RELATIVE_VALUE|TERMS_OF_TRADE|CROSS_ASSET|XS_LONG_SHORT. STAGE 2 KILLS IT: CROSS_ASSET|RELATIVE_VALUE = SETTLED_DO_NOT_REPEAT, n_settled 1, outcome NO_ALPHA_EVIDENCE, hypothesis H_ce6bca38_61377eec0fdf, best_lockbox_t -0.2988294294741419, and the recorded family key is RELATIVE_VALUE|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT - the SAME economic family, the SAME asset class and the SAME model family, with information family PRICE_STATE.",
+      "killing_evidence_for_this_verdict": "A terms-of-trade spread constructed from commodity futures closes and FX futures closes IS price-state information. Relabelling information_family from PRICE_STATE to TERMS_OF_TRADE while the source, the asset class, the economic family and the model family are all unchanged is information-family laundering, and is the identical defect on which my predecessor refused R70_C3. Independently: the recorded reopen condition is NEW_ORTHOGONAL_INFORMATION, which a price relabel does not meet, and R66's condition plus R67's seven grounds already bind this cell. Genuine terms-of-trade information - national export and import price indices - is monthly, revised, vintage-dependent and not owned.",
+      "self_discipline_note": "This is my own highest-ranked queued proposal (census rank 3) and the one the frontier most wants run. It is refused anyway. The census's own R68 correction says the TERMS_OF_TRADE information family 'carries zero rows' and that the R68 director 'upheld it as genuine novelty'; the full four-part key I probed shows the settled sibling is PRICE_STATE at the same three other coordinates, so that upholding does not survive the stage-2 check."
+    },
+    {
+      "cell_id": "R71_C5_FUT_WASDE_AGRICULTURAL_INVENTORY_SURPRISE",
+      "verdict": "REFUSED",
+      "asset_class": "COMMODITY_FUTURES",
+      "economic_family": "FUNDAMENTAL_SUPPLY_DEMAND",
+      "information_family": "AGRICULTURAL_INVENTORY_WASDE",
+      "model_family": "XS_LONG_SHORT",
+      "identity_key": "FUNDAMENTAL_SUPPLY_DEMAND|AGRICULTURAL_INVENTORY_WASDE|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "horizon_sessions": 21,
+      "expected_sign": -1,
+      "hypothesis": "The surprise component of USDA WASDE ending-stocks estimates predicts grain and oilseed futures returns over 21 sessions.",
+      "economic_rationale": "Stated for completeness: a scheduled official inventory release resolves supply uncertainty and the market under-reacts to the residual.",
+      "owned_or_free_source": "FREE BUT NOT OWNED. No USDA, NASS or WASDE store exists anywhere in this repository.",
+      "pit_trap_that_must_be_certified": "Not reached; refused on identity. Had it been reached: the WASDE figure downloadable today is the revised one, and a SURPRISE requires the pre-release analyst consensus, which is a PAID survey - so the cell would also collide with the no-purchase rule.",
+      "prior": "LOW",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY on the four-part key. STAGE 2 KILLS IT: COMMODITY_FUTURES|INVENTORY_SURPRISE_EIA = SETTLED_DO_NOT_REPEAT, n_settled 1, NO_ALPHA_EVIDENCE, HM_CLOSED_INVENTORY_SURPRISE_EIA, recorded key INVENTORY_SURPRISE_EIA|EIA|COMMODITY_FUTURES|CLOSED_MECHANISM_LEDGER, reopen condition NEW_ORTHOGONAL_INFORMATION.",
+      "killing_evidence_for_this_verdict": "REPLICATION ON A NEW POPULATION. The closed mechanism is 'a scheduled official inventory release surprises the market and the surprise predicts futures returns'. Swapping the agency (USDA for EIA) and the commodity set (grains for energy) changes the POPULATION, and this estate has ruled twice that a new population is not the recorded reopen condition: the R60 audit on Form 4 ('a new POPULATION (extension universe) is a new sample, not new information', INFORMATION_FRONTIER_AUDIT.json line 305) and the R68 correction on the extension universe. A replication inherits the parent denominator and may never be charged to a fresh key. Second, independent ground: the data is not owned and the surprise term needs a paid consensus."
+    },
+    {
+      "cell_id": "R71_C6_EQ_LULD_HALT_RESUMPTION",
+      "verdict": "DATA_BLOCKED",
+      "asset_class": "US_EQUITY",
+      "economic_family": "EVENT_OVERREACTION",
+      "information_family": "LULD_TRADING_HALT",
+      "model_family": "XS_RANK_BOOK",
+      "identity_key": "EVENT_OVERREACTION|LULD_TRADING_HALT|US_EQUITY|XS_RANK_BOOK",
+      "horizon_sessions": 3,
+      "expected_sign": 1,
+      "hypothesis": "Names resuming from an LULD volatility halt that was triggered on a down move earn positive abnormal returns over the following 3 sessions, entered at the NEXT OPEN after resumption.",
+      "economic_rationale": "A halt is a MARKET-STRUCTURE event, not a price transform: an exchange rule mechanically truncates trading and the reopening auction is a known liquidity vacuum, so liquidity provision into the resumption is compensated. This is one of only two never-tested free equity information families in the census (0 hypotheses) and is not in the closed ledger.",
+      "owned_or_free_source": "FREE_AVAILABLE, Nasdaq trading-halt feed. NEXT_CAMPAIGN_CENSUS.json lines 89-94: 'FREE_AVAILABLE, 0 hypotheses', 'verify: history depth; likely prospective-only'.",
+      "pit_trap_that_must_be_certified": [
+        "The halt feed is a CURRENT-STATE publication, so it has the single-vintage disease: no dated historical archive is known to be on disk.",
+        "Entry must be the NEXT OPEN after resumption, never the resumption print, or the cell books a fill at a price no participant could take.",
+        "H3 on a halted-name population is a turnover monster, and the R60 turnover ceiling is a KNOWN DEFECT - the net cost budget must be fixed campaign-wide BEFORE this cell registers, not after its turnover is seen."
+      ],
+      "prior": "UNKNOWN - data first",
+      "novelty_check_result": "STAGE 1: NO_ROW_IN_MEMORY, n_matching 0, on EVENT_OVERREACTION|LULD_TRADING_HALT|US_EQUITY|XS_RANK_BOOK and on US_EQUITY|EVENT_OVERREACTION. STAGE 2: no closed mechanism shares the exchange-halt source; the adjacent closed rows (OVERNIGHT_GAP_CONCENTRATION, SHORT_HORIZON_REVERSAL_GAP_FADE, INTRADAY_ETF_FAMILIES) are price-state and intraday-price mechanisms.",
+      "killing_evidence_for_this_verdict": "No owned history, no AGENTS_V2 dataset certification, and the census's own note says the source is likely prospective-only. A backtest is therefore impossible without inventing history.",
+      "forward_challenger_ruled": false,
+      "forward_challenger_reason": "REFUSED AS PREMATURE, and this is a governance ruling, not a data one. 8 canonical forward challengers are registered; 5 have emitted exactly ONE prediction each, 3 have emitted nothing, 0 have matured, and effective_independent_observations_total = 0 across the entire estate. A 9th registration adds zero measurable evidence, consumes operator attention, and would let a campaign that discovered nothing present a registration as an accomplishment. Separately, agents never start a forward clock: that is the one operator door scripts/adopt_prospective_freeze.py. The correct action is to let the 8 existing clocks run untouched - thresholds not lowered, evidence not backfilled."
+    }
+  ],
+
+  "axes_considered_and_rejected_without_a_cell": {
+    "rates": "REJECTED. I probed RATES_FUTURES|DELIVERY_OPTION|CTD_INVOICE_SPREAD (cheapest-to-deliver / invoice-spread delivery optionality) and RATES_FUTURES|RELATIVE_VALUE: both NO_ROW_IN_MEMORY, so the mechanism is genuinely untested. It is rejected anyway because it needs per-CUSIP deliverable-basket prices and conversion factors; the free source (TreasuryDirect) publishes auction results and par yield curves, not daily deliverable-issue prices, and the R38 native layer carries futures contracts without the basket. Blocked at source, and after conversion factors the residual is still a price relationship. TREASURY_AUCTION_SUPPLY_CONCESSION, RATES_CARRY_CURVE_RV, PRIMARY_DEALER_POSITIONS and TREASURY_INDEX_MONTH_END_DURATION_EXTENSION are all closed.",
+    "commodities": "ACCEPTED as two cells (R71_C3 weather, R71_C5 WASDE) and both then ruled against - C3 DATA_BLOCKED on the vintage trap, C5 REFUSED as a replication. Every owned commodity axis is closed: EIA inventory surprise, COT hedging pressure, curve carry at the slope level, inter-commodity RV seasonality, index roll-window pressure, exchange open interest (4 settled rows), and deferred-leg basis momentum (CARRY|FUTURES_DEFERRED_LEG_BASIS, settled).",
+    "fx": "REJECTED. FX_CARRY is both closed AND already registered forward as ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 - accrue, do not re-test. FX_MONTH_END_EQUITY_HEDGE_REBALANCING is closed. Genuinely new FX information (cross-currency basis, CLS settlement volumes, central-bank reserve composition) is either a paid feed or a revised monthly statistic. No free FX axis is open.",
+    "credit": "REJECTED. CREDIT_PROXY carries a burden of 1 and looks empty, but HM_CLOSED_CREDIT_SPREAD_TIMING is SETTLED_DO_NOT_REPEAT with recorded key CREDIT_SPREAD_TIMING|ETF|CREDIT_PROXY|CLOSED_MECHANISM_LEDGER, and the R59 frontier states CREDIT_PROXY is BLOCKED for want of an owned substrate. A genuinely cross-sectional credit mechanism needs single-name bond or CDS data, which is a purchase. I did not request it and will not.",
+    "volatility_term_structure": "REJECTED BY ME, and recorded here because it is the exact trap this campaign was told to avoid. VOLATILITY|TERM_STRUCTURE returns NO_ROW_IN_MEMORY, which makes a curvature or convexity signal on the VIX futures curve LOOK novel. It is not: VX_TERM_CARRY, VX_CONDITIONAL_SHORT_VOL_R41 and VOLATILITY_EXPECTATIONS_IV_R63 are all closed, any curvature variant is a re-parameterisation of the same price surface (i.e. PRICE_STATE), and the R60 audit already recorded that these aggregate series carry no cross-section so every natural use is index-level TIMING - dead on three independent sightings. A NO_ROW_IN_MEMORY verdict on a new-sounding label is not novelty.",
+    "positioning": "REJECTED - the axis is exhausted, not merely unlucky. Every free positioning source in this estate is closed or spoken for: CFTC COT trader categories (HM_CLOSED_COT_HEDGING_PRESSURE), aggregate exchange open interest (POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES, 4 settled rows, 2 measured NEGATIVE against a declared +1 sign), 13F ownership breadth, 13D/G control blocks, primary dealer positions, fails-to-deliver and short interest (HM_CLOSED_FAILS_TO_DELIVER_AND_SHORT_INTEREST|FINRA), and FINRA daily short volume (R70: DATA_BLOCKED_AND_REDUNDANT, and a live R58 forward challenger already holds that slot). There is no free positioning axis left to open.",
+    "corporate_events": "PARTLY ACCEPTED. Closed already: index addition/deletion, Russell reconstitution forced flow, cash merger arbitrage, spin-off parent-holder forced selling, 8-K item codes, earnings SUE, analyst revisions, news intensity, peer earnings transfer (DATA_HOLD), and dividend declarations (FUNDAMENTAL_MOMENTUM|DIVIDEND_DECLARATION_EVENTS|US_EQUITY carries H_63012714_9e5453e70d5c, and EQ_DIVIDEND_DECLARATION_DRIFT already halted on its own pre-registered coverage gate). What genuinely remains free and untested is Rule 144 (R71_C1) and trading halts (R71_C6), both proposed and both DATA_BLOCKED. Stock splits were considered and NOT proposed: the owned EODHD split history carries the EX date, not the ANNOUNCEMENT date, so the cell dies on the same availability-instant defect and proposing it would be padding.",
+    "equity_universe_extension": "NOT PROPOSED. The mid/small-cap extension panel is FROZEN PENDING an identity-bridge audit, and every cell on it (liquidity premium, residual momentum, gross profitability, H5 immediacy reversal) is a REPLICATION of a settled PRICE_STATE mechanism that inherits the parent denominator. The task's constraint - 8,231 of 8,472 settled hypotheses already sit on PRICE_STATE, so adding another is worthless - and the panel freeze both bind. The audit is still worth doing; it is not this campaign's highest-value action.",
+    "sec_fundamentals_panel": "NOT PROPOSED. PIT_FUNDAMENTALS_AND_VALUATION is CLOSED on the S&P 500, R58_FCF_PURE_V1 is already FORWARD_FROZEN, and R70_C3 was refused as a rescaling of it. Any new ratio off the same companyfacts store is a rescaling of a settled fundamental."
+  },
+
+  "ruling_on_a_second_edgar_full_index_vintage": {
+    "question_as_put": "Is fetching a SECOND EDGAR full-index vintage worth doing now, given the separation from the 2026-08-16 snapshot would currently be only about 5 weeks?",
+    "ruling": "CAPTURE YES, ANALYSE NO. Take a dated vintage now and quarterly thereafter as data-foundation hygiene; do NOT attempt first-appearance differencing yet, and do NOT reopen R70_C1 on it.",
+    "why_analysis_now_is_worthless": "The value of first-appearance differencing scales with the separation relative to the release lag, and R70 measured the release lag directly: UPLOAD rows per quarter collapse monotonically toward the snapshot - 2009q1 3,421; 2015q1 2,494; 2020q1 1,406; 2026q2 351. That right-censoring decays over YEARS. A 5-to-6-week baseline can bound the release instant only for documents that first appear inside those 5-6 weeks, which is a thin and non-random slice - exactly the shortest-lag releases. Imputing a panel-wide release lag from that slice is selection on the dependent variable, and it would produce a confident wrong answer rather than an honest unknown.",
+    "why_capture_now_is_still_right": "The marginal cost is one HTTP fetch per quarterly index and a few MB. The marginal OPTION value is real and strictly decaying: every month not captured is a month of separation that can never be bought back, and that irreversibility is precisely what made R70_C1 unrecoverable. This is the same discipline as a forward challenger - it converts an unrecoverable historical instant into a prospectively recoverable one - except that it costs no multiple-testing budget and starts no forward clock.",
+    "conditions": [
+      "Store the vintage DATED and IMMUTABLE beside the 2026-08-16 snapshot, with a manifest recording the fetch instant. Do not overwrite the existing snapshot - overwriting it destroys the only baseline and would be worse than not fetching.",
+      "No pre-registration, no feature, no signal, no hypothesis is attached to this capture.",
+      "Earliest review of R70_C1 is at a separation of at least TWO QUARTERS, i.e. not before roughly 2027-03. Until then R70_C1 stays DATA_BLOCKED and is not re-ruled.",
+      "The CIK identity bridge must be repaired independently; a second vintage alone does not fix the 108-of-339 delisted-member resolution failure."
+    ],
+    "scope": "FREE, no entitlement, no paid dataset. The fetch itself is an orchestrator/operator scope decision - the R70 certification recorded that nothing was downloaded - and I rule it WORTH DOING and cheap. I did not download it.",
+    "owner": "data-foundation-agent, on an operator go."
+  },
+
+  "unblocking_actions": [
+    {
+      "rank": 1,
+      "action": "Build a POINT-IN-TIME CIK <-> ticker bridge from the owned bulk Form 4 SUBMISSION.tsv: 69 quarters 2009q1..2026q1 of ISSUERCIK + ISSUERTRADINGSYMBOL + exact FILING_DATE (evidence: INFORMATION_FRONTIER_AUDIT.json line 297). This is a VINTAGE-STAMPED observation set, not a current-view snapshot, so unlike SEC company_tickers.json it can resolve names that later delisted at the date they were still trading. Emit a versioned, hashed artifact with a measured false-match rate against a permanent identifier and a pre-registered pass threshold.",
+      "owner": "data-foundation-agent, consumed by universe-construction-agent",
+      "cost": "FREE, owned data, doable now, ZERO multiple-testing budget",
+      "needs_operator_decision": false,
+      "why_it_is_the_highest_value": "It is the shared hard blocker of EVERY candidate equity information family in this estate - R70_C1 comment letters, R71_C1 Form 144, R71_C2 Form 4, and the FINRA ticker map - and it cannot be substituted. R70 measured the defect at 108 of 339 delisted S&P ever-members failing to resolve, a 31.9% failure rate concentrated on exactly the names that carry the survivorship signal. Without it, no new equity information family can ever be certified PIT-safe. With it, three separate blocked cells advance to their own remaining, specific blockers. The insight that the owned Form 4 bulk store is itself the raw material is what makes it free."
+    },
+    {
+      "rank": 2,
+      "action": "Screen R71_C1 cheaply and decisively: a Form-144 row histogram across all 71 owned quarterly master.idx files (does historical depth exist at all, or did paper filing keep pre-mandate 144s off EDGAR?), plus a parse probe on ~200 sampled 144 documents measuring the extraction rate of issuer, seller and share count. Expected outcome is that the cell dies cheaply - which is exactly what a screen is for.",
+      "owner": "data-foundation-agent",
+      "cost": "FREE, owned data, doable now, ZERO burden",
+      "needs_operator_decision": false
+    },
+    {
+      "rank": 3,
+      "action": "Measure the AFF10B5ONE flag's coverage by year over the 69 owned quarters, and the frozen-threshold Spearman correlation between the opportunistic-only and all-transactions net-insider-buy features. Report it; do not rule on it.",
+      "owner": "data-foundation-agent to measure; the HUMAN to rule",
+      "cost": "FREE, owned data, ZERO burden",
+      "needs_operator_decision": true,
+      "the_question_for_the_operator": "Does a new DISCLOSED FIELD inside a closed information family (AFF10B5ONE inside SEC_FORM345) satisfy the reopen condition NEW_ORTHOGONAL_INFORMATION for the CLOSED mechanism INSIDER_FORM4_ALL? R60's data-foundation audit escalated this and no answer is recorded. If YES, R71_C2 becomes registrable against the PARENT denominator of 19. If NO, the whole Form 3/4/5 store is permanently shut and should be recorded as such so no future campaign proposes it again."
+    },
+    {
+      "rank": 4,
+      "action": "Capture a dated, immutable second EDGAR full-index vintage beside the 2026-08-16 snapshot and repeat quarterly. No analysis, no cell, no pre-registration. See ruling_on_a_second_edgar_full_index_vintage.",
+      "owner": "data-foundation-agent",
+      "cost": "FREE, one fetch per quarterly index",
+      "needs_operator_decision": true,
+      "note": "The decision needed is only 'may the agent fetch', not 'may the agent buy'."
+    },
+    {
+      "rank": 5,
+      "action": "Fix the campaign-wide per-cell NET COST BUDGET (turnover x cost per side x 2 x rebalances per year) that R60 named as the replacement for the misspecified scalar 0.40 turnover ceiling, and pin it with a test BEFORE any cell registers under it. Also repair the max_drawdown = 0.0000 reporting defect, which is BLOCKING the moment any candidate reaches the risk agent.",
+      "owner": "risk-portfolio-agent for the cost budget and the drawdown defect; the director freezes it before any pre-registration",
+      "cost": "FREE, no data needed, ZERO burden",
+      "needs_operator_decision": false,
+      "note": "Prerequisite for R71_C6 and for any future H1-H5 cell. It killed two of four non-equity cells in R60 before a single return was scored. It is NOT urgent while zero cells are registrable, which is why it ranks below the data work."
+    },
+    {
+      "rank": 6,
+      "action": "Audit the identity bridge of us_equity_extension_pit_panel_v1 to the R60 specification (false-match rate with a CI against a permanent identifier, conditional ignorability of the 9.2% unbridged delisted attrition, extreme-decile contamination, PIT separation of splits and stock-financed M&A from economic issuance, real delisting returns, a versioned hashed artifact, pre-registered thresholds).",
+      "owner": "data-foundation-agent",
+      "cost": "FREE, owned data, ZERO burden",
+      "needs_operator_decision": false,
+      "why_it_is_not_rank_1": "It unblocks only REPLICATIONS of settled PRICE_STATE mechanisms, inheriting their denominators. The estate's problem is not that it lacks price-state samples; it is that it has 8,231 of them and no new information."
+    }
+  ],
+
+  "assignment_manifest": {},
+  "assignment_manifest_is_empty_because": "Zero experiments were pre-registered, so there is nothing to assign. A signal agent with no experiment id may evaluate nothing.",
+
+  "spawn_ruling": {
+    "spawn": ["data-foundation-agent"],
+    "spawn_scope": "A bounded, zero-burden work order: unblocking_actions ranks 1, 2 and 3 (measure only, do not rule), plus rank 4 on an operator go. It may kill a cell outright. It may not approve one, and it may not pre-register anything.",
+    "do_not_spawn": {
+      "momentum-signal-agent": "no experiment assigned",
+      "reversal-signal-agent": "no experiment assigned",
+      "trend-breadth-signal-agent": "no experiment assigned",
+      "volatility-liquidity-agent": "no experiment assigned",
+      "validation-skeptic-agent": "nothing was measured, so there is nothing to attack",
+      "risk-portfolio-agent": "no skeptic survivor exists; and the max_drawdown reporting defect would block it on arrival anyway",
+      "meta-model-ensemble-agent": "zero validated survivors; a meta-model over an empty survivor set is not a research act",
+      "signal-publishing-agent": "nothing is CLEARED, nothing is qualified, no forward registration is authorised by this campaign",
+      "universe-construction-agent": "blocked - it consumes a dataset certification, and no R71 dataset is certified",
+      "feature-library-agent": "blocked - it consumes a defined universe, and none exists for any R71 cell"
+    }
+  },
+
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "creates_orders": false,
+    "creates_fills": false,
+    "promotes_model": false,
+    "approves_proposal": false,
+    "makes_sleeve_capital_eligible": false,
+    "mutates_operational_store": false,
+    "backfills_forward_evidence": false,
+    "forward_thresholds_lowered": false,
+    "burden_reset": false,
+    "paid_dataset_requested": false,
+    "durable_state_written": false,
+    "manual_review_required": true
+  }
+}

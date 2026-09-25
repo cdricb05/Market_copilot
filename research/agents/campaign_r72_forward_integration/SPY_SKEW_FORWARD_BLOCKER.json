@@ -1,0 +1,118 @@
+{
+  "artifact": "SPY_SKEW_FORWARD_BLOCKER",
+  "release": "R72",
+  "calculation_owner": "manual analysis over alpha_agent.alpha_recovery.opra_publication_probe, .options_surface, api.price_panel, api.canonical_forward_accrual",
+  "as_of": "2026-09-25",
+  "challenger_id": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1",
+  "research_only": true,
+  "writes_no_evidence_store": true,
+  "registers_nothing": true,
+  "creates_no_orders": true,
+  "allocates_no_capital": true,
+  "new_paid_entitlement": false,
+
+  "headline": "The premise that the vendor data is not available before the 09:30 ET deadline is WRONG, and the truth is worse. Databento OPRA serves the information session at 09:27:05-09:29:44 ET, i.e. 16 to 175 seconds before the entry mark. The registration declares a 9.5-hour decision window whose stated justification is that 'no human has to be present at a particular minute'; the EFFECTIVE window is under three minutes, because the information the window exists for does not exist until the window is nearly shut. Separately, the 09:30 ET entry mark it declares cannot be priced at all by the mark owner it declares, so even a decision frozen in time would be marked at the entry session's CLOSE.",
+
+  "finding_1_the_window_is_not_9_5_hours": {
+    "declared": {
+      "decision_window_opens_et": [0, 0],
+      "entry_mark_et": [9, 30],
+      "window_hours": 9.5,
+      "declared_justification": "nine and a half hours, so no human has to be present at a particular minute for a decision to be legitimate",
+      "source": "alpha_agent.alpha_recovery.next_open_challenger.daily_contract / execution_contract"
+    },
+    "measured": {
+      "owner": "alpha_agent.alpha_recovery.opra_publication_probe",
+      "vendor": "Databento OPRA.PILLAR (historical entitlement already held)",
+      "publication_instant_et": "09:27:05 - 09:29:44 on the entry session",
+      "publication_delay_after_1600_et_close_hours": "17.45 - 17.50",
+      "margin_to_the_0930_entry_mark_seconds": {
+        "min": 16, "median": 130, "max": 175,
+        "n_densely_polled_intraday_sessions": 5,
+        "note": "the 2026-09-18 row is a weekend carry and is excluded from the margin statistics"
+      },
+      "per_session": [
+        {"information_session": "2026-09-14", "first_available_utc": "2026-09-15T13:27:49Z", "entry_open_utc": "2026-09-15T13:30:00Z", "margin_s": 130, "poll_resolution_s": 55},
+        {"information_session": "2026-09-15", "first_available_utc": "2026-09-16T13:27:05Z", "entry_open_utc": "2026-09-16T13:30:00Z", "margin_s": 175, "poll_resolution_s": 294},
+        {"information_session": "2026-09-16", "first_available_utc": "2026-09-17T13:29:43Z", "entry_open_utc": "2026-09-17T13:30:00Z", "margin_s": 16, "poll_resolution_s": 210},
+        {"information_session": "2026-09-17", "first_available_utc": "2026-09-18T13:27:48Z", "entry_open_utc": "2026-09-18T13:30:00Z", "margin_s": 132, "poll_resolution_s": 255},
+        {"information_session": "2026-09-21", "first_available_utc": "2026-09-22T13:29:01Z", "entry_open_utc": "2026-09-22T13:30:00Z", "margin_s": 58, "poll_resolution_s": 276}
+      ],
+      "the_three_AVAILABLE_BEFORE_NEXT_OPEN_NO_verdicts_are_artifacts": {
+        "sessions": ["2026-09-22", "2026-09-23", "2026-09-24"],
+        "why": "the probe's poll interval on those sessions was ~3,600 s, so first-observed-available is an upper bound with an hour of slack. They are NOT evidence that the vendor got later; the densely polled sessions (55-294 s resolution) resolve the true instant.",
+        "correct_reading": "publication timing is stable at 09:27-09:29 ET; the measurement got coarser, not the vendor."
+      }
+    },
+    "why_the_producer_still_misses": {
+      "producer_stage_duration_ms": {"median": 7014, "p90": 11982, "max": 23716},
+      "effective_cycle_cadence_s": {"median": 299, "min": 65, "max": 26495},
+      "conclusion": "the stage itself is fast enough (7 s median) to fit a 130 s margin, but the runtime reaches it once every ~5 minutes at a free-running phase. Hitting a 16-175 second window that way is a lottery, and every loss is permanent and unrecoverable. 9 of 9 boundaries have been lost (2026-09-15 .. 2026-09-25).",
+      "scheduler_is_NOT_the_remedy": "sub-minute scheduling against a vendor whose publication instant varies over ~2.5 minutes would still forfeit boundaries, and a forfeited boundary is never recoverable. The window has to be made wide again, not aimed at more precisely."
+    }
+  },
+
+  "finding_2_the_declared_entry_mark_is_unpriceable": {
+    "declared_mark_owner": "api.price_panel (reversed_skew.MARK_OWNER)",
+    "declared_entry_mark_et": [9, 30],
+    "declared_valuation_marks": null,
+    "what_the_accrual_does": "api.canonical_forward_accrual.valuation_series_for returns the SHARED operational panel object for any registration declaring no valuation_marks. This registration declares none (policy.execution_contract.valuation_marks is null), so it is valued on that panel.",
+    "what_that_panel_carries": {
+      "source_csv": "D:\\Stock_Prediction_app_data\\phase7i_broad_universe\\prices\\phase7i_broad_price_history_free.csv",
+      "csv_columns": ["date", "ticker", "adjusted_open", "adjusted_high", "adjusted_low", "adjusted_close", "volume", "dollar_volume", "benchmark_close", "daily_return"],
+      "columns_the_loader_actually_reads": ["date", "ticker", "adjusted_close", "benchmark_close", "volume", "dollar_volume"],
+      "panel_object_fields": ["dates", "adj", "bench", "ret", "bret", "dollar_vol"],
+      "adjusted_open_is_dropped_by": "api.price_panel.load_price_panel (C_ADJ = 'adjusted_close'; no open constant exists)"
+    },
+    "consequence": "the open price EXISTS in the source CSV and is discarded before the accrual can see it. A decision frozen for a 09:30 ET entry would therefore be marked at the entry session's adjusted CLOSE. The declared entry mark and the measured entry mark have never agreed, and no counter said so.",
+    "this_is_not_speculation": "verified by reading api.price_panel.load_price_panel's field selection and api.canonical_forward_accrual.valuation_series_for's fallback, and by confirming policy.execution_contract.valuation_marks is null for this challenger_id."
+  },
+
+  "timely_source_search": {
+    "question": "does an existing OWNED or FREE source provide economically equivalent information BEFORE the 09:30 ET cutoff?",
+    "verdict": "NO",
+    "candidates_checked": [
+      {"source": "Databento OPRA.PILLAR historical (cbbo-1m) - ALREADY OWNED", "available_at_et": "09:27-09:29 on the entry session", "verdict": "technically before the deadline, but by 16-175 seconds; not a reliable operating path", "entitlement": "held, $0 marginal"},
+      {"source": "Databento OPRA real-time / live feed", "verdict": "REFUSED - $199/mo; the R62.3.2 purchase gate answered NO on the evidence that next-open entry keeps 98.7% of the edge. No new paid entitlement is authorised.", "entitlement": "not held"},
+      {"source": "CBOE SKEW / VXN / RVX free index proxies", "verdict": "REJECTED ON PRIOR EVIDENCE - the live skew signal was measured to share no information with SKEW/VXN/RVX (alpha-agent mechanism frontier work). Not economically equivalent.", "entitlement": "free"}
+    ],
+    "conclusion": "there is no owned or free source that delivers this signal's inputs with a usable margin before a 09:30 ET entry. The remedy is not an earlier source; it is a later entry mark."
+  },
+
+  "proposed_variant": {
+    "status": "PROPOSED - NOT REGISTERED. A prospective registration is a governed act and belongs to the director -> skeptic -> signal-publishing path, not to this analysis.",
+    "proposed_identity": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_CLOSE_V1",
+    "distinct_from": "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1 (retained unchanged, with its 9 missed boundaries intact and countable)",
+    "change": "ENTRY_MARK_ET 09:30 -> 16:00 on the entry session; EXECUTION_BOUNDARY NEXT_ELIGIBLE_SESSION_OPEN -> NEXT_ELIGIBLE_SESSION_CLOSE. Signal construction, sign, z-score lookback, horizon and cost model all UNCHANGED and still read from the frozen sibling.",
+    "why_it_is_the_right_shape": [
+      "it makes the effective decision window ~6.5 hours (09:29 -> 16:00 ET) instead of 16-175 seconds, restoring the design's own stated intent",
+      "it prices the entry on the mark the accrual was ALWAYS going to use, so the declaration stops disagreeing with the measurement",
+      "it needs no new data, no loader change, no scheduler and no paid entitlement",
+      "MOC execution on SPY is realistic and liquid at the 0.78%-of-NAV unit size this registration trades"
+    ],
+    "economic_measurement": {
+      "construction_held_constant": "field=skew, sign=-1, strictly-prior 60-observation z-score, horizon=5, non-overlapping sampling at cadence=horizon, 1.0 bp/side on traded notional",
+      "sample": "the owned OPRA moneyness surface, 2024-09-10 -> 2026-09-21, 91 non-overlapping decisions",
+      "results": [
+        {"entry_lag_sessions": 0, "meaning": "frozen sibling: enter at the signal session's close (needs the declined OPRA subscription)", "ann_net_pct": 27.29, "sharpe": 2.20, "t_net": 2.97, "hit_rate_pct": 62.6},
+        {"entry_lag_sessions": 1, "meaning": "PROPOSED next-close variant", "ann_net_pct": 22.90, "sharpe": 1.64, "t_net": 2.22, "hit_rate_pct": 54.9, "retains_pct_of_lag0": 83.9},
+        {"entry_lag_sessions": 2, "meaning": "control", "ann_net_pct": 37.61, "sharpe": 2.60, "t_net": 3.52, "hit_rate_pct": 63.7, "retains_pct_of_lag0": 137.8}
+      ],
+      "honest_reading": "the variant retains ~84% of the annualised net and stays positive at t=2.22. But the lag-2 CONTROL comes in HIGHER than lag-0, which proves the entry-lag differences on this 91-decision sample sit inside the noise band. The correct conclusion is NOT 'the variant costs 16%'; it is 'this sample cannot resolve the entry-lag decay at all, and the variant is not shown to be economically damaged'.",
+      "why_this_is_not_a_verdict": "this is the surface the sign was discovered on. The frozen confirmation window (2022-09-09 -> 2024-09-09) is not covered by this surface file, so no out-of-sample confirmation is available here. These numbers are a FEASIBILITY check on the execution change, not evidence of alpha. The only admissible evidence is prospective, and producing it is the entire point of the variant."
+    },
+    "what_it_requires_before_it_may_exist": [
+      "a director ruling that an execution-feasibility variant of a frozen signal is admissible and is not a renamed dead idea",
+      "a skeptic pass on the identity question specifically: is NEXT_CLOSE_V1 a distinct economic identity from NEXT_OPEN_V1, or a second look at one signal",
+      "a governed prospective registration raised through signal-publishing-agent, with its own registration session and its own forward clock",
+      "a producer stage wired into the R52 runtime, declaring its own boundary grid under the R72 contract this release just landed"
+    ]
+  },
+
+  "external_blocker_if_the_variant_is_refused": {
+    "blocker": "NO_OWNED_OR_FREE_SOURCE_DELIVERS_THIS_SIGNAL_BEFORE_A_0930_ET_ENTRY",
+    "detail": "Databento OPRA historical publishes the information session at 09:27-09:29 ET, 16-175 seconds before the declared entry mark. The only source that would widen that margin is the OPRA real-time subscription at $199/mo, which the R62.3.2 purchase gate declined on the evidence. Without either a later entry mark or that purchase, this registration will continue to forfeit every boundary, permanently and uncountably-until-R72.",
+    "is_this_fabricable": false,
+    "note": "no earlier availability time has been invented anywhere in this artifact; every instant above is a measured probe observation."
+  }
+}
