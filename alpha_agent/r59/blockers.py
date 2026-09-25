@@ -229,6 +229,15 @@ def classify(reason: Any, *, payload: Optional[dict] = None,
             "source_artifact": r.get("source_artifact"),
             "overrode_recorded_code": (recorded_code
                                        if recorded_code != code else None),
+            # R72.1 - HOW FAR the ruling that moved this code reaches, and
+            # which key answered. A reader who cannot see that a family-wide
+            # ruling (rather than one about this mechanism) reclassified the
+            # job cannot audit whether it should have.
+            "ruling_scope": r.get("ruling_scope"),
+            "information_family": r.get("information_family"),
+            "model_family": r.get("model_family"),
+            "matched_on": r.get("matched_on"),
+            "matched_exactly": r.get("matched_exactly"),
         }
     return {
         "reason_code": code,
@@ -256,7 +265,15 @@ def classify(reason: Any, *, payload: Optional[dict] = None,
 
 
 def ruling_for(payload: Optional[dict], *, mem: Any = None) -> Optional[dict]:
-    """The director's durable ruling for a job's family, if one exists.
+    """The director's durable ruling for a job's MECHANISM, if one exists.
+
+    R72.1 - the job's ``information_family`` and ``model_family`` are passed
+    through when it carries them, so a mechanism-scoped ruling reaches the one
+    mechanism it was written about. A job that names no mechanism - which is
+    every job the live R59 queue currently holds - can only match a FAMILY-WIDE
+    ruling. That asymmetry is deliberate: an unnamed mechanism is not evidence
+    that the job is inside a narrower ruling, and treating it as such would
+    terminate cells no director ever ruled on.
 
     Never raises and never opens a store the caller did not hand it unless it
     can do so read-only: a blocker classification must not fail, and must not
@@ -270,8 +287,10 @@ def ruling_for(payload: Optional[dict], *, mem: Any = None) -> Optional[dict]:
         if mem is None:
             from . import memory as _M
             mem = _M.open_memory_readonly()
-        return mem.director_ruling(asset_class=str(ac),
-                                   economic_family=str(fam))
+        return mem.director_ruling(
+            asset_class=str(ac), economic_family=str(fam),
+            information_family=p.get("information_family"),
+            model_family=p.get("model_family"))
     except Exception:                                       # noqa: BLE001
         return None
 

@@ -47,6 +47,85 @@ from .. import r59
 SCHEMA_VERSION = "r59_research_memory/1"
 DB_NAME = "research_memory.sqlite"
 
+#: R72.1. The wildcard a director ruling uses for a mechanism component it does
+#: NOT bind, meaning "every mechanism in this family". It is deliberately a
+#: character no family name may contain, so it can never be confused with one.
+RULING_ANY = "*"
+
+#: How far a recorded ruling reaches. Derived from the two mechanism components
+#: rather than stored, so a row and its scope can never disagree.
+RULING_SCOPE_FAMILY = "ECONOMIC_FAMILY"
+RULING_SCOPE_INFORMATION = "INFORMATION_FAMILY"
+RULING_SCOPE_MODEL = "MODEL_FAMILY"
+RULING_SCOPE_MECHANISM = "MECHANISM"
+RULING_SCOPES = (RULING_SCOPE_MECHANISM, RULING_SCOPE_INFORMATION,
+                 RULING_SCOPE_MODEL, RULING_SCOPE_FAMILY)
+
+#: The migration that gave this table its mechanism identity. Recorded in
+#: ``memory_meta`` so the rebuild is provably once-only.
+DIRECTOR_RULING_IDENTITY_MIGRATION = "r72_1_director_ruling_mechanism_identity"
+
+#: R72.1. Why a mechanism query was refused rather than answered. One code,
+#: because there is exactly one way to ask an unanswerable question here: name
+#: no part of the mechanism at all.
+MECHANISM_QUERY_UNBOUND = "INVALID_QUERY_NO_MECHANISM_COMPONENT_BOUND"
+
+
+def _ruling_table_has_mechanism_identity(conn) -> bool:
+    """Is this connection's ``director_rulings`` already in the R72.1 shape?
+
+    A READ-ONLY handle can never migrate - :meth:`ResearchMemory._init_schema`
+    is not run for one - so a reader may legitimately meet the legacy table
+    while a writer has not yet opened the store. Asking the table rather than
+    assuming is what keeps the blocker reconciliation, which runs read-only
+    against the LIVE store, from losing every ruling to a missing column.
+    """
+    try:
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(director_rulings)").fetchall()}
+    except sqlite3.Error:
+        return False
+    return "information_family" in cols
+
+
+def _none_if_unbound(value: Any) -> Optional[Any]:
+    """``None`` for anything that does not actually name a component.
+
+    A filter is bound only when it carries a non-blank string. ``None``, ``""``
+    and whitespace are the same statement - "I did not say" - and a query
+    predicate must not treat them as three different ones.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+def _ruling_component(value: Any) -> str:
+    """One mechanism component of a ruling key, normalised.
+
+    ``None``, an empty string and whitespace all mean THE SAME THING - the
+    director did not bind this component - and all become :data:`RULING_ANY`.
+    Treating a blank as a distinct literal would create a third scope nobody
+    declared, reachable only by a caller that passed an empty string.
+    """
+    text = "" if value is None else str(value).strip()
+    return text or RULING_ANY
+
+
+def ruling_scope(information_family: Any, model_family: Any) -> str:
+    """How far a ruling with these two components reaches."""
+    info_bound = _ruling_component(information_family) != RULING_ANY
+    model_bound = _ruling_component(model_family) != RULING_ANY
+    if info_bound and model_bound:
+        return RULING_SCOPE_MECHANISM
+    if info_bound:
+        return RULING_SCOPE_INFORMATION
+    if model_bound:
+        return RULING_SCOPE_MODEL
+    return RULING_SCOPE_FAMILY
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS memory_meta (
     key   TEXT PRIMARY KEY,
@@ -139,20 +218,43 @@ CREATE TABLE IF NOT EXISTS provider_usage (
 -- reconciliation can be provenance-carrying rather than an assertion. The
 -- blocker code is drawn from the EXISTING taxonomy - a ruling makes a code
 -- authoritative, it does not add a vocabulary.
+--
+-- R72.1 - THE KEY IS THE MECHANISM, NOT THE FAMILY.
+--
+-- The first version of this table was keyed (asset_class, economic_family).
+-- That key cannot tell two DIFFERENT mechanisms apart when they happen to share
+-- an economic family, and the estate has many: US_EQUITY|EVENT_OVERREACTION
+-- holds both the SEC comment-letter cell and a NASDAQ trading-halt cell, which
+-- read different information through different models and were settled by
+-- different evidence. Under the old key, ruling on the first TERMINALLY closed
+-- the second - a refusal nobody wrote, arriving through a primary key.
+--
+-- The key is therefore the same four-part mechanism identity every other reader
+-- in this estate already uses (economic_family | information_family |
+-- asset_class | model_family), and the two mechanism components accept the
+-- wildcard ``*`` meaning "every mechanism in this family". A family-wide ruling
+-- is (family, '*', '*') and keeps exactly the reach it always had; a
+-- mechanism-scoped ruling binds its own information and model family and
+-- reaches nothing else. Resolution is MOST-SPECIFIC-FIRST, and a caller that
+-- names no mechanism can only ever match the family-wide row - so a
+-- mechanism-scoped ruling can never leak onto a job whose mechanism is unknown.
 CREATE TABLE IF NOT EXISTS director_rulings (
-    asset_class       TEXT NOT NULL,
-    economic_family   TEXT NOT NULL,
-    verdict           TEXT NOT NULL,
-    blocker_reason    TEXT NOT NULL,
-    rationale         TEXT NOT NULL,
-    reopen_condition  TEXT,
-    campaign_id       TEXT,
-    decided_by        TEXT,
-    decision_date     TEXT,
-    source_artifact   TEXT,
-    detail_json       TEXT,
-    updated_at        TEXT NOT NULL,
-    PRIMARY KEY (asset_class, economic_family)
+    asset_class        TEXT NOT NULL,
+    economic_family    TEXT NOT NULL,
+    information_family TEXT NOT NULL DEFAULT '*',
+    model_family       TEXT NOT NULL DEFAULT '*',
+    verdict            TEXT NOT NULL,
+    blocker_reason     TEXT NOT NULL,
+    rationale          TEXT NOT NULL,
+    reopen_condition   TEXT,
+    campaign_id        TEXT,
+    decided_by         TEXT,
+    decision_date      TEXT,
+    source_artifact    TEXT,
+    detail_json        TEXT,
+    updated_at         TEXT NOT NULL,
+    PRIMARY KEY (asset_class, economic_family, information_family,
+                 model_family)
 );
 
 CREATE TABLE IF NOT EXISTS generator_yield (
@@ -299,6 +401,156 @@ class ResearchMemory:
             conn.execute("PRAGMA query_only=ON")
             return conn
 
+    #: The columns a pre-R72.1 ``director_rulings`` row carries, in the order
+    #: the rebuild copies them. Named explicitly rather than with ``SELECT *``
+    #: so a future column cannot silently change what the migration moves.
+    _RULING_LEGACY_COLUMNS = (
+        "asset_class", "economic_family", "verdict", "blocker_reason",
+        "rationale", "reopen_condition", "campaign_id", "decided_by",
+        "decision_date", "source_artifact", "detail_json", "updated_at")
+
+    def _migrate_director_ruling_identity(self, conn) -> Optional[dict]:
+        """R72.1 - rekey ``director_rulings`` onto the mechanism identity.
+
+        A PRIMARY KEY cannot be altered in place in SQLite, so the table is
+        rebuilt. This is the ONLY table in this memory that is ever rebuilt,
+        and it is rebuilt exactly once: every pre-existing ruling is copied
+        with :data:`RULING_ANY` in both mechanism components, which is the
+        shape that PRESERVES ITS MEANING EXACTLY. A ruling recorded under the
+        old key said "this economic family, in this asset class" and nothing
+        about which mechanism inside it, so family-wide is neither a widening
+        nor a narrowing - it is a faithful restatement in the new vocabulary.
+        Inventing a mechanism for it from its rationale text would be the
+        narrowing this migration exists to avoid.
+
+        Idempotent: once the column is present the table is already in the new
+        shape and this returns ``None`` without touching a row. Returns the
+        migration report (mapping and collisions) the one time it runs, and
+        records the same report in ``memory_meta`` so it stays auditable.
+
+        Runs INSIDE the caller's connection and transaction, before the schema
+        script, so a fresh database never sees the legacy shape at all.
+        """
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(director_rulings)").fetchall()}
+        if not cols:
+            return None                      # fresh database: schema builds it
+        if "information_family" in cols:
+            return None                      # already migrated
+        legacy = [c for c in self._RULING_LEGACY_COLUMNS if c in cols]
+        rows = [dict(r) for r in conn.execute(
+            "SELECT %s FROM director_rulings" % ", ".join(legacy)).fetchall()]
+        mapping, seen, collisions = [], {}, []
+        for r in rows:
+            key = (str(r.get("asset_class")), str(r.get("economic_family")),
+                   RULING_ANY, RULING_ANY)
+            entry = {
+                "from": {"asset_class": r.get("asset_class"),
+                         "economic_family": r.get("economic_family")},
+                "to": {"asset_class": key[0], "economic_family": key[1],
+                       "information_family": key[2], "model_family": key[3]},
+                "scope_before": RULING_SCOPE_FAMILY,
+                "scope_after": ruling_scope(key[2], key[3]),
+                "verdict": r.get("verdict"),
+                "blocker_reason": r.get("blocker_reason"),
+                "reopen_condition": r.get("reopen_condition"),
+                "campaign_id": r.get("campaign_id"),
+                "decided_by": r.get("decided_by"),
+                "narrowed": False, "broadened": False,
+            }
+            if key in seen:
+                # Unreachable through the old PRIMARY KEY, which already made
+                # (asset_class, economic_family) unique. Detected and reported
+                # anyway: a migration that cannot say it lost nothing has not
+                # shown that it lost nothing.
+                entry["collided_with"] = seen[key]
+                collisions.append(entry)
+            else:
+                seen[key] = entry["from"]
+            mapping.append(entry)
+        # A scratch table that survives here is, BY DEFINITION, from a rebuild
+        # that never reached its RENAME - so it holds no ruling the original
+        # does not still hold, and the original is still the live table. Left
+        # in place it would fail every subsequent open with "table already
+        # exists", turning one interrupted migration into a store nobody can
+        # open. CREATE TABLE does not roll back in SQLite's autocommit mode,
+        # so this is reachable, and it is the recovery.
+        conn.execute("DROP TABLE IF EXISTS director_rulings__r72_1")
+        conn.execute("""
+            CREATE TABLE director_rulings__r72_1 (
+                asset_class        TEXT NOT NULL,
+                economic_family    TEXT NOT NULL,
+                information_family TEXT NOT NULL DEFAULT '*',
+                model_family       TEXT NOT NULL DEFAULT '*',
+                verdict            TEXT NOT NULL,
+                blocker_reason     TEXT NOT NULL,
+                rationale          TEXT NOT NULL,
+                reopen_condition   TEXT,
+                campaign_id        TEXT,
+                decided_by         TEXT,
+                decision_date      TEXT,
+                source_artifact    TEXT,
+                detail_json        TEXT,
+                updated_at         TEXT NOT NULL,
+                PRIMARY KEY (asset_class, economic_family,
+                             information_family, model_family)
+            )""")
+        carried = [c for c in self._RULING_LEGACY_COLUMNS if c in cols]
+        conn.execute(
+            "INSERT INTO director_rulings__r72_1"
+            " (information_family, model_family, %s)"
+            " SELECT ?, ?, %s FROM director_rulings"
+            % (", ".join(carried), ", ".join(carried)),
+            (RULING_ANY, RULING_ANY))
+        moved = conn.execute(
+            "SELECT COUNT(*) FROM director_rulings__r72_1").fetchone()[0]
+        if int(moved) != len(rows):
+            raise RuntimeError(
+                "director_rulings migration would lose rulings: read %d, "
+                "wrote %d; refusing to drop the original table"
+                % (len(rows), int(moved)))
+        conn.execute("DROP TABLE director_rulings")
+        conn.execute("ALTER TABLE director_rulings__r72_1"
+                     " RENAME TO director_rulings")
+        report = {
+            "migration": DIRECTOR_RULING_IDENTITY_MIGRATION,
+            "owner": "alpha_agent.r59.memory.ResearchMemory",
+            "key_before": ["asset_class", "economic_family"],
+            "key_after": ["asset_class", "economic_family",
+                          "information_family", "model_family"],
+            "rulings_before": len(rows), "rulings_after": int(moved),
+            "n_collisions": len(collisions), "collisions": collisions,
+            "n_narrowed": 0, "n_broadened": 0,
+            "every_ruling_preserved": int(moved) == len(rows),
+            "rule": ("a pre-R72.1 ruling bound no mechanism, so it migrates to "
+                     "(information_family='*', model_family='*') - the same "
+                     "reach it already had, restated in the new key"),
+            "mapping": mapping,
+            "migrated_at": r59.now_iso(),
+        }
+        conn.execute(
+            "INSERT OR REPLACE INTO memory_meta(key,value) VALUES(?,?)",
+            (DIRECTOR_RULING_IDENTITY_MIGRATION, _j(report)))
+        return report
+
+    def director_ruling_migration_report(self) -> Optional[dict]:
+        """The R72.1 migration's mapping and collision report, or ``None``.
+
+        ``None`` means this database was created at or after R72.1 and never
+        held a family-keyed ruling, which is a different fact from "the
+        migration lost something" and is reported as itself.
+        """
+        conn = self._connect_read_only()
+        try:
+            row = conn.execute(
+                "SELECT value FROM memory_meta WHERE key=?",
+                (DIRECTOR_RULING_IDENTITY_MIGRATION,)).fetchone()
+        except sqlite3.Error:
+            return None
+        finally:
+            conn.close()
+        return _unj(row["value"]) if row else None
+
     def _init_schema(self) -> None:
         with self._lock:
             conn = self._connect()
@@ -313,6 +565,7 @@ class ResearchMemory:
                 if have and "invalidated_reason" not in have:
                     conn.execute("ALTER TABLE hypotheses"
                                  " ADD COLUMN invalidated_reason TEXT")
+                self._migrate_director_ruling_identity(conn)
                 conn.executescript(_SCHEMA_SQL)
                 conn.execute(
                     "INSERT OR REPLACE INTO memory_meta(key,value) VALUES(?,?)",
@@ -777,7 +1030,57 @@ class ResearchMemory:
         Every filter is optional, so a caller can ask about a whole economic
         family or narrow to the exact four-part key. Nothing is settled or
         reopened here; this is a pure read.
+
+        R72.1 - AN UNBOUND QUERY IS REFUSED, NOT ANSWERED.
+
+        With every component unbound the predicate below is vacuously true, so
+        the query matched EVERY row in research memory, found settled ones
+        among them (there are thousands) and returned
+        ``mechanism_is_settled: True``. The novelty probe turned that into
+        ``SETTLED_DO_NOT_REPEAT`` - a governed refusal, indistinguishable from
+        a real one, produced by a payload that named no mechanism at all. A
+        malformed question must fail as malformed; the one thing it must never
+        do is come back wearing the estate's most authoritative answer.
+
+        ``None``, ``""`` and whitespace are all UNBOUND and all behave
+        identically, so a blank component narrows nothing rather than filtering
+        to rows whose family is literally empty - which would be the mirror
+        defect, a false ``NO_ROW_IN_MEMORY`` read as "novel".
+
+        A PARTIALLY bound query is valid and unchanged: asking about a whole
+        asset class or a whole economic family is a real question with a real
+        answer, and callers that ask it keep exactly what they always got.
         """
+        asset_class = _none_if_unbound(asset_class)
+        economic_family = _none_if_unbound(economic_family)
+        information_family = _none_if_unbound(information_family)
+        model_family = _none_if_unbound(model_family)
+        bound = {k: v for k, v in (
+            ("asset_class", asset_class),
+            ("economic_family", economic_family),
+            ("information_family", information_family),
+            ("model_family", model_family)) if v is not None}
+        if not bound:
+            return {
+                "asset_class": None, "economic_family": None,
+                "information_family": None, "model_family": None,
+                "query_valid": False,
+                "invalid_query_reason": MECHANISM_QUERY_UNBOUND,
+                "invalid_query_detail": (
+                    "a mechanism check must bind at least one of "
+                    "economic_family, information_family, asset_class or "
+                    "model_family; an unbound query matches every row in "
+                    "research memory and would report the whole estate's "
+                    "settled history as this mechanism's own"),
+                "bound_components": [], "n_bound_components": 0,
+                # Deliberately the SAFE values. A caller that ignores
+                # query_valid must still not be able to read a refusal here.
+                "n_matching": 0, "n_settled": 0, "n_unsettled": 0,
+                "outcomes": {}, "best_lockbox_t": None,
+                "mechanism_is_settled": False,
+                "hypothesis_ids": [], "reopen_conditions": [],
+                "family_keys": [],
+            }
         rows = self.list_hypotheses(limit=1000000)
 
         def _m(r):
@@ -803,6 +1106,8 @@ class ResearchMemory:
             "asset_class": asset_class, "economic_family": economic_family,
             "information_family": information_family,
             "model_family": model_family,
+            "query_valid": True, "invalid_query_reason": None,
+            "bound_components": sorted(bound), "n_bound_components": len(bound),
             "n_matching": len(hits), "n_settled": len(settled),
             "n_unsettled": len(hits) - len(settled),
             "outcomes": outcomes, "best_lockbox_t": best_t,
@@ -1088,13 +1393,15 @@ class ResearchMemory:
     def record_director_ruling(self, *, asset_class: str,
                                economic_family: str, verdict: str,
                                blocker_reason: str, rationale: str,
+                               information_family: Optional[str] = None,
+                               model_family: Optional[str] = None,
                                reopen_condition: Optional[str] = None,
                                campaign_id: Optional[str] = None,
                                decided_by: Optional[str] = None,
                                decision_date: Optional[str] = None,
                                source_artifact: Optional[str] = None,
                                detail: Optional[dict] = None) -> dict:
-        """Make ONE director ruling on an economic family durably readable.
+        """Make ONE director ruling on a MECHANISM durably readable.
 
         The governor and :mod:`alpha_agent.r59.blockers` read this database; a
         campaign JSON file is not durable research state, and a ruling that
@@ -1106,10 +1413,19 @@ class ResearchMemory:
         makes an existing code AUTHORITATIVE for a family; it may not invent a
         twelfth reason, because a second vocabulary is a second owner.
 
+        R72.1 - ``information_family`` and ``model_family`` SCOPE the ruling.
+        Omitting them (the pre-R72.1 call, and every existing caller) records a
+        FAMILY-WIDE ruling that reaches every mechanism in the family, exactly
+        as before. Naming them binds the ruling to that one mechanism, so a
+        refusal aimed at SEC comment letters cannot terminate a trading-halt
+        cell that merely shares an economic family.
+
         Writes no hypothesis, spends no burden, enqueues nothing and schedules
-        nothing. Re-recording the same family REPLACES its ruling, so the
+        nothing. Re-recording the same MECHANISM replaces its ruling, so the
         newest director's word stands - and the previous one is kept in the
-        event log rather than silently dropped.
+        event log rather than silently dropped. A mechanism-scoped ruling never
+        replaces the family-wide one; they are different rows and both stand,
+        with the more specific winning at read time.
         """
         self._guard_write()
         from . import blockers as _B
@@ -1120,14 +1436,27 @@ class ResearchMemory:
                 "a new one" % (blocker_reason, list(_B.BLOCKER_REASONS)))
         if not asset_class or not economic_family:
             raise ValueError("a ruling must name an asset class and a family")
+        if RULING_ANY in (str(asset_class), str(economic_family)):
+            raise ValueError(
+                "a ruling must name a real asset class and economic family; "
+                "%r is the mechanism wildcard and may only scope "
+                "information_family or model_family" % RULING_ANY)
         if not str(rationale or "").strip():
             raise ValueError(
                 "a ruling without a rationale cannot be audited later; the "
                 "director's reason is the whole point of recording it")
-        prior = self.director_ruling(asset_class=asset_class,
-                                     economic_family=economic_family)
-        row = (str(asset_class), str(economic_family), str(verdict),
-               str(blocker_reason), str(rationale),
+        info = _ruling_component(information_family)
+        model = _ruling_component(model_family)
+        scope = ruling_scope(info, model)
+        # The row this write REPLACES is the one with this exact key, never
+        # whatever a read would have resolved: replacing the family-wide ruling
+        # because a mechanism-scoped write found it would be the silent
+        # broadening this release exists to prevent.
+        prior = self._director_ruling_exact(
+            asset_class=asset_class, economic_family=economic_family,
+            information_family=info, model_family=model)
+        row = (str(asset_class), str(economic_family), info, model,
+               str(verdict), str(blocker_reason), str(rationale),
                (str(reopen_condition) if reopen_condition else None),
                (str(campaign_id) if campaign_id else None),
                (str(decided_by) if decided_by else None),
@@ -1139,11 +1468,13 @@ class ResearchMemory:
             try:
                 conn.execute(
                     "INSERT INTO director_rulings (asset_class,"
-                    " economic_family, verdict, blocker_reason, rationale,"
+                    " economic_family, information_family, model_family,"
+                    " verdict, blocker_reason, rationale,"
                     " reopen_condition, campaign_id, decided_by,"
                     " decision_date, source_artifact, detail_json, updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-                    " ON CONFLICT(asset_class, economic_family) DO UPDATE SET"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(asset_class, economic_family,"
+                    " information_family, model_family) DO UPDATE SET"
                     " verdict=excluded.verdict,"
                     " blocker_reason=excluded.blocker_reason,"
                     " rationale=excluded.rationale,"
@@ -1158,56 +1489,151 @@ class ResearchMemory:
             finally:
                 conn.close()
         self.event("DIRECTOR_RULING_RECORDED",
-                   subject="%s|%s" % (asset_class, economic_family),
+                   subject="%s|%s|%s|%s" % (economic_family, info,
+                                            asset_class, model),
                    detail={"verdict": verdict, "blocker_reason": blocker_reason,
                            "campaign_id": campaign_id,
                            "decided_by": decided_by,
+                           "information_family": info, "model_family": model,
+                           "ruling_scope": scope,
                            "reopen_condition": reopen_condition,
                            "replaced": prior or None})
         return {"recorded": True, "asset_class": asset_class,
-                "economic_family": economic_family, "verdict": verdict,
+                "economic_family": economic_family,
+                "information_family": info, "model_family": model,
+                "ruling_scope": scope, "verdict": verdict,
                 "blocker_reason": blocker_reason, "replaced": prior or None}
 
-    def director_ruling(self, *, asset_class: str,
-                        economic_family: str) -> Optional[dict]:
-        """The ruling on ONE family, or ``None`` when the director has not ruled.
-
-        ``None`` is a real answer and is never an implied clearance: a family
-        nobody has ruled on keeps whatever its own engine recorded.
-        """
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                "SELECT * FROM director_rulings WHERE asset_class=?"
-                " AND economic_family=?",
-                (str(asset_class), str(economic_family))).fetchone()
-        finally:
-            conn.close()
-        if not row:
-            return None
+    @staticmethod
+    def _ruling_row(row) -> dict:
         d = dict(row)
         d["detail"] = _unj(d.pop("detail_json", None))
+        d["ruling_scope"] = ruling_scope(d.get("information_family"),
+                                         d.get("model_family"))
         return d
 
-    def director_rulings(self, *, asset_class: Optional[str] = None) -> list:
+    def _director_ruling_exact(self, *, asset_class: str,
+                               economic_family: str,
+                               information_family: str,
+                               model_family: str) -> Optional[dict]:
+        """The ruling stored under EXACTLY this key, with no fallback."""
+        conn = self._connect()
+        try:
+            if _ruling_table_has_mechanism_identity(conn):
+                row = conn.execute(
+                    "SELECT * FROM director_rulings WHERE asset_class=?"
+                    " AND economic_family=? AND information_family=?"
+                    " AND model_family=?",
+                    (str(asset_class), str(economic_family),
+                     str(information_family), str(model_family))).fetchone()
+            elif (str(information_family), str(model_family)) == (RULING_ANY,
+                                                                  RULING_ANY):
+                # Legacy table: every row in it IS family-wide, so only the
+                # family-wide key can have an exact match.
+                row = conn.execute(
+                    "SELECT * FROM director_rulings WHERE asset_class=?"
+                    " AND economic_family=?",
+                    (str(asset_class), str(economic_family))).fetchone()
+            else:
+                row = None
+        finally:
+            conn.close()
+        return self._ruling_row(row) if row else None
+
+    def director_ruling(self, *, asset_class: str, economic_family: str,
+                        information_family: Optional[str] = None,
+                        model_family: Optional[str] = None
+                        ) -> Optional[dict]:
+        """The ruling that governs ONE mechanism, or ``None``.
+
+        ``None`` is a real answer and is never an implied clearance: a
+        mechanism nobody has ruled on keeps whatever its own engine recorded.
+
+        R72.1 - resolution is MOST-SPECIFIC-FIRST within the family:
+
+          1. the exact mechanism ``(information_family, model_family)``
+          2. its information family, any model  ``(info, '*')``
+          3. any information, its model family  ``(  '*', model)``
+          4. the family-wide ruling             ``(  '*',   '*')``
+
+        A CALLER THAT NAMES NO MECHANISM CAN ONLY MATCH STEP 4. This is the
+        whole point of the release: the R59 queue's blocked jobs carry only
+        ``(asset_class, family)``, so if an unnamed mechanism could match a
+        mechanism-scoped ruling, a refusal written about SEC comment letters
+        would silently terminate every other cell in EVENT_OVERREACTION. A
+        ruling reaches a job only when the job is demonstrably inside it.
+
+        The returned row carries ``ruling_scope`` and ``matched_on`` so a
+        reader can always see WHICH of the four steps answered, and therefore
+        audit the reach of the ruling rather than trust it.
+        """
+        info = _ruling_component(information_family)
+        model = _ruling_component(model_family)
+        candidates = [(info, model)]
+        if info != RULING_ANY:
+            candidates.append((info, RULING_ANY))
+        if model != RULING_ANY:
+            candidates.append((RULING_ANY, model))
+        if (RULING_ANY, RULING_ANY) not in candidates:
+            candidates.append((RULING_ANY, RULING_ANY))
+        conn = self._connect()
+        try:
+            if not _ruling_table_has_mechanism_identity(conn):
+                # Legacy table met by a read-only handle. Every row in it is
+                # family-wide, so resolution collapses to step 4 - which is
+                # exactly what this store meant before R72.1. The answer is
+                # reported with its real reach, not with the mechanism the
+                # caller asked about.
+                candidates = [(RULING_ANY, RULING_ANY)]
+                legacy_sql = ("SELECT * FROM director_rulings WHERE"
+                              " asset_class=? AND economic_family=?")
+            else:
+                legacy_sql = None
+            for cand_info, cand_model in candidates:
+                if legacy_sql:
+                    row = conn.execute(
+                        legacy_sql,
+                        (str(asset_class), str(economic_family))).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT * FROM director_rulings WHERE asset_class=?"
+                        " AND economic_family=? AND information_family=?"
+                        " AND model_family=?",
+                        (str(asset_class), str(economic_family),
+                         cand_info, cand_model)).fetchone()
+                if row:
+                    d = self._ruling_row(row)
+                    d["matched_on"] = {"information_family": cand_info,
+                                       "model_family": cand_model}
+                    d["asked"] = {"asset_class": str(asset_class),
+                                  "economic_family": str(economic_family),
+                                  "information_family": info,
+                                  "model_family": model}
+                    d["matched_exactly"] = (cand_info, cand_model) == (info,
+                                                                       model)
+                    return d
+        finally:
+            conn.close()
+        return None
+
+    def director_rulings(self, *, asset_class: Optional[str] = None,
+                         economic_family: Optional[str] = None) -> list:
         """Every recorded ruling, newest first."""
         sql = "SELECT * FROM director_rulings WHERE 1=1"
         params: list = []
         if asset_class:
             sql += " AND asset_class=?"
             params.append(str(asset_class))
+        if economic_family:
+            sql += " AND economic_family=?"
+            params.append(str(economic_family))
         sql += " ORDER BY updated_at DESC"
         conn = self._connect()
         try:
             rows = conn.execute(sql, params).fetchall()
         finally:
             conn.close()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["detail"] = _unj(d.pop("detail_json", None))
-            out.append(d)
-        return out
+        return [self._ruling_row(r) for r in rows]
 
     # -- provider utilisation ----------------------------------------------- #
     def set_provider_usage(self, provider: str, data_class: str, *,

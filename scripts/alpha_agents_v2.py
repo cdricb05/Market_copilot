@@ -58,6 +58,13 @@ def _check_mechanism(mem, payload: dict) -> dict:
     could be presented as untested and was, three times. This asks research
     memory directly, on the full key, and is what a proposal's novelty claim
     must be checked against before it is believed.
+
+    R72.1. A payload that binds NO component of the mechanism is refused as
+    INVALID_QUERY. It used to match every row in research memory and return
+    SETTLED_DO_NOT_REPEAT - the estate's most final answer, manufactured from a
+    question nobody asked. Neither verdict is believable from such a payload:
+    the refusal is not a governed refusal and the absence of a hit would not be
+    novelty, so the only honest output is that the query was malformed.
     """
     body = dict(payload or {})
     state = mem.mechanism_state(
@@ -65,9 +72,14 @@ def _check_mechanism(mem, payload: dict) -> dict:
         economic_family=body.get("economic_family"),
         information_family=body.get("information_family"),
         model_family=body.get("model_family"))
-    verdict = ("SETTLED_DO_NOT_REPEAT" if state["mechanism_is_settled"]
-               else ("UNSETTLED_ROWS_EXIST" if state["n_matching"]
-                     else "NO_ROW_IN_MEMORY"))
+    if state.get("query_valid") is False:
+        verdict = "INVALID_QUERY"
+    elif state["mechanism_is_settled"]:
+        verdict = "SETTLED_DO_NOT_REPEAT"
+    elif state["n_matching"]:
+        verdict = "UNSETTLED_ROWS_EXIST"
+    else:
+        verdict = "NO_ROW_IN_MEMORY"
     return {
         "kind": "MECHANISM_CHECK", "read_only": True, "experiments_run": 0,
         "evaluation_samples_read": 0,
@@ -75,7 +87,12 @@ def _check_mechanism(mem, payload: dict) -> dict:
                   ("asset_class", "economic_family", "information_family",
                    "model_family")},
         "verdict": verdict,
+        "verdict_vocabulary": ["NO_ROW_IN_MEMORY", "UNSETTLED_ROWS_EXIST",
+                               "SETTLED_DO_NOT_REPEAT", "INVALID_QUERY"],
+        # An unanswerable query makes NO novelty claim believable. Both of the
+        # answers it could otherwise produce are artefacts of the malformation.
         "novelty_claim_is_believable": verdict == "NO_ROW_IN_MEMORY",
+        "is_governed_refusal": verdict == "SETTLED_DO_NOT_REPEAT",
         **state,
         "note": ("a mechanism reopens ONLY on its recorded reopen condition. "
                  "Renaming either key component is refused by the director and "
@@ -315,6 +332,13 @@ def main(argv=None) -> int:
                 Path(args.input).read_text(encoding="utf-8-sig"))
                 if args.input else {})
             _emit(body)
+            if body["verdict"] == "INVALID_QUERY":
+                # R72.1. Emitted first, so the caller can see exactly which
+                # components were unbound, and THEN refused - a malformed
+                # novelty check must not exit 0 beside a JSON body whose
+                # verdict field a script may never read.
+                raise P.PipelineRefusal("INVALID_QUERY",
+                                        body["invalid_query_detail"])
             return 0
         elif cmd == "blocker-reconciliation":
             # R72, READ-ONLY. What the live queue believes about each blocked
