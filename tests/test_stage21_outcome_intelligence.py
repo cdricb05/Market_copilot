@@ -582,10 +582,12 @@ def test_35_a_missing_owned_close_is_data_blocked_never_interpolated():
 # 36-41  OUTCOME TYPES (Workstream B)
 # =========================================================================== #
 def _obs(action, *, inc=-0.10, rep=0.20, replacement="REP", withheld=False,
-         codes=None, decision="CURRENT_NO_CHANGE", lineage=None, horizon=20):
+         codes=None, decision="CURRENT_NO_CHANGE", lineage=None, horizon=20,
+         incumbent="INC"):
     cal = _calendar()
-    series = _series(cal, INC=inc, REP=rep)
-    rec = _rec("INC", action, replacement=replacement, withheld=withheld, codes=codes)
+    series = _series(cal, **{incumbent: inc, replacement or "REP": rep})
+    rec = _rec(incumbent, action, replacement=replacement, withheld=withheld,
+               codes=codes)
     return K.build_observation(row=_history_row(recs=[rec], decision=decision),
                                rec=rec, horizon=horizon, calendar=cal, series=series,
                                lineage=lineage, proposal=None)
@@ -699,9 +701,20 @@ def test_47_a_blocked_reassessment_is_blocked():
 # =========================================================================== #
 # 48-58  POLICY INTELLIGENCE (Workstream G) + OBSERVED vs COUNTERFACTUAL (F)
 # =========================================================================== #
-def _many(action, n, *, inc, rep, withheld=False, codes=None):
-    return [_obs(action, inc=inc, rep=rep, withheld=withheld, codes=codes)
-            for _ in range(n)]
+def _many(action, n, *, inc, rep, withheld=False, codes=None, horizon=20):
+    """``n`` INDEPENDENT observations: a distinct holding compared against a distinct
+    candidate each time.
+
+    Release 70 — this used to return ``n`` byte-identical copies of ONE observation
+    (the same incumbent, the same candidate, the same session) and the assertions below
+    then read a confident verdict off them. That is precisely the shape R70 exists to
+    refuse: a bucket carrying one distinct candidate is one stock's price path, however
+    many rows it has. The economics each test asserts are unchanged — only the identity
+    of the rows now varies, so the sample is what the assertions always claimed it was.
+    """
+    return [_obs(action, inc=inc, rep=rep, withheld=withheld, codes=codes,
+                 horizon=horizon, incumbent="INC%02d" % i, replacement="REP%02d" % i)
+            for i in range(n)]
 
 
 def test_48_49_above_hurdle_replacements_are_scored_both_ways():
@@ -720,14 +733,25 @@ def test_48_49_above_hurdle_replacements_are_scored_both_ways():
     "LIQUIDITY_GATE", "RISK_DETERIORATION_GATE", "MANDATORY_EXIT"])
 def test_50_57_each_control_is_evaluated_by_its_own_reason_code(code):
     """52/53: a control that withheld a LOSING replacement helped; one that withheld a
-    WINNING replacement cost the book something. Both are counterfactual estimates."""
+    WINNING replacement cost the book something. Both are counterfactual estimates.
+
+    Release 70 — "its own reason code" now also means its own HORIZON. A control that
+    acts over N sessions is judged over N sessions, so the observations are built at
+    the horizon the control declares.
+    """
+    h = K.default_policy()["control_declared_horizon"].get(
+        code, K.default_policy()["primary_horizon"])
     benefit = K.build_policy_intelligence(
-        _many(K.REC_REPLACE, 20, inc=0.20, rep=-0.10, withheld=True, codes=[code]))
+        _many(K.REC_REPLACE, 20, inc=0.20, rep=-0.10, withheld=True, codes=[code],
+              horizon=h))
     ctl = [c for c in benefit["controls"] if c["reason_code"] == code][0]
+    assert ctl["declared_horizon_eligible_closes"] == h
+    assert ctl["horizon_state"] == "EVALUATED_AT_DECLARED_HORIZON"
     assert ctl["verdict"] == "CONTROL_BENEFIT" and ctl["control_helped_count"] == 20
     assert "COUNTERFACTUAL_ESTIMATE" in ctl["note"]
     regret = K.build_policy_intelligence(
-        _many(K.REC_REPLACE, 20, inc=-0.10, rep=0.20, withheld=True, codes=[code]))
+        _many(K.REC_REPLACE, 20, inc=-0.10, rep=0.20, withheld=True, codes=[code],
+              horizon=h))
     ctl2 = [c for c in regret["controls"] if c["reason_code"] == code][0]
     assert ctl2["verdict"] == "CONTROL_REGRET"
     assert regret["policy_state"] == K.POLICY_REVIEW_CANDIDATE

@@ -44,7 +44,12 @@ from typing import Any, Optional
 
 SCHEMA_VERSION = "holding_opportunity_cost.v1"
 INPUT_SCHEMA_VERSION = "holding_opportunity_cost.input.v1"
-DECISION_POLICY_VERSION = "hoc_decision_policy.v1"
+#: Release 70 bumped this. The replacement DECISION rule changed materially:
+#: candidates are selected PER HOLDING from an eligible pool, the sector cap is
+#: evaluated relative to the incumbent being swapped, and a shortlist replaces a
+#: single portfolio-wide name. An artifact stamped v1 was produced under rules
+#: that compared every holding against one ticker and is NOT comparable to a v2.
+DECISION_POLICY_VERSION = "hoc_decision_policy.v2"
 COST_POLICY_VERSION = "hoc_cost_policy.v1"
 
 CALCULATION_OWNER = "engine.holding_opportunity_cost"
@@ -183,6 +188,25 @@ def default_policy() -> dict[str, Any]:
         "improvement_rank_threshold": 5,                          # new: rank improved by >= this
         # --- addition-candidate policy ---------------------------------------- #
         "addition_candidate_max": 10,                              # new: cap ADD candidates surfaced
+        # --- replacement shortlist policy (Release 70) ------------------------ #
+        # How many eligible alternatives EACH holding is compared against. Before R70
+        # this was structurally 1 for the whole portfolio, so every holding shared one
+        # candidate and the replacement evidence carried a single distinct ticker.
+        "replacement_shortlist_size": 5,                           # R70
+        # Economic diversity WITHIN one holding's shortlist: at most this many
+        # candidates from any one sector, so a shortlist is not five names from one
+        # industry wearing five tickers.
+        "max_candidates_per_sector_in_shortlist": 2,               # R70
+        # Slots reserved for candidates in the INCUMBENT'S OWN sector. A same-sector
+        # swap is the risk-neutral comparison — it isolates name selection from a
+        # sector bet — and it is the only candidate class genuinely specific to the
+        # holding. Without it, every holding sharing an admissible set receives an
+        # identical rank-ordered list.
+        "same_sector_reserved_slots": 2,                           # R70
+        # A bound on the rejection RECORD, never on the scan. The pre-R70 code broke
+        # the scan at 25 rejections, so a book holding the top-ranked names could
+        # produce no candidate at all.
+        "rejection_record_limit": 25,                              # R70
     }
 
 
@@ -857,44 +881,141 @@ def _deterioration(*, eligible: bool, hard_codes: list, current_rank: Optional[i
 # --------------------------------------------------------------------------- #
 # Replacement eligibility (Workstream F)
 # --------------------------------------------------------------------------- #
-def _strongest_replacement(*, held: set, universe_by_rank: list, sector_weight: dict,
-                           policy: dict) -> tuple:
-    """The single strongest eligible non-held candidate (best rank), applying canonical
-    universe eligibility, the no-duplicate-holding rule, the liquidity floor and the
-    sector-concentration constraint. Returns ``(chosen|None, rejected)`` where each
-    rejected entry is ``{ticker, rank, reason}`` (surfaced in diagnostics — Workstream F).
-    The chosen row is a NON-ALLOCATED comparison candidate; the same candidate may be
-    surfaced for multiple holdings.
+def _eligible_candidate_pool(*, held: set, universe_by_rank: list,
+                             policy: dict) -> tuple:
+    """Every HOLDING-INDEPENDENT eligible non-held candidate, in rank order.
+
+    Release 70. This used to be ``_strongest_replacement``, which returned exactly ONE
+    row for the WHOLE portfolio and was called once, before the per-holding loop. Every
+    holding was therefore compared against the same name: measured on the live store,
+    ``strongest_replacement_ticker`` was a single ticker on 900 of 900 review rows
+    across 36 sessions. That was never evidence about that ticker — it was this
+    function's shape. The pool is now built once (it is genuinely holding-independent)
+    and each holding selects its own shortlist from it.
+
+    Only the three holding-INDEPENDENT filters live here: the no-duplicate-holding
+    rule, canonical universe eligibility and the liquidity floor. The sector-
+    concentration constraint is NOT applied here — whether a candidate breaches it
+    depends on which holding it would replace, so it is evaluated per holding by
+    :func:`_shortlist_for_holding`.
+
+    Returns ``(pool, rejected)``. ``rejected`` is a bounded RECORD; the scan itself is
+    never abandoned early. The previous ``if len(rejected) >= 25: break`` terminated
+    the scan on rejection count, so a book holding the top 25 ranked names could yield
+    no candidate at all.
     """
     rejected: list[dict] = []
-    chosen: Optional[dict] = None
-    sector_cap = policy["sector_cap_fraction"]
+    pool: list[dict] = []
+    record_limit = int(policy["rejection_record_limit"])
     for row in universe_by_rank:
         tk = row.get("ticker")
         if tk in held:
-            rejected.append({"ticker": tk, "rank": row.get("rank"),
-                             "reason": "ALREADY_HELD"})
+            if len(rejected) < record_limit:
+                rejected.append({"ticker": tk, "rank": row.get("rank"),
+                                 "reason": "ALREADY_HELD"})
             continue
         if not row.get("eligible", True):
-            rejected.append({"ticker": tk, "rank": row.get("rank"),
-                             "reason": "NOT_ELIGIBLE"})
+            if len(rejected) < record_limit:
+                rejected.append({"ticker": tk, "rank": row.get("rank"),
+                                 "reason": "NOT_ELIGIBLE"})
             continue
         adv = _f(row.get("adv_dollar"))
         if adv is not None and adv < policy["min_adv_dollar"]:
-            rejected.append({"ticker": tk, "rank": row.get("rank"),
-                             "reason": "LIQUIDITY_FILTER_FAILED"})
+            if len(rejected) < record_limit:
+                rejected.append({"ticker": tk, "rank": row.get("rank"),
+                                 "reason": "LIQUIDITY_FILTER_FAILED"})
+            continue
+        pool.append(row)
+    return pool, rejected
+
+
+def _shortlist_for_holding(*, incumbent: str, incumbent_weight: Optional[float],
+                           incumbent_sector: str, pool: list, sector_weight: dict,
+                           policy: dict) -> tuple:
+    """THIS holding's ranked shortlist of eligible, economically diverse alternatives.
+
+    Release 70. A replacement is a SWAP, so the sector-concentration question is
+    holding-relative and cannot be answered without knowing the incumbent. Selling
+    ``incumbent`` (weight ``w``, sector ``S_H``) and buying candidate ``C`` (sector
+    ``S_C``) moves ``w`` from ``S_H`` to ``S_C``, so the post-swap weight of the
+    candidate's sector is::
+
+        sector_weight[S_C] + w      when S_C != S_H
+        sector_weight[S_H]          when S_C == S_H  (weight-neutral)
+
+    and the candidate is admissible only if that post-swap weight is within the cap.
+    The old global test ``sector_weight[S_C] >= cap`` ignored the incumbent entirely:
+    it rejected a weight-neutral same-sector swap, and it admitted a cross-sector swap
+    that would itself breach the cap.
+
+    ``max_candidates_per_sector_in_shortlist`` keeps the shortlist economically
+    diverse, so a holding is not offered five names from one sector.
+
+    Returns ``(shortlist, sector_rejections)``.
+    """
+    sector_cap = policy["sector_cap_fraction"]
+    per_sector_cap = int(policy["max_candidates_per_sector_in_shortlist"])
+    size = int(policy["replacement_shortlist_size"])
+    reserved = int(policy["same_sector_reserved_slots"])
+    w = incumbent_weight or 0.0
+
+    sector_rejections: list[dict] = []
+    admissible: list[dict] = []
+    for row in pool:
+        tk = row.get("ticker")
+        if tk == incumbent:
             continue
         sec = row.get("sector") or "Unknown"
-        if sec != "Unknown" and sector_weight.get(sec, 0.0) >= sector_cap - 1e-12:
-            rejected.append({"ticker": tk, "rank": row.get("rank"),
-                             "reason": "SECTOR_CONCENTRATION_CONSTRAINED"})
-            continue
-        if chosen is None:
-            chosen = row
-        # keep scanning only to record a bounded rejected list.
-        if len(rejected) >= 25:
+        if sec != "Unknown":
+            post_swap = (sector_weight.get(sec, 0.0)
+                         if sec == incumbent_sector
+                         else sector_weight.get(sec, 0.0) + w)
+            if post_swap > sector_cap + 1e-12:
+                sector_rejections.append(
+                    {"ticker": tk, "rank": row.get("rank"),
+                     "reason": "SECTOR_CONCENTRATION_CONSTRAINED"})
+                continue
+        admissible.append(row)
+
+    # Pass 1 — reserve slots for candidates in the INCUMBENT'S OWN sector. A
+    # same-sector swap is the risk-neutral comparison: it isolates name selection from
+    # a sector bet, and it is the only candidate class that is genuinely specific to
+    # this holding. Without it a rank-ordered shortlist hands every holding that shares
+    # an admissible set the identical five names.
+    chosen: list[dict] = []
+    taken: set = set()
+    per_sector: dict[str, int] = {}
+    if reserved > 0 and incumbent_sector and incumbent_sector != "Unknown":
+        for row in admissible:
+            if len(chosen) >= min(reserved, size):
+                break
+            if (row.get("sector") or "Unknown") != incumbent_sector:
+                continue
+            chosen.append(row)
+            taken.add(row.get("ticker"))
+            per_sector[incumbent_sector] = per_sector.get(incumbent_sector, 0) + 1
+
+    # Pass 2 — fill the remaining slots with the best available alternatives overall,
+    # keeping the shortlist economically diverse.
+    for row in admissible:
+        if len(chosen) >= size:
             break
-    return chosen, rejected
+        tk = row.get("ticker")
+        if tk in taken:
+            continue
+        sec = row.get("sector") or "Unknown"
+        if per_sector.get(sec, 0) >= max(per_sector_cap, per_sector.get(sec, 0)
+                                         if sec == incumbent_sector else 0):
+            continue
+        per_sector[sec] = per_sector.get(sec, 0) + 1
+        chosen.append(row)
+        taken.add(tk)
+
+    # The strongest entry stays first, so `strongest_replacement_ticker` remains the
+    # best-ranked eligible alternative exactly as every downstream consumer expects.
+    chosen.sort(key=lambda r: (r.get("rank") if r.get("rank") is not None else 10**9,
+                               r.get("ticker") or ""))
+    return chosen, sector_rejections
 
 
 # --------------------------------------------------------------------------- #
@@ -999,10 +1120,11 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
     unclassified_sector_tickers.sort()
     hhi = sum((_f(p.get("current_weight")) or 0.0) ** 2 for p in positions)
 
-    # --- the single strongest eligible non-held comparison candidate --------- #
-    replacement, replacement_rejections = _strongest_replacement(
-        held=held, universe_by_rank=universe_by_rank, sector_weight=sector_weight,
-        policy=pol)
+    # --- the eligible non-held candidate POOL (holding-independent) ---------- #
+    # Release 70: the pool is shared because it is genuinely holding-independent; the
+    # SHORTLIST is selected per holding inside the loop below.
+    candidate_pool, replacement_rejections = _eligible_candidate_pool(
+        held=held, universe_by_rank=universe_by_rank, policy=pol)
 
     round_trip_rate = 2.0 * pol["cost_rate_per_side"]
     switching_cost_bps = pol["round_trip_cost_bps"]
@@ -1085,26 +1207,65 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         concentration_contribution = ((cw or 0.0) ** 2 / hhi) if (hhi and hhi > 0) else None
 
         # --- replacement comparison (non-allocated) -------------------------- #
+        # Release 70: THIS holding's own shortlist, scored candidate by candidate. The
+        # strongest entry keeps the pre-R70 field names so every downstream consumer
+        # reads the same keys; the shortlist itself is published beside them.
+        shortlist_rows, sector_rejections = _shortlist_for_holding(
+            incumbent=tk, incumbent_weight=cw, incumbent_sector=sec,
+            pool=candidate_pool, sector_weight=sector_weight, policy=pol)
+        replacement_rejections.extend(
+            r for r in sector_rejections
+            if len(replacement_rejections) < pol["rejection_record_limit"])
+
+        # risk adjustment: penalize keeping a name whose risk contribution is
+        # excessive (documented — the incumbent's excess variance share). It is a
+        # property of the INCUMBENT, so it is computed once per holding.
+        excess_risk = 0.0
+        if (rc is not None and eff_risk_threshold is not None
+                and rc > eff_risk_threshold):
+            excess_risk = rc - eff_risk_threshold
+        switching_cost_usd_h = _round_money((mv or 0.0) * round_trip_rate)
+        cost_hurdle = switching_cost_bps * pol["score_points_per_cost_bp"]
+
+        replacement_shortlist: list[dict] = []
+        for cand in shortlist_rows:
+            c_score = _f(cand.get("percentile"))
+            c_gross = c_risk_adj = c_net = None
+            if c_score is not None and current_score is not None:
+                c_gross = c_score - current_score
+                c_risk_adj = c_gross + pol["risk_penalty_weight"] * excess_risk
+                c_net = c_risk_adj - cost_hurdle
+            replacement_shortlist.append({
+                "ticker": cand.get("ticker"),
+                "rank": cand.get("rank"),
+                "score": _r(c_score, 6),
+                "sector": cand.get("sector"),
+                "gross_score_improvement": _r(c_gross, 6),
+                "risk_adjusted_improvement": _r(c_risk_adj, 6),
+                "switching_cost_usd": switching_cost_usd_h,
+                "net_improvement": _r(c_net, 6),
+                "clears_net_threshold": bool(
+                    c_gross is not None
+                    and c_gross >= pol["min_gross_score_improvement"] - 1e-9
+                    and c_net is not None
+                    and c_net >= pol["min_net_improvement"] - 1e-9),
+                "label": NON_ALLOCATED_LABEL,
+            })
+
         (strongest_ticker, replacement_rank, replacement_score, replacement_sector,
          gross_improvement, risk_adj_improvement, switching_cost_usd, net_improvement,
          replacement_eligible) = (None, None, None, None, None, None, None, None, False)
-        if replacement is not None and replacement.get("ticker") != tk:
-            strongest_ticker = replacement.get("ticker")
-            replacement_rank = replacement.get("rank")
-            replacement_score = _f(replacement.get("percentile"))
-            replacement_sector = replacement.get("sector")
-            if replacement_score is not None and current_score is not None:
-                gross_improvement = replacement_score - current_score
-                # risk adjustment: penalize keeping a name whose risk contribution is
-                # excessive (documented — the incumbent's excess variance share).
-                excess_risk = 0.0
-                if (rc is not None and eff_risk_threshold is not None
-                        and rc > eff_risk_threshold):
-                    excess_risk = rc - eff_risk_threshold
-                risk_adj_improvement = gross_improvement + pol["risk_penalty_weight"] * excess_risk
-                switching_cost_usd = _round_money((mv or 0.0) * round_trip_rate)
-                cost_hurdle = switching_cost_bps * pol["score_points_per_cost_bp"]
-                net_improvement = risk_adj_improvement - cost_hurdle
+        if replacement_shortlist:
+            best = replacement_shortlist[0]
+            strongest_ticker = best["ticker"]
+            replacement_rank = best["rank"]
+            replacement_score = best["score"]
+            replacement_sector = best["sector"]
+            if best["gross_score_improvement"] is not None:
+                gross_improvement = best["gross_score_improvement"]
+                risk_adj_improvement = best["risk_adjusted_improvement"]
+                switching_cost_usd = best["switching_cost_usd"]
+                net_improvement = best["net_improvement"]
                 replacement_eligible = True
 
         # --- recommendation policy (Workstream G) ---------------------------- #
@@ -1174,6 +1335,12 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
             "replacement_score": _r(replacement_score, 6),
             "replacement_sector": replacement_sector,
             "replacement_label": (NON_ALLOCATED_LABEL if strongest_ticker else None),
+            # Release 70 — THIS holding's own eligible, economically diverse
+            # shortlist. Each entry is a NON-ALLOCATED comparison; none is a target.
+            "replacement_shortlist": replacement_shortlist,
+            "replacement_shortlist_size": len(replacement_shortlist),
+            "replacement_shortlist_sectors": sorted(
+                {c["sector"] for c in replacement_shortlist if c.get("sector")}),
             "gross_score_improvement": _r(gross_improvement, 6),
             "risk_adjusted_improvement": _r(risk_adj_improvement, 6),
             "switching_cost_bps": _r(switching_cost_bps, 4),
@@ -1257,13 +1424,26 @@ def build_assessment(*, input_contract: dict, policy: Optional[dict] = None) -> 
         "diagnostics": {
             "rejected_replacement_candidates": rejected_candidates,
             "rejected_candidate_scan": replacement_rejections,
-            "non_allocated_comparison_candidate": (
-                replacement.get("ticker") if replacement else None),
+            # Release 70 — the candidate pool, and how many DISTINCT names the
+            # assessment actually compared holdings against. A comparison set whose
+            # distinct-candidate count is 1 is not evidence about that candidate, and
+            # before R70 this number was structurally 1 and nowhere published.
+            "eligible_candidate_pool_size": len(candidate_pool),
+            "distinct_replacement_candidates": len(
+                {r.get("strongest_replacement_ticker") for r in reviews
+                 if r.get("strongest_replacement_ticker")}),
+            "distinct_shortlist_candidates": len(
+                {c["ticker"] for r in reviews
+                 for c in (r.get("replacement_shortlist") or []) if c.get("ticker")}),
+            "non_allocated_comparison_candidate": sorted(
+                {r.get("strongest_replacement_ticker") for r in reviews
+                 if r.get("strongest_replacement_ticker")}),
             "non_allocated_note": (
-                "A single strongest eligible non-held candidate may be surfaced as the "
-                "comparison for multiple holdings. It is labelled %s and is NEVER an "
-                "approved target — the Reallocation Proposal engine (Slice 7) does not "
-                "exist yet." % NON_ALLOCATED_LABEL),
+                "Each holding is compared against its OWN eligible, economically "
+                "diverse shortlist (Release 70); the same candidate may still appear "
+                "for more than one holding when it is genuinely the best alternative "
+                "for each. Every entry is labelled %s and is NEVER an approved "
+                "target." % NON_ALLOCATED_LABEL),
             "risk_contribution": {k: v for k, v in risk.items() if k != "contributions"},
             "rank_snapshot": {r.get("ticker"): r.get("rank")
                               for r in universe_by_rank if r.get("ticker")},

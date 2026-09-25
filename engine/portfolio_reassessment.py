@@ -1210,6 +1210,20 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
         elif effective_action == REC_REDUCE:
             released[tk] = w * pol["reduce_fraction"]
 
+        # Release 70 — the quantity the ORIGINAL recommendation proposed, derived from
+        # ``rec`` and NOT from ``effective_action``. Two different readers need two
+        # different numbers: the portfolio gate must aggregate what will actually move
+        # (``released``), while outcome measurement must score the decision that was
+        # actually made, at the size it was actually made. Scoring a REDUCE as though
+        # the whole position moved overstates it by 1/reduce_fraction, and a withheld
+        # REPLACE has a released weight of zero while having proposed a full exit.
+        if rec in (REC_EXIT, REC_REPLACE):
+            proposed_exposure_reduction = w
+        elif rec == REC_REDUCE:
+            proposed_exposure_reduction = w * pol["reduce_fraction"]
+        else:
+            proposed_exposure_reduction = 0.0
+
         # Portfolio-level improvement contribution, capital-weighted. The per-name
         # numbers come from the Slice-6 kernel and are NEVER recomputed here.
         contrib_gross = None
@@ -1284,6 +1298,12 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
             "replacement_rank": r.get("replacement_rank"),
             "replacement_score": r.get("replacement_score"),
             "replacement_sector": r.get("replacement_sector"),
+            # Release 70 — the full eligible shortlist this holding was compared
+            # against, carried through so outcome measurement can freeze WHICH
+            # alternatives were actually considered, not just the winner.
+            "replacement_shortlist": r.get("replacement_shortlist") or [],
+            "replacement_shortlist_size": r.get("replacement_shortlist_size") or 0,
+            "replacement_shortlist_sectors": r.get("replacement_shortlist_sectors") or [],
             "expected_gross_improvement": r.get("gross_score_improvement"),
             "risk_adjusted_improvement": r.get("risk_adjusted_improvement"),
             "switching_cost_bps": r.get("switching_cost_bps"),
@@ -1296,6 +1316,13 @@ def build_reassessment(*, input_contract: dict, policy: Optional[dict] = None) -
             "source_recommendation": rec,
             "recommendation": effective_action,
             "action_withheld": bool(effective_action != rec),
+            # Release 70 — the size the ORIGINAL action proposed, carried beside the
+            # size that governance actually released, so an outcome can be measured at
+            # the quantity the decision actually specified.
+            "proposed_exposure_reduction": _r(proposed_exposure_reduction, 6),
+            "proposed_exposure_reduction_basis": (
+                "FULL_POSITION" if rec in (REC_EXIT, REC_REPLACE)
+                else "REDUCE_FRACTION" if rec == REC_REDUCE else "NO_POSITION_CHANGE"),
             "withheld_reason_codes": sorted(set(withheld_codes)),
             "churn_protected": protected,
             "churn_reason_codes": ccodes if protected else [],

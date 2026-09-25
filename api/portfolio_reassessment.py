@@ -324,13 +324,42 @@ def _append_history(row: dict, *, reassessment_dir=None) -> bool:
     return True
 
 
+#: Release 70 — the DECISION EVIDENCE a forward observation freezes.
+#:
+#: ``engine.reassessment_outcomes.build_observation`` reads its ``rec`` argument, and
+#: the ONLY producer of that argument in production is the history row built below
+#: (``api.reassessment_outcomes._default_history_loader`` ->
+#: ``authoritative_history_rows`` -> ``row["recommendations"]``). Every field R70 added
+#: to ``holding_assessments`` was therefore computed, published on the immutable
+#: artifact, and then dropped here: the shortlist arrived as ``[]``, the proposed
+#: quantity as ``None`` (so action-sized economics silently fell back to the full
+#: position on every row), and the candidate score, sectors, marks and switching costs
+#: as ``None``. The fields existed; they did not travel on the seam their reader uses.
+#:
+#: Purely additive. A pre-R70 row simply lacks these keys and the kernel's documented
+#: fallbacks apply, so no recorded history is reinterpreted.
+_R70_DECISION_EVIDENCE_FIELDS = (
+    # incumbent side — what was being given up, and at what mark
+    "sector", "signal_score", "market_value",
+    # candidate side — which alternative won, and on what score
+    "replacement_score", "replacement_sector",
+    # the FULL set of alternatives actually considered, frozen verbatim
+    "replacement_shortlist", "replacement_shortlist_size",
+    "replacement_shortlist_sectors",
+    # applicable round-trip cost of the swap
+    "switching_cost_bps", "switching_cost_usd",
+    # how much position the ORIGINAL action proposed to move (never the permitted one)
+    "proposed_exposure_reduction", "proposed_exposure_reduction_basis",
+)
+
+
 def _history_row(*, artifact: dict) -> dict:
     """Project the immutable artifact into ONE compact, append-only history row."""
     res = artifact.get("reassessment") or {}
     dec = res.get("decision") or {}
     recs = []
     for a in (res.get("holding_assessments") or []):
-        recs.append({
+        rec = {
             "ticker": a.get("ticker"),
             "recommendation": a.get("recommendation"),
             "source_recommendation": a.get("source_recommendation"),
@@ -343,7 +372,13 @@ def _history_row(*, artifact: dict) -> dict:
             "expected_net_improvement": a.get("expected_net_improvement"),
             "action_withheld": a.get("action_withheld"),
             "withheld_reason_codes": a.get("withheld_reason_codes") or [],
-        })
+        }
+        # Release 70 — carried VERBATIM. A lossy projection of the decision evidence is
+        # the defect; a shortlist that arrives shortened is not the shortlist that was
+        # considered.
+        for field in _R70_DECISION_EVIDENCE_FIELDS:
+            rec[field] = a.get(field)
+        recs.append(rec)
     return {
         "reassessment_id": artifact.get("reassessment_id"),
         "reassessment_hash": res.get("reassessment_hash"),

@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+from datetime import date as _date
 from typing import Any, Optional
 
 CALCULATION_OWNER = "engine.reassessment_outcomes"
@@ -47,7 +49,12 @@ PHASE = "STAGE21"
 #: Versioned outcome policy. Every threshold here is documented, configurable and
 #: sensitivity-testable, and NONE of them can change operational policy — the most a
 #: crossed threshold can do is recommend a manual review.
-OUTCOME_POLICY_VERSION = "reassessment_outcome_policy.v1"
+#: Release 70 bumped this. What the numbers MEAN changed: buckets key on the
+#: PROPOSED action rather than the permitted one, controls are judged at their
+#: declared horizon, consequences are sized by the proposed quantity, and a
+#: bucket must carry distinct candidates and effective independent observations
+#: before any verdict is published. A v1 scorecard is not comparable to a v2.
+OUTCOME_POLICY_VERSION = "reassessment_outcome_policy.v2"
 
 # --------------------------------------------------------------------------- #
 # Maturity — whether an observation may be read at all.
@@ -155,6 +162,34 @@ def default_policy() -> dict:
         # A single outlier must not trigger a review, so the adverse-fraction test also
         # requires this many matured observations in the bucket.
         "min_observations_for_review": 20,
+        # --- Release 70: sample INDEPENDENCE, not row count ------------------- #
+        # Matured rows are not independent observations. Before R70 a bucket of 8,825
+        # rows carrying ONE distinct replacement ticker, repeated across overlapping
+        # sessions, was published with a hit rate and an adverse verdict as though it
+        # held 8,825 independent trials. It held roughly one.
+        #
+        # Minimum DISTINCT candidate names before a bucket may carry a verdict. Two is
+        # the smallest number that is not "one stock's price path".
+        "min_distinct_candidates_for_verdict": 2,
+        # Minimum effective independent observations. The effective count discounts a
+        # bucket for repeating the same (ticker, candidate) pair across sessions that
+        # overlap inside the measurement horizon.
+        "min_effective_observations_for_verdict": 8,
+        # Sessions closer together than the measured horizon observe overlapping
+        # returns, so they are clustered and counted once.
+        "cluster_sessions_by_horizon": True,
+        # --- Release 70: judge a control at the horizon it DECLARES ----------- #
+        # A control that acts over N sessions must be judged over N sessions. The churn
+        # cooldown declares 5 eligible sessions (engine.portfolio_reassessment
+        # ``churn_cooldown_trading_days``); judging it at the 20-session headline
+        # horizon asks it about returns it never claimed to influence, and measurably
+        # inverts its verdict. Any code absent here falls back to the primary horizon,
+        # and the horizon actually used is published on every control row.
+        "control_declared_horizon": {
+            "CHURN_COOLDOWN_ACTIVE": 5,
+            "CHURN_COOLDOWN": 5,
+            "RECENTLY_CHANGED": 5,
+        },
     }
 
 
@@ -310,6 +345,28 @@ def build_observation(*, row: dict, rec: dict, horizon: int, calendar: list,
         "current_rank_at_decision": rec.get("current_rank"),
         "portfolio_weight_at_decision": weight,
         "expected_net_improvement_at_decision": _f(rec.get("expected_net_improvement")),
+        # --- Release 70: IMMUTABLE forward evidence, frozen at the decision ------ #
+        # Everything a later reader needs to re-judge this decision on its own terms,
+        # recorded once and never re-derived from current state: which candidates were
+        # actually considered, what they scored, what the entry mark was, what the
+        # switching cost was, how much position the action proposed to move, and the
+        # horizon at which it matures.
+        "replacement_score_at_decision": _f(rec.get("replacement_score")),
+        "replacement_sector_at_decision": rec.get("replacement_sector"),
+        "incumbent_score_at_decision": _f(rec.get("signal_score")),
+        "incumbent_sector_at_decision": rec.get("sector"),
+        "replacement_shortlist_at_decision": list(rec.get("replacement_shortlist") or []),
+        "shortlist_size_at_decision": len(rec.get("replacement_shortlist") or []),
+        "entry_mark_at_decision": _f(rec.get("entry_mark")),
+        "incumbent_mark_at_decision": _f(rec.get("market_value")),
+        "switching_cost_bps_at_decision": _f(rec.get("switching_cost_bps")),
+        "switching_cost_usd_at_decision": _f(rec.get("switching_cost_usd")),
+        "proposed_exposure_reduction_at_decision": _f(rec.get("proposed_exposure_reduction")),
+        "proposed_exposure_reduction_basis": rec.get("proposed_exposure_reduction_basis"),
+        "decision_date": d0,
+        "evidence_immutability": (
+            "Frozen at the decision. Never re-ranked, re-scored or re-derived from "
+            "current state; a later correction appends a new observation."),
         "action_withheld": bool(rec.get("action_withheld")),
         "withheld_reason_codes": list(rec.get("withheld_reason_codes") or []),
         "decision_reason_codes": list(row.get("reason_codes") or []),
@@ -348,7 +405,8 @@ def build_observation(*, row: dict, rec: dict, horizon: int, calendar: list,
                 **_empty_metrics()}
 
     metrics = _metrics_for(action=action, inc_ret=inc_ret, rep_ret=rep_ret,
-                           weight=weight, executed=gov["executed"], policy=pol)
+                           weight=weight, executed=gov["executed"], policy=pol,
+                           proposed_reduction=_f(rec.get("proposed_exposure_reduction")))
     return {**obs, "maturity": MAT_MATURE, "maturity_detail": None, **metrics}
 
 
@@ -364,11 +422,16 @@ def _empty_metrics() -> dict:
         "portfolio_impact_basis": None,
         "outcome_direction": None,
         "unmeasurable_components": [],
+        # Release 70 — present in every metric set so the contract never varies.
+        "proposed_exposure_reduction": None,
+        "portfolio_impact_sizing_weight": None,
+        "portfolio_impact_sizing_basis": None,
     }
 
 
 def _metrics_for(*, action: str, inc_ret: Optional[float], rep_ret: Optional[float],
-                 weight: Optional[float], executed: bool, policy: dict) -> dict:
+                 weight: Optional[float], executed: bool, policy: dict,
+                 proposed_reduction: Optional[float] = None) -> dict:
     """The per-recommendation metric set, each labelled OBSERVED or COUNTERFACTUAL.
 
     A ticker's forward return is a market fact -> OBSERVED. A portfolio consequence is
@@ -383,9 +446,15 @@ def _metrics_for(*, action: str, inc_ret: Optional[float], rep_ret: Optional[flo
     elif action in (REC_REPLACE, REC_HOLD):
         unmeasurable.append("REPLACEMENT_FORWARD_RETURN_UNAVAILABLE")
 
+    # Release 70 — size the consequence by the quantity the action actually PROPOSED,
+    # not by the whole position. A REDUCE moves `reduce_fraction` of the holding;
+    # scoring it at full weight overstates its portfolio consequence by
+    # 1/reduce_fraction. `proposed_reduction` falls back to the full position weight only
+    # when the assessment predates the field.
+    sizing_weight = proposed_reduction if proposed_reduction is not None else weight
     impact = None
-    if spread is not None and weight is not None:
-        impact = round(weight * spread, 6)
+    if spread is not None and sizing_weight is not None:
+        impact = round(sizing_weight * spread, 6)
     elif action in (REC_REPLACE,):
         unmeasurable.append("PORTFOLIO_IMPACT_REQUIRES_SPREAD_AND_WEIGHT")
 
@@ -406,11 +475,16 @@ def _metrics_for(*, action: str, inc_ret: Optional[float], rep_ret: Optional[flo
         direction = "CANDIDATE_ROSE" if rep_ret > thr else \
             "CANDIDATE_FELL" if rep_ret < -thr else "FLAT"
 
-    if action == REC_REDUCE and weight is None:
+    if action == REC_REDUCE and sizing_weight is None:
         unmeasurable.append("EXPOSURE_REDUCTION_NOT_DETERMINISTICALLY_MEASURABLE")
 
     basis = BASIS_OBSERVED if executed else BASIS_COUNTERFACTUAL
     return {
+        "proposed_exposure_reduction": _r6(proposed_reduction),
+        "portfolio_impact_sizing_weight": _r6(sizing_weight),
+        "portfolio_impact_sizing_basis": (
+            "PROPOSED_QUANTITY" if proposed_reduction is not None
+            else "FULL_POSITION_WEIGHT_FALLBACK"),
         # Market facts — always OBSERVED.
         "incumbent_forward_return": _r6(inc_ret),
         "incumbent_forward_return_basis": BASIS_OBSERVED if inc_ret is not None else None,
@@ -569,8 +643,100 @@ def classify_evidence(matured_count: int) -> dict:
             "interpretation": "Pipeline verification only — no policy conclusion."}
 
 
+def _iso_date(value: Any) -> Optional[_date]:
+    """Parse an ISO market date, or None. Never raises."""
+    try:
+        return _date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _proposed_action(obs: dict) -> Optional[str]:
+    """The action the assessment actually PROPOSED, before governance had its say.
+
+    Release 70. ``recommendation`` on an observation is the EFFECTIVE action — what
+    governance permitted — so a REPLACE that the churn cooldown withheld is stored as
+    ``HOLD``. ``source_recommendation`` is the original, has been recorded on every
+    observation since Stage 20, and was never read by any consumer. A blocked REPLACE
+    and a genuine HOLD are different decisions and must never share a bucket.
+    """
+    return obs.get("source_recommendation") or obs.get("recommendation")
+
+
+def _effective_observations(rows: list, policy: dict) -> dict:
+    """How many INDEPENDENT observations a bucket really holds (Release 70).
+
+    Three quantities, published separately because they answer different questions:
+
+    * ``distinct_candidates`` — how many different alternative names the bucket
+      compared against. One means the bucket is a single stock's price path and
+      carries no cross-sectional information at all, however many rows it has.
+    * ``session_clusters`` — decision sessions grouped so that sessions closer
+      together than the measurement horizon (whose forward windows overlap, and which
+      therefore observe substantially the same returns) count once.
+    * ``effective_observations`` — distinct ``(ticker, candidate, cluster)`` triples.
+      This is the number a significance claim may be made against.
+    """
+    horizon = max(1, int(policy["primary_horizon"]))
+    cands = {r.get("replacement_ticker") for r in rows if r.get("replacement_ticker")}
+    incumbents = {r.get("ticker") for r in rows if r.get("ticker")}
+    dates = sorted({r.get("eligible_market_date") for r in rows
+                    if r.get("eligible_market_date")})
+
+    # Cluster sessions whose forward windows overlap, by ACTUAL elapsed time. Counting
+    # positions in this bucket's own date list instead would make two decisions a year
+    # apart "overlap" merely because no decision was recorded between them. A horizon
+    # of N eligible sessions spans about N*7/5 calendar days.
+    span_days = int(math.ceil(horizon * 7.0 / 5.0))
+    cluster_of: dict[str, int] = {}
+    if policy.get("cluster_sessions_by_horizon", True) and dates:
+        cid = 0
+        anchor = None
+        unparsed = -1
+        for d in dates:
+            dt = _iso_date(d)
+            if dt is None:
+                # Conservative: everything undateable shares one cluster rather than
+                # being credited as independent.
+                cluster_of[d] = unparsed
+                continue
+            if anchor is None:
+                anchor = dt
+            elif (dt - anchor).days >= span_days:
+                cid += 1
+                anchor = dt
+            cluster_of[d] = cid
+        n_clusters = len(set(cluster_of.values()))
+    else:
+        for i, d in enumerate(dates):
+            cluster_of[d] = i
+        n_clusters = len(dates)
+
+    triples = {(r.get("ticker"), r.get("replacement_ticker"),
+                cluster_of.get(r.get("eligible_market_date")))
+               for r in rows if r.get("realized_spread") is not None}
+    return {
+        "distinct_candidates": len(cands),
+        "distinct_incumbents": len(incumbents),
+        "distinct_sessions": len(dates),
+        "session_clusters": n_clusters,
+        "effective_observations": len(triples),
+        "independence_note": (
+            "effective_observations counts distinct (incumbent, candidate, session "
+            "cluster) triples. Rows repeating one pair across overlapping sessions are "
+            "NOT independent trials and are not counted as such."),
+    }
+
+
 def _bucket(rows: list, policy: dict) -> dict:
-    """Win/loss summary for a set of matured observations."""
+    """Win/loss summary for a set of matured observations.
+
+    Release 70: the summary now carries its own INDEPENDENCE evidence, and states
+    whether it is entitled to a verdict at all. A bucket built from one distinct
+    candidate, or from too few effective observations, reports
+    ``verdict_permitted: False`` with the reason; a consumer that renders a hit rate
+    without reading it is rendering one stock's price path as a policy finding.
+    """
     thr = policy["win_threshold_spread"]
     spreads = [r["realized_spread"] for r in rows if r.get("realized_spread") is not None]
     wins = sum(1 for s in spreads if s > thr)
@@ -581,10 +747,25 @@ def _bucket(rows: list, policy: dict) -> dict:
     if srt:
         mid = len(srt) // 2
         med = srt[mid] if len(srt) % 2 else round((srt[mid - 1] + srt[mid]) / 2.0, 6)
+
+    ind = _effective_observations(rows, policy)
+    blockers: list[str] = []
+    if ind["distinct_candidates"] < policy["min_distinct_candidates_for_verdict"]:
+        blockers.append("SINGLE_CANDIDATE_NOT_EVIDENCE"
+                        if ind["distinct_candidates"] <= 1
+                        else "TOO_FEW_DISTINCT_CANDIDATES")
+    if ind["effective_observations"] < policy["min_effective_observations_for_verdict"]:
+        blockers.append("TOO_FEW_EFFECTIVE_OBSERVATIONS")
+    if not spreads:
+        blockers.append("NO_MEASURED_SPREADS")
+
     return {"observations": len(rows), "measured_spreads": len(spreads),
             "wins": wins, "losses": losses, "flat": len(spreads) - wins - losses,
             "hit_rate": (round(wins / len(spreads), 6) if spreads else None),
-            "mean_spread": mean, "median_spread": med}
+            "mean_spread": mean, "median_spread": med,
+            **ind,
+            "verdict_permitted": not blockers,
+            "verdict_blocked_reason_codes": sorted(set(blockers))}
 
 
 def build_policy_intelligence(observations: list, *, policy: Optional[dict] = None) -> dict:
@@ -598,7 +779,14 @@ def build_policy_intelligence(observations: list, *, policy: Optional[dict] = No
               and o.get("horizon_eligible_closes") == pol["primary_horizon"]]
     ev = classify_evidence(len(mature))
 
-    above_hurdle = [o for o in mature if o.get("recommendation") == REC_REPLACE
+    # Release 70 — bucket on the ORIGINAL proposed action, not the one governance
+    # permitted. ``recommendation`` carries the EFFECTIVE action, so a REPLACE that
+    # the churn cooldown withheld is persisted as HOLD; filtering on it made every
+    # withheld REPLACE structurally invisible to this bucket. ``source_recommendation``
+    # is what the assessment actually proposed and is the honest key. It has been
+    # recorded on every observation since Stage 20 and was never read.
+    above_hurdle = [o for o in mature
+                    if _proposed_action(o) == REC_REPLACE
                     and not o.get("action_withheld")]
     withheld = [o for o in mature if o.get("action_withheld")]
     executed = [o for o in mature if o.get("governance_state") == GOV_EXECUTED]
@@ -606,15 +794,31 @@ def build_policy_intelligence(observations: list, *, policy: Optional[dict] = No
 
     # Per reason code: did the control help or hurt? A control that WITHHELD an action
     # helped when the replacement it blocked went on to underperform the incumbent.
+    # Release 70 — each control is evaluated at the horizon IT declares, drawn from the
+    # full observation set rather than the 20-session slice.
+    all_mature = [o for o in observations if o.get("maturity") == MAT_MATURE]
     by_code: dict[str, list] = {}
-    for o in withheld:
+    for o in all_mature:
+        if not o.get("action_withheld"):
+            continue
         for code in (o.get("withheld_reason_codes") or []):
             by_code.setdefault(code, []).append(o)
 
     controls = []
-    for code, rows in sorted(by_code.items()):
-        b = _bucket(rows, pol)
-        enough = b["measured_spreads"] >= pol["min_observations_per_reason_code"]
+    declared = dict(pol.get("control_declared_horizon") or {})
+    for code, all_rows in sorted(by_code.items()):
+        h = int(declared.get(code, pol["primary_horizon"]))
+        rows = [o for o in all_rows if o.get("horizon_eligible_closes") == h]
+        # A control must never VANISH because nothing was captured at the horizon it
+        # declares. When that happens the control is still published, with the shortfall
+        # named, so the gap is visible rather than silent.
+        horizon_state = "EVALUATED_AT_DECLARED_HORIZON"
+        if not rows and all_rows:
+            horizon_state = "NO_OBSERVATIONS_AT_DECLARED_HORIZON"
+        cpol = {**pol, "primary_horizon": h}
+        b = _bucket(rows, cpol)
+        enough = (b["measured_spreads"] >= pol["min_observations_per_reason_code"]
+                  and b["verdict_permitted"])
         # `wins` here means the withheld replacement WOULD have outperformed -> the
         # control cost the book something (regret). `losses` -> the control helped.
         verdict = "INSUFFICIENT_EVIDENCE"
@@ -624,34 +828,66 @@ def build_policy_intelligence(observations: list, *, policy: Optional[dict] = No
         controls.append({
             "reason_code": code, **b,
             "control_helped_count": b["losses"], "control_cost_count": b["wins"],
+            "declared_horizon_eligible_closes": h,
+            "horizon_source": ("CONTROL_DECLARED" if code in declared
+                               else "PRIMARY_HORIZON_FALLBACK"),
+            "horizon_state": horizon_state,
+            "observations_at_all_horizons": len(all_rows),
+            "horizons_observed": sorted(
+                {o.get("horizon_eligible_closes") for o in all_rows
+                 if o.get("horizon_eligible_closes") is not None}),
             "evidence_sufficient": enough, "verdict": verdict,
             "note": ("A withheld action 'helped' when the replacement it blocked went on "
                      "to underperform the incumbent. This is a COUNTERFACTUAL_ESTIMATE: "
-                     "the action was not taken, so no portfolio effect was observed."),
+                     "the action was not taken, so no portfolio effect was observed. The "
+                     "control is judged at the horizon it declares (%d eligible closes), "
+                     "not at the headline horizon." % h),
         })
 
     hurdle = _bucket(above_hurdle, pol)
     state = POLICY_INSUFFICIENT_EVIDENCE
     findings: list[str] = []
-    if ev["state"] in (EV_PRELIMINARY, EV_HORIZON_ALIGNED):
-        adverse = (hurdle["hit_rate"] is not None
-                   and hurdle["measured_spreads"] >= pol["min_observations_for_review"]
-                   and (1.0 - hurdle["hit_rate"]) >= pol["adverse_fraction_for_review"])
-        regretful = [c for c in controls
-                     if c["verdict"] == "CONTROL_REGRET" and c["evidence_sufficient"]]
-        if adverse:
-            state = POLICY_REVIEW_CANDIDATE
-            findings.append(
-                "Replacements that cleared the net-improvement hurdle underperformed "
-                "their incumbents in %d of %d matured comparisons."
-                % (hurdle["losses"], hurdle["measured_spreads"]))
-        elif regretful:
-            state = POLICY_REVIEW_CANDIDATE
-            findings.append(
-                "Control(s) %s withheld actions that would more often than not have "
-                "improved the portfolio." % ", ".join(c["reason_code"] for c in regretful))
-        else:
-            state = POLICY_STABLE
+
+    # Release 70 — the HEADLINE read (were the replacements that cleared the hurdle any
+    # good?) is gated on evidence at the primary horizon. A CONTROL is not: it is judged
+    # at the horizon IT declares, and a control with sufficient evidence there is
+    # exactly the case a human should review, whether or not the headline horizon has
+    # accumulated anything. Gating both on the same counter made a control that acts
+    # over 5 sessions unreportable until 20-session evidence existed.
+    headline_ready = ev["state"] in (EV_PRELIMINARY, EV_HORIZON_ALIGNED)
+    regretful = [c for c in controls
+                 if c["verdict"] == "CONTROL_REGRET" and c["evidence_sufficient"]]
+    # A bucket that is not entitled to a verdict cannot produce an adverse finding. The
+    # pre-R70 "0 wins / 6 losses, adverse" read was six rows of ONE candidate across
+    # overlapping sessions.
+    adverse = (headline_ready
+               and hurdle["verdict_permitted"]
+               and hurdle["hit_rate"] is not None
+               and hurdle["measured_spreads"] >= pol["min_observations_for_review"]
+               and (1.0 - hurdle["hit_rate"]) >= pol["adverse_fraction_for_review"])
+
+    if not hurdle["verdict_permitted"] and hurdle["observations"]:
+        findings.append(
+            "The replacement bucket holds %d matured row(s) but only %d distinct "
+            "candidate(s) and %d effective independent observation(s) (%s); no "
+            "alpha verdict is published from it."
+            % (hurdle["observations"], hurdle["distinct_candidates"],
+               hurdle["effective_observations"],
+               ", ".join(hurdle["verdict_blocked_reason_codes"])))
+    if adverse:
+        state = POLICY_REVIEW_CANDIDATE
+        findings.append(
+            "Replacements that cleared the net-improvement hurdle underperformed "
+            "their incumbents in %d of %d matured comparisons."
+            % (hurdle["losses"], hurdle["measured_spreads"]))
+    elif regretful:
+        state = POLICY_REVIEW_CANDIDATE
+        findings.append(
+            "Control(s) %s withheld actions that would more often than not have "
+            "improved the portfolio, judged at each control's declared horizon."
+            % ", ".join(c["reason_code"] for c in regretful))
+    elif headline_ready:
+        state = POLICY_STABLE
     return {
         "policy_state": state,
         "policy_state_vocabulary": list(POLICY_VOCAB),
@@ -681,18 +917,30 @@ def build_scorecard(observations: list, *, policy: Optional[dict] = None) -> dic
     by_maturity = {m: 0 for m in MATURITY_VOCAB}
     by_governance = {g: 0 for g in GOVERNANCE_VOCAB}
     by_recommendation: dict[str, int] = {}
+    by_proposed_action: dict[str, int] = {}
+    withheld_by_proposed: dict[str, int] = {}
     for o in observations:
         by_maturity[o.get("maturity")] = by_maturity.get(o.get("maturity"), 0) + 1
         gs = o.get("governance_state")
         by_governance[gs] = by_governance.get(gs, 0) + 1
         rc = o.get("recommendation")
         by_recommendation[rc] = by_recommendation.get(rc, 0) + 1
+        pa = _proposed_action(o)
+        by_proposed_action[pa] = by_proposed_action.get(pa, 0) + 1
+        if o.get("action_withheld"):
+            withheld_by_proposed[pa] = withheld_by_proposed.get(pa, 0) + 1
 
     mature = [o for o in observations if o.get("maturity") == MAT_MATURE
               and o.get("horizon_eligible_closes") == pol["primary_horizon"]]
-    replacements = [o for o in mature if o.get("recommendation") == REC_REPLACE]
-    holds = [o for o in mature if o.get("recommendation") == REC_HOLD]
-    exits = [o for o in mature if o.get("recommendation") == REC_EXIT]
+    # Release 70 — bucket on the action the assessment PROPOSED. Bucketing on the
+    # effective action filed every governance-withheld REPLACE under HOLD, so the
+    # replacement bucket could only ever contain sessions where no control bound, and
+    # the hold bucket was contaminated with decisions that were never holds.
+    replacements = [o for o in mature if _proposed_action(o) == REC_REPLACE]
+    holds = [o for o in mature if _proposed_action(o) == REC_HOLD]
+    exits = [o for o in mature if _proposed_action(o) == REC_EXIT]
+    reduces = [o for o in mature if _proposed_action(o) == REC_REDUCE]
+    withheld_replacements = [o for o in replacements if o.get("action_withheld")]
 
     # Observed vs counterfactual portfolio value, kept STRICTLY apart.
     observed_impact = [o["portfolio_impact"] for o in mature
@@ -716,8 +964,30 @@ def build_scorecard(observations: list, *, policy: Optional[dict] = None) -> dic
         "by_maturity": by_maturity,
         "by_governance": by_governance,
         "by_recommendation": by_recommendation,
+        # Release 70 — the action counts by what was PROPOSED, published beside the
+        # counts by what governance permitted. A blocked REPLACE appears as a REPLACE
+        # here and as a HOLD in `by_recommendation`; the difference is the governance
+        # effect, and collapsing the two made that effect unobservable.
+        "by_proposed_action": by_proposed_action,
+        "withheld_by_proposed_action": withheld_by_proposed,
+        "proposed_vs_permitted_note": (
+            "`by_recommendation` counts the action governance PERMITTED; "
+            "`by_proposed_action` counts the action the assessment PROPOSED. A "
+            "withheld REPLACE is a REPLACE that was blocked, never a HOLD."),
         "replacement_outcomes": _bucket(replacements, pol),
+        "replacement_outcomes_scope": "PROPOSED_REPLACE_INCLUDING_WITHHELD",
+        "withheld_replacement_outcomes": _bucket(withheld_replacements, pol),
         "hold_outcomes": _bucket(holds, pol),
+        "hold_outcomes_scope": "PROPOSED_HOLD_ONLY",
+        "reduce_outcomes": {
+            "observations": len(reduces),
+            "sized_by_proposed_quantity": sum(
+                1 for o in reduces
+                if o.get("portfolio_impact_sizing_basis") == "PROPOSED_QUANTITY"),
+            "note": ("A REDUCE moves only part of the position; its portfolio "
+                     "consequence is sized by the proposed quantity, not the whole "
+                     "holding."),
+        },
         "exit_outcomes": {
             "observations": len(exits),
             "avoided_loss_count": sum(1 for o in exits
