@@ -182,6 +182,43 @@ STEP_SEQUENCE = (
 #: ``tests/test_release46_2_live_tournament.py`` pins the two spellings together.
 TOURNAMENT_NOT_REGISTERED = "TOURNAMENT_NOT_REGISTERED"
 
+# --------------------------------------------------------------------------- #
+# R74 — THE GOVERNED-WITHHELD TERMINAL OUTCOME.
+#
+# ``api.reallocation_proposal`` has five read-layer states. Two of them (READY,
+# DEGRADED) are persistable and approvable. WITHHELD is neither, and it is NOT a
+# failure: the complete target WAS constructed and is fully explainable, it was
+# re-optimised under the breached limit (R47), and it STILL breached a mandatory
+# portfolio limit — so the feasible set is empty and the owner fails closed. By
+# that owner's own contract such a proposal is never written (``persist_proposal``
+# returns NOT_PERSISTED / ``STATE_WITHHELD_NOT_PERSISTABLE``) and never approvable
+# (it is absent from ``APPROVABLE_READ_STATES``).
+#
+# On 2026-09-24 that outcome could not be expressed here. The cycle scored 234/234
+# names, assessed holding opportunity cost, reassessed the portfolio, and the
+# reallocation owner returned a COMPLETE governed WITHHELD verdict over 20 proposed
+# holdings — AMD and DDOG breach the per-name risk-contribution cap and no feasible
+# target resolves it. This module then recorded the step FAILED ("the engine did not
+# complete" — it had), and the R69 operator-readiness check, keyed on a proposal
+# HASH that a withheld target still computes, demanded that the operator's review
+# endpoint read back a proposal the owner had correctly never persisted. The review
+# answered NO_PROPOSAL, which is the CORRECT answer, and the whole run was downgraded
+# to INCONSISTENT. A fail-closed governance decision was reported as corruption.
+#
+# These literals mirror the authoritative owners so this module stays import-pure
+# (both are imported lazily, inside their seams).
+# ``tests/test_r74_withheld_terminal_contract.py`` pins the spellings together.
+#: ``api.reallocation_proposal.STATE_WITHHELD`` / ``engine...STATE_WITHHELD``.
+REALLOC_STATE_WITHHELD = "WITHHELD"
+#: ``api.reallocation_proposal.APPROVABLE_READ_STATES`` — the ONLY states that
+#: produce a persisted, reviewable, approvable proposal artifact.
+REALLOC_PERSISTABLE_STATES = ("READY", "DEGRADED")
+#: ``api.proposal_decision_review.STATUS_NO_PROPOSAL`` and its projected
+#: ``REVIEW_STATE_NO_PROPOSAL``. For a governed-WITHHELD session this pair is the
+#: EXPECTED answer, not a defect.
+REVIEW_STATUS_NO_PROPOSAL = "NO_PROPOSAL"
+REVIEW_STATE_PROPOSAL_ABSENT = "PROPOSAL_ABSENT"
+
 # Frozen step-status vocabulary.
 S_PENDING = "PENDING"
 S_OK = "OK"
@@ -838,7 +875,26 @@ def _validate_terminal_manifest(rec: dict) -> list:
     realloc_step = next((s for s in (rec.get("step_results") or [])
                          if s.get("step_id") == STEP_BUILD_REALLOCATION), None)
     if realloc_step and realloc_step.get("status") == S_OK:
-        if not rec.get("reallocation_proposal_id") \
+        # R74 — WHICH reference is required depends on the governed outcome, because
+        # the reallocation owner writes an artifact for exactly two of its states.
+        #   * READY / DEGRADED  -> a proposal WAS persisted; demand id + hash. This is
+        #     the original lie-detector and it is unchanged.
+        #   * WITHHELD          -> the owner refuses to persist by contract, so demand
+        #     the computed target's HASH (the run must still name what it judged) and
+        #     REFUSE an id. Inventing one would fabricate an approvable artifact out of
+        #     a fail-closed verdict, which is the one thing this state exists to stop.
+        _rp_state = rec.get("reallocation_proposal_state")
+        if _rp_state == REALLOC_STATE_WITHHELD:
+            if not rec.get("reallocation_proposal_hash"):
+                problems.append("reallocation step WITHHELD but proposal hash missing")
+            if rec.get("reallocation_proposal_id"):
+                problems.append("reallocation step WITHHELD but a proposal id is "
+                                "recorded; a withheld proposal is never persisted")
+            if rec.get("reallocation_proposal_selected"):
+                problems.append("reallocation step WITHHELD but the proposal is "
+                                "recorded as selected; a withheld proposal is never "
+                                "approvable")
+        elif not rec.get("reallocation_proposal_id") \
                 or not rec.get("reallocation_proposal_hash"):
             problems.append("reallocation step OK but proposal reference missing")
     # Slice 8 (Phase 29I): if the Research Agent step actually RAN (S_OK), a COMPLETE
@@ -2144,6 +2200,31 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "reallocation_proposal_selected": rp_available,
         "reallocation_proposal_id": rp.get("proposal_id"),
         "reallocation_proposal_hash": rp.get("proposal_hash"),
+        # --- R74 — the governed-WITHHELD terminal outcome, stated on the contract --- #
+        # ``selected`` stays False and no id exists, so nothing here makes a withheld
+        # proposal approvable. What these add is the difference between an owner that
+        # FAILED and an owner that fail-CLOSED, plus the obligation the operator is
+        # left holding: the named positions whose hard limit breach no feasible target
+        # resolved. The reassessment said this in prose; nothing carried it as a fact.
+        "reallocation_governed_outcome_complete": bool(
+            rp.get("governed_outcome_complete")),
+        "reallocation_proposal_withheld": bool(rp.get("withheld")),
+        "reallocation_proposal_approvable": False if rp.get("withheld") else rp_available,
+        "reallocation_withheld_codes": rp.get("withheld_codes"),
+        # Code strings — the shape api.portfolio_decision / api.workflow_state /
+        # api.daily_action_gate already read. Detail travels separately.
+        "reallocation_withheld_reasons": rp.get("withheld_reasons"),
+        "reallocation_withheld_reason_detail": rp.get("withheld_reason_detail"),
+        "reallocation_withheld_breaching_tickers": rp.get("withheld_breaching_tickers"),
+        "reallocation_withheld_risk_contribution_breaches": rp.get(
+            "withheld_risk_contribution_breaches"),
+        "reallocation_outstanding_governance_requirement": (
+            ("The per-name risk-contribution breach on %s is UNRESOLVED: the complete "
+             "target was re-optimised under the cap and still breaches it, so no "
+             "feasible reallocation resolves it and the current book stands. Manual "
+             "review is required; nothing is approvable and no order is created."
+             % (", ".join(rp.get("withheld_breaching_tickers") or []) or "the held book"))
+            if rp.get("withheld") else None),
         "reallocation_proposed_holding_count": rp.get("proposed_holding_count"),
         "reallocation_action_counts": rp.get("action_counts"),
         "reallocation_one_way_turnover": rp.get("one_way_turnover"),
@@ -2487,12 +2568,49 @@ def _extract_reallocation(built: Optional[dict], eligible: Optional[str]) -> dic
     state = proposal.get("proposal_state")
     counts = proposal.get("action_counts") or {}
     gaps = [g.get("code") for g in (proposal.get("data_gaps") or []) if not g.get("by_design")]
-    available = bool(proposal) and state in ("READY", "DEGRADED")
+    available = bool(proposal) and state in REALLOC_PERSISTABLE_STATES
     signal = proposal.get("signal") or {}
     turnover = proposal.get("turnover") or {}
     portfolio = proposal.get("portfolio") or {}
+    # R74 — the governed-WITHHELD outcome, carried rather than dropped.
+    #
+    # ``available`` keeps its ONE established meaning — a persisted proposal exists
+    # and MAY be reviewed / approved — so a withheld target stays un-selected and
+    # un-approvable exactly as before. What the contract lacked is the separate fact
+    # that the OWNER COMPLETED: ``governed_outcome_complete`` says the reallocation
+    # owner reached a governed verdict, which a withheld target has and an engine
+    # failure has not. The breaches travel with it, because the operator's remaining
+    # obligation (the held names that breach a hard limit no feasible target resolves)
+    # is the whole content of the withheld verdict and was previously invisible
+    # outside the reassessment's prose.
+    ctl = proposal.get("complete_target_limits") or {}
+    withheld = bool(proposal) and state == REALLOC_STATE_WITHHELD
+    rc_breaches = [b for b in (ctl.get("risk_contribution_breaches") or [])
+                   if b.get("ticker")]
     return {
         "available": available,
+        "governed_outcome_complete": bool(proposal) and (available or withheld),
+        "withheld": withheld,
+        "persistable_state": bool(state in REALLOC_PERSISTABLE_STATES),
+        # ``withheld_reasons`` is a list of CODE STRINGS, because that is the
+        # established spelling every consumer already reads (api.portfolio_decision's
+        # fail-closed guard joins it into prose; api.workflow_state and
+        # api.daily_action_gate forward it; api.reallocation_proposal's own summary
+        # publishes it that way). The structured breach detail lives beside it under
+        # its own name rather than changing the shape of a field others parse.
+        "withheld_codes": list(ctl.get("withheld_codes") or []),
+        "withheld_reasons": [b.get("code") for b in
+                             (proposal.get("withheld_reasons") or []) if b.get("code")],
+        "withheld_reason_detail": [
+            {"code": b.get("code"), "object": b.get("object"),
+             "value": b.get("value"), "limit": b.get("limit"),
+             "detail": b.get("detail")}
+            for b in (proposal.get("withheld_reasons") or [])],
+        # The named held positions whose hard per-name risk-contribution breach the
+        # complete target could not resolve (2026-09-24: AMD, DDOG). These remain
+        # OUTSTANDING governance requirements after a withheld verdict.
+        "withheld_risk_contribution_breaches": rc_breaches,
+        "withheld_breaching_tickers": sorted({b["ticker"] for b in rc_breaches}),
         "owner": "api.reallocation_proposal",
         "calculation_owner": "engine.reallocation_proposal",
         "state": state,
@@ -2594,6 +2712,130 @@ def _pre_run_state(facts: dict, *, eligible_cycle_complete: bool = False
             or not facts["owned_data_confirmed"] or not facts["eligible"]):
         return WAITING_FOR_OWNED_DATA
     return None
+
+
+# --------------------------------------------------------------------------- #
+# R74 — AUTHORITATIVE STATUS RESOLUTION FOR A DURABLY RECORDED, UNFINISHED RUN.
+#
+# ``_TERMINAL`` holds five states. Two of them (COMPLETE, COMPLETE_WITH_EVIDENCE_GAP)
+# have been reflected verbatim since Workstream C. The other three had no reflection
+# worth the name, and an INCONSISTENT run — the state this module itself writes when
+# it durably records a run it cannot certify as complete — had none at all.
+#
+# On 2026-09-25 the durable manifest AND the run index both said INCONSISTENT for
+# 2026-09-24 (run drc_2026-09-24_9c1d1f9e7e51, 234/234 scored, 6/6 evidence snapshots,
+# an immutable opportunity-cost artifact and an immutable reassessment). The status
+# endpoint answered NOT_STARTED, run_id null, executable true — inviting the operator
+# to start a governed cycle whose expensive work was already on disk, and which would
+# have re-scored the full universe to rediscover it. Later the same day the wall clock
+# moved and the same run vanished a second way, behind the NEXT session's data gate.
+#
+# Both are one defect: the persisted terminal record was never consulted. The tail
+# branch consulted it only for BLOCKED / FAILED, and then only when the recomputed
+# ``input_contract_hash`` still matched — a hash derived from the very fast inputs this
+# cycle refreshes, so it routinely does not. A record that exists must be reported.
+# --------------------------------------------------------------------------- #
+#: Durably recorded, terminal, and NOT complete: the states whose outstanding work a
+#: recovery finishes. COMPLETE / COMPLETE_WITH_EVIDENCE_GAP are absent on purpose —
+#: they are reused verbatim and there is nothing to finish.
+_RECOVERABLE_TERMINAL = frozenset({INCONSISTENT, BLOCKED, FAILED})
+
+
+def prior_run_identity_match(prior: Optional[dict], facts: dict) -> dict:
+    """Does a persisted manifest describe THIS eligible session's contract?
+
+    The three-way rule the completed-run recovery has always used (Workstream D):
+    the exact input contract, OR a stable SESSION identity while the fast daily inputs
+    the cycle itself refreshes have advanced, OR a legacy manifest written before the
+    session hash existed. Keying on the raw ``input_contract_hash`` alone is the
+    defect — this cycle refreshes the inputs that hash is derived from, so a status
+    read taken after the run recomputes a different hash, and the run it describes
+    disappears. Only a genuinely different SLOW-input contract for the same date is a
+    real mismatch, and that case is refused elsewhere rather than silently erased.
+    """
+    p = prior or {}
+    prior_session = p.get("session_contract_hash")
+    same_contract = bool(p.get("input_contract_hash")
+                         and p.get("input_contract_hash")
+                         == facts.get("input_contract_hash"))
+    same_session = bool(prior_session is not None
+                        and prior_session == facts.get("session_contract_hash"))
+    legacy = prior_session is None
+    return {"same_contract": same_contract, "same_session": same_session,
+            "legacy_no_session": legacy,
+            "matches": bool(same_contract or same_session or legacy)}
+
+
+def recoverable_prior_run(prior: Optional[dict], facts: dict) -> bool:
+    """True when ``prior`` is a durably recorded, unfinished run for this session."""
+    return bool(prior and prior.get("run_id")
+                and prior.get("state") in _RECOVERABLE_TERMINAL
+                and prior_run_identity_match(prior, facts)["matches"])
+
+
+def _reflect_terminal_run(prior: dict, facts: dict, warnings: list,
+                          pending_session_gate: Optional[dict] = None) -> dict:
+    """Reflect a persisted NON-COMPLETE TERMINAL manifest verbatim, with recovery.
+
+    The stored contract is surfaced as it was written — run_id, idempotency key,
+    hashes, step results, blockers and every immutable downstream artifact reference
+    — so the work already done is visible and addressable instead of being replaced by
+    a blank invitation to redo it. The run is executable ONLY as a recovery: the
+    action names the existing run and is flagged ``recovery``, and the run path
+    resumes that same run id rather than opening a new one. Nothing here can turn an
+    unfinished run into a finished one; it makes an unfinished run impossible to lose.
+    """
+    out = dict(prior)
+    state = prior.get("state")
+    out["reused_existing_run"] = False
+    out["resumed_existing_run"] = False
+    out["evaluated_at"] = _now_iso()
+    out["state"] = state
+    out["terminal"] = True
+    out["state_vocabulary"] = list(RUN_STATES)
+    out["reflected_persisted_terminal_run"] = True
+    out["recovery_available"] = True
+    out["recovery_run_id"] = prior.get("run_id")
+    out["recovery_reuses_existing_artifacts"] = True
+    out["executable"] = True
+    out["prior_run_identity"] = prior_run_identity_match(prior, facts)
+    out["required_actions"] = [{
+        "gate": "daily_research_cycle",
+        "action": ("Resume Daily Research Cycle run %s to finish the governed cycle "
+                   "for %s. Safe idempotent recovery: the immutable scoring, forward "
+                   "evidence, opportunity-cost and reassessment artifacts this run "
+                   "already produced are REUSED, not recomputed, and no duplicate "
+                   "artifact is created." % (prior.get("run_id"), facts.get("eligible"))),
+        "confirmation_required": EXECUTE_CONFIRMATION,
+        "recovery": True,
+        "run_id": prior.get("run_id"),
+    }]
+    ow = list(out.get("warnings") or [])
+    msg = ("Daily Research Cycle run %s for %s is durably recorded as %s. Its research "
+           "outputs are preserved and authoritative for recovery; the session's "
+           "governed cycle is NOT finished, and finishing it resumes this same run."
+           % (prior.get("run_id"), facts.get("eligible"), state))
+    if msg not in ow:
+        ow.append(msg)
+    if pending_session_gate:
+        out["pending_session_gate"] = dict(pending_session_gate)
+        gmsg = ("A later session (%s) is still waiting for owned market data. That is "
+                "the NEXT cycle's gate and says nothing about the unfinished run above."
+                % pending_session_gate.get("expected_completed_market_date"))
+        if gmsg not in ow:
+            ow.append(gmsg)
+    if not out["prior_run_identity"]["same_contract"]:
+        dmsg = ("Owned daily inputs advanced since this run was recorded; its persisted "
+                "research remains authoritative for the eligible session and the run is "
+                "still the one to finish (the input-contract hash is recomputed from the "
+                "very inputs this cycle refreshes and is not an identity).")
+        if dmsg not in ow:
+            ow.append(dmsg)
+    for w in warnings:
+        if w not in ow:
+            ow.append(w)
+    out["warnings"] = ow
+    return out
 
 
 def _pending_session_gate(facts: dict) -> dict:
@@ -2779,6 +3021,24 @@ def load_daily_research_cycle_status(
             prior, facts, warnings,
             pending_session_gate=(_pending_session_gate(facts)
                                   if later_session_awaited else None))
+    # R74 — THE SAME ERASURE, ONE STATE FURTHER ALONG.
+    #
+    # R46.2 and R55.2.1 stopped the clock erasing a COMPLETE run through each of the
+    # two pre-states. A durably recorded UNFINISHED run is erased by exactly the same
+    # two doors, and losing it is worse: a completed run that reappears later costs
+    # nothing, while an unfinished one that disappears leaves outstanding governed work
+    # invisible and its expensive artifacts unreachable. The reflected run is terminal,
+    # names itself, and is executable only as a recovery of that same run id.
+    #
+    # ``pre == INCONSISTENT`` keeps its precedence below: it says the INPUTS cannot be
+    # trusted, which is a different claim from "a recorded run did not finish", and is
+    # deliberately not answered here.
+    if (pre != INCONSISTENT and recoverable_prior_run(prior, facts)
+            and (pre == WAITING_FOR_SESSION_CLOSE or later_session_awaited)):
+        return _reflect_terminal_run(
+            prior, facts, warnings,
+            pending_session_gate=(_pending_session_gate(facts)
+                                  if later_session_awaited else None))
     if pre is not None:
         blockers = []
         required_actions = [{"gate": "market_session",
@@ -2904,12 +3164,16 @@ def load_daily_research_cycle_status(
                          holding_opp_cost=live_hoc_block,
                          monthly_owner=monthly_owner, executable=False)
 
-    # Ready to run (minimal or with refreshable steps). Reflect a prior BLOCKED/FAILED.
+    # R74 — Ready to run. A durably recorded UNFINISHED run for this eligible session
+    # is REFLECTED with its own run id and its artifact references, never replaced by
+    # NOT_STARTED. This is the reported defect in its original form: the index and the
+    # manifest both said INCONSISTENT for 2026-09-24 and this branch answered
+    # NOT_STARTED / run_id null / executable true, because it consulted the persisted
+    # record only for two of the three unfinished states and only while a recomputed
+    # input-contract hash still matched one the cycle's own refresh had already moved.
+    if recoverable_prior_run(prior, facts):
+        return _reflect_terminal_run(prior, facts, warnings)
     state = NOT_STARTED
-    if prior and prior.get("input_contract_hash") == facts["input_contract_hash"] \
-            and prior.get("state") in (BLOCKED, FAILED):
-        state = prior["state"]
-        warnings.append("The prior run for this contract terminated %s." % state)
     return _contract(state=state, facts=facts, plan=plan, warnings=warnings,
                      required_actions=[{"gate": "daily_research_cycle",
                                         "action": "Run the Daily Research Cycle.",
@@ -2945,9 +3209,19 @@ PROPOSAL_REVIEW_UNREADABLE = "PROPOSAL_REVIEW_UNREADABLE"
 REVIEW_VERIFIED = "REVIEW_READABLE"
 REVIEW_SKIPPED = "SKIPPED_NOT_LIVE_STORE"
 REVIEW_NO_PROPOSAL = "NO_PROPOSAL_TO_VERIFY"
+#: R74 — the governed-WITHHELD acceptance. A withheld verdict persists no proposal,
+#: so ``NO_PROPOSAL`` / ``PROPOSAL_ABSENT`` is the CORRECT review answer and the run is
+#: operator-ready. The check is not skipped, it is INVERTED: coherence is asserted.
+REVIEW_WITHHELD_COHERENT = "WITHHELD_NO_PROPOSAL_TO_REVIEW"
+#: ...and the failure that inversion exposes: a session whose governed outcome was
+#: WITHHELD, whose review nonetheless offers a proposal. That is a stale artifact being
+#: presented as current, approvable work — a real inconsistency, and one nothing checked
+#: before, because the old check could only ever complain that a review was ABSENT.
+REVIEW_WITHHELD_CONTRADICTED = "WITHHELD_BUT_A_PROPOSAL_IS_OFFERED"
 
 
 def verify_proposal_review_readable(*, expected_proposal_hash,
+                                    reallocation_state: Optional[str] = None,
                                     loader: Optional[Callable] = None) -> dict:
     """Read the standing proposal back through the operator's review endpoint.
 
@@ -2956,8 +3230,18 @@ def verify_proposal_review_readable(*, expected_proposal_hash,
     review rather than an absent proposal or an identity mismatch; and that the
     proposal it adjudicated is the SAME proposal this run just persisted. It is
     strictly READ-ONLY - it composes a projection and writes nothing.
+
+    R74 adds ``reallocation_state``, because the question to ask depends on what the
+    reallocation owner decided. A WITHHELD verdict still computes a proposal hash -
+    the complete target it judged and rejected - but persists no artifact, so keying
+    the read-back on that hash demanded a review of something that by contract does
+    not exist, and read the correct NO_PROPOSAL answer as corruption (2026-09-24).
+    For a withheld session the SAME read is performed and the OPPOSITE answer is
+    required: the review must report the proposal ABSENT. A review that offers one
+    anyway is the genuine defect and is refused.
     """
-    if not expected_proposal_hash:
+    withheld = (reallocation_state == REALLOC_STATE_WITHHELD)
+    if not expected_proposal_hash and not withheld:
         return {"checked": False, "readable": None, "outcome": REVIEW_NO_PROPOSAL,
                 "detail": "The run persisted no reallocation proposal."}
     try:
@@ -2973,6 +3257,40 @@ def verify_proposal_review_readable(*, expected_proposal_hash,
     status = review.get("status")
     got_hash = review.get("proposal_hash")
     matched = bool(got_hash and got_hash == expected_proposal_hash)
+    if withheld:
+        # A withheld verdict is operator-ready when — and only when — the review
+        # agrees that there is nothing to approve. ``readable`` is left None: this
+        # session has no persisted proposal to read back, so the question the field
+        # answers does not apply, and only ``False`` raises a blocker in _persist.
+        absent = (status == REVIEW_STATUS_NO_PROPOSAL
+                  or review.get("review_state") == REVIEW_STATE_PROPOSAL_ABSENT)
+        coherent = bool(absent and not got_hash)
+        out = {
+            "checked": True,
+            "readable": None if coherent else False,
+            "outcome": (REVIEW_WITHHELD_COHERENT if coherent
+                        else REVIEW_WITHHELD_CONTRADICTED),
+            "governed_reallocation_withheld": True,
+            "reallocation_state": reallocation_state,
+            "review_status": status,
+            "review_state": review.get("review_state"),
+            "review_hash": review.get("review_hash"),
+            "withheld_target_hash": expected_proposal_hash,
+            "review_proposal_hash": got_hash,
+            "route": review.get("route"),
+            "owner": review.get("owner"),
+        }
+        out["detail"] = (
+            ("The governed reallocation is WITHHELD and the operator's review "
+             "correctly reports no proposal to approve (%s / %s); nothing is "
+             "fabricated and nothing is approvable."
+             % (status, review.get("review_state")))
+            if coherent else
+            ("The governed reallocation for this session is WITHHELD, so no proposal "
+             "is approvable, but the operator's review answered %s and offers "
+             "proposal %s. A withheld verdict must never leave an approvable proposal "
+             "standing." % (status, got_hash)))
+        return out
     readable = bool(status == "OK" and review.get("review") and matched)
     out = {
         "checked": True,
@@ -3107,12 +3425,38 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         facts,
         eligible_cycle_complete=bool(_pre_prior
                                      and _pre_prior.get("state") in _COMPLETED))
-    if pre is not None:
+    # R74 — A RECOVERY IS NOT GATED BY THE NEXT SESSION'S DATA GATE.
+    #
+    # R55.2.1 established that WAITING_FOR_OWNED_DATA has two meanings and that only
+    # one of them concerns the eligible session: when the eligible session's OWN owned
+    # data is confirmed, the gate is a statement about a LATER session's unpublished
+    # data. It applied that to the status read and deliberately left the run path
+    # refusing, which was right while the only thing a run could do was START a cycle.
+    #
+    # It is wrong for a RECOVERY, and it is what strands the work: the cycle is bound
+    # to the eligible session, so the window in which an unfinished run for that
+    # session can be finished closes the moment the next session's data publishes and
+    # the eligible date advances. The exemption is deliberately the narrowest that
+    # resolves it — it requires the eligible session's own data to be confirmed, and a
+    # DURABLY RECORDED unfinished run for that exact session to exist. A brand-new
+    # cycle still waits, every other pre-state (including INCONSISTENT inputs and an
+    # unclosed session) still refuses, and what proceeds is a resume of that run id.
+    _recovery = bool(pre == WAITING_FOR_OWNED_DATA
+                     and facts["owned_data_confirmed"] and facts["eligible"]
+                     and recoverable_prior_run(_pre_prior, facts))
+    if pre is not None and not _recovery:
         return _contract(state=pre, facts=facts, plan=plan, warnings=warnings,
                          started_at=started_at, executable=False,
                          monthly_owner=monthly_owner_block,
                          required_actions=[{"gate": "market_session",
                                             "action": facts.get("session_operator_action")}])
+    if _recovery:
+        warnings.append(
+            "Recovering Daily Research Cycle run %s for %s: the eligible session's "
+            "owned data is confirmed and a later session (%s) is still waiting for "
+            "its data, which does not gate finishing this run. The existing immutable "
+            "artifacts are reused, not recomputed."
+            % (_pre_prior.get("run_id"), facts["eligible"], facts.get("expected")))
 
     key = facts["idempotency_key"]
     ich = facts["input_contract_hash"]
@@ -3188,7 +3532,25 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                                         "prior_session_hash": prior_session,
                                         "current_session_hash": session_hash}],
                              monthly_owner=monthly_owner_block, executable=False)
-        if prior.get("input_contract_hash") == ich and prior.get("state") not in _TERMINAL:
+        # R74 — RESUME A DURABLY RECORDED UNFINISHED RUN.
+        #
+        # ``prior.get("state") not in _TERMINAL`` let this module resume only a run
+        # that had been interrupted mid-flight. A run it had itself persisted as
+        # INCONSISTENT / BLOCKED / FAILED was therefore NOT resumable: the cycle
+        # started over, and although the run id is deterministic (it is derived from
+        # the idempotency key, so the same contract regenerates the same id) EVERY
+        # step re-executed — a full-universe re-score to rediscover rankings already
+        # on disk, and a fresh pass over steps whose immutable artifacts existed.
+        #
+        # An unfinished terminal run is resumed instead, reusing exactly the steps
+        # that reported OK / REUSED and re-running only what did not. Nothing is
+        # fabricated: a step is reused only because the prior manifest records that it
+        # ran and carries its output hash. In particular CAPTURE_FORWARD_EVIDENCE is
+        # reused, so recovery can never mint a retrospective TRUE_FORWARD snapshot.
+        resumable_terminal = (prior.get("state") in _RECOVERABLE_TERMINAL
+                              and prior_run_identity_match(prior, facts)["matches"])
+        if (prior.get("input_contract_hash") == ich
+                and prior.get("state") not in _TERMINAL) or resumable_terminal:
             resumed = True
             run_id = prior.get("run_id") or run_id
             prior_steps = {s["step_id"]: s for s in (prior.get("step_results") or [])
@@ -3241,19 +3603,25 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         if state in _COMPLETED:
             if drc_dir is None:
                 review_check = verify_proposal_review_readable(
-                    expected_proposal_hash=rec.get("reallocation_proposal_hash"))
+                    expected_proposal_hash=rec.get("reallocation_proposal_hash"),
+                    # R74 — the governed outcome decides WHICH answer is correct.
+                    reallocation_state=rec.get("reallocation_proposal_state"))
             else:
                 review_check = {"checked": False, "readable": None,
                                 "outcome": REVIEW_SKIPPED,
                                 "detail": "Run pinned to a fixture store."}
             if review_check.get("readable") is False:
+                _withheld_contradiction = (
+                    review_check.get("outcome") == REVIEW_WITHHELD_CONTRADICTED)
                 rec = _build(INCONSISTENT,
                              extra_warnings=[
-                                 "The reallocation proposal was persisted, but it could "
-                                 "not be read back through the operator's proposal "
-                                 "decision review. The research is preserved; the run is "
-                                 "NOT ready for operator action. "
-                                 + str(review_check.get("detail") or "")],
+                                 str(review_check.get("detail") or "")
+                                 if _withheld_contradiction else
+                                 ("The reallocation proposal was persisted, but it could "
+                                  "not be read back through the operator's proposal "
+                                  "decision review. The research is preserved; the run is "
+                                  "NOT ready for operator action. "
+                                  + str(review_check.get("detail") or ""))],
                              blockers=[{"code": PROPOSAL_REVIEW_UNREADABLE,
                                         "detail": review_check}], **refs)
                 state = INCONSISTENT
@@ -3785,16 +4153,52 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                                  warnings, "Reallocation Proposal engine")
                 raw_reallocation = (rp_built or {}).get("proposal")
                 reallocation = _extract_reallocation(rp_built, facts["eligible"])
+                # R74 — a governed WITHHELD verdict is a COMPLETED step, not a failed
+                # one. The step status answers "did the reallocation owner reach a
+                # governed verdict?"; whether that verdict yields an approvable
+                # artifact is a different question, already answered by
+                # ``reallocation_proposal_selected``. Only an owner that produced no
+                # verdict at all (BLOCKED / NO_ACTIVE_BOOK / a raised engine) fails.
+                if reallocation.get("withheld"):
+                    _rp_reason = (
+                        "Reallocation proposal WITHHELD by %s: a complete target over "
+                        "%s holdings was constructed, re-optimised under the breached "
+                        "limit and STILL breaches %s%s. Fail-closed — the target is "
+                        "published for review only, is NEVER approvable, no proposal "
+                        "artifact is persisted, no target is confirmed and no order is "
+                        "created."
+                        % ("api.reallocation_proposal",
+                           reallocation.get("proposed_holding_count"),
+                           ", ".join(reallocation.get("withheld_codes") or [])
+                           or "a mandatory portfolio limit",
+                           (" (%s)" % ", ".join(
+                               reallocation.get("withheld_breaching_tickers") or []))
+                           if reallocation.get("withheld_breaching_tickers") else ""))
+                else:
+                    _rp_reason = (
+                        "Reallocation proposal produced (%s proposed holdings; %s); "
+                        "review-only, no target confirmed and no order created."
+                        % (reallocation.get("proposed_holding_count"),
+                           reallocation.get("action_counts")))
                 step_results.append(_step(STEP_BUILD_REALLOCATION,
-                    S_OK if reallocation.get("available") else S_FAILED,
+                    S_OK if reallocation.get("governed_outcome_complete") else S_FAILED,
                     owner="api.reallocation_proposal.run_and_persist",
                     as_of_date=reallocation.get("eligible_market_date"),
                     output_hash=reallocation.get("proposal_hash"),
-                    reason=("Reallocation proposal produced (%s proposed holdings; %s); "
-                            "review-only, no target confirmed and no order created."
-                            % (reallocation.get("proposed_holding_count"),
-                               reallocation.get("action_counts")))))
-                if not reallocation.get("available"):
+                    reason=_rp_reason))
+                if reallocation.get("withheld"):
+                    warnings.append(
+                        "The governed reallocation for %s is WITHHELD (%s): the "
+                        "portfolio-limit breach on %s is NOT resolved by any feasible "
+                        "target, so no proposal is approvable and the current book "
+                        "stands. This is an outstanding governance requirement, not a "
+                        "completed change."
+                        % (facts["eligible"],
+                           ", ".join(reallocation.get("withheld_codes") or [])
+                           or "a mandatory portfolio limit",
+                           ", ".join(reallocation.get("withheld_breaching_tickers") or [])
+                           or "the held book"))
+                elif not reallocation.get("governed_outcome_complete"):
                     warnings.append("The Reallocation Proposal engine did not complete; the "
                                     "research outputs and opportunity-cost review remain valid.")
             elif run_engine and not holding_opp.get("available"):
