@@ -234,12 +234,76 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+#: Release 74.1 — how long the atomic replace will wait out a Windows sharing race.
+#: Attempts and capped backoff, not a timeout: ten attempts at 10/20/40/80 ms and then
+#: 80 ms flat is about 0.6 s in the very worst case. That is invisible beside the 300 s
+#: minimum collection cadence, and it is orders of magnitude longer than a reader needs
+#: to finish one ``read_text`` of a file this size.
+#:
+#: The budget is deliberately not smaller. A first attempt at five tries over 0.3 s was
+#: measured against a continuously-reading thread and still exhausted, which is the
+#: whole lesson of the defect: the window is not a fixed cost, it is however long the
+#: readers keep the destination open. The backoff is CAPPED rather than doubling
+#: without limit so a genuinely stuck destination is reported promptly instead of
+#: being waited on for minutes.
+_REPLACE_ATTEMPTS = 10
+_REPLACE_BACKOFF_SECONDS = 0.01
+_REPLACE_BACKOFF_CAP_SECONDS = 0.08
+
+
 def _atomic_write_json(path: Path, payload: Any) -> None:
+    """Write JSON atomically: a UNIQUE temp file beside the target, then ``os.replace``.
+
+    Release 74.1 — two defects, one line apart, cost the service an iteration on
+    2026-09-14T21:32:57Z:
+
+      ``PermissionError: [WinError 5] Access is denied:
+        'collection_service_state.json.tmp' -> 'collection_service_state.json'``
+
+    The arrow is the RENAME, not the write. On Windows ``os.replace`` is MoveFileExW
+    with MOVEFILE_REPLACE_EXISTING, and it fails with ERROR_ACCESS_DENIED when the
+    DESTINATION is open in any other process, because Python's ``open`` does not pass
+    FILE_SHARE_DELETE. This file is read constantly and by design — by
+    ``alpha_agent.r53.runtime_status``, by the backend's active-manager projection and
+    by the operator Status command — so the worker's own heartbeat write races every
+    reader of its state. Nothing was wrong with either side; the write simply had no
+    tolerance for a millisecond of legitimate concurrent reading, and it raised
+    through the iteration instead of retrying.
+
+    The second defect was the FIXED temp name: every writer of every file in this
+    owner shared one ``<name>.tmp`` path, so concurrent writers could clobber each
+    other's temp file, and a failed replace left that orphan behind permanently
+    (the arrow above names it). A unique temp name per write removes both.
+
+    The replace stays atomic: same directory, same filesystem, one rename. A reader
+    therefore never observes a partial file — it sees the old bytes or the new ones.
+    The final failure is raised, never swallowed: silently losing a state write would
+    turn a visible one-iteration failure into an invisible stale-heartbeat lie.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=1, sort_keys=True, default=str),
-                   encoding="utf-8")
-    os.replace(tmp, path)
+    blob = json.dumps(payload, indent=1, sort_keys=True, default=str)
+    tmp = path.with_name("%s.%d.%s.tmp" % (path.name, os.getpid(), uuid.uuid4().hex[:8]))
+    try:
+        tmp.write_text(blob, encoding="utf-8")
+        delay = _REPLACE_BACKOFF_SECONDS
+        for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+            try:
+                os.replace(tmp, path)
+                return
+            except OSError:
+                if attempt == _REPLACE_ATTEMPTS:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, _REPLACE_BACKOFF_CAP_SECONDS)
+    finally:
+        # The replace consumed the temp file on success; on ANY failure path the
+        # orphan is removed here, so a transient sharing race cannot leave debris
+        # that the next operator mistakes for an interrupted write.
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- #
@@ -872,6 +936,76 @@ def release_service_lock(*, root=None, instance_id: str,
     state["current_iteration_id"] = None
     save_service_state(state, root=root)
     return {"released": released, "graceful": bool(graceful)}
+
+
+def _identity_owner():
+    from . import runtime_identity as _rid
+    return _rid
+
+
+#: Release 74.1 — the released-authority vocabulary, BOUND FROM the one identity owner
+#: rather than restated here. A second spelling of these outcomes is a second owner of
+#: the rule, which is the defect this release exists to remove.
+ATTESTATION_MAX_AGE_SECONDS = _identity_owner().ATTESTATION_MAX_AGE_SECONDS
+ATTEST_WITHIN_AUTHORITY = _identity_owner().ATTEST_WITHIN_AUTHORITY
+ATTEST_SOURCE_OBSOLETE = _identity_owner().ATTEST_SOURCE_OBSOLETE
+ATTEST_NOT_PROVABLE = _identity_owner().ATTEST_NOT_PROVABLE
+ATTEST_OUTCOMES = _identity_owner().ATTEST_OUTCOMES
+
+
+def reset_source_attestation_cache_for_tests() -> None:
+    """Drop the bounded attestation cache held by the identity owner. Tests only."""
+    _identity_owner().reset_released_authority_cache_for_tests()
+
+
+def source_attestation(*, loaded_release: Optional[dict],
+                       now_monotonic: Optional[float] = None,
+                       source_identity: Optional[dict] = None) -> dict:
+    """May THIS worker still write a prospective artifact?
+
+    Release 74.1. ``register_worker_start`` below stamps this worker's loaded release
+    exactly once, at start, and that was the whole defect: the service is LEASED and
+    long-lived, so the single-instance lease prevents the scheduled task from ever
+    replacing the process, and a capture taken once went on authorising prospective
+    writes for as long as the process survived. On 2026-09-25 a worker that had loaded
+    736f60a15764 on 2026-09-24 wrote a ``hoc_decision_policy.v1`` opportunity-cost
+    artifact under deployed source 38dc01415199, and that older artifact took the
+    session's index pointer away from the governed v2 run. Every liveness signal said
+    HEALTHY throughout; liveness was never the question.
+
+    The attestation itself belongs to ``api.runtime_identity`` and is only DELEGATED to
+    here. This owner deliberately does not read the revision on disk: R55.2 forbids
+    these surfaces from reading HEAD, because a module that reads HEAD is one step from
+    reporting it as what some process loaded, and that would make every stale worker
+    look current. So the comparison, the refusal rule and the bounded cache all live
+    with the identity owner, and this function decides nothing.
+    """
+    try:
+        att = _identity_owner().released_authority(
+            loaded=loaded_release, now_monotonic=now_monotonic,
+            source_identity=source_identity)
+        if att.get("outcome") != ATTEST_SOURCE_OBSOLETE:
+            return att
+        # The identity owner serves several runtimes, so its refusal is
+        # deliberately generic. THIS owner knows which service it is and what an
+        # operator has to type, and it knows that the information already
+        # collected in the iteration is kept — a refusal an operator cannot act on
+        # is how a healthy-looking worker stayed stale for a day.
+        return dict(att, remediation=(
+            "scripts\\manage_information_collection.ps1 -Action Restart -Execute, "
+            "then confirm the worker reports ALIGNED."),
+            reason=("%s No opportunity cost, reassessment or proposal artifact was "
+                    "written under obsolete code; information already collected in "
+                    "this iteration is kept. Restart with "
+                    "scripts\\manage_information_collection.ps1 -Action Restart "
+                    "-Execute." % att.get("reason", "")))
+    except Exception as exc:  # noqa: BLE001 - identity never halts collection
+        return {"outcome": ATTEST_NOT_PROVABLE, "within_authority": True,
+                "verdict": None, "verdict_owner": _RELEASE_IDENTITY_OWNER,
+                "attested_at": utc_iso(),
+                "reason": ("The released-authority attestation was unavailable (%s), so "
+                           "obsolescence is UNPROVEN and the event cycle was not "
+                           "refused on it." % type(exc).__name__)}
 
 
 def register_worker_start(*, root=None, instance_id: str, pid: int,
@@ -2217,12 +2351,24 @@ def run_collection_iteration(
         "single_flight_gate_passed": True,
         "within_released_authority": True,
     }
+    # Release 74.1 — the released-authority field above is no longer a constant.
+    # It is RE-TAKEN here, at the moment of use, against the revision on disk now.
+    attestation = source_attestation(loaded_release=service.get("loaded_release"))
+    authorization["within_released_authority"] = bool(attestation["within_authority"])
+    authorization["released_authority_attestation"] = attestation
+
     cycle: Optional[dict] = None
     cycle_reason: str
     if not should_run_cycle:
         cycle_reason = ("No source produced new information and no live adapter was "
                         "due, so no opportunity cost, reassessment or proposal work "
                         "was performed.")
+    elif not authorization["within_released_authority"]:
+        # The ingestion above is KEPT: appending raw observations under older code
+        # is safe and losing them is a permanent, uncollectable miss. What is
+        # refused is the leg that writes PROSPECTIVE decision artifacts.
+        cycle_reason = attestation["reason"]
+        should_run_cycle = False
     elif not all(authorization[k] for k in
                  ("collection_service_started_by_operator",
                   "collection_automation_enabled")) and require_enabled:
@@ -2950,6 +3096,11 @@ __all__ = [
     "heartbeat", "record_progress", "ProgressReporter",
     "clear_iteration_in_flight",
     "register_worker_start", "resolve_service_lifecycle",
+    # R74.1 - the bounded released-authority attestation re-taken at the moment a
+    # prospective artifact would be written.
+    "ATTESTATION_MAX_AGE_SECONDS", "ATTEST_OUTCOMES", "ATTEST_WITHIN_AUTHORITY",
+    "ATTEST_SOURCE_OBSOLETE", "ATTEST_NOT_PROVABLE", "source_attestation",
+    "reset_source_attestation_cache_for_tests",
     # R62.1.1 - the ONE current-service-state read, shape and provenance.
     "CC_SOURCE_CURRENT_OWNER", "CC_SOURCE_DECISION_SNAPSHOT",
     "CC_SOURCE_UNAVAILABLE", "CURRENT_COLLECTION_SOURCES",

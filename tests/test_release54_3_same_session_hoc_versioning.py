@@ -994,10 +994,14 @@ def test_52_the_gate_opens_no_store_of_its_own():
 
 
 def test_53_persistence_status_vocabulary_is_frozen():
+    # R74.1 appends a SIXTH rejection outcome. The seven R54.3 words keep their
+    # exact spellings and their exact order: the new one is decided on the POLICY
+    # that produced an assessment, which none of the original seven could see.
     assert hoc.PERSIST_STATUS_VOCAB == (
         "CREATED", "REUSED_EXISTING", "CREATED_NEW_VERSION",
         "CREATED_ASSESSMENT_VERSION", "CONFLICT_REJECTED",
-        "REJECTED_INCONSISTENT_IDENTITY", "NOT_PERSISTED")
+        "REJECTED_INCONSISTENT_IDENTITY", "NOT_PERSISTED",
+        "REJECTED_STALE_DECISION_POLICY")
     # The same words the reassessment owner already uses — one vocabulary.
     for name in ("PERSIST_CREATED", "PERSIST_REUSED", "PERSIST_ECONOMIC_VERSION",
                  "PERSIST_ASSESSMENT_VERSION", "PERSIST_CONFLICT",

@@ -957,12 +957,112 @@ PERSIST_ASSESSMENT_VERSION = "CREATED_ASSESSMENT_VERSION"
 PERSIST_CONFLICT = "CONFLICT_REJECTED"
 PERSIST_INCONSISTENT = "REJECTED_INCONSISTENT_IDENTITY"
 PERSIST_NOT_PERSISTED = "NOT_PERSISTED"
+#: Release 74.1 — an OLDER decision policy tried to supersede a NEWER one for the
+#: same book + eligible date. The sixth outcome, and the only one decided on the
+#: POLICY that produced an assessment rather than on the assessment itself.
+PERSIST_STALE_POLICY = "REJECTED_STALE_DECISION_POLICY"
 PERSIST_STATUS_VOCAB = (PERSIST_CREATED, PERSIST_REUSED, PERSIST_ECONOMIC_VERSION,
                         PERSIST_ASSESSMENT_VERSION, PERSIST_CONFLICT,
-                        PERSIST_INCONSISTENT, PERSIST_NOT_PERSISTED)
+                        PERSIST_INCONSISTENT, PERSIST_NOT_PERSISTED,
+                        PERSIST_STALE_POLICY)
 #: The outcomes that leave an exact, retrievable immutable artifact behind.
 PERSIST_SUCCESS_STATUSES = (PERSIST_CREATED, PERSIST_REUSED,
                             PERSIST_ECONOMIC_VERSION, PERSIST_ASSESSMENT_VERSION)
+
+
+def _policy_version_parts(version: Any) -> Optional[tuple]:
+    """``"hoc_decision_policy.v2"`` -> ``("hoc_decision_policy", 2)``.
+
+    ``None`` when the string carries no orderable ``.v<int>`` suffix, because a
+    version this function cannot order is one the monotonicity guard must not judge.
+    """
+    text = str(version or "").strip()
+    if not text:
+        return None
+    family, _, tail = text.rpartition(".")
+    if not family or not tail.startswith("v"):
+        return None
+    digits = tail[1:]
+    if not digits.isdigit():
+        return None
+    return (family, int(digits))
+
+
+def highest_indexed_policy_version(existing: Optional[dict]) -> Optional[str]:
+    """The NEWEST decision-policy version anywhere in a session's append-only version
+    chain — not merely the one the current index pointer happens to name.
+
+    The pointer is precisely what a stale producer moves, so a guard that consulted
+    only the pointer would let the SECOND stale write pass a rule the first stale
+    write had already defeated. The chain is the durable record; the pointer is a
+    claim about it.
+    """
+    if not isinstance(existing, dict):
+        return None
+    rows = list(existing.get("versions") or [])
+    rows.append({k: v for k, v in existing.items() if k != "versions"})
+    best = None
+    best_ordinal = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        parts = _policy_version_parts(row.get("decision_policy_version"))
+        if parts is None:
+            continue
+        if best_ordinal is None or parts[1] > best_ordinal:
+            best, best_ordinal = row.get("decision_policy_version"), parts[1]
+    return best
+
+
+def stale_policy_refusal(*, incoming_policy_version: Any,
+                         existing: Optional[dict]) -> Optional[dict]:
+    """Release 74.1 — decision-policy monotonicity for one book + eligible date.
+
+    An OLDER decision policy may never supersede a NEWER one. On 2026-09-25 the
+    leased information-collection worker was still running pre-R70 imports and wrote
+    a ``hoc_decision_policy.v1`` artifact at 21:27Z, 52 minutes AFTER the governed
+    cycle had written ``hoc_decision_policy.v2`` for eligible date 2026-09-24. The v1
+    artifact took the index pointer, and every downstream HOC and reassessment
+    identity read then disagreed with the governed run. None of the five Release-54.3
+    outcomes could refuse it: all five decide on the ECONOMIC state, the assessment
+    EVIDENCE or the CONCLUSION, and not one of them looks at the policy that produced
+    them. A liveness check could not have caught it either — the stale worker was
+    healthy, and its heartbeat was seconds old.
+
+    Returns ``None`` when the write is admissible, or the refusal detail when it is
+    not. It refuses ONLY when both versions are orderable, share a family, and the
+    incoming one is strictly older: exactly the demonstrated defect. A forward
+    migration, an equal version, an unparseable version and a deliberate family
+    rename all fall through to the existing outcomes, because a guard that cannot
+    PROVE staleness must not invent it — and one that refused every case it did not
+    understand would fail every caller instead of the one that is wrong.
+    """
+    newest = highest_indexed_policy_version(existing)
+    incoming = _policy_version_parts(incoming_policy_version)
+    stored = _policy_version_parts(newest)
+    if incoming is None or stored is None:
+        return None
+    if incoming[0] != stored[0]:
+        return None
+    if incoming[1] >= stored[1]:
+        return None
+    return {
+        "incoming_decision_policy_version": str(incoming_policy_version),
+        "newest_indexed_decision_policy_version": newest,
+        "policy_family": stored[0],
+        "incoming_ordinal": incoming[1],
+        "newest_indexed_ordinal": stored[1],
+        "reason": ("An opportunity-cost assessment produced by decision policy %s "
+                   "may not supersede the %s assessment already recorded for this "
+                   "book and eligible date. The producer is running an OLDER "
+                   "application release than the one that wrote the current record; "
+                   "restart it on the deployed release. No artifact was written and "
+                   "the index pointer did not move; every existing artifact and "
+                   "supersession record is untouched."
+                   % (str(incoming_policy_version), newest)),
+        "remediation": ("scripts\\manage_information_collection.ps1 -Action Restart "
+                        "-Execute, then confirm the worker reports ALIGNED."),
+    }
 
 
 def _read_indexed_artifact(entry: Optional[dict], hoc_dir=None) -> Optional[dict]:
@@ -1183,6 +1283,24 @@ def persist_assessment(*, result: dict, input_contract: dict, hoc_dir=None,
     # cannot tell us about the evidence behind it.
     if existing and existing.get("assessment_hash") == identity["assessment_hash"]:
         return _reuse_outcome(existing, identity, hoc_dir)
+
+    # Release 74.1 — POLICY monotonicity, decided before any version question. An
+    # assessment from an older decision policy is not a newer version of a newer one,
+    # whatever its evidence says, so this is refused ahead of the three identity axes
+    # rather than being allowed to win one of them.
+    stale = stale_policy_refusal(
+        incoming_policy_version=identity.get("decision_policy_version"),
+        existing=existing)
+    if stale:
+        return {"status": PERSIST_STALE_POLICY, "artifact_id": None,
+                "existing_artifact_id": existing.get("artifact_id"),
+                "existing_assessment_hash": existing.get("assessment_hash"),
+                "persisted": False, "reused": False, "conflict": True,
+                "economic_state_changed": False,
+                "assessment_evidence_changed": False,
+                "stale_decision_policy": stale,
+                "reason": stale["reason"],
+                "identity": identity}
 
     new_econ = identity.get("economic_state_hash")
     prior_econ = existing.get("economic_state_hash") if existing else None

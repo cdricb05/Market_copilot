@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -507,6 +508,120 @@ def classify_alignment(*, loaded: Optional[dict], source: Optional[dict],
 
 
 # --------------------------------------------------------------------------- #
+# RELEASED AUTHORITY (R74.1) — may this process still write a prospective artifact?
+# --------------------------------------------------------------------------- #
+#: How long a released-authority attestation may be reused before it is re-earned.
+#: BOUNDED in the only sense that matters: an attestation is a statement about an
+#: instant, and R55.2's capture-once is precisely what allowed a stale process to keep
+#: writing, so the replacement is explicitly not permitted to become a second capture
+#: that lives forever. Shorter than the shortest collection cadence (300 s), so a
+#: cached attestation can never span an iteration.
+ATTESTATION_MAX_AGE_SECONDS = 60.0
+#: The three outcomes. Only the first authorises a prospective artifact write.
+ATTEST_WITHIN_AUTHORITY = "WITHIN_RELEASED_AUTHORITY"
+ATTEST_SOURCE_OBSOLETE = "REFUSED_LOADED_RELEASE_IS_OBSOLETE"
+ATTEST_NOT_PROVABLE = "AUTHORITY_NOT_PROVABLE"
+ATTEST_OUTCOMES = (ATTEST_WITHIN_AUTHORITY, ATTEST_SOURCE_OBSOLETE,
+                   ATTEST_NOT_PROVABLE)
+
+#: Module-local cache: (monotonic_taken_at, attestation). Reused, never authoritative
+#: past ``ATTESTATION_MAX_AGE_SECONDS``.
+_ATTESTATION_CACHE: dict = {}
+
+
+def reset_released_authority_cache_for_tests() -> None:
+    """Drop the bounded attestation cache. Tests only."""
+    _ATTESTATION_CACHE.clear()
+
+
+def released_authority(*, loaded: Optional[dict], now_monotonic: Optional[float] = None,
+                       source_identity: Optional[dict] = None) -> dict:
+    """Is a process that loaded ``loaded`` still authorised to write?
+
+    Release 74.1. This module already answers "is this runtime operating the deployed
+    release" for REPORTING. The September-2026 defect was that nothing ever asked the
+    question before a WRITE. ``api.information_collection`` stamps a worker's loaded
+    release exactly once, at start; that service is leased and long-lived, so its
+    single-instance lease stops the scheduled task replacing the process, and a
+    capture taken once went on authorising prospective writes for the life of the
+    worker. On 2026-09-25 a worker that had loaded 736f60a15764 the previous day wrote
+    a ``hoc_decision_policy.v1`` opportunity-cost artifact under deployed source
+    38dc01415199, and that older artifact took the session's index pointer away from
+    the governed v2 run.
+
+    The decision lives HERE and not in the collection owner for the reason R55.2 gave:
+    reading HEAD is this module's job, and a surface that reads HEAD elsewhere is one
+    step from reporting it as what some process loaded. The verdict is
+    :func:`classify_alignment` unchanged — this function adds no comparison of its own.
+
+    It refuses ONLY on a PROVEN-stale verdict. ``UNKNOWN`` does not refuse: an
+    unreadable git directory is not evidence of obsolescence, and refusing on it would
+    trade a permanent, uncollectable information miss for a defect never demonstrated.
+    Writes nothing, restarts nothing, and never raises — an attestation that cannot be
+    taken says so.
+    """
+    clock = time.monotonic() if now_monotonic is None else float(now_monotonic)
+    cached = _ATTESTATION_CACHE.get("attestation")
+    if (source_identity is None and cached
+            and (clock - cached[0]) < ATTESTATION_MAX_AGE_SECONDS):
+        return dict(cached[1], reused_within_seconds=round(clock - cached[0], 3))
+
+    try:
+        source = (source_identity if source_identity is not None
+                  else read_source_identity())
+        row = classify_alignment(loaded=loaded, source=source)
+    except Exception as exc:  # noqa: BLE001 - identity never halts a producer
+        attestation = {
+            "outcome": ATTEST_NOT_PROVABLE, "within_authority": True,
+            "verdict": None, "verdict_owner": OWNER,
+            "loaded_commit": (loaded or {}).get("commit"), "source_commit": None,
+            "attested_at": _utc_iso(),
+            "max_age_seconds": ATTESTATION_MAX_AGE_SECONDS,
+            "writes_nothing": True, "restarts_nothing": True,
+            "reason": ("The released-authority attestation could not be taken (%s), so "
+                       "obsolescence is UNPROVEN and no producer was refused on it. An "
+                       "unreadable identity is not evidence of stale code."
+                       % type(exc).__name__),
+        }
+        _ATTESTATION_CACHE["attestation"] = (clock, attestation)
+        return attestation
+
+    verdict = row.get("verdict")
+    obsolete = verdict == ALIGNMENT_STALE
+    if obsolete:
+        outcome = ATTEST_SOURCE_OBSOLETE
+        reason = ("This process loaded application release %s and the deployed source "
+                  "is now %s, so its released authority has lapsed: it must not write "
+                  "a prospective artifact under obsolete code. Restart it on the "
+                  "deployed release."
+                  % (row.get("loaded_commit_short") or "an unrecorded release",
+                     row.get("source_commit_short") or "unknown"))
+    elif verdict == ALIGNMENT_ALIGNED:
+        outcome = ATTEST_WITHIN_AUTHORITY
+        reason = "This process is operating the deployed release."
+    else:
+        outcome = ATTEST_NOT_PROVABLE
+        reason = ("Release alignment is not provable (%s), so obsolescence is UNPROVEN "
+                  "and no producer was refused on it." % verdict)
+    attestation = {
+        "outcome": outcome, "within_authority": not obsolete,
+        "verdict": verdict, "verdict_owner": OWNER,
+        "verdict_reason": row.get("reason"),
+        "loaded_commit": row.get("loaded_commit"),
+        "loaded_commit_short": row.get("loaded_commit_short"),
+        "source_commit": row.get("source_commit"),
+        "source_commit_short": row.get("source_commit_short"),
+        "loaded_captured_at": row.get("loaded_captured_at"),
+        "attested_at": _utc_iso(),
+        "max_age_seconds": ATTESTATION_MAX_AGE_SECONDS,
+        "writes_nothing": True, "restarts_nothing": True,
+        "reason": reason,
+    }
+    _ATTESTATION_CACHE["attestation"] = (clock, attestation)
+    return attestation
+
+
+# --------------------------------------------------------------------------- #
 # EVENT-CYCLE PROVENANCE (R62.1) — historical, immutable, and never current.
 # --------------------------------------------------------------------------- #
 #: The two identity KINDS this module publishes. A surface that mixes them is
@@ -750,6 +865,11 @@ __all__ = [
     "loaded_identity_from_worker_status",
     "reset_loaded_identity_for_tests", "classify_alignment",
     "build_runtime_alignment",
+    # Release 74.1 — the bounded released-authority attestation, re-taken at the
+    # moment a prospective artifact would be written.
+    "ATTESTATION_MAX_AGE_SECONDS", "ATTEST_OUTCOMES", "ATTEST_WITHIN_AUTHORITY",
+    "ATTEST_SOURCE_OBSOLETE", "ATTEST_NOT_PROVABLE", "released_authority",
+    "reset_released_authority_cache_for_tests",
     # Release 62.1 — the current / historical identity split.
     "IDENTITY_CURRENT_RUNTIME", "IDENTITY_EVENT_CYCLE_RUNTIME",
     "IDENTITY_KINDS", "EVC_CURRENT_RUNTIME", "EVC_EARLIER_RUNTIME",
