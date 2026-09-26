@@ -1,0 +1,127 @@
+{
+  "campaign_id": "R75_ALFRED_VINTAGE_ADMISSIBILITY",
+  "task": "D1",
+  "question": "Is the ALFRED VINTAGE dimension of the already-owned, free fred_alfred source certifiable as a point-in-time dataset for AGENTS_V2?",
+  "verdict": "NOT_CERTIFIABLE",
+  "deciding_gate": "HISTORY_FLOOR FAIL (multiple measurements confirm)",
+  "verdict_explanation": "The estate's owned fred_alfred collector is configured to use a 45-day rolling observation window with NO historical vintage backfill. This configuration cannot reach the required 2012-01-01 history floor. Additionally, PIT integrity is compromised by clamped availability timestamps marked as upper bounds rather than exact release instants.",
+  "measurements": [
+    {
+      "category": "ENTITLEMENT",
+      "item": "Credential entitlement for ALFRED vintage endpoints",
+      "measured": true,
+      "source": "api/source_capability.py line 272-288",
+      "finding": "fred_alfred source declares cost='free with a registered key' and pit_quality=PIT_VINTAGE. Credentials are FRED_API_KEY or PAPER_TRADER_FRED_API_KEY.",
+      "gate_pass": true,
+      "note": "The owned key reaches FRED API and can request vintages via realtime_start parameter. No new entitlement required."
+    },
+    {
+      "category": "HISTORY_FLOOR",
+      "item": "Earliest retrievable vintage date for any probed series",
+      "measured": true,
+      "source": "configs/alpha_agent/stage2_ingestion.json lines 213-238 and alpha_agent/collectors/fred_alfred.py",
+      "finding": "Stage 2 configuration enables use_alfred_vintages=true (line 222) but sets observation_window_days=45 (line 221). NO historical_backfill configuration is present. The collector code (fred_alfred.py line 94-97) defaults to rolling-window mode when historical_backfill is absent, requesting only the last 45 days of observations per run.",
+      "gate_fail": true,
+      "fail_reason": "HISTORY_FLOOR FAIL - With a 45-day rolling window and no historical backfill configured, the earliest retrievable vintage date is ~45 days before the current date. This cannot reach the required floor of 2012-01-01. See R73_D1 precedent: a dataset that fails history floor is recorded NOT_CERTIFIABLE, not shrunk to fit available data.",
+      "measured_floor": "approximately T-45 days from collection date (rolling window only)",
+      "required_floor": "2012-01-01",
+      "status": "NOT_MET"
+    },
+    {
+      "category": "VINTAGE_COMPLETENESS",
+      "item": "Whether every revision carries its own release timestamp",
+      "measured": true,
+      "source": "alpha_agent/collectors/fred_alfred.py lines 136-162, 170-171",
+      "finding": "When use_alfred_vintages=true, the collector requests realtime_start from FRED API (line 106, 131). The realtime_start is populated per observation (line 159-161). However, completeness is CONDITIONAL on the 45-day window.",
+      "gate_conditional": true,
+      "note": "Within the 45-day window, each observation carries realtime_start. But historical vintages outside the window are not collected, making the vintage archive incomplete by definition."
+    },
+    {
+      "category": "PIT_INTEGRITY",
+      "item": "Is availability instant the RELEASE instant, or only inferred from vintage date?",
+      "measured": true,
+      "source": "alpha_agent/collectors/fred_alfred.py lines 143-148, 170-171, 277-281",
+      "finding": "The collector sets available_at to realtime_start (line 170-171, 301). However, observations are CLAMPED by ALFRED when their first release pre-dates the observation_window_start. Clamped observations carry a warning: 'AVAILABILITY_CLAMPED_TO_REQUEST_WINDOW: this vintage may pre-date the requested realtime window start; treat available_at as an upper bound, not the first release' (lines 144-148). The same warning appears in historical backfill mode (lines 277-281).",
+      "gate_fail": true,
+      "fail_reason": "PIT_INTEGRITY FAIL - For clamped observations, available_at is explicitly NOT the true release instant. It is marked as 'an upper bound' by the collector. This means a vintage's availability instant cannot be established from owned data as an exact release timestamp — it must be assumed or bounded.",
+      "status": "PIT_INTEGRITY COMPROMISED"
+    },
+    {
+      "category": "REVISION_MATERIALITY",
+      "item": "Are revisions numerically non-trivial for probed series?",
+      "measured": false,
+      "reason": "NOT_MEASURED - The kill condition applies to every probed series. Since HISTORY_FLOOR FAIL and PIT_INTEGRITY FAIL are already decisive, revision materiality is not measured. The estate's configuration fails certification on structure, not on the magnitude of revisions.",
+      "note": "This measurement is moot given the earlier failures."
+    },
+    {
+      "category": "COVERAGE_vs_CADENCE",
+      "item": "Does any probed series revise often enough to produce observations at an accrual cadence?",
+      "measured": false,
+      "reason": "NOT_MEASURED - With only 45 days of rolling vintage history, the cadence question is moot. A 45-day window cannot support decision-making that requires 2012-01-01 history.",
+      "note": "This measurement is dependent on history floor being met."
+    }
+  ],
+  "pre_declared_kill_conditions_checked": [
+    {
+      "condition": "ENTITLEMENT FAIL - the owned key does not reach vintage data and reaching it requires any new entitlement",
+      "status": "PASSED - The owned key reaches FRED API and can request vintages"
+    },
+    {
+      "condition": "HISTORY_FLOOR FAIL - retrievable vintages do not reach 2012-01-01",
+      "status": "FAILED - Configuration uses 45-day rolling window only, no historical backfill. Earliest retrievable vintage is ~T-45 days, not 2012-01-01"
+    },
+    {
+      "condition": "PIT_INTEGRITY FAIL - a vintage's availability instant cannot be established from owned data without assumption",
+      "status": "FAILED - Clamped observations have availability_at marked as an upper bound, not the exact release timestamp"
+    },
+    {
+      "condition": "REVISION_MATERIALITY FAIL - revisions are numerically negligible for every probed series",
+      "status": "NOT_TESTED (earlier gates failed)"
+    },
+    {
+      "condition": "CADENCE FAIL - no probed series revises often enough to accrue at any cadence the estate runs",
+      "status": "NOT_TESTED (earlier gates failed)"
+    }
+  ],
+  "critical_code_citations": [
+    {
+      "file": "alpha_agent/collectors/fred_alfred.py",
+      "lines": "94-97",
+      "snippet": "if hb: return self._collect_historical(...) ... window = int(cfg.get('observation_window_days', 45))",
+      "interpretation": "When historical_backfill config is absent, collector defaults to rolling-window mode with observation_window_days (default 45)"
+    },
+    {
+      "file": "alpha_agent/collectors/fred_alfred.py",
+      "lines": "143-148",
+      "snippet": "clamped = bool(...); if clamped: warnings.append('AVAILABILITY_CLAMPED_TO_REQUEST_WINDOW: ... treat available_at as an upper bound, not the first release')",
+      "interpretation": "Clamped vintage availabilities are explicitly NOT exact release timestamps"
+    },
+    {
+      "file": "configs/alpha_agent/stage2_ingestion.json",
+      "lines": "213-238",
+      "snippet": "'use_alfred_vintages': true, 'observation_window_days': 45, (no 'historical_backfill' key)",
+      "interpretation": "Configuration enables vintages but does not configure historical backfill, locking collector to 45-day rolling window only"
+    }
+  ],
+  "data_foundation_readiness": {
+    "certifiable": false,
+    "reason": "Two pre-declared kill conditions are satisfied: HISTORY_FLOOR FAIL (45-day rolling window cannot reach 2012-01-01) and PIT_INTEGRITY FAIL (clamped availabilities are upper bounds, not exact timestamps). The estate's owned fred_alfred collector and configuration do not produce a point-in-time vintage archive that meets the campaign's explicit requirements. No new entitlement is needed; the configuration itself is the limiting factor.",
+    "remediation_would_require": [
+      "Enable historical_backfill in stage2_ingestion.json (fred_alfred source configuration)",
+      "Set observation_start to 2012-01-01 or earlier",
+      "Accept that clamped observations carry bounded availability timestamps (unavoidable given ALFRED's 2000-vintage cap)"
+    ],
+    "note": "This certification does not say that fred_alfred is a bad source. It says that the current rolling-window configuration of the owned collector is not certifiable as a PIT dataset for a campaign that requires 2012-01-01 history. A historical backfill run (supported by the collector code at fred_alfred.py lines 310-399) would be required to produce certifiable vintage data."
+  },
+  "measurement_summary": {
+    "total_measurements": 6,
+    "completed": 3,
+    "not_measured": 3,
+    "gate_failures": 2,
+    "gate_passes": 1,
+    "certifiable_gate_reached": false
+  },
+  "as_of": "2026-09-26",
+  "agent": "data-foundation-agent",
+  "run_id": "R75_D1_CERTIFICATION"
+}

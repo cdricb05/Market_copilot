@@ -16009,12 +16009,109 @@ def check_release68_forward_producer_health(files: list[Path]) -> dict:
                     "allocate_capital(", "approve_proposal(", "run_daily_close(")
         if t in (producer + health + refresh)))
 
+    # (j) R74.2 - THE PRE-BOUNDARY WARNING EXISTS, AND IS RAISED BEFORE THE
+    # DEADLINE. R68/R72 could only ever report a boundary AFTER it was lost, so
+    # nine consecutive SPY misses each read as an isolated accident. These
+    # invariants make the prospective half undeletable.
+    readiness_states = sorted(re.findall(r'^R_[A-Z_]+ = "([A-Z_]+)"', health,
+                                         re.M))
+    preboundary_is_declared = bool(
+        "def preboundary_readiness(" in health
+        and "def input_readiness(" in health
+        and "def chronic_miss(" in health
+        and "ACTIONABLE_READINESS_STATES" in health
+        and "preboundary_warnings" in health)
+    # The monitor must run in the ONE runtime, ABOVE the efficiency gate, and in
+    # NEITHER stage list.
+    #
+    # Above the gate because a warning the gate can hold back is not a warning:
+    # a boundary crosses into the warning lead as time passes with no input
+    # changing, which is exactly when the gate skips.
+    #
+    # In neither list because ``eligibility.decide`` reads a row in
+    # UNGATED_STAGES reporting SUCCESS as "a per-session owner moved" and runs
+    # the expensive set at once - so an observer that reports SUCCESS on every
+    # healthy cycle would answer RUN for ever and reinstate the R64 livelock.
+    elig = _read("alpha_agent/r52/eligibility.py")
+    monitor_in_the_runtime = '"forward_preboundary_monitor"' in runtime
+    try:
+        monitor_above_the_gate = bool(
+            monitor_in_the_runtime
+            and runtime.index('"forward_preboundary_monitor"')
+            < runtime.index("gate = EL.decide("))
+        # and still below the producers, whose heartbeat it reads this cycle.
+        monitor_below_the_producers = bool(
+            monitor_in_the_runtime
+            and runtime.index('"forward_preboundary_monitor"')
+            > runtime.index('"r58_cadence_prospective_decision"'))
+    except ValueError:
+        monitor_above_the_gate = False
+        monitor_below_the_producers = False
+    try:
+        gated_block = elig[elig.index("GATED_STAGES = ("):
+                           elig.index("PROGRESS_STAGE_STATES")]
+    except ValueError:
+        gated_block = elig
+    monitor_signals_no_gate_progress = (
+        "forward_preboundary_monitor" not in gated_block)
+    # THE JOURNAL ALLOW-LIST. A warning journalled into an allow-list that does
+    # not mention its fields is a warning written to nowhere - the same defect as
+    # R66/R68/R72, one seam further on.
+    monitor_fields_dropped_by_the_journal = sorted(
+        f for f in ("warnings", "defects", "at_risk", "by_readiness_state",
+                    "every_next_boundary_is_reachable")
+        if '"%s"' % f not in runtime[
+            runtime.index("_JOURNAL_STAGE_FIELDS = ("):
+            runtime.index("def _lock_file(")])
+    # The runtime stage must DELEGATE the verdict. A second readiness rule in the
+    # runtime is a second monitor, which is the defect this whole file exists to
+    # prevent one layer down.
+    monitor_delegates_the_verdict = bool(
+        "FPH.producer_coverage()" in runtime
+        and "import forward_producer_health as FPH" in runtime)
+    # THE ALLOW-LIST GUARD. The heartbeat extraction has now silently dropped the
+    # facts a caller needed three times (R68 next_boundaries, R72
+    # missed_boundaries, R74.2 publication). Each field the readiness verdict is
+    # computed from must survive that extraction, or the verdict is computed from
+    # None and reads as healthy.
+    beat_block = health[health.index("def heartbeat("):
+                        health.index("def producer_for(")] \
+        if "def producer_for(" in health and "def heartbeat(" in health \
+        and health.index("def heartbeat(") < health.index("def producer_for(") \
+        else health
+    heartbeat_carries_readiness_inputs = sorted(
+        f for f in ("publication", "entry_session", "information_session",
+                    "entry_state", "next_boundaries", "missed_boundaries",
+                    "forward_panel_last_session", "blocked_on")
+        if 'st.get("%s")' % f not in health)
+    # A monitor that writes is an evidence store. This one reads and reports.
+    preboundary_write_paths = sorted(set(
+        t for t in ("emit_prospective_prediction(", "record_forfeiture(",
+                    "freeze_decision(", "register_forward_challenger(",
+                    "_atomic_write_json(", "open(", "Path.write_text")
+        if t in health))
+
     return {
         "producer_declaration_owners": declares,
         "r67_reads_the_one_declaration": r67_imports_the_declaration,
         "declared_producer_stages": sorted(stages),
         "declared_stages_missing_from_the_runtime": missing_stages,
         "producer_stages_after_the_accrual": late_stages,
+        # R74.2 - the prospective half.
+        "preboundary_readiness_is_declared": preboundary_is_declared,
+        "readiness_states_declared": readiness_states,
+        "preboundary_monitor_stage_in_the_runtime": monitor_in_the_runtime,
+        "preboundary_monitor_runs_above_the_gate": monitor_above_the_gate,
+        "preboundary_monitor_runs_below_the_producers":
+            monitor_below_the_producers,
+        "preboundary_monitor_signals_no_gate_progress":
+            monitor_signals_no_gate_progress,
+        "preboundary_monitor_fields_dropped_by_the_journal":
+            monitor_fields_dropped_by_the_journal,
+        "preboundary_monitor_delegates_the_verdict":
+            monitor_delegates_the_verdict,
+        "heartbeat_drops_a_readiness_input": heartbeat_carries_readiness_inputs,
+        "preboundary_write_paths": preboundary_write_paths,
         "freezes_through_the_one_decision_owner": freezes_through_the_one_owner,
         "second_scheduler": second_scheduler,
         "refresh_refuses_the_frozen_research_root": refresh_refuses_the_frozen_root,
@@ -18087,6 +18184,37 @@ BLOCKING = ("duplicate_declarations", "research_execution_terms")
 #: entry here means a current economic read can silently miss a registered corporate
 #: action, or that split arithmetic was duplicated outside its one owner.
 BLOCKING_INVARIANTS = (
+    # --- Release 74.2: the PRE-boundary warning ------------------------------
+    # R68 gave every registration a producer and R72 gave the estate a permanent
+    # LOSS ledger. Both are retrospective: the earliest either can speak is
+    # after the opportunity is gone, which is why nine consecutive SPY boundary
+    # misses (2026-09-15..2026-09-25) were each recorded faithfully and none was
+    # ever predicted. The prospective half is now declared in the SAME canonical
+    # owner, journalled by the ONE runtime after the accrual it reads, and the
+    # facts it is computed from must survive the heartbeat's allow-list - which
+    # has now silently dropped a caller's field three times.
+    ("release68_forward_producer_health",
+     "preboundary_readiness_is_declared", True),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_stage_in_the_runtime", True),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_runs_above_the_gate", True),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_runs_below_the_producers", True),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_signals_no_gate_progress", True),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_fields_dropped_by_the_journal", []),
+    ("release68_forward_producer_health",
+     "preboundary_monitor_delegates_the_verdict", True),
+    ("release68_forward_producer_health",
+     "heartbeat_drops_a_readiness_input", []),
+    ("release68_forward_producer_health", "preboundary_write_paths", []),
+    ("release68_forward_producer_health",
+     "declared_stages_missing_from_the_runtime", []),
+    ("release68_forward_producer_health",
+     "producer_stages_after_the_accrual", []),
+
     # --- Release 32: PnL Opportunity Frontier (invariants 1-40) -------------
     # ONE owner per concern; no second optimiser, covariance owner or statistics
     # library; a sleeve generates opportunities and never owns capital,

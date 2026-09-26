@@ -1,0 +1,310 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "campaign_id": "R75_ALFRED_VINTAGE_ADMISSIBILITY",
+ "task": "D2_THE_MECHANISM_QUESTION",
+ "role": "quant-research-director",
+ "authorised_by": "scripts/agents_v2_brief.py --spawn-plan, reason DIRECTOR_OWNS_THE_AGENDA",
+ "ruled_on": "2026-09-26",
+ "read_only": true,
+ "ruling_scope": "MECHANISM_SCOPED",
+ "experiments_preregistered": 0,
+ "certifications_commissioned": 0,
+ "agents_dispatched": 0,
+ "research_memory_writes": 0,
+ "durable_writes": 0,
+ "forward_registrations_touched": 0,
+
+ "VERDICT": "REFUSED_BY_STRUCTURAL_RULE",
+
+ "VERDICT_ONE_LINE": "The narrow question is answered in the challenger's favour and the cell still dies. R74's three STAGE-2 probes do NOT establish a mechanism overlap for C1 - the gate matches information_family by exact string equality, FRED_ALFRED_VINTAGE_REVISION is none of the three strings probed, and a source-wide probe on the candidate's own information_family returns NO_ROW_IN_MEMORY (n_matching 0). Those three probes therefore evidence a SOURCE-FAMILY overlap asserted by the director, not a governed mechanism refusal. But C1's recorded four-part identity is RATES_FUTURES|REGIME|...|DIRECTIONAL_SINGLE_INSTRUMENT, which is a conditioning variable setting the exposure of a single premium-bearing instrument - the recorded structural must-not-repeat 'TIMING a premium with a conditioning variable', three independent sightings, one of which is R74's own second killer row. That rule is not a family, has no reopen condition, and is refused regardless of source. The C1 axis is closed on the structural rule, not on the source overlap.",
+
+ "DECIDING_GATE_AND_PROBE": {
+  "deciding_rule": "research/agents/NEXT_CAMPAIGN_CENSUS.json:142, must_not_repeat.structural[2], verbatim: \"TIMING a premium with a conditioning variable. Three independent sightings (R43, R63 macro timing lanes, index-level implied-state timing): the premium is real, the timing signal is zero.\"",
+  "deciding_gate": "The structural must-not-repeat is a DIRECTOR rule, not a check-mechanism verdict. It is stated in the census as must_not_repeat.structural and its governing sentence is must_not_repeat.rule at NEXT_CAMPAIGN_CENSUS.json:138. No probe can return it, because the canonical gate keys on the four-part identity and a structural pattern is not a key. That is why this ruling states it explicitly rather than pointing at a refusal code.",
+  "corroborating_governed_refusal_from_the_canonical_gate": {
+   "probe_id": "P14",
+   "payload": {"economic_family": "MACRO_RELEASE_SURPRISE", "asset_class": "RATES_FUTURES", "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"},
+   "verdict": "SETTLED_DO_NOT_REPEAT",
+   "n_matching": 1,
+   "n_settled": 1,
+   "is_governed_refusal": true,
+   "outcomes": {"FORWARD_FROZEN": 1},
+   "hypothesis_id": "H_b214b94b_c7a6676b8573",
+   "family_key": "MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT",
+   "reopen_conditions": [],
+   "why_this_is_the_corroborating_probe": "This is a genuine, machine-emitted governed refusal on THREE of C1's four identity components, and R74 never ran it. It is a RATES_FUTURES directional single-instrument book driven by the macro RELEASE event, and it is FORWARD_FROZEN with an EMPTY reopen_conditions list - there is no recorded reopen path at all. A vintage-to-vintage revision is a second reading of the same macro release event this row already occupies. Prosecuting it backward is what R74 itself refused for C2 and C3: 'Re-testing a FORWARD_FROZEN mechanism backward destroys the only clean evidence the estate is still accruing on it.' This campaign's own forbidden list bars contaminating a forward-frozen hypothesis."
+  },
+  "independence": "The structural rule and P14 are independent grounds. Either alone closes C1. Neither depends on R74's three source-bound probes, which this ruling finds insufficient for the purpose R74 used them for."
+ },
+
+ "ANSWER_TO_THE_QUESTION_AS_ASKED": {
+  "question": "Was R74's STAGE-2 refusal of FRED_ALFRED_VINTAGE_REVISION an ACTUAL ECONOMIC-MECHANISM overlap with the three killer rows, or only a BROAD SOURCE-FAMILY overlap the probe shape cannot distinguish from one?",
+  "answer": "BROAD SOURCE-FAMILY OVERLAP, and in C1's case not even that as a machine fact - the three probes bound information_family values the candidate does not carry.",
+  "measured_basis": [
+   "The gate's matching predicate is exact equality on each bound component: alpha_agent/r59/memory.py:1086-1093, `r.get(\"information_family\") == information_family`. There is no prefix, substring or source-hierarchy notion anywhere in mechanism_state.",
+   "C1's information_family is FRED_ALFRED_VINTAGE_REVISION. R74's three STAGE-2 probes bound FRED_ALFRED, FRED and MACRO_OBSERVATION - three different strings. The gate did not widen C1's source family; the director substituted three sibling labels and read the tool's answer about those.",
+   "PROBE P5, the honest source-wide probe on the candidate's own information_family (one bound component, information_family=FRED_ALFRED_VINTAGE_REVISION), returns NO_ROW_IN_MEMORY, n_matching 0, is_governed_refusal false.",
+   "R74's method.stage_2_result_summary states of all twelve candidates: 'These are the canonical tool's own governed refusals, not the director's judgement.' For C1 that characterisation is NOT SUPPORTED. The tool refused three strings the director chose; the mapping from FRED_ALFRED_VINTAGE_REVISION onto them is the director's judgement and should have been recorded as such."
+  ],
+  "what_this_does_and_does_not_buy_the_challenger": "It removes R74's stated ground for C1's STAGE-2 refusal. It does not make the cell admissible, because two grounds R74 did not rely on do close it, and this ruling rests on those. A refusal repaired to a better ground is still a refusal; nothing here is weakened, relaxed or reinterpreted to make room for a hypothesis.",
+  "stage_2_is_still_the_right_net": "STAGE 2 as DEFINED is correct and is upheld: a STAGE-1 NO_ROW_IN_MEMORY is exactly what a rename returns (probe P4 returns precisely that for C1) and is never believed alone. The defect is not the net, it is that a source-sibling SUBSTITUTION was recorded as if the tool had widened the candidate's own key. Fix the record, not the net."
+ },
+
+ "PROBES_RUN": {
+  "tool": "scripts/alpha_agents_v2.py check-mechanism --agent quant-research-director",
+  "n_probes": 12,
+  "experiments_run": 0,
+  "evaluation_samples_read": 0,
+  "invalid_query_returned": 0,
+  "every_probe_bound_at_least_one_key": true,
+  "probes": [
+   {"id": "P1", "payload": {"information_family": "FRED_ALFRED"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 1}, "hypothesis_ids": ["HM_CLOSED_MACRO_BETA_XS_STAGE15"], "family_keys": ["MACRO_BETA_XS_STAGE15|FRED_ALFRED|US_EQUITY|CLOSED_MECHANISM_LEDGER"], "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "reproduces R74 STAGE-2 probe 1"},
+   {"id": "P2", "payload": {"information_family": "FRED"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 1}, "hypothesis_ids": ["HM_CLOSED_MACRO_TIMING_LANES_R63"], "family_keys": ["MACRO_TIMING_LANES_R63|FRED|CROSS_ASSET|CLOSED_MECHANISM_LEDGER"], "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "reproduces R74 STAGE-2 probe 2"},
+   {"id": "P3", "payload": {"information_family": "MACRO_OBSERVATION"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 32, "n_settled": 32, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 32}, "family_keys_distinct": 10, "family_key_shape": "MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|{COMMODITY_FUTURES,CROSS_ASSET,EQUITY_INDEX_FUTURES,FX_FUTURES,RATES_FUTURES}|{LIGHTGBM,RIDGE}", "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "reproduces R74 STAGE-2 probe 3; all 32 reproduce exactly"},
+   {"id": "P4", "payload": {"asset_class": "RATES_FUTURES", "economic_family": "REGIME", "information_family": "FRED_ALFRED_VINTAGE_REVISION", "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"}, "verdict": "NO_ROW_IN_MEMORY", "n_matching": 0, "n_bound_components": 4, "is_governed_refusal": false, "novelty_claim_is_believable": true, "note": "reproduces R74 STAGE 1 exactly. Believable only about the LABEL - not read as novelty."},
+   {"id": "P5", "payload": {"information_family": "FRED_ALFRED_VINTAGE_REVISION"}, "verdict": "NO_ROW_IN_MEMORY", "n_matching": 0, "n_bound_components": 1, "is_governed_refusal": false, "note": "THE PROBE R74 DID NOT RUN. The honest source-wide STAGE-2 probe on the candidate's own information_family. Zero rows. No governed refusal exists on this source string."},
+   {"id": "P6", "payload": {"economic_family": "REGIME"}, "verdict": "NO_ROW_IN_MEMORY", "n_matching": 0, "is_governed_refusal": false, "note": "REGIME is not a recorded economic_family value anywhere in memory - it is a label C1 minted."},
+   {"id": "P7", "payload": {"economic_family": "REGIME", "asset_class": "RATES_FUTURES"}, "verdict": "NO_ROW_IN_MEMORY", "n_matching": 0, "is_governed_refusal": false},
+   {"id": "P8", "payload": {"economic_family": "MACHINE_REPRESENTATION:MACRO_OVERLAY"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 32, "n_settled": 32, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 32}, "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "the 32 MACRO_OBSERVATION rows ARE the MACRO_OVERLAY economic family - P3 and P8 are the same 32 rows viewed from the source axis and the mechanism axis."},
+   {"id": "P9", "payload": {"asset_class": "RATES_FUTURES", "information_family": "MACRO_OBSERVATION"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 6, "n_settled": 6, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 6}, "family_keys": ["MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|RATES_FUTURES|LIGHTGBM", "MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|RATES_FUTURES|RIDGE"], "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "C1's own asset class HAS been prosecuted with a macro observation as an overlay: 6 rows, all NO_ALPHA_EVIDENCE. R74 did not run this probe either."},
+   {"id": "P10", "payload": {"economic_family": "MACRO_BETA_XS_STAGE15"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 1}, "family_keys": ["MACRO_BETA_XS_STAGE15|FRED_ALFRED|US_EQUITY|CLOSED_MECHANISM_LEDGER"], "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "killer row 1 reached from the mechanism axis rather than the source axis"},
+   {"id": "P11", "payload": {"economic_family": "MACRO_TIMING_LANES_R63"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 1}, "family_keys": ["MACRO_TIMING_LANES_R63|FRED|CROSS_ASSET|CLOSED_MECHANISM_LEDGER"], "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "killer row 2 reached from the mechanism axis"},
+   {"id": "P12", "payload": {"model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 8, "n_settled": 8, "is_governed_refusal": true, "outcomes": {"FORWARD_FROZEN": 8}, "reopen_conditions": [], "family_keys": ["ANNOUNCEMENT_DAY_PREMIUM|SCHEDULED_EVENT_CALENDAR|EQUITY_INDEX_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "CALENDAR_SEASONALITY|CALENDAR_STRUCTURE|EQUITY_INDEX_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "CROSS_ASSET_LEAD_LAG|CROSS_ASSET_LEAD_LAG|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "PRE_FOMC_DRIFT|SCHEDULED_EVENT_CALENDAR|EQUITY_INDEX_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "TERM_PREMIUM_CARRY|MACRO_RATES_LEVELS|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT", "VOLATILITY_TERM_CARRY|PRICE_STATE|VOLATILITY|DIRECTIONAL_SINGLE_INSTRUMENT"], "note": "DECISIVE CONTEXT. Every one of the 8 rows carrying C1's model_family is FORWARD_FROZEN and every single one is a PREMIUM: announcement-day premium, calendar seasonality, lead-lag, release surprise, pre-FOMC drift, TERM PREMIUM CARRY, volatility term carry. DIRECTIONAL_SINGLE_INSTRUMENT is, in this estate's recorded usage, the premium-harvesting model family. A REGIME variable steering it is premium timing by construction."},
+   {"id": "P13", "payload": {"information_family": "MACRO_RELEASE_SURPRISE"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"FORWARD_FROZEN": 1}, "hypothesis_ids": ["H_b214b94b_c7a6676b8573"], "reopen_conditions": [], "note": "the macro-release event channel in RATES_FUTURES is occupied and forward-frozen"},
+   {"id": "P14", "payload": {"economic_family": "MACRO_RELEASE_SURPRISE", "asset_class": "RATES_FUTURES", "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "is_governed_refusal": true, "outcomes": {"FORWARD_FROZEN": 1}, "hypothesis_ids": ["H_b214b94b_c7a6676b8573"], "family_keys": ["MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT"], "reopen_conditions": [], "note": "THE CORROBORATING GOVERNED REFUSAL. Three of C1's four components bound. Not run by R74."},
+   {"id": "P15", "payload": {"asset_class": "RATES_FUTURES"}, "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 868, "n_settled": 868, "is_governed_refusal": true, "outcomes": {"NO_ALPHA_EVIDENCE": 864, "FORWARD_FROZEN": 4}, "reopen_conditions": ["NEW_ORTHOGONAL_INFORMATION"], "note": "asset-class context only; too wide to refuse a cell on and not used to."}
+  ],
+  "probe_count_note": "Ids P1-P15 with P6/P7 counted as one exploratory pair; 12 distinct payloads were executed. Every verdict above is copied from the tool's own emitted JSON."
+ },
+
+ "PER_KILLER_ROW_MECHANISM_COMPARISON": {
+  "instruction_followed": "Four-part identity and outcome quoted from the canonical gate's own emitted family_key and outcome fields, not from a paraphrase. Component order of family_key is economic_family|information_family|asset_class|model_family, per scripts/alpha_agents_v2.py:245-250.",
+  "c1_recorded_mechanism_under_review": {
+   "cell_string_as_recorded_by_R74": "RATES_FUTURES|REGIME|FRED_ALFRED_VINTAGE_REVISION|DIRECTIONAL_SINGLE_INSTRUMENT",
+   "recorded_economic_mechanism_verbatim": "The REVISION between successive ALFRED vintages of one macro observation - not its level, not its surprise - is information about data quality and measurement uncertainty, and is genuinely non-price.",
+   "source": "research/agents/campaign_r73_post_r72_agenda/DIRECTOR_R74_POST_CERTIFICATION_RULING.json, candidates_tested[0].economic_mechanism (line 50)"
+  },
+  "killer_row_1": {
+   "hypothesis_id": "HM_CLOSED_MACRO_BETA_XS_STAGE15",
+   "recorded_four_part_identity_verbatim": "MACRO_BETA_XS_STAGE15|FRED_ALFRED|US_EQUITY|CLOSED_MECHANISM_LEDGER",
+   "recorded_outcome": "NO_ALPHA_EVIDENCE",
+   "cited_from": "canonical gate probes P1 and P10, field family_keys",
+   "economic_mechanism_it_actually_tested": "CROSS-SECTIONAL EQUITY SORTING ON EXPOSURE TO A MACRO LEVEL. The identity says so: economic_family MACRO_BETA_XS_STAGE15 - a beta, estimated cross-sectionally (XS) against a macro series, in US_EQUITY. The traded object is a long-short equity book ranked on estimated macro sensitivity. The macro series enters only as the regressor whose beta is estimated.",
+   "is_a_vintage_to_vintage_revision_the_same_mechanism": "NO - DIFFERENT MECHANISM.",
+   "why": "Three of the four identity components differ and the economic content differs. This row estimates the SENSITIVITY OF STOCKS to a macro level, cross-sectionally, in a different asset class, with a different traded object. A revision is a property of the macro OBSERVATION ITSELF (how much the statistical agency changed its own estimate), carries no cross-sectional dimension, and is not recoverable from the level series at all - the current series overwrites it. What the two share is the SOURCE STRING FRED_ALFRED, and C1 does not even carry that string (probe P5).",
+   "overlap_class": "SOURCE_FAMILY_ONLY"
+  },
+  "killer_row_2": {
+   "hypothesis_id": "HM_CLOSED_MACRO_TIMING_LANES_R63",
+   "recorded_four_part_identity_verbatim": "MACRO_TIMING_LANES_R63|FRED|CROSS_ASSET|CLOSED_MECHANISM_LEDGER",
+   "recorded_outcome": "NO_ALPHA_EVIDENCE",
+   "cited_from": "canonical gate probes P2 and P11, field family_keys",
+   "economic_mechanism_it_actually_tested": "TIMING - the identity names it: MACRO_TIMING_LANES. A macro state variable switches cross-asset exposure lanes on and off. The census records this row as one of the three independent sightings of the structural must-not-repeat: NEXT_CAMPAIGN_CENSUS.json:142, '(R43, R63 macro timing lanes, index-level implied-state timing)'.",
+   "is_a_vintage_to_vintage_revision_the_same_mechanism": "The MEASUREMENT is different; the MECHANISM IS THE SAME. This is the row that decides the campaign.",
+   "why": "As an INFORMATION OBJECT a revision is not a level and is orthogonal to it. But this row was not killed by its choice of macro series - it was killed by its SHAPE: a conditioning variable switching exposure to a premium, and the recorded finding is 'the premium is real, the timing signal is zero'. C1 has that same shape. C1's economic_family is REGIME, which by definition does not predict a return but classifies a state in which some other return is expected to differ; its model_family is DIRECTIONAL_SINGLE_INSTRUMENT, which in this estate's recorded usage is the premium-harvesting family (all 8 rows carrying it are premiums - probe P12: announcement-day premium, calendar seasonality, lead-lag, release surprise, pre-FOMC drift, TERM_PREMIUM_CARRY, volatility term carry). Substituting a revision for a level inside that shape changes the conditioning variable and leaves the mechanism intact. R63 died with a level; C1 proposes to die with a revision.",
+   "overlap_class": "GENUINE_MECHANISM_OVERLAP_ON_SHAPE"
+  },
+  "killer_row_3": {
+   "hypothesis_ids": "32 rows; P3 returned all 32 ids. RATES_FUTURES subset is 6 rows (probe P9).",
+   "recorded_four_part_identity_verbatim": "MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|{COMMODITY_FUTURES,CROSS_ASSET,EQUITY_INDEX_FUTURES,FX_FUTURES,RATES_FUTURES}|{LIGHTGBM,RIDGE} - 10 distinct family_keys over 32 rows, including MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|RATES_FUTURES|LIGHTGBM and MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION|RATES_FUTURES|RIDGE",
+   "recorded_outcome": "NO_ALPHA_EVIDENCE on all 32",
+   "cited_from": "canonical gate probes P3, P8 and P9, field family_keys",
+   "economic_mechanism_it_actually_tested": "A MACRO OVERLAY ON A MACHINE-LEARNED PRICE MODEL. The identity names the role exactly: MACRO_OVERLAY. A macro observation is added as an extra feature block to a LIGHTGBM or RIDGE return model built on the price panel; the macro variable's job is to modulate a price-driven prediction.",
+   "is_a_vintage_to_vintage_revision_the_same_mechanism": "PARTLY, AND THE OVERLAP IS REAL IN C1's OWN ASSET CLASS.",
+   "why": "On the INFORMATION axis these 32 rows consumed a macro OBSERVATION, which is the level; a revision is a different object. On the MECHANISM axis the role is the same as C1's: a macro variable supplied as a conditioning/modulating input to an exposure that is otherwise price- or premium-driven, which is the overlay role and the timing role under two names. The model_family does differ - LIGHTGBM/RIDGE against C1's DIRECTIONAL_SINGLE_INSTRUMENT - and under the estate's own rule a model_family difference is a different cell, so this is NOT on its own a duplicate identity. But probe P9 is the specific fact R74 never put on the record: C1's own asset class has already been prosecuted 6 times with a macro observation in a conditioning role, every one NO_ALPHA_EVIDENCE.",
+   "overlap_class": "MECHANISM_ROLE_OVERLAP_WITH_A_DIFFERENT_MODEL_FAMILY"
+  },
+  "summary": "Killer row 1 is a source-family overlap only and does not support R74's refusal. Killer row 3 is a role overlap in a different model family - contributory, not dispositive. Killer row 2 IS a genuine mechanism overlap, but on SHAPE rather than on source, which is exactly why a source-bound probe could not have established it and why R74's record of WHY C1 died was wrong even though C1 does die."
+ },
+
+ "RECORDED_REOPEN_CONDITIONS_VERBATIM_AND_RULING": {
+  "governing_rule_verbatim": "NEXT_CAMPAIGN_CENSUS.json:138 - \"A settled family reopens ONLY on its recorded reopen condition (NEW_ORTHOGONAL_INFORMATION), stated in the hypothesis text. Renaming a dead idea is refused by the director and the duplicate-identity check.\"",
+  "killer_row_1": {
+   "hypothesis_id": "HM_CLOSED_MACRO_BETA_XS_STAGE15",
+   "recorded_reopen_condition_verbatim": "NEW_ORTHOGONAL_INFORMATION",
+   "cited_from": "canonical gate probe P1, field reopen_conditions",
+   "does_a_revision_channel_satisfy_it": "ON THE INFORMATION AXIS, PROVISIONALLY YES - AND IT IS UNMEASURED TODAY.",
+   "ruling": "A vintage-to-vintage revision is not derivable from the current series, because the current series overwrites the prior vintage. That is a genuine orthogonality claim about information content, and it is the one part of the challenger's case that stands. It is UNPROVEN: the required dataset fred_alfred_vintage_panel_v1 does not exist (brief FACTS.current_campaign.substrate_missing.datasets) and D1 is the open question. Satisfying this condition would reopen the MACRO_BETA_XS_STAGE15 family in US_EQUITY on a cross-sectional beta mechanism. It does not reach C1, whose asset class, mechanism and model family are all different."
+  },
+  "killer_row_2": {
+   "hypothesis_id": "HM_CLOSED_MACRO_TIMING_LANES_R63",
+   "recorded_reopen_condition_verbatim": "NEW_ORTHOGONAL_INFORMATION",
+   "cited_from": "canonical gate probe P2, field reopen_conditions",
+   "does_a_revision_channel_satisfy_it": "NO - NOT FOR THIS ROW, AND THIS IS THE CRUX.",
+   "ruling": "NEW_ORTHOGONAL_INFORMATION is a condition on the INFORMATION, and a revision plausibly meets it. But this row's recorded failure is not about which information was fed in - the census records the finding as 'the premium is real, the timing signal is zero' (line 142). Feeding a new, genuinely orthogonal conditioning variable into the identical timing shape is the precise experiment whose answer the estate has already bought three times. A reopen condition reopens a FAMILY; it cannot suspend a structural must-not-repeat, because the structural rule is not a family, is not keyed, and carries no reopen condition of its own (NEXT_CAMPAIGN_CENSUS.json:139-144 lists four structural items and attaches a reopen condition to none of them). Reading a family-level NEW_ORTHOGONAL_INFORMATION as a licence to re-run a structurally-refused shape would make the structural list unenforceable."
+  },
+  "killer_row_3": {
+   "hypothesis_ids": "the 32 MACHINE_REPRESENTATION:MACRO_OVERLAY rows",
+   "recorded_reopen_condition_verbatim": "NEW_ORTHOGONAL_INFORMATION",
+   "cited_from": "canonical gate probes P3, P8 and P9, field reopen_conditions (a single distinct value across all 32 settled rows)",
+   "does_a_revision_channel_satisfy_it": "ON THE INFORMATION AXIS, PROVISIONALLY YES, SUBJECT TO D1 - BUT THE OVERLAY ROLE IS THE TIMING ROLE.",
+   "ruling": "Same split as row 2. The revision is new information relative to the level these 32 rows consumed. It is not new relative to the ROLE the macro variable played in them, which is modulating an otherwise price-driven exposure. A reopened MACRO_OVERLAY cell fed a revision instead of a level would be the fourth sighting of the structural pattern, not a new mechanism."
+  },
+  "the_forward_frozen_row_R74_never_reached": {
+   "hypothesis_id": "H_b214b94b_c7a6676b8573",
+   "recorded_four_part_identity_verbatim": "MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT",
+   "recorded_outcome": "FORWARD_FROZEN",
+   "recorded_reopen_condition_verbatim": "NONE - the gate's reopen_conditions list is EMPTY for this row (probes P13 and P14).",
+   "ruling": "There is no recorded reopen condition, so there is no reopen path, so NEW_ORTHOGONAL_INFORMATION is not even available as an argument here. The row is accruing forward evidence now. A revision is a second reading of the same macro release event, in the same asset class, with the same model family. Prosecuting it backward would contaminate the only clean evidence the estate is accruing on the macro-release channel in rates - which this campaign's forbidden list bars outright and which R74 correctly refused for C2 and C3."
+  }
+ },
+
+ "RULING_ON_THE_STRUCTURAL_MUST_NOT_REPEAT": {
+  "rule_verbatim": "TIMING a premium with a conditioning variable. Three independent sightings (R43, R63 macro timing lanes, index-level implied-state timing): the premium is real, the timing signal is zero.",
+  "rule_location": "research/agents/NEXT_CAMPAIGN_CENSUS.json:142, must_not_repeat.structural[2]",
+  "sightings_recorded": 3,
+  "is_the_C1_cell_an_instance": "YES.",
+  "derivation_from_the_recorded_identity_only": [
+   "COMPONENT 1 - THE CONDITIONING VARIABLE. C1's economic_family as recorded is REGIME. A regime variable does not forecast a return; it classifies a state in which some OTHER return is expected to differ. That is the definition of a conditioning variable. Probe P6 confirms REGIME appears in no recorded row: it is a label minted for this cell, and it names the conditioning role explicitly.",
+   "COMPONENT 2 - THE PREMIUM. C1's model_family as recorded is DIRECTIONAL_SINGLE_INSTRUMENT. Probe P12 shows every one of the 8 rows in memory carrying that model_family is a PREMIUM and all 8 are FORWARD_FROZEN: ANNOUNCEMENT_DAY_PREMIUM, CALENDAR_SEASONALITY, CROSS_ASSET_LEAD_LAG, MACRO_RELEASE_SURPRISE, PRE_FOMC_DRIFT, TERM_PREMIUM_CARRY, VOLATILITY_TERM_CARRY. In C1's asset class specifically, the premium is measured and named: TERM_PREMIUM_CARRY|MACRO_RATES_LEVELS|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT, and the director brief records the unconditional version at +1.47%/yr net, t 3.20 AS A CONTROL, explicitly blocked (BRIEF FACTS.blocked_datasets[0]).",
+   "COMPONENT 3 - THE COMPOSITION. REGIME x DIRECTIONAL_SINGLE_INSTRUMENT in RATES_FUTURES is therefore, from the recorded identity alone and before any data is touched, a conditioning variable setting the exposure of a premium-bearing single-instrument position. That is the structural must-not-repeat stated term for term.",
+   "COMPONENT 4 - THE PRIOR. The rule's second sighting, 'R63 macro timing lanes', IS HM_CLOSED_MACRO_TIMING_LANES_R63, which is R74's own killer row 2 (probes P2, P11). The estate has already run this shape with a macro conditioning variable and recorded the timing signal as zero."
+  ],
+  "ruling": "C1 is refused by the structural must-not-repeat, regardless of source, regardless of D1's answer, and regardless of the finding that R74's stated source-overlap ground was insufficient. Per the campaign instruction, that ends the axis for this cell.",
+  "why_this_is_not_the_director_inventing_a_ground": "The rule is recorded in the census with three sightings and a stated finding. Its two operative terms map onto two of C1's four recorded identity components with no interpretation required: REGIME is the conditioning variable, DIRECTIONAL_SINGLE_INSTRUMENT is the premium harvester in every one of its 8 recorded uses. No borderline number is being rounded into a refusal because no number is involved.",
+  "what_would_NOT_be_refused_by_this_rule": "A revision cell whose signal is the PREDICTED RETURN rather than a state that modulates another return - i.e. not a conditioning variable at all. That is a different cell, it is NOT ruled admissible here, and it is enumerated under UNRULED_AND_NOT_THEREBY_CLEARED below."
+ },
+
+ "MECHANISM_SCOPING_GUARD": {
+  "why_this_section_exists": "R72.1 added mechanism scoping after R73_DEFECT_3 recorded that a family-wide ruling can terminate cells the director never considered. This ruling is scoped so it cannot do that.",
+  "what_is_ruled_closed": "Exactly one mechanism: a FRED_ALFRED vintage-revision variable used as a REGIME/conditioning input to a DIRECTIONAL_SINGLE_INSTRUMENT premium exposure in RATES_FUTURES - i.e. the cell R74 recorded as C1, and the premium-timing SHAPE it instantiates in any asset class.",
+  "what_is_NOT_ruled": [
+   "The fred_alfred SOURCE is NOT ruled dead. This ruling finds the opposite of a source-level refusal: the canonical gate holds no row on information_family=FRED_ALFRED_VINTAGE_REVISION at all (probe P5, n_matching 0).",
+   "The VINTAGE-REVISION information family as such is NOT ruled dead. It is ruled inadmissible in ONE mechanism role.",
+   "D1 is NOT pre-judged. Whether the ALFRED vintage dimension is certifiable is a fact about data and this ruling does not touch it.",
+   "No other R74 candidate (C2-C12) is re-opened, re-ruled or disturbed. R74's verdict on them stands."
+  ],
+  "UNRULED_AND_NOT_THEREBY_CLEARED": "Any revision cell that is not premium timing - for example a cross-sectional book ranked on revision magnitude across many macro-sensitive instruments, where the revision is the predicted-return signal rather than a state modulating another exposure. Such a cell is NEITHER refused NOR cleared by this ruling. It has not been adjudicated, it would need its own STAGE-1 and STAGE-2 adjudication including a probe against H_b214b94b_c7a6676b8573, and it is not proposable in this campaign. Silence here is silence, not permission."
+ },
+
+ "IF_ADMISSIBLE_BRANCH": {
+  "applies": false,
+  "reason": "The verdict is REFUSED_BY_STRUCTURAL_RULE, so the must_decide item conditioned on 'the overlap is SOURCE-FAMILY ONLY and the reopen condition IS satisfied' is not reached for C1. The source overlap IS only a source overlap - that half is answered YES - but the reopen-condition half fails for killer row 2 and no reopen path exists for H_b214b94b_c7a6676b8573. Both halves are required and the conjunction fails.",
+  "recorded_for_completeness_not_as_a_proposal": "No four-part identity is put forward. Stating one here while the structural rule closes the premium-timing shape and while D1 is unanswered would be pre-registration by description, which this campaign forbids. The preconditions that would have to be true before ANY revision cell could be proposed in a future campaign are listed under PRECONDITIONS_BEFORE_ANY_FUTURE_PROPOSAL."
+ },
+
+ "PRECONDITIONS_BEFORE_ANY_FUTURE_PROPOSAL": [
+  "D1 returns CERTIFIED on the ALFRED vintage dimension, honouring every pre-declared kill condition unrelaxed: ENTITLEMENT, HISTORY_FLOOR 2012-01-01, VINTAGE_COMPLETENESS, PIT_INTEGRITY with a RELEASE instant, REVISION_MATERIALITY, CADENCE. A NOT_CERTIFIABLE answer ends the axis on data and nothing below matters.",
+  "The proposed mechanism must NOT be premium timing. The revision must be the predicted-return signal, not a state modulating another exposure. If the director cannot state the mechanism without the words 'when revisions are large, hold more of X', it is the refused shape.",
+  "A check-mechanism probe against MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT (H_b214b94b_c7a6676b8573, FORWARD_FROZEN, no reopen condition) must return a non-overlapping answer, and the proposal must not re-prosecute that channel backward.",
+  "The NEW_ORTHOGONAL_INFORMATION claim must be stated in the hypothesis text as the census rule requires, and must be an orthogonality claim about the information AND about the mechanism role, not about the information alone.",
+  "Human operator authorisation, separate from this campaign's spec. campaign_spec.json if_both_qualify records that even a qualifying pair 'is NOT authorised by this spec and requires a separate operator authorisation'.",
+  "A clean working tree, because any resulting registration is a durable write and this tree carries uncommitted work."
+ ],
+
+ "DEFECTS_REPORTED_NOT_REPAIRED": [
+  {
+   "id": "R75_DEFECT_1",
+   "severity": "HIGH",
+   "title": "STAGE 2 has no source hierarchy, so a source-sibling SUBSTITUTION is recordable as the tool's own governed refusal.",
+   "evidence": "alpha_agent/r59/memory.py:1086-1093 matches every bound component by exact equality. A probe on information_family=FRED_ALFRED cannot see a row whose information_family is FRED_ALFRED_VINTAGE_REVISION, and vice versa. Probe P5 returns NO_ROW_IN_MEMORY, n_matching 0, for the candidate's own source string.",
+   "consequence": "R74's method.stage_2_result_summary claims of all twelve candidates: 'These are the canonical tool's own governed refusals, not the director's judgement.' For C1 the tool refused three strings the director selected as siblings; the sibling relation is the director's judgement and is nowhere machine-checked. A future reader cannot tell a real source-family overlap from an asserted one by reading the record.",
+   "not_repaired_because": "This campaign is read-only and a change to the gate or to R74's record is a release-gate act. Reported to the operator, not fixed.",
+   "note": "The net itself is sound and is upheld. What is defective is that the record cannot distinguish 'the tool widened the key' from 'the director chose three neighbouring keys'."
+  },
+  {
+   "id": "R75_DEFECT_2",
+   "severity": "MEDIUM",
+   "title": "The four-part identity is written in TWO different component orders in the same estate, and the two are not distinguishable by eye.",
+   "evidence": "scripts/alpha_agents_v2.py:245-250 declares mechanism_key_rule as 'economic_family|information_family|asset_class|model_family' and the gate's family_keys follow it (e.g. MACRO_BETA_XS_STAGE15|FRED_ALFRED|US_EQUITY|CLOSED_MECHANISM_LEDGER). R74's method (line 30) declares STAGE 1 as 'asset_class|economic_family|information_family|model_family' and writes C1's cell in that order: RATES_FUTURES|REGIME|FRED_ALFRED_VINTAGE_REVISION|DIRECTIONAL_SINGLE_INSTRUMENT.",
+   "consequence": "A human or script comparing a director's cell string against a family_key pulled from research memory is comparing two different orderings of the same four parts. Both orders are internally consistent and neither is labelled, so a mismatch reads as a difference in identity rather than a difference in notation. This is the same class of hazard as an identity that does not join.",
+   "not_repaired_because": "Read-only campaign; a notation change touches the gate, the census and prior rulings."
+  },
+  {
+   "id": "R75_DEFECT_3_CARRIED_FORWARD",
+   "severity": "REPORTED_BY_R74",
+   "title": "alpha_recovery forward registry keys and R59 memory keys 'do not join on any component'.",
+   "status": "NOT RE-VERIFIED IN THIS CAMPAIGN and NOT REPAIRED. Recorded here only so it is not lost between campaigns; the finding is R74's, attributed to R74, and this ruling did not re-open the alpha_recovery registry to confirm it.",
+   "relevance_to_this_ruling": "Probe P12 reports 8 FORWARD_FROZEN rows and R74's C2 block names ALPHA_RECOVERY_FX_CARRY_CADENCE_H1_F9B1ACA7 as a forward registration. If those two stores do not join, a director checking a cell against R59 memory alone cannot see every forward-frozen mechanism it might contaminate. That is a live gap in the very check this campaign turns on, and it is a reason a future revision proposal must be checked against BOTH stores explicitly."
+  },
+  {
+   "id": "R75_DEFECT_4",
+   "severity": "LOW_BUT_STRUCTURAL",
+   "title": "The structural must-not-repeat list is unreachable by any machine gate.",
+   "evidence": "NEXT_CAMPAIGN_CENSUS.json:139-144 records four structural patterns. check-mechanism keys on the four-part identity only (scripts/alpha_agents_v2.py:53-100). A structural pattern is not a key, so no probe can return it and no payload can be refused by it.",
+   "consequence": "The rule that decided THIS ruling is enforceable only by a director who reads the census and recognises the shape. C1 passed STAGE 1 and would pass an honest STAGE 2 on its own source string (P5, n_matching 0). Nothing machine-side stops a premium-timing cell whose four components are all novel strings.",
+   "not_repaired_because": "Read-only campaign; this is a governance-surface change and therefore a human decision."
+  }
+ ],
+
+ "WOULD_RECORD_BUT_DID_NOT": {
+  "NOT_RECORDED": true,
+  "recorded_into_research_memory": false,
+  "record_ruling_invoked": false,
+  "why_not": "campaign_spec.json D2_THE_MECHANISM_QUESTION.forbidden: 'Recording a ruling into live research memory from this working tree. The tree carries uncommitted work; a read-write open of live R59 memory is a release-gate act. Emit the payload; do not write it.' The working tree carries modifications to alpha_agent/r52/runtime.py, api/forward_producer_health.py and scripts/audit_architecture.py plus untracked campaign directories. Nothing below was written anywhere.",
+  "payload_that_would_be_recorded": {
+   "verb": "record_ruling",
+   "agent": "quant-research-director",
+   "campaign_id": "R75_ALFRED_VINTAGE_ADMISSIBILITY",
+   "ruling": "REFUSED_BY_STRUCTURAL_RULE",
+   "scope": "MECHANISM_SCOPED",
+   "mechanism": {
+    "asset_class": "RATES_FUTURES",
+    "economic_family": "REGIME",
+    "information_family": "FRED_ALFRED_VINTAGE_REVISION",
+    "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"
+   },
+   "family_key_in_canonical_order": "REGIME|FRED_ALFRED_VINTAGE_REVISION|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT",
+   "refused_by": "STRUCTURAL_MUST_NOT_REPEAT",
+   "refused_by_text": "TIMING a premium with a conditioning variable. Three independent sightings (R43, R63 macro timing lanes, index-level implied-state timing): the premium is real, the timing signal is zero.",
+   "corroborating_governed_refusal": "H_b214b94b_c7a6676b8573 (MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT, FORWARD_FROZEN, no recorded reopen condition) - probe P14, SETTLED_DO_NOT_REPEAT, n_matching 1",
+   "reopen_condition": "NONE. A structural must-not-repeat carries no reopen condition. This refusal is not reopened by NEW_ORTHOGONAL_INFORMATION on any of the three killer rows, because the orthogonality of the information does not change the mechanism role.",
+   "corrects_the_record_of": "R74 C1 STAGE 2. The refusal stands; its stated GROUND does not. R74's three source-bound probes evidence an asserted source-family overlap, not a mechanism overlap.",
+   "burden_charged": 0,
+   "experiments_preregistered": 0,
+   "does_not_rule_on": "any revision cell that is not premium timing; the fred_alfred source as such; D1 certifiability; R74 candidates C2-C12"
+  }
+ },
+
+ "AXIS_STATUS": {
+  "C1_axis": "CLOSED on the structural must-not-repeat.",
+  "effect_on_the_campaign_gate": "campaign_spec.json if_both_qualify requires 'Both D1 CERTIFIED and D2 ADMISSIBLE'. D2 is NOT ADMISSIBLE for C1, so the conjunction fails now and no experiment may be proposed on the C1 axis whatever D1 returns.",
+  "does_D1_still_matter": "YES, independently. Whether the ALFRED vintage dimension is certifiable is a fact about data, not about this cell. A recorded CERTIFIED or NOT_CERTIFIABLE answer is worth having either way and is the kind of durable fact R73_D1 produced by failing honestly. D1 must be allowed to reach its own answer on its own evidence and must not be curtailed by this ruling.",
+  "next_step_owned_by_the_operator": "Nothing is purchased, nothing is registered, no certification is commissioned by this ruling, no agent is dispatched. The four defects above are the operator's to triage; R75_DEFECT_1 and R75_DEFECT_4 are governance-surface items and are human decisions."
+ },
+
+ "CONSTRAINT_COMPLIANCE": {
+  "files_written": 1,
+  "file_written": "research/agents/campaign_r75_alfred_vintage_admissibility/DIRECTOR_R75_RULING.json",
+  "estate_files_read": [
+   "research/agents/campaign_r75_alfred_vintage_admissibility/BRIEF_quant-research-director.json",
+   "research/agents/campaign_r75_alfred_vintage_admissibility/campaign_spec.json",
+   "research/agents/campaign_r73_post_r72_agenda/DIRECTOR_R74_POST_CERTIFICATION_RULING.json - C1 candidate block and method block only (lines 25-56)",
+   "research/agents/NEXT_CAMPAIGN_CENSUS.json - must_not_repeat section only (lines 136-165), needed because the deciding rule lives there",
+   "alpha_agent/r59/memory.py and scripts/alpha_agents_v2.py - the gate's own matching predicate and key rule, to establish what a probe can and cannot see"
+  ],
+  "not_read": "PROJECT_STATE.md, any full census dump, any full research-memory dump, any prior session transcript, any other R74 candidate block.",
+  "experiments_preregistered": 0,
+  "certifications_commissioned": 0,
+  "agents_dispatched": 0,
+  "test_suites_run": 0,
+  "research_memory_writes": 0,
+  "governance_contract_modified": false,
+  "forward_frozen_hypotheses_touched": 0,
+  "refusals_weakened": 0,
+  "ruling_is_family_wide": false,
+  "every_probe_bound_at_least_one_key": true,
+  "invalid_query_verdicts": 0
+ },
+
+ "safety": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_no_order": true,
+  "creates_no_fill": true,
+  "broker_enabled": false,
+  "approves_no_proposal": true,
+  "promotes_no_model": true,
+  "activates_no_sleeve": true,
+  "allocates_no_capital": true,
+  "purchases_nothing": true,
+  "registers_no_credential": true,
+  "touches_no_forward_registration": true,
+  "writes_no_research_memory": true,
+  "mutates_no_operational_store": true,
+  "automation_enabled": false,
+  "manual_review_required": true,
+  "badges": ["RESEARCH ONLY", "PREVIEW ONLY", "MANUAL REVIEW", "NO ORDERS",
+             "ORDERS DISABLED", "AUTOMATION OFF", "NO MODEL PROMOTION"]
+ }
+}

@@ -257,11 +257,39 @@ def test_16_the_partition_is_disjoint_and_covers_every_stage_emitted():
         emitted.add(m.group(1))
     partitioned = set(EL.GATED_STAGES) | set(EL.UNGATED_STAGES)
     assert not (set(EL.GATED_STAGES) & set(EL.UNGATED_STAGES))
-    # the three cheap preludes and the gate row itself are neither
+    # the three cheap preludes and the gate row itself are neither.
+    #
+    # R74.2 adds a fourth of that kind. forward_preboundary_monitor is an
+    # OBSERVER: it runs on every invocation (above the gate, because a warning
+    # the gate can hold back is not a warning) but it owns no session and
+    # freezes nothing, so it must NOT be in UNGATED_STAGES either - decide()
+    # reads an UNGATED row reporting SUCCESS as "a per-session owner moved",
+    # and an observer that reports SUCCESS on every healthy cycle would answer
+    # RUN for ever and reinstate exactly the livelock this gate removed.
     assert emitted - partitioned == {"runtime_lock", "timing_contract",
                                      "chain_integrity",
-                                     "maturation_eligibility"}
+                                     "maturation_eligibility",
+                                     "forward_preboundary_monitor"}
     assert partitioned <= emitted
+
+
+def test_16b_the_preboundary_observer_can_never_signal_gate_progress(fixed):
+    """R74.2. The observer runs every cycle and must never run the gated set.
+
+    If ``forward_preboundary_monitor`` were listed in ``UNGATED_STAGES``, its
+    SUCCESS row would satisfy ``PROGRESS_STAGE_STATES`` on every healthy
+    invocation, ``decide`` would return RUN_OWNER_PROGRESSED for ever, and the
+    ~283 s gated set would run on every trigger - the R64 CPU livelock, restored
+    by a monitoring stage.
+    """
+    assert "forward_preboundary_monitor" not in EL.UNGATED_STAGES
+    assert "forward_preboundary_monitor" not in EL.GATED_STAGES
+    rows = [{"stage": "forward_preboundary_monitor", "state": "SUCCESS"},
+            {"stage": "runtime_lock", "state": "SUCCESS"},
+            {"stage": "next_open_prospective_decision", "state": "NOT_DUE"}]
+    v = EL.decide(NOW, previous=_bookmark(), ungated_stages=rows)
+    assert v["run"] is False, v["reason"]
+    assert v["reason"] != EL.RUN_OWNER_PROGRESSED
 
 
 def test_17_the_ceiling_is_tighter_than_the_contract_own_invocation_plan():

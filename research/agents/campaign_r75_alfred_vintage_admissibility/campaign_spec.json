@@ -1,0 +1,129 @@
+{
+  "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+  "campaign_id": "R75_ALFRED_VINTAGE_ADMISSIBILITY",
+  "frozen": true,
+  "frozen_by": "operator",
+  "frozen_on": "2026-09-26",
+  "campaign_class": "DATA_CERTIFICATION_AND_MECHANISM_ADJUDICATION",
+  "headline": "Two questions R74 left unanswered about ONE owned, free, PIT-vintaged source. (D1) Is fred_alfred CERTIFIABLE as an AGENTS_V2 PIT dataset on its VINTAGE dimension - the revision archive, not the level? R74 recorded 'NO AGENTS_V2 dataset is certified on it' and declined to commission a certification because the CELL was settled, never because the DATA was shown uncertifiable. (D2) Was R74's STAGE-2 refusal of FRED_ALFRED_VINTAGE_REVISION an ACTUAL ECONOMIC-MECHANISM overlap, or only a BROAD SOURCE-FAMILY overlap? No signal experiment is pre-registered. Nothing is purchased.",
+
+  "explicitly_not_this_campaign": [
+    "Re-running any of R73's twelve candidate cells. They are ruled and the ruling stands.",
+    "Re-running R63's macro timing lanes, Stage-15 macro beta, or any MACRO_OVERLAY machine-representation row. Those are settled and 'TIMING a premium with a conditioning variable' is a recorded structural must-not-repeat with three independent sightings.",
+    "Proposing a macro LEVEL, macro STATE or macro SURPRISE signal. The level is the settled object; only the VINTAGE-TO-VINTAGE REVISION is under adjudication, and only its admissibility, not its profitability.",
+    "Rescuing REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1 or any other forward-frozen registration. This campaign touches no forward registration.",
+    "Any purchase, any new entitlement, any registered key that does not already exist.",
+    "Widening governance_contract.json. R74 declined to ask for that and gave its reason; this campaign does not reopen it."
+  ],
+
+  "experiments": [],
+  "n_experiments": 0,
+  "lockbox_looks_authorised": 0,
+  "burden_charged": 0,
+  "multiple_testing_budget_spent": 0,
+
+  "requires": {
+    "datasets": ["fred_alfred_vintage_panel_v1"],
+    "universes": [],
+    "feature_sets": []
+  },
+  "requires_rationale": "The one declared dataset DOES NOT EXIST and is expected to be reported missing. That is deliberate and it is the honest shape of this campaign: R74 established that no AGENTS_V2 dataset is certified on fred_alfred, so a spec that declared no required dataset would tell the spawn gate that the foundation stage was satisfied, and the gate would skip the very certification this campaign is for. Declaring the missing dataset is what makes substrate_missing non-empty and lets the gate reach its own decision on evidence instead of on an empty list. No universe and no feature set is required, because both presuppose a certified dataset and D1 may well return NOT_CERTIFIABLE.",
+
+  "what_R74_established_and_is_not_re_litigated": {
+    "source_is_owned_and_free": "api/source_capability.py: fred_alfred, cost 'free with a registered key', historical_depth '1947-present with ALFRED vintages', pit_quality PIT_VINTAGE.",
+    "no_certified_dataset_exists_on_it": "The 12 certified AGENTS_V2 datasets are 5 US equity panels, 4 R38 futures layers and 3 NOT_PIT_SAFE equity event sets. Nothing macro is certified.",
+    "the_pipeline_refusal_today": "FEATURES_NOT_PUBLISHED at alpha_agent/agents_v2/pipeline.py:343-346.",
+    "stage_2_refusal_that_is_under_review": "C1 = RATES_FUTURES|REGIME|FRED_ALFRED_VINTAGE_REVISION|DIRECTIONAL_SINGLE_INSTRUMENT returned STAGE-1 NO_ROW_IN_MEMORY (n_matching 0) and was then refused at STAGE 2 by three SOURCE-BOUND probes: information_family=FRED_ALFRED (n=1), information_family=FRED (n=1), information_family=MACRO_OBSERVATION (n=32).",
+    "the_three_killer_rows": [
+      "HM_CLOSED_MACRO_BETA_XS_STAGE15  (US_EQUITY|MACRO_BETA_XS_STAGE15|FRED_ALFRED, CLOSED)",
+      "HM_CLOSED_MACRO_TIMING_LANES_R63 (CROSS_ASSET|FRED, CLOSED)",
+      "32 x MACHINE_REPRESENTATION:MACRO_OVERLAY|MACRO_OBSERVATION, every one NO_ALPHA_EVIDENCE"
+    ],
+    "measured_source_record": "fred_alfred carries roughly 40 prosecutions and 0 qualifications."
+  },
+
+  "D1_THE_DATA_QUESTION": {
+    "assigned_to": "data-foundation-agent",
+    "question": "Is the ALFRED VINTAGE dimension of the already-owned, free fred_alfred source certifiable as a point-in-time dataset for AGENTS_V2 - i.e. can the estate obtain, for a past decision date d and a macro series s, the value of s AS IT WAS PUBLISHED ON d, and the subsequent revision to it, with the availability instant of each vintage?",
+    "why_this_is_a_distinct_question_and_not_a_rerun": "Every prior macro prosecution in this estate consumed the CURRENT (latest-vintage) series or a surprise-versus-consensus construction. A vintage archive is a different object: it records what was BELIEVED, and therefore the REVISION, which the current series destroys by overwriting. Whether that object is retrievable, complete and correctly time-stamped in the owned entitlement has never been measured. A certification can fail; it cannot be a repeat of a hypothesis, because it tests no hypothesis.",
+    "must_measure": [
+      "ENTITLEMENT: does the already-registered key reach ALFRED vintage endpoints, or only FRED current series? Report the exact endpoint and the exact credential state. Do not register a new key.",
+      "HISTORY_FLOOR: the earliest date for which a VINTAGE (not a level) is retrievable, per series probed.",
+      "VINTAGE_COMPLETENESS: for a probed series and a probed window, how many distinct vintages exist and whether every revision carries its own release timestamp.",
+      "PIT_INTEGRITY: is the availability instant of a vintage the RELEASE instant, or is it inferable only from the vintage date? A vintage date that is not a release timestamp is not point-in-time and must be reported as such.",
+      "REVISION_MATERIALITY: are revisions actually non-trivial for the probed series, or numerically negligible? A revision channel whose revisions are ~0 is not information, whatever its provenance.",
+      "COVERAGE vs CADENCE: does any probed series revise often enough to produce observations at a cadence this estate can accrue, or is it quarterly-and-slow like bea (already machine-declared TERM_REDUNDANT)?"
+    ],
+    "pre_declared_kill_conditions": [
+      "ENTITLEMENT FAIL - the owned key does not reach vintage data and reaching it requires any new entitlement. STOP, report, purchase nothing.",
+      "HISTORY_FLOOR FAIL - retrievable vintages do not reach 2012-01-01, the same floor R73_D1 was held to.",
+      "PIT_INTEGRITY FAIL - a vintage's availability instant cannot be established from owned data without assumption.",
+      "REVISION_MATERIALITY FAIL - revisions are numerically negligible for every probed series.",
+      "CADENCE FAIL - no probed series revises often enough to accrue at any cadence the estate runs."
+    ],
+    "kill_conditions_are_honoured_exactly": "No floor is relaxed, no reconstructed vintage is substituted for a missing one, and the question is not re-scoped to fit whatever data turns out to exist. R73_D1 is the precedent: it failed its HISTORY_FLOOR and was recorded as NOT_CERTIFIABLE rather than shrunk to fit two months of halts.",
+    "read_only": true,
+    "may_purchase": false,
+    "may_register_a_new_credential": false
+  },
+
+  "D2_THE_MECHANISM_QUESTION": {
+    "assigned_to": "quant-research-director",
+    "question": "Is R74's STAGE-2 refusal of FRED_ALFRED_VINTAGE_REVISION an ACTUAL ECONOMIC-MECHANISM overlap with the three killer rows, or is it a BROAD SOURCE-FAMILY overlap that the STAGE-2 probe shape cannot distinguish from one?",
+    "why_the_question_is_legitimate_and_not_an_attempt_to_weaken_a_refusal": "STAGE 2 is defined in R74's own method as 'information_family bound, economic_family and model_family left unbound, which is what catches a relabelled dead family'. That net is deliberately wider than the four-part identity, and it is the right net for a rename. The open question is whether it is ALSO returning a refusal when the economic mechanism genuinely differs and only the SOURCE is shared. The estate's own four-part identity exists precisely to distinguish those two cases, and R72.1 added mechanism scoping after R73_DEFECT_3 recorded that a family-wide ruling 'can terminate cells the director never considered'. This is the same class of question, one layer up.",
+    "must_decide": [
+      "For EACH of the three killer rows, state the four-part identity and the ECONOMIC MECHANISM it actually tested, and whether a vintage-to-vintage REVISION is that same mechanism or a different one. Cite the recorded row, not a paraphrase.",
+      "State each killer row's RECORDED REOPEN CONDITION verbatim, and whether a revision channel satisfies it. The census records the rule: a settled family reopens ONLY on NEW_ORTHOGONAL_INFORMATION, stated in the hypothesis text.",
+      "Rule explicitly on the structural must-not-repeat 'TIMING a premium with a conditioning variable'. If a revision signal is a conditioning variable timing a premium, it is refused by that rule regardless of source, and that is the end of it.",
+      "If the overlap is SOURCE-FAMILY ONLY and the reopen condition IS satisfied, say what the four-part identity of an admissible cell would be, and what would still have to be true for it to be pre-registered. Do NOT pre-register it in this campaign.",
+      "If the overlap is a GENUINE MECHANISM overlap, record the exact failed gate and the exact probe that establishes it, and rule the axis closed.",
+      "Report, do not repair, any identity-reachability defect found - R74 already recorded one between the alpha_recovery forward registry and R59 memory whose keys 'do not join on any component'."
+    ],
+    "forbidden": [
+      "Weakening, relaxing or reinterpreting any recorded refusal to make room for a hypothesis.",
+      "Manufacturing novelty by renaming. A STAGE-1 NO_ROW_IN_MEMORY is what a rename returns and is never believed on its own - the R70/R71/R73 directors' recorded standard.",
+      "Contaminating any forward-frozen hypothesis.",
+      "Issuing a family-wide ruling. Any ruling must be MECHANISM_SCOPED.",
+      "Recording a ruling into live research memory from this working tree. The tree carries uncommitted work; a read-write open of live R59 memory is a release-gate act. Emit the payload; do not write it."
+    ],
+    "read_only": true
+  },
+
+  "if_both_qualify": {
+    "then": "ONE bounded pre-registered experiment may be proposed, with executable marks, realistic costs, net P&L and independent skeptic review. It is NOT authorised by this spec and requires a separate operator authorisation.",
+    "gate": "Both D1 CERTIFIED and D2 ADMISSIBLE are necessary. Either one failing ends the axis and the exact failed gate is recorded."
+  },
+  "if_either_fails": {
+    "then": "Record the exact failed gate and stop. Move to independent data-acquisition research WITHOUT purchasing anything, and without commissioning a certification of a source that does not exist - which is how R73_D1 ended."
+  },
+
+  "assignment_manifest": {
+    "parallel_batch": ["data-foundation-agent"],
+    "sequential": ["quant-research-director"],
+    "note": "D1 and D2 are genuinely independent: certifiability is a fact about the data, admissibility is a fact about research memory. Neither needs the other's answer to begin. NO signal agent is assigned because no signal experiment is pre-registered, and the validation-skeptic is not invoked because there is no candidate to attack.",
+    "not_dispatched": [
+      "universe-construction-agent - no universe is built; D1 precedes universe work.",
+      "feature-library-agent - FEATURES_NOT_PUBLISHED is the current refusal and publishing features presumes D1 CERTIFIED.",
+      "momentum-signal-agent, reversal-signal-agent, trend-breadth-signal-agent, volatility-liquidity-agent - no experiment is pre-registered.",
+      "validation-skeptic-agent - no candidate exists to disprove.",
+      "risk-portfolio-agent, meta-model-ensemble-agent - no skeptic survivor exists.",
+      "signal-publishing-agent - nothing is cleared for publication or registration."
+    ]
+  },
+
+  "safety": {
+    "research_only": true,
+    "creates_no_order": true,
+    "creates_no_fill": true,
+    "approves_no_proposal": true,
+    "promotes_no_model": true,
+    "activates_no_sleeve": true,
+    "allocates_no_capital": true,
+    "purchases_nothing": true,
+    "registers_no_credential": true,
+    "touches_no_forward_registration": true,
+    "writes_no_research_memory": true,
+    "badges": ["RESEARCH ONLY", "PREVIEW ONLY", "MANUAL REVIEW", "NO ORDERS",
+               "ORDERS DISABLED", "AUTOMATION OFF", "NO MODEL PROMOTION"]
+  }
+}

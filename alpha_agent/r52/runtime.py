@@ -116,6 +116,17 @@ _JOURNAL_STAGE_FIELDS = (
     # its boundaries and a journal that keeps three of its five fields would
     # reproduce, one layer down, the very silence R66 and R68 removed.
     "declared_grid_owner", "boundary_read_error",
+    # R74.2 - WHAT IS ABOUT TO BE LOST. Added here in the same commit as the
+    # stage that produces them, because this allow-list is the fifth place the
+    # identical defect could occur: R66 kept three fields and threw the rest
+    # away, R68 dropped the boundary grid, R72 dropped the grid owner, R74.2
+    # found forward_producer_health dropping the publication state - and a
+    # pre-boundary warning journalled into an allow-list that does not mention
+    # it is a warning written to nowhere. The whole point of the stage is that
+    # the warning is DURABLE before the deadline; dropped fields would leave a
+    # row saying DATA_BLOCKED with no statement of what was at risk.
+    "warnings", "defects", "at_risk", "by_readiness_state", "registered",
+    "every_next_boundary_is_reachable",
 )
 
 
@@ -517,6 +528,81 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 detail=r58.get("detail")))
         except Exception as exc:          # noqa: BLE001
             stages.append(_stage("r58_cadence_prospective_decision",
+                                 FAILED_RETRYABLE,
+                                 duration_ms=_ms(t0),
+                                 error=type(exc).__name__,
+                                 detail=str(exc)[:220]))
+
+        # --- 6b. the PRE-BOUNDARY warning ----------------------------------- #
+        # R74.2. The accrual stage below records what was MISSED. It cannot
+        # record what is ABOUT to be missed, so between 2026-09-15 and
+        # 2026-09-25 this journal said DATA_BLOCKED nine times and FORFEITED
+        # nine times and never once said "the next one will go the same way".
+        # This stage asks the canonical producer-health owner whether each
+        # registration can MEET its next declared boundary, and journals the
+        # answer while the window is still open. It is not a second monitor: the
+        # verdict is computed entirely by api.forward_producer_health from facts
+        # the producers above already wrote, and this stage only makes it durable
+        # at cycle time rather than at read time.
+        #
+        # WHY IT SITS HERE, ABOVE THE GATE, AND IN NEITHER STAGE LIST.
+        #   * Above the gate, because a warning an efficiency memo can hold back
+        #     is not a warning. A boundary crosses into the warning lead as time
+        #     passes, with no input changing, which is precisely the condition
+        #     under which the gate skips.
+        #   * After the four producers, because it reads THEIR heartbeat for this
+        #     cycle - the boundary grid, the publication state and the local
+        #     panel session all come from the rows appended just above.
+        #   * In NEITHER ``EL.GATED_STAGES`` nor ``EL.UNGATED_STAGES``. The gate
+        #     reads a row in UNGATED_STAGES reporting SUCCESS as "a per-session
+        #     owner moved" and runs the expensive set immediately; an observer
+        #     that reports SUCCESS on every healthy cycle would therefore answer
+        #     RUN for ever and reinstate the livelock R64 removed. This stage
+        #     owns no session, freezes nothing and must never signal progress.
+        #     It belongs with the cheap preludes, and is classified there.
+        #
+        # It reads the accrual projection the GATED stage below refreshes, so on
+        # a cycle that emits, the emission counters are one cycle old. That is
+        # correct rather than stale: every field consumed here changes only when
+        # the accrual emits or forfeits, and the direction of the error is a
+        # warning that clears one cycle late - never a warning that fails to
+        # appear.
+        t0 = _time.perf_counter()
+        try:
+            from paper_trader.api import forward_producer_health as FPH
+            cover = FPH.producer_coverage()
+            warns = cover.get("preboundary_warnings") or []
+            defects = int(cover.get("n_preboundary_defects") or 0)
+            if defects:
+                p_state = FAILED_INTEGRITY
+            elif warns:
+                p_state = DATA_BLOCKED
+            else:
+                p_state = SUCCESS
+            stages.append(_stage(
+                "forward_preboundary_monitor", p_state,
+                duration_ms=_ms(t0),
+                registered=cover.get("n_registered"),
+                warnings=len(warns),
+                defects=defects,
+                every_next_boundary_is_reachable=cover.get(
+                    "every_next_boundary_is_reachable"),
+                by_readiness_state=cover.get("by_readiness_state"),
+                # The actionable rows themselves, so the warning survives in the
+                # journal and an operator reading yesterday's cycle can see what
+                # was already known then.
+                at_risk=[{"challenger_id": w.get("challenger_id"),
+                          "readiness": w.get("readiness"),
+                          "severity": w.get("severity"),
+                          "next_boundary": w.get("next_boundary"),
+                          "calendar_days_until_boundary": w.get(
+                              "calendar_days_until_boundary"),
+                          "input_state": w.get("input_state"),
+                          "producer_owner": w.get("producer_owner")}
+                         for w in warns],
+                detail=cover.get("headline")))
+        except Exception as exc:          # noqa: BLE001
+            stages.append(_stage("forward_preboundary_monitor",
                                  FAILED_RETRYABLE,
                                  duration_ms=_ms(t0),
                                  error=type(exc).__name__,

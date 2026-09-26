@@ -202,6 +202,112 @@ B_NO_GRID = "PRODUCER_DECLARES_NO_BOUNDARY_GRID"
 B_NOT_EXPECTED = "NO_PRODUCER_EXPECTED_SO_NO_BOUNDARY_GRID"
 BOUNDARY_STATES = (B_AGREED, B_UNRECORDED_MISS, B_NO_GRID, B_NOT_EXPECTED)
 
+# --------------------------------------------------------------------------- #
+# 2c. THE PRE-BOUNDARY READINESS VOCABULARY (R74.2)
+# --------------------------------------------------------------------------- #
+#: R72 gave the estate a PERMANENT LOSS LEDGER, and it works: it counted 11
+#: boundaries that passed with no decision. But every state in it is a POST
+#: MORTEM. ``PERMANENT_MISS_NOT_RECORDED_AS_A_FORFEITURE`` is only ever true
+#: after the opportunity is already gone, so the ledger's honesty was bought at
+#: the price of being unable to prevent a single entry in it.
+#:
+#: The nine consecutive SPY misses of 2026-09-15..2026-09-25 are the proof. On
+#: every one of those days the producer ran, reported ``DATA_BLOCKED`` with the
+#: exact blocker ("the historical vendor has not published session S-1 yet"),
+#: and then reported ``FORFEITED`` an hour later. The second miss was fully
+#: predictable from the first, the third from the second, and nothing anywhere
+#: turned that into a warning while the window was still open.
+#:
+#: This section is the missing half: the SAME facts, read BEFORE the deadline
+#: rather than after it. It owns no clock, no threshold on the strategy and no
+#: decision - it reads the producer's own journalled boundary grid and its own
+#: journalled input state, and says whether the next boundary is reachable.
+
+#: The producer is alive, its next boundary is ahead, and the inputs that
+#: boundary needs are in hand. Nothing to do.
+R_READY = "READY_FOR_NEXT_BOUNDARY"
+#: The next boundary is ahead and its inputs are NOT in hand, but the boundary is
+#: not yet within the warning lead. Informational: most of these resolve.
+R_INPUT_PENDING = "INPUTS_PENDING_BOUNDARY_NOT_IMMINENT"
+#: THE WARNING THIS SECTION EXISTS FOR. The boundary is within the warning lead
+#: and the inputs it needs are still missing. Actionable while the window is open.
+R_INPUT_LATE = "BOUNDARY_IMMINENT_AND_INPUTS_MISSING"
+#: The boundary is within the warning lead and the producer has not run inside
+#: its staleness tolerance. A dead producer and a late vendor are different
+#: problems with different owners, so they are never merged.
+R_PRODUCER_STALE = "BOUNDARY_IMMINENT_AND_PRODUCER_STALE"
+#: A boundary is ahead and no code path can decide it. The R68 orphan, seen
+#: prospectively instead of after the fact.
+R_NO_PRODUCER = "BOUNDARY_AHEAD_AND_NO_PRODUCER"
+#: The producer is alive and its inputs do arrive, yet it has missed
+#: :data:`CHRONIC_CONSECUTIVE_MISSES` or more consecutive boundaries with no
+#: emission since. That is not a risk to warn about once - it is a STRUCTURAL
+#: statement that the declared window cannot be met by the declared source, and
+#: it is the single most valuable thing this module can say. It is reported, not
+#: repaired: changing the window or the source is a governed decision.
+R_CHRONIC = "CHRONIC_MISS_WINDOW_UNREACHABLE_BY_DECLARED_SOURCE"
+#: The producer declares no next boundary, so there is no deadline to be ready
+#: for. An absence of a question, not an answer.
+R_NO_BOUNDARY = "NO_NEXT_BOUNDARY_DECLARED"
+#: No producer is expected (declared, non-defect). Cannot be late for a boundary
+#: it was never going to take.
+R_NOT_EXPECTED = "NO_PRODUCER_EXPECTED"
+READINESS_STATES = (R_READY, R_INPUT_PENDING, R_INPUT_LATE, R_PRODUCER_STALE,
+                    R_NO_PRODUCER, R_CHRONIC, R_NO_BOUNDARY, R_NOT_EXPECTED)
+
+#: The readiness states that must reach an operator BEFORE the boundary passes.
+ACTIONABLE_READINESS_STATES = (R_INPUT_LATE, R_PRODUCER_STALE, R_NO_PRODUCER,
+                               R_CHRONIC)
+
+SEV_OK = "OK"
+SEV_WARN = "WARN"
+SEV_DEFECT = "DEFECT"
+READINESS_SEVERITY = {
+    R_READY: SEV_OK,
+    R_INPUT_PENDING: SEV_OK,
+    R_NO_BOUNDARY: SEV_OK,
+    R_NOT_EXPECTED: SEV_OK,
+    R_INPUT_LATE: SEV_WARN,
+    R_CHRONIC: SEV_WARN,
+    R_PRODUCER_STALE: SEV_DEFECT,
+    R_NO_PRODUCER: SEV_DEFECT,
+}
+
+#: Whether the inputs the next decision needs are in hand. Read from the
+#: producer's OWN journalled publication state and blocker; never probed here,
+#: because a second probe would be a second source of truth about a vendor.
+I_PRESENT = "INPUTS_PRESENT"
+I_MISSING = "INPUTS_MISSING"
+#: The producer declares no input gate at all. Distinct from "present": a
+#: producer that never says whether its data arrived has not told us it did.
+I_NOT_DECLARED = "INPUT_STATE_NOT_DECLARED_BY_PRODUCER"
+INPUT_STATES = (I_PRESENT, I_MISSING, I_NOT_DECLARED)
+
+#: WHICH leg of the input chain is short. The vendor publishing and the local
+#: panel containing the session are different facts with different owners, and
+#: they came apart in the live estate for four consecutive days. Naming the leg
+#: is what makes the warning actionable rather than merely true.
+L_LEG_VENDOR = "VENDOR_HAS_NOT_SERVED_THE_SESSION"
+L_LEG_LOCAL = "LOCAL_PANEL_HAS_NOT_REACHED_THE_PUBLISHED_SESSION"
+INPUT_LEGS = (L_LEG_VENDOR, L_LEG_LOCAL)
+
+#: How close a boundary must be before a missing input becomes a WARNING rather
+#: than an observation. Three calendar days spans a weekend, which is exactly the
+#: interval over which the SPY source's latency is survivable, so a boundary
+#: inside it is one whose inputs should already exist.
+WARN_LEAD_CALENDAR_DAYS = 3
+
+#: How long a declared producer may be silent before a boundary inside the
+#: warning lead is at risk from the producer rather than from the data. The
+#: retained journal shows an hourly cycle, so six hours is a silence no healthy
+#: runtime produces.
+PRODUCER_STALE_AFTER_HOURS = 6
+
+#: Consecutive missed boundaries, with no emission since the newest of them, that
+#: turn a run of bad luck into a structural verdict. Three is the smallest number
+#: that cannot be a one-off plus a retry.
+CHRONIC_CONSECUTIVE_MISSES = 3
+
 #: Runtime stage states that mean the producer RAN AND FAILED, as against ran
 #: and correctly did nothing. Read from the runtime's own vocabulary.
 _FAILED_STAGE_STATES = ("FAILED_RETRYABLE", "FAILED_INTEGRITY", "FAILED")
@@ -283,7 +389,24 @@ def heartbeat(*, runs: Optional[dict] = None) -> dict:
                         "next_boundaries": st.get("next_boundaries"),
                         "missed_boundaries": st.get("missed_boundaries"),
                         "forward_panel_last_session":
-                            st.get("forward_panel_last_session")}
+                            st.get("forward_panel_last_session"),
+                        # R74.2 - WHETHER THE NEXT BOUNDARY CAN BE MET, and it
+                        # is the SAME allow-list defect a third time. The
+                        # producers have journalled ``publication``,
+                        # ``entry_session``, ``information_session`` and
+                        # ``entry_state`` since R62.3.3; this extraction dropped
+                        # every one of them, so the only component that asks
+                        # "are the inputs for the next decision in hand?" could
+                        # not see the answer sitting on disk. Nine SPY
+                        # boundaries were lost while the fact that would have
+                        # predicted each one was being written and discarded.
+                        "publication": st.get("publication"),
+                        "entry_session": st.get("entry_session"),
+                        "information_session": st.get("information_session"),
+                        "entry_state": st.get("entry_state"),
+                        "blocked_owner": st.get("blocked_owner"),
+                        "declared_grid_owner": st.get("declared_grid_owner"),
+                        "window_opens_at": st.get("window_opens_at")}
         out[stage] = seen or {
             "last_run_id": None, "last_run_started_utc": None,
             "last_stage_state": None,
@@ -389,6 +512,319 @@ def boundary_reconciliation(accrual: dict,
     return out
 
 
+def _as_date(value: Any):
+    """A YYYY-MM-DD string or date to a date, or None. No calendar arithmetic."""
+    from datetime import date as _date
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, _date):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def input_readiness(beat: Optional[dict]) -> dict:
+    """Are the inputs the NEXT decision needs in hand, per the producer itself?
+
+    Read from the producer's own journalled ``publication`` state and blocker.
+    Nothing is probed: a second probe of a vendor would be a second source of
+    truth about whether that vendor published, and the producer is already the
+    authority on its own source.
+
+    A producer that declares no input gate is reported :data:`I_NOT_DECLARED`,
+    never :data:`I_PRESENT`. Silence is not confirmation.
+
+    TWO LEGS, AND THE SECOND ONE IS THE BINDING ONE
+    -----------------------------------------------
+    ``publication`` answers whether the VENDOR has served the session. It does
+    NOT answer whether the LOCAL panel the producer actually scores contains it,
+    and those came apart in the live estate for four days: on 2026-09-25 at
+    18:10Z the journal carried ``publication=PUBLISHED`` for information session
+    2026-09-24 while ``forward_panel_last_session`` was still 2026-09-21. A
+    reader that stopped at the vendor leg would have called those inputs
+    present, and the producer would still have had nothing to score.
+
+    So the legs are separated and the LOCAL one decides, because the local panel
+    is what the signal is computed from. :data:`L_LEG_VENDOR` and
+    :data:`L_LEG_LOCAL` name which one is short, so the warning reaches the
+    right owner instead of blaming a vendor that already delivered.
+    """
+    b = beat or {}
+    blocked = b.get("blocked_on")
+    stage_state = str(b.get("last_stage_state") or "").upper()
+    pub = str(b.get("publication") or "").upper() or None
+    panel = str(b.get("forward_panel_last_session") or "")[:10] or None
+    info = str(b.get("information_session") or "")[:10] or None
+    out = {
+        "input_state": I_NOT_DECLARED,
+        "input_state_vocabulary": list(INPUT_STATES),
+        "short_leg": None,
+        "publication_state_from_producer": b.get("publication"),
+        "information_session": info,
+        "entry_session_from_producer": b.get("entry_session"),
+        "entry_state_from_producer": b.get("entry_state"),
+        "blocked_on": blocked,
+        "blocked_owner": b.get("blocked_owner"),
+        "forward_panel_last_session": panel,
+        "local_panel_reaches_the_information_session": (
+            None if not (panel and info) else panel >= info),
+    }
+    if blocked or stage_state in _DATA_STAGE_STATES:
+        return {**out, "input_state": I_MISSING, "short_leg": L_LEG_VENDOR,
+                "why": ("the producer reports it is waiting on a publication it "
+                        "does not control: %s"
+                        % (str(blocked or "unstated")[:300]))}
+    # THE LOCAL LEG. A vendor that has published and a local panel that has not
+    # caught up is the case a single publication flag cannot express, and it is
+    # the case that actually occurred. It is reported as MISSING, against the
+    # LOCAL owner, because the producer scores the panel and not the vendor.
+    if panel and info and panel < info:
+        return {**out, "input_state": I_MISSING, "short_leg": L_LEG_LOCAL,
+                "why": ("the VENDOR leg is satisfied (publication=%s) but the "
+                        "LOCAL panel the producer scores reaches only %s, which "
+                        "does not reach the information session %s. The missing "
+                        "owner is the local acquisition/append path, not the "
+                        "vendor." % (pub, panel, info))}
+    if pub == "PUBLISHED":
+        return {**out, "input_state": I_PRESENT,
+                "why": ("the producer reports its source session as PUBLISHED"
+                        + ("" if not (panel and info) else
+                           " and its local panel reaches %s >= %s"
+                           % (panel, info)))}
+    if pub:
+        return {**out, "input_state": I_MISSING, "short_leg": L_LEG_VENDOR,
+                "why": ("the producer reports publication_state=%s for its "
+                        "source session" % pub)}
+    return {**out, "why": ("this producer journals no publication state, so "
+                           "whether its inputs are in hand cannot be asserted "
+                           "from the journal; reported as undeclared rather "
+                           "than assumed present")}
+
+
+def chronic_miss(accrual: dict, beat: Optional[dict]) -> dict:
+    """Is this producer's declared window structurally unreachable?
+
+    A single missed boundary is bad luck. A RUN of them, with no emission since
+    the newest, is a statement about the contract: the window the strategy
+    declares cannot be met by the source the producer reads. The estate could
+    not say this before, so it said ``MISSED_DECISION_GAP`` nine times about SPY
+    and each one read like an isolated accident.
+
+    The rule is deliberately conservative about recovery: an emission dated at or
+    after the newest declared miss proves the producer can still meet a boundary,
+    so the run is over and nothing chronic is claimed. FX carry missed
+    2026-09-15 and emitted 2026-09-22; that is a recovery, not a chronic fault,
+    and must not be reported as one.
+
+    Pure. Reads nothing from disk and changes no contract.
+    """
+    acc = accrual or {}
+    missed = sorted({str(s)[:10] for s in ((beat or {}).get("missed_boundaries")
+                                           or [])})
+    last_em = str(acc.get("last_emission_session") or "")[:10] or None
+    out = {
+        "n_consecutive_missed_boundaries": len(missed),
+        "first_missed_boundary": missed[0] if missed else None,
+        "newest_missed_boundary": missed[-1] if missed else None,
+        "last_emission_session": last_em,
+        "threshold": CHRONIC_CONSECUTIVE_MISSES,
+        "is_chronic": False,
+        "recovered_after_the_newest_miss": False,
+    }
+    if not missed:
+        return {**out, "why": "this producer declares no missed boundary"}
+    if last_em and last_em >= missed[-1]:
+        return {**out, "recovered_after_the_newest_miss": True,
+                "why": ("an emission dated %s is at or after the newest missed "
+                        "boundary %s, so this producer has proved it can still "
+                        "meet a boundary; the run is over"
+                        % (last_em, missed[-1]))}
+    if len(missed) < CHRONIC_CONSECUTIVE_MISSES:
+        return {**out, "why": ("%d missed boundary(ies) is below the %d needed "
+                               "to call the window structurally unreachable"
+                               % (len(missed), CHRONIC_CONSECUTIVE_MISSES))}
+    return {**out, "is_chronic": True,
+            "why": ("%d consecutive declared boundaries (%s..%s) passed with no "
+                    "decision and nothing has been emitted since. The producer "
+                    "is alive and its source does arrive, so what is failing is "
+                    "not the code but the FIT between the declared emission "
+                    "window and the source's publication latency. Changing "
+                    "either is a governed decision and is not taken here."
+                    % (len(missed), missed[0], missed[-1]))}
+
+
+def preboundary_readiness(accrual: dict, beat: Optional[dict] = None, *,
+                          producer: Optional[dict] = None,
+                          now: Optional[datetime] = None) -> dict:
+    """Can this registration MEET its next boundary - asked before it passes.
+
+    The prospective counterpart to :func:`boundary_reconciliation`. That function
+    counts what was lost; this one names what is ABOUT to be lost while there is
+    still a window in which to act.
+
+    It reads three facts the estate already had and never combined: the
+    producer's own next boundary, the producer's own input state, and when the
+    producer last ran. It owns no clock - the boundary comes from the producer's
+    declared grid - and it computes no session arithmetic for a class whose
+    calendar this estate does not own, reporting the distance in CALENDAR DAYS
+    (a unit that needs no calendar) and adding an eligible-session distance only
+    for the classes the authoritative exchange calendar covers.
+
+    Pure apart from the exchange-calendar supplier, which is consulted through
+    the ONE registry owner. Writes nothing, emits nothing, changes no contract.
+    """
+    acc = accrual or {}
+    b = beat or {}
+    prod = producer or producer_for(str(acc.get("challenger_id") or ""))
+    now = now or datetime.now(timezone.utc)
+    today = now.date()
+
+    inputs = input_readiness(b)
+    chronic = chronic_miss(acc, b)
+    boundaries = sorted({str(s)[:10] for s in (b.get("next_boundaries") or [])})
+    next_boundary = boundaries[0] if boundaries else None
+    nb_date = _as_date(next_boundary)
+    days = (nb_date - today).days if nb_date else None
+
+    out = {
+        "readiness_vocabulary": list(READINESS_STATES),
+        "actionable_readiness_states": list(ACTIONABLE_READINESS_STATES),
+        "asked_at": now.isoformat(),
+        "asked_before_the_boundary": bool(days is not None and days >= 0),
+        "next_boundary": next_boundary,
+        "next_boundary_source": ("PRODUCER_DECLARED_GRID" if next_boundary
+                                 else None),
+        "declared_grid_owner": b.get("declared_grid_owner"),
+        "all_declared_next_boundaries": boundaries,
+        "calendar_days_until_boundary": days,
+        "warn_lead_calendar_days": WARN_LEAD_CALENDAR_DAYS,
+        "boundary_is_imminent": bool(days is not None
+                                     and 0 <= days <= WARN_LEAD_CALENDAR_DAYS),
+        "window_opens_at": b.get("window_opens_at"),
+        "producer_last_run_utc": b.get("last_run_started_utc"),
+        "producer_stale_after_hours": PRODUCER_STALE_AFTER_HOURS,
+        "input_readiness": inputs,
+        "chronic_miss": chronic,
+        "monitoring_owner": CALCULATION_OWNER,
+        "emits_no_prediction": True,
+        "changes_no_decision_contract": True,
+    }
+
+    # Eligible-session distance, but ONLY for a class whose sessions this estate
+    # decides authoritatively. For anything else the honest answer is that the
+    # instrument's own bar calendar owns it, and a weekday count would be a
+    # fabrication of exactly the kind the registry refuses.
+    out["eligible_sessions_until_boundary"] = None
+    out["session_distance_owner"] = None
+    try:
+        from paper_trader.api import forward_challenger_registry as REG
+        cal = REG.observation_calendar_for(acc.get("asset_class"))
+        out["observation_calendar_owner"] = cal.get("calendar_owner")
+        if cal.get("is_exchange_session_calendar") and nb_date:
+            out["session_distance_owner"] = REG.COMPOSITION_OWNER
+            cur, n = today.isoformat(), 0
+            while n < 400:
+                nxt = REG.next_exchange_session_after(cur)
+                if not nxt or nxt > next_boundary:
+                    break
+                n += 1
+                cur = nxt
+                if nxt == next_boundary:
+                    out["eligible_sessions_until_boundary"] = n
+                    break
+    except Exception as exc:                                # noqa: BLE001
+        out["observation_calendar_owner"] = None
+        out["session_distance_note"] = str(exc)[:160]
+
+    # Producer silence, measured against the tolerance rather than guessed.
+    last_run = b.get("last_run_started_utc")
+    hours_silent = None
+    lr = None
+    if last_run:
+        try:
+            lr = datetime.fromisoformat(str(last_run).replace("Z", "+00:00"))
+            if lr.tzinfo is None:
+                lr = lr.replace(tzinfo=timezone.utc)
+            hours_silent = (now - lr).total_seconds() / 3600.0
+        except Exception:                                   # noqa: BLE001
+            hours_silent = None
+    out["producer_hours_since_last_run"] = (round(hours_silent, 2)
+                                            if hours_silent is not None
+                                            else None)
+    stale = bool(hours_silent is not None
+                 and hours_silent > PRODUCER_STALE_AFTER_HOURS)
+    out["producer_is_stale"] = stale
+
+    # ----------------------------------------------------------------------- #
+    # The verdict. Ordered so the most structural answer wins: a window that
+    # cannot be met is a worse fact than one input being late inside it, and
+    # saying "inputs missing" every day about a contract that can never be
+    # satisfied is how nine losses looked like nine accidents.
+    # ----------------------------------------------------------------------- #
+    def _v(state, why):
+        return {**out, "readiness": state,
+                "severity": READINESS_SEVERITY.get(state, SEV_WARN),
+                "is_actionable_now": state in ACTIONABLE_READINESS_STATES,
+                "why": why}
+
+    if (prod.get("producer_state") == P_NONE and prod.get("reason")
+            and not UNPRODUCED_IS_A_DEFECT.get(prod["reason"], True)):
+        return _v(R_NOT_EXPECTED,
+                  "no producer is expected for this registration (%s), so it "
+                  "has no boundary to be ready for" % prod["reason"])
+    if chronic.get("is_chronic"):
+        # The structural verdict outranks the next boundary's own state, because
+        # a contract that cannot be met most days is the fact worth acting on
+        # even on a day it happens to be satisfiable. But the operator must not
+        # be told "unreachable" about a boundary whose inputs are in hand right
+        # now, so the next boundary's own readiness travels WITH the verdict.
+        reachable = inputs["input_state"] == I_PRESENT and not stale
+        out["next_boundary_inputs_in_hand"] = reachable
+        return _v(R_CHRONIC,
+                  "%s The NEXT boundary at %s is %s: %s"
+                  % (chronic.get("why"), next_boundary,
+                     ("REACHABLE (its inputs are already in hand, so this one "
+                      "should be met)" if reachable else
+                      "NOT currently reachable"),
+                     inputs.get("why")))
+    if prod.get("producer_state") != P_LIVE:
+        if next_boundary:
+            return _v(R_NO_PRODUCER,
+                      "a boundary is declared at %s and no code path can decide "
+                      "it: %s" % (next_boundary, prod.get("reason")))
+        return _v(R_NO_PRODUCER,
+                  "this registration has no producer and no declared boundary: "
+                  "%s" % prod.get("reason"))
+    if not next_boundary:
+        return _v(R_NO_BOUNDARY,
+                  "this producer declares no next boundary, so there is no "
+                  "deadline to be ready for")
+    if stale and out["boundary_is_imminent"]:
+        return _v(R_PRODUCER_STALE,
+                  "the boundary at %s is %d calendar day(s) away and the "
+                  "producer stage has not run for %.1f hours (tolerance %dh); "
+                  "the owner to look at is %s, not the data source"
+                  % (next_boundary, days, hours_silent or 0.0,
+                     PRODUCER_STALE_AFTER_HOURS, prod.get("producer_owner")))
+    if inputs["input_state"] == I_MISSING:
+        if out["boundary_is_imminent"]:
+            return _v(R_INPUT_LATE,
+                      "the boundary at %s is %d calendar day(s) away and the "
+                      "inputs it needs are not in hand: %s"
+                      % (next_boundary, days, inputs.get("why")))
+        return _v(R_INPUT_PENDING,
+                  "the boundary at %s is %s calendar day(s) away, beyond the %d "
+                  "day warning lead, and its inputs are not yet in hand: %s"
+                  % (next_boundary, days, WARN_LEAD_CALENDAR_DAYS,
+                     inputs.get("why")))
+    return _v(R_READY,
+              "a live producer that ran %s, a declared next boundary at %s (%s "
+              "calendar day(s) away) and inputs reported %s"
+              % (last_run, next_boundary, days, inputs["input_state"]))
+
+
 def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
     """The producer lifecycle state of ONE registration.
 
@@ -433,7 +869,13 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
             k: beat.get(k) for k in
             ("ran", "last_run_id", "last_run_started_utc", "last_stage_state",
              "last_advance_state", "blocked_on", "last_detail",
-             "next_boundaries", "missed_boundaries")}
+             "next_boundaries", "missed_boundaries",
+             # R74.2 - and here is the allow-list a FOURTH time. These are the
+             # facts pre-boundary readiness is computed from; a reader given the
+             # verdict and not the inputs cannot check it.
+             "publication", "entry_session", "information_session",
+             "entry_state", "blocked_owner", "declared_grid_owner",
+             "window_opens_at", "forward_panel_last_session")}
         # R68 - NEXT DUE DECISION, from the producer rather than the accrual.
         #
         # The accrual projection sets next_eligible_observation_session only for
@@ -455,6 +897,13 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
     # question was asked.
     out["boundary_reconciliation"] = boundary_reconciliation(acc, beat,
                                                              producer=prod)
+
+    # R74.2 - the PROSPECTIVE half, always present for the same reason the
+    # retrospective half is: a reader must never have to infer from an absence
+    # whether the question was asked. boundary_reconciliation says what was
+    # lost; this says what is about to be.
+    out["preboundary_readiness"] = preboundary_readiness(acc, beat,
+                                                         producer=prod)
 
     terminal = _lifecycle_terminal(acc)
     if terminal:
@@ -575,6 +1024,41 @@ def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
         by_state[r["lifecycle"]] = by_state.get(r["lifecycle"], 0) + 1
     ok = not orphans and not failed and read_problem is None
 
+    # R74.2 - THE PRE-BOUNDARY WARNING LEDGER. Counted separately from the
+    # permanent-loss ledger beside it, because the two answer opposite
+    # questions and merging them would let a warning about a boundary that can
+    # still be met be read as a loss that has already happened.
+    ready = [r.get("preboundary_readiness") or {} for r in rows]
+    by_readiness = {}
+    for x in ready:
+        k = x.get("readiness")
+        if k:
+            by_readiness[k] = by_readiness.get(k, 0) + 1
+    warnings = [
+        {"challenger_id": r["challenger_id"],
+         "readiness": (r.get("preboundary_readiness") or {}).get("readiness"),
+         "severity": (r.get("preboundary_readiness") or {}).get("severity"),
+         "next_boundary": (r.get("preboundary_readiness") or {}
+                           ).get("next_boundary"),
+         "calendar_days_until_boundary":
+             (r.get("preboundary_readiness") or {}
+              ).get("calendar_days_until_boundary"),
+         "producer_owner": r.get("producer_owner"),
+         "input_state": ((r.get("preboundary_readiness") or {}
+                          ).get("input_readiness") or {}).get("input_state"),
+         # WHICH leg is short, so the warning reaches the owner that can act on
+         # it rather than blaming a vendor that already delivered.
+         "short_leg": ((r.get("preboundary_readiness") or {}
+                        ).get("input_readiness") or {}).get("short_leg"),
+         "blocked_on": ((r.get("preboundary_readiness") or {}
+                         ).get("input_readiness") or {}).get("blocked_on"),
+         "why": (r.get("preboundary_readiness") or {}).get("why")}
+        for r in rows
+        if (r.get("preboundary_readiness") or {}).get("is_actionable_now")]
+    warnings.sort(key=lambda w: (str(w.get("next_boundary") or "9999-12-31"),
+                                 str(w.get("challenger_id"))))
+    n_defect_warnings = sum(1 for w in warnings if w["severity"] == SEV_DEFECT)
+
     return {
         "schema_version": SCHEMA_VERSION,
         "calculation_owner": CALCULATION_OWNER,
@@ -610,18 +1094,30 @@ def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
             for r in rows
             if (r.get("boundary_reconciliation") or {})
             .get("producer_declared_missed_boundaries")},
+        # R74.2 - WHAT IS ABOUT TO BE LOST, asked before the deadline.
+        "readiness_vocabulary": list(READINESS_STATES),
+        "readiness_severity": dict(READINESS_SEVERITY),
+        "by_readiness_state": by_readiness,
+        "warn_lead_calendar_days": WARN_LEAD_CALENDAR_DAYS,
+        "producer_stale_after_hours": PRODUCER_STALE_AFTER_HOURS,
+        "chronic_consecutive_misses_threshold": CHRONIC_CONSECUTIVE_MISSES,
+        "n_preboundary_warnings": len(warnings),
+        "n_preboundary_defects": n_defect_warnings,
+        "preboundary_warnings": warnings,
+        "every_next_boundary_is_reachable": not warnings,
         "heartbeat": beats,
         "registrations": rows,
         "read_only": True,
         "writes_nothing": True,
         "emits_no_prediction": True,
         "headline": _headline(rows, orphans, failed, read_problem,
-                              n_unrecorded=n_unrecorded, no_grid=no_grid),
+                              n_unrecorded=n_unrecorded, no_grid=no_grid,
+                              warnings=warnings),
     }
 
 
 def _headline(rows, orphans, failed, read_problem, *, n_unrecorded: int = 0,
-              no_grid=()) -> str:
+              no_grid=(), warnings=()) -> str:
     if read_problem:
         return "THE FORWARD BOOK COULD NOT BE READ RELIABLY: %s" % read_problem
     if not rows:
@@ -648,6 +1144,19 @@ def _headline(rows, orphans, failed, read_problem, *, n_unrecorded: int = 0,
         parts.append("%d producer(s) declare no boundary grid, so their losses "
                      "cannot be counted: %s."
                      % (len(no_grid), ", ".join(sorted(no_grid))))
+    # R74.2 - the warning goes in the headline, because a warning nobody reads
+    # before the deadline is indistinguishable from no warning at all.
+    if warnings:
+        parts.append(
+            "%d registration(s) CANNOT MEET their next declared boundary unless "
+            "something changes first: %s."
+            % (len(warnings),
+               "; ".join("%s (%s, boundary %s)"
+                         % (w.get("challenger_id"), w.get("readiness"),
+                            w.get("next_boundary")) for w in warnings)))
+    else:
+        parts.append("Every next boundary is reachable with the inputs and "
+                     "producers in hand.")
     return " ".join(parts)
 
 
@@ -661,4 +1170,14 @@ __all__ = [
     "UNPRODUCED_IS_A_DEFECT", "UNPRODUCED_DETAIL", "UNDECLARED",
     "PRODUCER_STATES", "P_LIVE", "P_NONE", "P_UNKNOWN",
     "producer_for", "heartbeat", "lifecycle_state", "producer_coverage",
+    # R74.2 - pre-boundary readiness: the prospective half of the ledger.
+    "READINESS_STATES", "ACTIONABLE_READINESS_STATES", "READINESS_SEVERITY",
+    "R_READY", "R_INPUT_PENDING", "R_INPUT_LATE", "R_PRODUCER_STALE",
+    "R_NO_PRODUCER", "R_CHRONIC", "R_NO_BOUNDARY", "R_NOT_EXPECTED",
+    "SEV_OK", "SEV_WARN", "SEV_DEFECT",
+    "INPUT_STATES", "I_PRESENT", "I_MISSING", "I_NOT_DECLARED",
+    "INPUT_LEGS", "L_LEG_VENDOR", "L_LEG_LOCAL",
+    "WARN_LEAD_CALENDAR_DAYS", "PRODUCER_STALE_AFTER_HOURS",
+    "CHRONIC_CONSECUTIVE_MISSES",
+    "input_readiness", "chronic_miss", "preboundary_readiness",
 ]
