@@ -406,7 +406,15 @@ def heartbeat(*, runs: Optional[dict] = None) -> dict:
                         "entry_state": st.get("entry_state"),
                         "blocked_owner": st.get("blocked_owner"),
                         "declared_grid_owner": st.get("declared_grid_owner"),
-                        "window_opens_at": st.get("window_opens_at")}
+                        "window_opens_at": st.get("window_opens_at"),
+                        # R76 - the append_state above says what collection
+                        # DID; this says whether collection was even reached.
+                        # Nine SPY boundaries were lost with append_state
+                        # absent, which reads identically to "the producer
+                        # tried and the vendor had nothing".
+                        "acquisition_precedes_decision_state":
+                            st.get("acquisition_precedes_decision_state"),
+                        "append_state": st.get("append_state")}
         out[stage] = seen or {
             "last_run_id": None, "last_run_started_utc": None,
             "last_stage_state": None,
@@ -875,7 +883,9 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
              # verdict and not the inputs cannot check it.
              "publication", "entry_session", "information_session",
              "entry_state", "blocked_owner", "declared_grid_owner",
-             "window_opens_at", "forward_panel_last_session")}
+             "window_opens_at", "forward_panel_last_session",
+             # R76 - collection ordering, and what collection reported.
+             "acquisition_precedes_decision_state", "append_state")}
         # R68 - NEXT DUE DECISION, from the producer rather than the accrual.
         #
         # The accrual projection sets next_eligible_observation_session only for

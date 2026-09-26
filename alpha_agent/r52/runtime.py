@@ -103,6 +103,13 @@ _JOURNAL_STAGE_FIELDS = (
     "advance_state", "entry_session", "information_session", "entry_state",
     "blocked_on", "blocked_owner", "append_state", "append_detail",
     "publication", "paid_dollars", "frozen", "detail",
+    # R76 - the producer's own attestation that it collected BEFORE it consulted
+    # the decision state. It is journalled rather than assumed because the
+    # opposite ordering is invisible from the outside: every field above reads
+    # exactly the same whether the append ran and found nothing or was never
+    # reached at all. This is the SIXTH time a fact this allow-list dropped had
+    # to be recovered after the loss it would have prevented.
+    "acquisition_precedes_decision_state",
     # R68 - WHAT IS DUE NEXT, and what was permanently lost. The allow-list
     # above is the R66 repair for a journal that "used to keep THREE fields and
     # throw the rest away", and it dropped these three for the same reason: a
@@ -360,6 +367,8 @@ def research_runtime_cycle(now: _dt.datetime = None, *,
                 entry_state=adv.get("entry_state"),
                 publication=(adv.get("publication") or {}).get("outcome"),
                 append_state=(adv.get("append") or {}).get("state"),
+                acquisition_precedes_decision_state=adv.get(
+                    "acquisition_precedes_decision_state"),
                 paid_dollars=adv.get("paid_dollars"),
                 frozen=bool((adv.get("freeze") or {}).get("frozen")),
                 # R66 - the two fields that name WHY, and WHOSE fault it is.

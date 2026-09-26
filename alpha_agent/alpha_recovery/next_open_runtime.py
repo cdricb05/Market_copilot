@@ -8,7 +8,13 @@ inside a particular nine-and-a-half-hour window.
     probe the vendor  ->  append the session  ->  freeze ONE decision
 
 Each step is separately idempotent and separately refusable, and the call
-reports which one it stopped at. A trigger that fires when there is nothing to
+reports which one it stopped at. R76 made the CODE obey that order: the append
+used to sit below the ALREADY_FROZEN and MISSED returns, so on any cycle whose
+boundary had already been forfeited the session the vendor had just published
+was never collected. Collection now happens before the decision state is read,
+and ``acquisition_precedes_decision_state`` is journalled to prove it. Nothing
+about the ENTRY contract moved: a window that shut without a decision is still
+MISSED permanently and still refuses every backfill. A trigger that fires when there is nothing to
 do is a no-op; a trigger that fires five times inside the window produces one
 decision, because the freeze is first-write-wins in
 :mod:`alpha_agent.alpha_recovery.prospective_decision`.
@@ -628,6 +634,49 @@ def advance_daily(*, now: Optional[str] = None,
             out["publication"] = {"outcome": "PROBE_ERROR",
                                   "detail": str(exc)[:200]}
 
+    # ----------------------------------------------------------------- #
+    # R76 - ACQUISITION RUNS BEFORE THE DECISION STATE IS CONSULTED.
+    #
+    # This module's contract, stated in its own docstring, is
+    #     probe the vendor  ->  append the session  ->  freeze ONE decision
+    # and until now the code did not honour it. The append sat BELOW the
+    # ALREADY_FROZEN and MISSED early returns, so the local panel was only
+    # advanced on a cycle whose entry boundary was still live.
+    #
+    # On a weekday that is almost never true. The vendor serves session t at
+    # ~09:27-09:29 ET on t+1, the decision window for entry t+1 shuts at its
+    # 09:30 ET open, and the forfeiture is recorded about an hour later. From
+    # that moment every cycle for the rest of the day returned ADV_MISSED
+    # before reaching the append - so the session the vendor HAD published was
+    # never collected, the panel fell a session further behind, and the NEXT
+    # boundary was unreachable for a reason that had nothing to do with the
+    # vendor. That is how one miss became nine (2026-09-15 -> 2026-09-25) and
+    # why append_state read APPENDED once in 400 retained cycles, on a
+    # Saturday, catching up 2026-09-21 -> 2026-09-25 in a single batch.
+    #
+    # ACQUIRING DATA AND DECIDING ARE DIFFERENT ACTS. A forfeited boundary is
+    # a statement about a decision that will never be made; it says nothing
+    # about whether the market data behind it should be in the owned surface.
+    # The append is append-only, idempotent, priced before it spends and
+    # first-write-wins on a key collision, so running it on a forfeited cycle
+    # can neither move a discovery row nor revive a missed entry: the MISSED
+    # return below is unchanged and still refuses every backfill.
+    #
+    # The ``source.owned`` pre-check was dropped with the reordering because it
+    # required the entry state this block now runs ahead of, and because it was
+    # never the authority: append_information_session answers the same question
+    # itself - ALREADY_OWNED, before any network call and before any dollar.
+    if append:
+        try:
+            out["append"] = append_information_session(
+                info, budget_usd=budget_usd, execute=execute_append,
+                client=client, surface=surface)
+        except Exception as exc:                            # noqa: BLE001
+            out["append"] = {"state": "APPEND_ERROR",
+                             "error": type(exc).__name__,
+                             "detail": str(exc)[:220]}
+    out["acquisition_precedes_decision_state"] = True
+
     st = NOC.entry_state(entry, now=ts, surface=surface)
     out["entry_state"] = st.get("entry_state")
     out["source"] = st.get("source")
@@ -639,19 +688,6 @@ def advance_daily(*, now: Optional[str] = None,
         return {**out, "state": ADV_MISSED, "backfill_refused": True,
                 "detail": ("the %s open has passed with no decision; this "
                            "entry session is missed permanently" % entry)}
-
-    if append and not (st.get("source") or {}).get("owned"):
-        try:
-            out["append"] = append_information_session(
-                info, budget_usd=budget_usd, execute=execute_append,
-                client=client, surface=surface)
-        except Exception as exc:                            # noqa: BLE001
-            out["append"] = {"state": "APPEND_ERROR",
-                             "error": type(exc).__name__,
-                             "detail": str(exc)[:220]}
-        st = NOC.entry_state(entry, now=ts, surface=surface)
-        out["entry_state"] = st.get("entry_state")
-        out["source"] = st.get("source")
 
     if st["entry_state"] == NOC.AWAITING_INFORMATION_SESSION:
         return {**out, "state": ADV_AWAITING_INFORMATION}
