@@ -1,0 +1,149 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "contract": "research/agents/governance_contract.json",
+ "campaign_id": "R76_NEW_INFORMATION_OFFENSIVE",
+ "ruled_by": "quant-research-director",
+ "ruled_on": "2026-09-26",
+ "spec": "research/agents/campaign_r76_new_information/campaign_spec.json",
+ "read_only": true,
+
+ "VERDICT": "ONE_CELL_ADMISSIBLE_ON_MECHANISM__BLOCKED_ON_SUBSTRATE__D1_COMMISSIONED",
+
+ "VERDICT_ONE_LINE": "There is one genuinely admissible mechanism and the director found it: a cross-sectional event book on SEC staff comment letters (EDGAR form UPLOAD), whose full four-part key REGULATORY_SCRUTINY|SEC_COMMENT_LETTER|US_EQUITY|XS_EVENT_BOOK returns NO_ROW_IN_MEMORY and whose bytes have provably never been ingested (configs/alpha_agent/stage2_ingestion.json:118 lists eight forms and neither UPLOAD nor CORRESP is among them). It is also the first candidate in three campaigns whose free public source actually keeps an archive - probed live, HTTP 200 with 2,136 to 3,484 UPLOAD rows per quarter from 2012Q1 - which is why it does not die the HISTORY_FLOOR death that killed the Nasdaq halt feed and the ALFRED vintages. It is nevertheless NOT pre-registered today, because the director measured a blocking defect in his own proposal before scoring anything: the EDGAR CIK bridges 656 of 661 still-listed panel symbols (99.24%) and ZERO of the 1,236 delisted ones, and those delisted names are 65.2% of sp500_pit_panel_v1. Comment letters concentrate on filers with contested accounting and those filers delist at an elevated rate, so the unobservable two thirds of the panel is selected in exactly the direction of the hypothesis. A book built on today's survivors would not be a weaker test of this mechanism; it would be a test of a different one.",
+
+ "WHAT_IS_BEING_HANDED_BACK": "ONE cell, not a menu, with its pre-registration withheld and one bounded $0 certification commissioned to decide it. If D1 clears the bridge, the cell registers as specified with no parameter changed. If D1 cannot, the campaign returns NULL_ON_DATA and the acquisition proposal below is the operator's decision.",
+
+ "MECHANISM_KEYS_AND_CHECK_MECHANISM_VERDICTS": {
+  "owner": "alpha_agent.r59.memory.mechanism_state via scripts/alpha_agents_v2.py check-mechanism (read-only, runs nothing)",
+  "the_candidate_key": {
+   "asset_class": "US_EQUITY",
+   "economic_family": "REGULATORY_SCRUTINY",
+   "information_family": "SEC_COMMENT_LETTER",
+   "model_family": "XS_EVENT_BOOK",
+   "verdict": "NO_ROW_IN_MEMORY",
+   "n_matching": 0, "n_settled": 0,
+   "mechanism_is_settled": false,
+   "novelty_claim_is_believable": true,
+   "is_governed_refusal": false
+  },
+  "supporting_clean_probes": [
+   {"payload": "US_EQUITY|SEC_COMMENT_LETTER", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "SEC_COMMENT_LETTER (asset-class-free)", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "US_EQUITY|REGULATORY_SCRUTINY", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "US_EQUITY|REGULATORY_COMMENT_LETTER (synonym control)", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "US_EQUITY|ACCOUNTING_QUALITY", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "US_EQUITY|EVENT_OVERREACTION", "verdict": "NO_ROW_IN_MEMORY", "n": 0},
+   {"payload": "US_EQUITY|EVENT_UNDERREACTION", "verdict": "NO_ROW_IN_MEMORY", "n": 0}
+  ],
+  "ADVERSE_PROBES_RUN_AGAINST_THE_DIRECTORS_OWN_CANDIDATE_AND_REPORTED_IN_FULL": [
+   {"payload": "US_EQUITY|POST_FILING_DRIFT", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "outcomes": {"NO_ALPHA_EVIDENCE": 1}, "best_lockbox_t": -0.9920478868776522, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]},
+   {"payload": "US_EQUITY|FILING_EVENT", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 2, "n_settled": 2, "outcomes": {"NO_ALPHA_EVIDENCE": 1, "FORWARD_FROZEN": 1}, "best_lockbox_t": -0.9920478868776522, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]},
+   {"payload": "US_EQUITY|SEC_EDGAR_INDEX", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]},
+   {"payload": "US_EQUITY|SEC_EDGAR", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "best_lockbox_t": 0.6152797154119581, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]},
+   {"payload": "US_EQUITY|SEC_SUBMISSIONS", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]},
+   {"payload": "US_EQUITY|SEC_SUBMISSIONS_ACCEPTANCE", "verdict": "SETTLED_DO_NOT_REPEAT", "n_matching": 1, "n_settled": 1, "outcomes": {"DATA_HOLD": 1}, "reopen": ["NEW_ORTHOGONAL_INFORMATION"]}
+  ],
+  "HOW_THE_DIRECTOR_RULES_ON_THAT_TENSION": "Six adverse probes return SETTLED_DO_NOT_REPEAT and the ruling states them before it states its own answer. The task's rule 4 draws the line and the director applies it in both directions. Duplicate SOURCE: admitted, EDGAR carries six settled information families. Duplicate ECONOMIC MECHANISM: no - every settled EDGAR mechanism reads an object the ISSUER authored and timed (filing cadence, disclosure volume, 8-K item choice, XBRL numbers, holder filings), whereas a comment letter is authored by the regulator ABOUT the issuer, is adversarial, and is timed by the SEC. Genuinely NEW INFORMATION CHANNEL: yes, and the evidence is a file and a line rather than an argument - forms_of_interest at configs/alpha_agent/stage2_ingestion.json:118 is exactly [\"8-K\",\"8-K/A\",\"10-Q\",\"10-Q/A\",\"10-K\",\"10-K/A\",\"4\",\"4/A\"], and a repo-wide grep for UPLOAD and CORRESP across every .py returns only the unrelated constant NO_RESTRICTED_DATA_UPLOAD in alpha_agent/r40/contract.py:171 and alpha_agent/r40/open_models.py:6,271.",
+  "THE_TEST_THE_DIRECTOR_DID_NOT_DODGE": "R67's V2 ruling refused XA_TERMS_OF_TRADE because its feature was built entirely from RETURNS - the same input bytes already prosecuted, relabelled into an unused information_family to reach a burden-0 key. That test is the right one and it is applied here rather than avoided. It acquits this cell only because the input bytes are a form type that has never been read and cannot be derived from any prosecuted input. Had the candidate been a recomputation over already-ingested EDGAR objects, it would have been refused on exactly R67's grounds.",
+  "BURDEN_CONSEQUENCE_ACCEPTED_NOT_ARGUED_AWAY": "Because the conservative reading (this is FILING_EVENT reopened on NEW_ORTHOGONAL_INFORMATION) is arguable, the cell is budgeted at a denominator of 4, not 1. Per the R68 correction, a reopened mechanism inherits its parent's denominator and may never be charged to a fresh key. If alpha_agent.r59.handlers.search_denominator returns a larger number at registration, the larger number governs; a director may raise his own burden and may not lower it."
+ },
+
+ "THE_BLOCKING_DEFECT_MEASURED_BY_THE_DIRECTOR_ON_HIS_OWN_PROPOSAL": {
+  "id": "R76_DEFECT_1",
+  "name": "EDGAR_CIK_TO_PANEL_SYMBOL_BRIDGE_IS_SURVIVORSHIP_TRUNCATED",
+  "measurement": {
+   "panel": "sp500_pit_panel_v1 (1,897 symbols, 5,601 sessions, 2004-06-01..2026-09-03)",
+   "active_symbols": 661,
+   "delisted_symbols": 1236,
+   "delisted_share": 0.6515,
+   "active_bridged_via_sec_company_tickers_json": 656,
+   "active_bridge_rate": 0.9924,
+   "delisted_bridged": 0,
+   "delisted_naive_base_ticker_hits": 288,
+   "naive_hits_are_not_a_bridge": "they are ticker recycling by a different issuer and using them would inject 288 wrong-issuer joins"
+  },
+  "why_it_blocks": "company_tickers.json holds only the CURRENT ticker of a CURRENTLY-registered filer. It has no history and no dead registrants. The direction of the loss is the direction of the hypothesis, which is what makes it disqualifying rather than merely lossy.",
+  "precedent_applied_to_the_director_himself": "The R60 census froze us_equity_extension_pit_panel_v1 for an unaudited issuer-name identity bridge, recording that 'until audited, success on it is uninterpretable and failure uninformative'. The same standard is applied here to the director's own cell rather than only to someone else's."
+ },
+
+ "WHY_THIS_IS_NOT_A_TWELVE_HYPOTHESIS_MENU": "The census queue holds thirteen proposals. Eleven are disposed of in campaign_spec.json#WHAT_WAS_CONSIDERED_AND_REFUSED with a named binding ground apiece (five on the R68 correction, two on R73_D1 and R75_D1 HISTORY_FLOOR certifications, two on R73's durable REFUSED_A_UNIVERSE_IS_NOT_NEW_INFORMATION ruling plus the extension-panel freeze, one on R67's V2 key-shopping refusal, one on R75's structural refusal). ONE (EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME) is recorded as UNEXAMINED rather than refused, because the director stopped investigating on instruction and will not assert a verdict he did not measure. ONE is proposed. The output is a single cell and a single $0 certification.",
+
+ "NULL_BRANCH_AND_THE_ONE_ACQUISITION_PROPOSAL": {
+  "when_this_branch_binds": "If R76_D1 returns NOT_CERTIFIABLE on DELISTED_BRIDGE_COVERAGE - which is the outcome the director expects on owned data, since the measured figure today is 0.00 - the campaign result is NULL_ON_DATA and this is the single proposal that follows. Nothing is purchased by this ruling. The operator decides.",
+  "proposal_id": "R76_ACQ_1",
+  "exact_dataset": "WRDS CRSP/Compustat Merged - the CCM Linking Table (CRSP PERMNO <-> Compustat GVKEY, with linktype, linkprim and the LINKDT/LINKENDDT effective-date range) together with the Compustat Company file field CIK and the CRSP stocknames / dsenames file (PERMNO <-> TICKER <-> CUSIP with effective dates). The three together are the only widely-used construction that carries a HISTORICAL, date-effective CIK <-> ticker mapping including dead registrants.",
+  "provider": "Wharton Research Data Services (WRDS), University of Pennsylvania. Underlying data from CRSP (University of Chicago Booth) and S&P Global Market Intelligence (Compustat).",
+  "entitlement_required": "An institutional WRDS subscription with the CRSP/Compustat Merged product entitled. WRDS does not sell to individuals; access is via an institutional account. This is a HARD entitlement obstacle and is stated first rather than buried.",
+  "historical_pit_coverage": "CCM link records are date-effective (LINKDT/LINKENDDT), so the mapping as-known-on-a-date is reconstructible - genuine point-in-time identity, not a latest-state snapshot. CRSP dsenames carries NAMEDT/NAMEENDDT for ticker changes. Coverage of the required 2012-2026 window is complete.",
+  "inactive_delisted_coverage": "This is the entire reason for the proposal. CRSP retains every delisted security with its delisting date and delisting return; PERMNO is never recycled, unlike a ticker. This is what would take the delisted bridge rate from the measured 0.00 toward the frozen 0.85 threshold and let a false-match rate be measured against a permanent identifier rather than asserted.",
+  "obtainable_price_or_quote_requirement": "NOT OBTAINABLE AS A LIST PRICE, and the director will not invent one. WRDS is quoted per institution and is not published. A QUOTE IS REQUIRED and only a human can request it. Publicly observable order of magnitude is institutional-scale annual subscription; the director has no artifact stating a number and therefore states none.",
+  "exact_candidate_mechanism_it_unlocks": "REGULATORY_SCRUTINY|SEC_COMMENT_LETTER|US_EQUITY|XS_EVENT_BOOK, fully specified in campaign_spec.json#CANDIDATE with its horizon (63 sessions), cadence (21), expression (LONG_SHORT dollar-neutral), expected sign (-1 on the letter-bearing leg), primary statistic (Newey-West lockbox t), threshold (|t| >= 3.00 post-BH), burden denominator (4) and six failure conditions - all frozen BEFORE the data exists, so the purchase cannot be justified retroactively by a result.",
+  "why_owned_data_cannot_answer_the_same_question": "The measurement is in this ruling: company_tickers.json bridges 0 of 1,236 delisted panel symbols, and 65.2% of the panel is delisted. The only free alternative, name matching against sec.gov/Archives/edgar/cik-lookup-data.txt, is the exact unaudited issuer-name bridge the R60 census cites as the reason us_equity_extension_pit_panel_v1 is frozen; adopting it here would reproduce a known defect rather than remove one. Restricting to the 661 surviving names is not a mitigation, it is the survivorship bias written into the universe definition.",
+  "INFORMATION_PURCHASE_GATE_TEN_CONDITION_RESULT": {
+   "gate_document": "docs/INFORMATION_PURCHASE_GATE.md, the ten conditions at lines 27-73 and the state vocabulary at lines 75-88",
+   "1_economic_mechanism": "PASS. Stated in full before any data exists and before any backtest: adverse third-party assessment of reporting quality, disseminated with a regulatory lag, unstructured, unsummarised by vendors. The gate's own caution - 'a mechanism stated after seeing the backtest is not a mechanism' - is satisfied by construction here.",
+   "2_cheap_proxy": "PARTIAL. The free proxy IS available and IS the first thing to run: the same cell on the 661 surviving names costs $0. But its result cannot discriminate, because a null on survivors is exactly what the survivorship truncation would produce under a true effect. The gate says a proxy showing nothing is strong evidence against paying; here a proxy showing nothing is uninformative, and the director records that distinction rather than claiming a pass.",
+   "3_marginal_evidence": "FAIL. There is NO after-cost portfolio evidence for this mechanism in this estate. Zero. The information family carries zero rows. The director will not manufacture a prior from the academic literature to fill this condition.",
+   "4_exact_data_gap": "PASS. Named precisely: a date-effective CIK <-> exchange-ticker mapping covering securities delisted between 2012-01-01 and 2026-09-03, keyed to a non-recycled permanent identifier. Not 'better identifiers'.",
+   "5_point_in_time_requirement": "PASS. CCM LINKDT/LINKENDDT and CRSP NAMEDT/NAMEENDDT are date-effective, so the as-known-then mapping is reconstructible.",
+   "6_survivorship_inactive_coverage": "PASS on the candidate and the condition is the whole point. The gate records that the owned fundamental store's 3.42x skew toward still-trading names was enough to disqualify it from carrying a verdict; the measured skew here is worse, since the delisted bridge rate is 0.00 rather than merely skewed.",
+   "7_sample_evaluation": "NOT DONE. No sample has been requested and none has been received.",
+   "8_incremental_backtest": "NOT DONE, and cannot be done before condition 7.",
+   "9_economic_value": "CANNOT BE ASSESSED. The cost is unquoted and the incremental PnL is unmeasured. Two unknowns do not make a case. The estate's honest prior is 0 qualified in 8,415 settled, and the director records that this prior argues against, not for, spending institutional money to test hypothesis 8,416.",
+   "10_licensing_and_retention": "UNKNOWN. WRDS terms are institution-specific and no artifact in this repository states them.",
+   "conditions_passed": 5,
+   "conditions_failed_or_unknown": 5,
+   "GATE_STATE": "DO_NOT_BUY",
+   "why_not_SAMPLE_REQUIRED": "SAMPLE_REQUIRED presupposes a credible mechanism whose evidence merely needs a sample. Condition 3 fails outright - there is no marginal after-cost evidence at all - and condition 9 cannot be assessed against an unquoted institutional subscription. Labelling this SAMPLE_REQUIRED would be the soft PURCHASE_CANDIDATE the gate document explicitly warns against at lines 86-88.",
+   "what_the_director_actually_recommends": "Run R76_D1 first at $0. It may find a free bridge the director did not: SEC's cik-lookup-data.txt is name-keyed and CAN carry a MEASURED false-match rate against the panel if company names can be obtained from the already-licensed Norgate security master that built the panel. The director did not finish investigating that route before stopping and records it as OPEN AND UNRESOLVED, not as exhausted. If D1 closes it, the correct answer is DO_NOT_BUY and the channel is recorded as blocked on identity, not on information."
+  }
+ },
+
+ "ROLES_TO_SPAWN": {
+  "spawn": [{"role": "data-foundation-agent", "reason": "COMMISSIONED_D1_SUBSTRATE_CERTIFICATION", "model_routing_owner": "alpha_agent.agents_v2.routing (NOT set by this ruling)"}],
+  "skip": [
+   {"role": "universe-construction-agent", "reason_code": "BLOCKED_UPSTREAM_ON_D1"},
+   {"role": "feature-library-agent", "reason_code": "BLOCKED_UPSTREAM_ON_D1"},
+   {"role": "momentum-signal-agent", "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"},
+   {"role": "reversal-signal-agent", "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"},
+   {"role": "trend-breadth-signal-agent", "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"},
+   {"role": "volatility-liquidity-agent", "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"},
+   {"role": "skeptic-agent", "reason_code": "NOTHING_MEASURED_NOTHING_TO_FALSIFY"},
+   {"role": "risk-agent", "reason_code": "NO_SKEPTIC_SURVIVOR"},
+   {"role": "meta-agent", "reason_code": "NO_VALIDATED_SURVIVOR"},
+   {"role": "signal-publishing-agent", "reason_code": "NO_DIRECTOR_CLEAR_RULING_ISSUED"}
+  ]
+ },
+
+ "DEFECTS_REPORTED_NOT_REPAIRED": [
+  {"id": "R76_DEFECT_1", "summary": "EDGAR CIK bridges 0 of 1,236 delisted sp500_pit_panel_v1 symbols; 65.2% of the panel is unobservable to any EDGAR-keyed event book.", "owner": "data-foundation-agent via R76_D1", "severity": "BLOCKS_THIS_CELL"},
+  {"id": "R76_DEFECT_2", "summary": "The campaign diversity gate (>=3 asset classes, >=40% non-equity, one cross-asset) can currently be satisfied only by pre-registering families R74 measured as SETTLED_DO_NOT_REPEAT across twelve probes. A gate whose only satisfying assignment is forbidden manufactures burden. Same point raised by research/agents/campaign_r74_next_close_review/GOVERNANCE_DIVERSITY_GATE_PROPOSAL.json.", "owner": "HUMAN_OPERATOR - a governance-contract change is not the director's to make", "severity": "GOVERNANCE_SURFACE"},
+  {"id": "R76_DEFECT_3", "summary": "EDGAR UPLOAD counts drop from 2,136-3,484 per quarter (2012-2024) to 464 in 2026Q2, a ~5x fall the director measured but did not explain and explicitly did not assume away. If real, the most recent out-of-sample period has degraded coverage.", "owner": "R76_D1 COVERAGE_STATIONARITY kill condition", "severity": "MATERIAL_TO_ANY_OUT_OF_SAMPLE_CLAIM"},
+  {"id": "R76_DEFECT_4", "summary": "scripts/agents_v2_brief.py --role quant-research-director and --spawn-plan both emit a complete, valid JSON brief and then exit 255 for campaign R76_NEW_INFORMATION_OFFENSIVE (a campaign with no state yet). A non-zero exit beside a good payload will make an orchestrator treat a successful brief as a failure.", "owner": "alpha_agent.agents_v2.briefs", "severity": "TOOLING"},
+  {"id": "R76_DEFECT_5_CARRIED", "summary": "The R60 open_reporting_defect is NOT cleared: max_drawdown is written as 0.0000 on the excess-return series in cell artifacts. Non-blocking at discovery, BLOCKING the moment any candidate reaches the risk agent. Recorded so it is not rediscovered later in this cell's life.", "owner": "alpha_agent.agents_v2.books", "severity": "BLOCKS_AT_RISK_STAGE"}
+ ],
+
+ "WHAT_THE_DIRECTOR_DID_NOT_DO": [
+  "Did not pre-register any experiment. Zero experiment ids were minted.",
+  "Did not run any signal agent's experiment, score any return, or look at any lockbox.",
+  "Did not charge any burden or write anything to research memory. The only CLI commands invoked were the read-only census and check-mechanism.",
+  "Did not purchase, order or commit to anything.",
+  "Did not widen governance_contract.json, and did not pad the campaign to satisfy the diversity gate.",
+  "Did not relax any pre-declared threshold to rescue his own candidate; the DELISTED_BRIDGE_COVERAGE threshold of 0.85 with a 0.02 false-match ceiling was frozen in the spec knowing the measured value today is 0.00.",
+  "Did not finish the Norgate-security-master line of investigation that might yield a free company-name bridge; it is recorded as OPEN AND UNRESOLVED and handed to D1, not claimed as exhausted."
+ ],
+
+ "NEXT_COMMAND_FOR_THE_SESSION_ORCHESTRATOR": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\agents_v2_brief.py --role data-foundation-agent --campaign R76_NEW_INFORMATION_OFFENSIVE --spec C:\\Users\\binis\\paper_trader\\research\\agents\\campaign_r76_new_information\\campaign_spec.json",
+
+ "SAFETY_ATTESTATION": {
+  "research_only": true, "paper_only": true,
+  "creates_orders": false, "creates_fills": false, "broker_enabled": false,
+  "promotes_model": false, "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false, "mutates_operational_store": false,
+  "backfills_forward_evidence": false, "automation_enabled": false,
+  "manual_review_required": true,
+  "experiments_preregistered": 0, "lockbox_looks_spent": 0, "burden_charged": 0,
+  "durable_writes": 0, "research_memory_writes": 0, "purchases": 0,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "campaign_id": "R76_NEW_INFORMATION_OFFENSIVE",
+ "authored_by": "SESSION_ORCHESTRATOR",
+ "authored_on": "2026-09-26",
+ "NOT_A_DIRECTOR_RULING": "The director did not re-rule. This file records the outcome the FROZEN spec pre-declared, plus one orchestrator verification of the deciding number. campaign_spec.json#COMMISSIONED_WORK.D1.on_NOT_CERTIFIABLE reads: 'The campaign returns NULL_ON_DATA. No experiment is pre-registered. The director does not relax a kill condition to rescue his own cell.' D1 returned NOT_CERTIFIABLE, so that branch fires without a further ruling. Spawning the director to restate a pre-declared outcome would be the token waste the R58 dispatch rules forbid.",
+
+ "outcome": "NULL_ON_DATA",
+ "deciding_gate": "DELISTED_BRIDGE_COVERAGE",
+ "experiments_preregistered": 0,
+ "experiment_ids_minted": 0,
+ "burden_charged": 0,
+ "lockbox_looks_spent": 0,
+ "research_memory_writes": [],
+ "forward_registrations_touched": [],
+
+ "the_cell_that_was_admissible_on_mechanism": {
+  "candidate_id": "R76_C1",
+  "name": "EQ_SEC_STAFF_COMMENT_LETTER_SCRUTINY",
+  "mechanism_key": "REGULATORY_SCRUTINY|SEC_COMMENT_LETTER|US_EQUITY|XS_EVENT_BOOK",
+  "check_mechanism": "NO_ROW_IN_MEMORY (n=0), plus 6 further clean probes and 6 adverse probes reported in full by the director",
+  "channel_classification": "NEW CHANNEL, not a duplicate source and not a duplicate mechanism. Every settled EDGAR family reads an object the ISSUER authored and timed; a comment letter is authored by the regulator, is adversarial, and the SEC controls its timing. Verified at byte level: configs/alpha_agent/stage2_ingestion.json:118 lists exactly eight 8-K/10-Q/10-K/Form-4 variants, and UPLOAD/CORRESP appear nowhere in the ingestion code.",
+  "why_it_did_not_run": "The mechanism was admissible. The SUBSTRATE was not."
+ },
+
+ "ORCHESTRATOR_VERIFICATION_OF_THE_DECIDING_NUMBER": {
+  "why": "This single number decides the whole alpha workstream, and the D1 artifact reported it from a query filtered on active=1 while counting DELISTED securities. That filter was checked before the verdict was accepted.",
+  "active_column_semantics": "cik_map.active is the MAPPING ROW's supersession flag (24 rows active=0, all status=SUPERSEDED), NOT security liveness. The filter is correct.",
+  "store": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite",
+  "query": "securities LEFT JOIN (SELECT DISTINCT security_id FROM cik_map WHERE active=1 AND status='RESOLVED' AND cik IS NOT NULL) GROUP BY is_current",
+  "delisted_coverage": 0.3804,
+  "delisted_resolved": 469,
+  "delisted_total": 1233,
+  "active_coverage": 0.9955,
+  "active_resolved": 659,
+  "active_total": 662,
+  "agrees_with_D1": true,
+  "d1_reported": "0.3794 on a 1,236 denominator; the 3-name difference is the panel-vs-store denominator and does not move the verdict.",
+
+  "THE_FINDING_D1_DID_NOT_SURFACE": {
+   "statement": "Of the 469 bridged DELISTED names, only 65 come from tier 3. 404 come from tier 4.",
+   "tier_3": "sec_filing_date_overlapping_ticker, confidence 0.8 - a dated filing corroboration. 721 securities overall, but only 65 delisted.",
+   "tier_4": "legal-name overlap. 407 securities overall, 404 of them delisted.",
+   "consequence": "86% of the delisted bridge that exists rests on NAME MATCHING whose false-match rate has never been measured. That is precisely the risk the kill condition's '<= 0.02 false-match on a hand-checked sample >= 100' clause was frozen to catch, and the sample size measured was 0.",
+   "correction_to_prior_estate_belief": "A prior session recorded 'the PIT CIK/ticker bridge already exists: it IS tier 3 (721 mappings), and the residual is NAME_COLLISION adjudication, not data.' That is true for ACTIVE names (0.9955) and FALSE for delisted ones (tier 3 reaches 65 of 1,233). Any future proposal that assumes delisted CIK bridging is solved must be refused."
+  },
+
+  "CEILING_ON_OWNED_DATA": {
+   "unresolved_tier_6": 671,
+   "tier_6_recorded_reason": "no owned survivorship-safe evidence resolves this security to a CIK",
+   "ambiguous_tier_6": 95,
+   "conclusion": "0.85 is unreachable from owned evidence. Tier 6 is not a backlog awaiting effort; it is the store's own record that the evidence is absent. Even granting every tier-4 name match as correct - which the unmeasured false-match rate forbids - the union stops at 0.3804.",
+   "therefore": "This is NULL_ON_DATA, not NULL_ON_EFFORT. The next move is an acquisition decision, not more research."
+  }
+ },
+
+ "WHY_THIS_IS_NOT_A_FAILURE_OF_THE_HYPOTHESIS": "The hypothesis was never tested and must not be recorded as settled. Comment letters concentrate on filers with contested accounting, and those filers delist; the unobservable two thirds is selected IN THE DIRECTION OF THE HYPOTHESIS. Testing on the observable third would measure a survivorship-biased sample and the sign would be uninterpretable. The cell stays OPEN, blocked on substrate.",
+
+ "OPERATOR_DECISION_REQUIRED": {
+  "kind": "DATA_ACQUISITION",
+  "nothing_was_purchased": true,
+  "no_quote_was_requested": true,
+  "proposal": "See DIRECTOR_R76_RULING.json - WRDS CRSP/Compustat Merged linking table + CRSP dsenames, the only construction carrying a date-effective CIK<->ticker map that includes dead registrants (PERMNO is never recycled).",
+  "entitlement": "institutional WRDS subscription; not sold to individuals",
+  "price": "NOT PUBLISHED - a quote is required and only a human may request it. No number is asserted here.",
+  "information_purchase_gate": "5 pass / 5 fail-or-unknown, GATE_STATE = DO_NOT_BUY. Condition 3 (marginal evidence) fails outright; condition 9 is unassessable. Explicitly NOT 'SAMPLE_REQUIRED', which docs/INFORMATION_PURCHASE_GATE.md warns is a soft PURCHASE_CANDIDATE.",
+  "honest_reading": "The gate says DO NOT BUY on its own terms. The operator is not being asked to approve a purchase; they are being told what the only unblocking dataset is, and that the gate currently refuses it."
+ },
+
+ "CHEAPER_THINGS_THAT_WOULD_MOVE_THE_NUMBER_BEFORE_ANY_PURCHASE": [
+  "Audit the 404 tier-4 legal-name overlaps for false-match rate on a hand-checked sample >= 100. This cannot reach 0.85 on its own, but it converts an unmeasured risk into a measured one and is free.",
+  "SEC Fails-to-Deliver carries CUSIP and SYMBOL in the same row at ~99.8% coverage, free, including for names that later died. It closes the symbol->CUSIP leg; a CUSIP->CIK leg would still be needed and was NOT located in this session.",
+  "Norgate security master issuer_name against SEC formerNames history - recorded OPEN AND UNRESOLVED by the director, and still unresolved: D1 ran out of turns before reaching it."
+ ],
+
+ "UNEXAMINED_NOT_REFUSED": [
+  "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME (census rank 12). The director recorded it UNEXAMINED and asserted no verdict. It is not settled and is available to the next campaign.",
+  "D1 kill conditions ENTITLEMENT, HISTORY_FLOOR, PIT_INTEGRITY, COVERAGE_STATIONARITY and EVENT_COUNT_FLOOR are NOT_MEASURED - D1 reached its governed 15-turn cap. The verdict does not depend on them: DELISTED_BRIDGE_COVERAGE fails outright and is sufficient on its own."
+ ],
+
+ "SAFETY": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "promotes_model": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "purchases_data": false,
+  "mutates_operational_store": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}

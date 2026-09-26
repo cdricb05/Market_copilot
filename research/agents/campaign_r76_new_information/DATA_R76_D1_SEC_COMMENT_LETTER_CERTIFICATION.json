@@ -1,0 +1,89 @@
+{
+  "work_id": "R76_D1_SEC_COMMENT_LETTER_SUBSTRATE_CERTIFICATION",
+  "dataset_id": "SEC_COMMENT_LETTER_PIT_V1",
+  "verdict": "NOT_CERTIFIABLE",
+  "deciding_gate": "DELISTED_BRIDGE_COVERAGE",
+  "measurement_date": "2026-09-26",
+  "kill_conditions": [
+    {
+      "name": "ENTITLEMENT",
+      "description": "full-index endpoint retrievable at $0 under SEC fair-access policy with declared User-Agent",
+      "measured": null,
+      "source": "NOT_MEASURED",
+      "gate_pass": null,
+      "status": "NOT_MEASURED"
+    },
+    {
+      "name": "HISTORY_FLOOR",
+      "description": "UPLOAD rows retrievable for every quarter 2012Q1 through 2026Q2, no missing quarter",
+      "measured": null,
+      "source": "NOT_MEASURED",
+      "gate_pass": null,
+      "status": "NOT_MEASURED"
+    },
+    {
+      "name": "PIT_INTEGRITY",
+      "description": "on sample of >=50 UPLOAD documents, index Date Filed never EARLIER than letter's internal date",
+      "measured": null,
+      "source": "NOT_MEASURED",
+      "gate_pass": null,
+      "status": "NOT_MEASURED"
+    },
+    {
+      "name": "DELISTED_BRIDGE_COVERAGE",
+      "description": ">=0.85 of 1,236 delisted sp500_pit_panel_v1 symbols resolve to exactly one CIK via permanent identifier, AND false-match rate <=0.02 on sample of >=100 with CI",
+      "measured_coverage": 0.3794,
+      "measured_coverage_count": 469,
+      "delisted_symbols_total": 1236,
+      "measured_false_match_rate": null,
+      "false_match_sample_size": 0,
+      "bridge_mechanism": "identity_store_cik_map_tier3_resolved_active",
+      "source": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite; cik_map WHERE active=1 AND status='RESOLVED' AND cik IS NOT NULL",
+      "gate_pass": false,
+      "status": "FAIL_COVERAGE",
+      "fail_reason": "Measured coverage 0.3794 is far below required threshold 0.85. Furthermore, false-match rate was not measured (sample size = 0). The kill condition requires BOTH coverage >= 0.85 AND false-match rate <= 0.02 on hand-checked sample >= 100. Neither is satisfied."
+    },
+    {
+      "name": "ACTIVE_BRIDGE_COVERAGE",
+      "description": ">=0.95 of 661 active symbols resolve to exactly one CIK",
+      "measured": 0.9909,
+      "measured_count": 655,
+      "active_symbols_total": 661,
+      "source": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite; cik_map WHERE active=1 AND status='RESOLVED' AND cik IS NOT NULL",
+      "gate_pass": true,
+      "status": "PASS"
+    },
+    {
+      "name": "COVERAGE_STATIONARITY",
+      "description": "no quarter 2012Q1 to 2026Q2 has UPLOAD count below 25% of trailing 8-quarter median",
+      "measured": null,
+      "source": "NOT_MEASURED",
+      "gate_pass": null,
+      "status": "NOT_MEASURED"
+    },
+    {
+      "name": "EVENT_COUNT_FLOOR",
+      "description": ">=400 bridged, in-universe name-events 2012-2026",
+      "measured": null,
+      "source": "NOT_MEASURED",
+      "gate_pass": null,
+      "status": "NOT_MEASURED"
+    }
+  ],
+  "summary": {
+    "verdict_rationale": "The DELISTED_BRIDGE_COVERAGE kill condition is the blocking defect. The identity store's RESOLVED, active=1 CIK bridge reaches only 469 of 1,236 delisted symbols (37.94% coverage), far below the frozen threshold of 85.00%. The false-match rate on the bridged delisted symbols was not measured (hand-checked sample size = 0). The kill condition requires BOTH coverage >= 0.85 AND measured false-match rate <= 0.02 with confidence interval. Neither requirement is satisfied.",
+    "bridge_analysis": "The identity store (historical_identity.sqlite) contains 1895 total securities from Norgate. The cik_map table has 1919 total mappings across 6 tiers. For delisted symbols (1236 total), available mappings are: Tier 3 (65, method: sec_filing_date_overlapping_ticker, RESOLVED), Tier 4 (404, method: legal_name_effective_date_overlap, RESOLVED), Tier 6 (778, method: unresolved_manual_review, status mixed RESOLVED/UNRESOLVED/AMBIGUOUS). Only Tier 3-resolved reaches 65 delisted symbols (5.26% coverage). Tier 4 (legal name overlaps) is tier 4, not tier 3, and would improve to 469 total (37.94%). Tier 6 mappings are mostly unresolved and lack confidence. No tier 1-2 mappings exist for delisted symbols.",
+    "recommended_path_forward": "To rescue this certification, source an external delisted symbol to CIK bridge with measured false-match rate. Lead 1: SEC Fails-to-Deliver files (CUSIP+SYMBOL at 99.8% coverage, need CUSIP↔CIK path). Lead 2: Norgate company name lookup with measured false-match rate on hand-checked sample (currently unvetted). Lead 3: SEC filing-date overlaps in tier 4 could be promoted if false-match audited.",
+    "measurements_not_reached": [
+      "ENTITLEMENT",
+      "HISTORY_FLOOR",
+      "PIT_INTEGRITY",
+      "COVERAGE_STATIONARITY",
+      "EVENT_COUNT_FLOOR"
+    ]
+  },
+  "data_roots_checked": [
+    "D:\\Stock_Prediction_app_data\\r57_alpha_discovery\\panels\\sp500_pit_panel_v1.npz (1897 symbols, 661 active, 1236 delisted)",
+    "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite (cik_map table, 1919 mappings)"
+  ]
+}

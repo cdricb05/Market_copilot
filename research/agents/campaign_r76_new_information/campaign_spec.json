@@ -1,0 +1,578 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "contract": "research/agents/governance_contract.json",
+ "campaign_id": "R76_NEW_INFORMATION_OFFENSIVE",
+ "campaign_class": "SINGLE_CELL_ADMISSIBILITY_AND_ACQUISITION",
+ "authored_by": "quant-research-director",
+ "authored_on": "2026-09-26",
+ "frozen": true,
+ "spec_status": "FROZEN_PENDING_D1",
+ "ONE_PARAGRAPH": "This campaign names ONE cell, not a menu. The cell is a cross-sectional event book on SEC STAFF COMMENT LETTERS (EDGAR form types UPLOAD and CORRESP) over sp500_pit_panel_v1. Its four-part mechanism key returns NO_ROW_IN_MEMORY under the canonical gate, and the underlying bytes have demonstrably never been ingested by this estate. It is therefore the first genuinely new information channel to clear a full four-part check since R73. It is NOT pre-registered here, because the director measured a blocking substrate defect BEFORE any return was scored: the EDGAR CIK cannot be bridged to the 1,236 delisted symbols that are 65.2% of the panel. The experiment is pre-registered only if and when D1 certifies the bridge against thresholds frozen in this document, before any coverage number is seen.",
+ "experiments_preregistered": 0,
+ "experiment_ids_minted": [],
+ "lockbox_looks_spent": 0,
+ "burden_charged": 0,
+ "assignment_manifest": {},
+ "durable_writes": [],
+ "research_memory_writes": [],
+ "forward_registrations_touched": [],
+ "PRIOR_STATE_VERIFIED_NOT_ASSUMED": {
+  "search_burden_total": 8415,
+  "qualified_survivors": 0,
+  "source": "scripts/agents_v2_brief.py --role quant-research-director --campaign R76_NEW_INFORMATION_OFFENSIVE, METRICS block",
+  "burden_by_asset_class": {
+   "CROSS_ASSET": 2448,
+   "US_EQUITY": 1826,
+   "COMMODITY_FUTURES": 1621,
+   "EQUITY_INDEX_FUTURES": 923,
+   "RATES_FUTURES": 864,
+   "FX_FUTURES": 692,
+   "VOLATILITY": 13,
+   "CREDIT_PROXY": 1
+  },
+  "settled_mechanism_keys_in_memory": 399,
+  "three_consecutive_negative_campaigns": [
+   "R73_D1 NASDAQ_TRADING_HALTS_PIT_V1 = NOT_CERTIFIABLE on HISTORY_FLOOR (archive is 2026-07-22..2026-09-25, 2,653 records; required floor 2012-01-01).",
+   "R74 post-certification ruling = BLOCKED_ON_DATA. Twelve cross-asset non-price cells, twelve SETTLED_DO_NOT_REPEAT at stage 2, zero commissions.",
+   "R75 = REFUSED_BY_STRUCTURAL_RULE for the ALFRED vintage cell, and DATA_R75_D1 = NOT_CERTIFIABLE on HISTORY_FLOOR (45-day rolling window, no historical_backfill; configs/alpha_agent/stage2_ingestion.json lines 213-238)."
+  ],
+  "the_pattern_those_three_establish": "Every free non-price source this estate had reached for was a ROLLING feed whose PUBLISHER keeps no archive. That is why they died on HISTORY_FLOOR. It is a property of those publishers, not a law about free data, and the candidate below was selected precisely because its publisher DOES keep the archive."
+ },
+ "CANDIDATE": {
+  "cell_id": "R76_C1",
+  "label": "EQ_SEC_STAFF_COMMENT_LETTER_SCRUTINY",
+  "status": "ADMISSIBLE_ON_MECHANISM__CONDITIONALLY_ADMISSIBLE_ON_SUBSTRATE",
+  "pre_registration_withheld_because": "SUBSTRATE_BRIDGE_UNCERTIFIED. See BLOCKING_DEFECT.",
+  "four_part_mechanism_key": {
+   "asset_class": "US_EQUITY",
+   "economic_family": "REGULATORY_SCRUTINY",
+   "information_family": "SEC_COMMENT_LETTER",
+   "expression_model_family": "XS_EVENT_BOOK",
+   "canonical_family_key_string": "REGULATORY_SCRUTINY|SEC_COMMENT_LETTER|US_EQUITY|XS_EVENT_BOOK"
+  },
+  "economic_mechanism": "When the SEC's Division of Corporation Finance sends a filer a comment letter, a government reviewer has formally objected to that filer's accounting, disclosure or revenue recognition. The objection is made and resolved PRIVATELY, and only then disseminated on EDGAR as form UPLOAD (the staff letter) with the filer's reply as CORRESP. The predicted-return object is the arrival of an ADVERSE THIRD-PARTY ASSESSMENT OF REPORTING QUALITY that the issuer did not choose to publish and cannot time. It is slow-diffusing because it is unstructured text with no numeric field, no vendor summary and no analyst coverage. The signal is the EVENT ITSELF plus its intensity (letter count, and whether the exchange escalates to a second round), NOT a state variable modulating a premium.",
+  "why_this_is_not_the_refused_shape": {
+   "structural_rule_tested": "must_not_repeat.structural[2] 'TIMING a premium with a conditioning variable', NEXT_CAMPAIGN_CENSUS.json:142, the rule that killed R75's C1.",
+   "result": "DOES_NOT_APPLY. The comment letter is the predicted-return signal on the named issuer, not a regime state setting the size of some other exposure. The director applied R75's own verbal test verbatim: the mechanism cannot be stated in the form 'when comment letters are large, hold more of X'. Stating it that way would be a different, refused cell and is not proposed.",
+   "structural_rule_1_tested": "'Any H21 price-state rank book on sp500_pit_panel_v1 or futures_panel_v1'. DOES_NOT_APPLY: the ranking variable is an event count from a filing index, contains no price or volume term, and the book is an event-slot book, not a price-state rank book. The panel supplies RETURNS ONLY.",
+   "structural_rule_2_tested": "'Machine grammar / symbolic tree search on the existing panels'. DOES_NOT_APPLY: one hand-authored variable, one horizon, one threshold.",
+   "structural_rule_4_tested": "'Rescuing a killed candidate, or adopting a strong-looking control'. DOES_NOT_APPLY: no prior candidate on this channel exists to rescue."
+  },
+  "MECHANISM_CHECK_OUTPUT_VERBATIM": {
+   "command": "C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input <payload>",
+   "owner": "alpha_agent.r59.memory.mechanism_state",
+   "probes": [
+    {
+     "id": "P1",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "REGULATORY_SCRUTINY",
+      "information_family": "SEC_COMMENT_LETTER",
+      "model_family": "XS_EVENT_BOOK"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0,
+     "mechanism_is_settled": false,
+     "is_governed_refusal": false,
+     "note": "THE FULL FOUR-PART KEY. Clean."
+    },
+    {
+     "id": "P2",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SEC_COMMENT_LETTER"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0
+    },
+    {
+     "id": "P10",
+     "payload": {
+      "information_family": "SEC_COMMENT_LETTER"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0,
+     "note": "asset-class-free; the information family carries zero rows anywhere in the estate."
+    },
+    {
+     "id": "P9",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "REGULATORY_SCRUTINY"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0
+    },
+    {
+     "id": "P13",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "REGULATORY_COMMENT_LETTER"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0,
+     "note": "synonym probe, so a NO_ROW answer cannot be an artefact of one spelling."
+    },
+    {
+     "id": "P14",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "ACCOUNTING_QUALITY"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0
+    },
+    {
+     "id": "P7",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "EVENT_OVERREACTION"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0,
+     "note": "the census queue's rank-6 label for this idea used EVENT_OVERREACTION; that family is also empty."
+    },
+    {
+     "id": "P12",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "EVENT_UNDERREACTION"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "n_matching": 0,
+     "n_settled": 0
+    }
+   ],
+   "ADVERSE_PROBES_THE_DIRECTOR_RAN_AGAINST_HIS_OWN_CANDIDATE": [
+    {
+     "id": "P3",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "POST_FILING_DRIFT"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 1,
+     "n_settled": 1,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1
+     },
+     "best_lockbox_t": -0.9920478868776522,
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    },
+    {
+     "id": "P4",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "FILING_EVENT"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 2,
+     "n_settled": 2,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1,
+      "FORWARD_FROZEN": 1
+     },
+     "best_lockbox_t": -0.9920478868776522,
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    },
+    {
+     "id": "P5",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SEC_EDGAR_INDEX"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 1,
+     "n_settled": 1,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1
+     },
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    },
+    {
+     "id": "P6",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SEC_EDGAR"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 1,
+     "n_settled": 1,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1
+     },
+     "best_lockbox_t": 0.6152797154119581,
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    },
+    {
+     "id": "P8",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SEC_SUBMISSIONS"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 1,
+     "n_settled": 1,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1
+     },
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    },
+    {
+     "id": "P11",
+     "payload": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SEC_SUBMISSIONS_ACCEPTANCE"
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "n_matching": 1,
+     "n_settled": 1,
+     "outcomes": {
+      "DATA_HOLD": 1
+     },
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "is_governed_refusal": true
+    }
+   ]
+  },
+  "THE_THREE_WAY_CLASSIFICATION_THE_TASK_DEMANDS": {
+   "a_duplicate_source": "YES, ADMITTED. The publisher is SEC EDGAR and EDGAR carries six settled information families in this estate (P4, P5, P6, P8, P11 above). This cell is a duplicate SOURCE and the spec says so first, before its novelty claim.",
+   "b_duplicate_economic_mechanism": "NO, AND THE EVIDENCE IS A FILE AND A LINE, NOT AN ASSERTION. Every settled EDGAR mechanism reads an object the ISSUER produced and timed: SEC_FILING_BEHAVIOUR_R27 (the issuer's filing cadence), DISCLOSURE_INTENSITY_R63 and R58_DISCLOSURE_INTENSITY_V1 (how much the issuer discloses), EVENT_8K_ITEM_CODES (the issuer's chosen 8-K item), PIT_FUNDAMENTALS_AND_VALUATION (the issuer's XBRL numbers), INSIDER_FORM4_ALL / OWNERSHIP_BREADTH_13F / CONTROL_BLOCK_13DG (holder filings). A comment letter is authored by the SEC ABOUT the issuer, is adversarial, is timed by the regulator, and has no numeric field. Different author, different intent, different timing control, different economic content.",
+   "c_genuinely_new_information_channel": "YES, AND IT IS VERIFIABLE AT THE BYTE LEVEL RATHER THAN BY ARGUMENT. configs/alpha_agent/stage2_ingestion.json line 118 sets forms_of_interest = [\"8-K\",\"8-K/A\",\"10-Q\",\"10-Q/A\",\"10-K\",\"10-K/A\",\"4\",\"4/A\"]. UPLOAD and CORRESP are absent. A repo-wide grep for the tokens UPLOAD and CORRESP across every .py file returns two files, alpha_agent/r40/contract.py:171 and alpha_agent/r40/open_models.py:6,271, and both are the unrelated constant NO_RESTRICTED_DATA_UPLOAD. The estate has never read one byte of this form type.",
+   "why_this_is_NOT_the_R67_TERMS_OF_TRADE_OFFENCE": "R67's V2 ruling refused XA_TERMS_OF_TRADE because the feature was 'built entirely from returns' - the same INPUT BYTES already prosecuted, relabelled into an unused information_family slot to reach a burden-0 key. That test is decisive here and it acquits this cell: the input bytes are a form type never collected and not derivable from any prosecuted input. The director applied R67's test rather than avoiding it."
+  },
+  "REOPEN_CONDITION_COMPLIANCE_UNDER_THE_MOST_CONSERVATIVE_READING": {
+   "the_adversarial_reading": "An adversary says: strip the story away and this is drift after a document appears on EDGAR, which is POST_FILING_DRIFT|FILING_EVENT|US_EQUITY, SETTLED_DO_NOT_REPEAT (P3, P4).",
+   "the_director_does_not_dismiss_it": "The recorded reopen condition on both P3 and P4 is NEW_ORTHOGONAL_INFORMATION, and the census rule requires the claim to be stated in the hypothesis text. It is stated below, and the director rules the condition SATISFIED on the byte-level evidence in section (c): a form type never ingested is new information in the only sense the condition can mean.",
+   "the_burden_consequence_the_director_accepts": "Because the conservative reading is arguable, this cell must NOT be charged to a fresh burden-0 key. Its multiple-testing denominator is declared below as the UNION of the FILING_EVENT and POST_FILING_DRIFT rows plus this cell, not 1. That is the R68 correction's 'budget it as what it is' discipline applied against the director's own proposal."
+  },
+  "DATASET_AND_EXECUTOR": {
+   "new_dataset_to_be_certified": {
+    "dataset_id": "SEC_COMMENT_LETTER_PIT_V1",
+    "provider": "SEC EDGAR full-index (public domain, U.S. government)",
+    "endpoint": "https://www.sec.gov/Archives/edgar/full-index/{YYYY}/QTR{n}/form.idx",
+    "cost_usd": 0,
+    "entitlement": "none; fair-access rate limit and declared User-Agent only",
+    "fields": [
+     "form_type",
+     "company_name",
+     "cik",
+     "date_filed",
+     "file_name"
+    ],
+    "DIRECTOR_REACHABILITY_PROBE_MEASURED_NOT_ASSUMED": {
+     "disclaimer": "This is a reachability and archival-depth probe only. It scores no return, creates no hypothesis, charges no burden and CERTIFIES NOTHING. Certification is the data-foundation-agent's and is commissioned as D1.",
+     "probe_script": "D:\\Temp\\claude\\c--Users-binis-paper-trader\\6b1339aa-bb2f-4576-9095-642fb11887a5\\scratchpad\\edgar_probe.py",
+     "results": [
+      {
+       "quarter": "2012Q1",
+       "http": 200,
+       "index_lines": 309520,
+       "n_UPLOAD": 3484,
+       "n_CORRESP": 3327,
+       "sample_row": "UPLOAD  1 800 FLOWERS COM INC  1084869  2012-03-06  edgar/data/1084869/0000000000-12-011595.txt"
+      },
+      {
+       "quarter": "2016Q2",
+       "http": 200,
+       "index_lines": 243906,
+       "n_UPLOAD": 2966,
+       "n_CORRESP": 3296
+      },
+      {
+       "quarter": "2020Q3",
+       "http": 200,
+       "index_lines": 221742,
+       "n_UPLOAD": 2176,
+       "n_CORRESP": 3100
+      },
+      {
+       "quarter": "2024Q4",
+       "http": 200,
+       "index_lines": 284213,
+       "n_UPLOAD": 2136,
+       "n_CORRESP": 2653
+      },
+      {
+       "quarter": "2026Q2",
+       "http": 200,
+       "index_lines": 353303,
+       "n_UPLOAD": 464,
+       "n_CORRESP": 687
+      }
+     ],
+     "reading": "The archive is reachable and genuinely deep: HTTP 200 and thousands of UPLOAD rows per quarter at every probed point from 2012Q1. This is the structural difference from the two HISTORY_FLOOR deaths - nasdaq_trader is declared historical_depth='rolling public feed' (api/source_capability.py:250) and fred_alfred is configured to a 45-day window with no backfill, whereas sec_edgar is declared historical_depth='full EDGAR history' (api/source_capability.py:221) and the probe confirms the publisher actually serves it.",
+     "ANOMALY_REPORTED_NOT_EXPLAINED_AWAY": "2026Q2 shows 464 UPLOAD against 2,136-3,484 in every earlier probe, a ~5x drop that the director did NOT investigate and does NOT have an explanation for. It is NOT assumed to be a partial quarter. D1 must measure the per-quarter UPLOAD count across the whole 2012-2026 span and rule on whether coverage is stationary enough to carry an out-of-sample stage."
+    },
+    "backing_panel": "sp500_pit_panel_v1 (D:\\Stock_Prediction_app_data\\r57_alpha_discovery\\panels\\sp500_pit_panel_v1.npz + .meta.json; 1,897 symbols, 5,601 sessions 2004-06-01..2026-09-03)",
+    "panel_NOT_used": "us_equity_extension_pit_panel_v1 is deliberately EXCLUDED. The R60 census records it RETAINED but FROZEN PENDING AUDIT because its identity bridge resolves delisted names by ISSUER NAME and is unaudited. Adding an unaudited bridge underneath a cell whose own blocking defect IS a bridge would make a null uninterpretable."
+   },
+   "executor_module_to_be_written": "research/agents/campaign_r76_new_information/executors.py",
+   "executor_registry_name": "eq_sec_comment_letter_scrutiny",
+   "companion_modules": [
+    "research/agents/campaign_r76_new_information/panels.py (loads sp500_pit_panel_v1 and the certified comment-letter event table; owns no book and no gate)"
+   ],
+   "arithmetic_owner": "alpha_agent.agents_v2.runner",
+   "book_and_cost_owner": "alpha_agent.agents_v2.books",
+   "statistics_owner": "alpha_agent.r59.engines.gate",
+   "the_executor_computes_only": "the per-name, per-session event indicator and its 126-session trailing count. It does not compute returns, costs, ranks, t-statistics, layers or thresholds; every one of those has a canonical owner above and re-deriving any of them in the executor is a contract violation."
+  },
+  "PIT_AVAILABILITY_RULE": {
+   "the_instant_the_information_becomes_observable": "The EDGAR full-index 'Date Filed' of the UPLOAD row is the date the SEC DISSEMINATED the letter to the public. Comment letters are released no earlier than 20 business days after the staff declares the review complete, so the private correspondence date is strictly earlier than and is NOT used. Date Filed is the first public instant.",
+   "the_lag_actually_applied": "SIGNAL_LAG_SESSIONS = 1. An event with Date Filed d enters the signal set from the FIRST SESSION STRICTLY AFTER d. Entry is at the next session's close on the panel's total-return series. Intraday acceptance timestamps are available on EDGAR but are deliberately NOT used: a same-day rule would require an intraday mark this campaign does not own, and R60 already settled that a next-session rule is the honest one here.",
+   "how_it_will_be_certified": "D1 must (i) confirm Date Filed is the dissemination date and not the correspondence date, by pulling the header of at least 50 sampled UPLOAD documents and comparing their internal letter date to the index Date Filed, and (ii) confirm no row in the materialised event table has an availability instant earlier than its Date Filed close.",
+   "leakage_check_owner": "alpha_agent.agents_v2.leakage, run by the feature-library-agent before publication; the campaign does not self-certify."
+  },
+  "BOUNDED_TEST_PRE_DECLARED": {
+   "universe": "sp500_pit_panel_v1 point-in-time members only (mem == 1 at the decision session). No tradability filter beyond the panel's own, because adding one after seeing an event count is the R60 turnover-ceiling defect.",
+   "expression": "LONG_SHORT, dollar-neutral, equal-weight.",
+   "book": "XS_EVENT_BOOK",
+   "signal": "letter_count_126 = number of UPLOAD events for the name with Date Filed in the trailing 126 sessions, as of the decision session, lagged one session.",
+   "direction_of_the_book": "SHORT the names with letter_count_126 >= 1, LONG the point-in-time members with letter_count_126 == 0, equal weight within each leg.",
+   "expected_sign": -1,
+   "expected_sign_meaning": "the letter-bearing leg UNDERPERFORMS; the book as specified (short letters, long no-letters) therefore has a POSITIVE expected excess return. The sign is frozen here and may not be flipped after measurement under any rationale.",
+   "horizon_sessions": 63,
+   "rebalance_cadence_sessions": 21,
+   "variants_permitted": 1,
+   "variants_permitted_note": "ONE. Not three. The contract allows up to 3 variants per idea and the director is spending 1, because the estate's honest prior is 0 survivors in 8,415 and burning two more looks to fill a quota is the behaviour the operator refused.",
+   "cost_model": {
+    "owner": "alpha_agent.agents_v2.books",
+    "equity_cost_bps_per_side": 25,
+    "net_cost_budget_rather_than_a_turnover_ceiling": "The R60 census records that the scalar 0.40 one-way turnover ceiling is two different economic constraints misspecified as one, and that it destroyed two of four non-equity cells before any return was scored. This cell is therefore budgeted on NET COST, not on turnover: turnover_one_way x 0.0025 x 2 x (252/21) must be <= 0.030 (3.00%/yr). This number is frozen in this document BEFORE the executor exists and before any turnover has been measured, which is the condition R60 attached to using it at all.",
+    "if_the_budget_is_breached": "HALT BEFORE MEASUREMENT. Recorded as a halt, not as a result. The budget is not relaxed."
+   },
+   "primary_statistic": "Newey-West t-statistic on the mean net excess return of the long-short book at the LOCKBOX stage, computed by alpha_agent.r57.engine through alpha_agent.r59.engines.gate. ONE statistic. No IC, no Sharpe, no hit rate is promoted to a decision role.",
+   "pre_declared_threshold": "|t| >= 3.00 at lockbox, with the sign equal to the expected sign, AFTER the Benjamini-Hochberg correction the gate applies at the declared burden denominator. Borderline is a fail. 2.99 is a fail.",
+   "multiple_testing_burden_it_carries": {
+    "denominator_declared_before_measurement": 4,
+    "how_it_is_built": "1 (this cell) + 2 (the FILING_EVENT rows returned by probe P4) + 1 (the POST_FILING_DRIFT row returned by probe P3, deduplicated against P4's overlap and counted once). The director declares 4 rather than 1 because the conservative reading of this cell is a FILING_EVENT reopen and, per the R68 correction, a reopened mechanism inherits its parent's denominator and may never be charged to a fresh key.",
+    "authoritative_owner": "alpha_agent.r59.handlers.search_denominator computes the binding number at registration time. If it returns a LARGER denominator than 4, the larger number governs. If it returns a SMALLER one, 4 still governs, because a director may raise his own burden and may not lower it."
+   },
+   "stages": "DISCOVERY -> VALIDATION -> LOCKBOX, boundaries owned by alpha_agent.agents_v2.books.stage_boundary. ONE lockbox look. The lockbox is not re-opened for a re-parameterisation.",
+   "adversarial_pack": "alpha_agent.agents_v2.runner.adversarial_pack (placebo, doubled cost, subperiod stability). Not optional and not re-derived by hand."
+  },
+  "DECLARED_FAILURE_CONDITIONS_SO_A_NULL_IS_A_REAL_RESULT": [
+   "F1 SUBSTRATE. D1 returns NOT_CERTIFIABLE on any of its frozen kill conditions -> the cell is never pre-registered, the campaign returns NULL_ON_DATA, and that is a durable fact about the estate, exactly as R73_D1 and R75_D1 are.",
+   "F2 POWER. Fewer than 400 name-events with a bridged, in-universe, in-sample decision -> HALT BEFORE MEASUREMENT as UNDERPOWERED. The R60 census records that FUT_BASIS_MOMENTUM_COMMODITY was annotated UNDERPOWERED rather than dead, and that the annotation was the honest call; the same standard binds here and an underpowered null must NOT be reported as evidence of absence.",
+   "F3 COST. The 3.00%/yr net cost budget is breached -> HALT BEFORE MEASUREMENT.",
+   "F4 STATISTIC. |t| < 3.00 at lockbox, or the sign is wrong at any stage -> NO_ALPHA_EVIDENCE. A wrong sign is a kill, never a re-specification.",
+   "F5 ADVERSARIAL. The placebo pack produces a comparable statistic on shuffled event dates -> NO_ALPHA_EVIDENCE regardless of the primary statistic.",
+   "F6 COVERAGE DRIFT. The 2026Q2 UPLOAD-count anomaly turns out to be a real, unexplained collapse in coverage rather than a reporting artefact -> the out-of-sample stage is not credible and the cell HALTS.",
+   "WHAT_A_NULL_BUYS_THE_ESTATE: a recorded NO_ALPHA_EVIDENCE on REGULATORY_SCRUTINY|SEC_COMMENT_LETTER|US_EQUITY closes the last free, archival, never-ingested non-price information channel the director could find. That is worth having. It is not worth manufacturing."
+  ],
+  "BLOCKING_DEFECT": {
+   "id": "R76_DEFECT_1",
+   "name": "EDGAR_CIK_TO_PANEL_SYMBOL_BRIDGE_IS_SURVIVORSHIP_TRUNCATED",
+   "severity": "BLOCKS_PRE_REGISTRATION",
+   "measured_by": "the director, D:\\Temp\\claude\\c--Users-binis-paper-trader\\6b1339aa-bb2f-4576-9095-642fb11887a5\\scratchpad\\bridge_probe.py, read-only, no return scored",
+   "measurement": {
+    "panel_symbols_total": 1897,
+    "active_symbols_no_delisting_suffix": 661,
+    "delisted_symbols_with_norgate_YYYYMM_suffix": 1236,
+    "delisted_share_of_panel": 0.6515,
+    "sec_company_tickers_json_rows": 10428,
+    "active_symbols_bridged_by_exact_ticker": 656,
+    "active_bridge_rate": 0.9924,
+    "delisted_symbols_bridged": 0,
+    "delisted_base_ticker_naive_hits": 288,
+    "naive_hit_interpretation": "A naive hit is the base ticker of a DELISTED name appearing in today's SEC map, which is overwhelmingly TICKER RECYCLING by a different issuer. It is reported to size the hazard and is explicitly NOT usable as a bridge. Using those 288 would inject 288 wrong-issuer joins into the event table.",
+    "unbridged_active_examples": [
+     "BF.B",
+     "BRK.B",
+     "BIGGQ",
+     "FRCB",
+     "SBNY"
+    ]
+   },
+   "why_this_blocks_rather_than_merely_degrades": "sec.gov/files/company_tickers.json maps CIK to the CURRENT ticker of a CURRENTLY-registered filer. It has no history and no dead registrants. A comment-letter book built on it can only see events on names that still exist in 2026. Comment letters concentrate on filers with contested accounting; filers with contested accounting delist at an elevated rate. So the unobservable 65.2% is selected in exactly the direction of the hypothesis, and a measured underperformance would be understated while a measured null would be uninformative. This is the same failure shape the R60 census used to freeze us_equity_extension_pit_panel_v1, and the director is applying that precedent to his own proposal rather than only to someone else's.",
+   "what_would_clear_it": "A CIK-to-panel-symbol bridge with measured coverage of DELISTED names and a measured false-match rate against a permanent identifier. See ACQUISITION_PROPOSAL in DIRECTOR_R76_RULING.json.",
+   "what_will_NOT_clear_it": [
+    "Restricting the universe to the 661 currently-listed names. That is not a mitigation, it IS the defect, written into the universe definition.",
+    "Using the 288 recycled base tickers.",
+    "Name-based fuzzy matching against sec.gov/Archives/edgar/cik-lookup-data.txt without a measured false-match rate and a pre-declared threshold - that is precisely the unaudited issuer-name bridge the R60 census records as the reason the extension panel is frozen."
+   ]
+  }
+ },
+ "COMMISSIONED_WORK": {
+  "D1": {
+   "work_id": "R76_D1_SEC_COMMENT_LETTER_SUBSTRATE_CERTIFICATION",
+   "owner": "data-foundation-agent",
+   "dataset_id": "SEC_COMMENT_LETTER_PIT_V1",
+   "scope": "Dataset evaluation only. Compute no signal, define no universe, publish no feature set, score no return, create no hypothesis, charge no burden, spend no lockbox look.",
+   "KILL_CONDITIONS_FROZEN_BEFORE_ANY_NUMBER_IS_SEEN": [
+    {
+     "name": "ENTITLEMENT",
+     "pass_if": "the full-index endpoint is retrievable at $0 under the SEC fair-access policy with a declared User-Agent, and no credential or subscription is required."
+    },
+    {
+     "name": "HISTORY_FLOOR",
+     "pass_if": "UPLOAD rows are retrievable for every quarter from 2012Q1 through 2026Q2 inclusive with no missing quarter.",
+     "precedent": "R73_D1 and R75_D1 both recorded NOT_CERTIFIABLE here. A dataset that fails the floor is recorded NOT_CERTIFIABLE, never shrunk to fit."
+    },
+    {
+     "name": "PIT_INTEGRITY",
+     "pass_if": "on a sample of >= 50 UPLOAD documents, the index Date Filed is never EARLIER than the letter's own internal date, i.e. the index date is the dissemination instant and not the correspondence instant."
+    },
+    {
+     "name": "DELISTED_BRIDGE_COVERAGE",
+     "pass_if": ">= 0.85 of the 1,236 DELISTED sp500_pit_panel_v1 symbols resolve to exactly one CIK via a permanent identifier, AND the measured false-match rate on a hand-checked sample of >= 100 bridged delisted names is <= 0.02 with its confidence interval reported.",
+     "note": "THIS IS THE CONDITION THE DIRECTOR EXPECTS TO FAIL ON OWNED DATA. It is frozen at 0.85/0.02 here, before the number is known, so that no threshold can be chosen after a coverage figure is seen. R76_DEFECT_1 already measured 0.00 against company_tickers.json alone."
+    },
+    {
+     "name": "ACTIVE_BRIDGE_COVERAGE",
+     "pass_if": ">= 0.95 of the 661 active symbols resolve to exactly one CIK.",
+     "already_measured_by_the_director": 0.9924
+    },
+    {
+     "name": "COVERAGE_STATIONARITY",
+     "pass_if": "no calendar quarter from 2012Q1 to 2026Q2 has an UPLOAD count below 25% of the trailing 8-quarter median.",
+     "reason": "the unexplained 2026Q2 drop to 464."
+    },
+    {
+     "name": "EVENT_COUNT_FLOOR",
+     "pass_if": ">= 400 bridged, in-universe name-events across 2012-2026."
+    }
+   ],
+   "verdict_vocabulary": [
+    "CERTIFIED",
+    "NOT_CERTIFIABLE"
+   ],
+   "on_NOT_CERTIFIABLE": "The campaign returns NULL_ON_DATA. No experiment is pre-registered. The director does not relax a kill condition to rescue his own cell."
+  }
+ },
+ "ROLES": {
+  "spawn": [
+   {
+    "role": "data-foundation-agent",
+    "reason": "COMMISSIONED_D1_SUBSTRATE_CERTIFICATION",
+    "input": "the D1 block above, verbatim"
+   }
+  ],
+  "skip": [
+   {
+    "role": "universe-construction-agent",
+    "reason_code": "BLOCKED_UPSTREAM_ON_D1",
+    "detail": "a universe cannot be defined over an event table that is not certified to exist"
+   },
+   {
+    "role": "feature-library-agent",
+    "reason_code": "BLOCKED_UPSTREAM_ON_D1"
+   },
+   {
+    "role": "momentum-signal-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"
+   },
+   {
+    "role": "reversal-signal-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED",
+    "detail": "this cell's eventual owner, held until D1 returns"
+   },
+   {
+    "role": "trend-breadth-signal-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"
+   },
+   {
+    "role": "volatility-liquidity-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"
+   },
+   {
+    "role": "skeptic-agent",
+    "reason_code": "NOTHING_MEASURED_NOTHING_TO_FALSIFY"
+   },
+   {
+    "role": "risk-agent",
+    "reason_code": "NO_SKEPTIC_SURVIVOR"
+   },
+   {
+    "role": "meta-agent",
+    "reason_code": "NO_VALIDATED_SURVIVOR"
+   },
+   {
+    "role": "signal-publishing-agent",
+    "reason_code": "NO_DIRECTOR_CLEAR_RULING_ISSUED"
+   }
+  ]
+ },
+ "DIVERSITY_GATE_POSITION_STATED_HONESTLY": {
+  "gate": ">= 3 asset classes, no class above 50%, >= 40% non-equity, at least one H1-H5, one non-equity and one cross-asset experiment.",
+  "position": "NOT MET, and deliberately so. This campaign pre-registers ZERO experiments, so the gate has no denominator to bind. If D1 certifies, the single resulting cell is 100% US_EQUITY and would breach every diversity clause.",
+  "the_director_is_not_padding_the_campaign_to_satisfy_it": "R67's ruling recorded the same refusal in the same words - adding cells to improve a diversity line is quota-driven. R74 found every non-equity and cross-asset channel SETTLED_DO_NOT_REPEAT across twelve probes. The only way to satisfy diversity today is to register known-dead non-equity cells, which the contract forbids more strongly than it requires diversity.",
+  "escalated_as": "R76_DEFECT_2, a governance-surface question for the human operator: a diversity gate that can only be satisfied by re-prosecuting exhausted families is, in the current estate, a gate that manufactures burden. See research/agents/campaign_r74_next_close_review/GOVERNANCE_DIVERSITY_GATE_PROPOSAL.json, which raised the same point. The director does NOT widen governance_contract.json on his own authority."
+ },
+ "WHAT_WAS_CONSIDERED_AND_REFUSED": [
+  {
+   "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE (census queued rank 3, the highest-ranked cell the R68 correction left standing)",
+   "refused_on": "R67's V2 ruling: the feature tot_cheapness_z_63 is built entirely from RETURNS, so declaring information_family=TERMS_OF_TRADE relabels prosecuted bytes into an unused slot to reach a burden-0 key. It is additionally a price-state construction on futures_panel_v1, which must_not_repeat.structural[0] forbids."
+  },
+  {
+   "proposal": "FUT_BASIS_MOMENTUM_COMMODITY (rank 1) and FUT_OPEN_INTEREST_GROWTH (rank 4)",
+   "refused_on": "R68_CENSUS_CORRECTION verdict_breakdown.outright_false_novelty_claim - both are SETTLED on the exact four-part key."
+  },
+  {
+   "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM (rank 2) and EQ_EXTENSION_RESIDUAL_MOMENTUM (rank 5)",
+   "refused_on": "settled mechanisms proposed as sample replications; R73 recorded the durable ruling US_EQUITY|LIQUIDITY_PREMIUM = REFUSED_A_UNIVERSE_IS_NOT_NEW_INFORMATION. The extension panel is also FROZEN PENDING AUDIT."
+  },
+  {
+   "proposal": "Any revival of the ALFRED vintage cell",
+   "refused_on": "R75 REFUSED_BY_STRUCTURAL_RULE plus DATA_R75_D1 NOT_CERTIFIABLE. The director did not look for a distinct ALFRED mechanism: the data axis is dead independently of the mechanism axis, so a distinct mechanism would change nothing."
+  },
+  {
+   "proposal": "EQ_POST_HALT_H3 (rank 13)",
+   "refused_on": "R73_D1 NOT_CERTIFIABLE on HISTORY_FLOOR; the halt archive is 2 months deep."
+  },
+  {
+   "proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME (rank 12)",
+   "refused_on": "NOT probed with check-mechanism and therefore NOT ruled on. The director declined to open a second line rather than assert a verdict he had not measured. It remains genuinely open and unexamined, and is recorded here as unexamined rather than as refused."
+  }
+ ],
+ "SAFETY": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "backfills_forward_evidence": false,
+  "automation_enabled": false,
+  "manual_review_required": true,
+  "purchases_nothing": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY",
+  "durable_writes_performed": "NONE. This spec and the ruling beside it are campaign artifacts on disk. No pipeline verb that mutates research memory was invoked; the only CLI commands run were the read-only census and check-mechanism."
+ },
+ "requires": {
+  "declared_by": "SESSION_ORCHESTRATOR_R76",
+  "why": "alpha_agent.agents_v2.briefs._foundation_done falls back to the ESTATE-WIDE answer when a spec declares nothing, so the spawn gate skipped the very role this spec commissions (FOUNDATION_STAGE_ALREADY_SATISFIED / data_certified=true) on the strength of datasets certified for other campaigns. This block is the declaration that mechanism is documented to require. It adds no hypothesis, mints no experiment id, charges no burden and relaxes no D1 kill condition.",
+  "datasets": [
+   "SEC_COMMENT_LETTER_PIT_V1"
+  ],
+  "universes": [],
+  "feature_sets": []
+ }
+}
